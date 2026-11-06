@@ -60,6 +60,25 @@ const GENERATE: ObservedCall = {
   },
 };
 
+const GET_TOKEN: ObservedCall = {
+  service: 'messaging',
+  method: 'getToken',
+  at: 1_700_000_000_000,
+  durationMs: 210,
+  outcome: { status: 'ok' },
+  account: { uid: 'alice' },
+  projectId: 'my-project',
+  requests: [
+    { api: 'installations', action: 'create', status: 200 },
+    { api: 'registrations', action: 'create', status: 200 },
+  ],
+};
+
+/** Shapes a recorder must never pass on: a FIS auth token, an FCM registration token, a VAPID key. */
+const FIS_AUTH_TOKEN = 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjE6MTIzNDU2Nzg5MDp3ZWI6YWJjIn0.c2ln';
+const FCM_TOKEN = 'dGVzdEZpZDAxMjM0NTY3:APA91bH7xVb0nU3sKq9Yw2Zr5tLp8mQe4cJd6fGh1iOa';
+const VAPID_KEY = 'BDd3_hVL9fZi9Ybo2UUzA284WG5FZR30_95YeZJsiApwXKpNcF1rRPF3foIiBHXRdJI2Qhumhf6_LFTeZaNndIo';
+
 describe('readObservedCall', () => {
   it('keeps every known field of a well-formed record', () => {
     expect(readObservedCall(DENIED_READ)).toEqual(DENIED_READ);
@@ -147,6 +166,78 @@ describe('readObservedCall', () => {
       expect(read).toThrow(ObservedCallError);
       expect(read).toThrow(`Invalid observed call field: ${field}.`);
     }
+  });
+
+  it('keeps a Messaging call with the requests it made, and one recorded without them', () => {
+    expect(readObservedCall(GET_TOKEN)).toEqual(GET_TOKEN);
+    const denied = {
+      ...GET_TOKEN,
+      outcome: { status: 'error', code: 'permission_denied' },
+      requests: [
+        { api: 'installations', action: 'generateAuthToken', status: 200 },
+        { api: 'registrations', action: 'update', status: 200 },
+        { api: 'registrations', action: 'delete' },
+        { api: 'registrations', action: 'create', status: 403 },
+      ],
+    };
+    expect(readObservedCall(denied)).toEqual(denied as ObservedCall);
+    const { requests: _requests, ...unobserved } = GET_TOKEN;
+    const deleteToken = { ...unobserved, method: 'deleteToken' };
+    expect(readObservedCall(deleteToken)).toEqual(deleteToken as ObservedCall);
+  });
+
+  it('refuses requests on a call that is not Messaging, past four, or with an unknown api, action or status', () => {
+    const entry = { api: 'installations', action: 'create', status: 200 };
+    const cases: Array<[unknown, string]> = [
+      [{ ...DENIED_READ, requests: GET_TOKEN.requests }, 'requests'],
+      [{ ...NAMED_RTDB_READ, requests: [] }, 'requests'],
+      [{ ...GENERATE, requests: GET_TOKEN.requests }, 'requests'],
+      [{ ...GET_TOKEN, requests: [entry, entry, entry, entry, entry] }, 'requests'],
+      [{ ...GET_TOKEN, requests: entry }, 'requests'],
+      [{ ...GET_TOKEN, requests: [null] }, 'requests'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, api: 'fcm' }] }, 'requests.api'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, action: 'subscribe' }] }, 'requests.action'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, action: 'update' }] }, 'requests.action'],
+      [{ ...GET_TOKEN, requests: [{ api: 'registrations', action: 'generateAuthToken' }] }, 'requests.action'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, status: 0 }] }, 'requests.status'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, status: 600 }] }, 'requests.status'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, status: 200.5 }] }, 'requests.status'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, status: '200' }] }, 'requests.status'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, url: 'https://firebaseinstallations.googleapis.com/v1/projects/my-project/installations' }] }, 'requests.url'],
+      [{ ...GET_TOKEN, path: 'registrations' }, 'path'],
+    ];
+    for (const [record, field] of cases) {
+      const read = () => readObservedCall(record);
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow(`Invalid observed call field: ${field}.`);
+    }
+  });
+
+  it('refuses a token-shaped string anywhere in a Messaging call', () => {
+    const entry = { api: 'registrations', action: 'create', status: 200 };
+    const cases: Array<[unknown, string]> = [];
+    for (const token of [FIS_AUTH_TOKEN, FCM_TOKEN, VAPID_KEY]) {
+      cases.push(
+        [{ ...GET_TOKEN, requests: [{ ...entry, token }] }, 'requests.token'],
+        [{ ...GET_TOKEN, requests: [{ ...entry, action: token }] }, 'requests.action'],
+        [{ ...GET_TOKEN, outcome: { status: 'error', code: token } }, 'outcome.code'],
+        [{ ...GET_TOKEN, account: { uid: token } }, 'account.uid'],
+        [{ ...GET_TOKEN, account: { uid: 'alice', claimNames: ['admin', token] } }, 'account.claimNames'],
+        [{ ...GET_TOKEN, token }, 'token'],
+      );
+    }
+    cases.push([{ ...GET_TOKEN, method: VAPID_KEY.slice(0, 64).replace(/[-_]/g, 'a') }, 'method']);
+    const cyclic: Record<string, unknown> = { api: 'registrations', action: 'create' };
+    cyclic.self = cyclic;
+    cases.push([{ ...GET_TOKEN, requests: [cyclic] }, 'requests.self.self']);
+    for (const [record, field] of cases) {
+      const read = () => readObservedCall(record);
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow(`Invalid observed call field: ${field}.`);
+    }
+    // A Firebase Auth uid and the SDK's own codes are not token-shaped.
+    const signedIn = { ...GET_TOKEN, account: { uid: 'kX9aQ2bLm4Rt7Yw1Zp0Vc3Ns8Hd2' }, outcome: { status: 'error', code: 'messaging/token-subscribe-failed' } };
+    expect(readObservedCall(signedIn)).toEqual(signedIn as ObservedCall);
   });
 
   it('refuses a malformed record and names the field', () => {
@@ -295,6 +386,25 @@ describe('observedCallEvent', () => {
     expect(observedCallEvent(DENIED_READ)).not.toHaveProperty('detail');
   });
 
+  it("puts a Messaging call's requests on the event as detail.requests, with no path", () => {
+    const event = observedCallEvent(readObservedCall(GET_TOKEN));
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'messaging',
+      method: 'getToken',
+      auth: { uid: 'alice' },
+      result: 'not-applicable',
+      durationMs: 210,
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      production: { outcome: { status: 'ok' } },
+    });
+    expect(event.detail).toEqual({ requests: GET_TOKEN.requests });
+    expect(event.detail?.requests).not.toBe(GET_TOKEN.requests);
+    expect(event).not.toHaveProperty('path');
+    const { requests: _requests, ...unobserved } = GET_TOKEN;
+    expect(observedCallEvent(unobserved)).not.toHaveProperty('detail');
+  });
+
   it('gives a non-AI call no observation', () => {
     expect(observedCallEvent(DENIED_READ)).not.toHaveProperty('observation');
   });
@@ -310,6 +420,13 @@ describe('observedCallEvent', () => {
   it("reads Storage's storage/unauthorized as denied and every other Storage code as failed", () => {
     expect(productionVerdict({ status: 'error', code: 'storage/unauthorized' })).toBe('denied');
     for (const code of ['storage/unauthenticated', 'storage/object-not-found', 'storage/canceled', 'storage/unknown']) {
+      expect(productionVerdict({ status: 'error', code })).toBe('failed');
+    }
+  });
+
+  it("reads a Messaging call's permission_denied as denied and its other codes as failed", () => {
+    expect(productionVerdict({ status: 'error', code: 'permission_denied' })).toBe('denied');
+    for (const code of ['unauthenticated', 'invalid_argument', 'messaging/token-subscribe-failed', 'installations/request-failed']) {
       expect(productionVerdict({ status: 'error', code })).toBe('failed');
     }
   });
