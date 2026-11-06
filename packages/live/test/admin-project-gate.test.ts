@@ -99,10 +99,31 @@ describe('adminAppProjectId', () => {
 });
 
 describe('adminProjectGate', () => {
-  function gate(): { lines: string[]; run: ReturnType<typeof adminProjectGate> } {
+  function gate(env: Record<string, string> = {}): { lines: string[]; run: ReturnType<typeof adminProjectGate> } {
     const lines: string[] = [];
-    return { lines, run: adminProjectGate(HOST, (line) => lines.push(line)) };
+    return { lines, run: adminProjectGate(HOST, (line) => lines.push(line), env) };
   }
+
+  test('refuses an app with explicit ADC options on another project, though FIREBASE_CONFIG names the host', async () => {
+    const { run } = gate({ FIREBASE_CONFIG: JSON.stringify({ projectId: HOST }) });
+    let ran = 0;
+    const refused = await run(app({ credential: adcCredential(OTHER) }), () => {
+      ran += 1;
+      return Promise.resolve('real');
+    }).catch((error: unknown) => error);
+    expect(ran).toBe(0);
+    expect(refusalOf(refused).code).toBe(LIVE_REFUSED);
+    expect(refusalOf(refused).source).toBe('credential');
+    expect(refusalOf(refused).appProjectId).toBe(OTHER);
+  });
+
+  test('writes one line for the process, however many apps it refuses', async () => {
+    const { lines, run } = gate();
+    const call = () => Promise.resolve('real');
+    await run(app({ projectId: OTHER }), call).catch(() => undefined);
+    await run(app({ credential: adcCredential(OTHER) }), call).catch(() => undefined);
+    expect(lines).toHaveLength(1);
+  });
 
   test("runs the call when the app's project is the host's", async () => {
     const { lines, run } = gate();

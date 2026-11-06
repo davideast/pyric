@@ -37,13 +37,24 @@ function firebaseConfigProjectId(config: string | undefined): string | null {
   }
 }
 
-/** Each project the environment names, with the variable that names it. */
-function envProjects(env: Env): readonly { source: AdminProjectSource; projectId: string }[] {
+/**
+ * The projects `GOOGLE_CLOUD_PROJECT` and `GCLOUD_PROJECT` name, in that
+ * order: the variables firebase-admin reads for an app with explicit
+ * options. It reads `FIREBASE_CONFIG` only when `initializeApp()` gets no
+ * options, and then its project is already `options.projectId`.
+ */
+function projectVariables(env: Env): { source: AdminProjectSource; projectId: string }[] {
   const named: { source: AdminProjectSource; projectId: string }[] = [];
   for (const variable of PROJECT_VARIABLES) {
     const projectId = env[variable];
     if (isNonEmptyString(projectId)) named.push({ source: variable, projectId });
   }
+  return named;
+}
+
+/** Each project the environment names, with the variable that names it, `FIREBASE_CONFIG` included. */
+function envProjects(env: Env): readonly { source: AdminProjectSource; projectId: string }[] {
+  const named = projectVariables(env);
   const configProjectId = firebaseConfigProjectId(env.FIREBASE_CONFIG);
   if (configProjectId !== null) named.push({ source: 'FIREBASE_CONFIG', projectId: configProjectId });
   return named;
@@ -83,14 +94,15 @@ export interface AdminApp {
 /**
  * The project `app` resolves, in firebase-admin's own order: its
  * `options.projectId`, its credential's `projectId` (a `cert()` credential),
- * a project environment variable, then its credential's `getProjectId()`
- * (application default credentials). Null when none names one.
+ * `GOOGLE_CLOUD_PROJECT` or `GCLOUD_PROJECT`, then its credential's
+ * `getProjectId()` (application default credentials). Null when none names
+ * one; rejects with `getProjectId()`'s error when it throws.
  */
 export async function adminAppProjectId(app: AdminApp, env: Env = process.env): Promise<AdminAppProject | null> {
   if (isNonEmptyString(app.options.projectId)) return { source: 'options.projectId', projectId: app.options.projectId };
   const credential = app.options.credential as ProjectCredential | undefined;
   if (isNonEmptyString(credential?.projectId)) return { source: 'credential', projectId: credential.projectId };
-  const fromEnv = envProjects(env)[0];
+  const fromEnv = projectVariables(env)[0];
   if (fromEnv !== undefined) return fromEnv;
   const resolved = await credential?.getProjectId?.();
   return isNonEmptyString(resolved) ? { source: 'credential', projectId: resolved } : null;
@@ -102,17 +114,21 @@ export type AdminProjectGate = <T>(app: AdminApp, call: () => T | Promise<T>) =>
 /**
  * The gate for the live host's `hostProjectId`. Each app's project is
  * resolved once, before its first call. An app on another project gets the
- * refusal from every call, and `write` gets one line for it. An app whose
- * project cannot be resolved runs, as firebase-admin itself then fails.
+ * refusal from every call, and `write` gets one line for the process, at the
+ * first refusal. An app whose `getProjectId()` throws, such as one on
+ * application default credentials with no project, rejects every call with
+ * that error. An app that resolves no project runs.
  */
-export function adminProjectGate(hostProjectId: string, write: (line: string) => void): AdminProjectGate {
+export function adminProjectGate(hostProjectId: string, write: (line: string) => void, env: Env = process.env): AdminProjectGate {
   const checks = new WeakMap<AdminApp, Promise<LiveAdminProjectRefusal | null>>();
+  let hasWritten = false;
   const check = async (app: AdminApp): Promise<LiveAdminProjectRefusal | null> => {
-    const resolved = await adminAppProjectId(app);
+    const resolved = await adminAppProjectId(app, env);
     const matches = resolved === null || resolved.projectId === hostProjectId;
     if (matches) return null;
     const refusal = liveAdminProjectRefusal({ source: resolved.source, appProjectId: resolved.projectId, hostProjectId });
-    write(refusal.message);
+    if (!hasWritten) write(refusal.message);
+    hasWritten = true;
     return refusal;
   };
   return async (app, call) => {
