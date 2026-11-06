@@ -16,7 +16,7 @@ import {
   type StoredMetadata,
 } from 'pyric/storage/internal';
 import { rtdbRulesSourceRejection, type RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
-import type { RtdbReplayDivergence } from 'pyric/sandbox/internal';
+import { isProductionServed, type RtdbReplayDivergence } from 'pyric/sandbox/internal';
 import {
   rulesSourceRejection,
   SimulateFirestoreRulesHandler,
@@ -791,7 +791,9 @@ async function verifyStorage(
 
     if (event.kind !== 'operation' || event.service !== 'storage') continue;
     const opEvent = event as SandboxOperationEvent;
-    if (opEvent.origin === 'admin' || opEvent.result === 'not-applicable') continue;
+    // A call production served was decided by production's rules, not the captured ones.
+    const isUnchecked = opEvent.origin === 'admin' || opEvent.result === 'not-applicable' || isProductionServed(opEvent.rulesDisposition);
+    if (isUnchecked) continue;
     checkedEvents += 1;
 
     const objectPath = (opEvent.path ?? '').replace(/^\/+/, '');
