@@ -235,10 +235,9 @@ describe('live rows, once opened', () => {
 describe('live rows with imports that pass through', () => {
   const installed = (specifier: string, from = import.meta.url): string => realpathSync(createRequire(from).resolve(specifier));
   const functionsEntry = installed('firebase/functions');
-  const messagingEntry = installed('firebase/messaging');
-  const messagingSwEntry = installed('firebase/messaging/sw');
-  const messagingPackage = installed('@firebase/messaging', messagingEntry);
-  const installationsPackage = installed('@firebase/installations', messagingPackage);
+  const remoteConfigEntry = installed('firebase/remote-config');
+  const remoteConfigPackage = installed('@firebase/remote-config', remoteConfigEntry);
+  const installationsPackage = installed('@firebase/installations', remoteConfigPackage);
 
   /** An open swap passing `passThrough` through, and a resolver for its gate that lands each import on `file`. */
   function passingSwap(passThrough: string[]) {
@@ -255,39 +254,33 @@ describe('live rows with imports that pass through', () => {
     expect(await resolveTo(functionsEntry, aliased('firebase/functions'), userImporter)).toEqual({ id: functionsEntry });
     expect(rows.liveSdkUrls).toEqual(new Set([pathToFileURL(functionsEntry).href]));
     // An unlisted import is still refused.
-    expect(await resolveTo(messagingEntry, aliased('firebase/messaging'), userImporter)).toStartWith(STOP_PREFIX);
+    expect(await resolveTo(remoteConfigEntry, aliased('firebase/remote-config'), userImporter)).toStartWith(STOP_PREFIX);
   });
 
   it("stop an alias that points a listed name at another service's entry", async () => {
     const { rows, gated, resolveTo } = passingSwap(['firebase/functions']);
-    const id = await resolveTo(messagingEntry, aliased('firebase/functions'), userImporter);
+    const id = await resolveTo(remoteConfigEntry, aliased('firebase/functions'), userImporter);
     expect(id).toStartWith(STOP_PREFIX);
     const error = await thrownBy(await gated.loadPluginModule(id as string));
     expect(error.message).toBe('refused firebase/functions on the page');
     expect(rows.liveSdkUrls.size).toBe(0);
   });
 
-  it('do not let firebase/messaging admit the firebase/messaging/sw entry', async () => {
-    const { rows, resolveTo } = passingSwap(['firebase/messaging']);
-    expect(await resolveTo(messagingEntry, aliased('firebase/messaging'), userImporter)).toEqual({ id: messagingEntry });
-    expect(await resolveTo(messagingSwEntry, aliased('firebase/messaging'), userImporter)).toStartWith(STOP_PREFIX);
-    expect(await resolveTo(messagingSwEntry, aliased('firebase/messaging/sw'), userImporter)).toStartWith(STOP_PREFIX);
-    expect(rows.liveSdkUrls).toEqual(new Set([pathToFileURL(messagingEntry).href]));
-  });
-
   it('admit a dependency package only from a loaded SDK file, and only when a service that needs it is listed', async () => {
-    const listed = passingSwap(['firebase/messaging']);
+    const listed = passingSwap(['firebase/remote-config']);
     // App code cannot reach the packages a passed-through entry loads.
     expect(await listed.resolveTo(installationsPackage, '@firebase/installations', userImporter)).toStartWith(STOP_PREFIX);
-    expect(await listed.resolveTo(messagingEntry, aliased('firebase/messaging'), userImporter)).toEqual({ id: messagingEntry });
-    expect(await listed.resolveTo(messagingPackage, '@firebase/messaging', messagingEntry)).toEqual({ id: messagingPackage });
-    expect(await listed.resolveTo(installationsPackage, '@firebase/installations', messagingPackage)).toEqual({ id: installationsPackage });
+    expect(await listed.resolveTo(remoteConfigPackage, '@firebase/remote-config', userImporter)).toStartWith(STOP_PREFIX);
+    expect(await listed.resolveTo(remoteConfigEntry, aliased('firebase/remote-config'), userImporter)).toEqual({ id: remoteConfigEntry });
+    expect(await listed.resolveTo(remoteConfigPackage, '@firebase/remote-config', remoteConfigEntry)).toEqual({ id: remoteConfigPackage });
+    expect(await listed.resolveTo(installationsPackage, '@firebase/installations', remoteConfigPackage)).toEqual({ id: installationsPackage });
 
-    // With only firebase/functions listed, a loaded SDK file still cannot reach @firebase/installations or @firebase/messaging.
+    // With only firebase/functions listed, a loaded SDK file still cannot reach @firebase/remote-config.
     const unlisted = passingSwap(['firebase/functions']);
     expect(await unlisted.resolveTo(functionsEntry, aliased('firebase/functions'), userImporter)).toEqual({ id: functionsEntry });
-    expect(await unlisted.resolveTo(installationsPackage, '@firebase/installations', functionsEntry)).toStartWith(STOP_PREFIX);
-    expect(await unlisted.resolveTo(messagingPackage, '@firebase/messaging', functionsEntry)).toStartWith(STOP_PREFIX);
+    expect(await unlisted.resolveTo(remoteConfigPackage, '@firebase/remote-config', functionsEntry)).toStartWith(STOP_PREFIX);
+    // @firebase/installations is a package the live rows load (the Messaging SDK's), so a loaded SDK file reaches it with no list.
+    expect(await unlisted.resolveTo(installationsPackage, '@firebase/installations', functionsEntry)).toEqual({ id: installationsPackage });
   });
 
   it('take no import a row serves, nor firebase/firestore/lite or firebase-admin', () => {

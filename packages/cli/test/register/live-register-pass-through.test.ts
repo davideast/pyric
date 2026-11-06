@@ -13,7 +13,10 @@
  *   pass with no list, but only from a file of the installed SDK;
  * - AI Logic's host is a live row host: it passes with no list, a `fetch` to
  *   it only from a file of the installed SDK, and no import passes it through;
- * - so is Cloud Storage's, which the Storage row's SDK reaches with `fetch`.
+ * - so is Cloud Storage's, which the Storage row's SDK reaches with `fetch`;
+ * - and so are Installations' and FCM registrations', which the Messaging
+ *   SDK reaches with `fetch`. Remote Config, which passes through, reaches
+ *   Installations the same way, and its own host stays caller-checked.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -72,10 +75,9 @@ describe('where the register finds @pyric/live', () => {
 
 describe('the pass-through list', () => {
   test('takes every served import with no live row', () => {
-    expect([...passThroughSet(['firebase/remote-config', 'firebase/functions', 'firebase/messaging'])]).toEqual([
+    expect([...passThroughSet(['firebase/remote-config', 'firebase/functions'])]).toEqual([
       'firebase/remote-config',
       'firebase/functions',
-      'firebase/messaging',
     ]);
   });
 
@@ -156,6 +158,7 @@ describe('the stop for a passed-through import', () => {
 });
 
 const FUNCTIONS_HOST = 'us-central1-demo.cloudfunctions.net';
+const REMOTE_CONFIG_HOST = 'firebaseremoteconfig.googleapis.com';
 
 describe('the network guard for a passed-through import', () => {
   test('names the hosts of each listed service, and passes them only for the installed SDK', () => {
@@ -163,7 +166,7 @@ describe('the network guard for a passed-through import', () => {
     const hosts = passThroughHosts(['firebase/functions']);
     const fromAnyFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => true });
     expect(fromAnyFile(FUNCTIONS_HOST, '/')).toBeNull();
-    expect(fromAnyFile('fcmregistrations.googleapis.com', '/')).not.toBeNull();
+    expect(fromAnyFile(REMOTE_CONFIG_HOST, '/')).not.toBeNull();
     const fromNoSdkFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => false });
     expect(fromNoSdkFile(FUNCTIONS_HOST, '/')?.reason).toContain('only the installed SDK of an import that passes through');
     expect(liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => true })(FUNCTIONS_HOST, '/')).not.toBeNull();
@@ -391,6 +394,72 @@ describe('the network guard for the Cloud Storage host, with no list', () => {
       expect(seams.sent).toEqual(['https.request refused']);
       expect(refusal).toContain('Make the call through firebase/storage, or from a process without @pyric/live/register');
       expect(refusal).not.toContain('firebase/firestore');
+    } finally {
+      seams.stop();
+    }
+  });
+});
+
+const INSTALLATIONS_HOST = 'firebaseinstallations.googleapis.com';
+const REGISTRATIONS_HOST = 'fcmregistrations.googleapis.com';
+const MESSAGING_HOSTS = [INSTALLATIONS_HOST, REGISTRATIONS_HOST];
+const REGISTRATIONS_URL = `https://${REGISTRATIONS_HOST}/v1/projects/demo/registrations`;
+
+describe('the network guard for the Messaging hosts, with no list', () => {
+  test('passes Installations and FCM registrations as live row hosts, and no import passes them through', () => {
+    expect(passThroughHosts(['firebase/messaging', 'firebase/messaging/sw'])).toEqual([]);
+    for (const host of MESSAGING_HOSTS) {
+      expect(liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => true })(host, '/'), host).toBeNull();
+      expect(liveEgressRule()(host, '/'), host).toBeNull();
+    }
+  });
+
+  test("lets a fetch out from a file the stop let load, and refuses the app's own fetch", async () => {
+    const seams = guardedSeams((url) => url === sdkUrl);
+    try {
+      const sdk = (await import(sdkUrl)) as StandInSdk;
+      await sdk.sdkFetch(seams.fetchScope, REGISTRATIONS_URL);
+      const fromApp = await seams.fetchScope.fetch(REGISTRATIONS_URL).then(() => 'sent', (error: Error) => error.message);
+      expect({ fromApp, sent: seams.sent }).toEqual({ fromApp: 'fetch failed', sent: ['fetch'] });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test('refuses an https.request to either host, naming firebase/messaging as the way to make the call', () => {
+    const seams = guardedSeams(() => true);
+    try {
+      for (const host of MESSAGING_HOSTS) seams.httpsRequest(host);
+      expect(seams.sent).toEqual(['https.request refused', 'https.request refused']);
+      for (const host of MESSAGING_HOSTS) {
+        const refusal = seams.logged.find((line) => line.includes(`BLOCK ${host}`)) ?? '';
+        expect(refusal, host).toContain('in live mode only the installed Firebase SDK reaches this host');
+        expect(refusal, host).toContain('Make the call through firebase/messaging');
+        expect(refusal, host).not.toContain('firebase/firestore');
+      }
+    } finally {
+      seams.stop();
+    }
+  });
+});
+
+describe('the network guard for Remote Config, passed through, now that Installations is a live row host', () => {
+  test('lists only its own host, and lets its SDK reach both its host and Installations', async () => {
+    expect(passThroughHosts(['firebase/remote-config'])).toEqual([REMOTE_CONFIG_HOST]);
+    const hosts = passThroughHosts(['firebase/remote-config']);
+    const fromSdk = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => true });
+    expect(fromSdk(REMOTE_CONFIG_HOST, '/')).toBeNull();
+    expect(fromSdk(INSTALLATIONS_HOST, '/')).toBeNull();
+    const fromNoSdkFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => false });
+    expect(fromNoSdkFile(REMOTE_CONFIG_HOST, '/')?.reason).toContain('only the installed SDK of an import that passes through');
+
+    const seams = guardedSeams((url) => url === sdkUrl);
+    try {
+      const sdk = (await import(sdkUrl)) as StandInSdk;
+      await sdk.sdkFetch(seams.fetchScope, `https://${INSTALLATIONS_HOST}/v1/projects/demo/installations`);
+      const fromApp = await seams.fetchScope.fetch(`https://${INSTALLATIONS_HOST}/v1/projects/demo/installations`)
+        .then(() => 'sent', (error: Error) => error.message);
+      expect({ fromApp, sent: seams.sent }).toEqual({ fromApp: 'fetch failed', sent: ['fetch'] });
     } finally {
       seams.stop();
     }
