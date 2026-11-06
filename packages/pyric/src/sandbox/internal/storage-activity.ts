@@ -1,7 +1,14 @@
 import { sdkActivity, type SdkActivityHandle } from './sdk-activity.js';
 import type { UsageEvidence } from './usage-evidence.js';
+import { storageObjectGsPath } from './storage-gs-path.js';
 
 interface StorageSource { readonly storage?: object; readonly port?: object; readonly bucket: string; readonly fullPath: string }
+/**
+ * The name the caller knows a reference's bucket by. A worker or production
+ * reference already carries it in `bucket`; the sandbox's own reference keeps
+ * the store key there, so its wrapper reads the name from the handle.
+ */
+type BucketNameOf<S> = (ref: S) => string;
 const tasks = new WeakMap<object, SdkActivityHandle>();
 /** Called immediately before a real application observer; no payload is retained. */
 export function storageTaskProgress(task: object): void { tasks.get(task)?.progress(); }
@@ -13,11 +20,14 @@ export function storageTaskResult(task: object): void {
 }
 /** Preserve promises and UploadTask handles; observe completion without wrapping them. */
 export function observeStorageOperation<S extends StorageSource, A extends unknown[], R extends PromiseLike<unknown>>(
-  method: string, operation: (ref: S, ...args: A) => R,
+  method: string, operation: (ref: S, ...args: A) => R, bucketNameOf: BucketNameOf<S> = ref => ref.bucket,
 ): (ref: S, ...args: A) => R {
   return (ref, ...args) => {
+    // The target reads as the call's Traffic row does (`storageGsPath`), so a
+    // source filter and its denial markers find that row.
+    const target = storageObjectGsPath(bucketNameOf(ref), ref.fullPath) ?? ref.fullPath;
     const activity = sdkActivity.begin({ app: ref.storage ?? ref.port ?? ref, method, kind: 'operation',
-      source: { service: 'storage', target: `${ref.bucket}/${ref.fullPath}`, key: `storage:${ref.bucket}/${ref.fullPath}` } });
+      source: { service: 'storage', target, key: `storage:${ref.bucket}/${ref.fullPath}` } });
     try {
       const result = operation(ref, ...args);
       if (method === 'uploadBytesResumable') tasks.set(result, activity);
