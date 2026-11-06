@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#225","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"A Set compares an int and a float past 2^53 by exact value; pyric compares them through a double","issue":"#1893"}
