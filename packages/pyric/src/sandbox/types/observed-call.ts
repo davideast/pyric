@@ -9,7 +9,7 @@
  */
 
 /** The services a client may report observed calls for. */
-export type ObservedCallService = 'firestore' | 'auth' | 'rtdb' | 'ai' | 'storage';
+export type ObservedCallService = 'firestore' | 'auth' | 'rtdb' | 'ai' | 'storage' | 'messaging';
 
 /** What production answered: success, or the error code it returned. */
 export type ProductionOutcome =
@@ -52,6 +52,23 @@ export interface ObservedAi {
   firstChunkMs?: number;
 }
 
+/** The Google APIs a Messaging call sends its requests to. */
+export type ObservedRequestApi = 'installations' | 'registrations';
+
+/**
+ * One request a Messaging call made, as Resource Timing saw it: the API, what
+ * the request did, and the HTTP status production answered. Installations
+ * requests `create` an installation or `generateAuthToken`; FCM registration
+ * requests `create`, `update` or `delete` a registration. Never the URL, the
+ * project, the installation id or a token.
+ */
+export interface ObservedRequest {
+  api: ObservedRequestApi;
+  action: 'create' | 'generateAuthToken' | 'update' | 'delete';
+  /** The response's HTTP status, from 100 to 599. Absent when the browser reported none. */
+  status?: number;
+}
+
 /** One observed call, as a client sends it to a host. */
 export interface ObservedCall {
   service: ObservedCallService;
@@ -61,7 +78,7 @@ export interface ObservedCall {
    * The document or collection path the call named, when it named one. On an
    * `rtdb` call, the reference's path, such as `/items/a`. On a `storage`
    * call, the reference's `fullPath`, absent for the bucket's root. Never on
-   * an `ai` call, whose event path is its model.
+   * an `ai` call, whose event path is its model, or a `messaging` call.
    */
   path?: string;
   /**
@@ -101,6 +118,12 @@ export interface ObservedCall {
   billedDocuments?: number;
   /** Required on every `ai` call, and refused on any other. */
   ai?: ObservedAi;
+  /**
+   * `messaging` only: the Installations and FCM registration requests a
+   * `getToken` or `deleteToken` made, at most four, in the order they started.
+   * Refused on any other call; the event carries them as `detail.requests`.
+   */
+  requests?: ObservedRequest[];
 }
 
 /**

@@ -179,6 +179,39 @@ describe('host: observed calls', () => {
     });
   });
 
+  it('writes a Messaging getToken with the requests it made as detail.requests, and no path', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const pageId = await subscribe(ctx, page);
+    const requests = [
+      { api: 'installations', action: 'create', status: 200 },
+      { api: 'registrations', action: 'create', status: 403 },
+    ];
+    const call = {
+      service: 'messaging',
+      method: 'getToken',
+      at: 1,
+      durationMs: 140,
+      outcome: { status: 'error', code: 'permission_denied' },
+      account: { uid: 'alice' },
+      projectId: 'demo-project',
+      requests,
+    };
+    expect(await observe(ctx, page, { call })).toMatchObject({ ok: true });
+    const [event] = streamed(page);
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'messaging',
+      method: 'getToken',
+      detail: { requests },
+      auth: { uid: 'alice' },
+      caller: { kind: 'page', pageId },
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      production: { outcome: { status: 'error', code: 'permission_denied' } },
+    });
+    expect(event).not.toHaveProperty('path');
+  });
+
   it('refuses a malformed record with invalid-argument and writes nothing', async () => {
     const ctx = makeCtx();
     const page = fakePort();
@@ -198,6 +231,9 @@ describe('host: observed calls', () => {
       { ...DENIED_READ, ai: { model: 'models/gemini-flash-lite-latest' } },
       { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m', text: 'Hello' } },
       { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m', usage: { totalTokenCount: '11' } } },
+      { ...DENIED_READ, requests: [{ api: 'installations', action: 'create', status: 200 }] },
+      { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, requests: [{ api: 'registrations', action: 'subscribe' }] },
+      { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, requests: [{ api: 'registrations', action: 'create', token: 'dGVzdEZpZDAxMjM0NTY3:APA91bH7xVb0nU3sKq9Yw2Zr5tLp8mQe4cJd6fGh1iOa' }] },
     ];
     for (const call of malformed) {
       const reply = await observe(ctx, page, { call });
