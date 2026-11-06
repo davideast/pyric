@@ -4,8 +4,8 @@
  * workspace install hoists to the repository root, and pyric, `@pyric/cli`
  * and `@pyric/live` pinned in `rules/`, a package outside the workspaces that
  * the app's own install never carries. `web/vite.config.ts` loads
- * `pyricLive()` from `rules/` with createRequire and passes
- * `firebase/messaging` through. The app's one Firebase init module,
+ * `pyricLive()` from `rules/` with createRequire and no pass-through list.
+ * The app's one Firebase init module,
  * `web/src/firebase.ts`, imports `firebase/ai`, `firebase/app`,
  * `firebase/auth`, `firebase/database`, `firebase/messaging` and
  * `firebase/storage`, and sets up every service on one app.
@@ -15,8 +15,9 @@
  * production's, each once: the Realtime Database write and read, the Storage
  * upload and metadata read, and the AI Logic call, which production answers
  * 401 for a project that enforces App Check, since this app sends no App
- * Check token. Cloud Messaging is the app's own SDK, unwrapped: the page gets
- * it on the same app, nothing refuses it, and it makes no row.
+ * Check token. Cloud Messaging is a live row too: the page gets it on the
+ * same app with no list entry, nothing refuses it, and `getMessaging` makes
+ * no row.
  *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * RTDB capture A, Storage capture S and custom-token sign-ins, and answering
@@ -35,9 +36,8 @@ const PROJECT = 'demo-live-2113';
 const BUCKET = `${PROJECT}.firebasestorage.app`;
 const MODEL = 'gemini-flash-lite-latest';
 const SIGN_INS = 'sign-ins.json';
-const PASSED = ['firebase/messaging'];
 /** The init module's imports that live rows serve: never given a pass-through line. */
-const LIVE_ROW_IMPORTS = ['firebase/app', 'firebase/auth', 'firebase/database', 'firebase/ai', 'firebase/storage'];
+const LIVE_ROW_IMPORTS = ['firebase/app', 'firebase/auth', 'firebase/database', 'firebase/ai', 'firebase/messaging', 'firebase/storage'];
 
 declare function runApp(): Promise<unknown>;
 
@@ -202,18 +202,18 @@ export default scenario(async (app) => {
 
   const replay = await app.step('start the replay server that plays the captures and the sign-ins and answers AI Logic', () => startReplay(app));
 
-  const host = await app.step('vite dev from web/ starts in live mode with pyricLive() from rules/, and names firebase/messaging as passed through', async () => {
+  const host = await app.step('vite dev from web/ starts in live mode with pyricLive() from rules/, and passes nothing through', async () => {
     const started = await startViteDev(app);
-    for (const specifier of PASSED) assert.ok(started.vite.output.includes(`@pyric/live/vite: ${passThroughLine(specifier)}`), started.vite.output);
     for (const specifier of LIVE_ROW_IMPORTS) {
       assert.ok(!started.vite.output.includes(passThroughLine(specifier)), `${specifier} got a pass-through line:\n${started.vite.output}`);
     }
     const health = await (await fetch(`${started.url}/__pyric/health`)).json() as { live?: { passThrough?: string[] } };
-    assert.deepEqual(health.live?.passThrough, PASSED);
+    assert.ok(health.live, 'the dev server reports live status');
+    assert.equal(health.live.passThrough, undefined, 'the health report lists no pass-through import');
     return started;
   });
 
-  const { page, chip } = await app.step('the page loads the init module: database, ai and storage are live rows, and messaging is the app\'s own SDK', async () => {
+  const { page, chip } = await app.step('the page loads the init module: database, ai, storage and messaging are live rows', async () => {
     const requested: string[] = [];
     (await app.browser()).on('request', (request) => requested.push(request.url()));
     const opened = await app.page(`${host.url}/?backend=${encodeURIComponent(replay.origin)}`);
@@ -222,15 +222,12 @@ export default scenario(async (app) => {
     assert.equal(status, 'Ready', `the page did not load\nconsole:\n${app.browserLog.join('\n')}`);
     assert.deepEqual(app.browserLog.filter((line) => line.includes('PYRIC_LIVE_REFUSED')), []);
     const served = rowModulesIn(requested);
-    for (const specifier of ['firebase/database', 'firebase/ai', 'firebase/storage']) {
+    for (const specifier of ['firebase/database', 'firebase/ai', 'firebase/storage', 'firebase/messaging']) {
       assert.ok(served.includes(specifier), `the page's ${specifier} is not the live row module:\n${served.join('\n')}`);
     }
-    assert.ok(!served.includes('firebase/messaging'), `the page's firebase/messaging is a live row module:\n${served.join('\n')}`);
     const openedChip = await openChip(opened);
     assert.equal(await openedChip.locator('.panel-header [data-chip-live]').textContent(), `Live: ${PROJECT}`);
-    const passThroughLines = openedChip.locator('.panel-header [data-chip-live-pass-through]');
-    await passThroughLines.nth(PASSED.length - 1).waitFor({ timeout: 20_000 });
-    assert.deepEqual(await passThroughLines.allTextContents(), PASSED.map(passThroughLine));
+    assert.equal(await openedChip.locator('.panel-header [data-chip-live-pass-through]').count(), 0);
     return { page: opened, chip: openedChip };
   });
 
@@ -245,7 +242,7 @@ export default scenario(async (app) => {
     });
   }
 
-  await app.step('Cloud Messaging makes no row: Traffic lists only the auth, rtdb, storage and ai calls', async () => {
+  await app.step('getMessaging makes no row: Traffic lists only the auth, rtdb, storage and ai calls', async () => {
     const all = await rows(chip, '');
     const services = new Set(all.map((listed) => listed.split(' ')[2]?.split('.')[0]));
     assert.deepEqual([...services].filter((service) => !['auth', 'rtdb', 'storage', 'ai'].includes(service ?? '')), [], all.join('\n'));
