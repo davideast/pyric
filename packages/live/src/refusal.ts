@@ -227,10 +227,34 @@ export function liveCallRefusal(refusedCall: RefusedCall, client: LiveClient): E
     'The call threw before any request left. Run the app without @pyric/live to use the sandbox.');
 }
 
-/** The config fields the project check judges: the project id, and the fields whose default forms encode one. */
-export type ProjectField = 'projectId' | 'databaseURL' | 'storageBucket' | 'authDomain';
+/** What a call reaches beside its app's config: the RTDB instance or the Cloud Storage bucket. */
+export type CallTargetField = 'instance' | 'bucket';
 
-/** The two projects a refused call names: the one its app's config names, in `field`, and the host's. */
+export const CALL_TARGET_FIELDS: readonly CallTargetField[] = ['instance', 'bucket'];
+
+/**
+ * The fields the project check judges: the project id, the config fields
+ * whose default forms encode one, and the instance or bucket the call
+ * reaches, whose default forms do too.
+ */
+export type ProjectField = 'projectId' | 'databaseURL' | 'storageBucket' | 'authDomain' | CallTargetField;
+
+const TARGET_NAMES: Readonly<Record<CallTargetField, string>> = {
+  instance: 'the database instance it reaches',
+  bucket: 'the bucket it reaches',
+};
+
+/** Where the refused project was named: a field of the app's config, or the instance or bucket the call reaches. */
+function namedBy(field: ProjectField): string {
+  if (isCallTarget(field)) return TARGET_NAMES[field];
+  return `its app's ${field}`;
+}
+
+function isCallTarget(field: ProjectField): field is CallTargetField {
+  return field === 'instance' || field === 'bucket';
+}
+
+/** The two projects a refused call names: the one its app's config or its target names, in `field`, and the host's. */
 export interface ProjectMismatch {
   readonly field: ProjectField;
   readonly appProjectId: string;
@@ -247,7 +271,7 @@ export type LiveProjectRefusal = Error & ProjectMismatch & { readonly code: stri
 export function liveProjectRefusal(call: string, projects: ProjectMismatch, client?: LiveClient): LiveProjectRefusal {
   const from = client === undefined ? 'a client' : CLIENT_NAMES[client];
   const error = refused(`@pyric/live: ${call} is refused in live mode, from ${from}: ` +
-    `its app's ${projects.field} names the project '${projects.appProjectId}', and this live host serves '${projects.hostProjectId}'. ` +
+    `${namedBy(projects.field)} names the project '${projects.appProjectId}', and this live host serves '${projects.hostProjectId}'. ` +
     `The call threw before any request left. Point the app's config at '${projects.hostProjectId}', ` +
     `or start live mode for '${projects.appProjectId}'.`);
   const { field, appProjectId, hostProjectId } = projects;
