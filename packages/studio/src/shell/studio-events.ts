@@ -17,7 +17,7 @@ import type {
   SandboxOperationEvent,
 } from 'pyric/sandbox';
 import { activeListeners, isOperationEvent, toOperationRecord } from 'pyric/sandbox';
-import { storageGsPath } from 'pyric/sandbox/internal';
+import { messagingRequestsLine, storageGsPath } from 'pyric/sandbox/internal';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { foldSessionEventLog } from '../events/fold.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
@@ -201,6 +201,10 @@ function toTrafficEvent(
   const gsPath = storageGsPath(e, e.path);
   if (gsPath !== undefined) {
     pathVal = gsPath;
+  }
+  const requestsLine = messagingRequestsLine(e);
+  if (requestsLine !== undefined) {
+    pathVal = requestsLine;
   }
   let reasonsVal: string[] = [];
   if (e.reasons !== undefined) {
