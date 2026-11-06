@@ -20,13 +20,30 @@ import { LIST_METHOD_NAMES, ListMethodFailure, listConcat, listJoin, listMembers
 import { UnsupportedError } from './unsupported-error.js';
 import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import { chargeLookup } from './lookup-budget.js';
+import { lookupAccessKey, slashedSegment, slashedSegmentReason } from './lookup-path.js';
 import type { SimulationContext } from './evaluation-context.js';
 import { evaluate, evaluateBinding, evaluateOperands, isKnownGlobal } from './evaluator.js';
 import { evaluateHashingMethod } from './hashing-builtins.js';
 import { getFunctionScope } from './match-resolution.js';
 
+type LookupName = 'get' | 'exists' | 'getAfter' | 'existsAfter';
+
+/** The budget slot kind each lookup charges ({@link chargeLookup}). */
+const LOOKUP_KIND: Record<LookupName, 'doc' | 'after'> = {
+  get: 'doc',
+  exists: 'doc',
+  getAfter: 'after',
+  existsAfter: 'after',
+};
+
+/**
+ * The document path a lookup reads, as a string. The argument's segments
+ * decide it: a segment holding a `/` names no document (`lookup-path.ts`), so
+ * the call takes a budget slot keyed so it never counts as the deeper
+ * document, then errors.
+ */
 function requireLookupPath(
-  name: string,
+  name: LookupName,
   args: Expression[],
   ctx: SimulationContext,
   scope: Record<string, unknown>,
@@ -38,6 +55,11 @@ function requireLookupPath(
   const argVal = evaluate(args[0]!, ctx, scope);
   if (!(argVal instanceof Path) || argVal.segments.some((seg) => /^\{.*\}$/.test(seg))) {
     throw new EvalError(`Function not found error: Name: [${name}].`);
+  }
+  const slashed = slashedSegment(argVal.segments);
+  if (slashed !== undefined) {
+    chargeLookup(ctx, LOOKUP_KIND[name], `/${lookupAccessKey(argVal.segments)}`);
+    throw new EvalError(`${name}(): ${slashedSegmentReason(slashed)}`);
   }
   return String(argVal);
 }

@@ -8,7 +8,9 @@
  *   throws on anything else;
  * - a listed import resolves to the app's installed SDK, the stop lets its
  *   entry and the packages it needs load, and the network guard lets its
- *   hosts through, while unlisted imports stay refused.
+ *   hosts through, while unlisted imports stay refused;
+ * - Realtime Database's hosts, which the live database row's SDK reaches,
+ *   pass with no list, but only from a file of the installed SDK.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -67,8 +69,8 @@ describe('where the register finds @pyric/live', () => {
 
 describe('the pass-through list', () => {
   test('takes every served import with no live row', () => {
-    expect([...passThroughSet(['firebase/database', 'firebase/ai', 'firebase/messaging'])]).toEqual([
-      'firebase/database',
+    expect([...passThroughSet(['firebase/functions', 'firebase/ai', 'firebase/messaging'])]).toEqual([
+      'firebase/functions',
       'firebase/ai',
       'firebase/messaging',
     ]);
@@ -83,7 +85,7 @@ describe('the pass-through list', () => {
   test('reaches children as the first process recorded it', () => {
     expect(recordedPassThrough({})).toEqual([]);
     expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: '' })).toEqual([]);
-    expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: 'firebase/database,firebase/ai' })).toEqual(['firebase/database', 'firebase/ai']);
+    expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: 'firebase/functions,firebase/ai' })).toEqual(['firebase/functions', 'firebase/ai']);
   });
 });
 
@@ -101,66 +103,78 @@ function resolutionOf(passThrough: readonly ServedFirebaseSpecifier[], specifier
 
 describe('a passed-through import under the register', () => {
   test('resolves to the installed SDK as the app wrote it, and an unlisted one is refused', () => {
-    expect(resolutionOf(['firebase/database'], 'firebase/database')).toEqual({ kind: 'pass-through' });
-    const storage = resolutionOf(['firebase/database'], 'firebase/storage');
-    expect(storage.kind).toBe('refused');
-    expect(resolutionOf([], 'firebase/database').kind).toBe('refused');
+    expect(resolutionOf(['firebase/functions'], 'firebase/functions')).toEqual({ kind: 'pass-through' });
+    const remoteConfig = resolutionOf(['firebase/functions'], 'firebase/remote-config');
+    expect(remoteConfig.kind).toBe('refused');
+    expect(resolutionOf([], 'firebase/functions').kind).toBe('refused');
   });
 
   test('is refused while the rows are shut', () => {
-    expect(resolutionOf(['firebase/database'], 'firebase/database', false).kind).toBe('refused');
+    expect(resolutionOf(['firebase/functions'], 'firebase/functions', false).kind).toBe('refused');
   });
 });
 
 const FIREBASE_DIR = 'file:///app/node_modules/firebase/';
-const DATABASE_DIR = 'file:///app/node_modules/@firebase/database/';
+const FUNCTIONS_DIR = 'file:///app/node_modules/@firebase/functions/';
 
 /** A load with its package named from the URL, so no manifest is read. */
 function loadOf(specifier: string, url: string, importer: string | undefined): ResolvedLoad {
-  const nameOf = (file: string) => (file.startsWith(FIREBASE_DIR) ? 'firebase' : file.startsWith(DATABASE_DIR) ? '@firebase/database' : null);
+  const nameOf = (file: string) => (file.startsWith(FIREBASE_DIR) ? 'firebase' : file.startsWith(FUNCTIONS_DIR) ? '@firebase/functions' : null);
   const pathInPackage = (file: string) => (file.startsWith(FIREBASE_DIR) ? file.slice(FIREBASE_DIR.length) : null);
   return { specifier, url, importer, nameOf, pathInPackage };
 }
 
 describe('the stop for a passed-through import', () => {
-  const passThrough = new Set<ServedFirebaseSpecifier>(['firebase/database']);
+  const passThrough = new Set<ServedFirebaseSpecifier>(['firebase/functions']);
   const packages = passThroughSdkPackages(passThrough);
-  const entry = `${FIREBASE_DIR}database/dist/index.mjs`;
+  const entry = `${FIREBASE_DIR}functions/dist/index.mjs`;
 
   test('lets its entry load, then the SDK package that entry imports', () => {
     const allowed = new Set<string>();
     const grant = { isRowImport: false, isEsmImport: true, isPassThroughImport: true, passThroughPackages: packages };
-    expect(suppliedRowsStopFor(loadOf('firebase/database', entry, 'file:///app/server.mjs'), allowed, grant)).toBeNull();
+    expect(suppliedRowsStopFor(loadOf('firebase/functions', entry, 'file:///app/server.mjs'), allowed, grant)).toBeNull();
     expect(allowed.has(entry)).toBe(true);
-    const sdk = `${DATABASE_DIR}dist/node-esm/index.node.esm.js`;
+    const sdk = `${FUNCTIONS_DIR}dist/esm/index.esm.js`;
     const fromEntry = { isRowImport: false, isEsmImport: true, passThroughPackages: packages };
-    expect(suppliedRowsStopFor(loadOf('@firebase/database', sdk, entry), allowed, fromEntry)).toBeNull();
+    expect(suppliedRowsStopFor(loadOf('@firebase/functions', sdk, entry), allowed, fromEntry)).toBeNull();
     expect(allowed.has(sdk)).toBe(true);
   });
 
   test('stops a load of another entry by the listed name, a require(), and the package without the list', () => {
     const grant = { isRowImport: false, isEsmImport: true, isPassThroughImport: true, passThroughPackages: packages };
-    const other = `${FIREBASE_DIR}storage/dist/index.mjs`;
-    expect(suppliedRowsStopFor(loadOf('firebase/database', other, 'file:///app/server.mjs'), new Set(), grant)).not.toBeNull();
+    const other = `${FIREBASE_DIR}remote-config/dist/index.mjs`;
+    expect(suppliedRowsStopFor(loadOf('firebase/functions', other, 'file:///app/server.mjs'), new Set(), grant)).not.toBeNull();
     const required = { ...grant, isEsmImport: false };
-    expect(suppliedRowsStopFor(loadOf('firebase/database', entry, 'file:///app/server.cjs'), new Set(), required)).not.toBeNull();
-    const sdk = `${DATABASE_DIR}dist/node-esm/index.node.esm.js`;
+    expect(suppliedRowsStopFor(loadOf('firebase/functions', entry, 'file:///app/server.cjs'), new Set(), required)).not.toBeNull();
+    const sdk = `${FUNCTIONS_DIR}dist/esm/index.esm.js`;
     const withoutList = { isRowImport: false, isEsmImport: true };
-    expect(suppliedRowsStopFor(loadOf('@firebase/database', sdk, entry), new Set([entry]), withoutList)).not.toBeNull();
+    expect(suppliedRowsStopFor(loadOf('@firebase/functions', sdk, entry), new Set([entry]), withoutList)).not.toBeNull();
   });
 });
 
+const FUNCTIONS_HOST = 'us-central1-demo.cloudfunctions.net';
+
 describe('the network guard for a passed-through import', () => {
   test('names the hosts of each listed service, and passes them only for the installed SDK', () => {
-    expect(passThroughHosts(['firebase/database'])).toEqual(['firebaseio.com', 'firebasedatabase.app']);
-    const hosts = passThroughHosts(['firebase/database']);
+    expect(passThroughHosts(['firebase/functions'])).toEqual(['cloudfunctions.net']);
+    const hosts = passThroughHosts(['firebase/functions']);
     const fromAnyFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => true });
-    expect(fromAnyFile('demo-default-rtdb.firebaseio.com', '/')).toBeNull();
-    expect(fromAnyFile('demo-default-rtdb.europe-west1.firebasedatabase.app', '/')).toBeNull();
+    expect(fromAnyFile(FUNCTIONS_HOST, '/')).toBeNull();
     expect(fromAnyFile('firebasevertexai.googleapis.com', '/')).not.toBeNull();
     const fromNoSdkFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => false });
-    expect(fromNoSdkFile('demo-default-rtdb.firebaseio.com', '/')?.reason).toContain('only the installed SDK of an import that passes through');
-    expect(liveEgressRule()('demo-default-rtdb.firebaseio.com', '/')).not.toBeNull();
+    expect(fromNoSdkFile(FUNCTIONS_HOST, '/')?.reason).toContain('only the installed SDK of an import that passes through');
+    expect(liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => true })(FUNCTIONS_HOST, '/')).not.toBeNull();
+  });
+});
+
+describe('the network guard for the live database row', () => {
+  test('passes Realtime Database hosts with no list, only for the installed SDK', () => {
+    const fromSdk = liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => true });
+    expect(fromSdk('demo-default-rtdb.firebaseio.com', '/')).toBeNull();
+    expect(fromSdk('demo-default-rtdb.europe-west1.firebasedatabase.app', '/')).toBeNull();
+    const fromNoSdkFile = liveEgressRule()('demo-default-rtdb.firebaseio.com', '/');
+    expect(fromNoSdkFile?.service).toBe('Realtime Database');
+    expect(fromNoSdkFile?.reason).toContain('Realtime Database');
   });
 });
 
@@ -185,7 +199,6 @@ function guardedSeams(isLiveSdkFile: (url: string) => boolean) {
   };
   const hooks = installLiveNetGuard({
     isLiveSdkFile,
-    passThrough: ['firebase/database'],
     scope: { [Symbol.for('undici.globalDispatcher.1')]: { dispatch: () => true } },
     env: {},
     write: () => {},
@@ -207,7 +220,7 @@ function guardedSeams(isLiveSdkFile: (url: string) => boolean) {
 
 const DATABASE_HOST = 'demo-default-rtdb.firebaseio.com';
 
-/** A stand-in SDK file: the guard knows it as one the stop let load for firebase/database. */
+/** A stand-in SDK file: the guard knows it as one the stop let load for the database row. */
 const sdkFile = join(scratch, 'database-sdk.mjs');
 writeFileSync(sdkFile, [
   // Never in tail position: bun turns `return f()` into a tail call and drops this file's frame from the stack.
@@ -235,7 +248,7 @@ function connectOutcome(connect: () => unknown): string | undefined {
   }
 }
 
-describe('the network guard for a passed-through host, by caller', () => {
+describe('the network guard for a Realtime Database host, with no list, by caller', () => {
   test('refuses fetch, https.request and tls.connect from an app file', async () => {
     const seams = guardedSeams((url) => url === sdkUrl);
     try {
@@ -298,7 +311,7 @@ describe('the network guard for a passed-through host, by caller', () => {
 const VM_CALLER_FIXTURE = fileURLToPath(new URL('./fixtures/live-guard-vm-caller.mjs', import.meta.url));
 const DIST_GUARD = new URL('../../dist/register/live-net-guard.js', import.meta.url).href;
 
-describe('the network guard for a passed-through host, under Node', () => {
+describe('the network guard for a Realtime Database host, under Node', () => {
   // Bun names a vm frame `file:///`; Node names it `evalmachine.<anonymous>` or its `filename`, with isEval() false.
   test('refuses a callback the SDK runs that node:vm built, whatever filename it was given', () => {
     const result = spawnSync('node', [VM_CALLER_FIXTURE, DIST_GUARD, sdkUrl], { encoding: 'utf8', timeout: 20_000 });

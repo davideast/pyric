@@ -22,6 +22,33 @@ export function setAiEvidence<T extends object>(value: T, detail: Partial<AiEvid
   return value;
 }
 export function getAiEvidence(value: object): Partial<AiEvidence> | undefined { return evidence.get(value); }
+/** The token counts of an SDK `usageMetadata`, read as untrusted numbers. */
+export interface AiUsageMetadata {
+  promptTokenCount?: unknown;
+  candidatesTokenCount?: unknown;
+  totalTokenCount?: unknown;
+}
+export type AiUsageEvidence = Pick<AiEvidence, 'reportedModel' | 'inputTokens' | 'outputTokens' | 'totalTokens'>;
+
+function tokenCount(value: unknown): number | undefined {
+  const isCount = typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  return isCount ? value : undefined;
+}
+
+/**
+ * The one mapping from `usageMetadata` to evidence: prompt to input, candidates
+ * to output (thinking tokens are left out), and the total. Every key is present,
+ * so a spread replaces earlier counts even when this response has none.
+ */
+export function aiUsageEvidence(usage: AiUsageMetadata | undefined, modelVersion?: string): AiUsageEvidence {
+  return {
+    reportedModel: modelVersion,
+    inputTokens: tokenCount(usage?.promptTokenCount),
+    outputTokens: tokenCount(usage?.candidatesTokenCount),
+    totalTokens: tokenCount(usage?.totalTokenCount),
+  };
+}
+
 /** Strip credentials, paths, and query parameters from diagnostic endpoints. */
 export function aiEndpoint(value?: string): string | undefined {
   if (!value) return;

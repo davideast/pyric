@@ -8,6 +8,7 @@ import {
 import { StorageLatLng } from './rules-latlng.js';
 import { StoragePath, interpolationSegments, isPathValue, pathValueSegments } from './rules-path.js';
 import { describeRulesType as describeType } from '../../rules/simulator/rules-type.js';
+import { lookupAccessKey, slashedSegment, slashedSegmentReason } from '../../rules/simulator/lookup-path.js';
 import { RulesValue } from '../../rules/simulator/wrappers/base.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
 import { hostNumber } from '../../rules/simulator/rules-int.js';
@@ -116,7 +117,7 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   // A slashed lookup counts toward the two-document cap like any other:
   // production lists the errored call among the request's function calls.
   // Its key is encoded so it never counts as the deeper document.
-  const accessKey = docSegments.map(accessKeySegment).join('/');
+  const accessKey = lookupAccessKey(docSegments);
   if (!ctx.firestoreAccesses.has(accessKey)) {
     if (ctx.firestoreAccesses.size >= 2) {
       // Resource-limit class, the same posture as the Firestore lookup
@@ -126,18 +127,9 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     }
     ctx.firestoreAccesses.add(accessKey);
   }
-  const slashed = docSegments.find((segment) => segment.includes('/'));
+  const slashed = slashedSegment(docSegments);
   if (slashed !== undefined) {
-    // No document ID holds a `/`. The capture
-    // `rules-storage-h1-lookup-interpolated-slash` shows the call erroring
-    // for `get` and `exists` alike, but under the Rules Test API, where an
-    // unmocked call also errors. That `exists` errors rather than answering
-    // false against a real database is inferred, and erroring is the
-    // fail-closed reading: `!exists(...)` denies.
-    return new RuleError(
-      `Service call error. Function: [firestore.${expr.method}]: the path segment "${slashed}" holds a "/", ` +
-        'and an interpolated string is one segment, so no document has this path',
-    );
+    return new RuleError(`Service call error. Function: [firestore.${expr.method}]: ${slashedSegmentReason(slashed)}`);
   }
   const docPath = docSegments.join('/');
   if (expr.method === 'exists') {
@@ -152,15 +144,6 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     return new RuleError(`firestore.get() targeted a nonexistent document: ${docPath}`);
   }
   return { data: wrapFirestoreValue(fields) as Record<string, unknown> };
-}
-
-/**
- * One segment of the key that counts distinct documents. A segment holding a
- * `/` is percent-encoded, as production's own argument rendering shows
- * (`users/alice%2Fprivate%2Fx`), so it never counts as the deeper document.
- */
-function accessKeySegment(segment: string): string {
-  return segment.replaceAll('%', '%25').replaceAll('/', '%2F');
 }
 
 /** The segments one interpolation contributes ({@link interpolationSegments}), or an error that denies. */
