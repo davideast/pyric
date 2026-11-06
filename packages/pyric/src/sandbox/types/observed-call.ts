@@ -69,6 +69,24 @@ export interface ObservedRequest {
   status?: number;
 }
 
+/**
+ * What production billed or moved for a call, as the recorder measured it
+ * from the SDK's answer: document reads, writes and deletes, payload and
+ * transfer bytes, and how many parts it could not measure. Counts only, each
+ * a non-negative safe integer; never a document, a value or a payload.
+ */
+export interface ObservedUsage {
+  documentReads?: number;
+  documentWrites?: number;
+  documentDeletes?: number;
+  /** The JSON size of a delivered RTDB value, or of a Firestore payload. */
+  payloadBytes?: number;
+  uploadedBytes?: number;
+  downloadedBytes?: number;
+  /** Parts of the call production bills that the SDK's answer does not reveal. */
+  unmeasured?: number;
+}
+
 /** One observed call, as a client sends it to a host. */
 export interface ObservedCall {
   service: ObservedCallService;
@@ -116,6 +134,8 @@ export interface ObservedCall {
    * delivery counts once.
    */
   billedDocuments?: number;
+  /** What production billed or moved for the call, when the recorder measured it. */
+  usage?: ObservedUsage;
   /** Required on every `ai` call, and refused on any other. */
   ai?: ObservedAi;
   /**
@@ -134,4 +154,8 @@ export interface ObservedProduction {
   outcome: ProductionOutcome;
   /** The account's claim names; the account id is the event's `auth.uid`. */
   claimNames?: string[];
+  /** The call's {@link ObservedCall.usage}, when the recorder measured it. */
+  usage?: ObservedUsage;
+  /** A listener delivery's {@link ObservedCall.billedDocuments}, when the recorder counted them. */
+  billedDocuments?: number;
 }
