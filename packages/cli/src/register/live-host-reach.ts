@@ -13,9 +13,9 @@ import { resolveRemoteHost } from '../remote/resolve-host.js';
 
 export type LiveHostReach =
   /**
-   * A live host answers: its url, the project it was started for, and the
-   * `firebase/*` imports it passes through, as its health report lists them,
-   * and its Admin pass-through when it reports one.
+   * A live host answers: its url, the project it was started for, the
+   * imports it passes through (its health report's `firebase/*` list, plus
+   * `firebase-admin` when the report carries `admin`), and that `admin` field.
    */
   | {
       readonly kind: 'live';
@@ -30,6 +30,7 @@ export type LiveHostReach =
   | { readonly kind: 'none' };
 
 const HEALTH_TIMEOUT_MS = 2_000;
+const ADMIN_SDK = 'firebase-admin';
 
 async function healthOf(base: string): Promise<unknown> {
   const response = await fetch(`${base.replace(/\/$/, '')}/__pyric/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
@@ -47,7 +48,10 @@ export async function reachLiveHost(projectRoot: string, env: NodeJS.ProcessEnv 
     if (live === null) return { kind: 'sandbox', url: host.serveUrl };
     // The project the host was started for, which this process's own start resolves the same way.
     const admin = live.admin === undefined ? {} : { admin: live.admin };
-    return { kind: 'live', url: host.serveUrl, projectId: live.configProjectId, passThrough: live.passThrough ?? [], ...admin };
+    // The host reports firebase-admin as `admin`, not in `passThrough`; the process still passes it through.
+    const adminImport = live.admin === undefined ? [] : [ADMIN_SDK];
+    const passThrough = [...(live.passThrough ?? []), ...adminImport];
+    return { kind: 'live', url: host.serveUrl, projectId: live.configProjectId, passThrough, ...admin };
   } catch {
     return { kind: 'none' };
   }
