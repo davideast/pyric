@@ -51,6 +51,7 @@ import {
   functionRoleRefused,
   invalidSystemInstruction,
   missingThoughtSignature,
+  redactUrl,
 } from './synthesizer.js';
 import { ScriptedEngine } from './scripted-engine.js';
 import { OpenAiEngine } from './openai-engine.js';
@@ -118,6 +119,7 @@ export class AiBroker {
   private readonly sandbox: Sandbox | undefined;
   private readonly engineKind: EngineKind;
   private readonly engineModel: string | undefined;
+  /** The configured base URL as it is shown: in the info line, events and status reads. Never its userinfo (#1766). */
   private readonly engineBaseUrl: string | undefined;
 
   constructor(options: AiBrokerOptions = {}) {
@@ -132,12 +134,12 @@ export class AiBroker {
     } else if (engine.kind === 'gemini') {
       this.engine = new GeminiEngine(engine);
       this.engineKind = 'gemini';
-      this.engineBaseUrl = engine.baseUrl;
+      this.engineBaseUrl = engine.baseUrl === undefined ? undefined : redactUrl(engine.baseUrl);
     } else {
       this.engine = new OpenAiEngine(engine);
       this.engineKind = 'openai';
       this.engineModel = engine.model;
-      this.engineBaseUrl = engine.baseUrl;
+      this.engineBaseUrl = engine.baseUrl === undefined ? undefined : redactUrl(engine.baseUrl);
     }
     console.info(this.describeEngine());
   }

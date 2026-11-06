@@ -474,6 +474,26 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     expect(text).toContain('key=***');
   });
 
+  it('drops the userinfo of the upstream base URL from the 502 body and the log (#1766)', async () => {
+    const { logger, notes } = recordingLogger();
+    const loopback = new URL(await disconnectedLoopbackUrl('/v1'));
+    const upstream = `http://gateway-user:gateway-secret-1766@${loopback.host}/v1`;
+    const h = await startServe(upstream, logger);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(502);
+    const text = await res.text();
+    expect(notes.length).toBe(1);
+    for (const shown of [text, notes[0]!]) {
+      expect(shown).not.toContain('gateway-secret-1766');
+      expect(shown).not.toContain('gateway-user');
+      expect(shown).toContain(`http://${loopback.host}/v1/chat/completions`);
+    }
+  });
+
   it('masks a bearer token that a real fetch error quotes from the Authorization header (#1737)', async () => {
     // fetch refuses a header value with a line break before it sends, and its
     // error quotes the value, token included.
