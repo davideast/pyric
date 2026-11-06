@@ -411,6 +411,25 @@ describe('a call production served', () => {
     expect(failed).toMatchObject({ verdict: 'error', service: 'auth', path: null });
   });
 
+  it("reads an RTDB call production denied as denied, with its path", () => {
+    const denied = observed({
+      service: 'rtdb',
+      method: 'get',
+      path: '/secret',
+      projectId: 'demo-project',
+      instance: 'demo-project-default-rtdb',
+      outcome: { status: 'error', code: 'permission_denied' },
+    }, { kind: 'page', pageId: 'tab-1' });
+    expect(chipRequestFromEvent(denied, 'tab-1')).toMatchObject({
+      service: 'rtdb',
+      method: 'get',
+      path: '/secret',
+      verdict: 'denied',
+      production: { status: 'error', code: 'permission_denied' },
+      source: 'page',
+    });
+  });
+
   it('leaves a sandbox-served operation without a production answer', () => {
     expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
     const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;

@@ -9,7 +9,7 @@
  */
 
 /** The services a client may report observed calls for. */
-export type ObservedCallService = 'firestore' | 'auth';
+export type ObservedCallService = 'firestore' | 'auth' | 'rtdb';
 
 /** What production answered: success, or the error code it returned. */
 export type ProductionOutcome =
@@ -30,8 +30,18 @@ export interface ObservedCall {
   service: ObservedCallService;
   /** The SDK function the app called, such as `getDoc` or `signInWithEmailAndPassword`. */
   method: string;
-  /** The document or collection path the call named, when it named one. */
+  /**
+   * The document or collection path the call named, when it named one. On an
+   * `rtdb` call, the reference's path, such as `/items/a`.
+   */
   path?: string;
+  /**
+   * `rtdb` only: the name of the database instance the call went to, as the
+   * SDK's namespace names it (`my-project-default-rtdb`, `my-project-named`).
+   * Required on every RTDB call, the default instance included, and refused
+   * on any other; the event leaves it out for the project's default instance.
+   */
+  instance?: string;
   /** When the app made the call, in ms since epoch. */
   at: number;
   /** How long production took to answer, in ms. */
