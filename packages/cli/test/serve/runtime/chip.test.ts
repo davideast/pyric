@@ -683,6 +683,39 @@ describe('the Traffic view', () => {
     expect(facts).toContain('Pyric observed it and did not check it against local rules.');
   });
 
+  it('marks only the production row whose local rules disagree, and explains it in the details', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    const observedWith = (path: string, at: number, local: unknown): SandboxEvent => {
+      const event = observedCallEvent({
+        service: 'firestore', method: 'getDoc', path, at,
+        outcome: { status: 'error', code: 'permission-denied' }, account: { uid: 'alice' },
+      });
+      return { ...event, production: { ...event.production, local }, caller: { kind: 'page', pageId: 'tab-1' } } as SandboxEvent;
+    };
+    const rule = { line: 7, expression: 'request.auth != null', path: '/rooms/{room}' };
+    const agreeing = observedWith('rooms/r1', now - 2000, { result: 'deny', rule });
+    const drifting = observedWith('rooms/r2', now - 1000, { result: 'allow', rule, drift: true });
+    push([agreeing, drifting], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const agreeingRow = root.querySelector(`[data-request-row="${agreeing.id}"]`)!;
+    expect(agreeingRow.querySelector('[data-traffic-row-drift]')).toBeNull();
+    const driftRow = root.querySelector<HTMLButtonElement>(`[data-request-row="${drifting.id}"]`)!;
+    expect(driftRow.querySelector('[data-traffic-row-drift]')).not.toBeNull();
+    expect(driftRow.querySelector('[data-verdict-production="denied"]')).not.toBeNull();
+
+    driftRow.click();
+    const detail = root.querySelector<HTMLElement>('[data-traffic-detail]')!;
+    expect(detail.getAttribute('data-request-row')).toBe(drifting.id);
+    expect(detail.querySelector('[data-traffic-local-verdict]')!.getAttribute('data-traffic-local-verdict')).toBe('allow');
+    expect(detail.querySelector('[data-traffic-local-rule] code')!.textContent).toBe(rule.expression);
+
+    root.querySelector<HTMLButtonElement>('[data-request-back]')!.click();
+    root.querySelector<HTMLButtonElement>(`[data-request-row="${agreeing.id}"]`)!.click();
+    const agreeingDetail = root.querySelector<HTMLElement>('[data-traffic-detail]')!;
+    expect(agreeingDetail.querySelector('[data-traffic-local-verdict]')).toBeNull();
+  });
+
   it("shows an AI call production served with production's answer and its tokens", () => {
     const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
     const now = Date.now();

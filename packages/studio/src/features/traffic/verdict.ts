@@ -214,3 +214,17 @@ export function productionLabel(production: ObservedProduction): string {
   if (outcome.status === 'ok') return 'production ok';
   return productionVerdict(outcome) === 'denied' ? 'production denied' : `production failed: ${outcome.code}`;
 }
+
+/** A local verdict that disagrees with production's: the local answer and the rule that decided it. */
+export type LocalDrift = Extract<NonNullable<ObservedProduction['local']>, { result: 'allow' | 'deny' }>;
+
+/**
+ * The local rules' verdict on an op production served, only when it
+ * disagrees with production's allow or deny. Undefined on an agreeing op, on
+ * one the local rules could not decide, and on every op the sandbox served.
+ */
+export function localDrift(event: { production?: ObservedProduction }): LocalDrift | undefined {
+  const local = event.production?.local;
+  if (local === undefined || local.result === 'unevaluated') return undefined;
+  return local.drift === true ? local : undefined;
+}

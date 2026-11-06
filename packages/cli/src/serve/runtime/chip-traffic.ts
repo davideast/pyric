@@ -17,7 +17,7 @@ import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal'
  * which line went wrong; the full disposition, the rule that matched, and the
  * payload are Studio's job, which is where a row's click goes.
  */
-import type { EventProvenance, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
+import type { EventProvenance, ObservedProduction, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import { captureIndexQuery, captureDatabaseIndexQuery, type ServiceIndexQuery } from 'pyric/sandbox/internal';
 
@@ -60,6 +60,22 @@ export interface ChipRequest {
    * `verdict` is production's: `denied` for `permission-denied`.
    */
   production?: ProductionOutcome;
+  /**
+   * What the local rules files said about a call production served, present
+   * only when they disagree with production's allow or deny. An agreeing
+   * verdict, or one the host could not decide, leaves the row as it was.
+   */
+  localDrift?: LocalDrift;
+}
+
+/** A local verdict that disagrees with production's: the local answer and the rule that decided it. */
+export type LocalDrift = Extract<NonNullable<ObservedProduction['local']>, { result: 'allow' | 'deny' }>;
+
+/** The local verdict on `production` when it disagrees with production's answer. */
+function localDriftOf(production: ObservedProduction): LocalDrift | undefined {
+  const local = production.local;
+  const isDrift = local !== undefined && local.result !== 'unevaluated' && local.drift === true;
+  return isDrift ? structuredClone(local) : undefined;
 }
 
 /** Which requests Traffic lists: this page's own, or everything the sandbox received. */
@@ -148,15 +164,18 @@ function rowPath(event: SandboxEvent, path: string | undefined): string | null {
 function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefined): ChipRequest | null {
   const isOperation = event.kind === 'operation';
   if (!isOperation) return null;
-  const outcome = event.production?.outcome;
-  const isObserved = outcome !== undefined && isProductionServed(rules);
+  const production = event.production;
+  const isObserved = production !== undefined && isProductionServed(rules);
   if (!isObserved) return null;
+  const outcome = production.outcome;
   const verdict = OBSERVED_VERDICTS[productionVerdict(outcome)];
+  const localDrift = localDriftOf(production);
   const request: ChipRequest = {
     id: event.id, at: event.at, service: event.service, method: event.method,
     path: rowPath(event, event.path), verdict,
     identity: event.auth === null ? 'signed out' : event.auth.uid,
     production: { ...outcome },
+    ...(localDrift === undefined ? {} : { localDrift }),
   };
   const observation = event.observation;
   const ai = observation?.ai;

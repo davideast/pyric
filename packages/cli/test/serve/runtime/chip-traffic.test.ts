@@ -546,6 +546,23 @@ describe('a call production served', () => {
     expect(chipRequestFromEvent(borrowed)?.path).toBe('items/a');
   });
 
+  it('carries the local verdict only when it disagrees with production', () => {
+    const withLocal = (event: SandboxEvent, local: unknown): SandboxEvent => {
+      const production = (event as { production: object }).production;
+      return { ...event, production: { ...production, local } } as SandboxEvent;
+    };
+    const rule = { line: 7, expression: 'request.auth != null', path: '/rooms/{room}' };
+    const denied = observed({ outcome: { status: 'error', code: 'permission-denied' }, account: { uid: 'alice' } });
+    const drift = chipRequestFromEvent(withLocal(denied, { result: 'allow', rule, drift: true }));
+    expect(drift?.localDrift).toEqual({ result: 'allow', rule, drift: true });
+    expect(drift?.verdict).toBe('denied');
+    const agrees = chipRequestFromEvent(withLocal(denied, { result: 'deny', rule }));
+    expect(agrees?.localDrift).toBeUndefined();
+    const gap = chipRequestFromEvent(withLocal(denied, { result: 'unevaluated', needs: ['stored-document'] }));
+    expect(gap?.localDrift).toBeUndefined();
+    expect(chipRequestFromEvent(denied)?.localDrift).toBeUndefined();
+  });
+
   it('leaves a sandbox-served operation without a production answer', () => {
     expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
     const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;

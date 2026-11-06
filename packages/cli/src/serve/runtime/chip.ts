@@ -64,6 +64,7 @@ import {
   requestsInScope,
   sandboxAiRequests,
   type ChipRequest,
+  type LocalDrift,
   type TrafficFeed,
   type TrafficScope,
 } from './chip-traffic.js';
@@ -390,6 +391,8 @@ const styles = `
   .verdict.bypassed .verdict-icon { color: #aab4cc; }
   .traffic-source { color: var(--pyric-text); }
   .traffic-production { color: var(--pyric-accent); font-weight: 600; }
+  .traffic-drift { display: inline-grid; place-items: center; margin-right: 4px; vertical-align: -2px; color: var(--pyric-warning); }
+  .traffic-drift .icon { width: 12px; height: 12px; }
   .traffic-row.problem .c1 { color: #d6a7ae; }
   .traffic-row.pending .c1 { color: #d6c096; }
   .empty { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--space-4); border: 1px dashed #454b59; border-radius: 8px; }
@@ -478,6 +481,34 @@ function aiTokenFacts(request: AiRequestObservation, fact: (label: string, value
 }
 
 const PRODUCTION_REASON = 'Production answered this request. Pyric observed it and did not check it against local rules.';
+
+const DRIFT_TITLE = 'Local rules disagree with production';
+const DRIFT_REASON = "The local rules file differs from the deployed rules, or Pyric's rules engine differs from production's.";
+
+/** The one mark on a row whose local rules disagree with production's answer; empty on every other row. */
+function driftMarkerHtml(request: ChipRequest): string {
+  if (request.localDrift === undefined) return '';
+  return `<span class="traffic-drift" data-traffic-row-drift title="${DRIFT_TITLE}" aria-hidden="true">${iconHtml('warning')}</span>`;
+}
+
+/** Where the local rule that decided sits: its line and the match path above it. */
+function localRuleLocation(rule: NonNullable<LocalDrift['rule']>): string {
+  const line = rule.line === undefined ? '' : `Line ${rule.line}`;
+  const path = rule.path === undefined ? '' : `match ${rule.path}`;
+  return [line, path].filter(Boolean).join(', ');
+}
+
+/** The detail facts that explain a disagreement: the local verdict, the rule that decided, and why they can differ. */
+function driftFactsHtml(drift: LocalDrift, escape: (value: string) => string): string {
+  const fact = (label: string, value: string, attribute = '') => `<div class="request-fact"${attribute}><dt>${label}</dt><dd class="activity-path">${escape(value)}</dd></div>`;
+  const verdict = drift.result === 'allow' ? 'Allowed by the local rules' : 'Denied by the local rules';
+  let html = fact('Local rules', verdict, ` data-traffic-local-verdict="${drift.result}"`);
+  const rule = drift.rule;
+  if (rule?.expression) html += `<div class="request-fact" data-traffic-local-rule><dt>Local rule</dt><dd><code class="mono">${escape(rule.expression)}</code></dd></div>`;
+  const location = rule === undefined ? '' : localRuleLocation(rule);
+  if (location) html += fact('Location', location);
+  return html + fact('Reason', DRIFT_REASON);
+}
 
 /** A shared icon and label track keeps request statuses aligned across rows. */
 function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false, production = false): string {
@@ -999,7 +1030,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       if (request.identity) identityFact += fact('Identity', request.identity, 's2');
       let evidenceDetails = '';
       let reasonFact = request.indexFailure ? fact('Reason', 'The required index was missing.', '') : '';
-      if (request.production) {
+      if (request.localDrift) {
+        reasonFact = driftFactsHtml(request.localDrift, escapeAttribute);
+      } else if (request.production) {
         reasonFact = fact('Reason', PRODUCTION_REASON, '');
       } else if (request.service === 'firestore') {
         reasonFact = fact('Reason', rulesSummary(request), '');
@@ -1044,7 +1077,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const servedBy = request.production ? 'data-traffic-row-production' : 'data-traffic-row-sandbox';
       const production = productionLabel ? `<span class="traffic-production" ${servedBy}>${productionLabel}</span> · ` : '';
       return buttonRowHtml({
-        c1: production + source + escapeAttribute(call),
+        c1: driftMarkerHtml(request) + production + source + escapeAttribute(call),
         c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined, request.production ? 'production' : 'sandbox') : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
@@ -1052,7 +1085,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' || bypassed ? '' : ' problem'}`,
         title: [productionLabel, sourceLabel, call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
-        label: `Inspect ${productionLabel ? `${productionLabel.toLowerCase()} ` : ''}${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}`,
+        label: `Inspect ${productionLabel ? `${productionLabel.toLowerCase()} ` : ''}${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}${request.localDrift ? `. ${DRIFT_TITLE}` : ''}`,
       });
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;

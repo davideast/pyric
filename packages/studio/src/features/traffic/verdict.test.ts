@@ -9,6 +9,7 @@ import {
   filterByVerdict,
   filterStudioTraffic,
   isStudioTraffic,
+  localDrift,
   opensRulesInspector,
   productionLabel,
   subjectTarget,
@@ -219,5 +220,22 @@ describe('productionLabel', () => {
 
   it('leaves an observed op without a Rules verdict', () => {
     expect(verdictFor({ rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' } })).toBeNull();
+  });
+});
+
+describe('localDrift', () => {
+  const denied = { status: 'error', code: 'permission-denied' } as const;
+  const rule = { line: 7, expression: 'request.auth != null', path: '/rooms/{room}' };
+
+  it('returns the local verdict when it disagrees with production', () => {
+    const local = { result: 'allow', rule, drift: true } as const;
+    expect(localDrift({ production: { outcome: denied, local } })).toEqual(local);
+  });
+
+  it('leaves an agreeing verdict, a gap and a sandbox op without one', () => {
+    expect(localDrift({ production: { outcome: denied, local: { result: 'deny', rule } } })).toBeUndefined();
+    expect(localDrift({ production: { outcome: denied, local: { result: 'unevaluated', needs: ['stored-document'] } } })).toBeUndefined();
+    expect(localDrift({ production: { outcome: denied } })).toBeUndefined();
+    expect(localDrift({})).toBeUndefined();
   });
 });

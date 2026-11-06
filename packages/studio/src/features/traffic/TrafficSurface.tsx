@@ -44,12 +44,14 @@ import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.j
 import {
   filterByVerdict,
   filterStudioTraffic,
+  localDrift,
   opensRulesInspector,
   productionLabel,
   subjectTarget,
   verdictFor,
   verdictLabel,
   VERDICT_FILTERS,
+  type LocalDrift,
   type StudioTrafficEvent,
   type VerdictFilter,
 } from './verdict.js';
@@ -172,6 +174,74 @@ function ProductionCell({ production }: { production: NonNullable<StudioTrafficE
   );
 }
 
+const DRIFT_TITLE = 'Local rules disagree with production';
+const DRIFT_REASON =
+  "The local rules file differs from the deployed rules, or Pyric's rules engine differs from production's.";
+
+/** The one mark on a production row whose local rules disagree with production's answer. */
+function DriftMarker() {
+  return (
+    <span className="traffic__drift" data-drift="" title={DRIFT_TITLE} aria-label={DRIFT_TITLE} role="img">
+      <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+        <path d="M12 3 2 21h20L12 3Z" />
+        <path d="M12 9v5m0 3v1" />
+      </svg>
+    </span>
+  );
+}
+
+/** Where the local rule that decided sits: its line and the match path above it. */
+function localRuleLocation(rule: NonNullable<LocalDrift['rule']>): string {
+  const line = rule.line === undefined ? '' : `Line ${rule.line}`;
+  const path = rule.path === undefined ? '' : `match ${rule.path}`;
+  return [line, path].filter(Boolean).join(', ');
+}
+
+/** Explains a disagreement in place under its row: both verdicts, the local rule, and why they can differ. */
+function TrafficDriftDetail({
+  event,
+  drift,
+  onClose,
+}: {
+  event: StudioTrafficEvent;
+  drift: LocalDrift;
+  onClose: () => void;
+}) {
+  const production = event.production;
+  const rule = drift.rule;
+  const location = rule === undefined ? '' : localRuleLocation(rule);
+  return (
+    <div data-pyric-ui="traffic-drift-detail" className="traffic__inspector traffic__drift-detail">
+      <dl className="traffic__drift-facts">
+        <dt>Production</dt>
+        <dd>{production === undefined ? '' : productionLabel(production)}</dd>
+        <dt>Local rules</dt>
+        <dd data-local-verdict={drift.result}>
+          {drift.result === 'allow' ? 'Allowed by the local rules' : 'Denied by the local rules'}
+        </dd>
+        {rule?.expression ? (
+          <>
+            <dt>Local rule</dt>
+            <dd>
+              <code data-local-rule="">{rule.expression}</code>
+            </dd>
+          </>
+        ) : null}
+        {location ? (
+          <>
+            <dt>Location</dt>
+            <dd>{location}</dd>
+          </>
+        ) : null}
+      </dl>
+      <p className="traffic__drift-reason">{DRIFT_REASON}</p>
+      <button type="button" className="traffic__inspector-close" onClick={onClose}>
+        Close details
+      </button>
+    </div>
+  );
+}
+
 /** On a live host, marks a row the local sandbox served: only Production rows went to the real project. */
 function SandboxServedCell() {
   return (
@@ -188,6 +258,7 @@ function VerdictCell({ event }: { event: StudioTrafficEvent }) {
     return (
       <>
         <SourceCell event={event} />
+        {localDrift(event) === undefined ? null : <DriftMarker />}
         <ProductionCell production={event.production} />
       </>
     );
@@ -204,6 +275,29 @@ function VerdictCell({ event }: { event: StudioTrafficEvent }) {
       ) : null}
     </>
   );
+}
+
+/** Whether a row's click opens a detail in place: a rules decision, or a production row the local rules disagree with. */
+function opensDetail(event: StudioTrafficEvent): boolean {
+  return opensRulesInspector(event) || localDrift(event) !== undefined;
+}
+
+/** The detail an inspected id opens: the drift explanation for a disagreeing production row, else the rules inspector. */
+function InspectedDetail({
+  eventId,
+  events,
+  onClose,
+}: {
+  eventId: string;
+  events: readonly StudioTrafficEvent[];
+  onClose: () => void;
+}) {
+  const event = events.find((candidate) => candidate.id === eventId);
+  const drift = event === undefined ? undefined : localDrift(event);
+  if (event !== undefined && drift !== undefined) {
+    return <TrafficDriftDetail event={event} drift={drift} onClose={onClose} />;
+  }
+  return <TrafficRulesInspector eventId={eventId} onClose={onClose} />;
 }
 
 /** The URL-driven inspector focus (`?inspect=<id>`): the inspected op's id, or
@@ -304,7 +398,7 @@ export function TrafficSurface() {
   // blank-verdict rows have no rules decision to inspect, so they keep the
   // C3 drill-in to the record the op touched.
   const onRowSelect = (e: StudioTrafficEvent) => {
-    if (opensRulesInspector(e)) {
+    if (opensDetail(e)) {
       openInspect(e.id);
       return;
     }
@@ -448,9 +542,10 @@ export function TrafficSurface() {
               pagination fold, folded into a group, or absent from the buffer):
               the inspector renders standalone above the log. */}
           {expandedId && !expandedRowVisible ? (
-            <TrafficRulesInspector
+            <InspectedDetail
               key={expandedId}
               eventId={expandedId}
+              events={events}
               onClose={closeInspect}
             />
           ) : null}
@@ -486,7 +581,7 @@ export function TrafficSurface() {
                         // their subject.
                         onSelect={(e) => {
                           const ev = e as StudioTrafficEvent;
-                          if (opensRulesInspector(ev)) {
+                          if (opensDetail(ev)) {
                             openInspect(ev.id);
                             return;
                           }
@@ -516,10 +611,11 @@ export function TrafficSurface() {
                         formatTime={defaultFormatTime}
                       />
                       {item.event.id === expandedId &&
-                      opensRulesInspector(item.event as StudioTrafficEvent) ? (
-                        <TrafficRulesInspector
+                      opensDetail(item.event as StudioTrafficEvent) ? (
+                        <InspectedDetail
                           key={expandedId}
                           eventId={expandedId}
+                          events={events}
                           onClose={closeInspect}
                         />
                       ) : null}
