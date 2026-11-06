@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 133,
+    "numerator": 129,
     "denominator": 140,
-    "ratio": 0.95,
-    "percent": 95
+    "ratio": 0.9214285714285714,
+    "percent": 92.1
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 134,
-      "diverged": 4,
+      "verified": 130,
+      "diverged": 8,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 133,
-    "diverged": 4,
+    "conformant": 129,
+    "diverged": 8,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -216,6 +216,7 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -227,6 +228,7 @@
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
+        "root-recursive-own-allow-write",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
@@ -270,6 +272,7 @@
         "path-constructor-and-bind",
         "range-slice-list-and-string",
         "required-fields-and-mapdiff",
+        "root-recursive-own-allow-write",
         "set-algebra-difference-union-intersection",
         "string-literals-and-regex",
         "time-math-and-casts",
@@ -346,6 +349,7 @@
         "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "int-float-and-division",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -386,6 +390,7 @@
         "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "int-float-and-division",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -612,8 +617,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "atomic-batch-sibling-merge",
@@ -632,6 +637,7 @@
         "int-float-and-division",
         "int64-and-duration-range",
         "int64-conversions-and-mixed-equality",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -645,6 +651,10 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-documents-own-allow",
+        "root-recursive-own-allow-write",
+        "root-recursive-path-value",
+        "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
@@ -660,7 +670,9 @@
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#222"
+      ]
     },
     "firestore.function.get": {
       "productionAcceptance": "accepted",
@@ -671,18 +683,21 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "get-missing-doc",
+        "interpolated-lookup-path-segments",
         "simcase-mock-and-path-fidelity"
       ],
       "verifiedByRows": [
         "firestore-rules#165",
         "firestore-rules#197"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#224"
+      ]
     },
     "firestore.function.exists": {
       "productionAcceptance": "accepted",
@@ -693,10 +708,11 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "get-missing-doc",
+        "interpolated-lookup-path-segments",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics"
       ],
@@ -705,7 +721,9 @@
         "firestore-rules#196",
         "firestore-rules#197"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#224"
+      ]
     },
     "firestore.function.getAfter": {
       "productionAcceptance": "accepted",
@@ -1213,8 +1231,10 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "interpolated-lookup-path-segments",
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
+        "root-recursive-path-value",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
@@ -2355,6 +2375,7 @@
         "int-float-and-division",
         "int64-and-duration-range",
         "int64-conversions-and-mixed-equality",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -2367,6 +2388,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-recursive-path-value",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2416,6 +2438,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-recursive-own-allow-write",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "time-math-and-casts",
@@ -2527,6 +2550,7 @@
         "cross-type-operator-overloads",
         "error-absorption-and-or",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -2691,6 +2715,7 @@
         "int-float-and-division",
         "int64-and-duration-range",
         "int64-conversions-and-mixed-equality",
+        "interpolated-lookup-path-segments",
         "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -2721,6 +2746,7 @@
         "bytes-toutf8-and-hashing",
         "functions-verbs-and-recursive",
         "int-float-and-division",
+        "interpolated-lookup-path-segments",
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "prototype-chain-keys",
@@ -2874,6 +2900,7 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -2886,6 +2913,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-recursive-own-allow-write",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2962,6 +2990,8 @@
         "global-and-service-scope-functions",
         "hierarchical-match-cascade",
         "optional-rules-version",
+        "root-documents-own-allow",
+        "root-recursive-with-own-allow",
         "service-root-match-path",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2986,6 +3016,7 @@
         "ast-strictness-and-unsupported-casts",
         "functions-verbs-and-recursive",
         "optional-rules-version",
+        "root-recursive-own-allow-write",
         "service-root-match-path"
       ],
       "verifiedByRows": [],
@@ -3011,6 +3042,7 @@
         "re2-pattern-semantics",
         "resource-document-identity",
         "resource-missing-document",
+        "root-recursive-path-value",
         "rules-version-1-recursive-glob",
         "simulator-language-semantics",
         "split-and-trim-edges",
@@ -3066,6 +3098,7 @@
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
         "int-float-and-division",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3136,8 +3169,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "atomic-batch-sibling-merge",
@@ -3156,6 +3189,7 @@
         "int-float-and-division",
         "int64-and-duration-range",
         "int64-conversions-and-mixed-equality",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3169,6 +3203,10 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-documents-own-allow",
+        "root-recursive-own-allow-write",
+        "root-recursive-path-value",
+        "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
@@ -3184,9 +3222,13 @@
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [
-        "firestore-rules#201"
+        "firestore-rules#201",
+        "firestore-rules#221"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#220",
+        "firestore-rules#223"
+      ]
     },
     "firestore.rule-kind.function": {
       "productionAcceptance": "accepted",
@@ -3262,6 +3304,7 @@
         "int-float-and-division",
         "int64-and-duration-range",
         "int64-conversions-and-mixed-equality",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3275,6 +3318,10 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-documents-own-allow",
+        "root-recursive-own-allow-write",
+        "root-recursive-path-value",
+        "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
@@ -3335,6 +3382,7 @@
         "int-float-and-division",
         "int64-and-duration-range",
         "int64-conversions-and-mixed-equality",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3381,6 +3429,9 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "hierarchical-match-cascade",
+        "root-recursive-own-allow-write",
+        "root-recursive-path-value",
+        "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
         "service-root-match-path",
         "simcase-mock-and-path-fidelity"
@@ -3425,6 +3476,7 @@
         "cross-type-operator-overloads",
         "error-absorption-and-or",
         "get-missing-doc",
+        "interpolated-lookup-path-segments",
         "undefined-field-access",
         "unknown-function-names-runtime-error"
       ],

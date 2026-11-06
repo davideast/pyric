@@ -1,0 +1,18 @@
+{
+  "name": "rules-firestore-root-documents-own-allow",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#221"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"root-documents-own-allow\" (Coverage: root block own allow). The rules on a root that stops at documents grant no document.",
+  "observedAt": "2026-11-04T02:25:44.658Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "eecf782f8a37324b86d879d94d4dff76c20fa97a13d2896721e23c868c9dc6b8"
+  },
+  "behavior": {
+    "allow on the root block itself grants get c/1": "DENY"
+  }
+}

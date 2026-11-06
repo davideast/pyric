@@ -14,7 +14,7 @@ import {
   isDefaultDatabaseInstance,
   resolveDatabaseInstance,
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
-} from '../../sandbox/internal/instances.js';
+} from '../rtdb/data/instances.js';
 
 /** One instance's ruleset, with the file it was read from, when it was. */
 export interface InstanceRules {
