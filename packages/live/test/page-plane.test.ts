@@ -83,7 +83,7 @@ describe('the modules a page gets for the live rows', () => {
   });
 
   test('exist only for the four rows', () => {
-    expect(liveModuleSource(rowId('firebase/storage'), '/sender.js')).toBeNull();
+    expect(liveModuleSource(rowId('firebase/functions'), '/sender.js')).toBeNull();
     expect(liveModuleSource('/src/main.ts', '/sender.js')).toBeNull();
   });
 });
@@ -98,7 +98,7 @@ describe('the refusal of a served specifier with no live row', () => {
       expect(error.message).toContain('refused in live mode');
       expect(error.message).toContain('not served from the Pyric sandbox');
     }
-    expect(liveRefusal('firebase/storage', 'page').message).toContain('(Cloud Storage)');
+    expect(liveRefusal('firebase/functions', 'page').message).toContain('(Cloud Functions)');
     expect(liveRefusal('firebase-admin/app', 'server').message).toContain('(the Admin SDK)');
     expect(liveRefusal('firebase-admin/app', 'server').message).toContain('server code the dev server runs');
   });

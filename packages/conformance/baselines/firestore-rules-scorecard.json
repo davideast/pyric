@@ -233,6 +233,7 @@
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -363,6 +364,7 @@
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -405,6 +407,7 @@
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -667,6 +670,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -1283,10 +1287,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "list-and-string-methods",
-        "simulator-language-semantics"
+        "simulator-language-semantics",
+        "string-case-mapping"
       ],
       "verifiedByRows": [
-        "firestore-rules#196"
+        "firestore-rules#196",
+        "firestore-rules#229"
       ],
       "divergedByRows": []
     },
@@ -1302,9 +1308,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "list-and-string-methods"
+        "list-and-string-methods",
+        "string-case-mapping"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#229"
+      ],
       "divergedByRows": []
     },
     "firestore.method.string.trim": {
@@ -1340,6 +1349,7 @@
         "list-and-string-methods",
         "re2-pattern-semantics",
         "split-and-trim-edges",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts"
       ],
@@ -2409,6 +2419,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -2936,6 +2947,7 @@
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -3066,6 +3078,7 @@
         "script-classes-and-nested-repeats",
         "simulator-language-semantics",
         "split-and-trim-edges",
+        "string-case-mapping",
         "string-literals-and-regex",
         "timestamp-component-accessors",
         "undefined-field-access",
@@ -3131,6 +3144,7 @@
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -3237,6 +3251,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -3353,6 +3368,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -3429,6 +3445,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",

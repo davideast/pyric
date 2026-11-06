@@ -10,7 +10,9 @@
  *   entry and the packages it needs load, and the network guard lets its
  *   hosts through, while unlisted imports stay refused;
  * - Realtime Database's hosts, which the live database row's SDK reaches,
- *   pass with no list, but only from a file of the installed SDK.
+ *   pass with no list, but only from a file of the installed SDK;
+ * - AI Logic's host is a live row host: it passes with no list, a `fetch` to
+ *   it only from a file of the installed SDK, and no import passes it through.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -69,9 +71,9 @@ describe('where the register finds @pyric/live', () => {
 
 describe('the pass-through list', () => {
   test('takes every served import with no live row', () => {
-    expect([...passThroughSet(['firebase/functions', 'firebase/ai', 'firebase/messaging'])]).toEqual([
+    expect([...passThroughSet(['firebase/storage', 'firebase/functions', 'firebase/messaging'])]).toEqual([
+      'firebase/storage',
       'firebase/functions',
-      'firebase/ai',
       'firebase/messaging',
     ]);
   });
@@ -85,7 +87,7 @@ describe('the pass-through list', () => {
   test('reaches children as the first process recorded it', () => {
     expect(recordedPassThrough({})).toEqual([]);
     expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: '' })).toEqual([]);
-    expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: 'firebase/functions,firebase/ai' })).toEqual(['firebase/functions', 'firebase/ai']);
+    expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: 'firebase/storage,firebase/functions' })).toEqual(['firebase/storage', 'firebase/functions']);
   });
 });
 
@@ -160,7 +162,7 @@ describe('the network guard for a passed-through import', () => {
     const hosts = passThroughHosts(['firebase/functions']);
     const fromAnyFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => true });
     expect(fromAnyFile(FUNCTIONS_HOST, '/')).toBeNull();
-    expect(fromAnyFile('firebasevertexai.googleapis.com', '/')).not.toBeNull();
+    expect(fromAnyFile('firebasestorage.googleapis.com', '/')).not.toBeNull();
     const fromNoSdkFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => false });
     expect(fromNoSdkFile(FUNCTIONS_HOST, '/')?.reason).toContain('only the installed SDK of an import that passes through');
     expect(liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => true })(FUNCTIONS_HOST, '/')).not.toBeNull();
@@ -184,6 +186,7 @@ describe('the network guard for the live database row', () => {
  */
 function guardedSeams(isLiveSdkFile: (url: string) => boolean) {
   const sent: string[] = [];
+  const logged: string[] = [];
   const fetchScope = { fetch: (async () => { sent.push('fetch'); return new Response(''); }) as unknown as typeof fetch };
   const tls = { connect: (..._args: unknown[]) => { sent.push('tls.connect'); return {}; } };
   const net = { connect: () => { sent.push('net.connect'); return {}; }, createConnection: () => { sent.push('net.connect'); return {}; } };
@@ -201,7 +204,7 @@ function guardedSeams(isLiveSdkFile: (url: string) => boolean) {
     isLiveSdkFile,
     scope: { [Symbol.for('undici.globalDispatcher.1')]: { dispatch: () => true } },
     env: {},
-    write: () => {},
+    write: (line) => logged.push(line),
     net,
     tls,
     fetchScope,
@@ -215,7 +218,7 @@ function guardedSeams(isLiveSdkFile: (url: string) => boolean) {
     const request = Object.assign(Object.create(requestPrototype) as object, { host, method: 'GET', path: '/.json?auth=secret' });
     agent.addRequest(request as { onSocket(socket: unknown, error?: unknown): unknown });
   };
-  return { sent, fetchScope, tls, httpsRequest, stop: () => hooks.stop() };
+  return { sent, logged, fetchScope, tls, httpsRequest, stop: () => hooks.stop() };
 }
 
 const DATABASE_HOST = 'demo-default-rtdb.firebaseio.com';
@@ -302,6 +305,55 @@ describe('the network guard for a Realtime Database host, with no list, by calle
         madeDirect: 'PYRIC_GUARD_BLOCKED',
         sent: ['https.request refused'],
       });
+    } finally {
+      seams.stop();
+    }
+  });
+});
+
+const AI_LOGIC_HOST = 'firebasevertexai.googleapis.com';
+
+describe('the network guard for the AI Logic host, with no list', () => {
+  test('passes it as a live row host, and no import passes it through', () => {
+    expect(passThroughHosts(['firebase/ai'])).toEqual([]);
+    expect(liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => true })(AI_LOGIC_HOST, '/')).toBeNull();
+    expect(liveEgressRule()(AI_LOGIC_HOST, '/')).toBeNull();
+  });
+
+  test("lets a fetch out from a file the stop let load, and refuses the app's own fetch", async () => {
+    const seams = guardedSeams((url) => url === sdkUrl);
+    try {
+      const sdk = (await import(sdkUrl)) as StandInSdk;
+      await sdk.sdkFetch(seams.fetchScope, `https://${AI_LOGIC_HOST}/v1beta/projects/demo/models/m:generateContent`);
+      const fromApp = await seams.fetchScope.fetch(`https://${AI_LOGIC_HOST}/v1beta/projects/demo/models/m:generateContent`)
+        .then(() => 'sent', (error: Error) => error.message);
+      expect({ fromApp, sent: seams.sent }).toEqual({ fromApp: 'fetch failed', sent: ['fetch'] });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test('refuses an https.request, naming firebase/ai as the way to make the call', () => {
+    const seams = guardedSeams(() => true);
+    try {
+      seams.httpsRequest(AI_LOGIC_HOST);
+      const refusal = seams.logged.find((line) => line.includes(`BLOCK ${AI_LOGIC_HOST}`)) ?? '';
+      expect(seams.sent).toEqual(['https.request refused']);
+      expect(refusal).toContain('in live mode only the installed AI Logic SDK, firebase/ai, reaches this host');
+      expect(refusal).toContain('Make the call through firebase/ai, or from a process without @pyric/live/register');
+      expect(refusal).not.toContain('firebase/firestore');
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test('keeps the Firestore, Auth and App Check remedy for their hosts', () => {
+    const seams = guardedSeams(() => true);
+    try {
+      seams.httpsRequest('firestore.googleapis.com');
+      const refusal = seams.logged.find((line) => line.includes('BLOCK firestore.googleapis.com')) ?? '';
+      expect(refusal).toContain('Make the call through firebase/auth, firebase/firestore or firebase/app-check, so pyric observes it');
+      expect(refusal).not.toContain('firebase/ai');
     } finally {
       seams.stop();
     }

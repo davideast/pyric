@@ -10,7 +10,7 @@ import { getFirestore } from "firebase/firestore";
 const config = JSON.parse(readFileSync(new URL("./firebase-config.json", import.meta.url), "utf8"));
 const outcome = (error) => `${error.code}: ${error.message}`;
 const result = {};
-result.storage = await import("firebase/storage").then(() => "loaded", outcome);
+result.functions = await import("firebase/functions").then(() => "loaded", outcome);
 result.admin = await import("firebase-admin/firestore").then(() => "loaded", outcome);
 result.cloudFirestore = await import("@google-cloud/firestore").then(() => "loaded", outcome);
 const app = initializeApp(config);
