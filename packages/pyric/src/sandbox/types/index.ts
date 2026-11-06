@@ -61,6 +61,7 @@ export type {
   ObservedCall,
   ObservedCallService,
   ObservedProduction,
+  ObservedUsage,
   ProductionOutcome,
 } from './observed-call.js';
 export type {

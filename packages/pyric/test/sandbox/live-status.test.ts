@@ -95,6 +95,18 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, observed: ['firebase/firestore', 'lodash'] } })).toBeNull();
     expect(readLiveHostStatus({ live: { ...LIVE, observed: ['firebase/firestore', 7] } })).toBeNull();
   });
+
+  it('reads the clients connected to the host, and drops a malformed entry without losing the status', () => {
+    const page = { kind: 'browser', clientId: 'profile-1', label: '/orders', user: 'user-1', lastSeen: 1000 };
+    const worker = { kind: 'service-worker', clientId: 'profile-1', user: null, lastSeen: 1000 };
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [page, worker] } })).toEqual({ ...LIVE, clients: [page, worker] });
+    expect(readLiveHostStatus({ live: LIVE })).not.toHaveProperty('clients');
+    const malformed = [{ ...page, kind: 'tab' }, { ...page, lastSeen: 'now' }, { ...page, user: 7 }, null, worker];
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: malformed } })).toEqual({ ...LIVE, clients: [worker] });
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: 'all' } })).toEqual(LIVE);
+    const many = Array.from({ length: 200 }, (_, n) => ({ ...worker, clientId: `c-${n}` }));
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: many } })?.clients).toHaveLength(64);
+  });
 });
 
 describe('createLiveStatusPoller', () => {
