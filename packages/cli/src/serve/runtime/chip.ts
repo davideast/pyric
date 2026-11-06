@@ -2,7 +2,7 @@ import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyr
 import { billedCallSummary, createLiveStatusPoller, liveLabel, liveMismatchLine, livePassThroughLines, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { healthLiveStatus } from './chip-live-status.js';
 import { workerAiRates } from './worker-ai-rates.js';
-import { aiModelHtml } from './ai-model-label.js';
+import { aiModelHtml, aiModelRoute } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
 import type { CaptureEntry } from '../rate-capture-store.js';
 import { buildRateCapture, readRateCapture, readSessionFixture } from './rate-capture.js';
@@ -17,7 +17,7 @@ import { sdkRates, sdkActivity } from 'pyric/sandbox/internal';
 import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
 import { INDEX_STYLES, indexDetailsHtml, indexActionHtml } from './chip-indexes.js';
 import { createIndexInspector, createIndexConfigClient, type IndexConfigClient } from './index-config-client.js';
-import type { ServiceIndexQuery } from 'pyric/sandbox/internal';
+import type { AiRequestObservation, ServiceIndexQuery } from 'pyric/sandbox/internal';
 import { rulesEvidenceHtml, rulesSummary } from './chip-rules-evidence.js';
 import { createDenialMarkers } from './denial-markers.js';
 import { activityDisplayTarget } from './activity-history.js';
@@ -62,6 +62,7 @@ import {
   orderChipRequests,
   RECENT_FAILURE_MS,
   requestsInScope,
+  sandboxAiRequests,
   type ChipRequest,
   type TrafficFeed,
   type TrafficScope,
@@ -469,6 +470,14 @@ function productionOutcomeText(outcome: NonNullable<ChipRequest['production']>):
   return `${failure} in production (${outcome.code})`;
 }
 
+/** The token counts production reported for an AI row: counted tokens for `countTokens`, else input and output. */
+function aiTokenFacts(request: AiRequestObservation, fact: (label: string, value: string, cell: string) => string): string {
+  const tokens = (value: number | undefined) => value === undefined ? 'Not reported' : value.toLocaleString();
+  const detail = request.detail;
+  if (request.method === 'countTokens') return fact('Counted tokens', tokens(detail.totalTokens), 's1');
+  return fact('Input tokens', tokens(detail.inputTokens), 's1') + fact('Output tokens', tokens(detail.outputTokens), 's1');
+}
+
 const PRODUCTION_REASON = 'Production answered this request. Pyric observed it and did not check it against local rules.';
 
 /** A shared icon and label track keeps request statuses aligned across rows. */
@@ -656,7 +665,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const snapshot = localRates.snapshot();
     if (!options.sandboxEvents) return snapshot;
     if (ratesDirty) {
-      const ai = (trafficFeed?.requests() ?? []).flatMap(request => request.aiRequest ? [request.aiRequest] : []);
+      const ai = sandboxAiRequests(trafficFeed?.requests() ?? []);
       observesHostAi ||= ai.length > 0;
       projectAiRates = observesHostAi ? workerAiRates(ai) : undefined;
       ratesDirty = false;
@@ -731,7 +740,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const trafficRows = (): ChipRequest[] => {
     const byId = new Map<string, ChipRequest>();
     const recorded = trafficFeed?.requests() ?? [];
-    observesHostAi ||= recorded.some(request => request.aiRequest !== undefined);
+    observesHostAi ||= sandboxAiRequests(recorded).length > 0;
     if (!observesHostAi) {
       for (const request of localRates.snapshot().services.find(service => service.service === 'ai')?.aiRequests ?? []) byId.set(request.id, aiTrafficRequest(request));
     }
@@ -982,8 +991,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const verdictOutcome = bypassesRules(request) ? 'Rules bypassed' : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
       let outcome = verdictOutcome;
       if (request.production) outcome = productionOutcomeText(request.production);
-      if (request.aiRequest) outcome = requestStatusLabel(request.aiRequest.status);
+      // A row production served reads production's answer, never the request's status.
+      const sandboxAi = request.production ? undefined : request.aiRequest;
+      if (sandboxAi) outcome = requestStatusLabel(sandboxAi.status);
       const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
+      const productionAi = request.production ? request.aiRequest : undefined;
+      const tokenFacts = productionAi ? aiTokenFacts(productionAi, fact) : '';
+      const aiDetail = request.aiRequest?.detail;
+      const sandboxRoute = aiDetail?.routedModel ?? (aiDetail?.engine === 'scripted' ? 'Scripted — no model invoked' : 'Unknown');
+      const aiRoute = productionAi ? aiModelRoute(productionAi.detail, request.method ?? undefined, 'production') : sandboxRoute;
       let identityFact = '';
       if (request.production) identityFact = fact('Served by', 'Production', 's2');
       // On a live host, a row the sandbox served says so: only Production rows went to the real project.
@@ -1010,7 +1026,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
       return {
         body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
-          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${request.aiRequest ? fact('Requested', target, 'c2') + fact('Routed to', request.aiRequest.detail.routedModel ?? (request.aiRequest.detail.engine === 'scripted' ? 'Scripted — no model invoked' : 'Unknown'), 'c2') + fact('Reported by backend', request.aiRequest.detail.reportedModel ?? 'Not reported', 'c2') : fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
+          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${request.aiRequest ? fact('Requested', target, 'c2') + fact('Routed to', aiRoute, 'c2') + fact('Reported by backend', request.aiRequest.detail.reportedModel ?? 'Not reported', 'c2') : fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${tokenFacts}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
         bar: barHtml([indexActionHtml(request.indexQuery, request.id, indexInspector, escapeAttribute), getStudioUrl() ? `<a class="btn" href="${escapeAttribute(studioSectionUrl(getStudioUrl()!, 'traffic', 'inspect=' + encodeURIComponent(request.id) + '&service=' + encodeURIComponent(request.service ?? '')))}" target="_blank" rel="noopener">Inspect in Studio</a>` : '']),
       };
     }
@@ -1039,10 +1055,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const production = productionLabel ? `<span class="traffic-production" ${servedBy}>${productionLabel}</span> · ` : '';
       return buttonRowHtml({
         c1: production + source + escapeAttribute(call),
-        c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined) : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
+        c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined, request.production ? 'production' : 'sandbox') : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
-        slot: request.aiRequest ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing, bypassed, request.production !== undefined),
+        slot: request.aiRequest && !request.production ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing, bypassed, request.production !== undefined),
         className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' || bypassed ? '' : ' problem'}`,
         title: [productionLabel, sourceLabel, call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
@@ -1086,7 +1102,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (hasConfiguration) {
       routes.set(configuration.requestedModel, configuration);
     } else {
-      const hostRequests = (trafficFeed?.requests() ?? []).flatMap(request => request.aiRequest ? [request.aiRequest] : []);
+      const hostRequests = sandboxAiRequests(trafficFeed?.requests() ?? []);
       const pageRequests = localRates.snapshot().services.find(service => service.service === 'ai')?.aiRequests ?? [];
       const hasHostRequests = hostRequests.length > 0;
       const requests = hasHostRequests ? hostRequests : pageRequests;
