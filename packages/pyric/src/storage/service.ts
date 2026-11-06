@@ -179,6 +179,7 @@ interface StorageServiceCaches {
   readonly bareAdminHandles: WeakMap<Sandbox, Map<string, FirebaseStorage>>;
   bucketRules?: WeakMap<Sandbox, Map<string, BucketRules>>;
   defaultStoreNames?: WeakMap<Sandbox, string>;
+  undeployedPolicies?: WeakMap<Sandbox, StorageDefaultPolicy>;
 }
 
 /** The rules deployed to one bucket, by name. */
@@ -214,6 +215,12 @@ const BUCKET_RULES = (serviceCaches.bucketRules ??= new WeakMap());
  * bucket's objects under its own rules.
  */
 const DEFAULT_STORE_NAMES = (serviceCaches.defaultStoreNames ??= new WeakMap());
+
+/**
+ * What a bucket with no rules deployed answers, per `Sandbox`, once rules are
+ * deployed per bucket. Absent means `deny`.
+ */
+const UNDEPLOYED_POLICIES = (serviceCaches.undeployedPolicies ??= new WeakMap());
 
 /** One open storage service, with its opening configuration, per `Sandbox`. */
 const OPEN_SERVICES = serviceCaches.openServices;
@@ -343,16 +350,32 @@ export async function replaceStorageRules(
   }
 }
 
+/** What a bucket with no rules deployed answers: `deny` as production creates a bucket, `allow` in permissive mode. */
+export type StorageDefaultPolicy = 'allow' | 'deny';
+
 /**
  * Deploy rules per bucket from here on: each bucket enforces the rules
  * deployed to it by name, the default bucket also enforces the rules
  * {@link replaceStorageRules} installs without a bucket, and a bucket nothing
- * deploys to is locked, denying every client operation, as production
- * creates a bucket. Without this call the sandbox's one ruleset governs every
- * bucket. Idempotent.
+ * deploys to follows `policy`. Under `deny`, the default, it is locked,
+ * denying every client operation, as production creates a bucket. Under
+ * `allow`, permissive mode, it is open, as an RTDB instance with no rules is.
+ * Without this call the sandbox's one ruleset governs every bucket.
+ * Idempotent; a later call sets the policy again.
  */
-export function lockUndeployedStorageBuckets(sandbox: Sandbox): void {
-  if (!BUCKET_RULES.has(sandbox)) BUCKET_RULES.set(sandbox, new Map());
+export function lockUndeployedStorageBuckets(sandbox: Sandbox, policy: StorageDefaultPolicy = 'deny'): void {
+  deployPerBucket(sandbox);
+  UNDEPLOYED_POLICIES.set(sandbox, policy);
+}
+
+/** Start deploying rules per bucket, keeping any policy already set. */
+function deployPerBucket(sandbox: Sandbox): Map<string, BucketRules> {
+  let byBucket = BUCKET_RULES.get(sandbox);
+  if (byBucket === undefined) {
+    byBucket = new Map();
+    BUCKET_RULES.set(sandbox, byBucket);
+  }
+  return byBucket;
 }
 
 /** {@link replaceStorageRules} for one named bucket. */
@@ -363,14 +386,13 @@ async function replaceBucketRules(sandbox: Sandbox, source: string | null, bucke
 /**
  * Deploy `source` to one bucket by name, and deploy per bucket from here on
  * (see {@link lockUndeployedStorageBuckets}). A null source removes the
- * bucket's rules, which locks it. A source that does not compile throws and
+ * bucket's rules, which returns it to the undeployed policy. A source that does not compile throws and
  * leaves the bucket's rules as they were. The service need not be open: the
  * rules apply to every handle on the bucket once it is.
  */
 export function deployStorageBucketRules(sandbox: Sandbox, bucket: string, source: string | null): void {
   const compiled = source === null ? null : compileStorageRules(source);
-  lockUndeployedStorageBuckets(sandbox);
-  const byBucket = BUCKET_RULES.get(sandbox)!;
+  const byBucket = deployPerBucket(sandbox);
   const name = rulesBucketName(bucket, bucket);
   if (source === null || compiled === null) {
     byBucket.delete(name);
@@ -384,6 +406,7 @@ export type StorageRulesInForce =
   | { readonly kind: 'rules'; readonly rules: StorageRules }
   | { readonly kind: 'none' }
   | { readonly kind: 'locked'; readonly bucket: string }
+  | { readonly kind: 'open'; readonly bucket: string }
   | { readonly kind: 'second-default'; readonly bucket: string; readonly defaultBucket: string };
 
 /**
@@ -408,7 +431,7 @@ function addressesDefaultBucket(target: SandboxTarget): boolean {
  * The rules a request through `target` is checked against: the rules
  * deployed to its bucket by name, else for the default bucket the rules
  * installed without a bucket. Once a host deploys per bucket, any other
- * bucket is locked.
+ * bucket is locked, or open in permissive mode.
  */
 export function storageRulesInForce(service: StorageService, target: SandboxTarget): StorageRulesInForce {
   const byBucket = BUCKET_RULES.get(target.sandbox);
@@ -420,6 +443,8 @@ export function storageRulesInForce(service: StorageService, target: SandboxTarg
   if (deployed !== undefined) return { kind: 'rules', rules: deployed.rules };
   const defaultRules = addressesDefaultBucket(target) ? service.rules : null;
   if (defaultRules) return { kind: 'rules', rules: defaultRules };
+  const isPermissive = UNDEPLOYED_POLICIES.get(target.sandbox) === 'allow';
+  if (isPermissive) return { kind: 'open', bucket: name };
   return { kind: 'locked', bucket: name };
 }
 

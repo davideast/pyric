@@ -15,6 +15,7 @@ import {
   installServedStorageRules,
   resolvePendingStorageTargets,
   storageRulesUpdateFor,
+  storageRulesUpdateNotice,
 } from '../../src/serve/storage-rules-install.js';
 import type { InitPayload } from '../../src/serve/init-payload.js';
 
@@ -38,7 +39,7 @@ service firebase.storage {
   }
 }`;
 
-type StoragePayload = Pick<InitPayload, 'storageRules' | 'storageBucketRules' | 'storagePendingTargets' | 'projectKey'>;
+type StoragePayload = Pick<InitPayload, 'storageRules' | 'storageBucketRules' | 'storagePendingTargets' | 'projectKey' | 'permissive'>;
 
 function uniqueName(label: string): string {
   return `${label}-${Math.random().toString(36).slice(2, 10)}`;
@@ -148,5 +149,40 @@ describe('storageRulesUpdateFor', () => {
     expect(storageRulesUpdateFor(OPEN, { bucket: 'media-bucket' })).toEqual({ rules: OPEN, bucket: 'media-bucket' });
     expect(storageRulesUpdateFor(null, { target: 'media' })).toEqual({ rules: null, target: 'media' });
     expect(() => storageRulesUpdateFor(OPEN, 'demo-app-default-rtdb')).toThrow();
+  });
+});
+
+describe('permissive mode (owner decision multi-resource-1)', () => {
+  const unmapped = [{ target: 'media', rules: OPEN, bucketsByProject: {} }];
+
+  it('opens every bucket nothing deploys to and keeps a deployed bucket rules', async () => {
+    const { sandbox } = served({ storageBucketRules: { 'media-bucket': { rules: SIGNED_IN, rulesHash: 's' } }, permissive: true });
+    expect(await outcomes(sandbox)).toEqual({ default: 'ok', media: 'storage/unauthorized', other: 'ok' });
+  });
+
+  it('opens a bucket whose rules file was deleted', async () => {
+    const { sandbox } = served({ storageBucketRules: HUNT_BUCKETS, permissive: true });
+    await applyStorageRulesUpdate(sandbox, { rules: null, bucket: DEFAULT_BUCKET, policy: 'allow' });
+    expect((await outcomes(sandbox)).default).toBe('ok');
+  });
+
+  it('an unmapped target notice follows the policy', () => {
+    const locked = served({ storagePendingTargets: unmapped });
+    const open = served({ storagePendingTargets: unmapped, permissive: true });
+    const [lockedNotice] = resolvePendingStorageTargets(locked.sandbox, 'demo-app');
+    const [openNotice] = resolvePendingStorageTargets(open.sandbox, 'demo-app');
+    expect(lockedNotice).toContain('locked');
+    expect(lockedNotice).not.toContain('open');
+    expect(openNotice).toContain('open');
+    expect(openNotice).not.toContain('locked');
+  });
+
+  it('a removed rules file notice follows the policy', () => {
+    const denied = storageRulesUpdateNotice({ rules: null, bucket: 'media-bucket', policy: 'deny' });
+    const allowed = storageRulesUpdateNotice({ rules: null, bucket: 'media-bucket', policy: 'allow' });
+    expect(denied).toContain('deny');
+    expect(denied).not.toContain('open');
+    expect(allowed).toContain('open');
+    expect(allowed).not.toContain('deny');
   });
 });

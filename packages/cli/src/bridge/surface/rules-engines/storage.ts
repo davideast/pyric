@@ -26,15 +26,29 @@ import { simulatedRequestResource } from './storage-request-resource.js';
 import type { RulesEngine, RulesSourceProblem } from './types.js';
 
 /**
+ * Why a `set` on the default bucket was refused: buckets hold rules by name
+ * and the host does not yet know which of them is the default bucket.
+ */
+const DEFAULT_BUCKET_NAME_UNKNOWN = {
+  code: 'default-bucket-name-unknown',
+  summary: "Load the app's page first, so the host knows which bucket the default Storage rules belong to.",
+} as const;
+
+/**
  * Where a `set` on the default bucket installs: under the default bucket's
  * name when rules are deployed to it by name, as a served project whose
  * `firebase.json` names its bucket deploys them, since that entry is the
  * one the bucket enforces (#1313). Otherwise the default bucket's own rules.
+ * `null` when buckets hold rules by name and the default bucket's name is
+ * unknown, since an install there could land on an entry nothing enforces.
  */
-function defaultBucketDeploy(ctx: SurfaceContext): { bucket?: string } {
+function defaultBucketDeploy(ctx: SurfaceContext): { bucket?: string } | null {
+  const byName = storageBucketsWithRules(ctx.sandbox);
+  const nameUnknown = byName.length > 0 && ctx.storageBucketName?.() === undefined;
+  if (nameUnknown) return null;
   const target = targetOf(storageFor(ctx));
   const name = rulesBucketName(target.bucket, target.bucketName);
-  return storageBucketsWithRules(ctx.sandbox).includes(name) ? { bucket: name } : {};
+  return byName.includes(name) ? { bucket: name } : {};
 }
 
 /** What a call has to do when it named no source and the sandbox holds none. */
@@ -190,8 +204,12 @@ export const STORAGE_RULES: RulesEngine = {
   },
 
   async install(ctx, rules) {
+    const deploy = defaultBucketDeploy(ctx);
+    if (deploy === null) {
+      return operationFailure(DEFAULT_BUCKET_NAME_UNKNOWN.summary, { code: DEFAULT_BUCKET_NAME_UNKNOWN.code });
+    }
     try {
-      await replaceStorageRules(ctx.sandbox, rules, defaultBucketDeploy(ctx));
+      await replaceStorageRules(ctx.sandbox, rules, deploy);
     } catch (error) {
       const problem = sourceProblem(rules, error);
       return operationFailure(`Storage ${problem.body} ${problem.fix}`);
