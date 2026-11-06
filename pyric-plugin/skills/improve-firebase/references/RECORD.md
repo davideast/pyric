@@ -31,7 +31,7 @@ scenario.
 | Variant | What changes | Scenario field | Example |
 |---|---|---|---|
 | Rules | Same app, different Rules file | `fixRules` (or `--rtdb-rules`, `--firestore-rules`, `--storage-rules`) | An owner check missing from an RTDB `.write` rule |
-| Build | Same Rules, different app build | `behavior` | Sign-out revokes credentials before cleanup runs (PR 372) |
+| Build | Same Rules, different app build | `behavior` | Sign-out revokes credentials before cleanup runs (The fix) |
 
 ### Rules variant
 
@@ -60,6 +60,8 @@ node pyric-plugin/skills/improve-firebase/scripts/record.mjs \
   --scenario /tmp/override.json --rtdb-rules /tmp/database.fixed.rules.json \
   --out /tmp/pyric-evidence --render --formats mp4 --json
 ```
+
+*(Note: The chat-overwrite fix used in this example—moving the `.write` rule to `$messageId` and adding a speaker check—is a simplified fix for demonstration. A real fix must keep legitimate writes by others, such as reactions, working. The recorded video only proves the shown write is denied.)*
 
 What the recorder reads from the export:
 
@@ -126,7 +128,7 @@ then shows the after build doing the right thing.
 | `action` | What the actor does. `kind: "sign-out"`, `actor`, `menuItemText`, optional `triggerText` (defaults to the actor's initial) |
 | `check` | What proves the defect. `kind: "presence-entry"`, `path`, `uid`, `waitMs` (default 3000) |
 | `focusSelectors` | Per-role CSS selector for the spotlight, for example `{ "peer": "[class*=\"pile\"]" }` |
-| `pathTemplate` | The data path with variables, for example `/spaces_app/spaces/$spaceid/presence/$clientId` |
+| `pathTemplate` | The data path with variables, for example `/app/rooms/$roomId/presence/$clientId` |
 | `pathValues` | The value shown for each variable |
 | `pathCallouts` | A `label` and `detail` per variable for the path slide |
 | `deck` | `problemFacts` (key/value rows), `beforeSequence` and `afterSequence` (steps with `label`, `code`, `note`, `muted`, `flagged`) |
@@ -242,9 +244,9 @@ never show; check its first frame anyway. At minimum, check slides 2, 5, 7 and 8
 
 Then share the video path, severity, root cause, and the fix.
 
-## 9. Worked example: PR 372
+## 9. Worked example: The fix
 
-PR 372 moved presence cleanup ahead of `signOut(auth)` in Spaces. On the old
+The fix moved presence cleanup ahead of `signOut(auth)` in a shared-chat app. On the old
 build, Alice signs out and Bob keeps seeing her. On the new build, her entry
 is removed about 350 ms after sign-out. Both builds use the same Rules, so
 this is the build variant.
@@ -252,7 +254,7 @@ this is the build variant.
 ```json
 {
   "schema": "pyric.evidence.scenario.v1",
-  "finding": { "campaign": "spaces-audit", "probe": "signout-ghost-presence" },
+  "finding": { "campaign": "chat-audit", "probe": "signout-ghost-presence" },
   "app": { "dist": "/tmp/pyric-372-check/dist" },
   "rules": { "rtdb": "/tmp/pyric-372-check/database.rules.json" },
   "seedFile": "/tmp/pyric-372-check/seed.json",
@@ -263,12 +265,12 @@ this is the build variant.
   "behavior": {
     "fixApp": { "dist": "/tmp/pyric-372-after-dist" },
     "action": { "kind": "sign-out", "actor": "owner", "menuItemText": "Sign out" },
-    "check": { "kind": "presence-entry", "path": "/spaces_app/spaces/s1/presence", "uid": "alice", "waitMs": 3000 },
+    "check": { "kind": "presence-entry", "path": "/app/rooms/s1/presence", "uid": "alice", "waitMs": 3000 },
     "focusSelectors": { "peer": "[class*=\"pile\"]" },
-    "pathTemplate": "/spaces_app/spaces/$spaceid/presence/$clientId",
-    "pathValues": { "$spaceid": "s1", "$clientId": "Alice's tab" },
+    "pathTemplate": "/app/rooms/$roomId/presence/$clientId",
+    "pathValues": { "$roomId": "s1", "$clientId": "Alice's tab" },
     "pathCallouts": {
-      "$spaceid": { "label": "Shared space", "detail": "Alice and Bob are both members (s1)" },
+      "$roomId": { "label": "Shared space", "detail": "Alice and Bob are both members (s1)" },
       "$clientId": { "label": "One entry per open tab", "detail": "Alice's tab writes it, Bob's facepile reads it" }
     },
     "watchMethod": "onValue",
@@ -292,7 +294,7 @@ this is the build variant.
   },
   "copy": {
     "title": "Signing out leaves you visible in the space",
-    "repro": "When Alice signs out, Spaces revokes her credentials before it cleans up. Her presence entry is left behind, so Bob keeps seeing her.",
+    "repro": "When Alice signs out, a shared-chat app revokes her credentials before it cleans up. Her presence entry is left behind, so Bob keeps seeing her.",
     "pathTitle": "Where presence lives",
     "pathContext": "Each open tab writes one entry here. Peers draw the facepile from this list, so the tab has to delete its own entry while it is still signed in.",
     "attackTitle": "Alice signs out",
@@ -300,7 +302,7 @@ this is the build variant.
     "whyTitle": "Why the entry stays",
     "why": "Credentials are revoked first. The cleanup that deletes the entry runs afterward, signed out, so it can't remove it.",
     "fixTitle": "Clean up first, then sign out",
-    "fixContext": "PR 372 deletes the entry and detaches listeners while Alice is still signed in.",
+    "fixContext": "The fix deletes the entry and detaches listeners while Alice is still signed in.",
     "severity": "MEDIUM"
   },
   "stage": { "slots": { "collapseSidebar": true } }

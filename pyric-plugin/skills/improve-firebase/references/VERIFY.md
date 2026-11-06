@@ -32,8 +32,8 @@ ordered edits to the temp copy only.
 For Vite with `@pyric/cli/vite`, build each side into its own temp dir:
 
 ```bash
-SPACES_PYRIC=1 npx vite build --mode sandbox --outDir /tmp/<name>-before-dist
-SPACES_PYRIC=1 npx vite build --mode sandbox --outDir /tmp/<name>-after-dist
+APP_PYRIC=1 npx vite build --mode sandbox --outDir /tmp/<name>-before-dist
+APP_PYRIC=1 npx vite build --mode sandbox --outDir /tmp/<name>-after-dist
 ```
 
 The env flag and mode come from the project's Vite config; check it before

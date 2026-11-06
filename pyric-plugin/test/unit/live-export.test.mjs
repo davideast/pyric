@@ -50,6 +50,11 @@ test('Live export contract (packages/cli -> from-assurance)', async (t) => {
         description: 'Alice writes secret',
         operation: { service: 'rtdb', method: 'set', path: `/secret`, data: 'new' } 
       },
+      { 
+        id: 'bob-writes-secret-obs', actorId: 'bob', result: 'ALLOW', source: 'authored',
+        description: 'Bob writes secret',
+        operation: { service: 'rtdb', method: 'set', path: `/secret`, data: 'new' } 
+      },
     ],
   });
 
@@ -63,7 +68,7 @@ test('Live export contract (packages/cli -> from-assurance)', async (t) => {
   });
 
   await call('propose', {
-    campaignId: CID, observationId: 'alice-writes-secret', invariantId: 'only-alice',
+    campaignId: CID, observationId: 'bob-writes-secret-obs', invariantId: 'only-alice',
     mutations: [{ 
       id: 'bob-writes-secret', dimension: 'path',
       description: "Bob writes secret",
@@ -91,6 +96,6 @@ test('Live export contract (packages/cli -> from-assurance)', async (t) => {
   assert.ok(result.scenario);
   result.scenario.schema = SCENARIO_SCHEMA;
   assert.doesNotThrow(() => validateScenario(result.scenario));
-  assert.equal(result.controlSource.kind, 'probe-control', 'Control must come from observation');
+  assert.equal(result.controlSource.kind, 'observation', 'Control must come from observation');
   assert.equal(result.controlOperation.path, '/secret', 'Control observation must be from owner (alice)');
 });
