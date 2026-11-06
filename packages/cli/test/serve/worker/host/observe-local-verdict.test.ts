@@ -96,6 +96,25 @@ service cloud.firestore {
   }
 }`;
 
+const ADMIN_CLAIM = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+      allow read: if request.auth.token.admin == true;
+    }
+  }
+}`;
+
+const OWNED_WRITES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+      allow create: if request.resource.data.owner == request.auth.uid;
+      allow update: if request.resource.data.owner == request.auth.uid;
+    }
+  }
+}`;
+
 describe('host: local verdict of an observed call', () => {
   it('records a live allow the local rules also allow, with the rule that allowed it', async () => {
     const ctx = ctxWithFirestoreRules(SIGNED_IN);
@@ -189,6 +208,61 @@ describe('host: local verdict of an observed call', () => {
       result: 'deny',
       production: { outcome: DENIED, local: { result: 'allow', drift: true, rule: { path: '/items', expression: 'auth != null' } } },
     });
+  });
+
+  it('evaluates a rule that reads a claim with the claim values the call carries', async () => {
+    const ctx = ctxWithFirestoreRules(ADMIN_CLAIM);
+    const admin = { ...getDoc(OK), account: { uid: 'alice', claimNames: ['admin'], claims: { admin: true } } };
+    expect(await observedEvent(ctx, admin)).toMatchObject({ production: { local: { result: 'allow', rule: { line: 5 } } } });
+    const member = { ...getDoc(DENIED), account: { uid: 'bob', claims: { admin: false } } };
+    const denied = await observedEvent(ctx, member);
+    expect(denied).toMatchObject({ production: { local: { result: 'deny' } } });
+    expect(denied).not.toHaveProperty('production.local.drift');
+  });
+
+  it('leaves a claim rule unevaluated when the call carries no claim values', async () => {
+    const ctx = ctxWithFirestoreRules(ADMIN_CLAIM);
+    const event = await observedEvent(ctx, { ...getDoc(OK), account: { uid: 'alice', claimNames: ['admin'] } });
+    expect(event).toMatchObject({ production: { local: { result: 'unevaluated', needs: ['claim-values'] } } });
+  });
+
+  it('evaluates a rule that reads the stored document with the document the read returned', async () => {
+    const ctx = ctxWithFirestoreRules(PUBLIC_DOCS);
+    const event = await observedEvent(ctx, { ...getDoc(OK), document: { public: true } });
+    expect(event).toMatchObject({ production: { local: { result: 'allow', rule: { line: 5 } } } });
+    expect(event).not.toHaveProperty('production.local.drift');
+  });
+
+  it('evaluates a create with the data the call wrote, and flags drift on a mismatch', async () => {
+    const ctx = ctxWithFirestoreRules(OWNED_WRITES);
+    const add: ObservedCall = { service: 'firestore', method: 'addDoc', path: 'rooms/r9', at: 1, outcome: OK, account: { uid: 'alice' }, writeData: { owner: 'alice' } };
+    expect(await observedEvent(ctx, add)).toMatchObject({ production: { local: { result: 'allow', rule: { line: 5 } } } });
+    const other = await observedEvent(ctx, { ...add, writeData: { owner: 'bob' } });
+    expect(other).toMatchObject({ production: { local: { result: 'deny', drift: true } } });
+  });
+
+  it('gives a setDoc a verdict from the data it wrote', async () => {
+    const ctx = ctxWithFirestoreRules(OWNED_WRITES);
+    const set: ObservedCall = { service: 'firestore', method: 'setDoc', path: 'rooms/r1', at: 1, outcome: OK, account: { uid: 'alice' }, writeData: { owner: 'alice' } };
+    expect(await observedEvent(ctx, set)).toMatchObject({ production: { local: { result: 'allow' } } });
+  });
+
+  it('leaves a write rule unevaluated without write data, and an update without the stored document', async () => {
+    const ctx = ctxWithFirestoreRules(OWNED_WRITES);
+    const add: ObservedCall = { service: 'firestore', method: 'addDoc', path: 'rooms/r9', at: 1, outcome: OK, account: { uid: 'alice' } };
+    expect(await observedEvent(ctx, add)).toMatchObject({ production: { local: { result: 'unevaluated', needs: ['write-data'] } } });
+    const update: ObservedCall = { ...add, method: 'updateDoc', path: 'rooms/r1', writeData: { title: 'x' } };
+    expect(await observedEvent(ctx, update)).toMatchObject({ production: { local: { result: 'unevaluated', needs: ['stored-document'] } } });
+  });
+
+  it('evaluates an RTDB rule that reads a claim with the claim values the call carries', async () => {
+    const ctx = hostCtx();
+    expect(setDatabaseRules(ctx, undefined, { rules: { items: { '.read': 'auth.token.admin === true' } } }).ok).toBe(true);
+    const read: ObservedCall = {
+      service: 'rtdb', method: 'get', path: '/items/a', instance: 'demo-project-default-rtdb', projectId: 'demo-project', at: 1, outcome: OK,
+      account: { uid: 'alice', claims: { admin: true } },
+    };
+    expect(await observedEvent(ctx, read)).toMatchObject({ production: { local: { result: 'allow' } } });
   });
 
   it('records no local verdict for a call the rules do not govern', async () => {
