@@ -47,7 +47,7 @@ import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { ensureAuth, setPortSession } from '../worker/host-auth.js';
-import { callerFor, markPortConnection, type PortConnection } from '../worker/host/caller.js';
+import { callerFor, markPortConnection, SERVICE_WORKER_TAB_ID, setPortTabId, type PortConnection } from '../worker/host/caller.js';
 import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
@@ -459,6 +459,9 @@ export async function createHostedRuntime(
   function enqueue(clientSessionId: string, incoming: InboundMessage, transport: HostedTransport, platform?: string): void {
     const owned = portFor(clientSessionId, transport);
     markPortConnection(ctx, owned.port, portConnection(transport, platform));
+    // A service worker names its realm at attach, so a connection that sends no `appConfig` reads as one too.
+    const isServiceWorker = transport === 'worker-port' && platform === SERVICE_WORKER_TAB_ID;
+    if (isServiceWorker) setPortTabId(ctx, owned.port, SERVICE_WORKER_TAB_ID);
     let releaseOperation: (() => void) | undefined;
     // An observed call is charged like an operation, so a client cannot queue them without bound.
     const isOperation = incoming.t === 'op' || incoming.t === 'tool' || incoming.t === 'observe';

@@ -7,6 +7,8 @@ import { ownClientUntilPagehide } from '../worker/client/pagehide.js';
 import { disconnectClient } from '../worker/client/disconnect.js';
 import { isServiceWorkerRealm } from '../worker/service-worker-channel.js';
 import { SERVICE_WORKER_TAB_ID } from '../worker/host/caller.js';
+import { pageTabId } from '../worker/client/tab-id.js';
+import type { AppConfigMessage } from '../worker/protocol.js';
 import { PYRIC_WORKER_URL } from '../runtime/manifest.js';
 import { workerNameForEpoch } from '../runtime/worker-generation.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
@@ -52,11 +54,19 @@ export async function messagingSwClient(app: FirebaseApp): Promise<ClientDb | nu
         await lifecycle.disconnect();
       });
     }
-    // A service worker has no tab; it declares its realm, so its rows read "Service worker".
-    const tabId = isServiceWorkerRealm() ? SERVICE_WORKER_TAB_ID : undefined;
-    client.port.postMessage({ t: 'appConfig', options: { ...app.options }, tabId });
+    client.port.postMessage(messagingAppConfig(app.options));
     return client;
   } finally { release(); }
+}
+
+/**
+ * The `appConfig` Messaging's connection opens with. A page names its tab, as
+ * its other app ports do, so its rows read "This page". A service worker has
+ * no tab; it declares its realm, so its rows read "Service worker".
+ */
+export function messagingAppConfig(options: FirebaseApp['options']): AppConfigMessage {
+  const tabId = isServiceWorkerRealm() ? SERVICE_WORKER_TAB_ID : pageTabId();
+  return { t: 'appConfig', options: { ...options }, tabId };
 }
 
 /** Keep initial attachment alive without making an outage invalidate the worker installation. */
