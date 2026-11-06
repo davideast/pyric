@@ -6,10 +6,10 @@
  *
  * The wires:
  *   - gRPC: Firestore, through the `@grpc/grpc-js` copy google-gax loads. The
- *     recorder wraps `Client.prototype.makeUnaryRequest`,
- *     `makeServerStreamRequest` and `makeBidiStreamRequest` and keeps each
- *     request and response object, the final status, its details and the
- *     trailer names. Nothing is proxied.
+ *     recorder wraps each service method of the clients that copy's
+ *     `loadPackageDefinition` builds, and keeps each request and response
+ *     object, the final status, its details and the trailer names. Nothing is
+ *     proxied.
  *   - `https.request`: Auth (`identitytoolkit.googleapis.com`), the ID token
  *     cert fetch, and Storage (gaxios 6 sends through node-fetch 2, which calls
  *     `https.request`). Only those hosts are recorded, so every token exchange
@@ -211,42 +211,121 @@ interface GrpcCall {
 }
 
 type ClientMethod = (this: unknown, ...args: unknown[]) => GrpcCall;
-type GrpcClientPrototype = Record<'makeUnaryRequest' | 'makeServerStreamRequest' | 'makeBidiStreamRequest', ClientMethod>;
 
-/** The `@grpc/grpc-js` copy `@google-cloud/firestore` loads through firebase-admin. */
-export function firestoreGrpcClient(): { prototype: GrpcClientPrototype } {
+interface MethodAttributes {
+  path: string;
+  requestStream: boolean;
+  responseStream: boolean;
+  originalName?: string;
+}
+
+/** A service client class `loadPackageDefinition` builds: its methods and their attributes. */
+interface ServiceClient {
+  service: Record<string, MethodAttributes>;
+  prototype: Record<string, ClientMethod>;
+}
+
+/** The `@grpc/grpc-js` module that builds service clients; `loadPackageDefinition` is writable there. */
+export interface GrpcPackageLoader {
+  loadPackageDefinition(definition: unknown): Record<string, unknown>;
+}
+
+/**
+ * The `make-client` module of the `@grpc/grpc-js` copy `@google-cloud/firestore`
+ * loads through firebase-admin and google-gax. Wrapping `Client.prototype`
+ * records nothing: that module keeps its own references to the prototype's
+ * request methods and binds every service method to them. The package index
+ * re-exports `loadPackageDefinition` through a getter that reads this module's
+ * export, so replacing it here replaces what google-gax calls.
+ */
+export function firestoreGrpcClient(): GrpcPackageLoader {
   const fromAdmin = createRequire(import.meta.resolve('firebase-admin/firestore'));
   const fromFirestore = createRequire(fromAdmin.resolve('@google-cloud/firestore'));
   const fromGax = createRequire(fromFirestore.resolve('google-gax'));
-  return (fromGax('@grpc/grpc-js') as { Client: { prototype: GrpcClientPrototype } }).Client;
+  const fromGrpc = createRequire(fromGax.resolve('@grpc/grpc-js'));
+  return fromGrpc('./make-client.js') as GrpcPackageLoader;
+}
+
+/**
+ * Why the run's gRPC recording is not usable: some `firestore.*` case ran and
+ * the recorder saw no exchange. Null when it is usable.
+ */
+export function grpcGapProblem(results: Readonly<Record<string, string>> | undefined, exchanges: readonly GrpcExchange[]): string | null {
+  const firestoreCases = Object.keys(results ?? {}).filter((op) => op.startsWith('firestore.'));
+  if (firestoreCases.length === 0 || exchanges.length > 0) return null;
+  return `${firestoreCases.length} firestore.* cases ran and the gRPC recorder saw no exchange`;
+}
+
+function kindOf(method: MethodAttributes): GrpcExchange['kind'] | null {
+  if (method.requestStream && method.responseStream) return 'bidi';
+  if (method.requestStream) return null;
+  return method.responseStream ? 'server-stream' : 'unary';
+}
+
+function isServiceClient(value: unknown): value is ServiceClient {
+  return typeof value === 'function' && typeof (value as { service?: unknown }).service === 'object';
+}
+
+/** A namespace of a loaded package; message and enum definitions carry `format`. */
+function isNamespace(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !('format' in value);
 }
 
 export class GrpcRecorder {
   readonly exchanges: GrpcExchange[] = [];
   private readonly stamp: Stamp;
   private readonly placeholders: Placeholders;
+  private installed = false;
 
   constructor(stamp: Stamp, placeholders: Placeholders) {
     this.stamp = stamp;
     this.placeholders = placeholders;
   }
 
-  /** Wraps the three request methods on `client.prototype`; returns the uninstall. */
-  install(client: { prototype: GrpcClientPrototype }): () => void {
-    const proto = client.prototype;
-    const real = { ...proto };
-    proto.makeUnaryRequest = this.wrap(real.makeUnaryRequest, 'unary');
-    proto.makeServerStreamRequest = this.wrap(real.makeServerStreamRequest, 'server-stream');
-    proto.makeBidiStreamRequest = this.wrap(real.makeBidiStreamRequest, 'bidi');
-    return () => Object.assign(proto, real);
+  /**
+   * Wraps the service methods of every client `loader` builds from now on;
+   * returns the uninstall. google-gax builds Firestore's client on its first
+   * call, so installing before any Firestore call is enough.
+   */
+  install(loader: GrpcPackageLoader): () => void {
+    const real = loader.loadPackageDefinition;
+    this.installed = true;
+    loader.loadPackageDefinition = (definition: unknown) => {
+      const loaded = real(definition);
+      this.wrapNamespace(loaded);
+      return loaded;
+    };
+    return () => {
+      this.installed = false;
+      loader.loadPackageDefinition = real;
+    };
   }
 
-  private wrap(real: ClientMethod, kind: GrpcExchange['kind']): ClientMethod {
+  private wrapNamespace(namespace: Record<string, unknown>): void {
+    for (const value of Object.values(namespace)) {
+      if (isServiceClient(value)) this.wrapService(value);
+      else if (isNamespace(value)) this.wrapNamespace(value);
+    }
+  }
+
+  private wrapService(client: ServiceClient): void {
+    for (const [name, method] of Object.entries(client.service)) {
+      const kind = kindOf(method);
+      const real = client.prototype[name];
+      if (kind === null || real === undefined) continue;
+      const wrapped = this.wrap(real, kind, method.path);
+      client.prototype[name] = wrapped;
+      if (method.originalName) client.prototype[method.originalName] = wrapped;
+    }
+  }
+
+  /** A service method takes the request first (none on a bidi call) and a unary callback last. */
+  private wrap(real: ClientMethod, kind: GrpcExchange['kind'], path: string): ClientMethod {
     const recorder = this;
     return function (this: unknown, ...args: unknown[]): GrpcCall {
-      if (recorder.stamp.paused) return real.apply(this, args);
-      const exchange = recorder.begin(kind, String(args[0]));
-      if (kind !== 'bidi') exchange.requests.push(recorder.placeholders.json(args[3]));
+      if (!recorder.installed || recorder.stamp.paused) return real.apply(this, args);
+      const exchange = recorder.begin(kind, path);
+      if (kind !== 'bidi') exchange.requests.push(recorder.placeholders.json(args[0]));
       const last = args.length - 1;
       if (kind === 'unary' && typeof args[last] === 'function') {
         const callback = args[last] as (error: unknown, value?: unknown) => void;
