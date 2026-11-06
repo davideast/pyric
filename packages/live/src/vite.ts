@@ -33,7 +33,8 @@
  *
  * The dev server refuses to start when a start check fails
  * (`start-checks.ts`) or no project is set, and prints the start line once
- * it serves.
+ * it serves. The rows it serves refuse a call whose app names another
+ * project than the one it resolved (`serveHostProject`).
  */
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +45,7 @@ import {
   type PyricOptions,
   type SuppliedRowsPlane,
 } from '@pyric/cli/vite/internal/supplied-rows';
+import { serveHostProject } from './page-modules.js';
 import { canPassThrough, liveRefusal, passThroughOption, refusedImportsLine, withPassThroughHint } from './refusal.js';
 import { liveStartLine } from './start-line.js';
 import { liveStartRefusal } from './start-checks.js';
@@ -120,6 +122,7 @@ export function pyricLive(options: PyricLiveOptions = {}): PyricPlugin {
       const refusal = liveStartRefusal(resolved.root);
       if (refusal !== null) throw new Error(`${ENTRY}: ${refusal}`);
       projectId = liveProjectFor(resolved.root, options);
+      serveHostProject(projectId);
       logError = (line) => resolved.logger.error(line, { timestamp: true });
       await configResolved?.call(this as never, resolved);
     },
