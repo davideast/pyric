@@ -34,7 +34,6 @@ const BILLED_NONE = 'Billed calls: 0 reads, 0 writes, 0 documents delivered to l
 
 declare function runApp(): Promise<unknown>;
 declare function uploadNote(path: string): Promise<string>;
-declare function pauseHeldUpload(bucket: string): boolean;
 
 interface Replay {
   origin: string;
@@ -240,34 +239,6 @@ async function expectBuckets(app: App, count: number): Promise<void> {
   for (const bucket of buckets) assert.ok(events.some((event) => event.detail?.bucket === bucket), `an event on ${bucket}`);
 }
 
-/**
- * Holds the page's paused upload's second chunk and never sends it, and
- * pauses that bucket's upload while the chunk is held, so the pause cancels
- * it in flight, as capture S's pause cancelled its second chunk before
- * production received it. The resume then asks what the server received and
- * sends the rest as capture S did. Every other request goes on through the
- * context's own routes. Returns each held request's bucket.
- *
- * Capture S has no answer for the doubled chunk itself: a pause that missed
- * it would leave the upload waiting on the held request (#2266, the replay
- * answers a resumable upload only along capture S's chunk sizes).
- */
-async function holdPausedChunk(page: Page): Promise<string[]> {
-  const held: string[] = [];
-  await page.route((url) => url.searchParams.get('name') === `${RUN}/paused.bin` && url.searchParams.has('upload_id'), async (route) => {
-    const request = route.request();
-    const headers = request.headers();
-    // The second chunk, doubled to the rest of the file: it starts at 256 KiB and finalizes.
-    const isSecondChunk = headers['x-goog-upload-offset'] === String(256 * 1024) && headers['x-goog-upload-command'] === 'upload, finalize';
-    if (!isSecondChunk) return route.fallback();
-    const bucket = decodeURIComponent(new URL(request.url()).pathname.split('/')[3] ?? '');
-    held.push(bucket);
-    const paused = await page.evaluate((name) => pauseHeldUpload(name), bucket);
-    if (!paused) held.push(`no paused upload waited on ${bucket}`);
-  });
-  return held;
-}
-
 /** `run`, or a failure naming `what` once `ms` pass without it settling. */
 async function within<T>(ms: number, what: string, run: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -306,10 +277,8 @@ export default scenario(async (app) => {
     await eventually(status, (text) => text === 'Ready', 'the page loads its client code').catch((error: Error) => {
       throw new Error(`${error.message}\nconsole:\n${app.browserLog.join('\n')}`);
     });
-    const held = await holdPausedChunk(opened);
     const results = await within(60_000, 'the page\'s capture S sequence', opened.evaluate(() => runApp()));
     assert.deepEqual(results, expectedResults('page'));
-    assert.deepEqual(held, [BUCKETS.default, BUCKETS.second], 'the page paused each bucket\'s upload while its second chunk was held');
     assert.deepEqual(await pageReplay.unmatched(), []);
     return opened;
   });

@@ -50,33 +50,19 @@ async function client(bucket, n) {
 }
 
 /**
- * Each bucket's paused upload a page is running, until `pauseHeldUpload`
- * pauses it. In Node the SDK makes the next chunk's request within the turn
- * the first chunk's answer arrives, so a pause on the next turn cancels that
- * request before it is sent, and the resume asks the server what it received,
- * as capture S recorded. A page resolves the next chunk's token in a later
- * task, so no timer lands reliably in that window; the page's paused upload
- * waits for whoever drives it to call `pauseHeldUpload` while the next chunk
- * is in flight.
+ * Uploads `LARGE` resumably, pausing on the next turn after the first chunk
+ * and resuming once paused. In Node the SDK has made the next chunk's request
+ * by then, so the pause cancels it before it is sent, and the resume asks the
+ * server what it received and sends the rest in two chunks, as capture S
+ * recorded. A page resolves the next chunk's token in a later task, so its
+ * pause can land before that request exists, and its resume then sends the
+ * rest in one final chunk, as production accepted for capture S's `big.bin`.
  */
-const pausable = new Map();
-
-/** Pauses the upload running on `bucket` that waits for it. */
-function pauseHeldUpload(bucket) {
-  const task = pausable.get(bucket);
-  if (!task) return false;
-  pausable.delete(bucket);
-  task.pause();
-  return true;
-}
-
-/** Uploads `LARGE` resumably, pausing once after the first chunk and resuming once paused. */
 async function pausedUpload(at) {
   const task = uploadBytesResumable(at, LARGE);
-  let pauseScheduled = isPage;
+  let pauseScheduled = false;
   let resumed = false;
   let paused = false;
-  if (isPage) pausable.set(at.bucket, task);
   task.on("state_changed", (snapshot) => {
     if (!pauseScheduled && snapshot.bytesTransferred > 0 && snapshot.state === "running") {
       pauseScheduled = true;
@@ -175,7 +161,6 @@ async function uploadNote(path) {
 if (isPage) {
   window.runApp = () => runApp().then((run) => run.results, (error) => `failed: ${error.code ?? ""} ${error.message}`);
   window.uploadNote = uploadNote;
-  window.pauseHeldUpload = pauseHeldUpload;
   document.querySelector("#status").textContent = "Ready";
 } else {
   const { results, clients } = await runApp();
