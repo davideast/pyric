@@ -1,11 +1,11 @@
 // A notes app's Firebase init module: one file that sets up every service the
-// app uses, as many apps write it. Cloud Storage holds note attachments and AI
-// Logic drafts notes. Nothing here reads, writes or sends a prompt: getting
-// each service makes no request.
+// app uses, as many apps write it. Cloud Storage holds note attachments and a
+// callable Cloud Function drafts notes. Nothing here reads, writes or calls a
+// function: getting each service makes no request.
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
-import { getAI } from "firebase/ai";
+import { getFunctions } from "firebase/functions";
 
 const app = initializeApp({
   apiKey: "demo-api-key",
@@ -16,12 +16,12 @@ const app = initializeApp({
 });
 const auth = getAuth(app);
 const storage = getStorage(app);
-const ai = getAI(app);
+const functions = getFunctions(app);
 
 const services = [
   ["auth", auth.app === app],
   ["storage", storage.app === app],
-  ["ai", ai.app === app],
+  ["functions", functions.app === app],
 ];
 document.querySelector("#services").innerHTML = services
   .map(([name, sameApp]) => `<li data-service="${name}">${name}: ${sameApp ? "ready" : "another app"}</li>`)
