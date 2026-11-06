@@ -28,7 +28,8 @@
  *     fails the run, and nothing is written. `--cleanup <run id>` runs only
  *     the cleanup.
  *   - The recording is written only when every case got its expected answer,
- *     and only when no credential pattern remains in it.
+ *     the gRPC recorder saw the Firestore cases' exchanges, and no credential
+ *     pattern remains in it.
  *
  * One run by hand, on Node 24:
  *
@@ -62,6 +63,7 @@ import {
   captureRefusal,
   cleanupAdminRun,
   firestoreGrpcClient,
+  grpcGapProblem,
   GrpcRecorder,
   HttpRecorder,
   newStamp,
@@ -483,7 +485,13 @@ async function main(): Promise<void> {
     console.error(`[capture-admin] an invariant failed; nothing written. Clean the run up with: ${cleanupCommand(ctx.runId)}`);
     process.exit(3);
   }
-  const failures = [...(run.error ? [run.error.message] : []), ...run.failures, ...(run.result?.misses ?? [])];
+  const grpcGap = grpcGapProblem(run.result?.results, grpc.exchanges);
+  const failures = [
+    ...(run.error ? [run.error.message] : []),
+    ...run.failures,
+    ...(run.result?.misses ?? []),
+    ...(grpcGap ? [grpcGap] : []),
+  ];
   if (failures.length > 0) {
     console.error(`[capture-admin] capture failed; nothing written:\n  ${failures.join('\n  ')}`);
     console.error(`[capture-admin] cleanup read back clean; to check again: ${cleanupCommand(ctx.runId)}`);

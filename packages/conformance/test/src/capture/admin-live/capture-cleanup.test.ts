@@ -5,19 +5,25 @@
  * not a throw. It refuses anything that is not a run id before it touches
  * anything, and an abort stops the sequence, waits for the step in flight,
  * cleans up and reads back once more. The recorders drop the RTDB credential
- * frame, never record a token exchange, and keep gRPC statuses. Production is
- * a fake; nothing reaches the network.
+ * frame, never record a token exchange, and keep gRPC statuses. The gRPC
+ * recorder sees a real Firestore call made through the copy firebase-admin
+ * loads, against a loopback server. Production is a fake; nothing reaches the
+ * network.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drive, type Step } from '../../../../src/capture/admin-live/capture-admin-wire.ts';
 import {
   announceRunId,
   cleanupAdminRun,
+  firestoreGrpcClient,
+  grpcGapProblem,
   GrpcRecorder,
+  type GrpcPackageLoader,
   HttpRecorder,
   newStamp,
   Placeholders,
@@ -350,18 +356,23 @@ describe('recorders', () => {
     const listeners: Listener[] = [];
     const call = { on: (_event: string, listener: Listener) => { listeners.push(listener); return call; } };
     let answered: unknown;
-    const prototype = {
-      makeUnaryRequest(_method: unknown, _ser: unknown, _de: unknown, _arg: unknown, callback: (error: unknown, value?: unknown) => void) {
-        callback(null, { commitTime: { seconds: '1', nanos: 2 }, transaction: Buffer.from('tx-1') });
-        return call;
-      },
-      makeServerStreamRequest() { return call; },
-      makeBidiStreamRequest() { return call; },
+    function Firestore(): void {}
+    Firestore.service = {
+      Commit: { path: '/google.firestore.v1.Firestore/Commit', requestStream: false, responseStream: false, originalName: 'commit' },
+    };
+    Firestore.prototype.Commit = function (_arg: unknown, callback: (error: unknown, value?: unknown) => void) {
+      callback(null, { commitTime: { seconds: '1', nanos: 2 }, transaction: Buffer.from('tx-1') });
+      return call;
+    };
+    Firestore.prototype.commit = Firestore.prototype.Commit;
+    const loader: GrpcPackageLoader = {
+      loadPackageDefinition: () => ({ google: { firestore: { v1: { Firestore, Write: { format: 'Protocol Buffer 3 DescriptorProto' } } } } }),
     };
     const recorder = new GrpcRecorder(newStamp(), new Placeholders(new Redactor()));
-    const uninstall = recorder.install({ prototype } as unknown as Parameters<GrpcRecorder['install']>[0]);
-    (prototype.makeUnaryRequest as (...args: unknown[]) => unknown)(
-      '/google.firestore.v1.Firestore/Commit', null, null, { transaction: Buffer.from('tx-1') },
+    const uninstall = recorder.install(loader);
+    loader.loadPackageDefinition({});
+    (Firestore.prototype.commit as (...args: unknown[]) => unknown)(
+      { transaction: Buffer.from('tx-1') },
       (_error: unknown, value: unknown) => { answered = value; },
     );
     for (const listener of listeners) listener({ code: 6, details: 'Document already exists', metadata: { getMap: () => ({ 'x-debug': '1' }) } });
@@ -373,5 +384,72 @@ describe('recorders', () => {
     expect(exchange!.requests).toEqual([{ transaction: '<transaction-1>' }]);
     expect(exchange!.responses.map((r) => r.message)).toEqual([{ commitTime: '<commit-time-1>', transaction: '<transaction-1>' }]);
     expect(exchange!.status).toEqual({ code: 6, details: 'Document already exists', trailers: ['x-debug'] });
+  });
+});
+
+interface LoopbackServer {
+  bindAsync(address: string, credentials: unknown, done: (error: Error | null, port: number) => void): void;
+  forceShutdown(): void;
+}
+interface FirestoreLike {
+  doc(path: string): { get(): Promise<unknown> };
+  terminate(): Promise<void>;
+}
+
+/**
+ * A production run recorded 0 gRPC exchanges for 14 Firestore cases: the
+ * service methods `@grpc/grpc-js` builds call its own saved references to the
+ * `Client.prototype` request methods, so wrapping that prototype saw nothing.
+ * Here the Firestore copy the tool loads talks to a loopback gRPC server with
+ * no services, which answers UNIMPLEMENTED. Offline, the client spends a few
+ * seconds before its first call, hence the longer timeout.
+ */
+describe('capture A (Admin): the gRPC recorder on a real Firestore client', () => {
+  const firestorePath = createRequire(import.meta.resolve('firebase-admin/firestore')).resolve('@google-cloud/firestore');
+  const { Firestore } = createRequire(import.meta.url)(firestorePath) as {
+    Firestore: new (settings: Record<string, unknown>) => FirestoreLike;
+  };
+  const grpc = createRequire(createRequire(firestorePath).resolve('google-gax'))('@grpc/grpc-js') as {
+    Server: new () => LoopbackServer;
+    ServerCredentials: { createInsecure(): unknown };
+  };
+  let server: LoopbackServer;
+  let port = 0;
+
+  beforeAll(async () => {
+    server = new grpc.Server();
+    port = await new Promise<number>((resolve, reject) => {
+      server.bindAsync('127.0.0.1:0', grpc.ServerCredentials.createInsecure(), (error, bound) => (error ? reject(error) : resolve(bound)));
+    });
+  });
+
+  afterAll(() => server.forceShutdown());
+
+  test('records a Firestore read made through the copy firebase-admin loads', async () => {
+    const stamp = newStamp();
+    stamp.op = 'firestore.get';
+    const recorder = new GrpcRecorder(stamp, new Placeholders(new Redactor()));
+    const uninstall = recorder.install(firestoreGrpcClient());
+    const db = new Firestore({ projectId: 'demo-grpc-recorder', host: `127.0.0.1:${port}`, ssl: false });
+    try {
+      const error = await db.doc(`${RUN_PATH}/docs/doc`).get().then(() => null, (thrown: unknown) => thrown);
+      expect(error).not.toBeNull();
+    } finally {
+      await db.terminate();
+      uninstall();
+    }
+    const read = recorder.exchanges.find((exchange) => exchange.method === 'google.firestore.v1.Firestore/BatchGetDocuments');
+    expect(read).toBeDefined();
+    expect(read?.op).toBe('firestore.get');
+    expect(read?.kind).toBe('server-stream');
+    expect(read?.requests).toHaveLength(1);
+    expect(read?.status?.code).toBe(12);
+  }, 30_000);
+
+  test('a run whose Firestore cases recorded no gRPC exchange is refused', () => {
+    const results = { 'auth.createUser': 'ok', 'firestore.set': 'ok', 'firestore.get': 'ok' };
+    expect(grpcGapProblem(results, [])).toBe('2 firestore.* cases ran and the gRPC recorder saw no exchange');
+    expect(grpcGapProblem({ 'auth.createUser': 'ok' }, [])).toBeNull();
+    expect(grpcGapProblem(undefined, [])).toBeNull();
   });
 });
