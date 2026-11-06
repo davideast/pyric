@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#229","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"production's lower() maps the ASCII letters and leaves É unchanged, so the result is 'Éve@x.com'; pyric maps every Unicode letter and returns 'éve@x.com'","issue":"#1896"}

@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#229","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production's upper() maps the ASCII a and leaves é unchanged; pyric maps both and returns 'AÉ'","issue":"#1896"}
