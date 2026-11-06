@@ -1,16 +1,18 @@
 /**
- * The page plane's observer: each live record of a Firestore, Auth or
- * Realtime Database call becomes the observed call the Node host writes to
+ * The page plane's observer: each live record of a Firestore, Auth, Realtime
+ * Database or AI Logic call becomes the observed call the Node host writes to
  * its event stream, with production's answer. Records of `firebase/app` and
  * `firebase/app-check` calls stay in the page: the host's observed calls name
- * Firestore, Auth and RTDB only. A call that returned synchronously, such as
+ * Firestore, Auth, RTDB and AI Logic only. A call that returned synchronously, such as
  * a listener's subscribe, has no production answer and is not sent. A call
  * that ran signed in names its account: the uid and claim names, never the
- * token. An RTDB call also names its instance and path.
+ * token. An RTDB call also names its instance and path, and an AI Logic call
+ * its model and production's token counts.
  *
  * Loaded in the page, so it imports only types from `@pyric/cli`.
  */
 import type { ObservedCall, ObservedCallService, ProductionOutcome } from '@pyric/cli/vite/internal/supplied-rows';
+import { UNREAD_MODEL } from './ai.js';
 import { UNREAD_INSTANCE } from './database.js';
 import type { LiveCallOutcome, LiveCallRecord, LiveObserver } from './observe.js';
 
@@ -18,6 +20,7 @@ const SERVICES: ReadonlyMap<string, ObservedCallService> = new Map<string, Obser
   ['firebase/firestore', 'firestore'],
   ['firebase/auth', 'auth'],
   ['firebase/database', 'rtdb'],
+  ['firebase/ai', 'ai'],
 ]);
 
 const ANSWERED: ReadonlySet<LiveCallOutcome> = new Set(['resolved', 'delivered']);
@@ -50,6 +53,20 @@ function placeOf(service: ObservedCallService, record: LiveCallRecord): Pick<Obs
   return record.path === undefined ? instance : { ...instance, path: record.path };
 }
 
+/**
+ * The record's model and token counts, as the host takes them: a fresh copy.
+ * The host requires them on every AI Logic call and refuses them on any
+ * other, so an AI record without them names the unread model.
+ */
+function aiOf(service: ObservedCallService, record: LiveCallRecord): Pick<ObservedCall, 'ai'> {
+  if (service !== 'ai') return {};
+  const ai = record.ai ?? { model: UNREAD_MODEL };
+  const reported = ai.reportedModel === undefined ? {} : { reportedModel: ai.reportedModel };
+  const usage = ai.usage === undefined ? {} : { usage: { ...ai.usage } };
+  const timing = ai.firstChunkMs === undefined ? {} : { firstChunkMs: ai.firstChunkMs };
+  return { ai: { model: ai.model, ...reported, ...usage, ...timing } };
+}
+
 /** The observed call for a record made at `at`, or null when the host takes no row for it. */
 export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall | null {
   const service = SERVICES.get(record.module);
@@ -59,7 +76,7 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const project = record.projectId === undefined ? {} : { projectId: record.projectId };
   const account = accountOf(record);
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
-  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...placeOf(service, record) };
+  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...placeOf(service, record), ...aiOf(service, record) };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */
