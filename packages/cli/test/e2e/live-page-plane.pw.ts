@@ -179,16 +179,16 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
 test('the chip header stays one line, with a long project id and several imports passing through', async ({ page }, testInfo) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-header-')));
   let server: ViteDevServer | undefined;
-  // Firebase's longest project ids are 30 characters; the app's config names another project than .firebaserc.
+  // Firebase's longest project ids are 30 characters. The app's config and .firebaserc name the same one:
+  // a live host refuses calls from an app whose config names another project.
   const appProject = 'live-header-worst-case-project';
-  const configProject = 'live-header-staging-project-01';
   const passThrough = ['firebase/analytics', 'firebase/functions', 'firebase/performance', 'firebase/remote-config'];
   try {
     mkdirSync(join(root, 'node_modules/@pyric'), { recursive: true });
     symlinkSync(cliDir, join(root, 'node_modules/@pyric/cli'));
     symlinkSync(liveDir, join(root, 'node_modules/@pyric/live'));
     symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
-    writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: configProject } }));
+    writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: appProject } }));
     writeFileSync(join(root, 'index.html'), '<output id="status">Starting</output><script type="module" src="/main.js"></script>');
     writeFileSync(join(root, 'main.js'), appSource(await closedLoopbackPort(), appProject));
     const { pyricLive } = await import(createRequire(join(root, 'package.json')).resolve('@pyric/live/vite')) as typeof import('../../../live/src/vite.js');
@@ -204,9 +204,9 @@ test('the chip header stays one line, with a long project id and several imports
     await expect(page.locator('#status')).toHaveText('Ready');
     await page.evaluate(() => (Reflect.get(window, 'run') as () => Promise<unknown>)());
 
-    // The host knows the mismatch, the pass-through imports and the count; the header shows the project only.
+    // The host knows the project, the pass-through imports and the count; the header shows the project only.
     await expect.poll(async () => (await healthOf(url))?.live?.projectId).toBe(appProject);
-    expect((await healthOf(url))?.live).toMatchObject({ configProjectId: configProject, passThrough });
+    expect((await healthOf(url))?.live).toMatchObject({ configProjectId: appProject, passThrough });
     const header = page.locator('.panel-header');
     await expect(header.locator('[data-chip-live]')).toHaveCount(1);
 
