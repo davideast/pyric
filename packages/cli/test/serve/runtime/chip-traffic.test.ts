@@ -470,6 +470,33 @@ describe('a call production served', () => {
     expect(orderChipRequests(rows, 7000).map(row => row.method)).toEqual(['generateContentStream', 'countTokens']);
   });
 
+  it("reads a Storage call production refused with storage/unauthorized as denied", () => {
+    const denied = observed({
+      service: 'storage',
+      method: 'uploadBytes',
+      path: 'pyric_oracle_denied_storage/a.bin',
+      bucket: 'demo-project.firebasestorage.app',
+      projectId: 'demo-project',
+      outcome: { status: 'error', code: 'storage/unauthorized' },
+    }, { kind: 'page', pageId: 'tab-1' });
+    expect(chipRequestFromEvent(denied, 'tab-1')).toMatchObject({
+      service: 'storage',
+      method: 'uploadBytes',
+      path: 'pyric_oracle_denied_storage/a.bin',
+      verdict: 'denied',
+      production: { status: 'error', code: 'storage/unauthorized' },
+      source: 'page',
+    });
+    const missing = observed({
+      service: 'storage',
+      method: 'getMetadata',
+      path: 'pyric_oracle/missing.bin',
+      bucket: 'demo-project.firebasestorage.app',
+      outcome: { status: 'error', code: 'storage/object-not-found' },
+    });
+    expect(chipRequestFromEvent(missing)).toMatchObject({ verdict: 'error', production: { status: 'error', code: 'storage/object-not-found' } });
+  });
+
   it('leaves a sandbox-served operation without a production answer', () => {
     expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
     const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;
