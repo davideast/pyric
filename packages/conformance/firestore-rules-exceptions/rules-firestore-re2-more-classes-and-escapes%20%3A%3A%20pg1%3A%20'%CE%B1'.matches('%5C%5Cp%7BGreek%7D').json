@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#228","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production reads \\p{Greek} in matches() as the RE2 Greek script class; pyric's per-character matcher fails to compile it with the u flag and falls back to a non-u regex, so the class matches nothing and α does not match","issue":"#1889"}

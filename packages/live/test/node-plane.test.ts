@@ -41,9 +41,9 @@ describe('the modules a Node process gets for the live rows', () => {
 
 describe('the refusal a Node process gets', () => {
   test('names live mode, the service and the Node process', () => {
-    const error = liveRefusal('firebase/database', 'node') as Error & { code?: string };
+    const error = liveRefusal('firebase/functions', 'node') as Error & { code?: string };
     expect(error.code).toBe(LIVE_REFUSED);
-    expect(error.message).toContain('firebase/database (Realtime Database) is refused in live mode');
+    expect(error.message).toContain('firebase/functions (Cloud Functions) is refused in live mode');
     expect(error.message).toContain('to a Node process, from your installed Firebase SDK');
     expect(liveRefusal('firebase-admin', 'node').message).toContain('firebase-admin (the Admin SDK) is refused in live mode');
     // The register loads the refusal from this package's node-modules export, never from its caller.

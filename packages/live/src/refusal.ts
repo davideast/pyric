@@ -67,7 +67,7 @@ function joinedList(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
-/** `firebase/app, firebase/auth, firebase/firestore and firebase/app-check`. */
+/** `firebase/app, firebase/auth, firebase/firestore, firebase/app-check and firebase/database`. */
 const SERVED = joinedList([...SERVED_IMPORTS]);
 
 /** What live mode serves where the import was made. */
@@ -135,14 +135,14 @@ function passThroughProblem(entry: unknown): string | null {
 export function passThroughOption(entry: string, value: unknown): readonly string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
-    throw new Error(`${entry}: passThrough takes a list of Firebase imports, such as ['firebase/database'].`);
+    throw new Error(`${entry}: passThrough takes a list of Firebase imports, such as ['firebase/functions'].`);
   }
   const problems = value.map(passThroughProblem).filter((problem): problem is string => problem !== null);
   if (problems.length > 0) throw new Error(`${entry}: ${[...new Set(problems)].join(' ')}`);
   return [...new Set(value as string[])];
 }
 
-/** `firebase/ai (Firebase AI Logic) and firebase/database (Realtime Database)`. */
+/** `firebase/ai (Firebase AI Logic) and firebase/functions (Cloud Functions)`. */
 function namedList(specifiers: readonly string[]): string {
   return joinedList(specifiers.map((specifier) => `${specifier} (${serviceOf(specifier)})`));
 }

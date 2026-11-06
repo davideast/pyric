@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#228","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production reads \\p{Greek} in replace() as the RE2 Greek script class; pyric reads it as the letters p{Greek}","issue":"#2211"}

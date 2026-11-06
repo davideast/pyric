@@ -141,12 +141,27 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
   const isObserved = outcome !== undefined && isProductionServed(rules);
   if (!isObserved) return null;
   const verdict = OBSERVED_VERDICTS[productionVerdict(outcome)];
-  return {
+  const request: ChipRequest = {
     id: event.id, at: event.at, service: event.service, method: event.method,
     path: event.path ?? null, verdict,
     identity: event.auth === null ? 'signed out' : event.auth.uid,
     production: { ...outcome },
   };
+  const observation = event.observation;
+  const ai = observation?.ai;
+  if (observation === undefined || ai === undefined) return request;
+  // An observed event's `at` is the call's start; the row sorts by production's answer.
+  const answeredAt = observation.endedAt ?? event.at;
+  const aiRequest: AiRequestObservation = {
+    id: event.id, startedAt: observation.startedAt, at: answeredAt, second: Math.floor(answeredAt / 1000),
+    method: event.method, status: observation.status, detail: { ...ai },
+  };
+  return { ...request, at: answeredAt, aiRequest };
+}
+
+/** The AI rows the sandbox served, which Rates and the Sandbox tab count; production's rows are Traffic's only. */
+export function sandboxAiRequests(requests: readonly ChipRequest[]): AiRequestObservation[] {
+  return requests.flatMap(request => request.aiRequest !== undefined && request.production === undefined ? [request.aiRequest] : []);
 }
 
 function projectRequest(event: SandboxEvent): ChipRequest | null {
