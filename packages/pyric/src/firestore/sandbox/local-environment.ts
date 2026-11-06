@@ -13,7 +13,8 @@ import {
 import { OverlayBacking } from './overlay-backing.js';
 import { EventLog, type AgentEvent } from './event-log.js';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
-import { lintFirestoreRules, type LintResult } from 'pyric/rules/internal';
+import { lintFirestoreRules, type LintResult, type TestCase, type TestFirestoreRulesResult } from 'pyric/rules/internal';
+import { simulateDeployedRules } from './rules-simulator.js';
 import type { FirestoreSimError } from './errors.js';
 import type { RunQueryRequest, RunQueryResult } from './query-execution.js';
 import type {
@@ -389,6 +390,18 @@ export class LocalEnvironment {
   /** Get current rules source. */
   getRules(): string {
     return this.rules.source;
+  }
+
+  /**
+   * Evaluate test cases against the deployed rules through the cached parse,
+   * as the data plane does, reading documents only through `opts.getDoc`.
+   * Nothing is written and no event is emitted.
+   */
+  simulateDeployedRules(
+    testCases: TestCase[],
+    opts: Parameters<SimulateFirestoreRulesHandler['simulate']>[2],
+  ): TestFirestoreRulesResult {
+    return simulateDeployedRules(this.rules, this.simulator, testCases, opts);
   }
 
   // ═══ Read operations (bypass rules — admin access) ═══

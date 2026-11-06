@@ -169,9 +169,9 @@ export interface ObservedProduction {
 /**
  * Data a local evaluation needed and an observed call does not carry: a
  * stored document (`resource`, `get()`, `exists()`, or an RTDB `data` or
- * `root`), the written value, or a token claim's value.
+ * `root`), the written value, a token claim's value, or a list's query.
  */
-export type LocalVerdictGap = 'stored-document' | 'write-data' | 'claim-values';
+export type LocalVerdictGap = 'stored-document' | 'write-data' | 'claim-values' | 'query';
 
 /** The local rule that decided: its source line, its condition, and the match path it sits under. */
 export interface LocalRule {
