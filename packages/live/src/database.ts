@@ -79,16 +79,33 @@ function stringAt(value: unknown, keys: readonly string[]): string | undefined {
   return typeof current === 'string' && current !== '' ? current : undefined;
 }
 
-/** The record fields one repo gives a call: its app (whose Auth names the account), project and instance. */
+/**
+ * The instance a record names when the reference's repo does not say: 40
+ * characters, longer than any instance name production gives, so it never
+ * reads as the default instance or as one the project has. A host requires
+ * an instance on every RTDB call, so the call still reaches Traffic.
+ */
+export const UNREAD_INSTANCE = 'instance-not-read-from-the-sdk-reference';
+
+/**
+ * A repo's instance: the SDK's namespace, lowercase. The SDK keeps the
+ * namespace a `?ns=` URL parameter spells as written, and production's
+ * instance names are lowercase, so `?ns=My-App` is the instance `my-app`.
+ */
+function instanceOf(repo: Fields | undefined): string {
+  const namespace = stringAt(repo, ['repoInfo_', 'namespace']);
+  return namespace === undefined ? UNREAD_INSTANCE : namespace.toLowerCase();
+}
+
+/** The record fields one repo gives a call: its app (whose Auth names the account), project and instance, which is always named. */
 function repoContext(repo: Fields | undefined): CallContext {
-  if (repo === undefined) return {};
-  const app = APP_BY_REPO.get(repo);
+  const instance = instanceOf(repo);
+  const app = repo === undefined ? undefined : APP_BY_REPO.get(repo);
   const projectId = stringAt(app, ['options', 'projectId']);
-  const instance = stringAt(repo, ['repoInfo_', 'namespace']);
   return {
     ...(app === undefined ? {} : { subject: app }),
     ...(projectId === undefined ? {} : { projectId }),
-    ...(instance === undefined ? {} : { instance }),
+    instance,
   };
 }
 
@@ -114,7 +131,7 @@ export function databaseContext(name: string, args: readonly unknown[], self: un
     return path === undefined ? context : { ...context, path };
   } catch {
     // A reference that throws on read is still recorded, without its context.
-    return {};
+    return { instance: UNREAD_INSTANCE };
   }
 }
 
@@ -170,30 +187,47 @@ const LISTENER_OF_EVENT: Readonly<Record<string, string>> = {
   child_moved: 'onChildMoved',
 };
 
+/** One app callback's recording callbacks: by repo, and, for a reference whose repo the row cannot read, by instance alone. */
+interface Handed {
+  readonly byRepo: WeakMap<object, Map<string, Callback>>;
+  readonly unread: Map<string, Callback>;
+}
+
 /**
  * The callbacks the row handed the SDK for each app callback, by the repo and
  * the listener and path they listen with. One app callback listening twice on
  * the same reference gets the same recording callback twice, so the SDK sees
- * what it would see without live mode, and `off()` removes both.
+ * what it would see without live mode, and `off()` removes both. A reference
+ * whose `_repo` the row cannot read is keyed by its instance and path
+ * instead, so `off()` still finds the callback the SDK holds.
  */
-const HANDED = new WeakMap<object, WeakMap<object, Map<string, Callback>>>();
+const HANDED = new WeakMap<object, Handed>();
 
-function handedKey(listener: string, path: string | undefined): string {
-  return JSON.stringify([listener, path ?? null]);
+function handedKey(listener: string, instance: string, path: string | undefined): string {
+  return JSON.stringify([listener, instance, path ?? null]);
 }
 
-function handedFor(appCallback: object, repo: object): Map<string, Callback> {
-  let byRepo = HANDED.get(appCallback);
-  if (byRepo === undefined) {
-    byRepo = new WeakMap();
-    HANDED.set(appCallback, byRepo);
+/** The map that holds an app callback's recording callbacks for `query`'s repo, creating it when `create` is set. */
+function handedFor(appCallback: object, query: unknown, create: boolean): Map<string, Callback> | undefined {
+  let handed = HANDED.get(appCallback);
+  if (handed === undefined) {
+    if (!create) return undefined;
+    handed = { byRepo: new WeakMap(), unread: new Map() };
+    HANDED.set(appCallback, handed);
   }
-  let byListener = byRepo.get(repo);
-  if (byListener === undefined) {
+  const repo = repoOf(query);
+  if (repo === undefined) return handed.unread;
+  let byListener = handed.byRepo.get(repo);
+  if (byListener === undefined && create) {
     byListener = new Map();
-    byRepo.set(repo, byListener);
+    handed.byRepo.set(repo, byListener);
   }
   return byListener;
+}
+
+/** The key a listener's recording callback is kept under in its repo's map. */
+function keyFor(listener: string, query: unknown): string {
+  return handedKey(listener, instanceOf(repoOf(query)), pathOf(query));
 }
 
 /**
@@ -202,10 +236,8 @@ function handedFor(appCallback: object, repo: object): Map<string, Callback> {
  * `make` builds and the map keeps.
  */
 export function databaseListenerCallback(name: string, args: readonly unknown[], appCallback: Callback, make: () => Callback): Callback {
-  const repo = repoOf(args[0]);
-  if (repo === undefined) return make();
-  const handed = handedFor(appCallback, repo);
-  const key = handedKey(name, pathOf(args[0]));
+  const handed = handedFor(appCallback, args[0], true)!;
+  const key = keyFor(name, args[0]);
   const known = handed.get(key);
   if (known !== undefined) return known;
   const made = make();
@@ -219,9 +251,8 @@ function handedForOff(args: readonly unknown[]): Callback | undefined {
   const isOneCallback = typeof eventType === 'string' && typeof callback === 'function';
   if (!isOneCallback) return undefined;
   const listener = LISTENER_OF_EVENT[eventType];
-  const repo = repoOf(query);
-  if (listener === undefined || repo === undefined) return undefined;
-  return HANDED.get(callback)?.get(repo)?.get(handedKey(listener, pathOf(query)));
+  if (listener === undefined) return undefined;
+  return handedFor(callback, query, false)?.get(keyFor(listener, query));
 }
 
 /**

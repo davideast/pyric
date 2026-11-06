@@ -11,6 +11,7 @@
  * Loaded in the page, so it imports only types from `@pyric/cli`.
  */
 import type { ObservedCall, ObservedCallService, ProductionOutcome } from '@pyric/cli/vite/internal/supplied-rows';
+import { UNREAD_INSTANCE } from './database.js';
 import type { LiveCallOutcome, LiveCallRecord, LiveObserver } from './observe.js';
 
 const SERVICES: ReadonlyMap<string, ObservedCallService> = new Map<string, ObservedCallService>([
@@ -38,9 +39,14 @@ function accountOf(record: LiveCallRecord): Pick<ObservedCall, 'account'> {
   return { account: { uid: account.uid, ...claims } };
 }
 
-/** The record's instance and path, as the host takes them. */
-function placeOf(record: LiveCallRecord): Pick<ObservedCall, 'instance' | 'path'> {
-  const instance = record.instance === undefined ? {} : { instance: record.instance };
+/**
+ * The record's instance and path, as the host takes them. The host requires
+ * an instance on every RTDB call, so an RTDB record without one names the
+ * unread instance rather than drop out of Traffic.
+ */
+function placeOf(service: ObservedCallService, record: LiveCallRecord): Pick<ObservedCall, 'instance' | 'path'> {
+  const named = record.instance ?? (service === 'rtdb' ? UNREAD_INSTANCE : undefined);
+  const instance = named === undefined ? {} : { instance: named };
   return record.path === undefined ? instance : { ...instance, path: record.path };
 }
 
@@ -53,7 +59,7 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const project = record.projectId === undefined ? {} : { projectId: record.projectId };
   const account = accountOf(record);
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
-  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...placeOf(record) };
+  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...placeOf(service, record) };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */

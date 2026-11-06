@@ -182,13 +182,13 @@ function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown):
   }
 }
 
-/** `value` is the delivered value or the error, by outcome. */
 /** The site's instance and path, as a record carries them. */
 function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'path'> {
   const instance = site.instance === undefined ? {} : { instance: site.instance };
   return site.path === undefined ? instance : { ...instance, path: site.path };
 }
 
+/** `value` is the delivered value or the error, by outcome. */
 function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, value: unknown): LiveCallRecord {
   const isFailure = FAILURE_OUTCOMES.has(outcome);
   const project = site.projectId === undefined ? {} : { projectId: site.projectId };

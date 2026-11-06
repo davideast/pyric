@@ -22,6 +22,7 @@ import * as realAuth from 'firebase/auth';
 import type { Database, DataSnapshot } from 'firebase/database';
 import { observedCallOf } from '../src/page-observer.js';
 import { wrapLiveModule, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
+import { UNREAD_INSTANCE } from '../src/database.js';
 
 /** A replay recording, as `test/apps/replay/format.ts` defines it. */
 interface Recording {
@@ -392,6 +393,51 @@ describe('the wrappers capture A has no frames for', () => {
     row.off(ref, 'child_added', appCallback);
     row.off(ref);
     expect(offCalls).toEqual([[ref, 'child_moved', first![1]], [ref, 'child_added', appCallback], [ref]]);
+  });
+});
+
+describe('the instance every RTDB record names', () => {
+  test("a ?ns= URL's mixed-case namespace is recorded lowercase, as production names the instance", () => {
+    const app = realApp.initializeApp(CONFIG, 'live-rtdb-mixed-case');
+    const db = live.getDatabase(app, 'https://unused.firebaseio.com?ns=Demo-Live-RTDB-Mixed');
+    live.goOffline(db);
+    const before = records.length;
+    const stop = live.onValue(live.ref(db, 'items'), () => undefined);
+    stop();
+    const [subscribe] = records.slice(before);
+    expect(subscribe).toMatchObject({ name: 'onValue', outcome: 'returned', instance: 'demo-live-rtdb-mixed', path: '/items', projectId: PROJECT });
+  });
+
+  test('a record without an instance still reaches the host, naming the unread instance', () => {
+    const record: LiveCallRecord = { module: 'firebase/database', name: 'set', outcome: 'resolved', path: '/a' };
+    expect(observedCallOf(record, 1)).toEqual({ service: 'rtdb', method: 'set', at: 1, outcome: { status: 'ok' }, instance: UNREAD_INSTANCE, path: '/a' });
+    expect(observedCallOf({ module: 'firebase/firestore', name: 'getDoc', outcome: 'resolved' }, 1)).not.toHaveProperty('instance');
+  });
+
+  test('a reference whose _repo the row cannot read names the unread instance, and off() still stops its callback', () => {
+    // A stand-in SDK that keeps each registration and removes the ones off() names, as the SDK matches callbacks.
+    const registered = new Set<Callback>();
+    const standIn = {
+      onChildMoved: (_ref: unknown, callback: Callback) => {
+        registered.add(callback);
+        return () => registered.delete(callback);
+      },
+      off: (_ref: unknown, _eventType: string, callback: Callback) => { registered.delete(callback); },
+    };
+    const ownRecords: LiveCallRecord[] = [];
+    const row = wrapLiveModule('live-database', 'firebase/database', standIn, { observer: (record) => { ownRecords.push(record); }, sdkVersion: '12.0.0', client: 'node' });
+    // A future SDK might keep `_repo` behind a getter; the row reads only an own data property.
+    const withoutRepo = () => Object.defineProperty({ _path: { toString: () => '/rooms' } }, '_repo', { get: () => ({ repoInfo_: { namespace: 'demo' } }) });
+    const seen: unknown[] = [];
+    const appCallback = (value: unknown) => { seen.push(value); };
+    row.onChildMoved(withoutRepo(), appCallback);
+    row.onChildMoved(withoutRepo(), appCallback);
+    expect(registered.size).toBe(1);
+    expect(ownRecords[0]).toMatchObject({ name: 'onChildMoved', instance: UNREAD_INSTANCE, path: '/rooms' });
+    row.off(withoutRepo(), 'child_moved', appCallback);
+    expect(registered.size).toBe(0);
+    for (const callback of registered) callback('after off');
+    expect(seen).toEqual([]);
   });
 });
 
