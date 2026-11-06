@@ -2,13 +2,13 @@
  * Which register opens the real SDK, in Node processes with `@pyric/live`
  * installed in the project.
  *
- * `@pyric/live/register` opens the real-SDK stop only for its four live
- * rows: `firebase/app`, `firebase/auth`, `firebase/firestore` and
- * `firebase/app-check` load the installed SDK, every other Firebase import
- * and `firebase-admin` is refused with `PYRIC_LIVE_REFUSED`, and a load of
- * the real SDK by any other route stops. `@pyric/cli/register` alone keeps
- * the stop for every real `firebase/*` and `firebase-admin` load, the row
- * module ids included, and no file under the real packages loads.
+ * `@pyric/live/register` opens the real-SDK stop only for its live rows
+ * (`LIVE_ROWS` in this file): they load the installed SDK, every other
+ * Firebase import and `firebase-admin` is refused with
+ * `PYRIC_LIVE_REFUSED`, and a load of the real SDK by any other route stops.
+ * `@pyric/cli/register` alone keeps the stop for every real `firebase/*` and
+ * `firebase-admin` load, the row module ids included, and no file under the
+ * real packages loads.
  *
  * Each case runs under the `node` on PATH; run the file under Node 22.15 and
  * Node 24 to cover both hook implementations. Requires the CLI and
@@ -45,7 +45,7 @@ function packageDir(fromFile: string, name: string): string {
   throw new Error(`no ${name} above ${fromFile}`);
 }
 
-const storageDir = packageDir(requireFromFirebase.resolve('@firebase/storage'), '@firebase/storage');
+const functionsDir = packageDir(requireFromFirebase.resolve('@firebase/functions'), '@firebase/functions');
 
 /**
  * Imports each specifier in LOAD_SPECIFIERS in turn and reports each
@@ -119,7 +119,7 @@ async function rowUrl(specifier: string): Promise<string> {
 }
 
 const realFirestoreFile = pathToFileURL(requireFromFirebase.resolve('firebase/firestore')).href;
-const realStorageFile = pathToFileURL(requireFromFirebase.resolve('firebase/storage')).href;
+const realFunctionsFile = pathToFileURL(requireFromFirebase.resolve('firebase/functions')).href;
 const realAdminFile = pathToFileURL(createRequire(join(realAdminDir, 'package.json')).resolve('firebase-admin/app')).href;
 
 beforeAll(() => {
@@ -134,7 +134,7 @@ beforeAll(() => {
   symlinkSync(liveDir, join(nm, '@pyric/live'));
   symlinkSync(realFirebaseDir, join(nm, 'firebase'));
   symlinkSync(realAdminDir, join(nm, 'firebase-admin'));
-  symlinkSync(storageDir, join(nm, '@firebase/storage'));
+  symlinkSync(functionsDir, join(nm, '@firebase/functions'));
   writeFileSync(join(projectDir, 'package.json'), JSON.stringify({ name: 'live-stop-fixture', type: 'module' }));
   // The Firebase project live mode names, from the app's own Firebase config.
   writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'live-stop-fixture' } }));
@@ -152,11 +152,11 @@ afterAll(() => {
 
 const LIVE_REGISTER = '@pyric/live/register';
 const CLI_REGISTER = '@pyric/cli/register';
-const LIVE_ROWS = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check'];
+const LIVE_ROWS = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check', 'firebase/database'];
 
 describe('@pyric/live/register', () => {
-  it('loads the installed SDK for the four live rows and refuses every other Firebase import and firebase-admin', () => {
-    const refused = ['firebase/storage', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
+  it('loads the installed SDK for the app, Auth, Firestore, App Check and Realtime Database rows and refuses every other Firebase import and firebase-admin', () => {
+    const refused = ['firebase/messaging', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
     const res = run([LIVE_REGISTER], [...LIVE_ROWS, ...refused]);
     expect(res.status, res.stderr).toBe(0);
     for (const specifier of LIVE_ROWS) expect(res.outcome[specifier], specifier).toBe('loaded');
@@ -165,7 +165,8 @@ describe('@pyric/live/register', () => {
     expect(loaded).toContain('firebase');
     expect(loaded).toContain('@firebase/firestore');
     expect(loaded).toContain('@firebase/auth');
-    for (const name of ['firebase-admin', '@firebase/storage', '@firebase/database', '@firebase/functions']) expect(loaded, name).not.toContain(name);
+    expect(loaded).toContain('@firebase/database');
+    for (const name of ['firebase-admin', '@firebase/messaging', '@firebase/functions']) expect(loaded, name).not.toContain(name);
   }, 60_000);
 
   it('names live mode and the service in the refusal', () => {
@@ -180,17 +181,17 @@ describe('@pyric/live/register', () => {
   }, 60_000);
 
   it('stops the real SDK reached by any route but a live row: a file URL or an @firebase/* import', async () => {
-    const res = run([LIVE_REGISTER], [realStorageFile, '@firebase/storage', realAdminFile]);
+    const res = run([LIVE_REGISTER], [realFunctionsFile, '@firebase/functions', realAdminFile]);
     expect(res.status, res.stderr).toBe(0);
     expect(res.outcome).toEqual({
-      [realStorageFile]: 'PYRIC_REAL_SDK_STOPPED',
-      '@firebase/storage': 'PYRIC_REAL_SDK_STOPPED',
+      [realFunctionsFile]: 'PYRIC_REAL_SDK_STOPPED',
+      '@firebase/functions': 'PYRIC_REAL_SDK_STOPPED',
       [realAdminFile]: 'PYRIC_REAL_SDK_STOPPED',
     });
     expect(res.sdkFiles).toEqual([]);
     expect(res.stderr).toContain("In live mode, the installed SDK loads only through @pyric/live's rows.");
     expect(res.stderr).toContain(
-      'Fix: import firebase/app, firebase/auth, firebase/firestore, firebase/app-check, firebase/database or firebase/ai by its package name',
+      'Fix: import firebase/app, firebase/auth, firebase/firestore, firebase/app-check, firebase/database, firebase/ai or firebase/storage by its package name',
     );
     // The row's id names the row module, never the installed SDK behind it: imported directly, it is the row.
     const firestoreRow = await rowUrl('firebase/firestore');
@@ -214,7 +215,7 @@ const attempt = (fromUrl, specifier) => {
 };
 const before = loaded.length;
 const outcome = { allowedFile: allowedFile ?? 'none', fromRow: attempt(${JSON.stringify(firestoreRow)}, 'firebase/firestore') };
-for (const specifier of ['@firebase/storage', '@firebase/database', '@firebase/functions', '@firebase/firestore', 'firebase/storage']) {
+for (const specifier of ['@firebase/messaging', '@firebase/database', '@firebase/functions', '@firebase/firestore', 'firebase/functions']) {
   outcome[specifier] = attempt(allowedFile, specifier);
 }
 const isSdkFile = (url) => /\\/node_modules\\/(firebase|firebase-admin|@firebase\\/[^/]+)\\//.test(url);
@@ -232,10 +233,10 @@ console.log('OUTCOME ' + JSON.stringify({ outcome, sdkFiles: loaded.slice(before
     // The row's own URL as importer, through require: the row again, never the unobserved Firestore.
     expect(outcome.fromRow, result.stderr).toBe('row');
     // An allowed client SDK file as importer, through require: stopped, whatever package it names.
-    for (const specifier of ['@firebase/storage', '@firebase/database', '@firebase/functions', '@firebase/firestore']) {
+    for (const specifier of ['@firebase/messaging', '@firebase/database', '@firebase/functions', '@firebase/firestore']) {
       expect(outcome[specifier], specifier).toBe('PYRIC_REAL_SDK_STOPPED');
     }
-    expect(outcome['firebase/storage']).toBe('PYRIC_LIVE_REFUSED');
+    expect(outcome['firebase/functions']).toBe('PYRIC_LIVE_REFUSED');
     expect(sdkFiles).toEqual([]);
   }, 60_000);
 
@@ -320,10 +321,10 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { status: String(result.statu
 describe('@pyric/cli/register alone, with @pyric/live installed', () => {
   it('keeps the stop for every real firebase/* and firebase-admin load, the live row ids included, and loads no SDK file', async () => {
     const rowIds = await Promise.all(LIVE_ROWS.map(rowUrl));
-    const specifiers = [realFirestoreFile, realStorageFile, '@firebase/storage', realAdminFile, ...rowIds];
+    const specifiers = [realFirestoreFile, realFunctionsFile, '@firebase/functions', realAdminFile, ...rowIds];
     const res = run([CLI_REGISTER], specifiers, { env: { PYRIC_SANDBOX: 'local' } });
     expect(res.status, res.stderr).toBe(0);
-    for (const specifier of [realFirestoreFile, realStorageFile, '@firebase/storage', realAdminFile]) {
+    for (const specifier of [realFirestoreFile, realFunctionsFile, '@firebase/functions', realAdminFile]) {
       expect(res.outcome[specifier], specifier).toBe('PYRIC_REAL_SDK_STOPPED');
     }
     for (const id of rowIds) expect(res.outcome[id], id).toBe('ERR_MODULE_NOT_FOUND');

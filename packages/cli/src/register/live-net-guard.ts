@@ -1,9 +1,9 @@
 /**
  * The network guard under `@pyric/live/register`. In live mode the app's
- * installed Firestore, Auth, App Check and Realtime Database talk to Google
- * from this process, and nothing else should: pyric holds no production
- * credential, and a Google client library or a hand-written `fetch` to a
- * Google API is traffic pyric neither serves nor observes.
+ * installed Firestore, Auth, App Check, Realtime Database and Cloud Storage
+ * talk to Google from this process, and nothing else should: pyric holds no
+ * production credential, and a Google client library or a hand-written
+ * `fetch` to a Google API is traffic pyric neither serves nor observes.
  *
  * It installs the register's hooks (`./net-guard.ts`: the undici dispatcher,
  * the socket backstop and the request check) with this verdict:
@@ -32,16 +32,18 @@
  *
  * And it refuses every `http.request` and `https.request` to a live row host,
  * a Realtime Database host or a passed-through host
- * ({@link guardLiveRowRequests}). Neither SDK makes
- * one: Auth, App Check, Storage, Functions and AI Logic call `fetch`,
- * Firestore reaches Google over gRPC, on HTTP/2, and Realtime Database over a
- * WebSocket on `tls.connect`. Only a `CONNECT` through a proxy, which gRPC
- * sends to tunnel to its host, passes.
+ * ({@link guardLiveRowRequests}). No SDK makes one: Auth, App Check,
+ * Storage, Functions and AI Logic call `fetch`, Firestore reaches Google
+ * over gRPC, on HTTP/2, and Realtime Database over a WebSocket on
+ * `tls.connect`. Only a `CONNECT` through a proxy, which gRPC sends to
+ * tunnel to its host, passes.
  *
  * The socket seams pass a live row host from any caller, so a `WebSocket`
  * to one is not backstopped here. The one an SDK opens is the AI Live API's
  * (`wss://firebasevertexai.googleapis.com/...`, from `@firebase/ai`), and
- * `@pyric/live` refuses the Live API at its factory, before that socket opens.
+ * `@pyric/live` refuses the Live API at its factory,
+ * `getLiveGenerativeModel`, and at its classes, `new LiveGenerativeModel` and
+ * `new LiveSession`, before that socket opens.
  *
  * Firestore's gRPC sockets open later than the call that asked for them, so
  * the socket seams decide by host, and a gRPC client the app loads itself
@@ -76,8 +78,9 @@ import {
 } from './net-guard.js';
 import { nodeAgentPrototypes, nodeClientRequestPrototypes } from './connect-prototypes.js';
 import { INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
+import { joinedList } from './word-list.js';
 
-/** Cloud Storage's host, which the Storage row's SDK and a passed-through `firebase/storage` reach. */
+/** Cloud Storage's host, which the Storage row's SDK reaches. */
 const STORAGE_HOST = 'firebasestorage.googleapis.com';
 
 /**
@@ -117,7 +120,6 @@ const MESSAGING_HOSTS = ['fcmregistrations.googleapis.com', INSTALLATIONS_HOST];
  * Installations ID. Its calls go to production unobserved, as the app asked.
  */
 const PASS_THROUGH_HOSTS: Readonly<Record<string, readonly string[]>> = {
-  'firebase/storage': [STORAGE_HOST],
   'firebase/functions': ['cloudfunctions.net'],
   'firebase/messaging': MESSAGING_HOSTS,
   'firebase/messaging/sw': MESSAGING_HOSTS,
@@ -135,15 +137,9 @@ export function passThroughHosts(passThrough: Iterable<string>): string[] {
 /** The live rows that reach Google, one import each: every row but `firebase/app`, which reaches nothing itself. */
 const GOOGLE_ROW_IMPORTS = [...INSTALLED_SDK_SPECIFIERS].filter((specifier) => specifier !== 'firebase/app');
 
-/** `a, b and c`. */
-function andList(items: readonly string[]): string {
-  if (items.length < 2) return items.join('');
-  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
-}
-
 const LOG_PREFIX = '@pyric/live/register: net-guard';
 const TOKEN_REASON = "in live mode this process can't get a server-side Google access token";
-const LIVE_REASON = `in live mode only the imports @pyric/live serves (${andList(GOOGLE_ROW_IMPORTS)}) reach Google from this process`;
+const LIVE_REASON = `in live mode only the imports @pyric/live serves (${joinedList(GOOGLE_ROW_IMPORTS, 'and')}) reach Google from this process`;
 const LIVE_REMEDY = 'Make this request from a process without @pyric/live/register';
 const LIVE_FETCH_REASON = "in live mode a fetch to Google is made only by the installed SDK that @pyric/live's rows load";
 const LIVE_REQUEST_REASON = "in live mode only the installed Firebase SDK, wrapped by @pyric/live's rows, reaches this host, " +
@@ -153,7 +149,7 @@ const LIVE_REQUEST_REMEDY = 'Make the call through firebase/auth, firebase/fires
   'so pyric observes it, or from a process without @pyric/live/register';
 const AI_REQUEST_REASON = 'in live mode only the installed AI Logic SDK, firebase/ai, reaches this host, ' +
   'and it calls fetch, never http.request; its one other path is the Live API WebSocket, ' +
-  'which @pyric/live refuses at the factory';
+  'which @pyric/live refuses at the factory and at new LiveGenerativeModel and new LiveSession';
 /** For a request to the AI Logic host, which only `firebase/ai`'s SDK reaches. */
 const AI_REQUEST_REMEDY = 'Make the call through firebase/ai, or from a process without @pyric/live/register';
 const STORAGE_REQUEST_REASON = 'in live mode only the installed Cloud Storage SDK, firebase/storage, reaches this host, ' +

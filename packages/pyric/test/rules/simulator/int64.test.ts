@@ -196,8 +196,12 @@ describe('Firestore: an int literal past int64 is refused at compile', () => {
     expect(compileError('-9223372036854775808 < 0')).toBeUndefined();
   });
 
-  test('the negated min in parentheses compiles and is min', () => {
-    expect(firestore(`-(9223372036854775808) == ${MIN}`).decision).toBe('ALLOW');
+  test('the min in parentheses is not negated and is an invalid number literal', () => {
+    expect(compileError('-(9223372036854775808) < 0')).toContain('Invalid number literal 9223372036854775808.');
+  });
+
+  test('the negated min written with a space compiles and is min', () => {
+    expect(firestore(`- 9223372036854775808 == ${MIN}`).decision).toBe('ALLOW');
   });
 });
 

@@ -51,7 +51,7 @@ const codes = {};
 await getDocFromCache(doc(db, 'rooms/lobby')).catch((error) => { codes.firestore = error.code; });
 await signInAnonymously(auth).catch((error) => { codes.auth = error.code; });
 const refused = {};
-for (const specifier of ['firebase/storage', 'firebase-admin/app']) {
+for (const specifier of ['firebase/functions', 'firebase-admin/app']) {
   refused[specifier] = await import(specifier).then(() => 'loaded', (error) => error.message);
 }
 console.log('RESULT ' + JSON.stringify({ codes, oneApp: db.app === app && auth.app === app, refused }));
@@ -117,7 +117,7 @@ test('a Node process under @pyric/live/register reports its Firestore and Auth c
     const result = JSON.parse(line?.slice('RESULT '.length) ?? '{}') as { codes: unknown; oneApp: boolean; refused: Record<string, string> };
     expect(result.codes).toEqual({ firestore: 'unavailable', auth: 'auth/network-request-failed' });
     expect(result.oneApp).toBe(true);
-    expect(result.refused['firebase/storage']).toContain('firebase/storage (Cloud Storage) is refused in live mode');
+    expect(result.refused['firebase/functions']).toContain('firebase/functions (Cloud Functions) is refused in live mode');
     expect(result.refused['firebase-admin/app']).toContain('firebase-admin/app (the Admin SDK) is refused in live mode');
     expect(finished.output).not.toContain('PYRIC_REAL_SDK_STOPPED');
 

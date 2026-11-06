@@ -32,7 +32,7 @@ describe('the passThrough option', () => {
   test('takes every served Firebase import live mode has no row for, except Firestore Lite, and nothing else', () => {
     const passable = [
       'firebase/analytics', 'firebase/functions', 'firebase/messaging',
-      'firebase/messaging/sw', 'firebase/performance', 'firebase/remote-config', 'firebase/storage',
+      'firebase/messaging/sw', 'firebase/performance', 'firebase/remote-config',
     ];
     const unserved: string[] = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
     expect([...unserved].sort()).toEqual([...passable, 'firebase/firestore/lite'].sort());
@@ -52,13 +52,12 @@ describe('the passThrough option', () => {
 
   test('is empty when absent, and lists each import once', () => {
     expect(passThroughOption(ENTRY, undefined)).toEqual([]);
-    expect(passThroughOption(ENTRY, ['firebase/functions', 'firebase/storage', 'firebase/functions'])).toEqual(['firebase/functions', 'firebase/storage']);
+    expect(passThroughOption(ENTRY, ['firebase/functions', 'firebase/remote-config', 'firebase/functions'])).toEqual(['firebase/functions', 'firebase/remote-config']);
   });
 
-  test('refuses an import live mode already serves, firebase/database and firebase/ai among them', () => {
-    expect([...INSTALLED_SDK_SPECIFIERS]).toContain('firebase/ai');
-    for (const served of ['firebase/database', 'firebase/ai']) {
-      expect(startError([served])).toBe(`${ENTRY}: passThrough lists ${served}, which live mode already serves and observes; remove it.`);
+  test('refuses an import live mode already serves, firebase/database, firebase/ai and firebase/storage among them', () => {
+    for (const named of ['firebase/database', 'firebase/ai', 'firebase/storage']) {
+      expect(startError([named])).toBe(`${ENTRY}: passThrough lists ${named}, which live mode already serves and observes; remove it.`);
     }
     for (const served of INSTALLED_SDK_SPECIFIERS) {
       expect(startError([served])).toBe(`${ENTRY}: passThrough lists ${served}, which live mode already serves and observes; remove it.`);

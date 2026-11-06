@@ -7,7 +7,8 @@
 // custom metadata. `storage.rules` lets alice re-upload it only when the new
 // upload names her as owner. A live re-upload that sends no custom metadata
 // is denied, because an upload replaces the object, so simulate has to deny
-// it too rather than fill the missing fields from the stored object. A get
+// it too rather than fill the missing fields from the stored object. A coarse
+// write with data over it is checked as that create, not as an update. A get
 // carries no `request.resource`, so a get case that passes data is refused. An
 // update builds `request.resource` from the stored object even with no data.
 // A misspelled data field is refused by name, and a numeric string size reads
@@ -63,6 +64,24 @@ export default scenario(async (app) => {
     ]);
     assert.equal(code, 0, output);
     assert.match(output, /create docs\/readme\.txt: ALLOW/, output);
+  });
+
+  // Production checks an upload over a stored object as a create, never an
+  // update (#1884), so a coarse write with data over docs/readme.txt is held
+  // to the create rule's owner check, not the update rule's size cap.
+  await app.step('a coarse write with data over the stored object is checked as a create', async () => {
+    const { code, output } = await simulate(app, [
+      '--operation',
+      'write',
+      '--path',
+      'docs/readme.txt',
+      '--uid',
+      'alice',
+      '--data',
+      JSON.stringify({ contentType: 'text/plain', size: 5 }),
+    ]);
+    assert.equal(code, 0, output);
+    assert.match(output, /write docs\/readme\.txt: DENY/, output);
   });
 
   await app.step('an update with no data reads the stored object as request.resource', async () => {

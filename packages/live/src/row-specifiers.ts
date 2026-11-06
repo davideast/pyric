@@ -21,4 +21,5 @@ export const LIVE_ROW_SPECIFIERS: readonly LiveRowSpecifier[] = [
   ['firebase/app-check', 'live-app-check'],
   ['firebase/database', 'live-database'],
   ['firebase/ai', 'live-ai'],
+  ['firebase/storage', 'live-storage'],
 ];

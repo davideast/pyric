@@ -20,7 +20,7 @@ const LOWEST_MINOR = 12;
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
 
 /** The `@firebase/*` packages a live row loads, each of which resolves its own `@firebase/app`. */
-const ROW_PACKAGES = ['@firebase/app', '@firebase/auth', '@firebase/firestore', '@firebase/app-check', '@firebase/database', '@firebase/ai'];
+const ROW_PACKAGES = ['@firebase/app', '@firebase/auth', '@firebase/firestore', '@firebase/app-check', '@firebase/database', '@firebase/ai', '@firebase/storage'];
 
 /** How deep the walk follows nested `node_modules` folders. */
 const MAX_NESTING = 8;

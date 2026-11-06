@@ -1,5 +1,5 @@
 /**
- * Live rows on the Vite page plane: the five served specifiers `@pyric/live`
+ * Live rows on the Vite page plane: the seven served specifiers `@pyric/live`
  * serves from the app's installed Firebase SDK, in place of the swap. The
  * row modules' ids are fixed here, one per specifier, and their source comes
  * from the `@pyric/live` package installed in the project
@@ -35,6 +35,7 @@ export const INSTALLED_SDK_SPECIFIERS: ReadonlySet<ServedFirebaseSpecifier> = ne
   'firebase/app-check',
   'firebase/database',
   'firebase/ai',
+  'firebase/storage',
 ]);
 
 /** The prefix of every module id the live rows serve; `\0` keeps every other plugin off them. */

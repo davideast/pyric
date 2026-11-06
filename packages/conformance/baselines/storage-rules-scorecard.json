@@ -222,6 +222,7 @@
         "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
+        "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
@@ -232,7 +233,9 @@
         "type-checks-is",
         "upload-primitives-boundaries"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#221"
+      ],
       "divergedByRows": []
     },
     "storage.binding.request.auth": {
@@ -502,10 +505,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "metadata-verbs-and-arithmetic",
+        "st3-wildcard-shadows-global",
         "stdlib-storage-modules"
       ],
       "verifiedByRows": [
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#222"
       ],
       "divergedByRows": []
     },
@@ -546,6 +551,7 @@
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "resource-object-identity",
+        "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
@@ -555,7 +561,8 @@
         "verbs-umbrella-granular"
       ],
       "verifiedByRows": [
-        "storage-rules#118"
+        "storage-rules#118",
+        "storage-rules#221"
       ],
       "divergedByRows": []
     },
@@ -668,6 +675,7 @@
         "resource-object-identity",
         "st3-case-mapping",
         "st3-case-mapping-ascii",
+        "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
@@ -2345,6 +2353,7 @@
         "resource-object-identity",
         "st3-case-mapping",
         "st3-case-mapping-ascii",
+        "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
@@ -2765,6 +2774,7 @@
         "request-time-timestamp",
         "resource-object-identity",
         "st3-case-mapping",
+        "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
@@ -3008,7 +3018,8 @@
         "xref-root-literal-bucket"
       ],
       "verifiedByRows": [
-        "storage-rules#96"
+        "storage-rules#96",
+        "storage-rules#222"
       ],
       "divergedByRows": []
     },
@@ -3030,6 +3041,7 @@
         "resource-object-identity",
         "st3-case-mapping",
         "st3-case-mapping-ascii",
+        "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
@@ -3206,6 +3218,7 @@
         "resource-object-identity",
         "st3-case-mapping",
         "st3-case-mapping-ascii",
+        "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
@@ -3313,6 +3326,7 @@
         "resource-object-identity",
         "st3-case-mapping",
         "st3-case-mapping-ascii",
+        "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",

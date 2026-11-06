@@ -1,13 +1,13 @@
 /**
- * The source of the modules a Node process gets for the four live rows.
- * `@pyric/cli`'s register fixes their ids and loads this file from the
- * `@pyric/live` installed in the project (its `./node-modules` export), so
- * the rows open only where this package is installed. It also exports the
- * refusal those rows give, and the refusal of pyric's own writes the
- * `pyric-live` host gives (`refusal.ts`), and the folder the rows resolve
- * the app's `firebase` from (`start-checks.ts`). The row and observer
- * sources are every plane's (`row-source.ts`); a Node process imports this
- * package's built files and the observer module by file URL.
+ * The source of the modules a Node process gets for the live rows
+ * (`LIVE_ROWS`). `@pyric/cli`'s register fixes their ids and loads this file
+ * from the `@pyric/live` installed in the project (its `./node-modules`
+ * export), so the rows open only where this package is installed. It also
+ * exports the refusal those rows give, and the refusal of pyric's own
+ * writes the `pyric-live` host gives (`refusal.ts`), and the folder the rows
+ * resolve the app's `firebase` from (`start-checks.ts`). The row and
+ * observer sources are every plane's (`row-source.ts`); a Node process
+ * imports this package's built files and the observer module by file URL.
  *
  * Every live module hands its records to one observer module, which sends
  * them to the Node host on the process's own connection.

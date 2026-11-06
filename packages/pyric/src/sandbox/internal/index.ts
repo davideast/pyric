@@ -88,6 +88,7 @@ export {
 export { ClockReading, getClock } from '../clock.js';
 export { stampProvenance } from './provenance.js';
 export { CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, type CallerSource } from './caller-source.js';
+export { storageGsPath } from './storage-gs-path.js';
 export {
   OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, productionVerdict, readObservedCall,
   type ProductionVerdict,
