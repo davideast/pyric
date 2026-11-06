@@ -1,12 +1,36 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
-import type { SandboxEvent } from 'pyric/sandbox';
+import { createAppForSandbox } from 'pyric/app/internal';
+import { initializeSandbox, type SandboxEvent } from 'pyric/sandbox';
 import { observedCallEvent } from 'pyric/sandbox/internal';
+import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
 import { subjectTarget } from '../features/traffic/verdict.js';
 import { studioTrafficEvents } from './studio-events.js';
 
 const SECOND_BUCKET = 'demo-live-storage-live-second';
 
-function storageOperation(path: string, bucket: unknown): SandboxEvent {
+const APP_BUCKET = 'demo-app.appspot.com';
+
+const OPEN_STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow read, write: if true; }
+  }
+}`;
+
+/** The Storage events a sandboxed app emits uploading one object to its default bucket. */
+async function uploadedEvents(path: string): Promise<SandboxEvent[]> {
+  const sandbox = initializeSandbox({});
+  const events: SandboxEvent[] = [];
+  sandbox.onEvent((event) => events.push(event));
+  const unique = Math.random().toString(36).slice(2, 10);
+  getStorageSandbox(sandbox, { dbName: `pyric-studio-events-${unique}`, rules: OPEN_STORAGE_RULES });
+  const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: APP_BUCKET }, `studio-events-${unique}`);
+  await uploadBytes(ref(getStorage(app), path), new Uint8Array([1]));
+  return events.filter((event) => event.kind === 'operation' && event.service === 'storage');
+}
+
+function storageOperation(path: string, bucket: unknown, bucketName?: unknown): SandboxEvent {
   return {
     kind: 'operation',
     id: 's1',
@@ -18,7 +42,7 @@ function storageOperation(path: string, bucket: unknown): SandboxEvent {
     result: 'allow',
     origin: 'user',
     reasons: [],
-    detail: { bucket },
+    detail: bucketName === undefined ? { bucket } : { bucket, bucketName },
     rulesDisposition: { kind: 'evaluated', verdict: 'allow' },
     rules: { engine: 'storage' },
   } as unknown as SandboxEvent;
@@ -55,6 +79,20 @@ describe('a Storage row in Studio names its bucket', () => {
   test('leaves the path alone when no string bucket is named', () => {
     expect(trafficPath(storageOperation('avatars/alice.png', undefined))).toBe('avatars/alice.png');
     expect(trafficPath(storageOperation('avatars/alice.png', 7))).toBe('avatars/alice.png');
+    expect(trafficPath(storageOperation('avatars/alice.png', ''))).toBe('avatars/alice.png');
+  });
+
+  test("reads the app's bucket name over the sandbox's store key", () => {
+    expect(trafficPath(storageOperation('avatars/alice.png', 'pyric-default', APP_BUCKET))).toBe(`gs://${APP_BUCKET}/avatars/alice.png`);
+    expect(trafficPath(storageOperation('avatars/alice.png', 'pyric-default', ''))).toBe('gs://pyric-default/avatars/alice.png');
+  });
+
+  test("reads a sandboxed app's upload to its default bucket under the app's bucket name", async () => {
+    const events = await uploadedEvents('avatars/alice.png');
+    expect(events.length).toBeGreaterThan(0);
+    // The store key is not the bucket's name; the row must not read gs://pyric-default/.
+    for (const event of events) expect(event.kind === 'operation' && event.detail).toEqual({ bucket: 'pyric-default', bucketName: APP_BUCKET });
+    expect(studioTrafficEvents(events).map((row) => row.path)).toEqual(events.map(() => `gs://${APP_BUCKET}/avatars/alice.png`));
   });
 });
 

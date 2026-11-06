@@ -130,12 +130,20 @@ export function chipRequestFromEvent(event: SandboxEvent, viewerPageId?: string)
 
 const OBSERVED_VERDICTS = { ok: 'ok', denied: 'denied', failed: 'error' } as const;
 
-/** The bucket a Storage operation names in `detail.bucket`, sandbox or production. */
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/**
+ * The bucket a Storage operation names, sandbox or production. The sandbox
+ * keeps its store key (`pyric-default`) in `detail.bucket` and the app's name
+ * for the bucket in `detail.bucketName`; production sends only `bucket`.
+ */
 function storageBucket(event: SandboxEvent): string | undefined {
   const isStorageOperation = event.kind === 'operation' && event.service === 'storage';
   if (!isStorageOperation) return undefined;
-  const bucket = event.detail?.bucket;
-  return typeof bucket === 'string' ? bucket : undefined;
+  const detail = event.detail;
+  return nonEmptyString(detail?.bucketName) ?? nonEmptyString(detail?.bucket);
 }
 
 /**

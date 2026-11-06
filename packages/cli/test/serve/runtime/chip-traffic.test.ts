@@ -1,6 +1,9 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import type { EventCaller, ObservedCall, SandboxEvent } from 'pyric/sandbox';
+import { createAppForSandbox } from 'pyric/app/internal';
+import { initializeSandbox, type EventCaller, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
 import { observedCallEvent } from 'pyric/sandbox/internal';
+import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
 import {
   chipRequestFromEvent,
   createTrafficFeed,
@@ -506,8 +509,15 @@ describe('a call production served', () => {
 
 describe('a Storage row names its bucket', () => {
   const SECOND_BUCKET = 'demo-live-storage-live-second';
+  const APP_BUCKET = 'demo-app.appspot.com';
+  const OPEN_STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow read, write: if true; }
+  }
+}`;
 
-  function storageOperation(path: string, bucket: unknown): SandboxEvent {
+  function storageOperation(path: string, bucket: unknown, bucketName?: unknown): SandboxEvent {
     return {
       kind: 'operation',
       id: 's1',
@@ -518,7 +528,7 @@ describe('a Storage row names its bucket', () => {
       auth: null,
       result: 'allow',
       origin: 'user',
-      detail: { bucket },
+      detail: bucketName === undefined ? { bucket } : { bucket, bucketName },
       rulesDisposition: { kind: 'evaluated', verdict: 'allow' },
       rules: { engine: 'storage' },
     } as unknown as SandboxEvent;
@@ -550,6 +560,27 @@ describe('a Storage row names its bucket', () => {
   it('leaves the path alone when no string bucket is named', () => {
     expect(chipRequestFromEvent(storageOperation('avatars/alice.png', undefined))?.path).toBe('avatars/alice.png');
     expect(chipRequestFromEvent(storageOperation('avatars/alice.png', 7))?.path).toBe('avatars/alice.png');
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', ''))?.path).toBe('avatars/alice.png');
     expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.path).toBe('/presence/u_8f2a');
+  });
+
+  it("reads the app's bucket name over the sandbox's store key", () => {
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', 'pyric-default', APP_BUCKET))?.path).toBe(`gs://${APP_BUCKET}/avatars/alice.png`);
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', 'pyric-default', ''))?.path).toBe('gs://pyric-default/avatars/alice.png');
+  });
+
+  it("reads a sandboxed app's upload to its default bucket under the app's bucket name", async () => {
+    const sandbox = initializeSandbox({});
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent(event => events.push(event));
+    const unique = Math.random().toString(36).slice(2, 10);
+    getStorageSandbox(sandbox, { dbName: `pyric-chip-traffic-${unique}`, rules: OPEN_STORAGE_RULES });
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: APP_BUCKET }, `chip-traffic-${unique}`);
+    await uploadBytes(ref(getStorage(app), 'avatars/alice.png'), new Uint8Array([1]));
+    const storageEvents = events.filter(event => event.kind === 'operation' && event.service === 'storage');
+    expect(storageEvents.length).toBeGreaterThan(0);
+    // The store key is not the bucket's name; the row must not read gs://pyric-default/.
+    for (const event of storageEvents) expect(event.kind === 'operation' && event.detail).toEqual({ bucket: 'pyric-default', bucketName: APP_BUCKET });
+    expect(storageEvents.map(event => chipRequestFromEvent(event)?.path)).toEqual(storageEvents.map(() => `gs://${APP_BUCKET}/avatars/alice.png`));
   });
 });
