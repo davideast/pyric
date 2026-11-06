@@ -9,6 +9,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getAuth, sandbox as authOps } from 'pyric/auth';
 
 import { createSandboxSession } from '../../src/serve/sandbox-session.js';
+import { formatStorageRulesRemoved } from '../../src/serve/rules.js';
 import { avatarMintForPayload } from '../../src/serve/assets/avatar-url.js';
 import { saveManifest } from '../../src/serve/assets/manifest.js';
 
@@ -483,6 +484,22 @@ service firebase.storage {
     await session.close();
   });
 
+  it('reports an open bucket when the Storage rules file is deleted in permissive mode', async () => {
+    const root = project();
+    const rulesPath = join(root, 'storage.rules');
+    writeFileSync(rulesPath, storageRules('removed'));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      permissive: true,
+    });
+    rmSync(rulesPath);
+    const removed = await session.reloadStorageRules(rulesPath);
+    expect(removed).toEqual([{ bucket: null, file: rulesPath, result: { kind: 'removed', policy: 'allow', clients: 0 } }]);
+    await session.close();
+  });
+
   it('deploys reloaded and removed Storage rules to the Node sandbox', async () => {
     const root = project();
     const rulesPath = join(root, 'storage.rules');
@@ -621,6 +638,32 @@ service firebase.storage {
     expect(session.payload().storagePendingTargets?.[0]?.rules).toContain('/media-two/{file}');
     expect(deployed).toEqual([['storage', 'source', { target: 'media' }]]);
     await session.close();
+  });
+
+  for (const [permissive, opens] of [[false, false], [true, true]] as const) {
+    it(`says an unresolved Storage deploy target's buckets are open only in permissive mode (permissive: ${permissive})`, async () => {
+      const root = project();
+      writeFileSync(join(root, 'media.rules'), storageRules('media'));
+      const notes: string[] = [];
+      const session = await createSandboxSession({
+        projectDir: root,
+        firebaseConfig: { storage: [{ target: 'media', rules: 'media.rules' }] },
+        sdk: { dir: join(root, 'sdk') },
+        permissive,
+        logger: { info: () => {}, note: (message) => { notes.push(message); } },
+      });
+      const warnings = notes.filter((note) => note.includes('Storage deploy target "media"'));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.includes('permissive mode')).toBe(opens);
+      await session.close();
+    });
+  }
+
+  it('says a removed Storage rules file leaves its bucket open only under the allow policy', () => {
+    const open = formatStorageRulesRemoved('storage.rules', 'allow');
+    const locked = formatStorageRulesRemoved('storage.rules', 'deny');
+    expect(open.includes('permissive mode')).toBe(true);
+    expect(locked.includes('permissive mode')).toBe(false);
   });
 
   it('deploys each reloaded database instance\'s rules to that instance on the Node sandbox', async () => {

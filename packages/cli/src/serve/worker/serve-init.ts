@@ -343,7 +343,7 @@ export function applyServeInit(
   //     unconditionally: a lazy first open from `ensureStorage`/`lensStorage`
   //     would land on the legacy shared database.
   //     Each bucket firebase.json names gets its own rules, and a bucket
-  //     nothing deploys to is locked (#1313).
+  //     nothing deploys to is locked (#1313), or open in permissive mode.
   //     An app port that connected first resolves pending deploy targets now.
   for (const notice of installServedStorageRules(ctx.sandbox, payload)) console.info(`[pyric] ${notice}`);
   const deploysBucketRules = Object.keys(payload.storageBucketRules ?? {}).length > 0;
