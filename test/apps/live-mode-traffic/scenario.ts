@@ -196,6 +196,36 @@ async function sendsNothing<T>(app: App, replay: Replay, run: () => Promise<T>):
   return result;
 }
 
+/** A captured live call's event, as the capture file holds it. */
+interface CapturedLiveCall {
+  id: string;
+  service: string;
+  path?: string;
+  production?: { outcome: { status: string }; local?: { result: string; drift?: true } };
+}
+
+/** The live Firestore calls the dev server's capture file holds. */
+function capturedLiveCalls(app: App): CapturedLiveCall[] {
+  const capture = JSON.parse(app.readFile('.pyric/last-session.json')) as { events: CapturedLiveCall[] };
+  return capture.events.filter((event) => event.service === 'firestore' && event.production !== undefined);
+}
+
+interface VerifyReport {
+  ok: boolean;
+  results: Array<{ services: { firestore?: { checkedEvents: number; divergences: Array<{ kind: string; path?: string }> } } }>;
+}
+
+/** `pyric verify` over the capture file, as JSON, with its exit code. */
+async function verifyCapture(app: App, args: string[]): Promise<{ code: number | null; firestore: NonNullable<VerifyReport['results'][number]['services']['firestore']>; ok: boolean }> {
+  const run = await app.command('node', ['node_modules/.bin/pyric', 'verify', '--service', 'firestore', '--json', ...args], { timeoutMs: 60_000 });
+  const line = run.output.split('\n').find((text) => text.startsWith('{"ok"'));
+  assert.ok(line, `pyric verify printed no JSON report:\n${run.output}`);
+  const report = JSON.parse(line) as VerifyReport;
+  const firestore = report.results[0]?.services.firestore;
+  assert.ok(firestore, `pyric verify checked no Firestore calls:\n${run.output}`);
+  return { code: run.code, firestore, ok: report.ok };
+}
+
 function blockedLines(app: App): string[] {
   return app.browserLog.filter((line) => line.includes('[blocked external'));
 }
@@ -339,6 +369,28 @@ export default scenario(async (app) => {
   await app.step('stop the dev server', async () => {
     await page.close();
     await host.process.stop();
+  });
+
+  await app.step('the capture file holds the live calls with both verdicts, and .gitignore ignores it', async () => {
+    const calls = capturedLiveCalls(app);
+    const localOf = (status: string) => calls.filter((call) => call.production?.outcome.status === status).map((call) => call.production?.local?.result);
+    assert.ok(localOf('ok').includes('allow'), 'a call production allowed is captured with the local allow');
+    assert.ok(localOf('error').includes('deny'), 'the call production denied is captured with the local deny');
+    assert.deepEqual(calls.filter((call) => call.production?.local?.drift), [], 'the local rules agree with production on every call');
+    assert.ok(app.readFile('.gitignore').split('\n').includes('.pyric/'), 'the capture step adds .pyric/ to .gitignore');
+  });
+
+  await app.step('pyric verify replays the captured live calls against the local rules', async () => {
+    const agrees = await verifyCapture(app, []);
+    assert.equal(agrees.code, 0);
+    assert.ok(agrees.firestore.checkedEvents > 0, 'pyric verify checked the live calls');
+    assert.deepEqual(agrees.firestore.divergences, []);
+    app.writeFile('closed.rules', "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} { allow read, write: if false; }\n  }\n}\n");
+    const closed = await verifyCapture(app, ['--rules', 'firestore=closed.rules']);
+    assert.equal(closed.code, 1);
+    assert.equal(closed.ok, false);
+    const kinds = new Set(closed.firestore.divergences.map((divergence) => divergence.kind));
+    assert.deepEqual([...kinds], ['now-denied'], 'each live call production allowed is now denied');
   });
 
   const live = await app.step('start pyric-live: the Node host in live mode', async () => {

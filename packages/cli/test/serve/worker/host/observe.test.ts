@@ -14,6 +14,7 @@ import { initializeSandbox, type ObservedCall, type SandboxEvent } from 'pyric/s
 import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { markPortConnection } from '../../../../src/serve/worker/host/caller.js';
+import { heldLiveCallValueCount, liveCallValues } from '../../../../src/serve/worker/host/observe.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { requestEnvelopeError } from '../../../../src/bridge/server/request-envelope.js';
 import type { BridgeMessage } from '../../../../src/bridge/protocol.js';
@@ -281,6 +282,22 @@ describe('host: observed calls', () => {
     await observe(ctx, page, { call: { ...DENIED_READ, method: 'setDoc', outcome: { status: 'ok' } } });
     // One event: no Rules request, no write, no commit.
     expect(ctx.sandbox.history().map((event) => event.kind)).toEqual(['operation']);
+  });
+
+  it("keeps a live call's values only while the history holds its event", async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const withValues = { ...DENIED_READ, account: { uid: 'alice', claims: { admin: true } } };
+    for (let round = 0; round < 3; round++) {
+      for (let index = 0; index < 300; index++) await observe(ctx, page, { call: withValues });
+      ctx.sandbox.reset();
+    }
+    // Observing alone prunes what earlier resets dropped: the last round's 300 and at most one earlier round's.
+    expect(heldLiveCallValueCount(ctx.sandbox)).toBeLessThanOrEqual(600);
+    expect(liveCallValues(ctx.sandbox).size).toBe(0);
+    await observe(ctx, page, { call: withValues });
+    const held = ctx.sandbox.history().filter((event) => event.kind === 'operation').map((event) => event.id);
+    expect([...liveCallValues(ctx.sandbox).keys()]).toEqual(held);
   });
 
   it('admits an observed call through the bridge socket envelope only with a request id', () => {
