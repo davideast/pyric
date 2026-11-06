@@ -5,6 +5,8 @@ import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY,
 import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
+import { SERVICE_WORKER_TAB_ID } from '../host/caller.js';
+import { isServiceWorkerRealm } from '../service-worker-channel.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
 import { _pending, failInFlightStreams, forgetOnDisconnectCalls, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
 import { endFailedPort } from './disconnect.js';
@@ -23,6 +25,17 @@ function httpOriginOf(socketUrl: string): string {
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
 const CONNECTION_CLOSED = 'The hosted sandbox connection is closed.';
+
+/**
+ * The `clientInfo.platform` a browser realm attaches with. A service worker
+ * names its realm, so the host labels its calls "Service worker" on every
+ * connection it opens, whether or not that connection sends an `appConfig`.
+ * A label like a tab id, never an authority.
+ */
+function browserPlatform(): string {
+  return isServiceWorkerRealm() ? SERVICE_WORKER_TAB_ID : 'browser';
+}
+
 const utf8 = new TextEncoder();
 
 export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed';
@@ -30,10 +43,11 @@ export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'i
 /**
  * How a hosted connection behaves outside a page. A page leaves it out and
  * gets the global `WebSocket`, timers that keep the page as browsers do, and
- * `clientInfo.platform: 'browser'`. A Node process the register bootstrap
- * activated (#1082) supplies one, so the connection's own socket and timers do
- * not keep the process alive by themselves, and the realm decides from the
- * traffic when the process should stay up.
+ * `clientInfo.platform: 'browser'` (`'service-worker'` in a service
+ * worker). A Node process the register bootstrap activated (#1082) supplies
+ * one, so the connection's own socket and timers do not keep the process
+ * alive by themselves, and the realm decides from the traffic when the
+ * process should stay up.
  */
 export interface HostedSocketRealm {
   readonly platform: 'node';
@@ -403,7 +417,7 @@ export function getHostedFirestore(target: {
         // A grant from another boot cannot resume on this one; attach for a fresh session.
         const presentsOtherBoot = presented !== hostInstanceId;
         if (presentsOtherBoot) resumeToken = undefined;
-        send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId: presented, clientInfo: { platform: realm?.platform ?? 'browser' } });
+        send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId: presented, clientInfo: { platform: realm?.platform ?? browserPlatform() } });
       });
     });
     connection.addEventListener('message', (event: MessageEvent<string>) => {

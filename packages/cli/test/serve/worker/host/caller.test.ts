@@ -7,7 +7,8 @@
  * admin code, a tool frame is an MCP call, a Studio frame is Studio's, and a
  * port the Node host admitted for a server process using the client SDK is
  * `node`. A port whose `appConfig` declares the service worker realm is
- * `service-worker`. Each page's event subscription hands it its own id.
+ * `service-worker`, and Messaging's own hello names a page by its tab id.
+ * Each page's event subscription hands it its own id.
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
@@ -16,6 +17,7 @@ import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { markPortConnection, SERVICE_WORKER_TAB_ID } from '../../../../src/serve/worker/host/caller.js';
 import { pageTabId } from '../../../../src/serve/worker/client/tab-id.js';
+import { messagingAppConfig } from '../../../../src/serve/entries/messaging-sw-client.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../../src/serve/worker/protocol.js';
 import { setRules } from 'pyric/sandbox/firestore';
@@ -33,6 +35,19 @@ interface FakePort extends PortLike { messages: OutboundMessage[] }
 function fakePort(): FakePort {
   const messages: OutboundMessage[] = [];
   return { messages, postMessage(message) { messages.push(message); } };
+}
+
+/** Runs `run` with the globals `isServiceWorkerRealm` reads, as a service worker has them. */
+function inServiceWorkerRealm<T>(run: () => T): T {
+  const scope = globalThis as { registration?: unknown; clients?: unknown };
+  scope.registration = {};
+  scope.clients = {};
+  try {
+    return run();
+  } finally {
+    delete scope.registration;
+    delete scope.clients;
+  }
 }
 
 let databaseSequence = 0;
@@ -136,11 +151,23 @@ describe('host: each event names the connection that sent its operation', () => 
     }
   });
 
+  it("names a page's Messaging port by the page's tab id", async () => {
+    const { ctx, events } = makeCtx();
+    const messaging = fakePort();
+    // The hello the sandbox's Messaging client sends from a page (`messaging-sw-client.ts`).
+    await handleMessage(ctx, messaging, messagingAppConfig({ projectId: 'demo-app' }));
+    const callers = await callersOf(events, () => send(ctx, messaging, { t: 'op', method: 'rtdb.set', path: '/messaging/page', value: 1 }));
+    expect(callers.length).toBeGreaterThan(0);
+    for (const caller of callers) expect(caller).toEqual({ kind: 'page', pageId: pageTabId() });
+  });
+
   it('stamps a port whose appConfig declares the service worker realm as the service worker', async () => {
     const { ctx, events } = makeCtx();
     const serviceWorker = fakePort();
     // The hello the sandbox's Messaging service worker sends (`messaging-sw-client.ts`).
-    await handleMessage(ctx, serviceWorker, { t: 'appConfig', options: { projectId: 'demo-app' }, tabId: SERVICE_WORKER_TAB_ID } as InboundMessage);
+    const hello = inServiceWorkerRealm(() => messagingAppConfig({ projectId: 'demo-app' }));
+    expect(hello.tabId).toBe(SERVICE_WORKER_TAB_ID);
+    await handleMessage(ctx, serviceWorker, hello);
     const callers = await callersOf(events, () => send(ctx, serviceWorker, { t: 'op', method: 'rtdb.set', path: '/sw/a', value: 1 }));
     expect(callers.length).toBeGreaterThan(0);
     for (const caller of callers) expect(caller).toEqual({ kind: 'service-worker' });

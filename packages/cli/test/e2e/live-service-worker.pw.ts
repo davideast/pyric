@@ -9,9 +9,9 @@
  * production row. The SDK points at a closed loopback port, so nothing
  * reaches a Firebase backend.
  *
- * Which client the row names is not checked here: a service worker's rows
- * read "Service worker" in a later change. The Messaging plan's scenario
- * under `test/apps/` drives a service worker row through the packed packages.
+ * The connection says at attach that it comes from a service worker, so the
+ * row reads "Service worker". The Messaging plan's scenario under
+ * `test/apps/` drives a service worker row through the packed packages.
  */
 import { createRequire } from 'node:module';
 import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -45,7 +45,7 @@ document.querySelector('#status').textContent = 'Ready';
 </script>
 `;
 
-test('a module service worker under live mode reports its Firestore read to the Node host on its own connection', async ({ page }) => {
+test('a module service worker under live mode reports its Firestore read to the Node host as the service worker', async ({ page }) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-sw-')));
   let server: ViteDevServer | undefined;
   const reports: string[] = [];
@@ -86,6 +86,7 @@ test('a module service worker under live mode reports its Firestore read to the 
     const row = page.locator('[data-traffic-rows] [data-request-row]').filter({ hasText: 'firestore.getDocFromCache' });
     await expect(row, reports.join('\n')).toHaveCount(1);
     await expect(row.locator('[data-traffic-row-production]')).toHaveText('Production');
+    await expect(row.locator('[data-traffic-row-source]')).toHaveText('Service worker');
     await expect(row.locator('[data-verdict-production]')).toHaveAttribute('title', 'Production failed');
   } finally {
     await page.close();
