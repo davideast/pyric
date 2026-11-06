@@ -95,7 +95,7 @@ describe('the live row set', () => {
   });
 
   test('has no row for a specifier it does not serve', () => {
-    expect(() => liveModuleFor('firebase/storage', {}, site)).toThrow('no live row for firebase/storage');
+    expect(() => liveModuleFor('firebase/functions', {}, site)).toThrow('no live row for firebase/functions');
   });
 });
 

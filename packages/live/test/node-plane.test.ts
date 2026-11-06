@@ -33,8 +33,8 @@ describe('the modules a Node process gets for the live rows', () => {
     const observer = liveRegisterModuleSource(REGISTER_OBSERVER_URL, SENDER) as string;
     expect(observer).toContain(`import { sendObservedCall } from ${JSON.stringify(SENDER)};`);
     expect(observer).toContain('export const observer = pageObserver(sendObservedCall);');
-    const storageId = (REGISTER_ROW_URLS.get('firebase/firestore') ?? '').replace('firebase/firestore', 'firebase/storage');
-    expect(liveRegisterModuleSource(storageId, SENDER)).toBeNull();
+    const functionsId = (REGISTER_ROW_URLS.get('firebase/firestore') ?? '').replace('firebase/firestore', 'firebase/functions');
+    expect(liveRegisterModuleSource(functionsId, SENDER)).toBeNull();
     expect(liveRegisterModuleSource('firebase/firestore', SENDER)).toBeNull();
   });
 });
