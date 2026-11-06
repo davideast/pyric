@@ -9,7 +9,7 @@ import {
   dispatchRecord,
   isBehaviorScenarioFile,
   parseRecordCliArgs,
-} from '../skills/improve-firebase/scripts/record.mjs';
+} from '../../skills/improve-firebase/scripts/record.mjs';
 
 function writeScenario(dir, name, scenario) {
   const filePath = path.join(dir, name);

@@ -148,21 +148,21 @@ function buildBeatDefinitions(scenario, eventList) {
   const showOutroCard = scenario.stage?.slots?.showOutroCard !== false;
 
   const hookEvent = findEventForPhase(eventList, ['hook', 'baseline', 'control']);
-  const exploitEvent = findEventForPhase(eventList, ['exploit', 'mutation', 'attack']);
+  const reproEvent = findEventForPhase(eventList, ['repro', 'mutation', 'attack']);
   const fixEvent = findEventForPhase(eventList, ['fix', 'verify', 'patched']);
 
   const hookStep = findStepForPhase(scenario.steps, ['hook', 'baseline']);
-  const exploitStep = findStepForPhase(scenario.steps, ['exploit', 'attack']);
+  const reproStep = findStepForPhase(scenario.steps, ['repro', 'attack']);
   const fixStep = findStepForPhase(scenario.steps, ['fix', 'verify']);
   const takeawayStep = findStepForPhase(scenario.steps, ['takeaway', 'outro']);
 
   const hasFix = detectFixPresence(scenario, eventList, fixEvent, fixStep);
-  const victimUid = scenario.actors?.victim?.uid || 'alice';
-  const attackerUid = scenario.actors?.attacker?.uid || 'mallory';
+  const ownerUid = scenario.actors?.owner?.uid || 'alice';
+  const peerUid = scenario.actors?.peer?.uid || 'mallory';
 
   const vulnerableRule =
-    resolveRuleText(exploitStep?.matchedRule) ??
-    resolveRuleText(exploitEvent?.matchedRule) ??
+    resolveRuleText(reproStep?.matchedRule) ??
+    resolveRuleText(reproEvent?.matchedRule) ??
     resolveRuleText(scenario.fixRules?.before) ??
     resolveRuleText(hookEvent?.matchedRule) ??
     '".write": "auth != null"';
@@ -175,20 +175,20 @@ function buildBeatDefinitions(scenario, eventList) {
     resolveRuleText(scenario.fixRules?.rule) ??
     'auth != null && auth.uid == data.child("authorUid").val()';
 
-  const exploitSdkCall =
-    resolveRuleText(exploitStep?.sdkCall) ??
-    formatSdkCallFromEvent(exploitEvent) ??
-    `database.set('/target', { actor: '${attackerUid}' })`;
+  const reproSdkCall =
+    resolveRuleText(reproStep?.sdkCall) ??
+    formatSdkCallFromEvent(reproEvent) ??
+    `database.set('/target', { actor: '${peerUid}' })`;
 
   const hookSdkCall =
     resolveRuleText(hookStep?.sdkCall) ??
     formatSdkCallFromEvent(hookEvent) ??
-    `auth.signIn('${victimUid}')`;
+    `auth.signIn('${ownerUid}')`;
 
   const fixSdkCall =
     resolveRuleText(fixStep?.sdkCall) ??
     formatSdkCallFromEvent(fixEvent) ??
-    exploitSdkCall;
+    reproSdkCall;
 
   const beats = [];
 
@@ -211,19 +211,19 @@ function buildBeatDefinitions(scenario, eventList) {
     });
   }
 
-  const exploitCaption =
-    resolveRuleText(exploitStep?.caption) ??
-    resolveRuleText(exploitEvent?.caption) ??
-    scenario.copy.exploit;
+  const reproCaption =
+    resolveRuleText(reproStep?.caption) ??
+    resolveRuleText(reproEvent?.caption) ??
+    scenario.copy.summary;
   beats.push({
-    id: 'exploit',
-    phase: 'exploit',
+    id: 'repro',
+    phase: 'repro',
     defaultDurationMs: hasFix ? 2000 : 2400,
-    eventTimeMs: getEventTimeMs(exploitEvent),
-    caption: exploitCaption,
-    badgeText: 'EXPLOIT ALLOWED',
+    eventTimeMs: getEventTimeMs(reproEvent),
+    caption: reproCaption,
+    badgeText: 'REPRO ALLOWED',
     badgeTone: 'danger',
-    sdkCall: exploitSdkCall,
+    sdkCall: reproSdkCall,
     matchedRule: vulnerableRule,
   });
 
@@ -272,11 +272,11 @@ function allocateBeatDurations(beatDefs, totalMs) {
   const minBeatMs = Math.min(600, Math.floor(totalMs / count));
 
   // If timed events mark clear boundaries, honor them; otherwise allocate proportionally.
-  const exploitIdx = beatDefs.findIndex((b) => b.id === 'exploit');
+  const reproIdx = beatDefs.findIndex((b) => b.id === 'repro');
   const fixIdx = beatDefs.findIndex((b) => b.id === 'fix');
 
   if (
-    exploitIdx === 1 &&
+    reproIdx === 1 &&
     typeof beatDefs[1].eventTimeMs === 'number' &&
     beatDefs[1].eventTimeMs >= minBeatMs &&
     beatDefs[1].eventTimeMs <= totalMs - minBeatMs * (count - 1)
@@ -289,14 +289,14 @@ function allocateBeatDurations(beatDefs, totalMs) {
       beatDefs[2].eventTimeMs > hookMs + minBeatMs &&
       beatDefs[2].eventTimeMs <= totalMs - minBeatMs * (count - 2)
     ) {
-      const exploitMs = Math.round(beatDefs[2].eventTimeMs - hookMs);
-      const remainingAfterExploit = totalMs - hookMs - exploitMs;
+      const reproMs = Math.round(beatDefs[2].eventTimeMs - hookMs);
+      const remainingAfterReproduce = totalMs - hookMs - reproMs;
       if (count === 3) {
-        return [hookMs, exploitMs, remainingAfterExploit];
+        return [hookMs, reproMs, remainingAfterReproduce];
       }
-      const fixMs = Math.max(minBeatMs, Math.round(remainingAfterExploit * 0.55));
-      const takeawayMs = Math.max(minBeatMs, remainingAfterExploit - fixMs);
-      return [hookMs, exploitMs, fixMs, takeawayMs];
+      const fixMs = Math.max(minBeatMs, Math.round(remainingAfterReproduce * 0.55));
+      const takeawayMs = Math.max(minBeatMs, remainingAfterReproduce - fixMs);
+      return [hookMs, reproMs, fixMs, takeawayMs];
     }
 
     const tailDefs = beatDefs.slice(1);
@@ -518,10 +518,10 @@ function derivePathTokens({
   vulnerableRule = '',
   fixedRule = '',
   copy,
-  victimName,
-  victimUid,
-  attackerName,
-  attackerUid,
+  ownerName,
+  ownerUid,
+  peerName,
+  peerUid,
 }) {
   if (Array.isArray(copy?.pathTokens) && copy.pathTokens.length > 0) {
     return copy.pathTokens.map((item) => ({
@@ -549,7 +549,7 @@ function derivePathTokens({
         isParam: true,
         callout: {
           label: 'Target path',
-          detail: copy?.targetContext || `Written directly by ${attackerUid}`,
+          detail: copy?.targetContext || `Written directly by ${peerUid}`,
         },
       },
     ];
@@ -565,7 +565,7 @@ function derivePathTokens({
     .filter(Boolean);
 
   const isParamToken = (tok) => /^[$@]/.test(tok) || (/^\{.*\}$/.test(tok) && !tok.includes('database'));
-  const uidLower = String(victimUid || '').toLowerCase();
+  const uidLower = String(ownerUid || '').toLowerCase();
   const wildcardByParent = extractWildcardMapFromRules(
     beforeRuleAnchored,
     afterRuleAnchored,
@@ -624,7 +624,7 @@ function derivePathTokens({
       : isParamToken(aTok)
         ? aTok
         : inferredWildcard;
-    const containsVictim =
+    const containsOwner =
       Boolean(uidLower) &&
       (concreteVal.toLowerCase() === uidLower || concreteVal.toLowerCase().includes(uidLower));
 
@@ -644,9 +644,9 @@ function derivePathTokens({
         label: idx < concreteTokens.length - 1 ? 'Target record' : 'Target leaf',
         detail:
           copy?.targetContext ||
-          (victimUid
-            ? `Authored by ${victimUid} (${concreteVal})`
-            : `Written directly by ${attackerUid} (${concreteVal})`),
+          (ownerUid
+            ? `Authored by ${ownerUid} (${concreteVal})`
+            : `Written directly by ${peerUid} (${concreteVal})`),
       };
     } else if (idx === attachIdx) {
       callout = {
@@ -662,14 +662,14 @@ function derivePathTokens({
         displayText = `$${parentWord.replace(/\s+/g, '') || 'container'}id`;
         isParam = true;
       }
-      callout = containsVictim
+      callout = containsOwner
         ? {
-            label: `${victimName}'s ${parentWord}`,
-            detail: `Scoped to ${victimUid} (${concreteVal})`,
+            label: `${ownerName}'s ${parentWord}`,
+            detail: `Scoped to ${ownerUid} (${concreteVal})`,
           }
         : {
             label: 'Shared container',
-            detail: `Both ${victimName} and ${attackerName} are members (${concreteVal})`,
+            detail: `Both ${ownerName} and ${peerName} are members (${concreteVal})`,
           };
     }
 
@@ -685,10 +685,10 @@ function derivePathTokens({
 function derivePathSegments({
   targetPath,
   copy,
-  victimName,
-  victimUid,
-  attackerName,
-  attackerUid,
+  ownerName,
+  ownerUid,
+  peerName,
+  peerUid,
   beforeRuleShortPath,
 }) {
   if (Array.isArray(copy?.pathSegments) && copy.pathSegments.length > 0) {
@@ -709,7 +709,7 @@ function derivePathSegments({
       {
         path: cleanTarget || '/target',
         label: 'Target database path',
-        detail: copy?.targetContext || `Written directly by ${attackerUid}`,
+        detail: copy?.targetContext || `Written directly by ${peerUid}`,
         tone: 'danger',
       },
     ];
@@ -718,8 +718,8 @@ function derivePathSegments({
   return [
     {
       path: strippedTarget.startsWith('/') ? strippedTarget : `/${strippedTarget}`,
-      label: victimUid ? `${victimName}'s target path (${victimUid})` : 'Target path',
-      detail: copy?.targetContext || `Targeted directly by ${attackerUid}`,
+      label: ownerUid ? `${ownerName}'s target path (${ownerUid})` : 'Target path',
+      detail: copy?.targetContext || `Targeted directly by ${peerUid}`,
       tone: 'neutral',
     },
   ];
@@ -821,7 +821,7 @@ function distillRuleLines(rawRuleBody, { maxLines = 4 } = {}) {
 function analyzeRuleClauses({
   vulnerableRuleBody,
   fixedRuleBody,
-  attackerUid,
+  peerUid,
   targetPath,
 }) {
   const beforeClauses = splitTopLevelAndClauses(vulnerableRuleBody);
@@ -1022,15 +1022,15 @@ function buildBehaviorDeck({ scenario, eventList, captureMs, evidence = null }) 
   const copy = scenario.copy || {};
   const deck = behavior.deck || {};
   const controlEvent = findEventForPhase(eventList, ['control']);
-  const exploitEvent = findEventForPhase(eventList, ['exploit']);
+  const reproEvent = findEventForPhase(eventList, ['repro']);
   const fixEvent = findEventForPhase(eventList, ['fix']);
   const rawCapMs = Math.max(captureMs || 0, 3000);
   const uiFocus = evidence?.uiFocus || {};
 
-  const victimName = scenario?.actors?.victim?.name || 'Alice';
-  const victimUid = scenario?.actors?.victim?.uid || 'alice';
-  const observerName = scenario?.actors?.attacker?.name || 'Bob';
-  const observerUid = scenario?.actors?.attacker?.uid || 'bob';
+  const ownerName = scenario?.actors?.owner?.name || 'Alice';
+  const ownerUid = scenario?.actors?.owner?.uid || 'alice';
+  const observerName = scenario?.actors?.peer?.name || 'Bob';
+  const observerUid = scenario?.actors?.peer?.uid || 'bob';
 
   const pathTemplate = behavior.pathTemplate || behavior.check?.path || '/';
   const pathValues = behavior.pathValues || {};
@@ -1039,8 +1039,8 @@ function buildBehaviorDeck({ scenario, eventList, captureMs, evidence = null }) 
   const watchMethod = behavior.watchMethod || 'onValue';
 
   const controlMs = eventMs(controlEvent, 'settledAtMs', Math.round(rawCapMs * 0.2));
-  const exDispatch = eventMs(exploitEvent, 'dispatchedAtMs', Math.round(rawCapMs * 0.35));
-  const exSettled = Math.min(rawCapMs, eventMs(exploitEvent, 'settledAtMs', exDispatch + 2500));
+  const exDispatch = eventMs(reproEvent, 'dispatchedAtMs', Math.round(rawCapMs * 0.35));
+  const exSettled = Math.min(rawCapMs, eventMs(reproEvent, 'settledAtMs', exDispatch + 2500));
   const fxDispatch = eventMs(fixEvent, 'dispatchedAtMs', Math.round(rawCapMs * 0.8));
   const fxExec = eventMs(fixEvent, 'executedAtMs', fxDispatch + 800);
   const fxSettled = Math.min(rawCapMs, eventMs(fixEvent, 'settledAtMs', fxExec + 1500));
@@ -1079,7 +1079,7 @@ function buildBehaviorDeck({ scenario, eventList, captureMs, evidence = null }) 
       phase: 'hook',
       durationMs: 1700,
       title: copy.title,
-      subtitle: copy.exploit,
+      subtitle: copy.summary,
       sourceStartMs: attachStart,
       sourceEndMs: attachStart,
       playDurationMs: 0,
@@ -1090,22 +1090,22 @@ function buildBehaviorDeck({ scenario, eventList, captureMs, evidence = null }) 
       variant: 'video',
       phase: 'hook',
       durationMs: 2600,
-      title: deck.attachTitle || `${victimName} and ${observerName} are in the same space`,
+      title: deck.attachTitle || `${ownerName} and ${observerName} are in the same space`,
       impactOffsetSec: 0.35,
-      actionStatusPending: `Signed in as ${victimUid} and ${observerUid}`,
-      actionStatusImpact: deck.attachStatus || `${observerName} sees ${victimName} here`,
-      actorStatus: { role: 'attacker', text: `Sees ${victimName}`, tone: 'neutral' },
+      actionStatusPending: `Signed in as ${ownerUid} and ${observerUid}`,
+      actionStatusImpact: deck.attachStatus || `${observerName} sees ${ownerName} here`,
+      actorStatus: { role: 'peer', text: `Sees ${ownerName}`, tone: 'neutral' },
       uiOverlays: {
         focus: uiFocus.control || null,
         before: {
-          victim: { label: 'Signed in' },
-          attacker: { label: `${victimName} is here` },
-          wire: wire(`${victimName.toUpperCase()} LISTED`, ''),
+          owner: { label: 'Signed in' },
+          peer: { label: `${ownerName} is here` },
+          wire: wire(`${ownerName.toUpperCase()} LISTED`, ''),
         },
         after: {
-          victim: { label: 'Signed in' },
-          attacker: { label: `${victimName} is here` },
-          wire: wire(`${victimName.toUpperCase()} LISTED`, ''),
+          owner: { label: 'Signed in' },
+          peer: { label: `${ownerName} is here` },
+          wire: wire(`${ownerName.toUpperCase()} LISTED`, ''),
         },
       },
       sourceStartMs: attachStart,
@@ -1127,12 +1127,12 @@ function buildBehaviorDeck({ scenario, eventList, captureMs, evidence = null }) 
       playDurationMs: 0,
     },
     {
-      id: 'attack-slide',
+      id: 'problem-slide',
       kind: 'slide',
       variant: 'attack',
-      phase: 'exploit',
+      phase: 'repro',
       durationMs: 3600,
-      title: copy.attackTitle || `${victimName} signs out`,
+      title: copy.attackTitle || `${ownerName} signs out`,
       subtitle: copy.attackContext || '',
       kvRows: Array.isArray(deck.problemFacts) ? deck.problemFacts : [],
       sourceStartMs: exStart,
@@ -1140,27 +1140,27 @@ function buildBehaviorDeck({ scenario, eventList, captureMs, evidence = null }) 
       playDurationMs: 0,
     },
     {
-      id: 'exploit-video',
+      id: 'problem-video',
       kind: 'video',
       variant: 'video',
-      phase: 'exploit',
+      phase: 'repro',
       durationMs: 3900,
-      title: deck.exploitTitle || `${victimName} signs out. ${observerName} still sees her.`,
+      title: deck.reproTitle || `${ownerName} signs out. ${observerName} still sees her.`,
       impactOffsetSec: exImpactSec,
-      actionStatusPending: `${victimName} clicks Sign out`,
-      actionStatusImpact: deck.exploitStatus || `${victimName}'s entry is still in the list`,
-      actorStatus: { role: 'attacker', text: `Still sees ${victimName}`, tone: 'neutral' },
+      actionStatusPending: `${ownerName} clicks Sign out`,
+      actionStatusImpact: deck.reproStatus || `${ownerName}'s entry is still in the list`,
+      actorStatus: { role: 'peer', text: `Still sees ${ownerName}`, tone: 'neutral' },
       uiOverlays: {
-        focus: uiFocus.exploitPre || uiFocus.control || null,
-        focusAfter: uiFocus.exploitPost || uiFocus.exploitPre || null,
+        focus: uiFocus.reproPre || uiFocus.control || null,
+        focusAfter: uiFocus.reproPost || uiFocus.reproPre || null,
         before: {
-          victim: { label: 'Signing out' },
-          attacker: { label: `${victimName} is here` },
-          wire: wire(`${victimName.toUpperCase()} LISTED`, ''),
+          owner: { label: 'Signing out' },
+          peer: { label: `${ownerName} is here` },
+          wire: wire(`${ownerName.toUpperCase()} LISTED`, ''),
         },
         after: {
-          victim: { label: 'Signed out' },
-          attacker: { label: `${victimName} still listed` },
+          owner: { label: 'Signed out' },
+          peer: { label: `${ownerName} still listed` },
           wire: wire('STILL LISTED', ''),
         },
       },
@@ -1172,7 +1172,7 @@ function buildBehaviorDeck({ scenario, eventList, captureMs, evidence = null }) 
       id: 'why-slide',
       kind: 'slide',
       variant: 'sequence',
-      phase: 'exploit',
+      phase: 'repro',
       durationMs: 4200,
       title: copy.whyTitle || 'Why the entry stays',
       subtitle: copy.why,
@@ -1205,22 +1205,22 @@ function buildBehaviorDeck({ scenario, eventList, captureMs, evidence = null }) 
         variant: 'video',
         phase: 'fix',
         durationMs: 3600,
-        title: deck.fixVideoTitle || `With the fix, ${victimName} leaves cleanly`,
+        title: deck.fixVideoTitle || `With the fix, ${ownerName} leaves cleanly`,
         impactOffsetSec: fxImpactSec,
-        actionStatusPending: `${victimName} clicks Sign out`,
-        actionStatusImpact: deck.fixStatus || `${victimName}'s entry is removed`,
-        actorStatus: { role: 'attacker', text: `${victimName} gone`, tone: 'neutral' },
+        actionStatusPending: `${ownerName} clicks Sign out`,
+        actionStatusImpact: deck.fixStatus || `${ownerName}'s entry is removed`,
+        actorStatus: { role: 'peer', text: `${ownerName} gone`, tone: 'neutral' },
         uiOverlays: {
           focus: uiFocus.fixPre || null,
           focusAfter: uiFocus.fixPost || uiFocus.fixPre || null,
           before: {
-            victim: { label: 'Signing out' },
-            attacker: { label: `${victimName} is here` },
-            wire: wire(`${victimName.toUpperCase()} LISTED`, ''),
+            owner: { label: 'Signing out' },
+            peer: { label: `${ownerName} is here` },
+            wire: wire(`${ownerName.toUpperCase()} LISTED`, ''),
           },
           after: {
-            victim: { label: 'Signed out' },
-            attacker: { label: `${victimName} removed` },
+            owner: { label: 'Signed out' },
+            peer: { label: `${ownerName} removed` },
             wire: wire('REMOVED', ''),
           },
         },
@@ -1253,10 +1253,10 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
   }
 
   const controlEvent = findEventForPhase(eventList, ['control', 'hook', 'setup', 'baseline']);
-  const exploitEvent = findEventForPhase(eventList, ['exploit', 'mutation', 'attack']);
+  const reproEvent = findEventForPhase(eventList, ['repro', 'mutation', 'attack']);
   const fixEvent = findEventForPhase(eventList, ['fix', 'verify', 'patched']);
 
-  const exploitBeat = beats.find((b) => b.id === 'exploit') || beats[0];
+  const reproBeat = beats.find((b) => b.id === 'repro') || beats[0];
   const fixBeat = beats.find((b) => b.id === 'fix');
 
   const rawCapMs = Math.max(captureMs || 0, beats[beats.length - 1]?.endMs || 3000);
@@ -1267,17 +1267,17 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         ? controlEvent.executedAtMs
         : (getEventTimeMs(controlEvent) ?? Math.round(rawCapMs * 0.2));
 
-  const exploitStartMs = getEventTimeMs(exploitEvent) ?? Math.round(rawCapMs * 0.35);
-  const exploitDispatchMs =
-    typeof exploitEvent?.dispatchedAtMs === 'number'
-      ? exploitEvent.dispatchedAtMs
-      : typeof exploitEvent?.executedAtMs === 'number'
-        ? exploitEvent.executedAtMs
-        : exploitStartMs;
-  const exploitExecMs =
-    typeof exploitEvent?.executedAtMs === 'number'
-      ? exploitEvent.executedAtMs
-      : exploitDispatchMs;
+  const reproStartMs = getEventTimeMs(reproEvent) ?? Math.round(rawCapMs * 0.35);
+  const reproDispatchMs =
+    typeof reproEvent?.dispatchedAtMs === 'number'
+      ? reproEvent.dispatchedAtMs
+      : typeof reproEvent?.executedAtMs === 'number'
+        ? reproEvent.executedAtMs
+        : reproStartMs;
+  const reproExecMs =
+    typeof reproEvent?.executedAtMs === 'number'
+      ? reproEvent.executedAtMs
+      : reproDispatchMs;
   const fixStartMs = getEventTimeMs(fixEvent) ?? rawCapMs;
   const fixDispatchMs =
     typeof fixEvent?.dispatchedAtMs === 'number'
@@ -1290,25 +1290,25 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       ? fixEvent.executedAtMs
       : fixDispatchMs;
 
-  const preFixBoundMs = fixEvent ? Math.max(exploitExecMs + 250, fixStartMs - 150) : rawCapMs;
-  const exploitSettledMs =
-    typeof exploitEvent?.settledAtMs === 'number'
-      ? Math.min(preFixBoundMs, Math.max(exploitEvent.settledAtMs + 1400, exploitExecMs + 1600))
-      : Math.min(preFixBoundMs, exploitExecMs + 1800);
+  const preFixBoundMs = fixEvent ? Math.max(reproExecMs + 250, fixStartMs - 150) : rawCapMs;
+  const reproSettledMs =
+    typeof reproEvent?.settledAtMs === 'number'
+      ? Math.min(preFixBoundMs, Math.max(reproEvent.settledAtMs + 1400, reproExecMs + 1600))
+      : Math.min(preFixBoundMs, reproExecMs + 1800);
   const fixSettledMs = Math.min(rawCapMs, Math.max(fixExecMs + 1100, rawCapMs - 120));
 
-  const minPostControlMs = controlEvent ? Math.min(exploitDispatchMs, controlExecMs + 300) : 0;
-  const exploitVideoStartMs = Math.max(minPostControlMs, exploitDispatchMs - 1350);
-  const exploitImpactMs =
-    typeof exploitEvent?.settledAtMs === 'number'
-      ? Math.round((exploitDispatchMs + exploitEvent.settledAtMs) / 2)
-      : exploitExecMs;
-  const exploitPlayMs = 3300;
-  const exploitTotalMs = 3600;
-  const exploitVideoSpan = Math.max(1, exploitSettledMs - exploitVideoStartMs);
-  const exploitImpactOffsetSec = Number(
+  const minPostControlMs = controlEvent ? Math.min(reproDispatchMs, controlExecMs + 300) : 0;
+  const reproVideoStartMs = Math.max(minPostControlMs, reproDispatchMs - 1350);
+  const reproImpactMs =
+    typeof reproEvent?.settledAtMs === 'number'
+      ? Math.round((reproDispatchMs + reproEvent.settledAtMs) / 2)
+      : reproExecMs;
+  const reproPlayMs = 3300;
+  const reproTotalMs = 3600;
+  const reproVideoSpan = Math.max(1, reproSettledMs - reproVideoStartMs);
+  const reproImpactOffsetSec = Number(
     (
-      Math.max(0.4, Math.min(2.4, ((exploitImpactMs - exploitVideoStartMs) / exploitVideoSpan) * (exploitPlayMs / 1000)))
+      Math.max(0.4, Math.min(2.4, ((reproImpactMs - reproVideoStartMs) / reproVideoSpan) * (reproPlayMs / 1000)))
     ).toFixed(2),
   );
 
@@ -1319,7 +1319,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
   const attachEndMs = Math.max(
     attachStartMs + 400,
     700,
-    Math.min(exploitVideoStartMs, controlExecMs > 0 ? controlExecMs + 500 : exploitVideoStartMs),
+    Math.min(reproVideoStartMs, controlExecMs > 0 ? controlExecMs + 500 : reproVideoStartMs),
   );
   const attachTotalMs = 2500;
   const attachPlayMs = 2200;
@@ -1334,19 +1334,19 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     ).toFixed(2),
   );
 
-  const victimName = scenario?.actors?.victim?.name || scenario?.actors?.victim?.uid || 'Alice';
-  const victimUid = scenario?.actors?.victim?.uid || 'alice';
-  const attackerName = scenario?.actors?.attacker?.name || scenario?.actors?.attacker?.uid || 'Bob';
-  const attackerUid = scenario?.actors?.attacker?.uid || 'bob';
+  const ownerName = scenario?.actors?.owner?.name || scenario?.actors?.owner?.uid || 'Alice';
+  const ownerUid = scenario?.actors?.owner?.uid || 'alice';
+  const peerName = scenario?.actors?.peer?.name || scenario?.actors?.peer?.uid || 'Bob';
+  const peerUid = scenario?.actors?.peer?.uid || 'bob';
 
-  const service = exploitEvent?.service || 'database';
+  const service = reproEvent?.service || 'database';
   const serviceName = formatServiceDisplayName(service);
-  const targetPath = exploitEvent?.path || '/target';
-  const sdkCall = exploitBeat?.sdkCall || `database.set('${targetPath}', ...)`;
+  const targetPath = reproEvent?.path || '/target';
+  const sdkCall = reproBeat?.sdkCall || `database.set('${targetPath}', ...)`;
   const vulnerableRule =
     (typeof evidence?.fixRules?.beforeFull === 'string' && evidence.fixRules.beforeFull.trim()) ||
     (typeof scenario?.fixRules?.before === 'string' && scenario.fixRules.before.trim()) ||
-    exploitBeat?.matchedRule ||
+    reproBeat?.matchedRule ||
     '".write": "auth != null"';
   const fixedRule =
     (typeof evidence?.fixRules?.afterFull === 'string' && evidence.fixRules.afterFull.trim()) ||
@@ -1371,19 +1371,19 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     vulnerableRule,
     fixedRule,
     copy: scenario?.copy,
-    victimName,
-    victimUid,
-    attackerName,
-    attackerUid,
+    ownerName,
+    ownerUid,
+    peerName,
+    peerUid,
   });
 
   const pathSegments = derivePathSegments({
     targetPath,
     copy: scenario?.copy,
-    victimName,
-    victimUid,
-    attackerName,
-    attackerUid,
+    ownerName,
+    ownerUid,
+    peerName,
+    peerUid,
     beforeRuleShortPath: parsedBefore.nodePath,
   });
 
@@ -1395,7 +1395,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
   } = analyzeRuleClauses({
     vulnerableRuleBody: parsedBefore.body || vulnerableRule,
     fixedRuleBody: parsedAfter.body || fixedRule,
-    attackerUid,
+    peerUid,
     targetPath,
   });
 
@@ -1421,7 +1421,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
   const nounSingular = singularizeToken(nounPlural);
   const rawTargetSegs = String(targetPath || '').split('/').filter(Boolean);
   const leafSegmentId = rawTargetSegs[rawTargetSegs.length - 1] || 'record';
-  const sdkMethod = exploitEvent?.method || (service === 'firestore' ? 'setDoc' : 'set');
+  const sdkMethod = reproEvent?.method || (service === 'firestore' ? 'setDoc' : 'set');
   const uiFocus = evidence?.uiFocus || {};
 
   const slideDefs = [
@@ -1433,8 +1433,8 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       durationMs: 1700,
       title: scenario?.copy?.title || 'Security rule vulnerability reproduction',
       subtitle:
-        scenario?.copy?.exploit ||
-        `${attackerName} can overwrite ${victimName}'s ${nounPlural} by targeting ${targetPath} directly with the ${serviceName} SDK.`,
+        scenario?.copy?.repro ||
+        `${peerName} can overwrite ${ownerName}'s ${nounPlural} by targeting ${targetPath} directly with the ${serviceName} SDK.`,
       sourceStartMs: attachStartMs,
       sourceEndMs: attachStartMs,
       playDurationMs: 0,
@@ -1447,18 +1447,18 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       durationMs: attachTotalMs,
       title:
         scenario?.copy?.attachTitle ||
-        `${victimName} writes a ${nounSingular} in the shared space`,
+        `${ownerName} writes a ${nounSingular} in the shared space`,
       impactOffsetSec: 0.35,
-      actionStatusPending: `Connected as ${victimUid} and ${attackerUid}`,
+      actionStatusPending: `Connected as ${ownerUid} and ${peerUid}`,
       actionStatusImpact: `Write allowed under ${beforeAttachNode}`,
-      actorStatus: { role: 'victim', text: 'Normal write', tone: 'neutral' },
+      actorStatus: { role: 'owner', text: 'Normal write', tone: 'neutral' },
       uiOverlays: {
-        focus: uiFocus.control || uiFocus.exploitPre || uiFocus.exploitPost || null,
+        focus: uiFocus.control || uiFocus.reproPre || uiFocus.reproPost || null,
         before: {
-          victim: { label: `${victimName}'s ${nounSingular} (${leafSegmentId})` },
-          attacker: { label: `Synced view for ${attackerName}` },
+          owner: { label: `${ownerName}'s ${nounSingular} (${leafSegmentId})` },
+          peer: { label: `Synced view for ${peerName}` },
           wire: {
-            caller: victimUid,
+            caller: ownerUid,
             method: sdkMethod,
             targetPath,
             pathTokens,
@@ -1468,10 +1468,10 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
           },
         },
         after: {
-          victim: { label: `Node ${leafSegmentId} attached` },
-          attacker: { label: `Shared node visible to ${attackerName}` },
+          owner: { label: `Node ${leafSegmentId} attached` },
+          peer: { label: `Shared node visible to ${peerName}` },
           wire: {
-            caller: victimUid,
+            caller: ownerUid,
             method: sdkMethod,
             targetPath,
             pathTokens,
@@ -1500,49 +1500,49 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       targetPath,
       pathTokens,
       pathSegments,
-      sourceStartMs: exploitVideoStartMs,
-      sourceEndMs: exploitVideoStartMs,
+      sourceStartMs: reproVideoStartMs,
+      sourceEndMs: reproVideoStartMs,
       playDurationMs: 0,
     },
     {
-      id: 'attack-slide',
+      id: 'problem-slide',
       kind: 'slide',
       variant: 'attack',
-      phase: 'exploit',
+      phase: 'repro',
       durationMs: 3600,
-      title: scenario?.copy?.attackTitle || `Bypassing the UI as ${attackerName}`,
+      title: scenario?.copy?.attackTitle || `Bypassing the UI as ${peerName}`,
       subtitle:
         scenario?.copy?.attackContext ||
-        `Signed in as ${attackerUid}, ${attackerName} calls the ${serviceName} SDK directly to overwrite ${victimName}'s existing ${nounSingular}.`,
+        `Signed in as ${peerUid}, ${peerName} calls the ${serviceName} SDK directly to overwrite ${ownerName}'s existing ${nounSingular}.`,
       targetPath,
       pathTokens,
-      callerSummary: victimUid
-        ? `${attackerUid} (member of container, not author)`
-        : `${attackerUid}`,
+      callerSummary: ownerUid
+        ? `${peerUid} (member of container, not author)`
+        : `${peerUid}`,
       code: sdkCall,
-      sourceStartMs: exploitVideoStartMs,
-      sourceEndMs: exploitVideoStartMs,
+      sourceStartMs: reproVideoStartMs,
+      sourceEndMs: reproVideoStartMs,
       playDurationMs: 0,
     },
     {
-      id: 'exploit-video',
+      id: 'problem-video',
       kind: 'video',
       variant: 'video',
-      phase: 'exploit',
-      durationMs: exploitTotalMs,
-      title: `${attackerName} overwrites ${victimName}'s ${nounSingular}`,
-      impactOffsetSec: exploitImpactOffsetSec,
-      actionStatusPending: `Sending ${service}.${exploitEvent?.method || 'set'} as ${attackerUid}`,
+      phase: 'repro',
+      durationMs: reproTotalMs,
+      title: `${peerName} overwrites ${ownerName}'s ${nounSingular}`,
+      impactOffsetSec: reproImpactOffsetSec,
+      actionStatusPending: `Sending ${service}.${reproEvent?.method || 'set'} as ${peerUid}`,
       actionStatusImpact: `Write allowed — updated in both views`,
-      actorStatus: { role: 'attacker', text: 'Write allowed', tone: 'neutral' },
+      actorStatus: { role: 'peer', text: 'Write allowed', tone: 'neutral' },
       uiOverlays: {
-        focus: uiFocus.exploitPre || uiFocus.control || uiFocus.exploitPost || null,
-        focusAfter: uiFocus.exploitPost || uiFocus.control || uiFocus.exploitPre || null,
+        focus: uiFocus.reproPre || uiFocus.control || uiFocus.reproPost || null,
+        focusAfter: uiFocus.reproPost || uiFocus.control || uiFocus.reproPre || null,
         before: {
-          victim: { label: `${victimName}'s ${nounSingular} (${leafSegmentId})` },
-          attacker: { label: `Targeting ${leafSegmentId} via SDK` },
+          owner: { label: `${ownerName}'s ${nounSingular} (${leafSegmentId})` },
+          peer: { label: `Targeting ${leafSegmentId} via SDK` },
           wire: {
-            caller: attackerUid,
+            caller: peerUid,
             method: sdkMethod,
             targetPath,
             pathTokens,
@@ -1552,10 +1552,10 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
           },
         },
         after: {
-          victim: { label: `Overwritten in ${victimName}'s UI` },
-          attacker: { label: `Spoofed via direct SDK write` },
+          owner: { label: `Overwritten in ${ownerName}'s UI` },
+          peer: { label: `Spoofed via direct SDK write` },
           wire: {
-            caller: attackerUid,
+            caller: peerUid,
             method: sdkMethod,
             targetPath,
             pathTokens,
@@ -1565,30 +1565,30 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
           },
         },
       },
-      sourceStartMs: exploitVideoStartMs,
-      sourceEndMs: exploitSettledMs,
-      playDurationMs: exploitPlayMs,
+      sourceStartMs: reproVideoStartMs,
+      sourceEndMs: reproSettledMs,
+      playDurationMs: reproPlayMs,
     },
     {
       id: 'why-slide',
       kind: 'slide',
       variant: 'why',
-      phase: 'exploit',
+      phase: 'repro',
       durationMs: 3800,
       title: 'Why the database allowed it',
       subtitle:
         scenario?.copy?.why ||
         (ruleMovesDeeper
           ? `The write rule sits on ${beforeAttachNode} and only checks membership. Because rules cascade downward, any member can overwrite existing nodes under ${afterAttachNode}.`
-          : `The write rule checks caller membership but never verifies whether the target node belongs to ${attackerUid}.`),
+          : `The write rule checks caller membership but never verifies whether the target node belongs to ${peerUid}.`),
       targetPath,
       ruleTree: whyTree,
       missingCheck: {
         label: 'Missing check',
         code: scenario?.copy?.missingCheckCode || addedOwnerClause || `!data.exists() || data.child('owner/uid').val() == auth.uid`,
       },
-      sourceStartMs: exploitSettledMs,
-      sourceEndMs: exploitSettledMs,
+      sourceStartMs: reproSettledMs,
+      sourceEndMs: reproSettledMs,
       playDurationMs: 0,
     },
   ];
@@ -1636,16 +1636,16 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         title: 'Unauthorized write blocked',
         impactOffsetSec: fixImpactOffsetSec,
         ...assuranceNoteField,
-        actionStatusPending: `Re-running ${service}.${exploitEvent?.method || 'set'} as ${attackerUid}`,
-        actionStatusImpact: `PERMISSION_DENIED — ${victimName}'s ${nounSingular} stays unchanged`,
-        actorStatus: { role: 'attacker', text: 'Write denied', tone: 'neutral' },
+        actionStatusPending: `Re-running ${service}.${reproEvent?.method || 'set'} as ${peerUid}`,
+        actionStatusImpact: `PERMISSION_DENIED — ${ownerName}'s ${nounSingular} stays unchanged`,
+        actorStatus: { role: 'peer', text: 'Write denied', tone: 'neutral' },
         uiOverlays: {
-          focus: uiFocus.fixPost || uiFocus.control || uiFocus.exploitPost || null,
+          focus: uiFocus.fixPost || uiFocus.control || uiFocus.reproPost || null,
           before: {
-            victim: { label: `Protected ${nounSingular} (${leafSegmentId})` },
-            attacker: { label: `Repeating ${sdkMethod}(...) as ${attackerUid}` },
+            owner: { label: `Protected ${nounSingular} (${leafSegmentId})` },
+            peer: { label: `Repeating ${sdkMethod}(...) as ${peerUid}` },
             wire: {
-              caller: attackerUid,
+              caller: peerUid,
               method: sdkMethod,
               targetPath,
               pathTokens,
@@ -1655,10 +1655,10 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
             },
           },
           after: {
-            victim: { label: `Unchanged in ${victimName}'s UI` },
-            attacker: { label: `SDK write rejected` },
+            owner: { label: `Unchanged in ${ownerName}'s UI` },
+            peer: { label: `SDK write rejected` },
             wire: {
-              caller: attackerUid,
+              caller: peerUid,
               method: sdkMethod,
               targetPath,
               pathTokens,

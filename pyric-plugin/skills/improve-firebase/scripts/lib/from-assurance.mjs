@@ -1,7 +1,7 @@
 /**
  * Converts a Pyric assurance CampaignExport (`pyric.assurance.export.v1`) and selected
  * AssuranceProbeResult into a validated `pyric.evidence.scenario.v1` specification plus
- * normalized control and exploit operations.
+ * normalized control and repro operations.
  *
  * Zero external runtime dependencies.
  */
@@ -176,7 +176,7 @@ export function inferStoryTemplate(probe, actors = {}) {
     probe?.invariant?.id,
     probe?.invariant?.name,
     probe?.invariant?.description,
-    probe?.mutationSpec?.exploitDescription,
+    probe?.mutationSpec?.reproDescription,
   ]
     .filter((s) => typeof s === 'string')
     .join(' ');
@@ -184,7 +184,7 @@ export function inferStoryTemplate(probe, actors = {}) {
   if (probe?.template && STORY_TEMPLATES.includes(probe.template)) {
     return probe.template;
   }
-  if (!actors.attacker || /\bunauth|anonymous|signed[- ]?out\b/i.test(haystack)) {
+  if (!actors.peer || /\bunauth|anonymous|signed[- ]?out\b/i.test(haystack)) {
     return 'unauthenticated';
   }
   if (/\bspoof|impersonat|forge|pretend|wrong author\b/i.test(haystack)) {
@@ -216,12 +216,12 @@ export function resolveCampaignActorUid(campaignExport, actorId) {
 }
 
 /**
- * The uid of the actor that performed the probe's mutation (the attacker). Real exports
- * carry it as `actorEvidence.uid` / `actorEvidence.actorId`; older fixtures as `attackerUid`.
+ * The uid of the actor that performed the probe's mutation (the peer). Real exports
+ * carry it as `actorEvidence.uid` / `actorEvidence.actorId`; older fixtures as `peerUid`.
  */
 export function resolveProbeActorUid(campaignExport, probe) {
   const evidence = isPlainObject(probe?.actorEvidence) ? probe.actorEvidence : {};
-  if (evidence.attackerUid !== undefined) return evidence.attackerUid;
+  if (evidence.peerUid !== undefined) return evidence.peerUid;
   if (typeof evidence.uid === 'string' && evidence.uid) return evidence.uid;
   const actorId = evidence.actorId ?? probe?.actorId ?? null;
   return actorId ? resolveCampaignActorUid(campaignExport, actorId) : undefined;
@@ -229,60 +229,60 @@ export function resolveProbeActorUid(campaignExport, probe) {
 
 function buildActorsFromProbe(probe, overrideActors = {}, derived = {}) {
   const evidence = isPlainObject(probe?.actorEvidence) ? probe.actorEvidence : {};
-  const victimUid =
-    overrideActors?.victim?.uid ??
-    evidence.victimUid ??
-    derived.victimUid ??
+  const ownerUid =
+    overrideActors?.owner?.uid ??
+    evidence.ownerUid ??
+    derived.ownerUid ??
     'alice';
   // Only the legacy fixture shape labels roles; a uid taken from a campaign actor is shown as-is.
-  const victimName =
-    overrideActors?.victim?.name ??
-    evidence.victimLabel ??
-    (evidence.victimUid === undefined && derived.victimUid
-      ? capitalize(victimUid)
-      : `${capitalize(victimUid)} (Owner)`);
+  const ownerName =
+    overrideActors?.owner?.name ??
+    evidence.ownerLabel ??
+    (evidence.ownerUid === undefined && derived.ownerUid
+      ? capitalize(ownerUid)
+      : `${capitalize(ownerUid)} (Owner)`);
 
-  const victim = {
-    uid: victimUid,
-    name: victimName,
-    view: overrideActors?.victim?.view ?? '/',
-    ...(isPlainObject(evidence.victimClaims) ? { claims: evidence.victimClaims } : {}),
-    ...(isPlainObject(overrideActors?.victim) ? overrideActors.victim : {}),
+  const owner = {
+    uid: ownerUid,
+    name: ownerName,
+    view: overrideActors?.owner?.view ?? '/',
+    ...(isPlainObject(evidence.ownerClaims) ? { claims: evidence.ownerClaims } : {}),
+    ...(isPlainObject(overrideActors?.owner) ? overrideActors.owner : {}),
   };
 
-  const hasExplicitAttackerOverride =
-    overrideActors && Object.prototype.hasOwnProperty.call(overrideActors, 'attacker');
-  const derivedAttackerUid = derived.attackerUid;
+  const hasExplicitPeerOverride =
+    overrideActors && Object.prototype.hasOwnProperty.call(overrideActors, 'peer');
+  const derivedPeerUid = derived.peerUid;
 
-  let attacker;
-  if (hasExplicitAttackerOverride) {
-    if (overrideActors.attacker && isPlainObject(overrideActors.attacker)) {
-      const aUid = overrideActors.attacker.uid ?? derivedAttackerUid ?? 'mallory';
-      attacker = {
+  let peer;
+  if (hasExplicitPeerOverride) {
+    if (overrideActors.peer && isPlainObject(overrideActors.peer)) {
+      const aUid = overrideActors.peer.uid ?? derivedPeerUid ?? 'mallory';
+      peer = {
         uid: aUid,
-        name: overrideActors.attacker.name ?? evidence.attackerLabel ?? aUid,
-        view: overrideActors.attacker.view ?? '/',
-        ...(isPlainObject(evidence.attackerClaims) ? { claims: evidence.attackerClaims } : {}),
-        ...overrideActors.attacker,
+        name: overrideActors.peer.name ?? evidence.peerLabel ?? aUid,
+        view: overrideActors.peer.view ?? '/',
+        ...(isPlainObject(evidence.peerClaims) ? { claims: evidence.peerClaims } : {}),
+        ...overrideActors.peer,
       };
     }
   } else {
-    const rawAttackerUid = derivedAttackerUid !== undefined ? derivedAttackerUid : 'mallory';
-    if (rawAttackerUid !== null && rawAttackerUid !== '') {
-      attacker = {
-        uid: rawAttackerUid,
+    const rawPeerUid = derivedPeerUid !== undefined ? derivedPeerUid : 'mallory';
+    if (rawPeerUid !== null && rawPeerUid !== '') {
+      peer = {
+        uid: rawPeerUid,
         name:
-          evidence.attackerLabel ??
-          (evidence.attackerUid === undefined && derivedAttackerUid !== undefined
-            ? capitalize(rawAttackerUid)
-            : `${capitalize(rawAttackerUid)} (External)`),
+          evidence.peerLabel ??
+          (evidence.peerUid === undefined && derivedPeerUid !== undefined
+            ? capitalize(rawPeerUid)
+            : `${capitalize(rawPeerUid)} (External)`),
         view: '/',
-        ...(isPlainObject(evidence.attackerClaims) ? { claims: evidence.attackerClaims } : {}),
+        ...(isPlainObject(evidence.peerClaims) ? { claims: evidence.peerClaims } : {}),
       };
     }
   }
 
-  return attacker ? { victim, attacker } : { victim };
+  return peer ? { owner, peer } : { owner };
 }
 
 function parentPath(p) {
@@ -292,23 +292,23 @@ function parentPath(p) {
 }
 
 /**
- * Pick the known-good observation that should serve as the victim's control: an allowed
+ * Pick the known-good observation that should serve as the owner's control: an allowed
  * operation by a different actor than the probe's, on the mutated path (or a sibling of it).
  * Returns null when the export has no usable observation.
  */
 export function selectControlObservation({
   campaignExport,
   probe,
-  exploitOperation,
-  victimUid = null,
+  reproOperation,
+  ownerUid = null,
 }) {
   const observations = campaignExport?.observations;
-  if (!Array.isArray(observations) || observations.length === 0 || !exploitOperation) {
+  if (!Array.isArray(observations) || observations.length === 0 || !reproOperation) {
     return null;
   }
   const probeActorUid = resolveProbeActorUid(campaignExport, probe) ?? null;
   const probeInvariantId = probe?.invariant?.id ?? probe?.invariantId ?? null;
-  const targetParent = parentPath(exploitOperation.path);
+  const targetParent = parentPath(reproOperation.path);
 
   let best = null;
   for (const obs of observations) {
@@ -317,21 +317,21 @@ export function selectControlObservation({
     if (obs.invariantId && probeInvariantId && obs.invariantId !== probeInvariantId) continue;
     let op;
     try {
-      op = normalizeAssuranceOperation(obs.operation, { service: exploitOperation.service });
+      op = normalizeAssuranceOperation(obs.operation, { service: reproOperation.service });
     } catch {
       continue;
     }
-    if (op.service !== exploitOperation.service) continue;
+    if (op.service !== reproOperation.service) continue;
     const uid = obs.uid ?? resolveCampaignActorUid(campaignExport, obs.actorId);
     if (!uid) continue;
     if (probeActorUid && uid === probeActorUid) continue;
-    if (victimUid && uid !== victimUid) continue;
+    if (ownerUid && uid !== ownerUid) continue;
 
     let score;
-    if (op.path === exploitOperation.path) score = 2;
+    if (op.path === reproOperation.path) score = 2;
     else if (parentPath(op.path) === targetParent) score = 1;
     else continue;
-    if (op.method === exploitOperation.method) score += 0.5;
+    if (op.method === reproOperation.method) score += 0.5;
 
     if (!best || score > best.score) {
       best = { score, obs, uid, op };
@@ -347,58 +347,58 @@ export function selectControlObservation({
   };
 }
 
-function deriveControlOperation({ probe, exploitOperation, actors }) {
+function deriveControlOperation({ probe, reproOperation, actors }) {
   if (isPlainObject(probe?.control?.operation)) {
-    return normalizeAssuranceOperation(probe.control.operation, { service: exploitOperation.service });
+    return normalizeAssuranceOperation(probe.control.operation, { service: reproOperation.service });
   }
   if (isPlainObject(probe?.mutationSpec?.controlOperation)) {
     return normalizeAssuranceOperation(probe.mutationSpec.controlOperation, {
-      service: exploitOperation.service,
+      service: reproOperation.service,
     });
   }
 
-  const victimUid = actors.victim?.uid || 'alice';
-  const preState = probe?.mutation?.before ?? probe?.stateDiff?.before?.[exploitOperation.path];
+  const ownerUid = actors.owner?.uid || 'alice';
+  const preState = probe?.mutation?.before ?? probe?.stateDiff?.before?.[reproOperation.path];
   const isReadMethod = ['get', 'list', 'getDoc', 'getDocs', 'getBytes', 'getDownloadURL'].includes(
-    exploitOperation.method,
+    reproOperation.method,
   );
 
-  if (isReadMethod || exploitOperation.service === 'storage') {
+  if (isReadMethod || reproOperation.service === 'storage') {
     return {
-      service: exploitOperation.service,
-      method: exploitOperation.service === 'firestore' ? 'getDoc' : 'get',
-      path: exploitOperation.path,
-      uid: victimUid,
+      service: reproOperation.service,
+      method: reproOperation.service === 'firestore' ? 'getDoc' : 'get',
+      path: reproOperation.path,
+      uid: ownerUid,
     };
   }
 
-  // Synthesize a legitimate owner write with pre-exploit data (preserving owner field)
+  // Synthesize a legitimate owner write with pre-repro data (preserving owner field)
   let safeBaselineData;
   if (isPlainObject(preState)) {
     safeBaselineData = structuredClone(preState);
     if ('ownerUid' in safeBaselineData) {
-      safeBaselineData.ownerUid = victimUid;
+      safeBaselineData.ownerUid = ownerUid;
     } else if ('authorUid' in safeBaselineData) {
-      safeBaselineData.authorUid = victimUid;
+      safeBaselineData.authorUid = ownerUid;
     } else if ('uid' in safeBaselineData) {
-      safeBaselineData.uid = victimUid;
+      safeBaselineData.uid = ownerUid;
     }
   } else if (preState !== undefined && preState !== null) {
     safeBaselineData = preState;
   } else {
     safeBaselineData = {
-      authorUid: victimUid,
-      ownerUid: victimUid,
+      authorUid: ownerUid,
+      ownerUid: ownerUid,
       text: 'Verified owner baseline state',
     };
   }
 
   return {
-    service: exploitOperation.service,
-    method: exploitOperation.service === 'firestore' ? 'setDoc' : 'set',
-    path: exploitOperation.path,
+    service: reproOperation.service,
+    method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
+    path: reproOperation.path,
     data: safeBaselineData,
-    uid: victimUid,
+    uid: ownerUid,
   };
 }
 
@@ -423,7 +423,7 @@ function readRuleSnippetText(ruleSpec) {
 
 /**
  * Convert an assurance export + probe (with optional scenario override) into a validated scenario
- * plus normalized control/exploit operations and seed state.
+ * plus normalized control/repro operations and seed state.
  */
 export function buildScenarioFromAssurance({
   campaignExport,
@@ -447,45 +447,45 @@ export function buildScenarioFromAssurance({
       : {}),
   };
 
-  let exploitOperation = null;
+  let reproOperation = null;
   if (isPlainObject(probe?.mutationSpec?.operation)) {
-    exploitOperation = normalizeAssuranceOperation(
+    reproOperation = normalizeAssuranceOperation(
       probe.mutationSpec.operation,
       campaignExport.target,
     );
   } else if (Array.isArray(override.steps)) {
-    const exploitStep = override.steps.find(
+    const reproStep = override.steps.find(
       (s) =>
         isPlainObject(s) &&
         String(s.kind || s.type || '').toLowerCase() === 'sdk' &&
-        (String(s.id || s.phase || '').toLowerCase() === 'exploit' || isPlainObject(s.operation)),
+        (String(s.id || s.phase || '').toLowerCase() === 'repro' || isPlainObject(s.operation)),
     );
-    if (exploitStep?.operation) {
-      exploitOperation = normalizeAssuranceOperation(exploitStep.operation, campaignExport.target);
+    if (reproStep?.operation) {
+      reproOperation = normalizeAssuranceOperation(reproStep.operation, campaignExport.target);
     }
   }
 
-  if (!exploitOperation) {
+  if (!reproOperation) {
     throw new ContractValidationError(
-      `Probe "${finding.probe}" has no mutationSpec.operation and no SDK exploit step`,
+      `Probe "${finding.probe}" has no mutationSpec.operation and no SDK repro step`,
     );
   }
 
   const overrideControl = isPlainObject(override.controlOperation);
-  // The probe's own control is the attacker's known-good write. When the export carries
-  // observations, the victim's allowed write on the mutated path is the honest control.
+  // The probe's own control is the peer's known-good write. When the export carries
+  // observations, the owner's allowed write on the mutated path is the honest control.
   const controlObservation = overrideControl
     ? null
     : selectControlObservation({
         campaignExport,
         probe,
-        exploitOperation,
-        victimUid: override.actors?.victim?.uid ?? probe?.actorEvidence?.victimUid ?? null,
+        reproOperation,
+        ownerUid: override.actors?.owner?.uid ?? probe?.actorEvidence?.ownerUid ?? null,
       });
 
   const actors = buildActorsFromProbe(probe, override.actors, {
-    attackerUid: resolveProbeActorUid(campaignExport, probe),
-    victimUid: controlObservation?.uid,
+    peerUid: resolveProbeActorUid(campaignExport, probe),
+    ownerUid: controlObservation?.uid,
   });
   const template = inferStoryTemplate(
     { ...probe, ...(override.template ? { template: override.template } : {}) },
@@ -496,7 +496,7 @@ export function buildScenarioFromAssurance({
   let controlSource;
   if (overrideControl) {
     controlOperation = normalizeAssuranceOperation(override.controlOperation, {
-      service: exploitOperation.service,
+      service: reproOperation.service,
     });
     controlSource = { kind: 'override' };
   } else if (controlObservation) {
@@ -508,7 +508,7 @@ export function buildScenarioFromAssurance({
       uid: controlObservation.uid,
     };
   } else {
-    controlOperation = deriveControlOperation({ probe, exploitOperation, actors });
+    controlOperation = deriveControlOperation({ probe, reproOperation, actors });
     controlSource = {
       kind: isPlainObject(probe?.control?.operation) || isPlainObject(probe?.mutationSpec?.controlOperation)
         ? 'probe-control'
@@ -526,8 +526,8 @@ export function buildScenarioFromAssurance({
       : undefined;
 
   const hasFix = Boolean(mergedFixRules);
-  const attackerLabel = actors.attacker?.name || actors.attacker?.uid || 'Unauthenticated caller';
-  const victimLabel = actors.victim?.name || actors.victim?.uid || 'Owner';
+  const peerLabel = actors.peer?.name || actors.peer?.uid || 'Unauthenticated caller';
+  const ownerLabel = actors.owner?.name || actors.owner?.uid || 'Owner';
 
   // Copy defaults use only what the export states; nothing here should invent a claim.
   const humanProbeId =
@@ -537,18 +537,18 @@ export function buildScenarioFromAssurance({
   const defaultTitle =
     probe?.invariant?.name ||
     humanProbeId ||
-    `${exploitOperation.service}.${exploitOperation.method} on ${exploitOperation.path} is allowed`;
-  const defaultExploit =
-    probe?.mutationSpec?.exploitDescription ||
+    `${reproOperation.service}.${reproOperation.method} on ${reproOperation.path} is allowed`;
+  const defaultReproduce =
+    probe?.mutationSpec?.reproDescription ||
     probe?.mutationSpec?.description ||
-    `${attackerLabel} executes ${exploitOperation.service}.${exploitOperation.method} on ${exploitOperation.path} and the rules allow it.`;
+    `${peerLabel} executes ${reproOperation.service}.${reproOperation.method} on ${reproOperation.path} and the rules allow it.`;
   const defaultWhy =
     probe?.invariant?.description ||
     probe?.invariant?.statement ||
-    `Security rules on ${exploitOperation.path} failed to enforce caller authorization.`;
+    `Security rules on ${reproOperation.path} failed to enforce caller authorization.`;
   const defaultBaseline =
     controlObservation?.description ||
-    `${victimLabel} performs a legitimate ${controlOperation.service}.${controlOperation.method} operation on ${controlOperation.path}.`;
+    `${ownerLabel} performs a legitimate ${controlOperation.service}.${controlOperation.method} operation on ${controlOperation.path}.`;
   // Real exports carry no severity; say so instead of defaulting to HIGH.
   const defaultSeverity = probe?.invariant?.severity || probe?.severity || 'UNRATED';
 
@@ -556,18 +556,18 @@ export function buildScenarioFromAssurance({
     severity: String(defaultSeverity).toUpperCase(),
     title: defaultTitle,
     baseline: defaultBaseline,
-    exploit: defaultExploit,
+    summary: defaultReproduce,
     why: defaultWhy,
     ...(hasFix
       ? {
-          fixed: `Updated security rules reject ${attackerLabel}'s unauthorized mutation while preserving ${victimLabel}'s access.`,
+          fixed: `Updated security rules reject ${peerLabel}'s unauthorized mutation while preserving ${ownerLabel}'s access.`,
         }
       : {}),
     ...(isPlainObject(override.copy) ? override.copy : {}),
   };
 
   const defaultLayout = mergedApp
-    ? actors.attacker
+    ? actors.peer
       ? 'split-actors'
       : 'single-hero'
     : 'data-plane';
@@ -584,7 +584,7 @@ export function buildScenarioFromAssurance({
   const stateDiffBefore =
     isPlainObject(probe?.stateDiff) && 'changed' in probe.stateDiff
       ? probe.stateDiff.before
-      : probe?.stateDiff?.before?.[exploitOperation.path];
+      : probe?.stateDiff?.before?.[reproOperation.path];
   const initialSeedValue =
     probe?.mutation?.before ??
     stateDiffBefore ??
@@ -612,8 +612,8 @@ export function buildScenarioFromAssurance({
     probe,
     controlOperation,
     controlSource,
-    exploitOperation,
-    exploitSnippet: formatSdkSnippet(exploitOperation),
+    reproOperation,
+    reproSnippet: formatSdkSnippet(reproOperation),
     controlSnippet: formatSdkSnippet(controlOperation),
     initialSeedValue: initialSeedValue !== undefined ? structuredClone(initialSeedValue) : undefined,
     fixedRuleSnippet: readRuleSnippetText(mergedFixRules),
@@ -721,7 +721,7 @@ function fixAssuranceNote(reason, method) {
  * @param {object} args.campaignExport normalized export (parseCampaignExport)
  * @param {object} args.probe the selected probe result
  * @param {{rtdbRules?: object, firestoreRules?: string, storageRules?: string}} args.fixRules
- * @param {string} [args.method] exploit method, used to word the note
+ * @param {string} [args.method] repro method, used to word the note
  */
 export function assessFixAssurance({ campaignExport, probe, fixRules, method } = {}) {
   const probeId = probe?.probeId ?? null;

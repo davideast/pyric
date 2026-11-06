@@ -219,8 +219,8 @@ export async function recordBehaviorEvidence({
   const rulesPath = raw.rules?.rtdb ? path.resolve(raw.rules.rtdb) : null;
   const seed = seedPath || (raw.seedFile ? path.resolve(raw.seedFile) : null);
   const check = behavior.check;
-  const actorRole = behavior.action.actor || 'victim';
-  const observerRole = actorRole === 'victim' ? 'attacker' : 'victim';
+  const actorRole = behavior.action.actor || 'owner';
+  const observerRole = actorRole === 'owner' ? 'peer' : 'owner';
   const actor = scenario.actors[actorRole];
   const checkUid = check.uid || actor.uid;
   const waitMs = Number(check.waitMs) || 3000;
@@ -290,7 +290,7 @@ export async function recordBehaviorEvidence({
       decision: 'PRESENT',
       uiReadyAtMs,
     });
-    uiFocus.exploitPre = uiFocus.control;
+    uiFocus.reproPre = uiFocus.control;
     timings.beforeReadySec = (Date.now() - t0) / 1000;
 
     const exDispatch = nowMs();
@@ -306,10 +306,10 @@ export async function recordBehaviorEvidence({
       );
     }
     await prepareActorUiForRecording(pages[observerRole], { targetTexts: [], collapseSidebar });
-    uiFocus.exploitPost = await measureFocus(pages, focusSelectors);
-    const exploitPath = `${check.path}/${clientId}`;
+    uiFocus.reproPost = await measureFocus(pages, focusSelectors);
+    const reproPath = `${check.path}/${clientId}`;
     events.push({
-      phase: 'exploit',
+      phase: 'repro',
       tMs: exDispatch,
       dispatchedAtMs: exDispatch,
       executedAtMs: exExec,
@@ -318,7 +318,7 @@ export async function recordBehaviorEvidence({
       actorLabel: actor.uid,
       service: 'auth',
       method: 'signOut',
-      path: exploitPath,
+      path: reproPath,
       decision: 'LEFT BEHIND',
       observedAfterMs: waitMs,
     });
@@ -362,7 +362,7 @@ export async function recordBehaviorEvidence({
       actorLabel: actor.uid,
       service: 'auth',
       method: 'signOut',
-      path: exploitPath,
+      path: reproPath,
       decision: 'REMOVED',
       removedAfterMs: removedAt - fxDispatch,
     });
@@ -376,7 +376,7 @@ export async function recordBehaviorEvidence({
       fixedDecision: 'REMOVED',
       service: 'auth',
       method: 'signOut',
-      path: exploitPath,
+      path: reproPath,
       actorLabel: actor.uid,
     });
 
@@ -388,12 +388,12 @@ export async function recordBehaviorEvidence({
         {
           service: 'auth',
           method: 'signOut',
-          path: exploitPath,
+          path: reproPath,
           decision: 'LEFT BEHIND',
           fixedDecision: 'REMOVED',
           before: { presentAfterSignOut: true },
           after: { presentAfterSignOut: false, removedAfterMs: removedAt - fxDispatch },
-          changedPaths: [exploitPath],
+          changedPaths: [reproPath],
           matchedRule: 'app sign-out order',
           events,
           uiFocus,

@@ -105,9 +105,9 @@
       text-transform: uppercase;
       padding: 5px 10px;
       border-radius: 6px;
-      background: rgba(217, 45, 32, 0.16);
-      color: #fda29b;
-      border: 1px solid rgba(217, 45, 32, 0.4);
+      background: rgba(255, 255, 255, 0.16);
+      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.4);
     }
 
     .stage-title {
@@ -219,15 +219,15 @@
     }
 
     .panel-tag.tag-danger {
-      background: rgba(217, 45, 32, 0.18);
+      background: rgba(255, 255, 255, 0.18);
       border-color: var(--danger);
-      color: #fda29b;
+      color: var(--muted);
     }
 
     .panel-tag.tag-success {
-      background: rgba(7, 148, 85, 0.18);
+      background: rgba(255, 255, 255, 0.18);
       border-color: var(--success);
-      color: #6ce9a6;
+      color: var(--muted);
     }
 
     .panel-body {
@@ -244,7 +244,7 @@
     .json-tree {
       flex: 1 1 auto;
       min-height: 0;
-      background: #080a0e;
+      background: var(--muted);
       border: 1px solid rgba(255, 255, 255, 0.07);
       border-radius: 10px;
       padding: 14px;
@@ -314,9 +314,9 @@
       color: var(--ink);
     }
 
-    /* Center Panel: Verdict Transition + Attacker SDK Request */
+    /* Center Panel: Verdict Transition + Peer SDK Request */
     .verdict-stage-card {
-      background: #080a0e;
+      background: var(--muted);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 18px 16px;
@@ -344,17 +344,17 @@
     }
 
     .verdict-hero-badge.tone-danger {
-      background: rgba(217, 45, 32, 0.20);
+      background: rgba(255, 255, 255, 0.20);
       border-color: var(--danger);
-      color: #fda29b;
-      box-shadow: 0 0 28px rgba(217, 45, 32, 0.22);
+      color: var(--muted);
+      box-shadow: 0 0 28px rgba(255, 255, 255, 0.22);
     }
 
     .verdict-hero-badge.tone-success {
-      background: rgba(7, 148, 85, 0.20);
+      background: rgba(255, 255, 255, 0.20);
       border-color: var(--success);
-      color: #6ce9a6;
-      box-shadow: 0 0 28px rgba(7, 148, 85, 0.22);
+      color: var(--muted);
+      box-shadow: 0 0 28px rgba(255, 255, 255, 0.22);
     }
 
     .transition-track {
@@ -377,27 +377,27 @@
       opacity: 1;
       color: var(--ink);
       border-color: var(--accent);
-      background: rgba(56, 189, 248, 0.12);
+      background: rgba(255, 255, 255, 0.12);
     }
 
     .track-step.active-danger {
       opacity: 1;
-      color: #fda29b;
+      color: var(--muted);
       border-color: var(--danger);
-      background: rgba(217, 45, 32, 0.16);
+      background: rgba(255, 255, 255, 0.16);
     }
 
     .track-step.active-success {
       opacity: 1;
-      color: #6ce9a6;
+      color: var(--muted);
       border-color: var(--success);
-      background: rgba(7, 148, 85, 0.16);
+      background: rgba(255, 255, 255, 0.16);
     }
 
     .sdk-card {
       flex: 1 1 auto;
       min-height: 0;
-      background: #080a0e;
+      background: var(--muted);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 14px;
@@ -428,8 +428,8 @@
 
     .why-callout {
       flex: 0 0 auto;
-      background: rgba(56, 189, 248, 0.06);
-      border: 1px solid rgba(56, 189, 248, 0.22);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.22);
       border-radius: 10px;
       padding: 11px 14px;
       font-size: 13px;
@@ -449,7 +449,7 @@
     .rule-section {
       flex: 1 1 0;
       min-height: 0;
-      background: #080a0e;
+      background: var(--muted);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 12px 14px;
@@ -461,12 +461,12 @@
 
     [data-highlights="true"] .rule-section.active-vuln {
       border-color: var(--danger);
-      box-shadow: 0 0 0 1px rgba(217, 45, 32, 0.4);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4);
     }
 
     [data-highlights="true"] .rule-section.active-fixed {
       border-color: var(--success);
-      box-shadow: 0 0 0 1px rgba(7, 148, 85, 0.4);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4);
     }
 
     .rule-section-title {
@@ -478,11 +478,11 @@
     }
 
     .rule-section-title.vuln {
-      color: #fda29b;
+      color: var(--muted);
     }
 
     .rule-section-title.fixed {
-      color: #6ce9a6;
+      color: var(--muted);
     }
 
     .rule-code {
@@ -527,7 +527,7 @@
       align-items: center;
       gap: 10px;
       padding: 9px 16px;
-      background: rgba(18, 22, 31, 0.92);
+      background: rgba(255, 255, 255, 0.92);
       border: 1px solid var(--border);
       border-radius: 10px;
       font-family: var(--font-mono);
@@ -599,10 +599,10 @@
     </header>
 
     <main class="dataplane-grid">
-      <!-- Left: Victim RTDB/Firestore JSON Tree -->
+      <!-- Left: Owner RTDB/Firestore JSON Tree -->
       <section class="plane-panel">
         <div class="panel-header">
-          <span class="panel-title" data-pyric-service-label>Victim Data Tree</span>
+          <span class="panel-title" data-pyric-service-label>Owner Data Tree</span>
           <span class="panel-tag" data-pyric-tree-status>BASELINE</span>
         </div>
         <div class="panel-body">
@@ -610,11 +610,11 @@
         </div>
       </section>
 
-      <!-- Center: Attacker SDK Request + Live ALLOW -> DENY Verdict -->
+      <!-- Center: Peer SDK Request + Live ALLOW -> DENY Verdict -->
       <section class="plane-panel center-column">
         <div class="panel-header">
           <span class="panel-title">Authorization Decision</span>
-          <span class="panel-tag" data-pyric-attacker-tag>attacker</span>
+          <span class="panel-tag" data-pyric-peer-tag>peer</span>
         </div>
         <div class="panel-body">
           <div class="verdict-stage-card">
@@ -622,7 +622,7 @@
             <div class="transition-track">
               <span class="track-step" data-track-step="hook">ALLOW (Baseline)</span>
               <span>→</span>
-              <span class="track-step" data-track-step="exploit">ALLOW (Exploit)</span>
+              <span class="track-step" data-track-step="repro">ALLOW (Reproduce)</span>
               <span>→</span>
               <span class="track-step" data-track-step="fix">DENY (Fix)</span>
             </div>
@@ -630,7 +630,7 @@
 
           <div class="sdk-card" data-pyric-slot="request-card">
             <div class="sdk-card-header">
-              <span>Attacker SDK Call</span>
+              <span>Peer SDK Call</span>
               <span data-pyric-op-label>database.set</span>
             </div>
             <pre class="sdk-code" data-pyric-sdk>—</pre>
@@ -678,13 +678,13 @@
         const t = theme || {};
         const style = document.documentElement.style;
         const vars = {
-          '--surface': t.surface || '#0b0d10',
-          '--panel': t.panel || '#12161f',
-          '--ink': t.ink || '#f2f4f7',
-          '--muted': t.muted || '#98a2b3',
-          '--accent': t.accent || '#38bdf8',
-          '--danger': t.danger || '#d92d20',
-          '--success': t.success || '#079455',
+          '--surface': t.surface || 'var(--muted)',
+          '--panel': t.panel || 'var(--muted)',
+          '--ink': t.ink || 'var(--muted)',
+          '--muted': t.muted || 'var(--muted)',
+          '--accent': t.accent || 'var(--muted)',
+          '--danger': t.danger || 'var(--danger)',
+          '--success': t.success || 'var(--muted)',
           '--border': t.border || 'rgba(255, 255, 255, 0.10)',
           '--radius': t.radius || '14px',
           '--font-sans': t.fontSans || 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -709,12 +709,12 @@
       function findActiveBeat(beats, tSec) {
         if (!Array.isArray(beats) || beats.length === 0) {
           return {
-            id: 'exploit',
-            phase: 'exploit',
+            id: 'repro',
+            phase: 'repro',
             startMs: 0,
             endMs: 3000,
-            caption: currentPayload?.copy?.exploit || '',
-            badgeText: 'EXPLOIT ALLOWED',
+            caption: currentPayload?.copy?.repro || '',
+            badgeText: 'REPRO ALLOWED',
             badgeTone: 'danger',
             sdkCall: '—',
             matchedRule: '—',
@@ -784,7 +784,7 @@
           const line = document.createElement('div');
           line.className = 'tree-line';
           const isTarget = changedKeys.has(key) || changedKeys.has(currentDotPath);
-          if (isTarget && phase === 'exploit') {
+          if (isTarget && phase === 'repro') {
             line.classList.add('state-danger');
           } else if (isTarget && phase === 'fix') {
             line.classList.add('state-success');
@@ -795,10 +795,10 @@
           leftSpan.innerHTML = `${keyPart}<span class="tree-val">${escapeHtml(JSON.stringify(value))}</span>`;
           line.appendChild(leftSpan);
 
-          if (isTarget && (phase === 'exploit' || phase === 'fix')) {
+          if (isTarget && (phase === 'repro' || phase === 'fix')) {
             const badge = document.createElement('span');
             badge.className = 'tree-badge';
-            badge.textContent = phase === 'exploit' ? 'TAMPERED' : 'PROTECTED';
+            badge.textContent = phase === 'repro' ? 'TAMPERED' : 'PROTECTED';
             line.appendChild(badge);
           }
 
@@ -853,16 +853,16 @@
 
         const ev = payload?.evidence || {};
         const targetPath = ev.path || '/channels/general/messages/msg_alice_1';
-        const beforeRaw = ev.before ?? { authorUid: payload?.actors?.victim?.uid || 'alice', text: 'Verified baseline value' };
-        const afterRaw = ev.after ?? { authorUid: payload?.actors?.victim?.uid || 'alice', text: 'Unauthorized overwrite' };
+        const beforeRaw = ev.before ?? { authorUid: payload?.actors?.owner?.uid || 'alice', text: 'Verified baseline value' };
+        const afterRaw = ev.after ?? { authorUid: payload?.actors?.owner?.uid || 'alice', text: 'Unauthorized overwrite' };
 
         const changedKeys = collectChangedKeys(beforeRaw, afterRaw, ev.changedPaths);
-        const activeData = phase === 'exploit' ? afterRaw : beforeRaw;
+        const activeData = phase === 'repro' ? afterRaw : beforeRaw;
         const treeObj = buildNestedTree(activeData, targetPath);
 
         if (statusEl) {
           statusEl.classList.remove('tag-danger', 'tag-success');
-          if (phase === 'exploit') {
+          if (phase === 'repro') {
             statusEl.textContent = 'TAMPERED';
             statusEl.classList.add('tag-danger');
           } else if (phase === 'fix') {
@@ -902,7 +902,7 @@
         if (vulnBox && fixedBox) {
           vulnBox.classList.remove('active-vuln');
           fixedBox.classList.remove('active-fixed');
-          if (beat.phase === 'exploit') {
+          if (beat.phase === 'repro') {
             vulnBox.classList.add('active-vuln');
           } else if (beat.phase === 'fix') {
             fixedBox.classList.add('active-fixed');
@@ -931,13 +931,13 @@
         const serviceLabel = document.querySelector('[data-pyric-service-label]');
         if (serviceLabel) {
           const svc = String(payload.evidence?.service || 'database').toLowerCase();
-          serviceLabel.textContent = svc === 'firestore' ? 'Victim Firestore Document' : 'Victim RTDB JSON Tree';
+          serviceLabel.textContent = svc === 'firestore' ? 'Owner Firestore Document' : 'Owner RTDB JSON Tree';
         }
 
-        const attackerTag = document.querySelector('[data-pyric-attacker-tag]');
-        if (attackerTag) {
-          const attacker = payload.actors?.attacker;
-          attackerTag.textContent = attacker ? `${attacker.name} (${attacker.uid || 'attacker'})` : 'attacker';
+        const peerTag = document.querySelector('[data-pyric-peer-tag]');
+        if (peerTag) {
+          const peer = payload.actors?.peer;
+          peerTag.textContent = peer ? `${peer.name} (${peer.uid || 'peer'})` : 'peer';
         }
 
         const opLabel = document.querySelector('[data-pyric-op-label]');
@@ -964,16 +964,16 @@
         if (!payload) return;
 
         const beat = findActiveBeat(payload.beats, tSec);
-        const phase = beat.phase || 'exploit';
+        const phase = beat.phase || 'repro';
         document.documentElement.dataset.phase = phase;
-        document.documentElement.dataset.beat = beat.id || 'exploit';
+        document.documentElement.dataset.beat = beat.id || 'repro';
 
         const captionEl = document.querySelector('[data-pyric-caption]');
         if (captionEl) captionEl.textContent = beat.caption || '';
 
         const badgeEl = document.querySelector('[data-pyric-badge]');
         if (badgeEl) {
-          badgeEl.textContent = beat.badgeText || 'EXPLOIT ALLOWED';
+          badgeEl.textContent = beat.badgeText || 'REPRO ALLOWED';
           badgeEl.classList.remove('tone-neutral', 'tone-danger', 'tone-success');
           badgeEl.classList.add(`tone-${beat.badgeTone || 'danger'}`);
         }
@@ -988,7 +988,7 @@
           const stepPhase = stepEl.getAttribute('data-track-step');
           stepEl.classList.remove('active', 'active-danger', 'active-success');
           if (stepPhase === phase) {
-            if (phase === 'exploit') stepEl.classList.add('active-danger');
+            if (phase === 'repro') stepEl.classList.add('active-danger');
             else if (phase === 'fix') stepEl.classList.add('active-success');
             else stepEl.classList.add('active');
           }

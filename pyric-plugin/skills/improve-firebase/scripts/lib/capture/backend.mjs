@@ -100,7 +100,7 @@ export function selectCaptureBackend({
 }
 
 /**
- * Normalize an actor map (`{ victim: {...}, attacker: {...} }`) or array into ordered entries.
+ * Normalize an actor map (`{ owner: {...}, peer: {...} }`) or array into ordered entries.
  */
 export function normalizeActorEntries(actors) {
   if (!actors) {
@@ -170,7 +170,7 @@ function evenCeil(value) {
 
 /**
  * Compute DIP window positions and physical pixel cropRects for side-by-side actor capture.
- * Places `victim` at (10, 10) DIP and `attacker` at (930, 10) DIP for default 900x675 viewports.
+ * Places `owner` at (10, 10) DIP and `peer` at (930, 10) DIP for default 900x675 viewports.
  */
 export function computeActorWindowLayout(
   actorEntries,
@@ -180,17 +180,17 @@ export function computeActorWindowLayout(
   const marginDip = 10;
   const gapDip = 20;
 
-  const hasVictim = actorEntries.some((entry) => entry.role === 'victim');
-  const hasAttacker = actorEntries.some((entry) => entry.role === 'attacker');
+  const hasOwner = actorEntries.some((entry) => entry.role === 'owner');
+  const hasPeer = actorEntries.some((entry) => entry.role === 'peer');
 
   const usedSlots = new Set();
-  if (hasVictim) usedSlots.add(0);
-  if (hasAttacker) usedSlots.add(1);
+  if (hasOwner) usedSlots.add(0);
+  if (hasPeer) usedSlots.add(1);
 
   let nextDynamicSlot = 0;
   function allocateSlot(role) {
-    if (role === 'victim') return 0;
-    if (role === 'attacker') return 1;
+    if (role === 'owner') return 0;
+    if (role === 'peer') return 1;
     while (usedSlots.has(nextDynamicSlot)) {
       nextDynamicSlot += 1;
     }

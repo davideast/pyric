@@ -15,13 +15,13 @@ import {
   selectControlObservation,
   selectProbeFromExport,
   stableStringify,
-} from '../skills/improve-firebase/scripts/lib/from-assurance.mjs';
-import { prepareIsolatedSandboxInputs } from '../skills/improve-firebase/scripts/record.mjs';
+} from '../../skills/improve-firebase/scripts/lib/from-assurance.mjs';
+import { prepareIsolatedSandboxInputs } from '../../skills/improve-firebase/scripts/record.mjs';
 
 // A trimmed copy of a real `firebase_assurance_export` bundle (Spaces chat-overwrite campaign).
 // Rules are cut down to the chat subtree and sandbox events are dropped; target hashes were
 // recomputed for the trimmed target so verification matching still works.
-const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '../fixtures');
 const REAL_EXPORT = path.join(FIXTURES, 'assurance-export-real.json');
 const FIXED_RULES = path.join(FIXTURES, 'assurance-export-real.fixed.rules.json');
 const FIXED_ROOTONLY_RULES = path.join(FIXTURES, 'assurance-export-real.fixed-rootonly.rules.json');
@@ -58,16 +58,16 @@ test('selectProbeFromExport finds real probes by id and lists them when ambiguou
   assert.throws(() => selectProbeFromExport(campaign, 'nope'), /not found in campaign "spaces-chat-assurance"/);
 });
 
-test('buildScenarioFromAssurance on the real export: victim control from observations, honest copy', () => {
+test('buildScenarioFromAssurance on the real export: owner control from observations, honest copy', () => {
   const campaign = loadExport();
   const probe = selectProbeFromExport(campaign, PROBE);
   const plan = buildScenarioFromAssurance({ campaignExport: campaign, probe });
 
-  assert.equal(plan.exploitOperation.service, 'database');
-  assert.equal(plan.exploitOperation.method, 'set');
-  assert.equal(plan.exploitOperation.path, M1);
+  assert.equal(plan.reproOperation.service, 'database');
+  assert.equal(plan.reproOperation.method, 'set');
+  assert.equal(plan.reproOperation.path, M1);
 
-  // The probe's own control is Bob writing his own m2; the victim's control must be Alice's
+  // The probe's own control is Bob writing his own m2; the owner's control must be Alice's
   // observed write on the mutated path, run as Alice.
   assert.equal(probe.control.operation.path.endsWith('/m2/content'), true);
   assert.deepEqual(plan.controlOperation, {
@@ -84,13 +84,13 @@ test('buildScenarioFromAssurance on the real export: victim control from observa
     uid: 'alice',
   });
 
-  // Actors come from actorEvidence.uid (attacker) and the observation (victim), unlabeled.
+  // Actors come from actorEvidence.uid (peer) and the observation (owner), unlabeled.
   assert.deepEqual(
-    { uid: plan.scenario.actors.victim.uid, name: plan.scenario.actors.victim.name },
+    { uid: plan.scenario.actors.owner.uid, name: plan.scenario.actors.owner.name },
     { uid: 'alice', name: 'Alice' },
   );
   assert.deepEqual(
-    { uid: plan.scenario.actors.attacker.uid, name: plan.scenario.actors.attacker.name },
+    { uid: plan.scenario.actors.peer.uid, name: plan.scenario.actors.peer.name },
     { uid: 'bob', name: 'Bob' },
   );
 
@@ -99,7 +99,7 @@ test('buildScenarioFromAssurance on the real export: victim control from observa
   assert.equal(copy.severity, 'UNRATED');
   assert.equal(copy.title, 'Bob overwrites alice message');
   assert.equal(copy.why, probe.invariant.statement);
-  assert.equal(copy.exploit, probe.mutationSpec.description);
+  assert.equal(copy.summary, probe.mutationSpec.description);
   assert.equal(copy.baseline, 'Alice edits the text of her own chat message m1');
 
   // stateDiff in real exports is { changed, before, after } for the mutated path.
@@ -125,20 +125,20 @@ test('scenario overrides still win over export-derived control and copy', () => 
   assert.equal(plan.scenario.copy.title, 'Any member can rewrite your chat messages');
 });
 
-test('selectControlObservation picks the victim, skips the attacker, denials, and unrelated paths', () => {
+test('selectControlObservation picks the owner, skips the peer, denials, and unrelated paths', () => {
   const campaign = loadExport();
   const probe = selectProbeFromExport(campaign, PROBE);
-  const exploitOperation = { service: 'database', method: 'set', path: M1 };
+  const reproOperation = { service: 'database', method: 'set', path: M1 };
 
-  // An explicit victim that never acted has no observation, so the old probe control is used.
+  // An explicit owner that never acted has no observation, so the old probe control is used.
   assert.equal(
-    selectControlObservation({ campaignExport: campaign, probe, exploitOperation, victimUid: 'carol' }),
+    selectControlObservation({ campaignExport: campaign, probe, reproOperation, ownerUid: 'carol' }),
     null,
   );
   const fallback = buildScenarioFromAssurance({
     campaignExport: campaign,
     probe,
-    scenarioOverride: { actors: { victim: { uid: 'carol', name: 'Carol' } } },
+    scenarioOverride: { actors: { owner: { uid: 'carol', name: 'Carol' } } },
   });
   assert.equal(fallback.controlSource.kind, 'probe-control');
 
@@ -146,7 +146,7 @@ test('selectControlObservation picks the victim, skips the attacker, denials, an
   const variant = {
     ...campaign,
     observations: [
-      // the probe's own actor: never the victim's control
+      // the probe's own actor: never the owner's control
       { id: 'bob-own', actorId: 'bob', result: 'ALLOW', operation: { service: 'rtdb', method: 'set', path: M1, data: 1 } },
       // a denial is not a known-good write
       { id: 'alice-denied', actorId: 'alice', result: 'DENY', operation: { service: 'rtdb', method: 'set', path: M1, data: 2 } },
@@ -157,12 +157,12 @@ test('selectControlObservation picks the victim, skips the attacker, denials, an
       { id: 'alice-far', actorId: 'alice', result: 'ALLOW', operation: { service: 'rtdb', method: 'set', path: sibling, data: 5 } },
     ],
   };
-  const picked = selectControlObservation({ campaignExport: variant, probe, exploitOperation });
+  const picked = selectControlObservation({ campaignExport: variant, probe, reproOperation });
   assert.equal(picked.observationId, 'alice-sibling');
   assert.equal(picked.operation.uid, 'alice');
 
   assert.equal(
-    selectControlObservation({ campaignExport: { ...campaign, observations: undefined }, probe, exploitOperation }),
+    selectControlObservation({ campaignExport: { ...campaign, observations: undefined }, probe, reproOperation }),
     null,
   );
 });
@@ -190,7 +190,7 @@ test('extractInlineTarget and materializeInlineTarget write the campaign rules a
 
 test('prepareIsolatedSandboxInputs uses inline campaign rules/state unless the scenario supplies them', (t) => {
   const campaign = loadExport();
-  const exploitOperation = { service: 'database', method: 'set', path: M1 };
+  const reproOperation = { service: 'database', method: 'set', path: M1 };
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-inline-project-'));
   const scratch = [];
   t.after(() => {
@@ -203,7 +203,7 @@ test('prepareIsolatedSandboxInputs uses inline campaign rules/state unless the s
       scenario: {},
       rawScenario,
       campaignExport: campaign,
-      exploitOperation,
+      reproOperation,
       initialSeedValue: { text: 'Hello from Alice' },
       seedDir,
       useInlineTarget: true,

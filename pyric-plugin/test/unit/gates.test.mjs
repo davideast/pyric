@@ -10,7 +10,7 @@ import {
   BUNDLE_SCHEMA,
   buildLockedProvenanceText,
   validateBundleManifest,
-} from '../skills/improve-firebase/scripts/lib/contracts.mjs';
+} from '../../skills/improve-firebase/scripts/lib/contracts.mjs';
 import {
   inspectPngFile,
   comparePngFrames,
@@ -24,10 +24,10 @@ import {
   evaluateGateG6,
   evaluateAllGates,
   writeFailureBundle,
-} from '../skills/improve-firebase/scripts/lib/gates.mjs';
+} from '../../skills/improve-firebase/scripts/lib/gates.mjs';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE_PATH = path.join(TEST_DIR, 'fixtures', 'orbit-rtdb-hijack.export.json');
+const FIXTURE_PATH = path.join(TEST_DIR, '../fixtures', 'orbit-rtdb-hijack.export.json');
 
 // CRC-32 lookup table for valid PNG chunk encoding
 const CRC_TABLE = (() => {
@@ -242,7 +242,7 @@ test('scanTextForSecretsAndPii catches secrets and real emails while allowing sy
     JSON.stringify({
       title: 'Cross-tenant RTDB overwrite',
       actor: 'mallory@pyric.local',
-      victim: 'alice@example.com',
+      owner: 'alice@example.com',
       reviewer: 'sec@example.org',
       local: 'admin@test.local',
       emulatorApiKey: 'AIzaSyEmulatorSynthetic0000000000000000',
@@ -289,19 +289,19 @@ test('scanTextForSecretsAndPii catches secrets and real emails while allowing sy
   );
 
   // Real non-synthetic email vs allowedEmails
-  const emailRes = scanTextForSecretsAndPii('Leaked user record: victim@company.com');
+  const emailRes = scanTextForSecretsAndPii('Leaked user record: owner@company.com');
   assert.equal(emailRes.clean, false);
   assert.equal(emailRes.findings[0].type, 'email_pii');
-  assert.equal(emailRes.findings[0].sample, 'victim@company.com');
+  assert.equal(emailRes.findings[0].sample, 'owner@company.com');
 
-  const allowedEmailRes = scanTextForSecretsAndPii('Actor: victim@company.com', {
-    allowedEmails: ['victim@company.com'],
+  const allowedEmailRes = scanTextForSecretsAndPii('Actor: owner@company.com', {
+    allowedEmails: ['owner@company.com'],
   });
   assert.equal(allowedEmailRes.clean, true);
 });
 
 test('checkCopyAgainstEvents verifies locked provenance text and catches contradictory claims', () => {
-  const exploitEvent = {
+  const reproEvent = {
     decision: 'ALLOW',
     service: 'database',
     method: 'set',
@@ -324,35 +324,35 @@ test('checkCopyAgainstEvents verifies locked provenance text and catches contrad
   const ok = checkCopyAgainstEvents({
     copy: {
       title: 'Cross-tenant RTDB message overwrite',
-      exploit: 'Mallory overwrote Alice message because write was not blocked by rules',
+      summary: 'Mallory overwrote Alice message because write was not blocked by rules',
       why: 'Missing authorUid check',
       fixed: 'Write is now BLOCKED and FIXED after adding authorUid validation',
     },
     provenanceText: validProvenance,
-    exploitEvent,
+    reproEvent,
     fixEvent,
   });
   assert.equal(ok.pass, true, `Expected pass, got reasons: ${ok.reasons.join('; ')}`);
 
-  // Contradiction: ALLOW exploit described as BLOCKED
-  const badExploitCopy = checkCopyAgainstEvents({
+  // Contradiction: ALLOW repro described as BLOCKED
+  const badReproduceCopy = checkCopyAgainstEvents({
     copy: {
       title: 'Cross-tenant write',
-      exploit: 'Mallory write request was BLOCKED by Firebase rules',
+      summary: 'Mallory write request was BLOCKED by Firebase rules',
       why: 'Missing rule',
     },
     provenanceText: validProvenance,
-    exploitEvent,
+    reproEvent,
     fixEvent,
   });
-  assert.equal(badExploitCopy.pass, false);
-  assert.ok(badExploitCopy.reasons.some((r) => /ALLOW/i.test(r) && /BLOCKED/i.test(r)));
+  assert.equal(badReproduceCopy.pass, false);
+  assert.ok(badReproduceCopy.reasons.some((r) => /ALLOW/i.test(r) && /BLOCKED/i.test(r)));
 
   // Contradiction: failed fix (ALLOW) described as FIXED
   const badFixCopy = checkCopyAgainstEvents({
     copy: {
       title: 'Cross-tenant write',
-      exploit: 'Mallory overwrote Alice message',
+      summary: 'Mallory overwrote Alice message',
       why: 'Missing rule',
       fixed: 'Vulnerability FIXED in rules',
     },
@@ -364,7 +364,7 @@ test('checkCopyAgainstEvents verifies locked provenance text and catches contrad
       path: '/channels/general/messages/msg_alice_1',
       actorLabel: 'mallory',
     }),
-    exploitEvent,
+    reproEvent,
     fixEvent: { decision: 'ALLOW' },
   });
   assert.equal(badFixCopy.pass, false);
@@ -374,17 +374,17 @@ test('checkCopyAgainstEvents verifies locked provenance text and catches contrad
   const tamperedProv = checkCopyAgainstEvents({
     copy: {
       title: 'Cross-tenant write',
-      exploit: 'Mallory overwrote Alice message',
+      summary: 'Mallory overwrote Alice message',
       why: 'Missing rule',
     },
     provenanceText: 'DENY / database.set /channels/general/messages/msg_alice_1 / as mallory',
-    exploitEvent,
+    reproEvent,
   });
   assert.equal(tamperedProv.pass, false);
   assert.ok(tamperedProv.reasons.some((r) => /Provenance text mismatch/i.test(r)));
 });
 
-test('evaluateGateG1..G5 validate preconditions, baseline, exploit, visible effect, and fix gates', () => {
+test('evaluateGateG1..G5 validate preconditions, baseline, repro, visible effect, and fix gates', () => {
   const fixture = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'));
   const probe = fixture.probes[0];
 
@@ -452,7 +452,7 @@ test('evaluateGateG1..G5 validate preconditions, baseline, exploit, visible effe
   const g5Pass = evaluateGateG5({
     enabled: true,
     fixControlResult: { decision: 'ALLOW' },
-    fixExploitResult: { decision: 'DENY' },
+    fixReproduceResult: { decision: 'DENY' },
     fixStateDiff: { changedPaths: [] },
   });
   assert.equal(g5Pass.pass, true);
@@ -461,7 +461,7 @@ test('evaluateGateG1..G5 validate preconditions, baseline, exploit, visible effe
   const g5StillVulnerable = evaluateGateG5({
     enabled: true,
     fixControlResult: { decision: 'ALLOW' },
-    fixExploitResult: { decision: 'ALLOW' },
+    fixReproduceResult: { decision: 'ALLOW' },
     fixStateDiff: { changedPaths: ['/channels/general/messages/msg_alice_1/text'] },
   });
   assert.equal(g5StillVulnerable.pass, false);
@@ -511,7 +511,7 @@ test('evaluateGateG6 and evaluateAllGates enforce render integrity, provenance, 
       pixelAt: () => [11, 13, 16],
     });
 
-    const exploitEvent = {
+    const reproEvent = {
       decision: 'ALLOW',
       service: 'database',
       method: 'set',
@@ -529,7 +529,7 @@ test('evaluateGateG6 and evaluateAllGates enforce render integrity, provenance, 
     });
     const copy = {
       title: 'Cross-tenant RTDB message overwrite',
-      exploit: 'Mallory overwrites Alice message in /channels/general/messages',
+      summary: 'Mallory overwrites Alice message in /channels/general/messages',
       why: 'Missing authorUid check',
       fixed: 'Write is now BLOCKED by authorUid rule',
     };
@@ -549,7 +549,7 @@ test('evaluateGateG6 and evaluateAllGates enforce render integrity, provenance, 
       domProvenanceText: provenanceText,
       expectedProvenanceText: provenanceText,
       copy,
-      events: [{ type: 'exploit', ...exploitEvent }, { type: 'fix', ...fixEvent }],
+      events: [{ type: 'repro', ...reproEvent }, { type: 'fix', ...fixEvent }],
       requireMotion: true,
     };
 
@@ -559,7 +559,7 @@ test('evaluateGateG6 and evaluateAllGates enforce render integrity, provenance, 
       expectedTargetHash: fixture.target.databaseRulesHash,
       fixEnabled: true,
       fixControlResult: { decision: 'ALLOW' },
-      fixExploitResult: { decision: 'DENY' },
+      fixReproduceResult: { decision: 'DENY' },
       fixStateDiff: { changedPaths: [] },
       ...baseG6Input,
     });

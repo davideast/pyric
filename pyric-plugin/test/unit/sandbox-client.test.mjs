@@ -6,19 +6,19 @@ import { describe, it } from 'node:test';
 import {
   formatSdkSnippet,
   normalizeServiceName,
-} from '../skills/improve-firebase/scripts/lib/op-snippet.mjs';
+} from '../../skills/improve-firebase/scripts/lib/op-snippet.mjs';
 import {
   IsolatedSandbox,
   createSnapshot,
   findPyricExecutable,
-} from '../skills/improve-firebase/scripts/lib/sandbox-client.mjs';
-import { signInActorPage } from '../skills/improve-firebase/scripts/lib/identity.mjs';
+} from '../../skills/improve-firebase/scripts/lib/sandbox-client.mjs';
+import { signInActorPage } from '../../skills/improve-firebase/scripts/lib/identity.mjs';
 import {
   createSingleFlightRunner,
   executeStep,
-} from '../skills/improve-firebase/scripts/lib/steps.mjs';
+} from '../../skills/improve-firebase/scripts/lib/steps.mjs';
 
-const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..');
 const ORBIT_EXAMPLE_DIR = path.join(REPO_ROOT, 'examples', 'teams-workspace');
 
 function sleep(ms) {
@@ -365,7 +365,7 @@ describe('IsolatedSandbox live Orbit integration & hygiene', () => {
 
       // Mint tokens for alice and mallory
       const aliceToken = await sandbox.mintCustomToken('alice', { role: 'member' });
-      const malloryToken = await sandbox.mintCustomToken('mallory', { role: 'attacker' });
+      const malloryToken = await sandbox.mintCustomToken('mallory', { role: 'peer' });
       assert.equal(typeof aliceToken, 'string');
       assert.equal(typeof malloryToken, 'string');
 

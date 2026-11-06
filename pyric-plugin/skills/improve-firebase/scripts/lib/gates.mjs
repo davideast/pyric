@@ -424,29 +424,29 @@ export function scanTextForSecretsAndPii(text, { allowedEmails = [] } = {}) {
 export function checkCopyAgainstEvents({
   copy,
   provenanceText,
-  exploitEvent,
+  reproEvent,
   fixEvent,
 } = {}) {
   const reasons = [];
 
-  if (!exploitEvent || typeof exploitEvent !== 'object') {
-    reasons.push('Missing exploitEvent for provenance and copy consistency check');
+  if (!reproEvent || typeof reproEvent !== 'object') {
+    reasons.push('Missing reproEvent for provenance and copy consistency check');
     return { pass: false, reasons };
   }
 
-  const service = exploitEvent.service ?? exploitEvent.operation?.service;
-  const method = exploitEvent.method ?? exploitEvent.operation?.method;
-  const targetPath = exploitEvent.path ?? exploitEvent.operation?.path;
-  const actorLabel = exploitEvent.actorLabel;
+  const service = reproEvent.service ?? reproEvent.operation?.service;
+  const method = reproEvent.method ?? reproEvent.operation?.method;
+  const targetPath = reproEvent.path ?? reproEvent.operation?.path;
+  const actorLabel = reproEvent.actorLabel;
 
   let expectedProvenanceText = '';
-  if (!exploitEvent.decision || !service || !method || !targetPath) {
+  if (!reproEvent.decision || !service || !method || !targetPath) {
     reasons.push(
-      'Cannot construct locked provenance text: exploitEvent requires decision, service, method, and path',
+      'Cannot construct locked provenance text: reproEvent requires decision, service, method, and path',
     );
   } else {
     expectedProvenanceText = buildLockedProvenanceText({
-      decision: exploitEvent.decision,
+      decision: reproEvent.decision,
       fixedDecision: fixEvent?.decision,
       service,
       method,
@@ -461,17 +461,17 @@ export function checkCopyAgainstEvents({
   }
 
   if (copy !== undefined && copy !== null) {
-    const exploitCopyText =
+    const reproCopyText =
       typeof copy === 'string'
         ? copy
         : isPlainObject(copy)
-          ? [copy.title, copy.exploit, copy.why, copy.baseline].filter(Boolean).join(' ')
+          ? [copy.title, copy.summary, copy.why, copy.baseline].filter(Boolean).join(' ')
           : '';
 
-    if (exploitEvent.decision === 'ALLOW' && exploitCopyText) {
-      if (/(?<!\bnot\s)\b(DENIED|BLOCKED)\b/i.test(exploitCopyText)) {
+    if (reproEvent.decision === 'ALLOW' && reproCopyText) {
+      if (/(?<!\bnot\s)\b(DENIED|BLOCKED)\b/i.test(reproCopyText)) {
         reasons.push(
-          'Copy contradicts exploit event: exploit decision is ALLOW, but copy claims DENIED or BLOCKED',
+          'Copy contradicts repro event: repro decision is ALLOW, but copy claims DENIED or BLOCKED',
         );
       }
     }
@@ -481,7 +481,7 @@ export function checkCopyAgainstEvents({
         typeof copy === 'string'
           ? copy
           : isPlainObject(copy)
-            ? [copy.fixed, copy.title, copy.exploit, copy.why].filter(Boolean).join(' ')
+            ? [copy.fixed, copy.title, copy.summary, copy.why].filter(Boolean).join(' ')
             : '';
       if (fixCopyText && /(?<!\bnot\s)\b(FIXED|BLOCKED)\b/i.test(fixCopyText)) {
         reasons.push(
@@ -583,19 +583,19 @@ function pathsMatchOrRelated(a, b) {
 }
 
 /**
- * Gate G3: Exploit (attacker exploit must be ALLOW and affect expected path when changedPaths provided).
+ * Gate G3: Reproduce (peer repro must be ALLOW and affect expected path when changedPaths provided).
  */
-export function evaluateGateG3(exploitResult, expectedPaths = []) {
+export function evaluateGateG3(reproResult, expectedPaths = []) {
   const reasons = [];
 
-  if (!isPlainObject(exploitResult)) {
-    reasons.push('Missing exploitResult object');
-    return { pass: false, gate: 'G3', name: 'Exploit', reasons };
+  if (!isPlainObject(reproResult)) {
+    reasons.push('Missing reproResult object');
+    return { pass: false, gate: 'G3', name: 'Reproduce', reasons };
   }
 
-  if (exploitResult.decision !== 'ALLOW') {
+  if (reproResult.decision !== 'ALLOW') {
     reasons.push(
-      `Exploit decision must be "ALLOW" (got ${JSON.stringify(exploitResult.decision)})`,
+      `Reproduce decision must be "ALLOW" (got ${JSON.stringify(reproResult.decision)})`,
     );
   }
 
@@ -605,13 +605,13 @@ export function evaluateGateG3(exploitResult, expectedPaths = []) {
       ? [expectedPaths]
       : [];
 
-  if (expectedList.length > 0 && Array.isArray(exploitResult.changedPaths)) {
+  if (expectedList.length > 0 && Array.isArray(reproResult.changedPaths)) {
     const matched = expectedList.some((expected) =>
-      exploitResult.changedPaths.some((changed) => pathsMatchOrRelated(expected, changed)),
+      reproResult.changedPaths.some((changed) => pathsMatchOrRelated(expected, changed)),
     );
     if (!matched) {
       reasons.push(
-        `Exploit changedPaths ${JSON.stringify(exploitResult.changedPaths)} do not match expected paths ${JSON.stringify(expectedList)}`,
+        `Reproduce changedPaths ${JSON.stringify(reproResult.changedPaths)} do not match expected paths ${JSON.stringify(expectedList)}`,
       );
     }
   }
@@ -619,7 +619,7 @@ export function evaluateGateG3(exploitResult, expectedPaths = []) {
   return {
     pass: reasons.length === 0,
     gate: 'G3',
-    name: 'Exploit',
+    name: 'Reproduce',
     reasons,
   };
 }
@@ -657,12 +657,12 @@ export function evaluateGateG4({ mode = 'data-plane', expectResult, stateDiff } 
 }
 
 /**
- * Gate G5: Fix verification (when enabled, exploit must be DENY, zero changedPaths, control ALLOW).
+ * Gate G5: Fix verification (when enabled, repro must be DENY, zero changedPaths, control ALLOW).
  */
 export function evaluateGateG5({
   enabled = false,
   fixControlResult,
-  fixExploitResult,
+  fixReproduceResult,
   fixStateDiff,
 } = {}) {
   if (!enabled) {
@@ -677,9 +677,9 @@ export function evaluateGateG5({
 
   const reasons = [];
 
-  if (!isPlainObject(fixExploitResult) || fixExploitResult.decision !== 'DENY') {
+  if (!isPlainObject(fixReproduceResult) || fixReproduceResult.decision !== 'DENY') {
     reasons.push(
-      `Fix exploit decision must be "DENY" (got ${JSON.stringify(fixExploitResult?.decision)})`,
+      `Fix repro decision must be "DENY" (got ${JSON.stringify(fixReproduceResult?.decision)})`,
     );
   }
 
@@ -725,7 +725,7 @@ export function evaluateGateG6({
   expectedProvenanceText,
   copy,
   events = [],
-  exploitEvent,
+  reproEvent,
   fixEvent,
   requireMotion = false,
   allowedEmails = [],
@@ -914,13 +914,13 @@ export function evaluateGateG6({
   }
 
   // 9. Copy vs Events consistency check
-  let resolvedExploitEvent = exploitEvent;
+  let resolvedReproduceEvent = reproEvent;
   let resolvedFixEvent = fixEvent;
-  if (!resolvedExploitEvent && Array.isArray(events)) {
-    resolvedExploitEvent = events.find(
+  if (!resolvedReproduceEvent && Array.isArray(events)) {
+    resolvedReproduceEvent = events.find(
       (e) =>
         isPlainObject(e) &&
-        (e.phase === 'exploit' || e.type === 'exploit' || e.step === 'exploit' || e.kind === 'exploit') &&
+        (e.phase === 'repro' || e.type === 'repro' || e.step === 'repro' || e.kind === 'repro') &&
         e.decision &&
         (e.service || e.operation?.service) &&
         (e.method || e.operation?.method) &&
@@ -936,11 +936,11 @@ export function evaluateGateG6({
     );
   }
 
-  if (copy && resolvedExploitEvent) {
+  if (copy && resolvedReproduceEvent) {
     const copyCheck = checkCopyAgainstEvents({
       copy,
       provenanceText: domProvenanceText,
-      exploitEvent: resolvedExploitEvent,
+      reproEvent: resolvedReproduceEvent,
       fixEvent: resolvedFixEvent,
     });
     details.copyCheck = copyCheck;
@@ -966,7 +966,7 @@ export function evaluateAllGates(input = {}) {
     probe,
     expectedTargetHash,
     controlResult,
-    exploitResult,
+    reproResult,
     expectedPaths,
     mode = 'data-plane',
     expectResult,
@@ -974,18 +974,18 @@ export function evaluateAllGates(input = {}) {
     fix,
     fixEnabled,
     fixControlResult,
-    fixExploitResult,
+    fixReproduceResult,
     fixStateDiff,
     ...g6Options
   } = input;
 
   const resolvedControl = controlResult ?? probe?.control;
   const resolvedStateDiff = stateDiff ?? probe?.stateDiff;
-  const baseExploit = exploitResult ?? probe?.mutation;
-  const resolvedExploit =
-    isPlainObject(baseExploit) && !baseExploit.changedPaths && resolvedStateDiff?.changedPaths
-      ? { ...baseExploit, changedPaths: resolvedStateDiff.changedPaths }
-      : baseExploit;
+  const baseReproduce = reproResult ?? probe?.mutation;
+  const resolvedReproduce =
+    isPlainObject(baseReproduce) && !baseReproduce.changedPaths && resolvedStateDiff?.changedPaths
+      ? { ...baseReproduce, changedPaths: resolvedStateDiff.changedPaths }
+      : baseReproduce;
 
   const resolvedExpectedPaths =
     expectedPaths !== undefined
@@ -999,16 +999,16 @@ export function evaluateAllGates(input = {}) {
       ? Boolean(fixEnabled)
       : fix?.enabled !== undefined
         ? Boolean(fix.enabled)
-        : Boolean(fixExploitResult || fix?.exploitResult);
+        : Boolean(fixReproduceResult || fix?.reproResult);
 
   const g1 = evaluateGateG1(probe, { expectedTargetHash });
   const g2 = evaluateGateG2(resolvedControl);
-  const g3 = evaluateGateG3(resolvedExploit, resolvedExpectedPaths);
+  const g3 = evaluateGateG3(resolvedReproduce, resolvedExpectedPaths);
   const g4 = evaluateGateG4({ mode, expectResult, stateDiff: resolvedStateDiff });
   const g5 = evaluateGateG5({
     enabled: g5Enabled,
     fixControlResult: fixControlResult ?? fix?.controlResult,
-    fixExploitResult: fixExploitResult ?? fix?.exploitResult,
+    fixReproduceResult: fixReproduceResult ?? fix?.reproResult,
     fixStateDiff: fixStateDiff ?? fix?.stateDiff,
   });
   const g6 = evaluateGateG6(g6Options);

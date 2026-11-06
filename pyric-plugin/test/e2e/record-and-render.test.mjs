@@ -5,20 +5,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { BUNDLE_SCHEMA, validateBundleManifest } from '../skills/improve-firebase/scripts/lib/contracts.mjs';
+import { BUNDLE_SCHEMA, validateBundleManifest } from '../../skills/improve-firebase/scripts/lib/contracts.mjs';
 import {
   buildScenarioFromAssurance,
   parseCampaignExport,
   selectProbeFromExport,
-} from '../skills/improve-firebase/scripts/lib/from-assurance.mjs';
-import { probeSystemTools } from '../skills/improve-firebase/scripts/lib/runtime.mjs';
-import { probeMedia } from '../skills/improve-firebase/scripts/lib/ffmpeg.mjs';
-import { inspectPngFile } from '../skills/improve-firebase/scripts/lib/gates.mjs';
-import { EvidenceRecordError, recordEvidence } from '../skills/improve-firebase/scripts/record.mjs';
-import { renderEvidenceBundle } from '../skills/improve-firebase/scripts/render.mjs';
+} from '../../skills/improve-firebase/scripts/lib/from-assurance.mjs';
+import { probeSystemTools } from '../../skills/improve-firebase/scripts/lib/runtime.mjs';
+import { probeMedia } from '../../skills/improve-firebase/scripts/lib/ffmpeg.mjs';
+import { inspectPngFile } from '../../skills/improve-firebase/scripts/lib/gates.mjs';
+import { EvidenceRecordError, recordEvidence } from '../../skills/improve-firebase/scripts/record.mjs';
+import { renderEvidenceBundle } from '../../skills/improve-firebase/scripts/render.mjs';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE_EXPORT_PATH = path.join(TEST_DIR, 'fixtures', 'orbit-rtdb-hijack.export.json');
+const FIXTURE_EXPORT_PATH = path.join(TEST_DIR, '../fixtures', 'orbit-rtdb-hijack.export.json');
 
 const VULNERABLE_RTDB_RULES = {
   rules: {
@@ -189,7 +189,7 @@ function createRealtimeAppFixture(rootDir) {
 }
 
 describe('from-assurance & record -> render integration', () => {
-  it('converts CampaignExport probe into validated scenario, control, and exploit ops', () => {
+  it('converts CampaignExport probe into validated scenario, control, and repro ops', () => {
     const rawExport = JSON.parse(fs.readFileSync(FIXTURE_EXPORT_PATH, 'utf8'));
     const campaign = parseCampaignExport(rawExport);
     const probe = selectProbeFromExport(campaign, 'probe-rtdb-cross-tenant-write-01');
@@ -200,11 +200,11 @@ describe('from-assurance & record -> render integration', () => {
     assert.equal(plan.scenario.stage.layout, 'data-plane');
     assert.equal(plan.controlOperation.service, 'database');
     assert.equal(plan.controlOperation.uid, 'alice');
-    assert.equal(plan.exploitOperation.service, 'database');
-    assert.equal(plan.exploitOperation.path, '/channels/general/messages/msg_alice_1');
+    assert.equal(plan.reproOperation.service, 'database');
+    assert.equal(plan.reproOperation.path, '/channels/general/messages/msg_alice_1');
   });
 
-  it('reproduces exploit + fix in data-plane mode and renders verified 1080p MP4 bundle', async (t) => {
+  it('reproduces repro + fix in data-plane mode and renders verified 1080p MP4 bundle', async (t) => {
     const tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-rec-dp-'));
     t.after(() => fs.rmSync(tmpProject, { recursive: true, force: true }));
 
@@ -295,7 +295,7 @@ describe('from-assurance & record -> render integration', () => {
           },
           app: { dist: './dist' },
           actors: {
-            victim: {
+            owner: {
               uid: 'alice',
               name: 'Alice (Owner)',
               view: '/',
@@ -304,7 +304,7 @@ describe('from-assurance & record -> render integration', () => {
                 after: { text: 'Wire $25,000 to external account today' },
               },
             },
-            attacker: {
+            peer: {
               uid: 'mallory',
               name: 'Mallory (External)',
               view: '/',
@@ -312,7 +312,7 @@ describe('from-assurance & record -> render integration', () => {
           },
           copy: {
             title: 'Cross-tenant RTDB message overwrite',
-            exploit: 'Mallory overwrites Alice invoice message in real time',
+            summary: 'Mallory overwrites Alice invoice message in real time',
             why: 'Write rule omitted authorUid ownership verification',
           },
           fixRules: {
@@ -374,7 +374,7 @@ describe('from-assurance & record -> render integration', () => {
     );
     if (autoCapture.mode === 'video') {
       assert.ok(typeof autoCapture.videoPath === 'string' && fs.existsSync(autoCapture.videoPath));
-      assert.ok(autoCapture.cropRects && autoCapture.cropRects.victim && autoCapture.cropRects.attacker);
+      assert.ok(autoCapture.cropRects && autoCapture.cropRects.owner && autoCapture.cropRects.peer);
       assert.ok(Array.isArray(autoCapture.packetTimestampsMs) && autoCapture.packetTimestampsMs.length >= 2);
     } else {
       assert.ok(Array.isArray(autoCapture.frames) && autoCapture.frames.length >= 2);
@@ -396,7 +396,7 @@ describe('from-assurance & record -> render integration', () => {
     const tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-rec-fail-'));
     t.after(() => fs.rmSync(tmpProject, { recursive: true, force: true }));
 
-    // Case 1: Rules already block the exploit -> Gate G3 fails
+    // Case 1: Rules already block the repro -> Gate G3 fails
     const secureRulesPath = path.join(tmpProject, 'database.rules.json');
     fs.writeFileSync(secureRulesPath, JSON.stringify(FIXED_OWNER_RTDB_RULES, null, 2));
     fs.writeFileSync(
@@ -430,7 +430,7 @@ describe('from-assurance & record -> render integration', () => {
       (err) => err.code === 'UNVERIFIED_FINDING',
     );
 
-    // Case 2: Vulnerable rules allow exploit, but broken candidate fix still allows exploit -> Gate G5 fails
+    // Case 2: Vulnerable rules allow repro, but broken candidate fix still allows repro -> Gate G5 fails
     fs.writeFileSync(secureRulesPath, JSON.stringify(VULNERABLE_RTDB_RULES, null, 2));
     const brokenFixPath = path.join(tmpProject, 'database.broken-fix.rules.json');
     fs.writeFileSync(brokenFixPath, JSON.stringify(VULNERABLE_RTDB_RULES, null, 2));

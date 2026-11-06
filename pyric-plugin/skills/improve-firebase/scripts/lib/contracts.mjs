@@ -1,3 +1,29 @@
+
+function normalizeAliases(raw) {
+  if (!isPlainObject(raw)) return;
+  if (isPlainObject(raw.actors)) {
+    if (raw.actors.victim && !raw.actors.owner) raw.actors.owner = raw.actors.victim;
+    if (raw.actors.attacker && !raw.actors.peer) raw.actors.peer = raw.actors.attacker;
+  }
+  if (isPlainObject(raw.copy) && raw.copy.exploit && !raw.copy.summary) {
+    raw.copy.summary = raw.copy.exploit;
+  }
+  if (isPlainObject(raw.behavior) && isPlainObject(raw.behavior.action)) {
+    if (raw.behavior.action.actor === 'victim') raw.behavior.action.actor = 'owner';
+    if (raw.behavior.action.actor === 'attacker') raw.behavior.action.actor = 'peer';
+  }
+  if (isPlainObject(raw.behavior) && Array.isArray(raw.behavior.operations)) {
+    for (const op of raw.behavior.operations) {
+      if (op.phase === 'exploit') op.phase = 'repro';
+    }
+  }
+  if (Array.isArray(raw.beats)) {
+    for (const b of raw.beats) {
+      if (b.phase === 'exploit') b.phase = 'repro';
+    }
+  }
+}
+
 /**
  * Shared schemas, constants, and payload builders for Pyric audit video scripts.
  * Zero external runtime dependencies so scripts run directly from any plugin cache directory.
@@ -119,6 +145,7 @@ export function parseSizeString(sizeStr) {
  * Validate and normalize a `pyric.evidence.scenario.v1` object.
  */
 export function validateScenario(raw) {
+  normalizeAliases(raw);
   const errors = [];
   if (!isPlainObject(raw)) {
     throw new ContractValidationError('Scenario must be a JSON object');
@@ -144,13 +171,13 @@ export function validateScenario(raw) {
     ? assertNonEmptyString(raw.finding.probe, 'finding.probe', errors)
     : '';
 
-  // Actors (victim required; attacker optional for single-hero/unauthenticated/data-plane)
-  if (!isPlainObject(raw.actors) || !isPlainObject(raw.actors.victim)) {
-    errors.push('actors.victim must be an object');
+  // Actors (owner required; peer optional for single-hero/unauthenticated/data-plane)
+  if (!isPlainObject(raw.actors) || !isPlainObject(raw.actors.owner)) {
+    errors.push('actors.owner must be an object');
   }
   const actors = {};
   if (isPlainObject(raw.actors)) {
-    for (const role of ['victim', 'attacker']) {
+    for (const role of ['owner', 'peer']) {
       const entry = raw.actors[role];
       if (!entry) continue;
       if (!isPlainObject(entry)) {
@@ -171,12 +198,12 @@ export function validateScenario(raw) {
 
   // Copy
   if (!isPlainObject(raw.copy)) {
-    errors.push('copy must be an object with title, exploit, and why');
+    errors.push('copy must be an object with title, repro, and why');
   }
   const copy = isPlainObject(raw.copy)
     ? {
         title: assertNonEmptyString(raw.copy.title, 'copy.title', errors),
-        exploit: assertNonEmptyString(raw.copy.exploit, 'copy.exploit', errors),
+        summary: assertNonEmptyString(raw.copy.summary || raw.copy.summary, 'copy.summary', errors),
         why: assertNonEmptyString(raw.copy.why, 'copy.why', errors),
         severity: typeof raw.copy.severity === 'string' ? raw.copy.severity.toUpperCase() : 'HIGH',
         baseline: typeof raw.copy.baseline === 'string' ? raw.copy.baseline : undefined,
@@ -223,7 +250,7 @@ export function validateScenario(raw) {
               }))
           : undefined,
       }
-    : { title: '', exploit: '', why: '', severity: 'HIGH' };
+    : { title: '', repro: '', why: '', severity: 'HIGH' };
 
   // Stage configuration (3-tier loose customization)
   const rawStage = isPlainObject(raw.stage) ? raw.stage : {};
@@ -433,16 +460,18 @@ export function buildLockedProvenanceText({
  * Build the `window.__PYRIC_EVIDENCE__` payload injected into offline stage HTML pages.
  */
 export function buildStagePayload({
+  passes,
   scenario,
   fps = 30,
   beats,
   slides,
-  passes,
   evidence,
   provenanceText,
+  ...rest
 }) {
-  if (!isPlainObject(passes) || !isPlainObject(passes.exploit)) {
-    throw new ContractValidationError('buildStagePayload requires passes.exploit frame map');
+  if (isPlainObject(passes) && passes.exploit && !passes.repro) passes.repro = passes.exploit;
+  if (!isPlainObject(passes) || (!isPlainObject(passes.repro) && !isPlainObject(passes.repro))) {
+    throw new ContractValidationError('buildStagePayload requires passes.repro frame map');
   }
   return {
     schema: STAGE_PAYLOAD_SCHEMA,
@@ -455,7 +484,7 @@ export function buildStagePayload({
     stage: scenario.stage,
     beats,
     ...(Array.isArray(slides) ? { slides } : {}),
-    passes,
+    passes: passes.repro ? passes : { ...passes, repro: passes.repro },
     evidence,
     provenanceText,
   };

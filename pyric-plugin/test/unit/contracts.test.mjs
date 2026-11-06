@@ -18,13 +18,13 @@ import {
   buildLockedProvenanceText,
   buildStagePayload,
   validateBundleManifest,
-} from '../skills/improve-firebase/scripts/lib/contracts.mjs';
+} from '../../skills/improve-firebase/scripts/lib/contracts.mjs';
 import {
   getVideoRuntimeDir,
   findProjectPlaywright,
   resolveChromiumExecutable,
   probeSystemTools,
-} from '../skills/improve-firebase/scripts/lib/runtime.mjs';
+} from '../../skills/improve-firebase/scripts/lib/runtime.mjs';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TEST_DIR, '../..');
@@ -48,12 +48,12 @@ test('validateScenario applies defaults for stage layout, theme tokens, and slot
       dist: './examples/teams-workspace/dist',
     },
     actors: {
-      victim: { uid: 'alice', name: 'Alice' },
-      attacker: { uid: 'mallory', name: 'Mallory' },
+      owner: { uid: 'alice', name: 'Alice' },
+      peer: { uid: 'mallory', name: 'Mallory' },
     },
     copy: {
       title: 'Cross-tenant RTDB message overwrite',
-      exploit: 'Mallory overwrites Alice message in real time',
+      summary: 'Mallory overwrites Alice message in real time',
       why: 'Missing authorUid check on /channels/$channel/messages/$msgId',
     },
     stage: {
@@ -76,10 +76,10 @@ test('validateScenario defaults layout to data-plane when no app is provided and
   const dataPlane = validateScenario({
     schema: SCENARIO_SCHEMA,
     finding: { campaign: 'camp-1', probe: 'probe-1' },
-    actors: { victim: { uid: 'alice', name: 'Alice' } },
+    actors: { owner: { uid: 'alice', name: 'Alice' } },
     copy: {
       title: 'Unauthenticated read',
-      exploit: 'Reads /secrets without token',
+      summary: 'Reads /secrets without token',
       why: '.read is true',
     },
   });
@@ -100,14 +100,14 @@ test('validateRawCapture validates both continuous video and CDP frame captures'
     schema: RAW_CAPTURE_SCHEMA,
     backend: 'x11-xvfb',
     platform: 'linux',
-    actorRoles: ['victim', 'attacker'],
+    actorRoles: ['owner', 'peer'],
     durationMs: 4200,
     mode: 'video',
-    videoPath: '/tmp/exploit.mp4',
+    videoPath: '/tmp/repro.mp4',
     fps: 30,
     cropRects: {
-      victim: { x: 20, y: 20, width: 1800, height: 1350 },
-      attacker: { x: 1860, y: 20, width: 1800, height: 1350 },
+      owner: { x: 20, y: 20, width: 1800, height: 1350 },
+      peer: { x: 1860, y: 20, width: 1800, height: 1350 },
     },
     packetTimestampsMs: [0, 33.3, 66.7],
   });
@@ -117,12 +117,12 @@ test('validateRawCapture validates both continuous video and CDP frame captures'
     schema: RAW_CAPTURE_SCHEMA,
     backend: 'cdp-surface',
     platform: 'darwin',
-    actorRoles: ['victim', 'attacker'],
+    actorRoles: ['owner', 'peer'],
     durationMs: 3000,
     mode: 'frames',
     frames: [
-      { tMs: 0, files: { victim: '/tmp/v0.png', attacker: '/tmp/a0.png' } },
-      { tMs: 60, files: { victim: '/tmp/v1.png', attacker: '/tmp/a1.png' } },
+      { tMs: 0, files: { owner: '/tmp/v0.png', peer: '/tmp/a0.png' } },
+      { tMs: 60, files: { owner: '/tmp/v1.png', peer: '/tmp/a1.png' } },
     ],
   });
   assert.equal(frameCapture.mode, 'frames');
@@ -133,12 +133,12 @@ test('validateRawCapture validates both continuous video and CDP frame captures'
         schema: RAW_CAPTURE_SCHEMA,
         backend: 'cdp-surface',
         platform: 'darwin',
-        actorRoles: ['victim'],
+        actorRoles: ['owner'],
         durationMs: 1000,
         mode: 'frames',
         frames: [
-          { tMs: 100, files: { victim: '/tmp/v1.png' } },
-          { tMs: 50, files: { victim: '/tmp/v0.png' } },
+          { tMs: 100, files: { owner: '/tmp/v1.png' } },
+          { tMs: 50, files: { owner: '/tmp/v0.png' } },
         ],
       }),
     ContractValidationError,
@@ -162,14 +162,14 @@ test('buildLockedProvenanceText, buildStagePayload, and validateBundleManifest e
   const scenario = validateScenario({
     schema: SCENARIO_SCHEMA,
     finding: { campaign: 'camp-1', probe: 'probe-1' },
-    actors: { victim: { uid: 'alice', name: 'Alice' } },
-    copy: { title: 'T', exploit: 'E', why: 'W' },
+    actors: { owner: { uid: 'alice', name: 'Alice' } },
+    copy: { title: 'T', summary: 'E', why: 'W' },
   });
   const payload = buildStagePayload({
     scenario,
     fps: 30,
     beats: [{ id: 'hook', startSec: 0, endSec: 2, caption: 'Hook' }],
-    passes: { exploit: { victim: ['/tmp/f0.png'] } },
+    passes: { repro: { owner: ['/tmp/f0.png'] } },
     evidence: { before: {}, after: {} },
     provenanceText,
   });
@@ -183,7 +183,7 @@ test('buildLockedProvenanceText, buildStagePayload, and validateBundleManifest e
     provenanceText,
     artifacts: {
       poster: 'poster.png',
-      exploitMp4: 'video.mp4',
+      reproMp4: 'video.mp4',
     },
   });
   assert.equal(manifest.status, 'reproduced');

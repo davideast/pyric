@@ -510,7 +510,7 @@ export async function executeStep({
   }
 
   if (kind === 'ui') {
-    const actorKey = step.actor || 'victim';
+    const actorKey = step.actor || 'owner';
     const page = actorPages[actorKey];
     if (!page) {
       throw new ContractValidationError(`UI step references unknown actor page "${actorKey}"`);
@@ -533,7 +533,7 @@ export async function executeStep({
   }
 
   if (kind === 'wait-expect' || kind === 'wait_expect' || kind === 'expect') {
-    const actorKey = step.actor || 'victim';
+    const actorKey = step.actor || 'owner';
     const page = actorPages[actorKey];
     if (!page) {
       throw new ContractValidationError(`wait-expect step references unknown actor page "${actorKey}"`);
@@ -595,7 +595,7 @@ export async function executeStep({
   }
 
   if (kind === 'sign-in' || kind === 'sign_in') {
-    const actorKey = step.actor || 'victim';
+    const actorKey = step.actor || 'owner';
     const page = actorPages[actorKey];
     const actorDef = actors[actorKey] || { uid: actorKey };
     const signedIn = await signInActorPage({

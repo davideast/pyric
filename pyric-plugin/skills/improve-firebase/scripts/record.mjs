@@ -251,7 +251,7 @@ export function parseRecordCliArgs(argv) {
   return opts;
 }
 
-function collectTargetDisplayTexts(scenario, exploitOperation) {
+function collectTargetDisplayTexts(scenario, reproOperation) {
   const texts = [];
   const push = (val) => {
     if (typeof val === 'string') {
@@ -261,12 +261,12 @@ function collectTargetDisplayTexts(scenario, exploitOperation) {
       }
     }
   };
-  push(exploitOperation?.data?.text);
-  push(exploitOperation?.data?.title);
-  push(exploitOperation?.data?.body);
-  push(scenario?.actors?.victim?.expect?.after?.text);
-  push(scenario?.actors?.victim?.expect?.before?.text);
-  push(scenario?.actors?.attacker?.expect?.before?.text);
+  push(reproOperation?.data?.text);
+  push(reproOperation?.data?.title);
+  push(reproOperation?.data?.body);
+  push(scenario?.actors?.owner?.expect?.after?.text);
+  push(scenario?.actors?.owner?.expect?.before?.text);
+  push(scenario?.actors?.peer?.expect?.before?.text);
   return texts;
 }
 
@@ -537,8 +537,8 @@ function resolveScenarioRelativePaths(rawScenario, baseDir) {
 }
 
 function synthesizeProbeFromScenario(scenario, rawScenario) {
-  let exploitOp = rawScenario?.exploitOperation ?? null;
-  if (!exploitOp && Array.isArray(scenario.steps)) {
+  let reproOp = rawScenario?.reproOperation ?? null;
+  if (!reproOp && Array.isArray(scenario.steps)) {
     const step = scenario.steps.find(
       (s) =>
         isPlainObject(s) &&
@@ -552,19 +552,19 @@ function synthesizeProbeFromScenario(scenario, rawScenario) {
         : Array.isArray(step.trajectory)
           ? step.trajectory
           : null;
-      exploitOp =
+      reproOp =
         baseOp.data === undefined && baseOp.value === undefined && frames && frames.length > 0
           ? { ...baseOp, data: frames[frames.length - 1] }
           : baseOp;
     }
   }
-  if (!exploitOp && isPlainObject(rawScenario?.operation)) {
-    exploitOp = rawScenario.operation;
+  if (!reproOp && isPlainObject(rawScenario?.operation)) {
+    reproOp = rawScenario.operation;
   }
-  if (!exploitOp) {
+  if (!reproOp) {
     throw new EvidenceRecordError(
-      'MISSING_EXPLOIT_OPERATION',
-      'Scenario without --campaign must specify an SDK step with operation or exploitOperation',
+      'MISSING_REPRO_OPERATION',
+      'Scenario without --campaign must specify an SDK step with operation or reproOperation',
     );
   }
 
@@ -574,14 +574,14 @@ function synthesizeProbeFromScenario(scenario, rawScenario) {
     targetHash: rawScenario?.finding?.targetHash ?? 'scenario-inline',
     classification: rawScenario?.finding?.classification ?? 'confirmed',
     actorEvidence: {
-      victimUid: scenario.actors.victim?.uid || 'alice',
-      victimLabel: scenario.actors.victim?.name,
-      ...(scenario.actors.attacker
+      ownerUid: scenario.actors.owner?.uid || 'alice',
+      ownerLabel: scenario.actors.owner?.name,
+      ...(scenario.actors.peer
         ? {
-            attackerUid: scenario.actors.attacker.uid,
-            actorLabel: scenario.actors.attacker.name,
+            peerUid: scenario.actors.peer.uid,
+            actorLabel: scenario.actors.peer.name,
           }
-        : { attackerUid: null }),
+        : { peerUid: null }),
     },
     invariant: {
       id: scenario.finding.probe,
@@ -590,8 +590,8 @@ function synthesizeProbeFromScenario(scenario, rawScenario) {
       description: scenario.copy.why,
     },
     mutationSpec: {
-      operation: exploitOp,
-      exploitDescription: scenario.copy.exploit,
+      operation: reproOp,
+      reproDescription: scenario.copy.summary,
     },
     ...(isPlainObject(rawScenario?.seed) ? { mutation: { before: rawScenario.seed } } : {}),
   };
@@ -667,7 +667,7 @@ export function prepareIsolatedSandboxInputs({
   scenario,
   rawScenario,
   campaignExport,
-  exploitOperation,
+  reproOperation,
   initialSeedValue,
   seedDir,
   useInlineTarget = false,
@@ -785,7 +785,7 @@ export function prepareIsolatedSandboxInputs({
       ...(isPlainObject(synthesizedCfg.database) ? synthesizedCfg.database : {}),
       rules: path.resolve(rtdbRuleCandidate),
     };
-  } else if (exploitOperation.service === 'database' && !synthesizedCfg.database) {
+  } else if (reproOperation.service === 'database' && !synthesizedCfg.database) {
     const openRulesPath = path.join(scratchCfgDir, 'database.rules.json');
     fs.writeFileSync(
       openRulesPath,
@@ -879,9 +879,9 @@ export function prepareIsolatedSandboxInputs({
     resolvedSeedPath = inline.seedPath;
     inputs.seed = 'campaign-inline';
   }
-  if (!resolvedSeedPath && initialSeedValue !== undefined && exploitOperation.service === 'database') {
+  if (!resolvedSeedPath && initialSeedValue !== undefined && reproOperation.service === 'database') {
     const seedTree = {};
-    const parts = exploitOperation.path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+    const parts = reproOperation.path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
     let cursor = seedTree;
     for (let i = 0; i < parts.length - 1; i += 1) {
       cursor[parts[i]] = {};
@@ -900,7 +900,7 @@ export function prepareIsolatedSandboxInputs({
     firestore: fsRuleCandidate,
     storage: storageRuleCandidate,
   };
-  const primaryRuleCandidate = serviceRuleMap[exploitOperation.service] || rtdbRuleCandidate || fsRuleCandidate || storageRuleCandidate;
+  const primaryRuleCandidate = serviceRuleMap[reproOperation.service] || rtdbRuleCandidate || fsRuleCandidate || storageRuleCandidate;
   const initialRuleFile =
     primaryRuleCandidate && fs.existsSync(primaryRuleCandidate)
       ? path.resolve(primaryRuleCandidate)
@@ -916,7 +916,7 @@ export function prepareIsolatedSandboxInputs({
   };
 }
 
-async function checkVictimDomExpectation(page, expectSpec, timeoutMs = 6000) {
+async function checkOwnerDomExpectation(page, expectSpec, timeoutMs = 6000) {
   if (!expectSpec || !isPlainObject(expectSpec) || Object.keys(expectSpec).length === 0) {
     return { pass: true, reason: null };
   }
@@ -928,11 +928,11 @@ async function checkVictimDomExpectation(page, expectSpec, timeoutMs = 6000) {
 
     if (expectSpec.text !== undefined && !bodyText.includes(String(expectSpec.text))) {
       ok = false;
-      reason = `Expected text "${expectSpec.text}" not visible in victim DOM`;
+      reason = `Expected text "${expectSpec.text}" not visible in owner DOM`;
     }
     if (ok && expectSpec.notText !== undefined && bodyText.includes(String(expectSpec.notText))) {
       ok = false;
-      reason = `Forbidden text "${expectSpec.notText}" still visible in victim DOM`;
+      reason = `Forbidden text "${expectSpec.notText}" still visible in owner DOM`;
     }
     if (ok && expectSpec.selector) {
       const visible = await page
@@ -955,9 +955,9 @@ async function checkVictimDomExpectation(page, expectSpec, timeoutMs = 6000) {
     pass: false,
     reason:
       expectSpec.text !== undefined && !finalBody.includes(String(expectSpec.text))
-        ? `Expected text "${expectSpec.text}" not found in victim DOM (got: ${finalBody.slice(0, 120)})`
+        ? `Expected text "${expectSpec.text}" not found in owner DOM (got: ${finalBody.slice(0, 120)})`
         : expectSpec.notText !== undefined
-          ? `Forbidden text "${expectSpec.notText}" still present in victim DOM`
+          ? `Forbidden text "${expectSpec.notText}" still present in owner DOM`
           : 'Expectation timed out',
   };
 }
@@ -1093,8 +1093,8 @@ export async function recordEvidence(options = {}) {
     probe,
     controlOperation,
     controlSource,
-    exploitOperation,
-    exploitSnippet,
+    reproOperation,
+    reproSnippet,
     controlSnippet,
     initialSeedValue,
   } = resolvedPlan;
@@ -1113,8 +1113,8 @@ export async function recordEvidence(options = {}) {
   }
 
   const actorLabel =
-    scenario.actors.attacker?.uid ||
-    scenario.actors.attacker?.name ||
+    scenario.actors.peer?.uid ||
+    scenario.actors.peer?.name ||
     'anonymous';
   const fixRulesSpec = resolveFixRulesSpec(scenario.fixRules, scenarioBaseDir);
   const hasFix = Boolean(fixRulesSpec);
@@ -1125,16 +1125,16 @@ export async function recordEvidence(options = {}) {
           campaignExport,
           probe,
           fixRules: fixRulesSpec,
-          method: exploitOperation.method,
+          method: reproOperation.method,
         })
       : null;
 
   const partialProvenance = buildLockedProvenanceText({
     decision: 'PENDING',
     fixedDecision: hasFix ? 'PENDING' : undefined,
-    service: exploitOperation.service,
-    method: exploitOperation.method,
-    path: exploitOperation.path,
+    service: reproOperation.service,
+    method: reproOperation.method,
+    path: reproOperation.path,
     actorLabel,
   });
 
@@ -1179,7 +1179,7 @@ export async function recordEvidence(options = {}) {
     scenario,
     rawScenario,
     campaignExport,
-    exploitOperation,
+    reproOperation,
     initialSeedValue,
     seedDir,
     useInlineTarget: Boolean(campaignPath),
@@ -1234,25 +1234,25 @@ export async function recordEvidence(options = {}) {
       tokenMap.set(actor.uid, tok);
     }
 
-    const victimRole = 'victim';
-    const victimToken = tokenMap.get(victimRole) || null;
-    const attackerRole = scenario.actors.attacker ? 'attacker' : null;
-    const attackerToken = attackerRole ? tokenMap.get(attackerRole) ?? null : null;
+    const ownerRole = 'owner';
+    const ownerToken = tokenMap.get(ownerRole) || null;
+    const peerRole = scenario.actors.peer ? 'peer' : null;
+    const peerToken = peerRole ? tokenMap.get(peerRole) ?? null : null;
 
     // Seed baseline target state if not already seeded
     if (initialSeedValue !== undefined) {
       const existingBefore = await sandbox
-        .readState(exploitOperation.service, exploitOperation.path, victimToken)
+        .readState(reproOperation.service, reproOperation.path, ownerToken)
         .catch(() => null);
       if (existingBefore === null || existingBefore === undefined) {
         await sandbox.executeOperation({
           operation: {
-            service: exploitOperation.service,
-            method: exploitOperation.service === 'firestore' ? 'setDoc' : 'set',
-            path: exploitOperation.path,
+            service: reproOperation.service,
+            method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
+            path: reproOperation.path,
             data: structuredClone(initialSeedValue),
           },
-          idToken: victimToken,
+          idToken: ownerToken,
         });
       }
     }
@@ -1305,7 +1305,7 @@ export async function recordEvidence(options = {}) {
 
       // Verify all actor pages remained on the sandbox origin and hydrated DOM text
       // after subsequent actors signed in.
-      const targetUiTexts = collectTargetDisplayTexts(scenario, exploitOperation);
+      const targetUiTexts = collectTargetDisplayTexts(scenario, reproOperation);
       const shouldCollapseSidebar = scenario.stage?.slots?.collapseSidebar !== false;
       for (const [role, actor] of Object.entries(scenario.actors)) {
         const page = pages[role];
@@ -1332,7 +1332,7 @@ export async function recordEvidence(options = {}) {
 
     // 1. Baseline Control Operation (Gate G2)
     const beforeStateRaw = await sandbox
-      .readState(exploitOperation.service, exploitOperation.path, victimToken)
+      .readState(reproOperation.service, reproOperation.path, ownerToken)
       .catch(() => initialSeedValue ?? null);
     const baselineSnapshot = structuredClone(beforeStateRaw ?? initialSeedValue ?? null);
 
@@ -1345,20 +1345,20 @@ export async function recordEvidence(options = {}) {
         ? fs.readFileSync(cfgSetup.initialRuleFile, 'utf8')
         : null);
     const beforeRuleSummary =
-      extractFocusedRuleSnippet(beforeRuleRaw, exploitOperation) ||
+      extractFocusedRuleSnippet(beforeRuleRaw, reproOperation) ||
       sandbox.databaseRulesHash ||
       sandbox.rulesHash ||
       'active-rules';
     const beforeRuleFull =
-      extractFocusedRuleSnippet(beforeRuleRaw, exploitOperation, { maxLen: 900 }) ||
+      extractFocusedRuleSnippet(beforeRuleRaw, reproOperation, { maxLen: 900 }) ||
       beforeRuleSummary;
 
     const controlDispatchedMs = isAppView
       ? Math.max(200, Math.round(performance.now() - captureStartMs))
       : controlOffsetMs;
-    // The control runs as whoever performed it (an observation's actor), else the victim.
+    // The control runs as whoever performed it (an observation's actor), else the owner.
     const controlToken =
-      (controlOperation.uid ? tokenMap.get(controlOperation.uid) : null) ?? victimToken;
+      (controlOperation.uid ? tokenMap.get(controlOperation.uid) : null) ?? ownerToken;
     const controlResult = await sandbox.executeOperation({
       operation: controlOperation,
       idToken: controlToken,
@@ -1372,8 +1372,8 @@ export async function recordEvidence(options = {}) {
       dispatchedAtMs: controlDispatchedMs,
       executedAtMs: controlSettledMs,
       settledAtMs: controlSettledMs,
-      actor: scenario.actors.victim.uid,
-      actorLabel: scenario.actors.victim.name,
+      actor: scenario.actors.owner.uid,
+      actorLabel: scenario.actors.owner.name,
       service: controlOperation.service,
       method: controlOperation.method,
       path: controlOperation.path,
@@ -1398,33 +1398,33 @@ export async function recordEvidence(options = {}) {
           service: controlOperation.service,
           method: controlOperation.method,
           path: controlOperation.path,
-          actorLabel: scenario.actors.victim.uid,
+          actorLabel: scenario.actors.owner.uid,
         }),
         tracePath: traceRel,
       });
       throw new EvidenceRecordError('GATE_G2_FAILED', g2.reasons.join('; '), { gate: g2 });
     }
 
-    // Restore exact pre-exploit state if baseline write modified anything
+    // Restore exact pre-repro state if baseline write modified anything
     if (baselineSnapshot !== null && baselineSnapshot !== undefined) {
       await sandbox.executeOperation({
         operation: {
-          service: exploitOperation.service,
-          method: exploitOperation.service === 'firestore' ? 'setDoc' : 'set',
-          path: exploitOperation.path,
+          service: reproOperation.service,
+          method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
+          path: reproOperation.path,
           data: structuredClone(baselineSnapshot),
         },
-        idToken: victimToken,
+        idToken: ownerToken,
       });
     }
 
-    const targetUiTexts = collectTargetDisplayTexts(scenario, exploitOperation);
+    const targetUiTexts = collectTargetDisplayTexts(scenario, reproOperation);
     const shouldCollapseSidebar = scenario.stage?.slots?.collapseSidebar !== false;
     const uiFocus = {};
 
     if (isAppView) {
-      if (scenario.actors.victim?.expect?.before && pages.victim) {
-        await checkVictimDomExpectation(pages.victim, scenario.actors.victim.expect.before, 6000);
+      if (scenario.actors.owner?.expect?.before && pages.owner) {
+        await checkOwnerDomExpectation(pages.owner, scenario.actors.owner.expect.before, 6000);
       }
       await sleep(1450);
       for (const page of Object.values(pages)) {
@@ -1439,28 +1439,28 @@ export async function recordEvidence(options = {}) {
       }
     }
 
-    // 2. Execute Exploit Step(s) (Gate G3)
-    const exploitOffsetMs = isAppView
+    // 2. Execute Reproduce Step(s) (Gate G3)
+    const reproOffsetMs = isAppView
       ? Math.max(1250, Math.round(performance.now() - captureStartMs))
       : 1200;
     if (captureBackend) {
-      await captureBackend.mark('exploit');
+      await captureBackend.mark('repro');
     }
 
     const hasCustomSteps = Array.isArray(scenario.steps) && scenario.steps.length > 0;
-    let exploitDispatchedMs = exploitOffsetMs;
+    let reproDispatchedMs = reproOffsetMs;
     if (isAppView) {
       const preFocus = await measureAllActorsFocus(pages, targetUiTexts);
       if (preFocus) {
-        uiFocus.exploitPre = preFocus;
+        uiFocus.reproPre = preFocus;
       }
       if (!hasCustomSteps) {
-        // Armed preview pause so viewer reads pre-exploit app state before state mutates
+        // Armed preview pause so viewer reads pre-repro app state before state mutates
         await sleep(900);
       }
     }
 
-    let exploitResult = null;
+    let reproResult = null;
     if (hasCustomSteps) {
       for (const step of scenario.steps) {
         const sKind = String(step.kind || step.type || '').toLowerCase();
@@ -1468,10 +1468,10 @@ export async function recordEvidence(options = {}) {
           continue; // Handled in verified Gate G5 phase below
         }
         const beforeStepMs = isAppView
-          ? Math.max(exploitOffsetMs, Math.round(performance.now() - captureStartMs))
-          : exploitOffsetMs;
+          ? Math.max(reproOffsetMs, Math.round(performance.now() - captureStartMs))
+          : reproOffsetMs;
         if (sKind === 'sdk') {
-          exploitDispatchedMs = beforeStepMs;
+          reproDispatchedMs = beforeStepMs;
         }
         const res = await executeStep({
           step,
@@ -1485,16 +1485,16 @@ export async function recordEvidence(options = {}) {
             recordedEvents.push({
               ...ev,
               dispatchedAtMs: beforeStepMs,
-              tMs: isAppView ? ev.tMs : exploitOffsetMs,
+              tMs: isAppView ? ev.tMs : reproOffsetMs,
               actorLabel: actorLabel,
             });
           },
         });
         if (
           sKind === 'sdk' &&
-          (!step.phase || String(step.phase).toLowerCase() === 'exploit' || String(step.id || '').toLowerCase() === 'exploit')
+          (!step.phase || String(step.phase).toLowerCase() === 'repro' || String(step.id || '').toLowerCase() === 'repro')
         ) {
-          exploitResult =
+          reproResult =
             res && !res.decision && res.lastEvent
               ? { ...res.lastEvent, latencyMs: res.lastEvent.latencyMs ?? 0 }
               : res;
@@ -1502,63 +1502,63 @@ export async function recordEvidence(options = {}) {
       }
     }
 
-    if (!exploitResult) {
-      exploitDispatchedMs = isAppView
-        ? Math.max(exploitOffsetMs, Math.round(performance.now() - captureStartMs))
-        : exploitOffsetMs;
-      exploitResult = await sandbox.executeOperation({
-        operation: exploitOperation,
-        idToken: attackerToken,
+    if (!reproResult) {
+      reproDispatchedMs = isAppView
+        ? Math.max(reproOffsetMs, Math.round(performance.now() - captureStartMs))
+        : reproOffsetMs;
+      reproResult = await sandbox.executeOperation({
+        operation: reproOperation,
+        idToken: peerToken,
       });
-      const exploitExecutedMs = isAppView
-        ? Math.max(exploitDispatchedMs, Math.round(performance.now() - captureStartMs))
-        : exploitOffsetMs;
+      const reproExecutedMs = isAppView
+        ? Math.max(reproDispatchedMs, Math.round(performance.now() - captureStartMs))
+        : reproOffsetMs;
       recordedEvents.push({
-        phase: 'exploit',
-        tMs: exploitOffsetMs,
-        dispatchedAtMs: exploitDispatchedMs,
-        executedAtMs: exploitExecutedMs,
-        actor: scenario.actors.attacker?.uid ?? null,
+        phase: 'repro',
+        tMs: reproOffsetMs,
+        dispatchedAtMs: reproDispatchedMs,
+        executedAtMs: reproExecutedMs,
+        actor: scenario.actors.peer?.uid ?? null,
         actorLabel: actorLabel,
-        service: exploitOperation.service,
-        method: exploitOperation.method,
-        path: exploitOperation.path,
-        data: exploitOperation.data,
-        decision: exploitResult.decision,
-        status: exploitResult.status,
-        error: exploitResult.error ?? null,
-        sdkCall: exploitSnippet,
+        service: reproOperation.service,
+        method: reproOperation.method,
+        path: reproOperation.path,
+        data: reproOperation.data,
+        decision: reproResult.decision,
+        status: reproResult.status,
+        error: reproResult.error ?? null,
+        sdkCall: reproSnippet,
         matchedRule: beforeRuleSummary,
       });
     } else {
-      // Tag primary exploit event so timeline sync locks onto both pre-step window and exact SDK dispatch/completion
+      // Tag primary repro event so timeline sync locks onto both pre-step window and exact SDK dispatch/completion
       const tagged = recordedEvents.find((e) => e.decision && e.phase !== 'control');
       if (tagged) {
-        const actualExecMs = typeof tagged.tMs === 'number' ? tagged.tMs : exploitOffsetMs;
-        tagged.phase = 'exploit';
+        const actualExecMs = typeof tagged.tMs === 'number' ? tagged.tMs : reproOffsetMs;
+        tagged.phase = 'repro';
         tagged.dispatchedAtMs = Math.max(
-          exploitOffsetMs,
-          typeof tagged.dispatchedAtMs === 'number' ? tagged.dispatchedAtMs : exploitDispatchedMs,
+          reproOffsetMs,
+          typeof tagged.dispatchedAtMs === 'number' ? tagged.dispatchedAtMs : reproDispatchedMs,
         );
         tagged.executedAtMs = Math.max(tagged.dispatchedAtMs, actualExecMs);
-        tagged.tMs = exploitOffsetMs;
+        tagged.tMs = reproOffsetMs;
         tagged.actorLabel = actorLabel;
-        tagged.sdkCall = tagged.sdkCall || exploitSnippet;
+        tagged.sdkCall = tagged.sdkCall || reproSnippet;
         tagged.matchedRule = beforeRuleSummary;
       }
     }
 
-    const afterExploitState = await sandbox
-      .readState(exploitOperation.service, exploitOperation.path, victimToken)
-      .catch(() => exploitResult.data ?? null);
-    const stateDiff = computeStateDiff(baselineSnapshot, afterExploitState, exploitOperation.path);
-    const enrichedExploitResult = {
-      ...exploitResult,
+    const afterReproduceState = await sandbox
+      .readState(reproOperation.service, reproOperation.path, ownerToken)
+      .catch(() => reproResult.data ?? null);
+    const stateDiff = computeStateDiff(baselineSnapshot, afterReproduceState, reproOperation.path);
+    const enrichedReproduceResult = {
+      ...reproResult,
       changedPaths: stateDiff.changedPaths,
       stateDiff,
     };
 
-    const g3 = evaluateGateG3(enrichedExploitResult, [exploitOperation.path]);
+    const g3 = evaluateGateG3(enrichedReproduceResult, [reproOperation.path]);
     if (!g3.pass) {
       const traceRel = await saveFailureTraces(contexts, bundleDir);
       writeFailureBundle({
@@ -1567,10 +1567,10 @@ export async function recordEvidence(options = {}) {
         failedGate: 'G3',
         reasons: g3.reasons,
         provenanceText: buildLockedProvenanceText({
-          decision: enrichedExploitResult.decision || 'ERROR',
-          service: exploitOperation.service,
-          method: exploitOperation.method,
-          path: exploitOperation.path,
+          decision: enrichedReproduceResult.decision || 'ERROR',
+          service: reproOperation.service,
+          method: reproOperation.method,
+          path: reproOperation.path,
           actorLabel,
         }),
         tracePath: traceRel,
@@ -1581,10 +1581,10 @@ export async function recordEvidence(options = {}) {
     // 3. Verify Visible Effect (Gate G4)
     let expectResult = { pass: true, reason: null };
     if (isAppView) {
-      if (scenario.actors.victim?.expect?.after && pages.victim) {
-        expectResult = await checkVictimDomExpectation(
-          pages.victim,
-          scenario.actors.victim.expect.after,
+      if (scenario.actors.owner?.expect?.after && pages.owner) {
+        expectResult = await checkOwnerDomExpectation(
+          pages.owner,
+          scenario.actors.owner.expect.after,
           8000,
         );
       } else {
@@ -1592,18 +1592,18 @@ export async function recordEvidence(options = {}) {
       }
     }
 
-    const primaryExploitEvt = recordedEvents.find((e) => e.phase === 'exploit');
-    if (primaryExploitEvt) {
-      primaryExploitEvt.settledAtMs = isAppView
-        ? Math.max(primaryExploitEvt.executedAtMs ?? exploitOffsetMs, Math.round(performance.now() - captureStartMs))
-        : (primaryExploitEvt.executedAtMs ?? exploitOffsetMs);
+    const primaryReproduceEvt = recordedEvents.find((e) => e.phase === 'repro');
+    if (primaryReproduceEvt) {
+      primaryReproduceEvt.settledAtMs = isAppView
+        ? Math.max(primaryReproduceEvt.executedAtMs ?? reproOffsetMs, Math.round(performance.now() - captureStartMs))
+        : (primaryReproduceEvt.executedAtMs ?? reproOffsetMs);
     }
 
     if (isAppView) {
       await sleep(2400);
       const postFocus = await measureAllActorsFocus(pages, targetUiTexts);
       if (postFocus) {
-        uiFocus.exploitPost = postFocus;
+        uiFocus.reproPost = postFocus;
       }
     }
 
@@ -1620,10 +1620,10 @@ export async function recordEvidence(options = {}) {
         failedGate: 'G4',
         reasons: g4.reasons,
         provenanceText: buildLockedProvenanceText({
-          decision: enrichedExploitResult.decision,
-          service: exploitOperation.service,
-          method: exploitOperation.method,
-          path: exploitOperation.path,
+          decision: enrichedReproduceResult.decision,
+          service: reproOperation.service,
+          method: reproOperation.method,
+          path: reproOperation.path,
           actorLabel,
         }),
         tracePath: traceRel,
@@ -1633,24 +1633,24 @@ export async function recordEvidence(options = {}) {
 
     // 4. Optional Fix Verification (Gate G5)
     let fixControlResult = null;
-    let fixExploitResult = null;
+    let fixReproduceResult = null;
     let fixStateDiff = null;
     const afterRuleSummary = hasFix
-      ? extractFocusedRuleSnippet(scenario.fixRules?.after || fixRulesSpec.rawSnippet, exploitOperation) ||
+      ? extractFocusedRuleSnippet(scenario.fixRules?.after || fixRulesSpec.rawSnippet, reproOperation) ||
         'candidate-fix-rules'
       : null;
 
     if (hasFix) {
-      // Restore clean pre-exploit baseline BEFORE activating restrictive candidate rules
+      // Restore clean pre-repro baseline BEFORE activating restrictive candidate rules
       if (baselineSnapshot !== null && baselineSnapshot !== undefined) {
         await sandbox.executeOperation({
           operation: {
-            service: exploitOperation.service,
-            method: exploitOperation.service === 'firestore' ? 'setDoc' : 'set',
-            path: exploitOperation.path,
+            service: reproOperation.service,
+            method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
+            path: reproOperation.path,
             data: structuredClone(baselineSnapshot),
           },
-          idToken: victimToken,
+          idToken: ownerToken,
         });
       }
 
@@ -1662,7 +1662,7 @@ export async function recordEvidence(options = {}) {
 
       fixControlResult = await sandbox.executeOperation({
         operation: controlOperation,
-        idToken: victimToken,
+        idToken: ownerToken,
       });
 
       // Re-seed clean state in case control write modified anything
@@ -1675,19 +1675,19 @@ export async function recordEvidence(options = {}) {
       ) {
         await sandbox.executeOperation({
           operation: {
-            service: exploitOperation.service,
-            method: exploitOperation.service === 'firestore' ? 'setDoc' : 'set',
-            path: exploitOperation.path,
+            service: reproOperation.service,
+            method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
+            path: reproOperation.path,
             data: structuredClone(baselineSnapshot),
           },
-          idToken: victimToken,
+          idToken: ownerToken,
         });
       }
 
       if (isAppView) {
         let listenerUpdated = false;
-        if (scenario.actors.victim?.expect?.before && pages.victim) {
-          const check = await checkVictimDomExpectation(pages.victim, scenario.actors.victim.expect.before, 1500);
+        if (scenario.actors.owner?.expect?.before && pages.owner) {
+          const check = await checkOwnerDomExpectation(pages.owner, scenario.actors.owner.expect.before, 1500);
           listenerUpdated = Boolean(check?.pass);
         } else {
           await sleep(450);
@@ -1704,8 +1704,8 @@ export async function recordEvidence(options = {}) {
                 });
               }
             }
-            if (scenario.actors.victim?.expect?.before && pages.victim) {
-              await checkVictimDomExpectation(pages.victim, scenario.actors.victim.expect.before, 6000);
+            if (scenario.actors.owner?.expect?.before && pages.owner) {
+              await checkOwnerDomExpectation(pages.owner, scenario.actors.owner.expect.before, 6000);
             } else {
               await sleep(450);
             }
@@ -1739,32 +1739,32 @@ export async function recordEvidence(options = {}) {
       }
 
       const fixOffsetMs = isAppView
-        ? Math.max(exploitOffsetMs + 700, Math.round(performance.now() - captureStartMs))
+        ? Math.max(reproOffsetMs + 700, Math.round(performance.now() - captureStartMs))
         : 3100;
       if (captureBackend) {
         await captureBackend.mark('fix');
       }
 
       if (isAppView) {
-        // Brief armed pause in fix beat before re-running the identical exploit SDK call
+        // Brief armed pause in fix beat before re-running the identical repro SDK call
         await sleep(950);
       }
 
       const fixDispatchedMs = isAppView
         ? Math.max(fixOffsetMs, Math.round(performance.now() - captureStartMs))
         : fixOffsetMs + 250;
-      fixExploitResult = await sandbox.executeOperation({
-        operation: exploitOperation,
-        idToken: attackerToken,
+      fixReproduceResult = await sandbox.executeOperation({
+        operation: reproOperation,
+        idToken: peerToken,
       });
       const fixExecutedMs = isAppView
         ? Math.max(fixDispatchedMs, Math.round(performance.now() - captureStartMs))
         : fixDispatchedMs + 50;
 
       const postFixState = await sandbox
-        .readState(exploitOperation.service, exploitOperation.path, victimToken)
+        .readState(reproOperation.service, reproOperation.path, ownerToken)
         .catch(() => baselineSnapshot);
-      fixStateDiff = computeStateDiff(baselineSnapshot, postFixState, exploitOperation.path);
+      fixStateDiff = computeStateDiff(baselineSnapshot, postFixState, reproOperation.path);
 
       recordedEvents.push({
         phase: 'fix',
@@ -1772,16 +1772,16 @@ export async function recordEvidence(options = {}) {
         dispatchedAtMs: fixDispatchedMs,
         executedAtMs: fixExecutedMs,
         settledAtMs: fixExecutedMs,
-        actor: scenario.actors.attacker?.uid ?? null,
+        actor: scenario.actors.peer?.uid ?? null,
         actorLabel,
-        service: exploitOperation.service,
-        method: exploitOperation.method,
-        path: exploitOperation.path,
-        data: exploitOperation.data,
-        decision: fixExploitResult.decision,
-        status: fixExploitResult.status,
-        error: fixExploitResult.error ?? 'permission-denied',
-        sdkCall: exploitSnippet,
+        service: reproOperation.service,
+        method: reproOperation.method,
+        path: reproOperation.path,
+        data: reproOperation.data,
+        decision: fixReproduceResult.decision,
+        status: fixReproduceResult.status,
+        error: fixReproduceResult.error ?? 'permission-denied',
+        sdkCall: reproSnippet,
         matchedRule: afterRuleSummary,
       });
 
@@ -1796,7 +1796,7 @@ export async function recordEvidence(options = {}) {
       const g5 = evaluateGateG5({
         enabled: true,
         fixControlResult,
-        fixExploitResult,
+        fixReproduceResult,
         fixStateDiff,
       });
       if (!g5.pass) {
@@ -1807,11 +1807,11 @@ export async function recordEvidence(options = {}) {
           failedGate: 'G5',
           reasons: g5.reasons,
           provenanceText: buildLockedProvenanceText({
-            decision: enrichedExploitResult.decision,
-            fixedDecision: fixExploitResult?.decision || 'ERROR',
-            service: exploitOperation.service,
-            method: exploitOperation.method,
-            path: exploitOperation.path,
+            decision: enrichedReproduceResult.decision,
+            fixedDecision: fixReproduceResult?.decision || 'ERROR',
+            service: reproOperation.service,
+            method: reproOperation.method,
+            path: reproOperation.path,
             actorLabel,
           }),
           tracePath: traceRel,
@@ -1828,11 +1828,11 @@ export async function recordEvidence(options = {}) {
 
     const denials = await sandbox.getDenials().catch(() => []);
     const finalProvenanceText = buildLockedProvenanceText({
-      decision: enrichedExploitResult.decision,
-      fixedDecision: hasFix ? fixExploitResult.decision : undefined,
-      service: exploitOperation.service,
-      method: exploitOperation.method,
-      path: exploitOperation.path,
+      decision: enrichedReproduceResult.decision,
+      fixedDecision: hasFix ? fixReproduceResult.decision : undefined,
+      service: reproOperation.service,
+      method: reproOperation.method,
+      path: reproOperation.path,
       actorLabel,
     });
 
@@ -1843,11 +1843,11 @@ export async function recordEvidence(options = {}) {
     fs.writeFileSync(eventsOutPath, `${JSON.stringify(recordedEvents, null, 2)}\n`, 'utf8');
 
     const evidencePayload = {
-      service: exploitOperation.service,
-      method: exploitOperation.method,
-      path: exploitOperation.path,
-      decision: enrichedExploitResult.decision,
-      ...(hasFix ? { fixedDecision: fixExploitResult.decision } : {}),
+      service: reproOperation.service,
+      method: reproOperation.method,
+      path: reproOperation.path,
+      decision: enrichedReproduceResult.decision,
+      ...(hasFix ? { fixedDecision: fixReproduceResult.decision } : {}),
       before: stateDiff.before,
       after: stateDiff.after,
       changedPaths: stateDiff.changedPaths,
@@ -1861,7 +1861,7 @@ export async function recordEvidence(options = {}) {
               afterFull:
                 extractFocusedRuleSnippet(
                   scenario.fixRules?.after || fixRulesSpec.rawSnippet,
-                  exploitOperation,
+                  reproOperation,
                   { maxLen: 900 },
                 ) || afterRuleSummary,
             },

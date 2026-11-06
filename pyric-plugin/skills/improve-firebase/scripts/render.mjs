@@ -226,33 +226,33 @@ function extractStageEvidence({ scenario, eventsData, extraEvidence, existingMan
   const eventsObj = eventsData && !Array.isArray(eventsData) && typeof eventsData === 'object' ? eventsData : {};
   const eventList = Array.isArray(eventsData) ? eventsData : (Array.isArray(eventsObj.events) ? eventsObj.events : []);
 
-  let exploitEvent = null;
+  let reproEvent = null;
   let fixEvent = null;
   for (const ev of eventList) {
     if (!ev || typeof ev !== 'object') continue;
     const phase = String(ev.phase ?? ev.type ?? ev.kind ?? '').toLowerCase();
     const decision = String(ev.decision ?? '').toUpperCase();
-    if (!exploitEvent && (phase === 'exploit' || phase === 'mutation' || phase === 'attack')) {
-      exploitEvent = ev;
+    if (!reproEvent && (phase === 'repro' || phase === 'mutation' || phase === 'attack')) {
+      reproEvent = ev;
     }
     if (!fixEvent && (phase === 'fix' || phase === 'verify' || phase === 'patched' || decision === 'DENY')) {
       fixEvent = ev;
     }
   }
-  if (!exploitEvent && eventList.length > 0) {
-    exploitEvent = eventList.find((ev) => ev.path || ev.method || ev.data) || eventList[0];
+  if (!reproEvent && eventList.length > 0) {
+    reproEvent = eventList.find((ev) => ev.path || ev.method || ev.data) || eventList[0];
   }
 
-  const victimUid = scenario.actors?.victim?.uid || 'alice';
-  const attackerUid = scenario.actors?.attacker?.uid || 'mallory';
+  const ownerUid = scenario.actors?.owner?.uid || 'alice';
+  const peerUid = scenario.actors?.peer?.uid || 'mallory';
 
-  const service = pickFirstDefined(extraEvidence?.service, eventsObj.service, exploitEvent?.service, 'database');
-  const method = pickFirstDefined(extraEvidence?.method, eventsObj.method, exploitEvent?.method, exploitEvent?.op, 'set');
-  const targetPath = pickFirstDefined(extraEvidence?.path, eventsObj.path, exploitEvent?.path, '/channels/general/messages/msg_alice_1');
-  const before = pickFirstDefined(extraEvidence?.before, eventsObj.before, exploitEvent?.stateDiff?.before, exploitEvent?.before, fixEvent?.before, { authorUid: victimUid, text: 'Verified baseline state' });
-  const after = pickFirstDefined(extraEvidence?.after, eventsObj.after, exploitEvent?.stateDiff?.after, exploitEvent?.after, exploitEvent?.data, { authorUid: victimUid, text: `Mutated by ${attackerUid}` });
-  const changedPaths = pickFirstDefined(extraEvidence?.changedPaths, eventsObj.changedPaths, exploitEvent?.stateDiff?.changedPaths, [targetPath]);
-  const matchedRule = pickFirstDefined(extraEvidence?.matchedRule, eventsObj.matchedRule, exploitEvent?.matchedRule, scenario.fixRules?.before, '".write": "auth != null"');
+  const service = pickFirstDefined(extraEvidence?.service, eventsObj.service, reproEvent?.service, 'database');
+  const method = pickFirstDefined(extraEvidence?.method, eventsObj.method, reproEvent?.method, reproEvent?.op, 'set');
+  const targetPath = pickFirstDefined(extraEvidence?.path, eventsObj.path, reproEvent?.path, '/channels/general/messages/msg_alice_1');
+  const before = pickFirstDefined(extraEvidence?.before, eventsObj.before, reproEvent?.stateDiff?.before, reproEvent?.before, fixEvent?.before, { authorUid: ownerUid, text: 'Verified baseline state' });
+  const after = pickFirstDefined(extraEvidence?.after, eventsObj.after, reproEvent?.stateDiff?.after, reproEvent?.after, reproEvent?.data, { authorUid: ownerUid, text: `Mutated by ${peerUid}` });
+  const changedPaths = pickFirstDefined(extraEvidence?.changedPaths, eventsObj.changedPaths, reproEvent?.stateDiff?.changedPaths, [targetPath]);
+  const matchedRule = pickFirstDefined(extraEvidence?.matchedRule, eventsObj.matchedRule, reproEvent?.matchedRule, scenario.fixRules?.before, '".write": "auth != null"');
   const rawFixRules = pickFirstDefined(scenario.fixRules, extraEvidence?.fixRules, eventsObj.fixRules, null);
   const fixRules =
     rawFixRules && typeof rawFixRules === 'object'
@@ -262,15 +262,15 @@ function extractStageEvidence({ scenario, eventsData, extraEvidence, existingMan
         }
       : null;
   const hasFix = Boolean(fixRules || scenario.copy?.fixed || fixEvent);
-  const decision = pickFirstDefined(extraEvidence?.decision, eventsObj.decision, exploitEvent?.decision, 'ALLOW');
+  const decision = pickFirstDefined(extraEvidence?.decision, eventsObj.decision, reproEvent?.decision, 'ALLOW');
   const fixedDecision = pickFirstDefined(extraEvidence?.fixedDecision, eventsObj.fixedDecision, fixEvent?.decision, hasFix ? 'DENY' : undefined);
 
   const actorLabel = pickFirstDefined(
-    exploitEvent?.actorLabel,
-    scenario.actors?.attacker?.uid,
-    scenario.actors?.attacker?.name,
-    scenario.actors?.victim?.uid,
-    scenario.actors?.victim?.name,
+    reproEvent?.actorLabel,
+    scenario.actors?.peer?.uid,
+    scenario.actors?.peer?.name,
+    scenario.actors?.owner?.uid,
+    scenario.actors?.owner?.name,
   );
   let provenanceText = '';
   if (typeof existingManifest?.provenanceText === 'string' && existingManifest.provenanceText.trim().length > 0) {
@@ -282,7 +282,7 @@ function extractStageEvidence({ scenario, eventsData, extraEvidence, existingMan
   }
 
   const gateEvents = eventList.map((ev) => {
-    if (ev === exploitEvent && ev && typeof ev === 'object' && ev.actorLabel === undefined && actorLabel) {
+    if (ev === reproEvent && ev && typeof ev === 'object' && ev.actorLabel === undefined && actorLabel) {
       return Object.assign({}, ev, { actorLabel });
     }
     return ev;
@@ -381,11 +381,11 @@ function resolvePlaywrightProjectDir(evidenceDir) {
 function buildShareMarkdown({ scenario, provenanceText, evidenceDir }) {
   const severity = scenario.copy?.severity || 'HIGH';
   const title = scenario.copy?.title || 'Security Audit Finding';
-  const exploitSummary = scenario.copy?.exploit || '';
+  const reproSummary = scenario.copy?.repro || '';
   const relDir = path.basename(evidenceDir);
   return [
     `### [${severity}] ${title}`,
-    `**Verdict:** \`${provenanceText}\` — ${exploitSummary}`,
+    `**Verdict:** \`${provenanceText}\` — ${reproSummary}`,
     `**Reproduce:** \`npx pyric verify --campaign ${scenario.finding.campaign} --probe ${scenario.finding.probe}\` | \`node render.mjs ${relDir}\``,
     '',
   ].join('\n');
@@ -442,7 +442,7 @@ async function verifyRenderedProvenance(page) {
   return check.text;
 }
 
-async function buildExploitPass({
+async function buildReproducePass({
   captureArtifact,
   evidenceDir,
   timeline,
@@ -458,7 +458,7 @@ async function buildExploitPass({
 
   if (!captureArtifact) {
     return {
-      exploitPass: { fps, totalFrames, startMs: 0, durationMs: effectiveDurationMs, frames: [] },
+      reproPass: { fps, totalFrames, startMs: 0, durationMs: effectiveDurationMs, frames: [] },
       externalFilesMap,
     };
   }
@@ -494,7 +494,7 @@ async function buildExploitPass({
     extractedMap = { frames: mappedFrames };
   }
 
-  const exploitPass = buildResampledPassFrames({
+  const reproPass = buildResampledPassFrames({
     captureArtifact,
     extractedFrameMap: extractedMap,
     startMs: 0,
@@ -504,7 +504,7 @@ async function buildExploitPass({
     presentation,
   });
 
-  return { exploitPass, externalFilesMap };
+  return { reproPass, externalFilesMap };
 }
 
 /**
@@ -577,7 +577,7 @@ export async function renderEvidenceBundle({
     scenario.stage.layout === 'split-actors' && timeline.presentation ? timeline.presentation : null;
   const renderTotalSec = activePresentation ? activePresentation.totalSec : timeline.totalSec;
   const totalFrames = Math.max(1, Math.round(renderTotalSec * fps));
-  const { exploitPass, externalFilesMap } = await buildExploitPass({
+  const { reproPass, externalFilesMap } = await buildReproducePass({
     captureArtifact,
     evidenceDir,
     timeline,
@@ -592,7 +592,7 @@ export async function renderEvidenceBundle({
     fps,
     beats: timeline.beats,
     slides: activePresentation ? activePresentation.slides : undefined,
-    passes: { exploit: exploitPass },
+    passes: { repro: reproPass },
     evidence,
     provenanceText,
   });
@@ -626,12 +626,12 @@ export async function renderEvidenceBundle({
   const controlEvent = eventList.find(
     (ev) => ev && (String(ev.phase || '').toLowerCase() === 'control' || String(ev.id || '').toLowerCase() === 'control'),
   );
-  const exploitEvent = eventList.find(
-    (ev) => ev && (String(ev.phase || '').toLowerCase() === 'exploit' || String(ev.id || '').toLowerCase() === 'exploit'),
+  const reproEvent = eventList.find(
+    (ev) => ev && (String(ev.phase || '').toLowerCase() === 'repro' || String(ev.id || '').toLowerCase() === 'repro'),
   );
 
   const beatMidpointMap = new Map();
-  let exploitMidFrameIndex = Math.min(totalFrames - 1, Math.floor(totalFrames / 2));
+  let reproMidFrameIndex = Math.min(totalFrames - 1, Math.floor(totalFrames / 2));
   const presentationSlides = Array.isArray(activePresentation?.slides) ? activePresentation.slides : null;
   const findSlide = (id) => presentationSlides?.find((s) => s.id === id) || null;
 
@@ -641,8 +641,8 @@ export async function renderEvidenceBundle({
       let targetSlide = null;
       if (beat.id === 'hook' || beat.phase === 'hook') {
         targetSlide = findSlide('attach-demo') || findSlide('path-slide') || findSlide('baseline-video') || findSlide('baseline-slide') || presentationSlides[0];
-      } else if (beat.id === 'exploit') {
-        targetSlide = findSlide('exploit-video') || findSlide('attack-slide');
+      } else if (beat.id === 'repro') {
+        targetSlide = findSlide('problem-video') || findSlide('problem-slide');
       } else if (beat.id === 'fix') {
         targetSlide = findSlide('why-slide') || findSlide('fix-slide') || findSlide('fix-video');
       } else if (beat.id === 'takeaway') {
@@ -667,9 +667,9 @@ export async function renderEvidenceBundle({
           );
         }
       }
-    } else if ((beat.id === 'exploit' || beat.phase === 'exploit') && exploitEvent) {
+    } else if ((beat.id === 'repro' || beat.phase === 'repro') && reproEvent) {
       const executedMs =
-        typeof exploitEvent.executedAtMs === 'number' ? exploitEvent.executedAtMs : exploitEvent.tMs;
+        typeof reproEvent.executedAtMs === 'number' ? reproEvent.executedAtMs : reproEvent.tMs;
       if (typeof executedMs === 'number' && Number.isFinite(executedMs) && executedMs >= 0) {
         const executedSec = executedMs / 1000;
         if (executedSec >= beat.startSec && beat.endSec - executedSec >= 1.0) {
@@ -680,8 +680,8 @@ export async function renderEvidenceBundle({
       }
     }
     const midFrame = Math.min(totalFrames - 1, Math.max(0, Math.round(targetSec * fps)));
-    if (beat.id === 'exploit' || beat.phase === 'exploit') {
-      exploitMidFrameIndex = midFrame;
+    if (beat.id === 'repro' || beat.phase === 'repro') {
+      reproMidFrameIndex = midFrame;
     }
     const list = beatMidpointMap.get(midFrame) || [];
     list.push({ fileName: `beat-${String(idx + 1).padStart(2, '0')}-${beat.id}.png` });
@@ -692,7 +692,7 @@ export async function renderEvidenceBundle({
   let encoder = null;
   const storyboardRelPaths = [];
   const posterPath = path.join(evidenceDir, 'poster.png');
-  let exploitPosterSource = null;
+  let reproPosterSource = null;
   let domProvenanceText = provenanceText;
 
   try {
@@ -743,7 +743,7 @@ export async function renderEvidenceBundle({
       const elapsedSlideMs = currentSlide ? tMs - currentSlide.startMs : 0;
       let videoRenderKey = null;
       if (currentSlide && currentSlide.kind === 'video' && elapsedSlideMs >= 100) {
-        const videoFiles = exploitPass?.frames?.[frameIndex]?.files || {};
+        const videoFiles = reproPass?.frames?.[frameIndex]?.files || {};
         const impactOffsetSec =
           typeof currentSlide.impactOffsetSec === 'number' ? currentSlide.impactOffsetSec : 0.45;
         const slideSec = elapsedSlideMs / 1000;
@@ -751,15 +751,15 @@ export async function renderEvidenceBundle({
         const overlaySettled =
           elapsedSlideMs >= 100 && Math.abs(slideSec - impactOffsetSec) >= 0.05;
         if (overlaySettled) {
-          videoRenderKey = `${currentSlide.id}|${hasImpacted ? 1 : 0}|${videoFiles.victim || ''}|${videoFiles.attacker || ''}`;
+          videoRenderKey = `${currentSlide.id}|${hasImpacted ? 1 : 0}|${videoFiles.owner || ''}|${videoFiles.peer || ''}`;
         }
       } else if (!currentSlide) {
-        const videoFiles = exploitPass?.frames?.[frameIndex]?.files || {};
+        const videoFiles = reproPass?.frames?.[frameIndex]?.files || {};
         const activeBeat = timeline.beats.find(
           (b, i) => tMs >= b.startMs && (tMs < b.endMs || i === timeline.beats.length - 1),
         );
         if (elapsedSlideMs >= 120) {
-          videoRenderKey = `beat:${activeBeat?.id || 'main'}|${videoFiles.victim || ''}|${videoFiles.attacker || ''}`;
+          videoRenderKey = `beat:${activeBeat?.id || 'main'}|${videoFiles.owner || ''}|${videoFiles.peer || ''}`;
         }
       }
 
@@ -810,8 +810,8 @@ export async function renderEvidenceBundle({
           const outKeyframe = path.join(storyboardDir, entry.fileName);
           fs.writeFileSync(outKeyframe, pngBuffer);
           storyboardRelPaths.push(`storyboard/${entry.fileName}`);
-          if (frameIndex === exploitMidFrameIndex) {
-            exploitPosterSource = outKeyframe;
+          if (frameIndex === reproMidFrameIndex) {
+            reproPosterSource = outKeyframe;
           }
         }
       }
@@ -819,8 +819,8 @@ export async function renderEvidenceBundle({
 
     await encoder.finish();
 
-    if (exploitPosterSource && fs.existsSync(exploitPosterSource)) {
-      fs.copyFileSync(exploitPosterSource, posterPath);
+    if (reproPosterSource && fs.existsSync(reproPosterSource)) {
+      fs.copyFileSync(reproPosterSource, posterPath);
     } else if (storyboardRelPaths.length > 0) {
       fs.copyFileSync(path.join(evidenceDir, storyboardRelPaths[0]), posterPath);
     }
@@ -873,7 +873,7 @@ export async function renderEvidenceBundle({
       share: 'share.md',
     });
     if (wantMp4) {
-      artifacts.exploitMp4 = toBundleArtifactPath(evidenceDir, finalMp4Path);
+      artifacts.reproMp4 = toBundleArtifactPath(evidenceDir, finalMp4Path);
     }
     if (wantGif) {
       artifacts.previewGif = 'preview.gif';

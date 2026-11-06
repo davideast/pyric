@@ -16,38 +16,38 @@ import {
   buildLockedProvenanceText,
   buildStagePayload,
   validateBundleManifest,
-} from '../skills/improve-firebase/scripts/lib/contracts.mjs';
-import { loadPlaywright, probeSystemTools, resolveChromiumExecutable } from '../skills/improve-firebase/scripts/lib/runtime.mjs';
+} from '../../skills/improve-firebase/scripts/lib/contracts.mjs';
+import { loadPlaywright, probeSystemTools, resolveChromiumExecutable } from '../../skills/improve-firebase/scripts/lib/runtime.mjs';
 import {
   sampleFrameAtTime,
   computeStageTimeline,
   buildResampledPassFrames,
   mapPresentationTimeToSourceMs,
-} from '../skills/improve-firebase/scripts/lib/render-timeline.mjs';
+} from '../../skills/improve-firebase/scripts/lib/render-timeline.mjs';
 import {
   extractActorFramesFromVideo,
   createH264PipeEncoder,
   transcodePreviewGif,
   probeMedia,
-} from '../skills/improve-firebase/scripts/lib/ffmpeg.mjs';
+} from '../../skills/improve-firebase/scripts/lib/ffmpeg.mjs';
 import {
   renderEvidenceBundle,
   EvidenceRenderError,
-} from '../skills/improve-firebase/scripts/render.mjs';
-import { executeStep } from '../skills/improve-firebase/scripts/lib/steps.mjs';
+} from '../../skills/improve-firebase/scripts/render.mjs';
+import { executeStep } from '../../skills/improve-firebase/scripts/lib/steps.mjs';
 import {
   parseJsonWithComments,
   formatRuleExpressionSummary,
   extractFocusedRuleSnippet,
-} from '../skills/improve-firebase/scripts/lib/op-snippet.mjs';
+} from '../../skills/improve-firebase/scripts/lib/op-snippet.mjs';
 import {
   ensureActorPageHydrated,
   withOffOriginNavigationGuard,
-} from '../skills/improve-firebase/scripts/lib/identity.mjs';
+} from '../../skills/improve-firebase/scripts/lib/identity.mjs';
 
 const execFileAsync = promisify(execFile);
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
-const RENDER_SCRIPT = path.resolve(TEST_DIR, '../skills/improve-firebase/scripts/render.mjs');
+const RENDER_SCRIPT = path.resolve(TEST_DIR, '../../skills/improve-firebase/scripts/render.mjs');
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -265,13 +265,13 @@ function makeBaseScenario(overrides = {}) {
       dist: './dist',
     },
     actors: {
-      victim: { uid: 'alice', name: 'Alice', view: '/channels/general' },
-      attacker: { uid: 'mallory', name: 'Mallory', view: '/channels/general' },
+      owner: { uid: 'alice', name: 'Alice', view: '/channels/general' },
+      peer: { uid: 'mallory', name: 'Mallory', view: '/channels/general' },
     },
     copy: {
       title: 'Cross-tenant RTDB message overwrite',
       baseline: 'Alice posts an approved vendor invoice message',
-      exploit: 'Mallory overwrites Alice message via direct RTDB .set()',
+      summary: 'Mallory overwrites Alice message via direct RTDB .set()',
       fixed: 'Patched rule blocks writes unless auth.uid matches authorUid',
       why: 'Missing authorUid ownership check on /channels/$channel/messages/$msgId',
       severity: 'HIGH',
@@ -286,22 +286,22 @@ function makeBaseScenario(overrides = {}) {
 
 test('sampleFrameAtTime binary-searches sorted frames and clamps out-of-range timestamps', () => {
   const frames = [
-    { tMs: 100, files: { victim: 'f0.png' } },
-    { tMs: 250, files: { victim: 'f1.png' } },
-    { tMs: 600, files: { victim: 'f2.png' } },
-    { tMs: 600, files: { victim: 'f2-dup.png' } },
-    { tMs: 1100, files: { victim: 'f3.png' } },
+    { tMs: 100, files: { owner: 'f0.png' } },
+    { tMs: 250, files: { owner: 'f1.png' } },
+    { tMs: 600, files: { owner: 'f2.png' } },
+    { tMs: 600, files: { owner: 'f2-dup.png' } },
+    { tMs: 1100, files: { owner: 'f3.png' } },
   ];
 
-  assert.equal(sampleFrameAtTime(frames, 0).files.victim, 'f0.png');
-  assert.equal(sampleFrameAtTime(frames, 100).files.victim, 'f0.png');
-  assert.equal(sampleFrameAtTime(frames, 249).files.victim, 'f0.png');
-  assert.equal(sampleFrameAtTime(frames, 250).files.victim, 'f1.png');
-  assert.equal(sampleFrameAtTime(frames, 599).files.victim, 'f1.png');
-  assert.equal(sampleFrameAtTime(frames, 600).files.victim, 'f2-dup.png');
-  assert.equal(sampleFrameAtTime(frames, 900).files.victim, 'f2-dup.png');
-  assert.equal(sampleFrameAtTime(frames, 1100).files.victim, 'f3.png');
-  assert.equal(sampleFrameAtTime(frames, 5000).files.victim, 'f3.png');
+  assert.equal(sampleFrameAtTime(frames, 0).files.owner, 'f0.png');
+  assert.equal(sampleFrameAtTime(frames, 100).files.owner, 'f0.png');
+  assert.equal(sampleFrameAtTime(frames, 249).files.owner, 'f0.png');
+  assert.equal(sampleFrameAtTime(frames, 250).files.owner, 'f1.png');
+  assert.equal(sampleFrameAtTime(frames, 599).files.owner, 'f1.png');
+  assert.equal(sampleFrameAtTime(frames, 600).files.owner, 'f2-dup.png');
+  assert.equal(sampleFrameAtTime(frames, 900).files.owner, 'f2-dup.png');
+  assert.equal(sampleFrameAtTime(frames, 1100).files.owner, 'f3.png');
+  assert.equal(sampleFrameAtTime(frames, 5000).files.owner, 'f3.png');
 });
 
 test('computeStageTimeline builds deterministic beats, respects showTitleCard=false, and enforces >= 2.5s duration', () => {
@@ -309,7 +309,7 @@ test('computeStageTimeline builds deterministic beats, respects showTitleCard=fa
   const events = [
     {
       tMs: 900,
-      phase: 'exploit',
+      phase: 'repro',
       service: 'database',
       method: 'set',
       path: '/channels/general/messages/msg_alice_1',
@@ -338,12 +338,12 @@ test('computeStageTimeline builds deterministic beats, respects showTitleCard=fa
   assert.equal(tl1.beats[0].badgeTone, 'neutral');
   assert.equal(tl1.beats[0].startSec, 0);
 
-  const exploitBeat = tl1.beats.find((b) => b.id === 'exploit');
-  assert.ok(exploitBeat);
-  assert.equal(exploitBeat.phase, 'exploit');
-  assert.equal(exploitBeat.badgeText, 'EXPLOIT ALLOWED');
-  assert.equal(exploitBeat.badgeTone, 'danger');
-  assert.ok(exploitBeat.sdkCall.includes('database.set'));
+  const reproBeat = tl1.beats.find((b) => b.id === 'repro');
+  assert.ok(reproBeat);
+  assert.equal(reproBeat.phase, 'repro');
+  assert.equal(reproBeat.badgeText, 'REPRO ALLOWED');
+  assert.equal(reproBeat.badgeTone, 'danger');
+  assert.ok(reproBeat.sdkCall.includes('database.set'));
 
   const fixBeat = tl1.beats.find((b) => b.id === 'fix');
   assert.ok(fixBeat);
@@ -364,8 +364,8 @@ test('computeStageTimeline builds deterministic beats, respects showTitleCard=fa
   });
   const tlNoHook = computeStageTimeline({ scenario: scenarioNoHook, events: [], durationMs: 1000 });
   assert.ok(tlNoHook.totalSec >= 2.5, 'Short capture still enforces >= 2.5s totalSec');
-  assert.equal(tlNoHook.beats[0].id, 'exploit');
-  assert.equal(tlNoHook.beats[0].phase, 'exploit');
+  assert.equal(tlNoHook.beats[0].id, 'repro');
+  assert.equal(tlNoHook.beats[0].phase, 'repro');
   assert.equal(tlNoHook.beats[0].startSec, 0);
   assert.equal(tlNoHook.beats[0].startMs, 0);
 });
@@ -375,12 +375,12 @@ test('buildResampledPassFrames resamples variable-rate CDP frames onto exact CFR
     schema: RAW_CAPTURE_SCHEMA,
     backend: 'cdp-surface',
     platform: 'linux',
-    actorRoles: ['victim', 'attacker'],
+    actorRoles: ['owner', 'peer'],
     durationMs: 1000,
     mode: 'frames',
     frames: [
-      { tMs: 0, files: { victim: '/tmp/work/raw/v0.png', attacker: '/tmp/work/raw/a0.png' } },
-      { tMs: 500, files: { victim: '/tmp/work/raw/v1.png', attacker: '/tmp/work/raw/a1.png' } },
+      { tMs: 0, files: { owner: '/tmp/work/raw/v0.png', peer: '/tmp/work/raw/a0.png' } },
+      { tMs: 500, files: { owner: '/tmp/work/raw/v1.png', peer: '/tmp/work/raw/a1.png' } },
     ],
   };
 
@@ -393,12 +393,12 @@ test('buildResampledPassFrames resamples variable-rate CDP frames onto exact CFR
 
   assert.equal(resampled.totalFrames, 30);
   assert.equal(resampled.frames.length, 30);
-  assert.equal(resampled.victim.length, 30);
-  assert.equal(resampled.attacker.length, 30);
-  assert.equal(resampled.frames[0].files.victim, '/raw/v0.png');
-  assert.equal(resampled.frames[14].files.victim, '/raw/v0.png');
-  assert.equal(resampled.frames[15].files.victim, '/raw/v1.png');
-  assert.equal(resampled.frames[29].files.attacker, '/raw/a1.png');
+  assert.equal(resampled.owner.length, 30);
+  assert.equal(resampled.peer.length, 30);
+  assert.equal(resampled.frames[0].files.owner, '/raw/v0.png');
+  assert.equal(resampled.frames[14].files.owner, '/raw/v0.png');
+  assert.equal(resampled.frames[15].files.owner, '/raw/v1.png');
+  assert.equal(resampled.frames[29].files.peer, '/raw/a1.png');
 });
 
 test('ffmpeg helpers encode pipe frames, transcode preview GIF, extract 2x crops, and probe media', async (t) => {
@@ -445,8 +445,8 @@ test('ffmpeg helpers encode pipe frames, transcode preview GIF, extract 2x crops
     ffmpegPath: tools.ffmpegPath,
     videoPath: outMp4,
     cropRects: {
-      victim: { x: 0, y: 0, width: 320, height: 240 },
-      attacker: { x: 320, y: 240, width: 320, height: 240 },
+      owner: { x: 0, y: 0, width: 320, height: 240 },
+      peer: { x: 320, y: 240, width: 320, height: 240 },
     },
     outputDir: extractedDir,
     fps: 10,
@@ -454,8 +454,8 @@ test('ffmpeg helpers encode pipe frames, transcode preview GIF, extract 2x crops
   });
 
   assert.equal(extracted.frames.length, 6);
-  assertNonBlankPng(extracted.frames[0].files.victim, 1800, 1350);
-  assertNonBlankPng(extracted.frames[5].files.attacker, 1800, 1350);
+  assertNonBlankPng(extracted.frames[0].files.owner, 1800, 1350);
+  assertNonBlankPng(extracted.frames[5].files.peer, 1800, 1350);
 });
 
 test('renderEvidenceBundle renders split-actors at 1920x1080 with 2x synthetic PNGs, mp4, gif, storyboard, poster, share.md, and manifest.json', async (t) => {
@@ -463,20 +463,20 @@ test('renderEvidenceBundle renders split-actors at 1920x1080 with 2x synthetic P
   t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
 
   const rawDir = path.join(tmpDir, 'raw', 'frames');
-  fs.mkdirSync(path.join(rawDir, 'victim'), { recursive: true });
-  fs.mkdirSync(path.join(rawDir, 'attacker'), { recursive: true });
+  fs.mkdirSync(path.join(rawDir, 'owner'), { recursive: true });
+  fs.mkdirSync(path.join(rawDir, 'peer'), { recursive: true });
 
   const captureFrames = [];
   for (let i = 0; i < 6; i++) {
-    const vFile = path.join(rawDir, 'victim', `frame-${String(i).padStart(4, '0')}.png`);
-    const aFile = path.join(rawDir, 'attacker', `frame-${String(i).padStart(4, '0')}.png`);
+    const vFile = path.join(rawDir, 'owner', `frame-${String(i).padStart(4, '0')}.png`);
+    const aFile = path.join(rawDir, 'peer', `frame-${String(i).padStart(4, '0')}.png`);
     fs.writeFileSync(vFile, generateSyntheticPng(1800, 1350, i));
     fs.writeFileSync(aFile, generateSyntheticPng(1800, 1350, i + 10));
     captureFrames.push({
       tMs: i * 420,
       files: {
-        victim: `raw/frames/victim/frame-${String(i).padStart(4, '0')}.png`,
-        attacker: `raw/frames/attacker/frame-${String(i).padStart(4, '0')}.png`,
+        owner: `raw/frames/owner/frame-${String(i).padStart(4, '0')}.png`,
+        peer: `raw/frames/peer/frame-${String(i).padStart(4, '0')}.png`,
       },
     });
   }
@@ -495,7 +495,7 @@ test('renderEvidenceBundle renders split-actors at 1920x1080 with 2x synthetic P
     schema: RAW_CAPTURE_SCHEMA,
     backend: 'cdp-surface',
     platform: process.platform,
-    actorRoles: ['victim', 'attacker'],
+    actorRoles: ['owner', 'peer'],
     durationMs: 2200,
     mode: 'frames',
     frames: captureFrames,
@@ -505,7 +505,7 @@ test('renderEvidenceBundle renders split-actors at 1920x1080 with 2x synthetic P
   const events = [
     {
       tMs: 850,
-      phase: 'exploit',
+      phase: 'repro',
       actorLabel: 'mallory',
       service: 'database',
       method: 'set',
@@ -561,7 +561,7 @@ test('renderEvidenceBundle renders split-actors at 1920x1080 with 2x synthetic P
     assertNonBlankPng(path.join(tmpDir, relKeyframe), 1920, 1080);
   }
 
-  // Verify storyboard frames visually change between hook and exploit beats
+  // Verify storyboard frames visually change between hook and repro beats
   const beat1Bytes = fs.readFileSync(path.join(tmpDir, result.artifacts.storyboard[0]));
   const beat2Bytes = fs.readFileSync(path.join(tmpDir, result.artifacts.storyboard[1]));
   assert.notEqual(Buffer.compare(beat1Bytes, beat2Bytes), 0, 'Storyboard beats must render distinct frames');
@@ -579,7 +579,7 @@ test('renderEvidenceBundle renders split-actors at 1920x1080 with 2x synthetic P
   assert.equal(manifest.status, 'reproduced');
   assert.equal(manifest.gates.g6, true);
   assert.equal(manifest.provenanceText, expectedProvenance);
-  assert.equal(manifest.artifacts.exploitMp4, 'video.mp4');
+  assert.equal(manifest.artifacts.reproMp4, 'video.mp4');
   assert.equal(manifest.artifacts.previewGif, 'preview.gif');
   assert.equal(manifest.artifacts.poster, 'poster.png');
 
@@ -599,12 +599,12 @@ test('renderEvidenceBundle renders data-plane at 1920x1080 without capture frame
       probe: 'probe-rtdb-unauth-read-01',
     },
     actors: {
-      victim: { uid: 'alice', name: 'Alice' },
-      attacker: { uid: 'anon', name: 'Unauthenticated Client' },
+      owner: { uid: 'alice', name: 'Alice' },
+      peer: { uid: 'anon', name: 'Unauthenticated Client' },
     },
     copy: {
       title: 'Public RTDB secret exposure',
-      exploit: 'Anonymous client reads /secrets/apiKeys directly',
+      summary: 'Anonymous client reads /secrets/apiKeys directly',
       fixed: 'Rule updated to require auth != null',
       why: '.read was set to true on /secrets',
       severity: 'CRITICAL',
@@ -660,12 +660,12 @@ test('renderEvidenceBundle renders data-plane at 1920x1080 without capture frame
         schema: RAW_CAPTURE_SCHEMA,
         backend: 'cdp-surface',
         platform: process.platform,
-        actorRoles: ['victim'],
+        actorRoles: ['owner'],
         durationMs: 2000,
         mode: 'frames',
         frames: [
-          { tMs: 0, files: { victim: 'raw/v0.png' } },
-          { tMs: 1000, files: { victim: 'raw/v1.png' } },
+          { tMs: 0, files: { owner: 'raw/v0.png' } },
+          { tMs: 1000, files: { owner: 'raw/v1.png' } },
         ],
       },
       null,
@@ -835,7 +835,7 @@ test('executeStep and computeStageTimeline keep monotonic t0Ms offsets relative 
     durationMs: 4200,
     events: [
       { phase: 'control', tMs: 800, decision: 'ALLOW' },
-      { phase: 'exploit', tMs: 2100, decision: 'ALLOW' },
+      { phase: 'repro', tMs: 2100, decision: 'ALLOW' },
       { kind: 'sleep', tMs: 1793975245802.952 },
       { phase: 'fix', tMs: 3400, decision: 'DENY' },
     ],
@@ -1015,14 +1015,14 @@ test('extractActorFramesFromVideo removes stale tail frames from prior captures'
     encoder = null;
 
     const extractDir = path.join(tmpDir, 'extracted');
-    const staleRoleDir = path.join(extractDir, 'victim');
+    const staleRoleDir = path.join(extractDir, 'owner');
     fs.mkdirSync(staleRoleDir, { recursive: true });
     fs.writeFileSync(path.join(staleRoleDir, 'frame-00099.png'), png1);
 
     const extracted = await extractActorFramesFromVideo({
       ffmpegPath: tools.ffmpegPath,
       videoPath: mp4Path,
-      cropRects: { victim: { x: 0, y: 0, width: 64, height: 64 } },
+      cropRects: { owner: { x: 0, y: 0, width: 64, height: 64 } },
       outputDir: extractDir,
       fps: 10,
       packetTimestampsMs: [0, 100],
@@ -1048,7 +1048,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
       title: 'Cross-tenant RTDB message overwrite',
       baseline: 'Alice and Bob share access to the workspace chat.',
       attackContext: 'Bypassing the UI, Bob calls the SDK directly to overwrite Alice’s message node.',
-      exploit: 'Bob overwrites Alice’s message',
+      summary: 'Bob overwrites Alice’s message',
       why: 'Write rule sits on $tabid and checks space membership without checking message authorship.',
       fixed: 'Verified with updated rules',
       fixContext: 'Move .write down to $messageid and require speaker.uid == auth.uid.',
@@ -1076,7 +1076,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
         settledAtMs: 950,
       },
       {
-        phase: 'exploit',
+        phase: 'repro',
         service: 'database',
         method: 'set',
         path: '/spaces_app/spaces/s1/chatHistory/pub/mAlice/content',
@@ -1101,20 +1101,20 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
     evidence: {
       uiFocus: {
         control: {
-          victim: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
-          attacker: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
+          owner: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
+          peer: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
         },
-        exploitPre: {
-          victim: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
-          attacker: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
+        reproPre: {
+          owner: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
+          peer: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
         },
-        exploitPost: {
-          victim: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.68, h: 0.14 },
-          attacker: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.68, h: 0.14 },
+        reproPost: {
+          owner: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.68, h: 0.14 },
+          peer: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.68, h: 0.14 },
         },
         fixPost: {
-          victim: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
-          attacker: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
+          owner: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
+          peer: { vw: 900, vh: 675, x: 0.08, y: 0.42, w: 0.62, h: 0.14 },
         },
       },
       fixRules: {
@@ -1130,7 +1130,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
   const slides = timeline.presentation.slides;
   assert.deepEqual(
     slides.map((s) => s.id),
-    ['title', 'attach-demo', 'path-slide', 'attack-slide', 'exploit-video', 'why-slide', 'fix-slide', 'fix-video'],
+    ['title', 'attach-demo', 'path-slide', 'problem-slide', 'problem-video', 'why-slide', 'fix-slide', 'fix-video'],
   );
 
   for (let i = 0; i < slides.length - 1; i += 1) {
@@ -1141,7 +1141,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
   const attachDemo = slides.find((s) => s.id === 'attach-demo');
   assert.ok(attachDemo && attachDemo.variant === 'video' && attachDemo.playDurationMs >= 2000);
   assert.equal(scenario.stage.slots.collapseSidebar, true);
-  assert.ok(attachDemo.uiOverlays && attachDemo.uiOverlays.focus?.victim?.w > 0);
+  assert.ok(attachDemo.uiOverlays && attachDemo.uiOverlays.focus?.owner?.w > 0);
   assert.equal(attachDemo.uiOverlays.after.wire.caller, 'alice');
   assert.equal(attachDemo.uiOverlays.after.wire.decision, 'ALLOW');
 
@@ -1153,7 +1153,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
     ['$spaceid', '$tabid', '$messageid'],
   );
 
-  const attackSlide = slides.find((s) => s.id === 'attack-slide');
+  const attackSlide = slides.find((s) => s.id === 'problem-slide');
   assert.equal(attackSlide.targetPath, '/spaces_app/spaces/s1/chatHistory/pub/mAlice/content');
   assert.ok(attackSlide.code && attackSlide.callerSummary);
   assert.ok(Array.isArray(attackSlide.pathTokens) && attackSlide.pathTokens.length >= 6);
@@ -1166,25 +1166,25 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
     ],
   );
 
-  const exploitVideo = slides.find((s) => s.id === 'exploit-video');
-  assert.ok(exploitVideo.playDurationMs >= 3000);
+  const reproVideo = slides.find((s) => s.id === 'problem-video');
+  assert.ok(reproVideo.playDurationMs >= 3000);
   assert.ok(
-    typeof exploitVideo.impactOffsetSec === 'number' &&
-      exploitVideo.impactOffsetSec >= 0.45 &&
-      exploitVideo.impactOffsetSec <= 3.1,
+    typeof reproVideo.impactOffsetSec === 'number' &&
+      reproVideo.impactOffsetSec >= 0.45 &&
+      reproVideo.impactOffsetSec <= 3.1,
   );
-  const exploitSrcStart = mapPresentationTimeToSourceMs(timeline.presentation, exploitVideo.startMs);
-  const exploitSrcEnd = mapPresentationTimeToSourceMs(timeline.presentation, exploitVideo.endMs - 100);
+  const reproSrcStart = mapPresentationTimeToSourceMs(timeline.presentation, reproVideo.startMs);
+  const reproSrcEnd = mapPresentationTimeToSourceMs(timeline.presentation, reproVideo.endMs - 100);
   assert.ok(
-    exploitSrcEnd - exploitSrcStart >= 1500,
-    `Expected continuous pre-to-post exploit video span, got ${exploitSrcStart} -> ${exploitSrcEnd}`,
+    reproSrcEnd - reproSrcStart >= 1500,
+    `Expected continuous pre-to-post repro video span, got ${reproSrcStart} -> ${reproSrcEnd}`,
   );
-  assert.ok(exploitVideo.uiOverlays && exploitVideo.uiOverlays.focusAfter?.attacker?.w > 0);
-  assert.equal(exploitVideo.uiOverlays.before.wire.decision, 'ARMED');
-  assert.equal(exploitVideo.uiOverlays.after.wire.decision, 'ALLOW');
+  assert.ok(reproVideo.uiOverlays && reproVideo.uiOverlays.focusAfter?.peer?.w > 0);
+  assert.equal(reproVideo.uiOverlays.before.wire.decision, 'ARMED');
+  assert.equal(reproVideo.uiOverlays.after.wire.decision, 'ALLOW');
   assert.ok(
-    exploitVideo.uiOverlays.after.wire.pathTokens.some((t) => t.isParam && t.concreteValue === 'mAlice'),
-    'Expected variable path tokens on exploit-video UI wire overlay',
+    reproVideo.uiOverlays.after.wire.pathTokens.some((t) => t.isParam && t.concreteValue === 'mAlice'),
+    'Expected variable path tokens on problem-video UI wire overlay',
   );
 
   const fixVideo = slides.find((s) => s.id === 'fix-video');
@@ -1221,7 +1221,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
 
   const stageHtmlPath = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    '../skills/improve-firebase/assets/stages/split-actors.html',
+    '../../skills/improve-firebase/assets/stages/split-actors.html',
   );
   const stageHtml = fs.readFileSync(stageHtmlPath, 'utf8');
   assert.equal(/[·•]/.test(stageHtml), false, 'split-actors.html must not contain middot/bullet separators');
@@ -1238,7 +1238,7 @@ test('attach-demo starts only after actor views are ready (control.uiReadyAtMs)'
   const rulesScenario = makeBaseScenario();
   const rulesEvents = (control = {}) => [
     { phase: 'control', service: 'database', method: 'set', path: '/channels/general/messages/m1', decision: 'ALLOW', tMs: 1800, dispatchedAtMs: 1850, executedAtMs: 1950, settledAtMs: 2000, ...control },
-    { phase: 'exploit', service: 'database', method: 'set', path: '/channels/general/messages/m1', decision: 'ALLOW', tMs: 3600, dispatchedAtMs: 4200, executedAtMs: 4400, settledAtMs: 4600 },
+    { phase: 'repro', service: 'database', method: 'set', path: '/channels/general/messages/m1', decision: 'ALLOW', tMs: 3600, dispatchedAtMs: 4200, executedAtMs: 4400, settledAtMs: 4600 },
     { phase: 'fix', service: 'database', method: 'set', path: '/channels/general/messages/m1', decision: 'DENY', tMs: 6400, dispatchedAtMs: 6800, executedAtMs: 7000, settledAtMs: 7200 },
   ];
   const rulesLegacy = attachStart(rulesScenario, rulesEvents());
@@ -1253,19 +1253,19 @@ test('attach-demo starts only after actor views are ready (control.uiReadyAtMs)'
     finding: { campaign: 'spaces-audit', probe: 'signout-ghost-presence' },
     app: { dist: './before-dist' },
     actors: {
-      victim: { uid: 'alice', name: 'Alice', view: '/s1' },
-      attacker: { uid: 'bob', name: 'Bob', view: '/s1' },
+      owner: { uid: 'alice', name: 'Alice', view: '/s1' },
+      peer: { uid: 'bob', name: 'Bob', view: '/s1' },
     },
     behavior: {
       fixApp: { dist: './after-dist' },
-      action: { kind: 'sign-out', actor: 'victim' },
+      action: { kind: 'sign-out', actor: 'owner' },
       check: { kind: 'presence-entry', path: '/spaces_app/spaces/s1/presence', uid: 'alice' },
     },
-    copy: { title: 'Signing out leaves you visible', exploit: 'Alice signs out; her entry stays.', why: 'Cleanup runs signed out.' },
+    copy: { title: 'Signing out leaves you visible', summary: 'Alice signs out; her entry stays.', why: 'Cleanup runs signed out.' },
   });
   const behaviorEvents = (control = {}) => [
     { phase: 'control', service: 'database', method: 'onValue', path: '/spaces_app/spaces/s1/presence', decision: 'PRESENT', tMs: 4000, dispatchedAtMs: 4000, executedAtMs: 4000, settledAtMs: 4000, ...control },
-    { phase: 'exploit', service: 'auth', method: 'signOut', path: '/spaces_app/spaces/s1/presence/c1', decision: 'LEFT BEHIND', tMs: 4100, dispatchedAtMs: 4100, executedAtMs: 4500, settledAtMs: 7600 },
+    { phase: 'repro', service: 'auth', method: 'signOut', path: '/spaces_app/spaces/s1/presence/c1', decision: 'LEFT BEHIND', tMs: 4100, dispatchedAtMs: 4100, executedAtMs: 4500, settledAtMs: 7600 },
     { phase: 'fix', service: 'auth', method: 'signOut', path: '/spaces_app/spaces/s1/presence/c1', decision: 'REMOVED', tMs: 11000, dispatchedAtMs: 11000, executedAtMs: 11350, settledAtMs: 12800 },
   ];
   const behaviorLegacy = attachStart(behaviorScenario, behaviorEvents());
@@ -1283,7 +1283,7 @@ function fixAssuranceTimeline(fixAssurance) {
   const target = '/channels/general/messages/msg_alice_1';
   const events = [
     { phase: 'control', service: 'database', method: 'set', path: target, decision: 'ALLOW', tMs: 600, dispatchedAtMs: 650, executedAtMs: 850, settledAtMs: 950 },
-    { phase: 'exploit', service: 'database', method: 'set', path: target, decision: 'ALLOW', tMs: 2200, dispatchedAtMs: 2800, executedAtMs: 3150, settledAtMs: 3350 },
+    { phase: 'repro', service: 'database', method: 'set', path: target, decision: 'ALLOW', tMs: 2200, dispatchedAtMs: 2800, executedAtMs: 3150, settledAtMs: 3350 },
     { phase: 'fix', service: 'database', method: 'set', path: target, decision: 'DENY', tMs: 5600, dispatchedAtMs: 6000, executedAtMs: 6200, settledAtMs: 6400 },
   ];
   const evidence = fixAssurance ? { fixAssurance } : null;
@@ -1307,7 +1307,7 @@ test('fix slides carry the assurance note only when assurance did not verify the
 });
 
 test('split-actors stage shows the assurance note as plain monochrome text and keeps provenance locked', async (t) => {
-  const stageHtmlPath = path.resolve(TEST_DIR, '../skills/improve-firebase/assets/stages/split-actors.html');
+  const stageHtmlPath = path.resolve(TEST_DIR, '../../skills/improve-firebase/assets/stages/split-actors.html');
   const stageHtml = fs.readFileSync(stageHtmlPath, 'utf8');
   // The locked strip markup is untouched and the note lives in its own element.
   assert.equal((stageHtml.match(/<span data-pyric-provenance><\/span>/g) || []).length, 1);
@@ -1336,7 +1336,7 @@ test('split-actors stage shows the assurance note as plain monochrome text and k
       fps: 30,
       beats: timeline.beats,
       slides,
-      passes: { exploit: { fps: 30, totalFrames: 1, frames: [] } },
+      passes: { repro: { fps: 30, totalFrames: 1, frames: [] } },
       evidence: evidence || {},
       provenanceText,
     });

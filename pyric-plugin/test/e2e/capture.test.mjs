@@ -13,24 +13,24 @@ import {
   DEFAULT_PHYSICAL_SIZE,
   DEFAULT_VIEWPORT_DIP,
   RAW_CAPTURE_SCHEMA,
-} from '../skills/improve-firebase/scripts/lib/contracts.mjs';
+} from '../../skills/improve-firebase/scripts/lib/contracts.mjs';
 import {
   RuntimeMissingError,
   loadPlaywright,
   probeSystemTools,
   resolveChromiumExecutable,
-} from '../skills/improve-firebase/scripts/lib/runtime.mjs';
+} from '../../skills/improve-firebase/scripts/lib/runtime.mjs';
 import {
   CaptureBackend,
   CdpSurfaceBackend,
   MacOSAvfoundationBackend,
   X11XvfbBackend,
   selectCaptureBackend,
-} from '../skills/improve-firebase/scripts/lib/capture/backend.mjs';
+} from '../../skills/improve-firebase/scripts/lib/capture/backend.mjs';
 import {
   buildAvfoundationCaptureArgs,
   parseAvfoundationScreenDevice,
-} from '../skills/improve-firebase/scripts/lib/capture/macos-avfoundation.mjs';
+} from '../../skills/improve-firebase/scripts/lib/capture/macos-avfoundation.mjs';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TEST_DIR, '../..');
@@ -387,7 +387,7 @@ test('buildAvfoundationCaptureArgs builds deterministic ffmpeg arguments and Mac
   await assert.rejects(
     () =>
       avf.start({
-        actors: { victim: { name: 'Alice' } },
+        actors: { owner: { name: 'Alice' } },
         outputDir: path.join(tmpDir, 'out'),
         env: { PATH: binDir },
       }),
@@ -465,8 +465,8 @@ test('CdpSurfaceBackend captures dual-actor 2x PNG frames with monotonic tMs and
 
   const session = await backend.start({
     actors: {
-      victim: { uid: 'alice', name: 'Alice' },
-      attacker: { uid: 'mallory', name: 'Mallory' },
+      owner: { uid: 'alice', name: 'Alice' },
+      peer: { uid: 'mallory', name: 'Mallory' },
     },
     outputDir: outDir,
     viewport: DEFAULT_VIEWPORT_DIP,
@@ -478,27 +478,27 @@ test('CdpSurfaceBackend captures dual-actor 2x PNG frames with monotonic tMs and
 
   let artifact;
   try {
-    const victimUrl = buildAnimatedActorDataUrl({
-      role: 'victim',
+    const ownerUrl = buildAnimatedActorDataUrl({
+      role: 'owner',
       bgHex: '#0b132b',
       accentHex: '#38bdf8',
-      badgeText: 'Victim Workspace',
+      badgeText: 'Owner Workspace',
     });
-    const attackerUrl = buildAnimatedActorDataUrl({
-      role: 'attacker',
+    const peerUrl = buildAnimatedActorDataUrl({
+      role: 'peer',
       bgHex: '#23090f',
       accentHex: '#f97316',
-      badgeText: 'Attacker Console',
+      badgeText: 'Peer Console',
     });
 
     await Promise.all([
-      session.pages.victim.goto(victimUrl, { waitUntil: 'load' }),
-      session.pages.attacker.goto(attackerUrl, { waitUntil: 'load' }),
+      session.pages.owner.goto(ownerUrl, { waitUntil: 'load' }),
+      session.pages.peer.goto(peerUrl, { waitUntil: 'load' }),
     ]);
 
     await backend.mark('loaded');
     await new Promise((resolve) => setTimeout(resolve, 260));
-    await backend.mark('exploit');
+    await backend.mark('repro');
     await new Promise((resolve) => setTimeout(resolve, 120));
 
     artifact = await backend.stop();
@@ -510,7 +510,7 @@ test('CdpSurfaceBackend captures dual-actor 2x PNG frames with monotonic tMs and
   assert.equal(artifact.schema, RAW_CAPTURE_SCHEMA);
   assert.equal(artifact.backend, 'cdp-surface');
   assert.equal(artifact.mode, 'frames');
-  assert.deepEqual(artifact.actorRoles, ['victim', 'attacker']);
+  assert.deepEqual(artifact.actorRoles, ['owner', 'peer']);
   assert.ok(artifact.durationMs > 0);
   assert.ok(artifact.frames.length >= 4, `Expected >= 4 captured frames, got ${artifact.frames.length}`);
   assert.equal(artifact.frames[0].tMs, 0);
@@ -530,7 +530,7 @@ test('CdpSurfaceBackend captures dual-actor 2x PNG frames with monotonic tMs and
         `Expected strictly monotonic tMs at frame ${i}: ${frame.tMs} <= ${artifact.frames[i - 1].tMs}`,
       );
     }
-    for (const role of ['victim', 'attacker']) {
+    for (const role of ['owner', 'peer']) {
       const filePath = frame.files[role];
       assert.ok(fs.existsSync(filePath), `Missing PNG file ${filePath}`);
       assert.equal(path.dirname(filePath), path.join(outDir, 'frames'));
@@ -543,28 +543,28 @@ test('CdpSurfaceBackend captures dual-actor 2x PNG frames with monotonic tMs and
   const lastFrame = artifact.frames[artifact.frames.length - 1];
   assert.ok(loadedFrame, 'Expected frame marked "loaded"');
 
-  const victimLoadedPng = parsePng(fs.readFileSync(loadedFrame.files.victim));
-  const victimLastPng = parsePng(fs.readFileSync(lastFrame.files.victim));
-  const attackerLastPng = parsePng(fs.readFileSync(lastFrame.files.attacker));
+  const ownerLoadedPng = parsePng(fs.readFileSync(loadedFrame.files.owner));
+  const ownerLastPng = parsePng(fs.readFileSync(lastFrame.files.owner));
+  const peerLastPng = parsePng(fs.readFileSync(lastFrame.files.peer));
 
-  assert.equal(victimLoadedPng.width, DEFAULT_PHYSICAL_SIZE.width);
-  assert.equal(victimLoadedPng.height, DEFAULT_PHYSICAL_SIZE.height);
-  assert.equal(victimLastPng.width, 1800);
-  assert.equal(victimLastPng.height, 1350);
-  assert.equal(attackerLastPng.width, 1800);
-  assert.equal(attackerLastPng.height, 1350);
+  assert.equal(ownerLoadedPng.width, DEFAULT_PHYSICAL_SIZE.width);
+  assert.equal(ownerLoadedPng.height, DEFAULT_PHYSICAL_SIZE.height);
+  assert.equal(ownerLastPng.width, 1800);
+  assert.equal(ownerLastPng.height, 1350);
+  assert.equal(peerLastPng.width, 1800);
+  assert.equal(peerLastPng.height, 1350);
 
-  assert.ok(countSampledColors(victimLastPng) >= 3, 'Expected non-blank victim frame');
-  assert.ok(countSampledColors(attackerLastPng) >= 3, 'Expected non-blank attacker frame');
+  assert.ok(countSampledColors(ownerLastPng) >= 3, 'Expected non-blank owner frame');
+  assert.ok(countSampledColors(peerLastPng) >= 3, 'Expected non-blank peer frame');
   assert.notEqual(
-    Buffer.compare(victimLoadedPng.pixels, victimLastPng.pixels),
+    Buffer.compare(ownerLoadedPng.pixels, ownerLastPng.pixels),
     0,
-    'Expected animated victim frames to differ over time',
+    'Expected animated owner frames to differ over time',
   );
   assert.notEqual(
-    Buffer.compare(victimLastPng.pixels, attackerLastPng.pixels),
+    Buffer.compare(ownerLastPng.pixels, peerLastPng.pixels),
     0,
-    'Expected victim and attacker frames to render distinct pages',
+    'Expected owner and peer frames to render distinct pages',
   );
 });
 
@@ -585,8 +585,8 @@ test(
 
     const session = await backend.start({
       actors: {
-        victim: { uid: 'alice', name: 'Alice' },
-        attacker: { uid: 'mallory', name: 'Mallory' },
+        owner: { uid: 'alice', name: 'Alice' },
+        peer: { uid: 'mallory', name: 'Mallory' },
       },
       outputDir: outDir,
       viewport: DEFAULT_VIEWPORT_DIP,
@@ -599,26 +599,26 @@ test(
     const displayNum = Number(session.display.slice(1));
     assert.ok(Number.isInteger(displayNum) && displayNum >= 91 && displayNum <= 199);
 
-    const victimUrl = buildAnimatedActorDataUrl({
-      role: 'victim',
+    const ownerUrl = buildAnimatedActorDataUrl({
+      role: 'owner',
       bgHex: '#0f172a',
       accentHex: '#22d3ee',
       badgeText: 'Alice Session',
     });
-    const attackerUrl = buildAnimatedActorDataUrl({
-      role: 'attacker',
+    const peerUrl = buildAnimatedActorDataUrl({
+      role: 'peer',
       bgHex: '#2a0a18',
       accentHex: '#fb7185',
-      badgeText: 'Mallory Exploit',
+      badgeText: 'Mallory Reproduce',
     });
 
     await Promise.all([
-      session.pages.victim.goto(victimUrl, { waitUntil: 'load' }),
-      session.pages.attacker.goto(attackerUrl, { waitUntil: 'load' }),
+      session.pages.owner.goto(ownerUrl, { waitUntil: 'load' }),
+      session.pages.peer.goto(peerUrl, { waitUntil: 'load' }),
     ]);
 
     await new Promise((resolve) => setTimeout(resolve, 450));
-    await backend.mark('exploit-write');
+    await backend.mark('repro-write');
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     const artifact = await backend.stop();
@@ -628,11 +628,11 @@ test(
     assert.equal(artifact.schema, RAW_CAPTURE_SCHEMA);
     assert.equal(artifact.backend, 'x11-xvfb');
     assert.equal(artifact.mode, 'video');
-    assert.deepEqual(artifact.actorRoles, ['victim', 'attacker']);
+    assert.deepEqual(artifact.actorRoles, ['owner', 'peer']);
     assert.equal(artifact.fps, 30);
     assert.ok(artifact.durationMs > 0);
-    assert.deepEqual(artifact.cropRects.victim, { x: 20, y: 20, width: 1800, height: 1350 });
-    assert.deepEqual(artifact.cropRects.attacker, { x: 1860, y: 20, width: 1800, height: 1350 });
+    assert.deepEqual(artifact.cropRects.owner, { x: 20, y: 20, width: 1800, height: 1350 });
+    assert.deepEqual(artifact.cropRects.peer, { x: 1860, y: 20, width: 1800, height: 1350 });
     assert.ok(
       artifact.packetTimestampsMs.length >= 2,
       `Expected >= 2 packet timestamps, got ${artifact.packetTimestampsMs.length}`,
@@ -661,35 +661,35 @@ test(
     assert.equal(probeData.streams[0].width, 3700);
     assert.equal(probeData.streams[0].height, 1400);
 
-    // Extract cropped 1800x1350 frames for victim and attacker via ffmpeg and verify non-blank content
-    const victimCropPngPath = path.join(outDir, 'victim-crop.png');
-    const attackerCropPngPath = path.join(outDir, 'attacker-crop.png');
+    // Extract cropped 1800x1350 frames for owner and peer via ffmpeg and verify non-blank content
+    const ownerCropPngPath = path.join(outDir, 'owner-crop.png');
+    const peerCropPngPath = path.join(outDir, 'peer-crop.png');
 
     const extractSec = ((artifact.durationMs * 0.55) / 1000).toFixed(3);
     execFileSync(
       linuxTools.ffmpegPath,
-      ['-y', '-loglevel', 'error', '-ss', extractSec, '-i', artifact.videoPath, '-vf', 'crop=1800:1350:20:20', '-frames:v', '1', victimCropPngPath],
+      ['-y', '-loglevel', 'error', '-ss', extractSec, '-i', artifact.videoPath, '-vf', 'crop=1800:1350:20:20', '-frames:v', '1', ownerCropPngPath],
       { stdio: 'pipe' },
     );
     execFileSync(
       linuxTools.ffmpegPath,
-      ['-y', '-loglevel', 'error', '-ss', extractSec, '-i', artifact.videoPath, '-vf', 'crop=1800:1350:1860:20', '-frames:v', '1', attackerCropPngPath],
+      ['-y', '-loglevel', 'error', '-ss', extractSec, '-i', artifact.videoPath, '-vf', 'crop=1800:1350:1860:20', '-frames:v', '1', peerCropPngPath],
       { stdio: 'pipe' },
     );
 
-    const victimPng = parsePng(fs.readFileSync(victimCropPngPath));
-    const attackerPng = parsePng(fs.readFileSync(attackerCropPngPath));
+    const ownerPng = parsePng(fs.readFileSync(ownerCropPngPath));
+    const peerPng = parsePng(fs.readFileSync(peerCropPngPath));
 
-    assert.equal(victimPng.width, 1800);
-    assert.equal(victimPng.height, 1350);
-    assert.equal(attackerPng.width, 1800);
-    assert.equal(attackerPng.height, 1350);
-    assert.ok(countSampledColors(victimPng) >= 3, 'Expected non-blank cropped victim frame');
-    assert.ok(countSampledColors(attackerPng) >= 3, 'Expected non-blank cropped attacker frame');
+    assert.equal(ownerPng.width, 1800);
+    assert.equal(ownerPng.height, 1350);
+    assert.equal(peerPng.width, 1800);
+    assert.equal(peerPng.height, 1350);
+    assert.ok(countSampledColors(ownerPng) >= 3, 'Expected non-blank cropped owner frame');
+    assert.ok(countSampledColors(peerPng) >= 3, 'Expected non-blank cropped peer frame');
     assert.notEqual(
-      Buffer.compare(victimPng.pixels, attackerPng.pixels),
+      Buffer.compare(ownerPng.pixels, peerPng.pixels),
       0,
-      'Expected cropped victim and attacker regions to differ',
+      'Expected cropped owner and peer regions to differ',
     );
 
     // Verify zero lingering Xvfb, ffmpeg, or browser processes from this capture run
@@ -726,7 +726,7 @@ test(
     const backend = new X11XvfbBackend();
 
     const session = await backend.start({
-      actors: { victim: { uid: 'alice', name: 'Alice' } },
+      actors: { owner: { uid: 'alice', name: 'Alice' } },
       outputDir: outDir,
       chromium,
       executablePath,

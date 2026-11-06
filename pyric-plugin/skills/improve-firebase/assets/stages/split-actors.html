@@ -44,11 +44,11 @@
     :root {
       --surface: #212121;
       --surface-subtle: #2a2a2a;
-      --surface-elevated: #343434;
+      --surface-elevated: var(--muted);
       --panel: #2a2a2a;
       --ink: #f5f5f5;
       --ink-secondary: #b3b3b3;
-      --muted: #737373;
+      --muted: var(--muted);
       --accent: #f5f5f5;
       --danger: #d4d4d4;
       --success: #a3a3a3;
@@ -600,7 +600,7 @@
     }
 
     .diff-col.is-before .tree-rule-line {
-      color: #9e9e9e;
+      color: var(--muted);
       font-size: 15px;
       padding-left: 14px;
     }
@@ -732,7 +732,7 @@
       aspect-ratio: 4 / 3;
       border-radius: 10px;
       overflow: hidden;
-      background: #181818;
+      background: var(--muted);
       border: 1px solid rgba(255, 255, 255, 0.14);
       transition: border-color 140ms ease;
     }
@@ -762,7 +762,7 @@
     }
 
     .actor-spotlight-frame {
-      stroke: rgba(245, 245, 245, 0.72);
+      stroke: rgba(255, 255, 255, 0.72);
       stroke-width: 2;
       stroke-dasharray: 5 4;
     }
@@ -779,9 +779,9 @@
       pointer-events: none;
       padding: 4px 10px;
       border-radius: 6px;
-      background: rgba(24, 24, 24, 0.94);
+      background: rgba(255, 255, 255, 0.94);
       border: 1px solid rgba(255, 255, 255, 0.36);
-      color: #e5e5e5;
+      color: var(--muted);
       font-family: var(--font-mono);
       font-size: 11px;
       font-weight: 500;
@@ -790,7 +790,7 @@
       max-width: 92%;
       overflow: hidden;
       text-overflow: ellipsis;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.48);
+      box-shadow: 0 4px 14px rgba(255, 255, 255, 0.48);
     }
 
     .actor-focus-callout.is-settled {
@@ -813,13 +813,13 @@
       gap: 8px;
       padding: 7px 10px;
       border-radius: 7px;
-      background: #181818;
+      background: var(--muted);
       border: 1px solid rgba(255, 255, 255, 0.28);
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.56);
+      box-shadow: 0 6px 20px rgba(255, 255, 255, 0.56);
       font-family: var(--font-mono);
       font-size: 11px;
       line-height: 1.35;
-      color: #e5e5e5;
+      color: var(--muted);
     }
 
     .actor-wire-hud.is-top {
@@ -879,7 +879,7 @@
     }
 
     .actor-wire-hud .wire-outcome.is-allowed {
-      background: #2f2f2f;
+      background: var(--muted);
       border: 1px solid rgba(255, 255, 255, 0.52);
       color: #f5f5f5;
     }
@@ -887,7 +887,7 @@
     .actor-wire-hud .wire-outcome.is-denied {
       background: #f5f5f5;
       border: 1px solid #f5f5f5;
-      color: #181818;
+      color: var(--muted);
     }
 
     .viewport-empty {
@@ -1020,36 +1020,36 @@
       <div class="actors-grid">
         <div class="actor-pane">
           <div class="actor-pane-header">
-            <span class="actor-pane-name" data-actor-name="victim">Alice</span>
-            <span class="actor-pane-state" data-actor-state="victim" hidden></span>
+            <span class="actor-pane-name" data-actor-name="owner">Alice</span>
+            <span class="actor-pane-state" data-actor-state="owner" hidden></span>
           </div>
           <div class="actor-viewport-box">
-            <img data-actor-img="victim" alt="Victim view" />
+            <img data-actor-img="owner" alt="Owner view" />
             <svg
               class="actor-spotlight-svg"
-              data-actor-spotlight="victim"
+              data-actor-spotlight="owner"
               viewBox="0 0 1000 750"
               preserveAspectRatio="none"
               hidden
             >
               <defs>
-                <mask id="pyric-mask-victim" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
-                  <rect data-spotlight-bg="victim" x="0" y="0" width="1000" height="750" fill="white" />
-                  <rect data-spotlight-hole="victim" x="0" y="0" width="0" height="0" rx="8" fill="black" />
+                <mask id="pyric-mask-owner" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
+                  <rect data-spotlight-bg="owner" x="0" y="0" width="1000" height="750" fill="white" />
+                  <rect data-spotlight-hole="owner" x="0" y="0" width="0" height="0" rx="8" fill="black" />
                 </mask>
               </defs>
               <rect
-                data-spotlight-dim="victim"
+                data-spotlight-dim="owner"
                 x="0"
                 y="0"
                 width="1000"
                 height="750"
-                fill="rgba(0, 0, 0, 0.44)"
-                mask="url(#pyric-mask-victim)"
+                fill="rgba(255, 255, 255, 0.44)"
+                mask="url(#pyric-mask-owner)"
               />
               <rect
                 class="actor-spotlight-frame"
-                data-spotlight-frame="victim"
+                data-spotlight-frame="owner"
                 x="0"
                 y="0"
                 width="0"
@@ -1058,44 +1058,44 @@
                 fill="none"
               />
             </svg>
-            <div class="actor-focus-callout" data-actor-callout="victim" hidden></div>
-            <div class="actor-wire-hud" data-actor-wire="victim" hidden></div>
-            <div class="viewport-empty" data-actor-empty="victim" hidden>No victim frame</div>
+            <div class="actor-focus-callout" data-actor-callout="owner" hidden></div>
+            <div class="actor-wire-hud" data-actor-wire="owner" hidden></div>
+            <div class="viewport-empty" data-actor-empty="owner" hidden>No owner frame</div>
           </div>
         </div>
 
         <div class="actor-pane">
           <div class="actor-pane-header">
-            <span class="actor-pane-name" data-actor-name="attacker">Bob</span>
-            <span class="actor-pane-state" data-actor-state="attacker" hidden></span>
+            <span class="actor-pane-name" data-actor-name="peer">Bob</span>
+            <span class="actor-pane-state" data-actor-state="peer" hidden></span>
           </div>
           <div class="actor-viewport-box">
-            <img data-actor-img="attacker" alt="Attacker view" />
+            <img data-actor-img="peer" alt="Peer view" />
             <svg
               class="actor-spotlight-svg"
-              data-actor-spotlight="attacker"
+              data-actor-spotlight="peer"
               viewBox="0 0 1000 750"
               preserveAspectRatio="none"
               hidden
             >
               <defs>
-                <mask id="pyric-mask-attacker" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
-                  <rect data-spotlight-bg="attacker" x="0" y="0" width="1000" height="750" fill="white" />
-                  <rect data-spotlight-hole="attacker" x="0" y="0" width="0" height="0" rx="8" fill="black" />
+                <mask id="pyric-mask-peer" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
+                  <rect data-spotlight-bg="peer" x="0" y="0" width="1000" height="750" fill="white" />
+                  <rect data-spotlight-hole="peer" x="0" y="0" width="0" height="0" rx="8" fill="black" />
                 </mask>
               </defs>
               <rect
-                data-spotlight-dim="attacker"
+                data-spotlight-dim="peer"
                 x="0"
                 y="0"
                 width="1000"
                 height="750"
-                fill="rgba(0, 0, 0, 0.44)"
-                mask="url(#pyric-mask-attacker)"
+                fill="rgba(255, 255, 255, 0.44)"
+                mask="url(#pyric-mask-peer)"
               />
               <rect
                 class="actor-spotlight-frame"
-                data-spotlight-frame="attacker"
+                data-spotlight-frame="peer"
                 x="0"
                 y="0"
                 width="0"
@@ -1104,9 +1104,9 @@
                 fill="none"
               />
             </svg>
-            <div class="actor-focus-callout" data-actor-callout="attacker" hidden></div>
-            <div class="actor-wire-hud" data-actor-wire="attacker" hidden></div>
-            <div class="viewport-empty" data-actor-empty="attacker" hidden>No attacker frame</div>
+            <div class="actor-focus-callout" data-actor-callout="peer" hidden></div>
+            <div class="actor-wire-hud" data-actor-wire="peer" hidden></div>
+            <div class="viewport-empty" data-actor-empty="peer" hidden>No peer frame</div>
           </div>
         </div>
       </div>
@@ -1121,7 +1121,7 @@
     (function () {
       let initialized = false;
       const imageCache = new Map();
-      const lastSrcByRole = { victim: '', attacker: '' };
+      const lastSrcByRole = { owner: '', peer: '' };
       let activeSlideKey = '';
 
       function applyTheme(theme) {
@@ -1515,14 +1515,14 @@
       }
 
       function preloadAllFrames(payload) {
-        const frames = payload?.passes?.exploit?.frames;
+        const frames = payload?.passes?.repro?.frames;
         if (!Array.isArray(frames)) return;
         const limit = Math.min(frames.length, 45);
         for (let i = 0; i < limit; i++) {
           const f = frames[i]?.files;
           if (!f) continue;
-          if (f.victim) preloadImage(f.victim);
-          if (f.attacker) preloadImage(f.attacker);
+          if (f.owner) preloadImage(f.owner);
+          if (f.peer) preloadImage(f.peer);
         }
       }
 
@@ -1540,7 +1540,7 @@
       function updateActorOverlays(slide, hasImpacted, payload) {
         const overlays = slide?.uiOverlays || null;
         if (!overlays) {
-          for (const role of ['victim', 'attacker']) {
+          for (const role of ['owner', 'peer']) {
             const spotEl = document.querySelector(`[data-actor-spotlight="${role}"]`);
             const calloutEl = document.querySelector(`[data-actor-callout="${role}"]`);
             const wireEl = document.querySelector(`[data-actor-wire="${role}"]`);
@@ -1559,11 +1559,11 @@
           ? overlays.after || overlays.before || null
           : overlays.before || overlays.after || null;
         const wireInfo = phaseData?.wire || null;
-        const victimUid = String(payload?.actors?.victim?.uid || 'alice').toLowerCase();
+        const ownerUid = String(payload?.actors?.owner?.uid || 'alice').toLowerCase();
         const callerUid = String(wireInfo?.caller || '').toLowerCase();
-        const wireRole = callerUid && callerUid === victimUid ? 'victim' : 'attacker';
+        const wireRole = callerUid && callerUid === ownerUid ? 'owner' : 'peer';
 
-        for (const role of ['victim', 'attacker']) {
+        for (const role of ['owner', 'peer']) {
           const rect = focusMap?.[role] || null;
           const spotEl = document.querySelector(`[data-actor-spotlight="${role}"]`);
           const bgEl = document.querySelector(`[data-spotlight-bg="${role}"]`);
@@ -1712,10 +1712,10 @@
                 endSec: b.endSec,
                 title: stripMiddots(b.caption || 'Security verification'),
                 actorStatus:
-                  b.phase === 'exploit'
-                    ? { role: 'attacker', text: 'Write allowed', tone: 'neutral' }
+                  b.phase === 'repro'
+                    ? { role: 'peer', text: 'Write allowed', tone: 'neutral' }
                     : b.phase === 'fix'
-                      ? { role: 'attacker', text: 'Write denied', tone: 'neutral' }
+                      ? { role: 'peer', text: 'Write denied', tone: 'neutral' }
                       : null,
               };
             }
@@ -1726,7 +1726,7 @@
           id: 'default-video',
           kind: 'video',
           variant: 'video',
-          phase: 'exploit',
+          phase: 'repro',
           startSec: 0,
           endSec: 5,
           title: 'Live security verification',
@@ -1739,13 +1739,13 @@
 
         applyTheme(payload.stage?.theme);
 
-        const victimName = payload.actors?.victim?.name || payload.actors?.victim?.uid || 'Alice';
-        const attackerName = payload.actors?.attacker?.name || payload.actors?.attacker?.uid || 'Bob';
+        const ownerName = payload.actors?.owner?.name || payload.actors?.owner?.uid || 'Alice';
+        const peerName = payload.actors?.peer?.name || payload.actors?.peer?.uid || 'Bob';
 
-        const victimNameEl = document.querySelector('[data-actor-name="victim"]');
-        const attackerNameEl = document.querySelector('[data-actor-name="attacker"]');
-        if (victimNameEl) victimNameEl.textContent = stripMiddots(victimName);
-        if (attackerNameEl) attackerNameEl.textContent = stripMiddots(attackerName);
+        const ownerNameEl = document.querySelector('[data-actor-name="owner"]');
+        const peerNameEl = document.querySelector('[data-actor-name="peer"]');
+        if (ownerNameEl) ownerNameEl.textContent = stripMiddots(ownerName);
+        if (peerNameEl) peerNameEl.textContent = stripMiddots(peerName);
 
         const provEl = document.querySelector('[data-pyric-provenance]');
         if (provEl) {
@@ -1763,7 +1763,7 @@
 
         initStageOnce(payload);
 
-        const pass = payload.passes?.exploit;
+        const pass = payload.passes?.repro;
         const fps = payload.fps || pass?.fps || 30;
         const total =
           typeof totalFrames === 'number' && totalFrames > 0
@@ -1780,8 +1780,8 @@
           for (let look = 1; look <= 12; look++) {
             const upcoming = frames[idx + look]?.files;
             if (!upcoming) continue;
-            if (upcoming.victim) preloadImage(upcoming.victim);
-            if (upcoming.attacker) preloadImage(upcoming.attacker);
+            if (upcoming.owner) preloadImage(upcoming.owner);
+            if (upcoming.peer) preloadImage(upcoming.peer);
           }
         }
 
@@ -1915,14 +1915,14 @@
           }
         }
 
-        const attackerStateEl = document.querySelector('[data-actor-state="attacker"]');
-        if (attackerStateEl) {
+        const peerStateEl = document.querySelector('[data-actor-state="peer"]');
+        if (peerStateEl) {
           const st = slide.actorStatus;
           if (st && st.text && hasImpacted) {
-            attackerStateEl.textContent = stripMiddots(st.text);
-            attackerStateEl.hidden = false;
+            peerStateEl.textContent = stripMiddots(st.text);
+            peerStateEl.hidden = false;
           } else {
-            attackerStateEl.hidden = true;
+            peerStateEl.hidden = true;
           }
         }
 
@@ -1937,7 +1937,7 @@
         const files = frameEntry?.files || {};
         const decodePromises = [];
 
-        for (const role of ['victim', 'attacker']) {
+        for (const role of ['owner', 'peer']) {
           const imgEl = document.querySelector(`[data-actor-img="${role}"]`);
           const emptyEl = document.querySelector(`[data-actor-empty="${role}"]`);
           const src = files[role] || '';
@@ -1967,7 +1967,7 @@
           await Promise.all(decodePromises);
         }
 
-        for (const role of ['victim', 'attacker']) {
+        for (const role of ['owner', 'peer']) {
           const imgEl = document.querySelector(`[data-actor-img="${role}"]`);
           if (!imgEl || !imgEl.naturalWidth || !imgEl.naturalHeight) continue;
           const ratioExpr = `${imgEl.naturalWidth} / ${imgEl.naturalHeight}`;

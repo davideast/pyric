@@ -36,15 +36,15 @@ scenario.
 ### Rules variant
 
 The scenario names the app build (`app.dist`), the two actors, the `steps`
-that perform the exploit, and `fixRules`. The recorder runs the control and
-the exploit against the current Rules, hot-reloads the fixed Rules, and runs
+that perform the repro, and `fixRules`. The recorder runs the control and
+the repro against the current Rules, hot-reloads the fixed Rules, and runs
 both again. With no `app`, it records the data plane only.
 
 Key fields:
 
 - `finding.campaign`, `finding.probe`: the probe slug names the output directory.
 - `app.dist`: a built static bundle (`app.build` can produce it first).
-- `actors.victim`, `actors.attacker`: `uid`, `name`, `view`, `claims`, and an optional `expect.after` DOM assertion for G4.
+- `actors.owner`, `actors.peer`: `uid`, `name`, `view`, `claims`, and an optional `expect.after` DOM assertion for G4.
 - `steps`: `ui` actions, `wait-expect`, or `sdk` operations (`service`, `method`, `path`, `data`; `rateHz` + `frames` for continuous motion).
 - `fixRules.rtdb` / `firestore` / `storage`: paths to the fixed Rules; `fixRules.before` / `after`: short snippets for the fix slide.
 
@@ -68,22 +68,22 @@ What the recorder reads from the export:
 | `report.results[]` | The probes. `--probe` matches `probeId` |
 | `campaign.id` | `finding.campaign` |
 | `report.targetHash` | `finding.targetHash` |
-| `results[].mutationSpec.operation` | The exploit, run as the attacker |
-| `results[].actorEvidence.uid` | The attacker's uid |
-| `observations[]` | The victim's control: an `ALLOW` observation by another actor on the mutated path (or a sibling path), run with that actor's token |
+| `results[].mutationSpec.operation` | The repro, run as the peer |
+| `results[].actorEvidence.uid` | The peer's uid |
+| `observations[]` | The owner's control: an `ALLOW` observation by another actor on the mutated path (or a sibling path), run with that actor's token |
 | `campaign.target.rules.rtdb` | The current Rules (the whole `{ "rules": … }` document) |
 | `campaign.target.state.rtdb` | The sandbox seed |
 | `verifications[]` | Whether assurance confirmed the fix you are recording (see below) |
-| `invariant.statement`, `mutationSpec.description`, `probeId` | Default `why`, `exploit`, and `title` copy |
+| `invariant.statement`, `mutationSpec.description`, `probeId` | Default `why`, `repro`, and `title` copy |
 
 The export has no severity, so the default is `UNRATED`. Set `copy.severity`
-yourself. The probe's own `control` is the attacker's write to their own data,
+yourself. The probe's own `control` is the peer's write to their own data,
 so it is used only when no observation fits.
 
 The override still supplies:
 
 - `app.dist`, and each actor's `view`, `claims`, and display `name`
-- `actors.victim.expect` (the DOM text G4 looks for before and after)
+- `actors.owner.expect` (the DOM text G4 looks for before and after)
 - all the slide `copy`, including `severity`
 - `stage`
 
@@ -97,7 +97,7 @@ the control, Rules, and seed came from.
 
 #### When assurance could not confirm the fix
 
-The sandbox can show a fix denying the exploit (G5) even when assurance
+The sandbox can show a fix denying the repro (G5) even when assurance
 `verify` could not prove it, for example an `engine-gap` on an idiomatic
 `data`/`newData` rule. The recorder matches the fix you pass to the export's
 `verifications[]` by recomputing the target hash with your fix Rules swapped
@@ -125,7 +125,7 @@ then shows the after build doing the right thing.
 | `fixApp.dist` | The after build |
 | `action` | What the actor does. `kind: "sign-out"`, `actor`, `menuItemText`, optional `triggerText` (defaults to the actor's initial) |
 | `check` | What proves the defect. `kind: "presence-entry"`, `path`, `uid`, `waitMs` (default 3000) |
-| `focusSelectors` | Per-role CSS selector for the spotlight, for example `{ "attacker": "[class*=\"pile\"]" }` |
+| `focusSelectors` | Per-role CSS selector for the spotlight, for example `{ "peer": "[class*=\"pile\"]" }` |
 | `pathTemplate` | The data path with variables, for example `/spaces_app/spaces/$spaceid/presence/$clientId` |
 | `pathValues` | The value shown for each variable |
 | `pathCallouts` | A `label` and `detail` per variable for the path slide |
@@ -140,16 +140,16 @@ To build before and after for a PR, follow [VERIFY.md](VERIFY.md).
 
 | # | Slide | Stage id | Shows |
 |---|---|---|---|
-| 1 | Title | `title` | `copy.title`, `copy.exploit`, severity |
+| 1 | Title | `title` | `copy.title`, `copy.summary`, severity |
 | 2 | Demo | `attach-demo` | Both actors in the app before anything happens |
 | 3 | Path | `path-slide` | The data path with its variables marked |
-| 4 | Problem | `attack-slide` | What the actor does and what peers see |
-| 5 | Problem on the UI | `exploit-video` | The capture, spotlighting the element that goes wrong |
+| 4 | Problem | `problem-slide` | What the actor does and what peers see |
+| 5 | Problem on the UI | `problem-video` | The capture, spotlighting the element that goes wrong |
 | 6 | Why | `why-slide` | The sequence, highlighting the step that goes wrong |
 | 7 | Fix | `fix-slide` | The sequence after the change, highlighting what moved |
 | 8 | Fix demo | `fix-video` | The capture on the fixed rules or build |
 
-Copy keys: `title`, `exploit`, `pathTitle`, `pathContext`, `attackTitle`,
+Copy keys: `title`, `repro`, `pathTitle`, `pathContext`, `attackTitle`,
 `attackContext`, `whyTitle`, `why`, `fixTitle`, `fixContext`, `severity`.
 Write short, plain sentences. Name what the user loses.
 
@@ -170,9 +170,9 @@ Numbering follows `scripts/lib/gates.mjs`.
 |---|---|---|
 | G1 | Preconditions | The probe is `confirmed` or `local-counterexample`, and its target and mutation path are valid (build variant: both builds and the scenario validate) |
 | G2 | Baseline | The control operation is allowed (build variant: both actors appear on the before build) |
-| G3 | Exploit | The exploit succeeds and touches the expected path (build variant: the `check` still finds the entry after the action, decision `LEFT BEHIND`) |
+| G3 | Reproduce | The repro succeeds and touches the expected path (build variant: the `check` still finds the entry after the action, decision `LEFT BEHIND`) |
 | G4 | Visible effect | The app view or the data-plane diff shows the change (build variant: no separate check; it rides on G3, so confirm the spotlight in keyframe QA) |
-| G5 | Fix verification | Under the fix, the exploit is `DENY` with no changed paths and the control still passes (build variant: the entry is gone within `waitMs`, decision `REMOVED`) |
+| G5 | Fix verification | Under the fix, the repro is `DENY` with no changed paths and the control still passes (build variant: the entry is gone within `waitMs`, decision `REMOVED`) |
 | G6 | Render integrity | Video duration and dimensions, no dropped frames, non-blank poster and keyframes, motion, locked provenance strip, secret and PII scan, copy consistent with events |
 
 Copy must not say "fixed" or "blocked" unless the fix decision is `DENY`. A
@@ -216,7 +216,7 @@ node pyric-plugin/skills/improve-firebase/scripts/render.mjs \
 
 The bundle is `<out>/<probe>/`: `video.mp4`, `poster.png`, `storyboard/*.png`,
 `manifest.json`, `evidence.json`, `events.json`. `manifest.json` has the gate
-results. `storyboard/` holds four legacy beat keyframes (`hook`, `exploit`,
+results. `storyboard/` holds four legacy beat keyframes (`hook`, `repro`,
 `fix`, `takeaway`), not one per slide.
 
 ## 8. Keyframe QA
@@ -257,14 +257,14 @@ this is the build variant.
   "rules": { "rtdb": "/tmp/pyric-372-check/database.rules.json" },
   "seedFile": "/tmp/pyric-372-check/seed.json",
   "actors": {
-    "victim": { "uid": "alice", "name": "Alice", "view": "/s1/chat/pub", "claims": { "hasAccess": "granted" } },
-    "attacker": { "uid": "bob", "name": "Bob", "view": "/s1/chat/pub", "claims": { "hasAccess": "granted" } }
+    "owner": { "uid": "alice", "name": "Alice", "view": "/s1/chat/pub", "claims": { "hasAccess": "granted" } },
+    "peer": { "uid": "bob", "name": "Bob", "view": "/s1/chat/pub", "claims": { "hasAccess": "granted" } }
   },
   "behavior": {
     "fixApp": { "dist": "/tmp/pyric-372-after-dist" },
-    "action": { "kind": "sign-out", "actor": "victim", "menuItemText": "Sign out" },
+    "action": { "kind": "sign-out", "actor": "owner", "menuItemText": "Sign out" },
     "check": { "kind": "presence-entry", "path": "/spaces_app/spaces/s1/presence", "uid": "alice", "waitMs": 3000 },
-    "focusSelectors": { "attacker": "[class*=\"pile\"]" },
+    "focusSelectors": { "peer": "[class*=\"pile\"]" },
     "pathTemplate": "/spaces_app/spaces/$spaceid/presence/$clientId",
     "pathValues": { "$spaceid": "s1", "$clientId": "Alice's tab" },
     "pathCallouts": {
@@ -292,7 +292,7 @@ this is the build variant.
   },
   "copy": {
     "title": "Signing out leaves you visible in the space",
-    "exploit": "When Alice signs out, Spaces revokes her credentials before it cleans up. Her presence entry is left behind, so Bob keeps seeing her.",
+    "repro": "When Alice signs out, Spaces revokes her credentials before it cleans up. Her presence entry is left behind, so Bob keeps seeing her.",
     "pathTitle": "Where presence lives",
     "pathContext": "Each open tab writes one entry here. Peers draw the facepile from this list, so the tab has to delete its own entry while it is still signed in.",
     "attackTitle": "Alice signs out",
