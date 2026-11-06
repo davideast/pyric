@@ -25,6 +25,7 @@ import {
 import type { ObservedCall } from 'pyric/sandbox';
 import type { BridgeMessage } from '../bridge/protocol.js';
 import type { FirebaseProjectSource } from '../cli/firebase-project.js';
+import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
 
 /** Observed calls waiting on the host's answer; a bound, since a client could send replies it never gets. */
 const MAX_PENDING_CALLS = 4096;
@@ -60,7 +61,7 @@ export interface LiveHostStateInput {
 }
 
 /** Where the report reads the imports the app resolved to live rows. */
-export type ObservedImportsSource = Iterable<string> | (() => Iterable<string>);
+export type ObservedImportsSource = Iterable<ServedFirebaseSpecifier> | (() => Iterable<ServedFirebaseSpecifier>);
 
 /** Where a project came from, as the developer set it. */
 export function projectSourceName(source: FirebaseProjectSource | undefined, optionName: string): string {
@@ -109,11 +110,19 @@ function replyIn(message: BridgeMessage): { key: string; ok: boolean } | null {
   return { key: pendingKey(message.clientSessionId, reply.id), ok: reply.ok };
 }
 
+/** The imports a source lists, or none when reading it throws, so the health report always answers. */
+function readObserved(source: ObservedImportsSource): ServedFirebaseSpecifier[] {
+  try {
+    return [...new Set(typeof source === 'function' ? source() : source)];
+  } catch {
+    return [];
+  }
+}
+
 /** The observed field of a report: each import once, in first-import order, and absent when there are none. */
 function observedField(source: ObservedImportsSource | undefined): { observed?: string[] } {
   if (source === undefined) return {};
-  const imports = typeof source === 'function' ? source() : source;
-  const observed = [...new Set(imports)];
+  const observed = readObserved(source);
   return observed.length === 0 ? {} : { observed };
 }
 

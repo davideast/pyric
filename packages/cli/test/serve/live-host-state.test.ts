@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { ObservedCall } from 'pyric/sandbox';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
+import type { ServedFirebaseSpecifier } from '../../src/serve/firebase-module-swap.js';
 import { createLiveHostState, projectSourceName } from '../../src/serve/live-host-state.js';
 
 function observe(id: string, call: Partial<ObservedCall> & { method: string }, clientSessionId = 'client-1'): BridgeMessage {
@@ -96,7 +97,7 @@ describe('the live host state', () => {
   });
 
   it('reports the imports the app resolved to live rows, read at report time, in first-import order', () => {
-    const imports = new Set<string>();
+    const imports = new Set<ServedFirebaseSpecifier>();
     const live = createLiveHostState({ configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined, observed: imports });
     expect(live.report()).not.toHaveProperty('observed');
     // Imports arrive as the app loads, after the host started.
@@ -106,13 +107,25 @@ describe('the live host state', () => {
   });
 
   it('reads an observed-imports function each report and lists each import once', () => {
-    const resolved: string[] = [];
+    const resolved: ServedFirebaseSpecifier[] = [];
     const live = createLiveHostState({ configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined, observed: () => resolved });
     expect(live.report()).not.toHaveProperty('observed');
     resolved.push('firebase/database', 'firebase/storage', 'firebase/database');
     expect(live.report().observed).toEqual(['firebase/database', 'firebase/storage']);
     resolved.push('firebase/ai');
     expect(live.report().observed).toEqual(['firebase/database', 'firebase/storage', 'firebase/ai']);
+  });
+
+  it('leaves observed out of the report when its source throws, so the health report still answers', () => {
+    const live = createLiveHostState({
+      configProjectId: 'staging',
+      configSource: 'firebaserc',
+      optionName: '--project',
+      warn: () => undefined,
+      observed: () => { throw new Error('not ready'); },
+    });
+    expect(live.report()).not.toHaveProperty('observed');
+    expect(live.report().projectId).toBe('staging');
   });
 
   it('names each project source as the developer set it', () => {
