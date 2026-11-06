@@ -9,6 +9,7 @@ import { parseToASTOrError, parseFunctions } from '../grammar/FirestoreParser.js
 import { assembleRules, assembleRulesWithSourceMap, type RulesSourceMapEntry } from '../grammar/FirestoreAssembler.js';
 import type { FunctionDef, Expression, FirestoreRules, MatchBlock } from '../grammar/FirestoreAST.js';
 import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
+import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '../grammar/source-compile-limits.js';
 import { STDLIB_MODULE_EVIDENCE } from './stdlib-services.generated.js';
 import {
   incompatibleFunction,
@@ -286,6 +287,18 @@ export function resolveModulesWith(
     };
   }
   const ast = parsed.ast;
+  // The resolved source is rebuilt from `ast.service` alone, so a second
+  // block for one service is refused here, before it is dropped.
+  const duplicate = duplicateServiceRejection(ast);
+  if (duplicate !== null) {
+    return {
+      success: false,
+      error: {
+        code: 'PARSE_FAILED',
+        message: `Source did not compile at line ${duplicate.line}, col ${duplicate.column}: ${DUPLICATE_SERVICE_REASON}`,
+      },
+    };
+  }
   const isModular = ast.version === '2+modules';
   const isStorageService = ast.service.name === 'firebase.storage';
   let sourceFile = isStorageService ? 'storage.rules' : 'firestore.rules';

@@ -675,6 +675,7 @@
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
+        "two-services-storage-first",
         "undefined-field-access",
         "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
@@ -3086,6 +3087,7 @@
         "string-case-mapping",
         "string-literals-and-regex",
         "timestamp-component-accessors",
+        "two-services-storage-first",
         "undefined-field-access",
         "unknown-function-names-runtime-error"
       ],
@@ -3261,6 +3263,7 @@
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
+        "two-services-storage-first",
         "undefined-field-access",
         "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
@@ -3379,6 +3382,7 @@
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
+        "two-services-storage-first",
         "undefined-field-access",
         "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
@@ -3457,6 +3461,7 @@
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
+        "two-services-storage-first",
         "undefined-field-access",
         "unknown-function-names-runtime-error",
         "unsupported-feature-witness"

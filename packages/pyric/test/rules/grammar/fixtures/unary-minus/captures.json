@@ -1,0 +1,71 @@
+{
+  "schema": "pyric.rules-unary-minus-refusals.v1",
+  "capturedAt": {
+    "c5": "2026-11-04T02:28:14.129Z",
+    "c2": "2026-11-04T02:25:29.600Z"
+  },
+  "projectId": "digame-mas",
+  "method": "Rules Test API projects.test, one ruleset per probe, from the 2026-11-03 Firestore rules engine defect hunt (captures c2 and c5). A probe that does not compile lists the issues production returned; one that compiles lists each get case with its decision.",
+  "probes": [
+    {
+      "name": "c5f-decrement-literal",
+      "capture": "c5",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /c/{id} { allow get: if --1 == 1; }\n  }\n}\n",
+      "compiles": false,
+      "issues": [
+        "Increment (++) and decrement (--) operators are not supported."
+      ]
+    },
+    {
+      "name": "c5h-minus-space-minus",
+      "capture": "c5",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /c/{id} { allow get: if - -1 == 1; }\n  }\n}\n",
+      "compiles": false,
+      "issues": [
+        "Unexpected '-'."
+      ]
+    },
+    {
+      "name": "c5i-plus-plus",
+      "capture": "c5",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /c/{id} { allow get: if 1 ++1 == 2; }\n  }\n}\n",
+      "compiles": false,
+      "issues": [
+        "Increment (++) and decrement (--) operators are not supported.",
+        "Unexpected '1'."
+      ]
+    },
+    {
+      "name": "k1-paren-min-literal",
+      "capture": "c2",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /k1parenminliteral/{id} {\n      allow get: if -(9223372036854775808) < 0;\n    }\n  }\n}\n",
+      "compiles": false,
+      "issues": [
+        "Invalid number literal 9223372036854775808."
+      ]
+    },
+    {
+      "name": "k3-double-negated-min",
+      "capture": "c2",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /k3doublenegatedmin/{id} {\n      allow get: if --9223372036854775808 < 0 || true;\n    }\n  }\n}\n",
+      "compiles": false,
+      "issues": [
+        "Increment (++) and decrement (--) operators are not supported."
+      ]
+    },
+    {
+      "name": "k4-spaced-negated-min",
+      "capture": "c2",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /k4spacednegatedmin/{id} {\n      allow get: if - 9223372036854775808 < 0;\n    }\n  }\n}\n",
+      "compiles": true,
+      "cases": [
+        {
+          "description": "k4spacednegatedmin: - 9223372036854775808 < 0",
+          "method": "get",
+          "path": "k4spacednegatedmin/1",
+          "decision": "ALLOW"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "rules-firestore-two-services-storage-first",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#231"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"two-services-storage-first\" (Coverage: a Storage service before the Firestore service). A file with a Storage service block before its Firestore block compiles, and the Firestore block decides, as production does.",
+  "observedAt": "2026-11-04T02:28:14.129Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "c3befc17b88cdc5b98102b72d99856b59ab28bc8a8e97fbbf265245e1fdefa4c"
+  },
+  "behavior": {
+    "two services: firestore block denies c/1": "DENY"
+  }
+}
