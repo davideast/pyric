@@ -15,6 +15,13 @@
  *
  * The page path comes from the page's presence frames; the client lists the
  * last one any of its pages reported. Each id is a label, never an authority.
+ *
+ * A page sends its signed-in user's email with its presence register frame,
+ * and again with an update when the user changes. The host keeps it in this
+ * module's memory only: it deletes the field from the frame before the frame
+ * goes on to the Node sandbox, so it never reaches call records, the event
+ * stream or a capture. A page's presence disconnect (a closed or reloaded
+ * tab) drops its connection at once, as the bridge's own disconnect does.
  */
 import { readObservedCall, type LiveHostStatus } from 'pyric/sandbox/internal';
 import type { BridgeMessage } from '../bridge/protocol.js';
@@ -38,6 +45,7 @@ interface ClientRecord {
   clientId: string;
   label?: string;
   user: string | null;
+  email?: string;
   lastSeen: number;
   /** The connections this client has open. */
   sessions: Set<string>;
@@ -77,6 +85,25 @@ function presenceRoute(inner: Record<string, unknown>): string | undefined {
   return isPresence && typeof route === 'string' ? route : undefined;
 }
 
+/** Whether a frame is a page's presence disconnect. */
+function isPresenceDisconnect(inner: Record<string, unknown>): boolean {
+  return inner.t === 'op' && inner.method === 'presence.disconnect';
+}
+
+/**
+ * The email a presence frame carries, taken off the frame: a string, null
+ * for signed out, or undefined when the frame carries none.
+ */
+function takePresenceEmail(inner: Record<string, unknown>): string | null | undefined {
+  const isPresence = inner.t === 'op' && (inner.method === 'presence.register' || inner.method === 'presence.update');
+  const carriesEmail = isPresence && 'email' in inner;
+  if (!carriesEmail) return undefined;
+  const email = inner.email;
+  delete inner.email;
+  const isEmail = typeof email === 'string' && email !== '';
+  return isEmail ? bounded(email) : null;
+}
+
 /** The uid an observe frame's call ran as, null when signed out, or undefined for another frame or a malformed record. */
 function observedUser(inner: Record<string, unknown>): string | null | undefined {
   if (inner.t !== 'observe') return undefined;
@@ -89,7 +116,8 @@ function observedUser(inner: Record<string, unknown>): string | null | undefined
 
 function entryOf(record: ClientRecord): LiveClient {
   const label = record.label === undefined ? {} : { label: record.label };
-  return { kind: record.kind, clientId: record.clientId, ...label, user: record.user, lastSeen: record.lastSeen };
+  const email = record.email === undefined ? {} : { email: record.email };
+  return { kind: record.kind, clientId: record.clientId, ...label, user: record.user, ...email, lastSeen: record.lastSeen };
 }
 
 export function createLiveClients(now: () => number): LiveClients {
@@ -126,6 +154,8 @@ export function createLiveClients(now: () => number): LiveClients {
   };
 
   const noteFrame = (clientSessionId: string, platform: string | undefined, inner: Record<string, unknown>): void => {
+    const email = takePresenceEmail(inner);
+    if (isPresenceDisconnect(inner)) return forget(clientSessionId);
     const kind = platform === undefined ? undefined : KINDS.get(platform);
     if (kind === undefined) return;
     const record = recordFor(clientSessionId, kind, inner);
@@ -136,6 +166,9 @@ export function createLiveClients(now: () => number): LiveClients {
     if (isPage) record.label = pagePath(route);
     const user = observedUser(inner);
     if (user !== undefined) record.user = user;
+    const isBrowser = kind === 'browser';
+    if (isBrowser && email === null) delete record.email;
+    if (isBrowser && typeof email === 'string') record.email = email;
   };
 
   return {

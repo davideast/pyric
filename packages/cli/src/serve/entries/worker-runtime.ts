@@ -23,6 +23,7 @@ import {
   PYRIC_WORKER_URL,
 } from '../runtime/manifest.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
+import { pageLiveIdentity } from '../runtime/live-identity.js';
 import { connectRuntimeWorker } from '../runtime/worker-connection.js';
 import { createWorkerReplacement } from '../runtime/worker-replacement.js';
 import {
@@ -154,6 +155,11 @@ function reportPersistenceHealth(configuration: WorkerInitPayload | null): void 
   if (persistenceUnhealthy) runtimeStatus.reportError({ code: 'persistence-unhealthy', message: 'Hosted persistence is unhealthy. Repair the store and restart the host.' }, 'runtime');
 }
 
+/** A hosted page (the only kind a live host serves) sends its signed-in user's email with its presence. */
+function presenceIdentity(hosted: boolean): { identity?: ReturnType<typeof pageLiveIdentity> } {
+  return hosted ? { identity: pageLiveIdentity() } : {};
+}
+
 function initialize(configuration: WorkerInitPayload | null): void {
   payload = configuration;
   // Every listener attach on this page reads this, on the worker path and
@@ -172,7 +178,7 @@ function initialize(configuration: WorkerInitPayload | null): void {
   useWorker = useHosted || (workerRequested && (!hasSharedWorker || workerDb !== null));
 
   presenceSession = useWorker && workerDb
-    ? startPresence({ db: workerDb, kind: 'app' })
+    ? startPresence({ db: workerDb, kind: 'app', ...presenceIdentity(useHosted) })
     : null;
 
   let runtimeMode: 'hosted' | 'shared-worker' | 'in-page' = 'in-page';
