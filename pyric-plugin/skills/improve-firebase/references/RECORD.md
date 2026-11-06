@@ -48,7 +48,68 @@ Key fields:
 - `steps`: `ui` actions, `wait-expect`, or `sdk` operations (`service`, `method`, `path`, `data`; `rateHz` + `frames` for continuous motion).
 - `fixRules.rtdb` / `firestore` / `storage`: paths to the fixed Rules; `fixRules.before` / `after`: short snippets for the fix slide.
 
-An assurance export works too: `--campaign <export.json> --probe <id>`.
+### From an assurance export
+
+Record straight from a Pyric assurance export (the `firebase_assurance_export`
+bundle) with `--campaign <export.json> --probe <id>`, plus a scenario override
+for what the export can't know:
+
+```bash
+node pyric-plugin/skills/improve-firebase/scripts/record.mjs \
+  --campaign /tmp/campaign-export.json --probe bob-overwrites-alice-message \
+  --scenario /tmp/override.json --rtdb-rules /tmp/database.fixed.rules.json \
+  --out /tmp/pyric-evidence --render --formats mp4 --json
+```
+
+What the recorder reads from the export:
+
+| Export field | Used for |
+|---|---|
+| `report.results[]` | The probes. `--probe` matches `probeId` |
+| `campaign.id` | `finding.campaign` |
+| `report.targetHash` | `finding.targetHash` |
+| `results[].mutationSpec.operation` | The exploit, run as the attacker |
+| `results[].actorEvidence.uid` | The attacker's uid |
+| `observations[]` | The victim's control: an `ALLOW` observation by another actor on the mutated path (or a sibling path), run with that actor's token |
+| `campaign.target.rules.rtdb` | The current Rules (the whole `{ "rules": … }` document) |
+| `campaign.target.state.rtdb` | The sandbox seed |
+| `verifications[]` | Whether assurance confirmed the fix you are recording (see below) |
+| `invariant.statement`, `mutationSpec.description`, `probeId` | Default `why`, `exploit`, and `title` copy |
+
+The export has no severity, so the default is `UNRATED`. Set `copy.severity`
+yourself. The probe's own `control` is the attacker's write to their own data,
+so it is used only when no observation fits.
+
+The override still supplies:
+
+- `app.dist`, and each actor's `view`, `claims`, and display `name`
+- `actors.victim.expect` (the DOM text G4 looks for before and after)
+- all the slide `copy`, including `severity`
+- `stage`
+
+Scenario values win over the export: `controlOperation` replaces the
+observation-derived control, `rules.rtdb` replaces the inline Rules, and
+`seedFile` (or `--seed`) replaces the inline state. If a supplied seed or Rules
+file differs from what the campaign ran against, the result JSON lists a
+`SEED_DIFFERS_FROM_CAMPAIGN` or `RULES_DIFFER_FROM_CAMPAIGN` warning; the run
+still proceeds. `inputs` in the result JSON and `evidence.json` records where
+the control, Rules, and seed came from.
+
+#### When assurance could not confirm the fix
+
+The sandbox can show a fix denying the exploit (G5) even when assurance
+`verify` could not prove it, for example an `engine-gap` on an idiomatic
+`data`/`newData` rule. The recorder matches the fix you pass to the export's
+`verifications[]` by recomputing the target hash with your fix Rules swapped
+in. Unless that verification reports `no-counterexample` for the probe, the
+bundle carries `fixAssurance: { "verified": false, "reason": … }` in
+`evidence.json` and `manifest.json`. Reasons are `engine-gap`,
+`counterexample`, `not-verified`, and `no-verification`. The fix slide and the
+fix video then show one plain line under the heading, for example "Assurance
+could not confirm this fix (engine gap). The sandbox recording shows the write
+denied." A verified fix shows nothing extra, and a scenario recorded without an
+export carries no `fixAssurance`. The line appears in the `split-actors`
+layout only.
 
 ### Build variant
 
@@ -177,6 +238,7 @@ never show; check its first frame anyway. At minimum, check slides 2, 5, 7 and 8
 2. The info bar is solid and readable, and nothing overlaps the provenance strip.
 3. Everything is monochrome on `#212121`, with no middots and no colored borders.
 4. Text never clips or overflows.
+5. If `manifest.json` has `fixAssurance.verified: false`, the assurance line is visible on slides 7 and 8.
 
 Then share the video path, severity, root cause, and the fix.
 

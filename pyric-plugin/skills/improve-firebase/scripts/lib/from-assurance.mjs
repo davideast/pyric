@@ -50,6 +50,18 @@ export function parseCampaignExport(raw) {
     );
   }
 
+  // The real `firebase_assurance_export` bundle nests results: { campaign, report: { results } }.
+  // `campaign` (inline target rules/state, actors), `observations`, and `verifications` are
+  // kept on the normalized object so later stages can read them.
+  if (!Array.isArray(raw.probes) && Array.isArray(raw.report?.results)) {
+    raw = {
+      ...raw,
+      campaignId: raw.campaignId ?? raw.campaign?.id ?? raw.report.campaignId,
+      probes: raw.report.results,
+      ...(raw.target ? {} : { target: { rulesHash: raw.report.targetHash } }),
+    };
+  }
+
   const campaignId =
     typeof raw.campaignId === 'string' && raw.campaignId.trim().length > 0
       ? raw.campaignId.trim()
@@ -188,16 +200,47 @@ export function inferStoryTemplate(probe, actors = {}) {
   return 'tamper';
 }
 
-function buildActorsFromProbe(probe, overrideActors = {}) {
+function capitalize(value) {
+  const s = String(value);
+  return `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
+}
+
+/**
+ * Resolve a campaign actor id (`campaign.actors[].id`) to the uid it signs in as.
+ */
+export function resolveCampaignActorUid(campaignExport, actorId) {
+  if (typeof actorId !== 'string' || actorId.length === 0) return null;
+  const actors = campaignExport?.campaign?.actors;
+  const actor = Array.isArray(actors) ? actors.find((a) => a?.id === actorId) : null;
+  return actor?.acquisition?.uid ?? actor?.uid ?? actorId;
+}
+
+/**
+ * The uid of the actor that performed the probe's mutation (the attacker). Real exports
+ * carry it as `actorEvidence.uid` / `actorEvidence.actorId`; older fixtures as `attackerUid`.
+ */
+export function resolveProbeActorUid(campaignExport, probe) {
+  const evidence = isPlainObject(probe?.actorEvidence) ? probe.actorEvidence : {};
+  if (evidence.attackerUid !== undefined) return evidence.attackerUid;
+  if (typeof evidence.uid === 'string' && evidence.uid) return evidence.uid;
+  const actorId = evidence.actorId ?? probe?.actorId ?? null;
+  return actorId ? resolveCampaignActorUid(campaignExport, actorId) : undefined;
+}
+
+function buildActorsFromProbe(probe, overrideActors = {}, derived = {}) {
   const evidence = isPlainObject(probe?.actorEvidence) ? probe.actorEvidence : {};
   const victimUid =
     overrideActors?.victim?.uid ??
     evidence.victimUid ??
+    derived.victimUid ??
     'alice';
+  // Only the legacy fixture shape labels roles; a uid taken from a campaign actor is shown as-is.
   const victimName =
     overrideActors?.victim?.name ??
     evidence.victimLabel ??
-    `${victimUid.charAt(0).toUpperCase()}${victimUid.slice(1)} (Owner)`;
+    (evidence.victimUid === undefined && derived.victimUid
+      ? capitalize(victimUid)
+      : `${capitalize(victimUid)} (Owner)`);
 
   const victim = {
     uid: victimUid,
@@ -209,11 +252,12 @@ function buildActorsFromProbe(probe, overrideActors = {}) {
 
   const hasExplicitAttackerOverride =
     overrideActors && Object.prototype.hasOwnProperty.call(overrideActors, 'attacker');
+  const derivedAttackerUid = derived.attackerUid;
 
   let attacker;
   if (hasExplicitAttackerOverride) {
     if (overrideActors.attacker && isPlainObject(overrideActors.attacker)) {
-      const aUid = overrideActors.attacker.uid ?? evidence.attackerUid ?? 'mallory';
+      const aUid = overrideActors.attacker.uid ?? derivedAttackerUid ?? 'mallory';
       attacker = {
         uid: aUid,
         name: overrideActors.attacker.name ?? evidence.attackerLabel ?? aUid,
@@ -223,13 +267,15 @@ function buildActorsFromProbe(probe, overrideActors = {}) {
       };
     }
   } else {
-    const rawAttackerUid = evidence.attackerUid !== undefined ? evidence.attackerUid : 'mallory';
+    const rawAttackerUid = derivedAttackerUid !== undefined ? derivedAttackerUid : 'mallory';
     if (rawAttackerUid !== null && rawAttackerUid !== '') {
       attacker = {
         uid: rawAttackerUid,
         name:
           evidence.attackerLabel ??
-          `${rawAttackerUid.charAt(0).toUpperCase()}${rawAttackerUid.slice(1)} (External)`,
+          (evidence.attackerUid === undefined && derivedAttackerUid !== undefined
+            ? capitalize(rawAttackerUid)
+            : `${capitalize(rawAttackerUid)} (External)`),
         view: '/',
         ...(isPlainObject(evidence.attackerClaims) ? { claims: evidence.attackerClaims } : {}),
       };
@@ -237,6 +283,68 @@ function buildActorsFromProbe(probe, overrideActors = {}) {
   }
 
   return attacker ? { victim, attacker } : { victim };
+}
+
+function parentPath(p) {
+  const segs = String(p || '').replace(/\/+$/, '').split('/');
+  segs.pop();
+  return segs.join('/') || '/';
+}
+
+/**
+ * Pick the known-good observation that should serve as the victim's control: an allowed
+ * operation by a different actor than the probe's, on the mutated path (or a sibling of it).
+ * Returns null when the export has no usable observation.
+ */
+export function selectControlObservation({
+  campaignExport,
+  probe,
+  exploitOperation,
+  victimUid = null,
+}) {
+  const observations = campaignExport?.observations;
+  if (!Array.isArray(observations) || observations.length === 0 || !exploitOperation) {
+    return null;
+  }
+  const probeActorUid = resolveProbeActorUid(campaignExport, probe) ?? null;
+  const probeInvariantId = probe?.invariant?.id ?? probe?.invariantId ?? null;
+  const targetParent = parentPath(exploitOperation.path);
+
+  let best = null;
+  for (const obs of observations) {
+    if (!isPlainObject(obs) || !isPlainObject(obs.operation)) continue;
+    if (obs.result !== undefined && String(obs.result).toUpperCase() !== 'ALLOW') continue;
+    if (obs.invariantId && probeInvariantId && obs.invariantId !== probeInvariantId) continue;
+    let op;
+    try {
+      op = normalizeAssuranceOperation(obs.operation, { service: exploitOperation.service });
+    } catch {
+      continue;
+    }
+    if (op.service !== exploitOperation.service) continue;
+    const uid = obs.uid ?? resolveCampaignActorUid(campaignExport, obs.actorId);
+    if (!uid) continue;
+    if (probeActorUid && uid === probeActorUid) continue;
+    if (victimUid && uid !== victimUid) continue;
+
+    let score;
+    if (op.path === exploitOperation.path) score = 2;
+    else if (parentPath(op.path) === targetParent) score = 1;
+    else continue;
+    if (op.method === exploitOperation.method) score += 0.5;
+
+    if (!best || score > best.score) {
+      best = { score, obs, uid, op };
+    }
+  }
+  if (!best) return null;
+  return {
+    observationId: best.obs.id ?? null,
+    actorId: best.obs.actorId ?? null,
+    uid: best.uid,
+    description: typeof best.obs.description === 'string' ? best.obs.description : null,
+    operation: { ...best.op, uid: best.uid },
+  };
 }
 
 function deriveControlOperation({ probe, exploitOperation, actors }) {
@@ -339,12 +447,6 @@ export function buildScenarioFromAssurance({
       : {}),
   };
 
-  const actors = buildActorsFromProbe(probe, override.actors);
-  const template = inferStoryTemplate(
-    { ...probe, ...(override.template ? { template: override.template } : {}) },
-    actors,
-  );
-
   let exploitOperation = null;
   if (isPlainObject(probe?.mutationSpec?.operation)) {
     exploitOperation = normalizeAssuranceOperation(
@@ -369,9 +471,50 @@ export function buildScenarioFromAssurance({
     );
   }
 
-  const controlOperation = isPlainObject(override.controlOperation)
-    ? normalizeAssuranceOperation(override.controlOperation, { service: exploitOperation.service })
-    : deriveControlOperation({ probe, exploitOperation, actors });
+  const overrideControl = isPlainObject(override.controlOperation);
+  // The probe's own control is the attacker's known-good write. When the export carries
+  // observations, the victim's allowed write on the mutated path is the honest control.
+  const controlObservation = overrideControl
+    ? null
+    : selectControlObservation({
+        campaignExport,
+        probe,
+        exploitOperation,
+        victimUid: override.actors?.victim?.uid ?? probe?.actorEvidence?.victimUid ?? null,
+      });
+
+  const actors = buildActorsFromProbe(probe, override.actors, {
+    attackerUid: resolveProbeActorUid(campaignExport, probe),
+    victimUid: controlObservation?.uid,
+  });
+  const template = inferStoryTemplate(
+    { ...probe, ...(override.template ? { template: override.template } : {}) },
+    actors,
+  );
+
+  let controlOperation;
+  let controlSource;
+  if (overrideControl) {
+    controlOperation = normalizeAssuranceOperation(override.controlOperation, {
+      service: exploitOperation.service,
+    });
+    controlSource = { kind: 'override' };
+  } else if (controlObservation) {
+    controlOperation = controlObservation.operation;
+    controlSource = {
+      kind: 'observation',
+      observationId: controlObservation.observationId,
+      actorId: controlObservation.actorId,
+      uid: controlObservation.uid,
+    };
+  } else {
+    controlOperation = deriveControlOperation({ probe, exploitOperation, actors });
+    controlSource = {
+      kind: isPlainObject(probe?.control?.operation) || isPlainObject(probe?.mutationSpec?.controlOperation)
+        ? 'probe-control'
+        : 'synthesized',
+    };
+  }
 
   const mergedApp = override.app ?? app ?? undefined;
   const mergedFixRules =
@@ -386,19 +529,31 @@ export function buildScenarioFromAssurance({
   const attackerLabel = actors.attacker?.name || actors.attacker?.uid || 'Unauthenticated caller';
   const victimLabel = actors.victim?.name || actors.victim?.uid || 'Owner';
 
+  // Copy defaults use only what the export states; nothing here should invent a claim.
+  const humanProbeId =
+    typeof probe?.probeId === 'string' && probe.probeId.trim()
+      ? capitalize(probe.probeId.trim().replace(/[-_]+/g, ' '))
+      : null;
   const defaultTitle =
     probe?.invariant?.name ||
-    `${exploitOperation.service}.${exploitOperation.method} security bypass on ${exploitOperation.path}`;
+    humanProbeId ||
+    `${exploitOperation.service}.${exploitOperation.method} on ${exploitOperation.path} is allowed`;
   const defaultExploit =
     probe?.mutationSpec?.exploitDescription ||
+    probe?.mutationSpec?.description ||
     `${attackerLabel} executes ${exploitOperation.service}.${exploitOperation.method} on ${exploitOperation.path} and the rules allow it.`;
   const defaultWhy =
     probe?.invariant?.description ||
+    probe?.invariant?.statement ||
     `Security rules on ${exploitOperation.path} failed to enforce caller authorization.`;
-  const defaultBaseline = `${victimLabel} performs a legitimate ${controlOperation.service}.${controlOperation.method} operation on ${controlOperation.path}.`;
+  const defaultBaseline =
+    controlObservation?.description ||
+    `${victimLabel} performs a legitimate ${controlOperation.service}.${controlOperation.method} operation on ${controlOperation.path}.`;
+  // Real exports carry no severity; say so instead of defaulting to HIGH.
+  const defaultSeverity = probe?.invariant?.severity || probe?.severity || 'UNRATED';
 
   const copy = {
-    severity: String(probe?.invariant?.severity || 'HIGH').toUpperCase(),
+    severity: String(defaultSeverity).toUpperCase(),
     title: defaultTitle,
     baseline: defaultBaseline,
     exploit: defaultExploit,
@@ -424,9 +579,15 @@ export function buildScenarioFromAssurance({
     ...(isPlainObject(stage) ? stage : {}),
   };
 
+  // Real exports report stateDiff as { changed, before, after } for the mutated path;
+  // older fixtures key `before` by path.
+  const stateDiffBefore =
+    isPlainObject(probe?.stateDiff) && 'changed' in probe.stateDiff
+      ? probe.stateDiff.before
+      : probe?.stateDiff?.before?.[exploitOperation.path];
   const initialSeedValue =
     probe?.mutation?.before ??
-    probe?.stateDiff?.before?.[exploitOperation.path] ??
+    stateDiffBefore ??
     controlOperation.data;
 
   const scenario = validateScenario({
@@ -450,10 +611,175 @@ export function buildScenarioFromAssurance({
     scenario,
     probe,
     controlOperation,
+    controlSource,
     exploitOperation,
     exploitSnippet: formatSdkSnippet(exploitOperation),
     controlSnippet: formatSdkSnippet(controlOperation),
     initialSeedValue: initialSeedValue !== undefined ? structuredClone(initialSeedValue) : undefined,
     fixedRuleSnippet: readRuleSnippetText(mergedFixRules),
   };
+}
+
+/**
+ * Deterministic JSON serialization with sorted keys, matching the assurance runner's
+ * `stableStringify` so target hashes can be recomputed locally.
+ */
+export function stableStringify(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  return `{${Object.keys(value)
+    .filter((key) => value[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+    .join(',')}}`;
+}
+
+/**
+ * Hash a `pyric.assurance.target.v1` object the way the assurance runner does
+ * (FNV-1a 32 over the stable serialization).
+ */
+export function assuranceTargetHash(target) {
+  const input = stableStringify(target);
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `fnv1a32-${hash.toString(16).padStart(8, '0')}`;
+}
+
+/**
+ * The rules and state an assurance campaign actually ran against, when the export carries
+ * them inline (`campaign.target.rules` / `campaign.target.state`). Null fields are absent.
+ */
+export function extractInlineTarget(campaignExport) {
+  const target = campaignExport?.campaign?.target;
+  if (!isPlainObject(target)) {
+    return { rtdbRules: null, rtdbState: null, firestoreRules: null, storageRules: null };
+  }
+  const rules = isPlainObject(target.rules) ? target.rules : {};
+  const state = isPlainObject(target.state) ? target.state : {};
+  return {
+    rtdbRules: isPlainObject(rules.rtdb) ? rules.rtdb : null,
+    rtdbState: state.rtdb !== undefined && state.rtdb !== null ? state.rtdb : null,
+    firestoreRules: typeof rules.firestore === 'string' ? rules.firestore : null,
+    storageRules: typeof rules.storage === 'string' ? rules.storage : null,
+  };
+}
+
+/**
+ * Write the export's inline rules/state to files under `dir` so the sandbox can load them.
+ * Returns the paths written (null for anything the export does not carry).
+ */
+export function materializeInlineTarget(campaignExport, dir) {
+  const inline = extractInlineTarget(campaignExport);
+  const out = { rtdbRulesPath: null, seedPath: null, firestoreRulesPath: null, storageRulesPath: null };
+  if (inline.rtdbRules) {
+    out.rtdbRulesPath = path.join(dir, 'campaign.database.rules.json');
+    fs.writeFileSync(out.rtdbRulesPath, `${JSON.stringify(inline.rtdbRules, null, 2)}\n`, 'utf8');
+  }
+  if (inline.rtdbState !== null) {
+    out.seedPath = path.join(dir, 'campaign.seed.json');
+    fs.writeFileSync(out.seedPath, `${JSON.stringify({ database: inline.rtdbState }, null, 2)}\n`, 'utf8');
+  }
+  if (inline.firestoreRules) {
+    out.firestoreRulesPath = path.join(dir, 'campaign.firestore.rules');
+    fs.writeFileSync(out.firestoreRulesPath, inline.firestoreRules, 'utf8');
+  }
+  if (inline.storageRules) {
+    out.storageRulesPath = path.join(dir, 'campaign.storage.rules');
+    fs.writeFileSync(out.storageRulesPath, inline.storageRules, 'utf8');
+  }
+  return out;
+}
+
+const READ_METHODS = new Set(['get', 'list', 'getdoc', 'getdocs', 'getbytes', 'getdownloadurl', 'onvalue', 'onsnapshot']);
+
+function fixAssuranceNote(reason, method) {
+  const noun = READ_METHODS.has(String(method || '').toLowerCase()) ? 'read' : 'write';
+  const shown = `The sandbox recording shows the ${noun} denied.`;
+  switch (reason) {
+    case 'engine-gap':
+      return `Assurance could not confirm this fix (engine gap). ${shown}`;
+    case 'counterexample':
+      return `Assurance found a counterexample under this fix. ${shown}`;
+    case 'no-verification':
+      return `Assurance has not verified this fix. ${shown}`;
+    default:
+      return `Assurance did not verify this fix. ${shown}`;
+  }
+}
+
+/**
+ * Decide whether the export's assurance `verify` runs confirmed the fix being recorded.
+ *
+ * The verification is matched by recomputing the target hash with the fix rules swapped in.
+ * Anything other than a `no-counterexample` result with an allowed control is "not verified":
+ * the video then carries a quiet note, because the sandbox DENY alone is weaker evidence.
+ *
+ * @param {object} args
+ * @param {object} args.campaignExport normalized export (parseCampaignExport)
+ * @param {object} args.probe the selected probe result
+ * @param {{rtdbRules?: object, firestoreRules?: string, storageRules?: string}} args.fixRules
+ * @param {string} [args.method] exploit method, used to word the note
+ */
+export function assessFixAssurance({ campaignExport, probe, fixRules, method } = {}) {
+  const probeId = probe?.probeId ?? null;
+  const verifications = Array.isArray(campaignExport?.verifications) ? campaignExport.verifications : [];
+  const notVerified = (reason, extra = {}) => ({
+    verified: false,
+    reason,
+    ...extra,
+    note: fixAssuranceNote(reason, method),
+  });
+
+  const target = campaignExport?.campaign?.target;
+  let fixTargetHash = null;
+  if (isPlainObject(target) && isPlainObject(fixRules)) {
+    const rules = { ...(isPlainObject(target.rules) ? target.rules : {}) };
+    if (isPlainObject(fixRules.rtdbRules)) rules.rtdb = fixRules.rtdbRules;
+    if (typeof fixRules.firestoreRules === 'string') rules.firestore = fixRules.firestoreRules;
+    if (typeof fixRules.storageRules === 'string') rules.storage = fixRules.storageRules;
+    fixTargetHash = assuranceTargetHash({ ...target, rules });
+  }
+
+  if (verifications.length === 0) {
+    return notVerified('no-verification', fixTargetHash ? { targetHash: fixTargetHash } : {});
+  }
+  const verification = fixTargetHash
+    ? verifications.find((v) => v?.targetHash === fixTargetHash)
+    : null;
+  if (!verification) {
+    return notVerified('no-verification', fixTargetHash ? { targetHash: fixTargetHash } : {});
+  }
+
+  const verificationId = verification.campaignId ?? null;
+  const result = Array.isArray(verification.results)
+    ? verification.results.find((r) => r?.probeId === probeId)
+    : null;
+  if (!result) {
+    return notVerified('no-verification', { verificationId, targetHash: fixTargetHash });
+  }
+
+  const classification = result.classification ?? null;
+  const controlDecision = result.control?.decision ?? null;
+  if (classification === 'no-counterexample' && (controlDecision === null || controlDecision === 'ALLOW')) {
+    return { verified: true, reason: 'verified', verificationId, targetHash: fixTargetHash, classification };
+  }
+
+  const gapDetail = Array.isArray(result.qualification?.requirements)
+    ? result.qualification.requirements.find((r) => r && r.supported === false)?.reason
+    : undefined;
+  const reason =
+    classification === 'engine-gap'
+      ? 'engine-gap'
+      : classification === 'local-counterexample' || classification === 'confirmed'
+        ? 'counterexample'
+        : 'not-verified';
+  return notVerified(reason, {
+    verificationId,
+    targetHash: fixTargetHash,
+    classification,
+    ...(gapDetail ? { detail: gapDetail } : {}),
+  });
 }

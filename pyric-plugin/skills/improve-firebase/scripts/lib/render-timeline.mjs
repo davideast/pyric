@@ -1593,6 +1593,14 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     },
   ];
 
+  // When assurance could not confirm the fix, the fix slides say so in one quiet line.
+  const fixAssurance = evidence?.fixAssurance;
+  const assuranceNote =
+    fixAssurance && fixAssurance.verified === false && typeof fixAssurance.note === 'string'
+      ? fixAssurance.note
+      : null;
+  const assuranceNoteField = assuranceNote ? { assuranceNote } : {};
+
   if (hasFix) {
     slideDefs.push(
       {
@@ -1614,6 +1622,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         targetPath,
         beforeDiffTree,
         afterDiffTree,
+        ...assuranceNoteField,
         sourceStartMs: fixVideoStartMs,
         sourceEndMs: fixVideoStartMs,
         playDurationMs: 0,
@@ -1626,6 +1635,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         durationMs: fixTotalMs,
         title: 'Unauthorized write blocked',
         impactOffsetSec: fixImpactOffsetSec,
+        ...assuranceNoteField,
         actionStatusPending: `Re-running ${service}.${exploitEvent?.method || 'set'} as ${attackerUid}`,
         actionStatusImpact: `PERMISSION_DENIED — ${victimName}'s ${nounSingular} stays unchanged`,
         actorStatus: { role: 'attacker', text: 'Write denied', tone: 'neutral' },

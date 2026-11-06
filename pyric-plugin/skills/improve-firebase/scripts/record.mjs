@@ -29,10 +29,14 @@ import {
 import { findProjectPlaywright, loadPlaywright, resolveChromiumExecutable } from './lib/runtime.mjs';
 import { selectCaptureBackend } from './lib/capture/backend.mjs';
 import {
+  assessFixAssurance,
   buildScenarioFromAssurance,
+  extractInlineTarget,
+  materializeInlineTarget,
   normalizeAssuranceOperation,
   parseCampaignExport,
   selectProbeFromExport,
+  stableStringify,
 } from './lib/from-assurance.mjs';
 import {
   extractFocusedRuleSnippet,
@@ -657,7 +661,7 @@ function computeStateDiff(beforeVal, afterVal, basePath) {
   };
 }
 
-function prepareIsolatedSandboxInputs({
+export function prepareIsolatedSandboxInputs({
   projectDir,
   firebaseConfigPath,
   scenario,
@@ -666,8 +670,30 @@ function prepareIsolatedSandboxInputs({
   exploitOperation,
   initialSeedValue,
   seedDir,
+  useInlineTarget = false,
 }) {
   const scratchCfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-rec-cfg-'));
+  const warnings = [];
+  const inputs = { rules: null, seed: null };
+
+  // Rules/state the assurance campaign ran against, when the export carries them inline.
+  // Explicit scenario/CLI paths still win; these only fill the gaps.
+  const inline = useInlineTarget ? materializeInlineTarget(campaignExport, scratchCfgDir) : {};
+  const inlineTarget = useInlineTarget ? extractInlineTarget(campaignExport) : {};
+  const scenarioRtdbRules = rawScenario?.rules?.rtdb ?? rawScenario?.rules?.database ?? null;
+  if (scenarioRtdbRules && inlineTarget.rtdbRules) {
+    try {
+      const supplied = parseJsonWithComments(fs.readFileSync(path.resolve(scenarioRtdbRules), 'utf8'));
+      if (stableStringify(supplied) !== stableStringify(inlineTarget.rtdbRules)) {
+        warnings.push({
+          code: 'RULES_DIFFER_FROM_CAMPAIGN',
+          message: `Scenario rules (${scenarioRtdbRules}) differ from the rules the assurance campaign ran against; recording uses the scenario rules.`,
+        });
+      }
+    } catch {
+      // unreadable rules surface later as a sandbox error
+    }
+  }
   let resolvedConfigPath = firebaseConfigPath && fs.existsSync(firebaseConfigPath) ? firebaseConfigPath : null;
   if (!resolvedConfigPath) {
     const defaultCfg = path.join(projectDir, 'firebase.json');
@@ -694,6 +720,7 @@ function prepareIsolatedSandboxInputs({
     (campaignExport?.target?.databaseRulesPath
       ? path.resolve(projectDir, campaignExport.target.databaseRulesPath)
       : null) ??
+    inline.rtdbRulesPath ??
     (arrayRtdbEntry?.rules
       ? path.resolve(cfgDir, arrayRtdbEntry.rules)
       : synthesizedCfg.database?.rules
@@ -705,7 +732,16 @@ function prepareIsolatedSandboxInputs({
     rawScenario?.rules?.database ??
     (campaignExport?.target?.databaseRulesPath
       ? path.resolve(projectDir, campaignExport.target.databaseRulesPath)
-      : null);
+      : null) ??
+    inline.rtdbRulesPath ??
+    null;
+  if (scenarioRtdbRules) {
+    inputs.rules = 'scenario';
+  } else if (campaignExport?.target?.databaseRulesPath) {
+    inputs.rules = 'export-path';
+  } else if (inline.rtdbRulesPath) {
+    inputs.rules = 'campaign-inline';
+  }
 
   if (explicitRtdbRuleOverride && fs.existsSync(explicitRtdbRuleOverride)) {
     const resolvedOverride = path.resolve(explicitRtdbRuleOverride);
@@ -764,6 +800,7 @@ function prepareIsolatedSandboxInputs({
     (campaignExport?.target?.rulesPath
       ? path.resolve(projectDir, campaignExport.target.rulesPath)
       : null) ??
+    inline.firestoreRulesPath ??
     (synthesizedCfg.firestore?.rules ? path.resolve(cfgDir, synthesizedCfg.firestore.rules) : null);
 
   if (fsRuleCandidate && fs.existsSync(fsRuleCandidate)) {
@@ -778,6 +815,7 @@ function prepareIsolatedSandboxInputs({
 
   const storageRuleCandidate =
     rawScenario?.rules?.storage ??
+    inline.storageRulesPath ??
     (synthesizedCfg.storage?.rules ? path.resolve(cfgDir, synthesizedCfg.storage.rules) : null);
   if (storageRuleCandidate && fs.existsSync(storageRuleCandidate)) {
     synthesizedCfg.storage = {
@@ -818,8 +856,28 @@ function prepareIsolatedSandboxInputs({
   fs.writeFileSync(outFirebaseConfigPath, `${JSON.stringify(synthesizedCfg, null, 2)}\n`, 'utf8');
 
   let resolvedSeedPath = seedDir;
+  if (resolvedSeedPath) inputs.seed = 'cli';
   if (!resolvedSeedPath && rawScenario?.seedFile) {
     resolvedSeedPath = path.resolve(projectDir, rawScenario.seedFile);
+    inputs.seed = 'scenario';
+  }
+  if (resolvedSeedPath && inlineTarget.rtdbState !== null && inlineTarget.rtdbState !== undefined) {
+    try {
+      const supplied = readJsonFile(resolvedSeedPath, 'seed');
+      const suppliedDb = isPlainObject(supplied) && 'database' in supplied ? supplied.database : supplied;
+      if (stableStringify(suppliedDb) !== stableStringify(inlineTarget.rtdbState)) {
+        warnings.push({
+          code: 'SEED_DIFFERS_FROM_CAMPAIGN',
+          message: `Seed (${resolvedSeedPath}) differs from the state the assurance campaign ran against; recording uses the supplied seed.`,
+        });
+      }
+    } catch {
+      // seed directories or unreadable seeds are left to the sandbox
+    }
+  }
+  if (!resolvedSeedPath && inline.seedPath) {
+    resolvedSeedPath = inline.seedPath;
+    inputs.seed = 'campaign-inline';
   }
   if (!resolvedSeedPath && initialSeedValue !== undefined && exploitOperation.service === 'database') {
     const seedTree = {};
@@ -834,6 +892,7 @@ function prepareIsolatedSandboxInputs({
     }
     resolvedSeedPath = path.join(scratchCfgDir, 'seed.json');
     fs.writeFileSync(resolvedSeedPath, JSON.stringify({ database: seedTree }, null, 2), 'utf8');
+    inputs.seed = 'probe-state';
   }
 
   const serviceRuleMap = {
@@ -852,6 +911,8 @@ function prepareIsolatedSandboxInputs({
     firebaseConfigPath: outFirebaseConfigPath,
     seedDir: resolvedSeedPath,
     initialRuleFile,
+    warnings,
+    inputs,
   };
 }
 
@@ -1031,6 +1092,7 @@ export async function recordEvidence(options = {}) {
     scenario,
     probe,
     controlOperation,
+    controlSource,
     exploitOperation,
     exploitSnippet,
     controlSnippet,
@@ -1056,6 +1118,16 @@ export async function recordEvidence(options = {}) {
     'anonymous';
   const fixRulesSpec = resolveFixRulesSpec(scenario.fixRules, scenarioBaseDir);
   const hasFix = Boolean(fixRulesSpec);
+  // Only an assurance export can vouch for a fix; hand-written scenarios carry no claim.
+  const fixAssurance =
+    hasFix && campaignPath
+      ? assessFixAssurance({
+          campaignExport,
+          probe,
+          fixRules: fixRulesSpec,
+          method: exploitOperation.method,
+        })
+      : null;
 
   const partialProvenance = buildLockedProvenanceText({
     decision: 'PENDING',
@@ -1110,6 +1182,7 @@ export async function recordEvidence(options = {}) {
     exploitOperation,
     initialSeedValue,
     seedDir,
+    useInlineTarget: Boolean(campaignPath),
   });
 
   let sandbox = null;
@@ -1283,9 +1356,12 @@ export async function recordEvidence(options = {}) {
     const controlDispatchedMs = isAppView
       ? Math.max(200, Math.round(performance.now() - captureStartMs))
       : controlOffsetMs;
+    // The control runs as whoever performed it (an observation's actor), else the victim.
+    const controlToken =
+      (controlOperation.uid ? tokenMap.get(controlOperation.uid) : null) ?? victimToken;
     const controlResult = await sandbox.executeOperation({
       operation: controlOperation,
-      idToken: victimToken,
+      idToken: controlToken,
     });
     const controlSettledMs = isAppView
       ? Math.max(controlDispatchedMs, Math.round(performance.now() - captureStartMs))
@@ -1794,6 +1870,9 @@ export async function recordEvidence(options = {}) {
       denials,
       events: recordedEvents,
       ...(Object.keys(uiFocus).length > 0 ? { uiFocus } : {}),
+      ...(fixAssurance ? { fixAssurance } : {}),
+      inputs: { control: controlSource, ...cfgSetup.inputs },
+      ...(cfgSetup.warnings.length > 0 ? { warnings: cfgSetup.warnings } : {}),
     };
     fs.writeFileSync(
       path.join(bundleDir, 'evidence.json'),
@@ -1824,6 +1903,7 @@ export async function recordEvidence(options = {}) {
         ...(captureArtifact ? { rawCapture: 'raw/capture.json' } : {}),
       },
       recordedAt: new Date().toISOString(),
+      ...(fixAssurance ? { fixAssurance } : {}),
     };
     validateBundleManifest(verifiedManifest);
     fs.writeFileSync(
@@ -1831,6 +1911,12 @@ export async function recordEvidence(options = {}) {
       `${JSON.stringify(verifiedManifest, null, 2)}\n`,
       'utf8',
     );
+
+    const resultExtras = {
+      ...(fixAssurance ? { fixAssurance } : {}),
+      inputs: evidencePayload.inputs,
+      warnings: cfgSetup.warnings,
+    };
 
     // Tear down live sandbox & capture before invoking render.mjs
     await captureBackend?.dispose().catch(() => {});
@@ -1855,6 +1941,7 @@ export async function recordEvidence(options = {}) {
         bundleDir,
         provenanceText: finalProvenanceText,
         gates: { g1: true, g2: true, g3: true, g4: true, g5: hasFix ? true : 'skipped', g6: true },
+        ...resultExtras,
         rendered,
       };
     }
@@ -1866,6 +1953,7 @@ export async function recordEvidence(options = {}) {
       provenanceText: finalProvenanceText,
       backend: captureArtifact ? captureArtifact.backend : 'data-plane',
       gates: { g1: true, g2: true, g3: true, g4: true, g5: hasFix ? true : 'skipped', g6: false },
+      ...resultExtras,
     };
   } catch (err) {
     // If an unexpected runtime error occurred before a gate handler wrote a failure bundle,

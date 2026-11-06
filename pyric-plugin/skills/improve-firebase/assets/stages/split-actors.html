@@ -659,6 +659,26 @@
       transition: color 140ms ease;
     }
 
+    /* Fix slides only: assurance could not confirm the fix. One quiet line, no box. */
+    .assurance-note {
+      font-family: var(--font-sans);
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.45;
+      color: var(--ink-secondary);
+      max-width: 1040px;
+    }
+
+    .slide-inner .assurance-note {
+      margin-top: 28px;
+    }
+
+    .video-canvas .assurance-note {
+      flex: 0 0 auto;
+      margin-top: -8px;
+      font-size: 15px;
+    }
+
     .video-status.is-settled {
       color: var(--ink);
       font-weight: 500;
@@ -984,6 +1004,8 @@
             <ol class="seq-list" id="slideSeqAfter"></ol>
           </div>
         </div>
+
+        <p class="assurance-note" id="slideAssuranceNote" data-pyric-assurance-note hidden></p>
       </div>
     </main>
 
@@ -993,6 +1015,7 @@
         <h2 class="video-title" id="videoHeading">Live verification</h2>
         <div class="video-status" id="videoStatus" hidden></div>
       </header>
+      <p class="assurance-note" id="videoAssuranceNote" data-pyric-assurance-note hidden></p>
 
       <div class="actors-grid">
         <div class="actor-pane">
@@ -1800,6 +1823,11 @@
             leadEl.textContent = subText;
             leadEl.hidden = !subText;
 
+            const slideNoteEl = document.getElementById('slideAssuranceNote');
+            const slideNote = stripMiddots(slide.assuranceNote || '');
+            slideNoteEl.textContent = slideNote;
+            slideNoteEl.hidden = !slideNote;
+
             pathDiagramEl.hidden = true;
             codeSurfaceEl.hidden = true;
             kvListEl.hidden = true;
@@ -1861,6 +1889,10 @@
           activeSlideKey = slideKey;
           const videoHeading = document.getElementById('videoHeading');
           videoHeading.textContent = stripMiddots(slide.title || '');
+          const videoNoteEl = document.getElementById('videoAssuranceNote');
+          const videoNote = stripMiddots(slide.assuranceNote || '');
+          videoNoteEl.textContent = videoNote;
+          videoNoteEl.hidden = !videoNote;
         }
 
         const impactOffset =

@@ -309,6 +309,10 @@ function extractStageEvidence({ scenario, eventsData, extraEvidence, existingMan
   if (uiFocus && typeof uiFocus === 'object') {
     evidence.uiFocus = uiFocus;
   }
+  const fixAssurance = pickFirstDefined(extraEvidence?.fixAssurance, existingManifest?.fixAssurance, null);
+  if (fixAssurance && typeof fixAssurance === 'object') {
+    evidence.fixAssurance = fixAssurance;
+  }
 
   return { evidence, provenanceText };
 }

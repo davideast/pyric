@@ -14,9 +14,10 @@ import {
   BUNDLE_SCHEMA,
   validateScenario,
   buildLockedProvenanceText,
+  buildStagePayload,
   validateBundleManifest,
 } from '../skills/improve-firebase/scripts/lib/contracts.mjs';
-import { probeSystemTools } from '../skills/improve-firebase/scripts/lib/runtime.mjs';
+import { loadPlaywright, probeSystemTools, resolveChromiumExecutable } from '../skills/improve-firebase/scripts/lib/runtime.mjs';
 import {
   sampleFrameAtTime,
   computeStageTimeline,
@@ -1272,4 +1273,118 @@ test('attach-demo starts only after actor views are ready (control.uiReadyAtMs)'
   const behaviorReady = attachStart(behaviorScenario, behaviorEvents({ uiReadyAtMs: 2600 }));
   assert.equal(behaviorReady.sourceStartMs, 2600 + 150);
   assert.ok(behaviorReady.sourceEndMs > behaviorReady.sourceStartMs);
+});
+
+const ENGINE_GAP_NOTE =
+  'Assurance could not confirm this fix (engine gap). The sandbox recording shows the write denied.';
+
+function fixAssuranceTimeline(fixAssurance) {
+  const scenario = makeBaseScenario({ stage: { layout: 'split-actors', aspect: '16:9' } });
+  const target = '/channels/general/messages/msg_alice_1';
+  const events = [
+    { phase: 'control', service: 'database', method: 'set', path: target, decision: 'ALLOW', tMs: 600, dispatchedAtMs: 650, executedAtMs: 850, settledAtMs: 950 },
+    { phase: 'exploit', service: 'database', method: 'set', path: target, decision: 'ALLOW', tMs: 2200, dispatchedAtMs: 2800, executedAtMs: 3150, settledAtMs: 3350 },
+    { phase: 'fix', service: 'database', method: 'set', path: target, decision: 'DENY', tMs: 5600, dispatchedAtMs: 6000, executedAtMs: 6200, settledAtMs: 6400 },
+  ];
+  const evidence = fixAssurance ? { fixAssurance } : null;
+  return { scenario, events, evidence, timeline: computeStageTimeline({ scenario, events, durationMs: 7500, evidence }) };
+}
+
+test('fix slides carry the assurance note only when assurance did not verify the fix', () => {
+  const unverified = fixAssuranceTimeline({ verified: false, reason: 'engine-gap', note: ENGINE_GAP_NOTE });
+  const slides = unverified.timeline.presentation.slides;
+  const withNote = slides.filter((s) => s.assuranceNote).map((s) => s.id);
+  assert.deepEqual(withNote, ['fix-slide', 'fix-video'], 'only the fix slide and fix video carry the note');
+  for (const id of withNote) {
+    assert.equal(slides.find((s) => s.id === id).assuranceNote, ENGINE_GAP_NOTE);
+  }
+  assert.equal(/[·•]/.test(JSON.stringify(slides)), false);
+
+  for (const fa of [null, { verified: true, reason: 'verified' }]) {
+    const quiet = fixAssuranceTimeline(fa).timeline.presentation.slides;
+    assert.equal(quiet.some((s) => 'assuranceNote' in s), false, 'verified or hand-written: nothing extra');
+  }
+});
+
+test('split-actors stage shows the assurance note as plain monochrome text and keeps provenance locked', async (t) => {
+  const stageHtmlPath = path.resolve(TEST_DIR, '../skills/improve-firebase/assets/stages/split-actors.html');
+  const stageHtml = fs.readFileSync(stageHtmlPath, 'utf8');
+  // The locked strip markup is untouched and the note lives in its own element.
+  assert.equal((stageHtml.match(/<span data-pyric-provenance><\/span>/g) || []).length, 1);
+  assert.equal((stageHtml.match(/data-pyric-assurance-note/g) || []).length, 2);
+  const noteCss = stageHtml.slice(stageHtml.indexOf('.assurance-note {'), stageHtml.indexOf('.video-status.is-settled'));
+  assert.equal(/border|background|box-shadow/i.test(noteCss), false, 'the note is not boxed');
+
+  const { chromium } = await loadPlaywright({ projectDir: TEST_DIR });
+  const executablePath = resolveChromiumExecutable(chromium);
+  const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox'] });
+  t.after(() => browser.close());
+
+  const provenanceText = buildLockedProvenanceText({
+    decision: 'ALLOW',
+    fixedDecision: 'DENY',
+    service: 'database',
+    method: 'set',
+    path: '/channels/general/messages/msg_alice_1',
+    actorLabel: 'mallory',
+  });
+  const inspect = async (fixAssurance) => {
+    const { scenario, timeline, evidence } = fixAssuranceTimeline(fixAssurance);
+    const slides = timeline.presentation.slides;
+    const payload = buildStagePayload({
+      scenario,
+      fps: 30,
+      beats: timeline.beats,
+      slides,
+      passes: { exploit: { fps: 30, totalFrames: 1, frames: [] } },
+      evidence: evidence || {},
+      provenanceText,
+    });
+    const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+    await page.addInitScript((p) => {
+      window.__PYRIC_EVIDENCE__ = p;
+    }, payload);
+    await page.goto(`file://${stageHtmlPath}`);
+    await page.waitForFunction(() => typeof window.setFrame === 'function');
+    const read = async (slideId, noteId) => {
+      const slide = slides.find((s) => s.id === slideId);
+      await page.evaluate((tSec) => window.setFrame(tSec), (slide.startMs + slide.endMs) / 2000);
+      return page.evaluate((id) => {
+        const el = document.getElementById(id);
+        const cs = getComputedStyle(el);
+        const prov = document.querySelector('[data-pyric-provenance]');
+        return {
+          visible: !el.hidden && el.getBoundingClientRect().height > 0,
+          text: el.textContent,
+          color: cs.color,
+          borderLeft: cs.borderLeftWidth,
+          background: cs.backgroundColor,
+          provenance: prov.textContent,
+        };
+      }, noteId);
+    };
+    const result = {
+      fixSlide: await read('fix-slide', 'slideAssuranceNote'),
+      fixVideo: await read('fix-video', 'videoAssuranceNote'),
+      whySlide: await read('why-slide', 'slideAssuranceNote'),
+    };
+    await page.close();
+    return result;
+  };
+
+  const gap = await inspect({ verified: false, reason: 'engine-gap', note: ENGINE_GAP_NOTE });
+  for (const view of [gap.fixSlide, gap.fixVideo]) {
+    assert.equal(view.visible, true);
+    assert.equal(view.text, ENGINE_GAP_NOTE);
+    const [r, g, b] = view.color.match(/\d+/g).map(Number);
+    assert.ok(r === g && g === b, `note color must be gray, got ${view.color}`);
+    assert.equal(view.borderLeft, '0px');
+    assert.equal(view.background, 'rgba(0, 0, 0, 0)');
+    assert.equal(view.provenance, provenanceText, 'provenance strip text is unchanged');
+  }
+  assert.equal(gap.whySlide.visible, false, 'the note does not leak onto other slides');
+
+  const verified = await inspect({ verified: true, reason: 'verified' });
+  assert.equal(verified.fixSlide.visible, false);
+  assert.equal(verified.fixVideo.visible, false);
 });
