@@ -86,6 +86,15 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, appProjectIds: [''] } })).toBeNull();
     expect(readLiveHostStatus(null)).toBeNull();
   });
+
+  it('reads the imports the app resolved to live rows, and refuses anything but a list of firebase/* imports', () => {
+    const observed = ['firebase/firestore', 'firebase/auth'];
+    expect(readLiveHostStatus({ live: { ...LIVE, observed } })).toEqual({ ...LIVE, observed });
+    expect(readLiveHostStatus({ live: LIVE })).not.toHaveProperty('observed');
+    expect(readLiveHostStatus({ live: { ...LIVE, observed: 'firebase/firestore' } })).toBeNull();
+    expect(readLiveHostStatus({ live: { ...LIVE, observed: ['firebase/firestore', 'lodash'] } })).toBeNull();
+    expect(readLiveHostStatus({ live: { ...LIVE, observed: ['firebase/firestore', 7] } })).toBeNull();
+  });
 });
 
 describe('createLiveStatusPoller', () => {
