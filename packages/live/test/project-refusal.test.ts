@@ -105,7 +105,10 @@ function databaseCall(
   const real = standIn([name], returned);
   const module: Record<string, Callback> = { ...real.module, getDatabase: () => ({ app, _repoInternal: repo }) };
   const live = wrapLiveModule('live-database', 'firebase/database', module, site);
-  live.getDatabase!(app);
+  // The Database is noted through a row whose observer names no host, so
+  // `getDatabase` judges nothing here and the call under test is what is judged.
+  const unjudged = wrapLiveModule('live-database', 'firebase/database', module, { ...site, observer: hostObserver(undefined).observer });
+  unjudged.getDatabase!(app);
   const ref = { _repo: repo, _path: { toString: () => '/items' } };
   return { ran: real.ran, invoke: () => call(live, ref) };
 }
@@ -659,6 +662,58 @@ describe("getDatabase(app, url) on another project's default instance, on a host
       });
     }
   }
+
+  /** Apps whose config names project `b`, and the field the refusal judges. */
+  const OTHER_CONFIG_APPS: readonly (readonly [unknown, string])[] = [
+    [appOn(OTHER), 'projectId'],
+    [appWith({ databaseURL: `https://${OTHER}-default-rtdb.firebaseio.com` }), 'databaseURL'],
+    [hostAppWith({ databaseURL: `https://${OTHER}-default-rtdb.europe-west1.firebasedatabase.app` }), 'databaseURL'],
+    [hostAppWith({ storageBucket: `${OTHER}.appspot.com` }), 'storageBucket'],
+    [hostAppWith({ authDomain: `${OTHER}.firebaseapp.com` }), 'authDomain'],
+  ];
+
+  for (const client of CLIENTS) {
+    for (const [app, field] of OTHER_CONFIG_APPS) {
+      for (const url of [undefined, HOST_INSTANCE_URLS[0]]) {
+        test(`from ${client}, getDatabase(${JSON.stringify(app)}${url === undefined ? '' : `, ${url}`}) throws PYRIC_LIVE_REFUSED judging ${field}`, () => {
+          const { records, observer } = hostObserver(HOST);
+          const { ran, invoke } = getDatabaseCall(observer, client, app, url);
+          const error = thrown(invoke);
+          expect({ code: error?.code, field: error?.field, appProjectId: error?.appProjectId, hostProjectId: error?.hostProjectId }).toEqual({
+            code: LIVE_REFUSED,
+            field,
+            appProjectId: OTHER,
+            hostProjectId: HOST,
+          });
+          expect(ran).toEqual([]);
+          expect(records).toEqual([]);
+        });
+      }
+    }
+
+    test(`from ${client}, getDatabase(app) runs when the app names the host's project or none`, () => {
+      for (const app of [appOn(HOST), appOn(undefined), hostAppWith({ databaseURL: `https://${HOST}-default-rtdb.firebaseio.com` })]) {
+        const { observer } = hostObserver(HOST);
+        const { ran, invoke } = getDatabaseCall(observer, client, app, undefined);
+        expect(thrown(invoke)).toBeUndefined();
+        expect(ran).toEqual(['getDatabase']);
+      }
+    });
+  }
+
+  test("a config field naming another project is the field judged, ahead of the URL's instance", () => {
+    const { observer } = hostObserver(HOST);
+    const app = hostAppWith({ storageBucket: `${OTHER}.appspot.com` });
+    const error = thrown(getDatabaseCall(observer, 'page', app, OTHER_INSTANCE_URLS[0]).invoke);
+    expect(error?.field).toBe('storageBucket');
+  });
+
+  test("getDatabase(app) of another project's app runs under an observer that names no host project", () => {
+    const { observer } = hostObserver(undefined);
+    const { ran, invoke } = getDatabaseCall(observer, 'node', appOn(OTHER), undefined);
+    expect(thrown(invoke)).toBeUndefined();
+    expect(ran).toEqual(['getDatabase']);
+  });
 
   test("getDatabase(app, url) on another project's instance runs under an observer that names no host project", () => {
     const { observer } = hostObserver(undefined);

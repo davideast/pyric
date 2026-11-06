@@ -15,9 +15,10 @@
  * function that closes the listener's journal activity and then calls the
  * SDK's own unsubscribe.
  *
- * The database row (`database.ts`) also replaces `getDatabase`: a URL that
- * names another project's default instance is refused before the SDK's
- * factory runs, and the Database it returns is noted, so a reference's repo
+ * The database row (`database.ts`) also replaces `getDatabase`: an app whose
+ * config names another project, or a URL that names another project's
+ * default instance, is refused before the SDK's factory runs, and the
+ * Database it returns is noted, so a reference's repo
  * names its app. The OnDisconnect `onDisconnect` returns gets observed
  * methods. Its `off` takes the app's callback and removes the recording one.
  *

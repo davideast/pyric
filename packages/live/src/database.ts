@@ -4,8 +4,9 @@
  * never answers, how its errors spell production's status, and how its
  * listeners and `off()` take their callbacks.
  *
- * `getDatabase(app, url)` on another project's default instance is refused
- * before the SDK's factory runs (`guardedGetDatabase`).
+ * `getDatabase` on an app whose config names another project, or on a URL
+ * naming another project's default instance, is refused before the SDK's
+ * factory runs (`guardedGetDatabase`).
  *
  * A reference has no path to its app: the SDK's `Repo` keeps none. So the row
  * notes each Database `getDatabase` hands the app, mapping its repo
@@ -22,7 +23,7 @@
  * these shapes gives a record without its project, account, instance or path.
  * This file imports no Firebase SDK.
  */
-import { observedCall, refusedTarget, UNOBSERVED, type CallContext, type ObservedSite } from './observe.js';
+import { observedCall, refusedFactory, UNOBSERVED, type CallContext, type ObservedSite } from './observe.js';
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
 type Fields = Record<string, unknown>;
@@ -93,17 +94,19 @@ export function urlInstance(url: unknown): string | undefined {
 }
 
 /**
- * The row's `getDatabase`. `getDatabase(app, url)` on another project's
- * default instance throws the project refusal, field `instance`, before the
- * SDK's factory runs, so the SDK never opens a connection to it, which would
- * carry the account's ID token and the App Check token. An instance that
- * encodes no project, and `getDatabase(app)`, call the SDK's factory, and
- * the Database it returns is noted.
+ * The row's `getDatabase`. When the app's config names another project (its
+ * projectId, or the default form of its databaseURL, storageBucket or
+ * authDomain), or the URL names another project's default instance, it
+ * throws the project refusal naming that field before the SDK's factory
+ * runs, so the SDK never opens a connection, which would carry the
+ * account's ID token and the App Check token. A config field is judged
+ * ahead of the URL. Otherwise it calls the SDK's factory, and the Database
+ * it returns is noted.
  */
 export function guardedGetDatabase(real: Callback, site: Omit<ObservedSite, 'name'>): Callback {
   return function getDatabase(this: unknown, ...args: unknown[]): unknown {
     const instance = urlInstance(args[1]);
-    const refusal = instance === undefined ? null : refusedTarget(site, 'getDatabase', { instance });
+    const refusal = refusedFactory(site, 'getDatabase', args[0], instance === undefined ? {} : { instance });
     if (refusal !== null) throw refusal;
     const db = Reflect.apply(real, this, args);
     noteDatabase(db);

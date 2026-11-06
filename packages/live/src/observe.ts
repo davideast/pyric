@@ -511,14 +511,21 @@ function refusedProject(callSite: ObservedSite): Error | null {
 }
 
 /**
- * The refusal of a call that has not run, judged by the instance or bucket
- * its arguments name, or null when it may run. `getDatabase(app, url)`
- * reaches the instance its URL names before any call a wrapper judges: the
- * SDK opens its connection at `ref()` and sends the account's ID token and
- * the App Check token on it. The app's config is judged where its calls run.
+ * The refusal of a factory call that has not run, or null when it may run:
+ * judged as a call is, by every project `app`'s config names and then by
+ * the instance or bucket its arguments name. `getDatabase` is one: the SDK
+ * opens its connection at `ref()`, before any call a wrapper judges, and
+ * sends the account's ID token and the App Check token on it.
  */
-export function refusedTarget(site: Omit<ObservedSite, 'name'>, name: string, target: Pick<ObservedSite, CallTargetField>): Error | null {
-  return refusedProject({ module: site.module, observer: site.observer, name, ...target });
+export function refusedFactory(
+  site: Omit<ObservedSite, 'name'>,
+  name: string,
+  app: unknown,
+  target: Pick<ObservedSite, CallTargetField>,
+): Error | null {
+  const projectId = projectOf([app]);
+  const named = projectId === undefined ? {} : { projectId };
+  return refusedProject({ module: site.module, observer: site.observer, name, subject: app, ...named, ...target });
 }
 
 function ignoreRejection(returned: unknown): void {

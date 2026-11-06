@@ -15,7 +15,10 @@
  * `getStorage(app, 'gs://...')`), which the host app's config does not name.
  * `getDatabase` itself throws the refusal, judging the instance, before the
  * SDK opens a connection, and a read through the storage is refused judging
- * the bucket. The replay hears nothing of either, not even a connection setup.
+ * the bucket. The second app's own `getDatabase(app)`, whose config names
+ * the other project and its default instance, is refused the same way, by
+ * its projectId. The replay hears nothing of any of them, not even a
+ * connection setup.
  *
  * Both planes learn the host's project from the seam that resolved it: the
  * Vite plugin and the register each hand it to the rows they serve
@@ -59,6 +62,7 @@ declare function signIn(): Promise<Settled>;
 declare function readLobby(name: 'host' | 'other'): Promise<Settled>;
 declare function readOtherInstance(): Promise<Settled>;
 declare function readOtherBucket(): Promise<Settled>;
+declare function readOtherAppDatabase(): Promise<Settled>;
 
 interface Recorded {
   /** The project the recording was made in, and the one `vite.config.js` names. */
@@ -212,9 +216,10 @@ export default scenario(async (app) => {
     return opened;
   });
 
-  await app.step("the host app's database on the other project's RTDB instance and its read of that bucket are refused, and production hears nothing of them", async () => {
+  await app.step("each database on the other project's RTDB instance and the read of its bucket are refused, and production hears nothing of them", async () => {
     expectRefused(await page.evaluate(() => readOtherInstance()), project, 'page', 'instance');
     expectRefused(await page.evaluate(() => readOtherBucket()), project, 'page', 'bucket');
+    expectRefused(await page.evaluate(() => readOtherAppDatabase()), project, 'page', 'projectId');
     await sleep(500);
     assert.deepEqual(await requestsForOther(replay), [], "production received a request for the other project's instance or bucket");
   });
