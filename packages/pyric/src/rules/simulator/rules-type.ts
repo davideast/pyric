@@ -112,7 +112,8 @@ export function compileRe2Regex(method: string, pattern: string, source: string,
 export function re2FullMatch(pattern: string, subject: string): boolean {
   const { unsupported } = scanRe2Pattern(pattern);
   if (unsupported !== null) throw unsupportedConstructError('matches', unsupported);
-  if (!re2PatternCompiles(pattern)) throw new Error(`Invalid regex '${pattern}' in matches()`);
+  const compileError = re2PatternCompileError(pattern);
+  if (compileError !== null) throw new Error(`Invalid regex '${pattern}' in matches(): ${compileError}`);
   return matchesRegexNode(parseSizedRe2Ast(pattern), Array.from(subject));
 }
 
@@ -125,31 +126,49 @@ export function re2FullMatch(pattern: string, subject: string): boolean {
  * `normalizeRe2ForJsRegExp` refuses.
  */
 export function re2PatternCompiles(pattern: string): boolean {
-  const normalized = normalizeRe2ForJsRegExp(pattern);
-  if (jsRegExpCompiles(`^(?:${normalized})$`, '')) return true;
-  return jsRegExpCompiles(`^(?:${spellRe2UnicodeClasses(normalized)})$`, 'u');
+  return re2PatternCompileError(pattern) === null;
 }
 
-function jsRegExpCompiles(source: string, flags: string): boolean {
+/** Why JavaScript refuses `pattern` both ways, as the code-unit RegExp's message, or null. */
+function re2PatternCompileError(pattern: string): string | null {
+  const normalized = normalizeRe2ForJsRegExp(pattern);
+  const codeUnitError = jsRegExpError(`^(?:${normalized})$`, '');
+  if (codeUnitError === null) return null;
+  if (jsRegExpError(`^(?:${spellRe2UnicodeClasses(normalized)})$`, 'u') === null) return null;
+  return codeUnitError;
+}
+
+function jsRegExpError(source: string, flags: string): string | null {
   try {
     new RegExp(source, flags);
-    return true;
-  } catch {
-    return false;
+    return null;
+  } catch (err) {
+    return (err as Error).message;
   }
 }
 
-/** RE2's general categories are one or two letters (`L`, `Nd`), plus `Any`. */
-function isGeneralCategoryName(name: string): boolean {
-  return /^[A-Z][a-z]?$/.test(name) || name === 'Any';
-}
+/**
+ * RE2's general category names. Every other name RE2 reads in `\p{...}` is a
+ * script, including two-letter ones such as `Yi`.
+ */
+const RE2_GENERAL_CATEGORIES: ReadonlySet<string> = new Set([
+  'C', 'Cc', 'Cf', 'Co', 'Cs',
+  'L', 'Ll', 'Lm', 'Lo', 'Lt', 'Lu',
+  'M', 'Mc', 'Me', 'Mn',
+  'N', 'Nd', 'Nl', 'No',
+  'P', 'Pc', 'Pd', 'Pe', 'Pf', 'Pi', 'Po', 'Ps',
+  'S', 'Sc', 'Sk', 'Sm', 'So',
+  'Z', 'Zl', 'Zp', 'Zs',
+  'Any',
+]);
 
 /**
  * Spell RE2's Unicode classes in the form a JavaScript `u` RegExp reads:
  * `\pL` as `\p{L}`, a script such as `\p{Cyrillic}` as `\p{Script=Cyrillic}`,
  * and the negated `\p{^Greek}` as `\P{Script=Greek}`.
  * A JavaScript engine refuses a bare script name under the `u` flag, and the
- * code-unit fallback reads `\p{Cyrillic}` as the letters `p{Cyrillic}`.
+ * code-unit fallback reads `\p{Cyrillic}` as the text `p{Cyrillic}`, which no
+ * single character matches, so the class matched nothing.
  * Production reads script names as RE2 does (#1889): capture
  * `c10-script-classes-and-redos` `sg0` and `sg3`, capture `c9-re2-more` `pg1`.
  */
@@ -159,7 +178,7 @@ function spellRe2UnicodeClasses(source: string): string {
     (whole: string, escapedBackslash: string | undefined, escape: string, caret: string, name: string) => {
       if (escapedBackslash !== undefined) return whole;
       const negated = (escape === 'P') !== (caret === '^');
-      const property = isGeneralCategoryName(name) ? name : `Script=${name}`;
+      const property = RE2_GENERAL_CATEGORIES.has(name) ? name : `Script=${name}`;
       return `\\${negated ? 'P' : 'p'}{${property}}`;
     },
   );

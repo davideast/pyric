@@ -38,6 +38,8 @@ const pyricControls: readonly Case[] = [
   ['script in a negated class', "!'α'.matches('[^\\\\p{Greek}]')"],
   ['general category still reads', "'a'.matches('\\\\p{L}')"],
   ['outside the astral range', "!'😃'.matches('[😀-😂]')"],
+  ['two-letter script Yi', "'ꀀ'.matches('\\\\p{Yi}')"],
+  ['astral range then Yi compiles', "'😀ꀀ'.matches('[😀-😂]\\\\p{Yi}')"],
 ];
 
 const cyrillicGuard = "!request.resource.data.name.matches('.*\\\\p{Cyrillic}.*')";
