@@ -22,6 +22,9 @@ import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import { doc, getFirestore, setDoc } from 'pyric/firestore';
+import { MAX_REGEX_STATES, STATES_MESSAGE, sizeProblem, stateCount } from '../../../src/rules/rtdb/grammar/regex-limits.js';
+import { parseRe2Ast, re2FullMatch, re2SizeRefusal, replaceRe2 } from '../../../src/rules/simulator/rules-type.js';
+import { splitRe2 } from '../../../src/rules/simulator/string-split.js';
 
 type Verdict = 'ALLOW' | 'DENY';
 
@@ -90,6 +93,62 @@ describe('a higher-priority branch that cannot match costs nothing per search', 
       const elapsed = performance.now() - started;
       expect(allowed).toBe(true);
       expect(elapsed).toBeLessThan(400);
+    });
+  }
+});
+
+/**
+ * A capture group is two NFA states, so `stateCount` counts them and a
+ * pattern of nested empty groups is refused before a matcher is built.
+ * Production refuses `(?:(?:(){1000}){1000}){1000}`.
+ */
+describe('capture groups count toward the matcher-state limit', () => {
+  const NESTED_GROUPS = '(?:(?:(){1000}){1000}){1000}';
+
+  test('(?:(){1000}){100} counts 200,000 states, at the limit', () => {
+    expect(stateCount(parseRe2Ast('(?:(){1000}){100}'))).toBe(MAX_REGEX_STATES);
+  });
+
+  test(`${NESTED_GROUPS} is past the state limit`, () => {
+    expect(sizeProblem(parseRe2Ast(NESTED_GROUPS))).toBe(STATES_MESSAGE);
+  });
+
+  const calls = {
+    matches: () => re2FullMatch(NESTED_GROUPS, 'a'),
+    split: () => splitRe2('a', NESTED_GROUPS),
+    replace: () => replaceRe2('a', NESTED_GROUPS, '_'),
+  };
+  for (const [method, call] of Object.entries(calls)) {
+    test(`${method}() refuses ${NESTED_GROUPS} within 2 s`, () => {
+      const refusal = re2SizeRefusal(NESTED_GROUPS, parseRe2Ast(NESTED_GROUPS));
+      expect(refusal).not.toBeNull();
+      const started = performance.now();
+      expect(call).toThrow(refusal!);
+      expect(performance.now() - started).toBeLessThan(2000);
+    });
+  }
+});
+
+/**
+ * Parser readings the capture does not cover, from RE2's syntax: a repeat
+ * after `\Q..\E` applies to its last character, `(?U:...)` is lazy only
+ * inside its group, a trailing `?` makes a counted repeat greedy again under
+ * `(?U)`, and `*` inside a class is a literal.
+ */
+describe('replace() reads RE2 syntax the capture does not cover', () => {
+  const cases: ReadonlyArray<readonly [subject: string, pattern: string, template: string, expected: string]> = [
+    ['abbb', 'a\\Qb\\E*', 'x', 'x'],
+    ['ababb', '\\Qab\\E{2}', 'x', 'abx'],
+    ['aaaa', '(?U:(a+))(a+)', '$1-$2', 'a-aaa'],
+    ['aaaa', '(a+)(?U:(a+))', '$1-$2', 'aaa-a'],
+    ['aaa', '(?U)a{1,3}', 'x', 'xxx'],
+    ['aaa', '(?U)a{1,3}?', 'x', 'x'],
+    ['a*b', '[*]', '-', 'a-b'],
+    ['a*b', '\\*', '-', 'a-b'],
+  ];
+  for (const [subject, pattern, template, expected] of cases) {
+    test(`'${subject}'.replace('${pattern}', '${template}') is '${expected}'`, () => {
+      expect(replaceRe2(subject, pattern, template)).toBe(expected);
     });
   }
 });

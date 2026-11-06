@@ -297,12 +297,13 @@ export function compileRegexSearch(ast: RegexNode): RegexSearch {
   const nfa = buildNfa(ast);
   const closure = new OrderedClosure(nfa.states);
   const liveness = new Liveness(nfa);
-  let subject: readonly string[] | null = null;
-  let live: LiveStates | null = null;
+  // Keyed weakly, so a compiled pattern does not keep its last subject alive.
+  const liveBySubject = new WeakMap<readonly string[], LiveStates | null>();
   return (chars, from, lead) => {
-    if (subject !== chars) {
-      subject = chars;
+    let live = liveBySubject.get(chars);
+    if (live === undefined) {
       live = liveness.of(chars);
+      liveBySubject.set(chars, live);
     }
     return leftmostFirst(nfa, closure, { chars, from, lead, live });
   };
@@ -448,6 +449,9 @@ function withSlot(slots: RegexSlots, slot: number, at: RegexPosition): RegexSlot
 /** Most states times subject positions a `Liveness` pass may visit; past it the VM keeps every thread. */
 const LIVENESS_WORK_LIMIT = 1 << 26;
 
+/** Most bytes of live-state sets a `Liveness` pass may keep; past it the VM keeps every thread. */
+const LIVENESS_BYTES_LIMIT = 1 << 22;
+
 /** For each position of one subject, the NFA states from which a match can still end. */
 interface LiveStates {
   has(state: number, pos: number): boolean;
@@ -475,7 +479,7 @@ class Liveness {
     });
   }
 
-  /** The live states of `chars`, or null when the pass would cost more than `LIVENESS_WORK_LIMIT`. */
+  /** The live states of `chars`, or null when the pass would pass `LIVENESS_WORK_LIMIT` or `LIVENESS_BYTES_LIMIT`. */
   of(chars: readonly string[]): LiveStates | null {
     const size = this.nfa.states.length;
     const tooMuchWork = size * (chars.length + 1) > LIVENESS_WORK_LIMIT;
@@ -490,7 +494,7 @@ class Liveness {
       let id = cacheable ? transitions[after]!.get(ch) : undefined;
       if (id === undefined) {
         id = sets.intern(this.liveAt(chars, pos, after >= 0 ? sets.get(after) : null));
-        if (sets.bytes > LIVENESS_WORK_LIMIT) return null;
+        if (sets.bytes > LIVENESS_BYTES_LIMIT) return null;
         transitions[id] ??= new Map();
         if (cacheable) transitions[after]!.set(ch, id);
       }
