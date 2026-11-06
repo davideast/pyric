@@ -1,0 +1,18 @@
+{
+  "name": "rules-firestore-astral-range-matches",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#229"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"astral-range-matches\" (Coverage: astral class ranges in matches()). A class range over emoji (`[😀-😂]`) compiles and matches by code point in matches(), as production does.",
+  "observedAt": "2026-11-04T02:34:28.077Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "25bc0ee936af0e43ad6f3800451697acc4f002d3723746c3ee6c78b039628c8f"
+  },
+  "behavior": {
+    "ar2: '😀'.matches('[😀-😂]')": "ALLOW"
+  }
+}
