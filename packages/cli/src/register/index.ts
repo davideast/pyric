@@ -31,6 +31,10 @@
  * (`./child-process-guard.js`), so every child process starts with this
  * module in its `NODE_OPTIONS` and in this process's sandbox.
  *
+ * Its HTTP servers answer a loopback process-health request on
+ * `/__pyric/health` as a sandbox process (`./process-health.js`), unless
+ * `PYRIC_PROCESS_HEALTH=off`.
+ *
  * Finally it emits the HANDSHAKE BEACON (`./beacon.js`): a fire-and-forget
  * `POST /__pyric/beacon` when the activator carries a bridge URL, plus a
  * stderr line when the developer asked for detail. That is how `pyric sandbox`
@@ -51,6 +55,7 @@ import { emitBeacon } from './beacon.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { installChildProcessGuard } from './child-process-guard.js';
 import { installRemotePeerMark } from './remote-peer-mark.js';
+import { installProcessHealth, sandboxHost } from './process-health.js';
 import { remoteSandbox } from '../remote/index.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 
@@ -218,6 +223,12 @@ function activate(): void {
   installChildProcessGuard(import.meta.url);
   // A server in this process may forward to the host; keep its clients' peer visible.
   installRemotePeerMark();
+  // Its servers say this is a sandbox process, so a proxy check can catch a live page in front of it.
+  installProcessHealth(() => ({
+    mode: 'sandbox',
+    instanceId: process.env.PYRIC_SANDBOX_INSTANCE,
+    host: sandboxHost(process.env.PYRIC_SANDBOX),
+  }));
 
   // Whether module resolution is actually being intercepted. Both branches
   // below install SOMETHING, but a runtime with neither API installs nothing,
