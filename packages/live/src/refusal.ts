@@ -82,7 +82,7 @@ const SERVED_ON: Readonly<Record<SuppliedRowsPlane, string>> = {
   node: `Live mode serves only ${SERVED} to a Node process, from your installed Firebase SDK.`,
 };
 
-function refused(message: string): Error {
+function refused(message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code: LIVE_REFUSED });
 }
 
@@ -213,22 +213,31 @@ export function liveCallRefusal(refusedCall: RefusedCall, client: LiveClient): E
     'The call threw before any request left. Run the app without @pyric/live to use the sandbox.');
 }
 
-/** The two projects a refused call names: the one its app's config names, and the host's. */
+/** The config fields the project check judges: the project id, and the fields whose default forms encode one. */
+export type ProjectField = 'projectId' | 'databaseURL' | 'storageBucket' | 'authDomain';
+
+/** The two projects a refused call names: the one its app's config names, in `field`, and the host's. */
 export interface ProjectMismatch {
+  readonly field: ProjectField;
   readonly appProjectId: string;
   readonly hostProjectId: string;
 }
+
+/** A project refusal's data: the code, the field judged and both projects, for a caller that reads it without the message. */
+export type LiveProjectRefusal = Error & ProjectMismatch & { readonly code: string };
 
 /**
  * The error for a call through a live row whose app names another project
  * than the host's. `client` is absent when the observer does not name it.
  */
-export function liveProjectRefusal(call: string, projects: ProjectMismatch, client?: LiveClient): Error {
+export function liveProjectRefusal(call: string, projects: ProjectMismatch, client?: LiveClient): LiveProjectRefusal {
   const from = client === undefined ? 'a client' : CLIENT_NAMES[client];
-  return refused(`@pyric/live: ${call} is refused in live mode, from ${from}: ` +
-    `its app's config names the project '${projects.appProjectId}', and this live host serves '${projects.hostProjectId}'. ` +
+  const error = refused(`@pyric/live: ${call} is refused in live mode, from ${from}: ` +
+    `its app's ${projects.field} names the project '${projects.appProjectId}', and this live host serves '${projects.hostProjectId}'. ` +
     `The call threw before any request left. Point the app's config at '${projects.hostProjectId}', ` +
     `or start live mode for '${projects.appProjectId}'.`);
+  const { field, appProjectId, hostProjectId } = projects;
+  return Object.assign(error, { field, appProjectId, hostProjectId });
 }
 
 const WRITER_NAMES: Readonly<Record<PyricWriter, string>> = {
