@@ -1,6 +1,6 @@
 ---
 name: pyric-live
-description: Install @pyric/live from npm or from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore, Realtime Database and Auth call with production's answer. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
+description: Install @pyric/live from npm or from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore, Realtime Database, Cloud Storage and Auth call with production's answer. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
 ---
 
 # Test Pyric's live mode
@@ -19,8 +19,9 @@ Live mode is not a sandbox. Every call reaches a real Firebase project.
 - Every write, account creation, password reset or sign-in link email, and SMS is real. Production
   bills it, and an email or SMS can reach a real person. A write or sign-up can also set off the
   project's Cloud Functions triggers, which may send real email or SMS.
-- Write only new documents, under a collection the owner names or under a unique test prefix such
-  as `pyric-live-test-<time>`. Never change or delete existing documents.
+- Write only new documents and files, under a collection or path the owner names or under a unique
+  test prefix such as `pyric-live-test-<time>`. Never change or delete existing documents or files.
+  Delete the files you uploaded when you finish.
 - Never change the app's code, queries or listeners to make a test cheaper or safer. Live mode
   observes what the app does; a changed app makes the observation worthless.
 - Your own test reads, queries and listeners target only the documents you wrote under your test
@@ -192,12 +193,19 @@ Work through these and record the observed result for each. Each line states wha
    doesn't name the instance yet. A `.info/connected` listener makes no row. RTDB listeners don't
    show in the chip's Data tab or Studio's Listeners view yet, and RTDB calls don't raise the
    billed-call count; neither is a finding.
-4. **Auth.** Sign up and sign in with a test account. Each call is a row with production's answer.
+4. **Cloud Storage.** An upload, `getMetadata`, `getBytes`, `list` and `deleteObject` under the test
+   prefix each appear as a row served by production, named with its service (such as
+   `storage.uploadBytes`) and showing a `gs://<bucket>/<path>` path. An `uploadBytesResumable` task
+   is one row, however many chunks it sends. A call on a second bucket names that bucket. A call
+   the rules deny shows `storage/unauthorized` and reads "Production denied". Fetching a
+   `getDownloadURL` URL makes no row, and Storage calls don't raise the billed-call count; neither
+   is a finding.
+5. **Auth.** Sign up and sign in with a test account. Each call is a row with production's answer.
    Skip this step if the project sends mail on sign-up (a Functions trigger or an Auth email
    setting), unless the owner agrees.
-5. **Node process.** A process under `@pyric/live/register` prints
+6. **Node process.** A process under `@pyric/live/register` prints
    `reporting calls to the live host at <url>`, and its calls appear as rows from a Node process.
-6. **Refusals.** Each throws an error with the code `PYRIC_LIVE_REFUSED` before any request
+7. **Refusals.** Each throws an error with the code `PYRIC_LIVE_REFUSED` before any request
    leaves, and says what was refused:
    - importing `firebase/functions` (Cloud Functions);
    - a named Firestore database, such as `getFirestore(app, 'reports')`;
@@ -213,19 +221,19 @@ Work through these and record the observed result for each. Each line states wha
    the list from its live host's `/__pyric/health`, prints a line for each import, and passes the
    same ones to its children and workers. Start the process after the host; a process started
    with no live host, or under `pyric-live`, which takes no list, still refuses them.
-7. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
+8. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
    `PYRIC_REAL_SDK_STOPPED`.
-8. **Own requests blocked.** A Node process's global `fetch` to Firestore rejects with
-   `TypeError('fetch failed')`, whose `cause.code` is `PYRIC_GUARD_BLOCKED`. That process's own
-   stderr names the host.
-9. **Billed-call count.** The chip and Studio count goes up as calls production answers with
-   success. Reads and writes count once per call, not per document; listener deliveries count the
-   documents delivered. A denied call is not counted.
+9. **Own requests blocked.** A Node process's global `fetch` to Firestore, or of a Storage download
+   URL, rejects with `TypeError('fetch failed')`, whose `cause.code` is `PYRIC_GUARD_BLOCKED`. That
+   process's own stderr names the host.
+10. **Billed-call count.** The chip and Studio count goes up as calls production answers with
+    success. Reads and writes count once per call, not per document; listener deliveries count the
+    documents delivered. A denied call is not counted.
 
 Live mode can't see some calls, so a missing row for one of these is not a finding: an `import()`
 of the exact URL of an SDK file the page already loaded, or that URL with a fragment; the page's
-own `fetch` to the Firestore REST API, Auth or App Check; and, in a Node process, a connection
-opened with `http2`, `tls`, `@grpc/grpc-js` or `undici`, or an `http.request` through a `CONNECT`
+own `fetch` to the Firestore REST API, Auth, App Check or a Storage download URL; and, in a Node
+process, a connection opened with `http2`, `tls`, `@grpc/grpc-js` or `undici`, or an `http.request` through a `CONNECT`
 proxy tunnel. A host also names at most eight projects in its label and warning.
 
 ## When something breaks
