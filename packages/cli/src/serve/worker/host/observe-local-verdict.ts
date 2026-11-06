@@ -12,7 +12,9 @@
  * A call may carry its token's claim values (`request.auth.token`), the data
  * a Firestore write sent (`request.resource.data`) and the document a
  * Firestore read returned (`resource.data`); the host feeds them to the
- * simulator from memory and keeps them off the event. It never carries a
+ * simulator from memory and keeps them off the event, except as the scalar
+ * check values a Firestore verdict's trace holds, as a sandbox request's
+ * `rulesEvidence` does, with the account's email left out. It never carries a
  * `get()` or `exists()` document, an RTDB write's value or a query. A
  * verdict that rests on data the call did not carry is `unevaluated`,
  * naming what it needed, rather than a guess the local rules would not make
@@ -23,6 +25,7 @@ import { rtdbRules, type RtdbRulesJson } from 'pyric/rules';
 import { projectEvaluatedRule, type TestCase, type TestResult } from 'pyric/rules/internal';
 import { getActiveRules } from 'pyric/sandbox/database';
 import {
+  captureRulesEvidence,
   getInternalEnv,
   LOCKED_DATABASE_RULES,
   observedMethod,
@@ -37,13 +40,22 @@ type LocalVerdict = NonNullable<ObservedProduction['local']>;
 type Gap = Extract<LocalVerdict, { result: 'unevaluated' }>['needs'][number];
 type Decided = Extract<LocalVerdict, { result: 'allow' | 'deny' }>;
 type Rule = Decided['rule'];
+type Trace = NonNullable<Decided['trace']>;
+type TraceCheck = Trace['rules'][number]['checks'][number];
 
-/** One method's local answer: allowed or not, the deciding rule, and the data it needed. */
+/** One method's local answer: allowed or not, the deciding rule, the data it needed, and its evaluation trace. */
 export interface Evaluation {
   allowed: boolean;
   rule: Rule;
   needs: Gap[];
+  trace?: Trace;
 }
+
+/** The largest trace, as JSON, a verdict keeps; a larger one is dropped and the verdict kept. */
+const TRACE_LIMIT = 16 * 1024;
+
+/** The trace's rules version: the host's loaded rules, which a sandbox request's random id does not name. */
+const LOCAL_TRACE_VERSION = 'local-rules';
 
 /** The order a verdict lists its gaps in. */
 const GAP_ORDER: readonly Gap[] = ['stored-document', 'write-data', 'claim-values', 'query'];
@@ -127,16 +139,52 @@ function definedOnly<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
 }
 
+/** The email values the call's claims carry, top level or among its sign-in identities. */
+function emailsOf(call: ObservedCall): string[] {
+  const claims = call.account?.claims;
+  if (claims === undefined) return [];
+  const firebase = claims.firebase as { identities?: { email?: unknown } } | undefined;
+  const identityEmails = firebase?.identities?.email;
+  const listed = Array.isArray(identityEmails) ? identityEmails : [];
+  return [claims.email, ...listed].filter((value): value is string => typeof value === 'string' && value !== '');
+}
+
+/** A check with its value or error left out when it holds one of `emails`. */
+function checkWithoutEmail(check: TraceCheck, emails: string[]): TraceCheck {
+  let text: string | undefined;
+  if (check.state === 'value' && typeof check.value === 'string') text = check.value;
+  if (check.state === 'error') text = check.error;
+  const holdsEmail = text !== undefined && emails.some((email) => text.includes(email));
+  if (!holdsEmail) return check;
+  const { value: _value, error: _error, ...location } = check as TraceCheck & { value?: unknown; error?: unknown };
+  return { ...location, state: 'unavailable' };
+}
+
+/**
+ * The trace a verdict keeps: the evaluation's, with the account's email
+ * left out of every check, or `undefined` when it is larger than the cap.
+ */
+function keptTrace(call: ObservedCall, trace: Trace | undefined): Trace | undefined {
+  if (trace === undefined) return undefined;
+  const emails = emailsOf(call);
+  const rules = trace.rules.map((rule) => ({ ...rule, checks: rule.checks.map((check) => checkWithoutEmail(check, emails)) }));
+  const kept = { ...trace, rules };
+  const tooLarge = JSON.stringify(kept).length > TRACE_LIMIT;
+  return tooLarge ? undefined : kept;
+}
+
 /** An evaluation as a verdict: unevaluated when it needed data, else flagged as drift when it disagrees with production. */
 function verdictOf(call: ObservedCall, evaluation: Evaluation): LocalVerdict {
   if (evaluation.needs.length > 0) return { result: 'unevaluated', needs: evaluation.needs };
   const { allowed, rule } = evaluation;
   const production = productionVerdict(call.outcome);
   const disagrees = (production === 'ok' && !allowed) || (production === 'denied' && allowed);
+  const trace = keptTrace(call, evaluation.trace);
   return {
     result: allowed ? 'allow' : 'deny',
     ...(rule === undefined ? {} : { rule }),
     ...(disagrees ? { drift: true as const } : {}),
+    ...(trace === undefined ? {} : { trace }),
   };
 }
 
@@ -208,7 +256,7 @@ function evaluateFirestore(simulate: FirestoreSimulate, call: ObservedCall, path
   const needs = looked ? unionOf(['stored-document'], gaps) : gaps;
   const deciding = projectEvaluatedRule(result);
   const rule = deciding === undefined ? undefined : definedOnly({ line: deciding.line, expression: deciding.expression });
-  return { allowed, rule, needs };
+  return { allowed, rule, needs, trace: captureRulesEvidence(result, LOCAL_TRACE_VERSION) };
 }
 
 /**
