@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#220","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production applies the allow on a root /{path=**} block; pyric resolves only the root's children","issue":"#1894"}
