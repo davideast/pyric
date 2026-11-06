@@ -118,6 +118,37 @@ describe('host: observed calls', () => {
     expect(unnamed).not.toHaveProperty('instance');
   });
 
+  it('writes an AI call with its model and token counts, and never a response', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const pageId = await subscribe(ctx, page);
+    const call = {
+      service: 'ai',
+      method: 'generateContent',
+      at: 1,
+      durationMs: 80,
+      outcome: { status: 'ok' },
+      projectId: 'demo-project',
+      ai: { model: 'models/gemini-flash-lite-latest', usage: { promptTokenCount: 9, candidatesTokenCount: 2, totalTokenCount: 11 } },
+    };
+    expect(await observe(ctx, page, { call })).toMatchObject({ ok: true });
+    const [event] = streamed(page);
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'ai',
+      method: 'generateContent',
+      path: 'models/gemini-flash-lite-latest',
+      caller: { kind: 'page', pageId },
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      production: { outcome: { status: 'ok' } },
+      observation: {
+        status: 'completed',
+        ai: { requestedModel: 'models/gemini-flash-lite-latest', engine: 'gemini', usageSource: 'backend', inputTokens: 9, outputTokens: 2, totalTokens: 11 },
+      },
+    });
+    expect(event?.kind === 'operation' ? event.observation : undefined).not.toHaveProperty('response');
+  });
+
   it('refuses a malformed record with invalid-argument and writes nothing', async () => {
     const ctx = makeCtx();
     const page = fakePort();
@@ -131,6 +162,9 @@ describe('host: observed calls', () => {
       { ...DENIED_READ, outcome: { status: 'error' } },
       { ...DENIED_READ, account: { uid: 'alice', token: 'eyJ' } },
       { ...DENIED_READ, caller: { kind: 'admin' } },
+      { ...DENIED_READ, ai: { model: 'models/gemini-flash-lite-latest' } },
+      { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m', text: 'Hello' } },
+      { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m', usage: { totalTokenCount: '11' } } },
     ];
     for (const call of malformed) {
       const reply = await observe(ctx, page, { call });

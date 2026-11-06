@@ -49,6 +49,9 @@ export function aiUsageEvidence(usage: AiUsageMetadata | undefined, modelVersion
   };
 }
 
+/** The host the Firebase AI Logic SDK sends every production call to. */
+export const AI_LOGIC_ENDPOINT = 'https://firebasevertexai.googleapis.com';
+
 /** Strip credentials, paths, and query parameters from diagnostic endpoints. */
 export function aiEndpoint(value?: string): string | undefined {
   if (!value) return;
