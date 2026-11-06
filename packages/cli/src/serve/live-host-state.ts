@@ -51,7 +51,16 @@ export interface LiveHostStateInput {
   warn(line: string): void;
   /** The `firebase/*` imports the app's installed SDK serves unwrapped and unobserved (`pyricLive({ passThrough })`). */
   passThrough?: readonly string[];
+  /**
+   * The `firebase/*` imports the app resolved to live rows, in the order it
+   * first imported them. The app imports after the host starts, so the report
+   * reads this each time: a live set, or a function that returns the list.
+   */
+  observed?: ObservedImportsSource;
 }
+
+/** Where the report reads the imports the app resolved to live rows. */
+export type ObservedImportsSource = Iterable<string> | (() => Iterable<string>);
 
 /** Where a project came from, as the developer set it. */
 export function projectSourceName(source: FirebaseProjectSource | undefined, optionName: string): string {
@@ -100,6 +109,14 @@ function replyIn(message: BridgeMessage): { key: string; ok: boolean } | null {
   return { key: pendingKey(message.clientSessionId, reply.id), ok: reply.ok };
 }
 
+/** The observed field of a report: each import once, in first-import order, and absent when there are none. */
+function observedField(source: ObservedImportsSource | undefined): { observed?: string[] } {
+  if (source === undefined) return {};
+  const imports = typeof source === 'function' ? source() : source;
+  const observed = [...new Set(imports)];
+  return observed.length === 0 ? {} : { observed };
+}
+
 export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const configSource = projectSourceName(input.configSource, input.optionName);
   const appProjectIds: string[] = [];
@@ -116,6 +133,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     appProjectIds: [...appProjectIds],
     billed: billed.count(),
     ...passThroughField,
+    ...observedField(input.observed),
   });
 
   const noteProject = (projectId: string | undefined): void => {
