@@ -128,6 +128,14 @@ describe('the live host state', () => {
     expect(live.report().projectId).toBe('staging');
   });
 
+  it('reports the Admin pass-through apart from the passed-through imports', () => {
+    const input = { configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined } as const;
+    expect(createLiveHostState(input).report()).not.toHaveProperty('admin');
+    const live = createLiveHostState({ ...input, adminPassThrough: true });
+    expect(live.report().admin).toEqual({ mode: 'pass-through', observed: false, bypassesRules: true });
+    expect(live.report()).not.toHaveProperty('passThrough');
+  });
+
   it('names each project source as the developer set it', () => {
     expect(projectSourceName('firebaserc', '--project')).toBe('.firebaserc');
     expect(projectSourceName('firebase-use', '--project')).toBe('`firebase use`');

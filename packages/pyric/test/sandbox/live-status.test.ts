@@ -117,6 +117,14 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, observed: ['firebase/firestore', 7] } })).toBeNull();
   });
 
+  it('reads the Admin pass-through, and drops a malformed one without losing the status', () => {
+    const admin = { mode: 'pass-through', observed: false, bypassesRules: true };
+    expect(readLiveHostStatus({ live: { ...LIVE, admin } })).toEqual({ ...LIVE, admin });
+    expect(readLiveHostStatus({ live: LIVE })).not.toHaveProperty('admin');
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: { ...admin, mode: 'observed' } } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: 'pass-through' } })).toEqual(LIVE);
+  });
+
   it('reads the clients connected to the host, and drops a malformed entry without losing the status', () => {
     const page = { kind: 'browser', clientId: 'profile-1', label: '/orders', user: 'user-1', lastSeen: 1000 };
     const worker = { kind: 'service-worker', clientId: 'profile-1', user: null, lastSeen: 1000 };
