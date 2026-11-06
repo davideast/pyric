@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 134,
+    "numerator": 132,
     "denominator": 140,
-    "ratio": 0.9571428571428572,
-    "percent": 95.7
+    "ratio": 0.9428571428571428,
+    "percent": 94.3
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 135,
-      "diverged": 3,
+      "verified": 133,
+      "diverged": 5,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 134,
-    "diverged": 3,
+    "conformant": 132,
+    "diverged": 5,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -232,6 +232,7 @@
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -361,6 +362,7 @@
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -402,6 +404,7 @@
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -662,6 +665,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -1270,16 +1274,19 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "list-and-string-methods",
-        "simulator-language-semantics"
+        "simulator-language-semantics",
+        "string-case-mapping"
       ],
       "verifiedByRows": [
         "firestore-rules#196"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#229"
+      ]
     },
     "firestore.method.string.upper": {
       "productionAcceptance": "accepted",
@@ -1290,13 +1297,16 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "list-and-string-methods"
+        "list-and-string-methods",
+        "string-case-mapping"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#229"
+      ]
     },
     "firestore.method.string.trim": {
       "productionAcceptance": "accepted",
@@ -1331,6 +1341,7 @@
         "list-and-string-methods",
         "re2-pattern-semantics",
         "split-and-trim-edges",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts"
       ],
@@ -2390,6 +2401,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -2914,6 +2926,7 @@
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -3042,6 +3055,7 @@
         "rules-version-1-recursive-glob",
         "simulator-language-semantics",
         "split-and-trim-edges",
+        "string-case-mapping",
         "string-literals-and-regex",
         "timestamp-component-accessors",
         "undefined-field-access",
@@ -3106,6 +3120,7 @@
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -3210,6 +3225,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -3324,6 +3340,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
@@ -3398,6 +3415,7 @@
         "simulator-language-semantics",
         "split-and-trim-edges",
         "strict-boolean-control-flow",
+        "string-case-mapping",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
