@@ -212,6 +212,24 @@ describe('host: observed calls', () => {
     expect(event).not.toHaveProperty('path');
   });
 
+  it("writes production's usage and billed documents onto the event's production side", async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const pageId = await subscribe(ctx, page);
+    const usage = { documentReads: 3, payloadBytes: 640 };
+    const call = { service: 'firestore', method: 'onSnapshot', path: 'rooms', at: 1, outcome: { status: 'ok' }, usage, billedDocuments: 3 };
+    expect(await observe(ctx, page, { call })).toMatchObject({ ok: true });
+    const [event] = streamed(page);
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'firestore',
+      method: 'onSnapshot',
+      caller: { kind: 'page', pageId },
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+    });
+    expect(event?.kind === 'operation' ? event.production : undefined).toEqual({ outcome: { status: 'ok' }, usage, billedDocuments: 3 });
+  });
+
   it('refuses a malformed record with invalid-argument and writes nothing', async () => {
     const ctx = makeCtx();
     const page = fakePort();
@@ -232,6 +250,9 @@ describe('host: observed calls', () => {
       { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m', text: 'Hello' } },
       { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m', usage: { totalTokenCount: '11' } } },
       { ...DENIED_READ, requests: [{ api: 'installations', action: 'create', status: 200 }] },
+      { ...DENIED_READ, usage: { documentReads: -1 } },
+      { ...DENIED_READ, usage: { documentReads: 1.5 } },
+      { ...DENIED_READ, usage: { documentReads: 1, bytes: 9 } },
       { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, requests: [{ api: 'registrations', action: 'subscribe' }] },
       { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, requests: [{ api: 'registrations', action: 'create', token: 'dGVzdEZpZDAxMjM0NTY3:APA91bH7xVb0nU3sKq9Yw2Zr5tLp8mQe4cJd6fGh1iOa' }] },
     ];
