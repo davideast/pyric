@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { extractHosting, runServe, serveJsonLine, startServe, wantsSpaRewrite, type ServeRuntime } from '../../src/cli/serve.js';
+import { extractHosting, runServe, serveJsonLine, startServe, undeployedStorageLine, wantsSpaRewrite, type ServeRuntime } from '../../src/cli/serve.js';
 import { parseArgs } from '../../src/cli/index.js';
 import { silentServeLogger, type ServeLogger } from '../../src/serve/server.js';
 import { CAPTURE_RELATIVE_PATH } from '../../src/serve/capture-store.js';
@@ -280,6 +280,15 @@ describe('hosting config helpers', () => {
     expect(wantsSpaRewrite({ rewrites: [{ source: '/api/**', destination: '/fn' }] })).toBe(false);
     expect(wantsSpaRewrite(null)).toBe(false);
   });
+});
+
+describe('undeployed Storage startup line', () => {
+  for (const hasNoStorageRules of [true, false]) {
+    it(`says buckets without rules are open only under the allow policy (no rules at all: ${hasNoStorageRules})`, () => {
+      expect(undeployedStorageLine(hasNoStorageRules, 'allow').includes('permissive mode')).toBe(true);
+      expect(undeployedStorageLine(hasNoStorageRules, 'deny').includes('permissive mode')).toBe(false);
+    });
+  }
 });
 
 describe('/__pyric/capture endpoint (serve-capture)', () => {

@@ -164,6 +164,32 @@ describe('install', () => {
     expect((simulated.data as { allowed: boolean }).allowed).toBe(false);
   });
 
+  it('refuses a default-bucket install when buckets deploy by name and the default bucket\'s name is unknown (#1313)', async () => {
+    const sandbox = initializeSandbox();
+    installServedStorageRules(sandbox, {
+      storageRules: null,
+      projectKey: `/project-${Math.random()}`,
+      storageBucketRules: {
+        'media-bucket': { rules: OPEN_RULES, rulesHash: 'm' },
+        'demo-app.appspot.com': { rules: SIGNED_IN_ONLY_RULES, rulesHash: 'd' },
+      },
+    });
+    // No page has connected, so the host does not know the app's storageBucket.
+    const ctx = createSurfaceContext(sandbox);
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: 'demo-app.appspot.com' }, `app-${Math.random()}`);
+    const upload = async (): Promise<string> =>
+      uploadBytes(ref(appStorage(app), 'uploads/a.txt'), new Uint8Array([1])).then(
+        () => 'ok',
+        (error: { code?: string }) => error.code ?? String(error),
+      );
+
+    const installed = await STORAGE_RULES.install(ctx, OPEN_RULES);
+    expect(installed.ok).toBe(false);
+    expect(installed.data).toEqual({ code: 'default-bucket-name-unknown' });
+    // The bucket keeps the rules firebase.json deployed to it.
+    expect(await upload()).toBe('storage/unauthorized');
+  });
+
   it('installs a parsed source', async () => {
     const result = await STORAGE_RULES.install(freshContext(), OPEN_RULES);
     expect(result.ok).toBe(true);
