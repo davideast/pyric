@@ -279,14 +279,16 @@ const ADMIN_HOSTS: ReadonlySet<string> = new Set([ADMIN_STORAGE_HOST, ADMIN_KEYS
 const ADMIN_STORAGE_TOKEN_PATH = '/oauth2/v4/token';
 
 /**
- * A request path as a server reads it: without its query or fragment, and
- * percent-decoded, or null when it cannot be decoded, still holds an escape
- * after decoding, or has a `.` or `..` segment or a backslash. So
- * `/robot/v1/metadata/x509/../../drive/v3/files`, and its `%2e%2e` and
- * `%252e` spellings, never read as a key path.
+ * A request path as a server reads it: without its query, and
+ * percent-decoded, or null when it holds a literal `#`, cannot be decoded,
+ * still holds an escape after decoding, or has a `.` or `..` segment or a
+ * backslash. So `/robot/v1/metadata/x509/../../drive/v3/files`, its `%2e%2e`
+ * and `%252e` spellings, and `/robot/v1/metadata/x509/#/../../drive`, never
+ * read as a key path.
  */
 function decodedPath(path: string): string | null {
-  const bare = path.replace(/[?#].*$/, '');
+  if (path.includes('#')) return null;
+  const bare = path.replace(/\?.*$/, '');
   let decoded: string;
   try {
     decoded = decodeURIComponent(bare);
@@ -348,7 +350,8 @@ function isAdminCaller(passed: PassedThrough): boolean {
  * pass from a file of its tree.
  */
 export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), passed: PassedThrough = NOTHING_PASSED): EgressRule {
-  return (hostname, path) => {
+  return (target, targetPath) => {
+    const { hostname, path } = requestTarget(target, targetPath);
     const tokenRefusal = evaluateEgress(hostname, { mode: 'block', endpoints }, path);
     if (tokenRefusal !== null) {
       const isAdminToken = isAdminTokenSource(tokenRefusal, path) && isAdminCaller(passed);
@@ -381,19 +384,36 @@ export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), pass
   };
 }
 
+/** A full-URL request target's scheme and authority, `http://host:port`. */
+const URL_AUTHORITY = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i;
+
+/**
+ * The host and path a check judges. A forward-proxy request names its
+ * destination as a full URL, which reaches the rule as the host with no
+ * path, or as the path itself; its path is read from that URL, as written,
+ * so a `..` segment is still there to refuse. A `CONNECT` target,
+ * `host:port`, is a tunnel and names no path.
+ */
+function requestTarget(target: string, path: string | undefined): { hostname: string; path: string | undefined } {
+  const pathAuthority = path === undefined ? null : URL_AUTHORITY.exec(path);
+  if (pathAuthority !== null && path !== undefined) return { hostname: pathAuthority[0], path: pathOfUrl(path, pathAuthority[0]) };
+  const targetAuthority = URL_AUTHORITY.exec(target);
+  if (targetAuthority === null) return { hostname: target, path };
+  return { hostname: target, path: pathOfUrl(target, targetAuthority[0]) };
+}
+
+/** The path a full URL names, `/` when it names none. */
+function pathOfUrl(url: string, authority: string): string {
+  const rest = url.slice(authority.length);
+  return rest === '' ? '/' : rest;
+}
+
 /** FCM's send API, which `firebase-admin/messaging` reaches. */
 const FCM_HOST = 'fcm.googleapis.com';
 const FCM_REASON = 'in live mode firebase-admin/messaging does not work yet: sending real pushes from this process ' +
   'needs its own live rows, which live mode does not have';
 const FCM_REMEDY = 'Send messages from a process without @pyric/live/register';
 
-/**
- * Whether `host` is one of the live host's project's own Realtime Database
- * hosts: its default instance, `<project>-default-rtdb.firebaseio.com` or
- * `<project>-default-rtdb.<region>.firebasedatabase.app`, and the legacy
- * `<project>.firebaseio.com` an older project's databaseURL names. Another
- * project's, and any other instance, is not.
- */
 /**
  * Whether `host` is a Realtime Database shard, which a connection moves to
  * after its handshake: `s-<shard>.firebaseio.com` or
@@ -409,6 +429,13 @@ function isDatabaseShardHost(host: string): boolean {
   return isShardLabel && (isLegacy || isRegional);
 }
 
+/**
+ * Whether `host` is one of the live host's project's own Realtime Database
+ * hosts: its default instance, `<project>-default-rtdb.firebaseio.com` or
+ * `<project>-default-rtdb.<region>.firebasedatabase.app`, and the legacy
+ * `<project>.firebaseio.com` an older project's databaseURL names. Another
+ * project's, and any other instance, is not.
+ */
 function isProjectDatabaseHost(host: string, passed: PassedThrough): boolean {
   const projectId = passed.adminProjectId?.() ?? null;
   if (projectId === null || projectId === '') return false;

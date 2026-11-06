@@ -649,10 +649,28 @@ describe('the network guard for firebase-admin, listed', () => {
       ['www.googleapis.com', '/robot/v1/metadata/x509/%252e%252e/drive/v3/files'],
       ['www.googleapis.com', '/robot/v1/metadata/x509/..%2f..%2f..%2fdrive/v3/files'],
       ['www.googleapis.com', '/robot/v1/metadata/x509/%5c..%5cdrive'],
+      ['www.googleapis.com', '/robot/v1/metadata/x509/#/../../../drive/v3/files'],
+      ['www.googleapis.com', '/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com#'],
       ['demo-default-rtdb.firebaseio.com', '/.json'],
       ['s-usc1a-nss-2001.firebaseio.com', '/.json'],
     ];
     expect(destinations.map(([host, path]) => fromTree(host, path)?.verdict)).toEqual(destinations.map(() => 'block'));
+  });
+
+  test('reads the path from a full-URL request target, as the host or as the path, before judging it', () => {
+    const fromTree = liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => false, isAdminSdkFile: () => true });
+    const keys = 'http://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+    expect(fromTree(keys, undefined)).toBeNull();
+    expect(fromTree('www.googleapis.com', keys)).toBeNull();
+    const refused = [
+      'http://www.googleapis.com/drive/v3/files',
+      'http://www.googleapis.com:80/robot/v1/metadata/x509/../../../drive/v3/files',
+      'http://www.googleapis.com',
+      'http://s-usc1a-nss-2001.firebaseio.com/.json',
+    ];
+    expect(refused.map((target) => fromTree(target, undefined)?.verdict)).toEqual(refused.map(() => 'block'));
+    expect(refused.map((target) => fromTree('proxy.internal', target)?.verdict)).toEqual(refused.map(() => 'block'));
+    expect(fromTree('www.googleapis.com:443', undefined)).toBeNull();
   });
 
   test("lets its token fetch, socket and https.request out, and refuses the app's own", async () => {
