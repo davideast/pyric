@@ -370,6 +370,14 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         return true;
       }
       if (isHealthRequest) {
+        // The report lists live users, so a page whose name rebinds to
+        // 127.0.0.1 must not read it, whatever `allowedHosts` opens.
+        const boundHost = opts.upgradeGuard?.boundHost ?? 'localhost';
+        const namesOtherHost = !isAllowedHost(getHeader(req, 'host'), boundHost);
+        if (namesOtherHost) {
+          res.writeHead(403).end();
+          return true;
+        }
         const live = opts.liveHost === undefined ? {} : { live: opts.liveHost.report() };
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ...bridge.health(), ...live }));
         return true;
