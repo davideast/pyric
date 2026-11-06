@@ -15,6 +15,8 @@ import { SDK_VERSION } from './sdk-version.js';
  */
 export function normalizeNode(value: unknown): JsonValue {
   if (value === null || value === undefined) return null;
+  // JSON writes `-0` as `0`, so production stores `0` (#2160).
+  if (value === 0) return 0;
   if (typeof value !== 'object') return value as JsonValue;
 
   // Array → integer-keyed object. Holes / null / undefined elements are
