@@ -17,12 +17,16 @@ export type ProductionOutcome =
   | { status: 'error'; code: string };
 
 /**
- * The signed-in account a call ran as: the account id and the names of its
- * token claims. Never the token, and never a claim's value.
+ * The signed-in account a call ran as: the account id, the names of its
+ * token claims, and their values. Never the token. The values stay in the
+ * host's memory, emails left out, so the local rules can read
+ * `request.auth.token`; no event holds them.
  */
 export interface ObservedAccount {
   uid: string;
   claimNames?: string[];
+  /** The token's claims by name, as JSON values. Absent when the client did not send them. */
+  claims?: Record<string, unknown>;
 }
 
 /**
@@ -144,6 +148,18 @@ export interface ObservedCall {
    * Refused on any other call; the event carries them as `detail.requests`.
    */
   requests?: ObservedRequest[];
+  /**
+   * `firestore` only: the fields a `setDoc`, `updateDoc` or `addDoc` wrote,
+   * as JSON values, so the local rules can read `request.resource.data`.
+   * Memory only, emails left out; no event holds them.
+   */
+  writeData?: Record<string, unknown>;
+  /**
+   * `firestore` only: the fields of the document an allowed read returned,
+   * as JSON values, so the local rules can read `resource.data`. Memory
+   * only, emails left out; no event holds them.
+   */
+  document?: Record<string, unknown>;
 }
 
 /**
@@ -167,7 +183,7 @@ export interface ObservedProduction {
 }
 
 /**
- * Data a local evaluation needed and an observed call does not carry: a
+ * Data a local evaluation needed and an observed call did not carry: a
  * stored document (`resource`, `get()`, `exists()`, or an RTDB `data` or
  * `root`), the written value, a token claim's value, or a list's query.
  */

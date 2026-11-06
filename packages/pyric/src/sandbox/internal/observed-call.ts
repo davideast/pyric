@@ -7,6 +7,9 @@
  * unknown field, a wrong type, an over-long string, or a token value where
  * claim names belong. A record never names its own caller or event id; the
  * host stamps the caller from the connection and the sandbox mints the id.
+ * Claim values, written data and a returned document are bounded JSON the
+ * host holds in memory for the local rules: one that is malformed or too
+ * large is dropped and the call is kept, and the event holds none of them.
  */
 import type {
   ObservedAccount,
@@ -41,8 +44,31 @@ export const OBSERVED_DISPOSITION: RulesDisposition = Object.freeze({
 });
 
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
-const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'instance', 'bucket', 'billedDocuments', 'usage', 'ai', 'requests']);
-const ACCOUNT_FIELDS = new Set(['uid', 'claimNames']);
+const CALL_FIELDS = new Set([
+  'service',
+  'method',
+  'path',
+  'at',
+  'durationMs',
+  'outcome',
+  'account',
+  'projectId',
+  'instance',
+  'bucket',
+  'billedDocuments',
+  'usage',
+  'ai',
+  'requests',
+  'writeData',
+  'document',
+]);
+const ACCOUNT_FIELDS = new Set(['uid', 'claimNames', 'claims']);
+/** A token's claims fit in a few kilobytes; production caps custom claims at 1000 bytes. */
+const MAX_CLAIMS_SIZE = 8 * 1024;
+/** Written data or a returned document the host holds in memory for one evaluation. */
+const MAX_FIELDS_SIZE = 64 * 1024;
+/** Firestore nests maps and arrays at most 20 levels deep. */
+const MAX_VALUE_DEPTH = 20;
 const AI_FIELDS = new Set(['model', 'reportedModel', 'usage', 'firstChunkMs']);
 /** Production's sizes: counts only, so a value, a document or a payload has no key to ride in. */
 const USAGE_FIELDS: ReadonlySet<keyof ObservedUsage> = new Set([
@@ -147,13 +173,82 @@ function readClaimNames(value: unknown): string[] {
   });
 }
 
-function readAccount(value: unknown): ObservedAccount {
+/** Whether a value is an object a client built from a literal, not a Date, a Map or a class instance. */
+function isPlainFields(value: unknown): value is Fields {
+  if (!isFields(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** A copy of one JSON value, or `undefined` when it is not one or pushes `budget` past its size. */
+function copyJsonValue(value: unknown, depth: number, budget: { left: number }): unknown {
+  const isScalar = value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
+  if (isScalar) {
+    budget.left -= 8;
+    return value;
+  }
+  if (typeof value === 'string') {
+    budget.left -= value.length + 2;
+    return value;
+  }
+  const isNested = Array.isArray(value) || isPlainFields(value);
+  if (!isNested || depth >= MAX_VALUE_DEPTH) return undefined;
+  if (Array.isArray(value)) {
+    const copy: unknown[] = [];
+    for (const entry of value) {
+      const copied = copyJsonValue(entry, depth + 1, budget);
+      if (copied === undefined || budget.left < 0) return undefined;
+      copy.push(copied);
+    }
+    return copy;
+  }
+  return copyJsonFields(value, depth, budget);
+}
+
+function copyJsonFields(value: Fields, depth: number, budget: { left: number }): Fields | undefined {
+  const copy: Fields = {};
+  for (const key of Object.keys(value)) {
+    budget.left -= key.length + 4;
+    const copied = copyJsonValue(value[key], depth + 1, budget);
+    if (copied === undefined || budget.left < 0) return undefined;
+    copy[key] = copied;
+  }
+  return copy;
+}
+
+/**
+ * A fresh copy of a JSON object a client sent (claim values, written data,
+ * a returned document), or `undefined` for one that is malformed, nested
+ * deeper than Firestore allows, or larger than `maxSize`. The reader drops
+ * such a value rather than the call: the call still records production's answer.
+ */
+function readJsonFields(value: unknown, maxSize: number): Fields | undefined {
+  if (!isPlainFields(value)) return undefined;
+  return copyJsonFields(value, 0, { left: maxSize });
+}
+
+function readAccount(value: unknown, keepsClaims: boolean): ObservedAccount {
   requireField(isFields(value), 'account');
   requireOnly(value, ACCOUNT_FIELDS, 'account.');
   const uid = value.uid;
   requireField(isBoundedString(uid, MAX_UID_LENGTH), 'account.uid');
-  const hasClaims = value.claimNames !== undefined;
-  return hasClaims ? { uid, claimNames: readClaimNames(value.claimNames) } : { uid };
+  const account: ObservedAccount = { uid };
+  if (value.claimNames !== undefined) account.claimNames = readClaimNames(value.claimNames);
+  const claims = keepsClaims ? readJsonFields(value.claims, MAX_CLAIMS_SIZE) : undefined;
+  if (claims !== undefined) account.claims = claims;
+  return account;
+}
+
+/**
+ * A Messaging call's record without its claim values. No Messaging rule
+ * reads them, and a token's nested claims would trip the walk that keeps
+ * credentials out of a Messaging record.
+ */
+function withoutClaimValues(value: Fields): Fields {
+  const account = value.account;
+  if (!isFields(account) || account.claims === undefined) return value;
+  const { claims: _claims, ...rest } = account;
+  return { ...value, account: rest };
 }
 
 function isModelName(value: unknown): value is string {
@@ -300,11 +395,12 @@ function readRequests(value: unknown): ObservedRequest[] {
  * Read one observed call from untrusted input. Returns a fresh record that
  * holds only the known fields; throws {@link ObservedCallError} otherwise.
  */
-export function readObservedCall(value: unknown): ObservedCall {
-  requireField(isFields(value), 'call');
+export function readObservedCall(input: unknown): ObservedCall {
+  requireField(isFields(input), 'call');
   // A Messaging call handles an installation's tokens and the FCM token, so
   // nothing in its record may look like one, a field the reader drops included.
-  const isMessaging = value.service === 'messaging';
+  const isMessaging = input.service === 'messaging';
+  const value = isMessaging ? withoutClaimValues(input) : input;
   if (isMessaging) requireNoTokens(value, '');
   requireOnly(value, CALL_FIELDS, '');
   const service = value.service;
@@ -329,7 +425,7 @@ export function readObservedCall(value: unknown): ObservedCall {
     requireField(isTime(value.durationMs), 'durationMs');
     call.durationMs = value.durationMs;
   }
-  if (value.account !== undefined) call.account = readAccount(value.account);
+  if (value.account !== undefined) call.account = readAccount(value.account, !isMessaging);
   if (value.projectId !== undefined) {
     requireField(typeof value.projectId === 'string' && PROJECT_ID_PATTERN.test(value.projectId), 'projectId');
     call.projectId = value.projectId;
@@ -365,6 +461,12 @@ export function readObservedCall(value: unknown): ObservedCall {
     requireField(isMessaging, 'requests');
     call.requests = readRequests(value.requests);
   }
+  // Only a Firestore call's rules read written data or a stored document.
+  const isFirestore = call.service === 'firestore';
+  const writeData = isFirestore ? readJsonFields(value.writeData, MAX_FIELDS_SIZE) : undefined;
+  if (writeData !== undefined) call.writeData = writeData;
+  const returned = isFirestore ? readJsonFields(value.document, MAX_FIELDS_SIZE) : undefined;
+  if (returned !== undefined) call.document = returned;
   return call;
 }
 
