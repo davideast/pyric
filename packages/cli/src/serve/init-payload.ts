@@ -84,12 +84,13 @@ export interface InitPayload {
   storageRulesHash: string | null;
   /**
    * The Storage rules each bucket `firebase.json` names gets, by bucket name.
-   * The default bucket's are `storageRules`. A bucket in neither is locked.
+   * The default bucket's are `storageRules`. A bucket in neither is locked,
+   * or open when `permissive` is set.
    * A dev server replaces one bucket's over `storage-rules-update` with its
    * `bucket` named. Absent on older servers.
    */
   storageBucketRules?: Record<string, { rules: string; rulesHash: string }> | null;
-  /** Storage deploy targets no project resolved at startup. Their buckets stay locked until the page's app config names a project `.firebaserc` maps them for. */
+  /** Storage deploy targets no project resolved at startup. Their buckets stay locked (open when `permissive` is set) until the page's app config names a project `.firebaserc` maps them for. */
   storagePendingTargets?: PendingStorageTargetRules[];
   /**
    * Local project identity — the served project directory. Scopes the

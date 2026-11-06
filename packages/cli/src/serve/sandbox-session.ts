@@ -239,7 +239,7 @@ export async function createSandboxSession(
   for (const warning of firestore.warnings) options.logger?.note(`  ⚠ ${warning}`);
   const database = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig, options.project);
   const storage = await loadProjectStorageRules(options.projectDir, options.firebaseConfig, options.project);
-  if (storage.pending.length > 0) options.logger?.note(formatUnresolvedStorageTargets(storage.pending));
+  if (storage.pending.length > 0) options.logger?.note(formatUnresolvedStorageTargets(storage.pending, options.permissive ? 'allow' : 'deny'));
   // Each named bucket's rules in force, null while its file is missing. The
   // default bucket's are `live.storageRules`.
   const liveStorageBuckets = new Map<string, { rules: string; rulesHash: string } | null>(

@@ -134,4 +134,32 @@ export async function run() {
     );
     expect(await fixture.run()).toEqual({ defaultBucket: 'ok', undeployed: 'ok', deployed: 'storage/unauthorized' });
   }, 60_000);
+
+  it('reports storage rules deployed when firebase.json deploys them only by bucket name (#1313)', async () => {
+    const bucket = 'vite-storage-bucket.appspot.com';
+    const fixture = await loadInPage<{ run(): Promise<unknown> }>(
+      'by-name',
+      `import { initializeApp } from 'firebase/app';
+import { getStorage, ref, uploadBytes } from 'firebase/storage';
+
+export async function run() {
+  const app = initializeApp({ projectId: 'vite-storage-bucket', storageBucket: '${bucket}' }, 'vite-storage-bucket');
+  return uploadBytes(ref(getStorage(app), 'users/alice/avatar.png'), new Uint8Array([1, 2, 3]));
+}
+`,
+      {
+        rules: null,
+        rulesHash: null,
+        storageRules: null,
+        storageRulesHash: null,
+        storageBucketRules: { [bucket]: { rules: DENY_ALL, rulesHash: 'by-name' } },
+        bridgeUrl: null,
+        seed: null,
+        persist: false,
+      },
+    );
+    await expect(fixture.run()).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    // The worker plane reports the same payload as deployed (serve-init.ts).
+    expect(globalThis.__pyricServe.storageRulesDeployed).toBe(true);
+  }, 60_000);
 });

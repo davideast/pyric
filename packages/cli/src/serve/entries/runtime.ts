@@ -183,10 +183,15 @@ if (!useWorker) try {
   // issue #359) — a lazy first open from app code would land on the legacy
   // shared database. `projectKey` is absent on older servers → legacy name.
   // Each bucket firebase.json names gets its own rules, and a bucket nothing
-  // deploys to is locked (#1313).
+  // deploys to is locked (#1313), or open in permissive mode.
   for (const notice of installServedStorageRules(sandbox, payload)) console.info(`[pyric sandbox] ${notice}`);
-  if (payload.storageRules) {
+  // Rules deployed only by bucket name count as deployed, as the worker
+  // plane counts them (serve-init.ts).
+  const deploysBucketRules = Object.keys(payload.storageBucketRules ?? {}).length > 0;
+  if (payload.storageRules || deploysBucketRules) {
     diagnostics.storageRulesDeployed = true;
+  }
+  if (payload.storageRules) {
     diagnostics.storageRulesHash = payload.storageRulesHash;
   }
   // Auth users land first in either mode (persist restore or state-file
@@ -465,7 +470,7 @@ console.info(
       ? ' on the dev server (one backend for all tabs and server processes; rules/seed/persist owned by the dev server)'
       : useWorker
         ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
-        : diagnostics.rulesHash || diagnostics.databaseRulesHash || diagnostics.storageRulesHash
+        : diagnostics.rulesDeployed || diagnostics.databaseRulesDeployed || diagnostics.storageRulesDeployed
           ? ' (project rules loaded)'
           : ' (no project rules)') +
     ` — diagnostics: globalThis.__pyricServe`,

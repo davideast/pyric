@@ -342,9 +342,15 @@ export function storageRulesPath(cwd: string, config: FirebaseJson | null): stri
 }
 
 /** The notice a dev server logs when the Storage rules file it loaded is
- *  deleted and Storage returns to denying every client operation. */
-export function formatStorageRulesRemoved(path: string, bucket: string | null = null, target?: string): string {
-  return `storage rules removed: ${path} does not exist, client Storage operations${storageBucketSuffix(bucket, target, ' on')} default to DENY`;
+ *  deleted and its bucket returns to the default policy. */
+export function formatStorageRulesRemoved(
+  path: string,
+  policy: 'allow' | 'deny',
+  bucket: string | null = null,
+  target?: string,
+): string {
+  const access = policy === 'allow' ? 'are open (permissive mode)' : 'default to DENY';
+  return `storage rules removed: ${path} does not exist, client Storage operations${storageBucketSuffix(bucket, target, ' on')} ${access}`;
 }
 
 /** One Storage rules file deployed to one bucket, or to the app's default bucket. */
@@ -359,7 +365,7 @@ export interface StorageRulesTarget {
   configured: boolean;
 }
 
-/** A Storage deploy target no `.firebaserc` mapping resolved at startup. Its buckets stay locked. */
+/** A Storage deploy target no `.firebaserc` mapping resolved at startup. Its buckets stay locked, or open in permissive mode. */
 export interface PendingStorageRulesTarget {
   target: string;
   label: string;
@@ -409,6 +415,11 @@ export function storageBucketSuffix(bucket: string | null, target?: string, join
   return isDefaultBucket ? '' : `${joiner} ${storageBucketLabel(bucket, target)}`;
 }
 
+/** A rules file `firebase.json` names, resolved against the project directory. */
+function projectFilePath(cwd: string, file: string): string {
+  return isAbsolute(file) ? file : join(cwd, file);
+}
+
 /**
  * The rules files `firebase.json` deploys to Storage and the bucket each
  * deploys to, resolved as `firebase deploy` resolves them by the shared
@@ -430,7 +441,7 @@ export function storageRulesTargets(
   try {
     resolved = storageRulesConfig(config?.storage, {
       targetBuckets: (target) => projectId === undefined ? [] : readRc()?.targets?.[projectId]?.storage?.[target] ?? [],
-      resolveFile: (file) => databaseRulesFilePath(cwd, file),
+      resolveFile: (file) => projectFilePath(cwd, file),
     });
   } catch (error) {
     throw new Error(`pyric sandbox: ${error instanceof Error ? error.message : String(error)}`);
@@ -460,9 +471,13 @@ export function storageRulesTargets(
 }
 
 /** The startup warning for Storage deploy targets no project resolved: each target, why, and how to fix it. */
-export function formatUnresolvedStorageTargets(pending: readonly PendingStorageRulesTarget[]): string {
+export function formatUnresolvedStorageTargets(
+  pending: readonly PendingStorageRulesTarget[],
+  policy: 'allow' | 'deny',
+): string {
+  const access = policy === 'allow' ? 'allow every client operation (permissive mode)' : 'deny every client operation';
   const lines = pending.map((target) =>
-    `  ⚠ Storage deploy target "${target.target}" (${target.label}) is unresolved: ${target.reason}. Its buckets deny every client operation until the page's app config names a project .firebaserc maps it for.`);
+    `  ⚠ Storage deploy target "${target.target}" (${target.label}) is unresolved: ${target.reason}. Its buckets ${access} until the page's app config names a project .firebaserc maps it for.`);
   lines.push(`    To set the project: ${FIREBASE_PROJECT_FIXES}.`);
   return lines.join('\n');
 }
@@ -607,10 +622,6 @@ export interface LoadedDatabaseRules extends Omit<DatabaseRulesTargets, 'pending
   instances: Map<string, LoadedDatabaseInstanceRules>;
 }
 
-function databaseRulesFilePath(cwd: string, file: string): string {
-  return isAbsolute(file) ? file : join(cwd, file);
-}
-
 /**
  * The rules files `firebase.json` deploys and the database instance each
  * deploys to, resolved as `firebase deploy` resolves them by
@@ -635,7 +646,7 @@ export function databaseRulesTargets(
     resolved = databaseRulesConfig(config?.database, {
       ...(projectId === undefined ? {} : { projectId }),
       targetInstances: (target) => projectId === undefined ? [] : readRc()?.targets?.[projectId]?.database?.[target] ?? [],
-      resolveFile: (file) => databaseRulesFilePath(cwd, file),
+      resolveFile: (file) => projectFilePath(cwd, file),
     });
   } catch (error) {
     throw new Error(`pyric sandbox: ${error instanceof Error ? error.message : String(error)}`);
