@@ -41,6 +41,7 @@ import type { InitPayload, RulesDestination } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
 import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, HOSTED_REPRO_PATH, hostedMethodRequest, hostedReproRequest } from './hosted/method-protocol.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-project.js';
+import { proxyTargetsOf } from './vite-proxy-check.js';
 
 const WS_PATH = '/__pyric/sandbox';
 const MCP_PATH = '/__pyric/mcp';
@@ -379,7 +380,11 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           return true;
         }
         const live = opts.liveHost === undefined ? {} : { live: opts.liveHost.report() };
-        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ...bridge.health(), ...live }));
+        // The Vite plugin's verdict on each `server.proxy` target (`vite-proxy-check.ts`).
+        const proxyTargets = proxyTargetsOf(bridge.instanceId);
+        const proxied = proxyTargets === undefined ? {} : { proxyTargets };
+        const body = { ...bridge.health(), ...live, ...proxied };
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
         return true;
       }
       const requiresControlGuard = isMcpRequest || isHostedMethod;
