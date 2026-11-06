@@ -624,6 +624,7 @@
       "classification": "diverged",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
+        "astral-range-matches",
         "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
@@ -1257,16 +1258,19 @@
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
+        "astral-range-matches",
         "matches-full-string-regex",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "script-classes-and-nested-repeats",
         "string-literals-and-regex"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#227",
+        "firestore-rules#230"
+      ],
       "divergedByRows": [
         "firestore-rules#199",
-        "firestore-rules#227",
         "firestore-rules#228"
       ]
     },
@@ -3052,6 +3056,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "astral-range-matches",
         "functions-verbs-and-recursive",
         "hierarchical-match-cascade",
         "int64-and-duration-range",
@@ -3194,6 +3199,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
+        "astral-range-matches",
         "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
@@ -3310,6 +3316,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
+        "astral-range-matches",
         "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
@@ -3390,6 +3397,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
+        "astral-range-matches",
         "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",

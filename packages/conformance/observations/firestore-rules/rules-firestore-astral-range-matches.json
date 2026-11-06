@@ -2,7 +2,7 @@
   "name": "rules-firestore-astral-range-matches",
   "matrixRow": "",
   "rowIds": [
-    "firestore-rules#229"
+    "firestore-rules#230"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"astral-range-matches\" (Coverage: astral class ranges in matches()). A class range over emoji (`[😀-😂]`) compiles and matches by code point in matches(), as production does.",
   "observedAt": "2026-11-04T02:34:28.077Z",
