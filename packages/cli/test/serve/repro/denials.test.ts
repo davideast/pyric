@@ -128,6 +128,15 @@ describe('listDenials', () => {
     expect(groups[0]).toMatchObject({ count: 2, loads: 1 });
   });
 
+  it("lists no group for production's denial, which carries no Rules evidence", () => {
+    const call = { service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: 1000, outcome: { status: 'error', code: 'permission-denied' } };
+    const groups = listDenials(repro([
+      { kind: 'in', at: 1000, session: 's1', frame: { t: 'observe', id: 'o1', call } },
+      { kind: 'out', at: 1001, session: 's1', frame: { t: 'res', id: 'o1', ok: true } },
+    ]), {});
+    expect(groups).toEqual([]);
+  });
+
   it('honours --since and --service', () => {
     expect(listDenials(file, { sinceAt: 2500 }).map((g) => g.count)).toEqual([1]);
     expect(listDenials(file, { service: 'firestore' })).toEqual([]);

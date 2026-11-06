@@ -353,13 +353,30 @@ describe('observedCallEvent', () => {
       at: DENIED_READ.at,
       durationMs: 42,
       auth: { uid: 'alice' },
-      result: 'error',
+      result: 'deny',
       caller: { kind: 'node' },
       production: { outcome: { status: 'error', code: 'permission-denied' }, claimNames: ['admin', 'email'] },
     });
     const record = toOperationRecord(event!);
+    expect(record?.result).toBe('deny');
     expect(record?.rules).toEqual({ kind: 'not-evaluated', reason: 'external-execution' });
+    expect(record?.production).toEqual({ outcome: { status: 'error', code: 'permission-denied' }, claimNames: ['admin', 'email'] });
     expect(isProductionServed(record?.rules)).toBe(true);
+  });
+
+  it("reads production's answer as allow, deny or error, the way sandbox events read", () => {
+    const answers: Array<[ObservedCall['outcome'], string]> = [
+      [{ status: 'ok' }, 'allow'],
+      [{ status: 'error', code: 'permission-denied' }, 'deny'],
+      [{ status: 'error', code: 'PERMISSION_DENIED' }, 'deny'],
+      [{ status: 'error', code: 'storage/unauthorized' }, 'deny'],
+      [{ status: 'error', code: 'unavailable' }, 'error'],
+    ];
+    for (const [outcome, result] of answers) {
+      const event = observedCallEvent({ ...DENIED_READ, outcome });
+      expect(event.result).toBe(result);
+      expect(event.rulesDisposition).toEqual({ kind: 'not-evaluated', reason: 'external-execution' });
+    }
   });
 
   it("copies production's usage and billed documents onto the event's production side", () => {
@@ -374,9 +391,9 @@ describe('observedCallEvent', () => {
     expect(observedCallEvent(DENIED_READ).production).not.toHaveProperty('billedDocuments');
   });
 
-  it('records a success with no local verdict and a signed-out call with no account', () => {
+  it('records a success as allowed and a signed-out call with no account', () => {
     const event = observedCallEvent({ service: 'auth', method: 'signInAnonymously', at: 5, outcome: { status: 'ok' } });
-    expect(event.result).toBe('not-applicable');
+    expect(event.result).toBe('allow');
     expect(event.auth).toBeNull();
     expect(event.production).toEqual({ outcome: { status: 'ok' } });
   });
@@ -400,7 +417,7 @@ describe('observedCallEvent', () => {
       service: 'ai',
       method: 'generateContent',
       path: 'models/gemini-flash-lite-latest',
-      result: 'not-applicable',
+      result: 'allow',
       durationMs: 120,
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'ok' } },
@@ -444,7 +461,7 @@ describe('observedCallEvent', () => {
       path: 'avatars/alice.png',
       detail: { bucket: 'my-project.firebasestorage.app' },
       auth: { uid: 'alice' },
-      result: 'not-applicable',
+      result: 'allow',
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'ok' } },
     });
@@ -459,7 +476,7 @@ describe('observedCallEvent', () => {
       service: 'messaging',
       method: 'getToken',
       auth: { uid: 'alice' },
-      result: 'not-applicable',
+      result: 'allow',
       durationMs: 210,
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'ok' } },

@@ -426,9 +426,11 @@ function aiObservation(id: string, call: ObservedCall, ai: ObservedAi): RequestO
 }
 
 /**
- * The event an observed call becomes. Its `result` is `error` when production
- * returned an error and `not-applicable` otherwise, since no local Rules
- * verdict exists; `production` holds what production answered. An `ai` call's
+ * The event an observed call becomes. Its `result` reads production's answer
+ * as the sandbox's own events read theirs: `allow` for a success, `deny` for a
+ * denial ({@link productionVerdict}), and `error` otherwise. Its Rules
+ * disposition stays {@link OBSERVED_DISPOSITION}, since pyric's Rules did not
+ * decide; `production` holds what production answered. An `ai` call's
  * path is its model, and its `observation` holds the model and token counts.
  * A `storage` call's bucket is its `detail.bucket`, and a `messaging` call's
  * requests are its `detail.requests`.
@@ -460,6 +462,18 @@ function productionSizes(call: ObservedCall): { usage?: ObservedUsage; billedDoc
   };
 }
 
+/** The result each verdict reads as, the way the sandbox's own events read. */
+const RESULT_BY_VERDICT: Readonly<Record<ProductionVerdict, SandboxOperationEvent['result']>> = {
+  ok: 'allow',
+  denied: 'deny',
+  failed: 'error',
+};
+
+/** Production's answer as an event's result: allowed, denied, or an error. */
+function observedResult(outcome: ProductionOutcome): SandboxOperationEvent['result'] {
+  return RESULT_BY_VERDICT[productionVerdict(outcome)];
+}
+
 function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
   const account = call.account;
   const claimNames = account?.claimNames;
@@ -472,7 +486,7 @@ function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
     ...eventInstance(call),
     ...eventDetail(call),
     auth: account === undefined ? null : { uid: account.uid },
-    result: call.outcome.status === 'error' ? 'error' : 'not-applicable',
+    result: observedResult(call.outcome),
     origin: 'user',
     ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
     rulesDisposition: OBSERVED_DISPOSITION,
