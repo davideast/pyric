@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 132,
+    "numerator": 130,
     "denominator": 140,
-    "ratio": 0.9428571428571428,
-    "percent": 94.3
+    "ratio": 0.9285714285714286,
+    "percent": 92.9
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 133,
-      "diverged": 5,
+      "verified": 131,
+      "diverged": 7,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 132,
-    "diverged": 5,
+    "conformant": 130,
+    "diverged": 7,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -636,11 +636,13 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
         "matches-full-string-regex",
+        "mixed-number-collections",
         "optional-rules-version",
         "path-constructor-and-bind",
         "prototype-chain-keys",
@@ -795,6 +797,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "builtins-time-and-math",
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -813,6 +816,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "builtins-time-and-math",
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -830,6 +834,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -847,6 +852,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -864,6 +870,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -881,6 +888,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -900,6 +908,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
@@ -919,6 +928,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -981,6 +991,7 @@
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "list-methods-concat-removeall-toset",
         "time-math-and-casts",
         "undefined-field-access"
@@ -1002,7 +1013,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "duration-and-latlng"
+        "duration-and-latlng",
+        "int64-conversions-and-mixed-equality"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1132,6 +1144,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
@@ -1152,6 +1165,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "simulator-language-semantics",
         "time-math-and-casts"
       ],
@@ -1174,6 +1188,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "cross-type-operator-overloads",
+        "int64-conversions-and-mixed-equality",
         "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
@@ -1404,8 +1419,10 @@
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "functions-verbs-and-recursive",
+        "int64-conversions-and-mixed-equality",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
+        "mixed-number-collections",
         "required-fields-and-mapdiff"
       ],
       "verifiedByRows": [],
@@ -1425,6 +1442,7 @@
       "verifiedBy": [
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
+        "mixed-number-collections",
         "prototype-chain-keys",
         "required-fields-and-mapdiff"
       ],
@@ -1484,10 +1502,12 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
+        "int64-conversions-and-mixed-equality",
         "list-methods-concat-removeall-toset",
+        "mixed-number-collections",
         "prototype-chain-keys",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
@@ -1496,7 +1516,10 @@
       "verifiedByRows": [
         "firestore-rules#196"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#225",
+        "firestore-rules#226"
+      ]
     },
     "firestore.method.list.concat": {
       "productionAcceptance": "accepted",
@@ -1528,7 +1551,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "list-methods-concat-removeall-toset"
+        "list-methods-concat-removeall-toset",
+        "mixed-number-collections"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1704,10 +1728,11 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "functions-verbs-and-recursive",
+        "int64-conversions-and-mixed-equality",
         "prototype-chain-keys",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
@@ -1716,7 +1741,9 @@
       "verifiedByRows": [
         "firestore-rules#196"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#225"
+      ]
     },
     "firestore.method.mapdiff.addedKeys": {
       "productionAcceptance": "accepted",
@@ -1785,6 +1812,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
+        "int64-conversions-and-mixed-equality",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics"
@@ -1911,6 +1939,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "list-methods-concat-removeall-toset",
+        "mixed-number-collections",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection"
       ],
@@ -1929,6 +1958,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "int64-conversions-and-mixed-equality",
         "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
@@ -2344,10 +2374,12 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
+        "mixed-number-collections",
         "optional-rules-version",
         "path-constructor-and-bind",
         "prototype-chain-keys",
@@ -2397,6 +2429,7 @@
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
+        "mixed-number-collections",
         "optional-rules-version",
         "path-constructor-and-bind",
         "prototype-chain-keys",
@@ -2430,6 +2463,7 @@
         "bytes-toutf8-and-hashing",
         "cross-type-operator-overloads",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -2453,6 +2487,7 @@
         "error-absorption-and-or",
         "int-float-and-division",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "list-and-string-methods",
         "simulator-language-semantics",
         "time-math-and-casts"
@@ -2472,7 +2507,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "builtins-time-and-math"
+        "builtins-time-and-math",
+        "int64-conversions-and-mixed-equality"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2537,6 +2573,7 @@
       "verifiedBy": [
         "cross-type-operator-overloads",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "simulator-language-semantics",
         "time-math-and-casts"
       ],
@@ -2560,6 +2597,7 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -2580,6 +2618,7 @@
         "error-absorption-and-or",
         "int-float-and-division",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
@@ -2601,7 +2640,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "error-absorption-and-or",
-        "int-float-and-division"
+        "int-float-and-division",
+        "int64-conversions-and-mixed-equality"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2674,6 +2714,7 @@
         "get-missing-doc",
         "int-float-and-division",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "interpolated-lookup-path-segments",
         "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff",
@@ -2760,7 +2801,9 @@
         "common-auth-membership-firestore",
         "error-absorption-and-or",
         "functions-verbs-and-recursive",
+        "int64-conversions-and-mixed-equality",
         "list-methods-concat-removeall-toset",
+        "mixed-number-collections",
         "prototype-chain-keys",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
@@ -2786,6 +2829,7 @@
         "bytes-toutf8-and-hashing",
         "globals-request-path-and-resource-id",
         "int-float-and-division",
+        "int64-conversions-and-mixed-equality",
         "path-constructor-and-bind",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -2813,6 +2857,7 @@
         "duration-and-latlng",
         "int-float-and-division",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
@@ -2992,6 +3037,8 @@
         "functions-verbs-and-recursive",
         "hierarchical-match-cascade",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
+        "mixed-number-collections",
         "re2-pattern-semantics",
         "resource-document-identity",
         "resource-missing-document",
@@ -3141,11 +3188,13 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
         "matches-full-string-regex",
+        "mixed-number-collections",
         "optional-rules-version",
         "path-constructor-and-bind",
         "prototype-chain-keys",
@@ -3253,11 +3302,13 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
         "matches-full-string-regex",
+        "mixed-number-collections",
         "optional-rules-version",
         "path-constructor-and-bind",
         "prototype-chain-keys",
@@ -3329,11 +3380,13 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "int64-conversions-and-mixed-equality",
         "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
         "matches-full-string-regex",
+        "mixed-number-collections",
         "optional-rules-version",
         "path-constructor-and-bind",
         "prototype-chain-keys",

@@ -28,7 +28,10 @@
  * `firebase`, so the start checks and the live rows read it from the folder
  * the app runs in first: `pyric-live` and the server each start from `web/`
  * again, the server against a dev server started again for its
- * pass-through list.
+ * pass-through list. Then the server starts from the repository root as
+ * `web/server.mjs`, whose own folder resolves `firebase` while the working
+ * directory does not: the register reads it from the entry script's folder,
+ * as Node loads it for the app (#2166).
  *
  * Neither the page nor the server makes a call, so nothing goes to production. Like every app
  * scenario this runs offline, and the browser blocks every host but loopback.
@@ -87,6 +90,26 @@ async function pyricLiveStartsFromWeb(app: App): Promise<void> {
   assert.equal(health.live?.configProjectId, PROJECT);
   assert.equal(health.live?.configSource, '.firebaserc');
   await live.stop();
+}
+
+/**
+ * Runs `web/server.mjs` under the register from rules/, from `cwd` with the
+ * entry `entry`, with firebase installed only in web/, and checks its start
+ * lines and that its firebase imports load from web/node_modules.
+ */
+async function serverLoadsFromWeb(app: App, devUrl: string, cwd: string | undefined, entry: string): Promise<void> {
+  const register = pathToFileURL(createRequire(join(app.dir, 'rules', 'package.json')).resolve('@pyric/live/register')).href;
+  const run = await app.command('node', ['--import', register, entry], { cwd, timeoutMs: 60_000 });
+  assert.equal(run.code, 0, run.output);
+  assert.match(run.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${PROJECT}\\.`));
+  assert.ok(run.output.includes(`@pyric/live/register: ${PASSED}`), run.output);
+  assert.ok(run.output.includes(`@pyric/live/register: reporting calls to the live host at ${devUrl}.`), run.output);
+  const result = resultOf(run.output);
+  assert.equal(result.firestore, 'rooms/lobby');
+  assert.equal(result.database, 'https://demo-live-sibling-default-rtdb.firebaseio.com/rooms/lobby');
+  assert.match(result.resolved['firebase/firestore']!, /\/live-rows\/firebase\/firestore\.js$/, 'firebase/firestore is the live row');
+  const appSdk = pathToFileURL(`${realpathSync(join(app.dir, 'web', 'node_modules', 'firebase'))}/`).href;
+  assert.ok(result.resolved['firebase/database']!.startsWith(appSdk), `firebase/database is the SDK in web/node_modules: ${result.resolved['firebase/database']}`);
 }
 
 export default scenario(async (app) => {
@@ -152,21 +175,16 @@ export default scenario(async (app) => {
     await pyricLiveStartsFromWeb(app);
   });
 
-  await app.step('with firebase installed only in web/, the server from web/ loads its live rows and passes firebase/database through', async () => {
+  const dev = await app.step('with firebase installed only in web/, the server from web/ loads its live rows and passes firebase/database through', async () => {
     // The dev server again, for the pass-through list the server reads from its health report.
     const dev = await startViteDev(app);
-    const register = pathToFileURL(createRequire(join(app.dir, 'rules', 'package.json')).resolve('@pyric/live/register')).href;
-    const run = await app.command('node', ['--import', register, 'server.mjs'], { cwd: 'web', timeoutMs: 60_000 });
-    assert.equal(run.code, 0, run.output);
-    assert.match(run.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${PROJECT}\\.`));
-    assert.ok(run.output.includes(`@pyric/live/register: ${PASSED}`), run.output);
-    assert.ok(run.output.includes(`@pyric/live/register: reporting calls to the live host at ${dev.url}.`), run.output);
-    const result = resultOf(run.output);
-    assert.equal(result.firestore, 'rooms/lobby');
-    assert.equal(result.database, 'https://demo-live-sibling-default-rtdb.firebaseio.com/rooms/lobby');
-    assert.match(result.resolved['firebase/firestore']!, /\/live-rows\/firebase\/firestore\.js$/, 'firebase/firestore is the live row');
-    const appSdk = pathToFileURL(`${realpathSync(join(app.dir, 'web', 'node_modules', 'firebase'))}/`).href;
-    assert.ok(result.resolved['firebase/database']!.startsWith(appSdk), `firebase/database is the SDK in web/node_modules: ${result.resolved['firebase/database']}`);
+    await serverLoadsFromWeb(app, dev.url, 'web', 'server.mjs');
+    return dev;
+  });
+
+  await app.step('with firebase installed only in web/, web/server.mjs started from the app root loads its live rows from web/', async () => {
+    // From the app root, which resolves no firebase: the register reads it from the entry script's folder, as Node loads it (#2166).
+    await serverLoadsFromWeb(app, dev.url, undefined, 'web/server.mjs');
     await dev.vite.stop();
   });
 
