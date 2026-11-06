@@ -1,0 +1,150 @@
+/**
+ * The real `firebase-admin/firestore`, from this checkout's node_modules,
+ * reads, queries, counts, writes, runs transactions and listens against the
+ * replay server over gRPC, in a `node` process of its own. It reaches the
+ * server through its own `FIRESTORE_EMULATOR_HOST`, the app's config, so it
+ * sends plaintext gRPC with `Authorization: Bearer owner` and looks up no
+ * credential. Every answer comes from `fixtures/admin-minimal.json`, and a
+ * call no exchange holds still fails closed and is listed in `unmatched`.
+ * Run it with the network off: `unshare -rn sh -c 'ip link set lo up && bun test test/apps/replay/admin-firestore.test.ts'`.
+ */
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { spawn } from 'node:child_process';
+import { join, resolve } from 'node:path';
+import { AdminFirestore } from './admin-firestore.ts';
+import { ReplayState } from './firestore.ts';
+import { assertShapesOnly, readRecording, type JsonObject, type Recording } from './format.ts';
+import { startReplayProcess, unmatchedBy, type ReplayProcess } from './process.ts';
+
+const ROOT = resolve(import.meta.dir, '../../..');
+const FIXTURE = join(import.meta.dir, 'fixtures', 'admin-minimal.json');
+const DATABASE = 'projects/pyric-replay-admin/databases/(default)';
+let server: ReplayProcess;
+
+beforeAll(async () => {
+  server = await startReplayProcess([FIXTURE], ROOT);
+});
+
+afterAll(async () => {
+  await server.stop();
+});
+
+/** The Admin app: each step's answer, as the SDK hands it to the app. */
+const CLIENT = `
+import { initializeApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+const db = getFirestore(initializeApp({ projectId: 'pyric-replay-admin' }));
+const notes = db.collection('notes');
+const codeOf = (pending) => pending.then(() => 'ok', (error) => error.code);
+const out = {};
+await notes.doc('a').set({ n: 1, title: 'first' });
+const a = await notes.doc('a').get();
+out.read = { exists: a.exists, data: a.data() };
+out.missing = (await notes.doc('missing').get()).exists;
+await notes.doc('a').update({ n: 2 });
+out.updateMissing = await codeOf(notes.doc('missing').update({ n: 1 }));
+out.createExisting = await codeOf(notes.doc('a').create({ n: 3 }));
+out.addedIdLength = (await notes.add({ n: 4 })).id.length;
+const batch = db.batch();
+batch.set(notes.doc('b'), { n: 5 });
+batch.delete(notes.doc('c'));
+out.batched = (await batch.commit()).length;
+out.queried = (await notes.where('n', '>=', 5).get()).docs.map((doc) => [doc.id, doc.get('n')]);
+out.counted = (await notes.count().get()).data().count;
+out.gotAll = (await db.getAll(notes.doc('a'), notes.doc('missing'))).map((snapshot) => snapshot.exists);
+out.transacted = await db.runTransaction(async (transaction) => {
+  const snapshot = await transaction.get(notes.doc('a'));
+  transaction.update(notes.doc('a'), { n: snapshot.get('n') + 1 });
+  return snapshot.get('n');
+});
+out.rolledBack = await db.runTransaction(async (transaction) => {
+  await transaction.get(notes.doc('b'));
+  throw new Error('the app stopped');
+}).then(() => 'committed', (error) => error.message);
+out.listened = await new Promise((done, fail) => {
+  const seen = [];
+  const stop = notes.where('n', '>=', 5).onSnapshot((snapshot) => {
+    seen.push(snapshot.docs.map((doc) => doc.id));
+    if (seen.length === 1) void notes.doc('d').set({ n: 6 });
+    if (seen.length === 2) { stop(); done(seen); }
+  }, fail);
+});
+await notes.doc('a').delete();
+out.unrecorded = await codeOf(notes.doc('unrecorded').set({ n: 0 }));
+console.log('RESULT ' + JSON.stringify(out));
+process.exit(0);
+`;
+
+/** Runs the Admin app to exit against the replay's gRPC host. */
+function runAdmin(grpcHost: string): Promise<{ stdout: string; stderr: string }> {
+  const env: Record<string, string | undefined> = { ...process.env, FIRESTORE_EMULATOR_HOST: grpcHost };
+  delete env.GOOGLE_APPLICATION_CREDENTIALS;
+  delete env.FIRESTORE_PREFER_REST;
+  return new Promise((done) => {
+    const child = spawn('node', ['--input-type=module', '-e', CLIENT], { cwd: ROOT, env, timeout: 60_000 });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (part: Buffer) => { stdout += part.toString(); });
+    child.stderr.on('data', (part: Buffer) => { stderr += part.toString(); });
+    child.on('close', () => done({ stdout, stderr }));
+  });
+}
+
+test('the Admin SDK reads, queries, counts, writes, transacts and listens over gRPC from the recording, and an unrecorded write fails closed', async () => {
+  const run = await runAdmin(server.grpc!);
+  const line = run.stdout.split('\n').find((entry) => entry.startsWith('RESULT '));
+  expect(line, `${run.stdout}\n${run.stderr}`).toBeDefined();
+  expect(JSON.parse(line!.slice('RESULT '.length))).toEqual({
+    read: { exists: true, data: { n: 1, title: 'first' } },
+    missing: false,
+    updateMissing: 5,
+    createExisting: 6,
+    addedIdLength: 20,
+    batched: 2,
+    queried: [['b', 5]],
+    counted: 3,
+    gotAll: [true, false],
+    transacted: 2,
+    rolledBack: 'the app stopped',
+    listened: [['b'], ['b', 'd']],
+    unrecorded: 9,
+  });
+  expect(await unmatchedBy(server.origin)).toEqual([{ rpc: 'grpc', as: null, request: { method: 'Commit' } }]);
+}, 90_000);
+
+/** A fresh replay state for the fixture, with its Admin answerer. */
+function adminReplay(): { state: ReplayState; admin: AdminFirestore } {
+  const state = new ReplayState([readRecording(FIXTURE)]);
+  return { state, admin: new AdminFirestore(state) };
+}
+
+const COMMIT_IN_TRANSACTION: JsonObject = {
+  database: DATABASE,
+  writes: [{
+    update: { name: `${DATABASE}/documents/notes/a`, fields: { n: { integerValue: '3' } } },
+    updateMask: { fieldPaths: ['n'] },
+    currentDocument: { exists: true },
+  }],
+};
+
+test('a transaction BeginTransaction issues is matched once by its commit, and an id it never issued is unmatched', () => {
+  const { state, admin } = adminReplay();
+  const begun = admin.answer('BeginTransaction', { database: DATABASE, options: { readWrite: {} } });
+  const transaction = begun?.responses[0]?.transaction;
+  expect(typeof transaction).toBe('string');
+  const committed = admin.answer('Commit', { ...COMMIT_IN_TRANSACTION, transaction: transaction! });
+  expect(committed?.responses[0]?.writeResults).toBeDefined();
+  expect(admin.answer('Commit', { ...COMMIT_IN_TRANSACTION, transaction: transaction! })).toBeNull();
+  expect(admin.answer('Commit', { ...COMMIT_IN_TRANSACTION, transaction: Buffer.from('not issued').toString('base64') })).toBeNull();
+  expect(state.unmatched.map((entry) => entry.request)).toEqual([{ method: 'Commit' }, { method: 'Commit' }]);
+});
+
+test('an Admin exchange whose transaction is a recorded value, not the placeholder, is refused', () => {
+  const recording: Recording = {
+    format: 'pyric-replay/1',
+    project: 'pyric-replay-admin',
+    source: 'hand-written',
+    exchanges: [{ kind: 'admin-firestore', id: 'leak', rpc: 'Rollback', request: { database: DATABASE, transaction: 'cmVjb3JkZWQ=' }, responses: [{}] }],
+  };
+  expect(() => assertShapesOnly(recording)).toThrow('transaction must be one of the placeholders');
+});

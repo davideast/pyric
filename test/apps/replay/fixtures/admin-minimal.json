@@ -1,0 +1,354 @@
+{
+  "format": "pyric-replay/1",
+  "project": "pyric-replay-admin",
+  "source": "hand-written from the google.firestore.v1 protos and the firebase-admin 13.10.0 (@google-cloud/firestore 7.11.6) gRPC requests; capture A (Admin) replaces it",
+  "exchanges": [
+    {
+      "kind": "admin-firestore",
+      "id": "set-a",
+      "rpc": "Commit",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "writes": [
+          { "update": { "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/a", "fields": { "n": { "integerValue": "1" }, "title": { "stringValue": "first" } } } }
+        ]
+      },
+      "responses": [
+        { "writeResults": [{ "updateTime": { "$": "commitTime" } }], "commitTime": { "$": "commitTime" } }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "get-a",
+      "rpc": "BatchGetDocuments",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "documents": ["projects/pyric-replay-admin/databases/(default)/documents/notes/a"]
+      },
+      "responses": [
+        {
+          "found": {
+            "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/a",
+            "fields": { "n": { "integerValue": "1" }, "title": { "stringValue": "first" } },
+            "createTime": "2026-11-01T08:00:00.000001Z",
+            "updateTime": "2026-11-01T08:00:00.000001Z"
+          },
+          "readTime": { "$": "readTime" }
+        }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "get-missing",
+      "rpc": "BatchGetDocuments",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "documents": ["projects/pyric-replay-admin/databases/(default)/documents/notes/missing"]
+      },
+      "responses": [
+        { "missing": "projects/pyric-replay-admin/databases/(default)/documents/notes/missing", "readTime": { "$": "readTime" } }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "update-a",
+      "rpc": "Commit",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "writes": [
+          {
+            "update": { "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/a", "fields": { "n": { "integerValue": "2" } } },
+            "updateMask": { "fieldPaths": ["n"] },
+            "currentDocument": { "exists": true }
+          }
+        ]
+      },
+      "responses": [
+        { "writeResults": [{ "updateTime": { "$": "commitTime" } }], "commitTime": { "$": "commitTime" } }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "update-missing",
+      "rpc": "Commit",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "writes": [
+          {
+            "update": { "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/missing", "fields": { "n": { "integerValue": "1" } } },
+            "updateMask": { "fieldPaths": ["n"] },
+            "currentDocument": { "exists": true }
+          }
+        ]
+      },
+      "error": { "code": 5, "status": "NOT_FOUND", "message": "No document to update: projects/pyric-replay-admin/databases/(default)/documents/notes/missing" }
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "create-existing",
+      "rpc": "Commit",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "writes": [
+          {
+            "update": { "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/a", "fields": { "n": { "integerValue": "3" } } },
+            "currentDocument": { "exists": false }
+          }
+        ]
+      },
+      "error": { "code": 6, "status": "ALREADY_EXISTS", "message": "Document already exists: projects/pyric-replay-admin/databases/(default)/documents/notes/a" }
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "add",
+      "rpc": "Commit",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "writes": [
+          {
+            "update": { "name": { "$": "any" }, "fields": { "n": { "integerValue": "4" } } },
+            "currentDocument": { "exists": false }
+          }
+        ]
+      },
+      "responses": [
+        { "writeResults": [{ "updateTime": { "$": "commitTime" } }], "commitTime": { "$": "commitTime" } }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "batch",
+      "rpc": "Commit",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "writes": [
+          { "update": { "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/b", "fields": { "n": { "integerValue": "5" } } } },
+          { "delete": "projects/pyric-replay-admin/databases/(default)/documents/notes/c" }
+        ]
+      },
+      "responses": [
+        { "writeResults": [{ "updateTime": { "$": "commitTime" } }, { "updateTime": { "$": "commitTime" } }], "commitTime": { "$": "commitTime" } }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "query-n",
+      "rpc": "RunQuery",
+      "request": {
+        "parent": "projects/pyric-replay-admin/databases/(default)/documents",
+        "structuredQuery": {
+          "from": [{ "collectionId": "notes" }],
+          "where": { "fieldFilter": { "field": { "fieldPath": "n" }, "op": "GREATER_THAN_OR_EQUAL", "value": { "integerValue": "5" } } }
+        }
+      },
+      "responses": [
+        {
+          "document": {
+            "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/b",
+            "fields": { "n": { "integerValue": "5" } },
+            "createTime": "2026-11-01T08:00:01.000001Z",
+            "updateTime": "2026-11-01T08:00:01.000001Z"
+          },
+          "readTime": { "$": "readTime" }
+        }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "count",
+      "rpc": "RunAggregationQuery",
+      "request": {
+        "parent": "projects/pyric-replay-admin/databases/(default)/documents",
+        "structuredAggregationQuery": {
+          "structuredQuery": { "from": [{ "collectionId": "notes" }] },
+          "aggregations": [{ "alias": "aggregate_0", "count": {} }]
+        }
+      },
+      "responses": [
+        { "result": { "aggregateFields": { "aggregate_0": { "integerValue": "3" } } }, "readTime": { "$": "readTime" } }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "get-all",
+      "rpc": "BatchGetDocuments",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "documents": [
+          "projects/pyric-replay-admin/databases/(default)/documents/notes/a",
+          "projects/pyric-replay-admin/databases/(default)/documents/notes/missing"
+        ]
+      },
+      "responses": [
+        {
+          "found": {
+            "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/a",
+            "fields": { "n": { "integerValue": "2" } },
+            "createTime": "2026-11-01T08:00:00.000001Z",
+            "updateTime": "2026-11-01T08:00:00.000002Z"
+          },
+          "readTime": { "$": "readTime" }
+        },
+        { "missing": "projects/pyric-replay-admin/databases/(default)/documents/notes/missing", "readTime": { "$": "readTime" } }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "transaction-get-a",
+      "rpc": "BatchGetDocuments",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "documents": ["projects/pyric-replay-admin/databases/(default)/documents/notes/a"],
+        "newTransaction": { "readWrite": {} }
+      },
+      "responses": [
+        { "transaction": { "$": "transaction" } },
+        {
+          "found": {
+            "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/a",
+            "fields": { "n": { "integerValue": "2" } },
+            "createTime": "2026-11-01T08:00:00.000001Z",
+            "updateTime": "2026-11-01T08:00:00.000002Z"
+          },
+          "readTime": { "$": "readTime" }
+        }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "transaction-commit",
+      "rpc": "Commit",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "writes": [
+          {
+            "update": { "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/a", "fields": { "n": { "integerValue": "3" } } },
+            "updateMask": { "fieldPaths": ["n"] },
+            "currentDocument": { "exists": true }
+          }
+        ],
+        "transaction": { "$": "transaction" }
+      },
+      "responses": [
+        { "writeResults": [{ "updateTime": { "$": "commitTime" } }], "commitTime": { "$": "commitTime" } }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "transaction-get-b",
+      "rpc": "BatchGetDocuments",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "documents": ["projects/pyric-replay-admin/databases/(default)/documents/notes/b"],
+        "newTransaction": { "readWrite": {} }
+      },
+      "responses": [
+        { "transaction": { "$": "transaction" } },
+        {
+          "found": {
+            "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/b",
+            "fields": { "n": { "integerValue": "5" } },
+            "createTime": "2026-11-01T08:00:01.000001Z",
+            "updateTime": "2026-11-01T08:00:01.000001Z"
+          },
+          "readTime": { "$": "readTime" }
+        }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "rollback",
+      "rpc": "Rollback",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "transaction": { "$": "transaction" }
+      },
+      "responses": [{}]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "begin-transaction",
+      "rpc": "BeginTransaction",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "options": { "readWrite": {} }
+      },
+      "responses": [{ "transaction": { "$": "transaction" } }]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "listen-n",
+      "rpc": "Listen",
+      "request": {
+        "query": {
+          "parent": "projects/pyric-replay-admin/databases/(default)/documents",
+          "structuredQuery": {
+            "from": [{ "collectionId": "notes" }],
+            "where": { "fieldFilter": { "field": { "fieldPath": "n" }, "op": "GREATER_THAN_OR_EQUAL", "value": { "integerValue": "5" } } }
+          }
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            { "targetChange": { "targetChangeType": "ADD", "targetIds": [{ "$": "targetId" }] } },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/b",
+                  "fields": { "n": { "integerValue": "5" } },
+                  "createTime": "2026-11-01T08:00:01.000001Z",
+                  "updateTime": "2026-11-01T08:00:01.000001Z"
+                },
+                "targetIds": [{ "$": "targetId" }]
+              }
+            },
+            { "targetChange": { "targetChangeType": "CURRENT", "targetIds": [{ "$": "targetId" }], "resumeToken": { "$": "resumeToken" }, "readTime": { "$": "readTime" } } }
+          ]
+        },
+        {
+          "after": "set-d",
+          "messages": [
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/d",
+                  "fields": { "n": { "integerValue": "6" } },
+                  "createTime": { "$": "commitTime" },
+                  "updateTime": { "$": "commitTime" }
+                },
+                "targetIds": [{ "$": "targetId" }]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "set-d",
+      "rpc": "Commit",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "writes": [
+          { "update": { "name": "projects/pyric-replay-admin/databases/(default)/documents/notes/d", "fields": { "n": { "integerValue": "6" } } } }
+        ]
+      },
+      "responses": [
+        { "writeResults": [{ "updateTime": { "$": "commitTime" } }], "commitTime": { "$": "commitTime" } }
+      ]
+    },
+    {
+      "kind": "admin-firestore",
+      "id": "delete-a",
+      "rpc": "Commit",
+      "request": {
+        "database": "projects/pyric-replay-admin/databases/(default)",
+        "writes": [{ "delete": "projects/pyric-replay-admin/databases/(default)/documents/notes/a" }]
+      },
+      "responses": [
+        { "writeResults": [{ "updateTime": { "$": "commitTime" } }], "commitTime": { "$": "commitTime" } }
+      ]
+    }
+  ]
+}

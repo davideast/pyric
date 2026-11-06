@@ -34,8 +34,11 @@ export type JsonObject = { [key: string]: Json };
  * token the request's path names. Each takes an optional `prefix`, written
  * before the value, for a resource `name`. In a request header
  * `fisAuthToken` matches `FIS <token>` for a token this server issued.
+ * `transaction` stands for an Admin Firestore transaction id
+ * (`admin-firestore.ts`): in a request it matches an open transaction this
+ * server issued, and in an answer it issues a new one.
  */
-export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId', 'uploadSession', 'downloadToken', 'generation', 'timeCreated', 'fid', 'fisAuthToken', 'fcmToken'] as const;
+export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId', 'uploadSession', 'downloadToken', 'generation', 'timeCreated', 'fid', 'fisAuthToken', 'fcmToken', 'transaction'] as const;
 export type PlaceholderName = (typeof PLACEHOLDERS)[number];
 
 /** A batch of Listen responses for one target. `after` names the write exchange whose answer releases it. */
@@ -153,7 +156,33 @@ export interface MessagingExchange {
   response: { status: number; headers?: JsonObject; body: Json };
 }
 
-export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange | MessagingExchange;
+/** The Firestore v1 RPCs an Admin exchange answers, other than Listen. */
+export const ADMIN_FIRESTORE_UNARY = ['Commit', 'BeginTransaction', 'Rollback'] as const;
+export const ADMIN_FIRESTORE_STREAMING = ['BatchGetDocuments', 'RunQuery', 'RunAggregationQuery'] as const;
+export type AdminFirestoreRpc = (typeof ADMIN_FIRESTORE_UNARY)[number] | (typeof ADMIN_FIRESTORE_STREAMING)[number] | 'Listen';
+
+/**
+ * One Firestore RPC the Admin SDK (`@google-cloud/firestore`) sent over gRPC
+ * and production's answer, as proto3 JSON (`admin-firestore.ts`). `request`
+ * is the whole request message; for `Listen` it is the `addTarget` without
+ * `targetId` or `resumeToken`, and `batches` are sent as a client Listen's
+ * are. `responses` are the messages sent in order: one for a unary RPC, any
+ * number for a server-streaming one. `error` is the final status, sent after
+ * `responses`. A request's `transaction` is the placeholder
+ * `{ "$": "transaction" }`, which matches a transaction this server issued and
+ * has not closed; in an answer it issues a new one.
+ */
+export interface AdminFirestoreExchange {
+  kind: 'admin-firestore';
+  id: string;
+  rpc: AdminFirestoreRpc;
+  request: JsonObject;
+  responses?: JsonObject[];
+  batches?: ListenBatch[];
+  error?: { code: number; status: string; message: string };
+}
+
+export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange | MessagingExchange | AdminFirestoreExchange;
 
 export interface Recording {
   format: typeof FORMAT;
@@ -199,6 +228,7 @@ const PLACEHOLDER_KEYS: Record<string, PlaceholderName[]> = {
   access_token: ['idToken'],
   refresh_token: ['refreshToken', 'any'],
   cred: ['idToken', 'any'],
+  transaction: ['transaction'],
 };
 
 /**
