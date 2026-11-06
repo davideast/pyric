@@ -8,5 +8,5 @@ const rules = createRequire(new URL("../rules/package.json", import.meta.url));
 const { pyricLive } = await import(pathToFileURL(rules.resolve("@pyric/live/vite")).href);
 
 export default {
-  plugins: [pyricLive({ passThrough: ["firebase/database"] })],
+  plugins: [pyricLive({ passThrough: ["firebase/database", "firebase/functions"]})],
 };
