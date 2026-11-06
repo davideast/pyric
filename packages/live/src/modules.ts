@@ -37,7 +37,7 @@
  * whose records list the Installations and FCM registration requests each
  * made, and the deliveries of `onMessage` (`firebase/messaging`) and
  * `onBackgroundMessage` (`firebase/messaging/sw`). A call that made no
- * request makes no record.
+ * request makes no record. The FID registration calls are refused.
  *
  * The real module is passed in. A plane loads it from the app's own installed
  * `firebase`, so the app object, Auth, Firestore and App Check all come from
@@ -61,7 +61,15 @@ import {
 } from './database.js';
 import { AI_REFUSED_CALLS, aiCode, aiContext, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
 import { observedGetStream, STORAGE_CALLS, storageContext } from './storage.js';
-import { MESSAGING_CALLS, messagingCode, messagingContext, messagingRejection, messagingResult } from './messaging.js';
+import {
+  MESSAGING_CALLS,
+  MESSAGING_REFUSED_CALLS,
+  MESSAGING_SW_REFUSED_CALLS,
+  messagingCode,
+  messagingContext,
+  messagingRejection,
+  messagingResult,
+} from './messaging.js';
 import { observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite, type UncaughtListenerError } from './observe.js';
 import { liveCallRefusal, type LiveClient, type RefusedCall } from './refusal.js';
 
@@ -268,11 +276,13 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     calls: MESSAGING_CALLS,
     listeners: ['onMessage'],
     hooks: { context: messagingContext, codeOf: messagingCode, resultOf: messagingResult, rejectionOf: messagingRejection },
+    refused: MESSAGING_REFUSED_CALLS,
   },
   'live-messaging-sw': {
     calls: [],
     listeners: ['onBackgroundMessage'],
     hooks: { context: messagingContext },
+    refused: MESSAGING_SW_REFUSED_CALLS,
   },
 };
 
