@@ -95,7 +95,7 @@ export {
   type ProductionVerdict,
 } from './observed-call.js';
 export {
-  billedCallKind, billedCallSummary, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, liveProjectOf,
+  billedCallKind, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, liveProjectOf,
   readLiveHostStatus,
   type BilledCallCount, type BilledCallCounter, type BilledCallKind, type LiveHostStatus,
 } from './live-status.js';

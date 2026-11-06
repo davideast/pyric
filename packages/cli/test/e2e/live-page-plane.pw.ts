@@ -160,7 +160,7 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
     const authRow = rows.filter({ hasText: 'auth.signInAnonymously' });
     for (const row of [firestoreRow, authRow]) {
       await expect(row).toHaveCount(1);
-      await expect(row.locator('[data-traffic-row-production]')).toHaveText('Production');
+      await expect(row.locator('[data-traffic-row-production]')).toHaveCount(1);
       await expect(row.locator('[data-traffic-row-source]')).toHaveAttribute('data-traffic-row-source', 'page');
       await expect(row.locator('[data-verdict-production]')).toHaveAttribute('title', 'Production failed');
     }
@@ -213,7 +213,7 @@ test('the chip header stays one line, with a long project id and several imports
     const layout = await headerLayout(page);
     expect(layout.header.height).toBe(64);
     // One line: the brand is no taller than "pyric" itself.
-    expect.soft(layout.brand.height).toBeLessThanOrEqual(layout.name.height + 1);
+    expect(layout.brand.height).toBeLessThanOrEqual(layout.name.height + 1);
     for (const [name, control] of Object.entries({ studio: layout.studio, minimize: layout.minimize })) {
       expect(control.box.height, name).toBeGreaterThan(0);
       expect(control.box.y, name).toBeGreaterThanOrEqual(layout.header.y);

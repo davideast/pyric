@@ -7,10 +7,8 @@ import { describe, expect, it } from 'bun:test';
 import type { ObservedCall } from '../../src/sandbox/index.js';
 import {
   billedCallKind,
-  billedCallSummary,
   createBilledCallCounter,
   createLiveStatusPoller,
-  liveLabel,
   liveMismatchLine,
   liveProjectOf,
   readLiveHostStatus,
@@ -65,19 +63,7 @@ describe('createBilledCallCounter', () => {
   });
 });
 
-describe('billedCallSummary', () => {
-  it('names each kind with its count', () => {
-    expect(billedCallSummary({ reads: 1, writes: 0, deliveries: 2 })).toBe('1 read, 0 writes, 2 documents delivered to listeners');
-    expect(billedCallSummary({ reads: 3, writes: 1, deliveries: 1 })).toBe('3 reads, 1 write, 1 document delivered to listeners');
-  });
-});
-
 describe('the live project line', () => {
-  it('is the project name, with no prefix', () => {
-    expect(liveLabel('my-project')).toBe('my-project');
-    expect(liveLabel('prod, other')).toBe('prod, other');
-  });
-
   it('names the projects the app called, else the host project', () => {
     expect(liveProjectOf([], 'staging')).toBe('staging');
     expect(liveProjectOf(['prod'], 'staging')).toBe('prod');

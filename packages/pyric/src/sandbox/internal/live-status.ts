@@ -193,16 +193,3 @@ export function createBilledCallCounter(): BilledCallCounter {
     count: () => ({ reads, writes, deliveries }),
   };
 }
-
-function counted(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
-/** The count as every view writes it: `2 reads, 0 writes, 1 document delivered to listeners`. */
-export function billedCallSummary(count: BilledCallCount): string {
-  return [
-    counted(count.reads, 'read', 'reads'),
-    counted(count.writes, 'write', 'writes'),
-    counted(count.deliveries, 'document delivered to listeners', 'documents delivered to listeners'),
-  ].join(', ');
-}
