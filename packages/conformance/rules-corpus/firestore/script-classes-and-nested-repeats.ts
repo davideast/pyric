@@ -2,14 +2,16 @@
  * ─── Scenario: script-classes-and-nested-repeats ─────────────────────────────
  * RE2 script classes in `matches()`. Production reads `\p{Cyrillic}`,
  * `\p{Han}`, `\p{Latin}` and `\P{Greek}` as RE2 script classes, so a
- * deny-list guard on request data refuses a Cyrillic name (`sg0`) and `'中'`
- * matches `\p{Han}` (`sg3`); pyric reads a bare script name as the letters
- * `p{...}` and gets both wrong (#1889). The two `(a+)+b` cases record
- * production's answer for a nested repeat in `split()` and `replace()` on a
- * 27-character subject.
+ * deny-list guard on request data refuses a Cyrillic name (`sg0`), `'中'`
+ * matches `\p{Han}` (`sg3`), and a script class does not match its own
+ * name's letters (`sg2`). Before #1889 pyric's bare script class matched no
+ * character, so it got `sg0` and `sg3` wrong; pyric now reads RE2's script
+ * names and agrees. The two `(a+)+b` cases record production's answer for a
+ * nested repeat in `split()` and `replace()` on a 27-character subject.
  *
- * Captured by the 2026-11-03 rules engine defect hunt as `c10-script-classes-and-redos`;
- * the rules and case descriptions are the ones sent to production.
+ * Found by the 2026-11-03 rules engine defect hunt and captured on
+ * 2026-11-04 as `c10-script-classes-and-redos`; the rules and case
+ * descriptions are the ones sent to production.
  */
 import type { ScenarioRecord } from './types.ts';
 
