@@ -289,8 +289,10 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
       // Resolve segments — string literals pass through, embedded
       // expressions (`$(uid)`) get evaluated and stringified.
       // Item 5.4: returns Path wrapper instead of raw string so `is path`
-      // works. get/exists already String()-coerce, so resolveGet/Exists
-      // see the same '/foo/bar' shape via Path.toString().
+      // works. An embedded string is one segment, whatever it holds, so a
+      // lookup reads a `/` inside it as naming no document (lookup-path.ts).
+      // A match variable splices its segments instead: production binds
+      // `{rest=**}` as a path, which pyric holds as a '/'-joined string.
       // Every embedded expression evaluates when an earlier one errors.
       const parts: string[] = [];
       let error: EvalError | undefined;
@@ -303,6 +305,10 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
             const val = evaluate(seg, ctx, scope);
             if (typeof val !== 'string' && !isRulesInt(val)) {
               throw new EvalError(`Type error. Received: [${describeRulesType(val)}] Expected: [string].`, seg);
+            }
+            if (isMatchVariable(seg, ctx, scope)) {
+              parts.push(...String(val).split('/'));
+              continue;
             }
             parts.push(String(val));
           } catch (e) {
@@ -317,6 +323,17 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
     default:
       throw new EvalError(`Unknown expression type: ${(expr as Expression).type}`, expr);
   }
+}
+
+/**
+ * Whether an embedded path expression is a bare match variable (`$(rest)`),
+ * not shadowed by a `let` binding or function parameter. Its value is the
+ * matched request segments joined by '/'; a request segment never holds a
+ * '/', so splitting it gives back exactly the matched segments.
+ */
+function isMatchVariable(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): boolean {
+  if (expr.type !== 'identifier') return false;
+  return !Object.hasOwn(scope, expr.name) && Object.hasOwn(ctx.pathVariables, expr.name);
 }
 
 // ═══ Identifier resolution ═══

@@ -23,7 +23,7 @@ describe('multi-axis conformance model', () => {
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
-      numerator: 130, denominator: 140, ratio: 130 / 140, percent: 92.9,
+      numerator: 132, denominator: 140, ratio: 132 / 140, percent: 94.3,
     });
     expect(model.rulesLanguage.storageScorecard.score).toEqual({
       numerator: 122, denominator: 140, ratio: 122 / 140, percent: 87.1,

@@ -230,9 +230,9 @@ export function stopFor(load: ResolvedLoad, allowedUrls: Set<string>): Error | n
 }
 
 /**
- * The client SDK packages the four live rows' entries load, besides
- * `firebase` itself: what `firebase/app`, `firebase/auth`,
- * `firebase/firestore` and `firebase/app-check` import on Node 22 and 24.
+ * The client SDK packages the live rows' entries load, besides `firebase`
+ * itself: what `firebase/app`, `firebase/auth`, `firebase/firestore`,
+ * `firebase/app-check` and `firebase/database` import on Node 22 and 24.
  * `live-row-sdk-packages.test.ts` derives this set again from the installed
  * SDK, so an SDK that loads one more package fails that test rather than
  * stopping at run time.
@@ -242,6 +242,7 @@ export const LIVE_ROW_SDK_PACKAGES: ReadonlySet<string> = new Set([
   '@firebase/auth',
   '@firebase/firestore',
   '@firebase/app-check',
+  '@firebase/database',
   '@firebase/component',
   '@firebase/util',
   '@firebase/logger',
@@ -254,7 +255,7 @@ export interface SuppliedRowsGrant {
   readonly isRowImport: boolean;
   /** Resolved with the `import` condition: an ESM import, which `createRequire` cannot make. */
   readonly isEsmImport: boolean;
-  /** The app's own import of a specifier the register passes through (`firebase/database`). */
+  /** The app's own import of a specifier the register passes through (`firebase/functions`). */
   readonly isPassThroughImport?: boolean;
   /**
    * The `@firebase/*` packages the passed-through entries load besides the
@@ -266,7 +267,7 @@ export interface SuppliedRowsGrant {
 /**
  * Whether `load` is the entry of the passed-through specifier it names: a
  * file of the `firebase` package under that specifier's own folder
- * (`firebase/database` → `database/dist/`), as the page plane checks it.
+ * (`firebase/functions` → `functions/dist/`), as the page plane checks it.
  */
 function isPassThroughEntry(load: ResolvedLoad): boolean {
   const folder = `${load.specifier.slice('firebase/'.length)}/dist/`;
@@ -277,7 +278,7 @@ function isPassThroughEntry(load: ResolvedLoad): boolean {
  * Whether a load under live rows may reach the installed client SDK: an ESM
  * import, either a row module's own import of `firebase/*`, the app's import
  * of a passed-through entry, or an allowed client SDK file's import of a
- * package the four entries or a passed-through one load. A
+ * package the live rows' entries or a passed-through one load. A
  * `createRequire` call can name any file as its importer, but it resolves
  * with the `require` condition, so it never passes.
  */

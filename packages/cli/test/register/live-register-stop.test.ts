@@ -156,7 +156,7 @@ const LIVE_ROWS = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'fireb
 
 describe('@pyric/live/register', () => {
   it('loads the installed SDK for the four live rows and refuses every other Firebase import and firebase-admin', () => {
-    const refused = ['firebase/storage', 'firebase/database', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
+    const refused = ['firebase/storage', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
     const res = run([LIVE_REGISTER], [...LIVE_ROWS, ...refused]);
     expect(res.status, res.stderr).toBe(0);
     for (const specifier of LIVE_ROWS) expect(res.outcome[specifier], specifier).toBe('loaded');

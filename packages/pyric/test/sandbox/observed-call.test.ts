@@ -24,6 +24,16 @@ const DENIED_READ: ObservedCall = {
   projectId: 'my-project',
 };
 
+const NAMED_RTDB_READ: ObservedCall = {
+  service: 'rtdb',
+  method: 'get',
+  path: '/items/a',
+  at: 1_700_000_000_000,
+  outcome: { status: 'ok' },
+  projectId: 'my-project',
+  instance: 'my-project-named',
+};
+
 describe('readObservedCall', () => {
   it('keeps every known field of a well-formed record', () => {
     expect(readObservedCall(DENIED_READ)).toEqual(DENIED_READ);
@@ -35,11 +45,26 @@ describe('readObservedCall', () => {
     }
   });
 
+  it('keeps an RTDB call with its instance and path', () => {
+    expect(readObservedCall(NAMED_RTDB_READ)).toEqual(NAMED_RTDB_READ);
+    const denied = { ...NAMED_RTDB_READ, method: 'onDisconnect.set', instance: 'my-project-default-rtdb', outcome: { status: 'error', code: 'permission_denied' } };
+    expect(readObservedCall(denied)).toEqual(denied as ObservedCall);
+  });
+
   it('refuses a malformed record and names the field', () => {
     const cases: Array<[unknown, string]> = [
       [null, 'call'],
       [[DENIED_READ], 'call'],
-      [{ ...DENIED_READ, service: 'rtdb' }, 'service'],
+      [{ ...DENIED_READ, service: 'storage' }, 'service'],
+      [{ ...DENIED_READ, instance: 'my-project-default-rtdb' }, 'instance'],
+      [{ ...NAMED_RTDB_READ, instance: '' }, 'instance'],
+      [{ ...NAMED_RTDB_READ, instance: 'Named' }, 'instance'],
+      [{ ...NAMED_RTDB_READ, instance: '-named' }, 'instance'],
+      [{ ...NAMED_RTDB_READ, instance: 'named.firebaseio.com' }, 'instance'],
+      [{ ...NAMED_RTDB_READ, instance: 'a'.repeat(101) }, 'instance'],
+      [{ ...NAMED_RTDB_READ, instance: 7 }, 'instance'],
+      [{ ...NAMED_RTDB_READ, instance: undefined }, 'instance'],
+      [{ service: 'rtdb', method: 'set', path: '/items/a', at: 1, outcome: { status: 'ok' } }, 'instance'],
       [{ ...DENIED_READ, method: 'get Doc()' }, 'method'],
       [{ ...DENIED_READ, at: Number.NaN }, 'at'],
       [{ ...DENIED_READ, at: -1 }, 'at'],
@@ -99,6 +124,18 @@ describe('observedCallEvent', () => {
     expect(event.result).toBe('not-applicable');
     expect(event.auth).toBeNull();
     expect(event.production).toEqual({ outcome: { status: 'ok' } });
+  });
+
+  it('names a named RTDB instance on the event and leaves the default instance out', () => {
+    expect(observedCallEvent(NAMED_RTDB_READ)).toMatchObject({ service: 'rtdb', method: 'get', path: '/items/a', instance: 'my-project-named' });
+    for (const instance of ['my-project-default-rtdb', 'my-project']) {
+      const event = observedCallEvent({ ...NAMED_RTDB_READ, instance });
+      expect(event.path).toBe('/items/a');
+      expect('instance' in event).toBe(false);
+    }
+    // Without a project, no name can be read as the default, so the event keeps it.
+    const { projectId: _projectId, ...withoutProject } = NAMED_RTDB_READ;
+    expect(observedCallEvent({ ...withoutProject, instance: 'my-project-default-rtdb' }).instance).toBe('my-project-default-rtdb');
   });
 
   it("reads production's permission-denied, in any service's spelling, as denied", () => {

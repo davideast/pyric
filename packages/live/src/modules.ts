@@ -1,5 +1,5 @@
 /**
- * The four Firebase modules live mode wraps, and the exports of each it
+ * The Firebase modules live mode wraps, and the exports of each it
  * observes. A wrapped module carries every export of the real module: the
  * observed ones as wrappers that call the real function, the guarded ones
  * (`getFirestore` and `initializeFirestore`, which refuse a named database)
@@ -8,11 +8,17 @@
  * Auth they return so a call's record can name its account (`account.ts`),
  * and every other one (classes, constants, `doc`, `query`) as the real value
  * itself, so `instanceof` and identity checks see the SDK's own. Every
- * wrapper returns the SDK's own result, with two exceptions (`observe.ts`): a
- * promise comes back as a new promise that settles the same way, and a
- * Firestore listener the page's observer journals returns a function that
- * closes the listener's journal activity and then calls the SDK's own
- * unsubscribe.
+ * wrapper returns the SDK's own result, with three exceptions (`observe.ts`):
+ * a promise comes back as a new promise that settles the same way, RTDB's
+ * `push` reference comes back with its `then` and `catch` following the
+ * write, and a Firestore listener the page's observer journals returns a
+ * function that closes the listener's journal activity and then calls the
+ * SDK's own unsubscribe.
+ *
+ * The database row (`database.ts`) also decorates what two exports return:
+ * the Database `getDatabase` returns is noted, so a reference's repo names
+ * its app, and the OnDisconnect `onDisconnect` returns gets observed
+ * methods. Its `off` takes the app's callback and removes the recording one.
  *
  * The real module is passed in. A plane loads it from the app's own installed
  * `firebase`, so the app object, Auth, Firestore and App Check all come from
@@ -25,10 +31,24 @@
  * This file imports no Firebase SDK, so nothing here adds a dependency on it.
  */
 import { accountOf, noteAuth } from './account.js';
-import { observedCall, observedListener, type LiveObserver, type ObservedSite, type UncaughtListenerError } from './observe.js';
+import {
+  databaseCode,
+  databaseContext,
+  databaseListenerArguments,
+  databaseListenerCallback,
+  noteDatabase,
+  observeOnDisconnect,
+  offByCallback,
+} from './database.js';
+import { observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite, type UncaughtListenerError } from './observe.js';
 import { liveCallRefusal, type LiveClient, type RefusedCall } from './refusal.js';
 
-export type LiveModuleKey = 'live-app' | 'live-auth' | 'live-firestore' | 'live-app-check';
+export type LiveModuleKey = 'live-app' | 'live-auth' | 'live-firestore' | 'live-app-check' | 'live-database';
+
+type Callback = (this: unknown, ...args: unknown[]) => unknown;
+
+/** Takes what an export returned, unrecorded, before the app gets it: to note it, or to observe its methods. */
+export type Decorate = (returned: unknown, site: Omit<ObservedSite, 'name'>) => void;
 
 export interface LiveModuleSpec {
   /** One-shot exports: each call's return, throw, resolution or rejection is recorded. */
@@ -54,6 +74,14 @@ export interface LiveModuleSpec {
    * records name the account its current user is.
    */
   readonly noted?: readonly string[];
+  /** One-shot exports whose result is a thenable, not a promise, whose settlement is production's answer. */
+  readonly thenables?: readonly string[];
+  /** What every wrapper of this module reads differently from Firestore and Auth (`observe.ts`). */
+  readonly hooks?: ObservedHooks;
+  /** Exports called as the app called them, unrecorded, whose result is decorated before the app gets it. */
+  readonly decorated?: Readonly<Record<string, Decorate>>;
+  /** Exports the row replaces with its own function of the SDK's, unrecorded. */
+  readonly replaced?: Readonly<Record<string, (real: Callback) => Callback>>;
 }
 
 /** The call an export's arguments make when live mode refuses it, or null when it serves them. */
@@ -165,6 +193,22 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     calls: ['initializeAppCheck', 'getToken', 'getLimitedUseToken'],
     listeners: ['onTokenChanged'],
   },
+  'live-database': {
+    calls: ['get', 'set', 'update', 'remove', 'push', 'runTransaction', 'setWithPriority', 'setPriority'],
+    listeners: ['onValue', 'onChildAdded', 'onChildChanged', 'onChildRemoved', 'onChildMoved'],
+    thenables: ['push'],
+    hooks: {
+      context: databaseContext,
+      codeOf: databaseCode,
+      listenerArguments: databaseListenerArguments,
+      listenerCallback: databaseListenerCallback,
+    },
+    decorated: {
+      getDatabase: noteDatabase,
+      onDisconnect: observeOnDisconnect,
+    },
+    replaced: { off: offByCallback },
+  },
 };
 
 type Wrap = typeof observedCall;
@@ -174,16 +218,16 @@ function wrapExports(
   names: readonly string[],
   wrap: Wrap,
   site: Omit<ObservedSite, 'name'>,
+  thenables: readonly string[] = [],
 ): void {
   for (const name of names) {
     const real = wrapped[name];
     // A name this SDK version does not export stays absent.
     if (typeof real !== 'function') continue;
-    wrapped[name] = wrap({ ...site, name }, real as Parameters<Wrap>[1]);
+    const followsThenable = thenables.includes(name);
+    wrapped[name] = wrap({ ...site, name, ...(followsThenable ? { followsThenable } : {}) }, real as Parameters<Wrap>[1]);
   }
 }
-
-type Callback = (this: unknown, ...args: unknown[]) => unknown;
 
 /** Replaces each export a check guards with one that throws the refusal, or calls the SDK when the check passes. */
 function guardExports(wrapped: Record<string, unknown>, checks: Readonly<Record<string, RefusalCheck>>, client: LiveClient): void {
@@ -211,6 +255,31 @@ function noteExports(wrapped: Record<string, unknown>, names: readonly string[])
   }
 }
 
+/** Replaces each decorated export with one that calls the SDK and decorates what it returns. A decorator never throws to the app. */
+function decorateExports(wrapped: Record<string, unknown>, decorators: Readonly<Record<string, Decorate>>, site: Omit<ObservedSite, 'name'>): void {
+  for (const [name, decorate] of Object.entries(decorators)) {
+    const real = wrapped[name];
+    if (typeof real !== 'function') continue;
+    wrapped[name] = function decorated(this: unknown, ...args: unknown[]): unknown {
+      const returned = Reflect.apply(real as Callback, this, args);
+      try {
+        decorate(returned, site);
+      } catch {
+        // Noting or observing the result never changes what the app sees.
+      }
+      return returned;
+    };
+  }
+}
+
+/** Replaces each export the row rewires with its own function of the SDK's. */
+function replaceExports(wrapped: Record<string, unknown>, replacements: Readonly<Record<string, (real: Callback) => Callback>>): void {
+  for (const [name, replace] of Object.entries(replacements)) {
+    const real = wrapped[name];
+    if (typeof real === 'function') wrapped[name] = replace(real as Callback);
+  }
+}
+
 /** Where a wrapped module runs: who receives its records, the installed SDK's version, and the client. */
 export interface LiveModuleSite {
   readonly observer: LiveObserver;
@@ -228,17 +297,26 @@ export interface LiveModuleSite {
 export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: string, real: T, site: LiveModuleSite): T {
   const spec = LIVE_MODULES[key];
   const wrapped: Record<string, unknown> = { ...(real as Record<string, unknown>) };
-  const observedSite = { module: specifier, observer: site.observer, accountOf };
-  wrapExports(wrapped, spec.calls, observedCall, observedSite);
+  const observedSite = { module: specifier, observer: site.observer, accountOf, ...spec.hooks };
+  wrapExports(wrapped, spec.calls, observedCall, observedSite, spec.thenables);
   const uncaughtListenerError = spec.uncaughtListenerError?.(site.sdkVersion);
   wrapExports(wrapped, spec.listeners, observedListener, { ...observedSite, uncaughtListenerError });
   guardExports(wrapped, spec.refused ?? {}, site.client);
   noteExports(wrapped, spec.noted ?? []);
+  decorateExports(wrapped, spec.decorated ?? {}, observedSite);
+  replaceExports(wrapped, spec.replaced ?? {});
   return wrapped as T;
 }
 
-/** Every export a live module replaces: the observed, the refused and the noted ones. */
+/** Every export a live module replaces: the observed, the refused, the noted, the decorated and the rewired ones. */
 export function replacedExports(key: LiveModuleKey): string[] {
   const spec = LIVE_MODULES[key];
-  return [...spec.calls, ...spec.listeners, ...Object.keys(spec.refused ?? {}), ...(spec.noted ?? [])];
+  return [
+    ...spec.calls,
+    ...spec.listeners,
+    ...Object.keys(spec.refused ?? {}),
+    ...(spec.noted ?? []),
+    ...Object.keys(spec.decorated ?? {}),
+    ...Object.keys(spec.replaced ?? {}),
+  ];
 }
