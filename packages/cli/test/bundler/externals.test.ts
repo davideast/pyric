@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test } from 'bun:test';
 import * as esbuild from 'esbuild';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -106,6 +106,25 @@ describe('bundler externalization presets and predicate', () => {
   });
 
   describe('pyricViteExternals', () => {
+    let root: string;
+    const config = (userConfig: object): unknown =>
+      (pyricViteExternals().config as (c: object) => unknown)({ root, ...userConfig });
+
+    /** Installs a package whose own manifest says `name` in `node_modules/<folder>`. */
+    function install(folder: string, name: string): void {
+      const dir = join(root, 'node_modules', folder);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version: '1.0.0' }));
+    }
+
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'pyric-vite-externals-'));
+    });
+
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
     test('is a build-only Vite plugin with no hooks beyond config', () => {
       const plugin = pyricViteExternals();
       expect(Object.keys(plugin).sort()).toEqual(['apply', 'config', 'name']);
@@ -113,12 +132,21 @@ describe('bundler externalization presets and predicate', () => {
     });
 
     test('adds the package names to ssr.external', () => {
-      const config = pyricViteExternals().config as (c: object) => unknown;
       expect(config({})).toEqual({ ssr: { external: ['firebase-admin', 'firebase'] } });
     });
 
+    test('adds each name a Firebase SDK is installed under in the Vite root, and nothing else (#1756)', () => {
+      install('@firebase/firestore', '@firebase/firestore');
+      install('admin-alias', 'firebase-admin');
+      install('@acme/store', '@firebase/storage');
+      install('firebase-tools-like', 'firebase-tools');
+      install('hono', 'hono');
+      expect(config({})).toEqual({
+        ssr: { external: ['firebase-admin', 'firebase', '@acme/store', '@firebase/firestore', 'admin-alias'] },
+      });
+    });
+
     test('adds nothing when ssr.external already externalizes every dependency', () => {
-      const config = pyricViteExternals().config as (c: object) => unknown;
       expect(config({ ssr: { external: true } })).toBeUndefined();
     });
   });
@@ -151,9 +179,16 @@ describe('the presets in real bundlers', () => {
     '@firebase/util': 'FIREBASE_SCOPE_INLINED',
   } as const;
   const LOCAL_DEP_MARKER = 'LOCAL_DEP_INLINED';
+  /** What an npm alias installs: `"admin-alias": "npm:firebase-admin@13"` is a folder whose manifest says firebase-admin. */
+  const ALIASED_ADMIN_MARKER = 'ALIASED_ADMIN_INLINED';
 
-  function writePackage(name: string, files: Record<string, string>, exportsMap: Record<string, string>): void {
-    const dir = join(projectDir, 'node_modules', name);
+  function writePackage(
+    folder: string,
+    files: Record<string, string>,
+    exportsMap: Record<string, string>,
+    name = folder,
+  ): void {
+    const dir = join(projectDir, 'node_modules', folder);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, type: 'module', exports: exportsMap }));
     for (const [file, source] of Object.entries(files)) writeFileSync(join(dir, file), source);
@@ -178,6 +213,12 @@ describe('the presets in real bundlers', () => {
       { '.': './index.js' },
     );
     writePackage('local-dep', { 'index.js': `export const local = '${LOCAL_DEP_MARKER}';\n` }, { '.': './index.js' });
+    writePackage(
+      'admin-alias',
+      { 'app.js': `export const aliasedApp = '${ALIASED_ADMIN_MARKER}';\n` },
+      { './app': './app.js' },
+      'firebase-admin',
+    );
     mkdirSync(join(projectDir, 'src'));
     writeFileSync(
       join(projectDir, 'src', 'server.js'),
@@ -186,6 +227,14 @@ import { firestore } from 'firebase/firestore';
 import { util } from '@firebase/util';
 import { local } from 'local-dep';
 console.log(adminApp, firestore, util, local);
+`,
+    );
+    writeFileSync(
+      join(projectDir, 'src', 'direct-sdk.js'),
+      `import { util } from '@firebase/util';
+import { aliasedApp } from 'admin-alias/app';
+import { local } from 'local-dep';
+console.log(util, aliasedApp, local);
 `,
     );
     writeFileSync(
@@ -266,6 +315,15 @@ console.log(firestore);
     for (const packageName of pyricExternalPackages) expect(code).toMatch(new RegExp(`"${packageName}/`));
     expect(code).not.toContain(inlinedMarkers['firebase-admin/app']);
     expect(code).not.toContain(inlinedMarkers['firebase/firestore']);
+    expect(code).toContain(LOCAL_DEP_MARKER);
+  });
+
+  it('Vite keeps a direct @firebase/* import and an npm-aliased firebase-admin external with ssr.noExternal: true (#1756)', async () => {
+    const code = await viteBuild({ input: 'src/direct-sdk.js', ssr: true, plugins: [pyricViteExternals()] });
+    expect(code).toContain('"@firebase/util"');
+    expect(code).toContain('"admin-alias/app"');
+    expect(code).not.toContain(inlinedMarkers['@firebase/util']);
+    expect(code).not.toContain(ALIASED_ADMIN_MARKER);
     expect(code).toContain(LOCAL_DEP_MARKER);
   });
 

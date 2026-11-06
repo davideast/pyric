@@ -1,4 +1,5 @@
 import { pyric } from "@pyric/cli/vite";
+import { pyricViteExternals } from "@pyric/cli/bundler";
 
 // A small SSR middleware, the shape a framework's dev SSR takes. `runner`
 // picks how the module loads: `ssrLoadModule` or the environment API runner.
@@ -42,10 +43,12 @@ function ssrRoutes() {
 
 // The scenario starts this dev server in several shapes: the SharedWorker
 // sandbox (PYRIC_TEST_HOSTED=0), and the externalization settings frameworks
-// use (PYRIC_TEST_NO_EXTERNAL=firebase or all).
+// use (PYRIC_TEST_NO_EXTERNAL=firebase or all). `vite build --ssr` with
+// PYRIC_TEST_NO_EXTERNAL=all bundles every dependency except the Firebase SDKs
+// pyricViteExternals keeps external; that plugin runs in builds only (#1756).
 const noExternal = { firebase: ["firebase"], all: true }[process.env.PYRIC_TEST_NO_EXTERNAL ?? ""];
 
 export default {
   ...(noExternal === undefined ? {} : { ssr: { noExternal } }),
-  plugins: [pyric({ hosted: process.env.PYRIC_TEST_HOSTED !== "0" }), ssrRoutes()],
+  plugins: [pyric({ hosted: process.env.PYRIC_TEST_HOSTED !== "0" }), ssrRoutes(), pyricViteExternals()],
 };
