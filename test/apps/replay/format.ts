@@ -182,7 +182,22 @@ export interface AdminFirestoreExchange {
   error?: { code: number; status: string; message: string };
 }
 
-export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange | MessagingExchange | AdminFirestoreExchange;
+/**
+ * One Auth user-management call the Admin SDK (`firebase-admin/auth`) sent
+ * and production's answer (`admin-auth.ts`). `path` is the path under
+ * `identitytoolkit.googleapis.com`, `/v1/projects/<project>/accounts...`,
+ * with no query string; `query` matches the whole query, and `body` the JSON
+ * the call sent, key for key, with placeholders. With no `body`, the call
+ * sends none.
+ */
+export interface AdminAuthExchange {
+  kind: 'admin-auth';
+  id: string;
+  request: { method: string; path: string; query?: JsonObject; body?: JsonObject };
+  response: { status: number; body: JsonObject };
+}
+
+export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange | MessagingExchange | AdminFirestoreExchange | AdminAuthExchange;
 
 export interface Recording {
   format: typeof FORMAT;
@@ -250,7 +265,14 @@ export function assertShapesOnly(recording: Recording): void {
     if (exchange.kind === 'rtdb') checkRtdb(recording.project, `exchanges[${index}]`, exchange, ids);
     if (exchange.kind === 'storage') checkStorage(recording.project, `exchanges[${index}]`, exchange);
     if (exchange.kind === 'messaging') checkMessaging(recording.project, `exchanges[${index}]`, exchange);
+    if (exchange.kind === 'admin-auth') checkAdminAuth(recording.project, `exchanges[${index}]`, exchange);
   });
+}
+
+/** Throws unless an Admin Auth exchange's path is under the recording's project. */
+function checkAdminAuth(project: string, path: string, exchange: AdminAuthExchange): void {
+  const isProjectPath = exchange.request.path.startsWith(`/v1/projects/${project}/`);
+  if (!isProjectPath) throw new Error(`replay: ${path}.request.path names ${exchange.request.path}, outside project ${project}`);
 }
 
 /** The placeholder each server-issued answer key must be, per Messaging API. */
