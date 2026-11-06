@@ -309,9 +309,13 @@ describe('observedCallEvent', () => {
 
   it("reads Storage's storage/unauthorized as denied and every other Storage code as failed", () => {
     expect(productionVerdict({ status: 'error', code: 'storage/unauthorized' })).toBe('denied');
-    for (const code of ['storage/unauthenticated', 'storage/unauthorized-app', 'storage/object-not-found', 'storage/canceled', 'storage/unknown']) {
+    for (const code of ['storage/unauthenticated', 'storage/object-not-found', 'storage/canceled', 'storage/unknown']) {
       expect(productionVerdict({ status: 'error', code })).toBe('failed');
     }
+  });
+
+  it("reads Storage's App Check rejection, storage/unauthorized-app, as denied", () => {
+    expect(productionVerdict({ status: 'error', code: 'storage/unauthorized-app' })).toBe('denied');
   });
 
   it('leaves a sandbox-served operation unmarked', () => {
