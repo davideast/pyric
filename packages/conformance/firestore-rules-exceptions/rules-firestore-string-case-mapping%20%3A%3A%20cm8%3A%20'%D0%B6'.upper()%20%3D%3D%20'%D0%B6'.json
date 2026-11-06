@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#229","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production's upper() leaves ж unchanged; pyric maps every Unicode letter and returns 'Ж'","issue":"#1896"}

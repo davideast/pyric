@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#229","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"production's lower() leaves İ unchanged, one character; pyric uses JavaScript's full case mapping and returns i with a combining dot, two characters","issue":"#1896"}
