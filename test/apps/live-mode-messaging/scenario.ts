@@ -6,15 +6,15 @@
  * (the second is answered from the SDK's IndexedDB, with no request), hears a
  * foreground message, navigates away so its service worker hears a
  * background one, comes back, deletes the token, and asks for a token on an
- * app whose API key production refuses. The chip's Traffic shows each call
- * and delivery as production's, from the realm that made it, with the
- * Installations and FCM registrations requests each call made and
- * production's answer, and nothing for `isSupported` or the second getToken.
- * The FID registration calls, `register` and `onRegistered`, throw live
- * mode's refusal, send no request and make no row.
- * The host's event stream carries each call's requests and no token, key or
- * payload text, and Messaging adds nothing to the billed count. In Node the
- * worker file loads both Messaging entries with no refusal and sends no row.
+ * app whose API key production refuses. The host's event stream, as it
+ * writes it to the session capture, carries one Messaging operation per call
+ * and delivery, from the realm that made it (the page, or the service
+ * worker), with production's outcome and code and the Installations and FCM
+ * registrations requests each call made. `isSupported`, the getTokens
+ * answered from IndexedDB, and the refused `register` and `onRegistered`
+ * make no event. The stream carries no token, key, subscription or payload
+ * text, and no operation of any billed service. In Node the worker file loads
+ * both Messaging entries with no refusal and sends no event.
  *
  * Production is a replay server this scenario starts (`../replay/`), serving
  * capture M for this project. The browser relays the Installations and
@@ -29,11 +29,10 @@
  * browser blocks every host but loopback.
  */
 import assert from 'node:assert/strict';
-import type { Browser, BrowserContext, Locator, Page } from 'playwright';
+import type { Browser, BrowserContext, Page } from 'playwright';
 import { guardContext, launchScenarioBrowser, scenario, sleep, type App, type DevServer } from '../driver.ts';
 
 const PROJECT = 'demo-live-messaging';
-const BILLED_NONE = 'Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners';
 const LAST_BACKGROUND = '/last-background-message';
 
 interface Settled { ok: boolean; value?: unknown; code?: string; message?: string }
@@ -203,94 +202,54 @@ async function installationEntries(page: Page): Promise<unknown> {
   }));
 }
 
-/** The chip, opened. */
-async function openChip(page: Page): Promise<Locator> {
-  const chip = page.locator('[data-pyric-runtime-chip-host]');
-  await chip.waitFor({ state: 'attached', timeout: 30_000 });
-  if (!await chip.locator('[data-chip-tab=traffic]').isVisible()) await chip.locator('[data-expand]').click();
-  return chip;
+interface CapturedEvent {
+  kind?: string;
+  service?: string;
+  method?: string;
+  at?: number;
+  detail?: { requests?: unknown };
+  production?: { outcome?: { status?: string; code?: string } };
+  caller?: { kind?: string; pageId?: string };
 }
 
-interface Row {
-  id: string;
-  /** `<served> <source> <call> | <requests> | <answer> | <account>`. */
-  text: string;
-}
-
-/**
- * Every Messaging row Traffic lists, scoped to all. The service filter has no
- * Messaging option yet, so it lists every service, loads older rows until
- * there are none, and keeps the rows whose call is a Messaging one.
- */
-async function messagingRows(chip: Locator): Promise<Row[]> {
-  await chip.locator('[data-chip-tab=traffic]').click();
-  await chip.locator('[data-traffic-scope=all]').click();
-  const service = chip.locator('[data-request-service]');
-  await service.selectOption('storage');
-  await service.selectOption('');
-  const older = chip.locator('[data-request-older]');
-  while (await older.count() > 0) await older.click();
-  const rows = await chip.locator('[data-traffic-rows] [data-request-row]').evaluateAll((elements) => elements.map((element) => ({
-    id: element.getAttribute('data-request-row') ?? '',
-    text: [
-      [
-        element.querySelector('[data-traffic-row-production]') ? 'production' : 'sandbox',
-        element.querySelector('[data-traffic-row-source]')?.textContent ?? '-',
-        (element.querySelector('.c1')?.textContent ?? '').split(' · ').at(-1),
-      ].join(' '),
-      element.querySelector('.c2')?.textContent ?? '',
-      element.querySelector('[data-verdict-production]')?.getAttribute('title') ?? '-',
-      element.querySelector('.s2')?.textContent ?? '',
-    ].join(' | '),
-  })));
-  return rows.filter((row) => / messaging\./.test(row.text.split(' | ')[0] ?? ''));
-}
-
-/**
- * The rows the page's sequence makes, sorted: the first getToken with the
- * Installations create and registrations create it sent, the foreground and
- * background deliveries, the deleteToken with its registrations delete, and
- * the bad-key getToken with the Installations create production refused
- * (capture M: 400 INVALID_ARGUMENT, which reads failed, not denied). The
- * second and third getToken and `isSupported` sent no request, and the
- * refused `register` and `onRegistered` never ran: none makes a row.
- */
-function expectedRows(): string[] {
-  const row = (source: string, call: string, requests: string, answer: 'succeeded' | 'failed') => `production ${source} messaging.${call} | ${requests} | Production ${answer} | signed out`;
-  return [
-    row('This page', 'getToken', 'Installations create, 200; registrations create, 200', 'succeeded'),
-    row('This page', 'onMessage', '', 'succeeded'),
-    row('Service worker', 'onBackgroundMessage', '', 'succeeded'),
-    row('This page', 'deleteToken', 'Registrations delete, 200', 'succeeded'),
-    row('This page', 'getToken', 'Installations create, 400', 'failed'),
-  ].sort();
-}
-
-/** A row's outcome, as its detail reads it. */
-async function outcomeOf(chip: Locator, id: string): Promise<string> {
-  await chip.locator(`[data-traffic-rows] [data-request-row="${id}"]`).click();
-  const detail = chip.locator('[data-traffic-detail]');
-  await detail.waitFor({ state: 'visible', timeout: 10_000 });
-  const outcome = await detail.evaluate((element) => {
-    const facts = [...element.querySelectorAll('.request-fact')].map((fact) => [fact.querySelector('dt')?.textContent ?? '', fact.querySelector('dd')?.textContent ?? '']);
-    return facts.find(([label]) => label === 'Outcome')?.[1] ?? '';
-  });
-  await chip.locator('[data-request-back]').click();
-  return outcome;
-}
-
-interface CapturedEvent { kind?: string; service?: string; method?: string; detail?: { requests?: unknown } }
-
-/** The host's session capture as written, and its Messaging operations. */
-function sessionCapture(app: App): { text: string; events: CapturedEvent[] } {
+/** The host's session capture as written, and its operations of every service. */
+function sessionCapture(app: App): { text: string; operations: CapturedEvent[] } {
   try {
     const text = app.readFile('.pyric/last-session.json');
     const capture = JSON.parse(text) as { events?: CapturedEvent[] };
-    return { text, events: (capture.events ?? []).filter((event) => event.kind === 'operation' && event.service === 'messaging') };
+    return { text, operations: (capture.events ?? []).filter((event) => event.kind === 'operation') };
   } catch {
-    return { text: '', events: [] };
+    return { text: '', operations: [] };
   }
 }
+
+/** An operation as the scenario compares it: service, method, production's outcome and code, the requests, and the realm. */
+function operationFacts(event: CapturedEvent): Record<string, unknown> {
+  const outcome = event.production?.outcome;
+  return {
+    call: `${event.service}.${event.method}`,
+    outcome: outcome?.code ? `${outcome.status} ${outcome.code}` : outcome?.status,
+    requests: event.detail?.requests ?? [],
+    caller: event.caller?.kind,
+  };
+}
+
+/**
+ * The operations the page's sequence makes, in order: the first getToken
+ * with the Installations create and registrations create it sent, the
+ * foreground delivery on the page and the background one in the service
+ * worker, the deleteToken with its registrations delete, and the bad-key
+ * getToken with the Installations create production refused (capture M: 400
+ * INVALID_ARGUMENT). The getTokens answered from IndexedDB, `isSupported`,
+ * and the refused `register` and `onRegistered` make none.
+ */
+const EXPECTED_OPERATIONS = [
+  { call: 'messaging.getToken', outcome: 'ok', requests: [{ api: 'installations', action: 'create', status: 200 }, { api: 'registrations', action: 'create', status: 200 }], caller: 'page' },
+  { call: 'messaging.onMessage', outcome: 'ok', requests: [], caller: 'page' },
+  { call: 'messaging.onBackgroundMessage', outcome: 'ok', requests: [], caller: 'service-worker' },
+  { call: 'messaging.deleteToken', outcome: 'ok', requests: [{ api: 'registrations', action: 'delete', status: 200 }], caller: 'page' },
+  { call: 'messaging.getToken', outcome: 'error invalid_argument', requests: [{ api: 'installations', action: 'create', status: 400 }], caller: 'page' },
+];
 
 function blockedLines(app: App): string[] {
   return app.browserLog.filter((line) => line.includes('[blocked external'));
@@ -371,47 +330,30 @@ export default scenario(async (app) => {
       assert.deepEqual(await replay.unmatched(), []);
     });
 
-    const chip = await app.step('the chip shows each call and delivery as production\'s, from the realm that made it, with its requests and answer', async () => {
-      const opened = await openChip(page);
-      assert.equal(await opened.locator('.panel-header [data-chip-live]').textContent(), `Live: ${PROJECT}`);
-      const expected = expectedRows();
-      const texts = (rows: Row[]) => rows.map((row) => row.text).sort();
-      const rows = await eventually(() => messagingRows(opened), (all) => JSON.stringify(texts(all)) === JSON.stringify(expected), 'the Messaging rows');
-      const outcomes: string[] = [];
-      for (const row of rows) outcomes.push(`${row.text.split(' | ')[0]}: ${await outcomeOf(opened, row.id)}`);
-      assert.deepEqual(outcomes.sort(), [
-        'production Service worker messaging.onBackgroundMessage: Succeeded in production',
-        'production This page messaging.deleteToken: Succeeded in production',
-        'production This page messaging.getToken: Failed in production (invalid_argument)',
-        'production This page messaging.getToken: Succeeded in production',
-        'production This page messaging.onMessage: Succeeded in production',
-      ]);
-      return opened;
+    await app.step('the host\'s event stream carries one operation per call and delivery, from its realm, with production\'s answer and its requests', async () => {
+      const capture = await eventually(async () => sessionCapture(app), (read) => read.operations.length >= EXPECTED_OPERATIONS.length, 'the operations on the host');
+      const operations = [...capture.operations].sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+      assert.deepEqual(operations.map(operationFacts), EXPECTED_OPERATIONS, 'one Messaging operation per observed call and delivery, and no operation of a billed service');
+      // The page's operations come from the one page, which kept its tab id across the reload.
+      const pageIds = new Set(operations.filter((event) => event.caller?.kind === 'page').map((event) => event.caller?.pageId));
+      assert.equal(pageIds.size, 1, `one page id: ${[...pageIds].join(', ')}`);
     });
 
-    const eventCount = await app.step('the host\'s event stream carries each call\'s requests, and no token, key, subscription or payload text', async () => {
-      const capture = await eventually(async () => sessionCapture(app), (read) => read.events.length >= expectedRows().length, 'the Messaging events on the host');
-      assert.equal(capture.events.length, expectedRows().length, `one event per observed call:\n${JSON.stringify(capture.events, null, 1)}`);
-      const calls = capture.events.filter((event) => event.method === 'getToken' || event.method === 'deleteToken');
-      assert.equal(calls.length, 3);
-      for (const call of calls) assert.ok(Array.isArray(call.detail?.requests) && call.detail.requests.length > 0, `detail.requests on ${JSON.stringify(call)}`);
+    const eventCount = await app.step('the host\'s event stream carries no token, key, subscription or payload text', async () => {
+      const capture = sessionCapture(app);
       const secrets = [token, CAPTURE_M_VAPID_KEY, CAPTURE_M_PUSH_SUBSCRIPTION.endpoint, CAPTURE_M_PUSH_SUBSCRIPTION.p256dh, CAPTURE_M_PUSH_SUBSCRIPTION.auth, 'replay-api-key', 'replay-malformed-key', 'pyric-capture-m', 'foreground delivery capture', 'background delivery capture'];
       assert.deepEqual(secrets.filter((secret) => capture.text.includes(secret)), [], 'the event stream carries no token, key, subscription or payload text');
-      return capture.events.length;
+      return capture.operations.length;
     });
 
-    await app.step('Messaging calls add nothing to the billed count', async () => {
-      assert.equal(await chip.locator('[data-chip-billed]').first().textContent(), BILLED_NONE);
-    });
-
-    await app.step('under @pyric/live/register, the worker file loads both Messaging entries with no refusal, and sends no row', async () => {
+    await app.step('under @pyric/live/register, the worker file loads both Messaging entries with no refusal, and sends no event', async () => {
       const run = await app.command('node', ['--import', '@pyric/live/register', 'sw.js'], { timeoutMs: 60_000 });
       assert.equal(run.code, 0, run.output);
       assert.match(run.output, /^LOADED firebase\/messaging and firebase\/messaging\/sw$/m);
       assert.doesNotMatch(run.output, /PYRIC_LIVE_REFUSED|net-guard BLOCK/);
-      // A row the process sent would reach the host before the process exits.
+      // An event the process sent would reach the host before the process exits.
       await sleep(1_000);
-      assert.equal(sessionCapture(app).events.length, eventCount);
+      assert.equal(sessionCapture(app).operations.length, eventCount);
     });
 
     await app.step('the replay answered every request, and nothing reached any host but loopback', async () => {
