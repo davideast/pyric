@@ -50,7 +50,7 @@ window.run = async () => {
 };
 // The offline SDK delivers the listener its cached snapshot: one document delivered to the listener.
 window.listen = () => new Promise((resolve) => { const stop = onSnapshot(doc(db, 'rooms/listened'), () => { stop(); resolve('delivered'); }, (error) => resolve(error.code)); });
-window.importStorage = () => import('firebase/storage').then(() => 'loaded', (error) => error.message);
+window.importFunctions = () => import('firebase/functions').then(() => 'loaded', (error) => error.message);
 document.querySelector('#status').textContent = 'Ready';
 `;
 }
@@ -114,8 +114,8 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
       await expect(row.locator('[data-verdict-production]')).toHaveAttribute('title', 'Production failed');
     }
 
-    const refusal = await page.evaluate(() => (Reflect.get(window, 'importStorage') as () => Promise<string>)());
-    expect(refusal).toContain('firebase/storage (Cloud Storage) is refused in live mode');
+    const refusal = await page.evaluate(() => (Reflect.get(window, 'importFunctions') as () => Promise<string>)());
+    expect(refusal).toContain('firebase/functions (Cloud Functions) is refused in live mode');
     expect(reports.filter((line) => line.includes('PYRIC_REAL_SDK_STOPPED') || line.includes('stopped loading the real'))).toEqual([]);
   } finally {
     process.stderr.write = writeStderr;
