@@ -162,7 +162,7 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
       await expect(row).toHaveCount(1);
       await expect(row.locator('[data-traffic-row-production]')).toHaveCount(1);
       await expect(row.locator('[data-traffic-row-source]')).toHaveAttribute('data-traffic-row-source', 'page');
-      await expect(row.locator('[data-verdict-production]')).toHaveAttribute('title', 'Production failed');
+      await expect(row.locator('[data-verdict-production]')).toHaveAttribute('data-verdict-production', 'failed');
     }
 
     const refusal = await page.evaluate(() => (Reflect.get(window, 'importFunctions') as () => Promise<string>)());

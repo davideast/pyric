@@ -2,7 +2,7 @@
  * `@pyric/cli/serve/internal/live-host`: the one seam through which the
  * `pyric-live` command starts the Node host. It is `pyric sandbox --hosted`
  * itself (`runServe`), with three differences: the host reports its status
- * as live, so the chip and Studio show "Live: <project-id>"; the pages it
+ * as live, so the chip and Studio show its project name; the pages it
  * serves get no Firebase SDK (`live-host-pages.ts`); and it refuses every
  * one of pyric's own writes, as the Vite live host does
  * (`hosted/own-writes.ts`).

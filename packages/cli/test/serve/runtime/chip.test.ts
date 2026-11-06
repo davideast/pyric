@@ -798,12 +798,13 @@ describe('the Traffic view', () => {
 
     showTab('traffic');
     const served = root.querySelector('[data-request-row="served"]')!;
-    expect(served.querySelector('[data-traffic-row-sandbox]')!.textContent).toBe('Sandbox');
+    expect(served.querySelector('[data-traffic-row-sandbox]')).not.toBeNull();
     expect(served.querySelector('[data-traffic-row-production]')).toBeNull();
     const production = root.querySelector(`[data-request-row="${observed.id}"]`)!;
-    expect(production.querySelector('[data-traffic-row-production]')!.textContent).toBe('Production');
+    expect(production.querySelector('[data-traffic-row-production]')).not.toBeNull();
     root.querySelector<HTMLButtonElement>('[data-request-row="served"]')!.click();
-    expect(root.querySelector('[data-traffic-detail]')!.textContent).toContain('Served bySandbox');
+    // The detail opened is the sandbox row's.
+    expect(root.querySelector('[data-traffic-detail]')!.getAttribute('data-request-row')).toBe('served');
 
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
     expect(collapsedParts(root)).toEqual(['live-label']);

@@ -454,11 +454,12 @@ function bypassesRules(request: ChipRequest): boolean {
 const BYPASSED_TITLE = 'Rules bypassed for admin access';
 
 /** Badges for a row production served: production's answer, never a local Rules verdict. */
-const PRODUCTION_BADGES: Record<ChipRequest['verdict'], { label: string; icon: string; tone: string; title: string }> = {
-  ok: { label: 'OK', icon: 'check', tone: 'ok', title: 'Production succeeded' },
-  denied: { label: 'Denied', icon: 'unavailable', tone: '', title: 'Production denied' },
-  error: { label: 'Failed', icon: 'warning', tone: '', title: 'Production failed' },
-  unsupported: { label: 'N/A', icon: 'unavailable', tone: '', title: 'Production failed' },
+/** Each production verdict's badge; `outcome` is the `data-verdict-production` value a test reads. */
+const PRODUCTION_BADGES: Record<ChipRequest['verdict'], { label: string; icon: string; tone: string; title: string; outcome: string }> = {
+  ok: { label: 'OK', icon: 'check', tone: 'ok', title: 'Production succeeded', outcome: 'succeeded' },
+  denied: { label: 'Denied', icon: 'unavailable', tone: '', title: 'Production denied', outcome: 'denied' },
+  error: { label: 'Failed', icon: 'warning', tone: '', title: 'Production failed', outcome: 'failed' },
+  unsupported: { label: 'N/A', icon: 'unavailable', tone: '', title: 'Production failed', outcome: 'failed' },
 };
 
 /** The outcome fact for a row production served, with production's error code. */
@@ -482,7 +483,7 @@ const PRODUCTION_REASON = 'Production answered this request. Pyric observed it a
 function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false, production = false): string {
   if (production) {
     const badge = PRODUCTION_BADGES[verdict];
-    return `<span class="verdict ${badge.tone}" data-verdict-production title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
+    return `<span class="verdict ${badge.tone}" data-verdict-production="${badge.outcome}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
   }
   if (bypassed) return `<span class="verdict bypassed" title="${BYPASSED_TITLE}" aria-label="${BYPASSED_TITLE}"><span class="verdict-icon">${iconHtml('check')}</span><span class="verdict-label">Bypassed</span></span>`;
   const badges = {

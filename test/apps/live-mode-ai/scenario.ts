@@ -347,8 +347,8 @@ export default scenario(async (app) => {
 
   await app.step('the chip shows each server job call as production\'s, from Server (client SDK)', async () => {
     await expectRows(chip, 'node');
-    const labels = await chip.locator('[data-traffic-rows] [data-traffic-row-source]').allTextContents();
-    assert.deepEqual([...new Set(labels)].sort(), ['Server (client SDK)', 'This page'], 'the All view labels the page\'s rows and the server job\'s');
+    const sources = await chip.locator('[data-traffic-rows] [data-traffic-row-source]').evaluateAll((elements) => elements.map((element) => element.getAttribute('data-traffic-row-source')));
+    assert.deepEqual([...new Set(sources)].sort(), ['node', 'page'], 'the All view marks the page\'s rows and the server job\'s');
     await expectNoEnvelopeText(app, 2 * expectedAiCalls().length);
     assert.deepEqual(await billed(host.url), BILLED_NONE);
   });

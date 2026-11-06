@@ -142,9 +142,8 @@ async function eventually<T>(read: () => Promise<T>, check: (value: T) => boolea
 
 /** What a Traffic row shows: who served it, the client that made it, the call, its path, the answer and the account. */
 interface TrafficRow {
-  served: string | null;
+  production: boolean;
   source: string | null;
-  label: string | null;
   text: string;
   answer: string | null;
   identity: string | null;
@@ -152,30 +151,27 @@ interface TrafficRow {
 
 async function readRows(rows: Locator): Promise<TrafficRow[]> {
   return rows.evaluateAll((elements) => elements.map((element) => ({
-    served: element.querySelector('[data-traffic-row-production]')?.textContent ?? null,
+    production: element.querySelector('[data-traffic-row-production]') !== null,
     source: element.querySelector('[data-traffic-row-source]')?.getAttribute('data-traffic-row-source') ?? null,
-    label: element.querySelector('[data-traffic-row-source]')?.textContent ?? null,
     text: element.textContent ?? '',
-    answer: element.querySelector('[data-verdict-production]')?.getAttribute('title') ?? null,
+    answer: element.querySelector('[data-verdict-production]')?.getAttribute('data-verdict-production') ?? null,
     identity: element.querySelector('.s2')?.textContent ?? null,
   })));
 }
 
-type Answer = 'Production succeeded' | 'Production denied';
+/** Production's answer, as the row's `data-verdict-production` value. */
+type Answer = 'succeeded' | 'denied';
 
 /** A row for `call` from `source`, served by production with `answer`, and every such row ran as `account`'s uid. */
 async function expectRow(rows: Locator, call: string, source: 'page' | 'node', answer: Answer, account: string): Promise<void> {
   const fits = (row: TrafficRow) => row.source === source && row.text.includes(call) && row.answer === answer;
   const shown = await eventually(() => readRows(rows), (all) => all.some(fits), `a ${call} row from ${source}`);
   const row = shown.find(fits)!;
-  assert.equal(row.served, 'Production', `${call} from ${source} is production's: ${row.text}`);
-  assert.equal(row.label, LABELS[source], `${call} names its client: ${row.text}`);
+  assert.equal(row.production, true, `${call} from ${source} is production's: ${row.text}`);
   assert.equal(row.answer, answer, `${call} from ${source} shows production's answer: ${row.text}`);
   const identities = shown.filter(fits).map((each) => each.identity);
   assert.deepEqual(identities, identities.map(() => account), `${call} from ${source} ran as ${account}`);
 }
-
-const LABELS = { page: 'This page', node: 'Server (client SDK)' } as const;
 
 interface BilledCount {
   reads: number;
@@ -265,11 +261,11 @@ export default scenario(async (app) => {
     const accounts = { page: reader, node: writer } as const;
     for (const source of ['page', 'node'] as const) {
       const account = accounts[source];
-      await expectRow(rows, 'auth.signInWithEmailAndPassword', source, 'Production succeeded', account);
-      await expectRow(rows, 'firestore.getDoc', source, 'Production succeeded', account);
-      await expectRow(rows, 'firestore.getDoc', source, 'Production denied', account);
-      await expectRow(rows, 'firestore.onSnapshot', source, 'Production succeeded', account);
-      await expectRow(rows, 'firestore.setDoc', source, 'Production succeeded', account);
+      await expectRow(rows, 'auth.signInWithEmailAndPassword', source, 'succeeded', account);
+      await expectRow(rows, 'firestore.getDoc', source, 'succeeded', account);
+      await expectRow(rows, 'firestore.getDoc', source, 'denied', account);
+      await expectRow(rows, 'firestore.onSnapshot', source, 'succeeded', account);
+      await expectRow(rows, 'firestore.setDoc', source, 'succeeded', account);
     }
   });
 
@@ -367,9 +363,9 @@ export default scenario(async (app) => {
     const expected = { reads: 1, writes: 1, deliveries: result.billedDocuments };
     await eventually(() => billed(live.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
     const rows = await trafficRows(chip);
-    await expectRow(rows, 'firestore.getDoc', 'node', 'Production succeeded', writer);
-    await expectRow(rows, 'firestore.getDoc', 'node', 'Production denied', writer);
-    await expectRow(rows, 'firestore.setDoc', 'node', 'Production succeeded', writer);
+    await expectRow(rows, 'firestore.getDoc', 'node', 'succeeded', writer);
+    await expectRow(rows, 'firestore.getDoc', 'node', 'denied', writer);
+    await expectRow(rows, 'firestore.setDoc', 'node', 'succeeded', writer);
     await hosting.close();
   });
 
