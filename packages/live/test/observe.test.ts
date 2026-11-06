@@ -145,6 +145,65 @@ describe('a one-shot wrapper', () => {
   });
 });
 
+describe('a one-shot wrapper whose observer measures', () => {
+  /** Measures as the senders' `measureObservedUsage` does for these four calls: counts read off the resolved value. */
+  function measure(module: string, method: string, value: unknown): Record<string, number> | undefined {
+    const answer = value as { docs?: unknown[]; val?: () => unknown; metadata?: { size?: number }; byteLength?: number };
+    if (method === 'getDocs') return { documentReads: answer.docs?.length ?? 0 };
+    if (method === 'get') return { payloadBytes: JSON.stringify(answer.val?.()).length };
+    if (method === 'uploadBytes' || method === 'uploadBytesResumable') return { uploadedBytes: answer.metadata?.size ?? 0 };
+    if (method === 'getBytes') return { downloadedBytes: answer.byteLength ?? 0 };
+    return module === 'firebase/auth' ? undefined : { unmeasured: 1 };
+  }
+
+  const CALLS: readonly [string, string, unknown, Record<string, number>][] = [
+    ['firebase/firestore', 'getDocs', { docs: [{ secret: 1 }, { secret: 2 }, { secret: 3 }] }, { documentReads: 3 }],
+    ['firebase/database', 'get', { val: () => ({ secret: 'value' }) }, { payloadBytes: 18 }],
+    ['firebase/storage', 'uploadBytes', { metadata: { size: 42, name: 'secret.png' } }, { uploadedBytes: 42 }],
+    ['firebase/storage', 'getBytes', new ArrayBuffer(7), { downloadedBytes: 7 }],
+  ];
+
+  for (const [module, name, value, usage] of CALLS) {
+    test(`a resolved ${name} carries the usage the observer measured, and no value`, async () => {
+      const { records, observer } = collector();
+      const measuring = Object.assign(observer, { measure });
+      const wrapped = observedCall({ module, name, observer: measuring }, () => Promise.resolve(value));
+      expect(await wrapped('secret-argument')).toBe(value);
+      expect(records).toEqual([{ module, name, outcome: 'resolved', usage }]);
+      expect(JSON.stringify(records)).not.toContain('secret');
+    });
+
+    test(`a resolved ${name} carries no usage when the observer does not measure`, async () => {
+      const { records, observer } = collector();
+      const wrapped = observedCall({ module, name, observer }, () => Promise.resolve(value));
+      await wrapped();
+      expect(records).toEqual([{ module, name, outcome: 'resolved' }]);
+    });
+  }
+
+  test('an uploadBytesResumable task is measured by the snapshot it settles with, not the task', async () => {
+    const { records, observer } = collector();
+    const snapshot = { metadata: { size: 9 } };
+    const task = { then: (resolve: (value: unknown) => void) => resolve(snapshot) };
+    const site = { module: 'firebase/storage', name: 'uploadBytesResumable', observer: Object.assign(observer, { measure }), followsThenable: true };
+    const wrapped = observedCall(site, () => task);
+    expect(await (wrapped() as Promise<unknown>)).toBe(snapshot);
+    expect(records).toEqual([{ module: 'firebase/storage', name: 'uploadBytesResumable', outcome: 'resolved', usage: { uploadedBytes: 9 } }]);
+  });
+
+  test('a rejection and a measure that throws carry no usage, and the app still gets its answer', async () => {
+    const thrown = collector();
+    const rejected = collector();
+    const throwing = Object.assign(thrown.observer, { measure: () => { throw new Error('measure down'); } });
+    const read = observedCall({ module: 'firebase/firestore', name: 'getDocs', observer: throwing }, () => Promise.resolve({ docs: [] }));
+    const denied = observedCall({ module: 'firebase/firestore', name: 'getDocs', observer: Object.assign(rejected.observer, { measure }) }, () => Promise.reject(new CodedError('permission-denied')));
+    expect(await read()).toEqual({ docs: [] });
+    expect(await (denied() as Promise<unknown>).catch((error: CodedError) => error.code)).toBe('permission-denied');
+    expect(thrown.records).toEqual([{ module: 'firebase/firestore', name: 'getDocs', outcome: 'resolved' }]);
+    expect(rejected.records).toEqual([{ module: 'firebase/firestore', name: 'getDocs', outcome: 'rejected', code: 'permission-denied' }]);
+  });
+});
+
 describe('a recorder failure never changes what the app sees', () => {
   for (const [label, observer] of Object.entries(failingObservers)) {
     test(`an observer that ${label}: results, rejections and throws pass through`, async () => {

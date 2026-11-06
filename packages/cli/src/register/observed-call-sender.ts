@@ -16,6 +16,9 @@ import { openWorkerDb } from '../serve/entries/worker-runtime.js';
 import { nextId, rpc } from '../serve/worker/client/core.js';
 import type { ClientDb } from '../serve/worker/client/handles.js';
 
+/** The rows' observer measures each resolved call with this, as the page's sender does. */
+export { measureObservedUsage } from 'pyric/sandbox/internal';
+
 /** The connection's name on the host; no app uses it. */
 const CONNECTION_NAME = '[pyric-live]';
 
