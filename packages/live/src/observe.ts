@@ -12,8 +12,10 @@
  * (`account.ts`, which a site supplies) and, on a Firestore snapshot, the
  * documents production billed it for. A Realtime Database record also names
  * the instance and the reference's path, read through the module's context
- * hook (`database.ts`). It never carries an argument's value or a result, so
- * no document value, credential or token reaches it.
+ * hook (`database.ts`). An AI Logic record also names the model and, on
+ * success, the token counts production reported, read by the module's result
+ * hook (`ai.ts`). It never carries an argument's value or a result, so no
+ * document value, prompt, response text, credential or token reaches it.
  *
  * A thenable that is not a promise, as RTDB's `push` returns, is another
  * exception when the module marks it: the app gets the SDK's own object,
@@ -74,6 +76,28 @@ export interface LiveCallRecord {
   readonly instance?: string;
   /** On a Realtime Database call: the reference's path, `/items/a`. Absent on other records. */
   readonly path?: string;
+  /** On an AI Logic call: the model and, on success, production's token counts. Absent on other records. */
+  readonly ai?: LiveAiRecord;
+}
+
+/** The token counts production reported for an AI Logic call. Numbers only. */
+export interface LiveAiUsage {
+  readonly promptTokenCount?: number;
+  readonly candidatesTokenCount?: number;
+  readonly totalTokenCount?: number;
+  /** `countTokens` only. */
+  readonly totalTokens?: number;
+}
+
+/** What an AI Logic record names: the model and token counts, never a prompt, a part or response text. */
+export interface LiveAiRecord {
+  /** The model resource the SDK normalized, `models/gemini-flash-lite-latest`. */
+  readonly model: string;
+  /** The `modelVersion` production reported, when the SDK kept it. */
+  readonly reportedModel?: string;
+  readonly usage?: LiveAiUsage;
+  /** On a stream: ms from the call until the method resolved with its first chunk. */
+  readonly firstChunkMs?: number;
 }
 
 /** The account a call ran as: the uid and its token's claim names, never the token. */
@@ -100,7 +124,14 @@ export interface CallContext {
   readonly projectId?: string;
   readonly instance?: string;
   readonly path?: string;
+  /** On an AI Logic call: the model it asked for. */
+  readonly ai?: LiveAiRecord;
+  /** When the call started, in ms since epoch, for a result hook that times it. */
+  readonly startedAt?: number;
 }
+
+/** What a resolved call's value adds to its record, or `UNOBSERVED` when production never answered it. */
+export type ResultReading = Pick<CallContext, 'ai'> | typeof UNOBSERVED;
 
 /** Reads one call's context from its export name, arguments and `this`, or marks it unobserved. */
 export type CallContextOf = (name: string, args: readonly unknown[], self: unknown) => CallContext | typeof UNOBSERVED;
@@ -124,6 +155,13 @@ export interface ObservedHooks {
    * app's callback later, as `off()` does.
    */
   readonly listenerCallback?: (name: string, args: readonly unknown[], appCallback: Callback, make: () => Callback) => Callback;
+  /**
+   * Reads a one-shot call's resolved value before the app gets it: what it
+   * adds to the record, or `UNOBSERVED` to make none. A promise of the
+   * reading defers the record until it settles; its rejection is recorded as
+   * the call's error, as a stream whose response fails is.
+   */
+  readonly resultOf?: (site: ObservedSite, value: unknown) => ResultReading | Promise<ResultReading>;
 }
 
 /** Where a wrapped export sits: its module and name, and who receives its records. */
@@ -150,6 +188,10 @@ export interface ObservedSite extends ObservedHooks {
   /** The instance and path of the call this site records, read by the module's context hook. */
   readonly instance?: string;
   readonly path?: string;
+  /** The AI Logic model of the call this site records, and its token counts once read. */
+  readonly ai?: LiveAiRecord;
+  /** When the call this site records started, in ms since epoch. */
+  readonly startedAt?: number;
   /**
    * Whether the export returns a thenable that is not a promise, whose
    * settlement is production's answer, as `push` returns its reference.
@@ -182,10 +224,11 @@ function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown):
   }
 }
 
-/** The site's instance and path, as a record carries them. */
-function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'path'> {
+/** The site's instance, path and AI Logic model, as a record carries them. */
+function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'path' | 'ai'> {
   const instance = site.instance === undefined ? {} : { instance: site.instance };
-  return site.path === undefined ? instance : { ...instance, path: site.path };
+  const place = site.path === undefined ? instance : { ...instance, path: site.path };
+  return site.ai === undefined ? place : { ...place, ai: site.ai };
 }
 
 /** `value` is the delivered value or the error, by outcome. */
@@ -264,6 +307,38 @@ function ignoreRejection(returned: unknown): void {
   if (isPromise) Promise.prototype.then.call(returned, undefined, () => undefined);
 }
 
+/** What the module's result hook reads from a resolved value: an empty reading when it has none, or when it throws. */
+function readResult(site: ObservedSite, value: unknown): ResultReading | Promise<ResultReading> {
+  const resultOf = site.resultOf;
+  if (resultOf === undefined) return {};
+  try {
+    return resultOf(site, value);
+  } catch {
+    // A value the hook cannot read is still recorded, without what it would add.
+    return {};
+  }
+}
+
+/** Records one reading of a resolved call, or nothing when production never answered it. */
+function reportReading(site: ObservedSite, reading: ResultReading): void {
+  if (reading === UNOBSERVED) return;
+  report({ ...site, ...reading }, 'resolved');
+}
+
+/** Records a resolved call with what its value adds: now, or when a deferred reading settles. */
+function reportResolved(site: ObservedSite, value: unknown): void {
+  const reading = readResult(site, value);
+  const isDeferred = reading instanceof Promise;
+  if (!isDeferred) return reportReading(site, reading);
+  Promise.prototype.then.call(
+    reading,
+    (later: ResultReading) => reportReading(site, later),
+    (error: unknown) => {
+      report(site, 'rejected', error);
+    },
+  );
+}
+
 /** Hands the observer one record, and returns it. Nothing the observer does, or fails to do, reaches the caller. */
 function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): LiveCallRecord | undefined {
   try {
@@ -294,7 +369,7 @@ function observeSettlement(site: ObservedSite, result: unknown): unknown {
   return Promise.prototype.then.call(
     result,
     (value: unknown) => {
-      report(site, 'resolved');
+      reportResolved(site, value);
       return value;
     },
     (error: unknown) => {
