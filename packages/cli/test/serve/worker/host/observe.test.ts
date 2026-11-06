@@ -93,7 +93,7 @@ describe('host: observed calls', () => {
     const reply = await observe(ctx, server, { call: { service: 'auth', method: 'signInWithEmailAndPassword', at: 1, outcome: { status: 'ok' }, account: { uid: 'bob' } } });
     expect(reply).toMatchObject({ ok: true });
     expect(streamed(viewer)).toEqual([
-      expect.objectContaining({ service: 'auth', caller: { kind: 'node' }, production: { outcome: { status: 'ok' } } }),
+      expect.objectContaining({ service: 'auth', caller: { kind: 'node', clientId: expect.any(String) }, production: { outcome: { status: 'ok' } } }),
     ]);
   });
 

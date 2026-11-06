@@ -71,12 +71,18 @@ export interface ActivityEventProvenance {
  *   - `mcp`: an agent's MCP tool call.
  *   - `studio`: Pyric Studio.
  *
+ * `clientId` names the client behind the connection: a browser profile,
+ * which every tab of that profile shares, a service worker realm, or one
+ * Node process. A page or service worker declares it; a Node process is
+ * named by its connection. A label, never an authority.
+ *
  * Absent on events a host did not stamp, such as those of an in-page sandbox,
  * where every request is the page's own.
  */
 export interface EventCaller {
   kind: 'page' | 'node' | 'admin' | 'mcp' | 'studio' | 'service-worker';
   pageId?: string;
+  clientId?: string;
 }
 
 /** Compatibility provenance carried by sandbox events while producers and

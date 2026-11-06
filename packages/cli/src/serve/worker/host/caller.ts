@@ -14,6 +14,11 @@
  * pages by. The host hands each page that id on its event subscription. A
  * service worker has no tab, so its `appConfig` declares the service worker
  * realm in place of a tab id, and its events name it `service-worker`.
+ *
+ * A page or service worker also names its client in `appConfig`: the browser
+ * profile's id, or the service worker realm's. A Node process is one
+ * connection, so its client id is its port's activity journey id, whatever
+ * its `appConfig` says.
  */
 import type { EventCaller } from 'pyric/sandbox';
 import type { InboundMessage } from '../protocol.js';
@@ -50,13 +55,30 @@ function isServiceWorkerPort(ctx: HostCtx, port: PortLike): boolean {
  */
 export const SERVICE_WORKER_TAB_ID = 'service-worker';
 
-/** The longest tab id a page may declare; a longer one is not kept. */
-const MAX_TAB_ID_LENGTH = 64;
+/** The longest tab id or client id a port may declare; a longer one is not kept. */
+const MAX_LABEL_LENGTH = 64;
+
+function isUsableLabel(label: string): boolean {
+  return label !== '' && label.length <= MAX_LABEL_LENGTH;
+}
 
 /** Record the tab id a page declared in its `appConfig`. */
 export function setPortTabId(ctx: HostCtx, port: PortLike, tabId: string): void {
-  const isUsable = tabId !== '' && tabId.length <= MAX_TAB_ID_LENGTH;
-  if (isUsable) (ctx.portTabIds ??= new WeakMap()).set(port, tabId);
+  if (isUsableLabel(tabId)) (ctx.portTabIds ??= new WeakMap()).set(port, tabId);
+}
+
+/** The client id each page or service worker port declared in its `appConfig`. */
+const portClientIds = new WeakMap<PortLike, string>();
+
+/** Record the client id a page or service worker declared in its `appConfig`. */
+export function setPortClientId(port: PortLike, clientId: string): void {
+  if (isUsableLabel(clientId)) portClientIds.set(port, clientId);
+}
+
+/** `caller` with the client id `port` declared, when it declared one. */
+function withDeclaredClientId(port: PortLike, caller: EventCaller): EventCaller {
+  const clientId = portClientIds.get(port);
+  return clientId === undefined ? caller : { ...caller, clientId };
 }
 
 /**
@@ -86,10 +108,10 @@ export function callerFor(ctx: HostCtx, port: PortLike, msg: InboundMessage): Ev
     const namesClientLens = marks.actAs !== undefined && marks.actAs.mode !== 'admin';
     return namesClientLens ? { kind: 'node' } : { kind: 'admin' };
   }
-  if (isServiceWorkerPort(ctx, port)) return { kind: 'service-worker' };
+  if (isServiceWorkerPort(ctx, port)) return withDeclaredClientId(port, { kind: 'service-worker' });
   const pageId = pageIdFor(ctx, port);
-  if (pageId === undefined) return { kind: 'node' };
-  return { kind: 'page', pageId };
+  if (pageId === undefined) return { kind: 'node', clientId: activityJourneyId(ctx, port) };
+  return withDeclaredClientId(port, { kind: 'page', pageId });
 }
 
 /**
