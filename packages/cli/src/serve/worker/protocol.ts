@@ -500,6 +500,13 @@ export interface AppConfigMessage {
    * tab's events as `caller.pageId`. A label, never an authority.
    */
   tabId?: string;
+  /**
+   * The browser profile's client id, kept in `localStorage`, so every tab of
+   * one profile sends the same one; a service worker sends its realm's. The
+   * host stamps it on the port's events as `caller.clientId`. A label, never
+   * an authority.
+   */
+  clientId?: string;
 }
 
 /**
