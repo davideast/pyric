@@ -1,11 +1,11 @@
 /**
  * `@pyric/live/vite`: live mode for a Vite page. The page's `firebase/app`,
  * `firebase/auth`, `firebase/firestore`, `firebase/app-check`,
- * `firebase/database` and `firebase/storage` are the app's own installed
- * SDK, wrapped by the live rows, so the app talks to its real project. Each
- * wrapped Firestore, Auth, Realtime Database and Cloud Storage call's
- * outcome reaches the Node host as an observed call, and the chip shows it
- * as production's row. Every other served
+ * `firebase/database`, `firebase/ai` and `firebase/storage` are the app's
+ * own installed SDK, wrapped by the live rows, so the app talks to its real
+ * project. Each wrapped Firestore, Auth, Realtime Database, AI Logic and
+ * Cloud Storage call's outcome reaches the Node host as an observed call,
+ * and the chip shows it as production's row. Every other served
  * Firebase import is refused (`refusal.ts`), unless the app lists it in
  * `passThrough`: then it is the app's installed SDK, unwrapped and
  * unobserved, and the start line, the chip and Studio say so. A list that

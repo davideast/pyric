@@ -1,6 +1,6 @@
 ---
 name: pyric-live
-description: Install @pyric/live from npm or from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore, Realtime Database, Cloud Storage and Auth call with production's answer. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
+description: Install @pyric/live from npm or from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore, Realtime Database, Cloud Storage, AI Logic and Auth call with production's answer. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
 ---
 
 # Test Pyric's live mode
@@ -200,15 +200,29 @@ Work through these and record the observed result for each. Each line states wha
    the rules deny shows `storage/unauthorized` and reads "Production denied". Fetching a
    `getDownloadURL` URL makes no row, and Storage calls don't raise the billed-call count; neither
    is a finding.
-5. **Auth.** Sign up and sign in with a test account. Each call is a row with production's answer.
+5. **AI Logic.** `generateContent`, `generateContentStream`, `countTokens` and a chat's
+   `sendMessage` and `sendMessageStream`, each with a short prompt, appear as a row served by
+   production, named with its service (such as `ai.generateContent` or `ai.chat.sendMessage`) and
+   showing the requested model. A row's detail shows production's input and output tokens (a
+   `countTokens` row shows "Counted tokens"). A successful row's detail reads "Response content was
+   not recorded for this request.", and a failed row's reads "No successful response was
+   returned." A call from an app with no App Check token, on a project that enforces App Check for
+   AI Logic, reads as failed with `unauthenticated`. Every call bills by token, so keep prompts
+   short and calls few. AI Logic calls don't raise the billed-call count; that is not a finding.
+6. **Auth.** Sign up and sign in with a test account. Each call is a row with production's answer.
    Skip this step if the project sends mail on sign-up (a Functions trigger or an Auth email
    setting), unless the owner agrees.
-6. **Node process.** A process under `@pyric/live/register` prints
+7. **Node process.** A process under `@pyric/live/register` prints
    `reporting calls to the live host at <url>`, and its calls appear as rows from a Node process.
-7. **Refusals.** Each throws an error with the code `PYRIC_LIVE_REFUSED` before any request
+8. **Refusals.** Each throws an error with the code `PYRIC_LIVE_REFUSED` before any request
    leaves, and says what was refused:
    - importing `firebase/functions` (Cloud Functions);
    - a named Firestore database, such as `getFirestore(app, 'reports')`;
+   - AI Logic's Live API (`getLiveGenerativeModel`, `new LiveGenerativeModel`), its server prompt
+     templates (`getTemplateGenerativeModel`, `new TemplateGenerativeModel`), and Imagen
+     (`getImagenModel`) on firebase below 12.19; nothing reaches production for them. The full
+     list is in the live mode guide's "AI Logic calls" section
+     (`packages/site-docs/src/content/observe/live-mode.md`);
    - `firebase-admin` in a Node process under the register;
    - a Studio edit or an MCP tool that writes.
 
@@ -221,20 +235,21 @@ Work through these and record the observed result for each. Each line states wha
    the list from its live host's `/__pyric/health`, prints a line for each import, and passes the
    same ones to its children and workers. Start the process after the host; a process started
    with no live host, or under `pyric-live`, which takes no list, still refuses them.
-8. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
+9. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
    `PYRIC_REAL_SDK_STOPPED`.
-9. **Own requests blocked.** A Node process's global `fetch` to Firestore, or of a Storage download
-   URL, rejects with `TypeError('fetch failed')`, whose `cause.code` is `PYRIC_GUARD_BLOCKED`. That
-   process's own stderr names the host.
-10. **Billed-call count.** The chip and Studio count goes up as calls production answers with
+10. **Own requests blocked.** A Node process's global `fetch` to Firestore or
+    `firebasevertexai.googleapis.com`, or of a Storage download URL, rejects with
+    `TypeError('fetch failed')`, whose `cause.code` is `PYRIC_GUARD_BLOCKED`. That process's own
+    stderr names the host.
+11. **Billed-call count.** The chip and Studio count goes up as calls production answers with
     success. Reads and writes count once per call, not per document; listener deliveries count the
     documents delivered. A denied call is not counted.
 
 Live mode can't see some calls, so a missing row for one of these is not a finding: an `import()`
 of the exact URL of an SDK file the page already loaded, or that URL with a fragment; the page's
-own `fetch` to the Firestore REST API, Auth, App Check or a Storage download URL; and, in a Node
-process, a connection opened with `http2`, `tls`, `@grpc/grpc-js` or `undici`, or an `http.request` through a `CONNECT`
-proxy tunnel. A host also names at most eight projects in its label and warning.
+own `fetch` to the Firestore REST API, Auth, App Check, AI Logic or a Storage download URL; and, in a Node
+process, a connection opened with `http2`, `tls`, `@grpc/grpc-js`, `undici` or Node's own
+`WebSocket`, or an `http.request` through a `CONNECT` proxy tunnel. A host also names at most eight projects in its label and warning.
 
 ## When something breaks
 
