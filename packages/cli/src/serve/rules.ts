@@ -16,6 +16,7 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import {
   describeCompileLimitViolations,
   lintFirestoreRules,
+  parseToASTOrError,
   resolveModulesWithFiles,
   rulesSourceRejection,
   sourceCompileLimitViolations,
@@ -152,9 +153,11 @@ export function prepareProjectRules(raw: string, sourcePath: string): PreparedRu
   // Production rejects a ruleset that does not parse, or is past its compile
   // limits, or names a service other than cloud.firestore, before it
   // evaluates any request, so the sandbox does not serve one either: the
-  // check every rules load path runs, with the reason every plane gives.
+  // check every rules load path runs, with the reason every plane gives. A
+  // parse-kind refusal of a source that parses names its service blocks (the
+  // wrong service, or one declared twice), so the check's message is the reason.
   const rejection = rulesSourceRejection(source);
-  if (rejection?.kind === 'parse' && rejection.otherService !== undefined) {
+  if (rejection?.kind === 'parse' && parseToASTOrError(source).ok) {
     throw new RulesPrepareError(
       `pyric sandbox: ${sourcePath}: Firestore ${rejection.message} Fix the rules before serving.`,
       moduleFiles,

@@ -30,6 +30,16 @@ const DUPLICATE = 'Duplicate service name declaration.';
 /** c5b under `2+modules`, with the allowing block first, so dropping the second block would fail open. */
 const TWO_FIRESTORE_MODULES = "\n\nrules_version = '2+modules';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /c/{id} { allow get: if true; }\n  }\n}\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /c/{id} { allow get: if false; }\n  }\n}\n";
 
+/** The issues `firestoreRules(rules)` throws with. */
+function refusalIssues(rules: string): unknown {
+  try {
+    firestoreRules(rules);
+  } catch (err) {
+    return (err as { issues?: unknown }).issues;
+  }
+  return undefined;
+}
+
 function outcome(err: unknown): string {
   return (err as { code?: string }).code ?? String(err);
 }
@@ -72,8 +82,11 @@ describe('two Firestore services', () => {
     );
   });
 
-  it('firestoreRules() refuses it', () => {
-    expect(() => firestoreRules(TWO_FIRESTORE)).toThrow();
+  it("firestoreRules() refuses it with production's reason, at the second block", () => {
+    expect(() => firestoreRules(TWO_FIRESTORE)).toThrow(`Firestore rules source failed to compile: ${DUPLICATE}`);
+    expect(refusalIssues(TWO_FIRESTORE)).toEqual([
+      { code: 'PARSE_ERROR', severity: 'error', message: DUPLICATE, line: 7, origin: 'parse' },
+    ]);
   });
 
   it('the module resolver refuses it before any load path checks the resolved source', () => {
