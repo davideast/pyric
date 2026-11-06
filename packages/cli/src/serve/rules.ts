@@ -342,9 +342,15 @@ export function storageRulesPath(cwd: string, config: FirebaseJson | null): stri
 }
 
 /** The notice a dev server logs when the Storage rules file it loaded is
- *  deleted and Storage returns to denying every client operation. */
-export function formatStorageRulesRemoved(path: string, bucket: string | null = null, target?: string): string {
-  return `storage rules removed: ${path} does not exist, client Storage operations${storageBucketSuffix(bucket, target, ' on')} default to DENY`;
+ *  deleted and its bucket returns to the default policy. */
+export function formatStorageRulesRemoved(
+  path: string,
+  policy: 'allow' | 'deny',
+  bucket: string | null = null,
+  target?: string,
+): string {
+  const access = policy === 'allow' ? 'are open (permissive mode)' : 'default to DENY';
+  return `storage rules removed: ${path} does not exist, client Storage operations${storageBucketSuffix(bucket, target, ' on')} ${access}`;
 }
 
 /** One Storage rules file deployed to one bucket, or to the app's default bucket. */
@@ -465,9 +471,13 @@ export function storageRulesTargets(
 }
 
 /** The startup warning for Storage deploy targets no project resolved: each target, why, and how to fix it. */
-export function formatUnresolvedStorageTargets(pending: readonly PendingStorageRulesTarget[]): string {
+export function formatUnresolvedStorageTargets(
+  pending: readonly PendingStorageRulesTarget[],
+  policy: 'allow' | 'deny',
+): string {
+  const access = policy === 'allow' ? 'allow every client operation (permissive mode)' : 'deny every client operation';
   const lines = pending.map((target) =>
-    `  ⚠ Storage deploy target "${target.target}" (${target.label}) is unresolved: ${target.reason}. Its buckets deny every client operation until the page's app config names a project .firebaserc maps it for.`);
+    `  ⚠ Storage deploy target "${target.target}" (${target.label}) is unresolved: ${target.reason}. Its buckets ${access} until the page's app config names a project .firebaserc maps it for.`);
   lines.push(`    To set the project: ${FIREBASE_PROJECT_FIXES}.`);
   return lines.join('\n');
 }

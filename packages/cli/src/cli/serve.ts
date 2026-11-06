@@ -757,7 +757,7 @@ async function startServeRuntime(opts: {
                 } else if (result.kind === 'rejected') {
                   logger.note(`  ⚠ storage rules NOT reloaded (last-good stays live): ${result.error.message}${named}`);
                 } else if (result.kind === 'removed') {
-                  logger.note(`  ⚠ ${formatStorageRulesRemoved(source, bucket, target)} → ${result.clients} page(s)`);
+                  logger.note(`  ⚠ ${formatStorageRulesRemoved(source, result.policy, bucket, target)} → ${result.clients} page(s)`);
                 }
               }
             });

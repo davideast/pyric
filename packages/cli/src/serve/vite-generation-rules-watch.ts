@@ -107,7 +107,7 @@ export function watchViteGenerationRules(input: {
                 `  ⚠ [pyric] storage rules NOT reloaded (last-good stays live): ${result.error.message}${named}`,
               );
             } else if (result.kind === 'removed') {
-              server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(storageFile, bucket, target)}`);
+              server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(storageFile, result.policy, bucket, target)}`);
             }
           }
         });
