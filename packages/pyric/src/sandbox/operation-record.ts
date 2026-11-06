@@ -9,6 +9,7 @@ import { observationPayload } from './internal/observation-payload.js';
  * used for an admin bypass.
  */
 import type { AuthState } from './types/auth-state.js';
+import type { ObservedProduction } from './types/observed-call.js';
 import type {
   AuthLens,
   EventActor,
@@ -35,6 +36,8 @@ export interface OperationRecord {
   readonly context: OperationContext;
   readonly rules: RulesDisposition;
   readonly queryProof?: RequestEvent['queryProof'];
+  /** What production answered, for a call production served and pyric observed. */
+  readonly production?: ObservedProduction;
 }
 
 type OperationEvent = (RequestEvent | SandboxOperationEvent | SandboxListenerEvent) & EventProvenance;
@@ -275,7 +278,15 @@ export function toOperationRecord(input: SandboxEvent): OperationRecord | null {
     context: operationContextFor(event),
     rules: Object.freeze({ ...rulesDispositionFor(event) }),
     queryProof,
+    ...productionOf(event),
   });
+}
+
+/** A frozen copy of production's answer, when the event carries one. */
+function productionOf(event: OperationEvent): { production?: ObservedProduction } {
+  const production = event.kind === 'operation' ? event.production : undefined;
+  if (production === undefined) return {};
+  return { production: immutableRecord(production as unknown as Record<string, unknown>) as unknown as ObservedProduction };
 }
 
 /** The five phases a listener passes through, whatever variant carried it. */
