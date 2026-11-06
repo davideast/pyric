@@ -756,12 +756,17 @@ describe('the Traffic view', () => {
     };
   }
 
-  /** The header's text: "pyric", then the project name and nothing else. */
-  function headerText(root: ShadowRoot): string {
-    return root.querySelector('.panel-header .brand')!.textContent!;
+  /** The header's brand row, by part: "pyric", then the live label, and nothing else. */
+  function headerParts(root: ShadowRoot): string[] {
+    return [...root.querySelector('.panel-header .brand')!.children].map((child) => child.className);
   }
 
-  it("shows the host's project after pyric, and reads it again after traffic", async () => {
+  /** The collapsed chip's parts after its own text: the live label and nothing else. */
+  function collapsedParts(root: ShadowRoot): string[] {
+    return [...root.querySelector('[data-expand]')!.children].map((child) => child.className);
+  }
+
+  it("shows the host's live label after pyric, and reads the status again after traffic", async () => {
     const clock = manualTimers();
     const statuses = [
       liveStatus({ reads: 0, writes: 0, deliveries: 0 }, []),
@@ -779,8 +784,7 @@ describe('the Traffic view', () => {
     runtime.setWorker({ mode: 'hosted' });
     await settle();
     expect(reads).toBe(1);
-    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('my-project');
-    expect(headerText(root)).toBe('pyricmy-project');
+    expect(headerParts(root)).toEqual(['panel-name', 'live-label']);
 
     const now = Date.now();
     const observed = observedCallEvent({ service: 'firestore', method: 'getDoc', at: now, outcome: { status: 'ok' } });
@@ -790,8 +794,7 @@ describe('the Traffic view', () => {
     ], { history: true, pageId: 'tab-1' });
     await clock.advance(150);
     expect(reads).toBe(2);
-    // The project is the host's, so every view shows the same one.
-    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('prod');
+    expect(headerParts(root)).toEqual(['panel-name', 'live-label']);
 
     showTab('traffic');
     const served = root.querySelector('[data-request-row="served"]')!;
@@ -803,11 +806,10 @@ describe('the Traffic view', () => {
     expect(root.querySelector('[data-traffic-detail]')!.textContent).toContain('Served bySandbox');
 
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(root.querySelector('[data-expand] [data-chip-live]')!.textContent).toBe('prod');
-    expect(root.querySelector('[data-expand]')!.textContent).toBe('pyricprod');
+    expect(collapsedParts(root)).toEqual(['live-label']);
   });
 
-  it("names the project the app's Firebase config names, and leaves the mismatch warning to the terminal", async () => {
+  it("adds nothing to the header or the collapsed chip when the app's Firebase config names another project", async () => {
     const clock = manualTimers();
     const { root, runtime } = setup({
       initiallyOpen: true,
@@ -817,14 +819,13 @@ describe('the Traffic view', () => {
     });
     runtime.setWorker({ mode: 'hosted' });
     await settle();
-    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('prod');
-    expect(headerText(root)).toBe('pyricprod');
+    expect(headerParts(root)).toEqual(['panel-name', 'live-label']);
+    expect(root.querySelector('.panel-header [role="status"]')).toBeNull();
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(root.querySelector('[data-expand]')!.textContent).toBe('pyricprod');
-    expect(root.querySelector('[data-expand] [data-chip-live]')!.getAttribute('title')).not.toContain('Your Firebase config says');
+    expect(collapsedParts(root)).toEqual(['live-label']);
   });
 
-  it('keeps the header to pyric and the project name when imports pass through and the project id is long', async () => {
+  it('keeps the header to pyric and the live label when imports pass through and the project id is long', async () => {
     const clock = manualTimers();
     const projectId = 'live-header-worst-case-project';
     const { root, runtime } = setup({
@@ -839,13 +840,11 @@ describe('the Traffic view', () => {
     });
     runtime.setWorker({ mode: 'hosted' });
     await settle();
-    const brand = root.querySelector('.panel-header .brand')!;
-    expect([...brand.children].map((child) => child.className)).toEqual(['panel-name', 'live-label']);
-    expect(headerText(root)).toBe(`pyric${projectId}`);
-    expect(root.querySelector('[data-chip-live]')!.getAttribute('title')).not.toContain('passes through');
+    expect(headerParts(root)).toEqual(['panel-name', 'live-label']);
+    expect(root.querySelector('.panel-header [role="status"]')).toBeNull();
     expect(root.querySelector('.panel-header .actions [data-open-studio]')).not.toBeNull();
     root.querySelector<HTMLButtonElement>('.panel-header .actions [data-collapse]')!.click();
-    expect(root.querySelector('[data-expand]')!.textContent).toBe(`pyric${projectId}`);
+    expect(collapsedParts(root)).toEqual(['live-label']);
   });
 
   it('reads the live status again after a failed read, until one succeeds', async () => {
@@ -867,7 +866,7 @@ describe('the Traffic view', () => {
     await clock.advance(250);
     await clock.advance(500);
     expect(reads).toBe(3);
-    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('my-project');
+    expect(root.querySelector('.panel-header [data-chip-live]')).not.toBeNull();
   });
 
   it('shows no live line on a hosted sandbox host, and stops reading', async () => {

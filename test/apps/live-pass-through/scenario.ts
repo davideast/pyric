@@ -94,11 +94,11 @@ export default scenario(async (app) => {
     return opened;
   });
 
-  await app.step('the chip shows the project only, and the health report still lists each passed-through service', async () => {
+  await app.step('the chip opens on the live project, and the health report still lists each passed-through service', async () => {
     const chip = await openChip(page);
-    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), 'demo-live-pass-through');
-    assert.equal(await chip.locator('.panel-header .brand').textContent(), 'pyricdemo-live-pass-through');
+    await chip.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
     const live = await liveHealth(host.url);
+    assert.equal(live.projectId, 'demo-live-pass-through');
     assert.deepEqual(live.passThrough, PASSED);
   });
 

@@ -251,9 +251,10 @@ export default scenario(async (app) => {
     assert.deepEqual(await replay.unmatched(), []);
   });
 
-  await app.step('the chip shows the project, the host counts billed calls, and the chip shows each call as production\'s from its client and account', async () => {
+  await app.step('the host reports the project and counts billed calls, and the chip shows each call as production\'s from its client and account', async () => {
     const chip = await openChip(page);
-    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), project);
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    assert.equal(health.live?.projectId, project);
     // Each client's ok read and write, and each document its listener's snapshots changed, at least one for the first.
     // The acknowledgement of each client's write only changes metadata and counts nothing.
     const delivered = await page.evaluate(() => billedDocumentCount()) + serverJob.billedDocuments;
@@ -361,7 +362,8 @@ export default scenario(async (app) => {
     assert.equal(result.uid, writer);
     const hosting = await app.page(`${live.url}/`);
     const chip = await openChip(hosting);
-    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), project);
+    const health = await (await fetch(`${live.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    assert.equal(health.live?.projectId, project);
     const expected = { reads: 1, writes: 1, deliveries: result.billedDocuments };
     await eventually(() => billed(live.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
     const rows = await trafficRows(chip);

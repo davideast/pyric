@@ -227,10 +227,9 @@ test.describe('pyric-live', () => {
     await expect(page.locator('#status')).toContainText('firebase/firestore is not served to pages of the pyric-live host');
 
     const chip = await openChip(page);
-    await expect(chip.locator('[data-expand]')).toHaveText(`pyric${PROJECT_ID}`);
+    await expect(chip.locator('[data-expand] [data-chip-live]')).toHaveCount(1);
     await chip.locator('[data-expand]').click();
-    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText(PROJECT_ID);
-    await expect(chip.locator('.panel-header .brand')).toHaveText(`pyric${PROJECT_ID}`);
+    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveCount(1);
     // The host's count: the listener's delivery; the failed read and the Auth call are not billed.
     expect((await healthOf(url))?.live).toMatchObject({ appProjectIds: [PROJECT_ID], billed: { reads: 0, writes: 0, deliveries: 1 } });
     await chip.locator('[data-chip-tab=traffic]').click();
@@ -274,11 +273,11 @@ test.describe('pyric-live', () => {
 
     await page.goto(`${url}/`);
     const chip = await openChip(page);
-    await expect(chip.locator('[data-expand]')).toHaveText('pyricprod-demo');
+    await expect(chip.locator('[data-expand] [data-chip-live]')).toHaveCount(1);
     await chip.locator('[data-expand]').click();
-    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText('prod-demo');
-    // The header is one line: the warning stays in the terminal.
-    await expect(chip.locator('.panel-header .brand')).toHaveText('pyricprod-demo');
+    // The warning stays in the terminal: the header holds "pyric" and the live label only.
+    await expect(chip.locator('.panel-header .brand > *')).toHaveCount(2);
+    await expect(chip.locator('.panel-header [role="status"]')).toHaveCount(0);
   });
 
   test('refuses a seed file: a live host makes none of pyric\'s own writes', async () => {

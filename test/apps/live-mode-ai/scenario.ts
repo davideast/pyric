@@ -306,7 +306,9 @@ export default scenario(async (app) => {
     const status = await opened.evaluate(() => document.querySelector('#status')?.textContent ?? '');
     assert.equal(status, 'Ready', `the page's client code did not load\nconsole:\n${app.browserLog.join('\n')}`);
     const openedChip = await openChip(opened);
-    assert.equal(await openedChip.locator('.panel-header [data-chip-live]').textContent(), PROJECT);
+    await openedChip.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    assert.equal(health.live?.projectId, PROJECT);
     assert.deepEqual(await billed(host.url), BILLED_NONE);
     return { page: opened, chip: openedChip };
   });

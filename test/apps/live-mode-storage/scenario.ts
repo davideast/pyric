@@ -297,7 +297,9 @@ export default scenario(async (app) => {
 
   const chip = await app.step('the chip shows each page call as production\'s, with its bucket, path, answer and account', async () => {
     const opened = await openChip(page);
-    assert.equal(await opened.locator('.panel-header [data-chip-live]').textContent(), PROJECT);
+    await opened.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    assert.equal(health.live?.projectId, PROJECT);
     await expectRows(opened, 'page');
     return opened;
   });

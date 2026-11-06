@@ -68,17 +68,41 @@ async function healthOf(base: string): Promise<LiveHealth | null> {
   return response.ok ? await response.json() as LiveHealth : null;
 }
 
-/** Whether the element is the one a click at its centre reaches, so nothing covers it. */
-async function receivesClickAtCentre(page: Page, selector: string): Promise<boolean> {
-  return page.evaluate((target) => {
-    const host = document.querySelector('[data-pyric-runtime-chip-host]');
-    const root = host?.shadowRoot;
-    const element = root?.querySelector(target);
-    if (root === null || root === undefined || element === null || element === undefined) return false;
-    const box = element.getBoundingClientRect();
-    const hit = root.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-    return hit !== null && element.contains(hit);
-  }, selector);
+interface Box { x: number; y: number; width: number; height: number }
+
+interface ControlLayout { box: Box; reachedAtCentre: boolean }
+
+interface HeaderLayout { header: Box; brand: Box; name: Box; studio: ControlLayout; minimize: ControlLayout }
+
+/**
+ * The open chip header's boxes, measured in one pass: the chip renders its
+ * markup again on each status read, so separate reads could each meet a
+ * different header. The measuring waits out the panel's enter animation,
+ * which scales it. A control is reached at its centre when a click there
+ * lands on it, so nothing covers it.
+ */
+async function headerLayout(page: Page): Promise<HeaderLayout> {
+  return page.evaluate(async () => {
+    const root = document.querySelector('[data-pyric-runtime-chip-host]')!.shadowRoot!;
+    await Promise.all(root.getAnimations().map((animation) => animation.finished));
+    const boxOf = (selector: string) => {
+      const rect = root.querySelector(selector)!.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    };
+    const controlOf = (selector: string) => {
+      const element = root.querySelector(selector)!;
+      const box = boxOf(selector);
+      const hit = root.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return { box, reachedAtCentre: hit !== null && element.contains(hit) };
+    };
+    return {
+      header: boxOf('.panel-header'),
+      brand: boxOf('.panel-header .brand'),
+      name: boxOf('.panel-header .panel-name'),
+      studio: controlOf('.panel-header [data-open-studio]'),
+      minimize: controlOf('.panel-header [data-collapse]'),
+    };
+  });
 }
 
 test('a live page reports its Firestore and Auth calls to the Node host as production rows', async ({ page }) => {
@@ -122,8 +146,8 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
     expect(result).toEqual({ codes: { firestore: 'unavailable', auth: 'auth/network-request-failed' }, oneApp: true });
 
     // The chip names the project for as long as the host runs; the host counts billed calls from every client.
-    await expect(page.locator('.panel-header [data-chip-live]')).toHaveText('live-page-plane');
-    await expect(page.locator('.panel-header .brand')).toHaveText('pyriclive-page-plane');
+    await expect(page.locator('.panel-header [data-chip-live]')).toHaveCount(1);
+    expect((await healthOf(url))?.live?.projectId).toBe('live-page-plane');
     await expect.poll(async () => (await healthOf(url))?.live?.billed).toEqual({ reads: 0, writes: 0, deliveries: 0 });
     expect(await page.evaluate(() => (Reflect.get(window, 'listen') as () => Promise<string>)())).toBe('delivered');
     await expect.poll(async () => (await healthOf(url))?.live?.billed).toEqual({ reads: 0, writes: 0, deliveries: 1 });
@@ -152,7 +176,7 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
   }
 });
 
-test('the chip header stays one line, pyric and the project name, with a long project id and several imports passing through', async ({ page }, testInfo) => {
+test('the chip header stays one line, with a long project id and several imports passing through', async ({ page }, testInfo) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-header-')));
   let server: ViteDevServer | undefined;
   // Firebase's longest project ids are 30 characters; the app's config names another project than .firebaserc.
@@ -184,31 +208,29 @@ test('the chip header stays one line, pyric and the project name, with a long pr
     await expect.poll(async () => (await healthOf(url))?.live?.projectId).toBe(appProject);
     expect((await healthOf(url))?.live).toMatchObject({ configProjectId: configProject, passThrough });
     const header = page.locator('.panel-header');
-    await expect(header.locator('[data-chip-live]')).toContainText(appProject);
+    await expect(header.locator('[data-chip-live]')).toHaveCount(1);
 
-    const headerBox = (await header.boundingBox())!;
-    const nameBox = (await header.locator('.panel-name').boundingBox())!;
-    const brandBox = (await header.locator('.brand').boundingBox())!;
-    expect(headerBox.height).toBe(64);
+    const layout = await headerLayout(page);
+    expect(layout.header.height).toBe(64);
     // One line: the brand is no taller than "pyric" itself.
-    expect.soft(brandBox.height).toBeLessThanOrEqual(nameBox.height + 1);
-    for (const selector of ['.panel-header [data-open-studio]', '.panel-header [data-collapse]']) {
-      const control = page.locator(selector);
-      await expect(control).toBeVisible();
-      const box = (await control.boundingBox())!;
-      expect(box.y, selector).toBeGreaterThanOrEqual(headerBox.y);
-      expect(box.y + box.height, selector).toBeLessThanOrEqual(headerBox.y + headerBox.height);
-      expect(await receivesClickAtCentre(page, selector), selector).toBe(true);
+    expect.soft(layout.brand.height).toBeLessThanOrEqual(layout.name.height + 1);
+    for (const [name, control] of Object.entries({ studio: layout.studio, minimize: layout.minimize })) {
+      expect(control.box.height, name).toBeGreaterThan(0);
+      expect(control.box.y, name).toBeGreaterThanOrEqual(layout.header.y);
+      expect(control.box.y + control.box.height, name).toBeLessThanOrEqual(layout.header.y + layout.header.height);
+      expect(control.reachedAtCentre, name).toBe(true);
     }
+    await expect(page.locator('.panel-header [data-open-studio]')).toBeVisible();
+    await expect(page.locator('.panel-header [data-collapse]')).toBeVisible();
     await page.locator('.panel-header [data-open-studio]').click({ trial: true, timeout: 5_000 });
     const screenshot = testInfo.outputPath('chip-header-worst-case.png');
-    await header.screenshot({ path: screenshot });
+    await page.screenshot({ path: screenshot, clip: layout.header });
     await testInfo.attach('chip-header-worst-case', { path: screenshot, contentType: 'image/png' });
-    await expect(header.locator('[data-chip-live]')).toHaveText(appProject);
-    await expect(header.locator('.brand')).toHaveText(`pyric${appProject}`);
+    await expect(header.locator('.brand > *')).toHaveCount(2);
+    await expect(header.locator('[role="status"]')).toHaveCount(0);
 
     await page.locator('.panel-header [data-collapse]').click({ timeout: 5_000 });
-    await expect(page.locator('[data-expand]')).toHaveText(`pyric${appProject}`);
+    await expect(page.locator('[data-expand] [data-chip-live]')).toHaveCount(1);
   } finally {
     await page.close();
     await server?.close();
