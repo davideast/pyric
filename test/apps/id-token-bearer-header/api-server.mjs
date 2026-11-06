@@ -4,7 +4,8 @@
 // and name. GET /self signs in through firebase/auth from this process and
 // calls /whoami with its own token, as a server-rendered route does.
 // /whoami?checkRevoked=1 verifies with checkRevoked, as a route guarding a
-// sensitive action does. GET /self-disabled signs in from this process,
+// sensitive action does. A refused token gets 401 with the reason, and with
+// pyricCode when pyric names the refusal. GET /self-disabled signs in from this process,
 // disables that account with firebase-admin, and reports what its own forced
 // refresh answers and whether it is still signed in.
 //
@@ -28,6 +29,14 @@ initializeAdminApp({ projectId: "demo-bearer" });
 const otherProjectAdmin = initializeAdminApp({ projectId: "demo-other-project" }, "other-project");
 const clientApp = initializeApp({ apiKey: "demo", appId: "demo", projectId: "demo-bearer" });
 
+// The 401 body: the reason, plus pyric's own code when the refusal has one,
+// such as PYRIC_MODE_MISMATCH for a token production issued (#2304).
+function refusal(error) {
+  const body = { error: String(error?.message ?? error) };
+  if (error?.pyricCode !== undefined) body.pyricCode = error.pyricCode;
+  return body;
+}
+
 function send(response, status, body) {
   response.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*" });
   response.end(JSON.stringify(body));
@@ -40,7 +49,7 @@ async function whoami(request, response) {
     const decoded = await getAdminAuth().verifyIdToken(idToken, checkRevoked);
     send(response, 200, { uid: decoded.uid, name: decoded.name ?? null, aud: decoded.aud, iss: decoded.iss });
   } catch (error) {
-    send(response, 401, { error: String(error?.message ?? error) });
+    send(response, 401, refusal(error));
   }
 }
 

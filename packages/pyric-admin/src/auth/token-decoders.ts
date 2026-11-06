@@ -8,8 +8,14 @@
  * lib/utils/jwt.js, and jsonwebtoken's `nbf` and `exp`). A plain string, or
  * the client token shape from before #1836, fails to decode, and a custom
  * token is refused as one, as in production (#1949, #1952).
+ *
+ * A token production issued for the app's project fails the key check, as
+ * any unknown `kid` does. It keeps firebase-admin's code and gains
+ * `pyricCode: 'PYRIC_MODE_MISMATCH'`, with a message that names the mismatch:
+ * the page signed in on production while this backend runs on a sandbox
+ * (#2304). Who issued the token is read by the shared `idTokenIssuer`.
  */
-import { checkIdToken, CUSTOM_TOKEN_AUDIENCE } from 'pyric/sandbox/internal';
+import { checkIdToken, CUSTOM_TOKEN_AUDIENCE, idTokenIssuer } from 'pyric/sandbox/internal';
 import type { DecodedIdToken } from './types.js';
 
 const ID_TOKEN_ISSUER = 'https://securetoken.google.com/';
@@ -34,15 +40,21 @@ const MESSAGES = {
   unknownKid:
     'Firebase ID token has "kid" claim which does not correspond to a known public key. Most likely the ID token is expired, so get a fresh token from your client app and try again.',
   signature: `Firebase ID token has invalid signature.${DOCS}`,
+  modeMismatch: (sandbox: string, projectId: string) =>
+    `This backend runs on a pyric sandbox (${sandbox}), and the request carries an ID token production issued for ${projectId}. ` +
+    'Start this backend under @pyric/live/register for live mode, or sign in on the sandbox page.',
   expired: `Firebase ID token has expired. Get a fresh ID token from your client app and try again (auth/id-token-expired).${DOCS}`,
 };
 
 /** The two codes an ID token check fails with. */
 export type IdTokenFailureCode = 'argument-error' | 'id-token-expired';
 
+/** pyric's own code for a token from the other mode, beside firebase-admin's. */
+export const MODE_MISMATCH = 'PYRIC_MODE_MISMATCH';
+
 export type IdTokenVerdict =
   | { ok: true; token: DecodedIdToken }
-  | { ok: false; code: IdTokenFailureCode; message: string };
+  | { ok: false; code: IdTokenFailureCode; message: string; pyricCode?: typeof MODE_MISMATCH };
 
 type Claims = Readonly<Record<string, unknown>>;
 
@@ -98,15 +110,27 @@ function expiryVerdict(exp: unknown, nowSec: number): IdTokenVerdict | undefined
 }
 
 /**
+ * The unknown-`kid` answer: the mode-mismatch refusal for a token production
+ * issued, else firebase-admin's own reason.
+ */
+function unknownKeyVerdict(idToken: string, projectId: string, sandbox: string): IdTokenVerdict {
+  const isProductionToken = idTokenIssuer(idToken) === 'production';
+  if (!isProductionToken) return refused(MESSAGES.unknownKid);
+  return { ok: false, code: 'argument-error', message: MESSAGES.modeMismatch(sandbox, projectId), pyricCode: MODE_MISMATCH };
+}
+
+/**
  * Checks an ID token for `projectId` at `nowSec`, in firebase-admin's order:
  * decoding, the content rules, the key and signature, then `nbf` and `exp`.
+ * `sandbox` names this backend's sandbox in the mode-mismatch message.
  */
-export async function checkClientIdToken(idToken: string, projectId: string, nowSec: number): Promise<IdTokenVerdict> {
+export async function checkClientIdToken(idToken: string, projectId: string, nowSec: number, sandbox: string): Promise<IdTokenVerdict> {
   const check = await checkIdToken(idToken);
   if (!check.ok && check.reason === 'malformed') return refused(MESSAGES.decode);
   const contentFailure = contentMessage(check.header, check.claims, projectId);
   if (contentFailure !== undefined) return refused(contentFailure);
-  if (!check.ok) return refused(check.reason === 'kid' ? MESSAGES.unknownKid : MESSAGES.signature);
+  if (!check.ok && check.reason === 'kid') return unknownKeyVerdict(idToken, projectId, sandbox);
+  if (!check.ok) return refused(MESSAGES.signature);
   if (isNotYetValid(check.claims.nbf, nowSec)) return refused(MESSAGES.signature);
   const expired = expiryVerdict(check.claims.exp, nowSec);
   if (expired !== undefined) return expired;

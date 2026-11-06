@@ -270,12 +270,20 @@ describe('sandbox backend — verifyIdToken verifies ID tokens only', () => {
     }
   });
 
-  it('rejects a token whose kid names no sandbox key', async () => {
+  it('rejects a token whose kid is not a key id', async () => {
+    const { auth } = sandboxAuth();
+    for (const kid of [42, ['another-key']]) {
+      const token = unsignedJwt({ alg: 'RS256', kid, typ: 'JWT' }, idTokenClaims());
+      await expect(auth.verifyIdToken(token)).rejects.toMatchObject(
+        argumentError('Firebase ID token has "kid" claim which does not correspond to a known public key. Most likely the ID token is expired, so get a fresh token from your client app and try again.'),
+      );
+    }
+  });
+
+  it('rejects a token whose kid names another key as a production token, keeping the code (#2304)', async () => {
     const { auth } = sandboxAuth();
     const token = unsignedJwt({ alg: 'RS256', kid: 'another-key', typ: 'JWT' }, idTokenClaims());
-    await expect(auth.verifyIdToken(token)).rejects.toMatchObject(
-      argumentError('Firebase ID token has "kid" claim which does not correspond to a known public key. Most likely the ID token is expired, so get a fresh token from your client app and try again.'),
-    );
+    await expect(auth.verifyIdToken(token)).rejects.toMatchObject({ code: 'auth/argument-error', pyricCode: 'PYRIC_MODE_MISMATCH' });
   });
 
   it('rejects a token with no kid, naming a custom token when it is one', async () => {
