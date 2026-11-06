@@ -5,50 +5,92 @@ import path from 'node:path';
 import url from 'node:url';
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, '../../../');
-const cliDist = path.join(repoRoot, 'packages/cli/dist/index.mjs');
+const repoRoot = path.resolve(__dirname, '../../..');
+const cliDist = path.join(repoRoot, 'packages/cli/dist/assurance/index.js');
 
-import { parseCampaignExport, buildScenarioFromAssurance } from '../../skills/improve-firebase/scripts/lib/from-assurance.mjs';
-import { validateScenario } from '../../skills/improve-firebase/scripts/lib/contracts.mjs';
+import { parseCampaignExport, buildScenarioFromAssurance, selectProbeFromExport } from '../../skills/improve-firebase/scripts/lib/from-assurance.mjs';
+import { validateScenario, SCENARIO_SCHEMA } from '../../skills/improve-firebase/scripts/lib/contracts.mjs';
 
 test('Live export contract (packages/cli -> from-assurance)', async (t) => {
   if (!fs.existsSync(cliDist)) {
-    t.skip('Skipping: packages/cli/dist/index.mjs not found. Run repo build first.');
+    t.skip(`Skipping: packages/cli/dist/assurance/index.js not found. Run repo build first.`);
     return;
   }
 
   const { createAssuranceTools } = await import(url.pathToFileURL(cliDist).href);
-  const tools = createAssuranceTools();
+  const rawTools = createAssuranceTools();
+  const tools = Object.fromEntries(rawTools.map((t) => [t.name.replace('firebase_assurance_', ''), t]));
   
-  // tiny campaign
-  const campaign = tools.createCampaign('test-campaign', {
-    target: { service: 'database', rules: { rtdb: { rules: { '.read': true } } } },
-    actors: { owner: { uid: 'alice' }, peer: { uid: 'bob' } }
+  async function call(name, args) {
+    const res = await tools[name].execute(args);
+    if (!res.ok) throw new Error(`${name} failed: ${res.summary}`);
+    return res;
+  }
+
+  const CID = 'test-campaign';
+  
+  await call('start', {
+    campaignId: CID,
+    target: {
+      schema: 'pyric.assurance.target.v1', network: 'forbid',
+      rules: { rtdb: { rules: { ".read": true, "secret": { ".write": "auth.uid == 'alice'" } } } },
+      state: { rtdb: { secret: "data" }, auth: { users: [{ uid: 'alice' }, { uid: 'bob' }] } },
+    }
   });
-  
-  const p1 = tools.createProbe(campaign.id, 'p1');
-  p1.mutationSpec = { operation: { service: 'database', method: 'get', path: '/secret' } };
-  p1.classification = 'no-counterexample';
-  
-  const bundle = tools.exportBundle(campaign.id);
-  // Need to structure it like export
-  const rawExport = {
-    schema: 'pyric.assurance.export.v1',
-    campaignId: campaign.id,
-    target: campaign.target,
-    probes: [p1],
-    report: { results: [p1] }
-  };
+
+  await call('map', {
+    campaignId: CID,
+    actors: [
+      { id: 'alice', acquisition: { kind: 'fixture-user', uid: 'alice' } },
+      { id: 'bob', acquisition: { kind: 'fixture-user', uid: 'bob' } },
+    ],
+    observations: [
+      { 
+        id: 'alice-writes-secret', actorId: 'alice', result: 'ALLOW', source: 'authored',
+        description: 'Alice writes secret',
+        operation: { service: 'rtdb', method: 'set', path: `/secret`, data: 'new' } 
+      },
+    ],
+  });
+
+  await call('define', {
+    campaignId: CID,
+    invariants: [{
+      id: 'only-alice',
+      statement: "Only Alice can write",
+      service: 'rtdb', expected: 'DENY', source: 'declared', confidence: 'strong',
+    }],
+  });
+
+  await call('propose', {
+    campaignId: CID, observationId: 'alice-writes-secret', invariantId: 'only-alice',
+    mutations: [{ 
+      id: 'bob-writes-secret', dimension: 'path',
+      description: "Bob writes secret",
+      operation: { service: 'rtdb', method: 'set', path: `/secret2`, data: 'new' } 
+    }],
+  });
+
+  await call('run', { campaignId: CID });
+
+  const exp = await call('export', { campaignId: CID });
+  const rawExport = exp.data;
 
   const parsed = parseCampaignExport(rawExport);
-  const scenario = buildScenarioFromAssurance({
+  const probe = selectProbeFromExport(parsed, 'bob-writes-secret');
+  
+  const result = buildScenarioFromAssurance({
     campaignExport: parsed,
-    probe: parsed.probes[0],
+    probe,
     rawScenario: { template: 'tamper' },
     overrideActors: {},
-    fixRules: { rtdbRules: {} }
+    fixRules: { rtdbRules: {} },
+    app: { dist: '/tmp/dist' }
   });
   
-  assert.ok(scenario);
-  assert.doesNotThrow(() => validateScenario(scenario));
+  assert.ok(result.scenario);
+  result.scenario.schema = SCENARIO_SCHEMA;
+  assert.doesNotThrow(() => validateScenario(result.scenario));
+  assert.equal(result.controlSource.kind, 'probe-control', 'Control must come from observation');
+  assert.equal(result.controlOperation.path, '/secret', 'Control observation must be from owner (alice)');
 });

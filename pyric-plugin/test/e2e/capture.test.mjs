@@ -33,7 +33,7 @@ import {
 } from '../../skills/improve-firebase/scripts/lib/capture/macos-avfoundation.mjs';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(TEST_DIR, '../..');
+const REPO_ROOT = path.resolve(TEST_DIR, '../../..');
 const DOCTOR_SCRIPT = path.join(REPO_ROOT, 'pyric-plugin/skills/improve-firebase/scripts/doctor.mjs');
 
 const SYSTEM_WHICH = execFileSync('sh', ['-c', 'command -v which'], { encoding: 'utf8' }).trim();
