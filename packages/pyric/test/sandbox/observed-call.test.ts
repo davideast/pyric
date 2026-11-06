@@ -294,6 +294,54 @@ describe('readObservedCall', () => {
     }
   });
 
+  it('keeps claim values, write data and a returned document, for the host to evaluate in memory', () => {
+    const write: ObservedCall = {
+      service: 'firestore',
+      method: 'setDoc',
+      path: 'rooms/r1',
+      at: 1,
+      outcome: { status: 'ok' },
+      account: { uid: 'alice', claimNames: ['admin', 'tier'], claims: { admin: true, tier: { level: 2, tags: ['a', null] } } },
+      writeData: { owner: 'alice', count: 3 },
+    };
+    expect(readObservedCall(write)).toEqual(write);
+    const read: ObservedCall = { ...DENIED_READ, outcome: { status: 'ok' }, document: { owner: 'alice', public: false } };
+    expect(readObservedCall(read)).toEqual(read);
+  });
+
+  it('drops an oversized or malformed value and keeps the rest of the call', () => {
+    const big = { text: 'a'.repeat(300_000) };
+    let deep: Record<string, unknown> = { leaf: 1 };
+    for (let level = 0; level < 30; level += 1) deep = { next: deep };
+    const values: unknown[] = [big, deep, 'not an object', [1, 2], null, { at: Number.NaN }, { fn: () => 1 }, { when: new Date(0) }];
+    for (const value of values) {
+      const record = { ...DENIED_READ, account: { uid: 'alice', claims: value }, writeData: value, document: value };
+      expect(readObservedCall(record)).toEqual({ ...DENIED_READ, account: { uid: 'alice' } });
+    }
+  });
+
+  it('keeps write data and a document off every call but Firestore, and claim values off Messaging', () => {
+    const rtdb = { ...NAMED_RTDB_READ, writeData: { a: 1 }, document: { a: 1 } };
+    expect(readObservedCall(rtdb)).toEqual(NAMED_RTDB_READ);
+    const firebase = { identities: { 'google.com': ['1234'] }, sign_in_provider: 'google.com' };
+    const messaging = { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, account: { uid: 'alice', claims: { firebase } } };
+    expect(readObservedCall(messaging)).toEqual({ ...messaging, account: { uid: 'alice' } } as ObservedCall);
+  });
+
+  it('leaves claim values, write data and the document off the event', () => {
+    const call = readObservedCall({
+      ...DENIED_READ,
+      account: { uid: 'alice', claimNames: ['admin'], claims: { admin: true } },
+      writeData: { owner: 'alice' },
+      document: { owner: 'alice' },
+    });
+    const event = observedCallEvent(call);
+    expect(event.production).toEqual({ outcome: DENIED_READ.outcome, claimNames: ['admin'] });
+    expect(event).not.toHaveProperty('writeData');
+    expect(event).not.toHaveProperty('document');
+    expect(event.auth).toEqual({ uid: 'alice' });
+  });
+
   it('refuses a malformed record and names the field', () => {
     const cases: Array<[unknown, string]> = [
       [null, 'call'],

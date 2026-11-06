@@ -9,8 +9,12 @@
  * decided, so this only reports: the event's result and Rules disposition
  * stay production's.
  *
- * An observed call carries no stored document, no written value, no claim
- * value and no query. A verdict that rests on one of them is `unevaluated`,
+ * A call may carry its token's claim values (`request.auth.token`), the data
+ * a Firestore write sent (`request.resource.data`) and the document a
+ * Firestore read returned (`resource.data`); the host feeds them to the
+ * simulator from memory and keeps them off the event. It never carries a
+ * `get()` or `exists()` document, an RTDB write's value or a query. A
+ * verdict that rests on data the call did not carry is `unevaluated`,
  * naming what it needed, rather than a guess the local rules would not make
  * with the data in hand. A service whose rules file the app did not load
  * gets no verdict: the sandbox's stand-in rules are not the app's.
@@ -44,19 +48,39 @@ interface Evaluation {
 /** The order a verdict lists its gaps in. */
 const GAP_ORDER: readonly Gap[] = ['stored-document', 'write-data', 'claim-values', 'query'];
 
+/** The data one evaluation was given, which fills the gaps it would otherwise leave. */
+interface Given {
+  claims: boolean;
+  writeData: boolean;
+  document: boolean;
+  /** Whether the write data is the whole document the write leaves, as a create's or a `setDoc`'s is and an `updateDoc`'s is not. */
+  wholeWrite: boolean;
+}
+
+/** One way an expression reaches data: the gap it names, and whether the given data leaves it open. */
+type GapPattern = [Gap, RegExp, (given: Given) => boolean];
+
+const ALWAYS_OPEN = (): boolean => true;
+const RESOURCE_READ = /(?<![\w.])resource\b/;
+const LOOKUP = /\b(?:get|exists|getAfter|existsAfter)\s*\(/;
+const WRITE_READ = /\brequest\.resource\b/;
+
 /** What each gap looks like in an evaluated Firestore expression. */
-const FIRESTORE_GAPS: ReadonlyArray<[Gap, RegExp]> = [
-  ['stored-document', /(?<![\w.])resource\b|\b(?:get|exists|getAfter|existsAfter)\s*\(/],
-  ['write-data', /\brequest\.resource\b/],
-  ['claim-values', /\brequest\.auth\.token\b/],
-  ['query', /\brequest\.query\b/],
+const FIRESTORE_GAPS: readonly GapPattern[] = [
+  ['stored-document', RESOURCE_READ, (given) => !given.document],
+  ['stored-document', LOOKUP, ALWAYS_OPEN],
+  ['write-data', WRITE_READ, (given) => !given.writeData],
+  // An update's incoming document merges the written fields onto the stored one.
+  ['stored-document', WRITE_READ, (given) => given.writeData && !given.wholeWrite],
+  ['claim-values', /\brequest\.auth\.token\b/, (given) => !given.claims],
+  ['query', /\brequest\.query\b/, ALWAYS_OPEN],
 ];
 
 /** What each gap looks like in an RTDB rule expression. */
-const RTDB_GAPS: ReadonlyArray<[Gap, RegExp]> = [
-  ['stored-document', /\b(?:data|root)\b/],
-  ['claim-values', /\bauth\.token\b/],
-  ['query', /\bquery\./],
+const RTDB_GAPS: readonly GapPattern[] = [
+  ['stored-document', /\b(?:data|root)\b/, ALWAYS_OPEN],
+  ['claim-values', /\bauth\.token\b/, (given) => !given.claims],
+  ['query', /\bquery\./, ALWAYS_OPEN],
 ];
 
 /** The RTDB rule kind each request method evaluates. */
@@ -69,15 +93,26 @@ const RTDB_OPERATION: Readonly<Record<ObservedMethod, 'read' | 'write'>> = {
   delete: 'write',
 };
 
-/** The gaps a set of expressions reach, in a fixed order. */
-function gapsIn(expressions: ReadonlyArray<string | undefined>, patterns: ReadonlyArray<[Gap, RegExp]>): Gap[] {
-  const reaches = (pattern: RegExp) => expressions.some((text) => text !== undefined && pattern.test(text));
-  return patterns.filter(([, pattern]) => reaches(pattern)).map(([gap]) => gap);
-}
-
 /** The union of two gap lists, in the patterns' order. */
 function unionOf(first: Gap[], second: Gap[]): Gap[] {
   return GAP_ORDER.filter((gap) => first.includes(gap) || second.includes(gap));
+}
+
+/** The gaps a set of expressions reach that the given data leaves open, each once, in a fixed order. */
+function gapsIn(expressions: ReadonlyArray<string | undefined>, patterns: readonly GapPattern[], given: Given): Gap[] {
+  const reaches = (pattern: RegExp) => expressions.some((text) => text !== undefined && pattern.test(text));
+  const open = patterns.filter(([, pattern, isOpen]) => isOpen(given) && reaches(pattern)).map(([gap]) => gap);
+  return unionOf(open, []);
+}
+
+/** What the call carries for an evaluation of `method`. */
+function givenBy(call: ObservedCall, method: ObservedMethod): Given {
+  return {
+    claims: call.account?.claims !== undefined,
+    writeData: call.writeData !== undefined,
+    document: call.document !== undefined,
+    wholeWrite: method === 'create' || method === 'set',
+  };
 }
 
 /** Drop the keys whose value is undefined. */
@@ -98,9 +133,21 @@ function verdictOf(call: ObservedCall, evaluation: Evaluation): LocalVerdict {
   };
 }
 
-function authOf(call: ObservedCall): { uid: string; token: { sub: string } } | null {
-  const uid = call.account?.uid;
-  return uid === undefined ? null : { uid, token: { sub: uid } };
+/** `request.auth` for the call: its uid, and its token's claims when the call carries their values. */
+function authOf(call: ObservedCall): { uid: string; token: Record<string, unknown> } | null {
+  const account = call.account;
+  if (account === undefined) return null;
+  const uid = account.uid;
+  return { uid, token: { ...account.claims, sub: uid } };
+}
+
+/** A write's incoming data and a read's stored document, as a simulator case names them. */
+function caseData(call: ObservedCall, method: Exclude<ObservedMethod, 'set'>): { data?: Record<string, unknown>; resource?: Record<string, unknown> } {
+  const isWrite = method === 'create' || method === 'update';
+  const data = isWrite ? call.writeData : undefined;
+  // A create names no stored document; the simulator refuses one.
+  const resource = method === 'create' ? undefined : call.document;
+  return definedOnly({ data, resource });
 }
 
 /**
@@ -119,8 +166,12 @@ function hasAppFirestoreRules(ctx: HostCtx, source: string): boolean {
   return typeof loaded === 'string' && loaded === source;
 }
 
-/** One Firestore method through the deployed rules' cached parse, or `undefined` when the simulator abstains. */
-function evaluateFirestore(ctx: HostCtx, call: ObservedCall, path: string, method: Exclude<ObservedMethod, 'set'>): Evaluation | undefined {
+/**
+ * One Firestore method through the deployed rules' cached parse, with the
+ * claim values, write data and stored document the call carries, or
+ * `undefined` when the simulator abstains.
+ */
+function evaluateFirestore(ctx: HostCtx, call: ObservedCall, path: string, method: Exclude<ObservedMethod, 'set'>, given: Given): Evaluation | undefined {
   let looked = false;
   const simulated = getInternalEnv(ctx.sandbox).simulateDeployedRules(
     [{
@@ -129,6 +180,7 @@ function evaluateFirestore(ctx: HostCtx, call: ObservedCall, path: string, metho
       method,
       path,
       auth: authOf(call),
+      ...caseData(call, method),
       requestTime: new Date(call.at).toISOString(),
     }],
     { getDoc: () => { looked = true; return null; } },
@@ -136,7 +188,7 @@ function evaluateFirestore(ctx: HostCtx, call: ObservedCall, path: string, metho
   const result = simulated.success ? simulated.data.results[0] : undefined;
   if (result === undefined || result.decision === 'UNSUPPORTED') return undefined;
   const allowed = result.decision === 'ALLOW';
-  const gaps = gapsIn(firestoreExpressions(result, allowed), FIRESTORE_GAPS);
+  const gaps = gapsIn(firestoreExpressions(result, allowed), FIRESTORE_GAPS, given);
   const needs = looked ? unionOf(['stored-document'], gaps) : gaps;
   const deciding = projectEvaluatedRule(result);
   const rule = deciding === undefined ? undefined : definedOnly({ line: deciding.line, expression: deciding.expression });
@@ -149,8 +201,10 @@ function evaluateFirestore(ctx: HostCtx, call: ObservedCall, path: string, metho
  * would tell them apart.
  */
 function evaluateSetDoc(ctx: HostCtx, call: ObservedCall, path: string): Evaluation | undefined {
-  const create = evaluateFirestore(ctx, call, path, 'create');
-  const update = evaluateFirestore(ctx, call, path, 'update');
+  // Either way the written data is the whole document the set leaves.
+  const given = givenBy(call, 'set');
+  const create = evaluateFirestore(ctx, call, path, 'create', given);
+  const update = evaluateFirestore(ctx, call, path, 'update', given);
   if (create === undefined || update === undefined) return undefined;
   const needs = unionOf(create.needs, update.needs);
   const agrees = create.allowed === update.allowed;
@@ -162,7 +216,7 @@ function firestoreVerdict(ctx: HostCtx, call: ObservedCall, method: ObservedMeth
   const source = getInternalEnv(ctx.sandbox).getRules();
   const path = call.path;
   if (!hasAppFirestoreRules(ctx, source) || path === undefined) return undefined;
-  const evaluation = method === 'set' ? evaluateSetDoc(ctx, call, path) : evaluateFirestore(ctx, call, path, method);
+  const evaluation = method === 'set' ? evaluateSetDoc(ctx, call, path) : evaluateFirestore(ctx, call, path, method, givenBy(call, method));
   return evaluation === undefined ? undefined : verdictOf(call, evaluation);
 }
 
@@ -198,7 +252,7 @@ function rtdbVerdict(ctx: HostCtx, call: ObservedCall, method: ObservedMethod): 
   const expressions = allowed ? [result.matchedRule] : result.trace.map((entry) => entry.conditionText);
   const hasRule = result.matchedRule !== '';
   const rule = hasRule ? definedOnly({ path: deciding?.path ?? result.matchedPath, expression: result.matchedRule }) : undefined;
-  return verdictOf(call, { allowed, rule, needs: gapsIn(expressions, RTDB_GAPS) });
+  return verdictOf(call, { allowed, rule, needs: gapsIn(expressions, RTDB_GAPS, givenBy(call, method)) });
 }
 
 /**
