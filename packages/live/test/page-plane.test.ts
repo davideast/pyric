@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { OBSERVER_MODULE_ID, ROW_MODULE_IDS, SDK_MODULES, type ObservedCall, type ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
 import { LIVE_ROWS, replacedExports, type LiveCallRecord } from '../src/index.js';
 import { observedCallOf, pageObserver } from '../src/page-observer.js';
-import { liveModuleSource } from '../src/page-modules.js';
+import { liveModuleSource, serveHostProject } from '../src/page-modules.js';
 
 const rowId = (specifier: ServedFirebaseSpecifier): string => ROW_MODULE_IDS.get(specifier) ?? `\0pyric-live:${specifier}`;
 import { LIVE_REFUSED, liveRefusal } from '../src/refusal.js';
@@ -80,6 +80,12 @@ describe('the modules a page gets for the live rows', () => {
     const source = liveModuleSource(OBSERVER_MODULE_ID, '/cli/dist/serve/entries/observed-call-sender.js') as string;
     expect(source).toContain('import { sendObservedCall } from "/@fs/cli/dist/serve/entries/observed-call-sender.js";');
     expect(source).toContain('pageObserver(sendObservedCall)');
+  });
+
+  test("hand every row the project the plugin resolved and the page client, on the one observer", () => {
+    serveHostProject('live-a');
+    const source = liveModuleSource(OBSERVER_MODULE_ID, '/cli/observed-call-sender.js') as string;
+    expect(source).toContain('{ journal: journalLiveListener, hostProjectId: "live-a", client: "page" }');
   });
 
   test('exist only for the live rows', () => {
