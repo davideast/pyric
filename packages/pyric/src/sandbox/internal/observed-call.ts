@@ -14,6 +14,8 @@ import type {
   ObservedAiUsage,
   ObservedCall,
   ObservedCallService,
+  ObservedRequest,
+  ObservedRequestApi,
   ProductionOutcome,
 } from '../types/observed-call.js';
 import type { RulesDisposition, SandboxOperationEvent } from '../types/events.js';
@@ -37,8 +39,8 @@ export const OBSERVED_DISPOSITION: RulesDisposition = Object.freeze({
   reason: 'external-execution',
 });
 
-const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage']);
-const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'instance', 'bucket', 'billedDocuments', 'ai']);
+const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
+const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'instance', 'bucket', 'billedDocuments', 'ai', 'requests']);
 const ACCOUNT_FIELDS = new Set(['uid', 'claimNames']);
 const AI_FIELDS = new Set(['model', 'reportedModel', 'usage', 'firstChunkMs']);
 const AI_USAGE_FIELDS: ReadonlySet<keyof ObservedAiUsage> = new Set(['promptTokenCount', 'candidatesTokenCount', 'totalTokenCount', 'totalTokens']);
@@ -59,7 +61,30 @@ const BUCKET_PATTERN = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
  * denial (403) and App Check rejection (401).
  */
 const STORAGE_DENIED_CODES: ReadonlySet<string> = new Set(['storage/unauthorized', 'storage/unauthorized-app']);
+const REQUEST_FIELDS = new Set(['api', 'action', 'status']);
+/** What each API's requests do: Installations mints an installation and its auth token; registrations hold the FCM token. */
+const REQUEST_ACTIONS: ReadonlyMap<ObservedRequestApi, ReadonlySet<string>> = new Map<ObservedRequestApi, ReadonlySet<string>>([
+  ['installations', new Set(['create', 'generateAuthToken'])],
+  ['registrations', new Set(['create', 'update', 'delete'])],
+]);
+const MAX_REQUESTS = 4;
 const MAX_PATH_LENGTH = 1500;
+/** The token walk's bounds: a well-formed call nests three levels deep and its longest list is its claim names. */
+const MAX_RECORD_DEPTH = 4;
+const MAX_WALKED_ENTRIES = 64;
+const MAX_WALKED_STRING_LENGTH = MAX_PATH_LENGTH;
+/** Fields the token walk skips because their own reader bounds them: an Auth uid may be a long hex id. */
+const UNWALKED_FIELDS: ReadonlySet<string> = new Set(['account.uid']);
+/** Splits a string into runs of URL-safe characters and colons, the alphabet every token shape is drawn from. */
+const NON_TOKEN_CHARACTERS = /[^A-Za-z0-9_:-]+/;
+const DIGIT = /[0-9]/;
+/** A JWT's header (`eyJ`) followed by at least this many URL-safe characters. */
+const MIN_JWT_TAIL = 10;
+/** An FCM registration token: `<id>:APA91b...`, an id of at least 8 characters and a tail of at least 20. */
+const MIN_FCM_ID = 8;
+const MIN_FCM_TAIL = 20;
+/** An opaque key or token, such as a VAPID key or a refresh token: a run this long that holds a digit. */
+const MIN_OPAQUE_RUN = 40;
 const MAX_UID_LENGTH = 128;
 const MAX_CLAIM_NAMES = 64;
 const MAX_CLAIM_NAME_LENGTH = 128;
@@ -157,11 +182,105 @@ function readAi(value: unknown): ObservedAi {
 }
 
 /**
+ * Whether one colon-free run of URL-safe characters is a JWT's start or an
+ * opaque key. The earliest `eyJ` leaves the longest tail, so one search is enough.
+ */
+function isTokenSegment(segment: string): boolean {
+  const jwtStart = segment.indexOf('eyJ');
+  const isJwt = jwtStart >= 0 && segment.length - jwtStart - 3 >= MIN_JWT_TAIL;
+  const isOpaque = segment.length >= MIN_OPAQUE_RUN && DIGIT.test(segment);
+  return isJwt || isOpaque;
+}
+
+/** Whether a run of URL-safe characters and colons holds a token: a token segment, or an FCM token across a colon. */
+function isTokenRun(run: string): boolean {
+  const segments = run.split(':');
+  return segments.some((segment, index) => {
+    const next = segments[index + 1];
+    const isFcmToken = next !== undefined && segment.length >= MIN_FCM_ID && next.length >= MIN_FCM_TAIL;
+    return isFcmToken || isTokenSegment(segment);
+  });
+}
+
+/**
+ * Whether a string is shaped like a credential a Messaging call handles: a JWT
+ * such as a FIS auth token, an FCM registration token, or another opaque key.
+ * It splits once and checks each run by length, so it runs in linear time.
+ */
+function isTokenShaped(value: string): boolean {
+  return value.split(NON_TOKEN_CHARACTERS).some(isTokenRun);
+}
+
+/** Refuse a string too long for any field, or one shaped like a token. */
+function requireNoTokenString(value: string, field: string): void {
+  requireField(value.length <= MAX_WALKED_STRING_LENGTH && !isTokenShaped(value), field);
+}
+
+/**
+ * Refuse a token-shaped key or value anywhere in `value`, naming the field it
+ * sits in. The walk is bounded before any string is checked: strings no longer
+ * than the longest field the reader takes, at most 64 entries in a list or
+ * object, and at most four levels, which also stops a structured-clone cycle.
+ */
+function requireNoTokens(value: unknown, field: string, depth = 0): void {
+  if (UNWALKED_FIELDS.has(field)) return;
+  if (typeof value === 'string') {
+    requireNoTokenString(value, field);
+    return;
+  }
+  const isNested = Array.isArray(value) || isFields(value);
+  if (!isNested) return;
+  const container = field === '' ? 'call' : field;
+  requireField(depth < MAX_RECORD_DEPTH, container);
+  if (Array.isArray(value)) {
+    requireField(value.length <= MAX_WALKED_ENTRIES, container);
+    for (const entry of value) requireNoTokens(entry, field, depth + 1);
+    return;
+  }
+  const keys = Object.keys(value);
+  requireField(keys.length <= MAX_WALKED_ENTRIES, container);
+  for (const key of keys) {
+    requireNoTokenString(key, container);
+    requireNoTokens((value as Fields)[key], field === '' ? key : `${field}.${key}`, depth + 1);
+  }
+}
+
+function isHttpStatus(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599;
+}
+
+function readRequest(value: unknown): ObservedRequest {
+  requireField(isFields(value), 'requests');
+  requireOnly(value, REQUEST_FIELDS, 'requests.');
+  const api = value.api;
+  const actions = typeof api === 'string' ? REQUEST_ACTIONS.get(api as ObservedRequestApi) : undefined;
+  requireField(actions !== undefined, 'requests.api');
+  const action = value.action;
+  requireField(typeof action === 'string' && actions.has(action), 'requests.action');
+  const request: ObservedRequest = { api: api as ObservedRequestApi, action: action as ObservedRequest['action'] };
+  if (value.status !== undefined) {
+    requireField(isHttpStatus(value.status), 'requests.status');
+    request.status = value.status;
+  }
+  return request;
+}
+
+/** A Messaging call's requests: at most four, each an api, an action and a status. */
+function readRequests(value: unknown): ObservedRequest[] {
+  requireField(Array.isArray(value) && value.length <= MAX_REQUESTS, 'requests');
+  return value.map(readRequest);
+}
+
+/**
  * Read one observed call from untrusted input. Returns a fresh record that
  * holds only the known fields; throws {@link ObservedCallError} otherwise.
  */
 export function readObservedCall(value: unknown): ObservedCall {
   requireField(isFields(value), 'call');
+  // A Messaging call handles an installation's tokens and the FCM token, so
+  // nothing in its record may look like one, a field the reader drops included.
+  const isMessaging = value.service === 'messaging';
+  if (isMessaging) requireNoTokens(value, '');
   requireOnly(value, CALL_FIELDS, '');
   const service = value.service;
   requireField(typeof service === 'string' && SERVICES.has(service as ObservedCallService), 'service');
@@ -177,7 +296,8 @@ export function readObservedCall(value: unknown): ObservedCall {
   const isAi = call.service === 'ai';
   if (value.path !== undefined) {
     // An AI call's path is its model, so a second path could disagree with it.
-    requireField(!isAi && isBoundedString(value.path, MAX_PATH_LENGTH), 'path');
+    // A Messaging call names no path: its token is not a place.
+    requireField(!isAi && !isMessaging && isBoundedString(value.path, MAX_PATH_LENGTH), 'path');
     call.path = value.path;
   }
   if (value.durationMs !== undefined) {
@@ -213,6 +333,11 @@ export function readObservedCall(value: unknown): ObservedCall {
   if (isAi || value.ai !== undefined) {
     requireField(isAi, 'ai');
     call.ai = readAi(value.ai);
+  }
+  // Only a Messaging call carries the requests it made.
+  if (value.requests !== undefined) {
+    requireField(isMessaging, 'requests');
+    call.requests = readRequests(value.requests);
   }
   return call;
 }
@@ -279,7 +404,8 @@ function aiObservation(id: string, call: ObservedCall, ai: ObservedAi): RequestO
  * returned an error and `not-applicable` otherwise, since no local Rules
  * verdict exists; `production` holds what production answered. An `ai` call's
  * path is its model, and its `observation` holds the model and token counts.
- * A `storage` call's bucket is its `detail.bucket`.
+ * A `storage` call's bucket is its `detail.bucket`, and a `messaging` call's
+ * requests are its `detail.requests`.
  */
 export function observedCallEvent(call: ObservedCall): SandboxOperationEvent {
   const event = observedOperationEvent(call);
@@ -287,10 +413,15 @@ export function observedCallEvent(call: ObservedCall): SandboxOperationEvent {
   return ai === undefined ? event : { ...event, observation: aiObservation(event.id, call, ai) };
 }
 
-/** A Storage call's bucket, under the key the sandbox's own Storage events use. */
-function eventDetail(call: ObservedCall): { detail?: { bucket: string } } {
+/**
+ * A Storage call's bucket, under the key the sandbox's own Storage events use,
+ * and a Messaging call's requests, each copied.
+ */
+function eventDetail(call: ObservedCall): { detail?: { bucket: string } | { requests: ObservedRequest[] } } {
   const bucket = call.bucket;
-  return bucket === undefined ? {} : { detail: { bucket } };
+  if (bucket !== undefined) return { detail: { bucket } };
+  const requests = call.requests;
+  return requests === undefined ? {} : { detail: { requests: requests.map((request) => ({ ...request })) } };
 }
 
 function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {

@@ -500,6 +500,30 @@ describe('a call production served', () => {
     expect(chipRequestFromEvent(missing)).toMatchObject({ verdict: 'error', production: { status: 'error', code: 'storage/object-not-found' } });
   });
 
+  it("reads a Messaging getToken production refused with permission_denied as denied, with no path", () => {
+    const denied = observed({
+      service: 'messaging',
+      method: 'getToken',
+      path: undefined,
+      projectId: 'demo-project',
+      outcome: { status: 'error', code: 'permission_denied' },
+      requests: [
+        { api: 'installations', action: 'create', status: 200 },
+        { api: 'registrations', action: 'create', status: 403 },
+      ],
+    }, { kind: 'page', pageId: 'tab-1' });
+    expect(chipRequestFromEvent(denied, 'tab-1')).toMatchObject({
+      service: 'messaging',
+      method: 'getToken',
+      path: null,
+      verdict: 'denied',
+      production: { status: 'error', code: 'permission_denied' },
+      source: 'page',
+    });
+    const failed = observed({ service: 'messaging', method: 'deleteToken', path: undefined, outcome: { status: 'error', code: 'unauthenticated' } });
+    expect(chipRequestFromEvent(failed)).toMatchObject({ verdict: 'error', production: { status: 'error', code: 'unauthenticated' } });
+  });
+
   it('leaves a sandbox-served operation without a production answer', () => {
     expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
     const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;
