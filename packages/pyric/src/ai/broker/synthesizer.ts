@@ -125,11 +125,20 @@ export function errorEnvelope(code: number, message: string, status: string): Wi
 const SENSITIVE_URL_PARAM_PATTERN = /([?&](?:key|apiKey|api_key|access_token)=)[^&\s]*/gi;
 
 /**
+ * The userinfo of a URL, `user:password@`, wherever a URL appears in the
+ * text, slashes raw or JSON-escaped. The authority runs to the last `@`
+ * before the path, as a URL parser reads it, so a password holding `@`
+ * goes too (#1766).
+ */
+const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:(?:\\?\/){2})[^\s/\\?#"']*@/gi;
+
+/**
  * Redacts credential-bearing query-string VALUES from a URL (or any string
  * that may embed one) before it lands in an error message or log line —
  * e.g. `?key=AIza...` becomes `?key=***`. Host and path are preserved so
  * the message stays useful for diagnosing connectivity failures; only the
- * secret value is masked.
+ * secret value is masked. The userinfo of a URL is dropped whole, so a
+ * gateway base URL with basic auth prints its origin and path only (#1766).
  *
  * Used at every choke point where an upstream request URL is interpolated
  * into a thrown error or logged text, so a leaked key never reaches
@@ -138,7 +147,7 @@ const SENSITIVE_URL_PARAM_PATTERN = /([?&](?:key|apiKey|api_key|access_token)=)[
  * error message) — it is a no-op when no sensitive param is present.
  */
 export function redactUrl(url: string): string {
-  return url.replace(SENSITIVE_URL_PARAM_PATTERN, '$1***');
+  return url.replace(URL_USERINFO_PATTERN, '$1').replace(SENSITIVE_URL_PARAM_PATTERN, '$1***');
 }
 
 /** `ai-error-unknown-model` (404 NOT_FOUND), captured text verbatim — including production's `v1main`. */
