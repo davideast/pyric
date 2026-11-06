@@ -15,9 +15,12 @@
  * hook (`database.ts`). An AI Logic record also names the model and, on
  * success, the token counts production reported, read by the module's result
  * hook (`ai.ts`). A Cloud Storage record also names the bucket and the
- * reference's path (`storage.ts`). It never carries an argument's value or a
- * result, so no document value, prompt, response text, file content,
- * credential or token reaches it.
+ * reference's path (`storage.ts`). A Cloud Messaging record also lists the
+ * Installations and FCM registration requests the call made, as API and
+ * action names, read by the module's result and rejection hooks
+ * (`messaging.ts`). It never carries an argument's value or a result, so no
+ * document value, prompt, response text, file content, credential, token or
+ * push payload reaches it.
  *
  * A thenable that is not a promise, as RTDB's `push` and Storage's
  * `uploadBytesResumable` return, is another exception when the module marks
@@ -87,6 +90,21 @@ export interface LiveCallRecord {
   readonly bucket?: string;
   /** On an AI Logic call: the model and, on success, production's token counts. Absent on other records. */
   readonly ai?: LiveAiRecord;
+  /**
+   * On a Cloud Messaging `getToken` or `deleteToken`: the Installations and
+   * FCM registration requests it made, at most four, in the order they
+   * started. Absent on other records, and where the realm has no Resource
+   * Timing.
+   */
+  readonly requests?: readonly LiveRequest[];
+}
+
+/** One request a Cloud Messaging call made: the API, what the request did, and production's HTTP status. Never its URL. */
+export interface LiveRequest {
+  readonly api: 'installations' | 'registrations';
+  readonly action: 'create' | 'generateAuthToken' | 'update' | 'delete';
+  /** The response's HTTP status, absent when Resource Timing reported none. */
+  readonly status?: number;
 }
 
 /** The token counts production reported for an AI Logic call. Numbers only. */
@@ -139,10 +157,22 @@ export interface CallContext {
   readonly ai?: LiveAiRecord;
   /** When the call started, in ms since epoch, for a result hook that times it. */
   readonly startedAt?: number;
+  /** When the call started on the realm's performance timeline (`performance.now()`), for a hook that reads its Resource Timing entries. */
+  readonly timelineStart?: number;
+  /** On a Cloud Messaging call: the requests it made, once a hook has read them. */
+  readonly requests?: readonly LiveRequest[];
 }
 
 /** What a resolved call's value adds to its record, or `UNOBSERVED` when production never answered it. */
-export type ResultReading = Pick<CallContext, 'ai'> | typeof UNOBSERVED;
+export type ResultReading = Pick<CallContext, 'ai' | 'requests'> | typeof UNOBSERVED;
+
+/**
+ * What a rejected call's error adds to its record: the requests it made and
+ * the code production's answer gives, which replaces the module's `codeOf`.
+ * `UNOBSERVED` when the SDK failed before any request, so production never
+ * answered.
+ */
+export type RejectionReading = (Pick<CallContext, 'requests'> & { readonly code?: string }) | typeof UNOBSERVED;
 
 /** Reads one call's context from its export name, arguments and `this`, or marks it unobserved. */
 export type CallContextOf = (name: string, args: readonly unknown[], self: unknown) => CallContext | typeof UNOBSERVED;
@@ -173,6 +203,12 @@ export interface ObservedHooks {
    * the call's error, as a stream whose response fails is.
    */
   readonly resultOf?: (site: ObservedSite, value: unknown) => ResultReading | Promise<ResultReading>;
+  /**
+   * Reads a one-shot call's rejection before the record is made: what it
+   * adds, or `UNOBSERVED` to make none. A promise of the reading defers the
+   * record until it settles. The app gets the SDK's rejection either way.
+   */
+  readonly rejectionOf?: (site: ObservedSite, error: unknown) => RejectionReading | Promise<RejectionReading>;
   /**
    * Whether a synchronous throw is the SDK's own check, made before any
    * request, as every Storage export's is (a root reference, a bad argument,
@@ -210,6 +246,10 @@ export interface ObservedSite extends ObservedHooks {
   readonly ai?: LiveAiRecord;
   /** When the call this site records started, in ms since epoch. */
   readonly startedAt?: number;
+  /** When the call this site records started, on the realm's performance timeline. */
+  readonly timelineStart?: number;
+  /** The Cloud Messaging requests the call this site records made. */
+  readonly requests?: readonly LiveRequest[];
   /**
    * Whether the export returns a thenable that is not a promise, whose
    * settlement is production's answer, as `push` returns its reference.
@@ -249,12 +289,13 @@ function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown):
   }
 }
 
-/** The site's instance, bucket, path and AI Logic model, as a record carries them. */
-function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket' | 'path' | 'ai'> {
+/** The site's instance, bucket, path, AI Logic model and Messaging requests, as a record carries them. */
+function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket' | 'path' | 'ai' | 'requests'> {
   const instance = site.instance === undefined ? {} : { instance: site.instance };
   const bucket = site.bucket === undefined ? instance : { ...instance, bucket: site.bucket };
   const place = site.path === undefined ? bucket : { ...bucket, path: site.path };
-  return site.ai === undefined ? place : { ...place, ai: site.ai };
+  const ai = site.ai === undefined ? place : { ...place, ai: site.ai };
+  return site.requests === undefined ? ai : { ...ai, requests: site.requests };
 }
 
 /** `value` is the delivered value or the error, by outcome. */
@@ -365,6 +406,40 @@ function reportResolved(site: ObservedSite, value: unknown): void {
   );
 }
 
+/** What the module's rejection hook reads from an error: an empty reading when it has none, or when it throws. */
+function readRejection(site: ObservedSite, error: unknown): RejectionReading | Promise<RejectionReading> {
+  const rejectionOf = site.rejectionOf;
+  if (rejectionOf === undefined) return {};
+  try {
+    return rejectionOf(site, error);
+  } catch {
+    // An error the hook cannot read is still recorded, with the module's code.
+    return {};
+  }
+}
+
+/** Records one reading of a rejected call, or nothing when production never answered it. */
+function reportRejection(site: ObservedSite, error: unknown, reading: RejectionReading): void {
+  if (reading === UNOBSERVED) return;
+  const { code, ...added } = reading;
+  const read = code === undefined ? {} : { codeOf: () => code };
+  report({ ...site, ...added, ...read }, 'rejected', error);
+}
+
+/** Records a rejected call with what its error adds: now, or when a deferred reading settles. */
+function reportRejected(site: ObservedSite, error: unknown): void {
+  const reading = readRejection(site, error);
+  const isDeferred = reading instanceof Promise;
+  if (!isDeferred) return reportRejection(site, error, reading);
+  Promise.prototype.then.call(
+    reading,
+    (later: RejectionReading) => reportRejection(site, error, later),
+    () => {
+      report(site, 'rejected', error);
+    },
+  );
+}
+
 /** Hands the observer one record, and returns it. Nothing the observer does, or fails to do, reaches the caller. */
 function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): LiveCallRecord | undefined {
   try {
@@ -399,7 +474,7 @@ function observeSettlement(site: ObservedSite, result: unknown): unknown {
       return value;
     },
     (error: unknown) => {
-      report(site, 'rejected', error);
+      reportRejected(site, error);
       throw error;
     },
   );
