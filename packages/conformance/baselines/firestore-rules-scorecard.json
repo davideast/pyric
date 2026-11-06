@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 135,
+    "numerator": 133,
     "denominator": 140,
-    "ratio": 0.9642857142857143,
-    "percent": 96.4
+    "ratio": 0.95,
+    "percent": 95
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 136,
-      "diverged": 2,
+      "verified": 134,
+      "diverged": 4,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 135,
-    "diverged": 2,
+    "conformant": 133,
+    "diverged": 4,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -216,6 +216,7 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -346,6 +347,7 @@
         "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "int-float-and-division",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -386,6 +388,7 @@
         "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "int-float-and-division",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -631,6 +634,7 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -669,18 +673,21 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "get-missing-doc",
+        "interpolated-lookup-path-segments",
         "simcase-mock-and-path-fidelity"
       ],
       "verifiedByRows": [
         "firestore-rules#165",
         "firestore-rules#197"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#224"
+      ]
     },
     "firestore.function.exists": {
       "productionAcceptance": "accepted",
@@ -691,10 +698,11 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "get-missing-doc",
+        "interpolated-lookup-path-segments",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics"
       ],
@@ -703,7 +711,9 @@
         "firestore-rules#196",
         "firestore-rules#197"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#224"
+      ]
     },
     "firestore.function.getAfter": {
       "productionAcceptance": "accepted",
@@ -1198,6 +1208,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "interpolated-lookup-path-segments",
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "time-math-and-casts"
@@ -2324,6 +2335,7 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -2491,6 +2503,7 @@
         "cross-type-operator-overloads",
         "error-absorption-and-or",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -2650,6 +2663,7 @@
         "get-missing-doc",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -2680,6 +2694,7 @@
         "bytes-toutf8-and-hashing",
         "functions-verbs-and-recursive",
         "int-float-and-division",
+        "interpolated-lookup-path-segments",
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "prototype-chain-keys",
@@ -2829,6 +2844,7 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3019,6 +3035,7 @@
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
         "int-float-and-division",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3108,6 +3125,7 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3212,6 +3230,7 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3283,6 +3302,7 @@
         "hierarchical-match-cascade",
         "int-float-and-division",
         "int64-and-duration-range",
+        "interpolated-lookup-path-segments",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3372,6 +3392,7 @@
         "cross-type-operator-overloads",
         "error-absorption-and-or",
         "get-missing-doc",
+        "interpolated-lookup-path-segments",
         "undefined-field-access",
         "unknown-function-names-runtime-error"
       ],
