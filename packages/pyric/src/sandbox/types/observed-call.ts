@@ -9,7 +9,7 @@
  */
 
 /** The services a client may report observed calls for. */
-export type ObservedCallService = 'firestore' | 'auth' | 'rtdb';
+export type ObservedCallService = 'firestore' | 'auth' | 'rtdb' | 'ai';
 
 /** What production answered: success, or the error code it returned. */
 export type ProductionOutcome =
@@ -25,6 +25,33 @@ export interface ObservedAccount {
   claimNames?: string[];
 }
 
+/**
+ * The token counts production reported for an AI call, as the SDK parsed them
+ * from `usageMetadata` (or, for `countTokens`, its `totalTokens`). Numbers only.
+ */
+export interface ObservedAiUsage {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  totalTokenCount?: number;
+  /** `countTokens` only. */
+  totalTokens?: number;
+}
+
+/**
+ * What an `ai` call records beside production's answer: the model and the
+ * token counts. Never a prompt, a part, response text, a function call or a
+ * header.
+ */
+export interface ObservedAi {
+  /** The model resource the SDK normalized, such as `models/gemini-flash-lite-latest`. */
+  model: string;
+  /** The `modelVersion` production reported, when the SDK kept it. */
+  reportedModel?: string;
+  usage?: ObservedAiUsage;
+  /** On a stream: ms from the call until the method resolved with its first chunk. */
+  firstChunkMs?: number;
+}
+
 /** One observed call, as a client sends it to a host. */
 export interface ObservedCall {
   service: ObservedCallService;
@@ -32,7 +59,8 @@ export interface ObservedCall {
   method: string;
   /**
    * The document or collection path the call named, when it named one. On an
-   * `rtdb` call, the reference's path, such as `/items/a`.
+   * `rtdb` call, the reference's path, such as `/items/a`. Never on an `ai`
+   * call, whose event path is its model.
    */
   path?: string;
   /**
@@ -63,6 +91,8 @@ export interface ObservedCall {
    * delivery counts once.
    */
   billedDocuments?: number;
+  /** Required on every `ai` call, and refused on any other. */
+  ai?: ObservedAi;
 }
 
 /**
