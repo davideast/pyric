@@ -25,15 +25,19 @@
  *   through `faye-websocket`, or an SDK's own `fetch`. The app's own socket,
  *   `fetch` or `WebSocket` to that host is refused, so a database secret the
  *   app holds never goes out unobserved;
- * - when `firebase-admin` passes through, every Google endpoint and token
- *   source passes when the nearest caller is a file of the Admin SDK's tree
- *   ({@link PassedThrough.isAdminSdkFile}): the files the app's own
- *   `firebase-admin` import reached, directly or not, `google-auth-library`
- *   and `@google-cloud/firestore` among them. The Admin SDK holds the app's
- *   own credential, so it fetches its token, and its calls go to production
- *   unobserved and bypass security rules. The app's own call to the same
- *   hosts is still refused. Firestore's gRPC sockets pass by host, as the
- *   live rows' do;
+ * - when `firebase-admin` passes through, the hosts the Admin SDK needs
+ *   besides the live row hosts ({@link ADMIN_TOKEN_HOSTS},
+ *   {@link ADMIN_HOSTS}) pass only when the nearest caller is a file of the
+ *   Admin SDK's tree ({@link PassedThrough.isAdminSdkFile}): the files the
+ *   app's own `firebase-admin` import reached, directly or not,
+ *   `google-auth-library` and `@google-cloud/firestore` among them. They are
+ *   its token sources (OAuth 2.0, IAM credentials and the metadata server),
+ *   Cloud Storage's JSON API and the public keys it verifies ID tokens with.
+ *   The Admin SDK holds the app's own credential, so it fetches its token,
+ *   and its calls go to production unobserved and bypass security rules. The
+ *   app's own call to the same hosts is still refused, and so is a tree
+ *   file's call to any other Google host. Firestore's gRPC sockets pass by
+ *   host, as the live rows' do;
  * - every other Google endpoint, a host in `../google-endpoints.ts` or under
  *   `googleapis.com`, is refused.
  *
@@ -231,6 +235,51 @@ function liveVerdict(host: string, service: string, reason: string): EgressVerdi
 }
 
 /**
+ * The token sources a file of the passed-through Admin SDK's tree may reach:
+ * the OAuth 2.0 token endpoint, IAM credentials, which signs custom tokens
+ * without a private key, and the metadata server, by every spelling the
+ * token list refuses it under. Every other token source stays refused.
+ */
+const ADMIN_TOKEN_HOSTS: ReadonlySet<string> = new Set([
+  'oauth2.googleapis.com',
+  'iamcredentials.googleapis.com',
+  '169.254.169.254',
+  'metadata.google.internal',
+  'metadata',
+  'fd20:ce::254',
+]);
+
+const METADATA_SERVER = 'GCE metadata server';
+
+/** The host whose public-key paths the Admin SDK reads to verify ID tokens and session cookies. */
+const ADMIN_KEYS_HOST = 'www.googleapis.com';
+const ADMIN_KEYS_PATH = '/robot/v1/metadata/x509/';
+
+/** Cloud Storage's JSON API, which `firebase-admin/storage` reaches through `@google-cloud/storage`. */
+const ADMIN_STORAGE_HOST = 'storage.googleapis.com';
+
+/** The Google hosts besides the live row hosts and token sources that a file of the Admin SDK's tree may reach. */
+const ADMIN_HOSTS: ReadonlySet<string> = new Set([ADMIN_STORAGE_HOST, ADMIN_KEYS_HOST]);
+
+/** Whether a refused token source is one the Admin SDK's tree may reach. */
+function isAdminTokenSource(verdict: EgressVerdict): boolean {
+  return ADMIN_TOKEN_HOSTS.has(verdict.host) || verdict.service === METADATA_SERVER;
+}
+
+/**
+ * Whether the Admin SDK's tree may reach `host` at `path`: Cloud Storage, or
+ * a public-key path on `www.googleapis.com`. A socket names no path, so it
+ * passes there by host; the dispatch and request seams, which see the path,
+ * hold `www.googleapis.com` to its key paths.
+ */
+function isAdminHost(host: string, path: string | undefined): boolean {
+  if (!ADMIN_HOSTS.has(host)) return false;
+  const isKeysHost = host === ADMIN_KEYS_HOST;
+  const isKeysPath = path === undefined || path.startsWith(ADMIN_KEYS_PATH);
+  return !isKeysHost || isKeysPath;
+}
+
+/**
  * The `fetch` calls a file of the Admin SDK's tree made, as they run.
  * undici dispatches and connects after `fetch` returns, so those seams no
  * longer see the Admin SDK's frame on the stack; they read this instead. A
@@ -254,30 +303,33 @@ function isAdminCaller(passed: PassedThrough): boolean {
  * Google endpoint but the live rows' hosts, and Realtime Database's hosts
  * and the hosts of the imports the register passes through when the nearest
  * caller is a file the stop let load. With `firebase-admin` passed through,
- * a token source or Google endpoint passes from a file of its tree.
+ * its token sources and hosts ({@link ADMIN_TOKEN_HOSTS}, {@link ADMIN_HOSTS})
+ * pass from a file of its tree.
  */
 export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), passed: PassedThrough = NOTHING_PASSED): EgressRule {
   return (hostname, path) => {
     const tokenRefusal = evaluateEgress(hostname, { mode: 'block', endpoints }, path);
     if (tokenRefusal !== null) {
-      if (isAdminCaller(passed)) return null;
+      const isAdminToken = isAdminTokenSource(tokenRefusal) && isAdminCaller(passed);
+      if (isAdminToken) return null;
       return { ...tokenRefusal, reason: TOKEN_REASON, remedy: LIVE_REMEDY };
     }
     const host = hostOf(hostname);
     if (LIVE_ROW_HOSTS.has(host)) return null;
     if (isDatabaseHost(host)) {
-      const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile) || isAdminCaller(passed);
+      const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile);
       if (isFromSdk) return null;
       return { ...liveVerdict(host, googleServiceOf(host) ?? 'Realtime Database', DATABASE_REASON), remedy: DATABASE_REMEDY };
     }
     if (isPassedHost(host, passed)) {
-      const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile) || isAdminCaller(passed);
+      const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile);
       if (isFromSdk) return null;
       return { ...liveVerdict(host, googleServiceOf(host) ?? 'Google APIs', PASSED_REASON), remedy: PASSED_REMEDY };
     }
     const service = googleServiceOf(host);
-    if (service === null || isAdminCaller(passed)) return null;
-    return liveVerdict(host, service, LIVE_REASON);
+    if (service === null) return null;
+    const isAdminCall = isAdminHost(host, path) && isAdminCaller(passed);
+    return isAdminCall ? null : liveVerdict(host, service, LIVE_REASON);
   };
 }
 
@@ -469,12 +521,15 @@ function requestHost(request: RequestLike): string | null {
 /**
  * The refusal for an `http.request` to a live row host, a Realtime Database
  * host or a passed-through host, from any caller, or null for any other
- * request. The passed-through Admin SDK sends `https.request`, so a request
- * from a file of its tree passes.
+ * request. The passed-through Admin SDK reaches the live row hosts, such as
+ * Auth's, with `https.request`, so a request to one from a file of its tree
+ * passes. Its requests to the other hosts here stay refused.
  */
 function liveRowRequestVerdict(request: RequestLike, passed: PassedThrough): EgressVerdict | null {
   const verdict = liveRowHostVerdict(request, passed);
-  return verdict === null || isAdminCaller(passed) ? null : verdict;
+  if (verdict === null) return null;
+  const isAdminRowRequest = LIVE_ROW_HOSTS.has(verdict.host) && isAdminCaller(passed);
+  return isAdminRowRequest ? null : verdict;
 }
 
 /** The refusal for an `http.request` to a live row host, a Realtime Database host or a passed-through host. */

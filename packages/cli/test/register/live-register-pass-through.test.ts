@@ -145,12 +145,14 @@ const FIREBASE_DIR = 'file:///app/node_modules/firebase/';
 const FUNCTIONS_DIR = 'file:///app/node_modules/@firebase/functions/';
 const ADMIN_DIR = 'file:///app/node_modules/firebase-admin/';
 const SERVER_FIRESTORE_DIR = 'file:///app/node_modules/@google-cloud/firestore/';
+const SERVER_STORAGE_DIR = 'file:///app/node_modules/@google-cloud/storage/';
 
 const PACKAGE_DIRS: ReadonlyArray<readonly [string, string]> = [
   [FIREBASE_DIR, 'firebase'],
   [FUNCTIONS_DIR, '@firebase/functions'],
   [ADMIN_DIR, 'firebase-admin'],
   [SERVER_FIRESTORE_DIR, '@google-cloud/firestore'],
+  [SERVER_STORAGE_DIR, '@google-cloud/storage'],
 ];
 
 /** A load with its package named from the URL, so no manifest is read. */
@@ -210,6 +212,16 @@ describe('the stop for firebase-admin, listed', () => {
       loadOf('./utils', `${ADMIN_DIR}lib/utils/index.js`, adminEntry),
     ];
     expect(loads.map((load) => suppliedRowsStopFor(load, new Set(), fromAdminTree))).toEqual([null, null, null]);
+  });
+
+  test("stops the app's own import of the server Storage SDK, and lets the Admin SDK's tree load it", () => {
+    const serverStorage = `${SERVER_STORAGE_DIR}build/cjs/src/index.js`;
+    const fromAppStop = suppliedRowsStopFor(loadOf('@google-cloud/storage', serverStorage, 'file:///app/server.mjs'), new Set(), fromApp);
+    const fromTreeStop = suppliedRowsStopFor(loadOf('@google-cloud/storage', serverStorage, adminEntry), new Set(), fromAdminTree);
+    expect({ fromApp: (fromAppStop as { code?: string } | null)?.code, fromTree: fromTreeStop }).toEqual({
+      fromApp: 'PYRIC_REAL_SDK_STOPPED',
+      fromTree: null,
+    });
   });
 
   test("stops the app's own load of the Admin SDK by any other route, and of the server Firestore SDK", () => {
@@ -604,12 +616,33 @@ async function adminSeams(passThrough: string[]) {
 }
 
 describe('the network guard for firebase-admin, listed', () => {
-  test('passes a token source and a Google host only from a file of its tree', () => {
+  test('passes its token sources, Cloud Storage and the public-key paths only from a file of its tree', () => {
     const fromTree = liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => false, isAdminSdkFile: () => true });
     const fromApp = liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => false, isAdminSdkFile: () => false });
-    const hosts = [TOKEN_HOST, 'metadata.google.internal', '169.254.169.254', 'fcm.googleapis.com'];
-    expect(hosts.map((host) => fromTree(host, '/'))).toEqual([null, null, null, null]);
-    expect(hosts.map((host) => fromApp(host, '/')?.verdict)).toEqual(['block', 'block', 'block', 'block']);
+    const destinations: Array<[string, string | undefined]> = [
+      [TOKEN_HOST, '/token'],
+      ['metadata.google.internal', '/computeMetadata/v1/instance/service-accounts/default/token'],
+      ['169.254.169.254', '/'],
+      ['iamcredentials.googleapis.com', '/v1/projects/-/serviceAccounts/a@b.iam.gserviceaccount.com:signBlob'],
+      ['storage.googleapis.com', '/storage/v1/b/demo/o'],
+      ['www.googleapis.com', '/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com'],
+      ['www.googleapis.com', undefined],
+    ];
+    expect(destinations.map(([host, path]) => fromTree(host, path))).toEqual(destinations.map(() => null));
+    expect(destinations.map(([host, path]) => fromApp(host, path)?.verdict)).toEqual(destinations.map(() => 'block'));
+  });
+
+  test('refuses a file of its tree any other Google host or token source', () => {
+    const fromTree = liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => false, isAdminSdkFile: () => true });
+    const destinations: Array<[string, string]> = [
+      ['pubsub.googleapis.com', '/v1/projects/demo/topics'],
+      ['fcm.googleapis.com', '/v1/projects/demo/messages:send'],
+      ['sts.googleapis.com', '/v1/token'],
+      ['www.googleapis.com', '/drive/v3/files'],
+      ['www.googleapis.com', '/oauth2/v4/token'],
+      ['demo-default-rtdb.firebaseio.com', '/.json'],
+    ];
+    expect(destinations.map(([host, path]) => fromTree(host, path)?.verdict)).toEqual(destinations.map(() => 'block'));
   });
 
   test("lets its token fetch, socket and https.request out, and refuses the app's own", async () => {
@@ -630,6 +663,17 @@ describe('the network guard for firebase-admin, listed', () => {
         connected: 'PYRIC_GUARD_BLOCKED',
         sent: ['https.request refused'],
       });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test('refuses its fetch to another Google host, after the dispatch as at the call', async () => {
+    const seams = await adminSeams(['firebase-admin']);
+    try {
+      const fetched = await seams.admin.adminFetch(seams.fetchScope, 'https://pubsub.googleapis.com/v1/projects/demo/topics')
+        .then(() => 'sent', (error: Error) => error.message);
+      expect({ fetched, sent: seams.sent }).toEqual({ fetched: 'fetch failed', sent: [] });
     } finally {
       seams.stop();
     }

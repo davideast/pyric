@@ -73,7 +73,6 @@ describe('the passThrough option', () => {
     expect(startError(['firebase-admin/firestore'])).toContain('list firebase-admin');
   });
 
-
   test('refuses an @firebase/* package name and names the import to list', () => {
     expect(startError(['@firebase/functions'])).toBe(
       `${ENTRY}: passThrough lists @firebase/functions, an SDK package name; list firebase/functions, the import apps write.`,

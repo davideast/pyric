@@ -319,25 +319,50 @@ function isAllowedLiveRowLoad(load: ResolvedLoad, packageName: string, allowedUr
   return isFromAllowedFile && isLoadedPackage;
 }
 
+/** Why a server SDK stops under live rows, and what the app imports instead. */
+interface ServerSdkStop {
+  /** What the SDK would reach that pyric neither observes nor can tell from what it lets through. */
+  readonly reaches: string;
+  readonly fix: string;
+}
+
 /**
- * The Google server SDKs that reach a live row host on their own connection:
- * `@google-cloud/firestore` speaks gRPC to `firestore.googleapis.com`, as the
- * live rows' Firestore does, so the network guard cannot tell its sockets
- * from the rows' (`live-net-guard.ts`). Other Google client libraries reach
- * hosts the guard refuses by host.
+ * The Google server SDKs that reach a host the network guard passes on their
+ * own connection. `@google-cloud/firestore` speaks gRPC to
+ * `firestore.googleapis.com`, as the live rows' Firestore does, so the guard
+ * cannot tell its sockets from the rows' (`live-net-guard.ts`).
+ * `@google-cloud/storage` reaches `storage.googleapis.com`, which the guard
+ * passes for a passed-through `firebase-admin` and which a shared HTTP
+ * library's frame could reach as the Admin SDK's. Other Google client
+ * libraries reach hosts the guard refuses by host. A passed-through
+ * `firebase-admin` still loads both, from its own tree.
  */
-const LIVE_HOST_SERVER_SDKS: ReadonlySet<string> = new Set(['@google-cloud/firestore']);
+const LIVE_HOST_SERVER_SDKS: Readonly<Record<string, ServerSdkStop>> = {
+  '@google-cloud/firestore': {
+    reaches: "Cloud Firestore on its own gRPC connection, which pyric neither observes nor can tell from the rows'",
+    fix: 'import firebase/firestore, which live mode serves to a Node process',
+  },
+  '@google-cloud/storage': {
+    reaches: "Cloud Storage's JSON API, which pyric neither observes nor can tell from the Admin SDK's own calls",
+    fix: "import firebase/storage, which live mode serves to a Node process, or firebase-admin/storage with pyricLive({ passThrough: ['firebase-admin'] })",
+  },
+};
+
+function isLiveHostServerSdk(packageName: string | null): packageName is string {
+  return packageName !== null && Object.hasOwn(LIVE_HOST_SERVER_SDKS, packageName);
+}
 
 /** The stop's message for a server SDK under live rows: it would reach production unobserved. */
 function serverSdkStopMessage(load: ResolvedLoad, packageName: string): string {
+  const stop = LIVE_HOST_SERVER_SDKS[packageName]!;
   return [
     `${LIVE_LOG_PREFIX}: stopped loading ${packageName}`,
     `  import '${load.specifier}'`,
     `  from   ${load.importer ?? 'the entry point'}`,
     `  found  ${load.url}`,
     "In live mode, only the installed Firebase SDK reaches production, through @pyric/live's rows, so pyric sees each call. " +
-      `${packageName} would reach Cloud Firestore on its own gRPC connection, which pyric neither observes nor can tell from the rows'.`,
-    'Fix: import firebase/firestore, which live mode serves to a Node process, or move this code to a process without @pyric/live/register.',
+      `${packageName} would reach ${stop.reaches}.`,
+    `Fix: ${stop.fix}, or move this code to a process without @pyric/live/register.`,
     `code: ${REAL_SDK_STOPPED_CODE}`,
   ].join('\n');
 }
@@ -365,8 +390,7 @@ export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
   const isAdminEntry = grant.isAdminImport === true && packageName === 'firebase-admin';
   if (isAdminEntry) return null;
-  const isServerSdk = packageName !== null && LIVE_HOST_SERVER_SDKS.has(packageName);
-  if (isServerSdk) return serverSdkStop(load, packageName);
+  if (isLiveHostServerSdk(packageName)) return serverSdkStop(load, packageName);
   const family = sdkFamilyOf(packageName);
   if (family === null || packageName === null) return null;
   if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;
