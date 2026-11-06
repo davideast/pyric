@@ -16,7 +16,7 @@ describe('oracle conformance (rules-firestore)', () => {
   }
 
   it('every captured rules-firestore observation maps to one registry row', () => {
-    expect(replays).toHaveLength(42);
+    expect(replays).toHaveLength(46);
     expect(replays.every(({ rowId }) => /^firestore-rules#\d+$/.test(rowId))).toBe(true);
   });
 });

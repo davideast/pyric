@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 133,
+    "numerator": 131,
     "denominator": 140,
-    "ratio": 0.95,
-    "percent": 95
+    "ratio": 0.9357142857142857,
+    "percent": 93.6
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 134,
-      "diverged": 4,
+      "verified": 132,
+      "diverged": 6,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 133,
-    "diverged": 4,
+    "conformant": 131,
+    "diverged": 6,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -228,6 +228,7 @@
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
+        "root-recursive-own-allow-write",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
@@ -271,6 +272,7 @@
         "path-constructor-and-bind",
         "range-slice-list-and-string",
         "required-fields-and-mapdiff",
+        "root-recursive-own-allow-write",
         "set-algebra-difference-union-intersection",
         "string-literals-and-regex",
         "time-math-and-casts",
@@ -615,8 +617,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "atomic-batch-sibling-merge",
@@ -647,6 +649,10 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-documents-own-allow",
+        "root-recursive-own-allow-write",
+        "root-recursive-path-value",
+        "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
@@ -662,7 +668,9 @@
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#222"
+      ]
     },
     "firestore.function.get": {
       "productionAcceptance": "accepted",
@@ -1211,6 +1219,7 @@
         "interpolated-lookup-path-segments",
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
+        "root-recursive-path-value",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
@@ -2347,6 +2356,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-recursive-path-value",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2395,6 +2405,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-recursive-own-allow-write",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "time-math-and-casts",
@@ -2857,6 +2868,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-recursive-own-allow-write",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2933,6 +2945,8 @@
         "global-and-service-scope-functions",
         "hierarchical-match-cascade",
         "optional-rules-version",
+        "root-documents-own-allow",
+        "root-recursive-with-own-allow",
         "service-root-match-path",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2957,6 +2971,7 @@
         "ast-strictness-and-unsupported-casts",
         "functions-verbs-and-recursive",
         "optional-rules-version",
+        "root-recursive-own-allow-write",
         "service-root-match-path"
       ],
       "verifiedByRows": [],
@@ -2980,6 +2995,7 @@
         "re2-pattern-semantics",
         "resource-document-identity",
         "resource-missing-document",
+        "root-recursive-path-value",
         "rules-version-1-recursive-glob",
         "simulator-language-semantics",
         "split-and-trim-edges",
@@ -3106,8 +3122,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "atomic-batch-sibling-merge",
@@ -3138,6 +3154,10 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-documents-own-allow",
+        "root-recursive-own-allow-write",
+        "root-recursive-path-value",
+        "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
@@ -3153,9 +3173,13 @@
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [
-        "firestore-rules#201"
+        "firestore-rules#201",
+        "firestore-rules#221"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#220",
+        "firestore-rules#223"
+      ]
     },
     "firestore.rule-kind.function": {
       "productionAcceptance": "accepted",
@@ -3243,6 +3267,10 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "root-documents-own-allow",
+        "root-recursive-own-allow-write",
+        "root-recursive-path-value",
+        "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
@@ -3348,6 +3376,9 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "hierarchical-match-cascade",
+        "root-recursive-own-allow-write",
+        "root-recursive-path-value",
+        "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
         "service-root-match-path",
         "simcase-mock-and-path-fidelity"
