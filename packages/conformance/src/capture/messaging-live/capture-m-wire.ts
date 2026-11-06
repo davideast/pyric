@@ -50,7 +50,9 @@
  *
  * `--cleanup <run id>` runs only the cleanup of an earlier run: it deletes the
  * keys carrying that run id and, from that run's browser profile, its tokens
- * and installations, and reads each back.
+ * and installations, and reads each back. The run prints its real run id and
+ * that command before it creates anything, and appends both to
+ * `pyric-capture-m-run-ids.log` in the OS temp folder; the recording reads `<run>`.
  */
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -64,6 +66,7 @@ import { resolvedAdminVersion, resolvedFirebaseVersion } from '../../package-ver
 import { messagingWebProjectProblems } from '../messaging-web/project-checks.ts';
 import {
   allHeld,
+  announceRunId,
   apiKeysRest,
   captureIsInert,
   cleanupCaptureRun,
@@ -565,7 +568,7 @@ async function closeBrowser(): Promise<void> {
 // ─── Cleanup only ─────────────────────────────────────────────────────────
 
 if (cleanupOnlyRun !== null) {
-  say(`[capture-m] cleanup only, run ${runId}`);
+  console.log(`[capture-m] cleanup only, run ${runId}`);
   const result = await cleanupCaptureRun(keys, runId, [], {
     client: async () => {
       const readBacks: ClientReadBack[] = [];
@@ -773,7 +776,7 @@ async function sequence(created: Record<KeyRestriction, CreatedKey>): Promise<vo
     { api: 'registrations', action: 'create' }, DENIAL_ATTEMPTS);
 }
 
-say(`[capture-m] run ${runId}; if it stops partway, run the cleanup with --cleanup ${runId}`);
+announceRunId(runId);
 const outcome = await runWithCaptureCleanup(keys, runId, sequence, { client: cleanCurrentClient, handleSignals: true, log: complain }).catch(async (error: unknown) => {
   // The run refused before it created anything (the key list failed, or keys already carry the run id).
   complain(`[capture-m] refused before creating anything: ${messageOf(error)}`);

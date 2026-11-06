@@ -5,10 +5,11 @@
  * it. The API Keys API and the browser are fakes; nothing reaches the network.
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  announceRunId,
   keyId,
   payloadShape,
   recordExchange,
@@ -177,6 +178,26 @@ describe('redaction', () => {
     expect(existsSync(path)).toBe(false);
     writeMessagingRecording(path, { token: '<fcm-token-1>' }, new Redactor());
     expect(existsSync(path)).toBe(true);
+  });
+
+  test('the console and the run-id file carry the real run id while the recording reads <run>', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'capture-m-'));
+    const redactor = new Redactor();
+    redactor.add(RUN, '<run>');
+    const printed: string[] = [];
+    const file = join(dir, 'run-ids.log');
+    announceRunId(RUN, { write: (line) => printed.push(line), file });
+    expect(printed).toEqual([`[capture-m] run ${RUN}; if it stops partway, run the cleanup with --cleanup ${RUN}`]);
+    expect(readFileSync(file, 'utf8')).toContain(`--cleanup ${RUN}`);
+    announceRunId(RUN, { write: () => {}, file });
+    expect(readFileSync(file, 'utf8').split('\n').filter(Boolean)).toHaveLength(2);
+
+    const path = join(dir, 'recordings', 'nested', 'out.json');
+    writeMessagingRecording(path, { runId: RUN, apiKeys: { displayName: `pyric capture m ${RUN} referrer-blocked` } }, redactor);
+    const text = readFileSync(path, 'utf8');
+    expect(text).not.toContain(RUN);
+    expect(text).toContain('"runId": "<run>"');
+    expect(text).toContain('pyric capture m <run> referrer-blocked');
   });
 
   test('a push payload keeps its key set and only the values the run sent', () => {

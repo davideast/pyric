@@ -15,7 +15,9 @@
  * A base64 key in PYRIC_MESSAGING_SA_BASE64 is ignored. Nothing here names a
  * project, and nothing the credential loader would log is printed.
  */
-import { writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { applicationDefault, cert } from 'firebase-admin/app';
 import {
   loadMessagingServiceAccount,
@@ -62,6 +64,28 @@ export function loadCaptureCredential(env: CaptureEnv): Promise<OracleServiceAcc
 
 export function newRunId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Where every run id is appended, so a run that stops partway can still be cleaned up. */
+export function runIdFile(): string {
+  return join(tmpdir(), 'pyric-capture-m-run-ids.log');
+}
+
+export interface RunIdNotice {
+  write?: (line: string) => void;
+  file?: string;
+}
+
+/**
+ * Print the real run id and its cleanup command, and append both to the run-id
+ * file. The run id is not a credential: it goes out through a path the redactor
+ * never touches, so `--cleanup <run id>` is usable. The recording still reads `<run>`.
+ */
+export function announceRunId(runId: string, notice: RunIdNotice = {}): string {
+  const line = `[capture-m] run ${runId}; if it stops partway, run the cleanup with --cleanup ${runId}`;
+  (notice.write ?? console.log)(line);
+  appendFileSync(notice.file ?? runIdFile(), `${new Date().toISOString()} ${line}\n`);
+  return line;
 }
 
 // ─── Restricted API keys ──────────────────────────────────────────────────
@@ -539,6 +563,7 @@ export function writeMessagingRecording(path: string, recording: unknown, redact
   const text = redactor.apply(`${JSON.stringify(recording, null, 2)}\n`);
   const leaks = messagingLeaks(text, redactor.secrets);
   if (leaks.length > 0) throw new Error(`refusing to write the recording: ${leaks.join(', ')} survived redaction`);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text);
 }
 
