@@ -4,7 +4,7 @@ navLabel: "Live mode"
 group: "Observe & shape"
 section: ""
 order: 30
-description: "Run your app against your real Firebase project and see each Firestore and Auth call, with production's answer, in the chip, Studio and the terminal."
+description: "Run your app against your real Firebase project and see each Firestore, Realtime Database and Auth call, with production's answer, in the chip, Studio and the terminal."
 ---
 
 # Watch your app's calls to a real Firebase project
@@ -64,16 +64,25 @@ The chip and Studio show `Live: my-project` from the moment the host starts, bef
 Live mode forwards what your app sends, as it would without pyric:
 
 - **Firestore** reads, queries, listeners and writes on the `(default)` database.
+- **Realtime Database** reads, writes, transactions, listeners and `onDisconnect` writes, on the default instance and on named instances.
 - **Auth** calls, including the ones that reach real people: account creation and deletion, password reset and sign-in link emails, and SMS sign-in.
-- **App Check**, on the same app object as Firestore and Auth.
+- **App Check**, on the same app object as Firestore, Realtime Database and Auth.
 
 Each call is a row in traffic, marked as served by production. A row shows the method, such as `setDoc` or `sendPasswordResetEmail`, production's answer (success or an error code such as `permission-denied`), the client that made it (this page, another tab or a Node process), and the signed-in account's id and claim names. It never shows the token.
+
+## Realtime Database calls
+
+Each Realtime Database call is a row in Traffic, and so is each delivery to a listener. The row names the call with its service, such as `rtdb.set`, `rtdb.onValue` or `rtdb.onDisconnect.set`, and shows the path, such as `/items/a`. A call the project's rules deny shows `permission_denied` as production's answer.
+
+- **Named instances.** A call on a named instance, such as `getDatabase(app, 'https://my-project-archive.firebaseio.com')`, is a row too. Traffic doesn't show which instance a row came from yet.
+- **`.info` paths.** A call or listener on a path under `/.info`, such as `.info/connected`, runs as your SDK runs it and makes no row. The SDK answers these paths itself, so production never sees them.
+- **Not yet shown.** Realtime Database listeners don't appear in the chip's Data tab or Studio's Listeners view, and Realtime Database calls don't add to the billed-call count.
 
 ## What it refuses
 
 Each refusal throws an error with the code `PYRIC_LIVE_REFUSED` before any request leaves, and says what was refused and why:
 
-- **Other services.** Importing Realtime Database, Cloud Storage, Cloud Functions, Cloud Messaging, Firebase AI Logic, Analytics, Remote Config, Performance Monitoring or Firestore Lite. The sandbox doesn't serve them either, so one app never mixes production and sandbox services.
+- **Other services.** Importing Cloud Storage, Cloud Functions, Cloud Messaging, Firebase AI Logic, Analytics, Remote Config, Performance Monitoring or Firestore Lite. The sandbox doesn't serve them either, so one app never mixes production and sandbox services.
 - **Named Firestore databases**, such as `getFirestore(app, 'reports')`.
 - **`firebase-admin`** in a Node process under `@pyric/live/register`.
 - **Pyric's own writes.** Studio edits, MCP tools that write, `pyric` commands that write, and seed files.
@@ -82,9 +91,37 @@ Each refusal throws an error with the code `PYRIC_LIVE_REFUSED` before any reque
 
 To use any of these, run the app without `@pyric/live`. It gets the sandbox again.
 
+## Pass other services through
+
+An app that needs a service live mode doesn't serve can list its import in `passThrough`. The app then loads that service from its own installed SDK, unobserved:
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite';
+import { pyricLive } from '@pyric/live/vite';
+
+export default defineConfig({
+  plugins: [pyricLive({ passThrough: ['firebase/functions'] })],
+});
+```
+
+Its calls don't show in Traffic, and production still bills them. The start line, the chip and Studio each name it:
+
+```text
+@pyric/live/vite: firebase/functions passes through to production: its calls are not observed and still bill.
+```
+
+A Node process under `@pyric/live/register` reads the same list from its live host, so start it after the host.
+
+A list that names an import live mode serves stops the dev server at start. Live mode serves `firebase/database`, so an app that lists it must remove the entry:
+
+```text
+@pyric/live/vite: passThrough lists firebase/database, which live mode already serves and observes; remove it.
+```
+
 ## Calls that skip your Firebase SDK
 
-Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore` or `firebase/app-check`. Live mode refuses these other routes to production, so none of them reaches your project unseen:
+Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore`, `firebase/database` or `firebase/app-check`. Live mode refuses these other routes to production, so none of them reaches your project unseen:
 
 - **`@google-cloud/firestore`** in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` instead.
 - **Your own requests to Firestore, Auth or App Check** from a Node process, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`, and the terminal names the host.
@@ -109,7 +146,7 @@ None of these calls shows in traffic, and production still bills them.
 
 The chip and Studio show a running count of your app's Firestore reads, writes and listener deliveries in production. Reads and writes are counted per call, not per document, so a query counts once however many documents production bills for it. Listener deliveries count the documents delivered to listeners. An HMR reload that restarts a listener reads its documents again.
 
-The count is an estimate from the calls pyric observed, and it understates the bill for large queries. It doesn't cap anything. Your project's usage in the Firebase console is the number production charges.
+The count is an estimate from the calls pyric observed, and it understates the bill for large queries. It doesn't cap anything. Your project's usage in the Firebase console is the number production charges. Realtime Database calls aren't in the count.
 
 ## Related
 
