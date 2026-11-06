@@ -110,6 +110,31 @@ describe('in-process Storage rules load path', () => {
     );
   });
 
+  // #1313: each bucket firebase.json names enforces its own rules, and the
+  // default bucket is the one .firebaserc's project names, by either spelling.
+  for (const defaultBucket of ['demo-app.appspot.com', 'demo-app.firebasestorage.app']) {
+    it(`enforces the rules firebase.json deploys to ${defaultBucket}, not the first entry's`, async () => {
+      await withProject(
+        {
+          '.firebaserc': JSON.stringify({ projects: { default: 'demo-app' } }),
+          'firebase.json': JSON.stringify({
+            storage: [
+              { bucket: 'media-bucket', rules: 'media.rules' },
+              { bucket: defaultBucket, rules: 'storage.rules' },
+            ],
+          }),
+          'media.rules': ALLOW_ALL,
+          'storage.rules': DENY_ALL,
+        },
+        async (dir) => {
+          const result = await anonymousUpload(dir, 'uploads/a.txt');
+          expect(result.allowed).toBe(false);
+          expect(result.text).toContain('storage/unauthorized');
+        },
+      );
+    });
+  }
+
   it('falls back to storage.rules in the project directory without firebase.json', async () => {
     await withProject({ 'storage.rules': ALLOW_ALL }, async (dir) => {
       expect((await anonymousUpload(dir, 'uploads/a.txt')).allowed).toBe(true);
