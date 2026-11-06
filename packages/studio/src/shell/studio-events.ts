@@ -17,7 +17,7 @@ import type {
   SandboxOperationEvent,
 } from 'pyric/sandbox';
 import { activeListeners, isOperationEvent, toOperationRecord } from 'pyric/sandbox';
-import { storageGsPath } from 'pyric/sandbox/internal';
+import { messagingRequestsLine, storageGsPath } from 'pyric/sandbox/internal';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { foldSessionEventLog } from '../events/fold.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
@@ -118,39 +118,6 @@ export function useStudioEvents(retention: EventRetention = 'recent'): readonly 
     [seedReady, seed, retention],
   );
   return seedReady ? cappedSeedEvents : liveEvents;
-}
-
-const MESSAGING_API_LABELS: Record<string, string> = { installations: 'Installations', registrations: 'registrations' };
-const MESSAGING_ACTION_LABELS: Record<string, string> = {
-  create: 'create', generateAuthToken: 'generate auth token', update: 'update', delete: 'delete',
-};
-
-/** One request as `<api> <action>, <status>`, with no status when the browser reported none. */
-function messagingRequestText(request: unknown): string | undefined {
-  if (typeof request !== 'object' || request === null) return undefined;
-  const { api, action, status } = request as { api?: unknown; action?: unknown; status?: unknown };
-  const apiLabel = typeof api === 'string' ? MESSAGING_API_LABELS[api] : undefined;
-  const actionLabel = typeof action === 'string' ? MESSAGING_ACTION_LABELS[action] : undefined;
-  if (apiLabel === undefined || actionLabel === undefined) return undefined;
-  const hasStatus = typeof status === 'number';
-  return hasStatus ? `${apiLabel} ${actionLabel}, ${status}` : `${apiLabel} ${actionLabel}`;
-}
-
-/**
- * A Messaging row's path, read as the chip's Traffic reads it: the
- * Installations and FCM registration requests its call made, such as
- * "Installations create, 200; registrations create, 403". `undefined` for any
- * other row, and for a Messaging call that lists none.
- */
-function messagingRequestsLine(e: SandboxEvent): string | undefined {
-  const isMessagingOperation = e.kind === 'operation' && e.service === 'messaging';
-  if (!isMessagingOperation) return undefined;
-  const requests = e.detail?.requests;
-  if (!Array.isArray(requests)) return undefined;
-  const texts = requests.flatMap((request) => messagingRequestText(request) ?? []);
-  if (texts.length === 0) return undefined;
-  const line = texts.join('; ');
-  return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
 function isTrafficEvent(
