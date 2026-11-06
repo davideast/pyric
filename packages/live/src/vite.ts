@@ -47,7 +47,7 @@ import {
 } from '@pyric/cli/vite/internal/supplied-rows';
 import { serveHostProject } from './page-modules.js';
 import { canPassThrough, liveRefusal, passThroughOption, refusedImportsLine, withPassThroughHint } from './refusal.js';
-import { liveStartLine } from './start-line.js';
+import { liveStartLine, passThroughLines } from './start-line.js';
 import { liveStartRefusal } from './start-checks.js';
 
 type PyricPlugin = ReturnType<typeof pyricWithSuppliedRows>;
@@ -89,9 +89,9 @@ function pageRefusal(log: () => LogLine | undefined): (specifier: string, plane:
   };
 }
 
-/** The start line, then one line for each import that passes through. */
+/** The start line, then one line for each import that passes through, and the Admin line when the list names firebase-admin. */
 function startLines(projectId: string, passThrough: readonly string[]): string {
-  const passing = passThrough.map((specifier) => `${ENTRY}: ${livePassThroughLine(specifier)}`);
+  const passing = passThroughLines(ENTRY, passThrough, livePassThroughLine);
   return [liveStartLine(ENTRY, projectId), ...passing].join('\n');
 }
 
