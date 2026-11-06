@@ -34,6 +34,18 @@ const NAMED_RTDB_READ: ObservedCall = {
   instance: 'my-project-named',
 };
 
+const UPLOAD: ObservedCall = {
+  service: 'storage',
+  method: 'uploadBytes',
+  path: 'avatars/alice.png',
+  bucket: 'my-project.firebasestorage.app',
+  at: 1_700_000_000_000,
+  durationMs: 64,
+  outcome: { status: 'ok' },
+  account: { uid: 'alice' },
+  projectId: 'my-project',
+};
+
 const GENERATE: ObservedCall = {
   service: 'ai',
   method: 'generateContent',
@@ -63,6 +75,39 @@ describe('readObservedCall', () => {
     expect(readObservedCall(NAMED_RTDB_READ)).toEqual(NAMED_RTDB_READ);
     const denied = { ...NAMED_RTDB_READ, method: 'onDisconnect.set', instance: 'my-project-default-rtdb', outcome: { status: 'error', code: 'permission_denied' } };
     expect(readObservedCall(denied)).toEqual(denied as ObservedCall);
+  });
+
+  it('keeps a Storage call with its bucket and path, and the root reference with no path', () => {
+    expect(readObservedCall(UPLOAD)).toEqual(UPLOAD);
+    const denied = { ...UPLOAD, method: 'getBytes', bucket: 'my-project-live-second', outcome: { status: 'error', code: 'storage/unauthorized' } };
+    expect(readObservedCall(denied)).toEqual(denied as ObservedCall);
+    const { path: _path, ...root } = UPLOAD;
+    const listRoot = { ...root, method: 'listAll' };
+    expect(readObservedCall(listRoot)).toEqual(listRoot as ObservedCall);
+  });
+
+  it('refuses a bucket that is not a bare bucket name, or on a call that is not Storage', () => {
+    const cases: Array<[unknown, string]> = [
+      [{ ...UPLOAD, bucket: undefined }, 'bucket'],
+      [{ ...UPLOAD, bucket: 'gs://my-project.firebasestorage.app' }, 'bucket'],
+      [{ ...UPLOAD, bucket: 'My-Project' }, 'bucket'],
+      [{ ...UPLOAD, bucket: 'ab' }, 'bucket'],
+      [{ ...UPLOAD, bucket: '-my-project' }, 'bucket'],
+      [{ ...UPLOAD, bucket: 'my-project.' }, 'bucket'],
+      [{ ...UPLOAD, bucket: 'my/project' }, 'bucket'],
+      [{ ...UPLOAD, bucket: 'a'.repeat(223) }, 'bucket'],
+      [{ ...UPLOAD, bucket: 7 }, 'bucket'],
+      [{ ...DENIED_READ, bucket: 'my-project.firebasestorage.app' }, 'bucket'],
+      [{ ...NAMED_RTDB_READ, bucket: 'my-project.firebasestorage.app' }, 'bucket'],
+      [{ ...GENERATE, bucket: 'my-project.firebasestorage.app' }, 'bucket'],
+      [{ ...UPLOAD, instance: 'my-project-default-rtdb' }, 'instance'],
+    ];
+    for (const [record, field] of cases) {
+      const read = () => readObservedCall(record);
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow(`Invalid observed call field: ${field}.`);
+    }
+    expect(readObservedCall({ ...UPLOAD, bucket: `a${'b'.repeat(220)}c` }).bucket).toHaveLength(222);
   });
 
   it('keeps an AI call with its model, token counts and first chunk time', () => {
@@ -108,7 +153,7 @@ describe('readObservedCall', () => {
     const cases: Array<[unknown, string]> = [
       [null, 'call'],
       [[DENIED_READ], 'call'],
-      [{ ...DENIED_READ, service: 'storage' }, 'service'],
+      [{ ...DENIED_READ, service: 'functions' }, 'service'],
       [{ ...DENIED_READ, instance: 'my-project-default-rtdb' }, 'instance'],
       [{ ...NAMED_RTDB_READ, instance: '' }, 'instance'],
       [{ ...NAMED_RTDB_READ, instance: 'Named' }, 'instance'],
@@ -233,6 +278,23 @@ describe('observedCallEvent', () => {
     expect(refused.observation?.ai).toEqual({ requestedModel: 'models/m', engine: 'gemini', endpoint: 'https://firebasevertexai.googleapis.com', usageSource: 'unknown' });
   });
 
+  it('puts a Storage call\'s bucket on the event as detail.bucket, the key sandbox Storage events use', () => {
+    const event = observedCallEvent(readObservedCall(UPLOAD));
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'storage',
+      method: 'uploadBytes',
+      path: 'avatars/alice.png',
+      detail: { bucket: 'my-project.firebasestorage.app' },
+      auth: { uid: 'alice' },
+      result: 'not-applicable',
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      production: { outcome: { status: 'ok' } },
+    });
+    expect(event.detail).toEqual({ bucket: 'my-project.firebasestorage.app' });
+    expect(observedCallEvent(DENIED_READ)).not.toHaveProperty('detail');
+  });
+
   it('gives a non-AI call no observation', () => {
     expect(observedCallEvent(DENIED_READ)).not.toHaveProperty('observation');
   });
@@ -243,6 +305,13 @@ describe('observedCallEvent', () => {
     expect(productionVerdict({ status: 'error', code: 'PERMISSION_DENIED' })).toBe('denied');
     expect(productionVerdict({ status: 'error', code: 'firestore/permission-denied' })).toBe('denied');
     expect(productionVerdict({ status: 'error', code: 'auth/wrong-password' })).toBe('failed');
+  });
+
+  it("reads Storage's storage/unauthorized as denied and every other Storage code as failed", () => {
+    expect(productionVerdict({ status: 'error', code: 'storage/unauthorized' })).toBe('denied');
+    for (const code of ['storage/unauthenticated', 'storage/unauthorized-app', 'storage/object-not-found', 'storage/canceled', 'storage/unknown']) {
+      expect(productionVerdict({ status: 'error', code })).toBe('failed');
+    }
   });
 
   it('leaves a sandbox-served operation unmarked', () => {
