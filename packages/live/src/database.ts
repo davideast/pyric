@@ -100,18 +100,55 @@ export function urlInstance(url: unknown): string | undefined {
  * throws the project refusal naming that field before the SDK's factory
  * runs, so the SDK never opens a connection, which would carry the
  * account's ID token and the App Check token. A config field is judged
- * ahead of the URL. Otherwise it calls the SDK's factory, and the Database
- * it returns is noted.
+ * ahead of the URL. `getDatabase()` with no app judges the default app.
+ * When there is none yet, the SDK's factory either throws its own error or
+ * makes the default app from the environment's default config, as
+ * `getApp()` does, and that app is judged before the Database is returned:
+ * the factory opens no connection, which starts only at `ref()`. Otherwise
+ * it calls the SDK's factory, and the Database it returns is noted.
  */
 export function guardedGetDatabase(real: Callback, site: Omit<ObservedSite, 'name'>): Callback {
   return function getDatabase(this: unknown, ...args: unknown[]): unknown {
     const instance = urlInstance(args[1]);
-    const refusal = refusedFactory(site, 'getDatabase', args[0], instance === undefined ? {} : { instance });
-    if (refusal !== null) throw refusal;
+    const target = instance === undefined ? {} : { instance };
+    const isAppNamed = args[0] !== undefined;
+    const app = isAppNamed ? args[0] : defaultApp(site);
+    throwRefusal(refusedFactory(site, 'getDatabase', app, target));
     const db = Reflect.apply(real, this, args);
+    const isAppMade = app === undefined;
+    if (isAppMade) throwRefusal(refusedFactory(site, 'getDatabase', appOfDatabase(db), target));
     noteDatabase(db);
     return db;
   };
+}
+
+function throwRefusal(refusal: Error | null): void {
+  if (refusal !== null) throw refusal;
+}
+
+/** The name `getApp()` looks the default app up by. */
+const DEFAULT_APP_NAME = '[DEFAULT]';
+
+/**
+ * The app `getDatabase()` with no app opens, as the SDK's `getApp()` finds
+ * it: the initialized app named `[DEFAULT]`, read from `getApps()` so no
+ * call is recorded. Undefined when there is none yet.
+ */
+function defaultApp(site: Omit<ObservedSite, 'name'>): unknown {
+  try {
+    return site.apps?.().find((app) => isObject(app) && app.name === DEFAULT_APP_NAME);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The app a Database belongs to, read without calling anything of the app's. */
+function appOfDatabase(db: unknown): unknown {
+  try {
+    return isObject(db) ? db.app : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

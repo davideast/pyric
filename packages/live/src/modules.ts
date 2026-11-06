@@ -364,6 +364,12 @@ export interface LiveModuleSite {
   readonly sdkVersion: string;
   /** The client the module runs in, which a refusal names. */
   readonly client: LiveClient;
+  /**
+   * The SDK's initialized apps, `getApps()` of the app's own `firebase/app`.
+   * No row observes `getApps`, so reading it records nothing; the app row
+   * observes `getApp`, so a row never calls that.
+   */
+  readonly apps?: () => readonly unknown[];
 }
 
 /**
@@ -374,7 +380,8 @@ export interface LiveModuleSite {
 export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: string, real: T, site: LiveModuleSite): T {
   const spec = LIVE_MODULES[key];
   const wrapped: Record<string, unknown> = { ...(real as Record<string, unknown>) };
-  const observedSite = { module: specifier, observer: site.observer, accountOf, ...spec.hooks };
+  const apps = site.apps === undefined ? {} : { apps: site.apps };
+  const observedSite = { module: specifier, observer: site.observer, accountOf, ...apps, ...spec.hooks };
   wrapExports(wrapped, spec.calls, observedCall, observedSite, spec.thenables, spec.swallowsRejection);
   const uncaughtListenerError = spec.uncaughtListenerError?.(site.sdkVersion);
   wrapExports(wrapped, spec.listeners, observedListener, { ...observedSite, uncaughtListenerError });

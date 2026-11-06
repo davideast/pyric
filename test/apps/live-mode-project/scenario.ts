@@ -17,8 +17,9 @@
  * SDK opens a connection, and a read through the storage is refused judging
  * the bucket. The second app's own `getDatabase(app)`, whose config names
  * the other project and its default instance, is refused the same way, by
- * its projectId. The replay hears nothing of any of them, not even a
- * connection setup.
+ * its projectId, and so is `getDatabase()` with no app on a second load of
+ * the page (`?default=other`) whose default app is the other-project one.
+ * The replay hears nothing of any of them, not even a connection setup.
  *
  * Both planes learn the host's project from the seam that resolved it: the
  * Vite plugin and the register each hand it to the rows they serve
@@ -63,6 +64,7 @@ declare function readLobby(name: 'host' | 'other'): Promise<Settled>;
 declare function readOtherInstance(): Promise<Settled>;
 declare function readOtherBucket(): Promise<Settled>;
 declare function readOtherAppDatabase(): Promise<Settled>;
+declare function readDefaultAppDatabase(): Promise<Settled>;
 
 interface Recorded {
   /** The project the recording was made in, and the one `vite.config.js` names. */
@@ -220,7 +222,14 @@ export default scenario(async (app) => {
     expectRefused(await page.evaluate(() => readOtherInstance()), project, 'page', 'instance');
     expectRefused(await page.evaluate(() => readOtherBucket()), project, 'page', 'bucket');
     expectRefused(await page.evaluate(() => readOtherAppDatabase()), project, 'page', 'projectId');
-    await sleep(500);
+    // A second load of the page whose default app is the other-project one: `getDatabase()` names no app.
+    const otherDefault = await app.page(`${host.url}/?default=other&backend=${encodeURIComponent(replay.origin)}`);
+    await otherDefault.waitForFunction(() => document.querySelector('#status')?.textContent !== 'Starting');
+    assert.equal(await otherDefault.evaluate(() => document.querySelector('#status')?.textContent), 'Ready');
+    expectRefused(await otherDefault.evaluate(() => readDefaultAppDatabase()), project, 'page', 'projectId');
+    // The page stays open long enough for a connection the SDK would open to reach the replay.
+    await sleep(1000);
+    await otherDefault.close();
     assert.deepEqual(await requestsForOther(replay), [], "production received a request for the other project's instance or bucket");
   });
 

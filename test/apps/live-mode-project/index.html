@@ -34,9 +34,12 @@
         appId: `1:1:web:${projectId}`,
         authDomain: `${projectId}.firebaseapp.com`,
       });
-      const host = initializeApp(config("demo-live-traffic"));
-      const other = initializeApp({ ...config("demo-live-other"), databaseURL: "https://demo-live-other-default-rtdb.firebaseio.com" }, "other");
-      const backend = new URL(new URLSearchParams(location.search).get("backend"));
+      // `?default=other` makes the other-project app the default one, which `getDatabase()` with no app opens.
+      const query = new URLSearchParams(location.search);
+      const isOtherDefault = query.get("default") === "other";
+      const host = initializeApp(config("demo-live-traffic"), isOtherDefault ? "host" : undefined);
+      const other = initializeApp({ ...config("demo-live-other"), databaseURL: "https://demo-live-other-default-rtdb.firebaseio.com" }, isOtherDefault ? undefined : "other");
+      const backend = new URL(query.get("backend"));
       const auth = getAuth(host);
       connectAuthEmulator(auth, backend.origin, { disableWarnings: true });
       const databases = { host: getFirestore(host), other: getFirestore(other) };
@@ -73,6 +76,13 @@
         return get(databaseRef(otherDatabase, "rooms/lobby")).then((snapshot) => snapshot.val());
       };
       window.readOtherAppDatabase = () => answered(readFromOtherApp);
+      /** Opens the default app's database with `getDatabase()`, no app named, and reads the lobby from it. */
+      const readFromDefaultApp = () => {
+        const defaultDatabase = getDatabase();
+        connectDatabaseEmulator(defaultDatabase, backend.hostname, Number(backend.port));
+        return get(databaseRef(defaultDatabase, "rooms/lobby")).then((snapshot) => snapshot.val());
+      };
+      window.readDefaultAppDatabase = () => answered(readFromDefaultApp);
       /** Asks for the lobby picture's URL from the other project's default bucket, through the host app. */
       window.readOtherBucket = () => answered(() => getDownloadURL(storageRef(otherBucket, "rooms/lobby.png")));
 

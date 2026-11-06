@@ -708,6 +708,65 @@ describe("getDatabase(app, url) on another project's default instance, on a host
     expect(error?.field).toBe('storageBucket');
   });
 
+  /** `getDatabase()` with no app, on a site whose `getApps` lists `apps`; the stand-in factory returns a Database of `made`. */
+  function noAppCall(client: LiveClient, apps: readonly unknown[], made: unknown, url?: string): { readonly ran: string[]; readonly invoke: () => unknown } {
+    const { observer } = hostObserver(HOST);
+    const real = standIn(['getDatabase'], () => ({ app: made, _repoInternal: { repoInfo_: { namespace: HOST_INSTANCE } } }));
+    const live = wrapLiveModule('live-database', 'firebase/database', real.module, { observer, sdkVersion: '12.12.0', client, apps: () => apps });
+    return { ran: real.ran, invoke: () => (url === undefined ? live.getDatabase!() : live.getDatabase!(undefined, url)) };
+  }
+
+  const named = (name: string, app: { options: Record<string, string> }) => ({ name, ...app });
+  const otherDefault = named('[DEFAULT]', appOn(OTHER));
+  const hostDefault = named('[DEFAULT]', appOn(HOST));
+
+  for (const client of CLIENTS) {
+    test(`from ${client}, getDatabase() on a default app whose config names another project throws before the real factory runs`, () => {
+      for (const app of [otherDefault, named('[DEFAULT]', hostAppWith({ databaseURL: `https://${OTHER}-default-rtdb.firebaseio.com` }))]) {
+        const { ran, invoke } = noAppCall(client, [named('second', appOn(HOST)), app], app);
+        const error = thrown(invoke);
+        expect({ code: error?.code, appProjectId: error?.appProjectId, hostProjectId: error?.hostProjectId }).toEqual({
+          code: LIVE_REFUSED,
+          appProjectId: OTHER,
+          hostProjectId: HOST,
+        });
+        expect(ran).toEqual([]);
+      }
+    });
+
+    test(`from ${client}, getDatabase() names the default app's config field: projectId, then databaseURL`, () => {
+      const byDatabaseURL = named('[DEFAULT]', hostAppWith({ databaseURL: `https://${OTHER}-default-rtdb.firebaseio.com` }));
+      expect(thrown(noAppCall(client, [otherDefault], otherDefault).invoke)?.field).toBe('projectId');
+      expect(thrown(noAppCall(client, [byDatabaseURL], byDatabaseURL).invoke)?.field).toBe('databaseURL');
+    });
+
+    test(`from ${client}, getDatabase() on a host default app runs, and getDatabase(undefined, url) still judges the URL`, () => {
+      const runs = noAppCall(client, [named('other', appOn(OTHER)), hostDefault], hostDefault);
+      expect(thrown(runs.invoke)).toBeUndefined();
+      expect(runs.ran).toEqual(['getDatabase']);
+      const refused = noAppCall(client, [hostDefault], hostDefault, `https://${OTHER}-default-rtdb.firebaseio.com`);
+      expect(thrown(refused.invoke)?.field).toBe('instance');
+      expect(refused.ran).toEqual([]);
+    });
+
+    test(`from ${client}, getDatabase() with no default app yet judges the app the real factory made before returning it`, () => {
+      const made = noAppCall(client, [named('other', appOn(OTHER))], otherDefault);
+      const error = thrown(made.invoke);
+      expect({ code: error?.code, field: error?.field, appProjectId: error?.appProjectId }).toEqual({ code: LIVE_REFUSED, field: 'projectId', appProjectId: OTHER });
+      const host = noAppCall(client, [], hostDefault);
+      expect(thrown(host.invoke)).toBeUndefined();
+      expect(host.ran).toEqual(['getDatabase']);
+    });
+  }
+
+  test("getDatabase() with no default app lets the real factory throw its own error", () => {
+    const { observer } = hostObserver(HOST);
+    const noApp = Object.assign(new Error('no-app'), { code: 'app/no-app' });
+    const real = { getDatabase: () => { throw noApp; } };
+    const live = wrapLiveModule('live-database', 'firebase/database', real, { observer, sdkVersion: '12.12.0', client: 'page', apps: () => [] });
+    expect(thrown(() => live.getDatabase())).toBe(noApp);
+  });
+
   test("getDatabase(app) of another project's app runs under an observer that names no host project", () => {
     const { observer } = hostObserver(undefined);
     const { ran, invoke } = getDatabaseCall(observer, 'node', appOn(OTHER), undefined);

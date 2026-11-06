@@ -244,6 +244,8 @@ export interface ObservedSite extends ObservedHooks {
   readonly subject?: unknown;
   /** Reads the account a call whose first argument is `subject` runs as. Absent records no account. */
   readonly accountOf?: (subject: unknown) => LiveAccount | undefined;
+  /** The SDK's initialized apps (`getApps()` of `firebase/app`), so a factory called with no app finds the default one. */
+  readonly apps?: () => readonly unknown[];
   /** For one listener the observer journals: its activity. */
   readonly activity?: LiveListenerActivity;
   /** The instance, bucket and path of the call this site records, read by the module's context hook. */

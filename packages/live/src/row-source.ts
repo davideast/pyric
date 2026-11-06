@@ -34,11 +34,15 @@ export interface RowImports {
   readonly hostProjectId?: string;
 }
 
-/** Where a live module reads the installed SDK's version: `firebase/app` itself, or the live app row. */
+/**
+ * Where a live module reads the installed SDK's version and its initialized
+ * apps (`getApps`, which no row observes): `firebase/app` itself, or the
+ * live app row.
+ */
 function sdkVersionImport(specifier: ServedFirebaseSpecifier): string {
   const isApp = specifier === 'firebase/app';
-  if (isApp) return 'const SDK_VERSION = __pyricReal.SDK_VERSION;';
-  return "import { SDK_VERSION } from 'firebase/app';";
+  if (isApp) return 'const SDK_VERSION = __pyricReal.SDK_VERSION; const __pyricGetApps = __pyricReal.getApps;';
+  return "import { SDK_VERSION, getApps as __pyricGetApps } from 'firebase/app';";
 }
 
 /** The source of the live row module for `specifier`. Throws for a specifier with no live row. */
@@ -46,7 +50,7 @@ export function rowModuleSource(specifier: ServedFirebaseSpecifier, imports: Row
   const key = LIVE_ROWS.get(specifier);
   if (key === undefined) throw new Error(`@pyric/live has no live row for ${specifier}.`);
   const names = replacedExports(key);
-  const site = `{ observer, sdkVersion: SDK_VERSION, client: ${JSON.stringify(imports.client)} }`;
+  const site = `{ observer, sdkVersion: SDK_VERSION, client: ${JSON.stringify(imports.client)}, apps: __pyricGetApps }`;
   const quoted = JSON.stringify(specifier);
   return [
     `import * as __pyricReal from ${quoted};`,
