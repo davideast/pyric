@@ -5,6 +5,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { AiReceived } from './ai.ts';
 import type { Received, Unmatched } from './firestore.ts';
+import type { MessagingReceived } from './messaging.ts';
 import type { RtdbReceived } from './rtdb.ts';
 import type { StorageReceived } from './storage.ts';
 
@@ -15,6 +16,8 @@ export interface ReplayProcessOptions {
   rtdbCapture?: string;
   /** Also serve Storage capture S for this project, on its default and second buckets (`--storage-capture`). */
   storageCapture?: string;
+  /** Also serve Messaging capture M for this project (`--messaging-capture`). */
+  messagingCapture?: string;
   /** Also answer AI Logic from the committed observations (`--ai`). */
   ai?: boolean;
 }
@@ -22,14 +25,16 @@ export interface ReplayProcessOptions {
 /**
  * The `node` arguments that run a replay server for `recordings`, with gRPC
  * from the SDK installed in `grpcProjectDir`, capture A with `rtdbCapture`,
- * capture S with `storageCapture`, and AI Logic with `ai`.
+ * capture S with `storageCapture`, capture M with `messagingCapture`, and AI
+ * Logic with `ai`.
  */
 export function replayServerArgs(recordings: string[], grpcProjectDir?: string, options: ReplayProcessOptions = {}): string[] {
   const grpc = grpcProjectDir ? ['--grpc', grpcProjectDir] : [];
   const capture = options.rtdbCapture ? ['--rtdb-capture', options.rtdbCapture] : [];
   const storage = options.storageCapture ? ['--storage-capture', options.storageCapture] : [];
+  const messaging = options.messagingCapture ? ['--messaging-capture', options.messagingCapture] : [];
   const ai = options.ai ? ['--ai'] : [];
-  return ['--experimental-transform-types', '--no-warnings', SERVE_SCRIPT, ...grpc, ...capture, ...storage, ...ai, ...recordings];
+  return ['--experimental-transform-types', '--no-warnings', SERVE_SCRIPT, ...grpc, ...capture, ...storage, ...messaging, ...ai, ...recordings];
 }
 
 /** A replay server in another process, by the origins it printed. */
@@ -48,9 +53,9 @@ export function endpointsIn(output: string): ReplayEndpoints | null {
   return line ? (JSON.parse(line) as ReplayEndpoints) : null;
 }
 
-/** Every request the server at `origin` received: Firestore and Auth in arrival order, then RTDB frames, then AI Logic calls, then Storage calls, each in arrival order. */
-export async function receivedBy(origin: string): Promise<Array<Received | RtdbReceived | AiReceived | StorageReceived>> {
-  return (await (await fetch(`${origin}/__replay/received`)).json()) as Array<Received | RtdbReceived | AiReceived | StorageReceived>;
+/** Every request the server at `origin` received: Firestore and Auth in arrival order, then RTDB frames, then AI Logic, Storage and Messaging calls, each in arrival order. */
+export async function receivedBy(origin: string): Promise<Array<Received | RtdbReceived | AiReceived | StorageReceived | MessagingReceived>> {
+  return (await (await fetch(`${origin}/__replay/received`)).json()) as Array<Received | RtdbReceived | AiReceived | StorageReceived | MessagingReceived>;
 }
 
 /** Every request the server at `origin` had no recording for. */
