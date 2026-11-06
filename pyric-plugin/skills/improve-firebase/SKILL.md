@@ -1,6 +1,6 @@
 ---
 name: improve-firebase
-description: Survey a whole Firebase application as a senior Firebase engineer, use Pyric's analyzers, sandbox, captured journeys, and verification engines as evidence, then produce a prioritized audit and self-contained implementation plans without changing application source. Use when the user asks to improve, audit, secure, optimize, or production-harden a Firebase app; find Firestore indexes; review Security Rules, auth boundaries, data models, queries, listeners, Firebase AI Logic, Pyric integration configuration, or supported Functions; explain denials; or wants a Firebase improvement roadmap rather than an immediate fix.
+description: Survey a whole Firebase application as a senior Firebase engineer, use Pyric's analyzers, sandbox, captured journeys, and verification engines as evidence, then produce a prioritized audit and self-contained implementation plans without changing application source. Use when the user asks to improve, audit, secure, optimize, or production-harden a Firebase app; find Firestore indexes; review Security Rules, auth boundaries, data models, queries, listeners, Firebase AI Logic, Pyric integration configuration, or supported Functions; explain denials; or wants a Firebase improvement roadmap rather than an immediate fix. Also use to record verified before/after videos of proven findings, or to verify a PR, branch, or plan's change in an isolated sandbox.
 ---
 
 # Improving Firebase
@@ -28,8 +28,11 @@ read [references/PLAN-TEMPLATE.md](references/PLAN-TEMPLATE.md).
 12. **Keep Firebase pointed at deployable Rules.** For each active service,
     `firebase.json` must reference `firestore.rules` or `storage.rules`, not the
     modular source.
+13. **Record only findings proven at E2 or higher.** Never record E0/E1 hypotheses. Recordings run only in an isolated local Pyric sandbox, use synthetic identities, keep the `[data-pyric-provenance]` strip visible and unaltered, and require visual inspection of rendered keyframes before sharing. Follow [references/RECORD.md](references/RECORD.md).
 
 ## Workflow
+
+An open-ended security question (for example, *"review my app for security issues"*) runs Phase 1 only. Summarize the services, Rules sources, identity boundaries, and the local probes Pyric can run, then ask whether to run the full audit and whether to record proven findings. Named modes run their full workflow immediately.
 
 ### Phase 1 — Recon
 
@@ -116,6 +119,10 @@ Write one `plans/NNN-short-slug.md` per selected finding using the plan template
 
 Create or update `plans/README.md` with status, recommended execution order, dependencies, evidence grade, and whether hosted verification is required. Do not mix audit prose into application documentation.
 
+### Phase 6 — Record (only when requested)
+
+When the user asks to record, preflight with `doctor.mjs`, then record each vetted E2+ finding as an 8-slide video and inspect its keyframes before sharing. Follow [references/RECORD.md](references/RECORD.md). A finding that fails a gate gets no video; report the failed gate.
+
 ## Invocation variants
 
 | Invocation | Scope |
@@ -134,6 +141,8 @@ Create or update `plans/README.md` with status, recommended execution order, dep
 | `plan <description>` | Recon only enough to write one self-contained plan |
 | `execute <plan>` | Implement only when the user explicitly requests mutation; edit modular Rules sources, regenerate deployment artifacts, then rerun the plan's Pyric and repo checks |
 | `reconcile` | Recheck plan evidence against current code; mark done, refresh stale locations, or retire invalid plans |
+| `verify <PR \| branch \| plan>` | Build the before and after app in temp dirs, reproduce the claimed defect on before, confirm the fix on after, and report the result at E2. Read [references/VERIFY.md](references/VERIFY.md) |
+| `… record` / `… record findings` | Modifier for any mode: after vetting, record each E2+ finding as an 8-slide video. Read [references/RECORD.md](references/RECORD.md) |
 
 ## Tone
 
