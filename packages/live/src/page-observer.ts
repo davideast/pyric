@@ -12,7 +12,8 @@
  * the root, its path, and a Messaging `getToken` or `deleteToken` the
  * Installations and FCM registration requests it made, as API and action
  * names. `firebase/messaging/sw` records come from a service worker, whose
- * observer sends them the same way.
+ * observer sends them the same way. A resolved call the observer measured
+ * carries its usage: counts only, never a value.
  *
  * Loaded in the page, so it imports only types from `@pyric/cli`.
  */
@@ -103,7 +104,8 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const project = record.projectId === undefined ? {} : { projectId: record.projectId };
   const account = accountOf(record);
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
-  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record) };
+  const usage = record.usage === undefined ? {} : { usage: { ...record.usage } };
+  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...usage, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record) };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */

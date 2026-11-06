@@ -71,14 +71,19 @@ function observerFields(imports: RowImports): string[] {
   return [`hostProjectId: ${JSON.stringify(imports.hostProjectId)}`, client];
 }
 
+/** Both planes' observers measure each resolved call with their sender's `measureObservedUsage`. */
+const MEASURE_LINE = 'Object.assign(observer, { measure: measureObservedUsage });';
+
 /** The observer module's lines on a page, whose observer also journals each Firestore listener. */
 function pageObserverLines(sender: string, observer: string, imports: RowImports): string[] {
   const fields = ['journal: journalLiveListener', ...observerFields(imports)].join(', ');
   return [
     `import { sendObservedCall } from ${JSON.stringify(sender)};`,
     `import { journalLiveListener } from ${JSON.stringify(sender)};`,
+    `import { measureObservedUsage } from ${JSON.stringify(sender)};`,
     `import { pageObserver } from ${observer};`,
     `export const observer = Object.assign(pageObserver(sendObservedCall), { ${fields} });`,
+    MEASURE_LINE,
   ];
 }
 
@@ -87,15 +92,18 @@ function nodeObserverLines(sender: string, observer: string, imports: RowImports
   const fields = observerFields(imports).join(', ');
   return [
     `import { sendObservedCall } from ${JSON.stringify(sender)};`,
+    `import { measureObservedUsage } from ${JSON.stringify(sender)};`,
     `import { pageObserver } from ${observer};`,
     `export const observer = Object.assign(pageObserver(sendObservedCall), { ${fields} });`,
+    MEASURE_LINE,
   ];
 }
 
 /**
  * The source of the observer module: each record that has a row goes to the
- * host through `sender`. On a page, the observer also journals each Firestore
- * listener through the page sender's `journalLiveListener`, in the SDK
+ * host through `sender`, measured by the sender's `measureObservedUsage`.
+ * On a page, the observer also journals each Firestore listener through the
+ * page sender's `journalLiveListener`, in the SDK
  * activity the runtime chip's Listeners view and Flow read. The observer
  * names the client and, once the plane has resolved it, the host's project,
  * so every row it serves refuses a call to another project.
