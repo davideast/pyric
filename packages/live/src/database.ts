@@ -80,10 +80,11 @@ function stringAt(value: unknown, keys: readonly string[]): string | undefined {
 }
 
 /**
- * The instance a record names when the reference's repo does not say: 40
- * characters, longer than any instance name production gives, so it never
- * reads as the default instance or as one the project has. A host requires
- * an instance on every RTDB call, so the call still reaches Traffic.
+ * The instance a record names when the reference's repo does not say. A
+ * default instance is the project id, at most 30 characters, or ends in
+ * `-default-rtdb`; this name is 40 characters and doesn't, so it can't be a
+ * default instance. A host requires an instance on every RTDB call, so the
+ * call still reaches Traffic.
  */
 export const UNREAD_INSTANCE = 'instance-not-read-from-the-sdk-reference';
 
@@ -187,7 +188,7 @@ const LISTENER_OF_EVENT: Readonly<Record<string, string>> = {
   child_moved: 'onChildMoved',
 };
 
-/** One app callback's recording callbacks: by repo, and, for a reference whose repo the row cannot read, by instance alone. */
+/** One app callback's recording callbacks: by repo, and, for a reference whose repo the row cannot read, in one map keyed by listener and path. */
 interface Handed {
   readonly byRepo: WeakMap<object, Map<string, Callback>>;
   readonly unread: Map<string, Callback>;
@@ -198,8 +199,8 @@ interface Handed {
  * the listener and path they listen with. One app callback listening twice on
  * the same reference gets the same recording callback twice, so the SDK sees
  * what it would see without live mode, and `off()` removes both. A reference
- * whose `_repo` the row cannot read is keyed by its instance and path
- * instead, so `off()` still finds the callback the SDK holds.
+ * whose `_repo` the row cannot read is keyed by its listener and path alone,
+ * so `off()` still finds the callback the SDK holds.
  */
 const HANDED = new WeakMap<object, Handed>();
 

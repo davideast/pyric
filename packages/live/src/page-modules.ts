@@ -1,10 +1,10 @@
 /**
- * The source of the modules a page gets for the four live rows. `@pyric/cli`
- * fixes their ids and loads this file from the `@pyric/live` installed in
- * the project (its `./page-modules` export), so the rows open only where
- * this package is installed. The row and observer sources are every plane's
- * (`row-source.ts`); a page imports this package's files by `/@fs` paths and
- * the observer by its virtual specifier.
+ * The source of the modules a page gets for the live rows (`LIVE_ROWS`).
+ * `@pyric/cli` fixes their ids and loads this file from the `@pyric/live`
+ * installed in the project (its `./page-modules` export), so the rows open
+ * only where this package is installed. The row and observer sources are
+ * every plane's (`row-source.ts`); a page imports this package's files by
+ * `/@fs` paths and the observer by its virtual specifier.
  *
  * Every live module hands its records to one observer module, which sends
  * them to the Node host on the page's own connection. It also exports the
