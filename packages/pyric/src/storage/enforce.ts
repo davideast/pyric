@@ -57,15 +57,29 @@ import type { EvaluationInput, FirestoreLookup } from './sandbox/rules.js';
 import { unauthorized } from './errors.js';
 import { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
 
+/** What {@link enforceRules} records besides deciding. */
+export interface EnforceOptions {
+  /**
+   * `'denials'` records only a denial. An early check of an operation that a
+   * later check decides again passes it, so the stream shows one decision
+   * per operation: a chunked upload checks at its start and as it lands.
+   */
+  record?: 'every-decision' | 'denials';
+}
+
 export function enforceRules(
   service: StorageService,
   input: EvaluationInput,
   target?: Target,
   provenance?: EventProvenance,
+  { record = 'every-decision' }: EnforceOptions = {},
 ): void {
   const boundProvenance = target?.kind === 'sandbox'
     ? storageOperationProvenance(target, provenance)
     : provenance;
+  const recordsAllow = record === 'every-decision';
+  // Where an allow or admin bypass is recorded; nowhere when only denials are.
+  const allowTarget = recordsAllow ? target : undefined;
   // Admin plane (internal `getAdminStorageSandbox` handles): rules are
   // bypassed entirely — firebase-admin semantics. See `SandboxTarget.admin`.
   // Rules never ran; the event still lands so Studio can show the op, with
@@ -73,12 +87,12 @@ export function enforceRules(
   // admin plane (`adminSet`/`adminGet`/...) emits, with an explicit
   // bypass disposition independent of source or auth-lens presentation.
   if (target?.kind === 'sandbox' && target.admin === true) {
-    emitOperation(target, input, 'not-applicable', undefined, 'admin', false, boundProvenance);
+    emitOperation(allowTarget, input, 'not-applicable', undefined, 'admin', false, boundProvenance);
     return;
   }
   const inForce = rulesFor(service, target);
   if (inForce.kind === 'open') {
-    emitOperation(target, input, 'allow', [openBucketReason(inForce.bucket)], 'user', false, boundProvenance, 'allow');
+    emitOperation(allowTarget, input, 'allow', [openBucketReason(inForce.bucket)], 'user', false, boundProvenance, 'allow');
     return;
   }
   if (inForce.kind !== 'rules') {
@@ -102,7 +116,7 @@ export function enforceRules(
     const detail = result.reasons.length > 0 ? ` — ${result.reasons.join('; ')}` : '';
     throw unauthorized(input.request.method, input.request.path, detail);
   }
-  emitOperation(target, input, 'allow', result.reasons, 'user', true, boundProvenance);
+  emitOperation(allowTarget, input, 'allow', result.reasons, 'user', true, boundProvenance);
 }
 
 /** The rules a request is checked against: its bucket's, through a sandbox handle. */
