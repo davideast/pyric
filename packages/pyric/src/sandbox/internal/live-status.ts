@@ -40,7 +40,9 @@ export interface LiveHostStatus {
   readonly billed: BilledCallCount;
   /**
    * The `firebase/*` imports the app's installed SDK serves unwrapped, with no
-   * row and no observer (`pyricLive({ passThrough })`). Absent when there are none.
+   * row and no observer, and `firebase-admin` when a Node process under the
+   * live register loads the real Admin SDK (`pyricLive({ passThrough })`).
+   * Absent when there are none.
    */
   readonly passThrough?: readonly string[];
 }
@@ -66,12 +68,18 @@ export function liveMismatchLine(status: Pick<LiveHostStatus, 'appProjectIds' | 
   return `Your Firebase config says ${status.appProjectIds.join(', ')}; ${status.configSource} says ${status.configProjectId}.`;
 }
 
+/** The Admin SDK, which passes through only to a Node process under the live register. */
+const ADMIN_SDK = 'firebase-admin';
+
 /**
  * The line every live view shows for one passed-through import, for as long
  * as the host runs: `firebase/database passes through to production: its
  * calls are not observed and still bill.`
  */
 export function livePassThroughLine(specifier: string): string {
+  if (specifier === ADMIN_SDK) {
+    return `${specifier} passes through to production: its calls are not observed, bypass security rules and still bill.`;
+  }
   return `${specifier} passes through to production: its calls are not observed and still bill.`;
 }
 
@@ -110,14 +118,16 @@ function readProjects(value: unknown): string[] | null {
 
 const FIREBASE_IMPORT = /^firebase\/[a-z-]+(?:\/[a-z-]+)*$/;
 
-function isFirebaseImport(value: unknown): value is string {
-  return typeof value === 'string' && FIREBASE_IMPORT.test(value);
+/** A passed-through import: a `firebase/*` import, or `firebase-admin` itself. */
+function isPassThroughImport(value: unknown): value is string {
+  const isAdmin = value === ADMIN_SDK;
+  return isAdmin || (typeof value === 'string' && FIREBASE_IMPORT.test(value));
 }
 
-/** The pass-through list: absent stays absent, and anything but a list of `firebase/*` imports is malformed. */
+/** The pass-through list: absent stays absent, and anything but a list of `firebase/*` imports and `firebase-admin` is malformed. */
 function readPassThrough(value: unknown): { passThrough?: string[] } | null {
   if (value === undefined) return {};
-  const isList = Array.isArray(value) && value.every(isFirebaseImport);
+  const isList = Array.isArray(value) && value.every(isPassThroughImport);
   return isList ? { passThrough: [...(value as string[])] } : null;
 }
 

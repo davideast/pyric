@@ -16,7 +16,10 @@
  * - so is Cloud Storage's, which the Storage row's SDK reaches with `fetch`;
  * - and so are Installations' and FCM registrations', which the Messaging
  *   SDK reaches with `fetch`. Remote Config, which passes through, reaches
- *   Installations the same way, and its own host stays caller-checked.
+ *   Installations the same way, and its own host stays caller-checked;
+ * - `firebase-admin`, listed, resolves to the real Admin SDK, the stop lets
+ *   its entry and everything its tree imports load, and the network guard
+ *   lets a token source and Google's hosts through from its files only.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -28,7 +31,7 @@ import { liveResolutionRoot, recordedPassThrough, LIVE_PASS_THROUGH_VARIABLE } f
 import { registerRows, registerRowsResolution, type RegisterRowPackage } from '../../src/register/supplied-rows.js';
 import { suppliedRowsStopFor, type ResolvedLoad } from '../../src/register/swap-or-stop.js';
 import { installLiveNetGuard, liveEgressRule, passThroughHosts } from '../../src/register/live-net-guard.js';
-import { passThroughSdkPackages, passThroughSet } from '../../src/serve/vite-supplied-rows.js';
+import { passThroughSdkPackages, passThroughSet, type PassThroughSpecifier } from '../../src/serve/vite-supplied-rows.js';
 import type { ServedFirebaseSpecifier } from '../../src/serve/firebase-module-swap.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'live-register-pass-through-'));
@@ -81,8 +84,13 @@ describe('the pass-through list', () => {
     ]);
   });
 
-  test('throws on a row, its service under another entry, firebase-admin or an SDK package', () => {
-    for (const entry of ['firebase/firestore', 'firebase/auth', 'firebase/firestore/lite', 'firebase-admin', '@firebase/database']) {
+  test('takes firebase-admin, with no SDK package of its own for the page', () => {
+    expect([...passThroughSet(['firebase-admin', 'firebase/functions'])]).toEqual(['firebase-admin', 'firebase/functions']);
+    expect([...passThroughSdkPackages(passThroughSet(['firebase-admin']))]).toEqual([]);
+  });
+
+  test('throws on a row, its service under another entry, an Admin SDK subpath or an SDK package', () => {
+    for (const entry of ['firebase/firestore', 'firebase/auth', 'firebase/firestore/lite', 'firebase-admin/app', '@firebase/database']) {
       expect(() => passThroughSet([entry])).toThrow(`${entry} cannot pass through`);
     }
   });
@@ -100,7 +108,7 @@ const ROWS: RegisterRowPackage = {
   moduleSource: () => null,
 };
 
-function resolutionOf(passThrough: readonly ServedFirebaseSpecifier[], specifier: string, open = true) {
+function resolutionOf(passThrough: readonly PassThroughSpecifier[], specifier: string, open = true) {
   const rows = registerRows(new Set(passThrough));
   if (open) rows.open(ROWS);
   return registerRowsResolution(rows, { specifier, importer: 'file:///app/server.mjs', conditions: ['node', 'import'] });
@@ -119,12 +127,35 @@ describe('a passed-through import under the register', () => {
   });
 });
 
+describe('firebase-admin under the register', () => {
+  test('resolves to the real Admin SDK, by every entry, only when it is listed', () => {
+    for (const specifier of ['firebase-admin', 'firebase-admin/app', 'firebase-admin/firestore']) {
+      expect(resolutionOf(['firebase-admin'], specifier), specifier).toEqual({ kind: 'admin-pass-through' });
+      expect(resolutionOf(['firebase/functions'], specifier).kind, specifier).toBe('refused');
+      expect(resolutionOf(['firebase-admin'], specifier, false).kind, specifier).toBe('refused');
+    }
+  });
+
+  test('passes no client import through', () => {
+    expect(resolutionOf(['firebase-admin'], 'firebase/functions').kind).toBe('refused');
+  });
+});
+
 const FIREBASE_DIR = 'file:///app/node_modules/firebase/';
 const FUNCTIONS_DIR = 'file:///app/node_modules/@firebase/functions/';
+const ADMIN_DIR = 'file:///app/node_modules/firebase-admin/';
+const SERVER_FIRESTORE_DIR = 'file:///app/node_modules/@google-cloud/firestore/';
+
+const PACKAGE_DIRS: ReadonlyArray<readonly [string, string]> = [
+  [FIREBASE_DIR, 'firebase'],
+  [FUNCTIONS_DIR, '@firebase/functions'],
+  [ADMIN_DIR, 'firebase-admin'],
+  [SERVER_FIRESTORE_DIR, '@google-cloud/firestore'],
+];
 
 /** A load with its package named from the URL, so no manifest is read. */
 function loadOf(specifier: string, url: string, importer: string | undefined): ResolvedLoad {
-  const nameOf = (file: string) => (file.startsWith(FIREBASE_DIR) ? 'firebase' : file.startsWith(FUNCTIONS_DIR) ? '@firebase/functions' : null);
+  const nameOf = (file: string) => PACKAGE_DIRS.find(([dir]) => file.startsWith(dir))?.[1] ?? null;
   const pathInPackage = (file: string) => (file.startsWith(FIREBASE_DIR) ? file.slice(FIREBASE_DIR.length) : null);
   return { specifier, url, importer, nameOf, pathInPackage };
 }
@@ -154,6 +185,44 @@ describe('the stop for a passed-through import', () => {
     const sdk = `${FUNCTIONS_DIR}dist/esm/index.esm.js`;
     const withoutList = { isRowImport: false, isEsmImport: true };
     expect(suppliedRowsStopFor(loadOf('@firebase/functions', sdk, entry), new Set([entry]), withoutList)).not.toBeNull();
+  });
+});
+
+describe('the stop for firebase-admin, listed', () => {
+  const adminEntry = `${ADMIN_DIR}lib/app/index.js`;
+  const serverFirestore = `${SERVER_FIRESTORE_DIR}build/src/index.js`;
+  const adminImport = { isRowImport: false, isEsmImport: true, isAdminImport: true };
+  const fromAdminTree = { isRowImport: false, isEsmImport: false, isFromAdminTree: true };
+  const fromApp = { isRowImport: false, isEsmImport: true };
+
+  test("lets the app's firebase-admin import load the real Admin SDK, by import or require()", () => {
+    const outcomes = [
+      suppliedRowsStopFor(loadOf('firebase-admin/app', adminEntry, 'file:///app/server.mjs'), new Set(), adminImport),
+      suppliedRowsStopFor(loadOf('firebase-admin/app', adminEntry, 'file:///app/server.cjs'), new Set(), { ...adminImport, isEsmImport: false }),
+    ];
+    expect(outcomes).toEqual([null, null]);
+  });
+
+  test('lets the files of its tree load what it needs, the server Firestore SDK and the client SDK among them', () => {
+    const loads = [
+      loadOf('@google-cloud/firestore', serverFirestore, adminEntry),
+      loadOf('@firebase/functions', `${FUNCTIONS_DIR}dist/index.cjs.js`, adminEntry),
+      loadOf('./utils', `${ADMIN_DIR}lib/utils/index.js`, adminEntry),
+    ];
+    expect(loads.map((load) => suppliedRowsStopFor(load, new Set(), fromAdminTree))).toEqual([null, null, null]);
+  });
+
+  test("stops the app's own load of the Admin SDK by any other route, and of the server Firestore SDK", () => {
+    const stops = [
+      suppliedRowsStopFor(loadOf('/app/node_modules/firebase-admin/lib/app/index.js', adminEntry, 'file:///app/server.mjs'), new Set(), fromApp),
+      suppliedRowsStopFor(loadOf('@google-cloud/firestore', serverFirestore, 'file:///app/server.mjs'), new Set(), fromApp),
+      suppliedRowsStopFor(loadOf('firebase-admin/app', `${FIREBASE_DIR}app/dist/index.mjs`, 'file:///app/server.mjs'), new Set(), adminImport),
+    ];
+    expect(stops.map((stop) => (stop as { code?: string } | null)?.code)).toEqual([
+      'PYRIC_REAL_SDK_STOPPED',
+      'PYRIC_REAL_SDK_STOPPED',
+      'PYRIC_REAL_SDK_STOPPED',
+    ]);
   });
 });
 
@@ -460,6 +529,120 @@ describe('the network guard for Remote Config, passed through, now that Installa
       const fromApp = await seams.fetchScope.fetch(`https://${INSTALLATIONS_HOST}/v1/projects/demo/installations`)
         .then(() => 'sent', (error: Error) => error.message);
       expect({ fromApp, sent: seams.sent }).toEqual({ fromApp: 'fetch failed', sent: ['fetch'] });
+    } finally {
+      seams.stop();
+    }
+  });
+});
+
+const TOKEN_HOST = 'oauth2.googleapis.com';
+const TOKEN_URL = `https://${TOKEN_HOST}/token`;
+const METADATA_TOKEN_URL = 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
+const ADMIN_AUTH_HOST = 'identitytoolkit.googleapis.com';
+
+/**
+ * A stand-in Admin SDK file. It holds the stand-in Agent too: in Node the
+ * Agent is the runtime's, which the caller check reads past, so here its
+ * frame must not read as the app's.
+ */
+const adminFile = join(scratch, 'admin-sdk.mjs');
+writeFileSync(adminFile, [
+  // Never in tail position: bun turns `return f()` into a tail call and drops this file's frame from the stack.
+  'export function adminFetch(scope, url) { const calls = [scope.fetch(url)]; return calls[0]; }',
+  'export function adminConnect(tls, host) { const sockets = [tls.connect({ host, port: 443, servername: host })]; return sockets[0]; }',
+  'export function adminRequest(agent, request) { const requests = [agent.addRequest(request)]; return requests[0]; }',
+  'export const adminAgent = { addRequest(request) { const sockets = [request.onSocket({})]; return sockets[0]; } };',
+].join('\n'));
+const adminUrl = pathToFileURL(adminFile).href;
+
+interface StandInAdmin {
+  adminFetch(scope: unknown, url: string): Promise<unknown>;
+  adminConnect(tls: unknown, host: string): unknown;
+  adminRequest(agent: unknown, request: unknown): unknown;
+  adminAgent: { addRequest(request: unknown): unknown };
+}
+
+/** The guard with `firebase-admin` listed or not, on stand-ins whose Agent is the stand-in Admin SDK's. */
+async function adminSeams(passThrough: string[]) {
+  const admin = (await import(adminUrl)) as StandInAdmin;
+  const sent: string[] = [];
+  const slot = Symbol.for('undici.globalDispatcher.1');
+  const scope: Record<symbol, unknown> = { [slot]: { dispatch: () => true } };
+  // As undici's fetch does, the stand-in dispatches after an await, when no caller frame is left on the stack.
+  const fetchScope = {
+    fetch: (async (url: string) => {
+      await Promise.resolve();
+      (scope[slot] as { dispatch(opts: unknown, handler: unknown): unknown }).dispatch({ origin: new URL(url).origin, path: new URL(url).pathname }, {});
+      sent.push('fetch');
+      return new Response('');
+    }) as unknown as typeof fetch,
+  };
+  const tls = { connect: (..._args: unknown[]) => { sent.push('tls.connect'); return {}; } };
+  const net = { connect: () => ({}), createConnection: () => ({}) };
+  const requestPrototype = {
+    onSocket(this: unknown, _socket: unknown, error?: unknown) {
+      sent.push(error === undefined || error === null ? 'https.request' : 'https.request refused');
+    },
+  };
+  const hooks = installLiveNetGuard({
+    isLiveSdkFile: () => false,
+    isAdminSdkFile: (url) => url === adminUrl,
+    passThrough,
+    scope,
+    env: {},
+    write: () => {},
+    net,
+    tls,
+    fetchScope,
+    agentPrototypes: [],
+    socketPrototypes: [],
+    requestPrototypes: [requestPrototype],
+    liveAgentPrototypes: [admin.adminAgent],
+  });
+  const request = (host: string) => Object.assign(Object.create(requestPrototype) as object, { host, method: 'POST', path: '/v1/accounts:lookup' });
+  return { admin, sent, fetchScope, tls, request, stop: () => hooks.stop() };
+}
+
+describe('the network guard for firebase-admin, listed', () => {
+  test('passes a token source and a Google host only from a file of its tree', () => {
+    const fromTree = liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => false, isAdminSdkFile: () => true });
+    const fromApp = liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => false, isAdminSdkFile: () => false });
+    const hosts = [TOKEN_HOST, 'metadata.google.internal', '169.254.169.254', 'fcm.googleapis.com'];
+    expect(hosts.map((host) => fromTree(host, '/'))).toEqual([null, null, null, null]);
+    expect(hosts.map((host) => fromApp(host, '/')?.verdict)).toEqual(['block', 'block', 'block', 'block']);
+  });
+
+  test("lets its token fetch, socket and https.request out, and refuses the app's own", async () => {
+    const seams = await adminSeams(['firebase-admin']);
+    try {
+      const { admin } = seams;
+      await admin.adminFetch(seams.fetchScope, TOKEN_URL);
+      await admin.adminFetch(seams.fetchScope, METADATA_TOKEN_URL);
+      admin.adminConnect(seams.tls, TOKEN_HOST);
+      admin.adminRequest(admin.adminAgent, seams.request(ADMIN_AUTH_HOST));
+      const fromAdmin = [...seams.sent];
+      const fromApp = await Promise.all([TOKEN_URL, METADATA_TOKEN_URL].map((url) => seams.fetchScope.fetch(url).then(() => 'sent', (error: Error) => error.message)));
+      const connected = connectOutcome(() => seams.tls.connect({ host: TOKEN_HOST, port: 443 }));
+      admin.adminAgent.addRequest(seams.request(ADMIN_AUTH_HOST));
+      expect({ fromAdmin, fromApp, connected, sent: seams.sent.slice(fromAdmin.length) }).toEqual({
+        fromAdmin: ['fetch', 'fetch', 'tls.connect', 'https.request'],
+        fromApp: ['fetch failed', 'fetch failed'],
+        connected: 'PYRIC_GUARD_BLOCKED',
+        sent: ['https.request refused'],
+      });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test('passes nothing from those files when firebase-admin is not listed', async () => {
+    const seams = await adminSeams(['firebase/functions']);
+    try {
+      const { admin } = seams;
+      const fetched = await admin.adminFetch(seams.fetchScope, TOKEN_URL).then(() => 'sent', (error: Error) => error.message);
+      const connected = connectOutcome(() => admin.adminConnect(seams.tls, TOKEN_HOST));
+      admin.adminRequest(admin.adminAgent, seams.request(ADMIN_AUTH_HOST));
+      expect({ fetched, connected, sent: seams.sent }).toEqual({ fetched: 'fetch failed', connected: 'PYRIC_GUARD_BLOCKED', sent: ['https.request refused'] });
     } finally {
       seams.stop();
     }

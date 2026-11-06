@@ -25,6 +25,15 @@
  *   through `faye-websocket`, or an SDK's own `fetch`. The app's own socket,
  *   `fetch` or `WebSocket` to that host is refused, so a database secret the
  *   app holds never goes out unobserved;
+ * - when `firebase-admin` passes through, every Google endpoint and token
+ *   source passes when the nearest caller is a file of the Admin SDK's tree
+ *   ({@link PassedThrough.isAdminSdkFile}): the files the app's own
+ *   `firebase-admin` import reached, directly or not, `google-auth-library`
+ *   and `@google-cloud/firestore` among them. The Admin SDK holds the app's
+ *   own credential, so it fetches its token, and its calls go to production
+ *   unobserved and bypass security rules. The app's own call to the same
+ *   hosts is still refused. Firestore's gRPC sockets pass by host, as the
+ *   live rows' do;
  * - every other Google endpoint, a host in `../google-endpoints.ts` or under
  *   `googleapis.com`, is refused.
  *
@@ -63,6 +72,7 @@
  * Loaded by the live register, so it imports node built-ins and
  * side-effect-free modules only.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isBuiltin } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import {
@@ -85,7 +95,7 @@ import {
   type ReporterOptions,
 } from './net-guard.js';
 import { nodeAgentPrototypes, nodeClientRequestPrototypes } from './connect-prototypes.js';
-import { INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
+import { ADMIN_PASS_THROUGH, INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
 import { joinedList } from './word-list.js';
 
 /** Cloud Storage's host, which the Storage row's SDK reaches. */
@@ -192,6 +202,11 @@ export interface PassedThrough {
   readonly hosts: readonly string[];
   /** Whether a file URL is one of the installed SDK's files the stop let load. */
   readonly isLiveSdkFile: (url: string) => boolean;
+  /**
+   * Whether a file URL is one of the passed-through Admin SDK's files; absent
+   * unless `firebase-admin` passes through.
+   */
+  readonly isAdminSdkFile?: (url: string) => boolean;
 }
 
 const NOTHING_PASSED: PassedThrough = { hosts: [], isLiveSdkFile: () => false };
@@ -216,29 +231,53 @@ function liveVerdict(host: string, service: string, reason: string): EgressVerdi
 }
 
 /**
+ * The `fetch` calls a file of the Admin SDK's tree made, as they run.
+ * undici dispatches and connects after `fetch` returns, so those seams no
+ * longer see the Admin SDK's frame on the stack; they read this instead. A
+ * `fetch` the app makes never runs in it, since the wrapper decides by the
+ * caller before it starts one.
+ */
+const adminFetches = new AsyncLocalStorage<true>();
+
+/**
+ * Whether `firebase-admin` passes through and this is its call: the nearest
+ * caller is a file of its tree, or a `fetch` such a file made is running.
+ */
+function isAdminCaller(passed: PassedThrough): boolean {
+  const isAdminSdkFile = passed.isAdminSdkFile;
+  if (isAdminSdkFile === undefined) return false;
+  return adminFetches.getStore() === true || isLiveSdkCaller(isAdminSdkFile);
+}
+
+/**
  * Live mode's verdict for a socket or a dispatch: token sources and every
  * Google endpoint but the live rows' hosts, and Realtime Database's hosts
  * and the hosts of the imports the register passes through when the nearest
- * caller is a file the stop let load.
+ * caller is a file the stop let load. With `firebase-admin` passed through,
+ * a token source or Google endpoint passes from a file of its tree.
  */
 export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), passed: PassedThrough = NOTHING_PASSED): EgressRule {
   return (hostname, path) => {
     const tokenRefusal = evaluateEgress(hostname, { mode: 'block', endpoints }, path);
-    if (tokenRefusal !== null) return { ...tokenRefusal, reason: TOKEN_REASON, remedy: LIVE_REMEDY };
+    if (tokenRefusal !== null) {
+      if (isAdminCaller(passed)) return null;
+      return { ...tokenRefusal, reason: TOKEN_REASON, remedy: LIVE_REMEDY };
+    }
     const host = hostOf(hostname);
     if (LIVE_ROW_HOSTS.has(host)) return null;
     if (isDatabaseHost(host)) {
-      const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile);
+      const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile) || isAdminCaller(passed);
       if (isFromSdk) return null;
       return { ...liveVerdict(host, googleServiceOf(host) ?? 'Realtime Database', DATABASE_REASON), remedy: DATABASE_REMEDY };
     }
     if (isPassedHost(host, passed)) {
-      const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile);
+      const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile) || isAdminCaller(passed);
       if (isFromSdk) return null;
       return { ...liveVerdict(host, googleServiceOf(host) ?? 'Google APIs', PASSED_REASON), remedy: PASSED_REMEDY };
     }
     const service = googleServiceOf(host);
-    return service === null ? null : liveVerdict(host, service, LIVE_REASON);
+    if (service === null || isAdminCaller(passed)) return null;
+    return liveVerdict(host, service, LIVE_REASON);
   };
 }
 
@@ -377,8 +416,11 @@ function isLiveSdkCaller(isLiveSdkFile: (url: string) => boolean): boolean {
 
 type Fetch = typeof fetch;
 
-/** `fetch`, refusing a Google request from any caller but a file of the installed SDK the stop let load. */
-function guardedFetch(real: Fetch, isLiveSdkFile: (url: string) => boolean, options: ReporterOptions): Fetch {
+/**
+ * `fetch`, refusing a Google request from any caller but a file of the
+ * installed SDK the stop let load, or of the passed-through Admin SDK's tree.
+ */
+function guardedFetch(real: Fetch, passed: PassedThrough, options: ReporterOptions): Fetch {
   const reporter = createReporter(options);
   const endpoints = options.endpoints ?? tokenEndpointsFrom({ env: {} });
   const rule = options.rule ?? liveEgressRule(endpoints);
@@ -386,11 +428,14 @@ function guardedFetch(real: Fetch, isLiveSdkFile: (url: string) => boolean, opti
     const url = fetchUrl(input);
     const isGoogle = url !== null && isGoogleRequest(url, endpoints);
     if (!isGoogle) return Reflect.apply(real, this, [input, init]) as ReturnType<Fetch>;
-    const isFromSdk = isLiveSdkCaller(isLiveSdkFile);
+    const isFromLiveSdk = isLiveSdkCaller(passed.isLiveSdkFile);
+    const isFromAdmin = !isFromLiveSdk && isAdminCaller(passed);
     const host = normalizeHostname(url.hostname);
+    const isFromSdk = isFromLiveSdk || isFromAdmin;
     const refusedCaller = isFromSdk ? null : liveVerdict(host, googleServiceOf(host) ?? 'Google APIs', LIVE_FETCH_REASON);
     const verdict = rule(host, url.pathname) ?? refusedCaller;
-    if (verdict === null) return Reflect.apply(real, this, [input, init]) as ReturnType<Fetch>;
+    const send = (): ReturnType<Fetch> => Reflect.apply(real, this, [input, init]) as ReturnType<Fetch>;
+    if (verdict === null) return isFromAdmin ? adminFetches.run(true, send) : send();
     // A refused fetch rejects as undici's does: `TypeError: fetch failed`, with the guard's error as its cause.
     return Promise.reject(new TypeError('fetch failed', { cause: reporter.refuse(verdict, 'fetch') }));
   };
@@ -424,9 +469,16 @@ function requestHost(request: RequestLike): string | null {
 /**
  * The refusal for an `http.request` to a live row host, a Realtime Database
  * host or a passed-through host, from any caller, or null for any other
- * request.
+ * request. The passed-through Admin SDK sends `https.request`, so a request
+ * from a file of its tree passes.
  */
 function liveRowRequestVerdict(request: RequestLike, passed: PassedThrough): EgressVerdict | null {
+  const verdict = liveRowHostVerdict(request, passed);
+  return verdict === null || isAdminCaller(passed) ? null : verdict;
+}
+
+/** The refusal for an `http.request` to a live row host, a Realtime Database host or a passed-through host. */
+function liveRowHostVerdict(request: RequestLike, passed: PassedThrough): EgressVerdict | null {
   const host = requestHost(request);
   if (host === null) return null;
   const service = googleServiceOf(host) ?? 'Google APIs';
@@ -506,13 +558,29 @@ export interface LiveNetGuardOptions extends NetGuardHooks {
   readonly liveAgentPrototypes?: readonly AgentPrototype[];
   /** The imports the register passes through, whose hosts pass ({@link passThroughHosts}). */
   readonly passThrough?: Iterable<string>;
+  /**
+   * Whether a file URL is one of the passed-through Admin SDK's files. Read
+   * only when `passThrough` lists `firebase-admin`.
+   */
+  readonly isAdminSdkFile?: (url: string) => boolean;
+}
+
+/** The Admin SDK's file check, when `firebase-admin` passes through. */
+function adminSdkFileCheck(passThrough: readonly string[], isAdminSdkFile: ((url: string) => boolean) | undefined): { isAdminSdkFile?: (url: string) => boolean } {
+  const passesAdmin = passThrough.includes(ADMIN_PASS_THROUGH) && isAdminSdkFile !== undefined;
+  return passesAdmin ? { isAdminSdkFile } : {};
 }
 
 /** Installs live mode's guard in this thread. */
 export function installLiveNetGuard(options: LiveNetGuardOptions): EgressHooks {
   // The environment can only add token sources (`GCE_METADATA_*`), never let one through.
   const endpoints = tokenEndpointsFrom({ env: options.env ?? process.env });
-  const passed: PassedThrough = { hosts: passThroughHosts(options.passThrough ?? []), isLiveSdkFile: options.isLiveSdkFile };
+  const passThrough = [...(options.passThrough ?? [])];
+  const passed: PassedThrough = {
+    hosts: passThroughHosts(passThrough),
+    isLiveSdkFile: options.isLiveSdkFile,
+    ...adminSdkFileCheck(passThrough, options.isAdminSdkFile),
+  };
   const reporterOptions: ReporterOptions = {
     mode: 'block',
     endpoints,
@@ -527,6 +595,6 @@ export function installLiveNetGuard(options: LiveNetGuardOptions): EgressHooks {
   guardLiveRowRequests(createReporter(reporterOptions), agents, options.requestPrototypes ?? nodeClientRequestPrototypes(), passed);
   const fetchScope = options.fetchScope ?? (globalThis as { fetch?: Fetch });
   const real = fetchScope.fetch;
-  if (typeof real === 'function') fetchScope.fetch = guardedFetch(real, options.isLiveSdkFile, reporterOptions);
+  if (typeof real === 'function') fetchScope.fetch = guardedFetch(real, passed, reporterOptions);
   return installed;
 }

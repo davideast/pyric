@@ -195,7 +195,10 @@ function isNode22Require(load: ResolvedLoad): boolean {
 const LIVE_ROW_IMPORTS = joinedList([...INSTALLED_SDK_SPECIFIERS], 'or');
 
 function liveStopFix(family: SdkFamily, isUnservedRequire: boolean): string {
-  if (family === 'admin') return 'firebase-admin is refused in live mode, so move this code to a process without @pyric/live/register';
+  if (family === 'admin') {
+    return "import firebase-admin by its package name, with pyricLive({ passThrough: ['firebase-admin'] }) on the live host, " +
+      'or move this code to a process without @pyric/live/register';
+  }
   if (isUnservedRequire) return `import ${LIVE_ROW_IMPORTS} from an ES module, or run Node 23 or later`;
   return `import ${LIVE_ROW_IMPORTS} by its package name, so its live row loads the installed SDK`;
 }
@@ -274,6 +277,18 @@ export interface SuppliedRowsGrant {
    * rows' (`passThroughSdkPackages` in `../serve/vite-supplied-rows.ts`).
    */
   readonly passThroughPackages?: ReadonlySet<string>;
+  /**
+   * The app's own `firebase-admin` import, which the register passes through
+   * (`passThrough: ['firebase-admin']`): it may load the real Admin SDK.
+   */
+  readonly isAdminImport?: boolean;
+  /**
+   * An import made by a file of the Admin SDK's tree: every file a passed-through
+   * `firebase-admin` import reached, directly or not (`supplied-entry.ts`). It
+   * loads what the Admin SDK needs, `@google-cloud/firestore` and the
+   * `@firebase/*` packages it uses among them.
+   */
+  readonly isFromAdminTree?: boolean;
 }
 
 /**
@@ -337,13 +352,19 @@ function serverSdkStop(load: ResolvedLoad, packageName: string): Error {
  * load, or `null` when it may go ahead. The client SDK loads only for a row
  * module's own ESM import of its specifier, and then for the packages those
  * files import ({@link isAllowedLiveRowLoad}); `firebase-admin` and the
- * server SDKs in {@link LIVE_HOST_SERVER_SDKS} never load.
+ * server SDKs in {@link LIVE_HOST_SERVER_SDKS} load only when the register
+ * passes `firebase-admin` through: the app's own import of it, then whatever
+ * its tree imports ({@link SuppliedRowsGrant.isFromAdminTree}).
  * An allowed load joins `allowedUrls`. The swap table and AI mode play no
  * part: live rows replace the swap.
  */
 export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>, grant: SuppliedRowsGrant): Error | null {
   if (!isInstalledFile(load.url)) return null;
+  // The Admin SDK passes through as a whole: its tree loads what it needs, unobserved.
+  if (grant.isFromAdminTree === true) return null;
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
+  const isAdminEntry = grant.isAdminImport === true && packageName === 'firebase-admin';
+  if (isAdminEntry) return null;
   const isServerSdk = packageName !== null && LIVE_HOST_SERVER_SDKS.has(packageName);
   if (isServerSdk) return serverSdkStop(load, packageName);
   const family = sdkFamilyOf(packageName);

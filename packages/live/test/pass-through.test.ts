@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'bun:test';
 import { INSTALLED_SDK_SPECIFIERS, SDK_MODULES, pyricWithSuppliedRows } from '@pyric/cli/vite/internal/supplied-rows';
 import {
+  ADMIN_PASS_THROUGH,
   LIVE_REFUSED,
   PASS_THROUGH_CANDIDATES,
   liveRefusal,
@@ -64,13 +65,14 @@ describe('the passThrough option', () => {
     }
   });
 
-  test('refuses firebase-admin and every subpath of it', () => {
-    for (const admin of ['firebase-admin', 'firebase-admin/firestore']) {
-      expect(startError([admin])).toBe(
-        `${ENTRY}: passThrough lists ${admin}, which never passes through: live mode refuses the Admin SDK in every process.`,
-      );
-    }
+  test('takes firebase-admin, for the Node processes under the register, and names it for a subpath of it', () => {
+    expect(ADMIN_PASS_THROUGH).toBe('firebase-admin');
+    expect(passThroughOption(ENTRY, ['firebase/functions', 'firebase-admin'])).toEqual(['firebase/functions', 'firebase-admin']);
+    expect(PASS_THROUGH_CANDIDATES).not.toContain('firebase-admin');
+    expect(startError(['firebase-admin/firestore'])).toContain('passThrough lists firebase-admin/firestore');
+    expect(startError(['firebase-admin/firestore'])).toContain('list firebase-admin');
   });
+
 
   test('refuses an @firebase/* package name and names the import to list', () => {
     expect(startError(['@firebase/functions'])).toBe(
@@ -88,9 +90,9 @@ describe('the passThrough option', () => {
   });
 
   test('stops pyricLive() before it builds a plugin', () => {
-    expect(() => pyricLive({ passThrough: ['firebase/firestore', 'firebase-admin'] })).toThrow(
+    expect(() => pyricLive({ passThrough: ['firebase/firestore', 'firebase-admin/app'] })).toThrow(
       `${ENTRY}: passThrough lists firebase/firestore, which live mode already serves and observes; remove it. ` +
-        'passThrough lists firebase-admin, which never passes through',
+        'passThrough lists firebase-admin/app',
     );
     expect(() => pyricLive({ passThrough: ['firebase/database'] })).toThrow(
       `${ENTRY}: passThrough lists firebase/database, which live mode already serves and observes; remove it.`,
@@ -99,12 +101,14 @@ describe('the passThrough option', () => {
       `${ENTRY}: passThrough lists firebase/ai, which live mode already serves and observes; remove it.`,
     );
     expect(() => pyricLive({ passThrough: ['firebase/functions'] })).not.toThrow();
+    expect(() => pyricLive({ passThrough: ['firebase-admin'] })).not.toThrow();
   });
 
-  test("is checked again at @pyric/cli's seam, so no supplier passes a served import or firebase-admin through", () => {
-    for (const entry of ['firebase/auth', 'firebase/database', 'firebase/ai', 'firebase-admin', '@firebase/database']) {
+  test("is checked again at @pyric/cli's seam, so no supplier passes a served import or an Admin SDK subpath through", () => {
+    for (const entry of ['firebase/auth', 'firebase/database', 'firebase/ai', 'firebase-admin/app', '@firebase/database']) {
       expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: [entry] })).toThrow(`pyric: ${entry} cannot pass through`);
     }
+    expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: ['firebase-admin'] })).not.toThrow();
   });
 });
 
