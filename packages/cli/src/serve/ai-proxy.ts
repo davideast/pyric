@@ -10,7 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ServeLogger } from './server.js';
-import { redactUpstreamText, redactUrl } from 'pyric/ai/internal';
+import { redactUpstreamText, redactUrl, urlCredentials } from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
 import { answerAndClose, collectRawBody, isBodyTooLarge } from '../bridge/server/peer.js';
@@ -231,14 +231,16 @@ function headerValue(entries: Array<[string, string]>, name: string): string | n
 
 /**
  * The credentials an upstream request carries: the `key` URL parameter, the
- * `x-goog-api-key` header, and the `Authorization` value without its scheme.
+ * `x-goog-api-key` header, the `Authorization` value without its scheme, and
+ * the URL's username and password (#1766).
  */
 function requestCredentials(input: Parameters<typeof fetch>[0], init: RequestInit | undefined): string[] {
   const isRequest = input instanceof Request;
   const entries = headerEntries(isRequest ? input.headers : init?.headers);
-  const urlKey = urlKeyParam(isRequest ? input.url : String(input));
+  const url = isRequest ? input.url : String(input);
+  const urlKey = urlKeyParam(url);
   const authorization = headerValue(entries, 'authorization')?.replace(/^\S+\s+/, '') ?? null;
-  const found = [urlKey, headerValue(entries, 'x-goog-api-key'), authorization];
+  const found = [urlKey, headerValue(entries, 'x-goog-api-key'), authorization, ...urlCredentials(url)];
   return found.filter((value): value is string => value !== null && value !== '');
 }
 

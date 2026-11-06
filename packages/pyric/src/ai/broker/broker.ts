@@ -51,8 +51,8 @@ import {
   functionRoleRefused,
   invalidSystemInstruction,
   missingThoughtSignature,
-  redactUrl,
 } from './synthesizer.js';
+import { redactUpstreamUrl } from './upstream-error-redaction.js';
 import { ScriptedEngine } from './scripted-engine.js';
 import { OpenAiEngine } from './openai-engine.js';
 import { GeminiEngine, GEMINI_DEFAULT_BASE_URL } from './gemini-engine.js';
@@ -134,12 +134,12 @@ export class AiBroker {
     } else if (engine.kind === 'gemini') {
       this.engine = new GeminiEngine(engine);
       this.engineKind = 'gemini';
-      this.engineBaseUrl = engine.baseUrl === undefined ? undefined : redactUrl(engine.baseUrl);
+      this.engineBaseUrl = engine.baseUrl === undefined ? undefined : redactUpstreamUrl(engine.baseUrl);
     } else {
       this.engine = new OpenAiEngine(engine);
       this.engineKind = 'openai';
       this.engineModel = engine.model;
-      this.engineBaseUrl = engine.baseUrl === undefined ? undefined : redactUrl(engine.baseUrl);
+      this.engineBaseUrl = engine.baseUrl === undefined ? undefined : redactUpstreamUrl(engine.baseUrl);
     }
     console.info(this.describeEngine());
   }

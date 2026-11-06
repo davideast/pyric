@@ -20,14 +20,18 @@ export type { AppCheckClaim } from './broker/types.js';
  *  `/__pyric/ai-proxy/gemini` route sends for a browser engine.
  *  `redactUpstreamError` and `redactUpstreamText` remove the exact
  *  credentials a request carried from what the upstream answered, the same
- *  masking the gemini engine applies to its own errors. */
+ *  masking the gemini engine applies to its own errors. `urlCredentials`
+ *  and `redactUpstreamUrl` add the userinfo of a configured base URL to that
+ *  masking (#1766). */
 export {
   GEMINI_DEFAULT_BASE_URL,
   GeminiUpstream,
   hasGeminiStaticKey,
   redactUpstreamError,
   redactUpstreamText,
+  redactUpstreamUrl,
   redactUrl,
+  urlCredentials,
   type GeminiUpstreamOptions,
 } from './broker/index.js';
 

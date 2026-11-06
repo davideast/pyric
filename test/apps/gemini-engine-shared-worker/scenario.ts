@@ -240,8 +240,11 @@ async function assertMaskedFetchError(result: { ok: boolean; message?: string },
   assert.ok(!server.process.output.includes(ADC_TOKEN), 'the dev server printed the token');
 }
 
-/** Userinfo the scenario puts in the stand-in's base URL (#1766). */
-const USERINFO = 'gateway-user:gateway-secret-1766';
+/**
+ * Userinfo the scenario puts in the stand-in's base URL (#1766). The password
+ * holds a space and both quotes, which a pattern over the text stops at.
+ */
+const USERINFO = `gateway-user:gateway-secret-1766 "q'`;
 
 /** The stand-in's base URL with USERINFO in it. */
 function withUserinfo(url: string): string {
