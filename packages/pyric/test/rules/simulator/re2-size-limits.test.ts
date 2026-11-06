@@ -1,14 +1,24 @@
 /**
- * Firestore and Storage refuse a regex that expands past pyric's size
- * limits, the limits RTDB uses (#1261), instead of building a matcher that
- * exhausts memory (#1264). A literal is refused at compile with production's
- * refusal text and a sentence naming pyric's limit. A pattern from request
- * data is an evaluation error, which `|| true` absorbs and which denies on
- * its own. `a{1001}` is refused by RE2's repeat cap (ST-H3-10).
+ * Firestore and Storage refuse a regex that expands past pyric's matcher
+ * state limit instead of building a matcher that exhausts memory (#1264).
+ * A literal is refused at compile with production's refusal text and a
+ * sentence naming pyric's limit. A pattern from request data is an
+ * evaluation error, which `|| true` absorbs and which denies on its own.
+ * `a{1001}` is refused by RE2's repeat cap (ST-H3-10).
+ *
+ * The character-position limit RTDB takes from its deploy captures (#1261)
+ * does not apply here: production compiles Firestore patterns that expand
+ * to 11,000 and 100,000 characters (#1897). Firestore also refuses a source
+ * of 262,144 bytes or more with production's message (#1899). Both come
+ * from the 2026-11-03 hunt captures in
+ * `test/rules/grammar/fixtures/size-limits/captures.json`, replayed through
+ * `setRules` in the in-process sandbox.
  *
  * Each refusal is bounded in time and heap, so a regression fails here
  * instead of killing the runner.
  */
+import 'fake-indexeddb/auto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import { firestoreRules } from '../../../src/rules/api/firestore.js';
 import { RulesCompileError } from '../../../src/rules/api/errors.js';
@@ -21,13 +31,16 @@ import { compileStorageRules } from '../../../src/storage/rules-resolution.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 import { scenario as firestoreRe2Scenario } from '../../../../conformance/rules-corpus/firestore/re2-pattern-semantics.ts';
 import { scenario as storageRe2Scenario } from '../../../../conformance/rules-corpus/storage/h1-regex-re2-classes.ts';
+import { initializeSandbox } from 'pyric/sandbox';
+import { inspect, setRules } from 'pyric/sandbox/firestore';
+import { doc, getDoc, getFirestore } from 'pyric/firestore';
 
 const NESTED = '((a{1000}){1000}){1000}';
 const OVER_REPEAT_CAP = 'a{1001}';
 const CONTROLS = ['a{1000}', '(a{100}){100}', '(?<x>a)'];
 
 const LIMIT_SENTENCE =
-  "pyric refuses patterns that expand past 10,000 characters or 200,000 matcher states, a limit of pyric; " +
+  "pyric refuses patterns that expand past 200,000 matcher states, a limit of pyric; " +
   "production's limit has not been measured.";
 
 function invalid(pattern: string): string {
@@ -200,5 +213,142 @@ describe('Storage: a pattern from request data past the size limit (#1264)', () 
 
   test('an error that denies on its own', () => {
     expect(bounded(() => allowed("'a'.matches(resource.metadata.p)"))).toBe(false);
+  });
+});
+
+interface Probe {
+  name: string;
+  source?: string;
+  sourceTemplate?: string;
+  comment?: { placeholder: string; character: string; repeat: number };
+  sourceBytes?: number;
+  compiles: boolean;
+  error?: { code: number; message: string; status: string };
+  cases?: Array<{ description: string; method: string; path: string; decision: string }>;
+}
+
+const fixture = JSON.parse(
+  readFileSync(new URL('../grammar/fixtures/size-limits/captures.json', import.meta.url), 'utf8'),
+) as { probes: Probe[] };
+
+function probe(name: string): Probe {
+  const found = fixture.probes.find((p) => p.name === name);
+  if (found === undefined) throw new Error(`no probe ${name}`);
+  return found;
+}
+
+/** The source the probe sent, rebuilt from its template when it stores one. */
+function sourceOf(p: Probe): string {
+  if (p.source !== undefined) return p.source;
+  const { placeholder, character, repeat } = p.comment!;
+  return p.sourceTemplate!.replace(placeholder, character.repeat(repeat));
+}
+
+function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** Load `source` through `setRules`, then read `path` as the capture's get case did. */
+async function load(source: string, path: string): Promise<{ rejection: string | undefined; read: string }> {
+  const sandbox = initializeSandbox({});
+  setRules(sandbox, source);
+  const refusal = inspect(sandbox).rules.lint.findings.find((f) => f.rule === 'PARSE_ERROR' || f.rule === 'COMPILE_LIMIT');
+  let read = 'ok';
+  try {
+    await getDoc(doc(getFirestore(sandbox.withAuth({ uid: 'u' })), path));
+  } catch (err) {
+    read = (err as { code?: string }).code ?? String(err);
+  }
+  return { rejection: refusal?.message, read };
+}
+
+const LONG_PATTERN_PROBES = ['k5-regex-11000', 'k6-regex-10001', 'k7-regex-control', 'k8-split-11000', 'k9-regex-100k'];
+
+describe('Firestore compiles the long counted patterns production compiles (#1897)', () => {
+  for (const name of LONG_PATTERN_PROBES) {
+    const p = probe(name);
+    const captured = p.cases![0]!;
+
+    test(`${name}: loads through setRules and getDoc is ${captured.decision}`, async () => {
+      expect(captured.decision).toBe('ALLOW');
+      const { rejection, read } = await load(sourceOf(p), captured.path);
+      expect(rejection).toBeUndefined();
+      expect(read).toBe('ok');
+    });
+
+    test(`${name}: firestoreRules() compiles it and simulate() allows the captured case`, () => {
+      const summary = bounded(() => firestoreRules(sourceOf(p)).simulate([
+        { description: captured.description, expectation: 'ALLOW', method: 'get', path: captured.path } as TestCase,
+      ]));
+      expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW']);
+    });
+  }
+
+  test('(a{1000}){11} matches 11,000 a and not 10,999', () => {
+    const source = firestoreSource("request.resource.data.s.matches('(a{1000}){11}')");
+    const cases = [11000, 10999].map((n) => ({
+      description: `${n} a`,
+      expectation: n === 11000 ? 'ALLOW' : 'DENY',
+      method: 'create',
+      path: 'p/d1',
+      data: { s: 'a'.repeat(n) },
+    } as TestCase));
+    const summary = bounded(() => firestoreRules(source).simulate(cases));
+    expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
+  });
+});
+
+describe('Firestore refuses a source of 262,144 bytes or more (#1899)', () => {
+  const refused = probe('c5j-source-300k-comment');
+  const control = probe('c5k-source-200k-comment');
+  const reason = refused.error!.message;
+
+  test('the probes rebuild the sources the capture sent', () => {
+    expect(utf8Bytes(sourceOf(refused))).toBe(refused.sourceBytes!);
+    expect(utf8Bytes(sourceOf(control))).toBe(control.sourceBytes!);
+    expect(refused.error).toEqual({
+      code: 400,
+      message: 'Total size of sources must be smaller than 262144.',
+      status: 'INVALID_ARGUMENT',
+    });
+  });
+
+  test("c5j: setRules reports production's message and getDoc is denied", async () => {
+    const { rejection, read } = await load(sourceOf(refused), 'c/1');
+    expect(rejection).toBe(`Firestore rules did not compile: ${reason}`);
+    expect(read).toBe('permission-denied');
+  });
+
+  test("c5j: firestoreRules() refuses it with production's message", () => {
+    expect(bounded(() => firestoreCompileMessages(sourceOf(refused)))).toEqual([reason]);
+  });
+
+  test('c5k: the 200 KB control loads and getDoc is allowed', async () => {
+    expect(control.cases!.map((c) => c.decision)).toEqual(['ALLOW']);
+    const { rejection, read } = await load(sourceOf(control), 'c/1');
+    expect(rejection).toBeUndefined();
+    expect(read).toBe('ok');
+  });
+
+  /** The c5 source with a comment body of `character` that brings it to `bytes` UTF-8 bytes. */
+  function sourceOfBytes(bytes: number, character = 'x'): string {
+    const template = refused.sourceTemplate!;
+    const fixed = utf8Bytes(template.replace(refused.comment!.placeholder, ''));
+    const source = template.replace(refused.comment!.placeholder, character.repeat((bytes - fixed) / utf8Bytes(character)));
+    expect(utf8Bytes(source)).toBe(bytes);
+    return source;
+  }
+
+  test('262,143 bytes compiles and 262,144 is refused, as "smaller than 262144" reads', () => {
+    expect(firestoreCompileMessages(sourceOfBytes(262_143))).toEqual([]);
+    expect(firestoreCompileMessages(sourceOfBytes(262_144))).toEqual([reason]);
+  });
+
+  // pyric counts UTF-8 bytes, as the issue states the limit; no capture
+  // sent a source with characters past ASCII.
+  test('a source of 262,145 UTF-8 bytes in far fewer characters is refused', () => {
+    const source = sourceOfBytes(262_145, 'é');
+    expect(source.length).toBeLessThan(200_000);
+    expect(firestoreCompileMessages(source)).toEqual([reason]);
   });
 });

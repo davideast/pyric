@@ -16,7 +16,7 @@ import {
   type RegexSearch,
   type UnitMatch,
 } from './regex-nfa.js';
-import { MAX_REGEX_POSITIONS, MAX_REGEX_STATES, sizeProblem } from '../rtdb/grammar/regex-limits.js';
+import { MAX_REGEX_STATES, stateCount } from '../rtdb/grammar/regex-limits.js';
 import { RulesValue } from './wrappers/base.js';
 import { isRulesInt } from './rules-int.js';
 
@@ -63,15 +63,21 @@ export function invalidPatternMessage(pattern: string): string {
 }
 
 /**
- * The refusal for a pattern that expands past pyric's size limits, the
- * limits RTDB uses (#1261), or null. Production's own threshold for
- * Firestore and Storage has not been measured (#1264).
+ * The refusal for a pattern that expands past pyric's matcher state limit,
+ * or null. That limit bounds the matcher's memory (#1264). The
+ * character-position limit RTDB's deploy refuses past (#1261) does not
+ * apply: Firestore compiles `(a{1000}){11}`, ten `a{1000}` then `b`, and
+ * `((a{100}){100}){10}`, which expand to 11,000, 10,001 and 100,000
+ * characters (#1897, captures `k5`, `k6` and `k9` in
+ * `test/rules/grammar/fixtures/size-limits/captures.json`). A pattern's
+ * state count is at least its position count, so every pattern within the
+ * state limit has at most 200,000 positions. Production's own threshold
+ * has not been measured.
  */
 export function re2SizeRefusal(pattern: string, ast: RegexNode): string | null {
-  if (sizeProblem(ast) === null) return null;
+  if (stateCount(ast) <= MAX_REGEX_STATES) return null;
   return (
     `${invalidPatternMessage(pattern)} pyric refuses patterns that expand past ` +
-    `${MAX_REGEX_POSITIONS.toLocaleString('en-US')} characters or ` +
     `${MAX_REGEX_STATES.toLocaleString('en-US')} matcher states, a limit of pyric; ` +
     `production's limit has not been measured.`
   );
