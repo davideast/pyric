@@ -247,7 +247,7 @@ describe('Vite Storage rules watching', () => {
     expect(f.storageReloads()).toBe(1);
     expect(f.firestoreReloads()).toBe(0);
     expect(f.databaseReloads()).toBe(0);
-    expect(f.logs.some((line) => line.includes('storage rules reloaded for the default bucket (sh)'))).toBe(true);
+    expect(f.logs.some((line) => line.includes('storage rules reloaded (sh)'))).toBe(true);
     stop();
   });
 

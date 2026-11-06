@@ -67,6 +67,12 @@ export function installServedStorageRules(
   return resolvePendingStorageTargets(sandbox, appProjectBySandbox.get(sandbox));
 }
 
+/** Whether the sandbox holds deploy targets that wait for an app config's project. */
+export function hasPendingStorageTargets(sandbox: Sandbox): boolean {
+  const pending = pendingTargetsBySandbox.get(sandbox);
+  return pending !== undefined && [...pending.values()].some((target) => target.buckets === null);
+}
+
 /**
  * Deploy each pending target's rules to the buckets `.firebaserc` maps it to
  * for `projectId`, the project the page's app config names. Only the first

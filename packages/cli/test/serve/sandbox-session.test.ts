@@ -565,6 +565,37 @@ service firebase.storage {
     await session.close();
   });
 
+  it('keeps the last-good rules live on every bucket that deploys a file whose reload is refused', async () => {
+    const root = project();
+    const sharedPath = join(root, 'shared.rules');
+    writeFileSync(sharedPath, storageRules('kept'));
+    const deployed: unknown[] = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: {
+        storage: [
+          { bucket: 'media-bucket', rules: 'shared.rules' },
+          { bucket: 'demo-app.appspot.com', rules: 'shared.rules' },
+        ],
+      },
+      sdk: { dir: join(root, 'sdk') },
+      deployHostedRules: async (...args) => {
+        deployed.push(args);
+      },
+    });
+    const before = session.payload().storageBucketRules;
+    writeFileSync(sharedPath, 'service firebase.storage { match /b/{bucket}/o {');
+    const results = await session.reloadStorageRules(sharedPath);
+    expect(results.map(({ bucket, result }) => [bucket, result.kind])).toEqual([
+      ['media-bucket', 'rejected'],
+      ['demo-app.appspot.com', 'rejected'],
+    ]);
+    expect(session.payload().storageBucketRules).toEqual(before);
+    expect(session.payload().storageBucketRules?.['media-bucket']?.rules).toContain('/kept/{file}');
+    expect(deployed).toEqual([]);
+    await session.close();
+  });
+
   it('carries a Storage deploy target no project resolved, with the buckets .firebaserc maps it to per project', async () => {
     const root = project();
     const mediaPath = join(root, 'media.rules');

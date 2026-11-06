@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { ViteDevServer } from 'vite';
-import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketLabel } from './rules.js';
+import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketSuffix } from './rules.js';
 import type { SandboxSession } from './sandbox-session.js';
 import { createVerifyHint } from './verify-hint.js';
 
@@ -99,12 +99,12 @@ export function watchViteGenerationRules(input: {
       for (const storageFile of changedStorageFiles) {
         void session.reloadStorageRules(storageFile).then((results) => {
           for (const { bucket, target, result } of results) {
-            const label = storageBucketLabel(bucket, target);
+            const named = storageBucketSuffix(bucket, target);
             if (result.kind === 'reloaded') {
-              server.config.logger.info(`  ↻ [pyric] storage rules reloaded for ${label} (${result.rulesHash})${getVerifyHint()}`);
+              server.config.logger.info(`  ↻ [pyric] storage rules reloaded${named} (${result.rulesHash})${getVerifyHint()}`);
             } else if (result.kind === 'rejected') {
               server.config.logger.warn(
-                `  ⚠ [pyric] storage rules NOT reloaded for ${label} (last-good stays live): ${result.error.message}`,
+                `  ⚠ [pyric] storage rules NOT reloaded (last-good stays live): ${result.error.message}${named}`,
               );
             } else if (result.kind === 'removed') {
               server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(storageFile, bucket, target)}`);

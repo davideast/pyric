@@ -344,7 +344,7 @@ export function storageRulesPath(cwd: string, config: FirebaseJson | null): stri
 /** The notice a dev server logs when the Storage rules file it loaded is
  *  deleted and Storage returns to denying every client operation. */
 export function formatStorageRulesRemoved(path: string, bucket: string | null = null, target?: string): string {
-  return `storage rules removed: ${path} does not exist, client Storage operations on ${storageBucketLabel(bucket, target)} default to DENY`;
+  return `storage rules removed: ${path} does not exist, client Storage operations${storageBucketSuffix(bucket, target, ' on')} default to DENY`;
 }
 
 /** One Storage rules file deployed to one bucket, or to the app's default bucket. */
@@ -397,6 +397,16 @@ export interface LoadedProjectStorageRules extends LoadedStorageRules, StorageRu
 export function storageBucketLabel(bucket: string | null, target?: string): string {
   if (target !== undefined) return `the buckets of deploy target ${target}`;
   return bucket === null ? 'the default bucket' : `bucket ${bucket}`;
+}
+
+/**
+ * The bucket a Storage reload line names, as a suffix: empty for the default
+ * bucket, so its lines read as they did before Storage rules deployed per
+ * bucket, and `<joiner> bucket <name>` for a named bucket or pending target.
+ */
+export function storageBucketSuffix(bucket: string | null, target?: string, joiner = ' for'): string {
+  const isDefaultBucket = bucket === null && target === undefined;
+  return isDefaultBucket ? '' : `${joiner} ${storageBucketLabel(bucket, target)}`;
 }
 
 /**

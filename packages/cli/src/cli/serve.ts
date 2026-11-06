@@ -26,7 +26,7 @@ import {
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { watchRulesFiles } from '../serve/rules-files-watch.js';
-import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketLabel } from '../serve/rules.js';
+import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketSuffix } from '../serve/rules.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
@@ -751,11 +751,11 @@ async function startServeRuntime(opts: {
           for (const changed of files) {
             void session.reloadStorageRules(changed).then((results) => {
               for (const { bucket, target, file: source, result } of results) {
-                const label = storageBucketLabel(bucket, target);
+                const named = storageBucketSuffix(bucket, target);
                 if (result.kind === 'reloaded') {
-                  logger.note(`  ↻ storage rules reloaded for ${label} (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
+                  logger.note(`  ↻ storage rules reloaded${named} (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
                 } else if (result.kind === 'rejected') {
-                  logger.note(`  ⚠ storage rules NOT reloaded for ${label} (last-good stays live): ${result.error.message}`);
+                  logger.note(`  ⚠ storage rules NOT reloaded (last-good stays live): ${result.error.message}${named}`);
                 } else if (result.kind === 'removed') {
                   logger.note(`  ⚠ ${formatStorageRulesRemoved(source, bucket, target)} → ${result.clients} page(s)`);
                 }

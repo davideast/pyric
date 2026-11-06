@@ -28,13 +28,16 @@ import {
 } from '../worker/client.js';
 import { useWorker } from './worker-runtime.js';
 import { sandbox as pageSandbox } from './app-backend.js';
-import { resolvePendingStorageTargets } from '../storage-rules-install.js';
+import { hasPendingStorageTargets, resolvePendingStorageTargets } from '../storage-rules-install.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
 import { markServiceUsed } from './service-use.js';
 import { updateMetadata as unavailableUpdateMetadata } from './unsupported/storage.js';
 
-/** One worker-backed handle per app and bucket name, the default bucket under `''`. */
+/**
+ * One worker-backed handle per app and bucket name, the default bucket under
+ * `''`. A bucket URL naming the app's own bucket is cached under its name too.
+ */
 const workerStorageByApp = new WeakMap<FirebaseApp, Map<string, FirebaseStorage>>();
 
 export function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStorage {
@@ -42,29 +45,40 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStora
   markServiceUsed();
   if (!useWorker) {
     // Deploy targets no project resolved at server start resolve with the
-    // app's project, as RTDB targets do.
-    for (const notice of resolvePendingStorageTargets(pageSandbox, resolved.options?.projectId)) {
-      console.info(`[pyric sandbox] ${notice}`);
+    // app's project, as RTDB targets do. Only then are the app's options read:
+    // a deleted app's options throw, and a cached factory call must not.
+    if (hasPendingStorageTargets(pageSandbox)) {
+      for (const notice of resolvePendingStorageTargets(pageSandbox, resolved.options?.projectId)) {
+        console.info(`[pyric sandbox] ${notice}`);
+      }
     }
     return pyricGetStorage(resolved, bucketUrl);
   }
+  // A cached handle comes back before the app's options are read: a deleted
+  // app's options throw, and production's cached factory call does not.
+  const named = rulesBucketName('', bucketUrl);
+  const handles = workerStorageByApp.get(resolved) ?? new Map<string, FirebaseStorage>();
+  workerStorageByApp.set(resolved, handles);
+  const cached = handles.get(named);
+  if (cached) return cached;
   // A bucket URL naming another bucket opens that bucket, with its own
   // objects and its own rules, as production keeps them apart (#1313). The
   // default bucket goes by the app's `storageBucket` option, as the host and
   // firebase-admin name it.
   const configured = resolved.options?.storageBucket;
   const appBucket = typeof configured === 'string' && configured !== '' ? configured : undefined;
-  const named = rulesBucketName('', bucketUrl);
   const namesOtherBucket = named !== '' && named !== appBucket;
   const key = namesOtherBucket ? named : '';
-  const handles = workerStorageByApp.get(resolved) ?? new Map<string, FirebaseStorage>();
-  workerStorageByApp.set(resolved, handles);
   const existing = handles.get(key);
-  if (existing) return existing;
+  if (existing) {
+    handles.set(named, existing);
+    return existing;
+  }
   const client = workerClientForApp(resolved);
   const opened = workerGetStorage(client, undefined, namesOtherBucket ? named : appBucket, namesOtherBucket);
   const handle = Object.assign(opened, { app: resolved }) as unknown as FirebaseStorage;
   handles.set(key, handle);
+  handles.set(named, handle);
   return handle;
 }
 
