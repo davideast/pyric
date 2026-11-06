@@ -9,6 +9,7 @@
  */
 import type { FirestoreRules, FunctionDef, Expression, AllowRule, MatchBlock, PathSegment } from '../grammar/FirestoreAST.js';
 import { parseToASTOrError, type ParseError } from '../grammar/FirestoreParser.js';
+import { sourceSizeViolation } from '../grammar/source-compile-limits.js';
 import type { TestCase } from '../test/spec.js';
 import {
   deepestChain,
@@ -99,7 +100,6 @@ export interface LintResult {
 // ═══ Thresholds (from production verification) ═══
 
 const THRESHOLDS = {
-  SOURCE_SIZE: 256 * 1024,           // 256 KB — exact, verified
   // Production's compile limits, shared with the Firestore simulator and
   // the Storage evaluator (grammar/compile-limits.ts).
   LET_LIMIT,
@@ -115,15 +115,16 @@ const THRESHOLDS = {
 
 // ═══ Lint Rules ═══
 
+/** The load check's source size refusal, with production's message, so lint and load agree. */
 function checkSourceSize(source: string, warnings: LintWarning[]) {
-  if (source.length > THRESHOLDS.SOURCE_SIZE) {
-    warnings.push({
-      rule: 'SOURCE_SIZE',
-      severity: 'error',
-      message: `Rules source is ${(source.length / 1024).toFixed(0)} KB, exceeding the 256 KB limit.`,
-      fix: 'Reduce string literals, remove comments, or split into smaller match blocks.',
-    });
-  }
+  const violation = sourceSizeViolation(source);
+  if (violation === null) return;
+  warnings.push({
+    rule: 'SOURCE_SIZE',
+    severity: 'error',
+    message: violation.message,
+    fix: 'Reduce string literals, remove comments, or split into smaller match blocks.',
+  });
 }
 
 function checkLetBindings(functions: FunctionDef[], warnings: LintWarning[]) {

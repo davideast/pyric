@@ -1,0 +1,120 @@
+{
+  "schema": "pyric.rules-size-limits.v1",
+  "capturedAt": {
+    "c5": "2026-11-04T02:28:14.129Z",
+    "c2": "2026-11-04T02:25:29.600Z"
+  },
+  "projectId": "digame-mas",
+  "method": "Rules Test API projects.test, one ruleset per probe, from the 2026-11-03 Firestore rules engine defect hunt (captures c2 and c5). A probe production refused lists the error the API returned; one that compiles lists each get case with its decision. The two source-size probes store their source as a template whose placeholder stands for the comment body, the character repeated that many times; sourceBytes and sourceSha256 are of the source as sent.",
+  "probes": [
+    {
+      "name": "c5j-source-300k-comment",
+      "capture": "c5",
+      "sourceTemplate": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    // {{COMMENT}}\n    match /c/{id} { allow get: if true; }\n  }\n}\n",
+      "comment": {
+        "placeholder": "{{COMMENT}}",
+        "character": "x",
+        "repeat": 300000
+      },
+      "sourceBytes": 300145,
+      "sourceSha256": "6cd10b26d00ddf3efeffeefef280de3abdd561f30df16130ef0d93edfb6a0321",
+      "compiles": false,
+      "error": {
+        "code": 400,
+        "message": "Total size of sources must be smaller than 262144.",
+        "status": "INVALID_ARGUMENT"
+      }
+    },
+    {
+      "name": "c5k-source-200k-comment",
+      "capture": "c5",
+      "sourceTemplate": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    // {{COMMENT}}\n    match /c/{id} { allow get: if true; }\n  }\n}\n",
+      "comment": {
+        "placeholder": "{{COMMENT}}",
+        "character": "x",
+        "repeat": 200000
+      },
+      "sourceBytes": 200145,
+      "sourceSha256": "70fcf03505714433df0e0d80ff6b5d9f9acaf547f26c0e2614c4b48ef2973005",
+      "compiles": true,
+      "cases": [
+        {
+          "description": "200 KB comment then allow",
+          "method": "get",
+          "path": "c/1",
+          "decision": "ALLOW"
+        }
+      ]
+    },
+    {
+      "name": "k5-regex-11000",
+      "capture": "c2",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /k5regex11000/{id} {\n      allow get: if 'a'.matches('(a{1000}){11}') || true;\n    }\n  }\n}\n",
+      "compiles": true,
+      "cases": [
+        {
+          "description": "k5regex11000: 'a'.matches('(a{1000}){11}') || true",
+          "method": "get",
+          "path": "k5regex11000/1",
+          "decision": "ALLOW"
+        }
+      ]
+    },
+    {
+      "name": "k6-regex-10001",
+      "capture": "c2",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /k6regex10001/{id} {\n      allow get: if 'a'.matches('a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}b') || true;\n    }\n  }\n}\n",
+      "compiles": true,
+      "cases": [
+        {
+          "description": "k6regex10001: 'a'.matches('a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}a{1000}b') || true",
+          "method": "get",
+          "path": "k6regex10001/1",
+          "decision": "ALLOW"
+        }
+      ]
+    },
+    {
+      "name": "k7-regex-control",
+      "capture": "c2",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /k7regexcontrol/{id} {\n      allow get: if 'a'.matches('(a{100}){100}') || true;\n    }\n  }\n}\n",
+      "compiles": true,
+      "cases": [
+        {
+          "description": "k7regexcontrol: 'a'.matches('(a{100}){100}') || true",
+          "method": "get",
+          "path": "k7regexcontrol/1",
+          "decision": "ALLOW"
+        }
+      ]
+    },
+    {
+      "name": "k8-split-11000",
+      "capture": "c2",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /k8split11000/{id} {\n      allow get: if 'a'.split('(a{1000}){11}').size() > 0 || true;\n    }\n  }\n}\n",
+      "compiles": true,
+      "cases": [
+        {
+          "description": "k8split11000: 'a'.split('(a{1000}){11}').size() > 0 || true",
+          "method": "get",
+          "path": "k8split11000/1",
+          "decision": "ALLOW"
+        }
+      ]
+    },
+    {
+      "name": "k9-regex-100k",
+      "capture": "c2",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /k9regex100k/{id} {\n      allow get: if 'a'.matches('((a{100}){100}){10}') || true;\n    }\n  }\n}\n",
+      "compiles": true,
+      "cases": [
+        {
+          "description": "k9regex100k: 'a'.matches('((a{100}){100}){10}') || true",
+          "method": "get",
+          "path": "k9regex100k/1",
+          "decision": "ALLOW"
+        }
+      ]
+    }
+  ]
+}
