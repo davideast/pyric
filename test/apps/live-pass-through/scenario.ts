@@ -139,6 +139,7 @@ export default scenario(async (app) => {
     const live = await liveHealth(host.url);
     assert.equal(live.projectId, 'demo-live-pass-through');
     assert.deepEqual(live.passThrough, PASSED);
+    assert.deepEqual(live.observed, ['firebase/app', 'firebase/auth']);
   });
 
   await app.step('stop the dev server', async () => {
