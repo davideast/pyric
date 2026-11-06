@@ -17,7 +17,7 @@
  * passes that config through unchanged. Nothing in pyric, `@pyric/cli` or
  * `@pyric/live` points anywhere: no flag, option or variable of theirs is set.
  *
- * Each call live mode refuses (Cloud Storage, a named database, the Admin
+ * Each call live mode refuses (Cloud Functions, a named database, the Admin
  * SDK, an `@firebase/*` package, pyric's own writes from MCP or a pyric
  * command on the `pyric-live` host) throws pyric's refusal, and the replay
  * server receives nothing for it. So does app code that would skip the live
@@ -56,7 +56,7 @@ declare function openGarden(): Promise<string>;
 declare function openRooms(): string[];
 declare function deliveryCount(): number;
 declare function billedDocumentCount(): number;
-declare const refused: Record<'storage' | 'sdkPackage' | 'namedDatabase', () => Promise<string> | string> & {
+declare const refused: Record<'functions' | 'sdkPackage' | 'namedDatabase', () => Promise<string> | string> & {
   cacheBusted(variant: 't' | 'amp' | 'encodedName' | 'absolute' | 'absoluteQuery' | 'id' | 'idQuery', root?: string): Promise<string>;
 };
 
@@ -299,7 +299,7 @@ export default scenario(async (app) => {
 
   await app.step('each call the page makes that live mode refuses throws its refusal and sends nothing', async () => {
     const outcomes = await sendsNothing(app, replay, async () => ({
-      storage: await page.evaluate(() => refused.storage()),
+      functions: await page.evaluate(() => refused.functions()),
       sdkPackage: await page.evaluate(() => refused.sdkPackage()),
       namedDatabase: await page.evaluate(() => refused.namedDatabase()),
       cacheBusted: await page.evaluate(() => refused.cacheBusted('t')),
@@ -310,7 +310,7 @@ export default scenario(async (app) => {
       idPath: await page.evaluate((root) => refused.cacheBusted('id', root), realpathSync(app.dir)),
       idPathQuery: await page.evaluate((root) => refused.cacheBusted('idQuery', root), realpathSync(app.dir)),
     }));
-    assert.match(outcomes.storage, new RegExp(`^${REFUSED}: @pyric/live: firebase/storage \\(Cloud Storage\\) is refused in live mode`));
+    assert.match(outcomes.functions, new RegExp(`^${REFUSED}: @pyric/live: firebase/functions \\(Cloud Functions\\) is refused in live mode`));
     assert.match(outcomes.sdkPackage, new RegExp(`^${REFUSED}: @pyric/live: @firebase/firestore \\(a Firebase SDK package; apps import firebase/firestore\\) is refused in live mode`));
     assert.match(outcomes.namedDatabase, new RegExp(`^${REFUSED}: @pyric/live: getFirestore with the database "reports" is refused in live mode, from a page`));
     // The SDK file the rows loaded, imported again under another URL Vite would serve it at: a second, unwrapped copy.
@@ -325,7 +325,7 @@ export default scenario(async (app) => {
     const run = await sendsNothing(app, replay, () => app.command('node', ['--import', '@pyric/live/register', 'refusals.mjs'], { timeoutMs: 60_000 }));
     assert.equal(run.code, 0, run.output);
     const outcomes = resultOf(run.output) as Record<string, string>;
-    assert.match(outcomes.storage!, new RegExp(`^${REFUSED}: @pyric/live: firebase/storage \\(Cloud Storage\\) is refused in live mode`));
+    assert.match(outcomes.functions!, new RegExp(`^${REFUSED}: @pyric/live: firebase/functions \\(Cloud Functions\\) is refused in live mode`));
     assert.match(outcomes.admin!, new RegExp(`^${REFUSED}: @pyric/live: firebase-admin/firestore \\(the Admin SDK\\) is refused in live mode`));
     assert.match(outcomes.namedDatabase!, new RegExp(`^${REFUSED}: @pyric/live: getFirestore with the database "reports" is refused in live mode, from a Node process`));
     // Google's server Firestore client stops at import, and a raw request to a live row host never opens a socket.
