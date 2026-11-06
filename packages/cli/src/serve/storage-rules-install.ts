@@ -5,11 +5,11 @@
  *
  * The default bucket's rules open the Storage service, which honors rules
  * only on its first open. Each bucket `firebase.json` names gets its own
- * rules by name, and a bucket nothing deploys to is locked, as production
+ * rules by name. A bucket nothing deploys to is locked, as production
  * creates a bucket (#1313), or open when the session is permissive (owner
- * decision multi-resource-1), as an RTDB instance without rules is. A deploy target no project resolved when the
- * server started deploys to its buckets once the page's app config names
- * the project. A dev server's later rules change arrives as a
+ * decision multi-resource-1), as an RTDB instance without rules is. A deploy
+ * target no project resolved when the server started deploys to its buckets
+ * once the page's app config names the project. A dev server's later rules change arrives as a
  * {@link StorageRulesUpdate} and replaces one bucket's or one target's rules
  * in place.
  */
@@ -24,13 +24,26 @@ import type { InitPayload, PendingStorageTargetRules, RulesDestination } from '.
 
 /** One bucket's or one deploy target's rules change, as a dev server broadcasts it. */
 export interface StorageRulesUpdate {
-  /** The new source, or null when the file was deleted and the bucket returns to denying. */
+  /** The new source, or null when the file was deleted and the bucket returns to its default policy. */
   rules: string | null;
+  /** The default policy a bucket with no rules follows: `allow` in permissive mode. Absent means `deny`. */
+  policy?: StorageDefaultPolicy;
   rulesHash?: string | null;
   /** The bucket by name, absent for the default bucket. */
   bucket?: string;
   /** A deploy target no project resolved at startup, in place of `bucket`. */
   target?: string;
+}
+
+/** What a bucket with no rules deployed answers: `allow` in permissive mode, else `deny`. */
+export type StorageDefaultPolicy = 'allow' | 'deny';
+
+/** Each sandbox's default policy, kept for the notices of targets resolved after install. */
+const policyBySandbox = new WeakMap<Sandbox, StorageDefaultPolicy>();
+
+/** What a bucket with no rules does under `policy`, as a notice says it. */
+function undeployedBucketAccess(policy: StorageDefaultPolicy | undefined): string {
+  return policy === 'allow' ? 'are open (permissive mode)' : 'are locked';
 }
 
 /** A pending deploy target's rules, and the buckets it deploys to once resolved. */
@@ -58,7 +71,9 @@ export function installServedStorageRules(
     ...(payload.storageRules ? { rules: payload.storageRules } : {}),
     ...(payload.projectKey ? { projectId: payload.projectKey } : {}),
   });
-  lockUndeployedStorageBuckets(sandbox, payload.permissive === true ? 'allow' : 'deny');
+  const policy: StorageDefaultPolicy = payload.permissive === true ? 'allow' : 'deny';
+  policyBySandbox.set(sandbox, policy);
+  lockUndeployedStorageBuckets(sandbox, policy);
   for (const [bucket, deployed] of Object.entries(payload.storageBucketRules ?? {})) {
     deployStorageBucketRules(sandbox, bucket, deployed.rules);
   }
@@ -94,14 +109,15 @@ export function resolvePendingStorageTargets(sandbox: Sandbox, projectId: string
 function resolveTarget(sandbox: Sandbox, target: PendingTarget, projectId: string): string {
   const name = target.entry.target;
   const buckets = target.entry.bucketsByProject[projectId] ?? [];
+  const access = undeployedBucketAccess(policyBySandbox.get(sandbox));
   target.buckets = buckets;
   if (buckets.length === 0) {
-    return `Storage deploy target "${name}" has no .firebaserc mapping for the app config project "${projectId}"; its buckets stay locked.`;
+    return `Storage deploy target "${name}" has no .firebaserc mapping for the app config project "${projectId}"; its buckets ${access}.`;
   }
   try {
     for (const bucket of buckets) deployStorageBucketRules(sandbox, bucket, target.entry.rules);
   } catch (error) {
-    return `Storage deploy target "${name}" rules not loaded, so its buckets stay locked: ${error instanceof Error ? error.message : String(error)}`;
+    return `Storage deploy target "${name}" rules not loaded, so its buckets ${access}: ${error instanceof Error ? error.message : String(error)}`;
   }
   return `Storage deploy target "${name}" resolved with the app config project "${projectId}": its rules now apply to ${buckets.join(', ')}.`;
 }
@@ -132,8 +148,13 @@ export async function applyStorageRulesUpdate(sandbox: Sandbox, update: StorageR
 /** What a served plane logs for one bucket's rules change. */
 export function storageRulesUpdateNotice(update: StorageRulesUpdate): string {
   const file = storageUpdateSubject(update);
-  if (update.rules === null) return `${file} removed; client Storage operations on it default to deny`;
+  if (update.rules === null) return `${file} removed; client Storage operations on it ${removedAccess(update.policy)}`;
   return `${file} hot-reloaded`;
+}
+
+/** What client operations on a bucket whose rules file was removed do under `policy`. */
+function removedAccess(policy: StorageDefaultPolicy | undefined): string {
+  return policy === 'allow' ? 'are open (permissive mode)' : 'default to deny';
 }
 
 function storageUpdateSubject(update: StorageRulesUpdate): string {

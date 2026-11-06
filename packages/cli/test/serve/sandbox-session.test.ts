@@ -483,6 +483,22 @@ service firebase.storage {
     await session.close();
   });
 
+  it('reports an open bucket when the Storage rules file is deleted in permissive mode', async () => {
+    const root = project();
+    const rulesPath = join(root, 'storage.rules');
+    writeFileSync(rulesPath, storageRules('removed'));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      permissive: true,
+    });
+    rmSync(rulesPath);
+    const removed = await session.reloadStorageRules(rulesPath);
+    expect(removed).toEqual([{ bucket: null, file: rulesPath, result: { kind: 'removed', policy: 'allow', clients: 0 } }]);
+    await session.close();
+  });
+
   it('deploys reloaded and removed Storage rules to the Node sandbox', async () => {
     const root = project();
     const rulesPath = join(root, 'storage.rules');
