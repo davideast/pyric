@@ -69,6 +69,14 @@ describe('the activity source a Storage call records', () => {
     expect(recordedTarget({ bucket: 'demo.appspot.com', fullPath: 'avatars/a.png' })).toBe('gs://demo.appspot.com/avatars/a.png');
   });
 
+  it('reads a gs:// storageBucket as its name, on the source and the row', () => {
+    const event = storageOperation({ bucket: 'gs://demo.appspot.com' });
+    expect(recordedTarget({ bucket: 'gs://demo.appspot.com', fullPath: 'p' })).toBe('gs://demo.appspot.com/p');
+    expect(storageGsPath(event, 'p')).toBe('gs://demo.appspot.com/p');
+    expect(storageObjectGsPath('gs://demo.appspot.com/', 'p')).toBe('gs://demo.appspot.com/p');
+    expect(storageObjectGsPath('gs://', 'p')).toBeUndefined();
+  });
+
   it('keeps a bucketless reference out of every bucket', () => {
     const target = recordedTarget({ bucket: '', fullPath: 'avatars/a.png' });
     expect(target).toBe('avatars/a.png');

@@ -25,11 +25,12 @@ function storageBucket(event: SandboxEvent): string | undefined {
  * An object in a named bucket as `gs://<bucket>/<path>`, and `gs://<bucket>/`
  * for the bucket's root. A Storage row and the activity source that made it
  * both read this form, so a source filter compares like with like.
- * `undefined` when no bucket is named, so a bucketless target never reads as
- * one in a bucket.
+ * A bucket given as a `gs://<bucket>` URL, as an app's `storageBucket` may
+ * be, reads as its name. `undefined` when no bucket is named, so a bucketless
+ * target never reads as one in a bucket.
  */
 export function storageObjectGsPath(bucket: string | undefined, path: string | undefined): string | undefined {
-  const named = nonEmptyString(bucket);
+  const named = nonEmptyString(bucket?.replace(/^gs:\/\//, '').replace(/\/+$/, ''));
   if (named === undefined) return undefined;
   const objectPath = (path ?? '').replace(/^\/+/, '');
   return `gs://${named}/${objectPath}`;

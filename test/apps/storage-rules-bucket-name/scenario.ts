@@ -17,10 +17,31 @@ export default scenario(async (app) => {
   const host = await app.step('start the hosted dev server', () => app.devServer());
   const env = { PYRIC_SANDBOX: `remote:${host.url}` };
 
-  await app.step('the page uploads and reads back under the app bucket name', async () => {
-    const page = await app.page(host.url);
-    await page.waitForFunction(() => 'uploadAndRead' in window);
-    assert.equal(await page.evaluate(() => uploadAndRead('page/a.txt')), BUCKET);
+  const page = await app.step('the page uploads and reads back under the app bucket name', async () => {
+    const opened = await app.page(host.url);
+    await opened.waitForFunction(() => 'uploadAndRead' in window);
+    assert.equal(await opened.evaluate(() => uploadAndRead('page/a.txt')), BUCKET);
+    return opened;
+  });
+
+  await app.step("the chip's Data source for the upload opens Traffic on its Storage rows (#2244)", async () => {
+    const object = `gs://${BUCKET}/page/a.txt`;
+    const chip = page.locator('[data-pyric-runtime-chip-host]');
+    await chip.waitFor({ state: 'attached', timeout: 30_000 });
+    const expand = chip.locator('[data-expand]');
+    if (await expand.isVisible()) await expand.click();
+    await chip.locator('[data-chip-tab="listeners"]').click();
+    const source = chip.locator('[data-listener-rows] [data-listener-row]').filter({ hasText: 'page/a.txt' });
+    await source.first().waitFor({ timeout: 15_000 });
+    assert.equal(await source.count(), 1, 'one Data source for the object');
+    await source.click();
+    await chip.locator('[data-source-traffic]').click();
+    const breadcrumb = chip.locator('[data-chip-view="traffic"] .breadcrumb-target');
+    await breadcrumb.waitFor({ timeout: 15_000 });
+    assert.equal((await breadcrumb.textContent())?.trim(), object);
+    const paths = await chip.locator('[data-request-row] .c2').allTextContents();
+    assert.ok(paths.length > 0, 'Traffic lists the Storage rows for the source');
+    assert.deepEqual(paths.map(path => path.trim()), paths.map(() => object));
   });
 
   await app.step('a registered server script uploads and reads back under the app bucket name', async () => {
