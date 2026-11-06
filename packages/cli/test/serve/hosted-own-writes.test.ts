@@ -29,6 +29,7 @@ import { createHostedRuntime } from ${JSON.stringify(pathToFileURL(join(cliDist,
 import { liveWriteRefusal } from ${JSON.stringify(pathToFileURL(join(liveDist, 'refusal.js')).href)};
 
 const OPEN_RULES = "rules_version = '2';\\nservice cloud.firestore { match /databases/{db}/documents { match /{p=**} { allow read, write: if true; } } }";
+const CLOSED_RULES = "rules_version = '2';\\nservice cloud.firestore { match /databases/{db}/documents { match /{p=**} { allow read, write: if false; } } }";
 
 async function host(live) {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-own-writes-'));
@@ -77,6 +78,15 @@ for (const live of [true, false]) {
   const provision = live
     ? await h.command('storage.provision', { bucket: 'demo.firebasestorage.app', confirm: true }, true)
     : { data: { code: 'not-sent' } };
+  // Firestore rules writes change sandbox rules the live app never uses.
+  const codeOf = (res) => res.ok ? 'ok' : res.error.code;
+  const pageRules = codeOf(await h.op('page-1', { method: 'setRules', source: CLOSED_RULES }));
+  const studioRules = codeOf(await h.op('studio-1', { method: 'setFirestoreRules', source: CLOSED_RULES, issuer: 'studio' }));
+  const rulesCommand = await h.command('rules.set', { service: 'firestore', rules: CLOSED_RULES });
+  const commandRules = rulesCommand.ok ? 'ok' : rulesCommand.data?.code;
+  const active = await h.op('page-1', { method: 'getActiveRules', service: 'firestore' });
+  const activeRules = active.value?.source === OPEN_RULES ? 'open' : active.value?.source === CLOSED_RULES ? 'closed' : 'other';
+  if (!live) await h.command('rules.set', { service: 'firestore', rules: OPEN_RULES });
   const reads = [];
   for (const path of ['rooms/a', 'rooms/b', 'rooms/c', 'rooms/d']) reads.push(await h.op('page-1', { method: 'getDoc', path }));
   const failedRead = reads.find((entry) => !entry.ok);
@@ -91,6 +101,7 @@ for (const live of [true, false]) {
     provision: provision.data?.code + ': ' + (provision.summary ?? ''),
     read: read.ok ? 'ok' : read.error.code,
     documents: read.ok ? read.value.docs.length : -1,
+    pageRules, studioRules, commandRules, activeRules,
   };
   await h.close();
 }
@@ -118,12 +129,15 @@ describe('a Node host in live mode', () => {
       expect(live.userWrite).toStartWith("PYRIC_LIVE_REFUSED: @pyric/live: auth.adminCreateUser from a page's pyric runtime is refused");
       expect(live.impersonate).toStartWith('PYRIC_LIVE_REFUSED: @pyric/live: auth.impersonate from a pyric command is refused in live mode.');
       expect(live.provision).toStartWith('PYRIC_LIVE_REFUSED: @pyric/live: storage.provision from a pyric command is refused in live mode.');
+      expect([live.pageRules, live.studioRules, live.commandRules]).toEqual(['PYRIC_LIVE_REFUSED', 'PYRIC_LIVE_REFUSED', 'PYRIC_LIVE_REFUSED']);
+      expect(live.activeRules).toBe('open');
       expect(live.read).toBe('ok');
       expect(live.documents).toBe(0);
       // Without the refusal, the same host makes every one of those writes and switches identity.
       expect(outcome.sandbox).toEqual({
         pageWrite: 'ok', studioWrite: 'ok', toolWrite: 'ok', commandWrite: 'ok', userWrite: 'ok',
         impersonate: 'ok', provision: 'not-sent: ', read: 'ok', documents: 4,
+        pageRules: 'ok', studioRules: 'ok', commandRules: 'ok', activeRules: 'closed',
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
