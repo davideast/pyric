@@ -189,6 +189,9 @@ describe('@pyric/live/register', () => {
     });
     expect(res.sdkFiles).toEqual([]);
     expect(res.stderr).toContain("In live mode, the installed SDK loads only through @pyric/live's rows.");
+    expect(res.stderr).toContain(
+      'Fix: import firebase/app, firebase/auth, firebase/firestore, firebase/app-check or firebase/database by its package name',
+    );
     // The row's id names the row module, never the installed SDK behind it: imported directly, it is the row.
     const firestoreRow = await rowUrl('firebase/firestore');
     const direct = run([LIVE_REGISTER], [firestoreRow]);
