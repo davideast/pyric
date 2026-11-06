@@ -101,6 +101,42 @@ describe('a sandbox page checks its proxy targets', () => {
   });
 });
 
+describe('WebSocket and HTTPS targets', () => {
+  it('asks a ws:// target over HTTP', async () => {
+    const backend = await target({ pyricProcess: { mode: 'sandbox', instanceId: 'host-1' } });
+    const proxy = { '/socket.io': { target: backend.replace('http:', 'ws:'), ws: true } };
+    expect(await verdicts(sandboxHost, proxy)).toEqual({ '/socket.io': 'same' });
+  });
+
+  it('asks an https:// or wss:// target over HTTPS, and reads a failed handshake as no answer', async () => {
+    const backend = await target({ pyricProcess: { mode: 'sandbox', instanceId: 'host-1' } });
+    const proxy = {
+      '/tls': backend.replace('http:', 'https:'),
+      '/wss': { target: backend.replace('http:', 'wss:'), ws: true },
+    };
+    expect(await verdicts(sandboxHost, proxy)).toEqual({ '/tls': 'not-pyric', '/wss': 'not-pyric' });
+  });
+
+  it('never rejects, whatever the target', async () => {
+    const proxy: Record<string, unknown> = {
+      '/ws': { target: `ws://127.0.0.1:${await closedPort()}`, ws: true },
+      '/ftp': 'ftp://localhost:21',
+      '/https': `https://localhost:${await closedPort()}`,
+    };
+    const check = createProxyCheck({ proxy, host: () => sandboxHost, warn: () => {} });
+    await expect(check.checkAll()).resolves.toBeUndefined();
+    for (const context of Object.keys(proxy)) {
+      const entry = proxy[context] as { configure: (server: ProxyHook, options: unknown) => void };
+      const listeners: Record<string, () => void> = {};
+      const proxyServer: ProxyHook = { on: (event, listener) => { listeners[event] = listener as () => void; return proxyServer; } };
+      entry.configure(proxyServer, entry);
+      listeners.proxyRes?.();
+    }
+    await expect(check.settled()).resolves.toBeUndefined();
+    expect(check.report().map((entry) => entry.verdict)).toEqual(['not-pyric', 'not-pyric', 'not-pyric']);
+  });
+});
+
 describe('a live page checks its proxy targets', () => {
   it('gives each kind of backend its verdict', async () => {
     const proxy = {

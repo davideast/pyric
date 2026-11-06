@@ -10,7 +10,8 @@
  * refuses. The host's `/__pyric/health` lists each verdict as `proxyTargets`.
  */
 import http from 'node:http';
-import { PROCESS_HEALTH_HEADER, PROCESS_HEALTH_PATH } from '../register/process-health.js';
+import https from 'node:https';
+import { PROCESS_HEALTH_HEADER, PROCESS_HEALTH_PATH, type ProcessHealth } from '../register/process-health.js';
 import { isLoopbackAddress } from './peer.js';
 
 export type ProxyVerdict = 'same' | 'other-mode' | 'other-instance' | 'other-project' | 'pyric-host' | 'not-pyric';
@@ -41,16 +42,23 @@ export interface ProxyHook {
 
 type Configure = (proxy: ProxyHook, options: unknown) => void;
 
-interface ProcessAnswer {
-  readonly mode?: string;
-  readonly instanceId?: string;
-  readonly projectId?: string;
-}
+/** A target's process health, read from the network, so any field may be missing. */
+type ProcessAnswer = Partial<ProcessHealth>;
 
 /** A target's answer: null when it did not answer at all. */
 type TargetAnswer = { readonly process?: ProcessAnswer; readonly pyricHost: boolean } | null;
 
 const PROBE_TIMEOUT_MS = 1000;
+/** A process health answer is a few hundred bytes; a longer body is not one. */
+const MAX_HEALTH_BODY_BYTES = 16 * 1024;
+
+/** The health request's protocol for a proxy target: a WebSocket target is asked over HTTP(S). */
+const PROBE_PROTOCOLS: Readonly<Record<string, 'http:' | 'https:'>> = {
+  'http:': 'http:',
+  'ws:': 'http:',
+  'https:': 'https:',
+  'wss:': 'https:',
+};
 
 function targetOf(entry: unknown): string | undefined {
   if (typeof entry === 'string') return entry;
@@ -86,19 +94,51 @@ function parseAnswer(text: string): TargetAnswer {
   }
 }
 
-/** Asks one target for its process health. Any HTTP answer counts as answered. */
+function healthUrl(target: string): URL | null {
+  const parsed = new URL(target);
+  const protocol = PROBE_PROTOCOLS[parsed.protocol];
+  if (protocol === undefined) return null;
+  return new URL(`${protocol}//${parsed.host}${PROCESS_HEALTH_PATH}`);
+}
+
+function readAnswer(response: http.IncomingMessage, resolve: (answer: TargetAnswer) => void): void {
+  let text = '';
+  response.setEncoding('utf8');
+  response.on('data', (chunk: string) => {
+    text += chunk;
+    const isTooLong = text.length > MAX_HEALTH_BODY_BYTES;
+    if (isTooLong) {
+      resolve({ pyricHost: false });
+      response.destroy();
+    }
+  });
+  response.on('end', () => resolve(response.statusCode === 200 ? parseAnswer(text) : { pyricHost: false }));
+  response.on('error', () => resolve({ pyricHost: false }));
+}
+
+/**
+ * Asks one target for its process health. Any HTTP answer counts as
+ * answered. Never rejects: a target it cannot ask reads as no answer.
+ */
 export function probeProxyTarget(target: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<TargetAnswer> {
-  const url = new URL(PROCESS_HEALTH_PATH, new URL(target).origin);
   return new Promise((resolve) => {
-    const request = http.get(url, { headers: { [PROCESS_HEALTH_HEADER]: '1' }, timeout: timeoutMs }, (response) => {
-      let text = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk: string) => { text += chunk; });
-      response.on('end', () => resolve(response.statusCode === 200 ? parseAnswer(text) : { pyricHost: false }));
-      response.on('error', () => resolve({ pyricHost: false }));
-    });
-    request.on('timeout', () => request.destroy());
-    request.on('error', () => resolve(null));
+    try {
+      const url = healthUrl(target);
+      if (url === null) {
+        resolve(null);
+        return;
+      }
+      const options = { headers: { [PROCESS_HEALTH_HEADER]: '1' }, timeout: timeoutMs };
+      const onResponse = (response: http.IncomingMessage): void => readAnswer(response, resolve);
+      // A loopback dev backend's certificate is usually self-signed.
+      const request = url.protocol === 'https:'
+        ? https.get(url, { ...options, rejectUnauthorized: false }, onResponse)
+        : http.get(url, options, onResponse);
+      request.on('timeout', () => request.destroy());
+      request.on('error', () => resolve(null));
+    } catch {
+      resolve(null);
+    }
   });
 }
 
@@ -204,7 +244,7 @@ export function createProxyCheck(input: {
       const skips = rechecked || state.answered;
       if (skips) return;
       rechecked = true;
-      void track(check(state, true));
+      track(check(state, true)).catch(() => {});
     };
     const proxy = input.proxy as Record<string, unknown>;
     proxy[state.target.context] = chainConfigure(proxy[state.target.context], recheck);
@@ -266,7 +306,7 @@ export function attachViteProxyCheck(
     host: () => ({ ...identity, url: server.resolvedUrls?.local[0] }),
     warn: (line) => server.config.logger.warn(line, { timestamp: true }),
   });
-  httpServer.once('listening', () => { void check.checkAll(); });
+  httpServer.once('listening', () => { check.checkAll().catch(() => {}); });
   const instanceId = identity.instanceId;
   if (instanceId === undefined) return () => {};
   return reportProxyTargets(instanceId, () => check.report());
