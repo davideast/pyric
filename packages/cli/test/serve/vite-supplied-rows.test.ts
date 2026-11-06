@@ -114,6 +114,16 @@ describe('live rows, once opened', () => {
     expect(swap.resolveId('firebase/app', userFirebaseFile)).toBe(rowId('firebase/app'));
   });
 
+  it('record each specifier resolved to a row module once, in first-import order, and nothing it refused or passed on', () => {
+    const recording = openSwap();
+    recording.resolveId('firebase/auth', userImporter);
+    recording.resolveId('firebase/firestore', userImporter);
+    recording.resolveId('firebase/auth', '/app/node_modules/a-library/index.js');
+    recording.resolveId('firebase/firestore', rowId('firebase/firestore'));
+    recording.resolveId('firebase/functions', userImporter);
+    expect([...recording.observed]).toEqual(['firebase/auth', 'firebase/firestore']);
+  });
+
   it('give the row modules their one observer, and no other importer', () => {
     expect(swap.resolveId(OBSERVER_SPECIFIER, rowId('firebase/auth'))).toBe(OBSERVER_MODULE_ID);
     expect(swap.resolveId(OBSERVER_SPECIFIER, userImporter)).toBeNull();

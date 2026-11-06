@@ -84,7 +84,7 @@ export function enforceRules(
   if (inForce.kind !== 'rules') {
     const reason = noRulesReason(inForce);
     emitOperation(target, input, 'deny', [reason], 'user', false, boundProvenance);
-    throw unauthorized(input.request.method, input.request.path, ` — ${reason}`);
+    throw unauthorized(input.request.method, input.request.path, ` — ${reason}`, deniedBucketName(target));
   }
   const evaluationInput = target ? withCanonicalRulesPath(input, target) : input;
   // `request.time` is the sandbox's clock when the caller has a sandbox handle,
@@ -100,9 +100,15 @@ export function enforceRules(
   if (!result.allowed) {
     emitOperation(target, input, 'deny', result.reasons, 'user', true, boundProvenance);
     const detail = result.reasons.length > 0 ? ` — ${result.reasons.join('; ')}` : '';
-    throw unauthorized(input.request.method, input.request.path, detail);
+    throw unauthorized(input.request.method, input.request.path, detail, deniedBucketName(target));
   }
   emitOperation(target, input, 'allow', result.reasons, 'user', true, boundProvenance);
+}
+
+/** The name a denial gives the bucket: the one its rules saw, when the request came through a sandbox handle. */
+function deniedBucketName(target: Target | undefined): string | undefined {
+  if (target?.kind !== 'sandbox') return undefined;
+  return rulesBucketName(target.bucket, target.bucketName);
 }
 
 /** The rules a request is checked against: its bucket's, through a sandbox handle. */

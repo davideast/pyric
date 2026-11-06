@@ -110,6 +110,21 @@ describe('per-bucket Storage rules', () => {
     expect(await uploadOutcome(scoped, 'a.txt')).toBe('storage/unauthorized');
   });
 
+  it('names the bucket in a rules denial', async () => {
+    const sandbox = freshSandbox();
+    await deployHuntRules(sandbox);
+    await replaceStorageRules(sandbox, SIGNED_IN, { bucket: MEDIA_BUCKET });
+    const denial = await uploadBytes(ref(appStorage(sandbox, `gs://${MEDIA_BUCKET}`), 'a.txt'), BYTES).catch(
+      (error: unknown) => error as { code?: string; message?: string },
+    );
+    expect(denial).toMatchObject({ code: 'storage/unauthorized' });
+    expect((denial as { message?: string }).message).toContain(`"${MEDIA_BUCKET}"`);
+    const defaultDenial = await uploadBytes(ref(appStorage(sandbox), 'a.txt'), BYTES).catch(
+      (error: unknown) => error as { message?: string },
+    );
+    expect((defaultDenial as { message?: string }).message).toContain(`"${DEFAULT_BUCKET}"`);
+  });
+
   it('replaceStorageRules with a bucket leaves the other buckets alone', async () => {
     const sandbox = freshSandbox();
     await deployHuntRules(sandbox);

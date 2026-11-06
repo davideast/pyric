@@ -4,7 +4,7 @@ import type { ViteDevServer } from 'vite';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
 import { resolveFirebaseProject } from '../cli/firebase-project.js';
 import { requireLiveProject } from './live-project.js';
-import { createLiveHostState } from './live-host-state.js';
+import { createLiveHostState, type ObservedImportsSource } from './live-host-state.js';
 import { registerModuleUrl } from '../cli/sandbox-runner.js';
 import {
   discoverFunctionsProject,
@@ -67,6 +67,8 @@ export interface ViteSandboxGenerationOptions {
   liveHost?: boolean;
   /** The live host's pass-through imports, which its health report lists (`live-host-state.ts`). */
   livePassThrough?: readonly string[];
+  /** The imports the page resolved to live rows, read at each report (`live-host-state.ts`). */
+  liveObserved?: ObservedImportsSource;
   /**
    * Live mode's refusal of pyric's own writes, from the installed
    * `@pyric/live` when the live rows are open (`hosted/own-writes.ts`). With
@@ -234,6 +236,7 @@ export async function createViteSandboxGeneration(
         optionName: 'the `project` option of pyricLive()',
         warn: (line) => server.config.logger.warn(line, { timestamp: true }),
         passThrough: options.livePassThrough,
+        observed: options.liveObserved,
       })
       : undefined;
     const bridgeInput = {
