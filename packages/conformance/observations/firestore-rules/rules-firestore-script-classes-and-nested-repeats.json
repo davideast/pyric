@@ -1,0 +1,25 @@
+{
+  "name": "rules-firestore-script-classes-and-nested-repeats",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#227"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"script-classes-and-nested-repeats\" (Coverage: RE2 script classes in matches()). A guard on a Unicode script (`\\p{Cyrillic}`, `\\p{Han}`) reads RE2's script class in matches(), and a nested repeat in split() and replace() on a 27-character subject answers as production does.",
+  "observedAt": "2026-11-04T02:35:05.214Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "1626ab8e985c1636d50f3bf22c2e0dd78c3c211d47441c90c7bb9d9426adb1c0"
+  },
+  "behavior": {
+    "sg0: !request.resource.data.name.matches('.*\\\\p{Cyrillic}.*')": "DENY",
+    "sg1: !request.resource.data.name.matches('.*\\\\p{Cyrillic}.*')": "ALLOW",
+    "sg2: !'p{Greek}'.matches('\\\\p{Greek}')": "ALLOW",
+    "sg3: '中'.matches('\\\\p{Han}')": "ALLOW",
+    "sg4: 'a'.matches('[\\\\p{Latin}]')": "ALLOW",
+    "sg5: !'α'.matches('\\\\P{Greek}')": "ALLOW",
+    "rd0: request.resource.data.s.split('(a+)+b').size() == 1": "ALLOW",
+    "rd1: request.resource.data.s.replace('(a+)+b', '') == request.resource.data.s": "ALLOW"
+  }
+}

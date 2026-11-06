@@ -430,6 +430,46 @@ describe('a call production served', () => {
     });
   });
 
+  const MODEL = 'models/gemini-flash-lite-latest';
+  const USAGE = { promptTokenCount: 9, candidatesTokenCount: 2, totalTokenCount: 11 };
+
+  it("reads an observed AI call as production's row with its model and tokens", () => {
+    const event = observed({ service: 'ai', method: 'generateContent', path: undefined, at: 1000, durationMs: 80, ai: { model: MODEL, usage: USAGE } }, { kind: 'page', pageId: 'tab-1' });
+    const row = chipRequestFromEvent(event, 'tab-1');
+    expect(row).toMatchObject({
+      service: 'ai',
+      method: 'generateContent',
+      path: MODEL,
+      verdict: 'ok',
+      production: { status: 'ok' },
+      source: 'page',
+      aiRequest: {
+        method: 'generateContent',
+        status: 'completed',
+        startedAt: 1000,
+        detail: { requestedModel: MODEL, engine: 'gemini', usageSource: 'backend', inputTokens: 9, outputTokens: 2, totalTokens: 11 },
+      },
+    });
+    expect(row?.aiRequest).not.toHaveProperty('response');
+  });
+
+  it("reads App Check's 401 on an AI call as production's failure", () => {
+    const event = observed({ service: 'ai', method: 'generateContent', path: undefined, outcome: { status: 'error', code: 'unauthenticated' }, ai: { model: MODEL } });
+    expect(chipRequestFromEvent(event)).toMatchObject({
+      verdict: 'error',
+      production: { status: 'error', code: 'unauthenticated' },
+      aiRequest: { status: 'failed', detail: { usageSource: 'unknown' } },
+    });
+  });
+
+  it('orders observed AI rows by when production answered, not when the call started', () => {
+    const slow = observed({ service: 'ai', method: 'generateContentStream', path: undefined, at: 1000, durationMs: 5000, ai: { model: MODEL, usage: USAGE } });
+    const quick = observed({ service: 'ai', method: 'countTokens', path: undefined, at: 2000, durationMs: 50, ai: { model: MODEL, usage: { totalTokens: 9 } } });
+    const rows = [slow, quick].map(event => chipRequestFromEvent(event)!);
+    expect(rows.map(row => row.at)).toEqual([6000, 2050]);
+    expect(orderChipRequests(rows, 7000).map(row => row.method)).toEqual(['generateContentStream', 'countTokens']);
+  });
+
   it('leaves a sandbox-served operation without a production answer', () => {
     expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
     const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;

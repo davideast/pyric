@@ -678,6 +678,43 @@ describe('the Traffic view', () => {
     expect(facts).toContain('Pyric observed it and did not check it against local rules.');
   });
 
+  it("shows an AI call production served with production's answer and its tokens", () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    const model = 'models/gemini-flash-lite-latest';
+    const answered = observedCallEvent({
+      service: 'ai', method: 'generateContent', at: now - 2000, durationMs: 80, outcome: { status: 'ok' },
+      ai: { model, reportedModel: 'gemini-flash-lite-001', usage: { promptTokenCount: 9, candidatesTokenCount: 2, totalTokenCount: 11 } },
+    });
+    const refused = observedCallEvent({
+      service: 'ai', method: 'generateContent', at: now - 1000, durationMs: 20,
+      outcome: { status: 'error', code: 'unauthenticated' }, ai: { model },
+    });
+    push([answered, refused].map(event => ({ ...event, caller: { kind: 'page', pageId: 'tab-1' } }) as SandboxEvent), { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const row = root.querySelector(`[data-request-row="${answered.id}"]`)!;
+    expect(row.querySelector('.c1')!.textContent).toBe('Production · ai.generateContent');
+    expect(row.querySelector('.c2')!.textContent).toBe('Requestedgemini-flash-lite-latestRouted togemini-flash-lite-001');
+    expect(row.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production succeeded');
+    const failed = root.querySelector(`[data-request-row="${refused.id}"]`)!;
+    expect(failed.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production failed');
+    expect(failed.querySelector('.c2')!.textContent).toContain('Routed toNot reported');
+
+    root.querySelector<HTMLButtonElement>(`[data-request-row="${answered.id}"]`)!.click();
+    const facts = root.querySelector<HTMLElement>('[data-traffic-detail]')!.textContent!;
+    expect(facts).toContain('Served byProduction');
+    expect(facts).toContain('OutcomeSucceeded in production');
+    expect(facts).toContain('Routed togemini-flash-lite-001');
+    expect(facts).toContain('Input tokens9');
+    expect(facts).toContain('Output tokens2');
+    expect(facts).toContain('Response content was not recorded for this request.');
+
+    root.querySelector<HTMLButtonElement>('[data-request-back]')!.click();
+    root.querySelector<HTMLButtonElement>(`[data-request-row="${refused.id}"]`)!.click();
+    const refusal = root.querySelector<HTMLElement>('[data-traffic-detail]')!.textContent!;
+    expect(refusal).toContain('OutcomeFailed in production (unauthenticated)');
+  });
+
   /** Timers the test runs by hand, and a clock that moves with them. */
   function manualTimers() {
     let clock = 0;
