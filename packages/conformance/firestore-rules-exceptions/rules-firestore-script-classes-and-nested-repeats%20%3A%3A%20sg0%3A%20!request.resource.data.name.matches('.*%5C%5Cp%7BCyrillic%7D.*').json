@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#227","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"production reads \\p{Cyrillic} as the RE2 Cyrillic script class; pyric reads it as the letters p{Cyrillic}, so the deny-list guard allows a Cyrillic name","issue":"#1889"}
