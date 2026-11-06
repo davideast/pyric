@@ -9,6 +9,7 @@ import {
   replaceStorageRules,
   resourceFromStored,
   rulesBucketName,
+  storageBucketsWithRules,
   targetOf,
   storageFirestoreLookup,
 } from 'pyric/storage/internal';
@@ -23,6 +24,18 @@ import type { OperationResult, SurfaceContext } from '../types.js';
 import { markLintFindings } from '../rules-verdict.js';
 import { simulatedRequestResource } from './storage-request-resource.js';
 import type { RulesEngine, RulesSourceProblem } from './types.js';
+
+/**
+ * Where a `set` on the default bucket installs: under the default bucket's
+ * name when rules are deployed to it by name, as a served project whose
+ * `firebase.json` names its bucket deploys them, since that entry is the
+ * one the bucket enforces (#1313). Otherwise the default bucket's own rules.
+ */
+function defaultBucketDeploy(ctx: SurfaceContext): { bucket?: string } {
+  const target = targetOf(storageFor(ctx));
+  const name = rulesBucketName(target.bucket, target.bucketName);
+  return storageBucketsWithRules(ctx.sandbox).includes(name) ? { bucket: name } : {};
+}
 
 /** What a call has to do when it named no source and the sandbox holds none. */
 const NO_RULES_LOADED =
@@ -178,7 +191,7 @@ export const STORAGE_RULES: RulesEngine = {
 
   async install(ctx, rules) {
     try {
-      await replaceStorageRules(ctx.sandbox, rules);
+      await replaceStorageRules(ctx.sandbox, rules, defaultBucketDeploy(ctx));
     } catch (error) {
       const problem = sourceProblem(rules, error);
       return operationFailure(`Storage ${problem.body} ${problem.fix}`);

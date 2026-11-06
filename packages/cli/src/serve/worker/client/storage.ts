@@ -14,6 +14,7 @@ import {
   MAX_STORAGE_OBJECT_BYTES,
   storageObjectPath,
 } from '../protocol.js';
+import type { StorageBucketWire } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
 import type { FullMetadata, StringFormat } from 'pyric/storage';
 import { arrayBufferToBase64, decodeString, defaultRawContentType, refPathOf } from 'pyric/storage/internal';
@@ -33,6 +34,8 @@ export interface ClientFirebaseStorage {
   readonly __kind: 'client-storage';
   readonly port: ClientPort;
   readonly bucket: string;
+  /** True for a handle `getStorage` opened on a bucket by name, rather than the app's default bucket. */
+  readonly namedBucket?: boolean;
 }
 
 /** Worker-backed Storage reference (path + name; carries the port for ops). */
@@ -92,7 +95,12 @@ function normalizeStorageRefPath(path: string): string {
  * Get the worker-backed Storage handle. Like `getAuth`, accepts an existing
  * `ClientDb` (reusing its port) or a worker URL (standalone).
  */
-export function getStorage(source: ClientDb | string | URL, name?: string, bucketUrl?: string): ClientFirebaseStorage {
+export function getStorage(
+  source: ClientDb | string | URL,
+  name?: string,
+  bucketUrl?: string,
+  namedBucket = false,
+): ClientFirebaseStorage {
   let port: ClientPort;
   if (typeof source === 'object' && '__kind' in source && source.__kind === 'client-db') {
     port = source.port;
@@ -111,7 +119,16 @@ export function getStorage(source: ClientDb | string | URL, name?: string, bucke
     port.start();
     wirePort(port);
   }
-  return { __kind: 'client-storage', port, bucket: bucketUrl ?? 'pyric-default' };
+  return { __kind: 'client-storage', port, bucket: bucketUrl ?? 'pyric-default', ...(namedBucket ? { namedBucket } : {}) };
+}
+
+/**
+ * The bucket an object op names on the wire: a bucket `getStorage` opened by
+ * name goes by that name, with its own objects and rules (#1313). The default
+ * bucket names none, and the host serves its own default bucket.
+ */
+function bucketWire(reference: ClientStorageReference): StorageBucketWire {
+  return reference.storage?.namedBucket === true ? { bucket: reference.bucket } : {};
 }
 
 /** Build a Storage reference. Mirrors `pyric/storage`'s `ref(storage, path?)` /
@@ -148,7 +165,7 @@ export async function listAll(
   reference: ClientStorageReference,
 ): Promise<{ items: ClientStorageReference[]; prefixes: ClientStorageReference[] }> {
   const r = (await dataRpc(reference.port, {
-    t: 'op', id: nextId(), method: 'storage.listAll', path: reference.fullPath,
+    t: 'op', id: nextId(), method: 'storage.listAll', path: reference.fullPath, ...bucketWire(reference),
   })) as { items: Array<{ fullPath: string; name: string }>; prefixes: Array<{ fullPath: string; name: string }> };
   const mk = (e: { fullPath: string; name: string }): ClientStorageReference =>
     new ClientStorageReferenceImpl(reference.port, reference.bucket, e.fullPath, reference.storage);
@@ -161,7 +178,7 @@ function withReferenceBucket(reference: ClientStorageReference, metadata: FullMe
 
 async function fetchMetadataFromHost(reference: ClientStorageReference): Promise<FullMetadata> {
   return (await dataRpc(reference.port, {
-    t: 'op', id: nextId(), method: 'storage.getMetadata', path: reference.fullPath,
+    t: 'op', id: nextId(), method: 'storage.getMetadata', path: reference.fullPath, ...bucketWire(reference),
   })) as FullMetadata;
 }
 
@@ -263,6 +280,7 @@ export async function beginRouteUpload(
     id: nextId(),
     method: 'storage.beginUpload',
     path: reference.fullPath,
+    ...bucketWire(reference),
     size,
     ...(contentType !== undefined ? { contentType } : {}),
     ...(metadata !== undefined ? { metadata: metadata as Record<string, unknown> } : {}),
@@ -396,6 +414,7 @@ async function readStorageBytesAsFrames(
       id: nextId(),
       method: 'storage.getBytes',
       path: reference.fullPath,
+      ...bucketWire(reference),
     }, reservation)) as { dataB64: string; contentType?: string; size: number };
     return {
       bytes: base64ToBytes(res.dataB64),
@@ -414,6 +433,7 @@ async function readStorageBytesAsFrames(
           id: nextId(),
           method: 'storage.getBytes',
           path: reference.fullPath,
+          ...bucketWire(reference),
           offset,
           length,
           expectedGeneration: meta.generation,
@@ -443,7 +463,7 @@ function readStorageBytes(reference: ClientStorageReference): Promise<{
   size: number;
 }> {
   return dataRpc(reference.port, {
-    t: 'op', id: nextId(), method: 'storage.getBytes', path: reference.fullPath,
+    t: 'op', id: nextId(), method: 'storage.getBytes', path: reference.fullPath, ...bucketWire(reference),
   }) as Promise<{ dataB64: string; contentType?: string; size: number }>;
 }
 
@@ -460,7 +480,7 @@ export async function getDownloadURL(reference: ClientStorageReference): Promise
     const routed = route !== undefined;
     if (!routed) return undefined;
     const { path } = (await dataRpc(reference.port, {
-      t: 'op', id: nextId(), method: 'storage.getDownloadURL', path: reference.fullPath,
+      t: 'op', id: nextId(), method: 'storage.getDownloadURL', path: reference.fullPath, ...bucketWire(reference),
     }, reservation)) as { path: string };
     return new URL(path, route.baseUrl).href;
   });
@@ -572,6 +592,7 @@ async function uploadByteArray(
       id: nextId(),
       method: 'storage.putBytes',
       path: reference.fullPath,
+      ...bucketWire(reference),
       dataB64: bytesToBase64(bytes),
       ...(contentType !== undefined ? { contentType } : {}),
       ...(metadata !== undefined ? { metadata: metadata as Record<string, unknown> } : {}),
@@ -588,6 +609,7 @@ async function uploadByteArray(
     id: nextId(),
     method: 'storage.beginUpload',
     path: reference.fullPath,
+    ...bucketWire(reference),
     size: bytes.byteLength,
     ...(contentType !== undefined ? { contentType } : {}),
     ...(metadata !== undefined ? { metadata: metadata as Record<string, unknown> } : {}),
@@ -694,7 +716,7 @@ export async function getBytes(
  *  matching the sandbox backend's delete semantics). */
 export async function deleteObject(reference: ClientStorageReference): Promise<void> {
   await dataRpc(reference.port, {
-    t: 'op', id: nextId(), method: 'storage.deleteObject', path: reference.fullPath,
+    t: 'op', id: nextId(), method: 'storage.deleteObject', path: reference.fullPath, ...bucketWire(reference),
   });
 }
 
