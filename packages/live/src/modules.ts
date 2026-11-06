@@ -15,9 +15,10 @@
  * function that closes the listener's journal activity and then calls the
  * SDK's own unsubscribe.
  *
- * The database row (`database.ts`) also decorates what two exports return:
- * the Database `getDatabase` returns is noted, so a reference's repo names
- * its app, and the OnDisconnect `onDisconnect` returns gets observed
+ * The database row (`database.ts`) also replaces `getDatabase`: a URL that
+ * names another project's default instance is refused before the SDK's
+ * factory runs, and the Database it returns is noted, so a reference's repo
+ * names its app. The OnDisconnect `onDisconnect` returns gets observed
  * methods. Its `off` takes the app's callback and removes the recording one.
  *
  * The AI row (`ai.ts`) observes instances, not exports: the GenerativeModel
@@ -55,7 +56,7 @@ import {
   databaseContext,
   databaseListenerArguments,
   databaseListenerCallback,
-  noteDatabase,
+  guardedGetDatabase,
   observeOnDisconnect,
   offByCallback,
 } from './database.js';
@@ -247,11 +248,8 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
       listenerArguments: databaseListenerArguments,
       listenerCallback: databaseListenerCallback,
     },
-    decorated: {
-      getDatabase: noteDatabase,
-      onDisconnect: observeOnDisconnect,
-    },
-    replaced: { off: offByCallback },
+    decorated: { onDisconnect: observeOnDisconnect },
+    replaced: { getDatabase: guardedGetDatabase, off: offByCallback },
   },
   'live-ai': {
     calls: [],

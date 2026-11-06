@@ -510,6 +510,17 @@ function refusedProject(callSite: ObservedSite): Error | null {
   return liveProjectRefusal(callSite.name, { field: other.field, appProjectId: other.projectId, hostProjectId }, client);
 }
 
+/**
+ * The refusal of a call that has not run, judged by the instance or bucket
+ * its arguments name, or null when it may run. `getDatabase(app, url)`
+ * reaches the instance its URL names before any call a wrapper judges: the
+ * SDK opens its connection at `ref()` and sends the account's ID token and
+ * the App Check token on it. The app's config is judged where its calls run.
+ */
+export function refusedTarget(site: Omit<ObservedSite, 'name'>, name: string, target: Pick<ObservedSite, CallTargetField>): Error | null {
+  return refusedProject({ module: site.module, observer: site.observer, name, ...target });
+}
+
 function ignoreRejection(returned: unknown): void {
   const isPromise = returned instanceof Promise;
   if (isPromise) Promise.prototype.then.call(returned, undefined, () => undefined);

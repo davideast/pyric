@@ -40,8 +40,6 @@
       connectAuthEmulator(auth, backend.origin, { disableWarnings: true });
       const databases = { host: getFirestore(host), other: getFirestore(other) };
       for (const db of Object.values(databases)) connectFirestoreEmulator(db, backend.hostname, Number(backend.port));
-      const otherInstance = getDatabase(host, "https://demo-live-other-default-rtdb.firebaseio.com");
-      connectDatabaseEmulator(otherInstance, backend.hostname, Number(backend.port));
       const otherBucket = getStorage(host, "gs://demo-live-other.appspot.com");
       connectStorageEmulator(otherBucket, backend.hostname, Number(backend.port));
 
@@ -60,8 +58,13 @@
         settle(call),
         new Promise((resolve) => setTimeout(() => resolve({ ok: false, code: "unanswered" }), 5000)),
       ]);
-      /** Reads the lobby from the other project's default RTDB instance, through the host app. */
-      window.readOtherInstance = () => answered(() => get(databaseRef(otherInstance, "rooms/lobby")).then((snapshot) => snapshot.val()));
+      /** Opens a database on the other project's default RTDB instance through the host app, and reads the lobby from it. */
+      const readFromOtherInstance = () => {
+        const otherInstance = getDatabase(host, "https://demo-live-other-default-rtdb.firebaseio.com");
+        connectDatabaseEmulator(otherInstance, backend.hostname, Number(backend.port));
+        return get(databaseRef(otherInstance, "rooms/lobby")).then((snapshot) => snapshot.val());
+      };
+      window.readOtherInstance = () => answered(readFromOtherInstance);
       /** Asks for the lobby picture's URL from the other project's default bucket, through the host app. */
       window.readOtherBucket = () => answered(() => getDownloadURL(storageRef(otherBucket, "rooms/lobby.png")));
 

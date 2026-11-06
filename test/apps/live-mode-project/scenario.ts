@@ -13,8 +13,9 @@
  * The page's host app also opens a database on the other project's default
  * RTDB instance and a storage on its default bucket (`getDatabase(app, url)`,
  * `getStorage(app, 'gs://...')`), which the host app's config does not name.
- * A read through each is refused the same way, judging the instance or
- * bucket the call reaches, and the replay hears nothing of either.
+ * `getDatabase` itself throws the refusal, judging the instance, before the
+ * SDK opens a connection, and a read through the storage is refused judging
+ * the bucket. The replay hears nothing of either, not even a connection setup.
  *
  * Both planes learn the host's project from the seam that resolved it: the
  * Vite plugin and the register each hand it to the rows they serve
@@ -135,28 +136,16 @@ function expectRefused(settled: Settled, project: string, plane: string, field =
   );
 }
 
-interface Heard {
-  rpc?: string;
-  request?: { instance?: string; a?: unknown; path?: string };
-}
-
 /**
- * Whether an entry is the RTDB SDK opening its connection to an instance:
- * the socket the replay refuses for want of a recording, or a long-poll
- * start. The SDK opens it when the repo starts, at `ref()`, before any call
- * the live row judges, and it carries no request.
+ * What the replay received, or could not match, that names the other
+ * project: an RTDB connection or read, or a Storage request. `getDatabase`
+ * refuses the other instance before the SDK opens a connection, so not even
+ * the connection setup, which would carry the account's ID token and the
+ * App Check token, may reach it.
  */
-function isConnectionSetup(entry: Heard): boolean {
-  const request = entry.request ?? {};
-  const isSocketOpen = entry.rpc === 'rtdb' && Object.keys(request).length === 1 && request.instance !== undefined;
-  const isLongPollStart = entry.rpc === 'http' && (request.path ?? '').startsWith('/.lp?start=t&');
-  return isSocketOpen || isLongPollStart;
-}
-
-/** The requests the replay received, or could not match, that name the other project: an RTDB read or a Storage request. */
-async function requestsForOther(replay: Replay): Promise<Heard[]> {
-  const heard = [...(await replay.received()), ...(await replay.unmatched())] as Heard[];
-  return heard.filter((entry) => JSON.stringify(entry).includes(OTHER) && !isConnectionSetup(entry));
+async function requestsForOther(replay: Replay): Promise<unknown[]> {
+  const heard = [...(await replay.received()), ...(await replay.unmatched())];
+  return heard.filter((entry) => JSON.stringify(entry).includes(OTHER));
 }
 
 /** A loopback request to the live host. */
@@ -223,7 +212,7 @@ export default scenario(async (app) => {
     return opened;
   });
 
-  await app.step("the host app's reads of the other project's RTDB instance and bucket are refused, and production hears nothing of them", async () => {
+  await app.step("the host app's database on the other project's RTDB instance and its read of that bucket are refused, and production hears nothing of them", async () => {
     expectRefused(await page.evaluate(() => readOtherInstance()), project, 'page', 'instance');
     expectRefused(await page.evaluate(() => readOtherBucket()), project, 'page', 'bucket');
     await sleep(500);
@@ -246,10 +235,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('production had a recording for every request it received', async () => {
-    // The other instance's connection setup has no recording and carries no request.
-    const unmatched = (await replay.unmatched()) as Heard[];
-    const isOtherSetup = (entry: Heard) => isConnectionSetup(entry) && JSON.stringify(entry).includes(OTHER);
-    assert.deepEqual(unmatched.filter((entry) => !isOtherSetup(entry)), []);
+    assert.deepEqual(await replay.unmatched(), []);
   });
 
   await app.step('the host\'s event stream holds one lobby read from each plane, the host app\'s', async () => {

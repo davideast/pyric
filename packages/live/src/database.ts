@@ -4,6 +4,9 @@
  * never answers, how its errors spell production's status, and how its
  * listeners and `off()` take their callbacks.
  *
+ * `getDatabase(app, url)` on another project's default instance is refused
+ * before the SDK's factory runs (`guardedGetDatabase`).
+ *
  * A reference has no path to its app: the SDK's `Repo` keeps none. So the row
  * notes each Database `getDatabase` hands the app, mapping its repo
  * (`db._repoInternal`) to `db.app`, and a record reads the repo from the
@@ -19,7 +22,7 @@
  * these shapes gives a record without its project, account, instance or path.
  * This file imports no Firebase SDK.
  */
-import { observedCall, UNOBSERVED, type CallContext, type ObservedSite } from './observe.js';
+import { observedCall, refusedTarget, UNOBSERVED, type CallContext, type ObservedSite } from './observe.js';
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
 type Fields = Record<string, unknown>;
@@ -45,6 +48,67 @@ export function noteDatabase(db: unknown): void {
   } catch {
     // A value that throws on read is not a Database; the app's call is unchanged.
   }
+}
+
+/** The value of the last `ns` parameter in a query, decoded as the SDK's `decodeQuery` decodes it. A bad escape throws. */
+function namespaceParameter(query: string): string | undefined {
+  let namespace: string | undefined;
+  for (const segment of query.split('&')) {
+    const pair = segment.split('=');
+    const isNamespace = pair.length === 2 && decodeURIComponent(pair[0]!) === 'ns';
+    if (isNamespace) namespace = decodeURIComponent(pair[1]!);
+  }
+  return namespace;
+}
+
+/** The namespace a host names: the first label of a host with three or more, never `localhost`. */
+function hostNamespace(host: string): string | undefined {
+  const hostname = host.split(':')[0]!;
+  const labels = hostname.split('.');
+  const namesNone = hostname.toLowerCase() === 'localhost' || labels.length <= 2;
+  return namesNone ? undefined : labels[0];
+}
+
+/**
+ * The instance a database URL reaches, as the SDK's `parseDatabaseURL`
+ * reads its namespace: the `ns` query parameter when there is one, else the
+ * first label of the host, lowercase as `instanceOf` reads a repo's. A value
+ * that is no string, or names no namespace, gives undefined; so does a
+ * query the SDK cannot decode, which `getDatabase` then throws on itself.
+ */
+export function urlInstance(url: unknown): string | undefined {
+  try {
+    if (typeof url !== 'string') return undefined;
+    const schemeEnd = url.indexOf('//');
+    const rest = schemeEnd === -1 ? url : url.slice(schemeEnd + 2);
+    const queryStart = rest.indexOf('?');
+    const slash = rest.indexOf('/');
+    const hostEnd = Math.min(slash === -1 ? rest.length : slash, queryStart === -1 ? rest.length : queryStart);
+    const fromQuery = queryStart === -1 ? undefined : namespaceParameter(rest.slice(queryStart + 1));
+    const namespace = fromQuery ?? hostNamespace(rest.slice(0, hostEnd));
+    return namespace === undefined || namespace === '' ? undefined : namespace.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The row's `getDatabase`. `getDatabase(app, url)` on another project's
+ * default instance throws the project refusal, field `instance`, before the
+ * SDK's factory runs, so the SDK never opens a connection to it, which would
+ * carry the account's ID token and the App Check token. An instance that
+ * encodes no project, and `getDatabase(app)`, call the SDK's factory, and
+ * the Database it returns is noted.
+ */
+export function guardedGetDatabase(real: Callback, site: Omit<ObservedSite, 'name'>): Callback {
+  return function getDatabase(this: unknown, ...args: unknown[]): unknown {
+    const instance = urlInstance(args[1]);
+    const refusal = instance === undefined ? null : refusedTarget(site, 'getDatabase', { instance });
+    if (refusal !== null) throw refusal;
+    const db = Reflect.apply(real, this, args);
+    noteDatabase(db);
+    return db;
+  };
 }
 
 /**
