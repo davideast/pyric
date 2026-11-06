@@ -2,7 +2,7 @@
   "name": "rules-firestore-mixed-number-collections",
   "matrixRow": "",
   "rowIds": [
-    "firestore-rules#205"
+    "firestore-rules#226"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"mixed-number-collections\" (Coverage: ints and floats in collections). An int and the equal float are one value under ==, distinct elements in a List or Map, and one element in a Set; past 2^53 a Set keeps an int and the float it rounds to apart.",
   "observedAt": "2026-11-04T02:25:44.658Z",

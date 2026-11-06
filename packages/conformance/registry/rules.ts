@@ -618,7 +618,7 @@ export const rulesRegistry = {
           constructs: ["firestore.function.debug", "firestore.method.map.hasAny", "firestore.method.map.hasOnly"],
         }),
         row1({
-          rowRef: "204",
+          rowRef: "225",
           featureKeys: ["int", "float", "math", "toSet", "diff"],
           behavior: "int64 conversions and limits (`int()` of strings and floats, `math.abs`, `math.round`, `math.floor`, `math.ceil`, overflow, float division and modulo, durations at int64), and an int and a float past 2^53 compared under `==`, in a List, a Map, a Set and a map diff",
           status: "diverged-documented",
@@ -631,7 +631,7 @@ export const rulesRegistry = {
           constructs: ["firestore.method.list.toSet", "firestore.method.map.diff"],
         }),
         row1({
-          rowRef: "205",
+          rowRef: "226",
           featureKeys: ["toSet", "in", "hasAll", "hasAny", "removeAll"],
           behavior: "An int and a float in collections: one value under `==`, distinct elements in a List or Map, one element in a Set, and distinct Set elements past 2^53",
           status: "diverged-documented",

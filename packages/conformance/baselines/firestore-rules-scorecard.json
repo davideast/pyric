@@ -1497,8 +1497,8 @@
         "firestore-rules#196"
       ],
       "divergedByRows": [
-        "firestore-rules#204",
-        "firestore-rules#205"
+        "firestore-rules#225",
+        "firestore-rules#226"
       ]
     },
     "firestore.method.list.concat": {
@@ -1722,7 +1722,7 @@
         "firestore-rules#196"
       ],
       "divergedByRows": [
-        "firestore-rules#204"
+        "firestore-rules#225"
       ]
     },
     "firestore.method.mapdiff.addedKeys": {
