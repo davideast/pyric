@@ -11,7 +11,9 @@
  *
  * A page is named by the tab id it declared in its `appConfig`, or else by
  * its activity journey id, the per-port id the activity monitor already keys
- * pages by. The host hands each page that id on its event subscription.
+ * pages by. The host hands each page that id on its event subscription. A
+ * service worker has no tab, so its `appConfig` declares the service worker
+ * realm in place of a tab id, and its events name it `service-worker`.
  */
 import type { EventCaller } from 'pyric/sandbox';
 import type { InboundMessage } from '../protocol.js';
@@ -38,6 +40,16 @@ function isPagePort(ctx: HostCtx, port: PortLike): boolean {
   return connection === undefined || connection === 'page';
 }
 
+function isServiceWorkerPort(ctx: HostCtx, port: PortLike): boolean {
+  return isPagePort(ctx, port) && ctx.portTabIds?.get(port) === SERVICE_WORKER_TAB_ID;
+}
+
+/**
+ * The tab id a service worker's `appConfig` declares: its realm, since it has
+ * no tab. A label like any tab id, never an authority.
+ */
+export const SERVICE_WORKER_TAB_ID = 'service-worker';
+
 /** The longest tab id a page may declare; a longer one is not kept. */
 const MAX_TAB_ID_LENGTH = 64;
 
@@ -50,17 +62,20 @@ export function setPortTabId(ctx: HostCtx, port: PortLike, tabId: string): void 
 /**
  * The id this host gives the page on `port`: the tab id the page declared,
  * so every port of a tab and every reload of it share one, or else the
- * port's own activity journey id. Undefined when the port is not a page.
+ * port's own activity journey id. Undefined when the port is not a page,
+ * including a service worker's.
  */
 export function pageIdFor(ctx: HostCtx, port: PortLike): string | undefined {
-  if (!isPagePort(ctx, port)) return undefined;
+  const isPage = isPagePort(ctx, port) && !isServiceWorkerPort(ctx, port);
+  if (!isPage) return undefined;
   return ctx.portTabIds?.get(port) ?? activityJourneyId(ctx, port);
 }
 
 /**
  * The caller of one inbound frame. A relayed frame is server admin code unless
  * it names a lens other than admin; a tool frame is an MCP call; a frame
- * Studio declared is Studio's.
+ * Studio declared is Studio's; a port that declared the service worker realm
+ * is the service worker's.
  */
 export function callerFor(ctx: HostCtx, port: PortLike, msg: InboundMessage): EventCaller {
   const marks = msg as { issuer?: 'studio'; relaySource?: 'remote'; clientSessionId?: string; actAs?: { mode: string } };
@@ -71,6 +86,7 @@ export function callerFor(ctx: HostCtx, port: PortLike, msg: InboundMessage): Ev
     const namesClientLens = marks.actAs !== undefined && marks.actAs.mode !== 'admin';
     return namesClientLens ? { kind: 'node' } : { kind: 'admin' };
   }
+  if (isServiceWorkerPort(ctx, port)) return { kind: 'service-worker' };
   const pageId = pageIdFor(ctx, port);
   if (pageId === undefined) return { kind: 'node' };
   return { kind: 'page', pageId };

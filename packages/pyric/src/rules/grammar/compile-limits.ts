@@ -92,7 +92,7 @@ export function duplicateFunctionMessage(name: string): string {
 export type CompileLimitCode =
   | 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED' | 'SLASH_STARTS_PATH' | 'GLOB_MATCH_COUNT'
   | 'UNSUPPORTED_RULES_VERSION' | 'UNRESOLVED_MODULES' | 'INVALID_REGEX_PATTERN' | 'INVALID_NUMBER_LITERAL'
-  | 'DOUBLE_MINUS';
+  | 'DOUBLE_MINUS' | 'SOURCE_SIZE';
 
 /** One compile rejection, carrying production's message verbatim. */
 export interface CompileLimitViolation {

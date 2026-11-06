@@ -75,7 +75,7 @@ export interface ActivityEventProvenance {
  * where every request is the page's own.
  */
 export interface EventCaller {
-  kind: 'page' | 'node' | 'admin' | 'mcp' | 'studio';
+  kind: 'page' | 'node' | 'admin' | 'mcp' | 'studio' | 'service-worker';
   pageId?: string;
 }
 
