@@ -1,5 +1,5 @@
 import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyric/sandbox/internal';
-import { billedCallSummary, createLiveStatusPoller, liveLabel, liveMismatchLine, livePassThroughLines, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
+import { createLiveStatusPoller, liveLabel, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { healthLiveStatus } from './chip-live-status.js';
 import { workerAiRates } from './worker-ai-rates.js';
 import { aiModelHtml, aiModelRoute } from './ai-model-label.js';
@@ -191,16 +191,14 @@ const styles = `
   .chip.error { border-color: var(--pyric-error); }
   .chip.warning { border-color: var(--pyric-warning); }
   .chip.live { width: auto; gap: var(--space-2); padding: 0 var(--space-3); }
-  .live-label { color: var(--pyric-warning); font-weight: 600; font-size: 12px; }
-  .live-count { flex-basis: 100%; color: var(--pyric-muted); font-size: 12px; font-weight: 400; }
-  .live-warning { flex-basis: 100%; color: var(--pyric-warning); font-size: 12px; font-weight: 400; }
+  .live-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pyric-muted); font-weight: 600; font-size: 12px; }
 
   /* Zero-size outer tracks turn gaps into insets. The shell, section frames,
      and records all use this same construction, with no additive spacing. */
   .panel { display: grid; width: 440px; height: 568px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); background: var(--pyric-bg); border: 1px solid var(--pyric-border); border-radius: 12px; box-shadow: 0 18px 60px #0007; overflow: hidden; }
   .panel-column { display: grid; grid-template-rows: 64px 44px minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
   .panel-header, .bar { display: grid; grid-template-columns: 0 minmax(0, 1fr) auto 0; align-items: center; column-gap: var(--content-inset); overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
-  .brand { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-2); grid-column: 2; min-width: 0; }
+  .brand { display: flex; align-items: center; column-gap: var(--space-2); grid-column: 2; min-width: 0; }
   .panel-name { font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
   .panel-header > .actions { grid-column: 3; }
   .actions { display: flex; align-items: center; gap: var(--space-2); justify-content: flex-end; }
@@ -456,11 +454,12 @@ function bypassesRules(request: ChipRequest): boolean {
 const BYPASSED_TITLE = 'Rules bypassed for admin access';
 
 /** Badges for a row production served: production's answer, never a local Rules verdict. */
-const PRODUCTION_BADGES: Record<ChipRequest['verdict'], { label: string; icon: string; tone: string; title: string }> = {
-  ok: { label: 'OK', icon: 'check', tone: 'ok', title: 'Production succeeded' },
-  denied: { label: 'Denied', icon: 'unavailable', tone: '', title: 'Production denied' },
-  error: { label: 'Failed', icon: 'warning', tone: '', title: 'Production failed' },
-  unsupported: { label: 'N/A', icon: 'unavailable', tone: '', title: 'Production failed' },
+/** Each production verdict's badge; `outcome` is the `data-verdict-production` value a test reads. */
+const PRODUCTION_BADGES: Record<ChipRequest['verdict'], { label: string; icon: string; tone: string; title: string; outcome: string }> = {
+  ok: { label: 'OK', icon: 'check', tone: 'ok', title: 'Production succeeded', outcome: 'succeeded' },
+  denied: { label: 'Denied', icon: 'unavailable', tone: '', title: 'Production denied', outcome: 'denied' },
+  error: { label: 'Failed', icon: 'warning', tone: '', title: 'Production failed', outcome: 'failed' },
+  unsupported: { label: 'N/A', icon: 'unavailable', tone: '', title: 'Production failed', outcome: 'failed' },
 };
 
 /** The outcome fact for a row production served, with production's error code. */
@@ -484,7 +483,7 @@ const PRODUCTION_REASON = 'Production answered this request. Pyric observed it a
 function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false, production = false): string {
   if (production) {
     const badge = PRODUCTION_BADGES[verdict];
-    return `<span class="verdict ${badge.tone}" data-verdict-production title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
+    return `<span class="verdict ${badge.tone}" data-verdict-production="${badge.outcome}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
   }
   if (bypassed) return `<span class="verdict bypassed" title="${BYPASSED_TITLE}" aria-label="${BYPASSED_TITLE}"><span class="verdict-icon">${iconHtml('check')}</span><span class="verdict-label">Bypassed</span></span>`;
   const badges = {
@@ -500,24 +499,15 @@ function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean
 }
 
 const LIVE_TITLE = 'Live mode: rows marked Production went to your real Firebase project. Rows marked Sandbox were served by the local sandbox.';
-const BILLED_TITLE = 'Successful Firestore reads and writes, and documents delivered to listeners, that the host has counted from every client.';
 
-/** The collapsed chip's live line; its title carries the mismatch warning when there is one. */
-function liveChipHtml(live: LiveHostStatus | null, escape: (value: string) => string): string {
+/**
+ * The project name the panel header and the collapsed chip show after "pyric"
+ * on a live host, on one line. The mismatch warning, the pass-through imports
+ * and the billed count stay in the terminal and the health report.
+ */
+function liveLabelHtml(live: LiveHostStatus | null, escape: (value: string) => string): string {
   if (live === null) return '';
-  const title = [LIVE_TITLE, liveMismatchLine(live), ...livePassThroughLines(live)].filter(Boolean).join(' ');
-  return `<span class="live-label" data-chip-live title="${escape(title)}">${escape(liveLabel(live.projectId))}</span>`;
-}
-
-/** The panel header's live line, the mismatch warning, a line for each import that passes through, and the host's billed-call count. */
-function liveHeaderHtml(live: LiveHostStatus | null, escape: (value: string) => string): string {
-  if (live === null) return '';
-  const mismatch = liveMismatchLine(live);
-  const warning = mismatch === null ? '' : `<span class="live-warning" data-chip-live-mismatch role="status">${escape(mismatch)}</span>`;
-  const passing = livePassThroughLines(live)
-    .map((line) => `<span class="live-warning" data-chip-live-pass-through role="status">${escape(line)}</span>`)
-    .join('');
-  return `${liveChipHtml(live, escape)}${warning}${passing}<span class="live-count" data-chip-billed title="${escape(BILLED_TITLE)}">Billed calls: ${escape(billedCallSummary(live.billed))}</span>`;
+  return `<span class="live-label" data-chip-live title="${escape(LIVE_TITLE)}">${escape(liveLabel(live.projectId))}</span>`;
 }
 
 /** Mount the framework-independent runtime chip in an isolated shadow root. */
@@ -1271,14 +1261,14 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const markup = open
       ? `<section class="panel" role="dialog" aria-label="pyric"><div class="panel-column">
         <header class="panel-header">
-          <span class="brand"><span class="panel-name">pyric</span>${liveHeaderHtml(liveStatus, escapeAttribute)}</span>
+          <span class="brand"><span class="panel-name">pyric</span>${liveLabelHtml(liveStatus, escapeAttribute)}</span>
           <span class="actions">${studioHtml}<button class="btn icon-button" type="button" data-collapse title="Minimize pyric" aria-label="Minimize pyric">${iconHtml('minimize')}<span class="sr-only">Close</span></button></span>
         </header>
         <div class="tabs" role="tablist" aria-label="pyric views">${tabsHtml}</div>
         <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}"><div class="view-content">${built.body}</div></div>
         ${built.bar}
       </div></section>`
-      : `<button class="chip${chipTone}${liveStatus === null ? '' : ' live'}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric${liveChipHtml(liveStatus, escapeAttribute)}</button>`;
+      : `<button class="chip${chipTone}${liveStatus === null ? '' : ' live'}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric${liveLabelHtml(liveStatus, escapeAttribute)}</button>`;
 
     const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}${identityNotice === '' ? '' : ` ${identityNotice}`}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;

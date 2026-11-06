@@ -84,7 +84,7 @@ describe('the live host state', () => {
     expect(live.report()).toMatchObject({ projectId: 'prod', configProjectId: 'staging', appProjectIds: ['prod'] });
     expect(warnings).toEqual([
       'Live mode: your app\'s calls go to the Firebase project prod, not staging. ' +
-        'Your Firebase config says prod; .firebaserc says staging. The chip and Studio show "Live: prod".',
+        'Your Firebase config says prod; .firebaserc says staging. The chip and Studio show "prod".',
     ]);
   });
 

@@ -1,7 +1,6 @@
 /**
  * What every live mode start prints: that this is live mode, and which
- * project, in the words the chip and Studio use ("Live: <project-id>"). The
- * register entry also says which host its calls reach, and how to start one
+ * project. The register entry also says which host its calls reach, and how to start one
  * when none would show them.
  */
 import type { LiveHostReach } from '@pyric/cli/register/internal/supplied-rows';
@@ -10,7 +9,7 @@ import type { LiveHostReach } from '@pyric/cli/register/internal/supplied-rows';
 export function liveStartLine(entry: string, projectId: string): string {
   return (
     `${entry}: live mode for the Firebase project ${projectId}. Your app talks to production with its real data, ` +
-    `and production bills each read, write and listener delivery. The chip and Studio show "Live: ${projectId}" while it runs.`
+    'and production bills each read, write and listener delivery.'
   );
 }
 
