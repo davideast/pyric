@@ -310,6 +310,7 @@ export {
   checkIdToken, ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint, mintIdToken, signIdToken,
   TOKEN_REFRESH_BUFFER_MS, type IdTokenCheck,
 } from './id-token.js';
+export { idTokenIssuer, type IdTokenIssuer } from './id-token-issuer.js';
 export {
   CUSTOM_TOKEN_AUDIENCE, CUSTOM_TOKEN_LIFETIME_SEC, customTokenIssuer, mintCustomToken, readCustomToken,
   type CustomTokenReading, type CustomTokenRequest, type SandboxCustomToken,

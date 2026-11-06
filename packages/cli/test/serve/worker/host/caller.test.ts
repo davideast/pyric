@@ -197,8 +197,82 @@ describe('host: each event names the connection that sent its operation', () => 
     const server = fakePort();
     markPortConnection(ctx, server, 'node');
     const node = await callersOf(events, () => send(ctx, server, { t: 'op', method: 'rtdb.set', path: '/server/client', value: 1 }));
-    expect(node).toContainEqual({ kind: 'node' });
+    expect(node).toContainEqual({ kind: 'node', clientId: expect.any(String) });
     expect(await subscribedPageId(ctx, server)).toBeUndefined();
+  });
+
+  it("stamps one client id on every tab of a browser profile, and another on a second profile", async () => {
+    const { ctx, events } = makeCtx();
+    const firstTab = fakePort();
+    const secondTab = fakePort();
+    const otherProfile = fakePort();
+    await handleMessage(ctx, firstTab, { t: 'appConfig', options: { projectId: 'demo-app' }, tabId: 'tab-a1', clientId: 'profile-a' } as InboundMessage);
+    await handleMessage(ctx, secondTab, { t: 'appConfig', options: { projectId: 'demo-app' }, tabId: 'tab-a2', clientId: 'profile-a' } as InboundMessage);
+    await handleMessage(ctx, otherProfile, { t: 'appConfig', options: { projectId: 'demo-app' }, tabId: 'tab-b1', clientId: 'profile-b' } as InboundMessage);
+    const first = await callersOf(events, () => send(ctx, firstTab, { t: 'op', method: 'rtdb.set', path: '/clients/a1', value: 1 }));
+    const second = await callersOf(events, () => send(ctx, secondTab, { t: 'op', method: 'setDoc', path: 'clients/a2', data: { n: 1 } }));
+    const other = await callersOf(events, () => send(ctx, otherProfile, { t: 'op', method: 'rtdb.set', path: '/clients/b1', value: 1 }));
+    expect(first.length).toBeGreaterThan(0);
+    expect(second.length).toBeGreaterThan(0);
+    expect(other.length).toBeGreaterThan(0);
+    for (const caller of first) expect(caller).toEqual({ kind: 'page', pageId: 'tab-a1', clientId: 'profile-a' });
+    for (const caller of second) expect(caller).toEqual({ kind: 'page', pageId: 'tab-a2', clientId: 'profile-a' });
+    for (const caller of other) expect(caller).toEqual({ kind: 'page', pageId: 'tab-b1', clientId: 'profile-b' });
+  });
+
+  it("stamps a service worker's declared client id", async () => {
+    const { ctx, events } = makeCtx();
+    const serviceWorker = fakePort();
+    await handleMessage(ctx, serviceWorker, { t: 'appConfig', options: { projectId: 'demo-app' }, tabId: SERVICE_WORKER_TAB_ID, clientId: 'sw-realm-1' } as InboundMessage);
+    const callers = await callersOf(events, () => send(ctx, serviceWorker, { t: 'op', method: 'rtdb.set', path: '/sw/client', value: 1 }));
+    expect(callers.length).toBeGreaterThan(0);
+    for (const caller of callers) expect(caller).toEqual({ kind: 'service-worker', clientId: 'sw-realm-1' });
+  });
+
+  it('gives each Node host socket its own client id, whatever its appConfig declares', async () => {
+    const { ctx, events } = makeCtx();
+    const firstProcess = fakePort();
+    const secondProcess = fakePort();
+    markPortConnection(ctx, firstProcess, 'node');
+    markPortConnection(ctx, secondProcess, 'node');
+    await handleMessage(ctx, firstProcess, { t: 'appConfig', options: { projectId: 'demo-app' }, clientId: 'claimed' } as InboundMessage);
+    await handleMessage(ctx, secondProcess, { t: 'appConfig', options: { projectId: 'demo-app' }, clientId: 'claimed' } as InboundMessage);
+    const first = await callersOf(events, () => send(ctx, firstProcess, { t: 'op', method: 'rtdb.set', path: '/node/one', value: 1 }));
+    const second = await callersOf(events, () => send(ctx, secondProcess, { t: 'op', method: 'rtdb.set', path: '/node/two', value: 1 }));
+    const firstIds = new Set(first.map((caller) => caller?.clientId));
+    const secondIds = new Set(second.map((caller) => caller?.clientId));
+    expect(firstIds.size).toBe(1);
+    expect(secondIds.size).toBe(1);
+    const [firstId] = firstIds;
+    const [secondId] = secondIds;
+    expect(firstId).toBeString();
+    expect(secondId).toBeString();
+    expect(firstId).not.toBe(secondId);
+    expect(firstId).not.toBe('claimed');
+    for (const caller of first) expect(caller?.kind).toBe('node');
+  });
+
+  it('keeps no client id a page declares longer than 64 characters, and stamps none on relays, MCP or Studio', async () => {
+    const { ctx, events } = makeCtx();
+    const page = fakePort();
+    await handleMessage(ctx, page, { t: 'appConfig', options: { projectId: 'demo-app' }, tabId: 'tab-long', clientId: 'x'.repeat(65) } as InboundMessage);
+    const long = await callersOf(events, () => send(ctx, page, { t: 'op', method: 'rtdb.set', path: '/long', value: 1 }));
+    for (const caller of long) expect(caller).toEqual({ kind: 'page', pageId: 'tab-long' });
+    const others = await callersOf(events, async () => {
+      await send(ctx, page, { t: 'op', method: 'rtdb.set', path: '/relay', value: 1, actAs: { mode: 'admin' }, relaySource: 'remote' });
+      await send(ctx, page, { t: 'op', method: 'rtdb.set', path: '/studio', value: 1, issuer: 'studio', actAs: { mode: 'admin' } });
+      await send(ctx, page, { t: 'tool', name: 'firestore_create_document', args: { path: 'notes/agent', data: { text: 'agent' } } });
+    });
+    expect(others.length).toBeGreaterThan(0);
+    for (const caller of others) expect(caller?.clientId).toBeUndefined();
+  });
+
+  it('refuses an appConfig whose client id is not a string', async () => {
+    const { ctx } = makeCtx();
+    const page = fakePort();
+    await handleMessage(ctx, page, { t: 'appConfig', id: 'bad-client-id', options: { projectId: 'demo-app' }, clientId: 42 } as unknown as InboundMessage);
+    const refusal = page.messages.find((message) => message.t === 'res' && message.id === 'bad-client-id');
+    expect(refusal?.t === 'res' && !refusal.ok ? refusal.error.code : undefined).toBe('invalid-argument');
   });
 
   it('ignores a caller a frame names for itself', async () => {

@@ -263,6 +263,37 @@ describe('readObservedCall', () => {
     }
   });
 
+  it("keeps production's sizes: every usage count and the billed documents", () => {
+    const usage = { documentReads: 3, documentWrites: 1, documentDeletes: 2, payloadBytes: 640, uploadedBytes: 0, downloadedBytes: 2048, unmeasured: 1 };
+    const read = { service: 'firestore', method: 'getDocs', path: 'rooms', at: 1, outcome: { status: 'ok' }, usage, billedDocuments: 3 };
+    const kept = readObservedCall(read);
+    expect(kept).toEqual(read as ObservedCall);
+    expect(kept.usage).not.toBe(usage);
+    const partial = { service: 'storage', method: 'getBytes', path: 'a.bin', bucket: 'b.firebasestorage.app', at: 1, outcome: { status: 'ok' }, usage: { downloadedBytes: 9 } };
+    expect(readObservedCall(partial)).toEqual(partial as ObservedCall);
+  });
+
+  it('refuses a usage count that is negative, fractional, not a number or unknown', () => {
+    const cases: Array<[unknown, string]> = [
+      [{ ...DENIED_READ, usage: null }, 'usage'],
+      [{ ...DENIED_READ, usage: [3] }, 'usage'],
+      [{ ...DENIED_READ, usage: 3 }, 'usage'],
+      [{ ...DENIED_READ, usage: { documentReads: -1 } }, 'usage.documentReads'],
+      [{ ...DENIED_READ, usage: { documentWrites: 1.5 } }, 'usage.documentWrites'],
+      [{ ...DENIED_READ, usage: { payloadBytes: '640' } }, 'usage.payloadBytes'],
+      [{ ...DENIED_READ, usage: { downloadedBytes: Number.POSITIVE_INFINITY } }, 'usage.downloadedBytes'],
+      [{ ...DENIED_READ, usage: { uploadedBytes: Number.MAX_SAFE_INTEGER + 1 } }, 'usage.uploadedBytes'],
+      [{ ...DENIED_READ, usage: { unmeasured: Number.NaN } }, 'usage.unmeasured'],
+      [{ ...DENIED_READ, usage: { aiInputTokens: 4 } }, 'usage.aiInputTokens'],
+      [{ ...DENIED_READ, usage: { documentReads: 1, value: 'secret' } }, 'usage.value'],
+    ];
+    for (const [record, field] of cases) {
+      const read = () => readObservedCall(record);
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow(`Invalid observed call field: ${field}.`);
+    }
+  });
+
   it('refuses a malformed record and names the field', () => {
     const cases: Array<[unknown, string]> = [
       [null, 'call'],
@@ -329,6 +360,18 @@ describe('observedCallEvent', () => {
     const record = toOperationRecord(event!);
     expect(record?.rules).toEqual({ kind: 'not-evaluated', reason: 'external-execution' });
     expect(isProductionServed(record?.rules)).toBe(true);
+  });
+
+  it("copies production's usage and billed documents onto the event's production side", () => {
+    const usage = { documentReads: 3, payloadBytes: 640, unmeasured: 1 };
+    const call = readObservedCall({ service: 'firestore', method: 'onSnapshot', path: 'rooms', at: 1, outcome: { status: 'ok' }, usage, billedDocuments: 3 });
+    const event = observedCallEvent(call);
+    expect(event.production).toEqual({ outcome: { status: 'ok' }, usage, billedDocuments: 3 });
+    expect(event.production?.usage).not.toBe(call.usage);
+    const zero = observedCallEvent({ service: 'firestore', method: 'onSnapshot', at: 1, outcome: { status: 'ok' }, billedDocuments: 0 });
+    expect(zero.production).toEqual({ outcome: { status: 'ok' }, billedDocuments: 0 });
+    expect(observedCallEvent(DENIED_READ).production).not.toHaveProperty('usage');
+    expect(observedCallEvent(DENIED_READ).production).not.toHaveProperty('billedDocuments');
   });
 
   it('records a success with no local verdict and a signed-out call with no account', () => {

@@ -60,7 +60,7 @@ import {
   lensProvenance,
   opProvenance,
 } from './core.js';
-import { bindCaller, callerFor, markPortConnection, setPortTabId } from './caller.js';
+import { bindCaller, callerFor, markPortConnection, setPortClientId, setPortTabId } from './caller.js';
 import { handleObserve } from './observe.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
@@ -224,6 +224,7 @@ export async function handleMessage(
   if (configuresApp) {
     if (msg.origin !== undefined) setPortOrigin(targetPort, msg.origin);
     if (msg.tabId !== undefined) setPortTabId(ctx, targetPort, msg.tabId);
+    if (msg.clientId !== undefined) setPortClientId(targetPort, msg.clientId);
     handleAppConfig(ctx, targetPort, msg, stalePort => cleanupPort(ctx, stalePort));
     return;
   }

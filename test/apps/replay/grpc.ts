@@ -13,11 +13,19 @@
 // A Node app reaches it with the SDK's own emulator connector,
 // `connectFirestoreEmulator(db, '127.0.0.1', port)`: the app's config, which
 // live mode passes through unchanged.
+//
+// The Admin SDK (`firebase-admin/firestore`) reaches it through its own
+// `FIRESTORE_EMULATOR_HOST`, and then sends `Authorization: Bearer owner` on
+// every call. Those calls are answered from `admin-firestore` exchanges
+// (`admin-firestore.ts`): BatchGetDocuments, RunQuery, RunAggregationQuery,
+// Commit, BeginTransaction, Rollback and Listen. Any other call, and any
+// Admin call no exchange holds, is refused and listed in `unmatched`.
 import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
-import type { Json, JsonObject } from './format.ts';
+import { AdminFirestore, type AdminAnswer } from './admin-firestore.ts';
+import { ADMIN_FIRESTORE_STREAMING, ADMIN_FIRESTORE_UNARY, type Json, type JsonObject } from './format.ts';
 import { ListenStream, WriteStream, type ReplayState, type StreamSession } from './firestore.ts';
 import type { StreamHandler } from './webchannel.ts';
 
@@ -44,6 +52,8 @@ interface MethodDefinition {
 }
 interface DuplexCall {
   metadata: { get(key: string): unknown[] };
+  /** The decoded request of a unary or server-streaming call. */
+  request?: JsonObject;
   on(event: 'data', listener: (message: JsonObject) => void): void;
   on(event: 'end' | 'cancelled' | 'error', listener: () => void): void;
   write(message: unknown): boolean;
@@ -51,8 +61,8 @@ interface DuplexCall {
   emit(event: 'error', status: { code: number; details: string }): boolean;
 }
 
-/** A unary call's callback: this server only ever answers with an error status. */
-type UnaryCallback = (status: { code: number; details: string }) => void;
+/** A unary call's callback: an error status, or no error and the answer. */
+type UnaryCallback = (status: { code: number; details: string } | null, value?: unknown) => void;
 type GrpcHandler = (call: DuplexCall, callback?: UnaryCallback) => void;
 
 /** The parts of protobufjs this server uses. */
@@ -201,13 +211,25 @@ function codec(type: ProtoType): Pick<MethodDefinition, 'requestSerialize' | 're
   };
 }
 
-function method(root: ProtoRoot, rpc: 'Listen' | 'Write'): MethodDefinition {
+/** How an RPC streams, and its response type when it is not `<rpc>Response`. */
+interface RpcShape {
+  requestStream: boolean;
+  responseStream: boolean;
+  responseType?: string;
+}
+
+const BIDI: RpcShape = { requestStream: true, responseStream: true };
+
+/** Response types that are not `google.firestore.v1.<rpc>Response`. */
+const RESPONSE_TYPES: Readonly<Record<string, string>> = { Rollback: 'google.protobuf.Empty' };
+
+function method(root: ProtoRoot, rpc: string, shape: RpcShape): MethodDefinition {
   const request = codec(root.lookupType(`google.firestore.v1.${rpc}Request`));
-  const response = codec(root.lookupType(`google.firestore.v1.${rpc}Response`));
+  const response = codec(root.lookupType(shape.responseType ?? `google.firestore.v1.${rpc}Response`));
   return {
     path: `/google.firestore.v1.Firestore/${rpc}`,
-    requestStream: true,
-    responseStream: true,
+    requestStream: shape.requestStream,
+    responseStream: shape.responseStream,
     requestSerialize: request.requestSerialize,
     requestDeserialize: request.requestDeserialize,
     responseSerialize: response.requestSerialize,
@@ -222,7 +244,20 @@ function uidOf(state: ReplayState, call: DuplexCall): string | null {
   return state.tokens.uidOf(bearer);
 }
 
-function serve(state: ReplayState, rpc: 'Listen' | 'Write', call: DuplexCall): void {
+/** Whether a call came from the Admin SDK in emulator mode, which always sends `Bearer owner`. */
+function isAdminCall(call: DuplexCall): boolean {
+  return call.metadata.get('authorization')[0] === 'Bearer owner';
+}
+
+/** The handler for one Listen or Write stream: an Admin Listen, or a client stream as its bearer's uid. */
+function streamHandler(state: ReplayState, admin: AdminFirestore, rpc: 'Listen' | 'Write', call: DuplexCall, session: StreamSession): StreamHandler {
+  const isAdminListen = rpc === 'Listen' && isAdminCall(call);
+  if (isAdminListen) return admin.listen(session);
+  const as = uidOf(state, call);
+  return rpc === 'Listen' ? new ListenStream(session, state, as) : new WriteStream(session, state, as);
+}
+
+function serve(state: ReplayState, admin: AdminFirestore, rpc: 'Listen' | 'Write', call: DuplexCall): void {
   let open = true;
   const session: StreamSession = {
     send: (message) => {
@@ -234,8 +269,7 @@ function serve(state: ReplayState, rpc: 'Listen' | 'Write', call: DuplexCall): v
       call.emit('error', { code: error.code, details: error.message });
     },
   };
-  const as = uidOf(state, call);
-  const handler: StreamHandler = rpc === 'Listen' ? new ListenStream(session, state, as) : new WriteStream(session, state, as);
+  const handler = streamHandler(state, admin, rpc, call, session);
   call.on('data', (message) => handler.onMessage(message));
   const close = () => {
     if (!open) return;
@@ -249,20 +283,12 @@ function serve(state: ReplayState, rpc: 'Listen' | 'Write', call: DuplexCall): v
 }
 
 /**
- * The Firestore v1 RPCs other than Listen and Write, and whether each streams
- * its answers. The SDK's Node build sends some (Commit for a transaction,
- * RunAggregationQuery for a count, BatchGetDocuments and RunQuery in a
- * transaction); no recording holds them, so each is answered UNIMPLEMENTED
- * and listed in `unmatched`, where a scenario's last check finds it.
+ * The Firestore v1 RPCs no exchange answers, and whether each streams its
+ * answers. Each is answered UNIMPLEMENTED and listed in `unmatched`, where a
+ * scenario's last check finds it.
  */
 const OTHER_RPCS: Readonly<Record<string, boolean>> = {
-  BatchGetDocuments: true,
-  RunQuery: true,
-  RunAggregationQuery: true,
   PartitionQuery: false,
-  Commit: false,
-  BeginTransaction: false,
-  Rollback: false,
   BatchWrite: false,
   GetDocument: false,
   ListDocuments: false,
@@ -273,7 +299,56 @@ const OTHER_RPCS: Readonly<Record<string, boolean>> = {
 };
 
 const UNIMPLEMENTED = 12;
+/** An Admin call no exchange holds fails with FAILED_PRECONDITION, as an unrecorded client stream message does (`firestore.ts`). */
+const FAILED_PRECONDITION = 9;
 const asBytes = (value: unknown): Buffer => (Buffer.isBuffer(value) ? value : Buffer.alloc(0));
+
+/** Refuses a call no exchange answers with `code`, through the callback for a unary call. */
+function refuse(call: DuplexCall, callback: UnaryCallback | undefined, details: string, code = UNIMPLEMENTED): void {
+  const status = { code, details };
+  if (callback) callback(status);
+  else call.emit('error', status);
+}
+
+/** Sends an Admin answer: the unary response, or each streamed response, then its final status. */
+function send(call: DuplexCall, callback: UnaryCallback | undefined, answer: AdminAnswer): void {
+  const status = answer.error ? { code: answer.error.code, details: answer.error.message } : null;
+  if (callback) {
+    if (status) callback(status);
+    else callback(null, answer.responses[0] ?? {});
+    return;
+  }
+  for (const response of answer.responses) call.write(response);
+  if (status) call.emit('error', status);
+  else call.end();
+}
+
+/**
+ * The RPCs `admin-firestore` exchanges answer, other than Listen. An Admin
+ * call gets the recorded answer, or is refused when none matches; a client
+ * SDK call is never answered from an Admin exchange, and is refused as an
+ * RPC no recording holds.
+ */
+function adminRpcs(state: ReplayState, admin: AdminFirestore, root: ProtoRoot): { definitions: Record<string, MethodDefinition>; handlers: Record<string, GrpcHandler> } {
+  const definitions: Record<string, MethodDefinition> = {};
+  const handlers: Record<string, GrpcHandler> = {};
+  const rpcs = [...ADMIN_FIRESTORE_UNARY.map((name) => [name, false] as const), ...ADMIN_FIRESTORE_STREAMING.map((name) => [name, true] as const)];
+  for (const [name, streams] of rpcs) {
+    definitions[name] = method(root, name, { requestStream: false, responseStream: streams, responseType: RESPONSE_TYPES[name] });
+    handlers[name] = (call, callback) => {
+      const request = call.request ?? {};
+      if (!isAdminCall(call)) {
+        state.unmatched.push({ rpc: 'grpc', as: uidOf(state, call), request: { method: name } });
+        refuse(call, callback, `replay: no recording answers ${name}`);
+        return;
+      }
+      const answer = admin.answer(name, request);
+      if (answer) send(call, callback, answer);
+      else refuse(call, callback, `replay: no admin-firestore exchange answers ${name} ${JSON.stringify(request)}`, FAILED_PRECONDITION);
+    };
+  }
+  return { definitions, handlers };
+}
 
 /** The other RPCs' definitions, which read no message, and handlers that list each call and refuse it. */
 function otherRpcs(state: ReplayState): { definitions: Record<string, MethodDefinition>; handlers: Record<string, GrpcHandler> } {
@@ -291,9 +366,7 @@ function otherRpcs(state: ReplayState): { definitions: Record<string, MethodDefi
     };
     handlers[name] = (call, callback) => {
       state.unmatched.push({ rpc: 'grpc', as: uidOf(state, call), request: { method: name } });
-      const status = { code: UNIMPLEMENTED, details: `replay: no recording answers ${name}` };
-      if (callback) callback(status);
-      else call.emit('error', status);
+      refuse(call, callback, `replay: no recording answers ${name}`);
     };
   }
   return { definitions, handlers };
@@ -313,10 +386,17 @@ export async function startGrpcReplay(state: ReplayState, projectDir: string): P
   const sdk = installedSdk(projectDir);
   const root = sdk.protobuf.Root.fromJSON(sdk.protos);
   const server = new sdk.grpc.Server();
+  const admin = new AdminFirestore(state);
+  const answered = adminRpcs(state, admin, root);
   const others = otherRpcs(state);
   server.addService(
-    { Listen: method(root, 'Listen'), Write: method(root, 'Write'), ...others.definitions },
-    { Listen: (call) => serve(state, 'Listen', call), Write: (call) => serve(state, 'Write', call), ...others.handlers },
+    { Listen: method(root, 'Listen', BIDI), Write: method(root, 'Write', BIDI), ...answered.definitions, ...others.definitions },
+    {
+      Listen: (call) => serve(state, admin, 'Listen', call),
+      Write: (call) => serve(state, admin, 'Write', call),
+      ...answered.handlers,
+      ...others.handlers,
+    },
   );
   const port = await new Promise<number>((resolve, reject) => {
     server.bindAsync('127.0.0.1:0', sdk.grpc.ServerCredentials.createInsecure(), (error, bound) => (error ? reject(error) : resolve(bound)));
