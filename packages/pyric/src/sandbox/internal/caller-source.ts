@@ -9,7 +9,7 @@ import type { EventCaller } from '../types/operation.js';
  * page caller by whether it is the viewing page; a view that is not a page
  * (Studio) reads every page as `page`. `unknown` is an event no host stamped.
  */
-export type CallerSource = 'page' | 'tab' | 'node' | 'admin' | 'mcp' | 'studio' | 'unknown';
+export type CallerSource = 'page' | 'tab' | 'node' | 'admin' | 'mcp' | 'studio' | 'service-worker' | 'unknown';
 
 /** A row label for each source. */
 export const CALLER_SOURCE_LABELS: Readonly<Record<CallerSource, string>> = Object.freeze({
@@ -19,6 +19,7 @@ export const CALLER_SOURCE_LABELS: Readonly<Record<CallerSource, string>> = Obje
   admin: 'Server (admin)',
   mcp: 'MCP',
   studio: 'Studio',
+  'service-worker': 'Service worker',
   unknown: 'Unknown source',
 });
 

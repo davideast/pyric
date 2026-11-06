@@ -6,14 +6,15 @@
  * calls carry that page's id, a second page carries another, a bridge relay is
  * admin code, a tool frame is an MCP call, a Studio frame is Studio's, and a
  * port the Node host admitted for a server process using the client SDK is
- * `node`. Each page's event subscription hands it its own id.
+ * `node`. A port whose `appConfig` declares the service worker realm is
+ * `service-worker`. Each page's event subscription hands it its own id.
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox, toOperationRecord, type EventCaller, type SandboxEvent } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
-import { markPortConnection } from '../../../../src/serve/worker/host/caller.js';
+import { markPortConnection, SERVICE_WORKER_TAB_ID } from '../../../../src/serve/worker/host/caller.js';
 import { pageTabId } from '../../../../src/serve/worker/client/tab-id.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../../src/serve/worker/protocol.js';
@@ -133,6 +134,17 @@ describe('host: each event names the connection that sent its operation', () => 
     } finally {
       if (stored) Object.defineProperty(globalThis, 'sessionStorage', stored);
     }
+  });
+
+  it('stamps a port whose appConfig declares the service worker realm as the service worker', async () => {
+    const { ctx, events } = makeCtx();
+    const serviceWorker = fakePort();
+    // The hello the sandbox's Messaging service worker sends (`messaging-sw-client.ts`).
+    await handleMessage(ctx, serviceWorker, { t: 'appConfig', options: { projectId: 'demo-app' }, tabId: SERVICE_WORKER_TAB_ID } as InboundMessage);
+    const callers = await callersOf(events, () => send(ctx, serviceWorker, { t: 'op', method: 'rtdb.set', path: '/sw/a', value: 1 }));
+    expect(callers.length).toBeGreaterThan(0);
+    for (const caller of callers) expect(caller).toEqual({ kind: 'service-worker' });
+    expect(await subscribedPageId(ctx, serviceWorker)).toBeUndefined();
   });
 
   it('stamps a bridge relay as admin, whether it arrives as a remote frame or a client session', async () => {

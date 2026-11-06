@@ -218,6 +218,7 @@ const WRITER_NAMES: Readonly<Record<PyricWriter, string>> = {
   page: "a page's pyric runtime",
   node: "a Node process's pyric runtime",
   admin: 'server admin code',
+  'service-worker': "a service worker's pyric runtime",
 };
 
 /** The error for a write pyric itself would make under live mode. */
