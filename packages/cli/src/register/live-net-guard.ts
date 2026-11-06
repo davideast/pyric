@@ -1,9 +1,9 @@
 /**
  * The network guard under `@pyric/live/register`. In live mode the app's
- * installed Firestore, Auth, App Check and Realtime Database talk to Google
- * from this process, and nothing else should: pyric holds no production
- * credential, and a Google client library or a hand-written `fetch` to a
- * Google API is traffic pyric neither serves nor observes.
+ * installed Firestore, Auth, App Check, Realtime Database and Cloud Storage
+ * talk to Google from this process, and nothing else should: pyric holds no
+ * production credential, and a Google client library or a hand-written
+ * `fetch` to a Google API is traffic pyric neither serves nor observes.
  *
  * It installs the register's hooks (`./net-guard.ts`: the undici dispatcher,
  * the socket backstop and the request check) with this verdict:
