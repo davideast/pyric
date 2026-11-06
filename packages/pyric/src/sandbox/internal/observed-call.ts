@@ -136,8 +136,11 @@ export function readObservedCall(value: unknown): ObservedCall {
     requireField(typeof value.projectId === 'string' && PROJECT_ID_PATTERN.test(value.projectId), 'projectId');
     call.projectId = value.projectId;
   }
-  if (value.instance !== undefined) {
-    const isRtdbInstance = call.service === 'rtdb' && typeof value.instance === 'string' && INSTANCE_PATTERN.test(value.instance);
+  // An RTDB call always names its instance, the default included, so a
+  // named-instance call can never read as the default. No other call names one.
+  const isRtdb = call.service === 'rtdb';
+  if (isRtdb || value.instance !== undefined) {
+    const isRtdbInstance = isRtdb && typeof value.instance === 'string' && INSTANCE_PATTERN.test(value.instance);
     requireField(isRtdbInstance, 'instance');
     call.instance = value.instance as string;
   }

@@ -38,8 +38,8 @@ export interface ObservedCall {
   /**
    * `rtdb` only: the name of the database instance the call went to, as the
    * SDK's namespace names it (`my-project-default-rtdb`, `my-project-named`).
-   * Sent for every RTDB call, the default instance included; the event leaves
-   * it out for the project's default instance.
+   * Required on every RTDB call, the default instance included, and refused
+   * on any other; the event leaves it out for the project's default instance.
    */
   instance?: string;
   /** When the app made the call, in ms since epoch. */
