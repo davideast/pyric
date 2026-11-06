@@ -11,13 +11,9 @@
  */
 import type { ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
 import { wrapLiveModule, type LiveModuleKey, type LiveModuleSite } from './modules.js';
+import { LIVE_ROW_SPECIFIERS } from './row-specifiers.js';
 
-export const LIVE_ROWS: ReadonlyMap<ServedFirebaseSpecifier, LiveModuleKey> = new Map<ServedFirebaseSpecifier, LiveModuleKey>([
-  ['firebase/app', 'live-app'],
-  ['firebase/auth', 'live-auth'],
-  ['firebase/firestore', 'live-firestore'],
-  ['firebase/app-check', 'live-app-check'],
-]);
+export const LIVE_ROWS: ReadonlyMap<ServedFirebaseSpecifier, LiveModuleKey> = new Map(LIVE_ROW_SPECIFIERS);
 
 /**
  * The module a plane serves for `specifier` under live mode: the app's own

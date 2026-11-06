@@ -15,11 +15,16 @@
  * Loaded in the page too, so it imports only types from `@pyric/cli`.
  */
 import type { PyricWrite, PyricWriter, SuppliedRowsPlane } from '@pyric/cli/vite/internal/supplied-rows';
+import { LIVE_ROW_SPECIFIERS } from './row-specifiers.js';
 
 /** The `code` of every live mode refusal. */
 export const LIVE_REFUSED = 'PYRIC_LIVE_REFUSED';
 
-/** The service each refused specifier names, for the message. */
+/**
+ * The service each specifier without a live row names, for the message. A
+ * specifier that gains a row stays here, so its name is ready for messages,
+ * and leaves the pass-through candidates.
+ */
 const SERVICE_NAMES: Readonly<Record<string, string>> = {
   'firebase/ai': 'Firebase AI Logic',
   'firebase/analytics': 'Analytics',
@@ -50,7 +55,20 @@ function serviceOf(specifier: string): string {
   return SERVICE_NAMES[specifier] ?? specifier;
 }
 
-const SERVED = 'firebase/app, firebase/auth, firebase/firestore and firebase/app-check';
+/**
+ * The imports live mode serves and observes, one per live row. Each is
+ * refused as a `passThrough` entry, since it is already served.
+ */
+const SERVED_IMPORTS: ReadonlySet<string> = new Set(LIVE_ROW_SPECIFIERS.map(([specifier]) => specifier));
+
+/** `a, b and c`. */
+function joinedList(items: readonly string[]): string {
+  if (items.length < 2) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+}
+
+/** `firebase/app, firebase/auth, firebase/firestore and firebase/app-check`. */
+const SERVED = joinedList([...SERVED_IMPORTS]);
 
 /** What live mode serves where the import was made. */
 const SERVED_ON: Readonly<Record<SuppliedRowsPlane, string>> = {
@@ -64,13 +82,6 @@ function refused(message: string): Error {
 }
 
 /**
- * The imports `pyricLive({ passThrough })` can list: every served Firebase
- * import live mode has no row for. Each loads the app's installed SDK
- * unwrapped and unobserved.
- */
-const SERVED_IMPORTS: ReadonlySet<string> = new Set(['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check']);
-
-/**
  * Imports of a service live mode serves, under another entry: they stay
  * refused, since their calls would reach the served service unobserved and
  * "Billed calls" would never count them.
@@ -79,8 +90,18 @@ const SERVED_SERVICE_IMPORTS: Readonly<Record<string, string>> = {
   'firebase/firestore/lite': 'firebase/firestore',
 };
 
+/** Whether `specifier` is another entry to a service live mode serves, such as Firestore Lite. */
+function isServedServiceImport(specifier: string): boolean {
+  return Object.hasOwn(SERVED_SERVICE_IMPORTS, specifier);
+}
+
+/**
+ * The imports `pyricLive({ passThrough })` can list: every served Firebase
+ * import live mode has no row for. Each loads the app's installed SDK
+ * unwrapped and unobserved.
+ */
 export const PASS_THROUGH_CANDIDATES: readonly string[] = Object.keys(SERVICE_NAMES)
-  .filter((specifier) => !Object.hasOwn(SERVED_SERVICE_IMPORTS, specifier));
+  .filter((specifier) => !SERVED_IMPORTS.has(specifier) && !isServedServiceImport(specifier));
 
 /** Whether `pyricLive({ passThrough })` can list `specifier`. */
 export function canPassThrough(specifier: string): boolean {
@@ -123,9 +144,7 @@ export function passThroughOption(entry: string, value: unknown): readonly strin
 
 /** `firebase/ai (Firebase AI Logic) and firebase/database (Realtime Database)`. */
 function namedList(specifiers: readonly string[]): string {
-  const named = specifiers.map((specifier) => `${specifier} (${serviceOf(specifier)})`);
-  if (named.length < 2) return named.join('');
-  return `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`;
+  return joinedList(specifiers.map((specifier) => `${specifier} (${serviceOf(specifier)})`));
 }
 
 /** The option that would let each of `specifiers` load: `pyricLive({ passThrough: ['firebase/ai'] })`. */
