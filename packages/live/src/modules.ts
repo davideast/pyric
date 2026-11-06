@@ -15,9 +15,11 @@
  * function that closes the listener's journal activity and then calls the
  * SDK's own unsubscribe.
  *
- * The database row (`database.ts`) also decorates what two exports return:
- * the Database `getDatabase` returns is noted, so a reference's repo names
- * its app, and the OnDisconnect `onDisconnect` returns gets observed
+ * The database row (`database.ts`) also replaces `getDatabase`: an app whose
+ * config names another project, or a URL that names another project's
+ * default instance, is refused before the SDK's factory runs, and the
+ * Database it returns is noted, so a reference's repo
+ * names its app. The OnDisconnect `onDisconnect` returns gets observed
  * methods. Its `off` takes the app's callback and removes the recording one.
  *
  * The AI row (`ai.ts`) observes instances, not exports: the GenerativeModel
@@ -55,7 +57,7 @@ import {
   databaseContext,
   databaseListenerArguments,
   databaseListenerCallback,
-  noteDatabase,
+  guardedGetDatabase,
   observeOnDisconnect,
   offByCallback,
 } from './database.js';
@@ -247,11 +249,8 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
       listenerArguments: databaseListenerArguments,
       listenerCallback: databaseListenerCallback,
     },
-    decorated: {
-      getDatabase: noteDatabase,
-      onDisconnect: observeOnDisconnect,
-    },
-    replaced: { off: offByCallback },
+    decorated: { onDisconnect: observeOnDisconnect },
+    replaced: { getDatabase: guardedGetDatabase, off: offByCallback },
   },
   'live-ai': {
     calls: [],
@@ -365,6 +364,12 @@ export interface LiveModuleSite {
   readonly sdkVersion: string;
   /** The client the module runs in, which a refusal names. */
   readonly client: LiveClient;
+  /**
+   * The SDK's initialized apps, `getApps()` of the app's own `firebase/app`.
+   * No row observes `getApps`, so reading it records nothing; the app row
+   * observes `getApp`, so a row never calls that.
+   */
+  readonly apps?: () => readonly unknown[];
 }
 
 /**
@@ -375,7 +380,8 @@ export interface LiveModuleSite {
 export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: string, real: T, site: LiveModuleSite): T {
   const spec = LIVE_MODULES[key];
   const wrapped: Record<string, unknown> = { ...(real as Record<string, unknown>) };
-  const observedSite = { module: specifier, observer: site.observer, accountOf, ...spec.hooks };
+  const apps = site.apps === undefined ? {} : { apps: site.apps };
+  const observedSite = { module: specifier, observer: site.observer, accountOf, ...apps, ...spec.hooks };
   wrapExports(wrapped, spec.calls, observedCall, observedSite, spec.thenables, spec.swallowsRejection);
   const uncaughtListenerError = spec.uncaughtListenerError?.(site.sdkVersion);
   wrapExports(wrapped, spec.listeners, observedListener, { ...observedSite, uncaughtListenerError });

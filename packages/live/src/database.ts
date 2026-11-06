@@ -4,6 +4,10 @@
  * never answers, how its errors spell production's status, and how its
  * listeners and `off()` take their callbacks.
  *
+ * `getDatabase` on an app whose config names another project, or on a URL
+ * naming another project's default instance, is refused before the SDK's
+ * factory runs (`guardedGetDatabase`).
+ *
  * A reference has no path to its app: the SDK's `Repo` keeps none. So the row
  * notes each Database `getDatabase` hands the app, mapping its repo
  * (`db._repoInternal`) to `db.app`, and a record reads the repo from the
@@ -19,7 +23,7 @@
  * these shapes gives a record without its project, account, instance or path.
  * This file imports no Firebase SDK.
  */
-import { observedCall, UNOBSERVED, type CallContext, type ObservedSite } from './observe.js';
+import { observedCall, refusedFactory, UNOBSERVED, type CallContext, type ObservedSite } from './observe.js';
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
 type Fields = Record<string, unknown>;
@@ -44,6 +48,106 @@ export function noteDatabase(db: unknown): void {
     if (isObject(repo) && isObject(app)) APP_BY_REPO.set(repo, app);
   } catch {
     // A value that throws on read is not a Database; the app's call is unchanged.
+  }
+}
+
+/** The value of the last `ns` parameter in a query, decoded as the SDK's `decodeQuery` decodes it. A bad escape throws. */
+function namespaceParameter(query: string): string | undefined {
+  let namespace: string | undefined;
+  for (const segment of query.split('&')) {
+    const pair = segment.split('=');
+    const isNamespace = pair.length === 2 && decodeURIComponent(pair[0]!) === 'ns';
+    if (isNamespace) namespace = decodeURIComponent(pair[1]!);
+  }
+  return namespace;
+}
+
+/** The namespace a host names: the first label of a host with three or more, never `localhost`. */
+function hostNamespace(host: string): string | undefined {
+  const hostname = host.split(':')[0]!;
+  const labels = hostname.split('.');
+  const namesNone = hostname.toLowerCase() === 'localhost' || labels.length <= 2;
+  return namesNone ? undefined : labels[0];
+}
+
+/**
+ * The instance a database URL reaches, as the SDK's `parseDatabaseURL`
+ * reads its namespace: the `ns` query parameter when there is one, else the
+ * first label of the host, lowercase as `instanceOf` reads a repo's. A value
+ * that is no string, or names no namespace, gives undefined; so does a
+ * query the SDK cannot decode, which `getDatabase` then throws on itself.
+ */
+export function urlInstance(url: unknown): string | undefined {
+  try {
+    if (typeof url !== 'string') return undefined;
+    const schemeEnd = url.indexOf('//');
+    const rest = schemeEnd === -1 ? url : url.slice(schemeEnd + 2);
+    const queryStart = rest.indexOf('?');
+    const slash = rest.indexOf('/');
+    const hostEnd = Math.min(slash === -1 ? rest.length : slash, queryStart === -1 ? rest.length : queryStart);
+    const fromQuery = queryStart === -1 ? undefined : namespaceParameter(rest.slice(queryStart + 1));
+    const namespace = fromQuery ?? hostNamespace(rest.slice(0, hostEnd));
+    return namespace === undefined || namespace === '' ? undefined : namespace.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The row's `getDatabase`. When the app's config names another project (its
+ * projectId, or the default form of its databaseURL, storageBucket or
+ * authDomain), or the URL names another project's default instance, it
+ * throws the project refusal naming that field before the SDK's factory
+ * runs, so the SDK never opens a connection, which would carry the
+ * account's ID token and the App Check token. A config field is judged
+ * ahead of the URL. `getDatabase()` with no app judges the default app.
+ * When there is none yet, the SDK's factory either throws its own error or
+ * makes the default app from the environment's default config, as
+ * `getApp()` does, and that app is judged before the Database is returned:
+ * the factory opens no connection, which starts only at `ref()`. Otherwise
+ * it calls the SDK's factory, and the Database it returns is noted.
+ */
+export function guardedGetDatabase(real: Callback, site: Omit<ObservedSite, 'name'>): Callback {
+  return function getDatabase(this: unknown, ...args: unknown[]): unknown {
+    const instance = urlInstance(args[1]);
+    const target = instance === undefined ? {} : { instance };
+    const isAppNamed = args[0] !== undefined;
+    const app = isAppNamed ? args[0] : defaultApp(site);
+    throwRefusal(refusedFactory(site, 'getDatabase', app, target));
+    const db = Reflect.apply(real, this, args);
+    const isAppMade = app === undefined;
+    if (isAppMade) throwRefusal(refusedFactory(site, 'getDatabase', appOfDatabase(db), target));
+    noteDatabase(db);
+    return db;
+  };
+}
+
+function throwRefusal(refusal: Error | null): void {
+  if (refusal !== null) throw refusal;
+}
+
+/** The name `getApp()` looks the default app up by. */
+const DEFAULT_APP_NAME = '[DEFAULT]';
+
+/**
+ * The app `getDatabase()` with no app opens, as the SDK's `getApp()` finds
+ * it: the initialized app named `[DEFAULT]`, read from `getApps()` so no
+ * call is recorded. Undefined when there is none yet.
+ */
+function defaultApp(site: Omit<ObservedSite, 'name'>): unknown {
+  try {
+    return site.apps?.().find((app) => isObject(app) && app.name === DEFAULT_APP_NAME);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The app a Database belongs to, read without calling anything of the app's. */
+function appOfDatabase(db: unknown): unknown {
+  try {
+    return isObject(db) ? db.app : undefined;
+  } catch {
+    return undefined;
   }
 }
 

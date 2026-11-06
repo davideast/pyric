@@ -244,6 +244,8 @@ export interface ObservedSite extends ObservedHooks {
   readonly subject?: unknown;
   /** Reads the account a call whose first argument is `subject` runs as. Absent records no account. */
   readonly accountOf?: (subject: unknown) => LiveAccount | undefined;
+  /** The SDK's initialized apps (`getApps()` of `firebase/app`), so a factory called with no app finds the default one. */
+  readonly apps?: () => readonly unknown[];
   /** For one listener the observer journals: its activity. */
   readonly activity?: LiveListenerActivity;
   /** The instance, bucket and path of the call this site records, read by the module's context hook. */
@@ -508,6 +510,24 @@ function refusedProject(callSite: ObservedSite): Error | null {
   const other = named.find((project) => project.projectId !== hostProjectId);
   if (other === undefined) return null;
   return liveProjectRefusal(callSite.name, { field: other.field, appProjectId: other.projectId, hostProjectId }, client);
+}
+
+/**
+ * The refusal of a factory call that has not run, or null when it may run:
+ * judged as a call is, by every project `app`'s config names and then by
+ * the instance or bucket its arguments name. `getDatabase` is one: the SDK
+ * opens its connection at `ref()`, before any call a wrapper judges, and
+ * sends the account's ID token and the App Check token on it.
+ */
+export function refusedFactory(
+  site: Omit<ObservedSite, 'name'>,
+  name: string,
+  app: unknown,
+  target: Pick<ObservedSite, CallTargetField>,
+): Error | null {
+  const projectId = projectOf([app]);
+  const named = projectId === undefined ? {} : { projectId };
+  return refusedProject({ module: site.module, observer: site.observer, name, subject: app, ...named, ...target });
 }
 
 function ignoreRejection(returned: unknown): void {
