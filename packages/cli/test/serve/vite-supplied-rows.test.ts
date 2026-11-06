@@ -234,7 +234,7 @@ describe('live rows, once opened', () => {
 
 describe('live rows with imports that pass through', () => {
   const installed = (specifier: string, from = import.meta.url): string => realpathSync(createRequire(from).resolve(specifier));
-  const storageEntry = installed('firebase/storage');
+  const functionsEntry = installed('firebase/functions');
   const messagingEntry = installed('firebase/messaging');
   const messagingSwEntry = installed('firebase/messaging/sw');
   const messagingPackage = installed('@firebase/messaging', messagingEntry);
@@ -251,19 +251,19 @@ describe('live rows with imports that pass through', () => {
   }
 
   it("load a listed import's own entry folder, and record it as an SDK file the page loaded", async () => {
-    const { rows, resolveTo } = passingSwap(['firebase/storage']);
-    expect(await resolveTo(storageEntry, aliased('firebase/storage'), userImporter)).toEqual({ id: storageEntry });
-    expect(rows.liveSdkUrls).toEqual(new Set([pathToFileURL(storageEntry).href]));
+    const { rows, resolveTo } = passingSwap(['firebase/functions']);
+    expect(await resolveTo(functionsEntry, aliased('firebase/functions'), userImporter)).toEqual({ id: functionsEntry });
+    expect(rows.liveSdkUrls).toEqual(new Set([pathToFileURL(functionsEntry).href]));
     // An unlisted import is still refused.
     expect(await resolveTo(messagingEntry, aliased('firebase/messaging'), userImporter)).toStartWith(STOP_PREFIX);
   });
 
   it("stop an alias that points a listed name at another service's entry", async () => {
-    const { rows, gated, resolveTo } = passingSwap(['firebase/storage']);
-    const id = await resolveTo(messagingEntry, aliased('firebase/storage'), userImporter);
+    const { rows, gated, resolveTo } = passingSwap(['firebase/functions']);
+    const id = await resolveTo(messagingEntry, aliased('firebase/functions'), userImporter);
     expect(id).toStartWith(STOP_PREFIX);
     const error = await thrownBy(await gated.loadPluginModule(id as string));
-    expect(error.message).toBe('refused firebase/storage on the page');
+    expect(error.message).toBe('refused firebase/functions on the page');
     expect(rows.liveSdkUrls.size).toBe(0);
   });
 
@@ -283,11 +283,11 @@ describe('live rows with imports that pass through', () => {
     expect(await listed.resolveTo(messagingPackage, '@firebase/messaging', messagingEntry)).toEqual({ id: messagingPackage });
     expect(await listed.resolveTo(installationsPackage, '@firebase/installations', messagingPackage)).toEqual({ id: installationsPackage });
 
-    // With only firebase/storage listed, a loaded SDK file still cannot reach @firebase/installations or @firebase/messaging.
-    const unlisted = passingSwap(['firebase/storage']);
-    expect(await unlisted.resolveTo(storageEntry, aliased('firebase/storage'), userImporter)).toEqual({ id: storageEntry });
-    expect(await unlisted.resolveTo(installationsPackage, '@firebase/installations', storageEntry)).toStartWith(STOP_PREFIX);
-    expect(await unlisted.resolveTo(messagingPackage, '@firebase/messaging', storageEntry)).toStartWith(STOP_PREFIX);
+    // With only firebase/functions listed, a loaded SDK file still cannot reach @firebase/installations or @firebase/messaging.
+    const unlisted = passingSwap(['firebase/functions']);
+    expect(await unlisted.resolveTo(functionsEntry, aliased('firebase/functions'), userImporter)).toEqual({ id: functionsEntry });
+    expect(await unlisted.resolveTo(installationsPackage, '@firebase/installations', functionsEntry)).toStartWith(STOP_PREFIX);
+    expect(await unlisted.resolveTo(messagingPackage, '@firebase/messaging', functionsEntry)).toStartWith(STOP_PREFIX);
   });
 
   it('take no import a row serves, nor firebase/firestore/lite or firebase-admin', () => {

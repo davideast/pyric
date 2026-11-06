@@ -80,7 +80,7 @@ import { nodeAgentPrototypes, nodeClientRequestPrototypes } from './connect-prot
 import { INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
 import { joinedList } from './word-list.js';
 
-/** Cloud Storage's host, which the Storage row's SDK and a passed-through `firebase/storage` reach. */
+/** Cloud Storage's host, which the Storage row's SDK reaches. */
 const STORAGE_HOST = 'firebasestorage.googleapis.com';
 
 /**
@@ -120,7 +120,6 @@ const MESSAGING_HOSTS = ['fcmregistrations.googleapis.com', INSTALLATIONS_HOST];
  * Installations ID. Its calls go to production unobserved, as the app asked.
  */
 const PASS_THROUGH_HOSTS: Readonly<Record<string, readonly string[]>> = {
-  'firebase/storage': [STORAGE_HOST],
   'firebase/functions': ['cloudfunctions.net'],
   'firebase/messaging': MESSAGING_HOSTS,
   'firebase/messaging/sw': MESSAGING_HOSTS,
