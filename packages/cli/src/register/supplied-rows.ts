@@ -12,12 +12,15 @@
  *
  * The register may also pass served specifiers through (`passThrough`), as
  * the page plane does: each loads the app's installed SDK unwrapped, with no
- * row and no observer. Only a specifier with no live row can pass through,
- * and `firebase-admin` never does (`passThroughSet`).
+ * row and no observer. Only a specifier with no live row can pass through
+ * (`passThroughSet`). `firebase-admin` passes through when it is listed:
+ * every `firebase-admin` and `firebase-admin/*` import then loads the real
+ * Admin SDK, with the app's own credential, unobserved
+ * (`supplied-entry.ts` records the files it loads).
  *
  * Imports node built-ins and side-effect-free modules only.
  */
-import type { SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
+import { passesAdminThrough, type PassThroughSpecifier, type SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
 import type { ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 import { REGISTER_ROW_URLS, isRegisterLiveModule } from './live-row.js';
 
@@ -36,8 +39,8 @@ export interface RegisterRowPackage {
  * import, until {@link RegisterRows.open} is given the installed `@pyric/live`.
  */
 export interface RegisterRows {
-  /** The served specifiers with no row that load the installed SDK unwrapped and unobserved. */
-  readonly passThrough: ReadonlySet<ServedFirebaseSpecifier>;
+  /** The served specifiers with no row that load the installed SDK unwrapped and unobserved, and `firebase-admin` when listed. */
+  readonly passThrough: ReadonlySet<PassThroughSpecifier>;
   /** The installed `@pyric/live`, or null while the rows are shut. */
   package(): RegisterRowPackage | null;
   open(found: RegisterRowPackage): void;
@@ -50,7 +53,7 @@ function shutRefusal(specifier: string): Error {
 }
 
 /** Shut live rows, with the specifiers that pass through once they open. */
-export function registerRows(passThrough: ReadonlySet<ServedFirebaseSpecifier> = new Set()): RegisterRows {
+export function registerRows(passThrough: ReadonlySet<PassThroughSpecifier> = new Set()): RegisterRows {
   let found: RegisterRowPackage | null = null;
   return {
     passThrough,
@@ -65,11 +68,15 @@ export type RegisterRowsResolution =
   | { readonly kind: 'module'; readonly url: string }
   | { readonly kind: 'installed-sdk'; readonly projectUrl: string }
   | { readonly kind: 'pass-through' }
+  | { readonly kind: 'admin-pass-through' }
   | { readonly kind: 'refused'; readonly error: Error }
   | { readonly kind: 'unserved' };
 
 /** `firebase`, `firebase/*`, `firebase-admin` and `firebase-admin/*`, as an app names them. */
 const FIREBASE_IMPORT = /^firebase(-admin)?(\/.+)?$/;
+
+/** `firebase-admin` and `firebase-admin/*`. */
+const ADMIN_IMPORT = /^firebase-admin(\/.+)?$/;
 
 /** How an import names its module: the specifier, the importer's URL, and the resolve conditions. */
 export interface RegisterRowsImport {
@@ -102,7 +109,8 @@ function isOwnRowImport(rowUrl: string, request: RegisterRowsImport): boolean {
 /**
  * What an import gets under live rows: the row's module; the installed SDK,
  * when that row module imports its own specifier; the installed SDK
- * unwrapped, for a specifier the register passes through; the refusal, for every
+ * unwrapped, for a specifier the register passes through; the real Admin
+ * SDK, for a `firebase-admin` import when the register passes it through; the refusal, for every
  * other Firebase and `firebase-admin` import and for every one while the rows
  * are shut; or `unserved` for anything else, which resolves as Node resolves
  * it and still meets the stop.
@@ -116,8 +124,10 @@ export function registerRowsResolution(rows: RegisterRows, request: RegisterRows
   if (!isFirebaseImport) return { kind: 'unserved' };
   const url = REGISTER_ROW_URLS.get(specifier as ServedFirebaseSpecifier);
   if (found === null) return { kind: 'refused', error: shutRefusal(specifier) };
-  const isPassThrough = rows.passThrough.has(specifier as ServedFirebaseSpecifier);
+  const isPassThrough = rows.passThrough.has(specifier as PassThroughSpecifier) && !ADMIN_IMPORT.test(specifier);
   if (isPassThrough) return { kind: 'pass-through' };
+  const isAdminPassThrough = ADMIN_IMPORT.test(specifier) && passesAdminThrough(rows.passThrough);
+  if (isAdminPassThrough) return { kind: 'admin-pass-through' };
   if (url === undefined) return { kind: 'refused', error: found.refusal(specifier, 'node') };
   return isOwnRowImport(url, request) ? { kind: 'installed-sdk', projectUrl: found.projectUrl } : { kind: 'module', url };
 }
