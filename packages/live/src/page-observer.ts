@@ -6,8 +6,11 @@
  * the page: the host's observed calls name Firestore, Auth, RTDB, AI Logic,
  * Storage and Messaging only. A call that returned synchronously, such as a
  * listener's subscribe, has no production answer and is not sent. A call
- * that ran signed in names its account: the uid and claim names, never the
- * token. An RTDB call also names its instance and path, an AI Logic call its
+ * that ran signed in names its account: the uid, the claim names and, for
+ * the host's local rules only, the claim values with emails left out; never
+ * the token. A Firestore call also carries, for the same rules only, the data
+ * a write sent and the document a `getDoc` returned. The host keeps those
+ * values in memory; no event holds them. An RTDB call also names its instance and path, an AI Logic call its
  * model and production's token counts, a Storage call its bucket and, below
  * the root, its path, and a Messaging `getToken` or `deleteToken` the
  * Installations and FCM registration requests it made, as API and action
@@ -51,8 +54,16 @@ function productionOutcome(record: LiveCallRecord): ProductionOutcome | null {
 function accountOf(record: LiveCallRecord): Pick<ObservedCall, 'account'> {
   const account = record.account;
   if (account === undefined) return {};
-  const claims = account.claimNames === undefined ? {} : { claimNames: [...account.claimNames] };
+  const names = account.claimNames === undefined ? {} : { claimNames: [...account.claimNames] };
+  const claims = account.claims === undefined ? names : { ...names, claims: { ...account.claims } };
   return { account: { uid: account.uid, ...claims } };
+}
+
+/** The record's write data and returned document, as the host takes them: Firestore only, a fresh copy of each. */
+function valuesOf(service: ObservedCallService, record: LiveCallRecord): Pick<ObservedCall, 'writeData' | 'document'> {
+  if (service !== 'firestore') return {};
+  const written = record.writeData === undefined ? {} : { writeData: { ...record.writeData } };
+  return record.document === undefined ? written : { ...written, document: { ...record.document } };
 }
 
 /**
@@ -105,7 +116,7 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const account = accountOf(record);
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
   const usage = record.usage === undefined ? {} : { usage: { ...record.usage } };
-  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...usage, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record) };
+  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...usage, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record), ...valuesOf(service, record) };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */

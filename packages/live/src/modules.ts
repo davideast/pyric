@@ -31,7 +31,8 @@
  * SDK's and its `stream` by one that yields the SDK's own chunks.
  *
  * The Firestore row reads each call's path, the document or collection its
- * reference or query names, through its context hook (`firestore.ts`).
+ * reference or query names, and a write's data through its context hook,
+ * and a `getDoc`'s returned document through its result hook (`firestore.ts`).
  *
  * The Storage row (`storage.ts`) observes exports. `uploadBytesResumable`
  * returns the SDK's own UploadTask, its `then` and `catch` following the
@@ -65,7 +66,7 @@ import {
   offByCallback,
 } from './database.js';
 import { AI_REFUSED_CALLS, aiCode, aiContext, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
-import { firestoreContext } from './firestore.js';
+import { firestoreContext, firestoreResult } from './firestore.js';
 import { observedGetStream, STORAGE_CALLS, storageContext } from './storage.js';
 import {
   MESSAGING_CALLS,
@@ -234,7 +235,7 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     ],
     listeners: ['onSnapshot', 'onSnapshotResume'],
     uncaughtListenerError: firestoreUncaughtListenerError,
-    hooks: { context: firestoreContext },
+    hooks: { context: firestoreContext, resultOf: firestoreResult },
     refused: {
       getFirestore: getFirestoreDatabase,
       initializeFirestore: initializeFirestoreDatabase,

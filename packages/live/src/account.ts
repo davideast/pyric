@@ -1,7 +1,8 @@
 /**
  * The signed-in account a call ran as, read from the app's own Auth: the
- * account id and the names of its ID token's claims. Never the token, and
- * never a claim's value.
+ * account id, the names of its ID token's claims and their values, with the
+ * account's emails left out. Never the token. The values go to the host
+ * only, for its local rules' `request.auth.token`.
  *
  * The live Auth row notes each Auth instance `getAuth` and `initializeAuth`
  * hand the app, keyed by its app. A call's first argument names its app (a
@@ -10,7 +11,7 @@
  * user's `uid` is public. Its ID token is the `accessToken` the SDK keeps on
  * the user and refreshes in place; only the names in its payload are read.
  * A production token is signed and an Auth emulator token is not, but both
- * carry the same payload, so the names read the same way from either.
+ * carry the same payload, so the claims read the same way from either.
  *
  * Reading never calls the app's code or the SDK's functions, and never
  * throws: an object that does not have these shapes names no account.
@@ -111,12 +112,11 @@ function decodeSegment(segment: string): string | undefined {
 }
 
 /**
- * The sorted names of an ID token's claims, or undefined when the value is
- * not a JWT with an object payload. The signature is not read, so a signed
- * production token and an unsigned emulator token read alike. Names a host
- * would refuse (empty or too long) are left out, and at most 64 are kept.
+ * An ID token's claims, or undefined when the value is not a JWT with an
+ * object payload. The signature is not read, so a signed production token
+ * and an unsigned emulator token read alike.
  */
-export function claimNamesOf(token: unknown): string[] | undefined {
+function claimsOf(token: unknown): Fields | undefined {
   if (typeof token !== 'string') return undefined;
   const segments = token.split('.');
   const isJwt = segments.length === 3;
@@ -126,12 +126,42 @@ export function claimNamesOf(token: unknown): string[] | undefined {
     if (payload === undefined) return undefined;
     const claims: unknown = JSON.parse(payload);
     const isClaims = isObject(claims) && !Array.isArray(claims);
-    if (!isClaims) return undefined;
-    const names = Object.keys(claims).filter((name) => name.length > 0 && name.length <= MAX_CLAIM_NAME_LENGTH);
-    return names.sort().slice(0, MAX_CLAIM_NAMES);
+    return isClaims ? claims : undefined;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The sorted names of an ID token's claims, or undefined when the value is
+ * not a JWT with an object payload. Names a host would refuse (empty or too
+ * long) are left out, and at most 64 are kept.
+ */
+export function claimNamesOf(token: unknown): string[] | undefined {
+  const claims = claimsOf(token);
+  if (claims === undefined) return undefined;
+  const names = Object.keys(claims).filter((name) => name.length > 0 && name.length <= MAX_CLAIM_NAME_LENGTH);
+  return names.sort().slice(0, MAX_CLAIM_NAMES);
+}
+
+/** `firebase.identities` without its `email` list, the account's sign-in emails. */
+function withoutIdentityEmails(firebase: unknown): unknown {
+  if (!isObject(firebase) || !isObject(firebase.identities)) return firebase;
+  const { email: _email, ...identities } = firebase.identities;
+  return { ...firebase, identities };
+}
+
+/**
+ * An ID token's claim values, with the account's `email` and the emails in
+ * `firebase.identities` left out, or undefined when the value is not a JWT
+ * with an object payload.
+ */
+export function claimValuesOf(token: unknown): Record<string, unknown> | undefined {
+  const claims = claimsOf(token);
+  if (claims === undefined) return undefined;
+  const { email: _email, ...rest } = claims;
+  const hasFirebase = 'firebase' in rest;
+  return hasFirebase ? { ...rest, firebase: withoutIdentityEmails(rest.firebase) } : rest;
 }
 
 /**
@@ -146,7 +176,9 @@ export function accountOf(subject: unknown): LiveAccount | undefined {
     const isUid = typeof uid === 'string' && uid.length > 0 && uid.length <= MAX_UID_LENGTH;
     if (!isUid) return undefined;
     const claimNames = claimNamesOf(user.accessToken);
-    return claimNames === undefined ? { uid } : { uid, claimNames };
+    if (claimNames === undefined) return { uid };
+    const claims = claimValuesOf(user.accessToken);
+    return claims === undefined ? { uid, claimNames } : { uid, claimNames, claims };
   } catch {
     return undefined;
   }

@@ -18,8 +18,11 @@
  * reference's path (`storage.ts`). A Cloud Messaging record also lists the
  * Installations and FCM registration requests the call made, as API and
  * action names, read by the module's result and rejection hooks
- * (`messaging.ts`). It never carries an argument's value or a result, so no
- * document value, prompt, response text, file content, credential, token or
+ * (`messaging.ts`). A Firestore record also carries, for the host's local
+ * rules only, the data a write sent and the document a `getDoc` returned,
+ * read by the module's context and result hooks (`firestore.ts`), and the
+ * account its claim values. It never carries another argument's value or
+ * result, so no prompt, response text, file content, credential, token or
  * push payload reaches it.
  *
  * A thenable that is not a promise, as RTDB's `push` and Storage's
@@ -104,6 +107,16 @@ export interface LiveCallRecord {
    * Timing.
    */
   readonly requests?: readonly LiveRequest[];
+  /**
+   * On a Firestore `setDoc`, `updateDoc` or `addDoc`: the fields it wrote, as
+   * JSON values. Sent to the host for its local rules only.
+   */
+  readonly writeData?: Readonly<Record<string, unknown>>;
+  /**
+   * On a resolved Firestore `getDoc`: the fields of the document it
+   * returned, as JSON values. Sent to the host for its local rules only.
+   */
+  readonly document?: Readonly<Record<string, unknown>>;
 }
 
 /** One request a Cloud Messaging call made: the API, what the request did, and production's HTTP status. Never its URL. */
@@ -148,10 +161,12 @@ export interface LiveUsage {
 /** Measures a resolved call from its value, as the senders' `measureObservedUsage` does. Undefined measures nothing. */
 export type LiveMeasure = (module: string, name: string, value: unknown) => LiveUsage | undefined;
 
-/** The account a call ran as: the uid and its token's claim names, never the token. */
+/** The account a call ran as: the uid, its token's claim names and their values with emails left out, never the token. */
 export interface LiveAccount {
   readonly uid: string;
   readonly claimNames?: readonly string[];
+  /** The claims by name, as JSON values. Sent to the host for its local rules only. */
+  readonly claims?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -191,10 +206,14 @@ export interface CallContext {
   readonly timelineStart?: number;
   /** On a Cloud Messaging call: the requests it made, once a hook has read them. */
   readonly requests?: readonly LiveRequest[];
+  /** On a Firestore write: the fields it wrote. */
+  readonly writeData?: Readonly<Record<string, unknown>>;
+  /** On a Firestore read: the document it returned, once a hook has read it. */
+  readonly document?: Readonly<Record<string, unknown>>;
 }
 
 /** What a resolved call's value adds to its record, or `UNOBSERVED` when production never answered it. */
-export type ResultReading = Pick<CallContext, 'ai' | 'requests'> | typeof UNOBSERVED;
+export type ResultReading = Pick<CallContext, 'ai' | 'requests' | 'document'> | typeof UNOBSERVED;
 
 /**
  * What a rejected call's error adds to its record: the requests it made and
@@ -284,6 +303,10 @@ export interface ObservedSite extends ObservedHooks {
   readonly timelineStart?: number;
   /** The Cloud Messaging requests the call this site records made. */
   readonly requests?: readonly LiveRequest[];
+  /** The fields the Firestore write this site records sent. */
+  readonly writeData?: Readonly<Record<string, unknown>>;
+  /** The document the Firestore read this site records returned. */
+  readonly document?: Readonly<Record<string, unknown>>;
   /**
    * Whether the export returns a thenable that is not a promise, whose
    * settlement is production's answer, as `push` returns its reference.
@@ -324,12 +347,14 @@ function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown):
 }
 
 /** The site's instance, bucket, path, AI Logic model and Messaging requests, as a record carries them. */
-function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket' | 'path' | 'ai' | 'requests'> {
+function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket' | 'path' | 'ai' | 'requests' | 'writeData' | 'document'> {
   const instance = site.instance === undefined ? {} : { instance: site.instance };
   const bucket = site.bucket === undefined ? instance : { ...instance, bucket: site.bucket };
   const place = site.path === undefined ? bucket : { ...bucket, path: site.path };
   const ai = site.ai === undefined ? place : { ...place, ai: site.ai };
-  return site.requests === undefined ? ai : { ...ai, requests: site.requests };
+  const requests = site.requests === undefined ? ai : { ...ai, requests: site.requests };
+  const written = site.writeData === undefined ? requests : { ...requests, writeData: site.writeData };
+  return site.document === undefined ? written : { ...written, document: site.document };
 }
 
 /** `value` is the delivered value or the error, by outcome. */

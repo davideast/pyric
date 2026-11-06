@@ -40,6 +40,9 @@ const PRODUCTION_CLAIMS = {
   firebase: { identities: { email: ['alice@example.com'] }, sign_in_provider: 'password' },
 };
 const CLAIM_NAMES = ['admin', 'aud', 'auth_time', 'email', 'email_verified', 'exp', 'firebase', 'iat', 'iss', 'sub', 'user_id'];
+/** The claim values an account carries: every claim but the account's emails. */
+const { email: _email, ...CLAIMS_WITHOUT_EMAIL } = PRODUCTION_CLAIMS;
+const CLAIM_VALUES = { ...CLAIMS_WITHOUT_EMAIL, firebase: { identities: {}, sign_in_provider: 'password' } };
 
 describe('claim names', () => {
   test('a signed production token and an unsigned emulator token give the same sorted names', () => {
@@ -85,7 +88,7 @@ describe('the account a call runs as, in the shape the production SDK holds', ()
   Object.assign(user, { auth });
 
   test("a reference's, a Firestore instance's, an Auth's, a user's and the app's own call name the app's current user", () => {
-    const expected = { uid: 'alice', claimNames: CLAIM_NAMES };
+    const expected = { uid: 'alice', claimNames: CLAIM_NAMES, claims: CLAIM_VALUES };
     expect(accountOf({ firestore: { app } })).toEqual(expected);
     expect(accountOf({ app })).toEqual(expected);
     expect(accountOf(auth)).toEqual(expected);
@@ -171,7 +174,7 @@ describe('the real SDK in production mode', async () => {
     records.length = 0;
     await firestore.getDocFromCache(firestore.doc(db, 'rooms/lobby')).catch(() => undefined);
     expect(records).toHaveLength(1);
-    expect(records[0]!.account).toEqual({ uid: 'alice', claimNames: [...CLAIM_NAMES].sort() });
+    expect(records[0]!.account).toEqual({ uid: 'alice', claimNames: [...CLAIM_NAMES].sort(), claims: { ...CLAIM_VALUES, exp: expect.any(Number) } });
     expect(JSON.stringify(records)).not.toContain(token.split('.')[1]!);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
