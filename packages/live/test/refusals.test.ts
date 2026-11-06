@@ -140,16 +140,16 @@ describe('the refusals follow the live rows', () => {
     'Remove the import, or run the app without @pyric/live to use the sandbox.';
 
   test('an import with no live row names every row, in row order, for pages and Node processes', () => {
-    expect(liveRefusal('firebase/storage', 'page').message).toBe(
-      `@pyric/live: firebase/storage (Cloud Storage) is refused in live mode. Live mode serves only ${served} to pages, ` +
+    expect(liveRefusal('firebase/functions', 'page').message).toBe(
+      `@pyric/live: firebase/functions (Cloud Functions) is refused in live mode. Live mode serves only ${served} to pages, ` +
         `from your installed Firebase SDK. ${tail}`,
     );
-    expect(liveRefusal('firebase/storage', 'node').message).toBe(
-      `@pyric/live: firebase/storage (Cloud Storage) is refused in live mode. Live mode serves only ${served} to a Node process, ` +
+    expect(liveRefusal('firebase/functions', 'node').message).toBe(
+      `@pyric/live: firebase/functions (Cloud Functions) is refused in live mode. Live mode serves only ${served} to a Node process, ` +
         `from your installed Firebase SDK. ${tail}`,
     );
-    expect(liveRefusal('firebase/storage', 'server').message).toBe(
-      '@pyric/live: firebase/storage (Cloud Storage) is refused in live mode. Live mode serves Firebase to pages only; ' +
+    expect(liveRefusal('firebase/functions', 'server').message).toBe(
+      '@pyric/live: firebase/functions (Cloud Functions) is refused in live mode. Live mode serves Firebase to pages only; ' +
         `server code the dev server runs gets no Firebase module yet. ${tail}`,
     );
   });
