@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Rooms</title></head>
+  <body>
+    <output id="status">Starting</output>
+    <script>
+      // A module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+    </script>
+    <script type="module">
+      // The app's calls, on the services the init module set up: user-1 signs
+      // in, writes and reads a room in Realtime Database, uploads a file and
+      // reads its metadata, and asks a model for content. None of them is
+      // Cloud Messaging's, which the page only gets on the same app.
+      import { signInWithCustomToken } from "firebase/auth";
+      import { get, ref, set } from "firebase/database";
+      import { getMetadata, ref as fileRef, uploadBytes } from "firebase/storage";
+      import { getMessaging } from "firebase/messaging";
+      import { app, auth, db, messaging, model, storage } from "/src/firebase.ts";
+
+      const ROOM = "pyric-live-capture/replay/items/a";
+      const FILE = "pyric_oracle/replay/a.bin";
+      const failure = (error) => (error.customErrorData?.status ? `http ${error.customErrorData.status}` : error.code ?? String(error));
+
+      window.runApp = async () => {
+        const result = { uid: (await signInWithCustomToken(auth, "client-1")).user.uid };
+        await set(ref(db, ROOM), { n: 1, s: "alpha" });
+        result.get = (await get(ref(db, ROOM))).val();
+        result.uploadBytes = (await uploadBytes(fileRef(storage, FILE), new Uint8Array([1, 2, 3, 4, 5, 6]))).metadata.size;
+        result.getMetadata = (await getMetadata(fileRef(storage, FILE))).size;
+        result.generateContent = await model.generateContent("Name one lighthouse keeper's chore.").then((answer) => answer.response.text(), failure);
+        return result;
+      };
+      // The init module's messaging instance is the one this app's provider holds.
+      document.querySelector("#status").textContent = getMessaging(app) === messaging ? "Ready" : "Broken";
+    </script>
+  </body>
+</html>
