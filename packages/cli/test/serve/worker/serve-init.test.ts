@@ -567,11 +567,11 @@ describe('applyServeInit — capture (the verify loop)', () => {
 
       const body = JSON.parse(fetchSpy.calls.filter((c) => c.url === '/__pyric/capture').at(-1)!.body) as {
         events: Array<{ id: string; production?: { outcome: unknown; local?: { result: string } } }>;
-        liveCalls?: Record<string, unknown>;
+        observedCalls?: Record<string, unknown>;
       };
       const live = body.events.find((event) => event.production !== undefined)!;
       expect(live.production).toMatchObject({ outcome: { status: 'ok' }, local: { result: 'allow' } });
-      expect(body.liveCalls?.[live.id]).toEqual({
+      expect(body.observedCalls?.[live.id]).toEqual({
         claims: { admin: true, firebase: { identities: { 'google.com': ['1'] } } },
         writeData: { owner: 'alice' },
       });

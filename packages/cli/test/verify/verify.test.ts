@@ -580,14 +580,14 @@ service cloud.firestore {
   }
 }`;
 
-  type LiveValues = NonNullable<PyricVerifyFixture['liveCalls']>[string];
+  type ObservedValues = NonNullable<PyricVerifyFixture['observedCalls']>[string];
 
   /** A capture holding one live call production answered, with the values it carried. */
-  function liveCapture(call: Parameters<typeof observedCallEvent>[0], values: LiveValues, rules: string): PyricVerifyFixture {
+  function liveCapture(call: Parameters<typeof observedCallEvent>[0], values: ObservedValues, rules: string): PyricVerifyFixture {
     const sandbox = initializeSandbox();
     emitSandboxEvent(sandbox, observedCallEvent(call), { caller: { kind: 'node' } });
     const id = sandbox.history().at(-1)!.id;
-    return buildVerifyFixture({ sandbox, firestoreRules: rules, liveCalls: { [id]: values } });
+    return buildVerifyFixture({ sandbox, firestoreRules: rules, observedCalls: { [id]: values } });
   }
 
   const read = (outcome: { status: 'ok' } | { status: 'error'; code: string }) => ({
@@ -629,7 +629,7 @@ service cloud.firestore {
 }`;
 
   it('skips a live call whose answer rests on data the capture lacks, under unchanged rules', async () => {
-    const cases: Array<[string, LiveValues]> = [
+    const cases: Array<[string, ObservedValues]> = [
       [OWNER_READS, {}],
       [ADMIN_READS, {}],
       [EMAIL_READS, { claims: { admin: true } }],

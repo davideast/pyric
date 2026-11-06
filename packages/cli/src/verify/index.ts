@@ -44,7 +44,7 @@ import {
   parseVerifyFixture,
   VERIFY_FIXTURE_SCHEMA,
   type PyricVerifyFixture,
-  type VerifyLiveCallValues,
+  type VerifyObservedCallValues,
 } from './fixture.js';
 import { runStagingInstance, StagingDeployRefusedError, withStagingInstance, type StagingRunHooks } from './staging/engine.js';
 import type { RtdbRestClient } from './staging/rest.js';
@@ -76,7 +76,7 @@ export {
   type BuildVerifyFixtureInput,
   type PyricVerifyFixture,
   type VerifyFirestoreRulesBlock,
-  type VerifyLiveCallValues,
+  type VerifyObservedCallValues,
   type VerifyRtdbInstanceCapture,
   type VerifyRtdbRulesBlock,
   type VerifyStorageRulesBlock,
@@ -495,7 +495,7 @@ function isLiveFirestoreCall(event: PyricVerifyFixture['events'][number]): event
 }
 
 /** A captured live call as the host observed it: its event, with the values the capture kept beside it. */
-function observedCallOf(event: SandboxOperationEvent & { path: string }, values: VerifyLiveCallValues | undefined): ObservedCall {
+function observedCallOf(event: SandboxOperationEvent & { path: string }, values: VerifyObservedCallValues | undefined): ObservedCall {
   const uid = event.auth?.uid;
   return {
     service: 'firestore',
@@ -527,7 +527,7 @@ function verifyLiveFirestoreCalls(fixture: PyricVerifyFixture, rules: string): {
     const method = observedMethod('firestore', event.method);
     const verdict = productionVerdict(event.production!.outcome);
     if (method === null || verdict === 'failed') continue;
-    const evaluation = evaluateFirestoreCall(simulate, observedCallOf(event, fixture.liveCalls?.[event.id]), method);
+    const evaluation = evaluateFirestoreCall(simulate, observedCallOf(event, fixture.observedCalls?.[event.id]), method);
     const isDecided = evaluation !== undefined && evaluation.needs.length === 0;
     if (!isDecided) continue;
     const allowed = evaluation.allowed;

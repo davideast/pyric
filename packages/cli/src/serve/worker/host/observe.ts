@@ -13,7 +13,7 @@
  */
 import { emitSandboxEvent, observedCallEvent, readObservedCall } from 'pyric/sandbox/internal';
 import type { ObservedCall, Sandbox } from 'pyric/sandbox';
-import type { VerifyLiveCallValues } from '../../../verify/fixture.js';
+import type { VerifyObservedCallValues } from '../../../verify/fixture.js';
 import type { ObserveMessage } from '../protocol.js';
 import { ok, fail, type HostCtx, type PortLike } from '../host-context.js';
 import { callerOf } from './caller.js';
@@ -21,7 +21,7 @@ import { localVerdict } from './observe-local-verdict.js';
 
 /** One sandbox's live call values by event id, and the size at which they are next pruned. */
 interface ValueStore {
-  byEvent: Map<string, VerifyLiveCallValues>;
+  byEvent: Map<string, VerifyObservedCallValues>;
   pruneAt: number;
 }
 
@@ -54,7 +54,7 @@ export function heldLiveCallValueCount(sandbox: Sandbox): number {
  * capture file to hold beside the events, pruned to the events the history
  * still holds. Emails are already left out.
  */
-export function liveCallValues(sandbox: Sandbox): ReadonlyMap<string, VerifyLiveCallValues> {
+export function liveCallValues(sandbox: Sandbox): ReadonlyMap<string, VerifyObservedCallValues> {
   const store = LIVE_CALL_VALUES.get(sandbox);
   if (store === undefined) return new Map();
   prune(sandbox, store);
@@ -76,9 +76,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** The values a call carried for the local rules, or `undefined` for none. */
-function valuesOf(call: ObservedCall): VerifyLiveCallValues | undefined {
+function valuesOf(call: ObservedCall): VerifyObservedCallValues | undefined {
   const claims = call.account?.claims;
-  const values: VerifyLiveCallValues = {
+  const values: VerifyObservedCallValues = {
     ...(claims === undefined ? {} : { claims: claimsWithoutEmail(claims) }),
     ...(call.writeData === undefined ? {} : { writeData: call.writeData }),
     ...(call.document === undefined ? {} : { document: call.document }),
@@ -89,7 +89,7 @@ function valuesOf(call: ObservedCall): VerifyLiveCallValues | undefined {
 function rememberValues(sandbox: Sandbox, eventId: string, call: ObservedCall): void {
   const values = valuesOf(call);
   if (values === undefined) return;
-  const store = LIVE_CALL_VALUES.get(sandbox) ?? { byEvent: new Map<string, VerifyLiveCallValues>(), pruneAt: MIN_PRUNE_AT };
+  const store = LIVE_CALL_VALUES.get(sandbox) ?? { byEvent: new Map<string, VerifyObservedCallValues>(), pruneAt: MIN_PRUNE_AT };
   LIVE_CALL_VALUES.set(sandbox, store);
   if (store.byEvent.size >= store.pruneAt) prune(sandbox, store);
   store.byEvent.set(eventId, values);

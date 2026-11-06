@@ -431,7 +431,7 @@ export function applyServeInit(
         // its OWN session (see hydrateEventHistory's identity guard).
         capturedBy: ctx.instanceId,
         // What each live call carried, so `pyric verify` can replay it.
-        liveCalls: Object.fromEntries(liveCallValues(ctx.sandbox)),
+        observedCalls: Object.fromEntries(liveCallValues(ctx.sandbox)),
       }));
       // Relative URL resolves against the worker script's origin (same origin
       // as the page). Fire-and-forget — capture failures never break ops.
