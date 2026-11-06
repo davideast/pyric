@@ -215,8 +215,16 @@ export function createConsumerSession(
   const socketIdentity = {};
   let attachedFromPriorHost = false;
   let verifiedCurrentHost = false;
+  /** Unregisters the reads this consumer's tab announced (`tab-tools.ts`). */
+  let leaveTabTools: (() => void) | null = null;
+
+  function stopTabTools(): void {
+    leaveTabTools?.();
+    leaveTabTools = null;
+  }
 
   function detach(): void {
+    stopTabTools();
     const retainedSession = workerSession;
     const hasRetainedSession = retainedSession !== null;
     if (hasRetainedSession) {
@@ -241,6 +249,7 @@ export function createConsumerSession(
 
   function dispose(): void {
     disposed = true;
+    stopTabTools();
     const retainedSession = workerSession;
     const hasRetainedSession = retainedSession !== null;
     if (hasRetainedSession) {
@@ -428,6 +437,16 @@ export function createConsumerSession(
       }
       case 'ping': {
         send({ type: 'pong', id: msg.id });
+        return;
+      }
+      case 'hello': {
+        // An attached tab announces the reads it answers; each announcement replaces the last.
+        stopTabTools();
+        leaveTabTools = bridge.tabTools.register(send, msg.tools);
+        return;
+      }
+      case 'tool-result': {
+        bridge.tabTools.receive(msg);
         return;
       }
       default:
