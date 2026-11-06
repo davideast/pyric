@@ -199,6 +199,8 @@ export function rateView(
   chevron = '',
   incidents: ReadonlyMap<string, number> = new Map(),
   display: 'chart' | 'measurements' = 'chart',
+  /** Whose calls the rates count: this page's, or every client's on a live host. */
+  scope = 'This page',
 ): RateView {
   const service = snapshot.services.find(entry => entry.service === selectedService);
   const detail = history ? '' : `Last ${snapshot.windowSeconds} seconds`;
@@ -212,7 +214,7 @@ export function rateView(
     title: serviceLabel(service.service), detail,
     body: `<div class="rate-scope" data-rate-detail="${escape(service.service)}">`
       + (history ? '' : serviceRow(service, service.service === 'rtdb' ? 'Operations & data' : 'Usage estimate', escape, false))
-      + `<dl class="rate-metadata"><dt>Scope</dt><dd>This page</dd>${service.service === 'storage' || service.service === 'ai' ? '' : `<dt>Listeners now</dt><dd data-rate-listeners>${listeners}</dd>`}</dl>`
+      + `<dl class="rate-metadata"><dt>Scope</dt><dd>${escape(scope)}</dd>${service.service === 'storage' || service.service === 'ai' ? '' : `<dt>Listeners now</dt><dd data-rate-listeners>${listeners}</dd>`}</dl>`
       + `<h3 class="usage-sdk-heading">SDK activity${history ? ' · selected period' : ''}</h3><div class="rows"><table class="rate-table" aria-label="SDK activity by method"><colgroup><col class="rate-name"><col><col><col></colgroup><thead><tr><th scope="col">Method</th>${history ? '<th scope="col">Calls</th><th scope="col">Results</th><th scope="col">Avg/s</th>' : '<th scope="col" title="Includes denied attempts">Calls/s</th><th scope="col" title="Read results and listener callbacks">Results/s</th><th scope="col">Listening</th>'}</tr></thead><tbody>${(history ? history.service.methods : service.methods).map(method => methodRow(method, escape, history?.duration)).join('')}${untracked}</tbody></table></div>`
       + (service.service === 'ai' ? aiRequestDetails(history?.service ?? service, escape, history, chevron) : '')
       + `<details class="rules-disclosure usage-notes" data-rate-notes="${escape(service.service)}"><summary><span>How measurements work</span><span class="rules-chevron">${chevron}</span></summary><div class="usage-notes-body">${coverage(service.service)}</div></details></div>`,

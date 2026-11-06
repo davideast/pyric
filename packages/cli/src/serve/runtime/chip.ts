@@ -2,6 +2,7 @@ import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyr
 import { createLiveStatusPoller, liveLabel, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { healthLiveStatus } from './chip-live-status.js';
 import { workerAiRates } from './worker-ai-rates.js';
+import { liveRates } from './live-rates.js';
 import { aiModelHtml, aiModelRoute } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
 import type { CaptureEntry } from '../rate-capture-store.js';
@@ -63,6 +64,7 @@ import {
   RECENT_FAILURE_MS,
   requestsInScope,
   sandboxAiRequests,
+  hostAiRequests,
   type ChipRequest,
   type TrafficFeed,
   type TrafficScope,
@@ -643,7 +645,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let pinnedRequestIds: Set<string> | null = null;
   let requestListScroll = 0;
   let projectAiRates: ReturnType<typeof workerAiRates> | undefined;
+  let projectLiveRates: ReturnType<typeof liveRates> | undefined;
   let ratesDirty = true;
+  let ratesLive = false;
   let observesHostAi = false;
   let trafficDisplay: 'requests' | 'rates' = 'requests';
   let selectedRateService: string | null = null;
@@ -654,14 +658,25 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const rates = { snapshot: () => {
     const snapshot = localRates.snapshot();
     if (!options.sandboxEvents) return snapshot;
-    if (ratesDirty) {
-      const ai = sandboxAiRequests(trafficFeed?.requests() ?? []);
-      observesHostAi ||= ai.length > 0;
-      projectAiRates = observesHostAi ? workerAiRates(ai) : undefined;
+    // On a live host, Rates count every client's calls from the host's stream,
+    // not this page's journal: Node processes and other tabs count too.
+    const isLiveHost = liveStatusPoller.current() !== null;
+    const needsRebuild = ratesDirty || ratesLive !== isLiveHost;
+    if (needsRebuild) {
+      const rows = trafficFeed?.requests() ?? [];
+      const sandboxAi = sandboxAiRequests(rows);
+      observesHostAi ||= sandboxAi.length > 0;
+      const countsHostAi = observesHostAi || isLiveHost;
+      const countedAi = isLiveHost ? hostAiRequests(rows) : sandboxAi;
+      projectAiRates = countsHostAi ? workerAiRates(countedAi) : undefined;
+      projectLiveRates = isLiveHost ? liveRates(captureEvents) : undefined;
+      ratesLive = isLiveHost;
       ratesDirty = false;
     }
-    return projectAiRates?.(snapshot) ?? snapshot;
+    const hosted = projectLiveRates?.(snapshot) ?? snapshot;
+    return projectAiRates?.(hosted) ?? hosted;
   } };
+  const ratesScope = () => liveStatusPoller.current() === null ? 'This page' : 'All clients';
   let captureError = '';
   let savedCaptureList: CaptureEntry[] | null = null;
   let capturesLoading = false;
@@ -964,7 +979,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const alertHtml = alerts.length ? sectionHtml('Recorded incidents', `<div class="rows">${alerts.map(incident => `<button type="button" class="rate-alert" data-rate-incident="${escapeAttribute(incident.id)}"><span>${escapeAttribute(incident.label)}<small>${escapeAttribute(serviceLabel(incident.service))} · ${new Date(incident.at).toLocaleTimeString()}</small><small>Peak ${incident.peak}/s · limit ${incident.limit}/s</small><small>${incident.aboveSeconds}s above limit / ${incident.to - incident.from + 1}s elapsed</small></span><span class="rate-alert-status">${iconHtml('warning')}<span>Exceeded</span></span></button>`).join('')}</div>`) : '';
       const incidentCounts = new Map(['firestore', 'rtdb', 'storage', 'ai'].map(service => [service, thresholdMonitor.incidents().filter(incident => incident.service === service).length]));
       const frame = isThresholdService(selectedRateService) ? currentRateHistory().view(rates.snapshot()) : undefined;
-      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart');
+      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart', ratesScope());
       if (!selectedRateService) return { body: sectionHtml(measured.title, measured.body), bar: trafficToolbar() };
       const secondary = rateSection === 'capture-rename' ? 'Rename capture' : rateSection === 'capture-delete' ? 'Delete capture' : rateSection === 'chart' ? '' : rateSection === 'incidents' ? 'Incidents' : rateSection === 'captures' ? 'Captures' : 'Measurements';
       const breadcrumb = frame?.imported && selectedSavedCapture && rateSection === 'chart'

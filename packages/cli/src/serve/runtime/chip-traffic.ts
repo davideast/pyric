@@ -172,7 +172,12 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
 
 /** The AI rows the sandbox served, which Rates and the Sandbox tab count; production's rows are Traffic's only. */
 export function sandboxAiRequests(requests: readonly ChipRequest[]): AiRequestObservation[] {
-  return requests.flatMap(request => request.aiRequest !== undefined && request.production === undefined ? [request.aiRequest] : []);
+  return hostAiRequests(requests.filter(request => request.production === undefined));
+}
+
+/** Every AI row on the host, production's included: what a live host's Rates count. */
+export function hostAiRequests(requests: readonly ChipRequest[]): AiRequestObservation[] {
+  return requests.flatMap(request => request.aiRequest === undefined ? [] : [request.aiRequest]);
 }
 
 function projectRequest(event: SandboxEvent): ChipRequest | null {
