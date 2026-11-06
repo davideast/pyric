@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#232","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production keeps \\z and \\A absolute under (?m) in replace(); pyric rewrites them as $ and ^, which match at line ends","issue":"#1892"}
