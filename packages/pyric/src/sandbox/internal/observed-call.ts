@@ -15,6 +15,7 @@ import type {
   ProductionOutcome,
 } from '../types/observed-call.js';
 import type { RulesDisposition, SandboxOperationEvent } from '../types/events.js';
+import { isDefaultDatabaseInstance } from './instances.js';
 import { makeSandboxOperationEvent } from './sandbox-impl.js';
 
 /** Thrown for a record that is not an {@link ObservedCall}; names the field. */
@@ -32,8 +33,8 @@ export const OBSERVED_DISPOSITION: RulesDisposition = Object.freeze({
   reason: 'external-execution',
 });
 
-const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth']);
-const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'billedDocuments']);
+const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb']);
+const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'instance', 'billedDocuments']);
 const ACCOUNT_FIELDS = new Set(['uid', 'claimNames']);
 /** SDK function names: `getDoc`, `onSnapshot`, `signInWithEmailAndPassword`. */
 const METHOD_PATTERN = /^[A-Za-z][A-Za-z0-9_.]{0,63}$/;
@@ -41,6 +42,8 @@ const METHOD_PATTERN = /^[A-Za-z][A-Za-z0-9_.]{0,63}$/;
 const CODE_PATTERN = /^[a-z0-9_/-]{1,100}$/i;
 /** Firebase project ids: lowercase letters, digits and hyphens, as Google Cloud names them. */
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** RTDB instance names, as the SDK's namespace holds them: `my-project-default-rtdb`. */
+const INSTANCE_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const MAX_PATH_LENGTH = 1500;
 const MAX_UID_LENGTH = 128;
 const MAX_CLAIM_NAMES = 64;
@@ -133,11 +136,29 @@ export function readObservedCall(value: unknown): ObservedCall {
     requireField(typeof value.projectId === 'string' && PROJECT_ID_PATTERN.test(value.projectId), 'projectId');
     call.projectId = value.projectId;
   }
+  // An RTDB call always names its instance, the default included, so a
+  // named-instance call can never read as the default. No other call names one.
+  const isRtdb = call.service === 'rtdb';
+  if (isRtdb || value.instance !== undefined) {
+    const isRtdbInstance = isRtdb && typeof value.instance === 'string' && INSTANCE_PATTERN.test(value.instance);
+    requireField(isRtdbInstance, 'instance');
+    call.instance = value.instance as string;
+  }
   if (value.billedDocuments !== undefined) {
     requireField(isDocumentCount(value.billedDocuments), 'billedDocuments');
     call.billedDocuments = value.billedDocuments;
   }
   return call;
+}
+
+/**
+ * The instance the event names: absent for the project's default instance, as
+ * the `operation` event's `instance` field documents, and the name otherwise.
+ */
+function eventInstance(call: ObservedCall): { instance?: string } {
+  const instance = call.instance;
+  const isUnnamed = instance === undefined || isDefaultDatabaseInstance(instance, call.projectId);
+  return isUnnamed ? {} : { instance };
 }
 
 /**
@@ -153,6 +174,7 @@ export function observedCallEvent(call: ObservedCall): SandboxOperationEvent {
     service: call.service,
     method: call.method,
     ...(call.path === undefined ? {} : { path: call.path }),
+    ...eventInstance(call),
     auth: account === undefined ? null : { uid: account.uid },
     result: call.outcome.status === 'error' ? 'error' : 'not-applicable',
     origin: 'user',

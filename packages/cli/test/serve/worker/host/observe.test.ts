@@ -97,6 +97,27 @@ describe('host: observed calls', () => {
     ]);
   });
 
+  it('writes an RTDB call with its path, naming a named instance and leaving the default out', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const read = { service: 'rtdb', method: 'get', path: '/items/a', at: 1, outcome: { status: 'ok' }, projectId: 'demo-project' } as const;
+    expect(await observe(ctx, page, { call: { ...read, instance: 'demo-project-named' } })).toMatchObject({ ok: true });
+    expect(await observe(ctx, page, { call: { ...read, instance: 'demo-project-default-rtdb' } })).toMatchObject({ ok: true });
+    const [named, unnamed] = streamed(page);
+    expect(named).toMatchObject({
+      kind: 'operation',
+      service: 'rtdb',
+      method: 'get',
+      path: '/items/a',
+      instance: 'demo-project-named',
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      production: { outcome: { status: 'ok' } },
+    });
+    expect(unnamed).toMatchObject({ service: 'rtdb', method: 'get', path: '/items/a', production: { outcome: { status: 'ok' } } });
+    expect(unnamed).not.toHaveProperty('instance');
+  });
+
   it('refuses a malformed record with invalid-argument and writes nothing', async () => {
     const ctx = makeCtx();
     const page = fakePort();
@@ -105,6 +126,8 @@ describe('host: observed calls', () => {
     const malformed: unknown[] = [
       undefined,
       { ...DENIED_READ, service: 'storage' },
+      { ...DENIED_READ, instance: 'demo-project-named' },
+      { ...DENIED_READ, service: 'rtdb', instance: 'Not An Instance' },
       { ...DENIED_READ, outcome: { status: 'error' } },
       { ...DENIED_READ, account: { uid: 'alice', token: 'eyJ' } },
       { ...DENIED_READ, caller: { kind: 'admin' } },
