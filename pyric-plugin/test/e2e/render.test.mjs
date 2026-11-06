@@ -851,7 +851,7 @@ test('parseJsonWithComments strips JSONC comments and trailing commas while pres
     // line comment before rules
     "rules": {
       /* block comment with https://example.com//path */
-      "messages": {
+      "chatHistory": {
         "$tabid": {
           ".write": "auth != null && newData.child('url').val() != 'https://evil.example//a/*b*/'", // trailing comment
         },
@@ -860,14 +860,14 @@ test('parseJsonWithComments strips JSONC comments and trailing commas while pres
   }`;
   const parsed = parseJsonWithComments(jsonc);
   assert.equal(
-    parsed.rules.messages.$tabid['.write'],
+    parsed.rules.chatHistory.$tabid['.write'],
     "auth != null && newData.child('url').val() != 'https://evil.example//a/*b*/'",
   );
 });
 
 test('formatRuleExpressionSummary and extractFocusedRuleSnippet preserve head and tail predicates on long RTDB rules', () => {
   const longRule =
-    "auth != null && auth.token.hasAccess != null && auth.token.accessRestriction == null && (data.parent().parent().child('members').child(auth.uid).val() == true || root.child('rooms').child($roomId).child('tabs').child($tabid).child('members').child(auth.uid).val() == true) && data.parent().child('speaker/uid').val() == auth.uid";
+    "auth != null && auth.token.hasAccess != null && auth.token.accessRestriction == null && (data.parent().parent().child('members').child(auth.uid).val() == true || root.child('spaces').child($spaceid).child('tabs').child($tabid).child('members').child(auth.uid).val() == true) && data.parent().child('speaker/uid').val() == auth.uid";
   const summary = formatRuleExpressionSummary(longRule, 128);
   assert.ok(summary.startsWith('auth != null'), `Expected head preserved: ${summary}`);
   assert.ok(summary.includes(' ... '), `Expected head+tail ellipsis: ${summary}`);
@@ -878,13 +878,13 @@ test('formatRuleExpressionSummary and extractFocusedRuleSnippet preserve head an
 
   const rulesDoc = {
     rules: {
-      app: {
-        rooms: {
-          $roomId: {
-            messages: {
+      spaces_app: {
+        spaces: {
+          $spaceid: {
+            chatHistory: {
               $tabid: {
                 '.write':
-                  "auth != null && auth.token.hasAccess != null && root.child('app/rooms').child($roomId).child('tabs').child($tabid).child('members').child(auth.uid).val() == true",
+                  "auth != null && auth.token.hasAccess != null && root.child('spaces_app/spaces').child($spaceid).child('tabs').child($tabid).child('members').child(auth.uid).val() == true",
                 $messageid: {
                   content: {
                     '.write': longRule,
@@ -901,7 +901,7 @@ test('formatRuleExpressionSummary and extractFocusedRuleSnippet preserve head an
   const focused = extractFocusedRuleSnippet(rulesDoc, {
     service: 'database',
     method: 'set',
-    path: '/app/rooms/s1/messages/pub/mAlice/content',
+    path: '/spaces_app/spaces/s1/chatHistory/pub/mAlice/content',
   });
   assert.ok(focused.includes('$messageid/content'), `Expected deepest rule key: ${focused}`);
   assert.ok(focused.includes("speaker/uid')"), `Expected speaker/uid tail in snippet: ${focused}`);
@@ -1038,9 +1038,9 @@ test('extractActorFramesFromVideo removes stale tail frames from prior captures'
 
 test('presentation deck timeline follows 8-slide reviewer flow on monochrome surface with zero middots, Scene labels, or border-left stripes', () => {
   const fullBeforeRule =
-    'messages/$tabid: ".write": "auth != null && auth.token.hasAccess != null && root.child(\'app\').child(\'rooms\').child($roomId).child(\'metadata\').child(\'members\').child(auth.uid).exists()"';
+    'chatHistory/$tabid: ".write": "auth != null && auth.token.hasAccess != null && root.child(\'spaces_app\').child(\'spaces\').child($spaceid).child(\'metadata\').child(\'members\').child(auth.uid).exists()"';
   const fullAfterRule =
-    'messages/$tabid/$messageid: ".write": "auth != null && root.child(\'app\').child(\'rooms\').child($roomId).child(\'metadata\').child(\'members\').child(auth.uid).exists() && (!data.exists() || data.child(\'speaker\').child(\'uid\').val() == auth.uid)"';
+    'chatHistory/$tabid/$messageid: ".write": "auth != null && root.child(\'spaces_app\').child(\'spaces\').child($spaceid).child(\'metadata\').child(\'members\').child(auth.uid).exists() && (!data.exists() || data.child(\'speaker\').child(\'uid\').val() == auth.uid)"';
 
   const scenario = validateScenario({
     ...makeBaseScenario(),
@@ -1068,7 +1068,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
         phase: 'control',
         service: 'database',
         method: 'set',
-        path: '/app/rooms/s1/messages/pub/mAlice/content',
+        path: '/spaces_app/spaces/s1/chatHistory/pub/mAlice/content',
         decision: 'ALLOW',
         tMs: 600,
         dispatchedAtMs: 650,
@@ -1079,7 +1079,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
         phase: 'repro',
         service: 'database',
         method: 'set',
-        path: '/app/rooms/s1/messages/pub/mAlice/content',
+        path: '/spaces_app/spaces/s1/chatHistory/pub/mAlice/content',
         decision: 'ALLOW',
         tMs: 2200,
         dispatchedAtMs: 2800,
@@ -1090,7 +1090,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
         phase: 'fix',
         service: 'database',
         method: 'set',
-        path: '/app/rooms/s1/messages/pub/mAlice/content',
+        path: '/spaces_app/spaces/s1/chatHistory/pub/mAlice/content',
         decision: 'DENY',
         tMs: 5600,
         dispatchedAtMs: 6000,
@@ -1150,17 +1150,17 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
   const annotatedParams = pathSlide.pathTokens.filter((t) => t.callout && t.callout.label);
   assert.deepEqual(
     annotatedParams.map((t) => t.text),
-    ['$roomId', '$tabid', '$messageid'],
+    ['$spaceid', '$tabid', '$messageid'],
   );
 
   const attackSlide = slides.find((s) => s.id === 'problem-slide');
-  assert.equal(attackSlide.targetPath, '/app/rooms/s1/messages/pub/mAlice/content');
+  assert.equal(attackSlide.targetPath, '/spaces_app/spaces/s1/chatHistory/pub/mAlice/content');
   assert.ok(attackSlide.code && attackSlide.callerSummary);
   assert.ok(Array.isArray(attackSlide.pathTokens) && attackSlide.pathTokens.length >= 6);
   assert.deepEqual(
     attackSlide.pathTokens.filter((t) => t.isParam).map((t) => ({ text: t.text, value: t.concreteValue })),
     [
-      { text: '$roomId', value: 's1' },
+      { text: '$spaceid', value: 's1' },
       { text: '$tabid', value: 'pub' },
       { text: '$messageid', value: 'mAlice' },
     ],
@@ -1195,7 +1195,7 @@ test('presentation deck timeline follows 8-slide reviewer flow on monochrome sur
   assert.ok(Array.isArray(whySlide.ruleTree) && whySlide.ruleTree.length >= 2);
   const ruleEntry = whySlide.ruleTree.find((n) => Array.isArray(n.ruleLines) && n.ruleLines.length > 0);
   assert.ok(ruleEntry, 'Expected distilled rule lines on why-slide');
-  assert.ok(!ruleEntry.ruleLines.some((l) => l.includes('.child(\'app\')')), 'Expected compacted path chains');
+  assert.ok(!ruleEntry.ruleLines.some((l) => l.includes('.child(\'spaces_app\')')), 'Expected compacted path chains');
   assert.ok(
     whySlide.ruleTree.some((n) => n.isFlawHighlight === true && n.node === '$messageid'),
     'Expected highlighted inherited flaw row at $messageid on why-slide',
@@ -1250,7 +1250,7 @@ test('attach-demo starts only after actor views are ready (control.uiReadyAtMs)'
   // Build variant
   const behaviorScenario = validateScenario({
     schema: SCENARIO_SCHEMA,
-    finding: { campaign: 'rooms-audit', probe: 'signout-ghost-presence' },
+    finding: { campaign: 'spaces-audit', probe: 'signout-ghost-presence' },
     app: { dist: './before-dist' },
     actors: {
       owner: { uid: 'alice', name: 'Alice', view: '/s1' },
@@ -1259,14 +1259,14 @@ test('attach-demo starts only after actor views are ready (control.uiReadyAtMs)'
     behavior: {
       fixApp: { dist: './after-dist' },
       action: { kind: 'sign-out', actor: 'owner' },
-      check: { kind: 'presence-entry', path: '/app/rooms/s1/presence', uid: 'alice' },
+      check: { kind: 'presence-entry', path: '/spaces_app/spaces/s1/presence', uid: 'alice' },
     },
     copy: { title: 'Signing out leaves you visible', summary: 'Alice signs out; her entry stays.', why: 'Cleanup runs signed out.' },
   });
   const behaviorEvents = (control = {}) => [
-    { phase: 'control', service: 'database', method: 'onValue', path: '/app/rooms/s1/presence', decision: 'PRESENT', tMs: 4000, dispatchedAtMs: 4000, executedAtMs: 4000, settledAtMs: 4000, ...control },
-    { phase: 'repro', service: 'auth', method: 'signOut', path: '/app/rooms/s1/presence/c1', decision: 'LEFT BEHIND', tMs: 4100, dispatchedAtMs: 4100, executedAtMs: 4500, settledAtMs: 7600 },
-    { phase: 'fix', service: 'auth', method: 'signOut', path: '/app/rooms/s1/presence/c1', decision: 'REMOVED', tMs: 11000, dispatchedAtMs: 11000, executedAtMs: 11350, settledAtMs: 12800 },
+    { phase: 'control', service: 'database', method: 'onValue', path: '/spaces_app/spaces/s1/presence', decision: 'PRESENT', tMs: 4000, dispatchedAtMs: 4000, executedAtMs: 4000, settledAtMs: 4000, ...control },
+    { phase: 'repro', service: 'auth', method: 'signOut', path: '/spaces_app/spaces/s1/presence/c1', decision: 'LEFT BEHIND', tMs: 4100, dispatchedAtMs: 4100, executedAtMs: 4500, settledAtMs: 7600 },
+    { phase: 'fix', service: 'auth', method: 'signOut', path: '/spaces_app/spaces/s1/presence/c1', decision: 'REMOVED', tMs: 11000, dispatchedAtMs: 11000, executedAtMs: 11350, settledAtMs: 12800 },
   ];
   const behaviorLegacy = attachStart(behaviorScenario, behaviorEvents());
   assert.equal(behaviorLegacy.sourceStartMs, 4000 - 2200, 'bundles without uiReadyAtMs keep the old start');

@@ -67,7 +67,7 @@ review the semantic diff, then lint and simulate the generated file.
 | `counters` | yes | no | bounded values and exact deltas |
 | `timing` | yes | no | server-timestamp cooldowns |
 | `content` | yes | no | bounded user-authored text |
-| `rooms`, `joining`, `atomic` | yes | no | membership and cross-document invariants |
+| `spaces`, `joining`, `atomic` | yes | no | membership and cross-document invariants |
 | `lobby`, `turns`, `state`, `geometry` | yes | no | game/session invariants |
 | `storage/uploads` | no | yes | size and declared MIME metadata |
 | `storage/metadata` | no | yes | required metadata and owner values |

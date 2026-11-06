@@ -128,7 +128,7 @@ then shows the after build doing the right thing.
 | `action` | What the actor does. `kind: "sign-out"`, `actor`, `menuItemText`, optional `triggerText` (defaults to the actor's initial) |
 | `check` | What proves the defect. `kind: "presence-entry"`, `path`, `uid`, `waitMs` (default 3000) |
 | `focusSelectors` | Per-role CSS selector for the spotlight, for example `{ "peer": "[class*=\"pile\"]" }` |
-| `pathTemplate` | The data path with variables, for example `/app/rooms/$roomId/presence/$clientId` |
+| `pathTemplate` | The data path with variables, for example `/app/rooms/$roomid/presence/$clientId` |
 | `pathValues` | The value shown for each variable |
 | `pathCallouts` | A `label` and `detail` per variable for the path slide |
 | `deck` | `problemFacts` (key/value rows), `beforeSequence` and `afterSequence` (steps with `label`, `code`, `note`, `muted`, `flagged`) |
@@ -267,10 +267,10 @@ this is the build variant.
     "action": { "kind": "sign-out", "actor": "owner", "menuItemText": "Sign out" },
     "check": { "kind": "presence-entry", "path": "/app/rooms/s1/presence", "uid": "alice", "waitMs": 3000 },
     "focusSelectors": { "peer": "[class*=\"pile\"]" },
-    "pathTemplate": "/app/rooms/$roomId/presence/$clientId",
-    "pathValues": { "$roomId": "s1", "$clientId": "Alice's tab" },
+    "pathTemplate": "/app/rooms/$roomid/presence/$clientId",
+    "pathValues": { "$roomid": "s1", "$clientId": "Alice's tab" },
     "pathCallouts": {
-      "$roomId": { "label": "Shared space", "detail": "Alice and Bob are both members (s1)" },
+      "$roomid": { "label": "Shared space", "detail": "Alice and Bob are both members (s1)" },
       "$clientId": { "label": "One entry per open tab", "detail": "Alice's tab writes it, Bob's facepile reads it" }
     },
     "watchMethod": "onValue",
