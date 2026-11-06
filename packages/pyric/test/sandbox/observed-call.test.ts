@@ -34,6 +34,20 @@ const NAMED_RTDB_READ: ObservedCall = {
   instance: 'my-project-named',
 };
 
+const GENERATE: ObservedCall = {
+  service: 'ai',
+  method: 'generateContent',
+  at: 1_700_000_000_000,
+  durationMs: 120,
+  outcome: { status: 'ok' },
+  projectId: 'my-project',
+  ai: {
+    model: 'models/gemini-flash-lite-latest',
+    reportedModel: 'gemini-2.5-flash-lite',
+    usage: { promptTokenCount: 9, candidatesTokenCount: 2, totalTokenCount: 11 },
+  },
+};
+
 describe('readObservedCall', () => {
   it('keeps every known field of a well-formed record', () => {
     expect(readObservedCall(DENIED_READ)).toEqual(DENIED_READ);
@@ -49,6 +63,45 @@ describe('readObservedCall', () => {
     expect(readObservedCall(NAMED_RTDB_READ)).toEqual(NAMED_RTDB_READ);
     const denied = { ...NAMED_RTDB_READ, method: 'onDisconnect.set', instance: 'my-project-default-rtdb', outcome: { status: 'error', code: 'permission_denied' } };
     expect(readObservedCall(denied)).toEqual(denied as ObservedCall);
+  });
+
+  it('keeps an AI call with its model, token counts and first chunk time', () => {
+    expect(readObservedCall(GENERATE)).toEqual(GENERATE);
+    const stream = { ...GENERATE, method: 'chat.sendMessageStream', ai: { ...GENERATE.ai, firstChunkMs: 40 } };
+    expect(readObservedCall(stream)).toEqual(stream as ObservedCall);
+    const count = { ...GENERATE, method: 'countTokens', ai: { model: 'models/gemini-flash-lite-latest', usage: { totalTokens: 5 } } };
+    expect(readObservedCall(count)).toEqual(count as ObservedCall);
+    const refused = { ...GENERATE, outcome: { status: 'error', code: 'unauthenticated' }, ai: { model: 'models/gemini-flash-lite-latest' } };
+    expect(readObservedCall(refused)).toEqual(refused as ObservedCall);
+  });
+
+  it('refuses an AI field that is not a model name or a token count', () => {
+    const cases: Array<[unknown, string]> = [
+      [{ ...GENERATE, ai: undefined }, 'ai'],
+      [{ ...DENIED_READ, ai: GENERATE.ai }, 'ai'],
+      [{ ...NAMED_RTDB_READ, ai: GENERATE.ai }, 'ai'],
+      [{ ...GENERATE, ai: 'models/gemini' }, 'ai'],
+      [{ ...GENERATE, path: 'models/gemini-flash-lite-latest' }, 'path'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, text: 'Hello' } }, 'ai.text'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, response: { candidates: [] } } }, 'ai.response'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, model: undefined } }, 'ai.model'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, model: '' } }, 'ai.model'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, model: 'models/has space' } }, 'ai.model'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, model: 'm'.repeat(201) } }, 'ai.model'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, reportedModel: 'Say "hi"' } }, 'ai.reportedModel'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, usage: [9, 2, 11] } }, 'ai.usage'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, usage: { promptTokenCount: '9' } } }, 'ai.usage.promptTokenCount'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, usage: { candidatesTokenCount: -1 } } }, 'ai.usage.candidatesTokenCount'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, usage: { totalTokenCount: 1.5 } } }, 'ai.usage.totalTokenCount'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, usage: { totalTokens: Number.MAX_SAFE_INTEGER + 1 } } }, 'ai.usage.totalTokens'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, usage: { thoughtsTokenCount: 4 } } }, 'ai.usage.thoughtsTokenCount'],
+      [{ ...GENERATE, ai: { ...GENERATE.ai, firstChunkMs: -1 } }, 'ai.firstChunkMs'],
+    ];
+    for (const [record, field] of cases) {
+      const read = () => readObservedCall(record);
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow(`Invalid observed call field: ${field}.`);
+    }
   });
 
   it('refuses a malformed record and names the field', () => {
@@ -136,6 +189,52 @@ describe('observedCallEvent', () => {
     // Without a project, no name can be read as the default, so the event keeps it.
     const { projectId: _projectId, ...withoutProject } = NAMED_RTDB_READ;
     expect(observedCallEvent({ ...withoutProject, instance: 'my-project-default-rtdb' }).instance).toBe('my-project-default-rtdb');
+  });
+
+  it("becomes the AI event the sandbox's own AI calls make, with production's answer and no response", () => {
+    const event = observedCallEvent(readObservedCall({ ...GENERATE, ai: { ...GENERATE.ai, firstChunkMs: 40 } }));
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'ai',
+      method: 'generateContent',
+      path: 'models/gemini-flash-lite-latest',
+      result: 'not-applicable',
+      durationMs: 120,
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      production: { outcome: { status: 'ok' } },
+      observation: {
+        id: event.id,
+        startedAt: GENERATE.at,
+        endedAt: GENERATE.at + 120,
+        status: 'completed',
+        ai: {
+          requestedModel: 'models/gemini-flash-lite-latest',
+          reportedModel: 'gemini-2.5-flash-lite',
+          engine: 'gemini',
+          endpoint: 'https://firebasevertexai.googleapis.com',
+          usageSource: 'backend',
+          inputTokens: 9,
+          outputTokens: 2,
+          totalTokens: 11,
+          durationMs: 120,
+          firstChunkMs: 40,
+        },
+      },
+    });
+    expect(event.observation).not.toHaveProperty('response');
+  });
+
+  it("counts countTokens' total, and reads a call with no usage as unknown and a refusal as failed", () => {
+    const count = observedCallEvent({ ...GENERATE, method: 'countTokens', ai: { model: 'models/m', usage: { totalTokens: 5 } } });
+    expect(count.observation?.ai).toMatchObject({ usageSource: 'backend', totalTokens: 5 });
+    const refused = observedCallEvent({ ...GENERATE, durationMs: undefined, outcome: { status: 'error', code: 'unauthenticated' }, ai: { model: 'models/m' } });
+    expect(refused).toMatchObject({ result: 'error', production: { outcome: { status: 'error', code: 'unauthenticated' } } });
+    expect(refused.observation).toMatchObject({ status: 'failed', endedAt: GENERATE.at, error: { code: 'unauthenticated' } });
+    expect(refused.observation?.ai).toEqual({ requestedModel: 'models/m', engine: 'gemini', endpoint: 'https://firebasevertexai.googleapis.com', usageSource: 'unknown' });
+  });
+
+  it('gives a non-AI call no observation', () => {
+    expect(observedCallEvent(DENIED_READ)).not.toHaveProperty('observation');
   });
 
   it("reads production's permission-denied, in any service's spelling, as denied", () => {

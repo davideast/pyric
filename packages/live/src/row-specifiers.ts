@@ -19,4 +19,5 @@ export const LIVE_ROW_SPECIFIERS: readonly LiveRowSpecifier[] = [
   ['firebase/auth', 'live-auth'],
   ['firebase/firestore', 'live-firestore'],
   ['firebase/app-check', 'live-app-check'],
+  ['firebase/database', 'live-database'],
 ];
