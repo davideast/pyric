@@ -3,6 +3,6 @@ export const firestoreActivityCoverage = {
   service: 'firestore',
   read: ['getDoc', 'getDocs', 'getDocFromCache', 'getDocFromServer', 'getDocsFromCache', 'getDocsFromServer', 'getCountFromServer', 'getAggregateFromServer'],
   write: ['setDoc', 'updateDoc', 'deleteDoc', 'addDoc', 'writeBatch.commit', 'runTransaction'],
-  listener: ['onSnapshot'],
+  listener: ['onSnapshot', 'onSnapshotResume'],
   untrackedMethods: [],
 } as const;
