@@ -9,9 +9,9 @@
  *
  * Without the list, the same page is refused: the dev server names every
  * unserved import it was asked for and the `passThrough` option that would
- * allow them, and the page throws `PYRIC_LIVE_REFUSED`. A list that names a
- * service live mode serves, or `firebase-admin`, stops the dev server at
- * start.
+ * allow them, and the page throws `PYRIC_LIVE_REFUSED`. A list that names an
+ * import live mode serves, such as `firebase/database`, or `firebase-admin`,
+ * stops the dev server at start.
  *
  * The page gets each service and makes no call, so no request leaves. Like
  * every app scenario this runs offline, and the browser blocks every host but
@@ -125,14 +125,15 @@ export default scenario(async (app) => {
     await refusing.process.stop();
   });
 
-  await app.step('a list naming a served service or firebase-admin stops the dev server at start', async () => {
+  await app.step('a list naming a served import, such as firebase/database, or firebase-admin stops the dev server at start', async () => {
     const port = await app.freePort();
-    const env = { PASS_THROUGH: JSON.stringify(['firebase/firestore', 'firebase-admin', '@firebase/database']) };
+    const env = { PASS_THROUGH: JSON.stringify(['firebase/firestore', 'firebase/database', 'firebase-admin', '@firebase/functions']) };
     const run = await app.command('node', ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { env, timeoutMs: 60_000 });
     assert.notEqual(run.code, 0, run.output);
-    assert.match(run.output, /@pyric\/live\/vite: passThrough lists firebase\/firestore, which live mode already serves/);
+    assert.match(run.output, /@pyric\/live\/vite: passThrough lists firebase\/firestore, which live mode already serves and observes; remove it\./);
+    assert.match(run.output, /passThrough lists firebase\/database, which live mode already serves and observes; remove it\./);
     assert.match(run.output, /firebase-admin, which never passes through/);
-    assert.match(run.output, /@firebase\/database, an SDK package name; list firebase\/database/);
+    assert.match(run.output, /@firebase\/functions, an SDK package name; list firebase\/functions/);
   });
 
   await app.step('nothing reached any host but loopback', () => {
