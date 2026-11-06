@@ -16,8 +16,14 @@ FirestoreRules {
   // `rules_version` ("Unexpected 'rules_version'"), under both
   // rules_version '2' and '2+modules'. Pinned by
   // test/rules/corpus/invalid/009-/010-.
-  RulesFile = RulesVersion? ImportDecl* FunctionDef* ServiceBlock  -- versionFirst
-            | ImportDecl* RulesVersion FunctionDef* ServiceBlock   -- importsFirst
+  // A file may hold more than one service block (#1900): production
+  // compiles a `service firebase.storage` block before the
+  // `service cloud.firestore` one and evaluates the Firestore block
+  // (capture c5a-two-services-storage-first). The parser takes the
+  // Firestore block as the ruleset's service; the load check refuses two
+  // blocks for one service ("Duplicate service name declaration.", c5b).
+  RulesFile = RulesVersion? ImportDecl* FunctionDef* ServiceBlock+  -- versionFirst
+            | ImportDecl* RulesVersion FunctionDef* ServiceBlock+   -- importsFirst
 
   ImportDecl = "import" "{" ListOf<ident, ","> ","? "}" "from" string ";"
 
