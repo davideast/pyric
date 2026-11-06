@@ -97,7 +97,7 @@ function project(withLive: boolean): string {
 describe('live rows, once opened', () => {
   const swap = openSwap();
 
-  it('serve their four specifiers from the fixed row modules, for app and dependency importers', () => {
+  it('serve their specifiers from the fixed row modules, for app and dependency importers', () => {
     expect([...ROW_MODULE_IDS.keys()]).toEqual([...INSTALLED_SDK_SPECIFIERS]);
     for (const specifier of INSTALLED_SDK_SPECIFIERS) {
       expect(rowId(specifier)).toBe(`\0pyric-live:${specifier}`);

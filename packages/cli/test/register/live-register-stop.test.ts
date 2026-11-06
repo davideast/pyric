@@ -2,10 +2,9 @@
  * Which register opens the real SDK, in Node processes with `@pyric/live`
  * installed in the project.
  *
- * `@pyric/live/register` opens the real-SDK stop only for its five live
- * rows: `firebase/app`, `firebase/auth`, `firebase/firestore`,
- * `firebase/app-check` and `firebase/database` load the installed SDK,
- * every other Firebase import and `firebase-admin` is refused with
+ * `@pyric/live/register` opens the real-SDK stop only for its live rows
+ * (`LIVE_ROWS` in this file): they load the installed SDK, every other
+ * Firebase import and `firebase-admin` is refused with
  * `PYRIC_LIVE_REFUSED`, and a load of the real SDK by any other route stops.
  * `@pyric/cli/register` alone keeps the stop for every real `firebase/*` and
  * `firebase-admin` load, the row module ids included, and no file under the
