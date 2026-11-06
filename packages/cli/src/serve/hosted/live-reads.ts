@@ -57,7 +57,7 @@ function liveReadRefusal(name: string, reason: string): ToolResult {
  * Where a live host answers the call `name` (a method key or a forwarded
  * tool name): a tab's answer, a refusal, or undefined when it runs locally.
  */
-export function liveCallRoute(tabs: TabTools, name: string, args: Record<string, unknown>): Promise<ToolResult> | ToolResult | undefined {
+export function tabCallRoute(tabs: TabTools, name: string, args: Record<string, unknown>): Promise<ToolResult> | ToolResult | undefined {
   const needsCredential = CREDENTIAL_READS.has(name);
   if (needsCredential) return liveReadRefusal(name, 'it needs the Admin credential, which pyric does not hold.');
   const readsData = FORWARDED_DATA_READS.has(name) || isTabMethodRead(name);
@@ -75,6 +75,6 @@ export async function runHostedMethod(
   call: HostedMethodRequest,
   runLocal: () => Promise<OperationResult>,
 ): Promise<OperationResult> {
-  const routed = liveTabs === undefined ? undefined : liveCallRoute(liveTabs, call.key, call.args);
+  const routed = liveTabs === undefined ? undefined : tabCallRoute(liveTabs, call.key, call.args);
   return routed ?? runLocal();
 }

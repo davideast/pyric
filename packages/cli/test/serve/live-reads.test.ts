@@ -13,12 +13,12 @@ import { createBridge } from '../../src/bridge/server/bridge.js';
 import { createSilentLogger } from '../../src/bridge/server/logger.js';
 import { buildMcpServer } from '../../src/bridge/server/mcp.js';
 import { BRIDGE_FORWARDED_TOOL_NAMES, getBridgeToolSurface } from '../../src/bridge/server/mcp-contract.js';
-import { liveCallRoute, runHostedMethod } from '../../src/serve/hosted/live-reads.js';
+import { tabCallRoute, runHostedMethod } from '../../src/serve/hosted/live-reads.js';
 
 const SANDBOX_ANSWER = { ok: true, summary: 'answered from the sandbox' };
 
 function newBridge(live = true) {
-  return createBridge({ version: 'test', logger: createSilentLogger(), ...(live ? { liveRoute: liveCallRoute } : {}) });
+  return createBridge({ version: 'test', logger: createSilentLogger(), ...(live ? { tabRoute: tabCallRoute } : {}) });
 }
 
 /** The hosted runtime's place as the bridge's sandbox peer: it answers every call from the sandbox. */
