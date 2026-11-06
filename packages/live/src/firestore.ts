@@ -19,9 +19,11 @@
  * it would run the app's `fromFirestore`.
  *
  * Reading never calls the app's code and never throws. Loaded in the page
- * too, so it imports only types.
+ * too. From observe.ts, which imports this file through listener-journal.ts,
+ * it takes types and `projectOf`, a function declaration that runs only when
+ * a call is read, so the cycle resolves at load.
  */
-import type { CallContext, ObservedSite, ResultReading } from './observe.js';
+import { projectOf, type CallContext, type ObservedSite, type ResultReading } from './observe.js';
 
 /** Where a reference or query sits: its path or group id, and the key its listeners share. */
 export interface FirestorePath {
@@ -65,15 +67,6 @@ export function firestorePath(subject: object, type: unknown): FirestorePath | u
   if (!isReference) return type === 'query' ? queryPath(subject) : undefined;
   const path: unknown = Reflect.get(subject, 'path');
   return typeof path === 'string' ? { target: path, key: JSON.stringify([type, path]) } : undefined;
-}
-
-function stringAt(value: unknown, keys: readonly string[]): string | undefined {
-  let current = value;
-  for (const key of keys) {
-    if (!isObject(current)) return undefined;
-    current = Reflect.get(current, key);
-  }
-  return typeof current === 'string' && current !== '' ? current : undefined;
 }
 
 /** The path the first argument names, when it is a reference or query. */
@@ -176,20 +169,21 @@ function writeDataOf(name: string, args: readonly unknown[]): Record<string, unk
  * on a write, the fields it wrote.
  */
 export function firestoreContext(name: string, args: readonly unknown[]): CallContext {
+  const projectId = projectOf(args);
+  const project = projectId === undefined ? {} : { projectId };
   try {
     const subject = args[0];
-    const projectId = stringAt(subject, ['firestore', 'app', 'options', 'projectId']) ?? stringAt(subject, ['app', 'options', 'projectId']);
     const path = pathOf(subject);
     const writeData = writeDataOf(name, args);
     return {
       subject,
-      ...(projectId === undefined ? {} : { projectId }),
+      ...project,
       ...(path === undefined ? {} : { path }),
       ...(writeData === undefined ? {} : { writeData }),
     };
   } catch {
-    // An argument that throws on read is still recorded, without its context.
-    return { subject: args[0] };
+    // An argument that throws on read is still recorded, with its project but without its path.
+    return { subject: args[0], ...project };
   }
 }
 

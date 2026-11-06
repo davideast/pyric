@@ -402,7 +402,7 @@ function configString(subject: unknown, field: string): string | undefined {
 }
 
 /** The project the first argument's app names, read without calling anything of the app's. */
-function projectOf(args: readonly unknown[]): string | undefined {
+export function projectOf(args: readonly unknown[]): string | undefined {
   try {
     return configString(args[0], 'projectId');
   } catch {
