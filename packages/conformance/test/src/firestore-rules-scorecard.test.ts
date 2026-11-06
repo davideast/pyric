@@ -183,10 +183,10 @@ describe('Firestore Rules scorecard', () => {
   it('pins the current honest baseline over all 140 constructs', async () => {
     const scorecard = await computeFirestoreRulesScorecard();
     expect(scorecard.universe.denominator).toBe(140);
-    expect(scorecard.score).toEqual({ numerator: 132, denominator: 140, ratio: 132 / 140, percent: 94.3 });
+    expect(scorecard.score).toEqual({ numerator: 134, denominator: 140, ratio: 134 / 140, percent: 95.7 });
     expect(scorecard.counts).toEqual({
-      conformant: 132,
-      diverged: 5,
+      conformant: 134,
+      diverged: 3,
       unknown: 0,
       'acceptance-mismatch': 0,
       'local-unsupported': 0,
@@ -197,7 +197,7 @@ describe('Firestore Rules scorecard', () => {
       productionAcceptance: { unprobed: 0, accepted: 128, rejected: 9, unprobeable: 3 },
       localAcceptance: { accepted: 128, rejected: 9, unsupported: 0, unprobeable: 3 },
       localCapability: { implemented: 128, unsupported: 0, error: 9, unprobeable: 3 },
-      productionEvidence: { verified: 133, diverged: 5, unverified: 2 },
+      productionEvidence: { verified: 135, diverged: 3, unverified: 2 },
     });
   }, FULL_GRAPH_TIMEOUT_MS);
 });
