@@ -267,6 +267,38 @@ describe('active Vite sandbox generation', () => {
     expect(liveHost?.report().observed).toEqual(['firebase/auth']);
     await generation.close();
   });
+
+  it('reports a supplied firebase-admin pass-through as the admin field, not a client import', async () => {
+    const h = harness();
+    let liveHost: BridgeMountOptions['liveHost'];
+    const create = h.dependencies.createBridge!;
+    h.dependencies.createBridge = (bridgeOptions) => {
+      liveHost = bridgeOptions.liveHost;
+      return create(bridgeOptions);
+    };
+    h.input.options.liveHost = true;
+    h.input.options.livePassThrough = ['firebase/ai', 'firebase-admin'];
+    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    const report = liveHost?.report();
+    expect(report?.admin).toEqual({ mode: 'pass-through', observed: false, bypassesRules: true });
+    expect(report?.passThrough).toEqual(['firebase/ai']);
+    await generation.close();
+  });
+
+  it('leaves the admin field off when the supplied list has no firebase-admin', async () => {
+    const h = harness();
+    let liveHost: BridgeMountOptions['liveHost'];
+    const create = h.dependencies.createBridge!;
+    h.dependencies.createBridge = (bridgeOptions) => {
+      liveHost = bridgeOptions.liveHost;
+      return create(bridgeOptions);
+    };
+    h.input.options.liveHost = true;
+    h.input.options.livePassThrough = ['firebase/ai'];
+    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    expect(liveHost?.report()).not.toHaveProperty('admin');
+    await generation.close();
+  });
 });
 
 describe('Vite sandbox generation project', () => {
