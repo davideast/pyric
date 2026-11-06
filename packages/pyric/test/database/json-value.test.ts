@@ -13,6 +13,17 @@ describe('RTDB JSON value primitives', () => {
     expect(jsonValuesEqual(['alice', 'bob'], ['bob', 'alice'])).toBe(false);
   });
 
+  it('compares -0 and 0 as the same JSON number', () => {
+    expect(jsonValuesEqual(-0, 0)).toBe(true);
+    expect(jsonValuesEqual({ score: -0 }, { score: 0 })).toBe(true);
+  });
+
+  it('reads an own __proto__ key as an ordinary key', () => {
+    const withProtoKey = JSON.parse('{"__proto__":{}}') as unknown;
+    expect(jsonValuesEqual(withProtoKey, { title: {} })).toBe(false);
+    expect(jsonValuesEqual({ title: {} }, withProtoKey)).toBe(false);
+  });
+
   it('recognizes RTDB JSON object nodes, not arrays or absent values', () => {
     expect(isJsonObject({ patch: true })).toBe(true);
     expect(isJsonObject(['patch'])).toBe(false);
