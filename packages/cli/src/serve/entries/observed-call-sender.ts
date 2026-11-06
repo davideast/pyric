@@ -15,7 +15,8 @@
  *
  * It also hands the rows' observer `journalLiveListener`, which journals
  * their Firestore listeners in the page's SDK activity
- * (`live-listener-journal.ts`).
+ * (`live-listener-journal.ts`), and `measureObservedUsage`, which measures
+ * each resolved call the way the Node process's sender does.
  */
 import type { ObservedCall } from 'pyric/sandbox';
 import { nextId, rpc } from '../worker/client/core.js';
@@ -25,6 +26,7 @@ import { initPayload } from './init-payload.js';
 import { openWorkerDb, useHosted, workerDb } from './worker-runtime.js';
 
 export { journalLiveListener } from './live-listener-journal.js';
+export { measureObservedUsage } from 'pyric/sandbox/internal';
 
 const NO_HOST_CONNECTION = 'pyric: this page has no Node host connection to report observed calls on.';
 

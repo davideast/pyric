@@ -71,6 +71,12 @@ export interface LiveCallRecord {
    */
   readonly billedDocuments?: number;
   /**
+   * On a resolved call: what production billed or moved for it, as the
+   * observer's `measure` read it from the resolved value. Counts only.
+   * Absent when the observer does not measure, or measured nothing.
+   */
+  readonly usage?: LiveUsage;
+  /**
    * The signed-in account the call ran as when the record was made: the
    * current user of the Auth its first argument's app was handed. Absent
    * when it ran signed out.
@@ -128,6 +134,20 @@ export interface LiveAiRecord {
   readonly firstChunkMs?: number;
 }
 
+/** What production billed or moved for one call: counts only, never a document, a value or a payload. */
+export interface LiveUsage {
+  readonly documentReads?: number;
+  readonly documentWrites?: number;
+  readonly documentDeletes?: number;
+  readonly payloadBytes?: number;
+  readonly uploadedBytes?: number;
+  readonly downloadedBytes?: number;
+  readonly unmeasured?: number;
+}
+
+/** Measures a resolved call from its value, as the senders' `measureObservedUsage` does. Undefined measures nothing. */
+export type LiveMeasure = (module: string, name: string, value: unknown) => LiveUsage | undefined;
+
 /** The account a call ran as: the uid and its token's claim names, never the token. */
 export interface LiveAccount {
   readonly uid: string;
@@ -139,10 +159,12 @@ export interface LiveAccount {
  * A plane whose listeners the runtime chip shows also supplies `journal`.
  * A plane that knows the host's project supplies `hostProjectId`, and the
  * client it runs in: every wrapper then refuses a call whose app names
- * another project (`refusedProject`).
+ * another project (`refusedProject`). A plane that measures supplies
+ * `measure`: each resolved record then carries the call's `usage`.
  */
 export type LiveObserver = ((record: LiveCallRecord) => unknown) & {
   readonly journal?: LiveListenerJournal;
+  readonly measure?: LiveMeasure;
   readonly hostProjectId?: string;
   readonly client?: LiveClient;
 };
@@ -238,6 +260,8 @@ export interface ObservedSite extends ObservedHooks {
   readonly uncaughtListenerError?: UncaughtListenerError;
   /** The project of the call this site records, read from its arguments. */
   readonly projectId?: string;
+  /** For a resolved call: its usage, as the observer measured it. */
+  readonly usage?: LiveUsage;
   /** For one listener: counts the documents each delivery was billed for. */
   readonly billing?: BilledDocuments;
   /** The call's first argument, which names the app whose Auth the call runs as. */
@@ -318,7 +342,8 @@ function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, value: unknow
   if (isFailure) return { module: site.module, name: site.name, outcome, code: codeOf(value), ...context };
   const billedDocuments = billedOf(site, outcome, value);
   const billed = billedDocuments === undefined ? {} : { billedDocuments };
-  return { module: site.module, name: site.name, outcome, ...context, ...billed };
+  const usage = outcome === 'resolved' && site.usage !== undefined ? { usage: site.usage } : {};
+  return { module: site.module, name: site.name, outcome, ...context, ...billed, ...usage };
 }
 
 function stringAt(value: unknown, path: readonly string[]): string | undefined {
@@ -553,8 +578,20 @@ function reportReading(site: ObservedSite, reading: ResultReading): void {
   report({ ...site, ...reading }, 'resolved');
 }
 
+/** The observer's measure of a resolved value: a fresh copy, or nothing when it does not measure or its measure throws. */
+function measuredUsage(site: ObservedSite, value: unknown): Pick<ObservedSite, 'usage'> {
+  try {
+    const usage = site.observer.measure?.(site.module, site.name, value);
+    return usage === undefined ? {} : { usage: { ...usage } };
+  } catch {
+    // A value the measure cannot read is still recorded, without usage.
+    return {};
+  }
+}
+
 /** Records a resolved call with what its value adds: now, or when a deferred reading settles. */
-function reportResolved(site: ObservedSite, value: unknown): void {
+function reportResolved(resolvedSite: ObservedSite, value: unknown): void {
+  const site = { ...resolvedSite, ...measuredUsage(resolvedSite, value) };
   const reading = readResult(site, value);
   const isDeferred = reading instanceof Promise;
   if (!isDeferred) return reportReading(site, reading);
