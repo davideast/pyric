@@ -28,8 +28,14 @@ export type JsonObject = { [key: string]: Json };
  * server issued, and in an answer header it is filled with a fresh session's
  * upload URL on this server; the other three are filled once per object, so
  * every answer about one object carries the same token, generation and time.
+ * `fid`, `fisAuthToken` and `fcmToken` fill a Messaging answer
+ * (`messaging.ts`): `fid` is the FID the request sent, `fisAuthToken` a fresh
+ * Installations auth token and `fcmToken` a fresh registration token, or the
+ * token the request's path names. Each takes an optional `prefix`, written
+ * before the value, for a resource `name`. In a request header
+ * `fisAuthToken` matches `FIS <token>` for a token this server issued.
  */
-export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId', 'uploadSession', 'downloadToken', 'generation', 'timeCreated'] as const;
+export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId', 'uploadSession', 'downloadToken', 'generation', 'timeCreated', 'fid', 'fisAuthToken', 'fcmToken'] as const;
 export type PlaceholderName = (typeof PLACEHOLDERS)[number];
 
 /** A batch of Listen responses for one target. `after` names the write exchange whose answer releases it. */
@@ -126,7 +132,28 @@ export interface StorageExchange {
   response: { status: number; headers?: JsonObject; body: Json };
 }
 
-export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange;
+/** The Messaging API a call goes to: Firebase Installations or FCM registrations. */
+export type MessagingApi = 'installations' | 'registrations';
+
+/**
+ * One Firebase Installations or FCM registrations REST call and production's
+ * answer. `path` is the path under the API's host with no query string;
+ * a segment `{fid}` or `{fcmToken}` matches a FID or registration token this
+ * server issued. `headers` are the request header values the call must send,
+ * by lowercase name, with placeholders; a header the exchange does not name is
+ * not compared, and the API key is a test value, never a recorded one. `body`
+ * matches the JSON the call sent, key for key; with none, the call sends no
+ * body. The answer's `headers` are the ones the SDK reads.
+ */
+export interface MessagingExchange {
+  kind: 'messaging';
+  id: string;
+  api: MessagingApi;
+  request: { method: string; path: string; headers?: JsonObject; body?: JsonObject };
+  response: { status: number; headers?: JsonObject; body: Json };
+}
+
+export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange | MessagingExchange;
 
 export interface Recording {
   format: typeof FORMAT;
@@ -192,6 +219,27 @@ export function assertShapesOnly(recording: Recording): void {
   recording.exchanges.forEach((exchange, index) => {
     if (exchange.kind === 'rtdb') checkRtdb(recording.project, `exchanges[${index}]`, exchange, ids);
     if (exchange.kind === 'storage') checkStorage(recording.project, `exchanges[${index}]`, exchange);
+    if (exchange.kind === 'messaging') checkMessaging(recording.project, `exchanges[${index}]`, exchange);
+  });
+}
+
+/** The placeholder each server-issued answer key must be, per Messaging API. */
+const MESSAGING_ANSWER_PLACEHOLDERS: Record<MessagingApi, Record<string, PlaceholderName>> = {
+  installations: { fid: 'fid', token: 'fisAuthToken' },
+  registrations: { token: 'fcmToken' },
+};
+
+/**
+ * Throws unless a Messaging exchange's path is under the recording's project
+ * and every FID, FIS auth token and registration token in its answer is a
+ * placeholder.
+ */
+function checkMessaging(project: string, path: string, exchange: MessagingExchange): void {
+  if (!exchange.request.path.startsWith(`/v1/projects/${project}/`)) throw new Error(`replay: ${path}.request.path names ${exchange.request.path}, outside project ${project}`);
+  const keys = MESSAGING_ANSWER_PLACEHOLDERS[exchange.api];
+  walk(exchange.response.body, `${path}.response.body`, (at, key, value) => {
+    const name = keys[key];
+    if (name && placeholderName(value) !== name) throw new Error(`replay: ${at} must be the placeholder {"$":"${name}"}`);
   });
 }
 
