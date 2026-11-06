@@ -120,13 +120,33 @@ service cloud.firestore {
 }`;
 }
 
-async function createTree(lookup: 'get' | 'exists', path: string): Promise<string> {
+/** A `let` named `rest` shadows the match variable with the written `k`, a plain string. */
+const SHADOWED_REST_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /trees/{rest=**} {
+      function lookupK() {
+        let rest = request.resource.data.k;
+        return exists(/databases/$(database)/documents/col/$(rest));
+      }
+      allow create: if lookupK();
+    }
+  }
+}`;
+
+async function createTree(
+  lookup: 'get' | 'exists',
+  path: string,
+  data: Record<string, unknown> = { on: true },
+  rules = recursiveRules(lookup),
+): Promise<string> {
   const sandbox = initializeSandbox({});
+  sandbox.admin.setDocument('col/a', { on: true });
   sandbox.admin.setDocument('col/a/b/c', { on: true });
-  setRules(sandbox, recursiveRules(lookup));
+  setRules(sandbox, rules);
   const db = getFirestore(sandbox.withAuth({ uid: 'u' }));
   try {
-    await setDoc(doc(db, path), { on: true });
+    await setDoc(doc(db, path), data);
     return 'ok';
   } catch (err) {
     return (err as { code?: string }).code ?? String(err);
@@ -143,6 +163,14 @@ describe('Firestore rules lookups splice a recursive wildcard as its segments', 
       expect(await createTree(lookup, 'trees/a/b/d')).toBe('permission-denied');
     });
   }
+
+  it("a let named rest holding 'a/b/c' is one segment, so exists() of col/$(rest) denies setDoc", async () => {
+    expect(await createTree('exists', 'trees/x', { k: 'a/b/c' }, SHADOWED_REST_RULES)).toBe('permission-denied');
+  });
+
+  it("the same let holding 'a' reads col/a and allows setDoc", async () => {
+    expect(await createTree('exists', 'trees/x', { k: 'a' }, SHADOWED_REST_RULES)).toBe('ok');
+  });
 });
 
 describe('Storage rules lookups keep an interpolated string as one segment', () => {

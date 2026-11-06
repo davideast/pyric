@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 131,
+    "numerator": 133,
     "denominator": 140,
-    "ratio": 0.9357142857142857,
-    "percent": 93.6
+    "ratio": 0.95,
+    "percent": 95
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 132,
-      "diverged": 6,
+      "verified": 134,
+      "diverged": 4,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 131,
-    "diverged": 6,
+    "conformant": 133,
+    "diverged": 4,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -681,8 +681,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "get-missing-doc",
@@ -691,11 +691,10 @@
       ],
       "verifiedByRows": [
         "firestore-rules#165",
-        "firestore-rules#197"
-      ],
-      "divergedByRows": [
+        "firestore-rules#197",
         "firestore-rules#224"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.function.exists": {
       "productionAcceptance": "accepted",
@@ -706,8 +705,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "get-missing-doc",
         "interpolated-lookup-path-segments",
@@ -717,11 +716,10 @@
       "verifiedByRows": [
         "firestore-rules#165",
         "firestore-rules#196",
-        "firestore-rules#197"
-      ],
-      "divergedByRows": [
+        "firestore-rules#197",
         "firestore-rules#224"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.function.getAfter": {
       "productionAcceptance": "accepted",
