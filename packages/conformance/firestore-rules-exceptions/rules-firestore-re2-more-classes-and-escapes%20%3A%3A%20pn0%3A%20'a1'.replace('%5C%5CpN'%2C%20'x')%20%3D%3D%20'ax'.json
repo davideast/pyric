@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#228","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production reads \\pN in replace() as the RE2 number class; pyric reads it as the letters pN","issue":"#2211"}

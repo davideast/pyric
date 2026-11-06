@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 133,
+    "numerator": 134,
     "denominator": 140,
-    "ratio": 0.95,
-    "percent": 95
+    "ratio": 0.9571428571428572,
+    "percent": 95.7
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 134,
-      "diverged": 4,
+      "verified": 135,
+      "diverged": 3,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 133,
-    "diverged": 4,
+    "conformant": 134,
+    "diverged": 3,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -1274,11 +1274,11 @@
       ],
       "verifiedByRows": [
         "firestore-rules#227",
+        "firestore-rules#228",
         "firestore-rules#230"
       ],
       "divergedByRows": [
-        "firestore-rules#199",
-        "firestore-rules#228"
+        "firestore-rules#199"
       ]
     },
     "firestore.method.string.lower": {
@@ -1385,12 +1385,12 @@
         "split-and-trim-edges"
       ],
       "verifiedByRows": [
-        "firestore-rules#202"
-      ],
-      "divergedByRows": [
-        "firestore-rules#199",
+        "firestore-rules#202",
         "firestore-rules#228",
         "firestore-rules#232"
+      ],
+      "divergedByRows": [
+        "firestore-rules#199"
       ]
     },
     "firestore.method.string.replace": {
@@ -1402,8 +1402,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "list-and-string-methods",
         "re2-more-classes-and-escapes",
@@ -1413,12 +1413,11 @@
         "simulator-language-semantics"
       ],
       "verifiedByRows": [
-        "firestore-rules#196"
-      ],
-      "divergedByRows": [
+        "firestore-rules#196",
         "firestore-rules#228",
         "firestore-rules#232"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.method.string.toUtf8": {
       "productionAcceptance": "accepted",

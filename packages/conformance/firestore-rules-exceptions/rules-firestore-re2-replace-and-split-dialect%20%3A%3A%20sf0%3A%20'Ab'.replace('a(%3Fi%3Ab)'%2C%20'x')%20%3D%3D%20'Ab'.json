@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#232","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production scopes a mid-pattern flag group in replace(); pyric applies the flag to the whole pattern","issue":"#1332"}
