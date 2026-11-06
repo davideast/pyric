@@ -100,8 +100,20 @@ export function liveSdkRoot(env: Record<string, string | undefined>, choose: () 
   return hasRecorded ? recorded : choose();
 }
 
-/** The folder of the entry script, by real path, as Node resolves the main module's imports. */
-function entryFolder(entry: string): string {
+/** The Node flags that run code from the command line, so `argv[1]` is an argument, not an entry script. */
+const EVAL_FLAGS = new Set(['-e', '--eval', '-p', '--print']);
+
+function isEvalFlag(flag: string): boolean {
+  return EVAL_FLAGS.has(flag) || flag.startsWith('--eval=') || flag.startsWith('--print=');
+}
+
+/**
+ * The folder of the entry script, as Node resolves the main module's
+ * imports: by real path, or by the path as given under
+ * `--preserve-symlinks-main`.
+ */
+function entryFolder(entry: string, preservesSymlinks: boolean): string {
+  if (preservesSymlinks) return dirname(resolve(entry));
   try {
     return dirname(realpathSync(entry));
   } catch {
@@ -112,15 +124,19 @@ function entryFolder(entry: string): string {
 /**
  * The folders the app's modules resolve from, in order: the entry script's
  * folder (`process.argv[1]`), from which Node resolves the app's imports,
- * then the working directory. A process with no entry script, such as
- * `node -e`, has only the working directory. The register's start check and
- * its rows both read the app's `firebase` from the first that resolves it
- * (`appFirebaseRoot` in `@pyric/live`), so `node web/server.mjs` started
- * from the folder above finds the `firebase` in `web/` (#2166).
+ * then the working directory. A process with no entry script has only the
+ * working directory, and so does one that runs code with `-e`, `--eval`,
+ * `-p` or `--print` (`execArgv`), whose `argv[1]` is an argument to that
+ * code, which resolves from the working directory. The register's start
+ * check and its rows both read the app's `firebase` from the first that
+ * resolves it (`appFirebaseRoot` in `@pyric/live`), so `node web/server.mjs`
+ * started from the folder above finds the `firebase` in `web/` (#2166).
  */
-export function liveAppDirs(entry: string | undefined, cwd: string): string[] {
-  const hasEntry = entry !== undefined && entry !== '';
-  const dirs = hasEntry ? [entryFolder(entry), cwd] : [cwd];
+export function liveAppDirs(entry: string | undefined, cwd: string, execArgv: readonly string[] = process.execArgv): string[] {
+  const runsEval = execArgv.some(isEvalFlag);
+  const hasEntry = entry !== undefined && entry !== '' && !runsEval;
+  const preservesSymlinks = execArgv.includes('--preserve-symlinks-main');
+  const dirs = hasEntry ? [entryFolder(entry, preservesSymlinks), cwd] : [cwd];
   return [...new Set(dirs)];
 }
 

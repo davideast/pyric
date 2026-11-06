@@ -176,7 +176,7 @@ const INSTALL = `Install a supported version with: npm install firebase@${SUPPOR
 /** The no-firebase refusal's line: the folders it looked from, and where to start. */
 function noFirebaseLine(searched: readonly string[]): string {
   const folders = searched.join(', ');
-  return `This project has no firebase installed. None resolves from ${folders}. Start from the folder of the app that installs firebase, or install it there.`;
+  return `This project has no firebase installed. None resolves from ${folders}. Start from the folder of the app that installs firebase.`;
 }
 
 function versionRefusal(version: string | null, searched: readonly string[]): string | null {
