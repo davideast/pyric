@@ -35,7 +35,8 @@ import { setRules } from 'pyric/sandbox/firestore';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
-import { DEFAULT_BUCKET, installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
+import { DEFAULT_BUCKET, installStorageBackend } from 'pyric/storage/internal';
+import { applyStorageRulesUpdate, storageRulesUpdateFor } from '../storage-rules-install.js';
 import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
@@ -43,7 +44,7 @@ import { createSurfaceContext } from '../../bridge/surface/context.js';
 import { callMethod } from '../../bridge/surface/method-call.js';
 import { methodByKey } from '../../bridge/surface/methods/registry.js';
 import type { OperationResult } from '../../bridge/surface/types.js';
-import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
+import type { InitPayload, RulesDestination } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { ensureAuth, setPortSession } from '../worker/host-auth.js';
@@ -601,12 +602,19 @@ export async function createHostedRuntime(
      *  `instance` names the RTDB instance a database ruleset deploys to, as
      *  {@link setDatabaseRules} takes it, absent for the default instance, or
      *  an unresolved deploy target, as {@link setDatabaseTargetRules} takes it. */
-    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void> {
+    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: RulesDestination): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
       if (service === 'storage') {
-        await replaceStorageRules(ctx.sandbox, source);
-        recorder?.note({ kind: 'rules', at: Date.now(), service, source });
+        // A bucket by name gets its own rules, a pending deploy target its
+        // buckets' once resolved, and without either the default bucket (#1313).
+        const update = storageRulesUpdateFor(source, instance);
+        await applyStorageRulesUpdate(ctx.sandbox, update);
+        const isDefaultBucket = update.bucket === undefined && update.target === undefined;
+        if (isDefaultBucket) recorder?.note({ kind: 'rules', at: Date.now(), service, source });
         return;
+      }
+      if (instance !== undefined && typeof instance === 'object' && 'bucket' in instance) {
+        throw new Error(`A ${service} ruleset does not deploy to a Storage bucket.`);
       }
       if (service === 'database') {
         const deployed = typeof instance === 'object'

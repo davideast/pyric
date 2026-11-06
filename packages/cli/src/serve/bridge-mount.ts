@@ -37,7 +37,7 @@ import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CA
 import type { BridgeMessage } from '../bridge/protocol.js';
 import type { LiveHostState } from './live-host-state.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
-import type { DatabaseRulesDestination, InitPayload } from './init-payload.js';
+import type { InitPayload, RulesDestination } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
 import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, HOSTED_REPRO_PATH, hostedMethodRequest, hostedReproRequest } from './hosted/method-protocol.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-project.js';
@@ -95,7 +95,7 @@ export interface BridgeMount {
   /** A null database or Storage source clears the rules, so the default policy applies. */
   /** `instance` names the RTDB instance a database ruleset deploys to, absent
    *  for the default instance, or an unresolved deploy target. */
-  deployHostedRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void>;
+  deployHostedRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: RulesDestination): Promise<void>;
   startHostedSandbox(payload: InitPayload, baseUrl: string | (() => string), ai?: HostedRuntimeOptions): Promise<void>;
   /** Stable per-process identity (mirrors `/__pyric/health`'s instanceId).
    *  The pointer writer records this so the proxy can verify it reached this

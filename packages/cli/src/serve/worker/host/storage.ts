@@ -350,8 +350,9 @@ function opStorage(
 
 /**
  * {@link lensStorage} for a bucket other than the default one: the same
- * lenses, on a handle scoped to `bucket`. Each bucket's objects are its own;
- * the ruleset is shared, as one project's buckets share `storage.rules`.
+ * lenses, on a handle scoped to `bucket`. Each bucket's objects are its own,
+ * and so are its rules: the ones `firebase.json` deploys to it by name, or
+ * none, which locks it (#1313).
  */
 function bucketLensStorage(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike, bucket: string): FirebaseStorage {
   if (actAs?.mode === 'admin') return getAdminStorageSandbox(ctx.sandbox, { bucket });

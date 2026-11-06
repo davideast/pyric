@@ -7,6 +7,9 @@ import { describe, expect, it } from 'bun:test';
 import { getClock, initializeSandbox } from 'pyric/sandbox';
 import { deleteObject, getMetadata, getStorageSandbox, ref, updateMetadata, uploadBytes } from 'pyric/storage';
 import { compileStorageRules } from 'pyric/storage/internal';
+import { getStorage as appStorage } from 'pyric/storage';
+import { createAppForSandbox } from 'pyric/app/internal';
+import { installServedStorageRules } from '../../../../src/serve/storage-rules-install.js';
 
 import { createSurfaceContext } from '../../../../src/bridge/surface/context.js';
 import { METHODS_BY_KEY } from '../../../../src/bridge/surface/index.js';
@@ -129,6 +132,36 @@ describe('install', () => {
     expect(result.summary).toContain('Storage rules did not compile: Line 5: Expression is too complex to evaluate safely.');
     const problem = STORAGE_RULES.compileFailure(deep);
     expect(problem?.body).toBe('rules did not compile: Line 5: Expression is too complex to evaluate safely.');
+  });
+
+  it('installs on the default bucket by name when the served project deploys to it by name (#1313)', async () => {
+    const sandbox = initializeSandbox();
+    installServedStorageRules(sandbox, {
+      storageRules: null,
+      projectKey: `/project-${Math.random()}`,
+      storageBucketRules: {
+        'media-bucket': { rules: OPEN_RULES, rulesHash: 'm' },
+        'demo-app.appspot.com': { rules: OPEN_RULES, rulesHash: 'd' },
+      },
+    });
+    // The Node host names the default bucket by the page app's storageBucket.
+    const ctx = createSurfaceContext(sandbox);
+    ctx.storageBucketName = () => 'demo-app.appspot.com';
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: 'demo-app.appspot.com' }, `app-${Math.random()}`);
+    const upload = async (bucketUrl?: string): Promise<string> =>
+      uploadBytes(ref(appStorage(app, bucketUrl), 'uploads/a.txt'), new Uint8Array([1])).then(
+        () => 'ok',
+        (error: { code?: string }) => error.code ?? String(error),
+      );
+    expect(await upload()).toBe('ok');
+
+    const installed = await STORAGE_RULES.install(ctx, SIGNED_IN_ONLY_RULES);
+    expect(installed.ok).toBe(true);
+    expect(await upload()).toBe('storage/unauthorized');
+    expect(await upload('gs://media-bucket')).toBe('ok');
+    // What the tool reports in force is what the default bucket enforces.
+    const simulated = await STORAGE_RULES.simulate(ctx, { operation: 'create', path: 'uploads/a.txt' });
+    expect((simulated.data as { allowed: boolean }).allowed).toBe(false);
   });
 
   it('installs a parsed source', async () => {
