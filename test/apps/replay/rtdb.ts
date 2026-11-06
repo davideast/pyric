@@ -16,7 +16,8 @@
 // Some messages need no recording: stats (`s`) and unlisten (`n`) are
 // answered `ok`, `auth` is answered from the claims of the ID token this
 // server minted (a token it did not mint drops the connection's identity, as
-// production does), `unauth` clears the uid, and the keepalive frame `0` is
+// production does), `gauth` with `owner` (the Admin SDK's, under
+// `FIREBASE_DATABASE_EMULATOR_HOST`) runs the connection as `owner`, `unauth` clears the uid, and the keepalive frame `0` is
 // ignored. A message split into several frames (a frame count first) is
 // refused and the connection closed: no recording holds one yet. Every frame
 // a client sends but the keepalive is listed in `received`, answered or not.
@@ -60,6 +61,12 @@ export const NO_RECORDING = 'pyric_replay_no_recording';
 /** Data actions answered `ok` with no recording: connection stats and unlisten. */
 const ALWAYS_OK = new Set(['s', 'n']);
 const AUTH_ACTIONS = new Set(['auth', 'gauth']);
+/**
+ * The credential the Admin SDK sends in `gauth` under
+ * `FIREBASE_DATABASE_EMULATOR_HOST`. A connection that sends it runs as
+ * `owner`, so only exchanges with `"as": "owner"` (or no `as`) answer it.
+ */
+const ADMIN_CREDENTIAL = 'owner';
 /** onDisconnect writes, which production runs when the connection closes. */
 const ON_DISCONNECT_WRITES = new Set(['o', 'om']);
 const KEEPALIVE = '0';
@@ -128,7 +135,7 @@ export class RtdbConnection {
     const r = typeof data.r === 'number' ? data.r : null;
     if (action === 'n') this.unlisten(pathOf(body));
     if (ALWAYS_OK.has(action)) return this.reply(r, { s: 'ok', d: '' });
-    if (AUTH_ACTIONS.has(action)) return this.authenticate(r, body);
+    if (AUTH_ACTIONS.has(action)) return this.authenticate(r, action, body);
     if (action === 'unauth') {
       this.as = null;
       return this.reply(r, { s: 'ok', d: '' });
@@ -187,12 +194,19 @@ export class RtdbConnection {
 
   /**
    * Answers `auth` as the uid of an ID token this server minted, with that
-   * token's claims. Any other credential drops the connection's identity, as
-   * production does when a token fails to verify.
+   * token's claims, and the Admin SDK's `gauth` with `owner` as `owner`. The
+   * `gauth` reply is hand-written: capture A never records that frame. Any
+   * other credential drops the connection's identity, as production does when
+   * a token fails to verify.
    */
-  private authenticate(r: number | null, body: Json): void {
+  private authenticate(r: number | null, action: string, body: Json): void {
     const cred = (body as JsonObject | null)?.cred;
     const token = typeof cred === 'string' ? cred : undefined;
+    const isAdmin = action === 'gauth' && token === ADMIN_CREDENTIAL;
+    if (isAdmin) {
+      this.as = ADMIN_CREDENTIAL;
+      return this.reply(r, { s: 'ok', d: { auth: null, expires: null } });
+    }
     const uid = this.state.tokens.uidOf(token);
     if (uid === null || token === undefined) {
       this.state.unmatched.push({ rpc: 'rtdb', as: this.as, request: { instance: this.instance, a: 'auth', b: { cred: token === undefined ? null : 'a token this server did not mint' } } });
