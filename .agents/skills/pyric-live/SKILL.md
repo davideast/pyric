@@ -204,8 +204,9 @@ Work through these and record the observed result for each. Each line states wha
    `sendMessage` and `sendMessageStream`, each with a short prompt, appear as a row served by
    production, named with its service (such as `ai.generateContent` or `ai.chat.sendMessage`) and
    showing the requested model. A row's detail shows production's input and output tokens (a
-   `countTokens` row shows "Counted tokens") and reads "Response content was not recorded for this
-   request." A call from an app with no App Check token, on a project that enforces App Check for
+   `countTokens` row shows "Counted tokens"). A successful row's detail reads "Response content was
+   not recorded for this request.", and a failed row's reads "No successful response was
+   returned." A call from an app with no App Check token, on a project that enforces App Check for
    AI Logic, reads as failed with `unauthenticated`. Every call bills by token, so keep prompts
    short and calls few. AI Logic calls don't raise the billed-call count; that is not a finding.
 6. **Auth.** Sign up and sign in with a test account. Each call is a row with production's answer.
@@ -219,7 +220,9 @@ Work through these and record the observed result for each. Each line states wha
    - a named Firestore database, such as `getFirestore(app, 'reports')`;
    - AI Logic's Live API (`getLiveGenerativeModel`, `new LiveGenerativeModel`), its server prompt
      templates (`getTemplateGenerativeModel`, `new TemplateGenerativeModel`), and Imagen
-     (`getImagenModel`) on firebase below 12.19; nothing reaches production for them;
+     (`getImagenModel`) on firebase below 12.19; nothing reaches production for them. The full
+     list is in the live mode guide's "AI Logic calls" section
+     (`packages/site-docs/src/content/observe/live-mode.md`);
    - `firebase-admin` in a Node process under the register;
    - a Studio edit or an MCP tool that writes.
 
@@ -245,8 +248,8 @@ Work through these and record the observed result for each. Each line states wha
 Live mode can't see some calls, so a missing row for one of these is not a finding: an `import()`
 of the exact URL of an SDK file the page already loaded, or that URL with a fragment; the page's
 own `fetch` to the Firestore REST API, Auth, App Check, AI Logic or a Storage download URL; and, in a Node
-process, a connection opened with `http2`, `tls`, `@grpc/grpc-js` or `undici`, or an `http.request` through a `CONNECT`
-proxy tunnel. A host also names at most eight projects in its label and warning.
+process, a connection opened with `http2`, `tls`, `@grpc/grpc-js`, `undici` or Node's own
+`WebSocket`, or an `http.request` through a `CONNECT` proxy tunnel. A host also names at most eight projects in its label and warning.
 
 ## When something breaks
 

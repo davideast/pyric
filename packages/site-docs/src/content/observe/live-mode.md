@@ -97,7 +97,7 @@ Each Firebase AI Logic call is a row in Traffic. The row names the call with its
 
 - **The calls.** `generateContent`, `generateContentStream` and `countTokens` on a model from `getGenerativeModel` or `new GenerativeModel`, and `sendMessage` and `sendMessageStream` on a chat from `startChat`.
 - **Token counts.** A row's detail shows production's input and output tokens, such as "Input tokens 9" and "Output tokens 2". A stream's counts cover the whole stream. A `countTokens` row shows "Counted tokens". Traffic doesn't total the counts or cap them, and every call bills by token.
-- **No prompt or response.** A row never records a prompt, a response's text, a function call or a header. Its detail reads "Response content was not recorded for this request."
+- **No prompt or response.** A row never records a prompt, a response's text, a function call or a header. A successful row's detail reads "Response content was not recorded for this request.", and a failed row's reads "No successful response was returned."
 - **App Check.** A call without an App Check token, on a project that enforces App Check for AI Logic, reads as failed with the code `unauthenticated`, as production answers it with a 401. A model production doesn't serve reads as failed with `not_found`.
 - **On-device answers.** A model set to run only on device makes no row, and neither does a hybrid answer made on device. Production never saw them.
 - **Not counted.** AI Logic calls don't add to the billed-call count.
@@ -157,8 +157,8 @@ Pyric sees a call only when it goes through your app's `firebase/app`, `firebase
 - **`@google-cloud/firestore`** in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` instead.
 - **Your own requests to Firestore, Auth or App Check** from a Node process, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`, and the terminal names the host.
 - **Your own requests to Realtime Database** from a Node process, to a `firebaseio.com` or `firebasedatabase.app` host, with the global `fetch`, `https.request` or a socket your code opens. Each fails with `PYRIC_GUARD_BLOCKED`. Only your installed `firebase/database` reaches those hosts.
-- **Your own requests to Cloud Storage** from a Node process, such as a `fetch` of a download URL. Each fails with `PYRIC_GUARD_BLOCKED`. A server that downloads files by URL stops under live mode; read them with `getBytes` or `getStream` instead.
-- **Your own requests to AI Logic** from a Node process, to `firebasevertexai.googleapis.com`. Each fails with `PYRIC_GUARD_BLOCKED`. Only your installed `firebase/ai` reaches that host.
+- **Your own requests to Cloud Storage** from a Node process, such as a `fetch` of a download URL, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`. A server that downloads files by URL stops under live mode; read them with `getBytes` or `getStream` instead.
+- **Your own requests to AI Logic** from a Node process, to `firebasevertexai.googleapis.com`, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`.
 - **A second copy of the SDK on a page.** Importing an SDK file the page already loaded under another URL that reaches the dev server, such as the same URL with an extra query, fails with `PYRIC_LIVE_REFUSED`.
 
 ## What live mode can't see
@@ -174,7 +174,7 @@ Some requests from a page never reach the dev server, so live mode can't refuse 
 
 In a Node process, live mode lets these through without showing them, because each looks the same as your Firebase SDK's own traffic:
 
-- A connection your code opens itself to `firestore.googleapis.com` with `http2`, `tls`, `@grpc/grpc-js` or the `undici` package. Only the global `fetch` is checked.
+- A connection your code opens itself to `firestore.googleapis.com`, `firebasestorage.googleapis.com` or `firebasevertexai.googleapis.com` with `http2`, `tls`, `@grpc/grpc-js`, the `undici` package or Node's own `WebSocket`. Only the global `fetch`, `http.request` and `https.request` are checked.
 - An `http.request` that opens a `CONNECT` tunnel through a proxy. The Firebase SDK's gRPC connection uses one when a proxy is set.
 
 None of these calls shows in traffic, and production still bills them.
