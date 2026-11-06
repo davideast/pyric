@@ -5,9 +5,12 @@
  * origin sends the same one; another profile, another browser or a private
  * window mints its own.
  *
- * A realm without `localStorage` (a service worker, a worker, a Node process)
- * or one that refuses it keeps an id minted once in memory instead, so the
- * realm's ports still agree.
+ * The first id a realm reads is kept for the realm, so every port of a tab
+ * sends the same one even when the app clears `localStorage` (a sign-out) or
+ * another tab mints at the same moment. A cleared store gets the id written
+ * back, so later tabs still agree. A realm without `localStorage` (a service
+ * worker, a worker, a Node process) or one that refuses it keeps an id minted
+ * once in memory.
  *
  * Named `profileClientId` here, apart from presence's per-page `clientId`
  * (`presence.ts`), which names one logical page, not a profile.
@@ -18,6 +21,7 @@
 const PROFILE_CLIENT_ID_KEY = 'pyric.profileClientId';
 const PROFILE_CLIENT_ID_PATTERN = /^profile-[0-9a-f]{32}$/;
 
+/** The first id this realm read or minted; every later call returns it. */
 let realmProfileClientId: string | undefined;
 
 /** 16 random bytes as hex. An id, not a secret: `Math.random` serves where `crypto` is missing. */
@@ -32,12 +36,6 @@ function randomHex(): string {
 
 function mintProfileClientId(): string {
   return `profile-${randomHex()}`;
-}
-
-/** The id minted once for this realm, where `localStorage` cannot keep one. */
-function inMemoryProfileClientId(): string {
-  realmProfileClientId ??= mintProfileClientId();
-  return realmProfileClientId;
 }
 
 /** A stored value is kept only in the minted form, so nothing else in storage becomes the id. */
@@ -59,6 +57,23 @@ function storedProfileClientId(): string | undefined {
   }
 }
 
+/** Write the realm's id back where the store lost it; an id another tab minted is left as it is. */
+function restoreStoredProfileClientId(id: string): void {
+  try {
+    const storage = globalThis.localStorage;
+    if (storage === undefined) return;
+    if (isMintedId(storage.getItem(PROFILE_CLIENT_ID_KEY))) return;
+    storage.setItem(PROFILE_CLIENT_ID_KEY, id);
+  } catch {
+    // A store that refuses access keeps nothing; the realm's id still stands.
+  }
+}
+
 export function profileClientId(): string {
-  return storedProfileClientId() ?? inMemoryProfileClientId();
+  if (realmProfileClientId === undefined) {
+    realmProfileClientId = storedProfileClientId() ?? mintProfileClientId();
+    return realmProfileClientId;
+  }
+  restoreStoredProfileClientId(realmProfileClientId);
+  return realmProfileClientId;
 }

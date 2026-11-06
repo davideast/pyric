@@ -70,11 +70,33 @@ describe("a browser profile's client id", () => {
     expect(secondTab()).toBe(firstTab());
   });
 
-  it('differs for another profile, whose localStorage is its own', () => {
+  it('differs for another profile, whose localStorage is its own', async () => {
     setLocalStorage(memoryStorage());
-    const first = profileClientId();
+    const first = (await freshRealm('profile-a'))();
     setLocalStorage(memoryStorage());
-    expect(profileClientId()).not.toBe(first);
+    expect((await freshRealm('profile-b'))()).not.toBe(first);
+  });
+
+  it('stays the same after the app clears localStorage, and is written back for later tabs', async () => {
+    const storage = memoryStorage();
+    setLocalStorage(storage);
+    const realm = await freshRealm('cleared');
+    const first = realm();
+    storage.entries.clear();
+    expect(realm()).toBe(first);
+    expect([...storage.entries.values()]).toEqual([first]);
+    expect((await freshRealm('cleared-later-tab'))()).toBe(first);
+  });
+
+  it("keeps the realm's id when another tab mints its own at the same moment", async () => {
+    const storage = memoryStorage();
+    setLocalStorage(storage);
+    const realm = await freshRealm('raced');
+    const first = realm();
+    const otherTab = `profile-${'0'.repeat(32)}`;
+    storage.entries.set('pyric.profileClientId', otherTab);
+    expect(realm()).toBe(first);
+    expect(storage.entries.get('pyric.profileClientId')).toBe(otherTab);
   });
 
   it('is one id per realm where there is no localStorage, and a fresh one in a new realm', async () => {
@@ -114,9 +136,8 @@ describe("a browser profile's client id", () => {
     expect(id).toMatch(MINTED);
     for (const held of [uid, token, 'refresh-abc']) expect(id).not.toContain(held);
     storage.entries.set('pyric.profileClientId', token);
-    const replaced = realm();
-    expect(replaced).toMatch(MINTED);
-    expect(replaced).not.toContain(token);
+    expect(realm()).toBe(id);
+    expect(storage.entries.get('pyric.profileClientId')).toBe(id);
   });
 });
 
