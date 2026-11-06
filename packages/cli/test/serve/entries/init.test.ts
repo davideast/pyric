@@ -55,6 +55,7 @@ export const installPyricRuntimeChip = noop;
 export const sandboxEventSource = () => ({});
 export const getPyricRuntimeStatus = () => ({});
 export const projectRuntimeIdentity = (user) => user;
+export const pageLiveIdentity = () => ({ current: () => null, recent: () => [], subscribe: () => noop, dispose: noop });
 export const recordDiagnostic = noop;
 export const pageListenerObservation = noop;
 export const initPayloadUrl = async () => '/__pyric/init.json';
