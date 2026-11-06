@@ -82,7 +82,7 @@ describe('the modules a page gets for the live rows', () => {
     expect(source).toContain('pageObserver(sendObservedCall)');
   });
 
-  test('exist only for the four rows', () => {
+  test('exist only for the live rows', () => {
     expect(liveModuleSource(rowId('firebase/functions'), '/sender.js')).toBeNull();
     expect(liveModuleSource('/src/main.ts', '/sender.js')).toBeNull();
   });

@@ -428,16 +428,13 @@ describe('the instance every RTDB record names', () => {
     const row = wrapLiveModule('live-database', 'firebase/database', standIn, { observer: (record) => { ownRecords.push(record); }, sdkVersion: '12.0.0', client: 'node' });
     // A future SDK might keep `_repo` behind a getter; the row reads only an own data property.
     const withoutRepo = () => Object.defineProperty({ _path: { toString: () => '/rooms' } }, '_repo', { get: () => ({ repoInfo_: { namespace: 'demo' } }) });
-    const seen: unknown[] = [];
-    const appCallback = (value: unknown) => { seen.push(value); };
+    const appCallback = () => {};
     row.onChildMoved(withoutRepo(), appCallback);
     row.onChildMoved(withoutRepo(), appCallback);
     expect(registered.size).toBe(1);
     expect(ownRecords[0]).toMatchObject({ name: 'onChildMoved', instance: UNREAD_INSTANCE, path: '/rooms' });
     row.off(withoutRepo(), 'child_moved', appCallback);
     expect(registered.size).toBe(0);
-    for (const callback of registered) callback('after off');
-    expect(seen).toEqual([]);
   });
 });
 
