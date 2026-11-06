@@ -126,11 +126,12 @@ const SENSITIVE_URL_PARAM_PATTERN = /([?&](?:key|apiKey|api_key|access_token)=)[
 
 /**
  * The userinfo of a URL, `user:password@`, wherever a URL appears in the
- * text, slashes raw or JSON-escaped. The authority runs to the last `@`
- * before the path, as a URL parser reads it, so a password holding `@`
- * goes too (#1766).
+ * text, after one or two slashes, forward, back or JSON-escaped. A backstop
+ * only (#1766): it stops at a quote, so it never runs across a JSON string,
+ * and at a space or a URL delimiter. The exact userinfo of a configured base
+ * URL is masked first, by `redactUpstreamText` with `urlCredentials`.
  */
-const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:(?:\\?\/){2})[^\s/\\?#"']*@/gi;
+const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:[/\\]{1,4})[^\s/\\?#"']*@/gi;
 
 /**
  * Redacts credential-bearing query-string VALUES from a URL (or any string

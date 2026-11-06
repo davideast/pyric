@@ -495,6 +495,43 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     }
   });
 
+  // Node's fetch quotes a URL it refuses whole; these are its two messages.
+  for (const { password, error } of [
+    { password: "pw'secret-1766", error: 'Request cannot be constructed from a URL that includes credentials:' },
+    { password: 'pw secret-1766', error: 'Request cannot be constructed from a URL that includes credentials:' },
+    { password: 'pw/secret-1766', error: 'Failed to parse URL from' },
+    { password: 'pw#secret-1766', error: 'Failed to parse URL from' },
+  ]) {
+    it(`drops a password holding ${JSON.stringify(password.slice(2, 3))} from the 502 body and the log (#1766)`, async () => {
+      const realFetch = globalThis.fetch;
+      const failing = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (!url.includes('@')) return realFetch(input, init);
+        throw new TypeError(`${error} ${url}`);
+      };
+      globalThis.fetch = Object.assign(failing, { preconnect: realFetch.preconnect });
+      try {
+        const { logger, notes } = recordingLogger();
+        const h = await startServe(`http://gateway-user:${password}@127.0.0.1:9/v1`, logger);
+        const res = await realFetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+        });
+        expect(res.status).toBe(502);
+        const text = await res.text();
+        expect(notes.length).toBe(1);
+        for (const shown of [text, notes[0]!]) {
+          expect(shown).not.toContain('secret-1766');
+          expect(shown).not.toContain('gateway-user');
+          expect(shown).toContain('127.0.0.1:9/v1/chat/completions');
+        }
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+  }
+
   it('masks a bearer token that a real fetch error quotes from the Authorization header (#1737)', async () => {
     // fetch refuses a header value with a line break before it sends, and its
     // error quotes the value, token included.
