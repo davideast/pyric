@@ -1,0 +1,19 @@
+{
+  "name": "rules-firestore-root-recursive-with-own-allow",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#220"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"root-recursive-with-own-allow\" (Coverage: root block own allow). The rules on a root recursive block apply, as on any other block.",
+  "observedAt": "2026-11-04T02:25:44.658Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "02a6dd3852dc84a5b6761f454395d984c27891eeff7df1bffd649272530ecabf"
+  },
+  "behavior": {
+    "root recursive own allow grants get c/1": "ALLOW",
+    "root recursive own allow grants list c": "ALLOW"
+  }
+}
