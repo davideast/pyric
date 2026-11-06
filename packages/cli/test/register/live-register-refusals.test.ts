@@ -229,7 +229,7 @@ process.exit(0);
     expect(res.stderr).toContain("in live mode a fetch to Google is made only by the installed SDK that @pyric/live's rows load");
     expect(res.stderr).toContain('net-guard BLOCK storage.googleapis.com (Cloud Storage)');
     expect(res.stderr).toContain(
-      "in live mode only @pyric/live's rows, firebase/auth, firebase/firestore, firebase/app-check and firebase/database, reach Google",
+      'in live mode only the imports @pyric/live serves (firebase/auth, firebase/firestore, firebase/app-check and firebase/database) reach Google',
     );
     expect(res.stderr).not.toContain('BLOCK identitytoolkit.googleapis.com (Firebase Authentication) via socket');
   }, 60_000);
@@ -275,7 +275,8 @@ process.exit(0);
     expect(res.outcome.reachedByApp).toEqual([]);
     expect(res.stderr).toContain('@pyric/live/register: net-guard BLOCK firestore.googleapis.com (Cloud Firestore) via socket');
     expect(res.stderr).toContain("in live mode only the installed Firebase SDK, wrapped by @pyric/live's rows, reaches this host");
-    expect(res.stderr).toContain('Make the call through firebase/auth, firebase/firestore, firebase/app-check or firebase/database, so pyric observes it');
+    expect(res.stderr).toContain('Make the call through firebase/auth, firebase/firestore or firebase/app-check, so pyric observes it');
+    expect(res.stderr).not.toContain('firebase/database, so pyric observes it');
   }, 60_000);
 
   it('refuses @google-cloud/firestore at import, before it loads', async () => {

@@ -121,20 +121,21 @@ export function passThroughHosts(passThrough: Iterable<string>): string[] {
 /** The live rows that reach Google, one import each: every row but `firebase/app`, which reaches nothing itself. */
 const GOOGLE_ROW_IMPORTS = [...INSTALLED_SDK_SPECIFIERS].filter((specifier) => specifier !== 'firebase/app');
 
-/** `a, b and c`, or `a, b or c`. */
-function joinedList(items: readonly string[], conjunction: 'and' | 'or'): string {
+/** `a, b and c`. */
+function andList(items: readonly string[]): string {
   if (items.length < 2) return items.join('');
-  return `${items.slice(0, -1).join(', ')} ${conjunction} ${items.at(-1)}`;
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
 const LOG_PREFIX = '@pyric/live/register: net-guard';
 const TOKEN_REASON = "in live mode this process can't get a server-side Google access token";
-const LIVE_REASON = `in live mode only @pyric/live's rows, ${joinedList(GOOGLE_ROW_IMPORTS, 'and')}, reach Google from this process`;
+const LIVE_REASON = `in live mode only the imports @pyric/live serves (${andList(GOOGLE_ROW_IMPORTS)}) reach Google from this process`;
 const LIVE_REMEDY = 'Make this request from a process without @pyric/live/register';
 const LIVE_FETCH_REASON = "in live mode a fetch to Google is made only by the installed SDK that @pyric/live's rows load";
 const LIVE_REQUEST_REASON = "in live mode only the installed Firebase SDK, wrapped by @pyric/live's rows, reaches this host, " +
   'and it never sends an http.request, so pyric would not see this one';
-const LIVE_REQUEST_REMEDY = `Make the call through ${joinedList(GOOGLE_ROW_IMPORTS, 'or')}, ` +
+/** For a request to a {@link LIVE_ROW_HOSTS} host, which only these three imports' SDKs reach. */
+const LIVE_REQUEST_REMEDY = 'Make the call through firebase/auth, firebase/firestore or firebase/app-check, ' +
   'so pyric observes it, or from a process without @pyric/live/register';
 const PASSED_REASON = 'in live mode only the installed SDK of an import that passes through reaches this host, ' +
   'from its own files, and pyric does not observe it';
