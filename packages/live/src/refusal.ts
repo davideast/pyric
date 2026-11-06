@@ -67,7 +67,7 @@ function joinedList(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
-/** `firebase/app, firebase/auth, firebase/firestore and firebase/app-check`. */
+/** `firebase/app, firebase/auth, firebase/firestore, firebase/app-check and firebase/database`. */
 const SERVED = joinedList([...SERVED_IMPORTS]);
 
 /** What live mode serves where the import was made. */

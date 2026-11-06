@@ -1,9 +1,9 @@
 /**
  * The network guard under `@pyric/live/register`. In live mode the app's
  * installed Firestore, Auth, App Check and Realtime Database talk to Google
- * from this process, and nothing else should: pyric holds no production credential, and a Google
- * client library or a hand-written `fetch` to a Google API is traffic pyric
- * neither serves nor observes.
+ * from this process, and nothing else should: pyric holds no production
+ * credential, and a Google client library or a hand-written `fetch` to a
+ * Google API is traffic pyric neither serves nor observes.
  *
  * It installs the register's hooks (`./net-guard.ts`: the undici dispatcher,
  * the socket backstop and the request check) with this verdict:
@@ -50,7 +50,13 @@
  */
 import { isBuiltin } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { FIREBASE_AI_LOGIC_HOST, lookupGoogleEndpoint, matchesHostSuffix, normalizeHostname } from '../google-endpoints.js';
+import {
+  FIREBASE_AI_LOGIC_HOST,
+  GOOGLE_ENDPOINT_CATALOG,
+  lookupGoogleEndpoint,
+  matchesHostSuffix,
+  normalizeHostname,
+} from '../google-endpoints.js';
 import { findTokenSource, tokenEndpointsFrom } from '../google-token-endpoints.js';
 import {
   contextFrom,
@@ -64,6 +70,7 @@ import {
   type ReporterOptions,
 } from './net-guard.js';
 import { nodeAgentPrototypes, nodeClientRequestPrototypes } from './connect-prototypes.js';
+import { INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
 
 /** The hosts the Firestore, Auth and App Check rows' SDK reaches in Node: Firestore, Auth, its token refresh, and App Check. */
 export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
@@ -74,12 +81,15 @@ export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The host suffixes the database row's SDK reaches: the legacy
- * `<name>.firebaseio.com` and the regional `<name>.<region>.firebasedatabase.app`.
- * Unlike {@link LIVE_ROW_HOSTS}, they are always caller-checked: the SDK opens
- * its WebSocket from its own files, and the app's own socket to them is refused.
+ * The host suffixes the database row's SDK reaches, the catalog's Realtime
+ * Database hosts: the legacy `<name>.firebaseio.com` and the regional
+ * `<name>.<region>.firebasedatabase.app`. Unlike {@link LIVE_ROW_HOSTS}, they
+ * are always caller-checked: the SDK opens its WebSocket from its own files,
+ * and the app's own socket to them is refused.
  */
-export const DATABASE_ROW_HOSTS: readonly string[] = ['firebaseio.com', 'firebasedatabase.app'];
+const DATABASE_ROW_HOSTS: readonly string[] = GOOGLE_ENDPOINT_CATALOG
+  .filter((endpoint) => endpoint.service === 'Realtime Database')
+  .map((endpoint) => endpoint.host);
 
 const GOOGLE_APIS = 'googleapis.com';
 
@@ -108,14 +118,23 @@ export function passThroughHosts(passThrough: Iterable<string>): string[] {
   return [...new Set(hosts)];
 }
 
+/** The live rows that reach Google, one import each: every row but `firebase/app`, which reaches nothing itself. */
+const GOOGLE_ROW_IMPORTS = [...INSTALLED_SDK_SPECIFIERS].filter((specifier) => specifier !== 'firebase/app');
+
+/** `a, b and c`, or `a, b or c`. */
+function joinedList(items: readonly string[], conjunction: 'and' | 'or'): string {
+  if (items.length < 2) return items.join('');
+  return `${items.slice(0, -1).join(', ')} ${conjunction} ${items.at(-1)}`;
+}
+
 const LOG_PREFIX = '@pyric/live/register: net-guard';
 const TOKEN_REASON = "in live mode this process can't get a server-side Google access token";
-const LIVE_REASON = "in live mode only @pyric/live's rows, Firestore, Auth and App Check, reach Google from this process";
+const LIVE_REASON = `in live mode only @pyric/live's rows, ${joinedList(GOOGLE_ROW_IMPORTS, 'and')}, reach Google from this process`;
 const LIVE_REMEDY = 'Make this request from a process without @pyric/live/register';
 const LIVE_FETCH_REASON = "in live mode a fetch to Google is made only by the installed SDK that @pyric/live's rows load";
 const LIVE_REQUEST_REASON = "in live mode only the installed Firebase SDK, wrapped by @pyric/live's rows, reaches this host, " +
   'and it never sends an http.request, so pyric would not see this one';
-const LIVE_REQUEST_REMEDY = 'Make the call through firebase/firestore, firebase/auth or firebase/app-check, ' +
+const LIVE_REQUEST_REMEDY = `Make the call through ${joinedList(GOOGLE_ROW_IMPORTS, 'or')}, ` +
   'so pyric observes it, or from a process without @pyric/live/register';
 const PASSED_REASON = 'in live mode only the installed SDK of an import that passes through reaches this host, ' +
   'from its own files, and pyric does not observe it';
