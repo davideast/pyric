@@ -3,8 +3,9 @@ import { describeRulesType } from './rules-type.js';
 import { setElementsEqual } from './value-equality.js';
 
 /**
- * A rules Set. Elements compare under `setElementsEqual`: numbers by value at
- * every depth, with NaN matching NaN, so `[1, 1.0].toSet()` has one element.
+ * A rules Set. Elements compare under `setElementsEqual`: numbers by exact
+ * value at every depth, with NaN matching NaN, so `[1, 1.0].toSet()` has one
+ * element.
  */
 export class FirestoreSet {
   private items: unknown[];

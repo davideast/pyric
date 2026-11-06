@@ -77,6 +77,10 @@ function parseSizedRe2Ast(pattern: string): RegexNode {
   return ast;
 }
 
+function unsupportedConstructError(method: string, construct: string): Error {
+  return new Error(`${method}() pattern uses an RE2-unsupported construct (${construct}) that production would reject`);
+}
+
 /**
  * Validate and compile a rules RE2 pattern into a JS RegExp for `split` or
  * `replace`, rejecting backreferences and lookaround constructs that RE2
@@ -85,11 +89,7 @@ function parseSizedRe2Ast(pattern: string): RegexNode {
 export function compileRe2Regex(method: string, pattern: string, source: string, flags?: string): RegExp {
   // The scan skips escapes and classes, so `\\1` and `[(?=]` are literals.
   const { unsupported, inlineFlags } = scanRe2Pattern(pattern);
-  if (unsupported !== null) {
-    throw new Error(
-      `${method}() pattern uses an RE2-unsupported construct (${unsupported}) that production would reject`,
-    );
-  }
+  if (unsupported !== null) throw unsupportedConstructError(method, unsupported);
   // `(?i)` and the other inline flags reach the RegExp as flags, `\s` is
   // RE2's ASCII class (FS2-SIM-6), and `.` matches `\r` (FS2-SIM-5a2).
   const mergedFlags = [...new Set(`${flags ?? ''}${inlineFlags}`)].join('');
@@ -110,16 +110,66 @@ export function compileRe2Regex(method: string, pattern: string, source: string,
  * nested quantifiers like `((a+)+)b` never backtrack catastrophically.
  */
 export function re2FullMatch(pattern: string, subject: string): boolean {
-  compileRe2Regex('matches', pattern, `^(?:${pattern})$`);
-  const ast = parseRe2Ast(pattern);
-  return matchesRegexNode(ast, Array.from(subject));
+  const { unsupported } = scanRe2Pattern(pattern);
+  if (unsupported !== null) throw unsupportedConstructError('matches', unsupported);
+  if (!re2PatternCompiles(pattern)) throw new Error(`Invalid regex '${pattern}' in matches()`);
+  return matchesRegexNode(parseSizedRe2Ast(pattern), Array.from(subject));
+}
+
+/**
+ * Whether JavaScript compiles `pattern`, read as code units or, failing that,
+ * as code points with RE2's property classes spelled for a `u` RegExp. A
+ * class range over characters outside the Basic Multilingual Plane, such as
+ * `[😀-😂]`, compiles only as code points; production compiles it (#1901,
+ * capture `c9b-astral-range-matches`). Throws on a pattern
+ * `normalizeRe2ForJsRegExp` refuses.
+ */
+export function re2PatternCompiles(pattern: string): boolean {
+  const normalized = normalizeRe2ForJsRegExp(pattern);
+  if (jsRegExpCompiles(`^(?:${normalized})$`, '')) return true;
+  return jsRegExpCompiles(`^(?:${spellRe2UnicodeClasses(normalized)})$`, 'u');
+}
+
+function jsRegExpCompiles(source: string, flags: string): boolean {
+  try {
+    new RegExp(source, flags);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** RE2's general categories are one or two letters (`L`, `Nd`), plus `Any`. */
+function isGeneralCategoryName(name: string): boolean {
+  return /^[A-Z][a-z]?$/.test(name) || name === 'Any';
+}
+
+/**
+ * Spell RE2's Unicode classes in the form a JavaScript `u` RegExp reads:
+ * `\pL` as `\p{L}`, a script such as `\p{Cyrillic}` as `\p{Script=Cyrillic}`,
+ * and the negated `\p{^Greek}` as `\P{Script=Greek}`.
+ * A JavaScript engine refuses a bare script name under the `u` flag, and the
+ * code-unit fallback reads `\p{Cyrillic}` as the letters `p{Cyrillic}`.
+ * Production reads script names as RE2 does (#1889): capture
+ * `c10-script-classes-and-redos` `sg0` and `sg3`, capture `c9-re2-more` `pg1`.
+ */
+function spellRe2UnicodeClasses(source: string): string {
+  return spellRe2PropertyShorthand(source).replace(
+    /(\\\\)|\\([pP])\{(\^?)([A-Za-z_]+)\}/g,
+    (whole: string, escapedBackslash: string | undefined, escape: string, caret: string, name: string) => {
+      if (escapedBackslash !== undefined) return whole;
+      const negated = (escape === 'P') !== (caret === '^');
+      const property = isGeneralCategoryName(name) ? name : `Script=${name}`;
+      return `\\${negated ? 'P' : 'p'}{${property}}`;
+    },
+  );
 }
 
 function compileCharMatcher(rawPattern: string, ignoreCase: boolean): (ch: string) => boolean {
   let flags = 'u';
   if (ignoreCase) flags = 'iu';
   try {
-    const re = new RegExp(`^${spellRe2SpaceClasses(spellRe2PropertyShorthand(rawPattern), true)}$`, flags);
+    const re = new RegExp(`^${spellRe2SpaceClasses(spellRe2UnicodeClasses(rawPattern), true)}$`, flags);
     return (c) => re.test(c);
   } catch {
     const fallbackFlags = ignoreCase ? 'i' : '';
