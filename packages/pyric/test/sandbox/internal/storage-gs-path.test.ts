@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from '../../../src/sandbox/index.js';
-import { storageGsPath } from '../../../src/sandbox/internal/storage-gs-path.js';
+import { storageGsPath, storageObjectGsPath } from '../../../src/sandbox/internal/storage-gs-path.js';
+import { observeStorageOperation } from '../../../src/sandbox/internal/storage-activity.js';
+import { sdkActivity } from '../../../src/sandbox/internal/sdk-activity.js';
 
 function storageOperation(detail: Record<string, unknown> | undefined): SandboxEvent {
   return {
@@ -45,5 +47,32 @@ describe('storageGsPath', () => {
   it('is undefined for an event outside Storage', () => {
     const event = { ...storageOperation({ bucket: 'b' }), service: 'firestore' } as unknown as SandboxEvent;
     expect(storageGsPath(event, 'users/a')).toBeUndefined();
+  });
+});
+
+describe('the activity source a Storage call records', () => {
+  /** The source target one call records, for a reference and its bucket's name. */
+  function recordedTarget(ref: { bucket: string; fullPath: string }, bucketNameOf?: (ref: { bucket: string }) => string): string | undefined {
+    const call = observeStorageOperation('getMetadata', async () => ({}), bucketNameOf);
+    void call(ref);
+    return sdkActivity.records().at(-1)?.target;
+  }
+
+  it('reads as the Traffic row for the same object', () => {
+    const event = storageOperation({ bucket: 'pyric-default', bucketName: 'demo.appspot.com' });
+    const target = recordedTarget({ bucket: 'pyric-default', fullPath: 'avatars/a.png' }, () => 'demo.appspot.com');
+    expect(target).toBe(storageGsPath(event, 'avatars/a.png'));
+    expect(target).toBe('gs://demo.appspot.com/avatars/a.png');
+  });
+
+  it("names a worker reference's bucket from the reference", () => {
+    expect(recordedTarget({ bucket: 'demo.appspot.com', fullPath: 'avatars/a.png' })).toBe('gs://demo.appspot.com/avatars/a.png');
+  });
+
+  it('keeps a bucketless reference out of every bucket', () => {
+    const target = recordedTarget({ bucket: '', fullPath: 'avatars/a.png' });
+    expect(target).toBe('avatars/a.png');
+    expect(storageObjectGsPath('', 'avatars/a.png')).toBeUndefined();
+    expect(storageObjectGsPath(undefined, 'avatars/a.png')).toBeUndefined();
   });
 });

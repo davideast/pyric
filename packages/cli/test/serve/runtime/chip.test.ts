@@ -1,5 +1,10 @@
+import 'fake-indexeddb/auto';
 import { JSDOM } from 'jsdom';
+import { createAppForSandbox } from 'pyric/app/internal';
+import { initializeSandbox } from 'pyric/sandbox';
 import { createSdkActivityJournal, createSdkRateMonitor, observedCallEvent } from 'pyric/sandbox/internal';
+import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
+import { createListenerMode, type ListenerMode } from '../../../src/serve/runtime/listener-mode.js';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
@@ -929,5 +934,90 @@ describe('the Identity view when switching fails', () => {
     root.querySelector<HTMLButtonElement>('[data-sign-out]')!.click();
     await flush();
     expect(announced(root)).toContain('Signed out.');
+  });
+});
+
+describe('Storage traffic by its activity source', () => {
+  const APP_BUCKET = 'demo-app.appspot.com';
+  // Reads are open; a write of more than one byte is denied.
+  const SMALL_WRITES_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow read: if true; allow write: if request.resource.size < 2; }
+  }
+}`;
+
+  /** A sandboxed app with a default bucket, and the chip serving its page with the Data view. */
+  function storagePage() {
+    const dom = new JSDOM('<!doctype html><body><div id="gallery"><img id="photo"></div></body>', { url: 'http://localhost/' });
+    const document = dom.window.document;
+    const photo = document.querySelector('#photo')!;
+    // React's fiber for the photo, so a render after a result has a region.
+    Reflect.set(photo, '__reactFiber$k', { tag: 5, type: 'img', stateNode: photo, return: null, child: null });
+    const sandbox = initializeSandbox({});
+    const unique = Math.random().toString(36).slice(2, 10);
+    getStorageSandbox(sandbox, { dbName: `pyric-chip-storage-${unique}`, rules: SMALL_WRITES_RULES });
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: APP_BUCKET }, `chip-storage-${unique}`);
+    let pushEvents: ((events: readonly SandboxEvent[], batch: { history: boolean }) => void) | null = null;
+    const stopEvents = sandbox.onEvent(event => pushEvents?.([event], { history: false }));
+    let commit: (() => void) | null = null;
+    let delivered: ((listenerId: string) => void) | null = null;
+    let changedNodes: unknown[] = [];
+    let mode: ListenerMode | null = null;
+    const chip = mountPyricRuntimeChip({
+      document,
+      runtime: createPyricRuntimeStatus(manifest),
+      initiallyOpen: true,
+      sandboxEvents: (callback) => { pushEvents = callback; return () => { pushEvents = null; }; },
+      listeners: (onChange) => (mode = createListenerMode({
+        document, onChange, paintStorage: null, attributionEnabled: () => true,
+        commits: { available: () => true, reason: () => null, subscribe: (listener) => { commit = listener; return () => { commit = null; }; }, dispose: () => {} },
+        flow: {
+          subscribeDeliveries: (listener) => { delivered = listener; return () => { delivered = null; }; },
+          changedNodes: () => ({ drain: () => changedNodes.splice(0), discard: () => { changedNodes = []; }, stop: () => {} }),
+        },
+        subscribeEvents: (callback) => { callback([], { history: true }); return () => {}; },
+      })),
+    });
+    cleanups.push(() => { chip.dispose(); stopEvents(); dom.window.close(); });
+    const root = chip.element.shadowRoot!;
+    return {
+      document,
+      root,
+      storage: getStorage(app),
+      mode: () => mode!,
+      /** The page renders the photo after an activity's result. */
+      rendered: (listenerId: string) => { delivered?.(listenerId); changedNodes = [photo]; commit?.(); },
+      showTab: (tab: ChipTab) => root.querySelector<HTMLButtonElement>(`[data-chip-tab="${tab}"]`)!.click(),
+    };
+  }
+
+  it('lists a Storage row under the activity source that made it', async () => {
+    const page = storagePage();
+    await uploadBytes(ref(page.storage, 'avatars/alice.png'), new Uint8Array([1]));
+    page.showTab('traffic');
+    expect(texts(page.root, '[data-request-row] .c2')).toContain(`gs://${APP_BUCKET}/avatars/alice.png`);
+    page.showTab('listeners');
+    const source = [...page.root.querySelectorAll<HTMLButtonElement>('[data-listener-row]')]
+      .find(row => row.textContent?.includes('avatars/alice.png'))!;
+    source.click();
+    page.root.querySelector<HTMLAnchorElement>('[data-source-traffic]')!.click();
+    expect(page.root.querySelector('.breadcrumb-target')!.textContent).toBe(`gs://${APP_BUCKET}/avatars/alice.png`);
+    expect(texts(page.root, '[data-request-row] .c2')).toEqual([`gs://${APP_BUCKET}/avatars/alice.png`]);
+  });
+
+  it('marks the region a denied upload would have changed', async () => {
+    const page = storagePage();
+    page.mode().setMode('flow');
+    page.mode().setEnabled(true);
+    // The page's activity journal is the process's, so this test's object is its own.
+    const target = ref(page.storage, 'avatars/bob.png');
+    const allowed = uploadBytes(target, new Uint8Array([1]));
+    const upload = page.mode().outlines().find(outline => outline.target.endsWith('avatars/bob.png'))!;
+    await allowed;
+    page.rendered(upload.listenerId);
+    await expect(uploadBytes(target, new Uint8Array([1, 2, 3]))).rejects.toThrow();
+    const badge = page.document.querySelector('[data-pyric-denials] [data-pyric-listener-badge]');
+    expect(badge?.textContent).toBe(`⚠ Write denied — related region: gs://${APP_BUCKET}/avatars/bob.png`);
   });
 });
