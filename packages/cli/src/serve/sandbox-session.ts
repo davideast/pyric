@@ -636,10 +636,11 @@ export async function createSandboxSession(
     ];
     // Without a rules file, a bucket denies every client operation, as in
     // production, and a deleted file returns its bucket to that state rather
-    // than keeping the last-good rules. Permissive mode does not open such a
-    // bucket yet: owner decision multi-resource-1 on #1313 says it should, as
-    // it opens an undeployed RTDB instance, and that needs the Storage
-    // sandbox to take a default policy, which PR 3 adds.
+    // than keeping the last-good rules. In permissive mode that state is
+    // open, as an undeployed RTDB instance is (owner decision
+    // multi-resource-1 on #1313): the init payload's `permissive` flag sets
+    // the Storage sandbox's default policy on every served plane.
+    const storagePolicy = options.permissive ? 'allow' : 'deny';
     const loadedStorageRules = (bucket: string | null): string | null => {
       if (bucket === null) return live.storageRules;
       return liveStorageBuckets.get(bucket)?.rules ?? null;
@@ -659,8 +660,8 @@ export async function createSandboxSession(
         if (loadedStorageRules(target.bucket) === null) return { kind: 'not-configured' };
         await options.deployHostedRules?.('storage', null, destination);
         setLiveStorageRules(target.bucket, null);
-        events.broadcast('storage-rules-update', { rules: null, rulesHash: null, ...named });
-        return { kind: 'removed', policy: 'deny', clients: events.clientCount() };
+        events.broadcast('storage-rules-update', { rules: null, rulesHash: null, policy: storagePolicy, ...named });
+        return { kind: 'removed', policy: storagePolicy, clients: events.clientCount() };
       }
       try {
         const loaded = await loadStorageRulesTarget({ ...target, configured: true });
@@ -684,8 +685,8 @@ export async function createSandboxSession(
         if (loaded === null && !hadRules) return { kind: 'not-configured' };
         await options.deployHostedRules?.('storage', loaded?.rules ?? null, destination);
         livePendingStorage.set(target.target, loaded);
-        events.broadcast('storage-rules-update', { rules: loaded?.rules ?? null, rulesHash: loaded?.rulesHash ?? null, ...destination });
-        if (loaded === null) return { kind: 'removed', policy: 'deny', clients: events.clientCount() };
+        events.broadcast('storage-rules-update', { rules: loaded?.rules ?? null, rulesHash: loaded?.rulesHash ?? null, policy: storagePolicy, ...destination });
+        if (loaded === null) return { kind: 'removed', policy: storagePolicy, clients: events.clientCount() };
         return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
       } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));

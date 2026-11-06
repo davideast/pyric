@@ -7,6 +7,9 @@
  *   - No rules configured → deny. Matches Firebase production fail-closed
  *     security invariants: bare `getStorage` with no `rules` option
  *     rejects client operations with `storage/unauthorized`.
+ *   - A bucket with no rules deployed in permissive mode → allow, with no
+ *     rule evaluated: the event says the bucket is open by its default
+ *     policy rather than naming a synthetic rule.
  *   - Rules configured → call `evaluateStorageRules`. Throw
  *     `storage/unauthorized` with the evaluator's `reasons` joined
  *     into the message on denial.
@@ -74,6 +77,10 @@ export function enforceRules(
     return;
   }
   const inForce = rulesFor(service, target);
+  if (inForce.kind === 'open') {
+    emitOperation(target, input, 'allow', [openBucketReason(inForce.bucket)], 'user', false, boundProvenance, 'allow');
+    return;
+  }
   if (inForce.kind !== 'rules') {
     const reason = noRulesReason(inForce);
     emitOperation(target, input, 'deny', [reason], 'user', false, boundProvenance);
@@ -105,8 +112,13 @@ function rulesFor(service: StorageService, target: Target | undefined): StorageR
   return { kind: 'none' };
 }
 
+/** Why a request to a bucket with no rules deployed is allowed in permissive mode. */
+function openBucketReason(bucket: string): string {
+  return `Storage bucket "${bucket}" has no rules deployed in firebase.json; permissive mode allows every client operation on it.`;
+}
+
 /** Why a request with no rules to check denies. A locked bucket names the fix. */
-function noRulesReason(inForce: Exclude<StorageRulesInForce, { kind: 'rules' }>): string {
+function noRulesReason(inForce: Exclude<StorageRulesInForce, { kind: 'rules' | 'open' }>): string {
   if (inForce.kind === 'none') return 'No Storage rules configured; default deny.';
   if (inForce.kind === 'second-default') {
     return `Storage bucket "${inForce.bucket}" is a second default bucket in this sandbox, which already serves "${inForce.defaultBucket}" as its default bucket, so pyric denies every client operation on it rather than share that bucket's objects. Give each app the same storageBucket, or open the other bucket with getStorage(app, "gs://${inForce.bucket}").`;
@@ -139,6 +151,7 @@ function emitOperation(
   origin: 'user' | 'admin',
   evaluated: boolean,
   provenance: EventProvenance | undefined,
+  defaultPolicy?: 'allow',
 ): void {
   if (!target) return;
   try {
@@ -155,7 +168,12 @@ function emitOperation(
         reasons,
         // The store key, and the name the rules saw it by, so a replay binds
         // the same name (ST-H2-4).
-        detail: { bucket: target.bucket, bucketName: rulesBucketName(target.bucket, target.bucketName) },
+        // A permissive-mode open bucket says so, since no rule decided it.
+        detail: {
+          bucket: target.bucket,
+          bucketName: rulesBucketName(target.bucket, target.bucketName),
+          ...(defaultPolicy === undefined ? {} : { defaultPolicy }),
+        },
         rulesDisposition: origin === 'admin'
           ? { kind: 'bypassed', reason: 'admin' }
           : evaluated
