@@ -1,11 +1,11 @@
 /**
- * Live rows on the Node register: the four served specifiers `@pyric/live`
- * serves from the app's installed Firebase SDK, as the Vite page plane does
- * (`../serve/vite-supplied-rows.ts`). The row modules' ids are fixed, one
- * per specifier (`live-row.ts`), and their source comes from the
- * `@pyric/live` installed in the project (`live-package.ts`), as does the
- * refusal. The real-SDK stop opens only for one of those modules' own ESM
- * import of its specifier.
+ * Live rows on the Node register: the served specifiers `@pyric/live` serves
+ * from the app's installed Firebase SDK (`INSTALLED_SDK_SPECIFIERS`), as the
+ * Vite page plane does (`../serve/vite-supplied-rows.ts`). The row modules'
+ * ids are fixed, one per specifier (`live-row.ts`), and their source comes
+ * from the `@pyric/live` installed in the project (`live-package.ts`), as
+ * does the refusal. The real-SDK stop opens only for one of those modules'
+ * own ESM import of its specifier.
  * Every other Firebase import, served or not, and every `firebase-admin`
  * import is refused, never sent to a sandbox mirror, so one app object never
  * mixes the installed SDK with sandbox services.
