@@ -125,6 +125,7 @@ Pyric sees a call only when it goes through your app's `firebase/app`, `firebase
 
 - **`@google-cloud/firestore`** in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` instead.
 - **Your own requests to Firestore, Auth or App Check** from a Node process, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`, and the terminal names the host.
+- **Your own requests to Realtime Database** from a Node process, to a `firebaseio.com` or `firebasedatabase.app` host, with the global `fetch`, `https.request` or a socket your code opens. Each fails with `PYRIC_GUARD_BLOCKED`. Only your installed `firebase/database` reaches those hosts.
 - **A second copy of the SDK on a page.** Importing an SDK file the page already loaded under another URL that reaches the dev server, such as the same URL with an extra query, fails with `PYRIC_LIVE_REFUSED`.
 
 ## What live mode can't see
@@ -134,6 +135,7 @@ Some requests from a page never reach the dev server, so live mode can't refuse 
 - **The exact URL of an SDK file the page already loaded.** The browser answers `import()` of that URL from its own module cache, so the page gets the SDK without pyric in between.
 - **That URL with a fragment added**, such as `#copy`. The browser keeps the fragment to itself, so the dev server sees the URL it already served, and the page gets a second copy of the SDK.
 - **The page's own `fetch` to the Firestore REST API**, or to Auth or App Check. The browser sends it straight to Google.
+- **The page's own `WebSocket` or `fetch` to a Realtime Database host**, such as `my-project-default-rtdb.firebaseio.com`. The browser sends it straight to Google.
 
 In a Node process, live mode lets these through without showing them, because each looks the same as your Firebase SDK's own traffic:
 
