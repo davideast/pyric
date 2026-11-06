@@ -86,21 +86,29 @@ async function refusalOf(verified: Promise<unknown>): Promise<RefusalData> {
   throw new Error('verifyIdToken resolved');
 }
 
+/** What a verifying process printed: each refusal's message on stdout, and its stderr. */
+interface VerifyingProcessOutput {
+  messages: string;
+  stderr: string;
+}
+
 /**
  * Verifies `token` twice in a fresh process, so no earlier test has spent the
- * once-per-process report, and returns that process's stderr.
+ * once-per-process report, with `PYRIC_SANDBOX` set to `sandbox` when given.
  */
-function stderrOfTwoVerifications(token: string, projectId: string): string {
+function twoVerificationsInAProcess(token: string, projectId: string, sandbox?: string): VerifyingProcessOutput {
   const verifier = new URL('./verify-token.ts', import.meta.url).href;
   const script = [
     `const { verifySandboxIdToken } = await import(${JSON.stringify(verifier)});`,
     'for (let attempt = 0; attempt < 2; attempt++) {',
-    `  await verifySandboxIdToken(${JSON.stringify(token)}, { projectId: ${JSON.stringify(projectId)}, nowMs: Date.now() }).catch(() => {});`,
+    `  await verifySandboxIdToken(${JSON.stringify(token)}, { projectId: ${JSON.stringify(projectId)}, nowMs: Date.now() })`,
+    '    .catch((error) => console.log(error.message));',
     '}',
   ].join('\n');
-  const child = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' });
+  const env: Record<string, string | undefined> = { ...process.env, PYRIC_SANDBOX_INSTANCE: undefined, PYRIC_SANDBOX: sandbox };
+  const child = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', env });
   if (child.status !== 0) throw new Error(`the verifying process exited ${child.status}: ${child.stderr}`);
-  return child.stderr;
+  return { messages: child.stdout, stderr: child.stderr };
 }
 
 describe('a sandbox backend refuses a production ID token by name (#2304)', () => {
@@ -116,8 +124,25 @@ describe('a sandbox backend refuses a production ID token by name (#2304)', () =
 
   it('writes one stderr line per process, however many tokens it refuses', () => {
     const token = productionShapedIdToken(PROJECT, Math.floor(Date.now() / 1000));
-    const lines = stderrOfTwoVerifications(token, PROJECT).split('\n').filter((line) => line.includes('PYRIC_MODE_MISMATCH'));
+    const { stderr } = twoVerificationsInAProcess(token, PROJECT);
+    const lines = stderr.split('\n').filter((line) => line.includes('PYRIC_MODE_MISMATCH'));
     expect(lines.length).toBe(1);
+  });
+
+  it("names a remote sandbox by its url's origin, never its userinfo", () => {
+    const token = productionShapedIdToken(PROJECT, Math.floor(Date.now() / 1000));
+    const named = twoVerificationsInAProcess(token, PROJECT, 'remote:https://user:secret-pass@sandbox.example:8443/path?key=v');
+    for (const output of [named.messages, named.stderr]) {
+      expect(output).toContain('instance https://sandbox.example:8443');
+      expect(output).not.toContain('user:');
+      expect(output).not.toContain('secret-pass');
+      expect(output).not.toContain('key=v');
+    }
+    const unparsed = twoVerificationsInAProcess(token, PROJECT, 'remote:user:secret-pass@not a url');
+    for (const output of [unparsed.messages, unparsed.stderr]) {
+      expect(output).toContain('(a remote sandbox)');
+      expect(output).not.toContain('secret-pass');
+    }
   });
 
   it('leaves a sandbox token with a bad signature, and a production token for another project, as firebase-admin answers', async () => {

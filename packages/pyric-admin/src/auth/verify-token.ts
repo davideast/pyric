@@ -36,17 +36,33 @@ export interface IdTokenExpectation {
 const NOT_A_STRING = 'First argument to verifyIdToken() must be a Firebase ID token string.';
 
 /**
+ * The origin of a `PYRIC_SANDBOX=remote:<url>` host url, so a hand-set url's
+ * userinfo, path or query is never printed. Undefined when it does not parse.
+ */
+function remoteOrigin(url: string): string | undefined {
+  try {
+    const origin = new URL(url).origin;
+    return origin === 'null' ? undefined : origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * This backend's sandbox, as the mode-mismatch message names it: the host
- * identity its launcher pinned, else the host url `PYRIC_SANDBOX` names,
- * else a sandbox in this process.
+ * identity its launcher pinned, else the origin of the host url
+ * `PYRIC_SANDBOX` names, else a remote sandbox with no printable url, else a
+ * sandbox in this process.
  */
 function sandboxLabel(): string {
   const env = typeof process === 'undefined' ? {} : process.env;
   const instance = env.PYRIC_SANDBOX_INSTANCE;
   if (instance) return `instance ${instance}`;
-  const remoteUrl = env.PYRIC_SANDBOX?.startsWith('remote:') ? env.PYRIC_SANDBOX.slice('remote:'.length) : '';
-  if (remoteUrl) return `instance ${remoteUrl}`;
-  return 'in this process';
+  const sandbox = env.PYRIC_SANDBOX ?? '';
+  const isRemote = sandbox === 'remote' || sandbox.startsWith('remote:');
+  if (!isRemote) return 'in this process';
+  const origin = remoteOrigin(sandbox.slice('remote:'.length));
+  return origin === undefined ? 'a remote sandbox' : `instance ${origin}`;
 }
 
 let reportedModeMismatch = false;
