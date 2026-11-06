@@ -34,8 +34,12 @@ import { installPyricRuntimeChip } from '../runtime/chip-install.js';
 import { sandboxEventSource } from '../runtime/listener-event-source.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 import { projectRuntimeIdentity } from '../runtime/identity.js';
+import { pageLiveIdentity } from '../runtime/live-identity.js';
 
 if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  // In live mode, follows the production user the app's own Auth signs in,
+  // in page memory only. Outside live mode no Auth reaches it.
+  pageLiveIdentity();
   const localAuth = useWorker ? null : getAuth(sandbox);
   const workerAuth = useWorker && workerDb ? getWorkerAuth(workerDb) : null;
   if (workerAuth) registerActiveAuth(workerAuth);
