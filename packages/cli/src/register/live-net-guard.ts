@@ -1,7 +1,7 @@
 /**
  * The network guard under `@pyric/live/register`. In live mode the app's
- * installed Firestore, Auth and App Check talk to Google from this process,
- * and nothing else should: pyric holds no production credential, and a Google
+ * installed Firestore, Auth, App Check and Realtime Database talk to Google
+ * from this process, and nothing else should: pyric holds no production credential, and a Google
  * client library or a hand-written `fetch` to a Google API is traffic pyric
  * neither serves nor observes.
  *
@@ -10,14 +10,16 @@
  *
  * - a token source (`../google-token-endpoints.ts`) is refused, as the
  *   register's guard refuses it;
- * - a host the four live rows' SDK reaches ({@link LIVE_ROW_HOSTS}) passes;
- * - a host of an import the register passes through ({@link passThroughHosts}),
- *   such as `firebase/database`'s, passes only when the nearest caller is a
- *   file of the installed SDK the stop let load ({@link nearestCallerFile}):
- *   the database SDK opening its WebSocket through `faye-websocket`, or an
- *   SDK's own `fetch`. The app's own socket, `fetch` or `WebSocket` to that
- *   host is refused, so a database secret the app holds never goes out
- *   unobserved;
+ * - a host the Firestore, Auth and App Check rows' SDK reaches
+ *   ({@link LIVE_ROW_HOSTS}) passes;
+ * - a Realtime Database host ({@link DATABASE_ROW_HOSTS}), which the database
+ *   row's SDK reaches, and a host of an import the register passes through
+ *   ({@link passThroughHosts}), such as `firebase/functions`'s, pass only
+ *   when the nearest caller is a file of the installed SDK the stop let load
+ *   ({@link nearestCallerFile}): the database SDK opening its WebSocket
+ *   through `faye-websocket`, or an SDK's own `fetch`. The app's own socket,
+ *   `fetch` or `WebSocket` to that host is refused, so a database secret the
+ *   app holds never goes out unobserved;
  * - every other Google endpoint, a host in `../google-endpoints.ts` or under
  *   `googleapis.com`, is refused.
  *
@@ -28,8 +30,9 @@
  * own `fetch` to `firestore.googleapis.com` is refused while Auth's sign-in
  * goes through.
  *
- * And it refuses every `http.request` and `https.request` to a live row host
- * or a passed-through host ({@link guardLiveRowRequests}). Neither SDK makes
+ * And it refuses every `http.request` and `https.request` to a live row host,
+ * a Realtime Database host or a passed-through host
+ * ({@link guardLiveRowRequests}). Neither SDK makes
  * one: Auth, App Check, Storage, Functions and AI Logic call `fetch`,
  * Firestore reaches Google over gRPC, on HTTP/2, and Realtime Database over a
  * WebSocket on `tls.connect`. Only a `CONNECT` through a proxy, which gRPC
@@ -62,13 +65,21 @@ import {
 } from './net-guard.js';
 import { nodeAgentPrototypes, nodeClientRequestPrototypes } from './connect-prototypes.js';
 
-/** The hosts the four live rows' SDK reaches in Node: Firestore, Auth, its token refresh, and App Check. */
+/** The hosts the Firestore, Auth and App Check rows' SDK reaches in Node: Firestore, Auth, its token refresh, and App Check. */
 export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
   'firestore.googleapis.com',
   'identitytoolkit.googleapis.com',
   'securetoken.googleapis.com',
   'content-firebaseappcheck.googleapis.com',
 ]);
+
+/**
+ * The host suffixes the database row's SDK reaches: the legacy
+ * `<name>.firebaseio.com` and the regional `<name>.<region>.firebasedatabase.app`.
+ * Unlike {@link LIVE_ROW_HOSTS}, they are always caller-checked: the SDK opens
+ * its WebSocket from its own files, and the app's own socket to them is refused.
+ */
+export const DATABASE_ROW_HOSTS: readonly string[] = ['firebaseio.com', 'firebasedatabase.app'];
 
 const GOOGLE_APIS = 'googleapis.com';
 
@@ -81,7 +92,6 @@ const MESSAGING_HOSTS = ['fcmregistrations.googleapis.com', INSTALLATIONS_HOST];
  * Installations ID. Its calls go to production unobserved, as the app asked.
  */
 const PASS_THROUGH_HOSTS: Readonly<Record<string, readonly string[]>> = {
-  'firebase/database': ['firebaseio.com', 'firebasedatabase.app'],
   'firebase/ai': [FIREBASE_AI_LOGIC_HOST],
   'firebase/storage': ['firebasestorage.googleapis.com'],
   'firebase/functions': ['cloudfunctions.net'],
@@ -111,6 +121,10 @@ const PASSED_REASON = 'in live mode only the installed SDK of an import that pas
   'from its own files, and pyric does not observe it';
 const PASSED_REQUEST_REASON = `${PASSED_REASON}; that SDK never sends an http.request`;
 const PASSED_REMEDY = 'Make the call through the Firebase SDK the app imports, or from a process without @pyric/live/register';
+const DATABASE_REASON = 'in live mode only the installed Realtime Database SDK, which @pyric/live\'s database row loads, ' +
+  'reaches this host, from its own files';
+const DATABASE_REQUEST_REASON = `${DATABASE_REASON}; that SDK never sends an http.request`;
+const DATABASE_REMEDY = 'Make the call through firebase/database, or from a process without @pyric/live/register';
 
 /** The imports the register passes through, as the guard checks them. */
 export interface PassedThrough {
@@ -126,6 +140,10 @@ function isPassedHost(host: string, passed: PassedThrough): boolean {
   return passed.hosts.some((suffix) => matchesHostSuffix(host, suffix));
 }
 
+function isDatabaseHost(host: string): boolean {
+  return DATABASE_ROW_HOSTS.some((suffix) => matchesHostSuffix(host, suffix));
+}
+
 /** The service a Google endpoint belongs to, or null for a host that is not one. */
 function googleServiceOf(host: string): string | null {
   const endpoint = lookupGoogleEndpoint(host);
@@ -139,8 +157,9 @@ function liveVerdict(host: string, service: string, reason: string): EgressVerdi
 
 /**
  * Live mode's verdict for a socket or a dispatch: token sources and every
- * Google endpoint but the live rows' hosts, and the hosts of the imports the
- * register passes through when the nearest caller is a file the stop let load.
+ * Google endpoint but the live rows' hosts, and Realtime Database's hosts
+ * and the hosts of the imports the register passes through when the nearest
+ * caller is a file the stop let load.
  */
 export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), passed: PassedThrough = NOTHING_PASSED): EgressRule {
   return (hostname, path) => {
@@ -148,6 +167,11 @@ export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), pass
     if (tokenRefusal !== null) return { ...tokenRefusal, reason: TOKEN_REASON, remedy: LIVE_REMEDY };
     const host = hostOf(hostname);
     if (LIVE_ROW_HOSTS.has(host)) return null;
+    if (isDatabaseHost(host)) {
+      const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile);
+      if (isFromSdk) return null;
+      return { ...liveVerdict(host, googleServiceOf(host) ?? 'Realtime Database', DATABASE_REASON), remedy: DATABASE_REMEDY };
+    }
     if (isPassedHost(host, passed)) {
       const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile);
       if (isFromSdk) return null;
@@ -338,8 +362,9 @@ function requestHost(request: RequestLike): string | null {
 }
 
 /**
- * The refusal for an `http.request` to a live row host or a passed-through
- * host, from any caller, or null for any other request.
+ * The refusal for an `http.request` to a live row host, a Realtime Database
+ * host or a passed-through host, from any caller, or null for any other
+ * request.
  */
 function liveRowRequestVerdict(request: RequestLike, passed: PassedThrough): EgressVerdict | null {
   const host = requestHost(request);
@@ -347,6 +372,9 @@ function liveRowRequestVerdict(request: RequestLike, passed: PassedThrough): Egr
   const service = googleServiceOf(host) ?? 'Google APIs';
   if (LIVE_ROW_HOSTS.has(host)) {
     return { verdict: 'block', permitted: false, host, service, reason: LIVE_REQUEST_REASON, remedy: LIVE_REQUEST_REMEDY };
+  }
+  if (isDatabaseHost(host)) {
+    return { verdict: 'block', permitted: false, host, service, reason: DATABASE_REQUEST_REASON, remedy: DATABASE_REMEDY };
   }
   if (isPassedHost(host, passed)) {
     return { verdict: 'block', permitted: false, host, service, reason: PASSED_REQUEST_REASON, remedy: PASSED_REMEDY };
@@ -363,8 +391,8 @@ type AgentPrototype = { addRequest?: unknown };
 type RequestPrototype = { onSocket?: unknown };
 
 /**
- * Refuses every `http.request` and `https.request` to a live row host or a
- * passed-through host. The
+ * Refuses every `http.request` and `https.request` to a live row host, a
+ * Realtime Database host or a passed-through host. The
  * Agent's `addRequest` is checked first, so a request through an Agent fails
  * before any socket opens; `onSocket` catches the rest, a request with its
  * own `createConnection`, before its request line is written. The refusal
