@@ -33,7 +33,7 @@ declare function runApp(): Promise<unknown>;
 interface Received {
   rpc: string;
   as: string | null;
-  message: { instance?: string; frame?: { t?: string; d?: { a?: string; b?: { p?: string } } } };
+  message: { frame?: { t?: string; d?: { a?: string; b?: { p?: string } } } };
 }
 
 interface Replay {
@@ -209,7 +209,7 @@ async function expectRows(chip: Locator, source: 'page' | 'node'): Promise<void>
   assert.equal(deliveries.length, 8, `two deliveries per listener per instance from ${source}:\n${deliveries.join('\n')}`);
 }
 
-interface CapturedEvent { kind?: string; service?: string; method?: string; path?: string; instance?: string; source?: { kind?: string } }
+interface CapturedEvent { kind?: string; service?: string; method?: string; path?: string; instance?: string; auth?: { uid?: string } | null }
 
 /** The RTDB operations the host's event stream carried, as it wrote them to the session capture. */
 function rtdbEvents(app: App): CapturedEvent[] {
@@ -221,7 +221,7 @@ function rtdbEvents(app: App): CapturedEvent[] {
   }
 }
 
-/** The instance each RTDB frame the replay received was for, for every data frame but stats. */
+/** Each RTDB data frame the replay received but stats, as `<action> <path>`. */
 async function framePaths(replay: Replay): Promise<string[]> {
   const received = (await replay.received()).filter((entry) => entry.rpc === 'rtdb');
   return received.flatMap((entry) => {
@@ -229,6 +229,40 @@ async function framePaths(replay: Replay): Promise<string[]> {
     const isStats = data?.a === 's';
     return data && !isStats ? [`${data.a} ${data.b?.p ?? ''}`] : [];
   });
+}
+
+/**
+ * The observed calls one plane's run sends the host: on each instance, 12
+ * calls and two deliveries for each of its two listeners.
+ */
+const EVENTS_PER_PLANE = 2 * (12 + 4);
+
+/** Users 3 and 4 run on the named instance, users 1 and 2 on the default. */
+const NAMED_USERS = new Set(['user-3', 'user-4']);
+const DEFAULT_USERS = new Set(['user-1', 'user-2']);
+
+/**
+ * The host's RTDB events once at least `atLeast` are written, checked by
+ * account: every event of a named-instance user names that instance, and
+ * every event of a default-instance user names none.
+ */
+async function expectInstances(app: App, atLeast: number): Promise<CapturedEvent[]> {
+  const events = await eventually(async () => rtdbEvents(app), (all) => all.length >= atLeast, `${atLeast} RTDB events on the host`);
+  const uidOf = (event: CapturedEvent) => event.auth?.uid ?? '';
+  const named = events.filter((event) => NAMED_USERS.has(uidOf(event)));
+  const unnamed = events.filter((event) => DEFAULT_USERS.has(uidOf(event)));
+  assert.equal(named.length + unnamed.length, events.length, `every RTDB event names one of the four users:\n${JSON.stringify(events.filter((event) => !NAMED_USERS.has(uidOf(event)) && !DEFAULT_USERS.has(uidOf(event))))}`);
+  assert.ok(named.length > 0 && unnamed.length > 0, 'events from both instances');
+  assert.deepEqual(named.filter((event) => event.instance !== NAMED), [], `each named-instance event carries ${NAMED}`);
+  assert.deepEqual(unnamed.filter((event) => 'instance' in event), [], 'each default-instance event carries no instance');
+  return events;
+}
+
+/** The replay received capture A's denied read and no frame for `.info`. */
+async function expectNoInfoFrames(replay: Replay): Promise<void> {
+  const paths = await framePaths(replay);
+  assert.ok(paths.some((path) => path === 'g /secret'), `the replay received the denied read:\n${paths.join('\n')}`);
+  assert.deepEqual(paths.filter((path) => path.includes('.info')), []);
 }
 
 function blockedLines(app: App): string[] {
@@ -257,9 +291,7 @@ export default scenario(async (app) => {
 
   await app.step('production answered every frame from capture A, and the page sent nothing for .info', async () => {
     assert.deepEqual(await pageReplay.unmatched(), []);
-    const paths = await framePaths(pageReplay);
-    assert.ok(paths.some((path) => path === `g /secret`), `the replay received the denied read:\n${paths.join('\n')}`);
-    assert.deepEqual(paths.filter((path) => path.includes('.info')), []);
+    await expectNoInfoFrames(pageReplay);
   });
 
   const chip = await app.step('the chip shows each page call as production\'s, with its path, answer and account', async () => {
@@ -270,11 +302,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('the host\'s event stream names the named instance and leaves the default\'s out', async () => {
-    const events = await eventually(async () => rtdbEvents(app), (all) => all.some((event) => event.path === '/secret' && event.instance === NAMED), 'an RTDB event for the named instance');
-    const named = events.filter((event) => event.instance !== undefined);
-    assert.ok(named.length > 0 && named.every((event) => event.instance === NAMED), `only the named instance is named:\n${JSON.stringify(named)}`);
-    const unnamed = events.filter((event) => event.instance === undefined);
-    assert.ok(unnamed.some((event) => event.path === '/secret'), 'the default instance\'s calls carry no instance');
+    await expectInstances(app, EVENTS_PER_PLANE);
   });
 
   await app.step('RTDB calls add nothing to the billed count', async () => {
@@ -293,6 +321,7 @@ export default scenario(async (app) => {
     assert.doesNotMatch(run.output, /net-guard BLOCK/);
     assert.deepEqual(resultOf(run.output), expectedResults());
     assert.deepEqual(await nodeReplay.unmatched(), []);
+    await expectNoInfoFrames(nodeReplay);
   });
 
   await app.step('the chip shows each server job call as production\'s, from Server (client SDK)', async () => {
@@ -301,6 +330,10 @@ export default scenario(async (app) => {
     assert.equal(label, 'Server (client SDK)');
     const billed = await chip.locator('[data-chip-billed]').first().textContent();
     assert.equal(billed, 'Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners');
+  });
+
+  await app.step('the server job\'s events on the host name the named instance and leave the default\'s out too', async () => {
+    await expectInstances(app, EVENTS_PER_PLANE * 2);
   });
 
   await app.step('nothing reached any host but loopback', async () => {
