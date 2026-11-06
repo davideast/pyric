@@ -38,12 +38,43 @@ function isAuth(value: unknown): boolean {
 }
 
 /**
+ * The page's list of the Auth instances this row handed the app, shared with
+ * the cli page runtime (`serve/runtime/live-identity.ts` in `@pyric/cli`),
+ * which loads as a separate bundle. The runtime reads the signed-in user
+ * from the app's own Auth through it. It holds Auth instances only, never a
+ * user's profile.
+ */
+const AUTH_HUB_KEY = Symbol.for('pyric.live.auths');
+
+interface AuthHub {
+  readonly auths: object[];
+  readonly listeners: Set<(auth: object) => void>;
+}
+
+function authHub(): AuthHub {
+  const scope = globalThis as { [AUTH_HUB_KEY]?: AuthHub };
+  return scope[AUTH_HUB_KEY] ??= { auths: [], listeners: new Set() };
+}
+
+/** Lists an Auth on the page hub once, and tells each hub listener. */
+function publishAuth(auth: object): void {
+  const hub = authHub();
+  const isListed = hub.auths.includes(auth);
+  if (isListed) return;
+  hub.auths.push(auth);
+  for (const listener of hub.listeners) listener(auth);
+}
+
+/**
  * Notes the Auth instance `getAuth` or `initializeAuth` returned, so later
- * calls on its app can name the account. Anything else is ignored.
+ * calls on its app can name the account and the page runtime can read its
+ * user. Anything else is ignored.
  */
 export function noteAuth(auth: unknown): void {
   try {
-    if (isAuth(auth)) AUTH_BY_APP.set((auth as Fields).app as object, auth as Fields);
+    if (!isAuth(auth)) return;
+    AUTH_BY_APP.set((auth as Fields).app as object, auth as Fields);
+    publishAuth(auth as Fields);
   } catch {
     // A value that throws on read is not an Auth instance; the app's call is unchanged.
   }

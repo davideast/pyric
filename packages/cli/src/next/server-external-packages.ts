@@ -11,74 +11,23 @@
  * names a Firebase SDK, by the register's own check (`isFirebaseSdkName`).
  * That covers `firebase`, `firebase-admin`, every `@firebase/*` package, and
  * npm aliases such as `"admin": "npm:firebase-admin@13"`, whether the app, a
- * workspace package or another dependency declares them.
+ * workspace package or another dependency declares them. The scan is
+ * `installedFirebaseSdkNames` in `../bundler/externals.ts`, which the Vite
+ * plugin `pyricViteExternals` shares (#1756).
  *
  * The project is `process.cwd()`. Next passes the config function no project
  * directory, so `next dev <dir>` run from elsewhere scans the wrong folders;
  * {@link projectDirWarning} says so.
  */
-import { existsSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { NextConfigObject } from './types.js';
-import { pyricExternalPackages } from '../bundler/externals.js';
-import { manifestNameAt } from '../register/package-identity.js';
-import { isFirebaseSdkName } from '../register/swap-or-stop.js';
+import { installedFirebaseSdkNames, type ExternalsScan } from '../bundler/externals.js';
+
+export type { ExternalsScan } from '../bundler/externals.js';
 
 const LOG_PREFIX = '@pyric/cli/next';
 const NEXT_CONFIG_FILES = ['next.config.js', 'next.config.mjs', 'next.config.cjs', 'next.config.ts', 'next.config.mts', 'next.config.cts'];
-
-/** Where the scan for installed Firebase SDKs starts, and the last directory it searches. */
-export interface ExternalsScan {
-  /** The directory Next runs in. */
-  readonly projectDir: string;
-  /** The last directory whose `node_modules` is searched. Defaults to the filesystem root. */
-  readonly stopDir?: string;
-}
-
-/** Each `node_modules` folder Node searches from `scan.projectDir`, nearest first. */
-function nodeModulesFolders(scan: ExternalsScan): string[] {
-  const folders: string[] = [];
-  let directory = scan.projectDir;
-  for (;;) {
-    folders.push(join(directory, 'node_modules'));
-    const parent = dirname(directory);
-    const isLastDirectory = directory === scan.stopDir || parent === directory;
-    if (isLastDirectory) return folders;
-    directory = parent;
-  }
-}
-
-function sortedEntries(folder: string): string[] {
-  try {
-    return readdirSync(folder).filter((entry) => !entry.startsWith('.')).sort();
-  } catch {
-    return [];
-  }
-}
-
-/** The package folders directly in `folder`: `name`, and `@scope/name` for each scope. */
-function topLevelPackages(folder: string): string[] {
-  return sortedEntries(folder).flatMap((entry) => {
-    const isScope = entry.startsWith('@');
-    if (!isScope) return [entry];
-    return sortedEntries(join(folder, entry)).map((scoped) => `${entry}/${scoped}`);
-  });
-}
-
-/** Whether `folder/entry` is a Firebase SDK, by the name in its own `package.json` only. */
-function isInstalledFirebaseSdk(folder: string, entry: string): boolean {
-  return isFirebaseSdkName(manifestNameAt(join(folder, entry)));
-}
-
-/**
- * The names a Next server route can import a Firebase SDK by: `firebase` and
- * `firebase-admin`, then each name a Firebase SDK is installed under.
- */
-function firebaseServerExternals(scan: ExternalsScan): string[] {
-  const installed = nodeModulesFolders(scan).flatMap((folder) =>
-    topLevelPackages(folder).filter((entry) => isInstalledFirebaseSdk(folder, entry)));
-  return Array.from(new Set([...pyricExternalPackages, ...installed]));
-}
 
 /**
  * A warning when `cwd` holds no `next.config.*`, as under `next dev <dir>` run
@@ -136,7 +85,7 @@ export function augmentServerExternalPackages(
   scan: ExternalsScan = { projectDir: process.cwd() },
 ): NextConfigObject {
   const updatedConfig: NextConfigObject = Object.assign({}, config);
-  const targetPackages = firebaseServerExternals(scan);
+  const targetPackages = installedFirebaseSdkNames(scan);
   refuseTranspiledSdk(updatedConfig, targetPackages);
 
   const currentExternalPackages = updatedConfig.serverExternalPackages;

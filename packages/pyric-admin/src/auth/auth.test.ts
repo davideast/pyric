@@ -83,8 +83,11 @@ describe('sandbox backend — createCustomToken', () => {
   // The token's shape and its exchange: custom-token-exchange.test.ts (#1952).
   it('mints the same token for the same uid, claims and sandbox time', async () => {
     const sandbox = initializeSandbox();
+    // A wall-clock second boundary would change the token's iat claim.
+    getClock(sandbox).set(Date.UTC(2026, 0, 1));
     const auth = getAuth(initializeApp({ sandbox }));
-    expect(await auth.createCustomToken('alice')).toBe(await auth.createCustomToken('alice'));
+    const claims = { role: 'editor' };
+    expect(await auth.createCustomToken('alice', claims)).toBe(await auth.createCustomToken('alice', claims));
   });
 });
 

@@ -91,7 +91,7 @@ export default defineConfig({
 
 ### If you use Vite for SSR or Node backend builds (`vite.config.ts`)
 
-Add the `pyricViteExternals()` plugin. It adds `firebase` and `firebase-admin` to `ssr.external`, which Vite applies to SSR output only:
+Add the `pyricViteExternals()` plugin. It adds every Firebase SDK your project installs to `ssr.external`, which Vite applies to SSR output only. That is `firebase`, `firebase-admin`, each `@firebase/*` package, and each npm alias of one, such as `"admin": "npm:firebase-admin@13"`, listed by the name you import it by:
 
 ```ts
 import { defineConfig } from 'vite';
@@ -102,11 +102,11 @@ export default defineConfig({
 });
 ```
 
-The plugin runs in `vite build` and never in the dev server. Your client bundle is unaffected, so browser code keeps the Firebase packages it imports. An SSR build keeps `import 'firebase-admin/...'` and `import 'firebase/...'` statements even when `ssr.noExternal: true` bundles every other dependency, because Vite ranks an `ssr.external` list above `ssr.noExternal`. If your config sets `ssr.external: true`, every dependency is already external and the plugin adds nothing.
+The plugin runs in `vite build` and never in the dev server. Your client bundle is unaffected, so browser code keeps the Firebase packages it imports. An SSR build keeps `import 'firebase-admin/...'`, `import 'firebase/...'`, `import '@firebase/...'` and aliased imports even when `ssr.noExternal: true` bundles every other dependency, because Vite ranks an `ssr.external` list above `ssr.noExternal`. If your config sets `ssr.external: true`, every dependency is already external and the plugin adds nothing.
 
 `build.rollupOptions.external` applies to client and SSR builds alike, so set `pyricExternals.vite` there only in a config that builds nothing but Node output.
 
-To configure a tool that takes package names rather than patterns, use `pyricExternalPackages`, which lists `firebase-admin` and `firebase`.
+To configure a tool that takes package names rather than patterns, use `pyricExternalPackages`, which lists `firebase-admin` and `firebase`. Add the name of each `@firebase/*` package your server code imports directly, and each npm alias of a Firebase SDK, to that list yourself.
 
 > [!NOTE]
 > For standard frontend Vite applications, use the dedicated [`@pyric/cli/vite`](/docs/get-started/vite) plugin instead, which handles dev-server interception automatically. You can list both plugins in one config: `pyric()` does not run in a production `vite build`, and in a sandbox build (`vite build --mode development`) it resolves `firebase/*` to the sandbox entries before Vite's SSR externalization applies.

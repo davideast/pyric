@@ -175,4 +175,38 @@ describe('the real SDK in production mode', async () => {
     expect(JSON.stringify(records)).not.toContain(token.split('.')[1]!);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  test("the wrapped getAuth lists the SDK's own Auth on the page hub", () => {
+    const hub = (globalThis as { [key: symbol]: { auths: object[] } | undefined })[Symbol.for('pyric.live.auths')];
+    expect(hub?.auths).toContain(realAuth.getAuth(app));
+  });
+});
+
+/**
+ * The page runtime's seam: each Auth the live row hands the app is listed on
+ * the page-wide hub under `Symbol.for('pyric.live.auths')`, where the cli page
+ * runtime (`serve/runtime/live-identity.ts`) reads the signed-in user. The hub
+ * holds Auth instances only, never a user's profile.
+ */
+describe('the page hub of noted Auth instances', () => {
+  type Hub = { auths: object[]; listeners: Set<(auth: object) => void> };
+  const hub = () => (globalThis as { [key: symbol]: Hub | undefined })[Symbol.for('pyric.live.auths')];
+
+  test('a noted Auth is listed once and reaches each hub listener', () => {
+    const auth = { app: { name: 'hub-app' }, currentUser: null };
+    const heard: object[] = [];
+    noteAuth({ app: { name: 'hub-first' }, currentUser: null });
+    hub()!.listeners.add((noted) => heard.push(noted));
+    noteAuth(auth);
+    noteAuth(auth);
+    expect(hub()!.auths.filter((noted) => noted === auth)).toHaveLength(1);
+    expect(heard).toEqual([auth]);
+  });
+
+  test('a value that is not an Auth is not listed', () => {
+    const before = hub()?.auths.length ?? 0;
+    noteAuth({ app: {} });
+    noteAuth(null);
+    expect(hub()?.auths.length ?? 0).toBe(before);
+  });
 });

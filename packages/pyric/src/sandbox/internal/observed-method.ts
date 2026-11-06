@@ -1,0 +1,71 @@
+/**
+ * One method name for an observed call, so a live row and a sandbox row name
+ * the same call the same way.
+ *
+ * An observed event keeps the SDK export the app called as its `method`
+ * (`getDoc`, `remove`, `uploadBytes`), so Traffic shows what the app wrote.
+ * The sandbox's own events name the request instead (`get`, `delete`,
+ * `create`). Readers that compare the two map an observed export here.
+ */
+import type { ObservedCallService } from '../types/observed-call.js';
+
+/** The request a call makes, as sandbox events name it. */
+export type ObservedMethod = 'get' | 'list' | 'create' | 'set' | 'update' | 'delete';
+
+type MethodTable = Readonly<Record<string, ObservedMethod>>;
+
+const FIRESTORE: MethodTable = {
+  getDoc: 'get',
+  getDocFromServer: 'get',
+  getDocFromCache: 'get',
+  getDocs: 'list',
+  getDocsFromServer: 'list',
+  getDocsFromCache: 'list',
+  setDoc: 'set',
+  updateDoc: 'update',
+  deleteDoc: 'delete',
+  addDoc: 'create',
+};
+
+const RTDB: MethodTable = {
+  get: 'get',
+  set: 'set',
+  setWithPriority: 'set',
+  update: 'update',
+  remove: 'delete',
+  push: 'create',
+};
+
+/** Every upload is a `create`, as the sandbox's Storage rules request names it. */
+const STORAGE: MethodTable = {
+  uploadBytes: 'create',
+  uploadString: 'create',
+  uploadBytesResumable: 'create',
+  getDownloadURL: 'get',
+  getBytes: 'get',
+  getBlob: 'get',
+  getStream: 'get',
+  getMetadata: 'get',
+  updateMetadata: 'update',
+  list: 'list',
+  listAll: 'list',
+  deleteObject: 'delete',
+};
+
+const TABLES: Readonly<Partial<Record<ObservedCallService, MethodTable>>> = {
+  firestore: FIRESTORE,
+  rtdb: RTDB,
+  storage: STORAGE,
+};
+
+/**
+ * The method a sandbox event would name for the SDK export `method` of
+ * `service`, or `null` for an export with none (a listener, a transaction, an
+ * Auth, AI or Messaging call).
+ */
+export function observedMethod(service: ObservedCallService, method: string): ObservedMethod | null {
+  const table = TABLES[service];
+  const known = table !== undefined && Object.hasOwn(table, method);
+  if (!known) return null;
+  return table[method] ?? null;
+}

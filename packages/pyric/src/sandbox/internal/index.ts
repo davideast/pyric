@@ -94,6 +94,7 @@ export {
   OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, productionVerdict, readObservedCall,
   type ProductionVerdict,
 } from './observed-call.js';
+export { observedMethod, type ObservedMethod } from './observed-method.js';
 export {
   billedCallKind, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, liveProjectOf,
   readLiveHostStatus,
