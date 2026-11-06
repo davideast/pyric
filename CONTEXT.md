@@ -1,7 +1,7 @@
 # Pyric codebase context
 
 Last checked: 2026-10-14. Workspace version `0.1.0-alpha.25`, conformance-tested
-against Firebase `12.13.0` (`packages/cli/src/version/compat-target.ts`).
+against Firebase `12.19.0` (`packages/cli/src/version/compat-target.ts`).
 
 Pyric is a Firebase-shaped development sandbox for people and coding agents.
 It runs Firestore, Auth, Realtime Database, Storage, Cloud Messaging, Firebase
@@ -34,6 +34,7 @@ The repository is a Bun workspace with these principal packages:
 | `packages/cli` | `@pyric/cli` | `pyric` binary, Vite/Next/Node resolution seams, Node host, bridge, verify, assurance |
 | `packages/create-pyric` | `create-pyric` | `npm create pyric` scaffolder |
 | `packages/ui` | `@pyric/ui` | Headless React components, hooks, and listener-owner attribution |
+| `packages/live` | `@pyric/live` | Live mode: the app's own Firebase SDK against its real project, observed through the Node host (`pyric-live`, `@pyric/live/vite`, `@pyric/live/register`) |
 | `packages/studio` | `@pyric/studio` | Studio console application, mounted by the Astro site and served by `pyric sandbox --ui` |
 | `packages/site-docs` | `@pyric/site-docs` | The one Astro site: documentation plus the Studio shell |
 | `packages/conformance` | `@pyric/conformance` | Private evidence graph: surfaces, registry, observations, probes, rigs, gates |
@@ -96,13 +97,13 @@ subpaths include:
 | `pyric/rules/internal` | Engine internals seam. |
 | `pyric/rules/internal/node` | Node-only filesystem-backed module resolution. |
 | `pyric/rules/internal/extract` | Composite-index extraction. |
-| `pyric/rules/internal/rtdb` | Pure RTDB rules engine internals: environment-independent compile/serialize/simulate seams plus replay and constraints. |
+| `pyric/rules/internal/rtdb` | Pure RTDB rules engine internals: environment-independent compile/serialize/simulate seams plus constraints. RTDB replay is in `pyric/sandbox/internal`. |
 | `pyric/sandbox` | Sandbox lifecycle, events, persistence, replay, branches. |
 | `pyric/sandbox/branches/store` | Persisted branch store (`<project>/.pyric/state/branches/<name>/`), with per-service base/state files and event log. |
 | `pyric/sandbox/checkpoints` | Saved-state checkpoint capture, restore, and record-backend primitives. |
 | `pyric/sandbox/checkpoints/directory` | Node filesystem backend for checkpoints (`<project>/.pyric/state/checkpoints/<name>.json`). |
 | `pyric/sandbox/firestore` | Firestore-specific sandbox controls: rules, seeding, snapshots, and inspection. Controls receive the owning local `Sandbox`. |
-| `pyric/sandbox/internal` | Adapter-only internal protocol. |
+| `pyric/sandbox/internal` | Adapter-only internal protocol. Also carries RTDB replay (`replay`, `rtdbReplaySteps`, `rewoundRtdbTree`, `rtdbStateDrift`). |
 | `pyric/sandbox/admin-compat` | Chainable admin-Firestore-shaped sandbox wrapper. |
 | `pyric/sandbox/admin-firestore` | Internals backing the admin-compat layer. |
 | `pyric/{firestore/lite,functions,app-check,analytics,performance,remote-config}` | Deferred Web SDK mirrors. Each exports the exact public runtime symbol names and types so swapped imports link and type-check, and throws `PyricDeferredApiError` if called at runtime. |
@@ -421,10 +422,19 @@ automatically routes calls to a live Node host for the same project (reporting
 `--allow-production` (or `PYRIC_ALLOW_PRODUCTION=1`) enables `production`-effect
 methods.
 
-The served bridge (`pyric sandbox --bridge`, `pyric bridge`) advertises a
+Each method record declares where its handler runs. A `runsIn: 'sandbox'`
+record is given only a `SandboxSurfaceContext` (`surface/sandbox-context.ts`)
+and imports nothing Node-only, so a host can run it wherever its sandbox lives;
+`surface/methods/sandbox-registry.ts` loads just these records from the
+generated `manifest.sandbox.generated.ts`. A `runsIn: 'bridge'` record reads the
+project directory, imports a Node-only module, or dispatches an in-process tool
+family, and runs only in the bridge process.
+
+The served bridge (`pyric sandbox --bridge`) advertises a
 second, separate contract: the **bridge transport surface** a browser sandbox
 peer executes, plus the rules, conformance, identity, and capture tools that
-run in the bridge process without a peer. It is **47** tool names (`BRIDGE_TOOL_NAMES`):
+run in the bridge process without a peer. The standalone `pyric bridge` has no
+browser socket and advertises only the in-process tools. It is **47** tool names (`BRIDGE_TOOL_NAMES`):
 **29** forwarded to the sandbox (`BRIDGE_FORWARDED_TOOL_NAMES`, including
 Firestore simulator/CRUD, RTDB inspect/simulate, `sandbox_inspect`,
 `auth_create_user` through `auth_custom_token`, and `messaging_deliveries`) and
@@ -670,13 +680,15 @@ are the other workflows.
   mirrored surface, one file per API family, sandbox code under `X/sandbox/`,
   tests mirroring the source path.
 - Ratified and proposed decisions live in `docs/decisions/` (ADR-0001 to
-  ADR-0016, plus ADR-0018 and ADR-0019). Key architectural records include ADR-0009
+  ADR-0016, plus ADR-0018 to ADR-0020). Key architectural records include ADR-0009
   (Firestore engine deepening), ADR-0010 (unified Astro site), ADR-0011 (worker
   transport as public API), ADR-0014 (ten service tools carrying SDK method
   names), ADR-0015 (chunked Storage transfer), ADR-0016 (`pyric mcp` following
   the Node host), ADR-0018 (Storage object bytes by reference and HTTP byte
-  route), and ADR-0019 (native bridge clients reconnect and restore their
-  listeners).
+  route), ADR-0019 (native bridge clients reconnect and restore their
+  listeners), and ADR-0020 (`pyric mcp` serves one tool list and routes each
+  call to a live host, with SharedWorker hosts running method records over a
+  `method-call` bridge frame).
 - Preserve unrelated work in a dirty tree.
 - Use public subpaths between packages.
 - Keep browser/Node/platform-specific imports at explicit boundary modules.

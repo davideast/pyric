@@ -15,9 +15,13 @@ import {
   captureFullState,
   type FullSandboxState,
 } from '../../src/sandbox/full-state.js';
+import { captureCheckpoint, restoreCheckpoint } from '../../src/sandbox/checkpoints/index.js';
 import { getInternalEnv } from '../../src/sandbox/internal/sandbox-impl.js';
 import { getOrCreateBackend } from '../../src/database/sandbox/backend-for.js';
 import { getAuth } from '../../src/auth/instances.js';
+import { signInWithEmailAndPassword } from '../../src/auth/index.js';
+import { authAccountsFor } from 'pyric/sandbox/internal';
+import { getClock } from '../../src/sandbox/clock.js';
 import { sandbox as authDriver } from '../../src/auth/sandbox/driver.js';
 import { getAdminStorageSandbox } from '../../src/storage/internal.js';
 import { getBytes, getMetadata, ref as storageRef, uploadBytes } from '../../src/storage/index.js';
@@ -203,5 +207,101 @@ describe('full sandbox state', () => {
     await expect(
       uploadBytes(storageRef(clientStorage, 'after-restore.txt'), new Uint8Array([7, 8, 9])),
     ).rejects.toMatchObject({ code: 'storage/unauthorized' });
+  });
+});
+
+describe('applyFullState and held Auth sessions (#1950)', () => {
+  it('a checkpoint restore keeps the held session refreshing', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authDriver.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    // The state carries the clock, so capture it after the sign-in's second.
+    getClock(sandbox).advance(2000);
+    const state = await captureFullState(sandbox);
+    await applyFullState(sandbox, state);
+    expect(authAccountsFor(sandbox)?.standing('u1')).toEqual({ kind: 'active', tokensValidAfterMs: null });
+    expect(await user.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
+  });
+});
+
+describe('a captured state carries revocations and deletions (#2021)', () => {
+  /** A sandbox holding a signed-in session for `uid`, its clock moved past the sign-in's second. */
+  async function heldSession(uid: string) {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authDriver.createUser(auth, { uid, email: `${uid}@x.com`, password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, `${uid}@x.com`, 'pw1234');
+    getClock(sandbox).advance(2000);
+    return { sandbox, auth, user };
+  }
+
+  it('a session revoked before the capture stays refused after the restore', async () => {
+    const { sandbox, auth, user } = await heldSession('revoked');
+    authDriver.updateUser(auth, 'revoked', { password: 'changed-pw' });
+    const revokedAt = authAccountsFor(sandbox)?.standing('revoked');
+    const state = await captureFullState(sandbox);
+
+    await applyFullState(sandbox, state);
+
+    expect(authAccountsFor(sandbox)?.standing('revoked')).toEqual(revokedAt!);
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+  });
+
+  it('revokeRefreshTokens before the capture is replayed onto another sandbox', async () => {
+    const { sandbox } = await heldSession('admin-revoked');
+    authAccountsFor(sandbox)?.revokeRefreshTokens('admin-revoked');
+    const state = await captureFullState(sandbox);
+
+    const target = initializeSandbox();
+    await applyFullState(target, state);
+
+    expect(authAccountsFor(target)?.standing('admin-revoked')).toEqual(authAccountsFor(sandbox)?.standing('admin-revoked')!);
+  });
+
+  it('a session of an account deleted before the capture stays refused after the restore', async () => {
+    const { sandbox, auth, user } = await heldSession('gone');
+    authDriver.deleteUser(auth, 'gone');
+    const state = await captureFullState(sandbox);
+
+    await applyFullState(sandbox, state);
+
+    expect(authAccountsFor(sandbox)?.standing('gone')).toEqual({ kind: 'deleted' });
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+  });
+
+  it('a revocation made after the capture is undone by the restore', async () => {
+    const { sandbox, auth, user } = await heldSession('later');
+    const state = await captureFullState(sandbox);
+    authDriver.updateUser(auth, 'later', { password: 'changed-pw' });
+
+    await applyFullState(sandbox, state);
+
+    expect(authAccountsFor(sandbox)?.standing('later')).toEqual({ kind: 'active', tokensValidAfterMs: null });
+    expect(await user.getIdToken(true)).toBeString();
+  });
+
+  it('a capture written without the history restores as before: every revocation is forgotten', async () => {
+    const { sandbox, auth, user } = await heldSession('legacy');
+    authDriver.updateUser(auth, 'legacy', { password: 'changed-pw' });
+    const state = await captureFullState(sandbox);
+    const legacy = structuredClone(state) as FullSandboxState;
+    legacy.auth = { users: legacy.auth.users, providers: legacy.auth.providers };
+
+    await applyFullState(sandbox, legacy);
+
+    expect(authAccountsFor(sandbox)?.standing('legacy')).toEqual({ kind: 'active', tokensValidAfterMs: null });
+    expect(await user.getIdToken(true)).toBeString();
+  });
+
+  it('a checkpoint restore keeps a revoked session refused', async () => {
+    const { sandbox, auth, user } = await heldSession('checkpointed');
+    authDriver.updateUser(auth, 'checkpointed', { password: 'changed-pw' });
+    const checkpoint = await captureCheckpoint(sandbox);
+
+    await restoreCheckpoint(sandbox, structuredClone(checkpoint));
+
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
   });
 });

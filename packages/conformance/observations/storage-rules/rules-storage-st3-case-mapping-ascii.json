@@ -1,0 +1,29 @@
+{
+  "name": "rules-storage-st3-case-mapping-ascii",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#220"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"st3-case-mapping-ascii\" (ST3-CASE-ASCII). lower() and upper() map the ASCII letters A-Z and a-z only; every other letter keeps its case.",
+  "observedAt": "2026-11-04T02:27:38.149Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "c732f1d58526f99df6b3c122eaf998c399d656cd6a2031656c99f5bd2c4b3971"
+  },
+  "behavior": {
+    "latin1-upper: 'é'.upper() == 'É' (pyric ALLOW)": "DENY",
+    "latin1-upper-unchanged: 'é'.upper() == 'é' (pyric DENY)": "ALLOW",
+    "latin1-lower: 'Ä'.lower() == 'ä' (pyric ALLOW)": "DENY",
+    "latin1-lower-unchanged: 'Ä'.lower() == 'Ä' (pyric DENY)": "ALLOW",
+    "greek-lower-unchanged: 'ΑΣ'.lower() == 'ΑΣ' (pyric DENY)": "ALLOW",
+    "cyrillic-upper: 'ж'.upper() == 'Ж' (pyric ALLOW)": "DENY",
+    "cyrillic-upper-unchanged: 'ж'.upper() == 'ж' (pyric DENY)": "ALLOW",
+    "dotted-i-lower-unchanged: 'İ'.lower() == 'İ' (pyric DENY)": "ALLOW",
+    "dotless-i-upper-unchanged: 'ı'.upper() == 'ı' (pyric DENY)": "ALLOW",
+    "mixed-ascii-part: 'aé'.upper() == 'Aé' (pyric DENY)": "ALLOW",
+    "fullwidth-upper: 'ａ'.upper() == 'Ａ' (pyric ALLOW)": "DENY",
+    "email-lower: 'ÉVE@X.COM'.lower() == 'éve@x.com' (pyric ALLOW)": "DENY"
+  }
+}

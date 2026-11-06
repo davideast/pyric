@@ -32,14 +32,22 @@ export type { SeedUser } from './seed-user.js';
  * per client sign-in shape, plus `uid` for session restoration and
  * `provider` for a provider sign-in to an existing linked identity.
  * `custom` binds an identity already resolved from a custom token.
+ * `from` names the held session a `uid` or `custom` request mints again:
+ * the mint is a refresh-token exchange, refused as one is, and the new
+ * session keeps the held session's authentication. `restore` marks a `uid`
+ * mint as re-establishing a session the caller names by key (a reloaded page
+ * restoring the session it stored, `updateCurrentUser`, an unlink): with the
+ * `sessionKey` of that session ({@link sessionKeyOf}) it resumes with the
+ * authentication time it had; without a matching key it has no sign-in time
+ * of its own, so any revocation recorded for the uid refuses it.
  */
 export type MintSessionRequest = TenantScope & PageOriginScope & (
   | { kind: 'anonymous' }
   | { kind: 'password'; email: string; password: string }
   | { kind: 'createPassword'; email: string; password: string }
-  | { kind: 'uid'; uid: string }
+  | { kind: 'uid'; uid: string; from?: User; restore?: { readonly sessionKey?: string } }
   | { kind: 'provider'; uid: string; providerId: string }
-  | { kind: 'custom'; uid: string }
+  | { kind: 'custom'; uid: string; from?: User }
 );
 
 /** The tenant a minted session authenticates under. Carried on every

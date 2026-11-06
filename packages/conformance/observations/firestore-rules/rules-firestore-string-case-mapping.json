@@ -1,0 +1,34 @@
+{
+  "name": "rules-firestore-string-case-mapping",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#229"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"string-case-mapping\" (Coverage: lower() and upper() case mapping). lower() and upper() map the ASCII letters A-Z and a-z only; every other letter, including é, Ä, Σ, ж, ß, İ and fullwidth ａ, keeps its case.",
+  "observedAt": "2026-11-04T02:36:53.613Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "8d1f4b79364b171a66da2884bade6e8125ff5ea080a8521a8807bc33dcba06ae"
+  },
+  "behavior": {
+    "cm0: 'aB'.upper() == 'AB'": "ALLOW",
+    "cm1: 'é'.upper() == 'É'": "DENY",
+    "cm2: 'é'.upper() == 'é'": "ALLOW",
+    "cm3: 'Ä'.lower() == 'ä'": "DENY",
+    "cm4: 'Ä'.lower() == 'Ä'": "ALLOW",
+    "cm5: 'ΑΣ'.lower() == 'ασ'": "DENY",
+    "cm6: 'ΑΣ'.lower() == 'ΑΣ'": "ALLOW",
+    "cm7: 'ж'.upper() == 'Ж'": "DENY",
+    "cm8: 'ж'.upper() == 'ж'": "ALLOW",
+    "cm9: 'aé'.upper() == 'Aé'": "ALLOW",
+    "cma: 'ÉVE@X.COM'.lower() == 'éve@x.com'": "DENY",
+    "cmb: 'ÉVE@X.COM'.lower() == 'Éve@x.com'": "ALLOW",
+    "cmc: 'ß'.upper() == 'SS'": "DENY",
+    "cmd: 'ß'.upper() == 'ß'": "ALLOW",
+    "cme: 'İ'.lower().size() == 2": "DENY",
+    "cmf: 'ａ'.upper() == 'Ａ'": "DENY",
+    "cmg: request.resource.data.email.lower() == 'éve@x.com'": "DENY"
+  }
+}

@@ -19,17 +19,17 @@ import {
   updateDoc,
   type QuerySnapshot,
 } from 'firebase/firestore';
-import { cert, deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
+import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { chromium } from '@playwright/test';
 import { acquireRunLock } from './storage-stdlib-real-lock.ts';
+import { loadOracleServiceAccount, oracleAppOptions, oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import {
   FIREBASE_API,
   accessHeaders,
   jsonRequest,
-  resolveServiceAccount,
   type AccessHeaders,
   type ServiceAccount,
   type WebConfig,
@@ -44,7 +44,14 @@ import {
   restoreFirestoreRules,
   selectFirestoreRulesFile,
   snapshotFirestoreRules,
+  transactionCasePath,
 } from './firestore-real-rules.ts';
+import {
+  SIBLING_MERGE_CASE_IDS,
+  assertGetAfterProbeControls,
+  siblingMergeProbePlan,
+  type SiblingMergeProbePlan,
+} from './firestore-real-sibling-merge.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBSERVATION_PATH = join(
@@ -68,6 +75,15 @@ const RULES_GET_AFTER_OBSERVATION_PATH = join(
   'firestore-rules',
   'rules-firestore-get-after-and-exists-after.json',
 );
+const RULES_SIBLING_MERGE_OBSERVATION_PATH = join(
+  HERE,
+  '..',
+  'observations',
+  'firestore-rules',
+  'rules-firestore-atomic-batch-sibling-merge.json',
+);
+/** The one case of corpus scenario `atomic-batch-sibling-merge`. */
+const SIBLING_MERGE_CASE = 'getAfter reflects merged pre-existing fields alongside batch updates ALLOW';
 const COLLECTION_GROUP_OBSERVATION_PATH = join(
   HERE,
   '..',
@@ -97,6 +113,13 @@ async function discoverWebConfig(
   );
 }
 
+/**
+ * How long a probe waits for deployed rules to reach the data plane. Firebase
+ * documents up to a minute for new requests (longer for active listeners), and
+ * the fixed 10 s wait after deploy counts toward it, so 90 s leaves margin.
+ */
+const RULES_PROPAGATION_DEADLINE_MS = 90_000;
+
 async function waitForRulesPropagation(ms = 10_000): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -105,7 +128,7 @@ async function setWhenProbeRulesAreActive(
   ref: Parameters<typeof setDoc>[0],
   data: Record<string, unknown>,
 ): Promise<void> {
-  const deadline = Date.now() + 45_000;
+  const deadline = Date.now() + RULES_PROPAGATION_DEADLINE_MS;
   let lastError: unknown;
   let consecutiveSuccesses = 0;
   while (Date.now() < deadline) {
@@ -130,7 +153,7 @@ async function waitForTransactionRulesAreActive(
   db: ReturnType<typeof getFirestore>,
   ref: Parameters<typeof setDoc>[0],
 ): Promise<void> {
-  const deadline = Date.now() + 45_000;
+  const deadline = Date.now() + RULES_PROPAGATION_DEADLINE_MS;
   let consecutiveSuccesses = 0;
   let lastError: unknown;
   while (Date.now() < deadline) {
@@ -158,7 +181,7 @@ async function captureTransactionContention(
   runId: string,
 ): Promise<Record<string, unknown>> {
   const admin = initializeAdminApp(
-    { credential: cert(sa as Parameters<typeof cert>[0]) },
+    oracleAppOptions(sa),
     `pyric-firestore-real-admin-${runId}`,
   );
   const token = await getAdminAuth(admin).createCustomToken(`pyric-cdd-${runId}`);
@@ -168,11 +191,10 @@ async function captureTransactionContention(
   const secondAuth = getAuth(secondApp);
   const firstDb = getFirestore(firstApp);
   const secondDb = getFirestore(secondApp);
-  const base = `__pyric_firestore_cdd/${runId}`;
-  const retryRefA = doc(firstDb, `${base}/cases/retry`);
-  const retryRefB = doc(secondDb, `${base}/cases/retry`);
-  const exhaustedRefA = doc(firstDb, `${base}/cases/exhausted`);
-  const exhaustedRefB = doc(secondDb, `${base}/cases/exhausted`);
+  const retryRefA = doc(firstDb, transactionCasePath(runId, 'retry'));
+  const retryRefB = doc(secondDb, transactionCasePath(runId, 'retry'));
+  const exhaustedRefA = doc(firstDb, transactionCasePath(runId, 'exhausted'));
+  const exhaustedRefB = doc(secondDb, transactionCasePath(runId, 'exhausted'));
 
   try {
     await Promise.all([
@@ -259,7 +281,7 @@ async function captureCollectionGroupListener(
   runId: string,
 ): Promise<Record<string, unknown>> {
   const admin = initializeAdminApp(
-    { credential: cert(sa as Parameters<typeof cert>[0]) },
+    oracleAppOptions(sa),
     `pyric-firestore-cg-admin-${runId}`,
   );
   const adminDb = getAdminFirestore(admin);
@@ -285,7 +307,7 @@ async function captureCollectionGroupListener(
   try {
     await signInWithCustomToken(getAuth(app), token);
     await setWhenProbeRulesAreActive(doc(db, paths.ready), { ready: true });
-    const deadline = Date.now() + 45_000;
+    const deadline = Date.now() + RULES_PROPAGATION_DEADLINE_MS;
     for (let ok = 0; ok < 3 && Date.now() < deadline;) {
       try {
         await getDocs(collectionGroup(db, group));
@@ -356,14 +378,16 @@ async function captureBrowserLifecycle(
   runId: string,
 ): Promise<Record<string, unknown>> {
   const admin = initializeAdminApp(
-    { credential: cert(sa as Parameters<typeof cert>[0]) },
+    oracleAppOptions(sa),
     `pyric-firestore-browser-admin-${runId}`,
   );
   const adminDb = getAdminFirestore(admin);
   const rulesBase = `__pyric_firestore_cdd/${runId}/rules_get_after`;
+  const siblingMergePlan = siblingMergeProbePlan(runId);
   await Promise.all([
     adminDb.doc(`${rulesBase}/exists_delete`).set({ x: 'seeded' }),
     adminDb.doc(`${rulesBase}/companion`).set({ count: 0 }),
+    ...Object.entries(siblingMergePlan.seed).map(([path, data]) => adminDb.doc(path).set(data)),
   ]);
   const token = await getAdminAuth(admin).createCustomToken(`pyric-browser-${runId}`);
 const browserSource = String.raw`
@@ -420,7 +444,7 @@ const writeWhenAllowed = async (ref, data) => {
   if (successes < 3) throw new Error('timed out waiting for client-specific rules propagation');
 };
 
-globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
+globalThis.runFirestoreLifecycleProbe = async (config, token, runId, siblingMergePlan) => {
   const prefix = '__pyric_firestore_cdd/' + runId + '/browser/cases';
   const apps = [];
   const dbs = [];
@@ -471,6 +495,23 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
     const soloPrimary = await verdict(() =>
       setDoc(doc(after.db, rulesAfterBase + '/primary'), { solo: true })
     );
+    // The plan comes from firestore-real-sibling-merge.ts, which the local
+    // replay test runs too. The solo control runs first: once the batch
+    // commits, the companion's stored modified is true and a solo create would
+    // no longer be a control.
+    const commitPlanBatch = (writes) => {
+      const planBatch = writeBatch(after.db);
+      for (const write of writes) {
+        if (write.method === 'update') planBatch.update(doc(after.db, write.path), write.data);
+        else planBatch.set(doc(after.db, write.path), write.data);
+      }
+      return planBatch.commit();
+    };
+    const siblingMergeSoloPrimary = await verdict(() =>
+      setDoc(doc(after.db, siblingMergePlan.soloPrimary.path), siblingMergePlan.soloPrimary.data)
+    );
+    const siblingMergeBatch = await verdict(() => commitPlanBatch(siblingMergePlan.batch));
+    const siblingMergeFullBatch = await verdict(() => commitPlanBatch(siblingMergePlan.fullBatch));
 
     console.log('[lifecycle] persistence precondition');
     const precondition = await make('precondition');
@@ -611,6 +652,9 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
       },
       rulesGetAfterCrossDocumentBatch: crossDocumentBatch,
       rulesGetAfterSoloPrimary: soloPrimary,
+      rulesGetAfterSiblingMergeBatch: siblingMergeBatch,
+      rulesGetAfterSiblingMergeSoloPrimary: siblingMergeSoloPrimary,
+      rulesGetAfterSiblingMergeFullBatch: siblingMergeFullBatch,
       readAfterTerminateThrew: readAfterTerminate.threw,
       readAfterTerminateCode: readAfterTerminate.code,
       authAfterTerminateThrew: authAfterTerminate.threw,
@@ -673,32 +717,32 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
       typeof (globalThis as { runFirestoreLifecycleProbe?: unknown }).runFirestoreLifecycleProbe === 'function'
     );
     return await page.evaluate(
-      async ({ firebaseConfig, customToken, id }) => {
+      async ({ firebaseConfig, customToken, id, plan }) => {
         return (globalThis as unknown as {
           runFirestoreLifecycleProbe(
             config: unknown,
             token: string,
             runId: string,
+            siblingMergePlan: SiblingMergeProbePlan,
           ): Promise<Record<string, unknown>>;
-        }).runFirestoreLifecycleProbe(firebaseConfig, customToken, id);
+        }).runFirestoreLifecycleProbe(firebaseConfig, customToken, id, plan);
       },
-      { firebaseConfig: web, customToken: token, id: runId },
+      { firebaseConfig: web, customToken: token, id: runId, plan: siblingMergePlan },
     );
   } finally {
     await browser.close();
     server.stop(true);
     await Promise.allSettled([
       'target_allow', 'exists_create', 'exists_delete', 'exists_unrelated',
-      'wrong_exists_create', 'primary', 'companion',
+      'wrong_exists_create', 'primary', 'companion', ...SIBLING_MERGE_CASE_IDS,
     ].map((id) => adminDb.doc(`${rulesBase}/${id}`).delete()));
     await deleteAdminApp(admin);
   }
 }
 
 async function run(): Promise<void> {
-  const credentialPath = process.env.PYRIC_ORACLE_SA_PATH;
-  if (!credentialPath) {
-    console.log('[firestore:real] inert — set PYRIC_ORACLE_SA_PATH to capture.');
+  if (!oracleCredentialConfigured(process.env)) {
+    console.log('[firestore:real] inert — set PYRIC_ORACLE_SA_PATH, or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials, to capture.');
     return;
   }
   const releaseLock = acquireRunLock(LOCK_PATH);
@@ -707,7 +751,7 @@ async function run(): Promise<void> {
   const collectionGroupOnly = Bun.argv.includes('--collection-group-listener');
   let restoreVerified = false;
   try {
-    const sa = resolveServiceAccount(credentialPath);
+    const sa = await loadOracleServiceAccount();
     const headers = await accessHeaders(sa);
     const web = await discoverWebConfig(sa, headers);
     if (web.projectId !== sa.project_id) throw new Error('Web config and service account target different projects');
@@ -767,6 +811,7 @@ async function run(): Promise<void> {
     if (!behavior || !browserBehavior || !probeRulesetName || !restoreVerified) {
       throw new Error('probe did not complete with verified rules restoration');
     }
+    assertGetAfterProbeControls(browserBehavior);
     const fbSdkVersion = resolvedFirebaseVersion();
     const observation = {
       name: 'firestore-transaction-contention-retries',
@@ -848,6 +893,41 @@ async function run(): Promise<void> {
       `${JSON.stringify(rulesObservation, null, 2)}\n`,
     );
     console.log(`[firestore:real] captured ${RULES_GET_AFTER_OBSERVATION_PATH}`);
+    const previousSiblingMerge = JSON.parse(
+      readFileSync(RULES_SIBLING_MERGE_OBSERVATION_PATH, 'utf8'),
+    ) as Record<string, unknown> & { diagnostics?: unknown };
+    const siblingMergeObservation = {
+      ...previousSiblingMerge,
+      description: 'An authenticated Web SDK batch against temporarily deployed production rules updates one field of a seeded companion document and creates a document whose rule reads both the updated field and an untouched pre-existing field through getAfter(). The same create alone is the DENY control, and a batch that updates both fields of a second companion is the ALLOW control. The hosted Rules Test API limitation is retained separately in diagnostics.',
+      observedAt: new Date().toISOString(),
+      fbSdkVersion,
+      projectId: sa.project_id,
+      lifecycle: {
+        originalRulesetName: snapshot.release.rulesetName,
+        probeRulesetName,
+        restoredOriginalRelease: restoreVerified,
+      },
+      deployedRulesDigest: {
+        algorithm: 'sha256',
+        value: createHash('sha256').update(content).digest('hex'),
+      },
+      behavior: { [SIBLING_MERGE_CASE]: browserBehavior.rulesGetAfterSiblingMergeBatch },
+      diagnostics: {
+        productionDatabase: {
+          siblingMergeBatch: browserBehavior.rulesGetAfterSiblingMergeBatch,
+          siblingMergeSoloPrimary: browserBehavior.rulesGetAfterSiblingMergeSoloPrimary,
+          siblingMergeFullBatch: browserBehavior.rulesGetAfterSiblingMergeFullBatch,
+        },
+        hostedTestApiLimitation: hostedTestApiDiagnostics(
+          previousSiblingMerge.diagnostics,
+        ),
+      },
+    };
+    writeFileSync(
+      RULES_SIBLING_MERGE_OBSERVATION_PATH,
+      `${JSON.stringify(siblingMergeObservation, null, 2)}\n`,
+    );
+    console.log(`[firestore:real] captured ${RULES_SIBLING_MERGE_OBSERVATION_PATH}`);
   } finally {
     releaseLock();
   }

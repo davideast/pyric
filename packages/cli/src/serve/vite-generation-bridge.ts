@@ -1,6 +1,7 @@
 import type { Server as HttpServer } from 'node:http';
 import type { ViteDevServer } from 'vite';
-import type { FunctionsRtdbProject } from '../functions-rtdb/project.js';
+import type { FunctionsProject } from '../functions/project.js';
+import type { LiveHostState } from './live-host-state.js';
 import type {
   BridgeHostAttachment,
   BridgeHostOptions,
@@ -18,8 +19,10 @@ export function createViteGenerationBridge(input: {
   server: ViteDevServer;
   projectDir: string;
   hosted?: boolean;
+  /** Held only by a generation `@pyric/live` started. */
+  liveHost?: LiveHostState;
   options: Omit<BridgeMountOptions, 'upgradeGuard'> | null;
-  functionsProject: FunctionsRtdbProject | null;
+  functionsProject: FunctionsProject | null;
   functionsProjectId: string | null;
   createBridge(options: BridgeMountOptions): BridgeMount;
 }): BridgeMount | null {
@@ -36,6 +39,7 @@ export function createViteGenerationBridge(input: {
     projectKey: input.hosted ? input.projectDir : undefined,
     project,
     disableAuditLog,
+    liveHost: input.liveHost,
     upgradeGuard: {
       boundHost,
       allowedHosts,

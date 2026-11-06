@@ -5,17 +5,19 @@
     "auth#162"
   ],
   "description": "unlink — removing a linked provider from a user. Locks the returned User shape (providerData shrinks) and the code for unlinking a provider that was never linked (auth/no-such-provider).",
-  "observedAt": "2026-07-12T03:53:16.888Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T12:08:44.158Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
-    "setupCode": "auth/operation-not-allowed",
-    "beforeProviders": null,
+    "setupCode": null,
+    "beforeProviders": [
+      "password"
+    ],
     "noSuchProviderCode": "auth/no-such-provider",
-    "unlinkCode": "auth/no-such-provider",
-    "unlinkedProviders": null,
-    "emailAfterUnlink": null,
-    "isAnonymousAfterUnlink": null,
+    "unlinkCode": null,
+    "unlinkedProviders": [],
+    "emailAfterUnlink": "oracle-unlink-1793362122884-l7u4l3@oracle.test",
+    "isAnonymousAfterUnlink": false,
     "cleanupLeaked": false
   }
 }

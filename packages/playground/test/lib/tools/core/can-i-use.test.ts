@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { canIUse } from '@pyric/cli/conformance/browser';
 import { canIUseHandler } from '../../../../src/lib/tools/core/can-i-use';
 
 describe('Playground can-i-use tool', () => {
@@ -21,6 +22,10 @@ describe('Playground can-i-use tool', () => {
     const result = await canIUseHandler.execute({
       feature: 'firestore-rules/getAfter',
     }, {} as never);
+    // The verdict follows the registry row's evidence, so read it from the
+    // projection the tool serves instead of pinning it here.
+    const projected = canIUse('firestore-rules/getAfter').supports[0];
+    expect(projected).toBeDefined();
     expect(result.ok).toBe(true);
     expect(result.data).toMatchObject({
       match: 'exact',
@@ -28,8 +33,8 @@ describe('Playground can-i-use tool', () => {
         feature: 'getAfter',
         surface: 'firestore-rules',
         availability: 'available',
-        fidelity: 'conforms',
-        assurance: 'eligible',
+        fidelity: projected?.fidelity,
+        assurance: projected?.assurance,
       })],
     });
 

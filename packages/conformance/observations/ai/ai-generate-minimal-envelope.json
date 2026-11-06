@@ -2,22 +2,22 @@
   "name": "ai-generate-minimal-envelope",
   "matrixRow": "",
   "rowIds": [
-    "ai#generate-envelope-keys",
+    "ai#chat-sendmessage-envelope",
     "ai#generate-candidate-keys",
-    "ai#generate-role-model",
+    "ai#generate-decoration-synthesized",
+    "ai#generate-envelope-keys",
     "ai#generate-finish-stop",
+    "ai#generate-modelversion-responseid",
+    "ai#generate-role-model",
     "ai#generate-usage-key-set",
     "ai#generate-usage-service-tier",
-    "ai#generate-modelversion-responseid",
-    "ai#generate-decoration-synthesized",
-    "ai#chat-sendmessage-envelope",
-    "ai#scripted-zero-config",
-    "ai#scripted-shorthand-text"
+    "ai#scripted-shorthand-text",
+    "ai#scripted-zero-config"
   ],
-  "description": "Raw wire envelope of a minimal generateContent on the GoogleAI backend. Facts are the key sets and enum values; generated text in raw is a nondeterministic sample. Note: candidate `index` and `inferenceSource` are ABSENT on the wire (the SDK adds them client-side), and usageMetadata carries `serviceTier`, which the SDK typings do not declare. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
-  "observedAt": "2026-07-10T01:47:03.455Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "description": "Raw wire envelope of a minimal generateContent on the GoogleAI backend. Facts are the key sets and enum values; generated text in raw is a nondeterministic sample. Note: candidate `index` and `inferenceSource` are ABSENT on the wire (the SDK adds them client-side), and usageMetadata carries `serviceTier`, which the SDK typings do not declare.",
+  "observedAt": "2026-10-30T11:56:44.796Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
   "behavior": {
@@ -48,7 +48,7 @@
     ],
     "usageServiceTierPresent": true,
     "modelVersionPresent": true,
-    "modelVersion": "gemini-3.1-flash-lite",
+    "modelVersion": "gemini-3.5-flash-lite",
     "responseIdPresent": true,
     "raw": {
       "candidates": [
@@ -57,7 +57,7 @@
             "parts": [
               {
                 "text": "pyric",
-                "thoughtSignature": "EjQKMgERTTIPmjdiRuKoOniEhPR1SeGNqk+aFs+sJZsaub0SW4dxEA7wdHELAFbJGiuYAjEW"
+                "thoughtSignature": "EmAKXgFpFH0TKiJ753yL25qRPIoSyY5l3EGQ+ZzYbcJp1o1+OS9s8gcF02ycb3Q9tNsUknKjxUa1FD+WURjWH2Bu1bVgriq8yjqjnfIicLKi66Xk+at77szn3YJNC7Uxab8="
               }
             ],
             "role": "model"
@@ -78,8 +78,8 @@
         ],
         "serviceTier": "standard"
       },
-      "modelVersion": "gemini-3.1-flash-lite",
-      "responseId": "F09QaqF484389Q_aq4GxDA"
+      "modelVersion": "gemini-3.5-flash-lite",
+      "responseId": "-4Xkar3AM_S6jrEPh-_duQ8"
     }
   }
 }

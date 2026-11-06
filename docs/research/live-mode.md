@@ -262,7 +262,7 @@ Stated as properties the design must have, with the evidence for each.
 
 **Agents.** Shapes by default; values only through a human opt-in the agent cannot give itself; every result tagged live; the session never switches onto a live target silently (ADR 0016's per-call target switch, `docs/decisions/0016-mcp-session-follows-the-node-host.md`).
 
-**Cost.** Live traffic is billed to the user's project. Live mode shows a per-session count of reads, writes and listener deliveries from its own observations.
+**Cost.** Live traffic is billed to the user's project. Live mode shows a per-session count of reads, writes and documents delivered to listeners from its own observations.
 
 **Conformance.** Local exact-or-partial classification, local shape-only candidates, export on user action, oracle capture by a maintainer (section 7).
 

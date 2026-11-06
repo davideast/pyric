@@ -57,9 +57,17 @@ export type {
   WriteSandboxEvent,
 } from './events.js';
 export type {
+  ObservedAccount,
+  ObservedCall,
+  ObservedCallService,
+  ObservedProduction,
+  ProductionOutcome,
+} from './observed-call.js';
+export type {
   ActivityEventProvenance,
   AuthLens,
   EventActor,
+  EventCaller,
   EventProvenance,
   EventService,
   OperationContext,

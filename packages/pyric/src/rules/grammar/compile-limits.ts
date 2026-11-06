@@ -45,11 +45,20 @@
  * of the declaration that holds the second one, while one recursive wildcard
  * in either position compiles (the `glob-in-path` and `glob-nested` probes,
  * identical for Firestore and Storage).
+ *
+ * Firestore refuses a unary minus applied directly to another one. Written
+ * with no space, `--1` is the decrement operator, refused with "Increment
+ * (++) and decrement (--) operators are not supported."; with any space,
+ * `- -1` is refused at the second minus with "Unexpected '-'." (captures
+ * `c5f-decrement-literal`, `k3-double-negated-min` and
+ * `c5h-minus-space-minus` in `test/rules/grammar/fixtures/unary-minus/`).
  */
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
 import { parenthesizedGroups } from './paren-groups.js';
+import { expressionPosition } from './expression-positions.js';
 import { MAX_BRACKET_DEPTH, scanBrackets } from './bracket-scan.js';
 import { re2PatternProblem } from '../simulator/re2-pattern-check.js';
+import { invalidNumberLiteralMessage, outOfRangeLiteral } from '../simulator/rules-int.js';
 
 /** Most functions one call stack may hold; 22 is rejected. */
 export const CALL_DEPTH_LIMIT = 21;
@@ -67,6 +76,8 @@ export const LET_LIMIT_MESSAGE = 'Maximum allowed variable count of 10 for a giv
 export const NESTING_MESSAGE = 'Expression is too complex to evaluate safely.';
 export const SLASH_STARTS_PATH_MESSAGE = "Missing 'match' keyword before path.";
 export const GLOB_MATCH_MESSAGE = 'Invalid glob match expression. Only one glob match is permitted in a match declaration path.';
+export const DECREMENT_MESSAGE = 'Increment (++) and decrement (--) operators are not supported.';
+export const MINUS_AFTER_MINUS_MESSAGE = "Unexpected '-'.";
 
 /** Production's call depth message for a stack of {@link CALL_DEPTH_LIMIT} function names. */
 export function callDepthMessage(stack: readonly string[]): string {
@@ -80,7 +91,8 @@ export function duplicateFunctionMessage(name: string): string {
 
 export type CompileLimitCode =
   | 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED' | 'SLASH_STARTS_PATH' | 'GLOB_MATCH_COUNT'
-  | 'UNSUPPORTED_RULES_VERSION' | 'UNRESOLVED_MODULES' | 'INVALID_REGEX_PATTERN';
+  | 'UNSUPPORTED_RULES_VERSION' | 'UNRESOLVED_MODULES' | 'INVALID_REGEX_PATTERN' | 'INVALID_NUMBER_LITERAL'
+  | 'DOUBLE_MINUS' | 'SOURCE_SIZE';
 
 /** One compile rejection, carrying production's message verbatim. */
 export interface CompileLimitViolation {
@@ -240,6 +252,26 @@ function pushExpressionViolations(
       ...(functionName === undefined ? {} : { functionName }),
     });
   }
+  const doubleMinus = isFirestore ? doubleMinusMessage(expr) : undefined;
+  if (doubleMinus !== undefined) {
+    out.push({
+      code: 'DOUBLE_MINUS',
+      message: doubleMinus,
+      ...(line === undefined ? {} : { line }),
+      ...(functionName === undefined ? {} : { functionName }),
+    });
+  }
+  const literal = invalidNumberLiteral(expr, isFirestore);
+  if (literal !== undefined) {
+    // Firestore ends the message with a period (capture `k1-paren-min-literal`).
+    const message = invalidNumberLiteralMessage(literal);
+    out.push({
+      code: 'INVALID_NUMBER_LITERAL',
+      message: isFirestore ? `${message}.` : message,
+      ...(line === undefined ? {} : { line }),
+      ...(functionName === undefined ? {} : { functionName }),
+    });
+  }
   if (isFirestore && expr.type === 'methodCall' && expr.method === 'matches' && expr.args.length === 1) {
     const arg = expr.args[0];
     const problem = arg?.type === 'literal' && typeof arg.value === 'string' ? re2PatternProblem(arg.value) : null;
@@ -252,7 +284,61 @@ function pushExpressionViolations(
       });
     }
   }
+  // A negated literal was checked with its sign above.
+  if (isNegatedLiteral(expr, isFirestore)) return;
   for (const child of children(expr)) pushExpressionViolations(out, child, line, isFirestore, functionName);
+}
+
+// ── Int literals past int64 ─────────────────────────────────────────────
+
+type LiteralExpression = Extract<Expression, { type: 'literal' }>;
+type UnaryExpression = Extract<Expression, { type: 'unaryOp' }>;
+
+/**
+ * True for unary minus applied directly to a literal, such as
+ * `-9223372036854775808`. In Firestore a literal in parentheses is not
+ * negated: production refuses `-(9223372036854775808)` with "Invalid number
+ * literal 9223372036854775808." (capture `k1-paren-min-literal`), while
+ * `- 9223372036854775808` compiles (`k4-spaced-negated-min`).
+ */
+function isNegatedLiteral(expr: Expression, isFirestore: boolean): expr is UnaryExpression & { operand: LiteralExpression } {
+  if (expr.type !== 'unaryOp' || expr.op !== '-' || expr.operand.type !== 'literal') return false;
+  const operandParenthesized = parenthesizedGroups(expr.operand) > 0;
+  return !(isFirestore && operandParenthesized);
+}
+
+/** True for unary minus. */
+function isUnaryMinus(expr: Expression): expr is UnaryExpression {
+  return expr.type === 'unaryOp' && expr.op === '-';
+}
+
+/**
+ * Production's refusal of a unary minus applied directly to another one, or
+ * undefined. A minus in parentheses, `-(-1)`, is not applied directly. The
+ * two are one decrement token when the inner minus starts on the same line
+ * at the next column.
+ */
+function doubleMinusMessage(expr: Expression): string | undefined {
+  if (!isUnaryMinus(expr) || !isUnaryMinus(expr.operand)) return undefined;
+  if (parenthesizedGroups(expr.operand) > 0) return undefined;
+  const outer = expressionPosition(expr);
+  const inner = expressionPosition(expr.operand);
+  const sameLine = outer !== undefined && inner !== undefined && outer.line === inner.line;
+  const adjacent = sameLine && inner.column === outer.column + 1;
+  return adjacent ? DECREMENT_MESSAGE : MINUS_AFTER_MINUS_MESSAGE;
+}
+
+/**
+ * The digits of an int literal production refuses with "Invalid number
+ * literal", or undefined. A literal past 9223372036854775807 is refused,
+ * except 9223372036854775808 under unary minus: production compiles
+ * `-9223372036854775808` and evaluates it to the int64 minimum (the
+ * `conversion-functions` and `time-math-and-casts` captures).
+ */
+function invalidNumberLiteral(expr: Expression, isFirestore: boolean): string | undefined {
+  if (isNegatedLiteral(expr, isFirestore)) return outOfRangeLiteral(expr.operand.value, expr.operand.raw, true);
+  if (expr.type === 'literal') return outOfRangeLiteral(expr.value, expr.raw, false);
+  return undefined;
 }
 
 // ── Nesting ─────────────────────────────────────────────────────────────

@@ -6,8 +6,8 @@
     "firestore#transaction-error-codes"
   ],
   "description": "runTransaction client checks: update after reading a missing doc, a read-after-write error the update function swallows, and a read-after-write error it rethrows. Records each error and whether anything was written.",
-  "observedAt": "2026-10-27T19:41:46.740Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:08:18.911Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "updateAfterReadMissing": {

@@ -98,7 +98,7 @@ const DENY_ALL = { rules: { '.read': 'false', '.write': 'false' } };
 describe('oracle conformance (rtdb)', () => {
   // ── round-trips & write equivalence ──────────────────────────────────
 
-  it('rtdb-set-then-get-roundtrip (KNOWN DIVERGENCE: object-key ordering)', async () => {
+  it('rtdb-set-then-get-roundtrip (object-key ordering)', async () => {
     // Prod capture: the written value reads back intact BUT
     // `roundTripEqual: false`. RTDB returns object children in
     // LEXICOGRAPHIC key order, so a `JSON.stringify(payload) ===
@@ -106,10 +106,9 @@ describe('oracle conformance (rtdb)', () => {
     // differs even though the value is structurally identical (the
     // recorded readBack keys — count, hello, ok — are sorted).
     //
-    // The sandbox (src/database/sandbox/data-tree.ts) PRESERVES insertion
-    // order on read-back, so the same stringify round-trip is `true`. Pin
-    // BOTH sides so neither drifts unnoticed: the value round-trips (the
-    // environment-independent fact), and the key-ordering divergence.
+    // The sandbox's `val()` builds keys in priority, then key order, as
+    // production does (hunt finding RT-7, #1371). This test pinned the
+    // sandbox keeping insertion order before that fix.
     const obs = load('rtdb-set-then-get-roundtrip.json');
     const { db } = setup();
     // Write with a deliberately NON-sorted insertion order (hello, count, ok).
@@ -123,9 +122,8 @@ describe('oracle conformance (rtdb)', () => {
     // Prod (the target): a stringify round-trip is FALSE because RTDB
     // reorders keys lexicographically.
     expect(obs.roundTripEqual).toBe(false);
-    // Sandbox today: keys keep insertion order → stringify round-trip is TRUE.
-    expect(Object.keys(readBack)).toEqual(['hello', 'count', 'ok']);
-    expect(JSON.stringify(payload) === JSON.stringify(readBack)).toBe(true);
+    expect(Object.keys(readBack)).toEqual(Object.keys(obs.readBack as Record<string, unknown>));
+    expect(JSON.stringify(payload) === JSON.stringify(readBack)).toBe(obs.roundTripEqual as boolean);
   });
 
   it('rtdb-remove-vs-set-null', async () => {
@@ -332,25 +330,21 @@ describe('oracle conformance (rtdb)', () => {
 
   it('rtdb-simulator-vs-prod-agreement (CONFORMS: `.validate` now enforced)', async () => {
     // Prod capture: an allow/deny audit of the pyric rule simulator vs
-    // live RTDB across 29 ops found 28 agreements and exactly 1
-    // disagreement — `r4-validate-structure`'s "missing body denied": prod
-    // DENIES the write (its `.validate` fails) while the simulator at
-    // capture time ALLOWED it (it evaluated only `.write`). The sandbox
-    // now runs the `.validate` walk on writes, closing the divergence; the
-    // frozen audit facts below document the historical disagreement.
+    // live RTDB across 29 ops. An earlier capture found one disagreement,
+    // `r4-validate-structure`'s "missing body denied": prod DENIES the write
+    // (its `.validate` fails) while the simulator then ALLOWED it (it
+    // evaluated only `.write`). The sandbox now runs the `.validate` walk on
+    // writes, and the #1676 re-capture records all 29 ops agreeing.
     const obs = load('rtdb-simulator-vs-prod-agreement.json');
-    // Environment-independent audit facts recorded against the sandbox's
-    // own simulator.
     expect(obs.totalOps).toBe(29);
-    expect(obs.agreements).toBe(28);
-    expect(obs.disagreements).toBe(1);
-    const divs = obs.divergences as Array<Record<string, unknown>>;
-    expect(divs.length).toBe(1);
-    expect(divs[0]!.ruleId).toBe('r4-validate-structure');
-    expect(divs[0]!.operation).toBe('write');
-    expect(divs[0]!.prodAllowed).toBe(false); // prod: validate denies
-    expect(divs[0]!.simAllowed).toBe(true); // sandbox sim: allows
-    expect(divs[0]!.agree).toBe(false);
+    expect(obs.agreements).toBe(29);
+    expect(obs.disagreements).toBe(0);
+    expect(obs.divergences as unknown[]).toEqual([]);
+    const results = obs.allResults as Array<Record<string, unknown>>;
+    const missingBody = results.find((r) => r.ruleId === 'r4-validate-structure' && r.prodAllowed === false && r.operation === 'write');
+    expect(missingBody).toBeDefined();
+    expect(missingBody!.simAllowed).toBe(false); // sandbox sim: validate denies, as prod does
+    expect(missingBody!.agree).toBe(true);
 
     // Replay the once-divergent case live through the sandbox write path
     // (same rule engine the audit exercised): a `.validate`-requiring rule

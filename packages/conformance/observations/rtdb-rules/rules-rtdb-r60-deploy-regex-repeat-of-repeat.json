@@ -5,8 +5,8 @@
     "rtdb-rules#49"
   ],
   "description": "RTDB rules deploy verdicts for corpus scenario \"r60-deploy-regex-repeat-of-repeat\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. pyric refuses a pattern expanding past 200,000 matcher states; production has no recorded verdict for it.",
-  "observedAt": "2026-10-27T02:31:58.358Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.257Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "a repeat of a repeat, (a{1000}){1000}": {

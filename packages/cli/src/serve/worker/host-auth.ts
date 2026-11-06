@@ -18,10 +18,11 @@
  * imports).
  */
 
-import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush, clearRtdbSessionHandles } from './host-context.js';
+import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush, clearRtdbSessionHandles, hostProjectId } from './host-context.js';
 import {
   deleteUser,
   getAuth,
+  reload,
   sandbox as authSandboxOps,
   updateEmail,
   updatePassword,
@@ -29,7 +30,6 @@ import {
   type MintedSession,
 } from 'pyric/auth';
 import {
-  serializeUser,
   type OpMessage,
   type AuthSubMessage,
 } from './protocol.js';
@@ -40,9 +40,11 @@ import {
   remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
+  serializeSessionUser as serializeUser,
 } from './host/auth-session-seeder.js';
 import { signInWithCredentialPayload, type CredentialPayload } from './host/auth-credential-sign-in.js';
-import { rulesTokenFromIdToken } from 'pyric/sandbox/internal';
+import { getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
+import { sessionKeyOf } from 'pyric/auth/internal';
 
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
@@ -119,6 +121,9 @@ export function portOriginScope(port: PortLike): { origin?: string } {
 export function ensureAuth(ctx: HostCtx): Auth {
   if (ctx.auth) return ctx.auth;
   ctx.auth = getAuth(ctx.sandbox);
+  // Minted ID tokens name the served project in `iss` and `aud`, as the
+  // page's in-page plane does from `app.options.projectId`.
+  authSandboxOps.setProjectIdSource(ctx.auth, () => hostProjectId(ctx));
   if (ctx.sessionMode === undefined) ctx.sessionMode = 'LOCAL';
   return ctx.auth;
 }
@@ -207,6 +212,19 @@ function setPortSession(
 
 export { setPortSession };
 
+/**
+ * `@firebase/auth`'s `_logoutIfInvalidated` for one port: a refresh or an
+ * account lookup refused with `auth/user-disabled` or `auth/user-token-expired`
+ * signs the port's user out, so the page's auth listeners see null, before
+ * the error reaches the caller.
+ */
+function signOutPortIfInvalidated(ctx: HostCtx, port: PortLike, error: unknown): void {
+  const code = (error as { code?: unknown } | null)?.code;
+  const invalidated = code === 'auth/user-disabled' || code === 'auth/user-token-expired';
+  const hasSession = portSession(ctx, port) !== null;
+  if (invalidated && hasSession) setPortSession(ctx, port, null);
+}
+
 /** Reconcile every connected port's session with `ctx.auth` after a full-state reset, import, or restore. */
 export function reconcilePortSessions(ctx: HostCtx): Set<PortLike> {
   ctx.sessionDbs?.clear();
@@ -215,29 +233,50 @@ export function reconcilePortSessions(ctx: HostCtx): Set<PortLike> {
   const changed = new Set<PortLike>();
   if (!ctx.portSessions || ctx.portSessions.size === 0) return changed;
   const auth = ensureAuth(ctx);
-  const usersByUid = new Map(authSandboxOps.listUsers(auth).map((u) => [u.uid, u]));
   for (const [port, session] of [...ctx.portSessions]) {
     if (session === null) continue;
-    const record = usersByUid.get(session.user.uid);
-    if (!record || record.disabled) {
-      setPortSession(ctx, port, null, { skipResubscribe: true });
-      changed.add(port);
-      continue;
-    }
-    const providerClaim = (session.state.token?.firebase as { sign_in_provider?: string } | undefined)?.sign_in_provider;
-    const kind = providerClaim === 'custom' ? 'custom' : 'uid';
-    const refreshed = authSandboxOps.mintSession(auth, {
-      kind,
-      uid: session.user.uid,
-      tenantId: session.user.tenantId ?? null,
-    });
+    const refreshed = reconciledSession(auth, session);
     setPortSession(ctx, port, refreshed, { skipResubscribe: true });
     changed.add(port);
   }
   return changed;
 }
 
-/** Apply a forced ID-token refresh to this port's data authorization state. */
+/**
+ * A port session minted again from the account store, or null to sign the
+ * port out. The mint is a refresh-token exchange: a missing account, or one
+ * the refresh check refuses (disabled, deleted, or revoked after the session
+ * authenticated), signs the port out.
+ */
+function reconciledSession(auth: Auth, session: MintedSession): MintedSession | null {
+  const providerClaim = (session.state.token?.firebase as { sign_in_provider?: string } | undefined)?.sign_in_provider;
+  const kind = providerClaim === 'custom' ? 'custom' : 'uid';
+  try {
+    return authSandboxOps.mintSession(auth, {
+      kind,
+      uid: session.user.uid,
+      tenantId: session.user.tenantId ?? null,
+      from: session.user,
+    });
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    const signsOut = code === 'auth/user-not-found' || code === 'auth/user-disabled' || code === 'auth/user-token-expired';
+    if (signsOut) return null;
+    throw error;
+  }
+}
+
+/**
+ * Whether this port's session holds a token past its refresh point, so the
+ * read it just made minted a new one (or returned one a sibling port with the
+ * same identity minted). A sign-in on another port does not count: this
+ * port's own token is still current.
+ */
+function sessionTokenExpired(ctx: HostCtx, session: MintedSession): boolean {
+  return isPastIdTokenRefreshPoint(session.state.token, getClock(ctx.sandbox).now());
+}
+
+/** Apply a refreshed ID token to this port's data authorization state. */
 function refreshPortAuthorization(
   ctx: HostCtx,
   port: PortLike,
@@ -342,8 +381,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         let session: MintedSession | null = null;
         try {
+          // A reload hands back the key of the session the page held, which
+          // resumes it with the authentication time it had (#1950).
           session = authSandboxOps.mintSession(auth, {
-            kind: 'uid', uid: msg.uid, tenantId, ...portOriginScope(port),
+            kind: 'uid', uid: msg.uid, tenantId, restore: { sessionKey: msg.sessionKey }, ...portOriginScope(port),
           });
         } catch {
           session = null;
@@ -360,14 +401,14 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = requirePortSession(portSession(ctx, port), 'getIdToken');
         const user = session.user;
-        const token = await user.getIdToken(msg.forceRefresh);
-        const refreshesClaims = msg.forceRefresh === true;
-        if (refreshesClaims) {
-          const result = await user.getIdTokenResult(false);
-          refreshPortAuthorization(ctx, port, session, result.claims);
-        }
-        ok(port, msg.id, token);
-      } catch (e) { fail(port, msg.id, e); }
+        const result = await user.getIdTokenResult(msg.forceRefresh);
+        const refreshesClaims = msg.forceRefresh === true || sessionTokenExpired(ctx, session);
+        if (refreshesClaims) refreshPortAuthorization(ctx, port, session, result.claims);
+        ok(port, msg.id, result.token);
+      } catch (e) {
+        signOutPortIfInvalidated(ctx, port, e);
+        fail(port, msg.id, e);
+      }
       break;
     }
 
@@ -376,7 +417,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const session = requirePortSession(portSession(ctx, port), 'getIdTokenResult');
         const user = session.user;
         const r = await user.getIdTokenResult(msg.forceRefresh);
-        const refreshesClaims = msg.forceRefresh === true;
+        const refreshesClaims = msg.forceRefresh === true || sessionTokenExpired(ctx, session);
         if (refreshesClaims) refreshPortAuthorization(ctx, port, session, r.claims);
         ok(port, msg.id, {
           token: r.token,
@@ -386,7 +427,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           authTime: r.authTime,
           signInProvider: r.signInProvider ?? null,
         });
-      } catch (e) { fail(port, msg.id, e); }
+      } catch (e) {
+        signOutPortIfInvalidated(ctx, port, e);
+        fail(port, msg.id, e);
+      }
       break;
     }
 
@@ -439,10 +483,16 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.reload': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'reload');
+        // The account lookup answers a deleted or disabled account as the
+        // engine's reload does, before the session is minted again.
+        await reload(session.user);
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         ok(port, msg.id, serializeUser(freshSession.user));
-      } catch (e) { fail(port, msg.id, e); }
+      } catch (e) {
+        signOutPortIfInvalidated(ctx, port, e);
+        fail(port, msg.id, e);
+      }
       break;
     }
 
@@ -498,10 +548,16 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           ok(port, msg.id, null);
         } else {
           const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
+          // The user's session continues: the one its key names, or this
+          // port's own when it holds the uid. Without either the session has
+          // no sign-in time of its own, so a revocation refuses it (#1950).
+          const held = portSession(ctx, port)?.user;
+          const heldKey = held?.uid === uid ? sessionKeyOf(held) : undefined;
           const freshSession = authSandboxOps.mintSession(auth, {
             kind: 'uid',
             uid,
             tenantId,
+            restore: { sessionKey: msg.sessionKey ?? heldKey },
           });
           setPortSession(ctx, port, freshSession);
           ok(port, msg.id, serializeUser(freshSession.user));
@@ -554,9 +610,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           throw new Error('auth.signInWithCredential requires credential payload or providerId');
         }
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
+        const takeStaged = (providerId: string) => stagedSignInResultsFor(ctx).take(port, providerId);
         const { session, providerId, isNewUser } = signInWithCredentialPayload(auth, cred, {
           tenantId, ...portOriginScope(port),
-        });
+        }, takeStaged);
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, providerId, isNewUser));

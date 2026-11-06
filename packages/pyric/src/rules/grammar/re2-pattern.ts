@@ -146,37 +146,6 @@ function re2SpaceEscape(escape: string, inClass: boolean, unicode: boolean): str
 }
 
 /**
- * Spell RE2's `.` as `[^\n]` in a JS RegExp source. A JS `.` also skips
- * `\r`, U+2028 and U+2029; RE2's `.` skips only `\n`. The 2026-10-28 capture
- * `re2-pattern-semantics` shows production's `split()` and `replace()` match
- * `\r` with `.`. Under `(?s)` (`dotAll`) a JS `.` with the `s` flag already
- * matches everything, as RE2's does, so the source is left alone.
- *
- * `source` is already normalized by `normalizeRe2ForJsRegExp`, as for
- * `spellRe2SpaceClasses`.
- */
-export function spellRe2Dot(source: string, dotAll: boolean): string {
-  if (dotAll) return source;
-  let out = '';
-  let inClass = false;
-  let i = 0;
-  while (i < source.length) {
-    const ch = source[i]!;
-    if (ch === '\\' && i + 1 < source.length) {
-      out += source.slice(i, i + 2);
-      i += 2;
-      continue;
-    }
-    if (ch === '[') inClass = true;
-    else if (ch === ']') inClass = false;
-    const isDot = ch === '.' && !inClass;
-    out += isDot ? '[^\\n]' : ch;
-    i++;
-  }
-  return out;
-}
-
-/**
  * Scan an RE2 pattern for the constructs JavaScript accepts and RE2 rejects
  * (a backreference, a lookaround), and collect its inline flags (`(?i)`,
  * `(?m)`, `(?s)`, and their scoped forms) as JavaScript RegExp flags.
@@ -267,4 +236,95 @@ export function spellRe2PropertyShorthand(source: string): string {
     i += isShorthand ? 3 : 2;
   }
   return out;
+}
+
+/**
+ * RE2's POSIX classes, each as code point ranges. They are ASCII only, as
+ * RE2's are: `[[:alpha:]]` is `[A-Za-z]`.
+ */
+const RE2_POSIX_CLASSES: Readonly<Record<string, ReadonlyArray<readonly [number, number]>>> = {
+  alnum: [[0x30, 0x39], [0x41, 0x5a], [0x61, 0x7a]],
+  alpha: [[0x41, 0x5a], [0x61, 0x7a]],
+  ascii: [[0x00, 0x7f]],
+  blank: [[0x09, 0x09], [0x20, 0x20]],
+  cntrl: [[0x00, 0x1f], [0x7f, 0x7f]],
+  digit: [[0x30, 0x39]],
+  graph: [[0x21, 0x7e]],
+  lower: [[0x61, 0x7a]],
+  print: [[0x20, 0x7e]],
+  punct: [[0x21, 0x2f], [0x3a, 0x40], [0x5b, 0x60], [0x7b, 0x7e]],
+  space: [[0x09, 0x0d], [0x20, 0x20]],
+  upper: [[0x41, 0x5a]],
+  word: [[0x30, 0x39], [0x41, 0x5a], [0x5f, 0x5f], [0x61, 0x7a]],
+  xdigit: [[0x30, 0x39], [0x41, 0x46], [0x61, 0x66]],
+};
+
+export interface Re2PosixClass {
+  /** The source length of `[:name:]` or `[:^name:]`. */
+  length: number;
+  ranges: ReadonlyArray<readonly [number, number]>;
+}
+
+/**
+ * The POSIX class `[:name:]` or `[:^name:]` starting at `pos` inside a
+ * bracket class, or null. A negated one holds every code point the named
+ * one does not.
+ */
+export function re2PosixClassAt(source: string, pos: number): Re2PosixClass | null {
+  const found = /^\[:(\^?)([a-z]+):\]/.exec(source.slice(pos, pos + 12));
+  if (found === null) return null;
+  const ranges = RE2_POSIX_CLASSES[found[2]!];
+  if (ranges === undefined) return null;
+  return { length: found[0].length, ranges: found[1] === '^' ? complementRanges(ranges) : ranges };
+}
+
+function complementRanges(ranges: ReadonlyArray<readonly [number, number]>): Array<readonly [number, number]> {
+  const out: Array<readonly [number, number]> = [];
+  let next = 0;
+  for (const [lo, hi] of ranges) {
+    if (lo > next) out.push([next, lo - 1]);
+    next = hi + 1;
+  }
+  out.push([next, 0x10ffff]);
+  return out;
+}
+
+/**
+ * Spell RE2's POSIX classes inside a bracket class as ranges a JavaScript
+ * RegExp reads: `[[:alpha:]]` as `[\x41-\x5a\x61-\x7a]`. A JavaScript engine
+ * reads `[[:alpha:]]` as the set `[:alph` followed by a literal `]`. The
+ * 2026-10-27 capture `re2-pattern-semantics` and the 2026-11-04 captures
+ * `c1-re2-replace-split` (`px0`) and `c9-re2-more` (`px2`) show production
+ * reads them as classes. `unicode` says whether the RegExp has the `u`
+ * flag; without it a range stops at U+FFFF.
+ */
+export function spellRe2PosixClasses(source: string, unicode: boolean): string {
+  let out = '';
+  let inClass = false;
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === '\\' && i + 1 < source.length) {
+      out += source.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    const posix = inClass ? re2PosixClassAt(source, i) : null;
+    if (posix !== null) {
+      out += posix.ranges.map(([lo, hi]) => `${classMember(lo, unicode)}-${classMember(hi, unicode)}`).join('');
+      i += posix.length;
+      continue;
+    }
+    if (ch === '[') inClass = true;
+    else if (ch === ']') inClass = false;
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+function classMember(codePoint: number, unicode: boolean): string {
+  if (codePoint <= 0xff) return `\\x${codePoint.toString(16).padStart(2, '0')}`;
+  if (unicode) return `\\u{${codePoint.toString(16)}}`;
+  return `\\u${Math.min(codePoint, 0xffff).toString(16).padStart(4, '0')}`;
 }

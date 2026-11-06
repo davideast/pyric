@@ -1,158 +1,115 @@
 /**
- * Modular token decoders for `pyric-admin/auth` verification.
- * Each decoder strategy isolates prefix detection and claim decoding
- * for one recognized token format.
+ * The ID token check behind `pyric-admin/auth` `verifyIdToken`.
+ *
+ * The only token that verifies is the JWT pyric's Auth mints
+ * (`pyric/sandbox/internal` `mintIdToken`), checked by the shared
+ * {@link checkIdToken} and then by firebase-admin 13.10.0's rules, in its
+ * order (lib/auth/token-verifier.js `verifyContent` and `verifySignature`,
+ * lib/utils/jwt.js, and jsonwebtoken's `nbf` and `exp`). A plain string, or
+ * the client token shape from before #1836, fails to decode, and a custom
+ * token is refused as one, as in production (#1949, #1952).
  */
+import { checkIdToken, CUSTOM_TOKEN_AUDIENCE } from 'pyric/sandbox/internal';
 import type { DecodedIdToken } from './types.js';
 
+const ID_TOKEN_ISSUER = 'https://securetoken.google.com/';
+const MAX_SUBJECT_LENGTH = 128;
+
+const DOCS = ' See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token.';
+const PROJECT_MATCH = ' Make sure the ID token comes from the same Firebase project as the service account used to authenticate this SDK.';
+
+const MESSAGES = {
+  decode: `Decoding Firebase ID token failed. Make sure you passed the entire string JWT which represents an ID token.${DOCS}`,
+  customToken: `verifyIdToken() expects an ID token, but was given a custom token.${DOCS}`,
+  legacyCustomToken: `verifyIdToken() expects an ID token, but was given a legacy custom token.${DOCS}`,
+  noKid: `Firebase ID token has no "kid" claim.${DOCS}`,
+  algorithm: (alg: unknown) => `Firebase ID token has incorrect algorithm. Expected "RS256" but got "${String(alg)}".${DOCS}`,
+  audience: (projectId: string, aud: unknown) =>
+    `Firebase ID token has incorrect "aud" (audience) claim. Expected "${projectId}" but got "${String(aud)}".${PROJECT_MATCH}${DOCS}`,
+  issuer: (projectId: string, iss: unknown) =>
+    `Firebase ID token has incorrect "iss" (issuer) claim. Expected "${ID_TOKEN_ISSUER}${projectId}" but got "${String(iss)}".${PROJECT_MATCH}${DOCS}`,
+  noSub: `Firebase ID token has no "sub" (subject) claim.${DOCS}`,
+  emptySub: `Firebase ID token has an empty "sub" (subject) claim.${DOCS}`,
+  longSub: `Firebase ID token has a "sub" (subject) claim longer than 128 characters.${DOCS}`,
+  unknownKid:
+    'Firebase ID token has "kid" claim which does not correspond to a known public key. Most likely the ID token is expired, so get a fresh token from your client app and try again.',
+  signature: `Firebase ID token has invalid signature.${DOCS}`,
+  expired: `Firebase ID token has expired. Get a fresh ID token from your client app and try again (auth/id-token-expired).${DOCS}`,
+};
+
+/** The two codes an ID token check fails with. */
+export type IdTokenFailureCode = 'argument-error' | 'id-token-expired';
+
+export type IdTokenVerdict =
+  | { ok: true; token: DecodedIdToken }
+  | { ok: false; code: IdTokenFailureCode; message: string };
+
+type Claims = Readonly<Record<string, unknown>>;
+
+function refused(message: string): IdTokenVerdict {
+  return { ok: false, code: 'argument-error', message };
+}
+
+/** token-verifier.js: a missing `kid` names a custom token, a legacy custom token, or neither. */
+function missingKidMessage(header: Claims, claims: Claims): string {
+  if (claims.aud === CUSTOM_TOKEN_AUDIENCE) return MESSAGES.customToken;
+  const legacyData = claims.d;
+  const isLegacyCustomToken =
+    header.alg === 'HS256' && claims.v === 0 && typeof legacyData === 'object' && legacyData !== null && 'uid' in legacyData;
+  if (isLegacyCustomToken) return MESSAGES.legacyCustomToken;
+  return MESSAGES.noKid;
+}
+
+/** Auth blocking events with no user record, whose `sub` firebase-admin leaves unchecked. */
+function skipsSubjectCheck(claims: Claims): boolean {
+  return claims.event_type === 'beforeSendSms' || claims.event_type === 'beforeSendEmail';
+}
+
+function subjectMessage(sub: unknown): string | undefined {
+  if (typeof sub !== 'string') return MESSAGES.noSub;
+  if (sub === '') return MESSAGES.emptySub;
+  if (sub.length > MAX_SUBJECT_LENGTH) return MESSAGES.longSub;
+  return undefined;
+}
+
+/** token-verifier.js `verifyContent`: `kid`, `alg`, `aud`, `iss`, then `sub`; the first failure wins. */
+function contentMessage(header: Claims, claims: Claims, projectId: string): string | undefined {
+  if (header.kid === undefined) return missingKidMessage(header, claims);
+  if (header.alg !== 'RS256') return MESSAGES.algorithm(header.alg);
+  if (claims.aud !== projectId) return MESSAGES.audience(projectId, claims.aud);
+  if (claims.iss !== `${ID_TOKEN_ISSUER}${projectId}`) return MESSAGES.issuer(projectId, claims.iss);
+  if (skipsSubjectCheck(claims)) return undefined;
+  return subjectMessage(claims.sub);
+}
+
+/** jsonwebtoken's `nbf` rule, which runs before `exp`; firebase-admin reports a failure as an invalid signature. */
+function isNotYetValid(nbf: unknown, nowSec: number): boolean {
+  if (nbf === undefined) return false;
+  return typeof nbf !== 'number' || nbf > nowSec;
+}
+
+/** jsonwebtoken's `exp` rule: an absent `exp` never expires, and a non-number is an invalid signature. */
+function expiryVerdict(exp: unknown, nowSec: number): IdTokenVerdict | undefined {
+  if (exp === undefined) return undefined;
+  if (typeof exp !== 'number') return refused(MESSAGES.signature);
+  const hasExpired = nowSec >= exp;
+  if (hasExpired) return { ok: false, code: 'id-token-expired', message: MESSAGES.expired };
+  return undefined;
+}
+
 /**
- * Token format minted by `createCustomToken` and parsed by
- * `verifyIdToken`. Exported as a constant so tests can lock the shape.
- *
- * Layout: `pyric-sandbox-custom:${uid}:${jsonClaims}`
- *
- * - The prefix lets `verifyIdToken` reject foreign tokens with a clear
- *   "not a sandbox token" error rather than NaN'ing out.
- * - `uid` is colon-free per the auto-uid format above.
- * - `jsonClaims` is the JSON-stringified developer claims (or `{}` when
- *   none were provided). Round-trips losslessly through `JSON.parse`.
- *
- * NOT a JWT. NOT signed. Do not use this token format to talk to any
- * real Firebase service — it only round-trips through this same
- * sandbox backend.
+ * Checks an ID token for `projectId` at `nowSec`, in firebase-admin's order:
+ * decoding, the content rules, the key and signature, then `nbf` and `exp`.
  */
-export const SANDBOX_TOKEN_PREFIX = 'pyric-sandbox-custom';
-
-export interface TokenDecoder {
-  readonly name: string;
-  readonly prefix: string;
-  decode(token: string, nowSec: number): DecodedIdToken;
+export async function checkClientIdToken(idToken: string, projectId: string, nowSec: number): Promise<IdTokenVerdict> {
+  const check = await checkIdToken(idToken);
+  if (!check.ok && check.reason === 'malformed') return refused(MESSAGES.decode);
+  const contentFailure = contentMessage(check.header, check.claims, projectId);
+  if (contentFailure !== undefined) return refused(contentFailure);
+  if (!check.ok) return refused(check.reason === 'kid' ? MESSAGES.unknownKid : MESSAGES.signature);
+  if (isNotYetValid(check.claims.nbf, nowSec)) return refused(MESSAGES.signature);
+  const expired = expiryVerdict(check.claims.exp, nowSec);
+  if (expired !== undefined) return expired;
+  const token = { ...check.claims, uid: check.claims.sub } as DecodedIdToken;
+  return { ok: true, token };
 }
-
-function resolveStringClaim(claims: Record<string, unknown>, key: string, fallback: string): string {
-  const val = claims[key];
-  const hasStringValue = typeof val === 'string';
-  return hasStringValue ? val : fallback;
-}
-
-function resolveNumberClaim(claims: Record<string, unknown>, key: string, fallback: number): number {
-  const val = claims[key];
-  const hasNumberValue = typeof val === 'number';
-  return hasNumberValue ? val : fallback;
-}
-
-function resolveUid(idToken: string, firstColon: number, claims: Record<string, unknown>): string {
-  const rawSub = claims['sub'];
-  const hasExplicitSubjectClaim = typeof rawSub === 'string';
-  if (hasExplicitSubjectClaim) {
-    return rawSub;
-  }
-  const prefixSegment = idToken.slice('sandbox-id-token-'.length, firstColon);
-  const lastHyphen = prefixSegment.lastIndexOf('-');
-  const hasHyphenatedSerialSuffix = lastHyphen > 0;
-  if (hasHyphenatedSerialSuffix) {
-    return prefixSegment.slice(0, lastHyphen);
-  }
-  return prefixSegment;
-}
-
-function resolveFirebaseClaim(
-  claims: Record<string, unknown>,
-): { identities: Record<string, unknown>; sign_in_provider: string } {
-  const rawFirebase = claims['firebase'];
-  const isMissingFirebaseClaim = !rawFirebase || typeof rawFirebase !== 'object';
-  if (isMissingFirebaseClaim) {
-    return { identities: {}, sign_in_provider: 'custom' };
-  }
-  const fb = rawFirebase as Record<string, unknown>;
-  const signInProvider = resolveStringClaim(fb, 'sign_in_provider', 'custom');
-  const rawIdentities = fb['identities'];
-  const isMissingIdentitiesMap = !rawIdentities || typeof rawIdentities !== 'object';
-  if (isMissingIdentitiesMap) {
-    return { identities: {}, sign_in_provider: signInProvider };
-  }
-  return { identities: rawIdentities as Record<string, unknown>, sign_in_provider: signInProvider };
-}
-
-const customTokenDecoder: TokenDecoder = {
-  name: 'custom-token',
-  prefix: `${SANDBOX_TOKEN_PREFIX}:`,
-  decode(idToken: string, nowSec: number): DecodedIdToken {
-    const firstColon = idToken.indexOf(':');
-    const secondColon = idToken.indexOf(':', firstColon + 1);
-    const isMissingClaimsSegment = secondColon < 0;
-    if (isMissingClaimsSegment) {
-      throw new Error(
-        `pyric-admin/auth: verifyIdToken received a malformed sandbox token (missing claims segment): ${idToken}`,
-      );
-    }
-    const uid = idToken.slice(firstColon + 1, secondColon);
-    const jsonClaims = idToken.slice(secondColon + 1);
-    let claims: Record<string, unknown>;
-    try {
-      claims = JSON.parse(jsonClaims) as Record<string, unknown>;
-    } catch (e) {
-      throw new Error(
-        `pyric-admin/auth: verifyIdToken failed to parse sandbox token claims as JSON: ${(e as Error).message}`,
-      );
-    }
-    return {
-      aud: 'pyric-sandbox',
-      auth_time: nowSec,
-      exp: nowSec + 3600,
-      firebase: {
-        identities: {},
-        sign_in_provider: 'custom',
-      },
-      iat: nowSec,
-      iss: 'pyric-sandbox',
-      sub: uid,
-      uid,
-      ...claims,
-    };
-  },
-};
-
-const clientIdTokenDecoder: TokenDecoder = {
-  name: 'client-id-token',
-  prefix: 'sandbox-id-token-',
-  decode(idToken: string, nowSec: number): DecodedIdToken {
-    const firstColon = idToken.indexOf(':');
-    const isMissingClaimsSegment = firstColon < 0;
-    if (isMissingClaimsSegment) {
-      throw new Error(
-        `pyric-admin/auth: verifyIdToken received a malformed client ID token (missing claims segment after colon): ${idToken}`,
-      );
-    }
-    const jsonClaims = idToken.slice(firstColon + 1);
-    let claims: Record<string, unknown>;
-    try {
-      claims = JSON.parse(jsonClaims) as Record<string, unknown>;
-    } catch (e) {
-      throw new Error(
-        `pyric-admin/auth: verifyIdToken failed to parse client ID token claims as JSON: ${(e as Error).message}`,
-      );
-    }
-    const uid = resolveUid(idToken, firstColon, claims);
-    const aud = resolveStringClaim(claims, 'aud', 'pyric-sandbox');
-    const iss = resolveStringClaim(claims, 'iss', 'https://sandbox.pyric.dev');
-    const exp = resolveNumberClaim(claims, 'exp', nowSec + 3600);
-    const iat = resolveNumberClaim(claims, 'iat', nowSec);
-    const authTime = resolveNumberClaim(claims, 'auth_time', nowSec);
-    const firebase = resolveFirebaseClaim(claims);
-
-    return {
-      ...claims,
-      aud,
-      auth_time: authTime,
-      exp,
-      firebase,
-      iat,
-      iss,
-      sub: uid,
-      uid,
-    };
-  },
-};
-
-export const TOKEN_DECODERS: TokenDecoder[] = [customTokenDecoder, clientIdTokenDecoder];

@@ -21,14 +21,20 @@ const CHECK_SET_JOBS: Record<PrCheckSet, readonly string[]> = {
   'docs-only': [],
 };
 
+const PACK_JOB = 'pack-packages';
+
 export function requiredFailures(input: RequiredInput): string[] {
   const required = [
     ...CHECK_SET_JOBS[input.checkSet],
     ...(input.requirePackaging ? ['packaging', 'install-matrix', 'standalone', 'release-contract'] : []),
     ...(input.requireRtdbDifferential ? ['rtdb-differential'] : []),
-    ...(input.requireAppScenarios ? ['app-scenarios'] : []),
+    // The Node 24.16 stop job runs with the app scenarios, on the same tarballs.
+    ...(input.requireAppScenarios ? ['app-scenarios', 'node-24-stop'] : []),
     ...(input.requireDeletionGuard ? ['deletion-guard'] : []),
   ];
+  // The app scenarios and the packaging gate test the tarballs the one pack
+  // job made, so either one requires that pack to have succeeded.
+  if (input.requirePackaging || input.requireAppScenarios) required.push(PACK_JOB);
   return required.flatMap((job) => input.results[job] === 'success'
     ? []
     : [`${job}: ${input.results[job] ?? 'missing'}`]);

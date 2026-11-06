@@ -22,6 +22,21 @@ import {
   getGenerativeModel,
 } from '../../src/ai/index.js';
 import { encodeSse, script } from '../../src/ai/scripting.js';
+import { CustomProvider, initializeAppCheck } from '../../src/app-check/index.js';
+import type { FirebaseApp } from '../../src/app/types.js';
+import { mintAppCheckToken } from '../../src/sandbox/internal/app-check-token.js';
+
+/**
+ * The sandbox refuses AI Logic requests without an App Check token
+ * (app-check-gate.test.ts), so App Check comes before getAI(app). Bun has no
+ * `document` for reCAPTCHA, so the app attests with a CustomProvider whose
+ * tokens the sandbox signs.
+ */
+function withAppCheck(app: FirebaseApp): FirebaseApp {
+  const { appId = '', projectId = '' } = app.options as { appId?: string; projectId?: string };
+  initializeAppCheck(app, { provider: new CustomProvider({ getToken: () => mintAppCheckToken({ appId, projectId }, 3600) }) });
+  return app;
+}
 
 const MODEL = 'gemini-flash-lite-latest';
 
@@ -66,8 +81,8 @@ describe('getAI instance identity', () => {
     const appA = createAppForSandbox(sandbox, { projectId: 'shared-ai' }, 'ai-a');
     const appB = createAppForSandbox(sandbox, { projectId: 'shared-ai' }, 'ai-b');
     try {
-      const aiA = getAI(appA);
-      const aiB = getAI(appB);
+      const aiA = getAI(withAppCheck(appA));
+      const aiB = getAI(withAppCheck(appB));
       expect(aiA).not.toBe(aiB);
       script(aiA, [{ respond: { text: 'shared backend response' } }]);
       const result = await getGenerativeModel(aiB, { model: MODEL }).generateContent('hello');
@@ -332,7 +347,7 @@ describe('sandbox app target', () => {
       { projectId: 'ai-test' },
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
-    const ai = getAI(app);
+    const ai = getAI(withAppCheck(app));
     script(ai, [{ respond: { text: 'sandbox says hi' } }]);
     const realFetch = globalThis.fetch;
     (globalThis as any).fetch = (input: unknown) => {
@@ -374,7 +389,7 @@ describe('pyric/ai/scripting', () => {
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
     try {
-      const ai = getAI(app);
+      const ai = getAI(withAppCheck(app));
       script(ai, [{ respond: { text: 'x' } }]);
       const model = getGenerativeModel(ai, { model: MODEL });
       expect((await model.generateContent('hello')).response.text()).toBe('x');

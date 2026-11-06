@@ -35,6 +35,7 @@ import type {
   SandboxClockState,
   SandboxEvent,
   AnyDenialContext,
+  ObservedCall,
 } from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
 import type {
@@ -58,6 +59,17 @@ export type AiEngineConfigWire =
       modelMap?: Record<string, string>;
     }
   | { kind: 'gemini'; baseUrl?: string; apiKey?: string };
+
+/**
+ * The App Check claim an AI request from an app-backed handle carries, as
+ * production reads `X-Firebase-AppCheck`: a token, or `null` when the handle
+ * has none. The worker broker refuses a request whose claim has no valid
+ * sandbox token. Requests from handles with no app send no claim and are not
+ * gated.
+ */
+export interface AiAppCheckWire {
+  token: string | null;
+}
 
 /**
  * Wire form of the Gemini error envelope an `AiBrokerError` carries.
@@ -188,7 +200,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.deleteUser' }
   | { t: 'op'; id: string; method: 'auth.updateEmail'; email?: string; newEmail?: string; uid?: string }
   | { t: 'op'; id: string; method: 'auth.updatePassword'; password?: string; newPassword?: string; uid?: string }
-  | { t: 'op'; id: string; method: 'auth.updateCurrentUser'; uid: string | null; tenantId?: string | null }
+  | { t: 'op'; id: string; method: 'auth.updateCurrentUser'; uid: string | null; tenantId?: string | null; sessionKey?: string }
   | {
       t: 'op';
       id: string;
@@ -234,7 +246,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.checkActionCode'; code: string }
   | { t: 'op'; id: string; method: 'auth.verifyPasswordResetCode'; code: string }
   | { t: 'op'; id: string; method: 'auth.confirmPasswordReset'; code: string; newPassword: string }
-  | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
+  | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null; sessionKey?: string }
   | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity; tenantId?: string | null }
   // Stage the identity the port's next federated `signInWithCredential` for
   // `identity.providerId` signs in as (served `sandbox.mockSignInResult`).
@@ -295,8 +307,8 @@ export type OpMessage = (
    */
   | ({ t: 'op'; id: string; method: 'storage.createUploadSession'; path: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string; origin?: string } & StorageBucketWire)
   // AI ops
-  | { t: 'op'; id: string; method: 'ai.generateContent'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }
-  | { t: 'op'; id: string; method: 'ai.countTokens'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }
+  | { t: 'op'; id: string; method: 'ai.generateContent'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire; appCheck?: AiAppCheckWire }
+  | { t: 'op'; id: string; method: 'ai.countTokens'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire; appCheck?: AiAppCheckWire }
   | { t: 'op'; id: string; method: 'getRuntimeEpoch' }
   | { t: 'op'; id: string; method: 'retireRuntime'; targetEpoch: string }
   | { t: 'op'; id: string; method: 'getVersion' }
@@ -360,6 +372,8 @@ export interface EventSubMessage {
   t: 'sub';
   subId: string;
   target: 'events';
+  /** The subscribing page's tab id (`AppConfigMessage.tabId`); the history batch answers with `pageId`. */
+  tabId?: string;
 }
 
 export interface RtdbValueSubMessage {
@@ -383,6 +397,7 @@ export interface AiStreamSubMessage {
   model: string;
   request: Record<string, unknown>;
   engine?: AiEngineConfigWire;
+  appCheck?: AiAppCheckWire;
 }
 
 export interface MessagingSubMessage {
@@ -479,6 +494,19 @@ export interface AppConfigMessage {
   hostVerified?: boolean;
   /** The page's `location.origin`; the host resolves relative photo URLs against it. */
   origin?: string;
+  /**
+   * The page's tab id, kept in `sessionStorage` so it survives a reload. Every
+   * port the tab opens sends the same one, and the host stamps it on the
+   * tab's events as `caller.pageId`. A label, never an authority.
+   */
+  tabId?: string;
+  /**
+   * The browser profile's client id, kept in `localStorage`, so every tab of
+   * one profile sends the same one; a service worker sends its realm's. The
+   * host stamps it on the port's events as `caller.clientId`. A label, never
+   * an authority.
+   */
+  clientId?: string;
 }
 
 /**
@@ -502,6 +530,19 @@ export interface ToolMessage {
   actAs?: AuthLens;
 }
 
+/**
+ * A call the app made to production, as a recorder beside the app observed it
+ * (`ObservedCall` in `pyric/sandbox`). The host checks the record, writes it
+ * to the event stream with the caller it stamps from this connection, and
+ * answers `res`. A malformed record is refused with `invalid-argument`.
+ * Nothing in pyric sends this frame.
+ */
+export interface ObserveMessage {
+  t: 'observe';
+  id: string;
+  call: ObservedCall;
+}
+
 export type InboundMessage = (
   | OpMessage
   | SubMessage
@@ -510,6 +551,7 @@ export type InboundMessage = (
   | AppConfigMessage
   | ClockSubscribeMessage
   | ToolMessage
+  | ObserveMessage
 ) & {
   clientSessionId?: string;
   resumeSession?: boolean;
@@ -534,6 +576,12 @@ export interface EventStreamMessage {
   t: 'event';
   subId: string;
   events: readonly SandboxEvent[];
+  /**
+   * On the history batch a page's subscription receives first: the id the
+   * host stamps on that page's events (`caller.pageId`), so the page can tell
+   * its own requests from another tab's. Absent for a port that is not a page.
+   */
+  pageId?: string;
 }
 
 export interface RuntimeReloadMessage {

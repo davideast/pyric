@@ -27,6 +27,10 @@ ignored/
 firebase-debug.log*
 packages/conformance/src/capture/functions-rtdb/fixture/runtime.cjs
 packages/conformance/src/capture/functions-rtdb/fixture/capture-state.json
+packages/conformance/src/capture/functions-http/fixture/runtime.cjs
+packages/conformance/src/capture/functions-http/fixture/capture-state.json
+packages/conformance/src/capture/functions-callable/fixture/runtime.cjs
+packages/conformance/src/capture/functions-callable/fixture/capture-state.json
 .idea/
 **/.idea/
 *.iml
@@ -59,6 +63,7 @@ packages/cli/src/conformance/.generated/
 packages/cli/src/cli/service-commands.generated.ts
 packages/cli/src/bridge/tool-families.generated.ts
 packages/cli/src/bridge/surface/manifest.generated.ts
+packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
 packages/cli/src/bridge/surface/descriptions.generated.ts
 packages/conformance/rules-language/*-report.json
 
@@ -67,6 +72,8 @@ packages/conformance/rules-language/*-report.json
 packages/pyric/docs/*/COMPAT.md
 packages/pyric/docs/conformance/SCORES.md
 packages/cli/docs/functions-rtdb/COMPAT.md
+packages/cli/docs/functions-http/COMPAT.md
+packages/cli/docs/functions-callable/COMPAT.md
 packages/conformance/docs/*/COMPAT.md
 
 # Site content-layer cache (generated conformance + API reference pages render

@@ -27,6 +27,17 @@ import { homedir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
+import { withWorkerBuildLock, type WorkerBuildLock } from './worker-build-lock.js';
+import {
+  WORKER_EPOCH_FILE,
+  WORKER_FILE,
+  publishWorkerBundle,
+  readCompletedWorkerBundle,
+  removeBuildLeftovers,
+  stagingPathPrefix,
+} from './worker-bundle-cache.js';
+
+import { bridgeImportEntryKey, REAL_SDK_ENTRIES } from './firebase-module-swap.js';
 
 export { SDK_MODULES } from './firebase-module-swap.js';
 
@@ -63,7 +74,10 @@ export function defaultSdkEntries(): Record<string, string> {
     performance: pick('performance'),
     'remote-config': pick('remote-config'),
     storage: pick('storage'),
-    init: pick('init'),
+    // The page script every served page loads first (`/__pyric/sdk/init.js`,
+    // and the Vite plugin's injected entry): `page` mounts `./init.js` and, on
+    // the in-page path, starts the in-page backend that loads saved state.
+    init: pick('page'),
   };
 }
 
@@ -160,6 +174,145 @@ function nodeShimPlugin(): esbuild.Plugin {
   };
 }
 
+/**
+ * Send the shadow-app wrappers' own `firebase/app` and `firebase/app-check`
+ * imports to the Firebase SDK bundle `pyric sandbox` builds in production AI
+ * mode (`/__pyric/sdk/firebase-sdk-*.js`). Left bare, the import map would
+ * send them back to the wrappers themselves. The rule is
+ * `isBypassedBridgeImport`, which the Vite and register planes read too.
+ */
+function bridgeImportPlugin(): esbuild.Plugin {
+  return {
+    name: 'pyric-serve-bridge-imports',
+    setup(build) {
+      build.onResolve({ filter: /^firebase\// }, (args) => {
+        const key = bridgeImportEntryKey(args.path, args.importer);
+        if (key === undefined) return undefined;
+        return { path: `/__pyric/sdk/${key}.js`, external: true };
+      });
+    },
+  };
+}
+
+// ─── the project's Firebase SDK (production AI mode) ─────────────────
+
+/** The project's resolved `firebase` package. */
+export interface ProjectFirebase {
+  /** The package directory, as resolved from the project. */
+  root: string;
+  version: string;
+}
+
+/**
+ * Find the `firebase` package the project's own code resolves, walking up
+ * `node_modules` directories from `projectDir` as Node does. Throws a message
+ * that tells the user to install it when there is none.
+ */
+export function resolveProjectFirebase(projectDir: string): ProjectFirebase {
+  let dir = projectDir;
+  while (true) {
+    const manifest = join(dir, 'node_modules', 'firebase', 'package.json');
+    if (existsSync(manifest)) {
+      const pkg = JSON.parse(readFileSync(manifest, 'utf8')) as { version?: string };
+      return { root: dirname(manifest), version: pkg.version ?? '0.0.0' };
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(
+    `pyric sandbox: production AI mode (${productionModeSetting(process.env)}) serves the Firebase SDK from this project, ` +
+      `but no firebase package resolves from ${projectDir}. Install it with \`npm install firebase\`, ` +
+      `or unset ${productionModeSetting(process.env).split('=')[0]} to answer firebase/ai from the Pyric sandbox.`,
+  );
+}
+
+/**
+ * The environment setting that turned production AI mode on, for messages.
+ * `PYRIC_AI_MODE=production` wins; otherwise the passthrough switch did it.
+ */
+export function productionModeSetting(env: NodeJS.ProcessEnv): string {
+  const isModeSet = env.PYRIC_AI_MODE === 'production';
+  return isModeSet ? 'PYRIC_AI_MODE=production' : 'PYRIC_AI_PASSTHROUGH=1';
+}
+
+export interface ProjectFirebasePlan {
+  /** Pass to `bundleSdk`; absent when the real-SDK build is skipped. */
+  projectFirebase?: { projectDir: string };
+  /** One line to log when the build is skipped. */
+  warning?: string;
+}
+
+/**
+ * Decide whether production AI mode builds the Firebase SDK. Plain
+ * `pyric sandbox` serves the page itself, so a missing `firebase` throws.
+ * With a child command the child resolves `firebase` on its own, so a
+ * missing one only skips the build and warns.
+ */
+export function planProjectFirebase(projectDir: string, hasChildCommand: boolean, env: NodeJS.ProcessEnv = process.env): ProjectFirebasePlan {
+  try {
+    resolveProjectFirebase(projectDir);
+  } catch (error) {
+    if (!hasChildCommand) throw error;
+    return {
+      warning:
+        `  ⚠ production AI mode (${productionModeSetting(env)}): no firebase package resolves from ${projectDir}, ` +
+        `so the Firebase SDK is not built. Pages the sandbox serves itself (import map) need firebase installed where pyric starts; ` +
+        `your command resolves firebase on its own.`,
+    };
+  }
+  return { projectFirebase: { projectDir } };
+}
+
+
+const REAL_SDK_NAMESPACE = 'pyric-firebase-sdk';
+
+/**
+ * Build `firebase/app`, `firebase/ai` and `firebase/app-check` from the
+ * project's `firebase` install into `outDir`, in one pass with splitting so
+ * the three share one `@firebase/app` component registry, as Vite's
+ * dependency optimizer does.
+ */
+async function bundleProjectFirebase(outDir: string, projectDir: string, firebase: ProjectFirebase, minify: boolean): Promise<void> {
+  const entryPoints: Record<string, string> = {};
+  for (const [specifier, key] of REAL_SDK_ENTRIES) entryPoints[key] = `${REAL_SDK_NAMESPACE}:${specifier}`;
+  const result = await esbuild.build({
+    entryPoints,
+    outdir: outDir,
+    bundle: true,
+    format: 'esm',
+    platform: 'browser',
+    splitting: true,
+    sourcemap: 'linked',
+    minify,
+    logLevel: 'silent',
+    chunkNames: 'firebase-sdk-[hash]',
+    banner: {
+      js: `/* The Firebase JS SDK, firebase@${firebase.version} from this project, built by pyric sandbox for production AI mode. */`,
+    },
+    plugins: [{
+      name: 'pyric-serve-project-firebase',
+      setup(build) {
+        build.onResolve({ filter: new RegExp(`^${REAL_SDK_NAMESPACE}:`) }, (args) => ({
+          path: args.path.slice(REAL_SDK_NAMESPACE.length + 1),
+          namespace: REAL_SDK_NAMESPACE,
+        }));
+        build.onLoad({ filter: /.*/, namespace: REAL_SDK_NAMESPACE }, (args) => ({
+          contents: `export * from ${JSON.stringify(args.path)};`,
+          resolveDir: projectDir,
+          loader: 'js',
+        }));
+      },
+    }],
+  });
+  const hasBuildErrors = result.errors.length > 0;
+  if (hasBuildErrors) {
+    throw new Error(
+      `pyric sandbox: building firebase@${firebase.version} for production AI mode failed:\n${result.errors.map((e) => e.text).join('\n')}`,
+    );
+  }
+}
+
 // ─── cache ────────────────────────────────────────────────────────────
 
 export interface BundleOptions {
@@ -171,6 +324,12 @@ export interface BundleOptions {
   /** Override the cache root (tests). Default `~/.pyric/serve-cache`. */
   cacheRoot?: string;
   minify?: boolean;
+  /**
+   * Production AI mode: also build the Firebase SDK from this project's own
+   * `firebase` install (`/__pyric/sdk/firebase-sdk-*.js`). Absent in sandbox
+   * AI mode, which neither builds nor serves it.
+   */
+  projectFirebase?: { projectDir: string };
 }
 
 export interface BundleResult {
@@ -184,7 +343,7 @@ export interface BundleResult {
 }
 
 /** Bump when bundler logic changes in a way that must invalidate caches. */
-const BUNDLER_REV = 9; // 9: cache keys also cover dependency-resolution metadata
+const BUNDLER_REV = 10; // 10: wrappers import the project's Firebase SDK by URL; production keys cover it
 
 const RESOLUTION_FILES = [
   'bun.lock',
@@ -262,12 +421,23 @@ export function cacheKey(
     h.update(name);
     h.update(readFileSync(file, 'utf8'));
   }
+  // Production AI mode also serves the project's Firebase SDK, so upgrading
+  // `firebase`, or a project resolving another copy, rebuilds it.
+  const projectFirebase = opts.projectFirebase;
+  if (projectFirebase) {
+    const firebase = resolveProjectFirebase(projectFirebase.projectDir);
+    h.update(`firebase-sdk\0${firebase.root}\0${firebase.version}`);
+  }
   return `${version}-${h.digest('hex').slice(0, 12)}`;
 }
 
 // ─── the bundle step ──────────────────────────────────────────────────
 
 export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
+  // Resolved first, so a project without `firebase` fails before any build.
+  const projectFirebase = opts.projectFirebase
+    ? { ...opts.projectFirebase, firebase: resolveProjectFirebase(opts.projectFirebase.projectDir) }
+    : undefined;
   const root = pyricPackageRoot();
   const version = pyricVersion(root);
   const key = cacheKey(opts, version);
@@ -317,13 +487,16 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
         js: '/* pyric sandbox shim serving firebase/*. This is not the real Firebase SDK. */',
       },
       external: ['firebase/*'],
-      plugins: [pyricResolvePlugin(), nodeShimPlugin()],
+      plugins: [pyricResolvePlugin(), nodeShimPlugin(), bridgeImportPlugin()],
     });
     const hasBuildErrors = result.errors.length > 0;
     if (hasBuildErrors) {
       throw new Error(
         `pyric sandbox: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
       );
+    }
+    if (projectFirebase) {
+      await bundleProjectFirebase(outDir, projectFirebase.projectDir, projectFirebase.firebase, opts.minify ?? true);
     }
     writeFileSync(join(outDir, '.complete'), new Date().toISOString());
     const files = readdirSync(outDir)
@@ -363,19 +536,11 @@ export interface WorkerBundleOptions {
   entryPath?: string;
   /** Restart-required boot identity mixed into the baked worker epoch. */
   epochSalt?: string;
+  /** Test seam around the build into the staging directory; `build` is the real one. */
+  buildInto?: (stagingDir: string, build: () => Promise<string>) => Promise<string>;
 }
 
 const WORKER_EPOCH_PLACEHOLDER = 'PYRIC_EPOCH_HERE';
-const WORKER_EPOCH_FILE = '.worker-epoch';
-
-/** Read the executable epoch written alongside a completed worker bundle. */
-function readWorkerBundleEpoch(outDir: string): string {
-  const epoch = readFileSync(join(outDir, WORKER_EPOCH_FILE), 'utf8').trim();
-  if (!/^[a-f0-9]{16}$/.test(epoch)) {
-    throw new Error(`pyric sandbox: invalid SharedWorker epoch in ${join(outDir, WORKER_EPOCH_FILE)}`);
-  }
-  return epoch;
-}
 
 /**
  * Conservative worker CACHE key. The worker bundle shares the SDK `outDir`
@@ -440,6 +605,10 @@ export function sourceTreeHash(root: string): string {
  * while `cacheKey()` includes the complete CLI source graph. A worker/client
  * or protocol edit therefore invalidates the shared SDK generation too, so
  * the page and worker halves cannot come from different source generations.
+ *
+ * Builders sharing `outDir` (every project on the machine shares
+ * `~/.pyric/vite-worker/<hash>`) take turns under a lock and publish from a
+ * staging directory; see `worker-bundle-cache.ts`.
  */
 export interface WorkerBundleResult {
   outFile: string;
@@ -447,24 +616,78 @@ export interface WorkerBundleResult {
 }
 
 export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBundleResult> {
-  const outFile = join(opts.outDir, 'worker.js');
-  const marker = join(opts.outDir, '.worker-complete');
-  const sourceHash = workerSourceHash();
-  const hash = opts.epochSalt
-    ? createHash('sha256').update(sourceHash).update('\0').update(opts.epochSalt).digest('hex')
-    : sourceHash;
-  if (
-    !opts.noCache &&
-    existsSync(outFile) &&
-    existsSync(marker) &&
-    existsSync(join(opts.outDir, WORKER_EPOCH_FILE)) &&
-    readFileSync(marker, 'utf8') === hash
-  ) {
-    return { outFile, epoch: readWorkerBundleEpoch(opts.outDir) };
-  }
+  const outFile = join(opts.outDir, WORKER_FILE);
+  const hash = workerBundleHash(opts.epochSalt);
+  const reusesCache = !opts.noCache;
+  const cachedEpoch = reusesCache ? readCompletedWorkerBundle(opts.outDir, hash) : null;
+  if (cachedEpoch) return { outFile, epoch: cachedEpoch };
 
-  mkdirSync(opts.outDir, { recursive: true });
-  const root = pyricPackageRoot();
+  for (let attempt = 1; ; attempt++) {
+    const epoch = await withWorkerBuildLock(opts.outDir, (lock) => buildUnderLock(opts, hash, lock));
+    if (epoch) return { outFile, epoch };
+    const isLastAttempt = attempt >= MAX_WORKER_PUBLISH_ATTEMPTS;
+    if (isLastAttempt) {
+      throw new Error(`pyric sandbox: another process kept replacing the SharedWorker bundle in ${opts.outDir}`);
+    }
+  }
+}
+
+const MAX_WORKER_PUBLISH_ATTEMPTS = 3;
+
+/**
+ * Build and publish while holding the lock, then return the epoch of the
+ * bundle on disk. That is the bundle the page is served, even when another
+ * process published over ours, or null when what is on disk is torn.
+ */
+async function buildUnderLock(opts: WorkerBundleOptions, hash: string, lock: WorkerBuildLock): Promise<string | null> {
+  // Another process may have finished this bundle while we waited.
+  const builtMeanwhile = opts.noCache ? null : readCompletedWorkerBundle(opts.outDir, hash);
+  if (builtMeanwhile) return builtMeanwhile;
+  removeBuildLeftovers(opts.outDir);
+  const stagingDir = mkdtempSync(stagingPathPrefix(opts.outDir));
+  try {
+    const built = await buildWhileHeld(stagingDir, opts, lock);
+    if (!built) return null;
+    // A builder whose lock was taken over as abandoned leaves the directory to the new holder.
+    if (lock.isHeld()) publishWorkerBundle(stagingDir, opts.outDir, hash);
+  } finally {
+    rmSync(stagingDir, { recursive: true, force: true });
+  }
+  return readCompletedWorkerBundle(opts.outDir, hash);
+}
+
+/**
+ * Build into `stagingDir`, or report false when the build failed after another
+ * process took the lock over. A builder in another pid namespace looks exited,
+ * so its lock can be taken while it still builds, and the new holder may remove
+ * its staging directory. That build's failure is not this caller's error: it
+ * retries under the lock and reads what the new holder published.
+ */
+async function buildWhileHeld(stagingDir: string, opts: WorkerBundleOptions, lock: WorkerBuildLock): Promise<boolean> {
+  const build = () => buildWorkerInto(stagingDir, opts);
+  try {
+    await (opts.buildInto ? opts.buildInto(stagingDir, build) : build());
+    return true;
+  } catch (error) {
+    if (lock.isHeld()) throw error;
+    return false;
+  }
+}
+
+/** The marker hash: the worker source graph, plus the boot salt when one is given. */
+function workerBundleHash(epochSalt: string | undefined): string {
+  const sourceHash = workerSourceHash();
+  if (!epochSalt) return sourceHash;
+  return createHash('sha256').update(sourceHash).update('\0').update(epochSalt).digest('hex');
+}
+
+/**
+ * Build the worker into a private staging directory and bake its epoch.
+ * The staging directory is a sibling of `outDir`, so the sourcemap's relative
+ * source paths stay correct after the files move.
+ */
+async function buildWorkerInto(stagingDir: string, opts: WorkerBundleOptions): Promise<string> {
+  const outFile = join(stagingDir, WORKER_FILE);
   const result = await esbuild.build({
     entryPoints: [opts.entryPath ?? workerEntryPath()],
     outfile: outFile,
@@ -497,7 +720,6 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBun
   if (opts.epochSalt) epochHash.update('\0').update(opts.epochSalt);
   const epoch = epochHash.digest('hex').slice(0, 16);
   writeFileSync(outFile, canonicalSource.replaceAll(WORKER_EPOCH_PLACEHOLDER, epoch));
-  writeFileSync(join(opts.outDir, WORKER_EPOCH_FILE), epoch);
-  writeFileSync(marker, hash);
-  return { outFile, epoch };
+  writeFileSync(join(stagingDir, WORKER_EPOCH_FILE), epoch);
+  return epoch;
 }

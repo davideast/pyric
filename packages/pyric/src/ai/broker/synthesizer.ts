@@ -117,12 +117,10 @@ export function errorEnvelope(code: number, message: string, status: string): Wi
  * are defensive for sibling engines / future upstreams).
  *
  * Matched with a direct regex over the raw string rather than
- * `new URL(...).searchParams` — the streaming action string embeds its own
- * `?alt=sse` before the `?key=` is appended (a pre-existing, unrelated
- * quirk this fix does not touch), which the strict `URLSearchParams` parser
- * would fold into a single malformed pair and fail to redact. A regex on
- * "`[?&]<param>=`" catches the value regardless of how the surrounding
- * query string is (mal)formed.
+ * `new URL(...).searchParams`: the text is often not a URL at all (an error
+ * body or a fetch message that quotes one), and an upstream may echo a
+ * malformed query back. A regex on "`[?&]<param>=`" catches the value
+ * regardless of how the surrounding query string is (mal)formed.
  */
 const SENSITIVE_URL_PARAM_PATTERN = /([?&](?:key|apiKey|api_key|access_token)=)[^&\s]*/gi;
 
@@ -156,7 +154,21 @@ export function unknownModel(name: string): WireErrorEnvelope {
 export function badRole(role: string): WireErrorEnvelope {
   return errorEnvelope(
     400,
-    `Role '${role}' is not supported. Please use a valid role: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER.`,
+    `Role '${role}' is not supported. Please use a valid role: MODEL, USER.`,
+    'INVALID_ARGUMENT',
+  );
+}
+
+/**
+ * `ai-error-function-role-refused` (400 INVALID_ARGUMENT), captured text
+ * verbatim. Production lists a longer role vocabulary for `function` than
+ * for an unknown role (`badRole`), and the broker accepts neither list in
+ * full: it accepts MODEL, USER and ASSISTANT, as production does.
+ */
+export function functionRoleRefused(): WireErrorEnvelope {
+  return errorEnvelope(
+    400,
+    "Role 'function' is not supported. Please use a valid role: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER.",
     'INVALID_ARGUMENT',
   );
 }

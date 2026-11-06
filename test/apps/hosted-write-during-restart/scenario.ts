@@ -16,7 +16,7 @@
 // instead of the run.
 import assert from 'node:assert/strict';
 import type { Page } from '@playwright/test';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sleep, type App, type ExpectedCrash } from '../driver.ts';
 
 interface Outcome { name: string; state: 'pending' | 'fulfilled' | 'rejected'; code?: string; message?: string }
 declare const counters: { connected(): boolean | null; arm(): void; outcomes(): Outcome[]; barrier(): Promise<boolean> };
@@ -74,11 +74,19 @@ function describe(list: Outcome[]): string {
   return list.map((outcome) => `${outcome.name}: ${outcome.state}${outcome.code ? ` [${outcome.code}] ${outcome.message}` : ''}`).join('\n');
 }
 
+export const expectedCrashes: ExpectedCrash[] = [
+  {
+    message: /^Error: WebSocket closed without opened\.$/,
+    source: /^page http:\/\/127\.0\.0\.1:\d+\/ \(at http:\/\/127\.0\.0\.1:\d+\/@vite\/client:\d+\)$/,
+    reason: "vite.config.js points Vite's HMR client at port 1 so it never reloads the page, and the client rejects when that socket fails",
+  },
+];
+
 export default scenario(async (app) => {
   // The restart interrupts the page's connection, and the page posts that to
   // /__pyric/diagnostics. A post made before the new server generation mounts
   // Pyric's routes answers 404, and the page keeps the report in memory.
-  app.expectHostError(/^404 POST \/__pyric\/diagnostics$/);
+  app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: 'a race decides whether the post lands before the new routes mount (#2098)' });
 
   const host = await app.step('start the hosted dev server', () => app.devServer());
 

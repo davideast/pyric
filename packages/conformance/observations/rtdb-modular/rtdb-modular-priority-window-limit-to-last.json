@@ -5,8 +5,8 @@
     "rtdb-modular#priority-window-limit-to-last"
   ],
   "description": "onValue once from fresh clients over children with no priority: orderByPriority with endAt(\"1\",\"A\") and limitToLast(1), endBefore(\"1\") and limitToLast(2), endAt(\"1\",\"A\") with no limit, and a default-order endAt(2) limitToLast(3) control. Records the keys. Captured on the dedicated RTDB oracle instance.",
-  "observedAt": "2026-10-27T19:52:35.016Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-11-02T18:22:46.723Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "orderByPriority endAt(\"1\",\"A\") limitToLast(1)": "z",

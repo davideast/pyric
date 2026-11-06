@@ -2,6 +2,7 @@ import { pyric } from "@pyric/cli/vite";
 
 // A small SSR middleware, the shape a framework's dev SSR takes. `runner`
 // picks how the module loads: `ssrLoadModule` or the environment API runner.
+// `/ssr/trapped` answers with the hosts trap.cjs recorded in this process.
 function ssrRoutes() {
   return {
     name: "ssr-routes",
@@ -12,13 +13,17 @@ function ssrRoutes() {
           : server.ssrLoadModule(path);
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, "http://localhost");
-        const action = url.pathname.match(/^\/ssr\/(run|run-ai|admin)$/)?.[1];
+        const action = url.pathname.match(/^\/ssr\/(run|run-ai|admin|local-admin|trapped)$/)?.[1];
         if (!action) return next();
         try {
           const runner = url.searchParams.get("runner");
           const tag = url.searchParams.get("tag");
           let body;
-          if (action === "admin") {
+          if (action === "trapped") {
+            body = globalThis[Symbol.for("scenario.trapped")] ?? null;
+          } else if (action === "local-admin") {
+            body = await (await load(runner, "/src/ssr-local-admin.js")).run();
+          } else if (action === "admin") {
             body = await (await load(runner, "/src/ssr-admin.js")).read(url.searchParams.get("uid"), tag);
           } else {
             const mod = await load(runner, "/src/ssr.js");

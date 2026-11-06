@@ -55,6 +55,15 @@ export const sandbox = {
     requireSandbox(auth).backend.setCurrentUser(user);
   },
 
+  /**
+   * Name the project the minted ID tokens' `iss` and `aud` carry, read at
+   * each mint. A host that learns its project later passes a function that
+   * reads it; until it returns one, tokens name `pyric-sandbox`.
+   */
+  setProjectIdSource(auth: Auth, source: () => string | undefined): void {
+    requireSandbox(auth).backend.setProjectIdSource(source);
+  },
+
   setAuthFlowResolver(auth: Auth, resolver: AuthFlowResolver | null): void {
     requireSandbox(auth).backend.setResolver(resolver);
   },
@@ -82,7 +91,7 @@ export const sandbox = {
   createSignInCredential(
     auth: Auth,
     request:
-      | { providerId: string; uid: string }
+      | { providerId: string; uid: string; verifyEmail?: boolean }
       | { providerId: string; spec: SignInIdentitySpec },
   ): UserCredential {
     return requireSandbox(auth).backend.createSignInCredential(request);
@@ -113,8 +122,10 @@ export const sandbox = {
     return requireSandbox(auth).backend.exportUsers();
   },
 
-  restoreSession(auth: Auth, uid: string): User {
-    return requireSandbox(auth).backend.restoreSession(uid);
+  /** `sessionKey` resumes the session a reloaded page held, with the
+   *  authentication time it had, as the backend's `restoreSession` does. */
+  restoreSession(auth: Auth, uid: string, sessionKey?: string): User {
+    return requireSandbox(auth).backend.restoreSession(uid, sessionKey);
   },
 
   /** Read `Auth.tenantId` without going through the handle's own property,

@@ -5,13 +5,13 @@
     "app#3"
   ],
   "description": "firebase/app initializeApp() a second time under the same name (default '[DEFAULT]') with DIFFERENT options throws FirebaseError code app/duplicate-app, with the name embedded in the message.",
-  "observedAt": "2026-07-12T01:20:59.104Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.848Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "threw": true,
     "code": "app/duplicate-app",
     "errorName": "FirebaseError",
     "isError": true,
-    "message": "Firebase: Firebase App named '[DEFAULT]' already exists with different options or config (app/duplicate-app)."
+    "message": "Firebase: Firebase App named '[DEFAULT]' already exists with different options. Existing: '{\"apiKey\":\"fake-api-key\",\"projectId\":\"demo-app-registry\",\"appId\":\"1:0:web:0\"}'. New: '{\"apiKey\":\"fake-api-key\",\"projectId\":\"a-different-project\",\"appId\":\"1:0:web:0\"}'. (app/duplicate-app)."
   }
 }

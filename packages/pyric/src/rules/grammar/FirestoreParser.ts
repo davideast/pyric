@@ -59,6 +59,17 @@ function placedAt<T extends object>(expr: T, node: { source: { startIdx: number 
   return expr;
 }
 
+/**
+ * The service fields of a rules file holding `blocks`, in source order. The
+ * ruleset's service is its `cloud.firestore` block, as production evaluates
+ * a file with a Storage block before it (#1900); a file with no Firestore
+ * block keeps its first block, so a Storage ruleset reads as before.
+ */
+function serviceFields(blocks: ServiceBlock[]): Pick<FirestoreRules, 'service' | 'services'> {
+  const service = blocks.find((block) => block.name === 'cloud.firestore') ?? blocks[0];
+  return { service, services: blocks };
+}
+
 /** Records where a `&&` completes: the first character of `node`, which spans the conjunction. */
 function completesAt<T extends object>(expr: T, node: { source: { startIdx: number } }): T {
   if (buildPositions !== null) setCompletionPosition(expr, buildPositions.at(node.source.startIdx));
@@ -70,21 +81,21 @@ semantics.addOperation<any>('toAST', {
   // normalize into the same AST shape — caller code reads
   // `ast.version`, `ast.imports`, and `ast.service` regardless of
   // which order the source declared them in.
-  RulesFile_versionFirst(version, imports, functions, service) {
+  RulesFile_versionFirst(version, imports, functions, services) {
     return {
       imports: imports.children.map((c: any) => c.toAST()),
       // `rules_version` is optional in production (absent means '1').
       version: version.children.length > 0 ? version.children[0].toAST() : '1',
       functions: functions.children.map((c: any) => c.toAST()),
-      service: service.toAST(),
+      ...serviceFields(services.children.map((c: any) => c.toAST())),
     } as FirestoreRules;
   },
-  RulesFile_importsFirst(imports, version, functions, service) {
+  RulesFile_importsFirst(imports, version, functions, services) {
     return {
       imports: imports.children.map((c: any) => c.toAST()),
       version: version.toAST(),
       functions: functions.children.map((c: any) => c.toAST()),
-      service: service.toAST(),
+      ...serviceFields(services.children.map((c: any) => c.toAST())),
     } as FirestoreRules;
   },
   ImportDecl(_import, _lb, names, _trailingComma, _rb, _from, moduleStr, _semi) {
@@ -559,9 +570,13 @@ function shiftAstLines(ast: FirestoreRules, offset: number): void {
   shiftSourceLoc(ast.loc, offset);
   for (const imp of ast.imports) shiftSourceLoc(imp.loc, offset);
   for (const fn of ast.functions ?? []) shiftFunctionLocs(fn, offset);
-  shiftSourceLoc(ast.service.loc, offset);
-  for (const fn of ast.service.functions ?? []) shiftFunctionLocs(fn, offset);
-  const stack: MatchBlock[] = [ast.service.match];
+  for (const service of ast.services ?? [ast.service]) shiftServiceLines(service, offset);
+}
+
+function shiftServiceLines(service: ServiceBlock, offset: number): void {
+  shiftSourceLoc(service.loc, offset);
+  for (const fn of service.functions ?? []) shiftFunctionLocs(fn, offset);
+  const stack: MatchBlock[] = [service.match];
   while (stack.length > 0) {
     const block = stack.pop()!;
     shiftSourceLoc(block.loc, offset);

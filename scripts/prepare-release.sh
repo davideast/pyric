@@ -33,13 +33,13 @@ BASE="$(git rev-parse origin/main)"
 BRANCH="release/v${V}"
 git checkout -b "$BRANCH" "$BASE"
 
-# Lockstep bump across the five published packages. create-pyric derives its
+# Lockstep bump across the six published packages. create-pyric derives its
 # @pyric/cli pin from its own version at runtime, so bumping "version" is the
 # whole authoring job.
 # Surgical line edit rather than JSON round-trip: parse/stringify rewrites
 # unrelated bytes (unicode escapes, key order), which would add noise to the
 # ceremonial diff. The preflight below still validates the result semantically.
-for dir in pyric pyric-admin create-pyric cli ui; do
+for dir in pyric pyric-admin create-pyric cli ui live; do
   sed -i.bak -E 's/^(  "version": ")[^"]+(",)$/\1'"$V"'\2/' "packages/${dir}/package.json"
   rm -f "packages/${dir}/package.json.bak"
 done

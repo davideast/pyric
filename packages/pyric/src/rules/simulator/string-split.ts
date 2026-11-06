@@ -1,9 +1,18 @@
-import { compileRe2Regex, re2CaptureGroupCount } from './rules-type.js';
+import { CodePointSubject } from './regex-nfa.js';
+import { compileRe2Search } from './rules-type.js';
 
 /**
  * Evaluate `subject.split(pattern)` as production does, for Firestore and
- * Storage alike. The pattern compiles through `compileRe2Regex`, so it gets
- * RE2's syntax checks, inline flags and pyric's size limits.
+ * Storage alike. The pattern gets the checks `matches()` gives it (RE2's
+ * syntax, pyric's size limits) and runs on the same NFA, searched in time
+ * linear in the subject, so a nested repeat such as `(a+)+b` never
+ * backtracks (#1895) and `.*x|a` does not read the whole subject once per
+ * match; `replaceRe2` searches the same way. The subject is read as code
+ * points, as `matches()` reads it (#1890), `(?U)` makes repeats ungreedy
+ * (#1891), and `\A` and `\z` stay absolute under `(?m)` (#1892). Captures
+ * `c1-re2-replace-split`, `c9-re2-more` and `c10-script-classes-and-redos`
+ * from the 2026-11-03 Firestore hunt observe the `split()` cases; the `(?U)`
+ * and `\A`/`\z` readings are observed there through `replace()`.
  *
  * Two differences from JavaScript's `String.prototype.split`, both from the
  * Firestore Rules Test API captures `re2-pattern-semantics` and
@@ -12,13 +21,39 @@ import { compileRe2Regex, re2CaptureGroupCount } from './rules-type.js';
  * - trailing empty pieces are dropped, as Java's `String.split` does, but one
  *   piece always remains (`','.split(',') == ['']`, `'a,b,'.split(',')` has
  *   size two). A leading empty piece is kept.
+ *
+ * Otherwise the pieces fall where JavaScript's split puts them: after an empty
+ * match at the start of a piece the search moves on one code unit, so an
+ * empty pattern still splits a surrogate pair. Capture `c1-re2-replace-split`
+ * (`as7`) shows production's `'a😀b'.split('')` does not have size three.
  */
 export function splitRe2(subject: string, pattern: string): string[] {
-  const regex = compileRe2Regex('split', pattern, pattern, 'g');
-  // JavaScript puts each match's groups between the pieces around it.
-  const stride = re2CaptureGroupCount(regex) + 1;
-  const pieces = subject.split(regex).filter((_, index) => index % stride === 0);
-  return withoutTrailingEmptyPieces(pieces);
+  const text = new CodePointSubject(subject, compileRe2Search('split', pattern).search);
+  return withoutTrailingEmptyPieces(splitPieces(text));
+}
+
+/** JavaScript's split algorithm, with each match found by one linear search. */
+function splitPieces(text: CodePointSubject): string[] {
+  const subject = text.text;
+  const size = subject.length;
+  if (size === 0) return text.find(0) === null ? [''] : [];
+  const pieces: string[] = [];
+  let pieceStart = 0;
+  let from = 0;
+  while (from < size) {
+    const span = text.find(from);
+    if (span === null || span.start >= size) break;
+    const emptyAtPieceStart = span.end === pieceStart;
+    if (emptyAtPieceStart) {
+      from = span.start + 1;
+      continue;
+    }
+    pieces.push(subject.slice(pieceStart, span.start));
+    pieceStart = span.end;
+    from = pieceStart;
+  }
+  pieces.push(subject.slice(pieceStart));
+  return pieces;
 }
 
 function withoutTrailingEmptyPieces(pieces: string[]): string[] {

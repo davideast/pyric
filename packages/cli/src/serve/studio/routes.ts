@@ -25,7 +25,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { WorkspacePathError } from './disk-workspace.js';
+import { WorkspaceDeniedPathError, WorkspacePathError } from './disk-workspace.js';
 import { ProjectIdError } from './disk-project-store.js';
 import type {
   ProjectMeta,
@@ -81,9 +81,14 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+function errorStatus(e: unknown): number {
+  if (e instanceof WorkspaceDeniedPathError) return 403;
+  const isBadPath = e instanceof WorkspacePathError || e instanceof ProjectIdError;
+  return isBadPath ? 400 : 500;
+}
+
 function sendError(res: ServerResponse, e: unknown): void {
-  const status =
-    e instanceof WorkspacePathError || e instanceof ProjectIdError ? 400 : 500;
+  const status = errorStatus(e);
   res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
   res.end(e instanceof Error ? e.message : String(e));
 }

@@ -5,16 +5,17 @@
     "app-check#limited-use-token"
   ],
   "description": "getLimitedUseToken in debug mode: result key set and token shape, whether it differs from the cached getToken token, and whether two calls return distinct tokens.",
-  "observedAt": "2026-10-22T03:10:11.719Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-11-03T23:22:24.714Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
   "behavior": {
     "limited": {
       "keySet": [
         "token"
       ],
       "token": {
-        "length": 932,
+        "length": 1006,
         "segmentCount": 3,
         "isJwt": true,
         "headerKeySet": [
@@ -31,16 +32,17 @@
           "iat",
           "iss",
           "jti",
+          "lu",
           "provider",
           "sub"
         ],
         "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
         "audShape": [
           "projects/<projectNumber>",
-          "projects/genkit-idx"
+          "projects/digame-mas"
         ],
         "subEqualsAppId": true,
-        "ttlSeconds": 3600,
+        "ttlSeconds": 300,
         "hasJti": true
       },
       "error": null,

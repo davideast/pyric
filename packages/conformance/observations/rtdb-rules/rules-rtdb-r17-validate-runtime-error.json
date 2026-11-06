@@ -5,9 +5,9 @@
     "rtdb-rules#17"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r17-validate-runtime-error\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a validate rule that errors at runtime must deny in the simulator as it does in production, never crash the simulation or allow the write.",
-  "observedAt": "2026-09-25T07:33:13.521Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.262Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "length of a number errors in validate": "DENY",
     "length of a long string passes validate": "ALLOW",

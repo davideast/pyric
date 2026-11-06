@@ -1,0 +1,31 @@
+name: "Missing API"
+description: "Ask for an API pyric does not support yet."
+title: "Support <API> in <package>"
+labels: ["support"]
+body:
+  - type: textarea
+    id: missing
+    attributes:
+      label: "Missing"
+      description: "The API or option pyric lacks, in one or two lines."
+    validations:
+      required: true
+  - type: textarea
+    id: in-production
+    attributes:
+      label: "In production"
+      description: "What it does in production, with a reference link."
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: "Workaround"
+      description: "What callers do today, or none."
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "The check that shows it is supported."
+    validations:
+      required: true

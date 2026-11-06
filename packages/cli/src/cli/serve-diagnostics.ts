@@ -1,6 +1,10 @@
 import type { ParsedArgs } from './parse-args.js';
+import { boundedFetch } from '../bounded-request.js';
 import { discoverServe } from '../serve/discovery.js';
 import { DIAGNOSTICS_PATH } from '../serve/runtime/diagnostics-report.js';
+
+/** Milliseconds the diagnostics request has, connect and body included. */
+const DIAGNOSTICS_DEADLINE_MS = 3000;
 
 export async function runServeDiagnostics(parsed: ParsedArgs, deps: {
   cwd?: string;
@@ -27,7 +31,14 @@ export async function runServeDiagnostics(parsed: ParsedArgs, deps: {
   }
   let reachedServer = false;
   try {
-    const response = await fetch(endpoint, { signal: AbortSignal.timeout(3000), redirect: 'error' });
+    // Bounded, connect included, so a port whose connect never completes
+    // cannot hold the command open past its answer (#1167). The report is
+    // read whole within the deadline, as fetch's abort covered the body too.
+    const response = await boundedFetch(endpoint, {
+      deadlineMs: DIAGNOSTICS_DEADLINE_MS,
+      maxBytes: Number.POSITIVE_INFINITY,
+      redirect: 'error',
+    });
     reachedServer = true;
     if (!response.ok) {
       print({ version: 1, server: { http: 'responding', status: response.status }, error: 'Diagnostics endpoint unavailable. Check the URL and CLI version.' });

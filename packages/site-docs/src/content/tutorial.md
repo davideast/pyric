@@ -76,7 +76,7 @@ Add the Vite plugin to an existing Firebase application:
 npm install --save-dev @pyric/cli
 ```
 
-Keep the Firebase imports in the application. AI Logic requires App Check from November 2, 2026, and `getAI` reads App Check when it starts, so initialize App Check first:
+Keep the Firebase imports in the application. Pyric refuses AI Logic requests without an App Check token with a 403. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can delay enforcement up to January 21, 2027. `getAI` reads App Check when it starts, so initialize App Check first:
 
 ```ts
 import { getAI } from 'firebase/ai';
@@ -581,7 +581,7 @@ Yes, the server connects to the browser. It sounds backward until you remember t
 
 Create Alice's presence record. The Function reads her local Firestore profile through the Admin SDK mirror, writes `firstSeenAt`, and the open tabs receive that update. Admin writes bypass client Security Rules, matching the trusted role of a deployed Function.
 
-Pyric currently runs RTDB `onValueCreated` triggers locally and reports other trigger types as unsupported. That boundary keeps a working local path from turning into a broader promise.
+Pyric currently runs RTDB `onValueCreated` triggers and HTTP `onRequest` functions locally, and reports other trigger types as unsupported. That boundary keeps a working local path from turning into a broader promise. [Call your HTTP functions](./build/realtime-database.md#call-your-http-functions) covers the HTTP side.
 
 ## Deliver a notification without production Messaging
 

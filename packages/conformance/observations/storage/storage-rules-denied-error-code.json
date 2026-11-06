@@ -5,13 +5,13 @@
     "storage#105"
   ],
   "description": "Attempt to upload to a path the rules deny (deliberately outside pyric_oracle/* if the bucket rules scope writes to that namespace, or any path if rules default-deny). Capture error code + class.",
-  "observedAt": "2026-05-18T01:30:11.179Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T13:36:23.625Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": true,
     "code": "storage/unauthorized",
-    "message": "Firebase Storage: User does not have permission to access 'pyric_oracle_denied_storage/1779067802523-1wnssz/forbidden.bin'. (storage/unauthorized)",
+    "message": "Firebase Storage: User does not have permission to access 'pyric_oracle_denied_storage/1793367358513-tulcp8/forbidden.bin'. (storage/unauthorized)",
     "errorName": "FirebaseError",
     "isFirebaseError": true
   }

@@ -7,9 +7,10 @@
     "app-check#providers-construct"
   ],
   "description": "getToken in debug mode with a registered debug token and a CustomProvider that must not be called: result key set, token shape, whether a second getToken reuses the cached token, and whether getToken(appCheck, true) mints a new one.",
-  "observedAt": "2026-10-22T03:10:11.718Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-11-03T23:22:24.713Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
   "behavior": {
     "customProviderCalls": 0,
     "first": {
@@ -17,7 +18,7 @@
         "token"
       ],
       "token": {
-        "length": 932,
+        "length": 1006,
         "segmentCount": 3,
         "isJwt": true,
         "headerKeySet": [
@@ -34,13 +35,14 @@
           "iat",
           "iss",
           "jti",
+          "lu",
           "provider",
           "sub"
         ],
         "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
         "audShape": [
           "projects/<projectNumber>",
-          "projects/genkit-idx"
+          "projects/digame-mas"
         ],
         "subEqualsAppId": true,
         "ttlSeconds": 3600,
@@ -56,7 +58,7 @@
         "token"
       ],
       "token": {
-        "length": 932,
+        "length": 1006,
         "segmentCount": 3,
         "isJwt": true,
         "headerKeySet": [
@@ -73,13 +75,14 @@
           "iat",
           "iss",
           "jti",
+          "lu",
           "provider",
           "sub"
         ],
         "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
         "audShape": [
           "projects/<projectNumber>",
-          "projects/genkit-idx"
+          "projects/digame-mas"
         ],
         "subEqualsAppId": true,
         "ttlSeconds": 3600,

@@ -180,7 +180,7 @@ const ROUTE_SLICE_BYTES = 4 * 1024 * 1024;
 async function sessionTokenOf(route: ByteRouteAccess): Promise<string> {
   const token = await route.sessionToken();
   const missing = token === null || token === '';
-  if (missing) throw new FirebaseError('unavailable', 'The page has no session token for the hosted byte route. Reload the page.');
+  if (missing) throw new FirebaseError('unavailable', 'This page has no session token for the hosted byte route. The host issues one only to clients on its own machine.');
   return token;
 }
 

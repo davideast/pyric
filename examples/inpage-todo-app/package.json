@@ -11,7 +11,7 @@
     "test": "bun x playwright test"
   },
   "dependencies": {
-    "firebase": "^12.12.0",
+    "firebase": "^12.19.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "pyric": "workspace:*"

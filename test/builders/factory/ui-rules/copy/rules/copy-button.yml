@@ -1,0 +1,14 @@
+# A button's visible label: text directly inside <Button> or <button>.
+id: copy-button
+language: tsx
+severity: hint
+rule:
+  kind: jsx_text
+  regex: \S
+  inside:
+    kind: jsx_element
+    has:
+      kind: jsx_opening_element
+      has:
+        field: name
+        regex: ^(Button|button)$

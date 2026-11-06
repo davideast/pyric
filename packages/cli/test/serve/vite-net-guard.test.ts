@@ -3,12 +3,7 @@ import type { UserConfig } from 'vite';
 import { NET_GUARD_GLOBAL, GUARD_BLOCKED_CODE } from '../../src/register/net-guard.js';
 import { FIREBASE_AI_LOGIC_HOST } from '../../src/google-endpoints.js';
 import type { PyricOptions } from '../../src/serve/vite-plugin.js';
-import {
-  VITE_SSR_GUARD_NOTE,
-  VITE_SSR_ISSUE_URL,
-  installViteNetGuard,
-  viteGuardEnv,
-} from '../../src/serve/vite-net-guard.js';
+import { installViteNetGuard, viteGuardEnv } from '../../src/serve/vite-net-guard.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
 
 type Connect = (...args: unknown[]) => unknown;
@@ -42,9 +37,9 @@ function logLines() {
 }
 
 describe('viteGuardEnv', () => {
-  it('activates the guard and blocks when PYRIC_GUARD names no mode', () => {
-    expect(viteGuardEnv({})).toMatchObject({ PYRIC_SANDBOX: 'vite-dev', PYRIC_GUARD: 'block' });
-    expect(viteGuardEnv({ PYRIC_GUARD: '  ' })).toMatchObject({ PYRIC_GUARD: 'block' });
+  it('activates the guard and leaves the mode to PYRIC_GUARD, as in a registered child', () => {
+    expect(viteGuardEnv({})).toEqual({ PYRIC_SANDBOX: 'vite-dev' });
+    expect(viteGuardEnv({ PYRIC_GUARD: '  ' })).toEqual({ PYRIC_SANDBOX: 'vite-dev', PYRIC_GUARD: '  ' });
   });
 
   it('keeps a mode and an activator the environment already names', () => {
@@ -54,7 +49,7 @@ describe('viteGuardEnv', () => {
 });
 
 describe('installViteNetGuard', () => {
-  it('refuses a live Firestore connection by default and explains the SSR gap once', () => {
+  it('refuses a token request by default, with one line naming it', () => {
     const seams = fakeSeams();
     const log = logLines();
     const slot: Record<symbol, unknown> = {};
@@ -64,49 +59,44 @@ describe('installViteNetGuard', () => {
 
     let refusal: unknown;
     try {
-      seams.net.connect({ host: 'firestore.googleapis.com', port: 443 });
+      seams.net.connect({ host: 'oauth2.googleapis.com', port: 443 });
     } catch (error) {
       refusal = error;
     }
     expect((refusal as { code?: string }).code).toBe(GUARD_BLOCKED_CODE);
     expect(seams.connected).toEqual([]);
-    expect(() => seams.net.connect({ host: 'demo-default-rtdb.firebaseio.com', port: 443 })).toThrow();
+    expect(() => seams.net.connect({ host: '169.254.169.254', port: 80 })).toThrow();
 
-    const blockLines = log.lines.filter((line) => line.includes(' BLOCK '));
-    expect(blockLines).toHaveLength(2);
-    expect(blockLines[0]).toContain('firestore.googleapis.com (Cloud Firestore) via socket from vite');
-    const notes = log.lines.filter((line) => line === VITE_SSR_GUARD_NOTE);
-    expect(notes).toHaveLength(1);
-    expect(VITE_SSR_GUARD_NOTE).toContain(VITE_SSR_ISSUE_URL);
+    expect(log.lines).toHaveLength(2);
+    expect(log.lines[0]).toContain('BLOCK oauth2.googleapis.com (Google OAuth 2.0 token endpoint) via socket from vite');
   });
 
-  it('lets local and unlisted hosts through', () => {
+  it('lets local hosts, Firebase data hosts and every other host through without a line', () => {
     const seams = fakeSeams();
-    installViteNetGuard({ env: {}, write: logLines().write, slot: {}, hooks: seams.hooks });
-    seams.net.connect({ host: '127.0.0.1', port: 5173 });
-    seams.net.connect({ host: 'registry.npmjs.org', port: 443 });
-    expect(seams.connected).toEqual(['127.0.0.1', 'registry.npmjs.org']);
+    const log = logLines();
+    installViteNetGuard({ env: {}, write: log.write, slot: {}, hooks: seams.hooks });
+    const hosts = ['127.0.0.1', 'registry.npmjs.org', 'firestore.googleapis.com', 'demo-default-rtdb.firebaseio.com', 'fonts.googleapis.com'];
+    for (const host of hosts) seams.net.connect({ host, port: 443 });
+    expect(seams.connected).toEqual(hosts);
+    expect(log.lines).toEqual([]);
   });
 
-  it('respects PYRIC_GUARD=warn and PYRIC_GUARD_ALLOW', () => {
+  it('refuses token requests under PYRIC_GUARD=warn and whatever PYRIC_GUARD_ALLOW names', () => {
     const warned = fakeSeams();
     const warnLog = logLines();
     installViteNetGuard({ env: { PYRIC_GUARD: 'warn' }, write: warnLog.write, slot: {}, hooks: warned.hooks });
-    warned.net.connect({ host: 'firestore.googleapis.com', port: 443 });
-    expect(warned.connected).toEqual(['firestore.googleapis.com']);
-    expect(warnLog.lines.some((line) => line.includes(' WARN '))).toBe(true);
-    expect(warnLog.lines).toContain(VITE_SSR_GUARD_NOTE);
+    expect(() => warned.net.connect({ host: 'sts.googleapis.com', port: 443 })).toThrow();
+    expect(warnLog.lines[0]).toContain('PYRIC_GUARD=warn no longer lets token requests through');
 
     const allowed = fakeSeams();
     installViteNetGuard({
-      env: { PYRIC_GUARD_ALLOW: 'firestore.googleapis.com' },
+      env: { PYRIC_GUARD_ALLOW: 'oauth2.googleapis.com' },
       write: logLines().write,
       slot: {},
       hooks: allowed.hooks,
     });
-    allowed.net.connect({ host: 'firestore.googleapis.com', port: 443 });
-    expect(allowed.connected).toEqual(['firestore.googleapis.com']);
-    expect(() => allowed.net.connect({ host: 'identitytoolkit.googleapis.com', port: 443 })).toThrow();
+    expect(() => allowed.net.connect({ host: 'oauth2.googleapis.com', port: 443 })).toThrow();
+    expect(allowed.connected).toEqual([]);
   });
 
   it('installs nothing under PYRIC_GUARD=off', () => {
@@ -114,8 +104,8 @@ describe('installViteNetGuard', () => {
     const log = logLines();
     const slot: Record<symbol, unknown> = {};
     expect(installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: log.write, slot, hooks: seams.hooks })).toBeNull();
-    seams.net.connect({ host: 'firestore.googleapis.com', port: 443 });
-    expect(seams.connected).toEqual(['firestore.googleapis.com']);
+    seams.net.connect({ host: 'oauth2.googleapis.com', port: 443 });
+    expect(seams.connected).toEqual(['oauth2.googleapis.com']);
     expect(slot[NET_GUARD_GLOBAL]).toBeUndefined();
     expect(log.lines).toHaveLength(1);
   });
@@ -131,6 +121,34 @@ describe('installViteNetGuard', () => {
     installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: off.write, slot: fresh, hooks: fakeSeams().hooks });
     installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: off.write, slot: fresh, hooks: fakeSeams().hooks });
     expect(off.lines).toHaveLength(1);
+  });
+
+  it('under live rows reads no PYRIC_GUARD: off still refuses, even after an earlier attempt read off', () => {
+    const slot: Record<symbol, unknown> = {};
+    const off = logLines();
+    expect(installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: off.write, slot, hooks: fakeSeams().hooks })).toBeNull();
+
+    const seams = fakeSeams();
+    const log = logLines();
+    const guard = installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: log.write, slot, hooks: seams.hooks, fixedMode: true });
+    expect(guard?.mode).toBe('block');
+    expect(slot[NET_GUARD_GLOBAL]).toBe(guard);
+    let refusal: unknown;
+    try {
+      seams.net.connect({ host: 'oauth2.googleapis.com', port: 443 });
+    } catch (error) {
+      refusal = error;
+    }
+    expect((refusal as { code?: string }).code).toBe(GUARD_BLOCKED_CODE);
+    expect(seams.connected).toEqual([]);
+    expect(log.lines.join('')).not.toContain('PYRIC_GUARD=off for it');
+    expect(log.lines.join('')).toContain('Live mode keeps this refusal on, whatever PYRIC_GUARD says');
+
+    const warned = fakeSeams();
+    const warnLog = logLines();
+    const warnGuard = installViteNetGuard({ env: { PYRIC_GUARD: 'warn' }, write: warnLog.write, slot: {}, hooks: warned.hooks, fixedMode: true });
+    expect(warnGuard?.mode).toBe('block');
+    expect(warnLog.lines.join('')).not.toContain('PYRIC_GUARD=warn');
   });
 });
 
@@ -179,7 +197,7 @@ describe('pyric() installs the guard only for the dev server', () => {
   });
 });
 
-describe('the AI mode decides whether Firebase AI Logic passes the guard', () => {
+describe('Firebase AI Logic passes the guard in every AI mode, with no allowance', () => {
   const slot = globalThis as unknown as Record<symbol, unknown>;
   const attempted = Symbol.for('pyric.viteNetGuardAttempted');
   const keys = ['PYRIC_AI_MODE', 'PYRIC_AI_PASSTHROUGH', 'PYRIC_GUARD', 'PYRIC_GUARD_ALLOW'] as const;
@@ -221,31 +239,21 @@ describe('the AI mode decides whether Firebase AI Logic passes the guard', () =>
     return reaches;
   }
 
-  const productionSettings: Array<[string, PyricOptions, Record<string, string>]> = [
+  const aiSettings: Array<[string, PyricOptions, Record<string, string>]> = [
+    ['the default sandbox AI mode', {}, {}],
     ['ai.mode production', { ai: { mode: 'production' } }, {}],
     ['PYRIC_AI_MODE=production', {}, { PYRIC_AI_MODE: 'production' }],
     ['PYRIC_AI_PASSTHROUGH=1', {}, { PYRIC_AI_PASSTHROUGH: '1' }],
   ];
 
-  for (const [name, options, env] of productionSettings) {
-    it(`${name} permits ${FIREBASE_AI_LOGIC_HOST} and keeps other Firebase hosts blocked`, () => {
+  for (const [name, options, env] of aiSettings) {
+    it(`${name} lets ${FIREBASE_AI_LOGIC_HOST} and the data hosts through, and refuses token sources`, () => {
       const reaches = devServerGuard(options, env);
       expect(reaches(FIREBASE_AI_LOGIC_HOST)).toBe(true);
-      expect(reaches('firestore.googleapis.com')).toBe(false);
-      expect(reaches('identitytoolkit.googleapis.com')).toBe(false);
-      expect(reaches('aiplatform.googleapis.com')).toBe(false);
+      expect(reaches('firestore.googleapis.com')).toBe(true);
+      expect(reaches('aiplatform.googleapis.com')).toBe(true);
+      expect(reaches('oauth2.googleapis.com')).toBe(false);
+      expect(reaches('iamcredentials.googleapis.com')).toBe(false);
     });
   }
-
-  it(`sandbox mode keeps ${FIREBASE_AI_LOGIC_HOST} and every other Firebase host blocked`, () => {
-    const reaches = devServerGuard({}, {});
-    expect(reaches(FIREBASE_AI_LOGIC_HOST)).toBe(false);
-    expect(reaches('firestore.googleapis.com')).toBe(false);
-    expect(reaches('demo-default-rtdb.firebaseio.com')).toBe(false);
-  });
-
-  it('an explicit ai.mode sandbox outranks PYRIC_AI_MODE=production', () => {
-    const reaches = devServerGuard({ ai: { mode: 'sandbox' } }, { PYRIC_AI_MODE: 'production' });
-    expect(reaches(FIREBASE_AI_LOGIC_HOST)).toBe(false);
-  });
 });

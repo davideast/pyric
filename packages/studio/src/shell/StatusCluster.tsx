@@ -39,6 +39,11 @@ import { useBridgeRemoteConsumers } from './bridge-presence.js';
 import { RemoteClientsPopover } from './RemoteClientsPopover.js';
 import { useStudioDataSource } from './studio-data.js';
 import { hrefFor, pushPath } from './router.js';
+import { billedCallSummary, liveLabel, liveMismatchLine, livePassThroughLines } from 'pyric/sandbox/internal';
+import { useLiveHost, useLiveStatusRefresh } from './live-status.js';
+
+const LIVE_TITLE = 'Live mode: rows marked Production went to your real Firebase project. Rows marked Sandbox were served by the local sandbox.';
+const BILLED_TITLE = 'Successful Firestore reads and writes, and documents delivered to listeners, that the host has counted from every client.';
 
 const EMPTY_WORKER_RUNTIME = {
   servedEpoch: null,
@@ -62,6 +67,10 @@ export function StatusCluster() {
     if (unhealthy) setPersistenceFailed(true);
   }, [reportedPersistenceFailure, startedUnhealthy]);
   const bridgeAvailability = useBridgeAvailability();
+  const liveHost = useLiveHost();
+  useLiveStatusRefresh(liveHost !== null);
+  const liveMismatch = liveHost === null ? null : liveMismatchLine(liveHost);
+  const livePassThrough = liveHost === null ? [] : livePassThroughLines(liveHost);
   const presence = usePresenceView();
   const [presenceOpen, setPresenceOpen] = useState(false);
   const presenceTriggerRef = useRef<HTMLButtonElement>(null);
@@ -138,6 +147,27 @@ export function StatusCluster() {
 
   return (
     <div className="studio__status" aria-label="Studio status">
+      {liveHost !== null && (
+        <>
+          <span className="studio-chip studio-chip--warn" data-studio-live title={LIVE_TITLE}>
+            <span className="studio-chip__dot" aria-hidden="true" />
+            {liveLabel(liveHost.projectId)}
+          </span>
+          {liveMismatch !== null && (
+            <span className="studio-chip studio-chip--warn" data-studio-live-mismatch role="status">
+              {liveMismatch}
+            </span>
+          )}
+          {livePassThrough.map((line) => (
+            <span key={line} className="studio-chip studio-chip--warn" data-studio-live-pass-through role="status">
+              {line}
+            </span>
+          ))}
+          <span className="studio-chip" data-studio-billed title={BILLED_TITLE}>
+            Billed calls: {billedCallSummary(liveHost.billed)}
+          </span>
+        </>
+      )}
       {hasWorkerUpdate && (
         <button
           type="button"

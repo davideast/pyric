@@ -32,6 +32,9 @@ export interface SessionStores {
 
 export interface StoredSession {
   uid: string;
+  /** The key of the session the page held, which a reload hands back to
+   *  resume it with the authentication time it had (#1950). */
+  sessionKey?: string;
 }
 
 export class SessionStore {
@@ -53,13 +56,14 @@ export class SessionStore {
     const current = this.load();
     this.clear();
     this.mode = mode;
-    if (current) this.save(current.uid);
+    if (current) this.save(current.uid, current.sessionKey);
   }
 
-  save(uid: string): void {
+  save(uid: string, sessionKey?: string): void {
     this.clear(); // a session lives in exactly one store
     if (this.mode === 'NONE') return;
-    this.backing().setItem(this.key, JSON.stringify({ uid } satisfies StoredSession));
+    const record: StoredSession = sessionKey === undefined ? { uid } : { uid, sessionKey };
+    this.backing().setItem(this.key, JSON.stringify(record));
   }
 
   /** Reads BOTH storages (localStorage first — matches lookup order when a

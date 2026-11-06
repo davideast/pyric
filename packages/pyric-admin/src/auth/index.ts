@@ -5,9 +5,10 @@
  * `app` argument is the branded handle from `pyric-admin/app`
  * ({@link PyricAdminApp}); only sandbox-branded apps enter this package.
  * The local sandbox path uses an in-memory store keyed off `app.sandbox`
- * and implements the core user-management subset below. Tokens are NOT
- * real JWTs — they are deterministic strings parsed by the same sandbox
- * backend. This is enough to exercise agent code paths that use
+ * and implements the core user-management subset below. Custom tokens are
+ * NOT real JWTs — they are deterministic strings. `verifyIdToken` checks the
+ * ID token JWTs pyric's Auth mints, as firebase-admin checks an ID token.
+ * This is enough to exercise agent code paths that use
  * `createUser` / `getUser` / `setCustomUserClaims` /
  * `createCustomToken` / `verifyIdToken`, not enough to model a real
  * identity platform.
@@ -24,11 +25,20 @@
  * Surface scope on the sandbox backend (what works):
  *
  *   - {@link getAuth}
- *   - `Auth.createCustomToken(uid, claims?)` — returns a deterministic
- *     `pyric-sandbox-custom:${uid}:${json}` string; no signing.
- *   - `Auth.verifyIdToken(token)` — parses tokens minted by
- *     `createCustomToken`; returns a {@link DecodedIdToken}-shaped
- *     object.
+ *   - `Auth.createCustomToken(uid, claims?)` — returns a custom token in
+ *     firebase-admin's JWT shape for the app's project, signed by the
+ *     sandbox, which pyric's `signInWithCustomToken` exchanges (#1952).
+ *   - `Auth.verifyIdToken(token, checkRevoked?)` — verifies an ID token
+ *     pyric's Auth minted for the app's project (the app's project ID, or
+ *     `pyric-sandbox` when it names none), with production's error codes;
+ *     returns a {@link DecodedIdToken}. A custom token is refused with
+ *     `auth/argument-error`, as in production (#1949). With
+ *     `checkRevoked`, the client account behind the token must exist
+ *     (`auth/user-not-found`), be enabled (`auth/user-disabled`), and have
+ *     no revocation after the token's `auth_time` (`auth/id-token-revoked`).
+ *   - `Auth.revokeRefreshTokens(uid)` — revokes the client account's
+ *     refresh tokens: its held sessions fail their next refresh, and
+ *     `verifyIdToken(token, true)` refuses tokens authenticated before it.
  *   - `Auth.createUser(properties)` — stores a {@link UserRecord}
  *     in an in-memory `Map<uid, UserRecord>`. Auto-generates a `uid`
  *     when one is not supplied.
@@ -54,7 +64,6 @@
  *     `generateSignInWithEmailLink`, `generateVerifyAndChangeEmailLink`.
  *   - Bulk operations: `listUsers`, `getUsers`, `deleteUsers`,
  *     `importUsers`.
- *   - Revocation: `revokeRefreshTokens`.
  *   - `getUserByPhoneNumber`, `getUserByProviderUid`.
  *   - `updateUser` — not required by the brief.
  *
@@ -67,7 +76,14 @@ import {
   type Sandbox,
   type SandboxEvent,
 } from 'pyric/sandbox';
-import { assertNoReservedCustomClaims } from 'pyric/sandbox/internal';
+import {
+  assertNoReservedCustomClaims,
+  authAccountsFor,
+  getClock,
+  mintCustomToken,
+  SANDBOX_PROJECT_ID,
+  type AuthAccountStanding,
+} from 'pyric/sandbox/internal';
 import type {
   AuthUserRecord,
   CreateUserRequest as SandboxCreateUserRequest,
@@ -79,6 +95,7 @@ import {
   type PyricAdminApp,
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import { explicitProjectId } from '../app/project-id.js';
 import type {
   Auth,
   CreateRequest,
@@ -87,19 +104,17 @@ import type {
   UpdateRequest,
   UserRecord,
 } from './types.js';
-import { SANDBOX_TOKEN_PREFIX } from './token-decoders.js';
-import { verifySandboxIdToken } from './verify-token.js';
+import { assertIdTokenArgument, assertNotRevokedOrDisabled, invalidUid, userNotFound, verifySandboxIdToken } from './verify-token.js';
 
 export * from './types.js';
-export { SANDBOX_TOKEN_PREFIX } from './token-decoders.js';
 
 // ─── Sandbox backend ────────────────────────────────────────────────────
 
 /**
  * Per-sandbox in-memory store. One instance per `Sandbox` (tracked in
  * the {@link sandboxStores} WeakMap below). Holds the user table; the
- * token format is stateless (`createCustomToken` mints, `verifyIdToken`
- * parses) so it doesn't need to live here.
+ * tokens are stateless (`createCustomToken` mints, `verifyIdToken`
+ * checks) so they don't need to live here.
  *
  * `usersByUid` is the canonical index. `getUserByEmail` does a linear
  * scan over its values — the sandbox is for development and agent test
@@ -174,15 +189,14 @@ function storeFor(sandbox: Sandbox): AuthStore {
 }
 
 /**
- * Mint a deterministic sandbox token (the {@link SANDBOX_TOKEN_PREFIX}
- * format). Stateless — shared verbatim by the local and remote sandbox
- * arms, so a token minted against either round-trips through
- * verifySandboxIdToken on the other.
+ * Mint a sandbox custom token for the app's project at `nowMs`, in
+ * firebase-admin's shape (`pyric/sandbox/internal` `mintCustomToken`).
+ * Stateless, shared by the local and remote sandbox arms. Like production's
+ * custom token, it is not an ID token, and `verifyIdToken` refuses it.
  */
-function mintSandboxCustomToken(uid: string, developerClaims?: object): Promise<string> {
-  const claims = developerClaims ?? {};
-  const token = `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims)}`;
-  return Promise.resolve(token);
+function mintSandboxCustomToken(app: PyricAdminApp, nowMs: number, uid: string, developerClaims?: object): Promise<string> {
+  const claims = developerClaims as Record<string, unknown> | undefined;
+  return Promise.resolve(mintCustomToken({ uid, claims, projectId: idTokenProjectId(app), nowMs }));
 }
 
 /**
@@ -199,7 +213,26 @@ function mintSandboxCustomToken(uid: string, developerClaims?: object): Promise<
  * cast acknowledges the divergence in one place and lets the rest of
  * the file focus on the methods that actually work.
  */
-function makeSandboxAuth(sandbox: Sandbox): Auth {
+/**
+ * The project an ID token must name for `app`: firebase-admin's explicit
+ * project ID, or `pyric-sandbox`, which pyric's Auth mints for when it knows
+ * no project. Production throws `auth/invalid-credential` with no project;
+ * the sandbox checks against `pyric-sandbox` instead, by design.
+ */
+function idTokenProjectId(app: PyricAdminApp): string {
+  return explicitProjectId(app) ?? SANDBOX_PROJECT_ID;
+}
+
+/**
+ * Where the client account with `uid` stands, from the account table the
+ * sandbox's client sign-ins write to. A sandbox no client Auth has touched
+ * has no accounts.
+ */
+function clientAccountStanding(sandbox: Sandbox, uid: string): AuthAccountStanding {
+  return authAccountsFor(sandbox)?.standing(uid) ?? { kind: 'unrecorded' };
+}
+
+function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
   const store = storeFor(sandbox);
 
   /** Canonical "not implemented" error for surface that the sandbox
@@ -259,22 +292,22 @@ function makeSandboxAuth(sandbox: Sandbox): Auth {
     },
 
     /**
-     * Mint a deterministic sandbox token. Format is fixed at
-     * `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims ?? {})}`.
-     * Round-trips through {@link verifyIdToken} on the same sandbox
-     * backend; rejected by every other token verifier. Shared
-     * implementation: {@link mintSandboxCustomToken}.
+     * Mint a custom token for the app's project on the sandbox clock. Not
+     * an ID token: {@link verifyIdToken} refuses it, as production does.
+     * Shared implementation: {@link mintSandboxCustomToken}.
      */
     createCustomToken(uid: string, developerClaims?: object): Promise<string> {
-      return mintSandboxCustomToken(uid, developerClaims);
+      return mintSandboxCustomToken(app, getClock(sandbox).now(), uid, developerClaims);
     },
 
     /**
-     * Parse a token minted by {@link createCustomToken}. Shared
-     * implementation: {@link verifySandboxIdToken}.
+     * Verify an ID token for the app's project, reading `exp` and `nbf` on
+     * the sandbox clock. Shared implementation: {@link verifySandboxIdToken}.
      */
-    verifyIdToken(idToken: string, _checkRevoked?: boolean): Promise<DecodedIdToken> {
-      return verifySandboxIdToken(idToken);
+    verifyIdToken(idToken: string, checkRevoked = false): Promise<DecodedIdToken> {
+      const verified = verifySandboxIdToken(idToken, { projectId: idTokenProjectId(app), nowMs: getClock(sandbox).now() });
+      if (!checkRevoked) return verified;
+      return verified.then((decoded) => assertNotRevokedOrDisabled(decoded, clientAccountStanding(sandbox, decoded.sub)));
     },
 
     /**
@@ -402,8 +435,20 @@ function makeSandboxAuth(sandbox: Sandbox): Auth {
     importUsers(): Promise<unknown> {
       return Promise.reject(notImplemented('importUsers'));
     },
-    revokeRefreshTokens(): Promise<void> {
-      return Promise.reject(notImplemented('revokeRefreshTokens'));
+    /**
+     * Revoke the client account's refresh tokens at the sandbox clock's now,
+     * through the shared foundation's account table. A uid that is not a
+     * non-empty string of at most 128 characters rejects `auth/invalid-uid`,
+     * and a uid with no client record `auth/user-not-found`, as production's do.
+     */
+    revokeRefreshTokens(uid: string): Promise<void> {
+      const uidError = invalidUid(uid);
+      if (uidError !== null) return Promise.reject(uidError);
+      const standing = clientAccountStanding(sandbox, uid);
+      const hasRecord = standing.kind === 'active' || standing.kind === 'disabled';
+      if (!hasRecord) return Promise.reject(userNotFound());
+      authAccountsFor(sandbox)?.revokeRefreshTokens(uid);
+      return Promise.resolve();
     },
     createSessionCookie(): Promise<string> {
       return Promise.reject(notImplemented('createSessionCookie'));
@@ -465,10 +510,14 @@ function makeSandboxAuth(sandbox: Sandbox): Auth {
 // dedicated single-lookup op, and O(n) over the wire is fine at sandbox
 // scale (per the design spike — add an op if it ever matters).
 //
-// Tokens stay stateless and local: `createCustomToken` / `verifyIdToken`
-// are the same string transforms as the local arm
-// ({@link mintSandboxCustomToken} / {@link verifySandboxIdToken}), so a
-// token minted server-side verifies against any pyric-admin backend.
+// Tokens are minted and checked in this process with the local arm's
+// transforms ({@link mintSandboxCustomToken} / {@link verifySandboxIdToken}),
+// at the instant the worker's sandbox clock reads (`sandbox.clock`), so after
+// `advanceClock` both arms agree on `iat`, `exp` and expiry (#2010). The
+// clock is read on every call rather than cached: Studio, the CLI, an agent
+// or the page can move it at any moment, and the bridge relays no clock
+// updates to this process, so a cached offset would go stale at exactly the
+// advance a test makes.
 
 /** Map a firebase-admin `CreateRequest` onto the worker's sandbox
  *  create-user request. `null`s (upstream "clear") become "unset" — a
@@ -535,7 +584,7 @@ function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
  *   - User mutations emit auth `SandboxEvent`s in the worker (visible to
  *     Studio/agents) and are visible to the browser app immediately.
  */
-function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
+function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
   const channel = sandbox.channel;
 
   const notImplemented = (method: string): Error =>
@@ -546,20 +595,46 @@ function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
   const listRecords = async (): Promise<AuthUserRecord[]> =>
     (await channel.op({ method: 'auth.listUsers' })) as AuthUserRecord[];
 
+  /** The worker's sandbox clock now, in epoch milliseconds. */
+  const sandboxNow = async (): Promise<number> =>
+    ((await channel.op({ method: 'sandbox.clock' })) as { now: number }).now;
+
+  /**
+   * Where the account stands, from the worker's user pool. The worker relays
+   * no revocation time (this arm has no `revokeRefreshTokens`), so a token is
+   * refused here only for a missing or disabled account.
+   */
+  const relayedStanding = async (uid: string): Promise<AuthAccountStanding> => {
+    const record = (await listRecords()).find((u) => u.uid === uid);
+    if (record === undefined) return { kind: 'unrecorded' };
+    if (record.disabled) return { kind: 'disabled' };
+    return { kind: 'active', tokensValidAfterMs: null };
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handle: any = {
     get app() {
       throw notImplemented('auth.app');
     },
 
-    /** Stateless mint — identical to the local arm; needs no relay. */
-    createCustomToken(uid: string, developerClaims?: object): Promise<string> {
-      return mintSandboxCustomToken(uid, developerClaims);
+    /** The local arm's mint for the app's project, at the worker's sandbox clock. */
+    async createCustomToken(uid: string, developerClaims?: object): Promise<string> {
+      return mintSandboxCustomToken(app, await sandboxNow(), uid, developerClaims);
     },
 
-    /** Stateless parse — identical to the local arm; needs no relay. */
-    verifyIdToken(idToken: string, _checkRevoked?: boolean): Promise<DecodedIdToken> {
-      return verifySandboxIdToken(idToken);
+    /**
+     * The local arm's token check, for the app's project, with expiry read on
+     * the worker's sandbox clock. A token that is not a string throws before
+     * the clock is read, as the local arm throws. With `checkRevoked`, the
+     * account's standing is relayed from the worker's user pool
+     * ({@link relayedStanding}).
+     */
+    verifyIdToken(idToken: string, checkRevoked = false): Promise<DecodedIdToken> {
+      assertIdTokenArgument(idToken);
+      const projectId = idTokenProjectId(app);
+      const verified = sandboxNow().then((nowMs) => verifySandboxIdToken(idToken, { projectId, nowMs }));
+      if (!checkRevoked) return verified;
+      return verified.then(async (decoded) => assertNotRevokedOrDisabled(decoded, await relayedStanding(decoded.sub)));
     },
 
     /** Relays `auth.adminCreateUser`. Uid conflicts / invalid emails /
@@ -666,7 +741,9 @@ function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
     importUsers(): Promise<unknown> {
       return Promise.reject(notImplemented('importUsers'));
     },
-    revokeRefreshTokens(): Promise<void> {
+    revokeRefreshTokens(uid: string): Promise<void> {
+      const uidError = invalidUid(uid);
+      if (uidError !== null) return Promise.reject(uidError);
       return Promise.reject(notImplemented('revokeRefreshTokens'));
     },
     createSessionCookie(): Promise<string> {
@@ -732,9 +809,11 @@ function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
  * const auth = getAuth(app);
  *
  * const user = await auth.createUser({ uid: 'alice', email: 'a@e.com' });
- * const token = await auth.createCustomToken(user.uid, { role: 'admin' });
- * const decoded = await auth.verifyIdToken(token);
- * console.log(decoded.uid, decoded.role); // 'alice' 'admin'
+ * await auth.setCustomUserClaims(user.uid, { role: 'admin' });
+ *
+ * // An ID token from a client signed in on the same sandbox.
+ * const decoded = await auth.verifyIdToken(idTokenFromTheClient);
+ * console.log(decoded.uid);
  * ```
  */
 export function getAuth(app?: PyricAdminApp): Auth {
@@ -755,6 +834,6 @@ export function getAuth(app?: PyricAdminApp): Auth {
     throw new TypeError('pyric-admin/auth: getAuth expected a sandbox admin app.');
   }
   return isRemoteSandbox(app.sandbox)
-    ? makeRemoteAuth(app.sandbox)
-    : makeSandboxAuth(app.sandbox);
+    ? makeRemoteAuth(app, app.sandbox)
+    : makeSandboxAuth(app, app.sandbox);
 }

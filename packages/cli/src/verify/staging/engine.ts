@@ -29,13 +29,13 @@
  * keeps the prior rules in `.pyric/staging-restore.json` for that command.
  */
 import type { SandboxCommitEvent, SandboxEvent, SandboxOperationEvent } from 'pyric/sandbox';
+import { rtdbAuthVariable } from 'pyric/rules/internal/rtdb';
 import {
   rewoundRtdbTree,
-  rtdbAuthVariable,
   rtdbReplaySteps,
   rtdbStateDrift,
   type RtdbReplayDivergence,
-} from 'pyric/rules/internal/rtdb';
+} from 'pyric/sandbox/internal';
 
 import { isRestDenial, type RtdbAuthOverride, type RtdbRestClient, type RtdbRestResponse } from './rest.js';
 

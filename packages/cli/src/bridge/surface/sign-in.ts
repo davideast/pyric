@@ -17,11 +17,12 @@
  */
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import type { LocalSandbox } from 'pyric/sandbox';
+import { readCustomToken } from 'pyric/sandbox/internal';
 
 import { describeAppSession, readAppSession } from './app-session.js';
-import { operationFailure } from './context.js';
+import { operationFailure } from './sandbox-context.js';
 import { describeAgentIdentity } from './held-identity.js';
-import type { OperationResult, SurfaceContext } from './types.js';
+import type { OperationResult, SandboxSurfaceContext } from './types.js';
 
 /** The fix for a credential no account in the pool matches. */
 export const MISSING_ACCOUNT_FIX =
@@ -66,7 +67,7 @@ export function scopeToStoredTenant(sandbox: LocalSandbox, subject: SignInSubjec
  * Report what a sign-in or a sign-out did: the app session it moved, and the
  * agent identity it left alone.
  */
-export function reportAppSession(ctx: SurfaceContext): OperationResult {
+export function reportAppSession(ctx: SandboxSurfaceContext): OperationResult {
   const appSession = readAppSession(ctx.sandbox);
   const agent = ctx.identity.describe();
   return {
@@ -150,50 +151,15 @@ export function signInFailure(method: string, error: unknown): OperationResult {
   });
 }
 
-/** Read one base64url segment as JSON, or null when it is neither. */
-function jsonFrom(segment: string): Record<string, unknown> | null {
-  const candidates = [segment, base64UrlText(segment)];
-  for (const candidate of candidates) {
-    if (candidate === null) continue;
-    try {
-      const parsed: unknown = JSON.parse(candidate);
-      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-/** The text a base64url segment decodes to, or null when it is not base64url. */
-function base64UrlText(segment: string): string | null {
-  try {
-    const padded = segment.replace(/-/g, '+').replace(/_/g, '/');
-    return atob(padded.padEnd(Math.ceil(padded.length / 4) * 4, '='));
-  } catch {
-    return null;
-  }
-}
-
 /**
- * The uid a custom token asserts, read the same two ways the sandbox reads it:
- * the `{ uid, claims }` payload the mint writes, plain or base64url encoded,
- * and the middle segment of a three-part token. Returns undefined for anything
- * else, and the sign-in itself then raises `auth/invalid-custom-token`.
+ * The uid a signed custom token asserts, read with the reader
+ * `signInWithCustomToken` redeems it with. Returns undefined for any other
+ * token, which the sign-in then refuses with `auth/invalid-custom-token`.
  *
  * The uid is read here only to pin the tenant before the credential is
- * presented. Nothing about the token is verified.
+ * presented; the sign-in checks the token's project and expiry.
  */
 export function customTokenSubject(token: string): string | undefined {
-  const parts = token.split('.');
-  const segments = parts.length === 3 ? [parts[1] ?? ''] : [token];
-  for (const segment of segments) {
-    const payload = jsonFrom(segment);
-    if (payload === null) continue;
-    const uid = payload.uid ?? payload.sub;
-    if (typeof uid === 'string' && uid.length > 0) return uid;
-  }
-  return undefined;
+  const reading = readCustomToken(token);
+  return reading.kind === 'signed' ? reading.uid : undefined;
 }

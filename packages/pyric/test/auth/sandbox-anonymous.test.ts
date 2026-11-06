@@ -9,6 +9,8 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { checkIdToken } from 'pyric/sandbox/internal';
+import { createAppForSandbox } from '../../src/app/internal.js';
 import {
   getAuth,
   signInAnonymously,
@@ -80,13 +82,25 @@ describe('sandbox anonymous sign-in', () => {
     expect(second.user.isAnonymous).toBe(true);
   });
 
-  it('issues a sandbox-prefixed ID token', async () => {
+  it('issues a JWT ID token whose payload decodes to getIdTokenResult().claims (#1836)', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
     const credential = await signInAnonymously(auth);
     const token = await credential.user.getIdToken();
-    expect(token.startsWith('sandbox-id-token-')).toBe(true);
-    expect(token).toContain(credential.user.uid);
+    expect(token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    const check = await checkIdToken(token);
+    if (!check.ok) throw new Error(`the minted token does not check: ${check.reason}`);
+    expect(check.header).toMatchObject({ alg: 'RS256', kid: 'pyric-sandbox', typ: 'JWT' });
+    expect(check.claims).toEqual((await credential.user.getIdTokenResult()).claims);
+    expect(check.claims.sub).toBe(credential.user.uid);
+  });
+
+  it("names the app's project in iss and aud, as production does (#1503)", async () => {
+    const app = createAppForSandbox(initializeSandbox(), { projectId: 'demo-tokens' }, `tokens-${Math.random().toString(36).slice(2)}`);
+    const credential = await signInAnonymously(getAuth(app));
+    const { claims } = await credential.user.getIdTokenResult();
+    expect(claims.iss).toBe('https://securetoken.google.com/demo-tokens');
+    expect(claims.aud).toBe('demo-tokens');
   });
 
   it('getIdTokenResult includes synthesized standard claims', async () => {
@@ -95,7 +109,9 @@ describe('sandbox anonymous sign-in', () => {
     const credential = await signInAnonymously(auth);
     const result = await credential.user.getIdTokenResult();
     expect(result.claims['sub']).toBe(credential.user.uid);
+    // A bare getAuth(sandbox) knows no project, so its tokens name pyric-sandbox (#1503).
     expect(result.claims['aud']).toBe('pyric-sandbox');
+    expect(result.claims['iss']).toBe('https://securetoken.google.com/pyric-sandbox');
     expect(typeof result.claims['exp']).toBe('number');
     expect(result.expirationTime).toEqual(expect.any(String));
     expect(result.authTime).toEqual(expect.any(String));

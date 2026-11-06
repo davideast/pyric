@@ -13,6 +13,11 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+/** A run of a scratch checkout takes its heavy-run slot there, never the machine's. */
+function envFor(root: string): NodeJS.ProcessEnv {
+  return { ...process.env, PYRIC_HEAVY_RUN_DIR: join(root, '.heavy-runs') };
+}
+
 function checkout(chain: string, files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), 'pyric-test-all-'));
   roots.push(root);
@@ -65,7 +70,7 @@ describe('stopping test-all stops every job and what the jobs started', () => {
       const root = checkout('bun sleeper.ts && bun sleeper.ts', { 'sleeper.ts': SLEEPER });
       mkdirSync(join(root, 'pids'));
       // Its own process group, as a shell gives a command it runs.
-      const runner = spawn('bun', [testAll, `--root=${root}`, '--jobs=2'], { cwd: root, stdio: 'ignore', detached: true });
+      const runner = spawn('bun', [testAll, `--root=${root}`, '--jobs=2'], { cwd: root, env: envFor(root), stdio: 'ignore', detached: true });
       const pid = runner.pid ?? 0;
       expect(await until(() => recordedPids(root).length === 4, 20_000)).toBe(true);
       const pids = recordedPids(root);
@@ -82,7 +87,7 @@ describe('a bun test job that ends before its summary', () => {
       'a.test.ts': "import { test } from 'bun:test';\ntest('exits the process', () => { process.exit(0); });\n",
       'b.test.ts': "import { test } from 'bun:test';\ntest('never runs', () => {});\n",
     });
-    const run = spawnSync('bun', [testAll, `--root=${root}`, '--jobs=1'], { cwd: root, encoding: 'utf8' });
+    const run = spawnSync('bun', [testAll, `--root=${root}`, '--jobs=1'], { cwd: root, env: envFor(root), encoding: 'utf8' });
     expect(run.status).toBe(1);
     expect(run.stdout).toContain('printed no "Ran N tests across M files" summary');
     const log = join(root, 'test-results/test-all/bun-test.log');

@@ -242,7 +242,13 @@ console.log('CLIENT_OK');
     `import assert from 'node:assert';
 import { initializeApp } from 'firebase/app';
 import { getAI, getGenerativeModel } from 'firebase/ai';
+import { CustomProvider, initializeAppCheck } from 'firebase/app-check';
 const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-ai-project' });
+// The sandbox refuses AI Logic requests without an App Check token, so App
+// Check comes before getAI. Node has no document for reCAPTCHA, so the debug
+// token stands in for the provider.
+globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+initializeAppCheck(app, { provider: new CustomProvider({ getToken: async () => { throw new Error('not called'); } }) });
 const ai = getAI(app);
 assert.strictEqual(getAI(), ai, 'bare getAI() must use the registered default sandbox app');
 const model = getGenerativeModel(ai, { model: 'gemini-flash-lite-latest' });

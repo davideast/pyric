@@ -40,6 +40,7 @@ interface CollectionSummary {
 export default {
   tool: 'firestore',
   method: 'discoverPaths',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'discoverPaths(depth?, limit?)',

@@ -3,52 +3,52 @@
   "matrixRow": "",
   "rowIds": [],
   "description": "Immediate Storage authorization decisions after three true/false Firestore membership transitions, with one bounded delayed confirmation only on an unexpected immediate result.",
-  "observedAt": "2026-07-21T15:32:24.335Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-11-02T18:52:57.331Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "bucket": "digame-mas.appspot.com",
   "behavior": {
     "consistency-true:cycle-1": {
       "expected": "ALLOW",
       "immediate": "ALLOW",
-      "firestoreUpdateTime": "2026-07-21T15:30:08.069050Z",
-      "writeToRequestMs": 457,
-      "requestMs": 486
+      "firestoreUpdateTime": "2026-11-02T18:50:40.426337Z",
+      "writeToRequestMs": 153,
+      "requestMs": 590
     },
     "consistency-false:cycle-1": {
       "expected": "ALLOW",
       "immediate": "ALLOW",
-      "firestoreUpdateTime": "2026-07-21T15:30:08.636054Z",
-      "writeToRequestMs": 117,
-      "requestMs": 425
+      "firestoreUpdateTime": "2026-11-02T18:50:41.153009Z",
+      "writeToRequestMs": 172,
+      "requestMs": 374
     },
     "consistency-true:cycle-2": {
       "expected": "ALLOW",
       "immediate": "ALLOW",
-      "firestoreUpdateTime": "2026-07-21T15:30:09.175099Z",
-      "writeToRequestMs": 143,
-      "requestMs": 387
+      "firestoreUpdateTime": "2026-11-02T18:50:41.738772Z",
+      "writeToRequestMs": 242,
+      "requestMs": 415
     },
     "consistency-false:cycle-2": {
       "expected": "ALLOW",
       "immediate": "ALLOW",
-      "firestoreUpdateTime": "2026-07-21T15:30:09.641369Z",
-      "writeToRequestMs": 106,
-      "requestMs": 347
+      "firestoreUpdateTime": "2026-11-02T18:50:42.257654Z",
+      "writeToRequestMs": 127,
+      "requestMs": 454
     },
     "consistency-true:cycle-3": {
       "expected": "ALLOW",
       "immediate": "ALLOW",
-      "firestoreUpdateTime": "2026-07-21T15:30:10.094470Z",
-      "writeToRequestMs": 135,
-      "requestMs": 365
+      "firestoreUpdateTime": "2026-11-02T18:50:42.807502Z",
+      "writeToRequestMs": 125,
+      "requestMs": 305
     },
     "consistency-false:cycle-3": {
       "expected": "ALLOW",
       "immediate": "ALLOW",
-      "firestoreUpdateTime": "2026-07-21T15:30:10.542829Z",
-      "writeToRequestMs": 110,
-      "requestMs": 379
+      "firestoreUpdateTime": "2026-11-02T18:50:43.238229Z",
+      "writeToRequestMs": 149,
+      "requestMs": 261
     }
   },
   "diagnostics": {
@@ -91,10 +91,10 @@
   },
   "requestBudget": {
     "counts": {
-      "storage": 23,
-      "firestoreWrite": 22,
-      "rules": 7,
-      "iam": 6
+      "storage": 13,
+      "firestoreWrite": 24,
+      "rules": 6,
+      "iam": 3
     },
     "limits": {
       "storage": 40,
@@ -106,5 +106,19 @@
   "iam": {
     "temporaryIam": true,
     "iamChanged": true
+  },
+  "cleanupRequestBudget": {
+    "counts": {
+      "storage": 15,
+      "firestoreWrite": 12,
+      "rules": 2,
+      "iam": 3
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 24,
+      "rules": 8,
+      "iam": 6
+    }
   }
 }

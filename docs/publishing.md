@@ -1,6 +1,6 @@
 # How to publish Pyric to npm
 
-This guide publishes the five npm packages from a reviewed, merged release
+This guide publishes the six npm packages from a reviewed, merged release
 commit. Use the repository scripts for every version bump, verification, pack,
 and publish operation. Do not edit package versions or run `npm publish`
 directly.
@@ -12,10 +12,15 @@ Run every command from the repository root.
 You need:
 
 - push and pull-request access to `davideast/pyric`;
-- publish access to `pyric`, `pyric-admin`, `create-pyric`, `@pyric/cli`, and
-  `@pyric/ui`;
+- publish access to `pyric`, `pyric-admin`, `create-pyric`, `@pyric/cli`,
+  `@pyric/ui`, and `@pyric/live`;
 - an npm granular access token configured in your user-level `~/.npmrc` with
-  read/write access to those five packages and bypass 2FA enabled;
+  read/write access to those six packages and bypass 2FA enabled. The first
+  release that includes `@pyric/live` creates that package on npm, so a token
+  limited to the five existing packages can't publish it: give it read/write
+  access to the `@pyric` scope, or to all packages, for that release, and set
+  `PYRIC_PUBLISH_SCOPE_WRITE=@pyric` for the preflight and the publish (see
+  [Publish access is checked first](#publish-access-is-checked-first));
 - `bun`, `node`, `npm`, `git`, and an authenticated GitHub CLI (`gh`); and
 - a clean working tree with all release changes already merged to `main`.
 
@@ -29,6 +34,50 @@ stat -c '%a %U %n' "$HOME/.npmrc"
 
 The npm config should be owned by your user and have mode `600`. Never copy it
 into the repository or paste its token into a command.
+
+### Publish access is checked first
+
+npm uploads can't be taken back, so the preflight and the publish both start
+by checking that the account can publish every package in the release, before
+any gate runs. `scripts/lib/check-publish-access.mjs` makes read-only
+requests:
+
+```bash
+npm whoami                                       # the account
+npm access list packages <account> --json        # {"pyric": "read-write", ...}
+npm view <package> name                          # E404: not on the registry yet
+npm access list collaborators <package> --json   # {"<account>": "read-write", ...}
+```
+
+The collaborator list is the fallback: when the account listing fails, or
+leaves out a package the registry already has, that package passes only if
+the account is a `read-write` collaborator on it. The check refuses, naming
+each package, when a package is listed `read-only`, when the account isn't a
+`read-write` collaborator, when both lists fail, or when the registry lookup
+fails for a reason other than a 404.
+
+A package not on the registry yet has no permission to list: the release
+creates it, which takes a token with read-write access to its scope (or to all
+packages, for an unscoped name). No read-only request can prove a token has
+that, so the check refuses unless you state it:
+
+```bash
+PYRIC_PUBLISH_SCOPE_WRITE=@pyric bun run release:preflight "$RELEASE_VERSION"
+PYRIC_PUBLISH_SCOPE_WRITE=@pyric bash scripts/publish-alpha.sh "$RELEASE_VERSION"
+```
+
+Set it only after you've given the token read-write access to the whole
+`@pyric` scope. It covers only packages not on the registry yet; it never
+lets through an existing package the account can't write.
+
+Set it on the command, as above, and never in `.env`: `bun run` loads `.env`,
+so a value left there would acknowledge every new package of every later
+release without anyone checking the token.
+
+The listing reports the account's access. Whether npm narrows it to a
+granular token's package selection isn't documented, so a token limited to
+fewer packages than the account owns can still pass for existing packages.
+Give the token every package in the release.
 
 This token flow is a short-term bridge, not the permanent release design. npm
 expects bypass-2FA granular access tokens to lose direct-publish capability
@@ -49,7 +98,7 @@ RELEASE_VERSION=0.1.0-alpha.11
 ## 1. Prepare the release pull request
 
 Start from a clean checkout. The preparation script fetches `origin/main`,
-creates `release/v<version>` from that exact commit, bumps all five package
+creates `release/v<version>` from that exact commit, bumps all six package
 manifests in lockstep, refreshes `bun.lock`, verifies the resulting versions,
 commits the change, pushes the branch, and opens the release pull request with
 its changelog.
@@ -76,7 +125,7 @@ trying again. Do not bypass the cleanliness check.
 ## 2. Check out the merged release commit
 
 Return to `main`, update it without creating a merge commit, and verify that the
-five publishable package manifests all contain the requested version:
+six publishable package manifests all contain the requested version:
 
 ```bash
 git switch main
@@ -98,20 +147,22 @@ bun run release:preflight "$RELEASE_VERSION"
 
 The preflight:
 
-1. runs the complete test suite;
-2. builds and packs the release tarballs into `dist/packages/`, the one pack
+1. checks that the npm account can publish all six packages, with read-only
+   requests (see [Publish access is checked first](#publish-access-is-checked-first));
+2. runs the complete test suite;
+3. builds and packs the release tarballs into `dist/packages/`, the one pack
    of the run, recording each tarball's sha256 and the commit and clean state
    it packed in `manifest.json`;
-3. runs the packaging gate on those tarballs, which lints them and installs
+4. runs the packaging gate on those tarballs, which lints them and installs
    them in a fresh consumer;
-4. runs the installed-tarball behaviour smoke and the app scenarios on the
+5. runs the installed-tarball behaviour smoke and the app scenarios on the
    same tarballs, then stamps them in `dist/packages/proven.json`, but only if
    they're still the bytes the pack wrote, on the tree it packed;
-5. copies the five tarballs into a directory of its own and verifies the
+6. copies the six tarballs into a directory of its own and verifies the
    copies against the stamp;
-6. verifies npm authentication with a read-only `npm whoami` request, and runs
-   `npm publish --dry-run` for each of the five copies; and
-7. runs the full compatibility check and calculates the `fb<major>.<minor>`
+7. verifies npm authentication with a read-only `npm whoami` request, and runs
+   `npm publish --dry-run` for each of the six copies; and
+8. runs the full compatibility check and calculates the `fb<major>.<minor>`
    compatibility tag.
 
 The preflight branch exits before the real publish loop and never invokes
@@ -143,7 +194,7 @@ gates tested.
 upload, such as npm authentication. It skips the gates and the pack, and checks
 the stamp first. It goes on only when `proven.json` names the current commit
 and version, the tree was clean then and is clean now (untracked files count),
-and exactly the five uploaded tarballs match their sha256. Otherwise it stops
+and exactly the six uploaded tarballs match their sha256. Otherwise it stops
 in seconds, before uploading anything.
 
 That covers several cases:
@@ -159,23 +210,24 @@ Run the publish again without the variable to prove a fresh pack.
 
 After those gates pass, `publish-alpha.sh`:
 
-- publishes the five tarballs under the `alpha` dist-tag;
-- moves `latest` to the same version for all five packages;
+- publishes the six tarballs under the `alpha` dist-tag;
+- moves `latest` to the same version for all six packages;
 - reruns `compat:check` against the pinned Firebase version;
 - moves the resulting `fb<major>.<minor>` tag for `pyric`, `pyric-admin`,
   `@pyric/cli`, and `@pyric/ui` only when compatibility is green; and
 - prints every package's dist-tags for inspection.
 
-`create-pyric` intentionally receives `alpha` and `latest`, but no Firebase
-compatibility tag.
+`create-pyric` and `@pyric/live` intentionally receive `alpha` and `latest`,
+but no Firebase compatibility tag. `@pyric/live` runs the app's own installed
+`firebase`, and its `firebase` peer range is its compatibility claim.
 
 ## 5. Verify npm and tag the commit
 
 Do not create the Git tag until the publisher has completed successfully and
-all five versions are visible in npm:
+all six versions are visible in npm:
 
 ```bash
-for package_name in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
+for package_name in pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live; do
   npm view "${package_name}@${RELEASE_VERSION}" version
   npm dist-tag ls "$package_name"
 done
@@ -210,7 +262,7 @@ entry point exists, and deploys Firebase Hosting only.
 
 Do not immediately rerun the publisher: npm versions are immutable, so an
 already-uploaded package version cannot be published again. First inspect the
-five packages with the read-only verification loop above and record which
+six packages with the read-only verification loop above and record which
 uploads and dist-tags succeeded.
 
 Do not create the Git tag or deploy the site while the package set is partial.

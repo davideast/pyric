@@ -110,7 +110,7 @@ export const MCP_COMPOSITION_FILE = `${TOOLS}/bridge/server/tool-family-factorie
 /** MCP bridge, sandbox mode — mirrors bridge/server/tool-family-factories.ts. */
 const MCP_CONTRIBUTIONS = [
   { file: `${TOOLS}/bridge/server/capture-tools.ts`, factory: 'createCaptureTools', gate: 'in-process' },
-  { file: `${PYRIC}/rules/simulator-tools-impl.ts`, factory: 'createFirestoreSimulatorTools', gate: 'forwarded' },
+  { file: `${PYRIC}/rules-tools/simulator-tools-impl.ts`, factory: 'createFirestoreSimulatorTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools', gate: 'forwarded' },
   { file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools', gate: 'forwarded' },
@@ -123,12 +123,12 @@ const MCP_CONTRIBUTIONS = [
   // stdlib factory and adds firestore_test_rules only when a scope is
   // supplied (the default sandbox bridge supplies none).
   {
-    file: `${PYRIC}/rules/tools.ts`,
+    file: `${PYRIC}/rules-tools/tools.ts`,
     factory: 'createFirestoreRulesTools',
     gate: 'in-process',
     gates: { firestore_test_rules: 'in-process, scope-gated' },
   },
-  { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
+  { file: `${PYRIC}/rules-tools/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
   // createConformanceTools registers the shared createCanIUseTool factory,
   // which owns the name literal for both the MCP and Playground surfaces;
   // `via` points name extraction at it.
@@ -165,7 +165,7 @@ const PLAYGROUND_FILE_GATES = {
  *  elsewhere. `pick` narrows to what the wrapper actually registers. */
 const PLAYGROUND_WRAPPERS = {
   [`${PLAY}/tools/core/firestoreExtractIndexes.ts`]: {
-    file: `${PYRIC}/rules/indexes/extractTool.ts`,
+    file: `${PYRIC}/indexes/extractTool.ts`,
     factory: 'createFirestoreExtractTool',
     gate: 'always-on',
   },
@@ -175,7 +175,7 @@ const PLAYGROUND_WRAPPERS = {
     gate: 'always-on',
   },
   [`${PLAY}/tools/core/firestoreRulesStdlib.ts`]: {
-    file: `${PYRIC}/rules/stdlib-tools.ts`,
+    file: `${PYRIC}/rules-tools/stdlib-tools.ts`,
     factory: 'createFirestoreRulesStdlibTools',
     pick: [
       'firestore_rules_stdlib_list',

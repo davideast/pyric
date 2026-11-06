@@ -6,7 +6,7 @@ import type { ViteDevServer } from 'vite';
 import type {
   FunctionsDevelopmentRuntime,
   FunctionsDevelopmentRuntimeOptions,
-} from '../../src/functions-rtdb/development-runtime.js';
+} from '../../src/functions/development-runtime.js';
 import type { BridgeMount } from '../../src/serve/bridge-mount.js';
 import { attachViteFunctionsDevelopment } from '../../src/serve/vite-functions-development.js';
 
@@ -57,6 +57,9 @@ describe('Vite Functions development adapter', () => {
       projectId: 'demo-project',
       host: 'localhost',
       httpServer: httpServer as unknown as Server,
+      middlewares: { use: () => undefined },
+      isAllowedRequest: () => true,
+      allowsAppOrigin: () => true,
       watcher: watcher as unknown as ViteDevServer['watcher'],
       logger: {
         info: (message) => info.push(message),
@@ -119,6 +122,9 @@ describe('Vite Functions development adapter', () => {
       host: 'localhost',
       watch: false,
       httpServer: httpServer as unknown as Server,
+      middlewares: { use: () => undefined },
+      isAllowedRequest: () => true,
+      allowsAppOrigin: () => true,
       watcher: watcher as unknown as ViteDevServer['watcher'],
       logger: { info() {}, warn() {}, error() {} } as unknown as ViteDevServer['config']['logger'],
       bridge: { sandboxConnected: () => false, onSandboxPeerConnected: () => () => {} } as unknown as BridgeMount,
@@ -146,6 +152,9 @@ it('retries after reconnect even during startup, without duplicate starts or lis
     project: { sourceDir: '/project/functions', entry: '/project/functions/index.js' },
     projectId: 'demo', host: 'localhost', baseEnv: {}, registerUrl: 'file:///register.js',
     httpServer: httpServer as Server,
+    middlewares: { use: () => undefined },
+    isAllowedRequest: () => true,
+    allowsAppOrigin: () => true,
     watcher: watcher as ViteDevServer['watcher'],
     logger: { info() {}, warn() {}, error() {} } as ViteDevServer['config']['logger'],
     bridge: {

@@ -52,9 +52,8 @@
  * exits before the beacon lands simply loses the machine channel, which is
  * exactly why the watchdog on the other end is warn-only.
  *
- * The POST targets loopback, which is not in the shared Google endpoint
- * catalog, so it passes the net-guard installed moments earlier without a
- * verdict.
+ * The POST targets loopback, which is no token source, so it passes the
+ * net-guard installed moments earlier without a verdict.
  */
 import { boundedRequest } from '../bounded-request.js';
 import type { GuardMode } from './net-guard.js';

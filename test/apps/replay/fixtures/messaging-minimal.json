@@ -1,0 +1,116 @@
+{
+  "format": "pyric-replay/1",
+  "project": "demo-replay-messaging",
+  "source": "hand-written from capture M (packages/conformance/src/capture/messaging-live/recordings/capture-m-wire.json, firebase 12.19.0): the first getToken's Installations create and registrations create, the first deleteToken's registrations delete, and the referrer-blocked key's denied Installations create (op denied-referrer), each with production's status, Content-Type and body. The capture keeps request body key sets, so each body here holds those keys with any value, except the constants the SDK always sends (authVersion). API keys are never recorded: the two keys are test values that tell the allowed app from the referrer-blocked one. The project number is a fixed test value where the capture wrote <sender-id>, and the push subscription fields a registration answer echoes are fixed test values.",
+  "exchanges": [
+    {
+      "kind": "messaging",
+      "id": "installations-create",
+      "api": "installations",
+      "request": {
+        "method": "POST",
+        "path": "/v1/projects/demo-replay-messaging/installations",
+        "headers": { "x-goog-api-key": "replay-api-key" },
+        "body": { "appId": { "$": "any" }, "authVersion": "FIS_v2", "fid": { "$": "any" }, "sdkVersion": { "$": "any" } }
+      },
+      "response": {
+        "status": 200,
+        "headers": { "content-type": "application/json; charset=UTF-8" },
+        "body": {
+          "name": { "$": "fid", "prefix": "projects/1234567890/installations/" },
+          "fid": { "$": "fid" },
+          "refreshToken": { "$": "refreshToken" },
+          "authToken": { "token": { "$": "fisAuthToken" }, "expiresIn": "604800s" }
+        }
+      }
+    },
+    {
+      "kind": "messaging",
+      "id": "registrations-create",
+      "api": "registrations",
+      "request": {
+        "method": "POST",
+        "path": "/v1/projects/demo-replay-messaging/registrations",
+        "headers": { "x-goog-api-key": "replay-api-key", "x-goog-firebase-installations-auth": { "$": "fisAuthToken" } },
+        "body": {
+          "web": {
+            "applicationPubKey": { "$": "any" },
+            "auth": { "$": "any" },
+            "endpoint": { "$": "any" },
+            "origin": { "$": "any" },
+            "p256dh": { "$": "any" }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": { "content-type": "application/json; charset=UTF-8" },
+        "body": {
+          "name": { "$": "fcmToken", "prefix": "projects/demo-replay-messaging/registrations/" },
+          "token": { "$": "fcmToken" },
+          "web": {
+            "endpoint": "https://fcm.googleapis.com/fcm/send/replay-endpoint",
+            "p256dh": "replay-p256dh",
+            "auth": "replay-auth",
+            "applicationPubKey": "replay-vapid-key",
+            "origin": "localhost:4873"
+          }
+        }
+      }
+    },
+    {
+      "kind": "messaging",
+      "id": "registrations-delete",
+      "api": "registrations",
+      "request": {
+        "method": "DELETE",
+        "path": "/v1/projects/demo-replay-messaging/registrations/{fcmToken}",
+        "headers": { "x-goog-api-key": "replay-api-key", "x-goog-firebase-installations-auth": { "$": "fisAuthToken" } }
+      },
+      "response": {
+        "status": 200,
+        "headers": { "content-type": "application/json; charset=UTF-8" },
+        "body": {}
+      }
+    },
+    {
+      "kind": "messaging",
+      "id": "installations-create-referrer-blocked",
+      "api": "installations",
+      "request": {
+        "method": "POST",
+        "path": "/v1/projects/demo-replay-messaging/installations",
+        "headers": { "x-goog-api-key": "replay-referrer-blocked-key" },
+        "body": { "appId": { "$": "any" }, "authVersion": "FIS_v2", "fid": { "$": "any" }, "sdkVersion": { "$": "any" } }
+      },
+      "response": {
+        "status": 403,
+        "headers": { "content-type": "application/json; charset=UTF-8" },
+        "body": {
+          "error": {
+            "code": 403,
+            "message": "Requests from referer http://localhost:4873/ are blocked.",
+            "status": "PERMISSION_DENIED",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "API_KEY_HTTP_REFERRER_BLOCKED",
+                "domain": "googleapis.com",
+                "metadata": {
+                  "service": "firebaseinstallations.googleapis.com",
+                  "httpReferrer": "http://localhost:4873/",
+                  "consumer": "projects/1234567890"
+                }
+              },
+              {
+                "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+                "locale": "en-US",
+                "message": "Requests from referer http://localhost:4873/ are blocked."
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

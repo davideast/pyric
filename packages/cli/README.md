@@ -19,7 +19,7 @@ Console to ship rules, indexes, hosting, and functions to a real project.
 | Command | What it does |
 |---|---|
 | `pyric init [dir]` | Scaffold a Pyric project. `--template web` (default) creates a Vite app, `--template static` creates a no-bundler app, and `--template node` creates a script project. Also supports `--name`, `--force`, and `--json`. |
-| `pyric bridge` | Stand up an HTTP+WebSocket bridge an MCP client (Claude Code, Cursor) connects to (sandbox mode only) |
+| `pyric bridge` | Stand up an HTTP MCP server with the tools that run in the bridge process (rules, conformance, identity, captures). A browser page cannot attach to it; use `pyric sandbox --bridge` for that |
 | `pyric sandbox [flags] [--] [command...]` | Start the local Firebase sandbox. It can serve a static app, run a child process, mount the MCP bridge, and serve Studio. See the [CLI reference](https://pyric.dev/docs/reference/cli/). |
 | `pyric snapshot` | Promote saved sandbox state to a committable fixture. Load it with `pyric sandbox --seed <fixture>`. Supports `--out`, `--port`, `--force`, and `--json`. |
 | `pyric verify` | Replay a captured sandbox session against candidate rules (`--engine sandbox\|rules-test-api\|both`). Hosted Rules Test API needs SA/ADC via `FIREBASE_SA_BASE64` / `GOOGLE_APPLICATION_CREDENTIALS` |
@@ -102,7 +102,7 @@ rulesHash}`.
 | `@pyric/cli/remote` | Node-side client for a browser-held sandbox; `localStorageUrl` maps a stored production download URL onto the host's byte route |
 | `@pyric/cli/register` | Registration helpers |
 
-## MCP tool surface (`pyric bridge`)
+## MCP tool surface (`pyric sandbox --bridge`)
 
 The bridge composes its toolsets from the same factories used by its browser
 dispatcher so advertised and executable tools cannot drift. The canonical,
@@ -138,7 +138,7 @@ without a live `ProjectScope`, so no Rules Test API tool):
 ### Gaps from the playground tool surface
 
 The `packages/playground/` app ships richer diagnostic tools that
-the `pyric bridge` does NOT register out of the box today. They're
+the bridge does NOT register out of the box today. They're
 playground-specific orchestrators built on top of `useRuntimeStore`
 and other browser-only state:
 

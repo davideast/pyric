@@ -5,7 +5,7 @@ import {
   rtdbReferenceParamName,
   rtdbReferenceParts,
   supportsRtdbReference,
-} from '../../src/functions-rtdb/reference-pattern.js';
+} from '../../src/functions/rtdb/reference-pattern.js';
 
 describe('RTDB Eventarc reference patterns', () => {
   test('normalizes references and splits their segments once', () => {

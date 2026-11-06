@@ -1,4 +1,5 @@
 import { re2FullMatch, replaceRe2 } from '../../rules/simulator/rules-type.js';
+import { lowerRulesString, upperRulesString } from '../../rules/simulator/string-case.js';
 import { splitRe2 } from '../../rules/simulator/string-split.js';
 import { trimRulesString } from '../../rules/simulator/string-trim.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
@@ -96,12 +97,12 @@ function asEvaluationError<T>(method: () => T): T {
   }
 }
 
-/** `string.lower()`, `upper()`, and `trim()`. */
+/** `string.lower()`, `upper()`, and `trim()`. Case maps the ASCII letters only. */
 function evalCaseAndTrim(receiver: unknown, expr: MethodCall): unknown {
   const subject = stringReceiver(receiver, expr);
   expectNoArguments(expr);
-  if (expr.method === 'lower') return subject.toLowerCase();
-  if (expr.method === 'upper') return subject.toUpperCase();
+  if (expr.method === 'lower') return lowerRulesString(subject);
+  if (expr.method === 'upper') return upperRulesString(subject);
   return trimRulesString(subject);
 }
 

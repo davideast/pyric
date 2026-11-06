@@ -7,6 +7,7 @@ import type { OperationResult } from '../../types.js';
 export default {
   tool: 'storage',
   method: 'status',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'production',
   signature: 'status(confirm)',

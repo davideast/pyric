@@ -1,10 +1,6 @@
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 
-/**
- * Firebase JS SDK version whose public app behavior the current oracle records.
- * The app conformance replay makes this pin fail visibly when observations move.
- */
-export const SDK_VERSION = '12.13.0';
+export { SDK_VERSION } from '../rules/rtdb/data/sdk-version.js';
 
 export type LogLevel = 'debug' | 'verbose' | 'info' | 'warn' | 'error' | 'silent';
 

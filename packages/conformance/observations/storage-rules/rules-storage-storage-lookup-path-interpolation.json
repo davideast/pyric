@@ -5,8 +5,8 @@
     "storage-rules#215"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"storage-lookup-path-interpolation\" (STORAGE-H2-LOOKUP-PATH-INTERPOLATION). Whether $(pathValue) in a firestore.exists() path splices the path segments, errors, or stringifies.",
-  "observedAt": "2026-10-27T02:38:04.677Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:57.508Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

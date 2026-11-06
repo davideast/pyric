@@ -5,8 +5,8 @@
     "storage-rules#214"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-deploy-cloud-storage-service\" (STORAGE-H1-DEPLOY-SERVICE-NAME). The documented cloud.storage service name is rejected by pyric.",
-  "observedAt": "2026-10-27T02:46:42.211Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:54.023Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

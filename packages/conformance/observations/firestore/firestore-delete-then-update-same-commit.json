@@ -5,8 +5,8 @@
     "firestore#delete-then-update-same-commit"
   ],
   "description": "Delete then update of one doc in a write batch and in a transaction, with set then update and update then delete in a batch as controls. Records the error and the doc afterwards.",
-  "observedAt": "2026-10-27T19:41:39.655Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T14:55:45.396Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "batch: delete then update": {

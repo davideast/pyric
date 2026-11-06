@@ -13,8 +13,9 @@
  */
 
 import { isQueryProofUnsupported } from '../rules-debug/query-proof.js';
-import type { RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
+import type { EventCaller, ObservedProduction, RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
+import { productionVerdict } from 'pyric/sandbox/internal';
 import type { CommandTarget } from '../home/command.js';
 
 /** A traffic event as Studio's adapter emits it: the library shape plus the
@@ -25,6 +26,10 @@ export type StudioTrafficEvent = TrafficEvent & {
   queryProof?: RequestEvent['queryProof'];
   operationContext: OperationContext;
   rulesDisposition: RulesDisposition;
+  /** The connection the host received the op from; absent when no host stamped one. */
+  caller?: EventCaller;
+  /** What production answered, when production served the op and pyric only observed it. */
+  production?: ObservedProduction;
 };
 
 /** Was this op issued by Pyric Studio itself (data viewers/editors, the
@@ -115,6 +120,9 @@ export function opensRulesInspector(event: {
   return event.rulesDisposition.kind === 'evaluated';
 }
 
+/** The `gs://<bucket>/` a Storage row's path starts with. */
+const GS_BUCKET_PREFIX = /^gs:\/\/[^/]+\//;
+
 /**
  * The route of the record a traffic row touched — the row's navigation
  * semantic (C3 drill-in: detail belongs to the owning surface). Null when
@@ -126,6 +134,8 @@ export function opensRulesInspector(event: {
  *                                      N4 gap: no path deep-link yet)
  *   storage   → /storage/<path>       (object path)
  *             → /storage/<path>?kind=prefix (listed prefix)
+ *             → /storage              (`gs://<bucket>/`, the bucket root; a
+ *                                      `gs://<bucket>/` prefix is stripped)
  *   auth      → /auth/<uid>           (`path` carries the uid; `*` = clear-all,
  *                                      not addressable)
  */
@@ -134,6 +144,15 @@ export function subjectTarget(event: {
   method: StudioTrafficEvent['method'];
   path: string;
 }): CommandTarget | null {
+  const isStorage = event.service === 'storage';
+  const bucketPrefix = isStorage ? GS_BUCKET_PREFIX.exec(event.path) : null;
+  // A Storage row reads `gs://<bucket>/<path>`; the pane routes by object path,
+  // in its own bucket, and `gs://<bucket>/` is that bucket's root.
+  if (bucketPrefix !== null) {
+    const objectPath = event.path.slice(bucketPrefix[0].length);
+    if (objectPath === '') return { tab: 'storage' };
+    return subjectTarget({ ...event, path: objectPath });
+  }
   const path = event.path;
   if (
     event.service === 'storage' &&
@@ -183,4 +202,15 @@ export function queryProofUnsupportedCount(
 export function verdictLabel(verdict: Exclude<TrafficVerdict, null> | 'all'): string {
   if (verdict === 'proof-unsupported') return 'Query proof unsupported';
   return verdict;
+}
+
+/**
+ * The cell text for an op production served: production's answer, never a
+ * local Rules verdict. `permission-denied` reads as denied; any other code
+ * reads as failed and names the code.
+ */
+export function productionLabel(production: ObservedProduction): string {
+  const outcome = production.outcome;
+  if (outcome.status === 'ok') return 'production ok';
+  return productionVerdict(outcome) === 'denied' ? 'production denied' : `production failed: ${outcome.code}`;
 }

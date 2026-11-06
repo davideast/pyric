@@ -35,6 +35,12 @@
  * pre-run ruleset with the case's subtree merged under the run-scoped mount, so
  * an endpoint that ignored the flag would still keep every existing rule. After
  * every case the runner reads the live rules back and requires them unchanged.
+ * A deploy scenario with a `largeRuleset` policy (r51, r61) runs after the
+ * operation scenarios and their rules restore, so the throttling an unanswered
+ * dry run sets off cannot reach a rules write. When production does not answer
+ * a scenario whose policy allows it (r61), that scenario gets no observation:
+ * every other observation is still written, and the run exits 1
+ * (src/rtdb-rules-deploy-run.ts).
  *
  * CUSTOM CLAIMS: a case with `claims` signs in with a custom token minted by the
  * service account for one run-scoped uid. Custom-token sign-in needs no sign-in
@@ -46,11 +52,12 @@
  *   PYRIC_ORACLE_FIREBASE_CONFIG — Web SDK config JSON (must carry databaseURL
  *     and apiKey). Provides the client used to run corpus ops and the RTDB
  *     instance URL. Its presence gates capture.
- *   PYRIC_ORACLE_SA_PATH — path to a service-account JSON (defaults to
- *     ignored/service-account.json). Required to mint the firebase.database-
- *     scoped OAuth token the /.settings/rules.json deploy endpoint demands and
- *     to seed data via the admin SDK. A web config alone cannot deploy RTDB
- *     rules.
+ *   PYRIC_ORACLE_SA_PATH — path to a service-account JSON. Unset, the runner
+ *     uses Application Default Credentials and PYRIC_ORACLE_PROJECT_ID names
+ *     the project (src/oracle-credential.ts). The credential mints the
+ *     firebase.database-scoped OAuth token the /.settings/rules.json deploy
+ *     endpoint demands, seeds data via the admin SDK, and signs custom tokens.
+ *     A web config alone cannot deploy RTDB rules.
  *
  * RUNNABLE-BUT-INERT WITHOUT CREDENTIALS:
  *   With PYRIC_ORACLE_FIREBASE_CONFIG absent, this runner makes NO network
@@ -63,13 +70,14 @@
  *   bun run packages/conformance/src/run-rules-rtdb.ts
  *   # real capture (credentialed):
  *   PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \
- *     PYRIC_ORACLE_SA_PATH=ignored/service-account.json \
+ *     PYRIC_ORACLE_PROJECT_ID=<oracle project id> \
  *     bun run packages/conformance/src/run-rules-rtdb.ts \
  *     --scenario r15-validate-ancestor-scope
+ *   # several scenarios in one run (comma-separated, or the flag repeated):
+ *   ... run-rules-rtdb.ts --scenario r15-validate-ancestor-scope,r29-deploy-rejections
  */
-import { createSign } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ALL_RULES_RTDB_DEPLOY_SCENARIOS,
@@ -78,15 +86,26 @@ import {
   rtdbObservationName,
   type RtdbCaseQuery,
   type RtdbDeployScenario,
-  type RtdbDeployVerdict,
   type RtdbCaseIdentity,
   type RtdbScenario,
   type RtdbTestCase,
 } from '../rules-corpus/rtdb/index.ts';
+import { RTDB_RULES_SCOPE } from './oracle-access-token.ts';
+import {
+  loadOracleServiceAccount,
+  oracleAccessToken,
+  oracleAppOptions,
+  oracleServiceAccountEmail,
+  signOracleJwt,
+  type OracleServiceAccount,
+} from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import { canonicalize, type RulesDeployEndpoint } from './rtdb-rules-deploy.ts';
+import { orderDeployScenarios, runDeployScenarios } from './rtdb-rules-deploy-run.ts';
+import { restoreRulesBeforeLatePhase, runCapturePhases, type CapturedObservation } from './rtdb-rules-capture-run.ts';
+import { fetchWithRateLimitRetry } from './rtdb-rules-rate-limit.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(HERE, '..', '..', '..');
 // rules-rtdb-* observations belong to the 'rtdb-rules' surface subdirectory
 // (surfaces/rtdb-rules.json owns the prefix), NOT the SDK-plane 'rtdb' one.
 const OBS_DIR = join(HERE, '..', 'observations', 'rtdb-rules');
@@ -98,12 +117,8 @@ interface FirebaseWebConfig {
   databaseURL?: string;
 }
 
-interface ServiceAccount {
-  client_email: string;
-  private_key: string;
-  project_id: string;
-  token_uri?: string;
-}
+/** The oracle credential: a key file, or Application Default Credentials. */
+type ServiceAccount = OracleServiceAccount;
 
 interface Observation {
   name: string;
@@ -136,36 +151,51 @@ export interface RtdbSelection {
   deployScenarios: RtdbDeployScenario[];
 }
 
-export function selectRtdbScenarios(args: readonly string[]): RtdbSelection {
-  let selectedId: string | undefined;
+/** The ids one `--scenario` value names, comma-separated. */
+function scenarioIdsOf(value: string | undefined): string[] {
+  const isMissing = !value || value.startsWith('--');
+  if (isMissing) throw new Error('--scenario requires an id');
+  const ids = value.split(',').map((id) => id.trim());
+  if (ids.some((id) => id === '')) throw new Error('--scenario requires an id between each comma');
+  return ids;
+}
+
+/** Every id the `--scenario` flags name, in either form and repeated or not. */
+function selectedScenarioIds(args: readonly string[]): Set<string> {
+  const ids = new Set<string>();
   for (let index = 0; index < args.length; index++) {
-    const arg = args[index];
+    const arg = args[index]!;
     if (arg === '--scenario') {
-      const value = args[index + 1];
-      if (!value || value.startsWith('--')) throw new Error('--scenario requires an id');
-      if (selectedId) throw new Error('--scenario may be supplied only once');
-      selectedId = value;
+      for (const id of scenarioIdsOf(args[index + 1])) ids.add(id);
       index++;
       continue;
     }
     if (arg.startsWith('--scenario=')) {
-      const value = arg.slice('--scenario='.length);
-      if (!value) throw new Error('--scenario requires an id');
-      if (selectedId) throw new Error('--scenario may be supplied only once');
-      selectedId = value;
+      for (const id of scenarioIdsOf(arg.slice('--scenario='.length))) ids.add(id);
       continue;
     }
     throw new Error(`unknown argument: ${arg}`);
   }
+  return ids;
+}
 
-  if (!selectedId) {
+/**
+ * The scenarios `--scenario` names, in corpus order, or the whole corpus when
+ * it is absent. `--scenario` takes a comma-separated list and may be repeated,
+ * so one run (one rules snapshot and restore) can re-capture a chosen set.
+ */
+export function selectRtdbScenarios(args: readonly string[]): RtdbSelection {
+  const ids = selectedScenarioIds(args);
+  if (ids.size === 0) {
     return { scenarios: ALL_RULES_RTDB_SCENARIOS, deployScenarios: ALL_RULES_RTDB_DEPLOY_SCENARIOS };
   }
-  const scenario = ALL_RULES_RTDB_SCENARIOS.find((candidate) => candidate.id === selectedId);
-  if (scenario) return { scenarios: [scenario], deployScenarios: [] };
-  const deployScenario = ALL_RULES_RTDB_DEPLOY_SCENARIOS.find((candidate) => candidate.id === selectedId);
-  if (deployScenario) return { scenarios: [], deployScenarios: [deployScenario] };
-  throw new Error(`unknown RTDB scenario: ${selectedId}`);
+  const known = new Set([...ALL_RULES_RTDB_SCENARIOS, ...ALL_RULES_RTDB_DEPLOY_SCENARIOS].map((scenario) => scenario.id));
+  const unknown = [...ids].filter((id) => !known.has(id));
+  if (unknown.length > 0) throw new Error(`unknown RTDB scenario: ${unknown.join(', ')}`);
+  return {
+    scenarios: ALL_RULES_RTDB_SCENARIOS.filter((scenario) => ids.has(scenario.id)),
+    deployScenarios: ALL_RULES_RTDB_DEPLOY_SCENARIOS.filter((scenario) => ids.has(scenario.id)),
+  };
 }
 
 export function observationLinkageOf(value: unknown): ObservationLinkage {
@@ -190,12 +220,23 @@ export function assertMatchingOracleProjects(
   }
 }
 
+function printDeployScenarios(deployScenarios: readonly RtdbDeployScenario[]): void {
+  for (const scenario of deployScenarios) {
+    const limit = scenario.largeRuleset ? `, ${scenario.largeRuleset.timeoutMs / 1_000}s limit` : '';
+    console.log(
+      `    - ${scenario.id.padEnd(28)} [${scenario.fm.padEnd(8)}] ` +
+        `${String(scenario.deployCases.length).padStart(2)} rulesets${limit}, expects deploy verdict → ${rtdbObservationName(scenario)}.json`,
+    );
+  }
+}
+
 function printInertPlan({ scenarios, deployScenarios }: RtdbSelection): void {
   console.log('[oracle:rules-rtdb] PYRIC_ORACLE_FIREBASE_CONFIG not set — INERT preview, no network calls.\n');
   console.log('  Credential env vars expected:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG  (Web SDK config JSON with databaseURL + apiKey; gates capture)');
   console.log('    PYRIC_ORACLE_SA_PATH          (service-account JSON path for the rules-deploy admin token;');
-  console.log('                                   defaults to ignored/service-account.json)\n');
+  console.log('                                   unset, Application Default Credentials are used)');
+  console.log('    PYRIC_ORACLE_PROJECT_ID       (the oracle project id, read when PYRIC_ORACLE_SA_PATH is unset)\n');
   console.log(`  Observation output directory: ${OBS_DIR}`);
   console.log(`  Observation filename prefix:  ${RULES_RTDB_OBSERVATION_PREFIX}\n`);
   console.log('  Capture protocol: deploy → execute ops on live RTDB → restore rules + delete run data → read-back verify both.');
@@ -212,81 +253,38 @@ function printInertPlan({ scenarios, deployScenarios }: RtdbSelection): void {
     );
   }
   console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases(scenarios)} cases.`);
+  const order = orderDeployScenarios(deployScenarios);
   console.log(`\n  Would dry-run ${deployScenarios.length} deploy scenario(s) (PUT /.settings/rules.json?dryRun=true, nothing deployed):`);
-  for (const scenario of deployScenarios) {
-    console.log(
-      `    - ${scenario.id.padEnd(28)} [${scenario.fm.padEnd(8)}] ` +
-        `${String(scenario.deployCases.length).padStart(2)} rulesets, expects deploy verdict → ${rtdbObservationName(scenario)}.json`,
-    );
+  printDeployScenarios(order.beforeOperations);
+  if (order.afterOperations.length > 0) {
+    console.log('\n  Then, after the operation scenarios, the large-ruleset deploy scenarios:');
+    printDeployScenarios(order.afterOperations);
   }
   console.log('\n  To capture for real:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \\');
-  console.log('      PYRIC_ORACLE_SA_PATH=ignored/service-account.json \\');
-  console.log('      bun run packages/conformance/src/run-rules-rtdb.ts --scenario <scenario-id>');
+  console.log('      PYRIC_ORACLE_PROJECT_ID=<oracle project id> \\');
+  console.log('      bun run packages/conformance/src/run-rules-rtdb.ts --scenario <scenario-id>[,<scenario-id>...]');
 }
 
 /**
- * A Firebase custom token for `uid` with developer `claims`, signed with the
- * service account key. The issue time is set two minutes back so a local
- * clock somewhat ahead of Google's does not make the token's `iat` lie in
- * the future, which Auth rejects as an invalid custom token.
+ * A Firebase custom token for `uid` with developer `claims`, signed as the
+ * oracle service account (a key file locally, IAM Credentials `signBlob` under
+ * Application Default Credentials). The issue time is set two minutes back so
+ * a local clock somewhat ahead of Google's does not make the token's `iat` lie
+ * in the future, which Auth rejects as an invalid custom token.
  */
-function mintCustomToken(sa: ServiceAccount, uid: string, claims: Record<string, unknown>): string {
+async function mintCustomToken(sa: ServiceAccount, uid: string, claims: Record<string, unknown>): Promise<string> {
   const iat = Math.floor(Date.now() / 1000) - 120;
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(JSON.stringify({
-    iss: sa.client_email,
-    sub: sa.client_email,
+  const email = oracleServiceAccountEmail(sa);
+  return signOracleJwt(sa, {
+    iss: email,
+    sub: email,
     aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
     iat,
     exp: iat + 3600,
     uid,
     ...(Object.keys(claims).length > 0 ? { claims } : {}),
-  })).toString('base64url');
-  const signer = createSign('RSA-SHA256');
-  signer.update(`${header}.${payload}`);
-  return `${header}.${payload}.${signer.sign(sa.private_key).toString('base64url')}`;
-}
-
-/** Mint a short-lived OAuth access token from a service account for `scope`. */
-async function mintToken(sa: ServiceAccount, scope: string): Promise<string> {
-  const tokenUri = sa.token_uri ?? 'https://oauth2.googleapis.com/token';
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(
-    JSON.stringify({ iss: sa.client_email, scope, aud: tokenUri, iat: now, exp: now + 3600 }),
-  ).toString('base64url');
-  const signer = createSign('RSA-SHA256');
-  signer.update(`${header}.${payload}`);
-  const sig = signer.sign(sa.private_key).toString('base64url');
-  const res = await fetch(tokenUri, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: `${header}.${payload}.${sig}`,
-    }),
   });
-  if (!res.ok) throw new Error(`token exchange failed: ${res.status} ${await res.text()}`);
-  return ((await res.json()) as { access_token: string }).access_token;
-}
-
-/** Stable JSON serialization (sorted keys) for the restore read-back compare —
- *  a structural byte-compare resilient to key ordering / whitespace RTDB may
- *  reformat. */
-function canonicalize(value: unknown): string {
-  const sortKeys = (v: unknown): unknown => {
-    if (Array.isArray(v)) return v.map(sortKeys);
-    if (v && typeof v === 'object') {
-      const out: Record<string, unknown> = {};
-      for (const k of Object.keys(v as Record<string, unknown>).sort()) {
-        out[k] = sortKeys((v as Record<string, unknown>)[k]);
-      }
-      return out;
-    }
-    return v;
-  };
-  return JSON.stringify(sortKeys(value));
 }
 
 /**
@@ -391,74 +389,6 @@ export function queryConstraintsOf(query: RtdbCaseQuery): QueryConstraintSpec[] 
   return out;
 }
 
-/**
- * The two rules-endpoint calls a deploy scenario makes, narrowed so the
- * capture contract can be tested against a fake.
- */
-export interface RulesDeployEndpoint {
-  /** `PUT /.settings/rules.json?dryRun=true` with `{ rules }`. */
-  dryRun(rules: Record<string, unknown>): Promise<{ status: number; body: string }>;
-  /** The live ruleset's `rules` object. */
-  readRules(): Promise<Record<string, unknown>>;
-}
-
-/**
- * The comparable part of a deploy error. The endpoint prefixes its message
- * with `line:column` into the submitted body, which here is the pre-run rules
- * plus the merged subtree, so the position moves with the live rules and is
- * dropped. The run-scoped mount key is replaced, and trailing whitespace trimmed.
- */
-export function normalizeDeployError(text: string, mountKey: string): string {
-  return text.replaceAll(mountKey, '<mount>').replace(/^\d+:\d+: /, '').trimEnd();
-}
-
-function deployErrorText(body: string): string {
-  try {
-    const parsed = JSON.parse(body) as { error?: unknown };
-    if (typeof parsed.error === 'string') return parsed.error;
-  } catch {
-    // Not JSON; record the body as sent.
-  }
-  return body;
-}
-
-/**
- * Dry-run every case of a deploy scenario and record production's verdict.
- * Each dry run carries the pre-run rules with the case's subtree merged under
- * `/<mountKey>/<scenario.id>`. After each case the live rules are read back
- * and must equal `beforeRules`; any other outcome throws.
- */
-export async function captureDeployScenario(
-  endpoint: RulesDeployEndpoint,
-  input: { beforeRules: Record<string, unknown>; mountKey: string; scenario: RtdbDeployScenario },
-): Promise<Record<string, RtdbDeployVerdict>> {
-  const { beforeRules, mountKey, scenario } = input;
-  const beforeCanonical = canonicalize(beforeRules);
-  const behavior: Record<string, RtdbDeployVerdict> = {};
-  for (const deployCase of scenario.deployCases) {
-    const rules = {
-      ...beforeRules,
-      [mountKey]: { [scenario.id]: JSON.parse(deployCase.rules) as unknown },
-    };
-    const res = await endpoint.dryRun(rules);
-    if (res.status === 200) {
-      behavior[deployCase.description] = { verdict: 'ACCEPTED' };
-    } else if (res.status === 400) {
-      behavior[deployCase.description] = {
-        verdict: 'REJECTED',
-        error: normalizeDeployError(deployErrorText(res.body), mountKey),
-      };
-    } else {
-      throw new Error(`${scenario.id} :: ${deployCase.description}: dry run returned ${res.status}: ${res.body}`);
-    }
-    const after = await endpoint.readRules();
-    if (canonicalize(after) !== beforeCanonical) {
-      throw new Error(`${scenario.id} :: ${deployCase.description}: live rules changed after the dry run`);
-    }
-  }
-  return behavior;
-}
-
 /** Recursively substitute the `<UID>` token, mirroring the agreement probe. */
 function substituteUid<T>(v: T, uid: string): T {
   if (typeof v === 'string') return v.replaceAll('<UID>', uid) as unknown as T;
@@ -472,7 +402,8 @@ function substituteUid<T>(v: T, uid: string): T {
   return v;
 }
 
-async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<void> {
+/** Captures the selection and returns the exit code: non-zero when a scenario produced no observation. */
+async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<number> {
   // Heavy SDK imports are deferred to the credentialed path so the inert
   // preview stays dependency-light and always runnable.
   const { initializeApp, deleteApp } = await import('firebase/app');
@@ -495,7 +426,6 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
     limitToLast,
   } = await import('firebase/database');
   const {
-    cert: adminCert,
     initializeApp: adminInitializeApp,
     deleteApp: adminDeleteApp,
   } = await import('firebase-admin/app');
@@ -506,48 +436,51 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   if (!config.databaseURL) {
     throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG has no databaseURL — an RTDB instance URL is required to deploy and run rules.');
   }
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH ?? join(REPO_ROOT, 'ignored', 'service-account.json');
-  if (!existsSync(saPath)) {
-    throw new Error(`service account not found at ${saPath}. RTDB rules deploy requires an SA to mint the firebase.database token. Set PYRIC_ORACLE_SA_PATH.`);
-  }
-  const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
+  const serviceAccount = await loadOracleServiceAccount();
   assertMatchingOracleProjects(config, serviceAccount);
   const fbSdkVersion = resolvedFirebaseVersion();
 
   console.log(`[oracle:rules-rtdb] project: ${config.projectId}`);
   console.log(`[oracle:rules-rtdb] database: ${config.databaseURL}`);
-  console.log(`[oracle:rules-rtdb] service account: ${serviceAccount.client_email}`);
   console.log(`[oracle:rules-rtdb] firebase ${fbSdkVersion}\n`);
 
-  const rtdbAdminToken = await mintToken(
-    serviceAccount,
-    'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
-  );
+  const rtdbAdminToken = await oracleAccessToken(serviceAccount, RTDB_RULES_SCOPE);
   const rulesGetUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}`;
   const rulesPutUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}&print=silent`;
 
   async function readRules(): Promise<Record<string, unknown>> {
-    const res = await fetch(rulesGetUrl);
+    const res = await fetchWithRateLimitRetry(rulesGetUrl, undefined, 'read rules');
     if (!res.ok) throw new Error(`read rules failed: ${res.status} ${await res.text()}`);
     return capturableRules('the database', await res.text()).rules;
   }
   const endpoint: RulesDeployEndpoint = {
-    async dryRun(rules) {
-      const res = await fetch(`${rulesGetUrl}&dryRun=true`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules }),
-      });
-      return { status: res.status, body: await res.text() };
+    async dryRun(rules, options = {}) {
+      const started = Date.now();
+      const limit = options.timeoutMs === undefined ? 'default limit' : `limit ${options.timeoutMs / 1_000}s`;
+      try {
+        const res = await fetchWithRateLimitRetry(`${rulesGetUrl}&dryRun=true`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rules }),
+        }, 'dry run', { timeoutMs: options.timeoutMs });
+        const body = await res.text();
+        if (options.timeoutMs !== undefined) {
+          console.log(`[oracle:rules-rtdb] dry run answered ${res.status} in ${Date.now() - started}ms (${limit}).`);
+        }
+        return { status: res.status, body };
+      } catch (error) {
+        console.log(`[oracle:rules-rtdb] dry run failed after ${Date.now() - started}ms (${limit}): ${error instanceof Error ? error.name : String(error)}`);
+        throw error;
+      }
     },
     readRules,
   };
   async function writeRules(rules: Record<string, unknown>): Promise<void> {
-    const res = await fetch(rulesPutUrl, {
+    const res = await fetchWithRateLimitRetry(rulesPutUrl, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rules }),
-    });
+    }, 'write rules');
     if (!res.ok) throw new Error(`write rules failed: ${res.status} ${await res.text()}`);
   }
 
@@ -557,13 +490,13 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   const auth_ = encodeURIComponent(rtdbAdminToken);
   const store: RunDataStore = {
     async deleteNamespace(auditKey: string): Promise<void> {
-      const res = await fetch(`${config.databaseURL}/${auditKey}.json?access_token=${auth_}&print=silent`, {
+      const res = await fetchWithRateLimitRetry(`${config.databaseURL}/${auditKey}.json?access_token=${auth_}&print=silent`, {
         method: 'DELETE',
-      });
+      }, 'delete run data');
       if (!res.ok) throw new Error(`delete run data failed: ${res.status} ${await res.text()}`);
     },
     async shallowRootKeys(): Promise<string[]> {
-      const res = await fetch(`${config.databaseURL}/.json?shallow=true&access_token=${auth_}`);
+      const res = await fetchWithRateLimitRetry(`${config.databaseURL}/.json?shallow=true&access_token=${auth_}`, undefined, 'shallow root read');
       if (!res.ok) throw new Error(`shallow root read failed: ${res.status} ${await res.text()}`);
       const body = (await res.json()) as Record<string, unknown> | null;
       return body ? Object.keys(body) : [];
@@ -583,11 +516,7 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   const rtdb = getDatabase(app);
   const adminApp = adminInitializeApp(
     {
-      credential: adminCert({
-        projectId: serviceAccount.project_id,
-        clientEmail: serviceAccount.client_email,
-        privateKey: serviceAccount.private_key,
-      }),
+      ...oracleAppOptions(serviceAccount),
       databaseURL: config.databaseURL,
     },
     `oracle-rules-rtdb-admin-${runId}`,
@@ -635,133 +564,138 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
     },
   };
 
-  const observations: { scenario: { id: string; fm: string; rationale: string }; behavior: Record<string, unknown> }[] = [];
+  const deployOrder = orderDeployScenarios(deployScenarios);
+  const deployInput = { beforeRules, mountKey: auditKey };
   let restoreVerified = false;
   let dataCleanupVerified = false;
   let userCleanupVerified = false;
   // Set before the rules write, so a write that fails partway is still restored.
   let deployed = false;
 
-  try {
-    // Deploy scenarios first: dry runs against the untouched pre-run rules.
-    for (const scenario of deployScenarios) {
-      const behavior = await captureDeployScenario(endpoint, { beforeRules, mountKey: auditKey, scenario });
-      observations.push({ scenario, behavior });
-      const rejected = Object.values(behavior).filter((v) => v.verdict === 'REJECTED').length;
-      console.log(`  ✓ ${scenario.id.padEnd(28)} accepted=${scenario.deployCases.length - rejected} rejected=${rejected} (dry run; live rules read back unchanged)`);
+  async function captureOperations(): Promise<CapturedObservation[]> {
+    const observations: CapturedObservation[] = [];
+    if (scenarios.length === 0) return observations;
+    // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
+    // existing rules so real rules are preserved.
+    const auditSubtree: Record<string, unknown> = {};
+    for (const scenario of scenarios) {
+      auditSubtree[scenario.id] = JSON.parse(scenario.rules);
     }
+    deployed = true;
+    await writeRules({ ...beforeRules, [auditKey]: auditSubtree });
+    console.log(`[oracle:rules-rtdb] deployed ${scenarios.length} scenario subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
+    await new Promise((r) => setTimeout(r, 8_000));
 
-    if (scenarios.length > 0) {
-      // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
-      // existing rules so real rules are preserved.
-      const auditSubtree: Record<string, unknown> = {};
-      for (const scenario of scenarios) {
-        auditSubtree[scenario.id] = JSON.parse(scenario.rules);
-      }
-      deployed = true;
-      await writeRules({ ...beforeRules, [auditKey]: auditSubtree });
-      console.log(`[oracle:rules-rtdb] deployed ${scenarios.length} scenario subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
-      await new Promise((r) => setTimeout(r, 8_000));
-
-      for (const scenario of scenarios) {
-        const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
-        for (const tc of scenario.cases as RtdbTestCase[]) {
-          // Match auth context to the case. An identity case signs in as the
-          // run-scoped Auth user created for that identity. A claims case signs
-          // in fresh with a custom token carrying exactly its claims. Every other
-          // signed-in case uses an anonymous sign-in, whose uid is recorded for
-          // cleanup.
-          if (tc.identity) {
-            const uid = await identityUser(tc.identity);
+    for (const scenario of scenarios) {
+      const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
+      for (const tc of scenario.cases as RtdbTestCase[]) {
+        // Match auth context to the case. An identity case signs in as the
+        // run-scoped Auth user created for that identity. A claims case signs
+        // in fresh with a custom token carrying exactly its claims. Every other
+        // signed-in case uses an anonymous sign-in, whose uid is recorded for
+        // cleanup.
+        if (tc.identity) {
+          const uid = await identityUser(tc.identity);
+          if (auth.currentUser?.uid !== uid) {
+            if (auth.currentUser) await signOut(auth);
+            // Auth intermittently refuses a freshly minted custom token as
+            // invalid; a new token a moment later is accepted, so the sign-in
+            // is retried a bounded number of times before the run fails.
+            let lastError: unknown;
+            for (let attempt = 0; attempt < 5 && auth.currentUser?.uid !== uid; attempt++) {
+              if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+              try {
+                await signInWithCustomToken(auth, await mintCustomToken(serviceAccount, uid, tc.identity.claims ?? {}));
+              } catch (e) {
+                lastError = e;
+              }
+            }
             if (auth.currentUser?.uid !== uid) {
-              if (auth.currentUser) await signOut(auth);
-              // Auth intermittently refuses a freshly minted custom token as
-              // invalid; a new token a moment later is accepted, so the sign-in
-              // is retried a bounded number of times before the run fails.
-              let lastError: unknown;
-              for (let attempt = 0; attempt < 5 && auth.currentUser?.uid !== uid; attempt++) {
-                if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
-                try {
-                  await signInWithCustomToken(auth, mintCustomToken(serviceAccount, uid, tc.identity.claims ?? {}));
-                } catch (e) {
-                  lastError = e;
-                }
-              }
-              if (auth.currentUser?.uid !== uid) {
-                throw new Error(`custom-token sign-in for case "${tc.description}" failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
-              }
+              throw new Error(`custom-token sign-in for case "${tc.description}" failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
             }
-          } else if (tc.claims) {
-            if (auth.currentUser) await signOut(auth);
-            await signInWithCustomToken(auth, await adminAuth.createCustomToken(claimsUid, tc.claims));
-          } else if (tc.authPresent && (!auth.currentUser || !auth.currentUser.isAnonymous)) {
-            if (auth.currentUser) await signOut(auth);
-            runUids.add((await signInAnonymously(auth)).user.uid);
-          } else if (!tc.authPresent && auth.currentUser) {
-            await signOut(auth);
           }
-          const liveUid = auth.currentUser?.uid ?? '';
-          const opPath = substituteUid(tc.opPath, liveUid);
-          const newData = tc.newData !== undefined ? substituteUid(tc.newData, liveUid) : undefined;
-          const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, liveUid) : undefined;
-          const mountPath = `/${auditKey}/${scenario.id}`;
-          const fullPath = `${mountPath}${opPath}`;
-
-          // Replay starts every case from an empty root, then applies its declared
-          // seed and mockData. Production capture must start from the same state:
-          // clear only this scenario's run-scoped data, then write preconditions
-          // through the rules-bypassing admin adapter.
-          await adminDb.ref(mountPath).set(null);
-          for (const [seedPath, seedValue] of Object.entries(tc.seed ?? {})) {
-            await adminDb
-              .ref(`${mountPath}${substituteUid(seedPath, liveUid)}`)
-              .set(substituteUid(seedValue, liveUid));
-          }
-          if (mockData !== undefined && mockData !== null) {
-            await adminDb.ref(fullPath).set(mockData);
-          }
-
-          let allowed = false;
-          try {
-            if (tc.operation === 'read') {
-              await rtdbGet(rtdbRef(rtdb, fullPath));
-            } else if (tc.operation === 'query') {
-              const constraints = queryConstraintsOf(substituteUid(tc.query!, liveUid)).map((spec) => {
-                switch (spec[0]) {
-                  case 'orderByChild': return orderByChild(spec[1]);
-                  case 'orderByKey': return orderByKey();
-                  case 'orderByValue': return orderByValue();
-                  case 'orderByPriority': return orderByPriority();
-                  case 'equalTo': return equalTo(spec[1]);
-                  case 'startAt': return startAt(spec[1]);
-                  case 'endAt': return endAt(spec[1]);
-                  case 'limitToFirst': return limitToFirst(spec[1]);
-                  case 'limitToLast': return limitToLast(spec[1]);
-                }
-              });
-              await rtdbGet(rtdbQuery(rtdbRef(rtdb, fullPath), ...constraints));
-            } else if (tc.operation === 'update') {
-              await rtdbUpdate(rtdbRef(rtdb, fullPath), newData as Record<string, unknown>);
-            } else {
-              await rtdbSet(rtdbRef(rtdb, fullPath), newData ?? null);
-            }
-            allowed = true;
-          } catch {
-            allowed = false;
-          }
-          behavior[tc.description] = allowed ? 'ALLOW' : 'DENY';
+        } else if (tc.claims) {
+          if (auth.currentUser) await signOut(auth);
+          await signInWithCustomToken(auth, await adminAuth.createCustomToken(claimsUid, tc.claims));
+        } else if (tc.authPresent && (!auth.currentUser || !auth.currentUser.isAnonymous)) {
+          if (auth.currentUser) await signOut(auth);
+          runUids.add((await signInAnonymously(auth)).user.uid);
+        } else if (!tc.authPresent && auth.currentUser) {
+          await signOut(auth);
         }
-        observations.push({ scenario, behavior });
-        const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
-        const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
-        console.log(`  ✓ ${scenario.id.padEnd(28)} allow=${allows} deny=${denies}`);
-      }
+        const liveUid = auth.currentUser?.uid ?? '';
+        const opPath = substituteUid(tc.opPath, liveUid);
+        const newData = tc.newData !== undefined ? substituteUid(tc.newData, liveUid) : undefined;
+        const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, liveUid) : undefined;
+        const mountPath = `/${auditKey}/${scenario.id}`;
+        const fullPath = `${mountPath}${opPath}`;
 
-      if (auth.currentUser) {
-        try { await signOut(auth); } catch { /* ignored */ }
+        // Replay starts every case from an empty root, then applies its declared
+        // seed and mockData. Production capture must start from the same state:
+        // clear only this scenario's run-scoped data, then write preconditions
+        // through the rules-bypassing admin adapter.
+        await adminDb.ref(mountPath).set(null);
+        for (const [seedPath, seedValue] of Object.entries(tc.seed ?? {})) {
+          await adminDb
+            .ref(`${mountPath}${substituteUid(seedPath, liveUid)}`)
+            .set(substituteUid(seedValue, liveUid));
+        }
+        if (mockData !== undefined && mockData !== null) {
+          await adminDb.ref(fullPath).set(mockData);
+        }
+
+        let allowed = false;
+        try {
+          if (tc.operation === 'read') {
+            await rtdbGet(rtdbRef(rtdb, fullPath));
+          } else if (tc.operation === 'query') {
+            const constraints = queryConstraintsOf(substituteUid(tc.query!, liveUid)).map((spec) => {
+              switch (spec[0]) {
+                case 'orderByChild': return orderByChild(spec[1]);
+                case 'orderByKey': return orderByKey();
+                case 'orderByValue': return orderByValue();
+                case 'orderByPriority': return orderByPriority();
+                case 'equalTo': return equalTo(spec[1]);
+                case 'startAt': return startAt(spec[1]);
+                case 'endAt': return endAt(spec[1]);
+                case 'limitToFirst': return limitToFirst(spec[1]);
+                case 'limitToLast': return limitToLast(spec[1]);
+              }
+            });
+            await rtdbGet(rtdbQuery(rtdbRef(rtdb, fullPath), ...constraints));
+          } else if (tc.operation === 'update') {
+            await rtdbUpdate(rtdbRef(rtdb, fullPath), newData as Record<string, unknown>);
+          } else {
+            await rtdbSet(rtdbRef(rtdb, fullPath), newData ?? null);
+          }
+          allowed = true;
+        } catch {
+          allowed = false;
+        }
+        behavior[tc.description] = allowed ? 'ALLOW' : 'DENY';
       }
+      observations.push({ scenario, behavior });
+      const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
+      const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
+      console.log(`  ✓ ${scenario.id.padEnd(28)} allow=${allows} deny=${denies}`);
     }
-  } finally {
+
+    if (auth.currentUser) {
+      try { await signOut(auth); } catch { /* ignored */ }
+    }
+    return observations;
+  }
+
+  // Restore before the large-ruleset dry runs: their read-back compares the
+  // live rules with the snapshot, and an unanswered one can leave the rules
+  // endpoint answering 429 for minutes, so no rules write follows it.
+  async function restoreBeforeLate(): Promise<void> {
+    if (!deployed) return;
+    await restoreRulesBeforeLatePhase({ writeRules, readRules }, beforeRules);
+    deployed = false;
+  }
+
+  async function restoreAndCleanUp(): Promise<void> {
     // Restore + read-back verify ALWAYS runs, success or failure. A run that
     // only dry-ran deploys never wrote rules, so it only reads back.
     try {
@@ -807,21 +741,23 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
     try { await adminDeleteApp(adminApp); } catch { /* ignored */ }
   }
 
-  // Only write observations once BOTH invariants held. A run that could not
-  // prove it left the database as it found it — same rules, no residual data —
-  // must not be treated as a clean capture.
-  if (!restoreVerified) {
-    throw new Error('restore invariant NOT verified — refusing to write observations. Inspect the database rules manually.');
-  }
-  if (!dataCleanupVerified) {
-    throw new Error(`data cleanup invariant NOT verified — refusing to write observations. Delete /${auditKey} manually.`);
-  }
-  if (!userCleanupVerified) {
-    throw new Error(`user cleanup invariant NOT verified; refusing to write observations. Delete the Auth users ${[...runUids].join(', ')} manually.`);
+  // Only write observations once every invariant held. A run that could not
+  // prove it left the database as it found it — same rules, no residual data,
+  // no run users — must not be treated as a clean capture.
+  function assertCleanRun(): void {
+    if (!restoreVerified) {
+      throw new Error('restore invariant NOT verified — refusing to write observations. Inspect the database rules manually.');
+    }
+    if (!dataCleanupVerified) {
+      throw new Error(`data cleanup invariant NOT verified — refusing to write observations. Delete /${auditKey} manually.`);
+    }
+    if (!userCleanupVerified) {
+      throw new Error(`user cleanup invariant NOT verified; refusing to write observations. Delete the Auth users ${[...runUids].join(', ')} manually.`);
+    }
   }
 
-  mkdirSync(OBS_DIR, { recursive: true });
-  for (const { scenario, behavior } of observations) {
+  function writeObservation({ scenario, behavior }: CapturedObservation): void {
+    mkdirSync(OBS_DIR, { recursive: true });
     const path = observationPath(scenario);
     const linkage = existsSync(path)
       ? observationLinkageOf(JSON.parse(readFileSync(path, 'utf8')))
@@ -842,9 +778,24 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
     console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
   }
 
-  console.log('\n[oracle:rules-rtdb] capture complete: rules restored, run data and run users removed, all read-back verified.');
+  const exitCode = await runCapturePhases({
+    earlyDeploys: () => runDeployScenarios(endpoint, deployOrder.beforeOperations, deployInput),
+    operations: captureOperations,
+    restoreBeforeLate,
+    // Large-ruleset deploy scenarios last (#1692). A failure here keeps every
+    // observation captured before it; the run then ends non-zero.
+    lateDeploys: () => runDeployScenarios(endpoint, deployOrder.afterOperations, deployInput),
+    restoreAndCleanUp,
+    assertClean: assertCleanRun,
+    write: writeObservation,
+    log: (line) => console.error(line),
+  });
+
+  const outcome = exitCode === 0 ? 'capture complete' : 'capture incomplete (the scenarios named above have no observation)';
+  console.log(`\n[oracle:rules-rtdb] ${outcome}: rules restored, run data and run users removed, all read-back verified.`);
   console.log('[oracle:rules-rtdb] Existing observation matrixRow/rowIds linkage was preserved.');
   console.log('[oracle:rules-rtdb] NEXT: review the observation diff, then run `bun run compat:validate`.');
+  return exitCode;
 }
 
 // ─── Multiple database instances ────────────────────────────────────────────
@@ -934,7 +885,7 @@ async function captureMultiInstance(): Promise<void> {
   const { initializeApp, deleteApp } = await import('firebase/app');
   const { getAuth, signInWithCustomToken, signOut } = await import('firebase/auth');
   const { getDatabase, ref: rtdbRef, get: rtdbGet, set: rtdbSet, onValue } = await import('firebase/database');
-  const { cert: adminCert, initializeApp: adminInitializeApp, deleteApp: adminDeleteApp } = await import('firebase-admin/app');
+  const { initializeApp: adminInitializeApp, deleteApp: adminDeleteApp } = await import('firebase-admin/app');
   const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
 
   const config = JSON.parse(process.env.PYRIC_ORACLE_FIREBASE_CONFIG!) as FirebaseWebConfig;
@@ -943,18 +894,14 @@ async function captureMultiInstance(): Promise<void> {
   if (!secondUrl) throw new Error('PYRIC_ORACLE_SECOND_DATABASE_URL names the second instance the capture runs against.');
   const defaultUrl = config.databaseURL.replace(/\/$/, '');
   const second = secondUrl.replace(/\/$/, '');
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH ?? join(REPO_ROOT, 'ignored', 'service-account.json');
-  const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
+  const serviceAccount = await loadOracleServiceAccount();
   assertMatchingOracleProjects(config, serviceAccount);
   const fbSdkVersion = resolvedFirebaseVersion();
   const instances = { default: defaultUrl, second } as const;
   console.log(`[oracle:rtdb-instances] project: ${config.projectId}`);
   console.log(`[oracle:rtdb-instances] instances: ${new URL(defaultUrl).host}, ${new URL(second).host}`);
 
-  const adminToken = encodeURIComponent(await mintToken(
-    serviceAccount,
-    'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
-  ));
+  const adminToken = encodeURIComponent(await oracleAccessToken(serviceAccount, RTDB_RULES_SCOPE));
   async function readRulesText(url: string): Promise<string> {
     const res = await fetch(`${url}/.settings/rules.json?access_token=${adminToken}`);
     if (!res.ok) throw new Error(`read rules failed on ${new URL(url).host}: ${res.status}`);
@@ -996,13 +943,7 @@ async function captureMultiInstance(): Promise<void> {
   const uid = `pyric-oracle-instances-${runId}`;
   const app = initializeApp(config, `oracle-rtdb-instances-${runId}`);
   const auth = getAuth(app);
-  const adminApp = adminInitializeApp({
-    credential: adminCert({
-      projectId: serviceAccount.project_id,
-      clientEmail: serviceAccount.client_email,
-      privateKey: serviceAccount.private_key,
-    }),
-  }, `oracle-rtdb-instances-admin-${runId}`);
+  const adminApp = adminInitializeApp(oracleAppOptions(serviceAccount), `oracle-rtdb-instances-admin-${runId}`);
   const adminAuth = getAdminAuth(adminApp);
   const runUids = new Set<string>([uid]);
   const userStore: RunUserStore = {
@@ -1048,7 +989,7 @@ async function captureMultiInstance(): Promise<void> {
     for (let attempt = 0; attempt < 5 && auth.currentUser?.uid !== uid; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
       try {
-        await signInWithCustomToken(auth, mintCustomToken(serviceAccount, uid, {}));
+        await signInWithCustomToken(auth, await mintCustomToken(serviceAccount, uid, {}));
       } catch (e) {
         lastError = e;
       }
@@ -1207,7 +1148,7 @@ if (import.meta.main && process.argv.includes('--multi-instance-sdk')) {
 
 if (import.meta.main && process.argv.includes('--multi-instance')) {
   if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) {
-    console.log('[oracle:rtdb-instances] PYRIC_ORACLE_FIREBASE_CONFIG not set; INERT. Set it, PYRIC_ORACLE_SA_PATH and PYRIC_ORACLE_SECOND_DATABASE_URL to capture.');
+    console.log('[oracle:rtdb-instances] PYRIC_ORACLE_FIREBASE_CONFIG not set; INERT. Set it, PYRIC_ORACLE_SECOND_DATABASE_URL, and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID to capture.');
     process.exit(0);
   }
   await captureMultiInstance();
@@ -1220,5 +1161,5 @@ if (import.meta.main) {
     printInertPlan(selection);
     process.exit(0);
   }
-  await capture(selection);
+  process.exitCode = await capture(selection);
 }

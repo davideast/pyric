@@ -10,12 +10,14 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ServeLogger } from './server.js';
-import { redactUrl } from 'pyric/ai/internal';
+import { redactUpstreamText, redactUrl } from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 import type { AiEngineConfigWire } from './worker/protocol.js';
 import { permitGuardHost } from '../register/net-guard.js';
 import { FIREBASE_AI_LOGIC_HOST } from '../google-endpoints.js';
 import type { AiMode } from './firebase-module-swap.js';
+import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
+import { answerAndClose, collectRawBody, isBodyTooLarge } from '../bridge/server/peer.js';
 
 /** The dev server's diagnostics throttle, as this module needs it: the
  *  denials route owns the instance, and the proxy shares it so a failing
@@ -29,6 +31,10 @@ export const AI_PROXY_DEFAULT_UPSTREAM = 'http://localhost:11434/v1';
 
 /** The route the dev server mounts for OpenAI-compatible traffic. */
 export const AI_PROXY_ROUTE = '/__pyric/ai-proxy';
+
+/** Largest request body the proxy forwards: the hosted method route's limit,
+ *  which already carries AI requests with inline images. */
+export const AI_PROXY_BODY_LIMIT_BYTES = HOSTED_METHOD_BODY_LIMIT;
 
 /**
  * Request headers that must NOT be forwarded upstream: origin-sensitive
@@ -54,9 +60,11 @@ const AI_PROXY_STRIPPED_HEADERS = new Set([
   'upgrade',
 ]);
 
-/** The upstream-failure shapes the proxy surfaces to the terminal. */
+/** The upstream-failure shapes the proxy surfaces to the terminal. A
+ *  failure's `credentials` are the ones the request carried, masked from
+ *  every upstream string the block quotes. */
 type AiProxyFailure =
-  | { kind: 'unreachable'; target: string; latencyMs: number; cause: string }
+  | { kind: 'unreachable'; target: string; latencyMs: number; cause: string; credentials?: readonly string[] }
   | {
       kind: 'status';
       target: string;
@@ -64,8 +72,10 @@ type AiProxyFailure =
       status: number;
       /** The upstream's raw `Retry-After` header, when it sent one. */
       retryAfter?: string;
+      /** The credentials the request carried, masked from `retryAfter`. */
+      credentials?: readonly string[];
     }
-  | { kind: 'stream-abort'; target: string; latencyMs: number; cause: string };
+  | { kind: 'stream-abort'; target: string; latencyMs: number; cause: string; credentials?: readonly string[] };
 
 /** Longest `Retry-After` value echoed to the terminal (delta-seconds and
  *  HTTP-dates are both far shorter; anything longer is upstream noise). */
@@ -76,13 +86,17 @@ const AI_PROXY_RETRY_AFTER_MAX = 64;
  * nothing worth printing.
  *
  * The header is remote-authored, so it is sanitized and length-capped like
- * every other upstream string that reaches the terminal. Delta-seconds (the
+ * every other upstream string that reaches the terminal. It is masked of the
+ * request's credentials first, with the masking the gemini engine and proxy
+ * use (`redactUpstreamText`), so the cap cannot leave a prefix of a key
+ * behind. Delta-seconds (the
  * common form) get an `s` suffix so the wait reads as a duration; the
  * HTTP-date form is echoed verbatim, since `Wed, 21 Oct 2026 07:28:00 GMTs`
  * would be nonsense.
  */
-function formatRetryAfter(raw: string): string | null {
-  const clean = sanitizeForTerminal(raw).slice(0, AI_PROXY_RETRY_AFTER_MAX).trim();
+function formatRetryAfter(raw: string, credentials: readonly string[]): string | null {
+  const masked = redactUpstreamText(raw, credentials);
+  const clean = sanitizeForTerminal(masked).slice(0, AI_PROXY_RETRY_AFTER_MAX).trim();
   if (clean === '') return null;
   if (/^\d+$/.test(clean)) return `${clean}s`;
   return clean;
@@ -91,10 +105,12 @@ function formatRetryAfter(raw: string): string | null {
 /**
  * Mask credentials, then flatten and cap, in that order. Both the target and
  * a raw fetch error message are remote-influenced: the URL carries whatever
- * the page put in the query string, and an error message can quote it back.
+ * the page put in the query string, and an error message can quote it back,
+ * or quote a header the request carried (#1737). So the request's exact
+ * credentials are masked too, with the gemini engine's masking.
  */
-function safeUpstreamText(text: string): string {
-  return sanitizeForTerminal(redactUrl(text));
+function safeUpstreamText(text: string, credentials: readonly string[] = []): string {
+  return sanitizeForTerminal(redactUpstreamText(text, credentials));
 }
 
 /**
@@ -135,15 +151,16 @@ function noteAiProxyFailure(
  * through to the caller), so the backoff is the app's decision, not pyric's.
  */
 export function formatAiProxyWarning(failure: AiProxyFailure, source = 'ai-proxy'): string {
-  const target = safeUpstreamText(failure.target);
+  const credentials = failure.credentials ?? [];
+  const target = safeUpstreamText(failure.target, credentials);
   let headline: string;
   if (failure.kind === 'unreachable') {
-    headline = `upstream unreachable: ${safeUpstreamText(failure.cause)}`;
+    headline = `upstream unreachable: ${safeUpstreamText(failure.cause, credentials)}`;
   } else if (failure.kind === 'status') {
     const rateLimited = failure.status === 429;
     headline = `upstream returned ${failure.status}${rateLimited ? ' (rate limited / quota exhausted)' : ''}`;
   } else {
-    headline = `upstream stream aborted mid-response: ${safeUpstreamText(failure.cause)}`;
+    headline = `upstream stream aborted mid-response: ${safeUpstreamText(failure.cause, credentials)}`;
   }
   const lines = [
     `  ⚠ [pyric] ${source}: ${headline}`,
@@ -155,7 +172,7 @@ export function formatAiProxyWarning(failure: AiProxyFailure, source = 'ai-proxy
     );
   }
   if (failure.kind === 'status' && failure.retryAfter !== undefined) {
-    const wait = formatRetryAfter(failure.retryAfter);
+    const wait = formatRetryAfter(failure.retryAfter, credentials);
     if (wait !== null) {
       lines.push(`      Retry-After: ${wait}, no automatic retry; the status went to the caller`);
     }
@@ -223,6 +240,49 @@ export function permitAiUpstreams(ai: {
   for (const destination of destinations) permitGuardHost(destination);
 }
 
+/** The `key` parameter of `target`, or null when it has none or is not a URL. */
+function urlKeyParam(target: string): string | null {
+  try {
+    return new URL(target).searchParams.get('key');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A request's headers as name and value pairs, names lowercased. The pairs
+ * are read as given, not through `Headers`, which refuses a value fetch
+ * refused too: that refusal is the error whose text needs the masking.
+ */
+function headerEntries(headers: HeadersInit | undefined): Array<[string, string]> {
+  if (headers === undefined) return [];
+  const isHeaders = headers instanceof Headers;
+  const isPairs = Array.isArray(headers);
+  let entries: Array<[string, string]>;
+  if (isHeaders) entries = [...headers.entries()];
+  else if (isPairs) entries = headers.map(([name, value]) => [String(name), String(value)]);
+  else entries = Object.entries(headers).map(([name, value]) => [name, String(value)]);
+  return entries.map(([name, value]) => [name.toLowerCase(), value]);
+}
+
+/** The value of header `name` among `entries`, or null. */
+function headerValue(entries: Array<[string, string]>, name: string): string | null {
+  return entries.find(([entryName]) => entryName === name)?.[1] ?? null;
+}
+
+/**
+ * The credentials an upstream request carries: the `key` URL parameter, the
+ * `x-goog-api-key` header, and the `Authorization` value without its scheme.
+ */
+function requestCredentials(input: Parameters<typeof fetch>[0], init: RequestInit | undefined): string[] {
+  const isRequest = input instanceof Request;
+  const entries = headerEntries(isRequest ? input.headers : init?.headers);
+  const urlKey = urlKeyParam(isRequest ? input.url : String(input));
+  const authorization = headerValue(entries, 'authorization')?.replace(/^\S+\s+/, '') ?? null;
+  const found = [urlKey, headerValue(entries, 'x-goog-api-key'), authorization];
+  return found.filter((value): value is string => value !== null && value !== '');
+}
+
 /** Shared upstream I/O for the browser proxy and the direct Node engine.
  * Responses remain incremental; cancellation stops reading without a warning.
  */
@@ -242,14 +302,14 @@ export async function fetchAiUpstream(
     upstream = await fetch(input, init);
   } catch (error) {
     note({ kind: 'unreachable', target, latencyMs: Date.now() - startedAt,
-      cause: error instanceof Error ? error.message : String(error) });
+      cause: error instanceof Error ? error.message : String(error), credentials: requestCredentials(input, init) });
     throw error;
   }
   const failed = !upstream.ok;
   if (failed) {
     const retryAfter = upstream.headers.get('retry-after');
     note({ kind: 'status', target, latencyMs: Date.now() - startedAt, status: upstream.status,
-      ...(retryAfter !== null ? { retryAfter } : {}) });
+      ...(retryAfter !== null ? { retryAfter, credentials: requestCredentials(input, init) } : {}) });
   }
   const body = upstream.body;
   const hasNoBody = body === null;
@@ -266,7 +326,7 @@ export async function fetchAiUpstream(
       } catch (error) {
         if (cancelled) return;
         note({ kind: 'stream-abort', target, latencyMs: Date.now() - startedAt,
-          cause: error instanceof Error ? error.message : String(error) });
+          cause: error instanceof Error ? error.message : String(error), credentials: requestCredentials(input, init) });
         controller.error(error);
       }
     },
@@ -281,6 +341,25 @@ export async function fetchAiUpstream(
 }
 
 /**
+ * Read an AI proxy request's body, at most {@link AI_PROXY_BODY_LIMIT_BYTES}.
+ * Past the limit it answers 413, and on a broken upload 400, and returns
+ * null: the caller sends nothing upstream. Both proxy routes read through it.
+ */
+export async function readAiProxyBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  try {
+    return await collectRawBody(req, AI_PROXY_BODY_LIMIT_BYTES);
+  } catch (error) {
+    const tooLarge = isBodyTooLarge(error);
+    const status = tooLarge ? 413 : 400;
+    answerAndClose(req, res, status, { 'content-type': 'text/plain' }, tooLarge ? 'Payload Too Large' : 'Bad Request');
+    return null;
+  }
+}
+
+/**
  * Handle `POST /__pyric/ai-proxy/<suffix>`: a same-origin passthrough to the
  * configured OpenAI-compatible upstream, so the browser openai engine
  * (running in the served page or the SharedWorker host) reaches a localhost
@@ -290,7 +369,11 @@ export async function fetchAiUpstream(
  *   - POST only (the OpenAI chat-completions surface is POST); 405 otherwise.
  *   - the path suffix + query ride through verbatim
  *     (`/__pyric/ai-proxy/chat/completions` becomes `<upstream>/chat/completions`).
- *   - the request body is forwarded verbatim; headers minus the
+ *   - the caller must pass the namespace's loopback guard (Host, and an
+ *     Origin naming this server when one is sent), which the namespace runs
+ *     before this handler: the upstream may carry the developer's key.
+ *   - the request body is forwarded verbatim, up to
+ *     {@link AI_PROXY_BODY_LIMIT_BYTES} (413 past it); headers minus the
  *     origin-sensitive/hop-by-hop set above (`authorization` DOES forward,
  *     since upstreams may require a key).
  *   - the response body is STREAMED through chunk-by-chunk. SSE passthrough
@@ -319,17 +402,9 @@ export async function handleAiProxy(
   const suffix = url.pathname.slice(AI_PROXY_ROUTE.length);
   const target = `${upstreamBase}${suffix}${url.search}`;
 
-  // Buffer the REQUEST body (small JSON payloads); the RESPONSE streams.
-  const raw = await new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-  // Copy into a plain-ArrayBuffer view; fetch's BodyInit typing rejects
-  // Buffer's ArrayBufferLike backing.
-  const body = new Uint8Array(raw.byteLength);
-  body.set(raw);
+  // The request body is a bounded JSON payload, read once; the RESPONSE streams.
+  const body = await readAiProxyBody(req, res);
+  if (body === null) return;
 
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(req.headers)) {
@@ -345,16 +420,27 @@ export async function handleAiProxy(
     const cause = e instanceof Error ? e.message : String(e);
     // The 502 body quotes the same two strings the terminal block does, so it
     // gets the same masking: the target carries the page's own query string,
-    // and a fetch error routinely echoes the URL back.
+    // a fetch error routinely echoes the URL back, and it can quote a header.
+    const credentials = requestCredentials(target, { headers });
     res.writeHead(502, { 'content-type': 'text/plain' });
     res.end(
-      `pyric dev ai-proxy: upstream ${redactUrl(target)} unreachable: ${redactUrl(cause)}\n` +
+      `pyric dev ai-proxy: upstream ${redactUpstreamText(target, credentials)} unreachable: ${redactUpstreamText(cause, credentials)}\n` +
         'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
         `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
     );
     return;
   }
 
+  await relayAiUpstream(upstream, res);
+}
+
+/**
+ * Send an upstream's answer to the caller: its status and content type, then
+ * the body chunk by chunk. SSE passthrough must never buffer. A dropped
+ * client cancels the upstream read so an abandoned stream doesn't keep the
+ * upstream generating.
+ */
+export async function relayAiUpstream(upstream: Response, res: ServerResponse): Promise<void> {
   const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
   const contentType = upstream.headers.get('content-type');
   if (contentType) responseHeaders['content-type'] = contentType;
@@ -365,8 +451,6 @@ export async function handleAiProxy(
   }
   (res as ServerResponse & { flushHeaders?: () => void }).flushHeaders?.();
 
-  // Chunk-by-chunk passthrough. A dropped client cancels the upstream read
-  // so an abandoned SSE stream doesn't keep the upstream generating.
   const reader = upstream.body.getReader();
   res.on('close', () => {
     void reader.cancel().catch(() => {});

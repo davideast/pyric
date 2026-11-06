@@ -104,6 +104,8 @@ echo "▸ packages/pyric already built for the CLI conformance bootstrap"
 build_pkg "pyric-admin"
 build_pkg "create-pyric"
 build_pkg "cli"
+# @pyric/live's Node register entry runs from dist; it reads @pyric/cli's declarations.
+build_pkg "live"
 build_pkg "ui"
 build_pkg "studio"
 

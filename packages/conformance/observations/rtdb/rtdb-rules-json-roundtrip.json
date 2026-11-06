@@ -5,9 +5,9 @@
     "rtdb#39"
   ],
   "description": "Rules-JSON round-trip — PUT a rules JSON containing path-variable segments (`$userId`), `.indexOn` arrays, and `.read`/`.write`/`.validate` keys, GET it back, verify the structure is preserved. Locks the REST `/.settings/rules.json` accept/return contract.",
-  "observedAt": "2026-05-18T10:20:14.184Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:56.169Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "putStatus": 200,
     "putOk": true,
@@ -21,7 +21,7 @@
     "writeRulePreserved": true,
     "validateRulePreserved": true,
     "exactRoundTrip": true,
-    "fetchedAt": 1779099614009,
+    "fetchedAt": 1793379355994,
     "fetchedSubtree": {
       ".read": false,
       ".write": false,

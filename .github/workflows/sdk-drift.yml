@@ -10,7 +10,7 @@
 #             pyric, which is a defect.
 #   latest    npm's `latest` tag, which may be a newer major. A failure opens or
 #             updates one issue per package and major, labeled
-#             lane:reliability, and the run stays green.
+#             bug, and the run stays green.
 #
 # Runs daily and on demand, never on pull requests. It is not part of
 # `CI / required`. compat:oracle-versions fails by design on any version change

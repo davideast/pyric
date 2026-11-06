@@ -1,10 +1,12 @@
 {
   "name": "stdlib-realstorage-p3-named-database",
   "matrixRow": "",
-  "rowIds": ["storage-rules#131"],
+  "rowIds": [
+    "storage-rules#131"
+  ],
   "description": "Default versus existing named `probes` Firestore database lookups with opposite document values and verified fixtures.",
-  "observedAt": "2026-07-21T15:32:24.336Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-11-02T18:52:57.332Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "bucket": "digame-mas.appspot.com",
   "behavior": {
@@ -19,18 +21,18 @@
     },
     "named-probes:default-true-probes-false": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut5igq/named-probes/phase-a.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "named-default:default-false-probes-true": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut5igq/named-default/phase-b.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "named-probes:default-false-probes-true": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut5igq/named-probes/phase-b.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     }
   },
   "cleanup": {
@@ -41,10 +43,10 @@
   },
   "requestBudget": {
     "counts": {
-      "storage": 23,
-      "firestoreWrite": 22,
-      "rules": 7,
-      "iam": 6
+      "storage": 13,
+      "firestoreWrite": 24,
+      "rules": 6,
+      "iam": 3
     },
     "limits": {
       "storage": 40,
@@ -57,5 +59,21 @@
     "temporaryIam": true,
     "iamChanged": true
   },
-  "namedDatabase": "probes"
+  "cleanupRequestBudget": {
+    "counts": {
+      "storage": 15,
+      "firestoreWrite": 12,
+      "rules": 2,
+      "iam": 3
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 24,
+      "rules": 8,
+      "iam": 6
+    }
+  },
+  "namedDatabase": "probes",
+  "probeBlockSha256": "ef6ccb0b1810e2ac0c87e4b9ff8f90c15f652610a1faddaa30f0fe97515ebfb8",
+  "deployedRulesFileSha256": "d2dc747a78e19cfa70b5c0079ddd43d247d97cc57426ed982566fdc15d1a60fe"
 }

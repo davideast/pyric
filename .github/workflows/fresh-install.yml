@@ -1,0 +1,233 @@
+# Installs pyric the way a new user does and fails on any crash. For each
+# template create-pyric offers, scripts/ci/fresh-install.ts runs
+# `npx create-pyric@exp <dir> --template <name>` in a clean temporary
+# directory, installs it from the npm registry (no workspace packages, no
+# packed tarballs), starts the template's dev command, and drives its main
+# flow in Chromium: sign in, one write, one read, a reload. It fails on a
+# create, install or start error, an uncaught page error, an unhandled
+# rejection, a worker error or crashed page, a runtime chip that is not
+# Ready, a chip absent from a template whose pages mount it (every page
+# template: web, static, chat, nextjs; node has no page), an error stack in
+# the dev server's output, or any request that is not to
+# registry.npmjs.org:443.
+#
+# The install runs with npm's audit and funding notices on, as a new user's
+# does; findings.txt has each template's audit summary line. After the
+# install the driver runs `npm audit --json` in the app, through the same
+# egress guard, and findings.txt names the package, severity and advisory id
+# of each high or critical advisory. Those lines never fail the run.
+#
+# The dev command is plain `npm run dev`, with no host, port or open flags,
+# and the page opens on the template's default address (localhost:5173 for
+# web and chat, localhost:3473 for static, localhost:3000 for nextjs). Two
+# things differ from a user's terminal: CI is passed through to the dev
+# command and its stdout is a pipe, and either one turns off `pyric
+# sandbox`'s auto-open (packages/cli/src/serve/open-browser.ts), so no
+# browser opens on its own. findings.txt lists the command run next to the
+# template's own `npm run dev` script, and the chip each template showed
+# ("chip absent" where none is expected).
+#
+# The run's direct connections are rejected by the firewall: it runs in a
+# group whose traffic may reach only loopback, and its installs go through
+# the egress guard (`fresh-install.ts proxy`), which runs outside that group,
+# tunnels only to the registry, and logs every request. Each rejected
+# connection is logged with its destination and counted. Next.js telemetry is
+# turned off (NEXT_TELEMETRY_DISABLED), as a careful user does.
+#
+# Every refused request and every reject is named with the template and step
+# it fell in, and fails the run unless an allowance in
+# scripts/ci/fresh-install-checks.ts (ALLOWANCES) covers it. The guard and the
+# firewall still refuse what an allowance covers; findings.txt lists it as
+# `allowed (<label>)` on every run, and an allowance that matched nothing is
+# stale and fails the run.
+#
+# Each template installs with a HOME and npm cache of its own. The job only
+# restores the Bun and Playwright caches, never saves them, so a run cannot
+# change what another workflow restores.
+#
+# Runs nightly and on demand, never on pull requests. It is not part of
+# `CI / required`.
+
+name: Fresh install
+
+on:
+  schedule:
+    - cron: '31 7 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The create-pyric dist-tag or version to install.'
+        required: false
+        default: 'exp'
+      templates:
+        description: 'Comma-separated templates to run. Empty runs every template create-pyric offers.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fresh-install-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EGRESS_GROUP: pyric-fresh-install
+  EGRESS_PORT: '18080'
+
+jobs:
+  fresh-install:
+    name: Fresh install (create-pyric from the npm registry)
+    # Pinned to the image the other jobs use (#2022).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Cache Bun dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      # The node and npm a new user has; the apps' installs never use a cache.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15'
+      # The driver's own dependencies (Playwright); the apps install nothing from here.
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('packages/cli/package.json', 'package.json') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-${{ env.ImageOS }}-
+            playwright-chromium-${{ runner.os }}-
+      - name: Install Chromium browser
+        run: bunx playwright install chromium
+      - name: Driver tests
+        run: bun test scripts/ci/fresh-install-checks.test.ts
+      - name: Start the egress guard
+        run: |
+          nohup bun scripts/ci/fresh-install.ts proxy --port "$EGRESS_PORT" --log "$RUNNER_TEMP/egress.jsonl" > "$RUNNER_TEMP/egress-guard.log" 2>&1 &
+          for _ in $(seq 1 100); do
+            if grep -q 'egress guard on' "$RUNNER_TEMP/egress-guard.log"; then exit 0; fi
+            sleep 0.2
+          done
+          cat "$RUNNER_TEMP/egress-guard.log"
+          exit 1
+      - name: Reject direct connections from the run's group
+        run: |
+          sudo groupadd --system "$EGRESS_GROUP"
+          sudo usermod -aG "$EGRESS_GROUP" "$USER"
+          for table in iptables ip6tables; do
+            sudo "$table" -I OUTPUT 1 -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j REJECT
+            # Above the REJECT, so the kernel log names each destination it rejects.
+            sudo "$table" -I OUTPUT 1 -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j LOG --log-prefix 'fresh-install-reject: ' --log-uid
+          done
+          # The lock holds: a direct request fails, the same request through the guard succeeds.
+          if sg "$EGRESS_GROUP" -c 'curl -sS --max-time 10 -o /dev/null https://registry.npmjs.org/create-pyric'; then
+            echo 'a direct connection from the run group reached the registry'
+            exit 1
+          fi
+          sg "$EGRESS_GROUP" -c 'curl -sS --max-time 30 -o /dev/null -x "http://127.0.0.1:$EGRESS_PORT" https://registry.npmjs.org/create-pyric'
+          # Neither check request counts: zero the firewall counters and the guard's log.
+          sudo iptables -Z OUTPUT
+          sudo ip6tables -Z OUTPUT
+          sudo dmesg | grep -c 'fresh-install-reject: ' > "$RUNNER_TEMP/rejects-before-run" || true
+          : > "$RUNNER_TEMP/egress.jsonl"
+      - name: Fresh install of each template
+        env:
+          TAG: ${{ github.event.inputs.tag || 'exp' }}
+          TEMPLATES: ${{ github.event.inputs.templates }}
+        run: |
+          sg "$EGRESS_GROUP" -c 'bun scripts/ci/fresh-install.ts run --tag "$TAG" ${TEMPLATES:+--templates "$TEMPLATES"} --proxy "http://127.0.0.1:$EGRESS_PORT" --egress-log "$RUNNER_TEMP/egress.jsonl" --out test-results/fresh-install'
+      # Only logs, never fails: prints where the Next the template installed
+      # fetches the registry, the source of the allowed Next.js rejects, so a
+      # reader can check it against next-dev-version-check.
+      - name: Where the installed Next.js dev server fetches the registry
+        if: always()
+        run: |
+          for next in /tmp/pyric-fresh-install-*/nextjs-app/node_modules/next; do
+            [ -d "$next/dist" ] || continue
+            grep -m1 '"version"' "$next/package.json"
+            grep -rn --include='*.js' 'registry.npmjs.org' "$next/dist" | grep -v '/dist/compiled/' || echo "no registry fetch in $next/dist"
+          done
+      - name: No direct connection was rejected without an allowance
+        if: always()
+        run: |
+          gid="$(getent group "$EGRESS_GROUP" | cut -d: -f3)"
+          # The group and its rules are made in one step; without the group the lock never went on.
+          if [ -z "$gid" ]; then
+            echo "no $EGRESS_GROUP group: the firewall step did not run, so there are no counters to read"
+            exit 0
+          fi
+          # Only the lines the run caused, not the check's own direct request.
+          before="$(cat "$RUNNER_TEMP/rejects-before-run" 2>/dev/null || echo 0)"
+          # Wall-clock times, so each reject can be matched to the driver step it fell in.
+          sudo dmesg --time-format iso | grep 'fresh-install-reject: ' | tail -n "+$((before + 1))" > "$RUNNER_TEMP/firewall-rejects.log" || true
+          # Each reject, with its step; one no allowance covers fails here.
+          attributed=0
+          bun scripts/ci/fresh-install.ts rejects --steps test-results/fresh-install/steps.jsonl --log "$RUNNER_TEMP/firewall-rejects.log" --findings test-results/fresh-install/findings.txt || attributed=1
+          logged="$(grep -c 'fresh-install-reject: ' "$RUNNER_TEMP/firewall-rejects.log" || true)"
+          total=0
+          for table in iptables ip6tables; do
+            # -v -x columns: pkts bytes target ...; the rule shows the group as `owner GID match <gid>`.
+            listing="$(sudo "$table" -L OUTPUT -v -x -n)"
+            count="$(printf '%s\n' "$listing" | awk -v gid="$gid" '$3 == "REJECT" && $0 ~ ("owner GID match " gid "( |$)") { print $1 }')"
+            # The rule is in place, so no match means the listing's format is not what this reads.
+            if [ -z "$count" ]; then
+              echo "$table: no REJECT rule for gid $gid found in the OUTPUT listing:"
+              printf '%s\n' "$listing"
+              exit 1
+            fi
+            echo "$table: $count connections from the run group rejected"
+            total=$((total + count))
+          done
+          # Every rejected packet is logged first, so the counters and the log agree unless the log lost lines.
+          if [ "$total" != "${logged:-0}" ]; then
+            echo "the firewall rejected $total packets but the kernel log shows ${logged:-0}; the unlogged ones have no step:"
+            cat "$RUNNER_TEMP/firewall-rejects.log"
+            exit 1
+          fi
+          exit "$attributed"
+      # Before any later step that needs the network.
+      - name: Allow direct connections again
+        if: always()
+        run: |
+          for table in iptables ip6tables; do
+            sudo "$table" -D OUTPUT -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j LOG --log-prefix 'fresh-install-reject: ' --log-uid || true
+            sudo "$table" -D OUTPUT -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j REJECT || true
+          done
+      # Every run, so the allowed lines are seen nightly, not only when the run fails.
+      - name: Upload findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-install-findings-${{ github.run_attempt }}
+          path: |
+            test-results/fresh-install/findings.txt
+            test-results/fresh-install/steps.jsonl
+            test-results/fresh-install/egress.jsonl
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload fresh install logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-install-logs-${{ github.run_attempt }}
+          path: |
+            test-results/fresh-install/
+            ${{ runner.temp }}/egress.jsonl
+            ${{ runner.temp }}/egress-guard.log
+            ${{ runner.temp }}/firewall-rejects.log
+          if-no-files-found: warn
+          retention-days: 7

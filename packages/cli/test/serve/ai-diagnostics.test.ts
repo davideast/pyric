@@ -158,6 +158,30 @@ describe('AI broker request_rejected → dev terminal', () => {
     expect(notes[0]).toContain('models/gemini-flash-lite-latest');
   });
 
+  it('an App Check refusal prints production\'s reason, then pyric\'s guidance', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const relay = originFetch(h.url);
+    const ctx = makeCtx();
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+
+    await handleMessage(ctx, fakePort(), {
+      t: 'op', id: 'no-app-check', method: 'ai.generateContent', model: 'models/gemini-flash-lite-latest',
+      request: { contents: [{ role: 'user', parts: [{ text: 'hi' }] }] }, appCheck: { token: null },
+    });
+    await relay.settled();
+
+    expect(notes.length).toBe(1);
+    const lines = notes[0]!.split('\n');
+    expect(lines[0]).toContain('ai request rejected: Firebase App Check token is invalid.');
+    expect(lines).toContainEqual(expect.stringContaining('UNAUTHENTICATED (401)'));
+    expect(lines.at(-1)).toContain('Call initializeAppCheck(app, { provider }) before getAI(app).');
+    expect(lines.at(-1)).toContain('In production, enforcement is set per project');
+    expect(lines.at(-1)).toContain('FIREBASE_APPCHECK_DEBUG_TOKEN');
+    expect(lines.at(-1)).toContain('https://firebase.google.com/docs/ai-logic/app-check');
+    expect(lines.at(-1)!.endsWith('…')).toBe(false);
+  });
+
   it('throttles an agent retry loop: identical rejections print once', async () => {
     const { logger, notes } = recordingLogger();
     const h = await startServe(logger);

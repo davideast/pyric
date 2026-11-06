@@ -1,13 +1,20 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import type { SandboxEvent } from 'pyric/sandbox';
+import { createAppForSandbox } from 'pyric/app/internal';
+import { initializeSandbox, type EventCaller, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
+import { observedCallEvent } from 'pyric/sandbox/internal';
+import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
 import {
   chipRequestFromEvent,
   createTrafficFeed,
+  isPageRequest,
   isPermissionDeniedCode,
   orderChipRequests,
   RECENT_FAILURE_MS,
+  requestsInScope,
   type ChipRequest,
 } from '../../../src/serve/runtime/chip-traffic.js';
+import { serviceLabel } from '../../../src/serve/runtime/service-presentation.js';
 
 function request(id: string, at: number, result: 'allow' | 'deny'): SandboxEvent {
   return {
@@ -295,5 +302,331 @@ describe('the bounded tail the view reads', () => {
     feed.dispose();
     expect(unsubscribed).toBe(true);
     expect(feed.requests()).toEqual([]);
+  });
+});
+
+function calledBy(event: SandboxEvent, caller: EventCaller): SandboxEvent {
+  return { ...event, caller } as SandboxEvent;
+}
+
+describe("who sent each of Traffic's rows", () => {
+  const VIEWER = 'tab-viewer';
+
+  it('reads each caller as this page, another tab, server code, MCP or Studio', () => {
+    const sourceOf = (caller: EventCaller) => chipRequestFromEvent(calledBy(request('r', 1000, 'allow'), caller), VIEWER)?.source;
+    expect(sourceOf({ kind: 'page', pageId: VIEWER })).toBe('page');
+    expect(sourceOf({ kind: 'page', pageId: 'tab-other' })).toBe('tab');
+    expect(sourceOf({ kind: 'node' })).toBe('node');
+    expect(sourceOf({ kind: 'admin' })).toBe('admin');
+    expect(sourceOf({ kind: 'mcp' })).toBe('mcp');
+    expect(sourceOf({ kind: 'studio' })).toBe('studio');
+  });
+
+  it('leaves the source off a row from an in-page sandbox, and names an unstamped host event unknown', () => {
+    expect(chipRequestFromEvent(request('r', 1000, 'allow'))?.source).toBeUndefined();
+    expect(chipRequestFromEvent(request('r', 1000, 'allow'), VIEWER)?.source).toBe('unknown');
+  });
+
+  it("lists only this page's rows by default and every row in the All view", () => {
+    const rows: ChipRequest[] = [
+      { ...row(1, 'ok'), id: 'mine', source: 'page' },
+      { ...row(2, 'ok'), id: 'in-page' },
+      { ...row(3, 'ok'), id: 'unstamped', source: 'unknown' },
+      { ...row(4, 'ok'), id: 'other-tab', source: 'tab' },
+      { ...row(5, 'ok'), id: 'server', source: 'node' },
+      { ...row(6, 'ok'), id: 'admin', source: 'admin' },
+      { ...row(7, 'ok'), id: 'agent', source: 'mcp' },
+      { ...row(8, 'ok'), id: 'studio', source: 'studio' },
+    ];
+    expect(requestsInScope(rows, 'page').map((entry) => entry.id)).toEqual(['mine', 'in-page', 'unstamped']);
+    expect(requestsInScope(rows, 'all').map((entry) => entry.id)).toEqual(rows.map((entry) => entry.id));
+    expect(rows.filter(isPageRequest)).toHaveLength(3);
+  });
+
+  it('reads sources against the page id the history batch names, and re-reads them when it changes', () => {
+    let deliver: ((events: readonly SandboxEvent[], batch?: { pageId?: string }) => void) | null = null;
+    let changes = 0;
+    const feed = createTrafficFeed({
+      subscribeEvents: (callback) => {
+        deliver = callback;
+        return () => { deliver = null; };
+      },
+      onChange: () => { changes += 1; },
+    });
+    try {
+      deliver!([
+        calledBy(request('a', 1000, 'allow'), { kind: 'page', pageId: 'tab-1' }),
+        calledBy(request('b', 2000, 'allow'), { kind: 'page', pageId: 'tab-2' }),
+        calledBy(request('c', 3000, 'allow'), { kind: 'admin' }),
+      ], { pageId: 'tab-1' });
+      expect(feed.pageId()).toBe('tab-1');
+      expect(feed.requests().map((entry) => [entry.id, entry.source])).toEqual([['a', 'page'], ['b', 'tab'], ['c', 'admin']]);
+      deliver!([], { pageId: 'tab-2' });
+      expect(changes).toBe(2);
+      expect(feed.requests().map((entry) => [entry.id, entry.source])).toEqual([['a', 'tab'], ['b', 'page'], ['c', 'admin']]);
+    } finally { feed.dispose(); }
+  });
+
+  it("counts only this page's failures as a recent failure", () => {
+    let deliver: ((events: readonly SandboxEvent[], batch?: { pageId?: string }) => void) | null = null;
+    const feed = createTrafficFeed({
+      subscribeEvents: (callback) => {
+        deliver = callback;
+        return () => { deliver = null; };
+      },
+    });
+    try {
+      const now = Date.now();
+      deliver!([
+        calledBy(request('tab', now - 1000, 'deny'), { kind: 'page', pageId: 'tab-2' }),
+        calledBy(request('server', now - 1000, 'deny'), { kind: 'node' }),
+      ], { pageId: 'tab-1' });
+      expect(feed.failedRecently(now)).toBe(false);
+      deliver!([calledBy(request('mine', now - 1000, 'deny'), { kind: 'page', pageId: 'tab-1' })]);
+      expect(feed.failedRecently(now)).toBe(true);
+    } finally { feed.dispose(); }
+  });
+});
+
+describe('a call production served', () => {
+  const observed = (call: Partial<ObservedCall>, caller?: EventCaller): SandboxEvent => {
+    const event = observedCallEvent({ service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: 1000, outcome: { status: 'ok' }, ...call });
+    return (caller === undefined ? event : { ...event, caller }) as SandboxEvent;
+  };
+
+  it("reads as production's answer with the account it ran as", () => {
+    expect(chipRequestFromEvent(observed({ account: { uid: 'alice' } }, { kind: 'node' }), 'tab-1')).toEqual({
+      id: expect.any(String),
+      at: 1000,
+      service: 'firestore',
+      method: 'getDoc',
+      path: 'rooms/r1',
+      verdict: 'ok',
+      identity: 'alice',
+      production: { status: 'ok' },
+      source: 'node',
+    });
+  });
+
+  it("reads production's permission-denied as denied and any other code as failed", () => {
+    const denied = chipRequestFromEvent(observed({ outcome: { status: 'error', code: 'permission-denied' } }));
+    expect(denied).toMatchObject({ verdict: 'denied', identity: 'signed out', production: { status: 'error', code: 'permission-denied' } });
+    const failed = chipRequestFromEvent(observed({ service: 'auth', method: 'signInWithEmailAndPassword', path: undefined, outcome: { status: 'error', code: 'auth/wrong-password' } }));
+    expect(failed).toMatchObject({ verdict: 'error', service: 'auth', path: null });
+  });
+
+  it("reads an RTDB call production denied as denied, with its path", () => {
+    const denied = observed({
+      service: 'rtdb',
+      method: 'get',
+      path: '/secret',
+      projectId: 'demo-project',
+      instance: 'demo-project-default-rtdb',
+      outcome: { status: 'error', code: 'permission_denied' },
+    }, { kind: 'page', pageId: 'tab-1' });
+    expect(chipRequestFromEvent(denied, 'tab-1')).toMatchObject({
+      service: 'rtdb',
+      method: 'get',
+      path: '/secret',
+      verdict: 'denied',
+      production: { status: 'error', code: 'permission_denied' },
+      source: 'page',
+    });
+  });
+
+  const MODEL = 'models/gemini-flash-lite-latest';
+  const USAGE = { promptTokenCount: 9, candidatesTokenCount: 2, totalTokenCount: 11 };
+
+  it("reads an observed AI call as production's row with its model and tokens", () => {
+    const event = observed({ service: 'ai', method: 'generateContent', path: undefined, at: 1000, durationMs: 80, ai: { model: MODEL, usage: USAGE } }, { kind: 'page', pageId: 'tab-1' });
+    const row = chipRequestFromEvent(event, 'tab-1');
+    expect(row).toMatchObject({
+      service: 'ai',
+      method: 'generateContent',
+      path: MODEL,
+      verdict: 'ok',
+      production: { status: 'ok' },
+      source: 'page',
+      aiRequest: {
+        method: 'generateContent',
+        status: 'completed',
+        startedAt: 1000,
+        detail: { requestedModel: MODEL, engine: 'gemini', usageSource: 'backend', inputTokens: 9, outputTokens: 2, totalTokens: 11 },
+      },
+    });
+    expect(row?.aiRequest).not.toHaveProperty('response');
+  });
+
+  it("reads App Check's 401 on an AI call as production's failure", () => {
+    const event = observed({ service: 'ai', method: 'generateContent', path: undefined, outcome: { status: 'error', code: 'unauthenticated' }, ai: { model: MODEL } });
+    expect(chipRequestFromEvent(event)).toMatchObject({
+      verdict: 'error',
+      production: { status: 'error', code: 'unauthenticated' },
+      aiRequest: { status: 'failed', detail: { usageSource: 'unknown' } },
+    });
+  });
+
+  it('orders observed AI rows by when production answered, not when the call started', () => {
+    const slow = observed({ service: 'ai', method: 'generateContentStream', path: undefined, at: 1000, durationMs: 5000, ai: { model: MODEL, usage: USAGE } });
+    const quick = observed({ service: 'ai', method: 'countTokens', path: undefined, at: 2000, durationMs: 50, ai: { model: MODEL, usage: { totalTokens: 9 } } });
+    const rows = [slow, quick].map(event => chipRequestFromEvent(event)!);
+    expect(rows.map(row => row.at)).toEqual([6000, 2050]);
+    expect(orderChipRequests(rows, 7000).map(row => row.method)).toEqual(['generateContentStream', 'countTokens']);
+  });
+
+  it("reads a Storage call production refused with storage/unauthorized as denied", () => {
+    const denied = observed({
+      service: 'storage',
+      method: 'uploadBytes',
+      path: 'pyric_oracle_denied_storage/a.bin',
+      bucket: 'demo-project.firebasestorage.app',
+      projectId: 'demo-project',
+      outcome: { status: 'error', code: 'storage/unauthorized' },
+    }, { kind: 'page', pageId: 'tab-1' });
+    expect(chipRequestFromEvent(denied, 'tab-1')).toMatchObject({
+      service: 'storage',
+      method: 'uploadBytes',
+      path: 'gs://demo-project.firebasestorage.app/pyric_oracle_denied_storage/a.bin',
+      verdict: 'denied',
+      production: { status: 'error', code: 'storage/unauthorized' },
+      source: 'page',
+    });
+    const missing = observed({
+      service: 'storage',
+      method: 'getMetadata',
+      path: 'pyric_oracle/missing.bin',
+      bucket: 'demo-project.firebasestorage.app',
+      outcome: { status: 'error', code: 'storage/object-not-found' },
+    });
+    expect(chipRequestFromEvent(missing)).toMatchObject({ verdict: 'error', production: { status: 'error', code: 'storage/object-not-found' } });
+  });
+
+  it("reads a Messaging getToken production refused with permission_denied as denied, listing its requests", () => {
+    const denied = observed({
+      service: 'messaging',
+      method: 'getToken',
+      path: undefined,
+      projectId: 'demo-project',
+      outcome: { status: 'error', code: 'permission_denied' },
+      requests: [
+        { api: 'installations', action: 'create', status: 200 },
+        { api: 'registrations', action: 'create', status: 403 },
+      ],
+    }, { kind: 'page', pageId: 'tab-1' });
+    expect(chipRequestFromEvent(denied, 'tab-1')).toMatchObject({
+      service: 'messaging',
+      method: 'getToken',
+      path: 'Installations create, 200; registrations create, 403',
+      verdict: 'denied',
+      production: { status: 'error', code: 'permission_denied' },
+      source: 'page',
+    });
+    const failed = observed({ service: 'messaging', method: 'deleteToken', path: undefined, outcome: { status: 'error', code: 'unauthenticated' } });
+    expect(chipRequestFromEvent(failed)).toMatchObject({ path: null, verdict: 'error', production: { status: 'error', code: 'unauthenticated' } });
+  });
+
+  it('lists a Messaging request with no status by its API and action, and names the service Cloud Messaging', () => {
+    const refreshed = observed({
+      service: 'messaging',
+      method: 'getToken',
+      path: undefined,
+      requests: [
+        { api: 'installations', action: 'generateAuthToken' },
+        { api: 'registrations', action: 'update', status: 200 },
+      ],
+    });
+    expect(chipRequestFromEvent(refreshed)?.path).toBe('Installations generate auth token; registrations update, 200');
+    const deleted = observed({ service: 'messaging', method: 'deleteToken', path: undefined, requests: [{ api: 'registrations', action: 'delete', status: 200 }] });
+    expect(chipRequestFromEvent(deleted)?.path).toBe('Registrations delete, 200');
+    expect(serviceLabel('messaging')).toBe('Cloud Messaging');
+  });
+
+  it('lists requests only on a Messaging row', () => {
+    const borrowed = { ...observed({ service: 'firestore', method: 'getDoc', path: 'items/a' }), detail: { requests: [{ api: 'installations', action: 'create', status: 200 }] } } as SandboxEvent;
+    expect(chipRequestFromEvent(borrowed)?.path).toBe('items/a');
+  });
+
+  it('leaves a sandbox-served operation without a production answer', () => {
+    expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
+    const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;
+    expect(chipRequestFromEvent(unmarked)?.production).toBeUndefined();
+  });
+});
+
+describe('a Storage row names its bucket', () => {
+  const SECOND_BUCKET = 'demo-live-storage-live-second';
+  const APP_BUCKET = 'demo-app.appspot.com';
+  const OPEN_STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow read, write: if true; }
+  }
+}`;
+
+  function storageOperation(path: string, bucket: unknown, bucketName?: unknown): SandboxEvent {
+    return {
+      kind: 'operation',
+      id: 's1',
+      at: 1000,
+      service: 'storage',
+      method: 'getMetadata',
+      path,
+      auth: null,
+      result: 'allow',
+      origin: 'user',
+      detail: bucketName === undefined ? { bucket } : { bucket, bucketName },
+      rulesDisposition: { kind: 'evaluated', verdict: 'allow' },
+      rules: { engine: 'storage' },
+    } as unknown as SandboxEvent;
+  }
+
+  it("reads an observed call's path as gs://<bucket>/<path>", () => {
+    const event = observedCallEvent({
+      service: 'storage',
+      method: 'getMetadata',
+      path: 'pyric-live-capture/replay/a.bin',
+      bucket: SECOND_BUCKET,
+      at: 1000,
+      outcome: { status: 'ok' },
+    });
+    expect(chipRequestFromEvent(event)?.path).toBe(`gs://${SECOND_BUCKET}/pyric-live-capture/replay/a.bin`);
+  });
+
+  it("reads an observed call on the bucket's root as gs://<bucket>/", () => {
+    const event = observedCallEvent({ service: 'storage', method: 'list', bucket: SECOND_BUCKET, at: 1000, outcome: { status: 'ok' } });
+    expect(chipRequestFromEvent(event)?.path).toBe(`gs://${SECOND_BUCKET}/`);
+  });
+
+  it('reads a sandbox Storage operation the same way', () => {
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', 'demo-app.appspot.com'))?.path).toBe('gs://demo-app.appspot.com/avatars/alice.png');
+    expect(chipRequestFromEvent(storageOperation('', 'demo-app.appspot.com'))?.path).toBe('gs://demo-app.appspot.com/');
+    expect(chipRequestFromEvent(storageOperation('/', 'demo-app.appspot.com'))?.path).toBe('gs://demo-app.appspot.com/');
+  });
+
+  it('leaves the path alone when no string bucket is named', () => {
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', undefined))?.path).toBe('avatars/alice.png');
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', 7))?.path).toBe('avatars/alice.png');
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', ''))?.path).toBe('avatars/alice.png');
+    expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.path).toBe('/presence/u_8f2a');
+  });
+
+  it("reads the app's bucket name over the sandbox's store key", () => {
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', 'pyric-default', APP_BUCKET))?.path).toBe(`gs://${APP_BUCKET}/avatars/alice.png`);
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', 'pyric-default', ''))?.path).toBe('gs://pyric-default/avatars/alice.png');
+  });
+
+  it("reads a sandboxed app's upload to its default bucket under the app's bucket name", async () => {
+    const sandbox = initializeSandbox({});
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent(event => events.push(event));
+    const unique = Math.random().toString(36).slice(2, 10);
+    getStorageSandbox(sandbox, { dbName: `pyric-chip-traffic-${unique}`, rules: OPEN_STORAGE_RULES });
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: APP_BUCKET }, `chip-traffic-${unique}`);
+    await uploadBytes(ref(getStorage(app), 'avatars/alice.png'), new Uint8Array([1]));
+    const storageEvents = events.filter(event => event.kind === 'operation' && event.service === 'storage');
+    expect(storageEvents.length).toBeGreaterThan(0);
+    // The store key is not the bucket's name; the row must not read gs://pyric-default/.
+    for (const event of storageEvents) expect(event.kind === 'operation' && event.detail).toEqual({ bucket: 'pyric-default', bucketName: APP_BUCKET });
+    expect(storageEvents.map(event => chipRequestFromEvent(event)?.path)).toEqual(storageEvents.map(() => `gs://${APP_BUCKET}/avatars/alice.png`));
   });
 });

@@ -1,0 +1,7 @@
+id: factory-no-raw-color
+language: tsx
+severity: warning
+message: Raw color. Use a color token from DESIGN.md, such as bg-card, text-ink-muted or border-border.
+rule:
+  kind: string_fragment
+  regex: (?:#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\()

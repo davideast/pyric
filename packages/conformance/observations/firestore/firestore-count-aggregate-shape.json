@@ -5,9 +5,9 @@
     "firestore#79"
   ],
   "description": "getCountFromServer on empty vs non-empty query — observes the .data().count shape.",
-  "observedAt": "2026-05-17T23:36:51.088Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:45:53.662Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "emptyCount": 0,
     "emptyCountType": "number",

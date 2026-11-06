@@ -21,6 +21,7 @@ import { receiveClockState } from './clock.js';
 import type { ClientPort } from './handles.js';
 import { createOperationBudget } from '../../../bridge/operation-budget.js';
 import { requestInstance } from '../request-instance.js';
+import { rtdbFateAtDrop } from '../rtdb-drop-fates.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome, snapshotError } from '../outbound-validation.js';
 import { closeSendOrder, issueTime, postInOrder, waitsToSubscribe, withdrawOperation, withdrawSubscription, type SendReservation } from './send-order.js';
 
@@ -73,7 +74,7 @@ export const _snapSubs = new Map<string, {
  */
 export const _eventSubs = new Map<string, {
   port: ClientPort;
-  next: (events: readonly SandboxEvent[]) => void;
+  next: (events: readonly SandboxEvent[], pageId?: string) => void;
   message: InboundMessage;
   error?: (error: Error & { code: string }) => void;
   /** Called when the subscription is sent again; the host replies with its whole history. */
@@ -184,7 +185,7 @@ export function openSnapshotSubscription(
 export function openEventSubscription(
   port: ClientPort,
   subId: string,
-  next: (events: readonly SandboxEvent[]) => void,
+  next: (events: readonly SandboxEvent[], pageId?: string) => void,
   message: InboundMessage,
   error?: (error: Error & { code: string }) => void,
   restored?: () => void,
@@ -381,9 +382,24 @@ export function forgetPendingRequest(id: string): void {
   takePendingRequest(id);
 }
 
+/**
+ * Forgets every Realtime Database onDisconnect call outstanding on a closing
+ * port, sent or held, without settling it. `@firebase/database` 1.1.3 ends a
+ * deleted app's connection as it ends a dropped one (`repoInterrupt`), which
+ * clears the request callbacks, so an onDisconnect never settles there either.
+ * The Firebase presence sample leaves that promise without a handler (#1215).
+ */
+export function forgetOnDisconnectCalls(port: ClientPort): void {
+  for (const { id, message } of pendingRequestsOn(port, () => true)) {
+    const isOnDisconnect = message.t === 'op' && rtdbFateAtDrop(message.method) === 'forget';
+    if (isOnDisconnect) forgetPendingRequest(id);
+  }
+}
+
 /** Drop every client-side correlation owned by a closing app port. */
 export function disconnectPort(port: ClientPort): void {
   disconnectedPorts.add(port);
+  forgetOnDisconnectCalls(port);
   rejectPendingRequests(port, appDeletedError());
   endPortSubscriptions(port, new FirebaseError('aborted', 'The operation was aborted.'), appDeletedError());
   port.onmessage = null;
@@ -622,7 +638,7 @@ export function wirePort(port: ClientPort): void {
       // no rehydration. Deliver the whole batch to the registered subscriber.
       const subscription = _eventSubs.get(msg.subId);
       const ownsSubscription = subscription !== undefined && subscription.port === port;
-      if (ownsSubscription) subscription.next(msg.events);
+      if (ownsSubscription) subscription.next(msg.events, msg.pageId);
     } else if (isRuntimeReload) {
       for (const listener of runtimeReloadListeners) listener(msg);
     } else if (isClock) {

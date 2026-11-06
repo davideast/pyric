@@ -1,0 +1,22 @@
+# Any other visible string: JSX text, a label-like prop, or a toast's message.
+id: copy-text
+language: tsx
+severity: hint
+rule:
+  any:
+    - kind: jsx_text
+      regex: \S
+    - kind: string_fragment
+      inside:
+        stopBy: end
+        kind: jsx_attribute
+        has:
+          kind: property_identifier
+          regex: ^(aria-label|title|placeholder|alt|label|description)$
+    - kind: string_fragment
+      inside:
+        stopBy: end
+        kind: call_expression
+        has:
+          field: function
+          regex: ^toast(\.\w+)?$

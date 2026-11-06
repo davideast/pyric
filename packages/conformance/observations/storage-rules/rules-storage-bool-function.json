@@ -5,8 +5,8 @@
     "storage-rules#124"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"bool-function\" (Coverage: bool() is not a global function). Storage rules have no global bool() function: a call with any argument type is a Function not found error value that denies through == and !, that || true and && false absorb, and that a ruleset function named bool replaces.",
-  "observedAt": "2026-09-27T19:16:49.122Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:52.233Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

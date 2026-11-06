@@ -1,0 +1,198 @@
+{
+  "format": "pyric-replay/1",
+  "project": "demo-replay",
+  "source": "hand-written from the firebase 12.19.0 web SDK wire format: Auth REST v1, Firestore Listen and Write over WebChannel",
+  "exchanges": [
+    {
+      "kind": "auth",
+      "id": "sign-in-reader",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:signInWithPassword",
+        "body": { "returnSecureToken": true, "email": "reader@example.com", "password": { "$": "any" }, "clientType": "CLIENT_TYPE_WEB" }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#VerifyPasswordResponse",
+          "localId": "user-reader",
+          "email": "reader@example.com",
+          "displayName": "",
+          "idToken": { "$": "idToken", "uid": "user-reader", "email": "reader@example.com", "provider": "password" },
+          "registered": true,
+          "refreshToken": { "$": "refreshToken" },
+          "expiresIn": "3600"
+        }
+      }
+    },
+    {
+      "kind": "auth",
+      "id": "lookup-reader",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:lookup",
+        "body": { "idToken": { "$": "any" } }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#GetAccountInfoResponse",
+          "users": [
+            {
+              "localId": "user-reader",
+              "email": "reader@example.com",
+              "emailVerified": false,
+              "passwordUpdatedAt": 1793520000000,
+              "providerUserInfo": [
+                { "providerId": "password", "federatedId": "reader@example.com", "email": "reader@example.com", "rawId": "reader@example.com" }
+              ],
+              "validSince": "1793520000",
+              "lastLoginAt": "1793520000000",
+              "createdAt": "1793520000000",
+              "lastRefreshAt": "2026-11-01T08:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "auth",
+      "id": "sign-in-wrong-password",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:signInWithPassword",
+        "body": { "returnSecureToken": true, "email": "nobody@example.com", "password": { "$": "any" }, "clientType": "CLIENT_TYPE_WEB" }
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "error": {
+            "code": 400,
+            "message": "INVALID_LOGIN_CREDENTIALS",
+            "errors": [{ "message": "INVALID_LOGIN_CREDENTIALS", "domain": "global", "reason": "invalid" }]
+          }
+        }
+      }
+    },
+    {
+      "kind": "listen",
+      "id": "read-lobby",
+      "as": "user-reader",
+      "target": { "documents": { "documents": ["projects/demo-replay/databases/(default)/documents/rooms/lobby"] } },
+      "batches": [
+        {
+          "messages": [
+            { "targetChange": { "targetChangeType": "ADD", "targetIds": [{ "$": "targetId" }] } },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-replay/databases/(default)/documents/rooms/lobby",
+                  "fields": { "name": { "stringValue": "Lobby" }, "open": { "booleanValue": true }, "seats": { "integerValue": "12" } },
+                  "createTime": "2026-11-01T08:00:00.000000Z",
+                  "updateTime": "2026-11-01T08:00:00.000000Z"
+                },
+                "targetIds": [{ "$": "targetId" }]
+              }
+            },
+            { "targetChange": { "targetChangeType": "CURRENT", "targetIds": [{ "$": "targetId" }], "resumeToken": { "$": "resumeToken" }, "readTime": { "$": "readTime" } } }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "listen",
+      "id": "read-secret-denied",
+      "as": "user-reader",
+      "target": { "documents": { "documents": ["projects/demo-replay/databases/(default)/documents/rooms/secret"] } },
+      "batches": [
+        {
+          "messages": [
+            { "targetChange": { "targetChangeType": "REMOVE", "targetIds": [{ "$": "targetId" }], "cause": { "code": 7, "message": "Missing or insufficient permissions." } } }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "listen",
+      "id": "listen-open-rooms",
+      "as": "user-reader",
+      "target": {
+        "query": {
+          "structuredQuery": {
+            "from": [{ "collectionId": "rooms" }],
+            "where": { "fieldFilter": { "field": { "fieldPath": "open" }, "op": "EQUAL", "value": { "booleanValue": true } } },
+            "orderBy": [{ "field": { "fieldPath": "__name__" }, "direction": "ASCENDING" }]
+          },
+          "parent": "projects/demo-replay/databases/(default)/documents"
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            { "targetChange": { "targetChangeType": "ADD", "targetIds": [{ "$": "targetId" }] } },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-replay/databases/(default)/documents/rooms/lobby",
+                  "fields": { "name": { "stringValue": "Lobby" }, "open": { "booleanValue": true }, "seats": { "integerValue": "12" } },
+                  "createTime": "2026-11-01T08:00:00.000000Z",
+                  "updateTime": "2026-11-01T08:00:00.000000Z"
+                },
+                "targetIds": [{ "$": "targetId" }]
+              }
+            },
+            { "targetChange": { "targetChangeType": "CURRENT", "targetIds": [{ "$": "targetId" }], "resumeToken": { "$": "resumeToken" }, "readTime": { "$": "readTime" } } }
+          ]
+        },
+        {
+          "after": "write-garden",
+          "messages": [
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-replay/databases/(default)/documents/rooms/garden",
+                  "fields": { "name": { "stringValue": "Garden" }, "open": { "booleanValue": true } },
+                  "createTime": { "$": "commitTime" },
+                  "updateTime": { "$": "commitTime" }
+                },
+                "targetIds": [{ "$": "targetId" }]
+              }
+            },
+            { "targetChange": { "targetChangeType": "NO_CHANGE", "targetIds": [{ "$": "targetId" }], "resumeToken": { "$": "resumeToken" }, "readTime": { "$": "readTime" } } }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "write",
+      "id": "write-garden",
+      "as": "user-reader",
+      "writes": [
+        {
+          "update": {
+            "name": "projects/demo-replay/databases/(default)/documents/rooms/garden",
+            "fields": { "name": { "stringValue": "Garden" }, "open": { "booleanValue": true } }
+          }
+        }
+      ],
+      "response": { "writeResults": [{ "updateTime": { "$": "commitTime" } }], "commitTime": { "$": "commitTime" } }
+    },
+    {
+      "kind": "write",
+      "id": "write-secret-denied",
+      "as": "user-reader",
+      "writes": [
+        {
+          "update": {
+            "name": "projects/demo-replay/databases/(default)/documents/rooms/secret",
+            "fields": { "name": { "stringValue": "Secret" } }
+          }
+        }
+      ],
+      "error": { "code": 7, "status": "PERMISSION_DENIED", "message": "Missing or insufficient permissions." }
+    }
+  ]
+}

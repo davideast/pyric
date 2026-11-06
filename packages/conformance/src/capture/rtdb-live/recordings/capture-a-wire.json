@@ -1,0 +1,975 @@
+{
+  "name": "rtdb-live-capture-a-wire",
+  "description": "Every WebSocket frame the modular firebase/database client sent and received, per instance, for connect, set, get, update, push, an uncontended runTransaction, onValue and onChildAdded with a change from a second client, a denied read and write of /secret, and onDisconnect read back from a second client. t is milliseconds since the capture started; op is the operation running when the frame was sent or received.",
+  "observedAt": "2026-11-05T19:44:39.329Z",
+  "sdkVersion": "12.19.0",
+  "runPath": "/pyric-live-capture/<run>",
+  "operations": [
+    "connect",
+    "set",
+    "get",
+    "update",
+    "push",
+    "runTransaction",
+    "onValue",
+    "onChildAdded",
+    "denied-read",
+    "denied-write",
+    "onDisconnect",
+    "teardown"
+  ],
+  "placeholders": [
+    "<project>",
+    "<default-instance>",
+    "<named-instance>",
+    "<run>",
+    "<uid-N>",
+    "<id-token>",
+    "<refresh-token>",
+    "<api-key>",
+    "<app-id>",
+    "<session>"
+  ],
+  "instances": {
+    "default": {
+      "instance": "<default-instance>",
+      "connections": [
+        {
+          "id": 1,
+          "client": "client-1",
+          "url": "wss://<default-instance>.firebaseio.com/.ws?v=5&p=<app-id>",
+          "openedAtMs": 1880.4,
+          "closedAtMs": 11833.9
+        },
+        {
+          "id": 2,
+          "client": "client-2",
+          "url": "wss://<default-instance>.firebaseio.com/.ws?v=5&p=<app-id>",
+          "openedAtMs": 2831.6,
+          "closedAtMs": 13443.1
+        }
+      ],
+      "frames": [
+        {
+          "t": 1881.3,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "connect",
+          "data": "{\"t\":\"c\",\"d\":{\"t\":\"h\",\"d\":{\"ts\":1793907851859,\"v\":\"5\",\"h\":\"s-gke-usc1-nssi2-16.firebaseio.com\",\"s\":\"<session>\"}}}"
+        },
+        {
+          "t": 1882.5,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":1,\"a\":\"s\",\"b\":{\"c\":{\"sdk.node.12-19-0\":1}}}}"
+        },
+        {
+          "t": 1883.1,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":2,\"a\":\"auth\",\"b\":{\"cred\":\"<id-token>\"}}}"
+        },
+        {
+          "t": 1928.1,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":1,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 1942.5,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":2,\"b\":{\"s\":\"ok\",\"d\":{\"auth\":{\"provider\":\"anonymous\",\"provider_id\":\"anonymous\",\"user_id\":\"<uid-1>\",\"token\":{\"provider_id\":\"anonymous\",\"exp\":1793911450,\"user_id\":\"<uid-1>\",\"iat\":1793907850,\"sub\":\"<uid-1>\",\"aud\":\"<project>\",\"auth_time\":1793907850,\"iss\":\"https://securetoken.google.com/<project>\",\"firebase\":{\"identities\":{},\"sign_in_provider\":\"anonymous\"}},\"uid\":\"<uid-1>\"},\"expires\":1793911450}}}}"
+        },
+        {
+          "t": 2831.8,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 2,
+          "op": "connect",
+          "data": "{\"t\":\"c\",\"d\":{\"t\":\"h\",\"d\":{\"ts\":1793907852765,\"v\":\"5\",\"h\":\"s-gke-usc1-nssi2-16.firebaseio.com\",\"s\":\"<session>\"}}}"
+        },
+        {
+          "t": 2832.3,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 2,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":1,\"a\":\"s\",\"b\":{\"c\":{\"sdk.node.12-19-0\":1}}}}"
+        },
+        {
+          "t": 2832.8,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 2,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":2,\"a\":\"auth\",\"b\":{\"cred\":\"<id-token>\"}}}"
+        },
+        {
+          "t": 2876.9,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 2,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":1,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 2888.4,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 2,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":2,\"b\":{\"s\":\"ok\",\"d\":{\"auth\":{\"provider\":\"anonymous\",\"provider_id\":\"anonymous\",\"user_id\":\"<uid-2>\",\"token\":{\"provider_id\":\"anonymous\",\"exp\":1793911450,\"user_id\":\"<uid-2>\",\"iat\":1793907850,\"sub\":\"<uid-2>\",\"aud\":\"<project>\",\"auth_time\":1793907850,\"iss\":\"https://securetoken.google.com/<project>\",\"firebase\":{\"identities\":{},\"sign_in_provider\":\"anonymous\"}},\"uid\":\"<uid-2>\"},\"expires\":1793911450}}}}"
+        },
+        {
+          "t": 3637.5,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "set",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":3,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\",\"d\":{\"n\":1,\"s\":\"alpha\"}}}}"
+        },
+        {
+          "t": 3695.6,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "set",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":3,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 4499.9,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "get",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":4,\"a\":\"g\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\",\"q\":{}}}}"
+        },
+        {
+          "t": 4552.5,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "get",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":4,\"b\":{\"s\":\"ok\",\"d\":{\"n\":1,\"s\":\"alpha\"}}}}"
+        },
+        {
+          "t": 5358.7,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "update",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":5,\"a\":\"m\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\",\"d\":{\"n\":2,\"flag\":true}}}}"
+        },
+        {
+          "t": 5434.1,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "update",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":5,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 6237.6,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "push",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":6,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/list/-P5hEOCLblY6Wr3y2MTI\",\"d\":{\"v\":1}}}}"
+        },
+        {
+          "t": 6308.3,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "push",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":6,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 7112.1,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":7,\"a\":\"q\",\"b\":{\"p\":\"/pyric-live-capture/<run>/counter\",\"h\":\"\"}}}"
+        },
+        {
+          "t": 7114.8,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":8,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/counter\",\"d\":1,\"h\":\"\"}}}"
+        },
+        {
+          "t": 7174.8,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":7,\"b\":{\"s\":\"ok\",\"d\":{}}}}"
+        },
+        {
+          "t": 7175.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/counter\",\"d\":1},\"a\":\"d\"}}"
+        },
+        {
+          "t": 7176.4,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":8,\"b\":{\"s\":\"ok\",\"d\":1}}}"
+        },
+        {
+          "t": 7177.2,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":9,\"a\":\"n\",\"b\":{\"p\":\"/pyric-live-capture/<run>/counter\"}}}"
+        },
+        {
+          "t": 7221.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":9,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 7981.1,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":10,\"a\":\"q\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\",\"h\":\"\"}}}"
+        },
+        {
+          "t": 8036.7,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/items/a\",\"d\":{\"flag\":true,\"n\":2,\"s\":\"alpha\"}},\"a\":\"d\"}}"
+        },
+        {
+          "t": 8037.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":10,\"b\":{\"s\":\"ok\",\"d\":{}}}}"
+        },
+        {
+          "t": 8038.5,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 2,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":3,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a/n\",\"d\":3}}}"
+        },
+        {
+          "t": 8095.3,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 2,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":3,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 8096.5,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/items/a/n\",\"d\":3},\"a\":\"d\"}}"
+        },
+        {
+          "t": 8098.3,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":11,\"a\":\"n\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\"}}}"
+        },
+        {
+          "t": 8156.8,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":11,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 8901.5,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":12,\"a\":\"q\",\"b\":{\"p\":\"/pyric-live-capture/<run>/list\",\"h\":\"\"}}}"
+        },
+        {
+          "t": 8960.7,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/list\",\"d\":{\"-P5hEOCLblY6Wr3y2MTI\":{\"v\":1}}},\"a\":\"d\"}}"
+        },
+        {
+          "t": 8961.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":12,\"b\":{\"s\":\"ok\",\"d\":{}}}}"
+        },
+        {
+          "t": 9014.9,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 2,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":4,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/list/-P5hEOs3sAFZquMhG564\",\"d\":{\"v\":2}}}}"
+        },
+        {
+          "t": 9063.6,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 2,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":4,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 9067.4,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/list/-P5hEOs3sAFZquMhG564\",\"d\":{\"v\":2}},\"a\":\"d\"}}"
+        },
+        {
+          "t": 9121.3,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":13,\"a\":\"n\",\"b\":{\"p\":\"/pyric-live-capture/<run>/list\"}}}"
+        },
+        {
+          "t": 9168.3,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":13,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 9924.3,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "denied-read",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":14,\"a\":\"g\",\"b\":{\"p\":\"/secret\",\"q\":{}}}}"
+        },
+        {
+          "t": 9979.4,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "denied-read",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":14,\"b\":{\"s\":\"permission_denied\",\"d\":\"Permission denied\"}}}"
+        },
+        {
+          "t": 10782.6,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "denied-write",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":15,\"a\":\"p\",\"b\":{\"p\":\"/secret\",\"d\":\"x\"}}}"
+        },
+        {
+          "t": 10837,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "denied-write",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":15,\"b\":{\"s\":\"permission_denied\",\"d\":\"Permission denied\"}}}"
+        },
+        {
+          "t": 11630.3,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":16,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/presence\",\"d\":\"online\"}}}"
+        },
+        {
+          "t": 11701.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":16,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 11702.8,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":17,\"a\":\"o\",\"b\":{\"p\":\"/pyric-live-capture/<run>/presence\",\"d\":\"offline\"}}}"
+        },
+        {
+          "t": 11767.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 1,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":17,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 12562.6,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 2,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":5,\"a\":\"g\",\"b\":{\"p\":\"/pyric-live-capture/<run>/presence\",\"q\":{}}}}"
+        },
+        {
+          "t": 12608.9,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 2,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":5,\"b\":{\"s\":\"ok\",\"d\":\"offline\"}}}"
+        }
+      ],
+      "results": {
+        "get": {
+          "n": 1,
+          "s": "alpha"
+        },
+        "push": true,
+        "runTransaction": {
+          "committed": true,
+          "value": 1
+        },
+        "onValue": [
+          {
+            "flag": true,
+            "n": 2,
+            "s": "alpha"
+          },
+          {
+            "flag": true,
+            "n": 3,
+            "s": "alpha"
+          }
+        ],
+        "onChildAdded": {
+          "children": 2
+        },
+        "denied-read": {
+          "denied": true,
+          "message": "Permission denied"
+        },
+        "denied-write": {
+          "denied": true,
+          "message": "PERMISSION_DENIED"
+        },
+        "onDisconnect": {
+          "readBack": "offline"
+        }
+      },
+      "invariants": {
+        "dataRemoved": true,
+        "rulesRestored": true
+      }
+    },
+    "named": {
+      "instance": "<named-instance>",
+      "connections": [
+        {
+          "id": 3,
+          "client": "client-1",
+          "url": "wss://<named-instance>.firebaseio.com/.ws?v=5&p=<app-id>",
+          "openedAtMs": 17403.3,
+          "closedAtMs": 27057.2
+        },
+        {
+          "id": 4,
+          "client": "client-2",
+          "url": "wss://<named-instance>.firebaseio.com/.ws?v=5&p=<app-id>",
+          "openedAtMs": 18371.2,
+          "closedAtMs": 28700.7
+        }
+      ],
+      "frames": [
+        {
+          "t": 17404,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "connect",
+          "data": "{\"t\":\"c\",\"d\":{\"t\":\"h\",\"d\":{\"ts\":1793907866490,\"v\":\"5\",\"h\":\"s-gke-usc1-nssi4-5.firebaseio.com\",\"s\":\"<session>\"}}}"
+        },
+        {
+          "t": 17404.5,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":1,\"a\":\"s\",\"b\":{\"c\":{\"sdk.node.12-19-0\":1}}}}"
+        },
+        {
+          "t": 17404.8,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":2,\"a\":\"auth\",\"b\":{\"cred\":\"<id-token>\"}}}"
+        },
+        {
+          "t": 17453.6,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":1,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 17453.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":2,\"b\":{\"s\":\"ok\",\"d\":{\"auth\":{\"provider\":\"anonymous\",\"provider_id\":\"anonymous\",\"user_id\":\"<uid-3>\",\"token\":{\"provider_id\":\"anonymous\",\"exp\":1793911464,\"user_id\":\"<uid-3>\",\"iat\":1793907864,\"sub\":\"<uid-3>\",\"aud\":\"<project>\",\"auth_time\":1793907864,\"iss\":\"https://securetoken.google.com/<project>\",\"firebase\":{\"identities\":{},\"sign_in_provider\":\"anonymous\"}},\"uid\":\"<uid-3>\"},\"expires\":1793911464}}}}"
+        },
+        {
+          "t": 18371.6,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 4,
+          "op": "connect",
+          "data": "{\"t\":\"c\",\"d\":{\"t\":\"h\",\"d\":{\"ts\":1793907867404,\"v\":\"5\",\"h\":\"s-gke-usc1-nssi4-5.firebaseio.com\",\"s\":\"<session>\"}}}"
+        },
+        {
+          "t": 18372.1,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 4,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":1,\"a\":\"s\",\"b\":{\"c\":{\"sdk.node.12-19-0\":1}}}}"
+        },
+        {
+          "t": 18372.5,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 4,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":2,\"a\":\"auth\",\"b\":{\"cred\":\"<id-token>\"}}}"
+        },
+        {
+          "t": 18465.7,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 4,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":1,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 18466.2,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 4,
+          "op": "connect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":2,\"b\":{\"s\":\"ok\",\"d\":{\"auth\":{\"provider\":\"anonymous\",\"provider_id\":\"anonymous\",\"user_id\":\"<uid-4>\",\"token\":{\"provider_id\":\"anonymous\",\"exp\":1793911465,\"user_id\":\"<uid-4>\",\"iat\":1793907865,\"sub\":\"<uid-4>\",\"aud\":\"<project>\",\"auth_time\":1793907865,\"iss\":\"https://securetoken.google.com/<project>\",\"firebase\":{\"identities\":{},\"sign_in_provider\":\"anonymous\"}},\"uid\":\"<uid-4>\"},\"expires\":1793911465}}}}"
+        },
+        {
+          "t": 19164.9,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "set",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":3,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\",\"d\":{\"n\":1,\"s\":\"alpha\"}}}}"
+        },
+        {
+          "t": 19217.2,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "set",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":3,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 20011.3,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "get",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":4,\"a\":\"g\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\",\"q\":{}}}}"
+        },
+        {
+          "t": 20058.7,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "get",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":4,\"b\":{\"s\":\"ok\",\"d\":{\"n\":1,\"s\":\"alpha\"}}}}"
+        },
+        {
+          "t": 20854,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "update",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":5,\"a\":\"m\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\",\"d\":{\"n\":2,\"flag\":true}}}}"
+        },
+        {
+          "t": 20912.8,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "update",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":5,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 21707.4,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "push",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":6,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/list/-P5hERK7V9LfVhVDVsaK\",\"d\":{\"v\":1}}}}"
+        },
+        {
+          "t": 21751.8,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "push",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":6,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 22546,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":7,\"a\":\"q\",\"b\":{\"p\":\"/pyric-live-capture/<run>/counter\",\"h\":\"\"}}}"
+        },
+        {
+          "t": 22546.9,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":8,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/counter\",\"d\":1,\"h\":\"\"}}}"
+        },
+        {
+          "t": 22590.7,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":7,\"b\":{\"s\":\"ok\",\"d\":{}}}}"
+        },
+        {
+          "t": 22592.1,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/counter\",\"d\":1},\"a\":\"d\"}}"
+        },
+        {
+          "t": 22592.4,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":8,\"b\":{\"s\":\"ok\",\"d\":1}}}"
+        },
+        {
+          "t": 22592.9,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":9,\"a\":\"n\",\"b\":{\"p\":\"/pyric-live-capture/<run>/counter\"}}}"
+        },
+        {
+          "t": 22637.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "runTransaction",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":9,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 23387.2,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":10,\"a\":\"q\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\",\"h\":\"\"}}}"
+        },
+        {
+          "t": 23433.1,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/items/a\",\"d\":{\"flag\":true,\"n\":2,\"s\":\"alpha\"}},\"a\":\"d\"}}"
+        },
+        {
+          "t": 23433.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":10,\"b\":{\"s\":\"ok\",\"d\":{}}}}"
+        },
+        {
+          "t": 23443.2,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 4,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":3,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a/n\",\"d\":3}}}"
+        },
+        {
+          "t": 23501.5,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/items/a/n\",\"d\":3},\"a\":\"d\"}}"
+        },
+        {
+          "t": 23502.9,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 4,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":3,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 23503.3,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":11,\"a\":\"n\",\"b\":{\"p\":\"/pyric-live-capture/<run>/items/a\"}}}"
+        },
+        {
+          "t": 23555.9,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onValue",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":11,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 24297.7,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":12,\"a\":\"q\",\"b\":{\"p\":\"/pyric-live-capture/<run>/list\",\"h\":\"\"}}}"
+        },
+        {
+          "t": 24342.4,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/list\",\"d\":{\"-P5hERK7V9LfVhVDVsaK\":{\"v\":1}}},\"a\":\"d\"}}"
+        },
+        {
+          "t": 24343.2,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":12,\"b\":{\"s\":\"ok\",\"d\":{}}}}"
+        },
+        {
+          "t": 24353.9,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 4,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":4,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/list/-P5hERxe5z-b2OOdQOxM\",\"d\":{\"v\":2}}}}"
+        },
+        {
+          "t": 24414.2,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"b\":{\"p\":\"pyric-live-capture/<run>/list/-P5hERxe5z-b2OOdQOxM\",\"d\":{\"v\":2}},\"a\":\"d\"}}"
+        },
+        {
+          "t": 24421.7,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 4,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":4,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 24422.2,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":13,\"a\":\"n\",\"b\":{\"p\":\"/pyric-live-capture/<run>/list\"}}}"
+        },
+        {
+          "t": 24469.5,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onChildAdded",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":13,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 25216.2,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "denied-read",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":14,\"a\":\"g\",\"b\":{\"p\":\"/secret\",\"q\":{}}}}"
+        },
+        {
+          "t": 25268.5,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "denied-read",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":14,\"b\":{\"s\":\"permission_denied\",\"d\":\"Permission denied\"}}}"
+        },
+        {
+          "t": 26063.1,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "denied-write",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":15,\"a\":\"p\",\"b\":{\"p\":\"/secret\",\"d\":\"x\"}}}"
+        },
+        {
+          "t": 26125.5,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "denied-write",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":15,\"b\":{\"s\":\"permission_denied\",\"d\":\"Permission denied\"}}}"
+        },
+        {
+          "t": 26919.8,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":16,\"a\":\"p\",\"b\":{\"p\":\"/pyric-live-capture/<run>/presence\",\"d\":\"online\"}}}"
+        },
+        {
+          "t": 26967,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":16,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 26967.4,
+          "dir": "sent",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":17,\"a\":\"o\",\"b\":{\"p\":\"/pyric-live-capture/<run>/presence\",\"d\":\"offline\"}}}"
+        },
+        {
+          "t": 27010.4,
+          "dir": "received",
+          "client": "client-1",
+          "connection": 3,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":17,\"b\":{\"s\":\"ok\",\"d\":\"\"}}}"
+        },
+        {
+          "t": 27806.3,
+          "dir": "sent",
+          "client": "client-2",
+          "connection": 4,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":5,\"a\":\"g\",\"b\":{\"p\":\"/pyric-live-capture/<run>/presence\",\"q\":{}}}}"
+        },
+        {
+          "t": 27859.4,
+          "dir": "received",
+          "client": "client-2",
+          "connection": 4,
+          "op": "onDisconnect",
+          "data": "{\"t\":\"d\",\"d\":{\"r\":5,\"b\":{\"s\":\"ok\",\"d\":\"offline\"}}}"
+        }
+      ],
+      "results": {
+        "get": {
+          "n": 1,
+          "s": "alpha"
+        },
+        "push": true,
+        "runTransaction": {
+          "committed": true,
+          "value": 1
+        },
+        "onValue": [
+          {
+            "flag": true,
+            "n": 2,
+            "s": "alpha"
+          },
+          {
+            "flag": true,
+            "n": 3,
+            "s": "alpha"
+          }
+        ],
+        "onChildAdded": {
+          "children": 2
+        },
+        "denied-read": {
+          "denied": true,
+          "message": "Permission denied"
+        },
+        "denied-write": {
+          "denied": true,
+          "message": "PERMISSION_DENIED"
+        },
+        "onDisconnect": {
+          "readBack": "offline"
+        }
+      },
+      "invariants": {
+        "dataRemoved": true,
+        "rulesRestored": true
+      }
+    }
+  }
+}

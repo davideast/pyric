@@ -1,0 +1,1251 @@
+{
+  "name": "messaging-live-capture-m-wire",
+  "description": "Every request the firebase/messaging SDK sent to Firebase Installations and FCM registrations from the page, with production's answers, for getToken on a fresh profile, getToken again and after a reload (no request), deleteToken, a second token minted and deleted, a DELETE of a deleted token, three denied getTokens (a malformed API key, a key restricted by HTTP referrer, a key restricted to one API that is neither Installations nor registrations), and a getToken with a key restricted to the Installations API alone, which production allowed; and each push the service worker received, before the SDK read it, for one foreground and one background message. Request headers keep their names and Content-Type, request bodies their key sets, responses their status, the headers the SDK and CORS read, every header name, and the body. Resource Timing is what the page saw for each request. Push payloads keep key sets and the values the run sent.",
+  "observedAt": "2026-11-06T11:19:55.241Z",
+  "sdkVersion": "12.19.0",
+  "adminSdkVersion": "13.10.0",
+  "browser": {
+    "channel": "bundled",
+    "headless": false,
+    "chromiumMajor": "151"
+  },
+  "operations": [
+    "getToken",
+    "getToken-again",
+    "onMessage",
+    "onBackgroundMessage",
+    "getToken-reload",
+    "deleteToken",
+    "getToken-after-delete",
+    "deleteToken-again",
+    "delete-deleted-token",
+    "denied-malformed-key",
+    "denied-referrer",
+    "denied-other-api-only",
+    "installations-only-key-allowed",
+    "cleanup"
+  ],
+  "placeholders": [
+    "<project>",
+    "<app-id>",
+    "<sender-id>",
+    "<api-key>",
+    "<vapid-key>",
+    "<run>",
+    "<fid-N>",
+    "<refresh-token-N>",
+    "<fis-auth-token-N>",
+    "<fcm-token-N>",
+    "<push-endpoint-N>",
+    "<push-auth-N>",
+    "<push-p256dh-N>",
+    "<restricted-key-N>"
+  ],
+  "exchanges": [
+    {
+      "op": "getToken",
+      "api": "installations",
+      "action": "create",
+      "method": "POST",
+      "host": "firebaseinstallations.googleapis.com",
+      "path": "/v1/projects/<project>/installations",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-firebase-client",
+        "x-goog-api-key"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "appId",
+        "authVersion",
+        "fid",
+        "sdkVersion"
+      ],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "name": "projects/<sender-id>/installations/<fid-1>",
+        "fid": "<fid-1>",
+        "refreshToken": "<refresh-token-1>",
+        "authToken": {
+          "token": "<fis-auth-token-1>",
+          "expiresIn": "604800s"
+        }
+      }
+    },
+    {
+      "op": "getToken",
+      "api": "registrations",
+      "action": "create",
+      "method": "POST",
+      "host": "fcmregistrations.googleapis.com",
+      "path": "/v1/projects/<project>/registrations",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-goog-api-key",
+        "x-goog-firebase-installations-auth"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "web",
+        "web.applicationPubKey",
+        "web.auth",
+        "web.endpoint",
+        "web.origin",
+        "web.p256dh"
+      ],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "name": "projects/<project>/registrations/<fcm-token-1>",
+        "token": "<fcm-token-1>",
+        "web": {
+          "endpoint": "<push-endpoint-1>",
+          "p256dh": "<push-p256dh-1>",
+          "auth": "<push-auth-1>",
+          "applicationPubKey": "<vapid-key>",
+          "origin": "localhost:4873"
+        }
+      }
+    },
+    {
+      "op": "deleteToken",
+      "api": "registrations",
+      "action": "delete",
+      "method": "DELETE",
+      "host": "fcmregistrations.googleapis.com",
+      "path": "/v1/projects/<project>/registrations/<fcm-token-1>",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-goog-api-key",
+        "x-goog-firebase-installations-auth"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {}
+    },
+    {
+      "op": "getToken-after-delete",
+      "api": "registrations",
+      "action": "create",
+      "method": "POST",
+      "host": "fcmregistrations.googleapis.com",
+      "path": "/v1/projects/<project>/registrations",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-goog-api-key",
+        "x-goog-firebase-installations-auth"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "web",
+        "web.applicationPubKey",
+        "web.auth",
+        "web.endpoint",
+        "web.origin",
+        "web.p256dh"
+      ],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "name": "projects/<project>/registrations/<fcm-token-2>",
+        "token": "<fcm-token-2>",
+        "web": {
+          "endpoint": "<push-endpoint-2>",
+          "p256dh": "<push-p256dh-2>",
+          "auth": "<push-auth-2>",
+          "applicationPubKey": "<vapid-key>",
+          "origin": "localhost:4873"
+        }
+      }
+    },
+    {
+      "op": "deleteToken-again",
+      "api": "registrations",
+      "action": "delete",
+      "method": "DELETE",
+      "host": "fcmregistrations.googleapis.com",
+      "path": "/v1/projects/<project>/registrations/<fcm-token-2>",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-goog-api-key",
+        "x-goog-firebase-installations-auth"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {}
+    },
+    {
+      "op": "delete-deleted-token",
+      "api": "registrations",
+      "action": "delete",
+      "method": "DELETE",
+      "host": "fcmregistrations.googleapis.com",
+      "path": "/v1/projects/<project>/registrations/<fcm-token-2>",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-goog-api-key",
+        "x-goog-firebase-installations-auth"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {}
+    },
+    {
+      "op": "denied-malformed-key",
+      "api": "installations",
+      "action": "create",
+      "method": "POST",
+      "host": "firebaseinstallations.googleapis.com",
+      "path": "/v1/projects/<project>/installations",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-firebase-client",
+        "x-goog-api-key"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "appId",
+        "authVersion",
+        "fid",
+        "sdkVersion"
+      ],
+      "status": 400,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "error": {
+          "code": 400,
+          "message": "API key not valid. Please pass a valid API key.",
+          "status": "INVALID_ARGUMENT",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "API_KEY_INVALID",
+              "domain": "googleapis.com",
+              "metadata": {
+                "service": "firebaseinstallations.googleapis.com"
+              }
+            },
+            {
+              "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+              "locale": "en-US",
+              "message": "API key not valid. Please pass a valid API key."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "denied-referrer",
+      "api": "installations",
+      "action": "create",
+      "method": "POST",
+      "host": "firebaseinstallations.googleapis.com",
+      "path": "/v1/projects/<project>/installations",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-firebase-client",
+        "x-goog-api-key"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "appId",
+        "authVersion",
+        "fid",
+        "sdkVersion"
+      ],
+      "status": 403,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "error": {
+          "code": 403,
+          "message": "Requests from referer http://localhost:4873/ are blocked.",
+          "status": "PERMISSION_DENIED",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "API_KEY_HTTP_REFERRER_BLOCKED",
+              "domain": "googleapis.com",
+              "metadata": {
+                "service": "firebaseinstallations.googleapis.com",
+                "httpReferrer": "http://localhost:4873/",
+                "consumer": "projects/<sender-id>"
+              }
+            },
+            {
+              "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+              "locale": "en-US",
+              "message": "Requests from referer http://localhost:4873/ are blocked."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "denied-other-api-only",
+      "api": "installations",
+      "action": "create",
+      "method": "POST",
+      "host": "firebaseinstallations.googleapis.com",
+      "path": "/v1/projects/<project>/installations",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-firebase-client",
+        "x-goog-api-key"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "appId",
+        "authVersion",
+        "fid",
+        "sdkVersion"
+      ],
+      "status": 403,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "error": {
+          "code": 403,
+          "message": "Requests to this API firebaseinstallations.googleapis.com method google.firebase.installations.v1.FirebaseInstallationsService.CreateInstallation are blocked.",
+          "status": "PERMISSION_DENIED",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "API_KEY_SERVICE_BLOCKED",
+              "domain": "googleapis.com",
+              "metadata": {
+                "consumer": "projects/<sender-id>",
+                "apiName": "firebaseinstallations.googleapis.com",
+                "methodName": "google.firebase.installations.v1.FirebaseInstallationsService.CreateInstallation",
+                "service": "firebaseinstallations.googleapis.com"
+              }
+            },
+            {
+              "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+              "locale": "en-US",
+              "message": "Requests to this API firebaseinstallations.googleapis.com method google.firebase.installations.v1.FirebaseInstallationsService.CreateInstallation are blocked."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "installations-only-key-allowed",
+      "api": "installations",
+      "action": "create",
+      "method": "POST",
+      "host": "firebaseinstallations.googleapis.com",
+      "path": "/v1/projects/<project>/installations",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-firebase-client",
+        "x-goog-api-key"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "appId",
+        "authVersion",
+        "fid",
+        "sdkVersion"
+      ],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "name": "projects/<sender-id>/installations/<fid-5>",
+        "fid": "<fid-5>",
+        "refreshToken": "<refresh-token-2>",
+        "authToken": {
+          "token": "<fis-auth-token-2>",
+          "expiresIn": "604800s"
+        }
+      }
+    },
+    {
+      "op": "installations-only-key-allowed",
+      "api": "registrations",
+      "action": "create",
+      "method": "POST",
+      "host": "fcmregistrations.googleapis.com",
+      "path": "/v1/projects/<project>/registrations",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-goog-api-key",
+        "x-goog-firebase-installations-auth"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "web",
+        "web.applicationPubKey",
+        "web.auth",
+        "web.endpoint",
+        "web.origin",
+        "web.p256dh"
+      ],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "name": "projects/<project>/registrations/<fcm-token-3>",
+        "token": "<fcm-token-3>",
+        "web": {
+          "endpoint": "<push-endpoint-3>",
+          "p256dh": "<push-p256dh-3>",
+          "auth": "<push-auth-3>",
+          "applicationPubKey": "<vapid-key>",
+          "origin": "localhost:4873"
+        }
+      }
+    },
+    {
+      "op": "installations-only-key-allowed",
+      "api": "registrations",
+      "action": "delete",
+      "method": "DELETE",
+      "host": "fcmregistrations.googleapis.com",
+      "path": "/v1/projects/<project>/registrations/<fcm-token-3>",
+      "requestHeaderNames": [
+        "accept",
+        "content-type",
+        "x-goog-api-key",
+        "x-goog-firebase-installations-auth"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {}
+    },
+    {
+      "op": "cleanup",
+      "api": "installations",
+      "action": "delete",
+      "method": "DELETE",
+      "host": "firebaseinstallations.googleapis.com",
+      "path": "/v1/projects/<project>/installations/<fid-1>",
+      "requestHeaderNames": [
+        "accept",
+        "authorization",
+        "content-type",
+        "x-goog-api-key"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {}
+    },
+    {
+      "op": "cleanup",
+      "api": "installations",
+      "action": "generateAuthToken",
+      "method": "POST",
+      "host": "firebaseinstallations.googleapis.com",
+      "path": "/v1/projects/<project>/installations/<fid-1>/authTokens:generate",
+      "requestHeaderNames": [
+        "accept",
+        "authorization",
+        "content-type",
+        "x-goog-api-key"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "installation",
+        "installation.appId",
+        "installation.sdkVersion"
+      ],
+      "status": 404,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "error": {
+          "code": 404,
+          "message": "Requested entity was not found.",
+          "status": "NOT_FOUND"
+        }
+      }
+    },
+    {
+      "op": "cleanup",
+      "api": "installations",
+      "action": "delete",
+      "method": "DELETE",
+      "host": "firebaseinstallations.googleapis.com",
+      "path": "/v1/projects/<project>/installations/<fid-5>",
+      "requestHeaderNames": [
+        "accept",
+        "authorization",
+        "content-type",
+        "x-goog-api-key"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [],
+      "status": 200,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {}
+    },
+    {
+      "op": "cleanup",
+      "api": "installations",
+      "action": "generateAuthToken",
+      "method": "POST",
+      "host": "firebaseinstallations.googleapis.com",
+      "path": "/v1/projects/<project>/installations/<fid-5>/authTokens:generate",
+      "requestHeaderNames": [
+        "accept",
+        "authorization",
+        "content-type",
+        "x-goog-api-key"
+      ],
+      "requestContentType": "application/json",
+      "requestBodyKeys": [
+        "installation",
+        "installation.appId",
+        "installation.sdkVersion"
+      ],
+      "status": 404,
+      "responseHeaderNames": [
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "alt-svc",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "vary",
+        "x-content-type-options",
+        "x-frame-options",
+        "x-xss-protection"
+      ],
+      "responseHeaders": {
+        "content-type": "application/json; charset=UTF-8",
+        "access-control-allow-origin": "http://localhost:4873",
+        "access-control-expose-headers": "vary,vary,vary,content-encoding,date,server,content-length",
+        "vary": "Origin, X-Origin, Referer"
+      },
+      "responseBody": {
+        "error": {
+          "code": 404,
+          "message": "Requested entity was not found.",
+          "status": "NOT_FOUND"
+        }
+      }
+    }
+  ],
+  "resourceTiming": [
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "getToken",
+      "api": "installations",
+      "path": "/v1/projects/<project>/installations"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "getToken",
+      "api": "registrations",
+      "path": "/v1/projects/<project>/registrations"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "deleteToken",
+      "api": "registrations",
+      "path": "/v1/projects/<project>/registrations/<fcm-token-1>"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "getToken-after-delete",
+      "api": "registrations",
+      "path": "/v1/projects/<project>/registrations"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "deleteToken-again",
+      "api": "registrations",
+      "path": "/v1/projects/<project>/registrations/<fcm-token-2>"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "delete-deleted-token",
+      "api": "registrations",
+      "path": "/v1/projects/<project>/registrations/<fcm-token-2>"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "installations-only-key-allowed",
+      "api": "installations",
+      "path": "/v1/projects/<project>/installations"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "installations-only-key-allowed",
+      "api": "registrations",
+      "path": "/v1/projects/<project>/registrations"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "installations-only-key-allowed",
+      "api": "registrations",
+      "path": "/v1/projects/<project>/registrations/<fcm-token-3>"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "cleanup",
+      "api": "installations",
+      "path": "/v1/projects/<project>/installations/<fid-1>"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 404,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "cleanup",
+      "api": "installations",
+      "path": "/v1/projects/<project>/installations/<fid-1>/authTokens:generate"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 200,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "cleanup",
+      "api": "installations",
+      "path": "/v1/projects/<project>/installations/<fid-5>"
+    },
+    {
+      "initiatorType": "fetch",
+      "responseStatus": 404,
+      "transferSize": 0,
+      "encodedBodySize": 0,
+      "nextHopProtocol": "",
+      "op": "cleanup",
+      "api": "installations",
+      "path": "/v1/projects/<project>/installations/<fid-5>/authTokens:generate"
+    }
+  ],
+  "calls": [
+    {
+      "op": "getToken",
+      "app": "main",
+      "call": "getToken",
+      "outcome": "ok"
+    },
+    {
+      "op": "getToken-again",
+      "app": "main",
+      "call": "getToken",
+      "outcome": "ok",
+      "sameAsPrevious": true
+    },
+    {
+      "op": "getToken-reload",
+      "app": "main",
+      "call": "getToken",
+      "outcome": "ok",
+      "sameAsPrevious": true
+    },
+    {
+      "op": "deleteToken",
+      "app": "main",
+      "call": "deleteToken",
+      "outcome": "ok"
+    },
+    {
+      "op": "getToken-after-delete",
+      "app": "main",
+      "call": "getToken",
+      "outcome": "ok",
+      "sameAsPrevious": false
+    },
+    {
+      "op": "deleteToken-again",
+      "app": "main",
+      "call": "deleteToken",
+      "outcome": "ok"
+    },
+    {
+      "op": "denied-malformed-key",
+      "app": "malformed-key",
+      "call": "getToken",
+      "outcome": "error",
+      "error": {
+        "code": "installations/request-failed",
+        "message": "Installations: Create Installation request failed with error \"400 INVALID_ARGUMENT: API key not valid. Please pass a valid API key.\" (installations/request-failed).",
+        "customData": {
+          "requestName": "Create Installation",
+          "serverCode": 400,
+          "serverMessage": "API key not valid. Please pass a valid API key.",
+          "serverStatus": "INVALID_ARGUMENT"
+        }
+      }
+    },
+    {
+      "op": "denied-referrer",
+      "app": "referrer-blocked",
+      "call": "getToken",
+      "outcome": "error",
+      "error": {
+        "code": "installations/request-failed",
+        "message": "Installations: Create Installation request failed with error \"403 PERMISSION_DENIED: Requests from referer http://localhost:4873/ are blocked.\" (installations/request-failed).",
+        "customData": {
+          "requestName": "Create Installation",
+          "serverCode": 403,
+          "serverMessage": "Requests from referer http://localhost:4873/ are blocked.",
+          "serverStatus": "PERMISSION_DENIED"
+        }
+      }
+    },
+    {
+      "op": "denied-other-api-only",
+      "app": "other-api-only",
+      "call": "getToken",
+      "outcome": "error",
+      "error": {
+        "code": "installations/request-failed",
+        "message": "Installations: Create Installation request failed with error \"403 PERMISSION_DENIED: Requests to this API firebaseinstallations.googleapis.com method google.firebase.installations.v1.FirebaseInstallationsService.CreateInstallation are blocked.\" (installations/request-failed).",
+        "customData": {
+          "requestName": "Create Installation",
+          "serverCode": 403,
+          "serverMessage": "Requests to this API firebaseinstallations.googleapis.com method google.firebase.installations.v1.FirebaseInstallationsService.CreateInstallation are blocked.",
+          "serverStatus": "PERMISSION_DENIED"
+        }
+      }
+    },
+    {
+      "op": "installations-only-key-allowed",
+      "app": "installations-only",
+      "call": "getToken",
+      "outcome": "ok"
+    },
+    {
+      "op": "installations-only-key-allowed",
+      "app": "installations-only",
+      "call": "deleteToken",
+      "outcome": "ok"
+    }
+  ],
+  "pushes": [
+    {
+      "op": "onMessage",
+      "route": "foreground",
+      "pushData": {
+        "data": {
+          "demo": "1",
+          "source": "pyric-capture-m",
+          "tag": "foreground"
+        },
+        "fcmMessageId": "<string>",
+        "from": "<string>",
+        "notification": {
+          "body": "foreground delivery capture",
+          "title": "oracle foreground"
+        },
+        "priority": "normal"
+      },
+      "delivered": {
+        "to": "onMessage",
+        "payload": {
+          "data": {
+            "demo": "1",
+            "source": "pyric-capture-m",
+            "tag": "foreground"
+          },
+          "from": "<string>",
+          "messageId": "<string>",
+          "notification": {
+            "body": "foreground delivery capture",
+            "title": "oracle foreground"
+          }
+        }
+      }
+    },
+    {
+      "op": "onBackgroundMessage",
+      "route": "background",
+      "pushData": {
+        "data": {
+          "demo": "1",
+          "source": "pyric-capture-m",
+          "tag": "background"
+        },
+        "fcmMessageId": "<string>",
+        "from": "<string>",
+        "notification": {
+          "body": "background delivery capture",
+          "title": "oracle background"
+        },
+        "priority": "normal"
+      },
+      "delivered": {
+        "to": "onBackgroundMessage",
+        "payload": {
+          "data": {
+            "demo": "1",
+            "source": "pyric-capture-m",
+            "tag": "background"
+          },
+          "from": "<string>",
+          "messageId": "<string>",
+          "notification": {
+            "body": "background delivery capture",
+            "title": "oracle background"
+          }
+        }
+      }
+    }
+  ],
+  "denials": {
+    "malformed-key": {
+      "op": "denied-malformed-key",
+      "api": "installations",
+      "action": "create",
+      "status": 400,
+      "body": {
+        "error": {
+          "code": 400,
+          "message": "API key not valid. Please pass a valid API key.",
+          "status": "INVALID_ARGUMENT",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "API_KEY_INVALID",
+              "domain": "googleapis.com",
+              "metadata": {
+                "service": "firebaseinstallations.googleapis.com"
+              }
+            },
+            {
+              "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+              "locale": "en-US",
+              "message": "API key not valid. Please pass a valid API key."
+            }
+          ]
+        }
+      }
+    },
+    "referrer-blocked": {
+      "op": "denied-referrer",
+      "api": "installations",
+      "action": "create",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "Requests from referer http://localhost:4873/ are blocked.",
+          "status": "PERMISSION_DENIED",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "API_KEY_HTTP_REFERRER_BLOCKED",
+              "domain": "googleapis.com",
+              "metadata": {
+                "service": "firebaseinstallations.googleapis.com",
+                "httpReferrer": "http://localhost:4873/",
+                "consumer": "projects/<sender-id>"
+              }
+            },
+            {
+              "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+              "locale": "en-US",
+              "message": "Requests from referer http://localhost:4873/ are blocked."
+            }
+          ]
+        }
+      }
+    },
+    "other-api-only": {
+      "op": "denied-other-api-only",
+      "api": "installations",
+      "action": "create",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "Requests to this API firebaseinstallations.googleapis.com method google.firebase.installations.v1.FirebaseInstallationsService.CreateInstallation are blocked.",
+          "status": "PERMISSION_DENIED",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "API_KEY_SERVICE_BLOCKED",
+              "domain": "googleapis.com",
+              "metadata": {
+                "consumer": "projects/<sender-id>",
+                "apiName": "firebaseinstallations.googleapis.com",
+                "methodName": "google.firebase.installations.v1.FirebaseInstallationsService.CreateInstallation",
+                "service": "firebaseinstallations.googleapis.com"
+              }
+            },
+            {
+              "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+              "locale": "en-US",
+              "message": "Requests to this API firebaseinstallations.googleapis.com method google.firebase.installations.v1.FirebaseInstallationsService.CreateInstallation are blocked."
+            }
+          ]
+        }
+      }
+    }
+  },
+  "allowed": {
+    "installations-only": {
+      "op": "installations-only-key-allowed",
+      "installationsCreate": 200,
+      "registrationsCreate": 200,
+      "tokenMinted": true
+    }
+  },
+  "apiKeys": {
+    "before": 0,
+    "created": 3,
+    "after": 0,
+    "restrictions": [
+      "referrer-blocked",
+      "installations-only",
+      "other-api-only"
+    ]
+  },
+  "invariants": {
+    "tokensDeleted": true,
+    "installationsDeleted": true,
+    "keysDeleted": true
+  }
+}

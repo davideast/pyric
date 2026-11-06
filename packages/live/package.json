@@ -1,0 +1,68 @@
+{
+  "name": "@pyric/live",
+  "version": "0.1.0-alpha.34",
+  "type": "module",
+  "bin": {
+    "pyric-live": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "description": "Live mode for pyric: your app's own Firebase SDK talks to your real Firebase project, and pyric shows each Firestore and Auth call with production's answer.",
+  "license": "Apache-2.0",
+  "homepage": "https://pyric.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davideast/pyric.git",
+    "directory": "packages/live"
+  },
+  "bugs": {
+    "url": "https://github.com/davideast/pyric/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.15"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "default": "./dist/vite.js"
+    },
+    "./page-modules": {
+      "types": "./dist/page-modules.d.ts",
+      "default": "./dist/page-modules.js"
+    },
+    "./register": "./dist/register.js",
+    "./node-modules": "./dist/node-modules.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@pyric/cli": "workspace:*"
+  },
+  "peerDependencies": {
+    "firebase": "^12.12.0",
+    "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "firebase": "^12.19.0",
+    "typescript": "^5.7.0"
+  }
+}

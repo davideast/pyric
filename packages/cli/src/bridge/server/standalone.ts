@@ -1,10 +1,15 @@
 /**
  * Standalone bridge server. Spins up an HTTP server on a known
- * loopback port that handles three routes:
+ * loopback port that handles two routes:
  *
  *   GET  /health           — diagnostic
  *   POST /mcp              — MCP-over-HTTP (StreamableHTTPServerTransport)
- *   GET  /sandbox (Upgrade) — WebSocket the browser tab connects to
+ *
+ * It serves only the tools that run in the bridge process. It has no browser
+ * socket (#1468): a page that opens `/sandbox` is closed with
+ * NO_BROWSER_PEER_CLOSE_CODE and a reason naming `pyric sandbox --bridge`,
+ * before it can register as the sandbox peer. `connectBridge` stops on that
+ * close and reports the reason.
  *
  * Bound to 127.0.0.1 only. Refuses to start if the port is occupied.
  *
@@ -16,7 +21,7 @@
 
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createBridge, type Bridge, type BridgeToolEvent } from './bridge.js';
 import { buildMcpServer } from './mcp.js';
@@ -29,14 +34,12 @@ import {
 } from './logger.js';
 import {
   DEFAULT_BRIDGE_PORT,
-  MAX_BRIDGE_FRAME_BYTES,
   DEFAULT_HEALTH_PATH,
   DEFAULT_MCP_PATH,
   DEFAULT_SANDBOX_PATH,
-  type BridgeMessage,
+  NO_BROWSER_PEER_CLOSE_CODE,
+  NO_BROWSER_PEER_CLOSE_REASON,
 } from '../protocol.js';
-import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
-import { sendBridgeMessage } from './socket-message.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from '../../serve/server.js';
 import { createAppPorts } from '../../serve/app-ports.js';
@@ -113,7 +116,8 @@ export async function startServer(
     },
   });
 
-  const { forwarded, inProcess } = getBridgeToolSurface({
+  // No browser peer can attach here, so the tools a peer would run are not offered.
+  const { inProcess } = getBridgeToolSurface({
     projectDir: opts.projectDir ?? process.cwd(),
     consumers: bridge.consumers,
     callerIdentity: bridge.callerIdentity,
@@ -166,7 +170,7 @@ export async function startServer(
         logger.verbose(`session ${id.slice(0, 8)}… initialized`);
       },
     });
-    const server = buildMcpServer(bridge, { forwarded, inProcess });
+    const server = buildMcpServer(bridge, { forwarded: [], inProcess });
     const session: Session = {
       transport,
       idleTimer: null,
@@ -262,19 +266,20 @@ export async function startServer(
     res.end(JSON.stringify({ error: 'not found', path: url }));
   });
 
-  // ── WebSocket server (mounted on /sandbox) ──────────────────────
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_BRIDGE_FRAME_BYTES });
+  // ── /sandbox: refused with a reason ─────────────────────────────
+  // A browser cannot read an HTTP refusal of an upgrade, so the socket is
+  // accepted and closed at once with a reason `connectBridge` reports. No
+  // message from it is read, and it never registers as the sandbox peer.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
   http.on('upgrade', (req, socket, head) => {
     const hasWrongPath = (req.url ?? '') !== DEFAULT_SANDBOX_PATH;
     if (hasWrongPath) {
       socket.destroy();
       return;
     }
-    // DNS-rebinding + cross-origin hijack guard (the request-time isAllowedHost
-    // runs on the `request` event only — `upgrade` bypasses it). The standalone
-    // bridge binds 127.0.0.1 only, so the allowlist is the loopback set.
-    // The port is not compared here: this bridge is a sidecar, and the browser
-    // peer it serves loads from the app's own dev server on another port.
+    // DNS-rebinding + cross-origin guard: only a loopback page is told why.
+    // The port is not compared here: the page that reaches this socket loads
+    // from the app's own dev server on another port.
     const refusesUpgrade = !isAllowedUpgrade(req.headers, '127.0.0.1', opts.allowedHosts);
     if (refusesUpgrade) {
       logger.error(
@@ -284,7 +289,8 @@ export async function startServer(
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      attachPeer(bridge, ws, logger);
+      logger.info(`refused a browser sandbox on ${DEFAULT_SANDBOX_PATH}: run pyric sandbox --bridge instead`);
+      ws.close(NO_BROWSER_PEER_CLOSE_CODE, NO_BROWSER_PEER_CLOSE_REASON);
     });
   });
 
@@ -310,12 +316,9 @@ export async function startServer(
     url,
     auditLogPath: auditWriter?.path ?? null,
     async stop() {
-      // Stop accepting new WebSocket upgrades…
+      // Stop accepting new WebSocket upgrades, and terminate a refused
+      // socket whose close handshake is still in flight.
       wss.close();
-      // …and forcibly terminate any existing WS clients. Without this,
-      // http.close() below waits for clients to disconnect on their own
-      // (MCP keep-alives sit forever — a Ctrl-C with any open peer
-      // would hang the CLI shutdown indefinitely).
       for (const client of wss.clients) {
         try { client.terminate(); } catch { /* already closed */ }
       }
@@ -335,92 +338,6 @@ export async function startServer(
       logger.info('bridge stopped');
     },
   };
-}
-
-function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
-  let disconnect: (() => void) | null = null;
-  let helloed = false;
-  let sandboxId: string | null = null;
-  let peerGeneration = 0;
-
-  ws.on('message', (raw) => {
-    const isClosingConnection = ws.readyState !== ws.OPEN;
-    if (isClosingConnection) return;
-    const parsed = parseBridgeMessage(raw.toString());
-    const isInvalidMessage = parsed.kind === 'invalid';
-    if (isInvalidMessage) {
-      ws.close(1002, parsed.reason);
-      return;
-    }
-    const msg = parsed.message;
-    const isHello = msg.type === 'hello';
-    if (isHello) {
-      const protocolError = requestProtocolError(msg);
-      const hasProtocolError = protocolError !== undefined;
-      if (hasProtocolError) {
-        ws.close(1008, protocolError);
-        return;
-      }
-      const envelopeError = requestEnvelopeError(msg);
-      const hasEnvelopeError = envelopeError !== undefined;
-      if (hasEnvelopeError) {
-        ws.close(1002, envelopeError);
-        return;
-      }
-      if (helloed) return; // ignore duplicate hellos
-      helloed = true;
-      sandboxId = msg.sandboxId;
-      logger.info(
-        `peer connected — sandboxId=${sandboxId.slice(0, 12)} tools=${msg.tools.length}`,
-      );
-      disconnect = bridge.registerSandboxPeer(
-        (out: BridgeMessage) => {
-          try {
-            sendBridgeMessage(ws, out, bridge.handleSandboxMessage);
-          } catch {
-            // socket likely closed; the close handler runs disconnect.
-          }
-        },
-        msg.tools,
-        msg.sandboxId,
-      );
-      peerGeneration = bridge.peerGeneration();
-      sendBridgeMessage(ws, {
-        type: 'hello-ack',
-        protocol: 1,
-        bridgeVersion: bridge.version,
-      });
-      return;
-    }
-
-    const isUnregistered = !helloed;
-    if (isUnregistered) return; // ignore messages before hello
-    const envelopeError = requestEnvelopeError(msg);
-    const hasEnvelopeError = envelopeError !== undefined;
-    if (hasEnvelopeError) {
-      ws.close(1002, envelopeError);
-      return;
-    }
-    bridge.handleSandboxMessage(msg, peerGeneration);
-  });
-
-  ws.on('close', () => {
-    const releasePeer = disconnect;
-    const hasPeer = releasePeer !== null;
-    if (hasPeer) {
-      releasePeer();
-      const id = sandboxId;
-      const hasId = id !== null && id.length > 0;
-      let label = 'unknown';
-      if (hasId) label = id.slice(0, 12);
-      logger.info(`peer disconnected — sandboxId=${label}`);
-    }
-    disconnect = null;
-  });
-
-  ws.on('error', () => {
-    // ws will follow up with a 'close' event; cleanup happens there.
-  });
 }
 
 /** Construct a default logger only when the caller did not supply one. */

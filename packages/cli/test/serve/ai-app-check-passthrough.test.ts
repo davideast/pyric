@@ -25,26 +25,30 @@ import { mapFirebaseSpecifier } from '../../src/register/mapping.js';
 const isClimb = process.env.PYRIC_CLIMB === '1';
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'app-check');
 type Behavior = Record<string, any>;
-const obs = (name: string): Behavior =>
-  (JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as { behavior: Behavior }).behavior;
+type Capture = { projectId: string; behavior: Behavior };
+const capture = (name: string): Capture =>
+  JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as Capture;
+/** The current captures, read while AI Logic enforcement was `ENFORCED` (#1300). */
+const obs = (name: string): Behavior => capture(name).behavior;
 
 const SDK_DUMMY_TOKEN = Buffer.from(JSON.stringify({ error: 'UNKNOWN_ERROR' })).toString('base64');
-const OPTIONS = { apiKey: 'demo-api-key', appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4', projectId: 'genkit-idx' };
+// The request URL in the SDK's error names the project, so the app uses the captures'.
+const OPTIONS = { apiKey: 'demo-api-key', appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4', projectId: capture('app-check-ai-gate-wire').projectId };
 const MODEL = 'gemini-flash-lite-latest';
 
 interface SeenRequest { appCheckHeader: string | null }
 const seen: SeenRequest[] = [];
 const realFetch = globalThis.fetch;
-let deniedBody: unknown;
+let deniedBody: { error: { code: number } };
 
-/** Answers AI Logic the way the captures saw it: 200 with a valid token, the captured 403 otherwise. */
+/** Answers AI Logic the way the captures saw it: 200 with a valid token, the captured 401 otherwise. */
 function installFetch(validTokens: () => Set<string>): void {
   globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
     const appCheckHeader = headers.get('x-firebase-appcheck');
     seen.push({ appCheckHeader });
     const valid = appCheckHeader !== null && validTokens().has(appCheckHeader);
-    if (!valid) return new Response(JSON.stringify(deniedBody), { status: 403, headers: { 'content-type': 'application/json' } });
+    if (!valid) return new Response(JSON.stringify(deniedBody), { status: deniedBody.error.code, statusText: 'Unauthorized', headers: { 'content-type': 'application/json' } });
     return new Response(JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text: 'pyric' }] }, finishReason: 'STOP' }] }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -160,6 +164,8 @@ const assertions: Record<string, () => Promise<void>> = {
     expect(Boolean(seen[0]?.appCheckHeader)).toBe(o.appCheckHeaderPresent);
     expect(generation.threw).toBe(o.generation.threw);
     expect((generation as { code: string }).code).toBe(o.generation.code);
+    expect(wire.appCheckEnforcementModeAtCapture).toBe('ENFORCED');
+    expect((generation as { message: string }).message).toBe(o.generation.message);
     expect((generation as { message: string }).message).toContain(wire.noHeader.messageText);
     for (const failing of ['malformedHeader', 'sdkPlaceholderToken', 'tamperedSignature']) {
       expect(wire[failing].messageText).toBe(wire.noHeader.messageText);
@@ -184,6 +190,7 @@ const assertions: Record<string, () => Promise<void>> = {
     const generation = await generate(model);
     expect(Boolean(seen[0]?.appCheckHeader)).toBe(o.aiRequestAfterLateInitialize.appCheckHeaderPresent);
     expect(generation.threw).toBe(o.aiGenerationAfterLateInitialize.threw);
+    expect((generation as { message?: string }).message).toBe(o.aiGenerationAfterLateInitialize.message);
   },
 
   'ai#app-check-attestation-failure': async () => {
@@ -216,5 +223,30 @@ describe('App Check on the AI path (production AI pass-through)', () => {
 
   it('completeness: one assertion set per App Check AI row', () => {
     expect(Object.keys(assertions).sort()).toEqual(appCheckAiRows.map((row) => row.id).sort());
+  });
+
+  it('the served firebase/app entry and the register bridge share one shadow registry', async () => {
+    const served = await import('../../src/serve/entries/app-ai-passthrough.js');
+    // Pyric allows one Firebase configuration per runtime; other suites in this process bind theirs.
+    const { resetAppRegistryForTests } = await import('pyric/app/internal');
+    await resetAppRegistryForTests();
+    const { shadowAppOf } = await import('../../src/register/app-bridge-shadow.js');
+    const sdkApp = await import('firebase/app');
+    const sdk = await import('firebase/app-check');
+    const bridge = await import('../../src/register/app-bridge-app-check.js');
+    const name = `served-shadow-${++appSeq}`;
+    const app = served.initializeApp(OPTIONS, name);
+    try {
+      const shadow = shadowAppOf(app) as { container?: unknown };
+      expect(shadow).toBe(sdkApp.getApp(name));
+      expect((app as unknown as { container?: unknown }).container).toBe(shadow.container);
+      const provider = new sdk.CustomProvider({ getToken: async () => ({ token: 'served-token', expireTimeMillis: Date.now() + 3_600_000 }) });
+      const handle = (bridge.initializeAppCheck as (app: unknown, options: unknown) => { app: unknown })(app, { provider, isTokenAutoRefreshEnabled: false });
+      expect(handle.app).toBe(shadow);
+    } finally {
+      await served.deleteApp(app);
+      await resetAppRegistryForTests();
+    }
+    expect(() => sdkApp.getApp(name)).toThrow();
   });
 });

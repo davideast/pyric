@@ -60,7 +60,7 @@ Either both paths change or neither does. Queries take one `orderBy`, so multi-f
 
 ## Run your onValueCreated functions locally
 
-Both `pyric sandbox` and the Vite plugin read the `functions` block in `firebase.json` and run your `onValueCreated` triggers in an isolated Node process against the same sandbox your app writes to. No option is required. The block is enough. Other trigger kinds such as HTTPS, callable, scheduled, and Firestore log a warning and are skipped for now.
+Both `pyric sandbox` and the Vite plugin read the `functions` block in `firebase.json` and run your `onValueCreated` triggers in an isolated Node process against the same sandbox your app writes to. The same process serves your HTTP `onRequest` functions, v1 and v2, as [Call your HTTP functions](#call-your-http-functions) describes. No option is required. The block is enough. Other trigger kinds such as callable, scheduled, and Firestore log a warning and are skipped for now.
 
 The plugin's `functions` option tunes or disables this:
 ```ts
@@ -77,6 +77,23 @@ export default {
 };
 ```
 Each field wins over its environment variable, which wins over firebase files, which win over the default. `region` beats `PYRIC_FUNCTIONS_RTDB_REGION` (default `us-central1`). `instance` replaces the derived `<projectId>-default-rtdb` name. The project id is the one the server resolved, as [Vite development setup](../get-started/vite.md#choose-the-firebase-project) describes, else `demo-project`.
+
+## Call your HTTP functions
+
+An `onRequest` function answers at the emulator path on the server's own origin: `/<projectId>/<region>/<name>`, such as `http://localhost:3473/my-app/us-central1/api`. The server prints one URL per function when it starts. The function sees `/` plus whatever follows its name. A POST to a name your source does not export gets a 404 that lists the functions that exist.
+
+A `hosting.rewrites` entry whose destination is a function sends matching paths to it, as Firebase Hosting does:
+
+- The function sees the full original path and query, such as `/api/messages`.
+- A static file at the same path wins over the rewrite.
+- Only the `__session` cookie reaches the function.
+- A rewritten request that runs past 60 seconds gets a 504, whatever the function's `timeoutSeconds`. The emulator path keeps the function's own timeout.
+
+Each request prints one line with the function, the path, the status, and how long it took.
+
+A function that sets `invoker: 'private'` runs without authentication, where production refuses an unauthenticated call with 403. Pyric warns once when it starts. It answers your app's own pages and callers that send no `Origin`, such as curl or server code, and refuses a call from any other site's page with 403.
+
+Under `pyric sandbox`, functions start once a browser tab connects to the sandbox. With `--hosted` they start with no tab open, as a deployed function does.
 
 Under the plugin, saving a file in the functions source directory restarts the process, like a redeploy: `↻ [pyric] functions reloaded`. In-flight executions in the old process can drop. Writes that land during the swap are treated as existing data by the new process and do not fire. A save that fails to load takes functions down until the next good save. Unlike rules, there is no last-good process to keep serving. `functions: { watch: false }` turns the reload off, matching `pyric sandbox`, where editing a function needs a server restart.
 

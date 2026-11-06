@@ -82,7 +82,7 @@ cd examples/my-repro && bun install
 // package.json — the resolution contract
 {
   "dependencies": {
-    "firebase": "^12.13.0",     // the app keeps CANONICAL imports
+    "firebase": "^12.19.0",     // the app keeps CANONICAL imports
     "pyric": "workspace:*"      // the sandbox mirror resolves locally
   },
   "devDependencies": {

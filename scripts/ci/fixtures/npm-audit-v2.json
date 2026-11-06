@@ -1,0 +1,178 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "@firebase/firestore": {
+      "name": "@firebase/firestore",
+      "severity": "high",
+      "isDirect": false,
+      "via": ["@grpc/grpc-js"],
+      "effects": ["firebase"],
+      "range": "*",
+      "nodes": ["node_modules/@firebase/firestore"],
+      "fixAvailable": false
+    },
+    "@grpc/grpc-js": {
+      "name": "@grpc/grpc-js",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1109000,
+          "name": "@grpc/grpc-js",
+          "dependency": "@grpc/grpc-js",
+          "title": "@grpc/grpc-js server authentication bypass",
+          "url": "https://github.com/advisories/GHSA-m9gg-hp2v-232j",
+          "severity": "high",
+          "cwe": ["CWE-287"],
+          "cvss": { "score": 0, "vectorString": null },
+          "range": "<1.10.0"
+        }
+      ],
+      "effects": ["@firebase/firestore"],
+      "range": "<1.10.0",
+      "nodes": ["node_modules/@grpc/grpc-js"],
+      "fixAvailable": false
+    },
+    "cross-spawn": {
+      "name": "cross-spawn",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1100563,
+          "name": "cross-spawn",
+          "dependency": "cross-spawn",
+          "title": "Regular Expression Denial of Service (ReDoS) in cross-spawn",
+          "url": "https://github.com/advisories/GHSA-3xgq-45jj-v275",
+          "severity": "high",
+          "cwe": ["CWE-1333"],
+          "cvss": { "score": 7.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H" },
+          "range": ">=7.0.0 <7.0.5"
+        }
+      ],
+      "effects": [],
+      "range": "7.0.0 - 7.0.4",
+      "nodes": ["node_modules/cross-spawn"],
+      "fixAvailable": true
+    },
+    "esbuild": {
+      "name": "esbuild",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1102341,
+          "name": "esbuild",
+          "dependency": "esbuild",
+          "title": "esbuild enables any website to send any requests to the development server and read the response",
+          "url": "https://github.com/advisories/GHSA-67mh-4wv8-2f99",
+          "severity": "moderate",
+          "cwe": ["CWE-346"],
+          "cvss": { "score": 5.3, "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N" },
+          "range": "<=0.24.2"
+        }
+      ],
+      "effects": ["vite"],
+      "range": "<=0.24.2",
+      "nodes": ["node_modules/esbuild"],
+      "fixAvailable": { "name": "vite", "version": "7.1.0", "isSemVerMajor": true }
+    },
+    "form-data": {
+      "name": "form-data",
+      "severity": "critical",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1106508,
+          "name": "form-data",
+          "dependency": "form-data",
+          "title": "form-data uses unsafe random function for choosing boundary",
+          "url": "https://github.com/advisories/GHSA-fjxv-7rqg-78g4",
+          "severity": "critical",
+          "cwe": ["CWE-330"],
+          "cvss": { "score": 0, "vectorString": null },
+          "range": ">=4.0.0 <4.0.4"
+        }
+      ],
+      "effects": ["request-lib"],
+      "range": "4.0.0 - 4.0.3",
+      "nodes": ["node_modules/form-data"],
+      "fixAvailable": true
+    },
+    "request-lib": {
+      "name": "request-lib",
+      "severity": "critical",
+      "isDirect": true,
+      "via": ["form-data"],
+      "effects": [],
+      "range": "*",
+      "nodes": ["node_modules/request-lib"],
+      "fixAvailable": false
+    },
+    "tar-fs": {
+      "name": "tar-fs",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1105379,
+          "name": "tar-fs",
+          "dependency": "tar-fs",
+          "title": "tar-fs can extract outside the specified dir with a specific tarball",
+          "url": "https://github.com/advisories/GHSA-8cj5-5rvv-wf4v",
+          "severity": "high",
+          "cwe": ["CWE-22"],
+          "cvss": { "score": 0, "vectorString": null },
+          "range": ">=3.0.0 <3.0.9"
+        },
+        {
+          "source": 1106014,
+          "name": "tar-fs",
+          "dependency": "tar-fs",
+          "title": "tar-fs symlink validation bypass if destination directory is predictable with a specific tarball",
+          "url": "https://github.com/advisories/GHSA-vj76-c3g6-qr5v",
+          "severity": "high",
+          "cwe": ["CWE-22"],
+          "cvss": { "score": 0, "vectorString": null },
+          "range": ">=3.0.0 <3.1.1"
+        }
+      ],
+      "effects": [],
+      "range": "3.0.0 - 3.1.0",
+      "nodes": ["node_modules/tar-fs"],
+      "fixAvailable": true
+    },
+    "undici": {
+      "name": "undici",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1108000,
+          "name": "undici",
+          "dependency": "undici",
+          "title": "undici unbounded decompression chain",
+          "url": "https://github.com/advisories/GHSA-2m5v-pch6-74hx",
+          "severity": "high",
+          "cwe": ["CWE-770"],
+          "cvss": { "score": 0, "vectorString": null },
+          "range": "<6.23.0"
+        }
+      ],
+      "effects": [],
+      "range": "<6.23.0",
+      "nodes": [
+        "node_modules/shadcn/node_modules/undici",
+        "node_modules/@ai-sdk/mcp/node_modules/undici",
+        "node_modules/jsdom/node_modules/undici",
+        "node_modules/miniflare/node_modules/undici",
+        "node_modules/wrangler/node_modules/undici"
+      ],
+      "fixAvailable": true
+    }
+  },
+  "metadata": {
+    "vulnerabilities": { "info": 0, "low": 0, "moderate": 1, "high": 5, "critical": 2, "total": 8 },
+    "dependencies": { "prod": 312, "dev": 0, "optional": 24, "peer": 0, "peerOptional": 0, "total": 335 }
+  }
+}

@@ -3,8 +3,8 @@
   "matrixRow": "",
   "rowIds": [],
   "description": "Real-resource Storage Rules visibility and relationships for server-populated generation, metageneration, hashes, etag, creation/update time, metadata-only updates, and byte overwrites.",
-  "observedAt": "2026-07-21T15:27:18.766Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:44:36.570Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "bucket": "digame-mas.appspot.com",
   "behavior": {
@@ -54,46 +54,49 @@
     },
     "identity-mismatch": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/identity-mismatch.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "hash-mismatch": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/hash-mismatch.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "time-mismatch": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/time-mismatch.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "incoming-exact": {
       "allowed": true
     },
     "incoming-md5-mismatch": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-md5-mismatch.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "incoming-crc-mismatch": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-crc-mismatch.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "incoming-excluded-version": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-excluded-version.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "incoming-excluded-etag": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-excluded-etag.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "incoming-excluded-time": {
       "allowed": false,
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-excluded-time.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "metadata-update": {
+      "allowed": true
     },
     "byte-overwrite-control": {
       "allowed": true
@@ -111,9 +114,9 @@
   },
   "requestBudget": {
     "counts": {
-      "storage": 38,
+      "storage": 27,
       "firestoreWrite": 0,
-      "rules": 8,
+      "rules": 7,
       "iam": 0
     },
     "limits": {
@@ -123,13 +126,27 @@
       "iam": 12
     }
   },
+  "cleanupRequestBudget": {
+    "counts": {
+      "storage": 17,
+      "firestoreWrite": 0,
+      "rules": 2,
+      "iam": 0
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 24,
+      "rules": 8,
+      "iam": 6
+    }
+  },
   "serverFields": {
-    "generation": "1784647629568292",
+    "generation": "1793375067326268",
     "metageneration": "1",
     "hasMd5Hash": true,
     "hasCrc32c": true,
     "hasEtag": true,
-    "timeCreated": "2026-07-21T15:27:09.639Z",
-    "updated": "2026-07-21T15:27:09.639Z"
+    "timeCreated": "2026-10-30T15:44:27.397Z",
+    "updated": "2026-10-30T15:44:27.397Z"
   }
 }

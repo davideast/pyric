@@ -5,9 +5,9 @@
     "rtdb-modular#119"
   ],
   "description": "update(ref, {a: null}) removes key a — same null-equivalence as set(ref, null) but scoped to a single key inside a multi-key update.",
-  "observedAt": "2026-05-18T03:36:40.094Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:06.332Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

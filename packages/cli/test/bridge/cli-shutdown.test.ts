@@ -16,7 +16,7 @@
  *      the bridge process. Without idempotency, the handler ran twice.
  *   2. `handle.stop()` awaited `http.close()`, which only resolves
  *      once every existing connection drains naturally. With an MCP
- *      client or browser peer holding a keep-alive, shutdown HUNG
+ *      client holding a keep-alive, shutdown HUNG
  *      until the peer disconnected on its own.
  *
  * Fix: idempotent CLI handler with a force-exit safety timer +
@@ -31,8 +31,9 @@ import { describe, expect, test } from 'bun:test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createServer } from 'node:net';
+import { connect, createServer } from 'node:net';
 import WebSocket from 'ws';
+import { NO_BROWSER_PEER_CLOSE_CODE } from '../../src/bridge/protocol.js';
 
 const CLEAN_SHUTDOWN_BUDGET_MS = 1500;
 const BRIDGE_READY_TIMEOUT_MS = 7_500;
@@ -174,21 +175,39 @@ describe('pyric bridge SIGINT shutdown', () => {
     expect(log.match(/received SIGINT/g)?.length).toBe(1);
   }, TEST_TIMEOUT_MS);
 
-  test('SIGINT with held WebSocket peer still exits promptly', async () => {
-    // Without `wss.clients.terminate()` + `http.closeAllConnections()`
-    // in standalone.ts, this test would hang for the duration of the WS
-    // peer's natural keep-alive (i.e. forever).
+  test('SIGINT with a held keep-alive connection still exits promptly', async () => {
+    // Without `http.closeAllConnections()` in standalone.ts, this test would
+    // hang for as long as the client keeps its connection open (forever).
     const { child, port } = await spawnBridge();
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/sandbox`);
+    const held = connect(port, '127.0.0.1');
     await new Promise<void>((resolve, reject) => {
-      ws.once('open', () => resolve());
-      ws.once('error', reject);
+      held.once('connect', () => {
+        held.write('GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n');
+      });
+      held.once('data', () => resolve());
+      held.once('error', reject);
     });
     child.kill('SIGINT');
     const { code, elapsedMs } = await waitForExit(child);
     expect(code).toBe(130);
     expect(elapsedMs).toBeLessThan(CLEAN_SHUTDOWN_BUDGET_MS);
-    ws.close();
+    held.destroy();
+  }, TEST_TIMEOUT_MS);
+
+  test('SIGINT after a page opened /sandbox still exits promptly', async () => {
+    // `pyric bridge` closes a page's /sandbox socket at once (#1468); a page
+    // that opened one must not hold the shutdown either.
+    const { child, port } = await spawnBridge();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/sandbox`);
+    const closeCode = await new Promise<number>((resolve, reject) => {
+      ws.once('close', (code) => resolve(code));
+      ws.once('error', reject);
+    });
+    expect(closeCode).toBe(NO_BROWSER_PEER_CLOSE_CODE);
+    child.kill('SIGINT');
+    const { code, elapsedMs } = await waitForExit(child);
+    expect(code).toBe(130);
+    expect(elapsedMs).toBeLessThan(CLEAN_SHUTDOWN_BUDGET_MS);
   }, TEST_TIMEOUT_MS);
 
   test('SIGTERM exits cleanly with code 0', async () => {

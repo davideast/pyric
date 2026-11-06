@@ -5,8 +5,8 @@
     "rtdb-rules#33"
   ],
   "description": "RTDB rules deploy verdicts for corpus scenario \"r44-deploy-string-and-regex-probes\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. string escape sequences and regular expression literals in rule strings must be accepted or rejected by rtdbRulesSourceRejection in agreement with production dry-run deploy validation.",
-  "observedAt": "2026-10-15T17:58:14.153Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.253Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "FUZ-1: double-quoted string containing escaped single quote (\"\\'\")": {

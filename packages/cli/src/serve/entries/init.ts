@@ -22,7 +22,7 @@ import {
   subscribeToActiveAuth,
   registerActiveAuth,
 } from './active-auth.js';
-import { initPayload } from './init-payload.js';
+import { initPayload, logInitPayloadFailure } from './init-payload.js';
 import { sandbox } from './app-backend.js';
 import { installAvatarUpgrades } from './avatar-upgrade.js';
 import { useWorker, workerDb } from './worker-runtime.js';
@@ -85,10 +85,12 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   // A slow avatar source finishes after the browser already painted a
   // placeholder. This page-level listener swaps in the finished image, so
   // application code stays `<img src={user.photoURL}>` with nothing to poll.
-  // Not awaited: nothing below depends on the payload.
-  void initPayload.then((payload) => {
-    installAvatarUpgrades(payload?.avatarUpgrades === true);
-  });
+  // Not awaited: nothing below depends on the payload. A refused payload
+  // reaches the app through the calls it makes, so here it is only logged.
+  void initPayload.then(
+    (payload) => installAvatarUpgrades(payload?.avatarUpgrades === true),
+    logInitPayloadFailure,
+  );
   // A served page is a development host whatever the app's bundle says: the
   // template's served build is a Vite production build, which folds the
   // bundled-production check to true and would leave listener attribution off.

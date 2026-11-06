@@ -5,8 +5,8 @@
     "firestore-rules#186"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"global-and-service-scope-functions\" (Coverage: function scopes (global, service), shadowing). Production accepts and resolves functions declared at global and service scope, with match-scope shadowing, and compiles a 98-operand && or || chain declared at either scope.",
-  "observedAt": "2026-09-26T20:26:42.911Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:40.159Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

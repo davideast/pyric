@@ -1,20 +1,66 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import type { ViteDevServer } from 'vite';
 import type { FirebaseProjectResolution } from '../cli/firebase-project.js';
 import type {
-  FunctionsRtdbProject,
-} from '../functions-rtdb/project.js';
+  FunctionsProject,
+} from '../functions/project.js';
 import type { BridgeMount } from './bridge-mount.js';
+import { hostingRewrites } from '../functions/http/rewrites.js';
+import { getHeader, isAllowedHost, isAllowedOriginOnPorts } from './server.js';
 import type {
   ViteFunctionsDevelopmentAttachment,
   ViteFunctionsDevelopmentOptions,
 } from './vite-functions-development.js';
 
+/** firebase.json's hosting rewrites, read synchronously at attach; a rewrite that does not compile is warned about and skipped. */
+function readRewrites(projectDir: string, warn: (message: string) => void): ReturnType<typeof hostingRewrites> {
+  const file = path.join(projectDir, 'firebase.json');
+  if (!existsSync(file)) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    warn(`  ⚠ [pyric] firebase.json could not be read for hosting rewrites: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
+  return hostingRewrites(parsed, (warning) => warn(`  ⚠ [pyric] ${warning}`));
+}
+
+function decoded(pathname: string): string | null {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the dev server answers this path itself, so a rewrite must not:
+ * Vite's own routes, and any file under the root or the public dir, read
+ * under Vite's `base` and with the path decoded as the file system names it.
+ */
+function viteServesPath(server: ViteDevServer, pathname: string): boolean {
+  const base = server.config.base.endsWith('/') ? server.config.base : `${server.config.base}/`;
+  const underBase = pathname.startsWith(base) ? `/${pathname.slice(base.length)}` : pathname === base.slice(0, -1) ? '/' : null;
+  if (underBase === null) return false;
+  if (/^\/(@|__|node_modules\/)/.test(underBase)) return true;
+  const relative = decoded(underBase)?.replace(/^\/+/, '');
+  if (relative === undefined) return false;
+  const isFile = (file: string): boolean => existsSync(file) && statSync(file).isFile();
+  const roots = [server.config.root, server.config.publicDir].filter((dir): dir is string => typeof dir === 'string' && dir.length > 0);
+  return roots.some((dir) => {
+    const root = path.resolve(dir);
+    const file = path.resolve(root, relative);
+    const inside = file === root || file.startsWith(`${root}${path.sep}`);
+    return inside && (isFile(file) || isFile(path.join(file, 'index.html')));
+  });
+}
+
 export interface ResolvedViteGenerationFunctions {
   options: { region?: string; instance?: string; watch?: boolean };
-  project: FunctionsRtdbProject | null;
+  project: FunctionsProject | null;
   projectId: string | null;
 }
 
@@ -25,7 +71,7 @@ export interface ResolvedViteGenerationFunctions {
 export function resolveViteGenerationFunctions(input: {
   projectDir: string;
   options: false | { region?: string; instance?: string; watch?: boolean };
-  discover(projectDir: string): FunctionsRtdbProject | null;
+  discover(projectDir: string): FunctionsProject | null;
   firebaseProject: FirebaseProjectResolution;
 }): ResolvedViteGenerationFunctions {
   const { projectDir, options, discover, firebaseProject } = input;
@@ -35,6 +81,20 @@ export function resolveViteGenerationFunctions(input: {
     project,
     projectId: project ? firebaseProject.projectId ?? 'demo-project' : null,
   };
+}
+
+/**
+ * With `allowedHosts: true` Vite serves the app under any name, so the
+ * app's own page is the one whose Origin names the host it asked for.
+ */
+function isSameOrigin(origin: string | undefined, hostHeader: string | undefined): boolean {
+  const sendsNoOrigin = origin === undefined;
+  if (sendsNoOrigin) return true;
+  try {
+    return new URL(origin).host.toLowerCase() === (hostHeader ?? '').toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 export function attachViteGenerationFunctions(input: {
@@ -49,7 +109,7 @@ export function attachViteGenerationFunctions(input: {
 }): ViteFunctionsDevelopmentAttachment | null {
   const { server, projectDir, cliRoot, bridge, resolved, registerModuleUrl, attach } = input;
   if (!resolved.project || !resolved.projectId || !bridge || !server.httpServer) return null;
-  const builtChild = path.join(cliRoot, 'dist/functions-rtdb/child.js');
+  const builtChild = path.join(cliRoot, 'dist/functions/child.js');
   const fileExists = input.fileExists ?? existsSync;
   const childModuleUrl = fileExists(builtChild) ? builtChild : undefined;
   const host =
@@ -64,6 +124,27 @@ export function attachViteGenerationFunctions(input: {
     watch: resolved.options.watch,
     host,
     httpServer: server.httpServer as unknown as HttpServer,
+    middlewares: server.middlewares,
+    rewrites: readRewrites(projectDir, (message) => server.config.logger.warn(message)),
+    staticFileExists: (pathname) => viteServesPath(server, pathname),
+    isAllowedRequest: (req) => {
+      const serverOptions = server.config.server;
+      return serverOptions.allowedHosts === true || isAllowedHost(
+        req.headers.host,
+        typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
+        Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [],
+      );
+    },
+    // The page Vite serves names Vite's own port, the port the request came in on.
+    allowsAppOrigin: (req) => {
+      const serverOptions = server.config.server;
+      const origin = getHeader(req, 'origin');
+      const allowsAnyHost = serverOptions.allowedHosts === true;
+      if (allowsAnyHost) return isSameOrigin(origin, req.headers.host);
+      const extraHosts = Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [];
+      const ports = req.socket.localPort === undefined ? [] : [req.socket.localPort];
+      return isAllowedOriginOnPorts(origin, host, extraHosts, ports);
+    },
     watcher: server.watcher,
     logger: server.config.logger,
     bridge,

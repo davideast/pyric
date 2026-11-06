@@ -1,4 +1,5 @@
 import { validateAuthState } from 'pyric/sandbox';
+import { readObservedCall } from 'pyric/sandbox/internal';
 import type { PortLike } from './host-context.js';
 import type { OutboundMessage } from './protocol.js';
 import { assertOperationArguments } from './inbound-validation/operation-arguments.js';
@@ -44,6 +45,8 @@ function assertInboundFields(message: Record<string, unknown>): void {
       requireOptionalBoolean(message.fromPriorHost, 'fromPriorHost');
       requireOptionalBoolean(message.hostVerified, 'hostVerified');
       requireOptionalString(message.origin, 'origin');
+      requireOptionalString(message.tabId, 'tabId');
+      requireOptionalString(message.clientId, 'clientId');
       return;
     case 'clock-subscribe':
       return;
@@ -51,6 +54,10 @@ function assertInboundFields(message: Record<string, unknown>): void {
       requireString(message.id, 'id');
       requireString(message.name, 'name');
       requireRecord(message.args, 'args');
+      return;
+    case 'observe':
+      requireString(message.id, 'id');
+      readObservedCall(message.call);
       return;
     default:
       requireShape(false, 't');

@@ -12,7 +12,7 @@ describe('rules-language production coverage', () => {
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.id')?.verdict).toBe('verified');
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.__name__')?.verdict).toBe('verified');
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.semantic.type-dispatch')?.verdict).toBe('verified');
-    expect(firestore?.verifiedConstructs).toBe(129);
+    expect(firestore?.verifiedConstructs).toBe(135);
   }, FULL_GRAPH_TIMEOUT_MS);
 
   it('restores RTDB validate scope only after the ancestor case conforms', async () => {
@@ -20,9 +20,10 @@ describe('rules-language production coverage', () => {
     const rtdb = report.engines.find((engine) => engine.engine === 'rtdb');
 
     expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.semantic.validate-non-cascade')?.verdict).toBe('verified');
-    // Every construct conforms now that the 2026-10-26 hunt's findings (#1247,
-    // rows rtdb-rules#34 to #39) are fixed.
-    expect(rtdb?.verifiedConstructs).toBe(90);
+    // The 2026-10-26 hunt's findings (#1247, rows rtdb-rules#34 to #39) are fixed.
+    // The one construct not verified is the deploy verdict in row rtdb-rules#196 (#1820).
+    expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.method.snapshot.parent')?.verdict).not.toBe('verified');
+    expect(rtdb?.verifiedConstructs).toBe(89);
   }, FULL_GRAPH_TIMEOUT_MS);
 
   it('verifies Storage corpus constructs with input-digest-bound observations and no unresolved AST nodes but its unknown-method probes', async () => {
@@ -41,7 +42,7 @@ describe('rules-language production coverage', () => {
       unknownMethod('method:abs'),
       unknownMethod('method:foo'),
     ]);
-    expect(storage?.verifiedScenarioCount).toBe(45);
-    expect(storage?.verifiedConstructs).toBe(112);
+    expect(storage?.verifiedScenarioCount).toBe(48);
+    expect(storage?.verifiedConstructs).toBe(121);
   }, FULL_GRAPH_TIMEOUT_MS);
 });

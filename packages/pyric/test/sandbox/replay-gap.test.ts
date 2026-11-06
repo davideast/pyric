@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { replay as replayDatabase } from '../../src/rules/internal/rtdb.js';
+import { replay as replayDatabase } from '../../src/sandbox/internal/index.js';
 import { replay, type SandboxEvent } from '../../src/sandbox/index.js';
 
 for (const reason of ['history-limit', 'frame-limit'] as const) {

@@ -129,6 +129,44 @@ test('an operation issued before the first attach and held past the deadline fai
   expect(workerMessages.some(message => message.id === opId)).toBe(false);
 });
 
+/** The operations and subscriptions in the order the host received them, named by method or `sub:<subId>`. */
+function workerFrameOrder(received: BridgeMessage[]): string[] {
+  return received
+    .filter(message => message.type === 'worker-message')
+    .map(message => (message as { message: { t: string; method?: string; subId?: string } }).message)
+    .filter(message => message.t === 'op' || message.t === 'sub')
+    .map(message => message.method ?? `sub:${message.subId}`);
+}
+
+test('a session restore held before the first attach reaches the host ahead of the held auth observer (#1837)', async () => {
+  const port = reservePort();
+  const received: BridgeMessage[] = [];
+  const { db, states } = open(port, { retryInitialConnection: true });
+  // getAuth restores the persisted sign-in; the app then registers onAuthStateChanged.
+  const restored = rawRpc(db.port, { t: 'op', id: nextId(), method: 'auth.restorePortSession', uid: 'u1', tenantId: null } as unknown as InboundMessage);
+  db.port.postMessage({ t: 'sub', subId: 'auth-observer', target: 'authState' } as unknown as InboundMessage);
+  const later = rawRpc(db.port, { t: 'op', id: nextId(), method: 'ping' } as unknown as InboundMessage);
+  await until(() => states.includes('interrupted'));
+  startHost(port, received);
+  expect(await restored).toBe('done');
+  expect(await later).toBe('done');
+  expect(workerFrameOrder(received)).toEqual(['auth.restorePortSession', 'sub:auth-observer', 'ping']);
+});
+
+test('a session restore held after another operation keeps its place among the operations', async () => {
+  const port = reservePort();
+  const received: BridgeMessage[] = [];
+  const { db, states } = open(port, { retryInitialConnection: true });
+  const first = rawRpc(db.port, { t: 'op', id: nextId(), method: 'ping' } as unknown as InboundMessage);
+  db.port.postMessage({ t: 'sub', subId: 'auth-observer', target: 'authState' } as unknown as InboundMessage);
+  const restored = rawRpc(db.port, { t: 'op', id: nextId(), method: 'auth.restorePortSession', uid: 'u1', tenantId: null } as unknown as InboundMessage);
+  await until(() => states.includes('interrupted'));
+  startHost(port, received);
+  expect(await first).toBe('done');
+  expect(await restored).toBe('done');
+  expect(workerFrameOrder(received)).toEqual(['sub:auth-observer', 'ping', 'auth.restorePortSession']);
+});
+
 test('without retryInitialConnection the first failure closes the port', async () => {
   const port = reservePort();
   const { states, errors } = open(port, {});

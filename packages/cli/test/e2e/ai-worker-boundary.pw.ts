@@ -24,6 +24,12 @@ test('served AI uses only the SharedWorker broker and emits one authoritative ev
 
     const appModule = await import('firebase/app');
     const aiModule = await import('firebase/ai');
+    const appCheckModule = await import('firebase/app-check');
+    // The sandbox refuses AI Logic requests without an App Check token, so App
+    // Check comes before getAI.
+    appCheckModule.initializeAppCheck(appModule.getApp(), {
+      provider: new appCheckModule.ReCaptchaV3Provider('site-key'),
+    });
     const ai = aiModule.getAI(appModule.getApp());
     const repeatedAi = aiModule.getAI(appModule.getApp(), {
       engine: { kind: 'scripted', script: [] },
@@ -71,4 +77,26 @@ test('served AI uses only the SharedWorker broker and emits one authoritative ev
     hasPageSandbox: false,
     workerEvents: 1,
   });
+});
+
+test('the SharedWorker broker refuses AI requests from an app without App Check with a 401', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => document.querySelector('#status')?.textContent !== 'loading');
+
+  const refusal = await page.evaluate(async () => {
+    const appModule = await import('firebase/app');
+    const aiModule = await import('firebase/ai');
+    const app = appModule.initializeApp({ ...appModule.getApp().options }, 'no-app-check');
+    const model = aiModule.getGenerativeModel(aiModule.getAI(app), { model: 'gemini-2.5-flash' });
+    try {
+      await model.countTokens('refused');
+      return null;
+    } catch (error) {
+      const failure = error as Error & { code?: string; customErrorData?: { status?: number } };
+      return { code: failure.code, status: failure.customErrorData?.status, message: failure.message };
+    }
+  });
+
+  expect(refusal).toMatchObject({ code: 'fetch-error', status: 401 });
+  expect(refusal?.message).toContain('[401 Unauthorized] Firebase App Check token is invalid.');
 });

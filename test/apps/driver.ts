@@ -8,34 +8,40 @@
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import type { Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, type Browser, type BrowserContext, type LaunchOptions, type Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
+import { retainBrowserChildren } from './browser-children.ts';
+import type { DependencyStore } from './dependency-store.ts';
+import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type Tarballs, type TimedResult } from './install.ts';
+import { NESTED_PROJECTS_FILE, nestedProject } from './nested-projects.ts';
 import {
-  debugLogTail,
-  NESTED_INSTALL_ATTEMPT_MS,
-  npmInstall,
-  pinPyricPackages,
-  retryOnceOnTimeout,
-  type Tarballs,
-  type TimedResult,
-} from './install.ts';
-import { describeGroupProcesses, describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
+  DEFAULT_EXIT_TIMING,
+  describeProcState,
+  endGroup,
+  watchChildExit,
+  type ExitTiming,
+  type LiveProcess,
+} from './unreaped-exit.ts';
+import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
+import { CrashWatch, type CrashVerdict, type ExpectedCrash, type WatchedProcess } from './crash-watch.ts';
 
-/** How much of npm's debug log the job log gets when an install attempt times out. */
-const NPM_LOG_TAIL_LINES = 40;
+export type { ExpectedCrash } from './crash-watch.ts';
 
-/** How `installProject` runs npm. Tests pass a stand-in npm, a short limit, and their own report. */
-export interface NestedNpm {
-  command: string;
-  attemptMs: number;
+/**
+ * How `installProject` installs a nested project: from the run's dependency
+ * store, with the run's tarballs. Tests pass a store over a stand-in npm, a
+ * short limit, and their own report.
+ */
+export interface NestedInstalls {
+  tarballs: Tarballs;
+  store: Pick<DependencyStore, 'provide'>;
+  /** How long one warm of the project's store entry gets; NESTED_INSTALL_ATTEMPT_MS by default. */
+  attemptMs?: number;
   /** Where the `[runner]` lines go; the run's output by default. */
   report?: (line: string) => void;
 }
-
-const NPM_INSTALL: NestedNpm = { command: 'npm', attemptMs: NESTED_INSTALL_ATTEMPT_MS };
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -53,6 +59,15 @@ export interface StopGrace {
 }
 
 const DEFAULT_STOP_GRACE: StopGrace = { termMs: 5_000, killMs: 5_000 };
+
+/** The waits an `AppProcess` uses. Tests pass short ones; the runner uses the defaults. */
+export interface ProcessTiming {
+  exit: ExitTiming;
+  /** The grace `stop()` uses when it is given none. */
+  stop: StopGrace;
+}
+
+export const DEFAULT_PROCESS_TIMING: ProcessTiming = { exit: DEFAULT_EXIT_TIMING, stop: DEFAULT_STOP_GRACE };
 
 /** One child process of the app, with its interleaved stdout and stderr. */
 export class AppProcess {
@@ -74,6 +89,14 @@ export class AppProcess {
   private exitedEarly = false;
   /** Processes this child started that outlived it, holding its pipes (#1274). */
   readonly leftoverProcesses: LiveProcess[] = [];
+  /**
+   * Set for a process the scenario starts to run until it stops it, such as a
+   * dev server, and not for a command it runs to exit. Such a process that
+   * exits on its own with a non-zero code fails the app (crash-watch.ts).
+   */
+  runsUntilStopped = false;
+  /** Set when `stop()` found the process running, so its exit was the driver's doing. */
+  private stopRequested = false;
 
   constructor(
     readonly name: string,
@@ -82,6 +105,7 @@ export class AppProcess {
     private readonly cwd: string,
     private readonly env: NodeJS.ProcessEnv,
     private readonly spawnChild: SpawnChild = spawn,
+    private readonly timing: ProcessTiming = DEFAULT_PROCESS_TIMING,
   ) {
     const pyricEnv = Object.entries(env).filter(([key]) => key.startsWith('PYRIC_')).map(([key, value]) => `${key}=${value} `);
     this.header = `$ ${pyricEnv.join('')}${[command, ...args].join(' ')}\n`;
@@ -92,6 +116,7 @@ export class AppProcess {
   private start(): ChildProcess {
     this.spawnAttempts += 1;
     const child = this.spawnChild(this.command, this.args, { cwd: this.cwd, env: this.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const outputSockets = childOutputSockets(child.pid);
     const isCurrent = () => child === this.child;
     const record = (chunk: unknown) => {
       if (!isCurrent()) return;
@@ -120,10 +145,12 @@ export class AppProcess {
     this.stopWatchingExit = watchChildExit(child, this.name, (exit) => {
       if (!isCurrent()) return;
       this.text += exit.note;
+      // Without `close`, output can go missing: say whether the kernel still holds it (#1797).
+      if (isExitWithoutClose(exit.source)) this.text += describeOutputSockets(this.name, outputSockets);
       if (exit.source !== 'close') this.exitedEarly = true;
       this.leftoverProcesses.push(...exit.leftovers);
       this.finish(exit.code);
-    });
+    }, this.timing.exit);
     return child;
   }
 
@@ -162,6 +189,13 @@ export class AppProcess {
 
   get running(): boolean {
     return this.exitCode === undefined;
+  }
+
+  /** The non-zero code a process started to run until stopped exited with before anything stopped it. */
+  get earlyExitCode(): number | undefined {
+    const exitedOnItsOwn = this.runsUntilStopped && !this.stopRequested;
+    const failed = typeof this.exitCode === 'number' && this.exitCode !== 0;
+    return exitedOnItsOwn && failed ? this.exitCode as number : undefined;
   }
 
   /** The current end of the output, for `waitForLog({ since })`. */
@@ -216,8 +250,9 @@ export class AppProcess {
    * pipes a process outside the group holds open, is recorded as gone, so
    * `exited` settles and nothing waits on it past that.
    */
-  async stop(grace: StopGrace = DEFAULT_STOP_GRACE): Promise<void> {
+  async stop(grace: StopGrace = this.timing.stop): Promise<void> {
     if (this.child.pid === undefined) return;
+    if (this.running) this.stopRequested = true;
     if (!this.running) {
       await this.stopLeftoverGroup(grace);
       return;
@@ -286,6 +321,13 @@ export interface App {
    * scenario created there, such as one `create-pyric` scaffolded.
    */
   devServer(options?: { env?: Record<string, string>; name?: string; port?: number; cwd?: string }): Promise<DevServer>;
+  /**
+   * Starts the installed `pyric sandbox` (no Vite: the import-map plane) on a
+   * free port, or on `port` when given, from the app directory, and waits
+   * until it serves the page and `/__pyric/init.json`. It serves the
+   * directory `firebase.json`'s `hosting.public` names and runs no command.
+   */
+  sandboxServer(options?: { env?: Record<string, string>; name?: string; port?: number }): Promise<DevServer>;
   /** Runs `node --import @pyric/cli/register <script> ...args` to exit. Throws on a non-zero exit. */
   serverScript(script: string, args?: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
   /**
@@ -314,16 +356,32 @@ export interface App {
    */
   command(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
   /**
+   * Starts `command` with `args` from `cwd` (relative to the app directory)
+   * with the app's environment and returns at once, as `serverProcess` does,
+   * for a command that runs until stopped, such as `node node_modules/.bin/pyric-live`.
+   */
+  commandProcess(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string> }): AppProcess;
+  /**
    * Installs a project the scenario created inside the app directory, such
    * as one `create-pyric` scaffolded: its Pyric dependencies point at the
-   * packed tarballs, as the app's own do, and `npm install` runs in it.
+   * packed tarballs, as the app's own do, and its tree comes from the
+   * dependency store. `path` must be declared in test/apps/nested-projects.ts.
    * Throws on a failed install.
    */
   installProject(path: string): Promise<ScriptResult>;
-  /** The browser context for this app. Requests to hosts other than 127.0.0.1 and localhost are aborted unless a route answers them. */
+  /**
+   * The browser context for this app. Requests and page WebSockets to hosts
+   * other than 127.0.0.1 and localhost are blocked and logged unless a route
+   * (`route` or `routeWebSocket`) answers them.
+   */
   browser(): Promise<BrowserContext>;
   /** Opens `url` in a new page of the app's browser context. */
   page(url: string): Promise<Page>;
+  /**
+   * Watches a browser context the scenario made itself, in a browser it
+   * launched, for crashes, as `browser()` does for its own (crash-watch.ts).
+   */
+  watchCrashes(context: BrowserContext): Promise<void>;
   readFile(path: string): string;
   writeFile(path: string, text: string): void;
   /** A free TCP port on 127.0.0.1. */
@@ -333,19 +391,27 @@ export interface App {
    * closed port behaves under WSL mirrored networking. Held until the run ends.
    */
   blackholedPort(): Promise<number>;
-  /** Every page's console lines, page errors, and error responses so far, in order. */
+  /** Every page's console lines, page errors, error responses, and blocked external connections so far, in order. */
   readonly browserLog: readonly string[];
   /**
    * Declares that a page request to a `/__pyric/` route may answer with an
    * error status, such as a download URL with the wrong token. Any other error
-   * a `/__pyric/` route answers to a page fails the app after its scenario.
+   * a `/__pyric/` route answers to a page fails the app after its scenario,
+   * and so does a pattern that matched no error, unless `mayNotHappen` says
+   * why the error comes only in some runs, such as one a race decides.
    */
-  expectHostError(pattern: RegExp): void;
+  expectHostError(pattern: RegExp, options?: { mayNotHappen?: string }): void;
+  /**
+   * Counts an error response to a page the scenario opened in a browser it
+   * launched itself, as `page()` counts its own: one from a `/__pyric/`
+   * route fails the app unless `expectHostError` allows it.
+   */
+  noteErrorResponse(status: number, method: string, url: string): void;
   /**
    * Declares that a process an app process starts may outlive it, holding its
    * output pipes, such as a daemon the scenario starts on purpose. `pattern`
    * matches the leftover's command name. Any other leftover fails the app
-   * after its scenario (#1274).
+   * after its scenario (#1274), and so does a pattern that matched no leftover.
    */
   expectLeftoverProcess(pattern: RegExp): void;
 }
@@ -446,7 +512,72 @@ async function answers(url: string): Promise<boolean> {
   }
 }
 
+// At load, not at launch: a scenario can also call chromium.launch itself.
+retainBrowserChildren();
+
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * Chromium's resolver rules for scenario pages: every name and address but
+ * the local ones fails to resolve. The routes in `browser()` block and log;
+ * these rules stop what no route sees, such as a WebSocket a worker opens,
+ * before it leaves the machine (#1606).
+ */
+export const LOCAL_ONLY_RESOLVER_RULES = [
+  'MAP * ~NOTFOUND',
+  ...[...LOCAL_HOSTS].map((host) => `EXCLUDE ${host.replace(/^\[(.*)\]$/, '$1')}`),
+].join(', ');
+
+/**
+ * Launches the Chromium that every scenario's pages run in, headless, with
+ * the local-only resolver rules added to any `args` in `options`. A scenario
+ * that needs its own browser, such as one with the back-forward cache
+ * enabled, launches it here and guards its contexts with `guardContext`.
+ */
+export function launchScenarioBrowser(options: LaunchOptions = {}): Promise<Browser> {
+  const args = [...(options.args ?? []), `--host-resolver-rules=${LOCAL_ONLY_RESOLVER_RULES}`];
+  return chromium.launch({ headless: true, ...options, args });
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * A WebSocket URL to any host but the local ones. It is a RegExp, not a
+ * function, so Playwright connects a local socket in the page itself instead
+ * of relaying each of its frames through the driver.
+ */
+const EXTERNAL_WEBSOCKET = new RegExp(`^wss?://(?!(?:${[...LOCAL_HOSTS].map(escapeRegExp).join('|')})(?::\\d+)?/)`);
+
+/**
+ * Blocks and logs to `log` every request and page WebSocket from `context`
+ * to a host other than the local ones. Register it before a scenario's own
+ * routes: the first route registered runs last, so those answer first.
+ */
+export async function guardContext(context: BrowserContext, log: string[]): Promise<void> {
+  await context.route(() => true, async (route) => {
+    const url = new URL(route.request().url());
+    const isLocal = LOCAL_HOSTS.has(url.hostname) || url.protocol === 'data:' || url.protocol === 'blob:';
+    if (isLocal) return route.continue();
+    log.push(`[blocked external request] ${route.request().method()} ${url.href}`);
+    return route.abort('blockedbyclient');
+  });
+  // `route` never sees a WebSocket. The page sees the connection close without opening.
+  await context.routeWebSocket(EXTERNAL_WEBSOCKET, async (socket) => {
+    log.push(`[blocked external WebSocket] ${socket.url()}`);
+    await socket.close({ code: 1008, reason: 'blocked by the app scenario driver' });
+  });
+}
+
+/**
+ * A `mayNotHappen` reason lets an allowance match nothing, so it must say why
+ * and cite the issue that tracks the race, which closing ends the allowance.
+ */
+function assertCitesIssue(pattern: RegExp, reason: string): void {
+  const hasReason = reason.trim().length > 0;
+  const citesIssue = /#\d+/.test(reason);
+  if (hasReason && citesIssue) return;
+  throw new Error(`expectHostError(${pattern}): mayNotHappen must say why the error comes only in some runs and cite its issue (#<number>); got ${JSON.stringify(reason)}`);
+}
 
 /** One run of one app: the state behind the `App` a scenario receives. */
 export class AppRun implements App {
@@ -457,20 +588,26 @@ export class AppRun implements App {
   private readonly hostErrors: { step: string; request: string }[] = [];
   private readonly expectedLeftovers: RegExp[] = [];
   private readonly expectedHostErrors: RegExp[] = [];
+  /** The `expectHostError` patterns whose error comes only in some runs, which the stale check skips. */
+  private readonly racyHostErrors = new Set<RegExp>();
   private context: BrowserContext | undefined;
   private serverCount = 0;
   private scriptCount = 0;
   private readonly blackholes: BlackholedPort[] = [];
+  /** Uncaught errors and crashes in the app's pages, workers, and processes (crash-watch.ts). */
+  readonly crashWatch = new CrashWatch(() => this.currentStep);
 
   constructor(
     readonly name: string,
     readonly dir: string,
     private readonly home: string,
     private readonly launchBrowser: () => Promise<Browser>,
-    /** The packed Pyric packages and npm cache the runner installed the app with. */
-    private readonly packages?: { tarballs: Tarballs; npmCache: string; npm?: NestedNpm },
+    /** The packed Pyric packages the runner installed the app with, and the store nested projects come from. */
+    private readonly packages?: NestedInstalls,
     /** Where `freePort()`, `blackholedPort()`, and `devServer()` get their ports. */
     private readonly ports: PortIssuer = runPorts,
+    /** The waits every process the run starts uses. */
+    private readonly timing: ProcessTiming = DEFAULT_PROCESS_TIMING,
   ) {}
 
   async step<T>(name: string, run: () => Promise<T> | T): Promise<T> {
@@ -505,8 +642,24 @@ export class AppRun implements App {
       [join(projectDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
       projectDir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
+    child.runsUntilStopped = true;
     this.processes.push(child);
+    return this.servedHost(name, port, child);
+  }
+
+  async sandboxServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
+    const port = options.port ?? await freePort(this.ports);
+    this.serverCount += 1;
+    const name = options.name ?? (this.serverCount === 1 ? 'pyric sandbox' : `pyric sandbox ${this.serverCount}`);
+    const child = this.pyricProcess(['sandbox', '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], { env: options.env });
+    return this.servedHost(name, port, child);
+  }
+
+  /** Waits until a host process serves `/` and `/__pyric/init.json` on `port`. */
+  private async servedHost(name: string, port: number, child: AppProcess): Promise<DevServer> {
     const url = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 90_000;
     for (;;) {
@@ -526,12 +679,22 @@ export class AppRun implements App {
       ['--import', '@pyric/cli/register', script, ...args],
       this.dir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
+    child.runsUntilStopped = true;
     this.processes.push(child);
     return child;
   }
 
   pyricProcess(args: string[], options: { env?: Record<string, string> } = {}): AppProcess {
+    const child = this.startPyric(args, options);
+    child.runsUntilStopped = true;
+    return child;
+  }
+
+  /** Starts the installed `pyric` command, for `pyric()` to run to exit and `pyricProcess()` to run until stopped. */
+  private startPyric(args: string[], options: { env?: Record<string, string> }): AppProcess {
     this.scriptCount += 1;
     const child = new AppProcess(
       `pyric ${this.scriptCount} (${args.join(' ')})`,
@@ -539,13 +702,15 @@ export class AppRun implements App {
       [join('node_modules', '@pyric', 'cli', 'dist', 'cli', 'index.js'), ...args],
       this.dir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     return child;
   }
 
   async pyric(args: string[], options: { env?: Record<string, string>; timeoutMs?: number } = {}): Promise<ScriptResult> {
-    const child = this.pyricProcess(args, options);
+    const child = this.startPyric(args, options);
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
@@ -565,12 +730,28 @@ export class AppRun implements App {
     return { code: result.code, output: result.output };
   }
 
+  commandProcess(command: string, args: string[], options: { cwd?: string; env?: Record<string, string> } = {}): AppProcess {
+    this.scriptCount += 1;
+    const child = new AppProcess(
+      `process ${this.scriptCount} (${[command, ...args].join(' ')})`,
+      command,
+      args,
+      join(this.dir, options.cwd ?? '.'),
+      appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
+    );
+    child.runsUntilStopped = true;
+    this.processes.push(child);
+    return child;
+  }
+
   /** Runs a command to exit, or stops it at `timeoutMs` and says so instead of throwing. */
   private async timedCommand(
     command: string,
     args: string[],
     options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
-  ): Promise<TimedResult & { timeoutMs: number; running?: string }> {
+  ): Promise<TimedResult & { timeoutMs: number }> {
     this.scriptCount += 1;
     const label = [command, ...args].join(' ');
     const child = new AppProcess(
@@ -579,52 +760,50 @@ export class AppRun implements App {
       args,
       join(this.dir, options.cwd ?? '.'),
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
-      // Read before the stop ends them: what the command was still running.
-      const running = child.pid === undefined ? undefined : describeGroupProcesses(child.pid);
       await child.stop();
-      return { code: null, output: child.output, timedOut: true, timeoutMs, running };
+      return { code: null, output: child.output, timedOut: true, timeoutMs };
     }
     return { code: await child.exited, output: child.output, timedOut: false, timeoutMs };
   }
 
   /**
-   * `npm install` in `path`, under a limit per attempt. An attempt that hangs
-   * is stopped, its node_modules removed, and tried once more (#1476); npm's
-   * debug log goes to the app's home, and its end joins the output of an
-   * attempt that timed out, so the hang can be read from the app's log.
+   * The project in `path`, from the dependency store, keyed by its
+   * package.json. A warm of its entry that hangs is stopped and tried once
+   * more (#1476); the warm builds in a directory of its own, so nothing is
+   * left to reset, and its output, with the processes npm was running and
+   * the end of npm's debug log, is printed at once.
    */
   async installProject(path: string): Promise<ScriptResult> {
+    if (nestedProject(this.name, path) === undefined) {
+      throw new Error(`${this.name} installs the nested project ${path}, which ${NESTED_PROJECTS_FILE} does not declare. Nested installs come from the dependency store, keyed before the run: add { app: '${this.name}', path: '${path}', manifest } to that list.`);
+    }
     if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
-    const { npmCache, tarballs, npm = NPM_INSTALL } = this.packages;
-    pinPyricPackages(join(this.dir, path), tarballs);
-    const logsDir = join(this.home, 'npm-logs', path);
-    const what = `${this.name}: npm install in ${path}`;
-    const report = npm.report ?? ((line: string) => console.log(line));
-    const attempt = async (args: string[]): Promise<TimedResult> => {
-      const result = await this.timedCommand(npm.command, args, { cwd: path, timeoutMs: npm.attemptMs });
-      if (!result.timedOut) return { code: result.code, output: result.output, timedOut: false };
+    const { tarballs, store, attemptMs = NESTED_INSTALL_ATTEMPT_MS } = this.packages;
+    const report = this.packages.report ?? ((line: string) => console.log(line));
+    const projectDir = join(this.dir, path);
+    pinPyricPackages(projectDir, tarballs);
+    const what = `${this.name}: install of ${path} from the dependency store`;
+    let source = '';
+    const attempt = async (): Promise<TimedResult> => {
+      const result = await store.provide(projectDir, `${this.name}, nested project ${path}`, { warmAttemptMs: attemptMs });
+      source = result.source;
+      const timedOut = result.timedOut === true;
       // Printed now: the app's logs are saved only when it fails, and its home
       // is removed after it, so a retry that passes would lose this (#1494).
-      // npm's log does not cover what its install scripts do, such as a
-      // prebuilt binary a package downloads itself, so the processes npm was
-      // still running are named too.
-      const running = `[runner] processes in its group when it was stopped:\n${result.running ?? '(unknown)'}\n`;
-      const note = `[runner] ${what} stopped after ${result.timeoutMs / 1000} s\n${running}${debugLogTail(logsDir, NPM_LOG_TAIL_LINES)}`;
-      report(note.trimEnd());
-      return { code: result.code, output: `${result.output}\n${note}`, timedOut: true };
+      if (timedOut) report(`[runner] ${what} stopped after ${attemptMs / 1000} s\n${result.output.trimEnd()}`);
+      return { code: result.code, output: result.output, timedOut };
     };
-    const result = await retryOnceOnTimeout(() => npmInstall(npmCache, attempt, logsDir), {
-      what,
-      reset: () => rm(join(this.dir, path, 'node_modules'), { recursive: true, force: true }),
-      report,
-    });
-    if (result.timedOut) throw new Error(`npm install in ${path} timed out on both attempts:\n${result.output}`);
-    if (result.code !== 0) throw new Error(`npm install in ${path} exited with code ${result.code}:\n${result.output}`);
+    const result = await retryOnceOnTimeout(attempt, { what, reset: async () => {}, report });
+    report(`[runner] nested project ${path} for ${this.name}: ${source}`);
+    if (result.timedOut) throw new Error(`the install of ${path} timed out on both attempts:\n${result.output}`);
+    if (result.code !== 0) throw new Error(`the install of ${path} failed with exit ${result.code}:\n${result.output}`);
     return { code: result.code, output: result.output };
   }
 
@@ -640,6 +819,8 @@ export class AppRun implements App {
       ['--import', '@pyric/cli/register', script, ...args],
       this.dir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;
@@ -657,14 +838,8 @@ export class AppRun implements App {
     if (this.context) return this.context;
     const browser = await this.launchBrowser();
     const context = await browser.newContext();
-    // The first route registered runs last, so a scenario's own routes answer first.
-    await context.route(() => true, async (route) => {
-      const url = new URL(route.request().url());
-      const isLocal = LOCAL_HOSTS.has(url.hostname) || url.protocol === 'data:' || url.protocol === 'blob:';
-      if (isLocal) return route.continue();
-      this.browserLog.push(`[blocked external request] ${route.request().method()} ${url.href}`);
-      return route.abort('blockedbyclient');
-    });
+    await guardContext(context, this.browserLog);
+    await this.crashWatch.watchContext(context);
     this.context = context;
     return context;
   }
@@ -674,14 +849,12 @@ export class AppRun implements App {
     const page = await context.newPage();
     const index = context.pages().length;
     page.on('console', (message) => this.browserLog.push(`[page ${index} console.${message.type()}] ${message.text()}`));
-    page.on('pageerror', (error) => this.browserLog.push(`[page ${index} error] ${error.stack ?? error.message}`));
+    // A module that fails to resolve throws with an empty stack, so the message stands in for it.
+    page.on('pageerror', (error) => this.browserLog.push(`[page ${index} error] ${error.stack || `${error.name}: ${error.message}`}`));
     page.on('response', (response) => {
       if (response.status() < 400) return;
       this.browserLog.push(`[page ${index} response ${response.status()}] ${response.request().method()} ${response.url()}`);
-      const url = new URL(response.url());
-      if (url.pathname.startsWith('/__pyric/')) {
-        this.hostErrors.push({ step: this.currentStep, request: `${response.status()} ${response.request().method()} ${url.pathname}${url.search}` });
-      }
+      this.noteErrorResponse(response.status(), response.request().method(), response.url());
     });
     await page.goto(url);
     return page;
@@ -695,26 +868,68 @@ export class AppRun implements App {
     writeFileSync(join(this.dir, path), text);
   }
 
-  expectHostError(pattern: RegExp): void {
+  expectHostError(pattern: RegExp, options: { mayNotHappen?: string } = {}): void {
+    const reason = options.mayNotHappen;
+    const isRacy = reason !== undefined;
+    if (isRacy) assertCitesIssue(pattern, reason);
     this.expectedHostErrors.push(pattern);
+    if (isRacy) this.racyHostErrors.add(pattern);
   }
 
   expectLeftoverProcess(pattern: RegExp): void {
     this.expectedLeftovers.push(pattern);
   }
 
-  /** Processes app processes started that outlived them, and that no `expectLeftoverProcess` pattern matches. */
+  /**
+   * What fails the app after its scenario: each process an app process
+   * started that outlived it and that no `expectLeftoverProcess` pattern
+   * matches, then each pattern that matched no leftover. A pattern that
+   * matched nothing fails the run as an `expectedCrashes` entry does
+   * (crash-watch.ts), so the list cannot outlive what it describes.
+   */
   unexpectedLeftoverProcesses(): string[] {
-    return this.processes.flatMap((child) => child.leftoverProcesses
-      .filter((leftover) => !this.expectedLeftovers.some((pattern) => pattern.test(leftover.comm)))
-      .map((leftover) => `pid ${leftover.pid} (${leftover.comm}), started by ${child.name}`));
+    const leftovers = this.processes.flatMap((child) => child.leftoverProcesses.map((leftover) => ({ leftover, child })));
+    const unexpected = leftovers
+      .filter(({ leftover }) => !this.expectedLeftovers.some((pattern) => pattern.test(leftover.comm)))
+      .map(({ leftover, child }) => `pid ${leftover.pid} (${leftover.comm}), started by ${child.name}`);
+    const stale = this.expectedLeftovers
+      .filter((pattern) => !leftovers.some(({ leftover }) => pattern.test(leftover.comm)))
+      .map((pattern) => `expectLeftoverProcess(${pattern}) matched no leftover process; remove it or fix its pattern`);
+    return [...unexpected, ...stale];
   }
 
-  /** Error responses from `/__pyric/` routes that no `expectHostError` pattern matches. */
+  /** Records an error response a page received; only `/__pyric/` routes count as host errors. */
+  noteErrorResponse(status: number, method: string, href: string): void {
+    const url = new URL(href);
+    const isHostRoute = url.pathname.startsWith('/__pyric/');
+    if (!isHostRoute) return;
+    this.hostErrors.push({ step: this.currentStep, request: `${status} ${method} ${url.pathname}${url.search}` });
+  }
+
+  /**
+   * What fails the app after its scenario: each error response from a
+   * `/__pyric/` route that no `expectHostError` pattern matches, then each
+   * pattern that matched no error, checked as `unexpectedLeftoverProcesses` is.
+   */
   unexpectedHostErrors(): string[] {
-    return this.hostErrors
+    const unexpected = this.hostErrors
       .filter(({ request }) => !this.expectedHostErrors.some((pattern) => pattern.test(request)))
       .map(({ step, request }) => `${request} (during "${step}")`);
+    const stale = this.expectedHostErrors
+      .filter((pattern) => !this.racyHostErrors.has(pattern))
+      .filter((pattern) => !this.hostErrors.some(({ request }) => pattern.test(request)))
+      .map((pattern) => `expectHostError(${pattern}) matched no error response from a /__pyric/ route; remove it or fix its pattern`);
+    return [...unexpected, ...stale];
+  }
+
+  watchCrashes(context: BrowserContext): Promise<void> {
+    return this.crashWatch.watchContext(context);
+  }
+
+  /** The crashes in the app's pages, workers, and processes so far that no `expected` entry matches, and the entries nothing matched. */
+  crashVerdict(expected: readonly ExpectedCrash[]): CrashVerdict {
+    const processes: WatchedProcess[] = this.processes.map((child) => ({ name: child.name, output: child.output, earlyExitCode: child.earlyExitCode }));
+    return this.crashWatch.verdict(expected, processes);
   }
 
   async close(): Promise<void> {

@@ -13,7 +13,7 @@
  * subpath. See `../deferred/entry.ts` for the full rationale.
  *
  * The value list is the exact public runtime surface of `firebase/firestore/lite`
- * (Firebase Web SDK 12.13.0). Keep it in sync when this entry graduates to a
+ * (Firebase Web SDK 12.19.0). Keep it in sync when this entry graduates to a
  * real mirror.
  */
 import { deferredEntry, type DeferredApi } from '../deferred/entry.js';
@@ -29,7 +29,7 @@ export const {
   aggregateFieldEqual, aggregateQuerySnapshotEqual, and, arrayRemove, arrayUnion, average,
   collection, collectionGroup, connectFirestoreEmulator, count, deleteDoc, deleteField, doc,
   documentId, endAt, endBefore, getAggregate, getCount, getDoc, getDocs, getFirestore,
-  increment, initializeFirestore, limit, limitToLast, or, orderBy, query, queryEqual, refEqual,
+  increment, initializeFirestore, limit, limitToLast, maximum, minimum, or, orderBy, query, queryEqual, refEqual,
   runTransaction, serverTimestamp, setDoc, setLogLevel, snapshotEqual, startAfter, startAt,
   sum, terminate, updateDoc, vector, where, writeBatch,
 } = deferredEntry('firestore/lite');

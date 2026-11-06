@@ -13,7 +13,7 @@ Keep using the Firebase AI Logic Web API, with App Check initialized first. Duri
 
 ## Initialize App Check before getAI
 
-From November 2, 2026, Firebase AI Logic requires App Check: a request without an App Check token gets a 403. `getAI` reads App Check when it starts, so call `initializeAppCheck` before `getAI`, synchronously, with a static import. A model created before App Check sends no token.
+Pyric refuses an AI Logic request without an App Check token with a 403. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can [delay enforcement](https://firebase.google.com/docs/ai-logic/app-check#app-check-for-already-released-app) up to January 21, 2027. `getAI` reads App Check when it starts, so call `initializeAppCheck` before `getAI`, synchronously, with a static import. A model created before App Check sends no token.
 
 ```ts
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
@@ -37,18 +37,26 @@ const result = await model.generateContent('Summarise this report.');
 
 Setting `FIREBASE_APPCHECK_DEBUG_TOKEN` in development switches App Check to its debug provider, so local runs need no reCAPTCHA. In the sandbox, Pyric answers App Check locally. In [production AI mode](#pass-through-to-production-ai-models) the Firebase SDK prints a debug token to the browser console; register it in the Firebase console under App Check, Apps, Manage debug tokens, and AI Logic accepts the requests. Get the reCAPTCHA v3 site key for production builds from the same App Check page.
 
+If an app never calls `initializeAppCheck`, or calls it after `getAI`, the sandbox refuses `generateContent`, `generateContentStream`, `countTokens` and chat messages with a 403 error. That 403 was captured for `generateContent` from a project that was not enforcing App Check; what a project that enforces it answers is not yet known. Pyric prints how to fix it in the browser console and in the dev server terminal. Sandbox tokens from `initializeAppCheck` are accepted, with or without the debug provider.
+
+With a `CustomProvider` and no debug token set, the sandbox calls your provider's `getToken` and sends the token it returns, as production does. AI Logic requests then answer only when that token is one the sandbox signed, such as a token your server mints with `firebase-admin` `createToken` under Pyric. A provider that rejects, or returns anything else, gets the same 403 as a request with no token. The sandbox cannot check a token Google signed, so a provider that returns a real App Check token is refused too. Set the debug token in development to skip the provider, as production does.
+
 ## Start with deterministic responses
 
-With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point:
+With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point. A test runner such as `bun test` has no `document`, so a reCAPTCHA provider throws there, as it does in production on a server. Use a `CustomProvider` with the debug token set, and the sandbox never calls it:
 
 ```ts
-import { initializeAppCheck, ReCaptchaV3Provider } from 'pyric/app-check';
+import { CustomProvider, initializeAppCheck } from 'pyric/app-check';
 import { getAI } from 'pyric/ai';
 import { script } from 'pyric/ai/scripting';
 
+Object.assign(globalThis, { FIREBASE_APPCHECK_DEBUG_TOKEN: true });
 initializeAppCheck(app, {
-  provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),
-  isTokenAutoRefreshEnabled: true,
+  provider: new CustomProvider({
+    getToken: async () => {
+      throw new Error('Not called while the debug token is set.');
+    },
+  }),
 });
 const ai = getAI(app);
 script(ai, [
@@ -97,7 +105,7 @@ The two settings have different jobs:
 - `PYRIC_AI_MODEL` selects the model and activates the OpenAI-compatible engine.
 - `PYRIC_AI_PROXY_UPSTREAM` selects the server to which Pyric forwards requests. It is an OpenAI-compatible server base URL, not a Firebase endpoint and not a browser URL. Include `/v1` when that server expects it.
 
-`pyric sandbox` runs your command under a network guard that reports connections to live Google endpoints, and refuses them only when you set `PYRIC_GUARD=block`. It permits the AI upstream you configure, from `PYRIC_AI_PROXY_UPSTREAM` or the Vite plugin's `ai` options (`proxyUpstream`, or an engine `baseUrl` on another origin), so an upstream such as a Vertex AI OpenAI-compatible endpoint stays reachable under `block` too. To permit other hosts, see `PYRIC_GUARD_ALLOW` in the [CLI reference](../reference/cli.md).
+`pyric sandbox` runs your command under a network guard that refuses only requests for a server-side Google access token, such as Google's OAuth 2.0 token endpoint and the GCE metadata server. The AI upstream you configure, from `PYRIC_AI_PROXY_UPSTREAM` or the Vite plugin's `ai` options (`proxyUpstream`, or an engine `baseUrl` on another origin), gets through with no setting, and so does Firebase AI Logic in production AI mode. See `PYRIC_GUARD` in the [CLI reference](../reference/cli.md).
 
 Your browser still calls Pyric on the same origin at `/__pyric/ai-proxy`. The Vite server forwards that request to the upstream server's `/chat/completions` endpoint. This server-side hop avoids browser CORS configuration. An upstream URL alone does not select a model or replace the scripted engine, which is why `PYRIC_AI_MODEL` is still required.
 
@@ -143,6 +151,37 @@ For model-specific routing or a scripted configuration shared by the whole dev s
 
 Generation settings such as `maxOutputTokens`, `temperature`, `topP`, `stopSequences`, and JSON response formatting carry over to the OpenAI request. `topK` and `thinkingConfig` have no equivalent and are dropped locally. Local models do not reproduce production model quality, safety policy, latency, quotas, billing, or service availability, so verify model-dependent behaviour against the production backend before release.
 
+## Keep a Gemini API key on the server
+
+To answer with a real Gemini model during development, set `ai.engine` to the gemini engine and put your key in `GEMINI_API_KEY` or `GOOGLE_GENAI_API_KEY`, in your shell or, with the Vite dev server, in `.env.local`:
+
+```ts
+pyric({
+  ai: {
+    engine: { kind: 'gemini' },
+  },
+})
+```
+
+Pyric's dev server reads the key and attaches it to requests itself, so the key never reaches the page.
+
+Do not name the key `VITE_GEMINI_API_KEY`. Vite serves every variable whose name starts with an `envPrefix` entry to the browser, and `envPrefix` is `VITE_` by default. While your `envPrefix` covers `VITE_`, the Vite dev server refuses to start with that variable set. `pyric dev`, `pyric sandbox` and `@pyric/cli/register` ignore it, and the `pyric dev` and `pyric sandbox` startup banner names it as ignored.
+
+For the same reason, keep your Vite `envPrefix` from covering `GEMINI_` or `GOOGLE_`. When it does, the Vite dev server refuses to start while `GEMINI_API_KEY` or `GOOGLE_GENAI_API_KEY` holds a key.
+
+A `define` entry in your Vite config also puts the key in the page:
+
+```ts
+// Wrong: Vite writes the key into every module that reads process.env.GEMINI_API_KEY.
+export default defineConfig({
+  define: {
+    'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY),
+  },
+})
+```
+
+Pyric does not stop this, because the config is yours. Remove the entry and let the dev server read the key.
+
 ## Pass through to production AI models
 
 To evaluate your application against live Google AI or Vertex AI models during development, set `PYRIC_AI_MODE` to `production` in `.env.local`:
@@ -169,7 +208,11 @@ In production mode, Pyric stops intercepting `getAI()` and `getGenerativeModel()
 ✔ [pyric] ai: production passthrough; firebase/ai is the Firebase SDK, calling Google AI or Vertex AI with the app's initializeApp config
 ```
 
+Production mode works the same way on `pyric sandbox`, on the Vite plugin, and in a Node process started with `node --import @pyric/cli/register`. On `pyric sandbox` without Vite, Pyric builds `firebase/app`, `firebase/ai`, and `firebase/app-check` from your project's own `firebase` package, so install `firebase` in the project first. Without it, `pyric sandbox` stops at startup and says to install it. Upgrading `firebase` rebuilds that bundle on the next start.
+
 The model id you request goes to the backend unchanged. A model the backend does not serve fails with the backend's own error, as it would in production, and `modelVersion` is the value the backend reports. Other Firebase modules, such as `firebase/firestore` and `firebase/auth`, still run against the local sandbox.
+
+In production mode the page's App Check tokens come from Firebase. A server started with `node --import @pyric/cli/register` and `PYRIC_AI_MODE=production` verifies them with `firebase-admin`, so install `firebase-admin` beside the server. Verification fetches Firebase's public keys and uses no credentials, and `verifyToken(token, { consume: true })` is recorded in the server process, not by Firebase. Tokens the sandbox minted still verify. In sandbox AI mode, a token from Firebase is refused with an `app-check/invalid-argument` error that says why.
 
 ### Project configuration requirements
 

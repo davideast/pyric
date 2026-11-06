@@ -21,8 +21,10 @@ export {
 } from './sandbox/default-avatar.js';
 export type { AvatarMint, AvatarMintInput } from './sandbox/default-avatar.js';
 export { isEmailSignInLink, resolveEmailLinkIdentity } from './email-link.js';
-export { resolveCustomTokenIdentity } from './tokens.js';
+export { mintCustomTokenFor, resolveCustomTokenIdentity } from './tokens.js';
 export { isFederatedProviderId } from './providers.js';
 export { noMockConfiguredError } from './sign-in.js';
 export { SERVED_SANDBOX_HOOK } from './sandbox/driver.js';
+/** The key a page stores to resume its session after a reload (#1950). */
+export { sessionKeyOf } from './sandbox/session-ledger.js';
 export type { ServedSandboxHook } from './sandbox/driver.js';

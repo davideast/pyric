@@ -5,9 +5,9 @@
     "auth#35"
   ],
   "description": "A throwing observer registered on onAuthStateChanged does NOT block subsequent observers. Register two; the first throws; trigger a state change; verify the second fires.",
-  "observedAt": "2026-05-17T23:58:48.462Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T12:08:11.279Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "afterInitial": {
       "firstFireCount": 1,

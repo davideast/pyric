@@ -11,12 +11,13 @@
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
 import { randomBytes } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, relative, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, withDefaultFirestoreRules, type FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, planProjectFirebase, resolveSiteUiDir } from '../serve/bundler.js';
 import {
   isStandalone,
   materializeServeAssets,
@@ -31,12 +32,24 @@ import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
+import { liveHostPageImportMap } from '../serve/live-host-pages.js';
+import { requireLiveProject } from '../serve/live-project.js';
+import { createLiveHostState } from '../serve/live-host-state.js';
+import { refuseOwnWrite, type PyricWriteRefusal } from '../serve/hosted/own-writes.js';
 import { workerInitPayload } from '../serve/runtime/hosted-target.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
-import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
+import {
+  consoleServeLogger,
+  getHeader,
+  isAllowedOriginOnPorts,
+  resolveHostingFile,
+  startStaticServer,
+  stderrServeLogger,
+  type ServeHandle,
+} from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { createAppPorts } from '../serve/app-ports.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
@@ -61,11 +74,21 @@ import {
   createHttpFunctionsPeerReadiness,
   type FunctionsDevelopmentEvent,
   type FunctionsDevelopmentRuntime,
-} from '../functions-rtdb/development-runtime.js';
+} from '../functions/development-runtime.js';
+import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functions/http/gateway.js';
 import {
-  discoverFunctionsRtdbProject,
-  type FunctionsRtdbProject,
-} from '../functions-rtdb/project.js';
+  createPrivateInvokerWarnings,
+  httpFunctionLines,
+  servedLine,
+  stateAfterStart,
+  UNRESPONSIVE_LINE,
+  uncaughtErrorLine,
+} from '../functions/http/report.js';
+import { hostingRewrites } from '../functions/http/rewrites.js';
+import {
+  discoverFunctionsProject,
+  type FunctionsProject,
+} from '../functions/project.js';
 import {
   createSandboxSession,
   SandboxSeedError,
@@ -73,6 +96,7 @@ import {
 } from '../serve/sandbox-session.js';
 import { resolveAvatarsConfig } from '../serve/avatars-config.js';
 import { createVerifyHint } from '../serve/verify-hint.js';
+import { missingPublicDirHint } from './public-dir-hint.js';
 
 interface HostingConfig {
   public?: string;
@@ -89,6 +113,21 @@ export function extractHosting(config: FirebaseJson | null): HostingConfig | nul
   return h as HostingConfig;
 }
 
+/** The directory `hosting.public` names, or `null` when there is no `hosting`
+ *  block: production has no Hosting site then, so pyric serves no static
+ *  files (#1779). A block without `public` uses production's default,
+ *  `public`. */
+export function hostingPublicDir(cwd: string, hosting: HostingConfig | null): string | null {
+  if (hosting === null) return null;
+  return resolve(cwd, hosting.public ?? 'public');
+}
+
+/** The startup line for a project that serves no static site. */
+export function hostingOffLine(hasFirebaseJson: boolean): string {
+  if (!hasFirebaseJson) return '• hosting  Off: no firebase.json. Add one with hosting.public to serve a site.';
+  return '• hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.';
+}
+
 /** firebase.json's SPA idiom: a `**` rewrite to /index.html. */
 export function wantsSpaRewrite(hosting: HostingConfig | null): boolean {
   return (hosting?.rewrites ?? []).some(
@@ -99,7 +138,8 @@ export function wantsSpaRewrite(hosting: HostingConfig | null): boolean {
 
 export interface ServeRuntime {
   handle: ServeHandle;
-  publicDir: string;
+  /** `hosting.public`, resolved; `null` when firebase.json has no `hosting` block. */
+  publicDir: string | null;
   payload: () => InitPayload;
   /** HTTP MCP endpoint when `--bridge` is on; null otherwise. */
   mcpUrl: string | null;
@@ -214,8 +254,28 @@ async function startServeRuntime(opts: {
   /** Explicit opt-in to permissive mode (default-allow RTDB rules when unconfigured). */
   permissive?: boolean;
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
+  /** Functions HTTP routes (`pyric sandbox` passes its gateway's handler). */
+  functionsHandler?: FunctionsHttpGateway['handle'];
+  /** A child command runs beside the server and resolves `firebase` itself. */
+  hasChildCommand?: boolean;
+  /** Set only by `@pyric/live`'s seam (`serve/live-host.ts`): the host reports its status as live. */
+  liveHost?: LiveServeStart;
 }, releaseOwnership?: () => void): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
+  const firebaseProject = opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project });
+  const liveStart = opts.liveHost;
+  const isLive = liveStart !== undefined;
+  const liveHost = isLive
+    ? createLiveHostState({
+      configProjectId: requireLiveProject(liveStart.project, opts.cwd),
+      configSource: liveStart.project.source,
+      optionName: '--project',
+      warn: (line) => logger.note(line),
+    })
+    : undefined;
+  // A live host makes none of pyric's own writes, the seed file's among them (`hosted/own-writes.ts`).
+  const seedsLiveHost = isLive && opts.seed !== undefined;
+  if (seedsLiveHost) refuseOwnWrite(liveStart.writeRefusal, { action: `seed ${opts.seed}`, writer: 'seed' });
 
   // Handshake beacons from pyric-launched children, plus the per-launch secret
   // that authorizes one. Both live here because the route does.
@@ -231,16 +291,18 @@ async function startServeRuntime(opts: {
     );
   }
 
-  // firebase.json is optional for serving (firebase-serve parity: warn, then
-  // serve the directory anyway).
+  // firebase.json is optional. Without one, or without a `hosting` block in
+  // it, production has no Hosting site, so pyric serves no static files.
   let config: FirebaseJson | null = null;
+  let hasFirebaseJson = true;
   try {
     config = await readFirebaseJson(opts.cwd);
   } catch (e) {
     const isMissingConfig = e instanceof Error && e.message.includes('no firebase.json');
     const shouldFailStartup = !isMissingConfig;
     if (shouldFailStartup) throw e;
-    logger.note('  ⚠ no firebase.json found — serving the current directory without hosting config');
+    hasFirebaseJson = false;
+    logger.note('  ⚠ no firebase.json found');
   }
 
   const pyricConfig = await readPyricConfig(opts.cwd);
@@ -280,17 +342,10 @@ async function startServeRuntime(opts: {
   if (hasMultipleHostingSites) {
     logger.note('  ⚠ multiple hosting sites configured. pyric sandbox serves the first entry only');
   }
-  const publicDir = resolve(opts.cwd, hosting?.public ?? '.');
-  const isPublicDirectoryMissing = !existsSync(publicDir);
+  const publicDir = hostingPublicDir(opts.cwd, hosting);
+  const isPublicDirectoryMissing = publicDir !== null && !existsSync(publicDir);
   if (isPublicDirectoryMissing) {
-    // A missing `dist/` almost always means "no build yet" — the web scaffold's
-    // hosting.public is the Vite output. Point at the dev/build loop instead of
-    // a bare path error (serve previews a build; `vite dev` is the dev server).
-    const looksLikeBuildOutput = /(^|[\\/])(dist|build|out)$/.test(publicDir);
-    const hint = looksLikeBuildOutput
-      ? `\n  No build yet? Run \`bun run dev\` for the live sandbox dev server, ` +
-        `or \`bun run build\` then \`pyric sandbox\` to preview the production build.`
-      : '';
+    const hint = missingPublicDirHint(publicDir, { cwd: opts.cwd, hosted: opts.hosted === true });
     throw new Error(`pyric sandbox: hosting.public directory does not exist: ${publicDir}${hint}`);
   }
 
@@ -302,7 +357,7 @@ async function startServeRuntime(opts: {
   // rather than serving it. A pyric SANDBOX build (`vite build --mode
   // development`) carries the marker and bundles pyric's in-page adapters, so it
   // is trusted and the scan is skipped (marker present, no real SDK to find).
-  const needsSdkScan = !hasSandboxBuildMarker(publicDir);
+  const needsSdkScan = publicDir !== null && !hasSandboxBuildMarker(publicDir);
   if (needsSdkScan) {
     const inlined = scanForInlinedFirebase(publicDir);
     const hasInlinedSdk = inlined.length > 0;
@@ -336,6 +391,15 @@ async function startServeRuntime(opts: {
   // stale, not auto-replaced; the user closes all tabs to load the new worker.
   let workerVersion: string;
   const usesEmbeddedAssets = isStandalone();
+  const aiMode = resolveAiMode(undefined, process.env);
+  // Production AI mode serves the project's own Firebase SDK for firebase/ai,
+  // firebase/app and firebase/app-check (#1290).
+  let projectFirebase: { projectDir: string } | undefined;
+  if (aiMode === 'production') {
+    const firebasePlan = planProjectFirebase(opts.cwd, Boolean(opts.hasChildCommand));
+    projectFirebase = firebasePlan.projectFirebase;
+    if (firebasePlan.warning) logger.note(firebasePlan.warning);
+  }
   if (usesEmbeddedAssets) {
     bundle = await materializeServeAssets();
     workerVersion = embeddedWorkerVersion();
@@ -344,6 +408,7 @@ async function startServeRuntime(opts: {
       entries: defaultSdkEntries(),
       noCache: opts.noCache,
       cacheRoot: opts.cacheRoot,
+      projectFirebase,
     });
     // The SharedWorker host (Phase 3c): bundled into the SAME sdk dir so the
     // existing /__pyric/sdk/worker.js route serves it. The page's entry
@@ -371,6 +436,7 @@ async function startServeRuntime(opts: {
         project: opts.project,
         projectKey: opts.cwd,
         disableAuditLog: opts.disableAuditLog,
+        liveHost,
         upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: opts.allowedHosts },
         learnsProxyPorts: true,
         appPorts,
@@ -407,7 +473,6 @@ async function startServeRuntime(opts: {
   const usesPersistence = Boolean(opts.persist || opts.hosted);
   const persistenceOptions = usesPersistence ? { fresh: opts.fresh } : undefined;
   const studioOptions: Parameters<typeof createSandboxSession>[0]['studio'] = mountsStudio ? { siteUiDir } : false;
-  const aiMode = resolveAiMode(undefined, process.env);
   const usesHostedSandbox = opts.hosted === true;
   let session: SandboxSession;
   try {
@@ -437,7 +502,7 @@ async function startServeRuntime(opts: {
         logger.note(formatBeaconReceipt(report));
       },
       permissive: opts.permissive,
-      project: opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project }),
+      project: firebaseProject,
       hosted: opts.hosted,
       hostInstanceId: () => mount?.instanceId,
       deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
@@ -469,6 +534,8 @@ async function startServeRuntime(opts: {
   }
   const payload = session.payload;
   const hosted = usesHostedSandbox ? { projectKey: opts.cwd } : undefined;
+  // The live host serves its pages no Firebase SDK (`live-host-pages.ts`).
+  const pageImportMap = isLive ? liveHostPageImportMap() : undefined;
   // Learn before any guard runs: a page's first request may be a guarded write.
   const namespaceHandler: SandboxSession['handle'] = async (req, res, url) => {
     appPorts.learn(req);
@@ -476,6 +543,17 @@ async function startServeRuntime(opts: {
     if (handledByBridge) return true;
     return session.handle(req, res, url);
   };
+  // A private function answers only the app's own pages: the same ports the bridge accepts.
+  const allowsAppOrigin = (req: IncomingMessage): boolean => isAllowedOriginOnPorts(
+    getHeader(req, 'origin'),
+    opts.host ?? 'localhost',
+    opts.allowedHosts ?? [],
+    appPorts.forRequest(req),
+  );
+  const gatewayHandler = opts.functionsHandler;
+  let functionsHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<boolean>) | undefined;
+  const servesFunctions = gatewayHandler !== undefined;
+  if (servesFunctions) functionsHandler = (req, res) => gatewayHandler(req, res, allowsAppOrigin);
   let handle: Awaited<ReturnType<typeof startStaticServer>>;
   try {
     handle = await startStaticServer({
@@ -484,10 +562,11 @@ async function startServeRuntime(opts: {
       host: opts.host ?? 'localhost',
       spaRewrite: wantsSpaRewrite(hosting),
       namespaceHandler,
+      functionsHandler,
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
-      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted, aiMode, owners }),
+      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted, aiMode, owners, importMap: pageImportMap }),
       allowedHosts: opts.allowedHosts,
       logger,
     });
@@ -503,7 +582,13 @@ async function startServeRuntime(opts: {
   // sandbox session is released.
   let bridgeAttachment;
   try {
-    if (usesHostedSandbox) await mount?.startHostedSandbox(session.payload(), handle.url, { logger, persistence: session.hostedPersistence });
+    if (usesHostedSandbox) {
+      await mount?.startHostedSandbox(session.payload(), handle.url, {
+        logger,
+        persistence: session.hostedPersistence,
+        ownWriteRefusal: liveStart?.writeRefusal,
+      });
+    }
     bridgeAttachment = mount?.attachHost({
       servers: handle.servers,
       lifecycleServer: handle.server,
@@ -694,7 +779,11 @@ async function startServeRuntime(opts: {
 
   logger.info(`=== Serving from '${opts.cwd}'...`);
   logger.info('');
-  logger.info(`✔ hosting  Serving files from: ${hosting?.public ?? '.'}`);
+  if (publicDir === null) {
+    logger.info(hostingOffLine(hasFirebaseJson));
+  } else {
+    logger.info(`✔ hosting  Serving files from: ${hosting?.public ?? 'public'}`);
+  }
   logger.info(`✔ hosting  Local server: ${handle.url}`);
   const usedCachedBundle = bundle.cached;
   if (usesEmbeddedAssets) {
@@ -908,7 +997,24 @@ function resolveExplicitCommand(parsed: ParsedArgs): string[] | null {
 }
 
 /** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
-export async function runServe(parsed: ParsedArgs): Promise<number> {
+/** How a live host's clients reach it, in place of the sandbox's export block. */
+const LIVE_HOST_CLIENTS =
+  '\n  To show a Node process\'s calls here, start it in this project with:\n' +
+  '    node --import @pyric/live/register server.js\n' +
+  '  For a Vite app, add pyricLive() from @pyric/live/vite: its dev server is the live host.\n';
+
+/** What only `@pyric/live`'s seam (`serve/live-host.ts`) sets on a run: the project it resolved, and where from. */
+export interface LiveServeStart {
+  project: FirebaseProjectResolution;
+  /** The installed `@pyric/live`'s refusal of pyric's own writes: Studio's, an MCP tool's, a command's, the seed file's. */
+  writeRefusal: PyricWriteRefusal;
+}
+
+export interface ServeRunHost {
+  liveHost?: LiveServeStart;
+}
+
+export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): Promise<number> {
   const cwd = process.cwd();
   let pyricConfig: PyricConfig = {};
   try {
@@ -951,10 +1057,10 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // the bridge (see bridgeEnabledFor) — the child's injected PYRIC_SANDBOX
   // is useless without the /__pyric/sandbox WS mount.
   // One project for the database rules, deploy targets and functions child.
-  let discoveredFunctionsProject: FunctionsRtdbProject | null;
+  let discoveredFunctionsProject: FunctionsProject | null;
   let firebaseProject: FirebaseProjectResolution;
   try {
-    discoveredFunctionsProject = discoverFunctionsRtdbProject(cwd);
+    discoveredFunctionsProject = discoverFunctionsProject(cwd);
     const flagProject = parsed.flags.get('project');
     firebaseProject = resolveFirebaseProject({
       projectDir: cwd,
@@ -969,6 +1075,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   }
   const functionsProject = discoveredFunctionsProject;
   const functionsProjectId = functionsProject === null ? null : firebaseProject.projectId ?? 'demo-project';
+  // Created before the server starts so its routes exist from the first request.
+  let functionsGateway: FunctionsHttpGateway | null = null;
 
   const explicitCommand = resolveExplicitCommand(parsed);
 
@@ -996,6 +1104,25 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     }
     let logger: Parameters<typeof startServe>[0]['logger'];
     if (json) logger = stderrServeLogger();
+    if (functionsProjectId !== null) {
+      const served = json ? process.stderr : process.stdout;
+      functionsGateway = createFunctionsHttpGateway({
+        projectId: functionsProjectId,
+        initial: { kind: 'starting' },
+        rewrites: hostingRewrites(
+          await readFirebaseJson(cwd).catch(() => null),
+          (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
+        ),
+        staticFileExists: (pathname) => runtime !== undefined && runtime.publicDir !== null && resolveHostingFile(runtime.publicDir, pathname) !== null,
+        onWarning: (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
+        onServed: (record) => {
+          const { failed, line } = servedLine(record);
+          if (failed) process.stderr.write(`✖ ${line}\n`);
+          else served.write(`✔ ${line}\n`);
+        },
+        plane: 'pyric-sandbox',
+      });
+    }
     runtime = await startServe({
       cwd: process.cwd(),
       port,
@@ -1017,6 +1144,9 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       allowedHosts,
       project: firebaseProject.projectId,
       firebaseProject,
+      functionsHandler: functionsGateway?.handle,
+      hasChildCommand: plan !== null,
+      liveHost: runHost.liveHost,
     });
   } catch (e) {
     const message = serveErrorMessage(e);
@@ -1095,7 +1225,14 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   if (canStartFunctions) {
     const info = json ? process.stderr : process.stdout;
     info.write('• functions waiting for the browser tab to connect the sandbox…\n');
+    const serveUrl = runtime.handle.url;
+    functionsGateway?.update(usesHostedSandbox ? { kind: 'starting' } : { kind: 'waiting-peer', serveUrl });
+    const warnPrivateInvokers = createPrivateInvokerWarnings();
     const reportFunctionsEvent = (event: FunctionsDevelopmentEvent): void => {
+      if (event.type === 'starting') {
+        functionsGateway?.update({ kind: event.mode === 'reload' ? 'reloading' : 'starting' });
+        return;
+      }
       const isOutput = event.type === 'output';
       if (isOutput) {
         const isStdout = event.stream === 'stdout';
@@ -1105,10 +1242,27 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       }
       const isUnexpectedExit = event.type === 'unexpected-exit';
       if (isUnexpectedExit) {
+        functionsGateway?.update({ kind: 'exited', code: event.code });
         resolveFunctionsExit(event.code);
         return;
       }
+      if (event.type === 'unresponsive') {
+        functionsGateway?.update({ kind: 'unresponsive' });
+        process.stderr.write(`✖ ${UNRESPONSIVE_LINE}\n`);
+        return;
+      }
+      if (event.type === 'restarted') {
+        functionsGateway?.update(stateAfterStart(event.result, serveUrl));
+        const restarted = event.result.kind === 'ready';
+        if (restarted) info.write('↻ functions restarted\n');
+        else process.stderr.write(`✖ functions did not restart (${event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer'})\n`);
+        return;
+      }
       const childEvent = event.event;
+      if (childEvent.type === 'uncaught-error') {
+        process.stderr.write(`✖ ${uncaughtErrorLine(childEvent.error)}\n`);
+        return;
+      }
       const isExecution = childEvent.type === 'execution';
       if (isExecution) {
         const params = Object.entries(childEvent.params)
@@ -1148,6 +1302,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     const interruptedStartup = 'signal' in startOutcome;
     if (interruptedStartup) return stopAfterSignal();
     const result = startOutcome.value;
+    functionsGateway?.update(stateAfterStart(result, serveUrl));
     const isMissingPeer = result.kind === 'no-peer';
     const failedStartup = result.kind === 'failed';
     if (isMissingPeer) {
@@ -1165,10 +1320,18 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       const ready = result.ready;
       const hasSingleTrigger = ready.triggerCount === 1;
       const triggerSuffix = hasSingleTrigger ? '' : 's';
-      info.write(
-        `✔ functions ${ready.triggerCount} onValueCreated trigger${triggerSuffix} ` +
-          `from ${relative(cwd, functionsProject.entry)}\n`,
-      );
+      const reportsTriggers = ready.triggerCount > 0 || ready.http === undefined;
+      if (reportsTriggers) {
+        info.write(
+          `✔ functions ${ready.triggerCount} onValueCreated trigger${triggerSuffix} ` +
+            `from ${relative(cwd, functionsProject.entry)}\n`,
+        );
+      }
+      if (ready.http) {
+        const [heading, ...urls] = httpFunctionLines(ready.http, serveUrl, functionsProjectId ?? 'demo-project');
+        info.write(`✔ ${heading}\n${urls.map((line) => `${line}\n`).join('')}`);
+        for (const warning of warnPrivateInvokers(ready.http)) process.stderr.write(`  ⚠ ${warning}\n`);
+      }
       for (const unsupported of ready.unsupportedTriggers) {
         process.stderr.write(
           `  ⚠ functions export ${unsupported.exportName} uses unsupported trigger ` +
@@ -1244,6 +1407,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       isAlive: () => devChild !== null && devChild.child.exitCode === null,
       warn: (line) => void process.stderr.write(`${line}\n`),
     });
+  } else if (usesHumanOutput && runHost.liveHost !== undefined) {
+    process.stdout.write(LIVE_HOST_CLIENTS);
   } else if (usesHumanOutput) {
     process.stdout.write(
       formatStartupEnvExport({

@@ -5,8 +5,8 @@
     "app#22"
   ],
   "description": "No-argument Firebase service factories resolve their service from the registered default app.",
-  "observedAt": "2026-07-14T00:23:04.079Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.837Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "authUsesDefaultApp": true,
     "firestoreUsesDefaultApp": true,

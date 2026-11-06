@@ -13,6 +13,7 @@
 
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { AiBrokerError, type WireErrorEnvelope } from './broker/index.js';
+import { BackendType, type Backend, type VertexAIBackend } from './backend.js';
 
 const AI_TYPE = 'AI';
 
@@ -81,13 +82,35 @@ export function statusTextOf(status: number): string {
   }
 }
 
+const SANDBOX_REQUEST_ORIGIN = 'https://firebasevertexai.googleapis.com/v1beta/projects/sandbox';
+const VERTEX_MODEL_PREFIX = 'publishers/google/models/';
+const STREAM_TASK = 'streamGenerateContent';
+
 /**
- * Production-shaped request URL for sandbox-minted fetch errors. There is no
- * real project behind the sandbox; the path is deterministic and mirrors the
- * GoogleAI backend's `/v1beta/projects/<project>/models/<model>:<op>` shape.
+ * The model path under the project, as the SDK's backend classes build it:
+ * Google AI's `models/<name>`, and Vertex AI's
+ * `locations/<location>/publishers/google/models/<name>`
+ * (`_getModelPath`, @firebase/ai 2.12.0). The sandbox's own model resource
+ * stays `models/<name>` on either backend; only the URL changes.
  */
-export function sandboxRequestUrl(modelResource: string, op: string): string {
-  return `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/${modelResource}:${op}`;
+function modelPath(modelResource: string, backend: Backend | undefined): string {
+  const isVertexAI = backend?.backendType === BackendType.VERTEX_AI;
+  if (!isVertexAI) return modelResource;
+  const name = modelResource.replace(/^models\//, '');
+  return `locations/${(backend as VertexAIBackend).location}/${VERTEX_MODEL_PREFIX}${name}`;
+}
+
+/**
+ * Production-shaped request URL for sandbox-minted fetch errors, the
+ * `RequestURL` the SDK interpolates into its `Error fetching from <url>`
+ * message. There is no real project behind the sandbox, so the project is
+ * `sandbox`; the model path follows the handle's backend (Google AI when none
+ * is given), and a stream carries `?alt=sse`, as the SDK's `queryParams` add
+ * it (#1640).
+ */
+export function sandboxRequestUrl(modelResource: string, op: string, backend?: Backend): string {
+  const query = op === STREAM_TASK ? '?alt=sse' : '';
+  return `${SANDBOX_REQUEST_ORIGIN}/${modelPath(modelResource, backend)}:${op}${query}`;
 }
 
 /**
@@ -99,6 +122,7 @@ export function aiErrorFromEnvelope(
   envelope: WireErrorEnvelope,
   modelResource: string,
   op: string,
+  backend?: Backend,
 ): AIError {
   const wire = envelope.error;
   let message = wire.message;
@@ -108,7 +132,7 @@ export function aiErrorFromEnvelope(
     errorDetails = wire.details;
   }
   const statusText = statusTextOf(wire.code);
-  const url = sandboxRequestUrl(modelResource, op);
+  const url = sandboxRequestUrl(modelResource, op, backend);
   return new AIError(
     AIErrorCode.FETCH_ERROR,
     `Error fetching from ${url}: [${wire.code} ${statusText}] ${message}`,
@@ -116,10 +140,51 @@ export function aiErrorFromEnvelope(
   );
 }
 
-/** Rethrow broker errors as SDK errors; pass anything else through. */
-export function toAIError(err: unknown, modelResource: string, op: string): unknown {
+/**
+ * A failure while building a request's headers, before anything is sent: the
+ * App Check provider rejected a limited-use token request. Upstream
+ * `getHeaders` runs inside `makeRequest`'s `try`, so its `catch` decorates
+ * the failure; this carries it there.
+ */
+export class RequestHeadersFailure extends Error {
+  constructor(readonly reason: unknown) {
+    super('request headers failed');
+    this.name = 'RequestHeadersFailure';
+  }
+}
+
+const ABORT_ERROR_NAME = 'AbortError';
+
+/** Upstream `makeRequest`'s `catch` wraps an `Error` unless it is an abort or already a fetch-level `AIError`. */
+function isWrappedByMakeRequest(reason: unknown): reason is Error {
+  if (!(reason instanceof Error)) return false;
+  const code = (reason as { code?: unknown }).code;
+  const isFetchLevel = code === AIErrorCode.FETCH_ERROR || code === AIErrorCode.API_NOT_ENABLED;
+  return !isFetchLevel && reason.name !== ABORT_ERROR_NAME;
+}
+
+/** `AIError('error', 'Error fetching from <url>: <message>')` with the original stack, as `makeRequest` throws it. */
+function aiErrorFromHeadersFailure(
+  failure: RequestHeadersFailure,
+  modelResource: string,
+  op: string,
+  backend: Backend | undefined,
+): unknown {
+  const reason = failure.reason;
+  if (!isWrappedByMakeRequest(reason)) return reason;
+  const url = sandboxRequestUrl(modelResource, op, backend);
+  const error = new AIError(AIErrorCode.ERROR, `Error fetching from ${url}: ${reason.message}`);
+  error.stack = reason.stack;
+  return error;
+}
+
+/** Rethrow broker errors and header failures as SDK errors; pass anything else through. */
+export function toAIError(err: unknown, modelResource: string, op: string, backend?: Backend): unknown {
   if (err instanceof AiBrokerError) {
-    return aiErrorFromEnvelope(err.envelope, modelResource, op);
+    return aiErrorFromEnvelope(err.envelope, modelResource, op, backend);
+  }
+  if (err instanceof RequestHeadersFailure) {
+    return aiErrorFromHeadersFailure(err, modelResource, op, backend);
   }
   return err;
 }

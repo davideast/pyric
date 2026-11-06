@@ -50,10 +50,12 @@ const engine =
 
 // ── The app, exactly as it would be written against real Firebase ─────────
 const app = initializeApp({ apiKey: 'demo-key', projectId: 'demo-project' });
-// AI Logic requires App Check from November 2, 2026, and getAI reads App Check
-// when it starts, so initializeAppCheck runs first. On localhost the debug
-// provider stands in for reCAPTCHA. Replace the site key with your reCAPTCHA
-// v3 key from Firebase console > App Check > Apps.
+// Pyric refuses AI Logic requests without an App Check token with a 403.
+// Firebase enforces App Check for AI Logic from November 2, 2026, and a project
+// can delay enforcement up to January 21, 2027. getAI reads App Check when it
+// starts, so initializeAppCheck runs first. On localhost the debug provider
+// stands in for reCAPTCHA. Replace the site key with your reCAPTCHA v3 key
+// from Firebase console > App Check > Apps.
 const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 if (isLocalhost) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 initializeAppCheck(app, {
@@ -171,11 +173,13 @@ async function weatherDemo() {
     addMsg('tool', `${call.name}(${JSON.stringify(call.args)}) => ${JSON.stringify(result)}`);
 
     // Turn 2: thread the model's functionCall turn and the tool result back.
+    // The tool result rides under role 'user': production Firebase AI Logic
+    // refuses role 'function', and so does the sandbox.
     const second = await model.generateContent({
       contents: [
         { role: 'user', parts: [{ text: question }] },
         first.response.candidates[0].content,
-        { role: 'function', parts: [{ functionResponse: { name: call.name, response: result } }] },
+        { role: 'user', parts: [{ functionResponse: { name: call.name, response: result } }] },
       ],
       tools: [weatherTool],
     });

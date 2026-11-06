@@ -1,0 +1,83 @@
+{
+  "format": "pyric-replay/1",
+  "project": "demo-replay-rtdb",
+  "source": "hand-written from capture A (packages/conformance/src/capture/rtdb-live/recordings/capture-a-wire.json, firebase 12.19.0): the default instance's handshake, set, get and denied read of /secret, with the capture's run path dropped from each path. The anonymous signUp and lookup are hand-written from the Auth REST v1 wire format.",
+  "exchanges": [
+    {
+      "kind": "auth",
+      "id": "sign-up-anonymous",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:signUp",
+        "body": { "returnSecureToken": true }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#SignupNewUserResponse",
+          "idToken": { "$": "idToken", "uid": "user-anon", "provider": "anonymous" },
+          "refreshToken": { "$": "refreshToken" },
+          "expiresIn": "3600",
+          "localId": "user-anon"
+        }
+      }
+    },
+    {
+      "kind": "auth",
+      "id": "lookup-anonymous",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:lookup",
+        "body": { "idToken": { "$": "idToken", "uid": "user-anon" } }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#GetAccountInfoResponse",
+          "users": [
+            {
+              "localId": "user-anon",
+              "lastLoginAt": "1793907850000",
+              "createdAt": "1793907850000",
+              "lastRefreshAt": "2026-11-05T19:44:10.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "rtdb",
+      "id": "connect",
+      "instance": "demo-replay-rtdb-default-rtdb",
+      "events": [
+        { "t": "c", "d": { "t": "h", "d": { "ts": { "$": "serverTime" }, "v": "5", "h": { "$": "host" }, "s": { "$": "session" } } } }
+      ]
+    },
+    {
+      "kind": "rtdb",
+      "id": "set-item",
+      "instance": "demo-replay-rtdb-default-rtdb",
+      "as": "user-anon",
+      "request": { "a": "p", "b": { "p": "/items/a", "d": { "n": 1, "s": "alpha" } } },
+      "reply": { "s": "ok", "d": "" }
+    },
+    {
+      "kind": "rtdb",
+      "id": "get-item",
+      "instance": "demo-replay-rtdb-default-rtdb",
+      "as": "user-anon",
+      "request": { "a": "g", "b": { "p": "/items/a", "q": {} } },
+      "reply": { "s": "ok", "d": { "n": 1, "s": "alpha" } }
+    },
+    {
+      "kind": "rtdb",
+      "id": "denied-read",
+      "instance": "demo-replay-rtdb-default-rtdb",
+      "as": "user-anon",
+      "request": { "a": "g", "b": { "p": "/secret", "q": {} } },
+      "reply": { "s": "permission_denied", "d": "Permission denied" }
+    }
+  ]
+}

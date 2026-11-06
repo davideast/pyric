@@ -9,6 +9,11 @@
  * `root` has no parent snapshot: calling `root.parent()` fails the rule
  * expression rather than returning `null` and letting `== null` or `|| true`
  * grant access.
+ *
+ * The control was `(true ? data.parent() : null).exists()` until production
+ * stopped deploying it, which refused this whole ruleset. That expression's
+ * refusal is recorded in r62-deploy-ternary-snapshot-member, and the control
+ * is now `data.parent().exists()`.
  */
 import type { RtdbScenarioRecord } from './types.ts';
 
@@ -27,7 +32,7 @@ export const scenario: RtdbScenarioRecord = {
     existsOrTrue: { '.read': 'root.parent().exists() || true' },
     nested: {
       child: {
-        '.read': '(true ? data.parent() : null).exists()',
+        '.read': 'data.parent().exists()',
       },
     },
   }),
@@ -75,7 +80,7 @@ export const scenario: RtdbScenarioRecord = {
       authPresent: true,
     },
     {
-      description: 'COV-1: control non-root data.parent().exists() in ternary',
+      description: 'COV-1: control non-root data.parent().exists()',
       expectation: 'ALLOW',
       operation: 'read',
       opPath: '/nested/child',

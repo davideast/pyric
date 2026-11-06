@@ -13,12 +13,13 @@ import {
   RENAMES,
   writeEntry,
 } from '../../arguments/firestore.js';
-import { callSandboxTool } from '../../context.js';
+import { callSandboxTool } from '../../sandbox-context.js';
 import type { Args, MethodRecord } from '../../method-types.js';
 
 export default {
   tool: 'firestore',
   method: 'writeBatch',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'writeBatch(writes[{type: set|update|delete, path, data?, options?}])',

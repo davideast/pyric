@@ -1,5 +1,7 @@
-import { EventHistory, OBSERVATION_HISTORY_LIMITS } from 'pyric/sandbox/internal';
-import type { AiRequestObservation } from 'pyric/sandbox/internal';
+import {
+  callerSource, EventHistory, isProductionServed, messagingRequestsLine, OBSERVATION_HISTORY_LIMITS, productionVerdict, storageGsPath,
+} from 'pyric/sandbox/internal';
+import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal';
 /**
  * The chip's Traffic view: what the page just asked the sandbox for, and what
  * Security Rules said about it.
@@ -15,7 +17,7 @@ import type { AiRequestObservation } from 'pyric/sandbox/internal';
  * which line went wrong; the full disposition, the rule that matched, and the
  * payload are Studio's job, which is where a row's click goes.
  */
-import type { SandboxEvent, RulesDisposition } from 'pyric/sandbox';
+import type { EventProvenance, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import { captureIndexQuery, captureDatabaseIndexQuery, type ServiceIndexQuery } from 'pyric/sandbox/internal';
 
@@ -46,6 +48,48 @@ export interface ChipRequest {
   evidenceExpired?: boolean;
   indexQuery?: ServiceIndexQuery;
   indexFailure?: boolean;
+  /**
+   * Who sent the request, as this page reads it. Absent on a row only this
+   * page could have made: one from an in-page sandbox, which no host stamps,
+   * or from the page's own error feed.
+   */
+  source?: CallerSource;
+  /**
+   * What production answered, on a row production served and pyric only
+   * observed. Absent on every row the sandbox served. On such a row
+   * `verdict` is production's: `denied` for `permission-denied`.
+   */
+  production?: ProductionOutcome;
+}
+
+/** Which requests Traffic lists: this page's own, or everything the sandbox received. */
+export type TrafficScope = 'page' | 'all';
+
+/**
+ * Whether a row is this page's own request. An event no host stamped stays
+ * here too: on a host that is a listener's later delivery, which this page's
+ * view showed before sources were labelled.
+ */
+export function isPageRequest(request: ChipRequest): boolean {
+  return request.source === undefined || request.source === 'page' || request.source === 'unknown';
+}
+
+/** The rows a scope lists. */
+export function requestsInScope(requests: readonly ChipRequest[], scope: TrafficScope): ChipRequest[] {
+  return scope === 'all' ? [...requests] : requests.filter(isPageRequest);
+}
+
+/** The source of the request behind `event`, read by the page whose id is `viewerPageId`. */
+function requestSource(event: SandboxEvent, viewerPageId: string | undefined): CallerSource | undefined {
+  const caller = (event as EventProvenance).caller;
+  const isInPageSandbox = caller === undefined && viewerPageId === undefined;
+  if (isInPageSandbox) return undefined;
+  return callerSource(caller, viewerPageId);
+}
+
+function withSource(request: ChipRequest, event: SandboxEvent, viewerPageId: string | undefined): ChipRequest {
+  const source = requestSource(event, viewerPageId);
+  return source === undefined ? request : { ...request, source };
 }
 
 /** Identity context for a denied request. */
@@ -81,8 +125,60 @@ export function isPermissionDeniedCode(code: string | undefined): boolean {
  * both the canonical `listener` shape and Firestore's older `listener_attach`
  * one, because a served page can be emitting either.
  */
-export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
+export function chipRequestFromEvent(event: SandboxEvent, viewerPageId?: string): ChipRequest | null {
+  const request = projectRequest(event);
+  return request === null ? null : withSource(request, event, viewerPageId);
+}
+
+const OBSERVED_VERDICTS = { ok: 'ok', denied: 'denied', failed: 'error' } as const;
+
+/**
+ * A row's target. A Storage row reads `gs://<bucket>/<path>`, as Studio's
+ * StoragePane shows an object, and `gs://<bucket>/` for the bucket's root.
+ * A Messaging row reads the requests its call made, as Studio does.
+ */
+function rowPath(event: SandboxEvent, path: string | undefined): string | null {
+  return storageGsPath(event, path) ?? messagingRequestsLine(event) ?? path ?? null;
+}
+
+/**
+ * The row for a call production served: production's answer, and the account
+ * it ran as. `null` for every event the sandbox served.
+ */
+function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefined): ChipRequest | null {
+  const isOperation = event.kind === 'operation';
+  if (!isOperation) return null;
+  const outcome = event.production?.outcome;
+  const isObserved = outcome !== undefined && isProductionServed(rules);
+  if (!isObserved) return null;
+  const verdict = OBSERVED_VERDICTS[productionVerdict(outcome)];
+  const request: ChipRequest = {
+    id: event.id, at: event.at, service: event.service, method: event.method,
+    path: rowPath(event, event.path), verdict,
+    identity: event.auth === null ? 'signed out' : event.auth.uid,
+    production: { ...outcome },
+  };
+  const observation = event.observation;
+  const ai = observation?.ai;
+  if (observation === undefined || ai === undefined) return request;
+  // An observed event's `at` is the call's start; the row sorts by production's answer.
+  const answeredAt = observation.endedAt ?? event.at;
+  const aiRequest: AiRequestObservation = {
+    id: event.id, startedAt: observation.startedAt, at: answeredAt, second: Math.floor(answeredAt / 1000),
+    method: event.method, status: observation.status, detail: { ...ai },
+  };
+  return { ...request, at: answeredAt, aiRequest };
+}
+
+/** The AI rows the sandbox served, which Rates and the Sandbox tab count; production's rows are Traffic's only. */
+export function sandboxAiRequests(requests: readonly ChipRequest[]): AiRequestObservation[] {
+  return requests.flatMap(request => request.aiRequest !== undefined && request.production === undefined ? [request.aiRequest] : []);
+}
+
+function projectRequest(event: SandboxEvent): ChipRequest | null {
   const record = toOperationRecord(event);
+  const observed = observedRequest(event, record?.rules);
+  if (observed !== null) return observed;
   if (record !== null) {
     const observation = record.observation;
     if (observation?.ai) {
@@ -99,7 +195,7 @@ export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
     const request: ChipRequest = {
       id: record.id, at: record.at, service: record.service,
       method: record.eventKind === 'listener' ? 'listen' : record.method,
-      path: record.path ?? null, verdict,
+      path: rowPath(event, record.path), verdict,
       identity: requestIdentity(event, verdict),
     };
     if (record.rules.kind !== 'evaluated') request.rules = record.rules;
@@ -168,8 +264,10 @@ export function orderChipRequests(
 export interface TrafficFeed {
   /** Every remembered request, oldest first. */
   requests(): readonly ChipRequest[];
-  /** `true` when a request failed within the last minute. */
+  /** `true` when one of this page's own requests failed within the last minute. */
   failedRecently(now?: number): boolean;
+  /** The id the host stamps on this page's events, once a history batch named one. */
+  pageId(): string | undefined;
   omittedCount(): number;
   dispose(): void;
 }
@@ -181,7 +279,7 @@ export interface TrafficFeedOptions {
    * the worker client's `subscribeEvents` and the in-page sandbox's history
    * plus `onEvent` both already have.
    */
-  subscribeEvents: (callback: (events: readonly SandboxEvent[]) => void) => () => void;
+  subscribeEvents: (callback: (events: readonly SandboxEvent[], batch?: { pageId?: string }) => void) => () => void;
   /** Called whenever the tail changed, for the panel's own rebuild. */
   onChange?: () => void;
   onRequest?: (request: ChipRequest, event: SandboxEvent) => void;
@@ -201,6 +299,7 @@ export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
   let projections = new Map<SandboxEvent, ChipRequest | null>();
   let cachedRequests: ChipRequest[] = [];
   let cacheSecond = -Infinity;
+  let viewerPageId: string | undefined;
   const requests = (): ChipRequest[] => {
     const second = Math.floor(Date.now() / 1000);
     const isCurrentSnapshot = cacheSecond === second;
@@ -211,7 +310,7 @@ export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
     for (const event of history.snapshot()) {
       const cached = projections.get(event);
       const needsProjection = cached === undefined;
-      const request = needsProjection ? chipRequestFromEvent(event) : cached;
+      const request = needsProjection ? chipRequestFromEvent(event, viewerPageId) : cached;
       retainedProjections.set(event, request);
       const hasRequest = request !== null;
       if (hasRequest) rows.set(request.id, request);
@@ -220,12 +319,20 @@ export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
     cachedRequests = [...rows.values()];
     return cachedRequests;
   };
-  const unsubscribe = options.subscribeEvents(batch => {
+  const unsubscribe = options.subscribeEvents((batch, delivery) => {
     let changed = false;
+    // A history batch names this page; a new name re-reads every row's source.
+    const namedPageId = delivery?.pageId;
+    const renamesPage = namedPageId !== undefined && namedPageId !== viewerPageId;
+    if (renamesPage) {
+      viewerPageId = namedPageId;
+      projections = new Map();
+      changed = true;
+    }
     for (const event of batch) {
       const resetsSession = event.kind === 'session_boundary' && event.phase === 'reset';
       if (resetsSession) { history.clear(); changed = true; }
-      const request = chipRequestFromEvent(event);
+      const request = chipRequestFromEvent(event, viewerPageId);
       if (request) {
         changed = true;
         history.append(event);
@@ -247,7 +354,10 @@ export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
       return requests();
     },
     failedRecently(now = Date.now()) {
-      return requests().some((request) => request.verdict !== 'ok' && now - request.at <= RECENT_FAILURE_MS);
+      return requests().some((request) => isPageRequest(request) && request.verdict !== 'ok' && now - request.at <= RECENT_FAILURE_MS);
+    },
+    pageId() {
+      return viewerPageId;
     },
     omittedCount() {
       const gap = history.snapshot().find(event => event.kind === 'observation_gap');

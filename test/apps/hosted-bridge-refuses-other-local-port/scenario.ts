@@ -118,10 +118,11 @@ async function waitForHost(base: string, running: () => boolean): Promise<string
 }
 
 export default scenario(async (app) => {
-  // The refusals this app checks for: the other page's service command, and
-  // the request that names its own port, which no route answers.
+  // The refusal this app checks for: the other page's service command. The
+  // request that names its own port gets no error response the page can see:
+  // the browser blocks the host's answer for want of a CORS header, and the
+  // Vite host answers its preflight.
   app.expectHostError(/^403 POST \/__pyric\/hosted\/method$/);
-  app.expectHostError(/^\d+ GET \/__pyric\/not-a-route$/);
   const hostPort = await app.freePort();
   const otherPort = await app.freePort();
   const base = `http://localhost:${hostPort}`;

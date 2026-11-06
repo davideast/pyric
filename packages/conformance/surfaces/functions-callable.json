@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "functions-callable",
+  "contractSource": "firebase-functions/v2/https#onCall",
+  "observationPrefixes": [
+    "functions-callable-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: unchanged firebase-functions onCall source (v2, and v1 https.onCall) served by the isolated Functions child and called through the firebase/functions client SDK, which pyric/functions mirrors in every mode. First slice: one codebase, the callable wire protocol, HttpsError mapping, ID token and App Check verification through pyric-admin, CORS, streaming, httpsCallableFromURL, and a firebase.json hosting rewrite to a callable. authPolicy, onCallGenkit, the instance ID token header, other trigger families, and a dedicated 5001 port are deferred.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/cli/test/functions-callable/oracle-conformance.test.ts",
+  "climb": true,
+  "registry": "functions-callable"
+}

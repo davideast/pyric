@@ -27,12 +27,15 @@ import { createBridge, type BridgeToolEvent } from '../bridge/server/bridge.js';
 import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
-import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
+import { answerAndClose, attachPeer, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import { pointerHeldByAnotherHost } from './discovery.js';
+import { boundedFetch } from '../bounded-request.js';
 import { pyricVersion } from './standalone-assets.js';
-import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
+import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade, isLocalPeer } from './server.js';
 import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
+import type { BridgeMessage } from '../bridge/protocol.js';
+import type { LiveHostState } from './live-host-state.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { InitPayload, RulesDestination } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
@@ -41,8 +44,14 @@ import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-
 
 const WS_PATH = '/__pyric/sandbox';
 const MCP_PATH = '/__pyric/mcp';
-const HEALTH_PATH = '/__pyric/health';
+export const HEALTH_PATH = '/__pyric/health';
 const BRIDGE_VERSION = pyricVersion();
+
+/** The 503 a closed mount answers its routes with, so a client knows the host is going away. */
+export function answerMountClosed(res: ServerResponse): void {
+  res.writeHead(503, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ error: 'pyric bridge: mount is closed' }));
+}
 
 /**
  * Test-only: `PYRIC_TEST_PEER_LIVENESS_MS` shortens the host's peer liveness
@@ -78,6 +87,8 @@ export interface BridgeMountOptions {
    *  that passes them teaches them from each request, so the mount does not.
    *  Absent, the mount keeps its own and learns when `learnsProxyPorts`. */
   appPorts?: AppPorts;
+  /** Held only by a host a live seam started (`live-host-state.ts`): its status joins the health report. */
+  liveHost?: LiveHostState;
 }
 
 export interface BridgeMount {
@@ -307,10 +318,20 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (alreadyStarted) throw new Error('The Node sandbox is already running.');
       const starting = (async () => {
         const { createHostedRuntime } = await import('./hosted/runtime.js');
-        hostedRuntime = await createHostedRuntime(payload, baseUrl, (message) => bridge.handleSandboxMessage(message), opts.projectKey ?? process.cwd(), ai);
+        const liveHost = opts.liveHost;
+        const fromSandbox = (message: BridgeMessage): void => {
+          liveHost?.outbound(message);
+          bridge.handleSandboxMessage(message);
+        };
+        hostedRuntime = await createHostedRuntime(payload, baseUrl, fromSandbox, opts.projectKey ?? process.cwd(), ai);
         if (closed) throw new Error('The hosted sandbox closed during startup.');
+        const receive = hostedRuntime.receive;
+        const toSandbox = liveHost === undefined ? receive : (message: BridgeMessage): void => {
+          liveHost.inbound(message);
+          receive(message);
+        };
         disconnectHosted = bridge.registerSandboxPeer(
-          hostedRuntime.receive,
+          toSandbox,
           [...hostedRuntime.toolNames],
           hostedRuntime.instanceId,
           [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY, STORAGE_BYTE_ROUTE_CAPABILITY],
@@ -334,14 +355,23 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       // The repro route takes the same guards as a direct command.
       const isHostedMethod = url.pathname === HOSTED_METHOD_PATH || isHostedRepro;
       const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
-      const rejectsClosedRequest = closed && (isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes);
+      const isMountRoute = isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes;
+      // These run admin commands or hand out data, and a client chooses its own
+      // headers, so `allowedHosts` does not open them to another machine.
+      const refusesPeer = isMountRoute && !isLocalPeer(req);
+      if (refusesPeer) {
+        res.writeHead(403, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden: this route answers clients on this machine only' }));
+        return true;
+      }
+      const rejectsClosedRequest = closed && isMountRoute;
       if (rejectsClosedRequest) {
-        res.writeHead(503, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'pyric bridge: mount is closed' }));
+        answerMountClosed(res);
         return true;
       }
       if (isHealthRequest) {
-        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(bridge.health()));
+        const live = opts.liveHost === undefined ? {} : { live: opts.liveHost.report() };
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ...bridge.health(), ...live }));
         return true;
       }
       const requiresControlGuard = isMcpRequest || isHostedMethod;
@@ -412,8 +442,13 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const repro = await runtime.captureRepro(call.projectDir);
           res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(repro));
         } catch (error) {
+          const body = JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
+          if (isBodyTooLarge(error)) {
+            answerAndClose(req, res, 413, { 'content-type': 'application/json' }, body);
+            return true;
+          }
           res.writeHead(400, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+          res.end(body);
         }
         return true;
       }
@@ -440,12 +475,14 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const result = await runtime.runMethod(call, req.socket);
           res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
         } catch (error) {
-          const isError = error instanceof Error;
-          const summary = isError ? error.message : String(error);
-          const exceedsBodyLimit = isError && 'code' in error && error.code === BODY_TOO_LARGE_CODE;
-          const status = exceedsBodyLimit ? 413 : 400;
-          res.writeHead(status, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, summary }));
+          const summary = error instanceof Error ? error.message : String(error);
+          const body = JSON.stringify({ ok: false, summary });
+          if (isBodyTooLarge(error)) {
+            answerAndClose(req, res, 413, { 'content-type': 'application/json' }, body);
+            return true;
+          }
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(body);
         }
         return true;
       }
@@ -538,6 +575,13 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
         const isUnrelatedPath = (req.url ?? '') !== WS_PATH;
         if (isUnrelatedPath) return;
+        // The socket carries admin operations, so it is local whatever the
+        // guard below is configured to allow.
+        const refusesPeer = !isLocalPeer(req);
+        if (refusesPeer) {
+          socket.destroy();
+          return;
+        }
         // DNS-rebinding + cross-origin hijack guard. The static/dev server runs
         // isAllowedHost on the `request` event only; `upgrade` is a separate
         // listener that bypasses it, so re-check both Host and Origin here
@@ -600,11 +644,16 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         if (hasNoCollisionProbe) return;
         const cannotProbe = !currentOrigin?.port || attachmentClosed;
         if (cannotProbe) return;
+        // By default a bounded request, connect included, so a family whose
+        // connect never completes leaves no socket pending past 1 s (#1167).
+        const probeHealth = (url: string): Promise<Response> => {
+          const injected = collision.fetchImpl;
+          if (injected) return injected(url, { signal: AbortSignal.any([collisionAbort.signal, AbortSignal.timeout(1000)]) });
+          return boundedFetch(url, { deadlineMs: 1000, signal: collisionAbort.signal });
+        };
         for (const probe of [`http://127.0.0.1:${currentOrigin.port}`, `http://[::1]:${currentOrigin.port}`]) {
           try {
-            const response = await (collision.fetchImpl ?? fetch)(`${probe}${HEALTH_PATH}`, {
-              signal: AbortSignal.any([collisionAbort.signal, AbortSignal.timeout(1000)]),
-            });
+            const response = await probeHealth(`${probe}${HEALTH_PATH}`);
             if (attachmentClosed) return;
             const isUnavailable = response.status !== 200;
             if (isUnavailable) continue;

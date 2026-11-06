@@ -16,6 +16,7 @@
  */
 export { withDatabaseRulesPreservedOnReset } from "../../database/sandbox/backend-for.js";
 export { getInternalEnv } from './sandbox-impl.js';
+export { authAccountsFor, refreshRefusal, registerAuthAccounts, type AuthAccounts, type AuthAccountStanding, type RefreshRefusalCode } from './auth-accounts.js';
 export type { ToolContext, ToolHandler, ToolParameters, ToolResult } from './tool-handler.js';
 export { decodeImportBundle, validatePersistenceEncoding } from '../persistence/import-bundle.js';
 export { validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from '../persistence/validate-services.js';
@@ -30,13 +31,13 @@ export {
   setInlineStorageLimitForTesting,
   type InlineStorageDocument,
 } from './inline-storage-limit.js';
-export { captureIndexQuery, analyzeIndexQuery, readIndexConfig, type IndexQuery, type IndexFinding } from '../../rules/indexes/query-analysis.js';
-export type { IndexesConfig, IndexesConfigEntry } from '../../rules/indexes/types.js';
+export { captureIndexQuery, analyzeIndexQuery, readIndexConfig, type IndexQuery, type IndexFinding } from '../../indexes/query-analysis.js';
+export type { IndexesConfig, IndexesConfigEntry } from '../../indexes/types.js';
 export {
   analyzeServiceIndex, captureDatabaseIndexQuery, databaseIndexLocations, indexService, isDatabaseIndexQuery,
   type DatabaseIndexQuery, type DatabaseIndexDefinition, type DatabaseIndexConfig,
   type ServiceIndexQuery, type ServiceIndexConfig, type ServiceIndexDefinition, type ServiceIndexFinding,
-} from '../../rules/indexes/service-query.js';
+} from '../../indexes/service-query.js';
 export { observationService, type SdkObservation } from './sdk-observation.js';
 export { runSdkWrite } from './sdk-write-activity.js';
 export { createSdkRates, createSdkRateMonitor, sdkRates } from './sdk-rates.js';
@@ -86,6 +87,22 @@ export {
 } from '../attribution/element-selector.js';
 export { ClockReading, getClock } from '../clock.js';
 export { stampProvenance } from './provenance.js';
+export { CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, type CallerSource } from './caller-source.js';
+export { storageGsPath } from './storage-gs-path.js';
+export { messagingRequestsLine } from './messaging-requests-line.js';
+export {
+  OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, productionVerdict, readObservedCall,
+  type ProductionVerdict,
+} from './observed-call.js';
+export {
+  billedCallKind, billedCallSummary, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, livePassThroughLines, liveProjectOf,
+  readLiveHostStatus,
+  type BilledCallCount, type BilledCallCounter, type BilledCallKind, type LiveHostStatus,
+} from './live-status.js';
+export {
+  LIVE_REFRESH_MS, LIVE_RETRY_MS, LIVE_TRAFFIC_REFRESH_MS, createLiveStatusPoller,
+  type LiveStatusPoller, type LiveStatusTimers, type ReadLiveStatus,
+} from './live-status-poller.js';
 export { bindOperationContext } from '../sandbox-context.js';
 export {
   provenanceForOperationContext,
@@ -184,10 +201,21 @@ export { requestStatusLabel } from '../types/request-observation.js';
 
 export { createActiveListenerState } from '../active-listeners.js';
 export { asSentence } from './sentence.js';
+export { assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS } from './auth-token-claims.js';
 export {
-  accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,
+  accountTokenClaims, idTokenAudience, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,
   type TokenClaimAccount, type TokenClaimRecord,
-} from './auth-token-claims.js';
+} from '../../rules/auth/token-claims.js';
+export { providerVerifiesEmail } from './provider-email-verification.js';
+// Realtime Database replay: re-applies recorded sandbox events to a fresh
+// instance and reports where the replayed tree drifts from the recorded one.
+export { replay, rewoundRtdbTree, rtdbReplaySteps, rtdbStateDrift } from '../../database/replay.js';
+export type {
+  RtdbReplayDivergence,
+  RtdbReplayOptions,
+  RtdbReplayResult,
+  RtdbReplayStep,
+} from '../../database/replay.js';
 export { absolutePhotoUrl, realmOrigin } from './photo-url.js';
 // Realtime Database instance identity: the instance name production and
 // firebase.json use, and the per-instance registry sandbox and served hosts share.
@@ -262,3 +290,35 @@ export {
   type AppCheckTokenParts,
   type MintedAppCheckToken,
 } from './app-check-token.js';
+// The JWT codec and sandbox signer every sandbox token kind shares.
+export {
+  base64url,
+  checkSandboxJwt,
+  encodeJson,
+  JWS_SHAPE,
+  latin1FromBase64url,
+  sandboxSignature,
+  sandboxSignatureSync,
+  signSandboxJwt,
+  signSandboxJwtSync,
+  utf8FromBase64url,
+  type SandboxJwtCheck,
+  type SandboxJwtParts,
+  type SandboxSigningKey,
+} from './sandbox-jwt.js';
+export {
+  checkIdToken, ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint, mintIdToken, signIdToken,
+  TOKEN_REFRESH_BUFFER_MS, type IdTokenCheck,
+} from './id-token.js';
+export { idTokenIssuer, type IdTokenIssuer } from './id-token-issuer.js';
+export {
+  CUSTOM_TOKEN_AUDIENCE, CUSTOM_TOKEN_LIFETIME_SEC, customTokenIssuer, mintCustomToken, readCustomToken,
+  type CustomTokenReading, type CustomTokenRequest, type SandboxCustomToken,
+} from './custom-token.js';
+export {
+  appCheckActivationOf,
+  appCheckTokenFor,
+  recordAppCheckActivation,
+  type AppCheckActivation,
+  type AppCheckTokenOptions,
+} from './app-check-activation.js';

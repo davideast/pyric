@@ -8,8 +8,7 @@
  * events carry its name, and its rules and tree sit under
  * `services.rtdb.instances`.
  */
-import { replay as replayRtdb, type RtdbReplayDivergence } from 'pyric/rules/internal/rtdb';
-import { resolveDatabaseInstance } from 'pyric/sandbox/internal';
+import { replay as replayRtdb, resolveDatabaseInstance, type RtdbReplayDivergence } from 'pyric/sandbox/internal';
 
 import type { PyricVerifyFixture } from './fixture.js';
 

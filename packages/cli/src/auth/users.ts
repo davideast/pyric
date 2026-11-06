@@ -35,6 +35,7 @@ import {
   type CreateUserRequest,
   type UpdateUserRequest,
 } from 'pyric/auth';
+import { mintCustomTokenFor } from 'pyric/auth/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 
 export interface AuthUsersToolDeps {
@@ -108,19 +109,6 @@ export function toUserView(record: AuthUserRecord): AuthUserView {
     createdAt: record.createdAt,
     lastLoginAt: record.lastLoginAt,
   };
-}
-
-/**
- * Mint the custom token the sandbox's `signInWithCustomToken` accepts: the
- * base64url encoding of the `{ uid, claims }` payload a production custom
- * token signs. The sandbox has no signing key, so no signature is attached.
- */
-export function mintSandboxCustomToken(uid: string, claims?: Record<string, unknown>): string {
-  const payload = JSON.stringify(claims ? { uid, claims } : { uid });
-  const bytes = new TextEncoder().encode(payload);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 interface ToolResult {
@@ -473,7 +461,7 @@ export function createAuthUsersTools(deps: AuthUsersToolDeps): ToolHandler[] {
     {
       name: 'auth_custom_token',
       description:
-        "Mint a custom token for a uid that the sandbox's signInWithCustomToken accepts. The sandbox has no signing key, so the token is unsigned and is only good against this sandbox.",
+        "Mint a custom token for a uid that the sandbox's signInWithCustomToken accepts, in firebase-admin's shape for this sandbox's project. It lasts one hour on the sandbox clock and is signed with a sandbox key, so it is only good against this sandbox.",
       parameters: {
         type: 'object',
         properties: {
@@ -496,7 +484,7 @@ export function createAuthUsersTools(deps: AuthUsersToolDeps): ToolHandler[] {
           data: {
             uid,
             claims: claims ?? {},
-            token: mintSandboxCustomToken(uid, claims as Record<string, unknown> | undefined),
+            token: mintCustomTokenFor(await resolveAuth(), uid, claims as Record<string, unknown> | undefined),
           },
         };
       },

@@ -1,6 +1,6 @@
 {
   "name": "@pyric/cli",
-  "version": "0.1.0-alpha.30",
+  "version": "0.1.0-alpha.34",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -80,6 +80,20 @@
       "import": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
+    "./vite/internal/supplied-rows": {
+      "types": "./dist/serve/vite-supplied-entry.d.ts",
+      "node": {
+        "types": "./dist/serve/vite-supplied-entry.d.ts",
+        "import": "./dist/serve/vite-supplied-entry.js"
+      }
+    },
+    "./serve/internal/live-host": {
+      "types": "./dist/serve/live-host.d.ts",
+      "node": {
+        "types": "./dist/serve/live-host.d.ts",
+        "import": "./dist/serve/live-host.js"
+      }
+    },
     "./vite/ssr-loader": {
       "types": "./dist/serve/vite-ssr-loader.d.ts",
       "node": {
@@ -127,6 +141,13 @@
       "node": {
         "types": "./dist/register/app-bridge-app-check.d.ts",
         "import": "./dist/register/app-bridge-app-check.js"
+      }
+    },
+    "./register/internal/supplied-rows": {
+      "types": "./dist/register/supplied-entry.d.ts",
+      "node": {
+        "types": "./dist/register/supplied-entry.d.ts",
+        "import": "./dist/register/supplied-entry.js"
       }
     },
     "./register/client/app": {
@@ -186,6 +207,12 @@
     },
     "./next/internal/app-check": {
       "import": "./dist/serve/entries/app-check.js"
+    },
+    "./next/internal/app-ai-passthrough": {
+      "import": "./dist/serve/entries/app-ai-passthrough.js"
+    },
+    "./next/internal/app-ai-passthrough-app-check": {
+      "import": "./dist/serve/entries/app-ai-passthrough-app-check.js"
     },
     "./next/internal/auth": {
       "import": "./dist/serve/entries/auth.js"
@@ -260,6 +287,7 @@
     "esbuild": "^0.28.0",
     "fake-indexeddb": "^6.0.0",
     "jsonc-parser": "^3.3.1",
+    "minimatch": "6.2.3",
     "pyric": "workspace:*",
     "pyric-admin": "workspace:*",
     "ws": "^8.18.0",
@@ -270,7 +298,7 @@
     "@pyric/conformance": "workspace:*",
     "@types/bun": "1.3.14",
     "@types/ws": "^8.5.0",
-    "firebase": "^12.12.0",
+    "firebase": "^12.19.0",
     "firebase-admin": "^13.0.0",
     "jsdom": "^29.1.1",
     "typescript": "^5.7.0",

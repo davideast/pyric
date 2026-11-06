@@ -3,6 +3,7 @@ import type { EvaluationInput, StorageResource } from './rules.js';
 import { RuleError } from './rules-values.js';
 import { StoragePath } from './rules-path.js';
 import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
+import { typeClaimNumbers } from '../../rules/simulator/rules-int.js';
 
 /**
  * Build the `resource.*` binding from the existing-object record, converting
@@ -59,7 +60,8 @@ export function buildRequestObject(input: EvaluationInput, now: number): Record<
     // Projecting a top-level `tenant` into `token.firebase.tenant` is one
     // cross-surface rule about an identity, not a Storage rules concern, so
     // the sandbox context owns it and every surface reads the same shape.
-    requestAuth = normalizeAuthState(auth);
+    // Claims type as ints by `typeClaimNumbers`, shared with Firestore.
+    requestAuth = typeClaimNumbers(normalizeAuthState(auth));
   }
   const request: Record<string, unknown> = {
     auth: requestAuth,

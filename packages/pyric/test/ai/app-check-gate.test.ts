@@ -1,0 +1,604 @@
+/**
+ * App Check in sandbox AI mode (rows `ai#sandbox-app-check-*` in
+ * packages/conformance/registry/ai.ts). The sandbox broker refuses requests
+ * without a valid App Check token, and the app gets the `AIError` the SDK
+ * throws for that refusal.
+ *
+ * The refusal's expected values come from the current observations, captured
+ * while AI Logic enforcement read `ENFORCED`: the 401 `UNAUTHENTICATED` in
+ * `app-check-ai-gate-wire`, the SDK error in `app-check-client-ai-header`
+ * (`noAppCheck`), and the late initialize shape in
+ * `app-check-client-get-token-before-initialize`. The 403 the sandbox sent
+ * before came from an unenforced project and stays in
+ * `earlier-captures/ai-logic-refusal-unenforced.json` (#1300).
+ */
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { initializeSandbox } from 'pyric/sandbox';
+import { deleteApp } from '../../src/app/index.js';
+import { createAppForSandbox } from '../../src/app/internal.js';
+import type { FirebaseApp } from '../../src/app/types.js';
+import { CustomProvider, getLimitedUseToken, getToken, initializeAppCheck } from '../../src/app-check/index.js';
+import { AIError, VertexAIBackend, getAI, getGenerativeModel } from '../../src/ai/index.js';
+import { AiBroker } from '../../src/ai/broker/broker.js';
+import { AiBrokerError, errorEnvelope } from '../../src/ai/broker/synthesizer.js';
+import type { AnswerEngine } from '../../src/ai/broker/types.js';
+import { createTransportAI } from '../../src/ai/internal.js';
+import { APP_CHECK_HINT, APP_CHECK_REFUSAL_NOTE, APP_CHECK_SERVER_HINT } from '../../src/ai/app-check-gate.js';
+import { mintAppCheckToken, signAppCheckToken } from '../../src/sandbox/internal/app-check-token.js';
+
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'app-check');
+type Behavior = Record<string, any>;
+const obs = (name: string): Behavior =>
+  (JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as { behavior: Behavior }).behavior;
+
+const EARLIER_REFUSAL = join(import.meta.dir, '..', '..', '..', 'conformance', 'earlier-captures', 'ai-logic-refusal-unenforced.json');
+const earlier = (JSON.parse(readFileSync(EARLIER_REFUSAL, 'utf8')) as { captures: Record<string, Behavior> }).captures;
+const earlierGateWire = earlier['app-check-ai-gate-wire']!;
+const gateWire = obs('app-check-ai-gate-wire');
+const aiHeader = obs('app-check-client-ai-header');
+const beforeInitialize = obs('app-check-client-get-token-before-initialize');
+
+const MODEL = 'gemini-flash-lite-latest';
+const OPTIONS = { apiKey: 'demo-api-key', appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4', projectId: 'genkit-idx' };
+const SDK_PLACEHOLDER_TOKEN = Buffer.from(JSON.stringify({ error: 'UNKNOWN_ERROR' })).toString('base64');
+const REQUEST = { contents: [{ role: 'user', parts: [{ text: 'Reply with exactly the word: pyric' }] }] };
+
+const apps: FirebaseApp[] = [];
+let appSeq = 0;
+function newApp(): FirebaseApp {
+  const app = createAppForSandbox(initializeSandbox(), OPTIONS, `app-check-gate-${++appSeq}`);
+  apps.push(app);
+  return app;
+}
+
+/**
+ * A CustomProvider whose tokens the sandbox signs. Bun has no `document`, so a
+ * reCAPTCHA provider throws from initializeAppCheck here, as upstream's does.
+ */
+function withAppCheck(app: FirebaseApp) {
+  const provider = new CustomProvider({ getToken: () => mintAppCheckToken({ appId: OPTIONS.appId, projectId: OPTIONS.projectId }, 3600) });
+  return initializeAppCheck(app, { provider });
+}
+
+let warn: ReturnType<typeof spyOn> | undefined;
+afterEach(async () => {
+  warn?.mockRestore();
+  warn = undefined;
+  delete (globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: unknown }).FIREBASE_APPCHECK_DEBUG_TOKEN;
+  for (const app of apps.splice(0)) await deleteApp(app);
+});
+
+async function rejection(promise: Promise<unknown>): Promise<AIError> {
+  try {
+    await promise;
+  } catch (error) {
+    return error as AIError;
+  }
+  throw new Error('expected the request to be refused');
+}
+
+/** The request URL's `<task>` and query: the SDK's `RequestURL` adds `alt=sse` to a stream (@firebase/ai 2.12.0). */
+function taskAndQuery(op: string): string {
+  return op === 'streamGenerateContent' ? `${op}?alt=sse` : op;
+}
+
+/** The capture's request URL names the oracle project; the sandbox's names project `sandbox`. */
+const CAPTURED_PROJECT = /projects\/[^/]+\//;
+
+/** The SDK error the capture saw, with the sandbox's request URL in place of the oracle project's. */
+function expectCapturedRefusal(error: AIError, op: string): void {
+  const captured = aiHeader.noAppCheck.generation;
+  const expectedMessage = (captured.message as string)
+    .replace(CAPTURED_PROJECT, 'projects/sandbox/')
+    .replace(':generateContent:', `:${taskAndQuery(op)}:`);
+  expect(error).toBeInstanceOf(AIError);
+  expect(error.code).toBe(captured.code);
+  expect(error.message).toBe(expectedMessage);
+  expect(error.customErrorData?.status).toBe(gateWire.noHeader.httpStatus);
+  expect(error.customErrorData?.statusText).toBe('Unauthorized');
+}
+
+describe('ai#sandbox-app-check-required', () => {
+  it('answers what an enforced project answers, not the earlier unenforced project\'s 403 (#1300)', async () => {
+    expect(gateWire.appCheckEnforcementModeAtCapture).toBe('ENFORCED');
+    expect(gateWire.noHeader.httpStatus).toBe(401);
+    expect(gateWire.noHeader.errorStatus).toBe('UNAUTHENTICATED');
+    expect(earlierGateWire.appCheckEnforcementModeAtCapture).toBe('UNENFORCED');
+    expect(earlierGateWire.noHeader.httpStatus).toBe(403);
+    const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
+    const error = await rejection(model.generateContent('ping'));
+    expectCapturedRefusal(error, 'generateContent');
+    expect(error.message).not.toContain(earlierGateWire.noHeader.messageText);
+  });
+
+  it('generateContent from getAI(app) with no App Check rejects with the AIError the SDK throws for the captured 401', async () => {
+    const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
+    expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
+    expect(aiHeader.noAppCheck.responseStatus).toBe(401);
+  });
+
+  it('the guidance says enforcement is set per project and the sandbox plays an enforced one (#1834)', () => {
+    expect(APP_CHECK_REFUSAL_NOTE).toBe(
+      'The sandbox refuses AI Logic requests without an App Check token with a 401, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.',
+    );
+    expect(APP_CHECK_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
+    expect(APP_CHECK_SERVER_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
+  });
+
+  it('the page hint fits the dev server terminal whole', () => {
+    // AI_TERMINAL_TEXT_MAX in packages/cli/src/serve/ai-terminal-text.ts: the
+    // terminal cuts longer text and marks the cut.
+    const terminalTextMax = 512;
+    expect(APP_CHECK_HINT.length).toBeLessThanOrEqual(terminalTextMax);
+  });
+
+  it('the refusal logs pyric guidance once per app beside the SDK error', async () => {
+    warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
+    await rejection(model.generateContent('one'));
+    await rejection(model.generateContent('two'));
+    const hints = warn.mock.calls.filter((call: unknown[]) => String(call[0]).includes(APP_CHECK_SERVER_HINT));
+    expect(hints).toHaveLength(1);
+  });
+
+  it('a server process gets guidance it can follow: the debug token on globalThis beside a CustomProvider, then a minted token (#1639)', async () => {
+    const scope = globalThis as { document?: unknown; WorkerGlobalScope?: unknown };
+    expect(typeof scope.document).toBe('undefined');
+    expect(typeof scope.WorkerGlobalScope).toBe('undefined');
+    warn = spyOn(console, 'warn').mockImplementation(() => {});
+    await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+    const logged = warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n');
+    expect(logged).toContain(`[pyric/ai] ${APP_CHECK_SERVER_HINT}`);
+    const debugStep = logged.indexOf('set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true');
+    const providerStep = logged.indexOf('new CustomProvider({ getToken })');
+    const mintedStep = logged.indexOf("getAppCheck().createToken(appId)");
+    expect(debugStep).toBeGreaterThan(-1);
+    expect(providerStep).toBeGreaterThan(debugStep);
+    expect(mintedStep).toBeGreaterThan(providerStep);
+    expect(logged).toContain('expireTimeMillis: Date.now() + ttlMillis');
+    expect(logged).not.toContain('self.');
+    expect(logged).not.toContain(APP_CHECK_HINT);
+  });
+
+  it('a worker realm, which has WorkerGlobalScope and no document, gets the browser guidance', async () => {
+    const scope = globalThis as { WorkerGlobalScope?: unknown };
+    scope.WorkerGlobalScope = class WorkerGlobalScope {};
+    try {
+      warn = spyOn(console, 'warn').mockImplementation(() => {});
+      await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+      const logged = warn.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(logged).toContain(`[pyric/ai] ${APP_CHECK_HINT}`);
+      expect(logged.join('\n')).not.toContain(APP_CHECK_SERVER_HINT);
+    } finally {
+      delete scope.WorkerGlobalScope;
+    }
+  });
+
+  it('a page, which has a document, gets the browser guidance', async () => {
+    const scope = globalThis as { document?: unknown };
+    scope.document = {};
+    try {
+      warn = spyOn(console, 'warn').mockImplementation(() => {});
+      await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+      const logged = warn.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(logged).toContain(`[pyric/ai] ${APP_CHECK_HINT}`);
+    } finally {
+      delete scope.document;
+    }
+  });
+
+  it('initializeAppCheck then getAI answers', async () => {
+    const app = newApp();
+    withAppCheck(app);
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    const result = await model.generateContent('ping');
+    expect(result.response.candidates?.[0]?.finishReason).toBe(gateWire.validAdminMintedToken.finishReason);
+  });
+
+  it('the debug provider path answers: FIREBASE_APPCHECK_DEBUG_TOKEN = true before initializeAppCheck', async () => {
+    (globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: unknown }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    const app = newApp();
+    withAppCheck(app);
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    expect((await model.generateContent('ping')).response.text().length).toBeGreaterThan(0);
+  });
+
+  it('chat sends are refused the same way', async () => {
+    const chat = getGenerativeModel(getAI(newApp()), { model: MODEL }).startChat();
+    expectCapturedRefusal(await rejection(chat.sendMessage('ping')), 'generateContent');
+  });
+});
+
+describe('app-check#custom-provider-without-debug-token: AI Logic judges the provider token', () => {
+  type ProviderToken = { token: string; expireTimeMillis: number };
+  const hour = () => Date.now() + 3_600_000;
+
+  function customApp(getTokenFromProvider: () => Promise<ProviderToken>) {
+    const counter = { calls: 0 };
+    const app = newApp();
+    const provider = new CustomProvider({
+      getToken: async () => {
+        counter.calls += 1;
+        return getTokenFromProvider();
+      },
+    });
+    initializeAppCheck(app, { provider, isTokenAutoRefreshEnabled: false });
+    return { app, counter };
+  }
+
+  it('a provider token the sandbox signed answers', async () => {
+    const { app, counter } = customApp(() => mintAppCheckToken({ appId: OPTIONS.appId, projectId: OPTIONS.projectId }, 3600));
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    expect((await model.generateContent('ping')).response.text().length).toBeGreaterThan(0);
+    expect(counter.calls).toBe(1);
+  });
+
+  it('a provider token that is not an App Check token is refused', async () => {
+    const { app, counter } = customApp(async () => ({ token: 'not-an-app-check-token', expireTimeMillis: hour() }));
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
+    expectCapturedRefusal(await rejection(model.countTokens('ping')), 'countTokens');
+    expect(counter.calls).toBe(1);
+  });
+
+  it('a provider that rejects sends the SDK placeholder, which is refused', async () => {
+    const { app, counter } = customApp(async () => {
+      throw new Error('attestation failed');
+    });
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
+    expectCapturedRefusal(await rejection(model.generateContentStream('ping')), 'streamGenerateContent');
+    expect(counter.calls).toBe(2);
+  });
+
+  // Upstream getLimitedUseToken has no placeholder: the rejection reaches
+  // makeRequest's catch, which wraps it as AIError('error', 'Error fetching
+  // from <url>: <message>') (@firebase/ai 2.12.0 getHeaders and makeRequest).
+  it('with limited-use tokens, a provider that rejects fails the request with the SDK fetch wrapper', async () => {
+    const attestation = new Error('attestation failed');
+    const { app, counter } = customApp(async () => {
+      throw attestation;
+    });
+    const model = getGenerativeModel(getAI(app, { useLimitedUseAppCheckTokens: true }), { model: MODEL });
+    const ops: Array<[string, Promise<unknown>]> = [
+      ['generateContent', model.generateContent('ping')],
+      ['streamGenerateContent', model.generateContentStream('ping')],
+      ['countTokens', model.countTokens('ping')],
+    ];
+    for (const [op, request] of ops) {
+      const error = await rejection(request);
+      const url = `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${taskAndQuery(op)}`;
+      expect(error).toBeInstanceOf(AIError);
+      expect(error.code).toBe('error');
+      expect(error.message).toBe(`AI: Error fetching from ${url}: attestation failed (AI/error)`);
+      expect(error.customErrorData).toBeUndefined();
+      expect(error.stack).toBe(attestation.stack);
+    }
+    expect(counter.calls).toBe(3);
+  });
+
+  it('with limited-use tokens, a provider that rejects with an AbortError passes it through, as makeRequest does', async () => {
+    const abort = new DOMException('stopped', 'AbortError');
+    const { app } = customApp(async () => {
+      throw abort;
+    });
+    const model = getGenerativeModel(getAI(app, { useLimitedUseAppCheckTokens: true }), { model: MODEL });
+    const error: unknown = await rejection(model.generateContent('ping'));
+    expect(error).toBe(abort);
+  });
+
+  it('a transport handle carries the provider token as given', async () => {
+    // The worker bridge carries this claim to the worker's broker, which gates it.
+    const claims: Array<string | null> = [];
+    const recording: AnswerEngine = {
+      async generateContent(_req, _model, appCheckClaim) {
+        claims.push(appCheckClaim?.token ?? null);
+        return { candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'pyric' }] }, finishReason: 'STOP' }] };
+      },
+      streamGenerateContent() {
+        return (async function* none() {})();
+      },
+      async countTokens() {
+        return { totalTokens: 1, promptTokensDetails: [] };
+      },
+    };
+    const { app: invalid } = customApp(async () => ({ token: 'not-an-app-check-token', expireTimeMillis: hour() }));
+    const { app: failing } = customApp(async () => {
+      throw new Error('attestation failed');
+    });
+    await getGenerativeModel(createTransportAI(invalid, undefined, recording), { model: MODEL }).generateContent('ping');
+    await getGenerativeModel(createTransportAI(failing, undefined, recording), { model: MODEL }).generateContent('ping');
+    expect(claims).toEqual(['not-an-app-check-token', SDK_PLACEHOLDER_TOKEN]);
+  });
+
+  it('under a debug token the provider is never called', async () => {
+    (globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: unknown }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    const { app, counter } = customApp(async () => {
+      throw new Error('not called');
+    });
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    expect((await model.generateContent('ping')).response.text().length).toBeGreaterThan(0);
+    expect(counter.calls).toBe(0);
+  });
+});
+
+// The SDK's `RequestURL` builds the Vertex AI path from
+// `VertexAIBackend._getModelPath`, `/v1beta/projects/<project>/locations/<location>/<model>`
+// with `<model>` = `publishers/google/models/<name>`, and adds `alt=sse` to a
+// stream (@firebase/ai 2.12.0). The sandbox's error URL keeps project `sandbox`.
+describe('ai#sandbox-app-check-required: the error URL follows the handle backend (#1640)', () => {
+  const vertexUrl = (location: string, op: string) =>
+    `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/locations/${location}/publishers/google/models/${MODEL}:${taskAndQuery(op)}`;
+  const gate = `[401 Unauthorized] ${aiHeader.noAppCheck.generation.message.split('[401 Unauthorized] ')[1]}`;
+
+  it('a Vertex AI sandbox handle names the Vertex AI path, and a stream adds alt=sse', async () => {
+    const model = getGenerativeModel(getAI(newApp(), { backend: new VertexAIBackend('europe-west4') }), { model: MODEL });
+    const ops: Array<[string, Promise<unknown>]> = [
+      ['generateContent', model.generateContent('ping')],
+      ['streamGenerateContent', model.generateContentStream('ping')],
+      ['countTokens', model.countTokens('ping')],
+    ];
+    for (const [op, request] of ops) {
+      const error = await rejection(request);
+      expect(error.message).toBe(`AI: Error fetching from ${vertexUrl('europe-west4', op)}: ${gate}`);
+    }
+  });
+
+  it('a Vertex AI handle with no location names us-central1, as the SDK defaults it', async () => {
+    const model = getGenerativeModel(getAI(newApp(), { backend: new VertexAIBackend() }), { model: MODEL });
+    const error = await rejection(model.generateContent('ping'));
+    expect(error.message).toBe(`AI: Error fetching from ${vertexUrl('us-central1', 'generateContent')}: ${gate}`);
+  });
+
+  it('a Vertex AI transport handle translates a broker envelope with the Vertex AI path', async () => {
+    const refused = () => new AiBrokerError(errorEnvelope(503, 'overloaded', 'UNAVAILABLE'));
+    const failing: AnswerEngine = {
+      async generateContent() {
+        throw refused();
+      },
+      streamGenerateContent() {
+        return (async function* fails() {
+          throw refused();
+        })();
+      },
+      async countTokens() {
+        throw refused();
+      },
+    };
+    const ai = createTransportAI(newApp(), { backend: new VertexAIBackend('asia-northeast1') }, failing);
+    const model = getGenerativeModel(ai, { model: MODEL });
+    const unary = await rejection(model.generateContent('ping'));
+    expect(unary.message).toBe(`AI: Error fetching from ${vertexUrl('asia-northeast1', 'generateContent')}: [503 Service Unavailable] overloaded (AI/fetch-error)`);
+    const stream = await rejection(model.generateContentStream('ping').then((result) => result.response));
+    expect(stream.message).toBe(`AI: Error fetching from ${vertexUrl('asia-northeast1', 'streamGenerateContent')}: [503 Service Unavailable] overloaded (AI/fetch-error)`);
+  });
+
+  it('with limited-use tokens on Vertex AI, a provider that rejects names the Vertex AI path', async () => {
+    const app = newApp();
+    initializeAppCheck(app, {
+      provider: new CustomProvider({
+        getToken: async () => {
+          throw new Error('attestation failed');
+        },
+      }),
+      isTokenAutoRefreshEnabled: false,
+    });
+    const ai = getAI(app, { backend: new VertexAIBackend('us-east4'), useLimitedUseAppCheckTokens: true });
+    const error = await rejection(getGenerativeModel(ai, { model: MODEL }).generateContentStream('ping').then((result) => result.response));
+    expect(error.message).toBe(`AI: Error fetching from ${vertexUrl('us-east4', 'streamGenerateContent')}: attestation failed (AI/error)`);
+  });
+});
+
+describe('ai#sandbox-app-check-initialize-after-getai', () => {
+  it('getAI then initializeAppCheck is refused, though getToken works', async () => {
+    const app = newApp();
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    const appCheck = withAppCheck(app);
+    expect(beforeInitialize.initializeAfterAi.threw).toBe(false);
+    expect((await getToken(appCheck)).token.split('.')).toHaveLength(beforeInitialize.getTokenAfterLateInitialize.token.segmentCount);
+    const error = await rejection(model.generateContent('ping'));
+    expect(beforeInitialize.aiRequestAfterLateInitialize.appCheckHeaderPresent).toBe(false);
+    expect(beforeInitialize.aiRequestAfterLateInitialize.responseStatus).toBe(gateWire.noHeader.httpStatus);
+    expect(error.code).toBe(beforeInitialize.aiGenerationAfterLateInitialize.code);
+    expect(error.message).toBe(
+      (beforeInitialize.aiGenerationAfterLateInitialize.message as string).replace(CAPTURED_PROJECT, 'projects/sandbox/'),
+    );
+  });
+});
+
+describe('ai#sandbox-app-check-limited-use', () => {
+  it('a limited-use token lives as long as the capture records, and the cached token is unchanged', async () => {
+    (globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: unknown }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    const appCheck = withAppCheck(newApp());
+    const ttl = (token: string): number => {
+      const claims = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as { exp: number; iat: number };
+      return claims.exp - claims.iat;
+    };
+    expect(ttl((await getLimitedUseToken(appCheck)).token)).toBe(aiHeader.limitedUseModel.appCheckHeaderShape.ttlSeconds);
+    expect(ttl((await getToken(appCheck)).token)).toBe(aiHeader.appCheckInitialized.appCheckHeaderShape.ttlSeconds);
+  });
+
+  it('with useLimitedUseAppCheckTokens each request answers with a fresh limited-use token', async () => {
+    const app = newApp();
+    const appCheck = withAppCheck(app);
+    const cached = (await getToken(appCheck)).token;
+    const claims: Array<string | null> = [];
+    const recording: AnswerEngine = {
+      async generateContent(_req, _model, appCheckClaim) {
+        claims.push(appCheckClaim?.token ?? null);
+        return { candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'pyric' }] }, finishReason: 'STOP' }] };
+      },
+      streamGenerateContent() {
+        return (async function* none() {})();
+      },
+      async countTokens() {
+        return { totalTokens: 1, promptTokensDetails: [] };
+      },
+    };
+    const ai = createTransportAI(app, { useLimitedUseAppCheckTokens: true }, recording);
+    const model = getGenerativeModel(ai, { model: MODEL });
+    await model.generateContent('one');
+    await model.generateContent('two');
+    expect(aiHeader.limitedUseModel.headerTokenIsNewLimitedUse).toBe(true);
+    expect(aiHeader.limitedUseModel.appCheckHeaderEquals.limitedUseAppCachedGetToken).toBe(false);
+    expect(claims).toHaveLength(2);
+    expect(claims[0]).not.toBe(claims[1]);
+    expect(claims).not.toContain(cached);
+    expect(claims).not.toContain(null);
+    // Sanity: limited-use tokens are what getLimitedUseToken returns, shape for shape.
+    expect(claims[0]!.split('.')).toHaveLength((await getLimitedUseToken(appCheck)).token.split('.').length);
+  });
+
+  it('a limited-use sandbox handle answers', async () => {
+    const app = newApp();
+    withAppCheck(app);
+    const model = getGenerativeModel(getAI(app, { useLimitedUseAppCheckTokens: true }), { model: MODEL });
+    expect((await model.generateContent('ping')).response.candidates?.length).toBeGreaterThan(0);
+  });
+
+  it('a transport handle sends no token when the app has no App Check', async () => {
+    const claims: unknown[] = [];
+    const recording = {
+      async generateContent(_req: unknown, _model: string, appCheck: unknown) {
+        claims.push(appCheck);
+        throw new Error('stop');
+      },
+    } as unknown as AnswerEngine;
+    const model = getGenerativeModel(createTransportAI(newApp(), undefined, recording), { model: MODEL });
+    await rejection(model.generateContent('ping'));
+    expect(claims).toEqual([{ token: null }]);
+  });
+});
+
+describe('ai#sandbox-app-check-stream-and-count-tokens', () => {
+  it('generateContentStream rejects before any chunk, as the SDK does for a 401', async () => {
+    const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
+    expectCapturedRefusal(await rejection(model.generateContentStream('ping')), 'streamGenerateContent');
+  });
+
+  it('a malformed request with a valid token still rejects at the call on the in-process plane', async () => {
+    const app = newApp();
+    withAppCheck(app);
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    const error = await rejection(model.generateContentStream({ contents: [] }));
+    expect(error).toBeInstanceOf(AIError);
+    expect(error.customErrorData?.status).not.toBe(gateWire.noHeader.httpStatus);
+  });
+
+  it('countTokens rejects the same way', async () => {
+    const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
+    expectCapturedRefusal(await rejection(model.countTokens('ping')), 'countTokens');
+  });
+
+  it('stream and countTokens answer with App Check initialized first', async () => {
+    const app = newApp();
+    withAppCheck(app);
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    const streamed = await model.generateContentStream('ping');
+    expect((await streamed.response).candidates?.length).toBeGreaterThan(0);
+    expect((await model.countTokens('ping')).totalTokens).toBeGreaterThan(0);
+  });
+});
+
+describe('the broker gate', () => {
+  const refusals = ['noHeader', 'malformedHeader', 'sdkPlaceholderToken', 'tamperedSignature'] as const;
+
+  async function tokenFor(kind: (typeof refusals)[number] | 'expired'): Promise<string | null> {
+    const valid = (await mintAppCheckToken(OPTIONS, 3600)).token;
+    switch (kind) {
+      case 'noHeader': return null;
+      case 'malformedHeader': return 'not-a-token';
+      case 'sdkPlaceholderToken': return SDK_PLACEHOLDER_TOKEN;
+      case 'tamperedSignature': {
+        const last = valid.at(-1) === 'A' ? 'B' : 'A';
+        return `${valid.slice(0, -1)}${last}`;
+      }
+      case 'expired': {
+        const now = Math.floor(Date.now() / 1000);
+        return signAppCheckToken({ alg: 'RS256', kid: 'pyric-sandbox', typ: 'JWT' }, {
+          sub: OPTIONS.appId, aud: [], provider: 'pyric-sandbox', iss: 'x', iat: now - 7200, exp: now - 3600, jti: 'expired',
+        });
+      }
+    }
+  }
+
+  for (const kind of [...refusals, 'expired'] as const) {
+    it(`refuses a ${kind} token with the captured envelope, before any engine runs`, async () => {
+      let engineCalls = 0;
+      const broker = new AiBroker({
+        engine: {
+          async generateContent() { engineCalls++; return { candidates: [] }; },
+          streamGenerateContent() { engineCalls++; return (async function* none() {})(); },
+          async countTokens() { engineCalls++; return { totalTokens: 0, promptTokensDetails: [] }; },
+        },
+      });
+      const token = await tokenFor(kind);
+      const expected = kind === 'expired' ? gateWire.noHeader.raw : gateWire[kind].raw;
+      const error = await broker.generateContent(REQUEST, `models/${MODEL}`, { token }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(AiBrokerError);
+      expect((error as AiBrokerError).envelope).toEqual(expected);
+      const counted = await broker.countTokens(REQUEST, `models/${MODEL}`, { token }).catch((e: unknown) => e);
+      expect((counted as AiBrokerError).envelope).toEqual(expected);
+      const streamed = await (async () => {
+        for await (const _chunk of broker.streamGenerateContent(REQUEST, `models/${MODEL}`, { token })) { /* none */ }
+      })().catch((e: unknown) => e);
+      expect((streamed as AiBrokerError).envelope).toEqual(expected);
+      expect(engineCalls).toBe(0);
+    });
+  }
+
+  it('admits a valid sandbox token, whichever plane minted it', async () => {
+    const broker = new AiBroker();
+    const token = (await mintAppCheckToken(OPTIONS, 3600)).token;
+    const response = await broker.generateContent(REQUEST, `models/${MODEL}`, { token });
+    expect(response.candidates?.[0]?.finishReason).toBe(gateWire.validAdminMintedToken.finishReason);
+  });
+
+  it('the refusal event carries pyric guidance beside production message', async () => {
+    const sandbox = initializeSandbox();
+    const events: Array<Record<string, unknown>> = [];
+    sandbox.onEvent((event) => {
+      if (event.kind === 'service_mutation' && event.service === 'ai') events.push(event.detail as Record<string, unknown>);
+    });
+    const broker = new AiBroker({ sandbox });
+    await broker.generateContent(REQUEST, `models/${MODEL}`, { token: null }).catch(() => undefined);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ code: gateWire.noHeader.errorCode, status: gateWire.noHeader.errorStatus, message: gateWire.noHeader.messageText, hint: APP_CHECK_HINT });
+  });
+
+  it('a stream with no token and a malformed request gets the 401, as generateContent does', async () => {
+    const malformed = { contents: [] };
+    const model = `models/${MODEL}`;
+    const broker = new AiBroker();
+    const code = async (run: () => Promise<unknown>): Promise<number> => {
+      try {
+        await run();
+      } catch (error) {
+        return (error as AiBrokerError).envelope.error.code;
+      }
+      throw new Error('expected a refusal');
+    };
+    const stream = () => (async () => {
+      for await (const _chunk of broker.streamGenerateContent(malformed, model, { token: null })) { /* none */ }
+    })();
+    const refused = gateWire.noHeader.httpStatus;
+    expect(await code(stream)).toBe(refused);
+    expect(await code(() => broker.generateContent(malformed, model, { token: null }))).toBe(refused);
+    expect(await code(() => broker.countTokens(malformed, model, { token: null }))).toBe(refused);
+  });
+});
+
+describe('handles with no app', () => {
+  it('getAI(sandbox) is not gated', async () => {
+    const model = getGenerativeModel(getAI(initializeSandbox()), { model: MODEL });
+    expect((await model.generateContent('ping')).response.candidates?.length).toBeGreaterThan(0);
+    expect((await model.countTokens('ping')).totalTokens).toBeGreaterThan(0);
+  });
+
+  it('a broker request with no claim is not gated', async () => {
+    const response = await new AiBroker().generateContent(REQUEST, `models/${MODEL}`);
+    expect(response.candidates?.length).toBeGreaterThan(0);
+  });
+});

@@ -95,3 +95,5 @@ export function onMessage(
 }
 
 export const isSupported = inPage.isSupported;
+
+export * from './unsupported/messaging.js';

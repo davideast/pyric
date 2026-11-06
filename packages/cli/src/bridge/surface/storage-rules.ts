@@ -11,7 +11,7 @@
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getStorageRulesResolution } from 'pyric/storage/internal';
 import { storageFor } from './service-handles.js';
-import type { SurfaceContext } from './types.js';
+import type { SandboxSurfaceContext } from './types.js';
 
 /**
  * A project's storage rules source that could not be loaded into the service
@@ -29,7 +29,7 @@ export function rememberUnloadedStorageRules(sandbox: LocalSandbox, source: stri
  * The storage rules source in force, or the project source that failed to
  * load, or null when the service was opened without rules.
  */
-export function activeStorageRules(ctx: SurfaceContext): string | null {
+export function activeStorageRules(ctx: SandboxSurfaceContext): string | null {
   const loaded = getStorageRulesResolution(storageFor(ctx))?.source;
   if (loaded !== undefined) return loaded;
   return unloadedStorageRules.get(ctx.sandbox) ?? null;

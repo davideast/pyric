@@ -7,8 +7,8 @@
  * here.
  */
 
-import { validateReferencePath, validateUpdatePaths, validateWritablePath } from '../../database/writable-path.js';
-import { jsonEqual } from '../../sandbox/branches/state-diff.js';
+import { validateReferencePath, validateUpdatePaths, validateWritablePath } from '../rtdb/data/writable-path.js';
+import { jsonEqual } from '../rtdb/data/json-equal.js';
 import { simulationQueryProblem } from '../rtdb/simulation/spec.js';
 import { thrownMessage } from '../rtdb/simulation/thrown-message.js';
 import type { RtdbCase } from './case-types.js';

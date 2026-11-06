@@ -15,6 +15,7 @@
  * highest-consequence category present.
  */
 
+import { callerSource, callerSourceLabelOutsidePage, type CallerSource } from 'pyric/sandbox/internal';
 import type {
   ActivityActor,
   ActivityEvent,
@@ -90,6 +91,10 @@ export interface ActivityRow {
   when: string;
 
   // ── Structured provenance (for styling / pivots / drill) ───────────
+  /** The connection the op came from, `unknown` when no host stamped one. */
+  source: CallerSource;
+  /** `source` as a row label: `App page`, `Server (admin)`, `MCP`, … */
+  sourceLabel: string;
   actor: ActivityActor;
   authLens: ActivityLens;
   /** The on-behalf-of subject uid, structured (mirrors `for`). */
@@ -114,7 +119,7 @@ export interface ActivityBand {
   /** Total rows in the band (== `rows.length`; explicit for the header). */
   count: number;
   /** A short attribution phrase when the band has a dominant actor /
-   *  subject (`all by alice`, `by the app`, `by agent atlas`). Absent
+   *  subject (`all by alice`, `by Server (admin)`, `by agent atlas`). Absent
    *  when attribution is mixed — the header then shows just the count. */
   attribution?: string;
   rows: ActivityRow[];
@@ -211,7 +216,7 @@ function lastSegment(path: string): string {
 }
 
 function defaultActor(actor: ActivityActor | undefined): ActivityActor {
-  return actor ?? { kind: 'app' };
+  return actor ?? { kind: 'unattributed' };
 }
 
 function defaultLens(lens: ActivityLens | undefined): ActivityLens {
@@ -229,17 +234,17 @@ function lensLabel(lens: ActivityLens): string {
   }
 }
 
-function actorLabel(actor: ActivityActor): string {
-  switch (actor.kind) {
-    case 'app':
-      return 'the app';
-    case 'studio':
-      return 'studio';
-    case 'app-builder':
-      return 'the app builder';
-    case 'agent':
-      return `agent ${actor.name}`;
-  }
+/**
+ * The name a band is attributed to, or undefined when the row's actor says
+ * nothing a reader can act on. An agent and the app builder name themselves;
+ * every other actor is named by the connection its op came from, and an op
+ * no host stamped is not attributed at all.
+ */
+function attributionLabel(row: ActivityRow): string | undefined {
+  if (row.actor.kind === 'agent') return `agent ${row.actor.name}`;
+  if (row.actor.kind === 'app-builder') return 'the app builder';
+  if (row.actor.kind === 'studio') return 'Studio';
+  return row.source === 'unknown' ? undefined : row.sourceLabel;
 }
 
 /** A stable identity key for an actor (for attribution counting). */
@@ -469,6 +474,7 @@ function toRow(e: ActivityEvent, now: number): ActivityRow {
   const { band, change, subjectUid } = project(e);
   const actor = defaultActor(e.actor);
   const authLens = defaultLens(e.authLens);
+  const source = callerSource(e.caller);
   const row: ActivityRow = {
     id: e.id,
     at: e.at,
@@ -480,6 +486,8 @@ function toRow(e: ActivityEvent, now: number): ActivityRow {
     for: subjectUid ?? '',
     lens: lensLabel(authLens),
     when: relativeWhen(e.at, now),
+    source,
+    sourceLabel: callerSourceLabelOutsidePage(source),
     actor,
     authLens,
     subjectUid,
@@ -509,7 +517,7 @@ function groupKeyFor(row: ActivityRow, by: ActivityGroupBy): string {
 
 /**
  * Compute the band attribution phrase: when one actor OR one subject
- * dominates the band, say so ("all by alice", "by the app"). Mixed ⇒
+ * dominates the band, say so ("all by alice", "by Server (admin)"). Mixed ⇒
  * undefined (header shows just the count).
  */
 function attributionFor(rows: ActivityRow[]): string | undefined {
@@ -524,13 +532,11 @@ function attributionFor(rows: ActivityRow[]): string | undefined {
     return rows.length > 1 ? `all by ${only}` : `by ${only}`;
   }
 
-  // Actor dominance ("by the app", "by agent atlas").
-  const actors = new Set<string>();
-  for (const r of rows) actors.add(actorKey(r.actor));
-  if (actors.size === 1) {
-    return `by ${actorLabel(rows[0].actor)}`;
-  }
-  return undefined;
+  // Actor dominance ("by Server (admin)", "by agent atlas").
+  const names = new Set(rows.map(attributionLabel));
+  const [only] = names;
+  const isOneNamed = names.size === 1 && only !== undefined;
+  return isOneNamed ? `by ${only}` : undefined;
 }
 
 export interface ActivitySubgroup {

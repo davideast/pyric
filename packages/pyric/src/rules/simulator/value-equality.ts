@@ -1,7 +1,7 @@
 import { FirestoreSet } from './firestore-set.js';
 import { isRulesMap } from './rules-type.js';
 import { RulesValue } from './wrappers/base.js';
-import { RulesFloat } from './wrappers/float.js';
+import { rulesFloatValue, rulesInt } from './rules-int.js';
 
 /**
  * Rules value equality, shared by the Firestore simulator and the Storage
@@ -19,11 +19,15 @@ import { RulesFloat } from './wrappers/float.js';
  *   `1.0 in [1]` is false while `-0.0 in [0.0]` is true; a List or Map
  *   element compares as `==` compares it.
  * - `setElementsEqual` is how a Set and a map diff compare values: numbers
- *   by value at every depth, with NaN matching NaN, so `[1, 1.0].toSet()`,
+ *   by exact value at every depth, with NaN matching NaN, so `[1, 1.0].toSet()`,
  *   `[[1], [1.0]].toSet()` and `[NaN, NaN].toSet()` each have one element
- *   and `{'a': 1}.diff({'a': 1.0})` changes nothing.
+ *   and `{'a': 1}.diff({'a': 1.0})` changes nothing. An int and a float
+ *   match only when the float holds that exact int, so past 2^53
+ *   `9007199254740993 in [9007199254740992.0].toSet()` is false, where
+ *   `9007199254740993 == 9007199254740992.0` is true.
  *
- * An int is a bare integral number and a float a `RulesFloat` or a bare
+ * An int is a bigint or a bare integral number (`rules-int.ts`), and two
+ * ints compare exactly, above 2^53 too. A float is a `RulesFloat` or a bare
  * number with a fraction. Timestamp, Duration, Bytes and other wrappers own
  * their equality; Map key order never matters. Corpus scenarios
  * `cross-type-operator-overloads`, `list-methods-concat-removeall-toset`,
@@ -33,20 +37,20 @@ import { RulesFloat } from './wrappers/float.js';
  * record production's verdicts, which are the same in both services.
  */
 export function rulesValuesEqual(a: unknown, b: unknown): boolean {
-  return valuesEqual(a, b, (l, r) => l.value === r.value, identical);
+  return valuesEqual(a, b, sameValue, identical);
 }
 
 /** List membership: numbers match by numeric type and value. See `rulesValuesEqual`. */
 export function listElementsEqual(a: unknown, b: unknown): boolean {
-  return valuesEqual(a, b, (l, r) => l.float === r.float && l.value === r.value, identical);
+  return valuesEqual(a, b, (l, r) => l.float === r.float && sameValue(l, r), identical);
 }
 
-/** Set and map diff comparison: numbers by value at every depth, NaN matching NaN. See `rulesValuesEqual`. */
+/** Set and map diff comparison: numbers by exact value at every depth, NaN matching NaN. See `rulesValuesEqual`. */
 export function setElementsEqual(a: unknown, b: unknown): boolean {
   return valuesEqual(
     a,
     b,
-    (l, r) => l.value === r.value || (Number.isNaN(l.value) && Number.isNaN(r.value)),
+    (l, r) => sameExactValue(l, r) || (Number.isNaN(l.value) && Number.isNaN(r.value)),
     setElementsEqual,
   );
 }
@@ -56,20 +60,52 @@ function identical(a: unknown, b: unknown): boolean {
   return valuesEqual(
     a,
     b,
-    (l, r) => l.float === r.float && l.value === r.value && Object.is(l.value, r.value),
+    (l, r) => l.float === r.float && sameValue(l, r) && Object.is(l.value, r.value),
     identical,
   );
 }
 
+/**
+ * A number as equality reads it. `int` holds an int's exact value, so two
+ * ints compare every bit, above 2^53 too; `value` is the double that an int
+ * and a float compare by.
+ */
 interface RulesNumber {
   value: number;
+  int?: bigint;
   float: boolean;
 }
 
 function rulesNumber(value: unknown): RulesNumber | undefined {
-  if (value instanceof RulesFloat) return { value: value.value, float: true };
-  if (typeof value === 'number') return { value, float: !Number.isInteger(value) };
-  return undefined;
+  const int = rulesInt(value);
+  if (int !== undefined) return { value: Number(int), int, float: false };
+  const float = rulesFloatValue(value);
+  return float === undefined ? undefined : { value: float, float: true };
+}
+
+/** Two numbers by value: two ints exactly, an int and a float as doubles. */
+function sameValue(left: RulesNumber, right: RulesNumber): boolean {
+  if (left.int !== undefined && right.int !== undefined) return left.int === right.int;
+  return left.value === right.value;
+}
+
+/**
+ * Two numbers by exact value: an int and a float are equal only when the
+ * float is the int itself, so an int past 2^53 never matches the double it
+ * rounds to (#1893, captures `c2-numbers` `eq7` and `eq8`,
+ * `c3-mixed-number-collections` `b6`).
+ */
+function sameExactValue(left: RulesNumber, right: RulesNumber): boolean {
+  const bothInts = left.int !== undefined && right.int !== undefined;
+  const bothFloats = left.int === undefined && right.int === undefined;
+  if (bothInts || bothFloats) return sameValue(left, right);
+  if (left.int !== undefined) return intIsFloat(left.int, right.value);
+  return right.int !== undefined && intIsFloat(right.int, left.value);
+}
+
+/** True when `float` is exactly `int`: finite, integral and the same integer. */
+function intIsFloat(int: bigint, float: number): boolean {
+  return Number.isInteger(float) && BigInt(float) === int;
 }
 
 function valuesEqual(

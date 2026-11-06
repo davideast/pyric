@@ -5,8 +5,8 @@
     "firestore#MD4"
   ],
   "description": "Deployed rules on the named database `probes` that get() and exists() run-scoped documents in `(default)`, read through the client SDK (no sign-in). The same path holds { v: 'default' } in (default) and { v: 'probes' } in probes; only/default exists only in (default) and only/probes only in probes. Each case is a get of one literal document under t/ whose rule is the case's condition.",
-  "observedAt": "2026-10-28T11:06:22.294Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-11-02T18:24:08.405Z",
+  "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "method": "Snapshot cloud.firestore/probes; merge the block from rulesBlock() into its ruleset after the documents match; seed with the Admin SDK; wait until control-true is allowed, then 30 s; read each case 3 times with getDoc(doc(getFirestore(app, 'probes'), path)); restore the release, read it back, delete the C2 ruleset and every seeded document. packages/conformance/src/capture-firestore-named-databases-deployed.ts.",
@@ -89,7 +89,7 @@
     "restoration": {
       "restoredTo": "projects/digame-mas/rulesets/43c902d3-cad2-40ca-922c-9ad6968e85dc",
       "matchesSnapshot": true,
-      "createdRuleset": "projects/digame-mas/rulesets/fe70e0da-4152-470f-9dd6-d1763210bb5a",
+      "createdRuleset": "projects/digame-mas/rulesets/55757208-ec38-40aa-83bf-b7af2ea89212",
       "rulesetDeleted": true
     },
     "cleanupLeft": []

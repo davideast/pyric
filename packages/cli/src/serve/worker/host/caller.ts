@@ -1,0 +1,129 @@
+/**
+ * Which connection sent a frame, stamped onto the events its operation emits.
+ *
+ * Both hosts call `handleMessage` for every frame: the SharedWorker for each
+ * page port and each bridge relay, and the Node host for each admitted socket.
+ * `handleMessage` reads the caller here, from the port and the frame's relay
+ * marks, and binds it to the frame before dispatch. `opProvenance` then
+ * carries it into the synchronous provenance window and into the
+ * operation-scoped Storage handles, so it reaches events emitted after an
+ * await as well.
+ *
+ * A page is named by the tab id it declared in its `appConfig`, or else by
+ * its activity journey id, the per-port id the activity monitor already keys
+ * pages by. The host hands each page that id on its event subscription. A
+ * service worker has no tab, so its `appConfig` declares the service worker
+ * realm in place of a tab id, and its events name it `service-worker`.
+ *
+ * A page or service worker also names its client in `appConfig`: the browser
+ * profile's id, or the service worker realm's. A Node process is one
+ * connection, so its client id is its port's activity journey id, whatever
+ * its `appConfig` says.
+ */
+import type { EventCaller } from 'pyric/sandbox';
+import type { InboundMessage } from '../protocol.js';
+import { activityJourneyId, type HostCtx, type PortLike } from '../host-context.js';
+
+/**
+ * What a host admitted a port as. Unmarked ports are pages: every port the
+ * SharedWorker accepts directly is a tab. `node` is a Node host socket from a
+ * server process using the client SDK; `relay` is a bridge relay's session.
+ */
+export type PortConnection = 'page' | 'node' | 'relay';
+
+const CALLER = Symbol('pyric.host.caller');
+
+type CallerBound = { [CALLER]?: EventCaller };
+
+/** Record what `port` carries, when it is not a page. */
+export function markPortConnection(ctx: HostCtx, port: PortLike, connection: PortConnection): void {
+  (ctx.portConnections ??= new WeakMap()).set(port, connection);
+}
+
+function isPagePort(ctx: HostCtx, port: PortLike): boolean {
+  const connection = ctx.portConnections?.get(port);
+  return connection === undefined || connection === 'page';
+}
+
+function isServiceWorkerPort(ctx: HostCtx, port: PortLike): boolean {
+  return isPagePort(ctx, port) && ctx.portTabIds?.get(port) === SERVICE_WORKER_TAB_ID;
+}
+
+/**
+ * The tab id a service worker's `appConfig` declares: its realm, since it has
+ * no tab. A label like any tab id, never an authority.
+ */
+export const SERVICE_WORKER_TAB_ID = 'service-worker';
+
+/** The longest tab id or client id a port may declare; a longer one is not kept. */
+const MAX_LABEL_LENGTH = 64;
+
+function isUsableLabel(label: string): boolean {
+  return label !== '' && label.length <= MAX_LABEL_LENGTH;
+}
+
+/** Record the tab id a page declared in its `appConfig`. */
+export function setPortTabId(ctx: HostCtx, port: PortLike, tabId: string): void {
+  if (isUsableLabel(tabId)) (ctx.portTabIds ??= new WeakMap()).set(port, tabId);
+}
+
+/** The client id each page or service worker port declared in its `appConfig`. */
+const portClientIds = new WeakMap<PortLike, string>();
+
+/** Record the client id a page or service worker declared in its `appConfig`. */
+export function setPortClientId(port: PortLike, clientId: string): void {
+  if (isUsableLabel(clientId)) portClientIds.set(port, clientId);
+}
+
+/** `caller` with the client id `port` declared, when it declared one. */
+function withDeclaredClientId(port: PortLike, caller: EventCaller): EventCaller {
+  const clientId = portClientIds.get(port);
+  return clientId === undefined ? caller : { ...caller, clientId };
+}
+
+/**
+ * The id this host gives the page on `port`: the tab id the page declared,
+ * so every port of a tab and every reload of it share one, or else the
+ * port's own activity journey id. Undefined when the port is not a page,
+ * including a service worker's.
+ */
+export function pageIdFor(ctx: HostCtx, port: PortLike): string | undefined {
+  const isPage = isPagePort(ctx, port) && !isServiceWorkerPort(ctx, port);
+  if (!isPage) return undefined;
+  return ctx.portTabIds?.get(port) ?? activityJourneyId(ctx, port);
+}
+
+/**
+ * The caller of one inbound frame. A relayed frame is server admin code unless
+ * it names a lens other than admin; a tool frame is an MCP call; a frame
+ * Studio declared is Studio's; a port that declared the service worker realm
+ * is the service worker's.
+ */
+export function callerFor(ctx: HostCtx, port: PortLike, msg: InboundMessage): EventCaller {
+  const marks = msg as { issuer?: 'studio'; relaySource?: 'remote'; clientSessionId?: string; actAs?: { mode: string } };
+  if (marks.issuer === 'studio') return { kind: 'studio' };
+  if (msg.t === 'tool') return { kind: 'mcp' };
+  const isRelayed = marks.relaySource === 'remote' || Boolean(marks.clientSessionId);
+  if (isRelayed) {
+    const namesClientLens = marks.actAs !== undefined && marks.actAs.mode !== 'admin';
+    return namesClientLens ? { kind: 'node' } : { kind: 'admin' };
+  }
+  if (isServiceWorkerPort(ctx, port)) return withDeclaredClientId(port, { kind: 'service-worker' });
+  const pageId = pageIdFor(ctx, port);
+  if (pageId === undefined) return { kind: 'node', clientId: activityJourneyId(ctx, port) };
+  return withDeclaredClientId(port, { kind: 'page', pageId });
+}
+
+/**
+ * Bind `caller` to `msg`, the host's own copy of the frame. A frame cannot
+ * carry its own: the key is a symbol, which no wire format keeps, and a copy
+ * of the frame keeps it.
+ */
+export function bindCaller(msg: InboundMessage, caller: EventCaller): void {
+  (msg as CallerBound)[CALLER] = caller;
+}
+
+/** The caller `handleMessage` bound to `msg`, if any. */
+export function callerOf(msg: InboundMessage): EventCaller | undefined {
+  return (msg as CallerBound)[CALLER];
+}

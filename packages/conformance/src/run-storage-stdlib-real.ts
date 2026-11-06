@@ -16,12 +16,12 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readObservationLinkage } from './observation-linkage.ts';
+import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import {
   accessHeaders,
   FIREBASE_API,
   jsonRequest as rawJson,
-  resolveServiceAccount,
   RULES_API,
   type WebConfig,
 } from './storage-stdlib-real-api.ts';
@@ -57,7 +57,7 @@ const IAM_RETRY_MS = 30_000;
 const IAM_RETRY_LIMIT = 6;
 function inert(): void {
   console.log('[storage-stdlib:real] credentials absent — INERT preview; no network calls.');
-  console.log('Requires PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG.');
+  console.log('Requires PYRIC_AI_FIREBASE_CONFIG and an oracle credential: PYRIC_ORACLE_SA_PATH, or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials.');
   console.log('Would evaluate the selected bounded Storage matrix, restore prior Rules releases/IAM, and verify run-scoped cleanup.');
 }
 
@@ -197,14 +197,15 @@ async function run(): Promise<void> {
     const { resolveProbeAccess, runStorageRequestResourceFields } = await import('./run-storage-request-resource-fields.ts');
     return runStorageRequestResourceFields(await resolveProbeAccess());
   }
-  if (!process.env.PYRIC_ORACLE_SA_PATH || !process.env.PYRIC_AI_FIREBASE_CONFIG) return inert();
+  const webConfigJson = process.env.PYRIC_AI_FIREBASE_CONFIG;
+  if (!oracleCredentialConfigured(process.env) || !webConfigJson) return inert();
   if (Bun.argv.includes('--native-fields') || Bun.argv.includes('--remaining-cross-service')) {
     const { runStorageStdlibRemaining } = await import('./run-storage-stdlib-remaining.ts');
     return runStorageStdlibRemaining(Bun.argv.includes('--native-fields') ? 'native-fields' : 'remaining-cross-service');
   }
 
-  const sa = resolveServiceAccount(process.env.PYRIC_ORACLE_SA_PATH);
-  const web = JSON.parse(process.env.PYRIC_AI_FIREBASE_CONFIG) as WebConfig;
+  const sa = await loadOracleServiceAccount();
+  const web = JSON.parse(webConfigJson) as WebConfig;
   if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');
 
   const { auth: authHeaders, json: jsonHeaders } = await accessHeaders(sa);

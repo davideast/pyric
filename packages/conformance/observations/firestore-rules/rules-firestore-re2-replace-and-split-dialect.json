@@ -1,0 +1,49 @@
+{
+  "name": "rules-firestore-re2-replace-and-split-dialect",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#232"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"re2-replace-and-split-dialect\" (Coverage: RE2 flags, classes, quoting, astral characters and anchors in replace() and split()). replace() and split() read RE2's scoped and inline flags, `(?U)`, `\\pL`, `[[:alpha:]]`, `\\Q..\\E`, an astral character as one code point, and `\\z` and `\\A` under `(?m)` as production does.",
+  "observedAt": "2026-11-04T02:25:11.633Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "b141a61e7c69886c9e91009ce728ced97a004d11fb54d4238b4af2c13ee73530"
+  },
+  "behavior": {
+    "sf0: 'Ab'.replace('a(?i:b)', 'x') == 'Ab'": "ALLOW",
+    "sf1: 'aB'.replace('a(?i:b)', 'x') == 'x'": "ALLOW",
+    "sf2: 'Ab'.replace('a(?i)b', 'x') == 'Ab'": "ALLOW",
+    "sf3: 'aB'.replace('(?i)a(?-i)B', 'x') == 'x'": "ALLOW",
+    "sf4: 'Ab'.split('a(?i:b)') == ['Ab']": "ALLOW",
+    "sf5: !'Ab'.matches('a(?i:b)')": "ALLOW",
+    "sf6: '\\n\\n'.replace('(?s:.).', 'y') == '\\n\\n'": "ALLOW",
+    "ug0: 'aaa'.replace('(?U)a+', 'x') == 'xxx'": "ALLOW",
+    "ug1: 'aaa'.replace('(?U)a+', 'x') == 'x'": "DENY",
+    "pl0: 'a'.replace('\\\\p{L}', 'x') == 'x'": "ALLOW",
+    "pl1: 'a'.replace('\\\\pL', 'x') == 'x'": "ALLOW",
+    "pl2: '1a2'.split('\\\\pL') == ['1', '2']": "ALLOW",
+    "px0: 'a'.replace('[[:alpha:]]', 'x') == 'x'": "ALLOW",
+    "qe0: 'a.b'.replace('\\\\Qa.b\\\\E', 'x') == 'x'": "ALLOW",
+    "qe1: 'axb'.replace('\\\\Qa.b\\\\E', 'x') == 'axb'": "ALLOW",
+    "as0: '😀'.replace('.', 'x') == 'x'": "ALLOW",
+    "as1: '😀'.replace('[^a]', 'x') == 'x'": "ALLOW",
+    "as2: 'a😀b'.split('[^ab]') == ['a', 'b']": "ALLOW",
+    "as3: '😀'.replace('[\\\\x{1F600}]', 'x') == 'x'": "ALLOW",
+    "as4: '😀'.matches('.')": "ALLOW",
+    "as5: '😀'.size() == 1": "DENY",
+    "as6: '😀'.size() == 2": "ALLOW",
+    "as7: 'a😀b'.split('').size() == 3": "DENY",
+    "za0: 'a\\nb'.replace('(?m)a\\\\z', 'x') == 'a\\nb'": "ALLOW",
+    "za1: 'a\\nb'.replace('(?m)\\\\Ab', 'x') == 'a\\nb'": "ALLOW",
+    "za2: !'a\\nb'.matches('(?m)a\\\\z.*')": "ALLOW",
+    "em0: 'abc'.replace('b*', '-') == '-a-c-'": "DENY",
+    "em1: 'abc'.replace('b*', '-') == '-a--c-'": "ALLOW",
+    "em2: 'abc'.replace('', '-') == '-a-b-c-'": "ALLOW",
+    "tp0: 'ab'.replace('(?P<n>a)', '${n}x') == 'axb'": "ALLOW",
+    "tp1: 'ab'.replace('(a)', '$1$1') == 'aab'": "ALLOW",
+    "tp2: 'a'.replace('a', '$0$0') == 'aa'": "ALLOW"
+  }
+}

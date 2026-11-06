@@ -308,23 +308,26 @@ authSandbox.setAuthProviderConfig(auth, 'google.com', true);
 
 // 2. Register an AuthFlowResolver that renders an existing account selector and account creation form
 authSandbox.setAuthFlowResolver(auth, {
-  openPopup: (authInstance, provider) => {
+  // Pyric calls openPopup and openRedirect with one object, { providerId, authType }.
+  // No auth instance is passed, so listUsers, deleteUser, and createUser use the `auth` above.
+  openPopup: ({ providerId }) => {
     return new Promise((resolve, reject) => {
       // 1. Query all existing test accounts in the sandbox
-      const existingUsers = authSandbox.listUsers(authInstance);
+      const existingUsers = authSandbox.listUsers(auth);
 
       // 2. Render an interactive modal allowing the user to:
       // - Select an existing account:
-      //     resolve({ user: u, providerId: provider.providerId, operationType: 'signIn' })
+      //     resolve({ user: u, providerId, operationType: 'signIn' })
       // - Delete an existing account:
-      //     authSandbox.deleteUser(authInstance, u.uid);
+      //     authSandbox.deleteUser(auth, u.uid);
       // - Create a new test user on the fly:
-      //     const record = authSandbox.createUser(authInstance, { uid, email, displayName });
-      //     resolve({ user: record, providerId: provider.providerId, operationType: 'signIn' });
+      //     const record = authSandbox.createUser(auth, { uid, email, displayName });
+      //     resolve({ user: record, providerId, operationType: 'signIn' });
       // - Cancel the flow:
       //     reject(Object.assign(new Error('Popup closed by user'), { code: 'auth/popup-closed-by-user' }));
     });
   },
+  // To simulate signInWithRedirect, resolve the same credential here; getRedirectResult returns it.
   openRedirect: async () => { throw new Error('Redirect not simulated'); }
 });
 ```
@@ -561,8 +564,8 @@ To embed Pyric into a standalone artifact without CSP restrictions:
 - [ ] **IndexedDB Sandbox Fallback**: When running in `about:srcdoc` or sandboxed preview iframes where `indexedDB.open()` is denied (`IDBFactory` SecurityError), Pyric's storage persistence layer automatically falls back to an in-memory backend (`InMemoryStorageBackend`), ensuring uploads and reads succeed without browser storage errors.
 - [ ] **Selectable & Copyable Error Banners**: Ensure error banners and code blocks use `select-text cursor-text` and include a **Copy Error** button so developers and AI agents can select and copy full denial context traces.
 - [ ] **Use Traditional Sign-Up & Sign-In Forms**: Always build standard registration and login UIs using `createUserWithEmailAndPassword`, `updateProfile`, and `signInWithEmailAndPassword` so your code is 100% swappable with production `firebase/auth`.
-- [ ] **Use Pluggable `AuthFlowResolver` for OAuth**: For Google OAuth or other providers, use `authSandbox.setAuthFlowResolver(auth, { openPopup: ... })` to render custom in-page account picker views without external popups.
-- [ ] **Leverage `authSandbox` Admin Methods in OAuth Views**: Use `authSandbox.listUsers(auth)`, `authSandbox.deleteUser(auth, uid)`, and `authSandbox.createUser(auth, {...})` to build interactive account pickers and test-identity management tools in your OAuth popup view.
+- [ ] **Use Pluggable `AuthFlowResolver` for OAuth**: For Google OAuth or other providers, use `authSandbox.setAuthFlowResolver(auth, { openPopup: ({ providerId }) => ..., openRedirect: ... })` to render custom in-page account picker views without external popups. Pyric passes both methods one object, `{ providerId, authType }`.
+- [ ] **Leverage `authSandbox` Admin Methods in OAuth Views**: Use `authSandbox.listUsers(auth)`, `authSandbox.deleteUser(auth, uid)`, and `authSandbox.createUser(auth, {...})` to build interactive account pickers and test-identity management tools in your OAuth popup view. The resolver does not receive an auth instance, so take `auth` from the surrounding code.
 - [ ] **Expose All `denialContext` Fields**: Do not rely solely on `denial.rule`; always extract and render `denial.reasons`, `denial.request.resourceData`, `denial.resource.data`, and `denial.auth` when `permission-denied` occurs.
 - [ ] **Clear UI State on Sign Out & Refresh on Sign In**: When `onAuthStateChanged` fires (signing out, switching accounts, or signing in), clear local collections when unauthenticated (`todos = []`) and always re-evaluate against your cached Firestore snapshot (`updateUIFromSnapshot(latestSnapshot)`). `onSnapshot` only emits on document mutations and will not automatically fire when only `auth.currentUser` changes.
 - [ ] **Seed BEFORE `onSnapshot`**: Always call `seedDocuments` before subscribing to `onSnapshot` because `seedDocuments` does not trigger listener callbacks.

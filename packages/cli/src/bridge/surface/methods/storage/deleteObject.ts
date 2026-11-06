@@ -8,6 +8,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'storage',
   method: 'deleteObject',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'deleteObject(path)',

@@ -1,4 +1,4 @@
-import { captureDatabaseIndexQuery } from '../rules/indexes/service-query.js';
+import { captureDatabaseIndexQuery } from '../indexes/service-query.js';
 import { sdkActivity, type SdkActivityHandle, type SdkActivityRecord } from '../sandbox/internal/sdk-activity.js';
 import { listenerAttachOwners, type ListenerAttribution } from '../sandbox/attribution/listener-owners.js';
 import { queryIdentifier, isQuery } from './query-shape.js';

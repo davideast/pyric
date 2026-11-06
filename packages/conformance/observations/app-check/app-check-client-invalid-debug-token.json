@@ -6,9 +6,10 @@
     "app-check#attestation-failure"
   ],
   "description": "getToken and getLimitedUseToken in debug mode with a random, unregistered debug token: whether each resolves or rejects, the error code and customData, the shape of any placeholder token, and the X-Firebase-AppCheck header firebase/ai then sends (normal model, and a second app whose getAI options set useLimitedUseAppCheckTokens), with the production response status and error body.",
-  "observedAt": "2026-10-22T03:10:12.625Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-11-03T23:22:25.614Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
   "behavior": {
     "customProviderCalls": 0,
     "getToken": {
@@ -39,13 +40,13 @@
       "threw": true,
       "name": "FirebaseError",
       "code": "fetch-error",
-      "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent: [403 Forbidden] Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check (AI/fetch-error)",
+      "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/digame-mas/models/gemini-flash-lite-latest:generateContent: [401 Unauthorized] Firebase App Check token is invalid. (AI/fetch-error)",
       "customDataKeys": [],
       "customData": null
     },
     "aiRequest": {
       "requestSeen": true,
-      "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+      "path": "/v1beta/projects/digame-mas/models/gemini-flash-lite-latest:generateContent",
       "headerNames": [
         "accept",
         "content-type",
@@ -67,12 +68,12 @@
         "isJwt": false
       },
       "appCheckHeaderIsSdkDummyToken": true,
-      "responseStatus": 403,
+      "responseStatus": 401,
       "responseBody": {
         "error": {
-          "code": 403,
-          "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
-          "status": "PERMISSION_DENIED"
+          "code": 401,
+          "message": "Firebase App Check token is invalid.",
+          "status": "UNAUTHENTICATED"
         }
       },
       "appCheckHeaderEquals": {
@@ -83,7 +84,7 @@
       "threw": true,
       "name": "FirebaseError",
       "code": "error",
-      "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent: AppCheck: Fetch server returned an HTTP error status. HTTP status: 403. (appCheck/fetch-status-error). (AI/error)",
+      "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/digame-mas/models/gemini-flash-lite-latest:generateContent: AppCheck: Fetch server returned an HTTP error status. HTTP status: 403. (appCheck/fetch-status-error). (AI/error)",
       "customDataKeys": [],
       "customData": null
     },

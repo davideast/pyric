@@ -1,6 +1,6 @@
 {
   "name": "pyric",
-  "version": "0.1.0-alpha.30",
+  "version": "0.1.0-alpha.34",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -221,8 +221,9 @@
   "devDependencies": {
     "@inbrowser/agent": "0.4.2",
     "@types/bun": "1.3.14",
-    "firebase": "^12.12.0",
-    "firebase-admin": "^13.0.0"
+    "firebase": "^12.19.0",
+    "firebase-admin": "^13.0.0",
+    "google-auth-library": "^10.6.1"
   },
   "engines": {
     "node": ">=22"

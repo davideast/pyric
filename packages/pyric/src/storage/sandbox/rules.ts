@@ -92,11 +92,12 @@ import { parseErrorWording } from '../../rules/grammar/parse-error-wording.js';
 import { compileLimitViolations, describeCompileLimitViolations } from '../../rules/grammar/compile-limits.js';
 import { copyExpressionPosition } from '../../rules/grammar/expression-positions.js';
 // RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
-// tagged with this wrapper while a bare JS `number` means INT (see the
-// wrapper's header for why floats are the wrapped case). The storage evaluator
+// tagged with this wrapper while an INT is a bigint, or a bare integral JS
+// number from a host value (see `rules-int.ts`). The storage evaluator
 // adopts the same model so `1.0 is float`, truncating int division, and
 // int-vs-float promotion match production instead of JS numerics.
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { numericLiteralValue } from '../../rules/simulator/rules-int.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
 import type { RulesResourceLimit } from '../../rules/test/spec.js';
 import type {
@@ -365,7 +366,7 @@ const BINARY_OPS: ReadonlySet<BinaryOp> = new Set([
 ]);
 
 export type Expr =
-  | { kind: 'literal'; value: number | RulesFloat | string | boolean | null | Bytes }
+  | { kind: 'literal'; value: bigint | RulesFloat | string | boolean | null | Bytes }
   | { kind: 'ident'; name: string }
   | { kind: 'member'; target: Expr; name: string }
   | { kind: 'index'; target: Expr; index: Expr }
@@ -453,12 +454,9 @@ function convertExprNode(e: SharedExpression): Expr {
   switch (e.type) {
     case 'literal':
       // A numeric literal written with a decimal point is a FLOAT even when
-      // integral (`1.0`); the grammar preserves the source text in `raw`, so
-      // a `.` there is the float signal. Bare integer literals stay raw
-      // numbers (= int), mirroring the simulator's literal handling.
-      if (typeof e.value === 'number' && e.raw.includes('.')) {
-        return { kind: 'literal', value: new RulesFloat(e.value) };
-      }
+      // integral (`1.0`); a literal of digits is an int64 read from its
+      // source text, as in the simulator (`rules-int.ts`).
+      if (typeof e.value === 'number') return { kind: 'literal', value: numericLiteralValue(e.value, e.raw) };
       // A bytes literal evaluates to the same Bytes value as `toUtf8()`.
       if (e.value instanceof Uint8Array) return { kind: 'literal', value: new Bytes(e.value) };
       return { kind: 'literal', value: e.value };

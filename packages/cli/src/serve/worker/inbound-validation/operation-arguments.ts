@@ -38,6 +38,7 @@ function requireResolvedIdentity(identity: unknown): void {
     requireShape(isNullableString, `identity.${field}`);
   }
   requireOptionalRecord(identity.customClaims, 'identity.customClaims');
+  requireOptionalBoolean(identity.emailVerified, 'identity.emailVerified');
 }
 
 function assertSharedAuthFields(message: Record<string, unknown>): void {
@@ -409,8 +410,14 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireRecord(message.request, 'request');
       return;
     case 'auth.adminDeleteUser':
+      requireString(message.uid, 'uid');
+      return;
     case 'auth.restorePortSession':
       requireString(message.uid, 'uid');
+      requireOptionalString(message.sessionKey, 'sessionKey');
+      return;
+    case 'auth.updateCurrentUser':
+      requireOptionalString(message.sessionKey, 'sessionKey');
       return;
     case 'messaging.acknowledge': {
       requireString(message.subId, 'subId');
@@ -482,7 +489,6 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'auth.deleteUser':
     case 'auth.updateEmail':
     case 'auth.updatePassword':
-    case 'auth.updateCurrentUser':
     case 'auth.listUsers':
     case 'auth.adminClearUsers':
     case 'auth.getProviderConfig':
@@ -508,10 +514,21 @@ export function assertOperationArguments(message: Record<string, unknown>): void
 }
 
 
+/** An App Check claim is absent (a handle with no app) or a record whose token is a string or null. */
+function assertAiAppCheck(appCheck: unknown): void {
+  const hasNoClaim = appCheck === undefined;
+  if (hasNoClaim) return;
+  requireRecord(appCheck, 'appCheck');
+  const token = appCheck.token;
+  const hasTokenShape = token === null || typeof token === 'string';
+  requireShape(hasTokenShape, 'appCheck.token');
+}
+
 /** Unary and streaming AI requests share the same adapter-owned wire fields. */
 export function assertAiArguments(message: Record<string, unknown>): void {
   requireString(message.model, 'model');
   requireRecord(message.request, 'request');
+  assertAiAppCheck(message.appCheck);
   const engine = message.engine;
   const hasNoEngine = engine === undefined;
   if (hasNoEngine) return;

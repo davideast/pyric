@@ -13,14 +13,14 @@ import { getAdminFirestore, getFirestore, type Firestore } from 'pyric/firestore
 import { getMessagingBroker, type MessagingBroker } from 'pyric/messaging/internal';
 import { getStorageSandbox, type FirebaseStorage } from 'pyric/storage';
 import { getAdminStorageSandbox, nameStorageBucket } from 'pyric/storage/internal';
-import type { SurfaceContext } from './types.js';
+import type { SandboxSurfaceContext } from './types.js';
 
 /**
  * A Realtime Database handle for the held identity, on the instance `selector`
  * names (`instanceSelector` in `database-instance.ts`); absent is the default
  * instance. Each instance enforces its own rules.
  */
-export function databaseFor(ctx: SurfaceContext, selector?: string): Database {
+export function databaseFor(ctx: SandboxSurfaceContext, selector?: string): Database {
   if (ctx.identity.bypassesRules()) return getAdminDatabase(ctx.sandbox, selector);
   return getDatabase(ctx.sandbox.withAuth(ctx.identity.authState()), selector);
 }
@@ -32,13 +32,13 @@ export function databaseFor(ctx: SurfaceContext, selector?: string): Database {
 // `Firestore` handle rather than the dispatcher's plain-object tool call.
 
 /** A Cloud Firestore handle for the held identity, for the methods that build a `Query` directly. */
-export function firestoreFor(ctx: SurfaceContext): Firestore {
+export function firestoreFor(ctx: SandboxSurfaceContext): Firestore {
   if (ctx.identity.bypassesRules()) return getAdminFirestore(ctx.sandbox);
   return getFirestore(ctx.sandbox.withAuth(ctx.identity.authState()));
 }
 
 /** A Cloud Storage handle for the held identity. */
-export function storageFor(ctx: SurfaceContext): FirebaseStorage {
+export function storageFor(ctx: SandboxSurfaceContext): FirebaseStorage {
   // Rules, and a simulation on this handle, see the default bucket under the
   // served app's name for it, as the app's own requests do (ST-H2-4).
   const handle = ctx.identity.bypassesRules()
@@ -54,7 +54,7 @@ export function storageFor(ctx: SurfaceContext): FirebaseStorage {
  * routed through the held identity the way firestore, database, and storage
  * are.
  */
-export function messagingBrokerFor(ctx: SurfaceContext): MessagingBroker {
+export function messagingBrokerFor(ctx: SandboxSurfaceContext): MessagingBroker {
   return getMessagingBroker(ctx.sandbox);
 }
 
@@ -63,7 +63,7 @@ export function messagingBrokerFor(ctx: SurfaceContext): MessagingBroker {
  * the way messaging does not, so this is not routed through the held
  * identity either.
  */
-export function aiFor(ctx: SurfaceContext): AI {
+export function aiFor(ctx: SandboxSurfaceContext): AI {
   return getAI(ctx.sandbox);
 }
 

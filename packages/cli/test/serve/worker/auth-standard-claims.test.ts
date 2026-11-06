@@ -6,11 +6,12 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { getAuth, sandbox as authSandbox, signInWithEmailAndPassword, updateProfile } from 'pyric/auth';
+import { createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
-import { getClock } from 'pyric/sandbox/internal';
+import { checkIdToken, getClock } from 'pyric/sandbox/internal';
 import { cleanupPort, handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
 import { portSession } from '../../../src/serve/worker/host-auth.js';
 import type { OpMessage, OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
@@ -182,5 +183,38 @@ describe('worker-mode standard token claims', () => {
     await client.getIdTokenResult(user, true);
     // The host refreshed the port's claims before it answered the forced refresh.
     await client.setDoc(client.doc(db, 'verified/a'), { ok: true });
+  });
+});
+
+/** A token's claims with the values two sign-ins never share: the uid and the times. */
+async function comparableClaims(token: string): Promise<Record<string, unknown>> {
+  const check = await checkIdToken(token);
+  if (!check.ok) throw new Error(`the minted token does not check: ${check.reason}`);
+  const { sub: _sub, user_id: _userId, iat: _iat, exp: _exp, auth_time: _authTime, ...rest } = check.claims;
+  return rest;
+}
+
+describe('in-page and worker planes mint the same ID token (#1836, #1503)', () => {
+  it('both name the project in iss and aud and decode to the same claims', async () => {
+    const PROJECT = 'parity-project';
+    const inPageSandbox = initializeSandbox();
+    const app = createAppForSandbox(inPageSandbox, { projectId: PROJECT }, `parity-${Math.random().toString(36).slice(2)}`);
+    const inPageAuth = getAuth(app);
+    authSandbox.createUser(inPageAuth, { email: 'ada@example.com', password: 'secret-pw' });
+    const { user } = await signInWithEmailAndPassword(inPageAuth, 'ada@example.com', 'secret-pw');
+    await updateProfile(user, { displayName: 'Builder One' });
+    const inPage = await comparableClaims(await user.getIdToken(true));
+
+    const { sandbox, context, port, send } = portHost('parity');
+    context.rtdbProjectId = PROJECT;
+    try {
+      authSandbox.createUser(getAuth(sandbox), { email: 'ada@example.com', password: 'secret-pw', displayName: 'Builder One' });
+      expect(await send({ method: 'auth.signInEmail', email: 'ada@example.com', password: 'secret-pw' })).toMatchObject({ ok: true });
+      const response = await send({ method: 'auth.getIdToken' });
+      if (!response.ok) throw new Error('auth.getIdToken failed');
+      const worker = await comparableClaims(response.value as string);
+      expect(worker).toEqual(inPage);
+      expect(worker).toMatchObject({ iss: `https://securetoken.google.com/${PROJECT}`, aud: PROJECT, name: 'Builder One' });
+    } finally { await cleanupPort(context, port); }
   });
 });

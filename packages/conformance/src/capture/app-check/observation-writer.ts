@@ -26,6 +26,8 @@ export function citingRowIds(name: string): string[] {
 export interface ObservationContext {
   projectId: string;
   secrets: Secrets;
+  /** The AI Logic enforcement mode the run read, on a run that sends AI requests. */
+  aiEnforcementMode?: string;
 }
 
 export function assertNoSecret(serialized: string, secrets: Secrets, name: string): void {
@@ -49,6 +51,7 @@ export function writeObservation(
     fbSdkVersion: resolvedFirebaseVersion(),
     ...(plane === 'admin' ? { adminSdkVersion: resolvedAdminVersion() } : {}),
     projectId: context.projectId,
+    ...(context.aiEnforcementMode ? { appCheckEnforcementModeAtCapture: context.aiEnforcementMode } : {}),
     behavior: redactJson(behavior, context.secrets),
   };
   const serialized = `${JSON.stringify(observation, null, 2)}\n`;

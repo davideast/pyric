@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
+import Module, { createRequire } from 'node:module';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DepOptimizationOptions, ResolvedConfig, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import {
@@ -15,13 +17,45 @@ import {
   type AiMode,
   type ServedFirebaseSpecifier,
 } from './firebase-module-swap.js';
-import { loadRoutedModule, routeServerImport, ssrSwapAlias, unaliasedSpecifier } from './vite-ssr-routing.js';
+import {
+  OBSERVER_MODULE_ID,
+  OBSERVER_SPECIFIER,
+  ROW_MODULE_IDS,
+  isLiveModuleId,
+  isSuppliedRowsImport,
+  passThroughSdkPackages,
+  realFileUrlOf,
+  suppliedRowsResolution,
+  type SuppliedRows,
+} from './vite-supplied-rows.js';
+import {
+  STOP_PREFIX,
+  loadRoutedModule,
+  routeServerImport,
+  ssrSwapAlias,
+  stopModule,
+  stopModuleExports,
+  unaliasedSpecifier,
+} from './vite-ssr-routing.js';
 import { loadServerTarget } from './vite-ssr-loader.js';
+import { LIVE_ROW_SDK_PACKAGES, isFirebaseSdkName, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
+import { packageNameOf, pathInPackageOf } from '../register/package-identity.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
+const SDK_PACKAGE_SPECIFIER = /^@firebase\//;
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
 /** The SDK package the served entries import; one instance per page. */
 const PYRIC_PACKAGE = 'pyric';
+/**
+ * Node's CommonJS resolver, typed locally: the repo's ambient Node types
+ * leave out these internals.
+ */
+interface CommonJsResolver {
+  _resolveFilename?: (request: string, parent: unknown, isMain: boolean) => string;
+  _nodeModulePaths?: (from: string) => string[];
+}
+type ModuleConstructor = new (id: string) => { filename: string; paths: string[] };
+const moduleApi = Module as unknown as CommonJsResolver & ModuleConstructor;
 type OptimizerOptions = NonNullable<DepOptimizationOptions['esbuildOptions']>;
 type OptimizerPlugin = NonNullable<OptimizerOptions['plugins']>[number];
 
@@ -31,6 +65,26 @@ function packageRootOf(file: string): string {
     dir = path.dirname(dir);
   }
   return dir;
+}
+
+/**
+ * The file Node resolves `specifier` to from `base`, without running the
+ * process's `module.registerHooks` resolve hooks. From Node 24.16 those hooks
+ * also run for `require.resolve`: pyric's own stop hook throws there, which
+ * read as "not installed", and the register maps `firebase-admin` to
+ * `pyric-admin`, which read as "not the real SDK", so the stop was skipped
+ * (#1906). `Module._resolveFilename` runs below the hooks on Node 22.15 and
+ * 24.16. Falls back to `createRequire` on a runtime without it.
+ */
+function resolveUnhooked(specifier: string, base: string): string {
+  const resolveFilename = moduleApi._resolveFilename;
+  const nodeModulePaths = moduleApi._nodeModulePaths;
+  const hasInternals = typeof resolveFilename === 'function' && typeof nodeModulePaths === 'function';
+  if (!hasInternals) return createRequire(base).resolve(specifier);
+  const parent = new moduleApi(base);
+  parent.filename = base;
+  parent.paths = nodeModulePaths.call(Module, path.dirname(base));
+  return resolveFilename.call(Module, specifier, parent, false);
 }
 
 export interface ViteModuleContext {
@@ -98,10 +152,23 @@ export function createViteModuleContext(): ViteModuleContext {
   return { entries, cliRoot: packageRootOf(entries.init) };
 }
 
+/** A real SDK import the swap stops: the register's error, and where the import resolves from. */
+interface Stop {
+  readonly error: Error;
+  readonly specifier: string;
+  readonly resolveDir: string;
+}
+
 export interface ViteModuleSwapOptions {
   /** The resolved AI mode. Read on each resolution, since Vite resolves the
    *  mode from its env files after the plugin is constructed. */
   getAiMode?: () => AiMode;
+  /**
+   * The live rows, served on this plane in place of the swap once the
+   * installed `@pyric/live` opens them (`vite-supplied-rows.ts`). Absent for
+   * every `pyric()` plugin.
+   */
+  supplied?: SuppliedRows;
 }
 
 /** Own the Vite and optimizer forms of the Firebase-module swap. */
@@ -131,15 +198,108 @@ export function createViteModuleSwap(
   const aiMode = (): AiMode => options?.getAiMode?.() ?? 'sandbox';
   /** Set by `config()`: whether this server routes server-rendered imports. */
   let routesServerImports = false;
+  /** Vite's root, set by `configResolved`: where an import with no file importer resolves from. */
+  let root = process.cwd();
+  /** The stop behind each stop module id, and the id each import got. */
+  const stops = new Map<string, Stop>();
+  const stopIds = new Map<string, string>();
+  /** The real SDK files the stop allowed, as the register's hook keeps them. */
+  const allowedUrls = new Set<string>();
+
+  /** The files an import resolves from: the importer's, when it is a file, then the root's. */
+  function resolveBases(importer: string | undefined): string[] {
+    const importerFile = importer?.split('?')[0];
+    const fromRoot = path.join(root, 'package.json');
+    const isFileImporter = importerFile !== undefined && path.isAbsolute(importerFile);
+    return isFileImporter ? [importerFile, fromRoot] : [fromRoot];
+  }
+
+  /** Where Node resolves `specifier` from the first base that has it installed, or null when none does. */
+  function installedFileOf(specifier: string, importer: string | undefined): { url: string; base: string } | null {
+    for (const base of resolveBases(importer)) {
+      try {
+        return { url: pathToFileURL(resolveUnhooked(specifier, base)).href, base };
+      } catch {
+        // Not installed where this base looks; try the next one.
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Swap or stop (ADR 0022): the id of a module that throws the register's
+   * stop error, for an import of the real SDK the swap does not choose here.
+   * `stopFor` decides, as the register's hook does, from the file the import
+   * resolves to. Null when the swap chooses the real SDK (production AI
+   * mode's `firebase/ai`, a shadow app's own `firebase/app`), or when the
+   * import is not installed, so Vite reports it as before.
+   */
+  function stopIdFor(specifier: string, importer: string | undefined): string | null {
+    const mode = aiMode();
+    const key = [specifier, importer ?? '', mode].join('\0');
+    const known = stopIds.get(key);
+    if (known !== undefined) return known;
+    const installed = installedFileOf(specifier, importer);
+    if (installed === null) return null;
+    const error = stopFor({ specifier, importer, url: installed.url, aiMode: mode }, allowedUrls);
+    if (error === null) return null;
+    const id = `${STOP_PREFIX}${stops.size}:${specifier}`;
+    const importerDir = path.dirname(installed.base);
+    const resolveDir = existsSync(importerDir) ? importerDir : root;
+    stops.set(id, { error, specifier, resolveDir });
+    stopIds.set(key, id);
+    return id;
+  }
+
+  /**
+   * The id of a module that throws `error` when it loads, for a served
+   * specifier the supplied rows refuse. It declares the real module's export
+   * names, as a stop module does, so the importer sees the refusal rather
+   * than a missing export.
+   */
+  function refusalIdFor(specifier: string, plane: 'page' | 'server', error: Error): string {
+    const id = `${STOP_PREFIX}refused:${plane}:${specifier}`;
+    const isKnown = stops.has(id);
+    if (!isKnown) stops.set(id, { error, specifier, resolveDir: root });
+    return id;
+  }
+
+  /** The supplied rows' answer for a Firebase or `firebase-admin` import on the page plane. */
+  function resolveSupplied(supplied: SuppliedRows, source: string, importer: string | undefined): string | null {
+    const resolution = suppliedRowsResolution(supplied, source, importer);
+    if (resolution.kind === 'module') return resolution.id;
+    if (resolution.kind === 'refused') return refusalIdFor(source, 'page', resolution.error);
+    // `installed-sdk`, `pass-through` and `unserved` resolve as Vite would, then meet the gate.
+    return null;
+  }
+
+  /** A row module's import of the one observer module, while the rows are open. */
+  function isObserverImport(source: string, importer: string | undefined): boolean {
+    const supplied = options?.supplied;
+    const isOpen = supplied !== undefined && supplied.package() !== null;
+    return isOpen && source === OBSERVER_SPECIFIER && importer !== undefined && isLiveModuleId(importer);
+  }
+
+  /** The source of a fixed live module, from the installed `@pyric/live`. Throws while the rows are shut. */
+  function loadLiveModule(supplied: SuppliedRows, id: string): string | null {
+    const found = supplied.package();
+    if (found === null) throw new Error(`pyric: ${JSON.stringify(id)} is a live row module, and @pyric/live has not opened the rows.`);
+    return found.moduleSource(id);
+  }
 
   function resolveId(source: string, importer: string | undefined): string | null {
     if (isBypassedBridgeImport(source, importer)) return null;
+    if (isObserverImport(source, importer)) return OBSERVER_MODULE_ID;
 
+    const supplied = options?.supplied;
+    const isSuppliedImport = supplied !== undefined && isSuppliedRowsImport(source);
+    if (isSuppliedImport) return resolveSupplied(supplied, source, importer);
     const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
     if (isFirebaseSpecifier) {
       const swapped = swappedFirebaseEntries(aiMode());
       const key = swapped.get(source as ServedFirebaseSpecifier);
-      return key === undefined ? null : entries[key] ?? null;
+      const isServed = key !== undefined;
+      return isServed ? entries[key] ?? null : stopIdFor(source, importer);
     }
 
     const nodeMatch = NODE_BUILTIN_RE.exec(source);
@@ -149,7 +309,107 @@ export function createViteModuleSwap(
     return shouldShimNodeBuiltin ? NODE_SHIM_PREFIX + nodeMatch[2] : null;
   }
 
+  /** The row specifier a row module id serves, or null for any other importer. */
+  function rowSpecifierOf(importer: string | undefined): string | null {
+    for (const [specifier, id] of ROW_MODULE_IDS) {
+      if (id === importer) return specifier;
+    }
+    return null;
+  }
+
+  /** The id of the module that refuses one installed SDK file reached by `specifier`, with that file's export names. */
+  function refusedFileIdFor(specifier: string, file: string, error: Error): string {
+    const id = `${STOP_PREFIX}refused:page-file:${JSON.stringify([specifier, file])}`;
+    const isKnown = stops.has(id);
+    if (!isKnown) stops.set(id, { error, specifier: file, resolveDir: path.dirname(file) });
+    return id;
+  }
+
+  /**
+   * Under open live rows, the page's resolution of `source` checked against
+   * the file it reaches, as the Node plane's stop checks a load
+   * (`suppliedRowsStopFor`): an installed client SDK file loads only for a
+   * row module's own import of its specifier, or for an import made by an SDK
+   * file the rows already loaded. Every other route to one, a bare
+   * `@firebase/*` import, a relative path, a `/@fs/` URL, or a package that
+   * only names itself `@firebase/*`, gets the refusal. A browser request for
+   * a file the rows loaded (no importer) is that file's own load.
+   */
+  async function gateLiveSdkFile(
+    context: SwapResolveContext,
+    supplied: SuppliedRows,
+    source: string,
+    importer: string | undefined,
+    resolveOptions: { ssr?: boolean } | undefined,
+    routed: string | { id: string } | null,
+  ): Promise<string | { id: string } | null> {
+    const isModuleId = typeof routed === 'string';
+    if (isModuleId) return routed;
+    const target = routed ?? await context.resolve(source, importer, { ...resolveOptions, skipSelf: true });
+    if (target === null) return null;
+    const url = realFileUrlOf(target.id);
+    if (url === null) return target;
+    const isLoadedFile = importer === undefined && supplied.liveSdkUrls.has(url);
+    if (isLoadedFile) return target;
+    const specifier = unaliasedSpecifier(source) ?? source;
+    const importerUrl = importer === undefined ? undefined : realFileUrlOf(importer) ?? importer;
+    const isPassThroughLoad = isPassThroughEntry(supplied, specifier, url) || isPassThroughPackageFile(supplied, importerUrl, url);
+    if (isPassThroughLoad) {
+      supplied.liveSdkUrls.add(url);
+      return target;
+    }
+    const isRowImport = rowSpecifierOf(importer) === specifier;
+    const load = { specifier, importer: importerUrl, url };
+    const stopped = suppliedRowsStopFor(load, supplied.liveSdkUrls, { isRowImport, isEsmImport: true });
+    if (stopped === null) return target;
+    return refusedFileIdFor(specifier, fileURLToPath(url), supplied.refusal(specifier, 'page'));
+  }
+
+  /**
+   * Whether `url` is the entry of a passed-through specifier, imported by its
+   * name: a file of the `firebase` package under that specifier's own folder
+   * (`firebase/database` → `database/dist/`), so no alias can send the name
+   * to another service's entry.
+   */
+  function isPassThroughEntry(supplied: SuppliedRows, specifier: string, url: string): boolean {
+    const isListed = supplied.passThrough.has(specifier as ServedFirebaseSpecifier);
+    if (!isListed || packageNameOf(url) !== 'firebase') return false;
+    const folder = `${specifier.slice('firebase/'.length)}/dist/`;
+    return pathInPackageOf(url, 'firebase')?.startsWith(folder) ?? false;
+  }
+
+  /**
+   * Whether an SDK file the rows or a pass-through already loaded imports a
+   * file of a package only a passed-through entry needs (`@firebase/database`,
+   * `@firebase/installations`), its own relative imports included.
+   */
+  function isPassThroughPackageFile(supplied: SuppliedRows, importerUrl: string | undefined, url: string): boolean {
+    const isFromLoadedFile = importerUrl !== undefined && supplied.liveSdkUrls.has(importerUrl);
+    if (!isFromLoadedFile) return false;
+    const name = packageNameOf(url);
+    return name !== null && passThroughSdkPackages(supplied.passThrough).has(name);
+  }
+
+  /** Whether this resolution is for server code Vite runs, not the page. */
+  function isServerResolve(context: SwapResolveContext, resolveOptions?: { ssr?: boolean }): boolean {
+    const environment = context.environment;
+    return environment === undefined ? resolveOptions?.ssr === true : environment.config.consumer === 'server';
+  }
+
   async function resolvePluginId(
+    context: SwapResolveContext,
+    source: string,
+    importer: string | undefined,
+    resolveOptions?: { ssr?: boolean },
+  ): Promise<string | { id: string } | null> {
+    const routed = await routePluginId(context, source, importer, resolveOptions);
+    const supplied = options?.supplied;
+    const isOpenOnPage = supplied !== undefined && supplied.package() !== null && !isServerResolve(context, resolveOptions);
+    if (!isOpenOnPage) return routed;
+    return gateLiveSdkFile(context, supplied, source, importer, resolveOptions, routed);
+  }
+
+  async function routePluginId(
     context: SwapResolveContext,
     source: string,
     importer: string | undefined,
@@ -162,6 +422,9 @@ export function createViteModuleSwap(
     const isServer = environment === undefined
       ? resolveOptions?.ssr === true
       : environment.config.consumer === 'server';
+    // Supplied rows serve pages only: server code gets no row of either kind.
+    const supplied = options?.supplied;
+    if (isServer && supplied !== undefined) return refusalIdFor(original, 'server', supplied.refusal(original, 'server'));
     const routed = isServer
       ? routeServerImport({
         specifier: original,
@@ -173,13 +436,30 @@ export function createViteModuleSwap(
       : resolveId(original, importer);
     const isRouted = routed !== null;
     if (isRouted) return routed;
-    // Not swapped here (the real firebase/ai in production AI mode, a shadow
-    // app's own firebase/app, firebase-admin in browser code): resolve it as
-    // Vite would have. The alias is in the skip set this call inherits.
+    const suppliedKind = supplied === undefined ? null : suppliedRowsResolution(supplied, original, importer).kind;
+    // A row module's own import, or a passed-through one: the installed SDK, which the gate then checks.
+    const isInstalledSdkImport = suppliedKind === 'installed-sdk' || suppliedKind === 'pass-through';
+    if (isInstalledSdkImport) return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
+    // Not swapped here. firebase-admin in browser code, and any other load of
+    // the real SDK the swap does not choose, gets the stop module.
+    const stopId = stopIdFor(original, importer);
+    if (stopId !== null) return stopId;
+    // The real firebase/ai in production AI mode, or a shadow app's own
+    // firebase/app: resolve it as Vite would have. The alias is in the skip
+    // set this call inherits.
     return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
   }
 
+  async function loadStopModule(stop: Stop): Promise<string> {
+    return stopModule(stop.error, await stopModuleExports(stop.specifier, stop.resolveDir));
+  }
+
   function loadPluginModule(id: string): Promise<string | null> {
+    const supplied = options?.supplied;
+    const isLiveModule = supplied !== undefined && isLiveModuleId(id);
+    if (isLiveModule) return Promise.resolve().then(() => loadLiveModule(supplied, id));
+    const stop = stops.get(id);
+    if (stop !== undefined) return loadStopModule(stop);
     const shim = load(id);
     const isShim = shim !== null;
     if (isShim) return Promise.resolve(shim);
@@ -190,6 +470,23 @@ export function createViteModuleSwap(
     const isForeignId = !id.startsWith(NODE_SHIM_PREFIX);
     if (isForeignId) return null;
     return shimFor(id.slice(NODE_SHIM_PREFIX.length));
+  }
+
+  /**
+   * Under live rows, what the pre-bundle holds in place of an installed
+   * Firebase SDK file: its refusal. Every package the rows load is kept out
+   * of the pre-bundle, so an SDK file reaches it only through a dependency's
+   * own path to one, which the page would otherwise never see.
+   */
+  async function preBundledSdkRefusal(file: string): Promise<string | null> {
+    const supplied = options?.supplied;
+    if (supplied === undefined) return null;
+    const url = realFileUrlOf(file);
+    const isInstalled = url !== null && url.includes('/node_modules/');
+    if (!isInstalled) return null;
+    const name = packageNameOf(url);
+    if (name === null || !isFirebaseSdkName(name)) return null;
+    return stopModule(supplied.refusal(name, 'page'), await stopModuleExports(file, path.dirname(file)));
   }
 
   // Keep Firebase specifiers external so Vite resolves them through the same
@@ -203,17 +500,22 @@ export function createViteModuleSwap(
       const isNodeShim = id.startsWith(NODE_SHIM_PREFIX);
       return isNodeShim ? id : { id: source, external: true };
     },
-    load,
+    async load(id: string) {
+      return (await preBundledSdkRefusal(id)) ?? load(id);
+    },
   };
 
   const optimizerMirror: OptimizerPlugin = {
     name: 'pyric-sandbox-optimizer',
     setup(build) {
-      build.onResolve({ filter: FIREBASE_SPECIFIER }, (args) => {
+      const keepFirebaseExternal = (args: { path: string; importer: string }) => {
         const id = resolveId(args.path, args.importer);
         const isUnchanged = id === null;
         return isUnchanged ? null : { path: args.path, external: true };
-      });
+      };
+      build.onResolve({ filter: FIREBASE_SPECIFIER }, keepFirebaseExternal);
+      // Under live rows a dependency's `@firebase/*` import stays external too, so the page refuses it.
+      build.onResolve({ filter: SDK_PACKAGE_SPECIFIER }, keepFirebaseExternal);
       build.onResolve({ filter: NODE_BUILTIN_RE }, (args) => {
         const isForeignImporter = !isOurCode(args.importer);
         if (isForeignImporter) {
@@ -222,6 +524,12 @@ export function createViteModuleSwap(
         const shimPath = args.path.replace(/^node:/, '');
         return { path: shimPath, namespace: 'pyric-node-shim' };
       });
+      if (options?.supplied !== undefined) {
+        build.onLoad({ filter: /.*/, namespace: 'file' }, async (args) => {
+          const contents = await preBundledSdkRefusal(args.path);
+          return contents === null ? null : { contents, loader: 'js' };
+        });
+      }
       build.onLoad({ filter: /.*/, namespace: 'pyric-node-shim' }, (args) => {
         const content = NODE_BUILTIN_SHIMS[args.path];
         const hasContent = content !== undefined;
@@ -252,6 +560,11 @@ export function createViteModuleSwap(
         // one pyric `initializeApp` registers apps in (#1506). The bare name
         // covers every subpath.
         PYRIC_PACKAGE,
+        // Live rows load the installed Auth and Firestore, which import the
+        // excluded @firebase/app: every package the rows load is kept out too,
+        // so the page has one registry and the pre-bundle holds no SDK file.
+        // So is every package a passed-through entry loads (`@firebase/database`).
+        ...(options?.supplied === undefined ? [] : [...LIVE_ROW_SDK_PACKAGES, ...passThroughSdkPackages(options.supplied.passThrough)]),
       ];
       const usesRolldown = Number(viteVersion.split('.')[0]) >= 8;
       const optimizer = usesRolldown
@@ -276,6 +589,7 @@ export function createViteModuleSwap(
       return isOtherServerEnvironment ? { resolve: { external: [...SSR_EXTERNAL] } } : null;
     },
     configResolved(config) {
+      root = config.root ?? root;
       const allow = config.server?.fs?.allow;
       const hasNoAllowList = allow === undefined || !Array.isArray(allow);
       if (hasNoAllowList) {

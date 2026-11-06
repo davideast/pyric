@@ -3,7 +3,9 @@
  * decision 7). An operation is held for at most 10 seconds from the moment it
  * was issued; a subscription frame has no deadline. Held messages are sent
  * once, after the client's restore traffic: subscription frames first, then
- * operations, each in issue order (ADR-0019, 2026-10-17 amendment, D5).
+ * operations, each in issue order (ADR-0019, 2026-10-17 amendment, D5). A
+ * page's held session restore that leads the held operations counts as
+ * restore traffic and goes first (ADR-0019, 2026-11-03 amendment).
  * An RTDB operation the dropped socket took is held again, ahead of every
  * later operation and with no deadline, as the Realtime Database SDK re-sends
  * its outstanding writes and reads on reconnect (#1088).
@@ -16,6 +18,15 @@ import { issueTime } from './send-order.js';
 
 const HOLD_DEADLINE_MS = 10_000;
 const HOLD_EXPIRED = 'The hosted sandbox connection was not restored within 10 seconds. The request was not sent.';
+const REMOTE_PAGE_NOTE = ' The host answers clients on its own machine only, so a page opened from another machine cannot connect.';
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** The hold error; a page not addressed as this machine also hears the likely reason. */
+function holdExpiredMessage(): string {
+  const hostname = globalThis.location?.hostname;
+  const isPageOnThisMachine = hostname === undefined || LOCAL_HOSTNAMES.has(hostname);
+  return isPageOnThisMachine ? HOLD_EXPIRED : `${HOLD_EXPIRED}${REMOTE_PAGE_NOTE}`;
+}
 
 let holdDeadlineMs = HOLD_DEADLINE_MS;
 
@@ -35,7 +46,7 @@ export function setHoldDeadlineForTesting(ms: number | undefined): void {
 export function withinHoldDeadline(settled: Promise<void>): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new FirebaseError('unavailable', HOLD_EXPIRED)), holdDeadlineMs);
+    timer = setTimeout(() => reject(new FirebaseError('unavailable', holdExpiredMessage())), holdDeadlineMs);
   });
   return Promise.race([settled, expired]).finally(() => clearTimeout(timer));
 }
@@ -58,6 +69,38 @@ function subscriptionId(message: InboundMessage): string | undefined {
   return undefined;
 }
 
+function restoresPortSession(message: InboundMessage): boolean {
+  return message.t === 'op' && message.method === 'auth.restorePortSession';
+}
+
+function awaitsReply(message: InboundMessage): boolean {
+  return message.t === 'op' || message.t === 'tool';
+}
+
+/**
+ * How many of the held frames that are not subscriptions, in admission
+ * order, end with a session restore issued before any other operation. A page
+ * restores its persisted sign-in when it first calls `getAuth`, before it can
+ * register an observer, so that restore is restore traffic: it goes, with the
+ * app configuration posted ahead of it, before the held subscriptions. An
+ * `onAuthStateChanged` opened before the first attach then hears the restored
+ * user first, as production's first callback waits for the persisted user
+ * (#1837). A restore issued after another operation keeps its place.
+ */
+function sessionRestoreLength(others: HeldMessage[]): number {
+  let length = 0;
+  for (const [index, entry] of others.entries()) {
+    const isRestore = restoresPortSession(entry.message);
+    if (isRestore) {
+      length = index + 1;
+      continue;
+    }
+    const isOtherOperation = awaitsReply(entry.message);
+    if (isOtherOperation) break;
+  }
+  return length;
+}
+
 export interface HeldMessages {
   hold(message: InboundMessage): void;
   /**
@@ -76,8 +119,9 @@ export interface HeldMessages {
    */
   forgetSubscription(subId: string): boolean;
   /**
-   * Sends every held message once: subscription frames first, in issue order,
-   * then held operations in the order they were admitted (D5).
+   * Sends every held message once: held session restores that lead the
+   * operations, then subscription frames in issue order, then the other held
+   * operations in the order they were admitted (D5).
    */
   flush(send: (message: InboundMessage) => void): void;
   /** Forgets every held message without settling it. */
@@ -94,7 +138,7 @@ export function createHeldMessages(port: ClientPort): HeldMessages {
     const wasSent = index < 0;
     if (wasSent) return;
     held.splice(index, 1);
-    rejectPendingRequests(port, new FirebaseError('unavailable', HOLD_EXPIRED), pendingId => pendingId === id);
+    rejectPendingRequests(port, new FirebaseError('unavailable', holdExpiredMessage()), pendingId => pendingId === id);
   }
 
   function take(): HeldMessage[] {
@@ -140,8 +184,11 @@ export function createHeldMessages(port: ClientPort): HeldMessages {
     flush(send) {
       const taken = take();
       const isSubscriptionEntry = (entry: HeldMessage): boolean => subscriptionId(entry.message) !== undefined;
+      const others = taken.filter(entry => !isSubscriptionEntry(entry));
+      const restoreCount = sessionRestoreLength(others);
+      for (const entry of others.slice(0, restoreCount)) send(entry.message);
       for (const entry of taken.filter(isSubscriptionEntry)) send(entry.message);
-      for (const entry of taken.filter(entry => !isSubscriptionEntry(entry))) send(entry.message);
+      for (const entry of others.slice(restoreCount)) send(entry.message);
     },
     drop() {
       take();

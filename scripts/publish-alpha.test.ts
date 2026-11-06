@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -37,7 +37,7 @@ if [ -n "\${FAIL_COMMAND:-}" ] && [ "$name $*" = "$FAIL_COMMAND" ]; then exit 17
   if (options.dryRun) args.push('--dry-run');
   args.push('0.1.0-alpha.9');
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...envWithoutReleaseSettings(),
     PATH: `${bin}:${process.env.PATH}`,
     COMMAND_LOG: log,
     REGISTRY_LOG: registryLog,
@@ -91,7 +91,7 @@ describe('alpha publish safety contract', () => {
     const { result, commands } = runPublish();
     expect(result.status).toBe(0);
     const uploads = commands.filter((command) => command.startsWith('npm publish ')).map((command) => command.split(' ')[2] ?? '');
-    const names = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'].map((name) => `${name}-0.1.0-alpha.9.tgz`);
+    const names = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'].map((name) => `${name}-0.1.0-alpha.9.tgz`);
     expect(uploads.map((upload) => upload.split('/').pop())).toEqual(names);
     const uploadDir = uploads[0]?.slice(0, uploads[0].lastIndexOf('/')) ?? '';
     expect(uploadDir).not.toBe(join(root, 'dist/packages'));
@@ -136,7 +136,7 @@ describe('alpha publish safety contract', () => {
     expect(commands).not.toContain(PACKAGING_GATE);
     expect(commands).not.toContain('bun test/apps/run.ts --packages dist/packages');
     expect(commands.some((command) => command.startsWith(PACK))).toBe(false);
-    expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(5);
+    expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(6);
   });
 
   test('the packaging gate given --packages neither builds nor packs', () => {
@@ -173,7 +173,7 @@ describe('alpha publish safety contract', () => {
     const { result, commands } = runPublish({ dryRun: true });
     expect(result.status).toBe(0);
     expect(commands).toContain('npm whoami --registry=https://registry.npmjs.org/');
-    expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(5);
+    expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(6);
     expect(
       commands
         .filter((command) => command.startsWith('npm publish '))
@@ -198,6 +198,28 @@ describe('alpha publish safety contract', () => {
     const script = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
     expect(script).toContain('gh pr create');
     expect(script).toContain('--label ci-packaging');
+  });
+
+  test('the upload list, the lockstep version check and the release bump name the same six packages', () => {
+    const tarballOf = (name: string) => name.replace(/^@/, '').replaceAll('/', '-');
+    const publish = readFileSync(join(root, 'scripts/publish-alpha.sh'), 'utf8');
+    const uploaded = /^TARBALLS=\(([^)]*)\)$/m.exec(publish)?.[1]?.split(' ') ?? [];
+    const prepare = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
+    const bumpedDirs = /^for dir in ([^;]*); do$/m.exec(prepare)?.[1]?.split(' ') ?? [];
+    const bumped = bumpedDirs.map((dir) => (JSON.parse(readFileSync(join(root, 'packages', dir, 'package.json'), 'utf8')) as { name: string }).name);
+    const checker = readFileSync(join(root, 'scripts/lib/check-publish-version.mjs'), 'utf8');
+    const checkedDirs = [...checker.matchAll(/^ {2}'(packages\/[^']+)',$/gm)].map((match) => match[1] ?? '');
+    const checked = checkedDirs.map((dir) => (JSON.parse(readFileSync(join(root, dir, 'package.json'), 'utf8')) as { name: string }).name);
+    expect(uploaded).toContain('pyric-live');
+    expect(uploaded).toHaveLength(6);
+    const published = /^PACKAGES=\(([^)]*)\)$/m.exec(publish)?.[1]?.split(' ') ?? [];
+    expect(published.map(tarballOf)).toEqual(uploaded);
+    expect(bumped.map(tarballOf).sort()).toEqual([...uploaded].sort());
+    expect(checked.map(tarballOf).sort()).toEqual([...uploaded].sort());
+    for (const dir of bumpedDirs) {
+      const manifest = JSON.parse(readFileSync(join(root, 'packages', dir, 'package.json'), 'utf8')) as { private?: boolean };
+      expect(manifest.private).toBeUndefined();
+    }
   });
 
   test('supports publishing under the next tag without moving latest or alpha (#689)', () => {
@@ -229,6 +251,17 @@ describe('alpha publish safety contract', () => {
     expect(distTagAdds.some((c) => c.endsWith(' fb12.13'))).toBe(true);
   });
 
+  test('@pyric/live moves latest and alpha with the others, and takes no fb certificate', () => {
+    const { result, commands } = runPublish({ skip: true });
+    expect(result.status).toBe(0);
+    const liveTags = commands.filter((c) => c.startsWith('npm dist-tag add @pyric/live@0.1.0-alpha.9 '));
+    expect(liveTags).toEqual([
+      'npm dist-tag add @pyric/live@0.1.0-alpha.9 latest',
+      'npm dist-tag add @pyric/live@0.1.0-alpha.9 alpha',
+    ]);
+    expect(commands).toContain('npm dist-tag ls @pyric/live');
+  });
+
   test('pins NPM_CONFIG_REGISTRY to registry.npmjs.org even when ambient env points elsewhere', () => {
     const { result, registries } = runPublish({ skip: true, publishTag: 'exp' });
     expect(result.status).toBe(0);
@@ -241,7 +274,7 @@ describe('alpha publish safety contract', () => {
   });
 });
 
-const UPLOADED = 'pyric pyric-admin create-pyric pyric-cli pyric-ui';
+const UPLOADED = 'pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live';
 const STAMP_WRITE = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} write ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
 const STAMP_VERIFY = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} verify ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
 
@@ -337,7 +370,7 @@ describe('a pack that fails leaves no tarball behind', () => {
  * publish-alpha.sh with the real node (check-publish-version and
  * proven-stamp), in a scratch git repo holding copies of the scripts, with
  * npm, bun and bash stubbed. The bash stub packs the way pack-packages.sh
- * does: five tarballs, a manifest, and a real `proven-stamp.mjs record`.
+ * does: six tarballs, a manifest, and a real `proven-stamp.mjs record`.
  */
 function realStampRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), 'pyric-publish-real-stamp-'));
@@ -348,11 +381,12 @@ function realStampRepo(): string {
     return run.stdout.trim();
   };
   git('init', '-q');
-  for (const path of ['scripts/publish-alpha.sh', 'scripts/lib/check-publish-version.mjs', 'scripts/lib/proven-stamp.mjs']) {
+  for (const path of ['scripts/publish-alpha.sh', 'scripts/lib/check-publish-version.mjs', 'scripts/lib/check-publish-access.mjs', 'scripts/lib/proven-stamp.mjs']) {
+    if (!existsSync(join(root, path))) continue;
     mkdirSync(dirname(join(repo, path)), { recursive: true });
     writeFileSync(join(repo, path), readFileSync(join(root, path)));
   }
-  for (const [dir, name] of [['pyric', 'pyric'], ['pyric-admin', 'pyric-admin'], ['create-pyric', 'create-pyric'], ['cli', '@pyric/cli'], ['ui', '@pyric/ui']]) {
+  for (const [dir, name] of [['pyric', 'pyric'], ['pyric-admin', 'pyric-admin'], ['create-pyric', 'create-pyric'], ['cli', '@pyric/cli'], ['ui', '@pyric/ui'], ['live', '@pyric/live']]) {
     mkdirSync(join(repo, 'packages', dir ?? ''), { recursive: true });
     writeFileSync(join(repo, 'packages', dir ?? '', 'package.json'), JSON.stringify({ name, version: '0.1.0-alpha.9' }));
   }
@@ -362,6 +396,21 @@ function realStampRepo(): string {
   return repo;
 }
 
+/** What `npm access list packages <user> --json` prints: package name to `read-write` or `read-only`. */
+// The release itself runs with these set (the preflight runs this file), so a test that
+// inherits them would test the owner's release settings instead of its own.
+function envWithoutReleaseSettings(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const name of ['PYRIC_PUBLISH_SCOPE_WRITE', 'PYRIC_PUBLISH_SKIP_GATES', 'PYRIC_PUBLISH_TAG', 'PYRIC_NPM_REGISTRY']) delete env[name];
+  return env;
+}
+
+const PUBLISHED_NAMES = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui', '@pyric/live'];
+const accessJson = (names: string[], permission = 'read-write') =>
+  JSON.stringify(Object.fromEntries(names.map((name) => [name, permission])));
+const ALL_READ_WRITE = accessJson(PUBLISHED_NAMES);
+const FIVE_EXISTING = accessJson(PUBLISHED_NAMES.filter((name) => name !== '@pyric/live'));
+
 function publishForReal(repo: string, env: Record<string, string> = {}) {
   const bin = join(repo, 'bin');
   mkdirSync(bin, { recursive: true });
@@ -370,6 +419,20 @@ function publishForReal(repo: string, env: Record<string, string> = {}) {
   const realNode = spawnSync('which', ['node'], { encoding: 'utf8' }).stdout.trim();
   const stubs: Record<string, string> = {
     npm: `echo "npm $*" >> "${log}"
+if [ "$1" = whoami ]; then echo releaser; exit 0; fi
+if [ "$1 $2 $3" = "access list packages" ]; then
+  if [ "\${LISTING_FAILS:-}" = 1 ]; then echo "npm error code E403" >&2; exit 1; fi
+  printf '%s\\n' "$ACCESS_JSON"; exit 0
+fi
+if [ "$1 $2 $3" = "access list collaborators" ]; then
+  if [ "\${COLLABORATORS_FAIL:-}" = 1 ]; then echo "npm error code E403" >&2; exit 1; fi
+  printf '%s\\n' "$COLLABORATORS_JSON"; exit 0
+fi
+if [ "$1" = view ]; then
+  if [ "\${VIEW_FAILS:-}" = "$2" ]; then echo "npm error code ECONNRESET" >&2; exit 1; fi
+  case " \${NEW_PACKAGES:-} " in *" $2 "*) echo "npm error code E404" >&2; echo "npm error 404 Not Found - GET https://registry.npmjs.org/$2" >&2; exit 1;; esac
+  echo "$2"; exit 0
+fi
 if [ "$1" = publish ]; then
   echo "uploaded $(basename "$2") $(cat "$2")" >> "${log}"
   if [ "\${RACE:-}" = 1 ]; then echo "swapped after the check" > "${packages}/pyric-cli-0.1.0-alpha.9.tgz"; fi
@@ -380,7 +443,7 @@ if [ "\${TESTS_FAIL:-}" = 1 ] && [ "$*" = "run test" ]; then exit 1; fi`,
     bash: `echo "bash $*" >> "${log}"
 if [ "$1" = scripts/pack-packages.sh ]; then
   mkdir -p "${packages}"; rm -f "${packages}"/*.tgz "${packages}"/*.json
-  for n in pyric pyric-admin create-pyric pyric-cli pyric-ui; do echo "packed $n" > "${packages}/$n-0.1.0-alpha.9.tgz"; done
+  for n in pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live; do echo "packed $n" > "${packages}/$n-0.1.0-alpha.9.tgz"; done
   echo '{"packages":[]}' > "${packages}/manifest.json"
   ${realNode} "${repo}/scripts/lib/proven-stamp.mjs" record "${packages}" "${repo}" "$(git -C "${repo}" rev-parse HEAD)" true
 fi`,
@@ -393,16 +456,17 @@ fi`,
   const result = spawnSync('/bin/bash', [join(repo, 'scripts/publish-alpha.sh'), '--dry-run', '0.1.0-alpha.9'], {
     cwd: repo,
     encoding: 'utf8',
-    env: { ...process.env, ...env, PATH: `${bin}:${process.env.PATH}`, PYRIC_PUBLISH_TAG: 'exp' },
+    env: { ...envWithoutReleaseSettings(), ACCESS_JSON: ALL_READ_WRITE, COLLABORATORS_JSON: '{}', ...env, PATH: `${bin}:${process.env.PATH}`, PYRIC_PUBLISH_TAG: 'exp' },
   });
-  const uploads = readFileSync(log, 'utf8').split('\n').filter((line) => line.startsWith('uploaded '));
-  return { result, uploads };
+  const commands = readFileSync(log, 'utf8').split('\n');
+  const uploads = commands.filter((line) => line.startsWith('uploaded '));
+  return { result, uploads, commands };
 }
 
-const PACKED_UPLOADS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'].map((name) => `uploaded ${name}-0.1.0-alpha.9.tgz packed ${name}`);
+const PACKED_UPLOADS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'].map((name) => `uploaded ${name}-0.1.0-alpha.9.tgz packed ${name}`);
 
 describe('the stamp, with the real node, inside publish-alpha.sh', () => {
-  test('a run whose gates pass uploads the five packed tarballs', () => {
+  test('a run whose gates pass uploads the six packed tarballs', () => {
     const { result, uploads } = publishForReal(realStampRepo());
     expect(result.status).toBe(0);
     expect(uploads).toEqual(PACKED_UPLOADS);
@@ -429,6 +493,117 @@ describe('the stamp, with the real node, inside publish-alpha.sh', () => {
     expect(rerun.result.status).toBe(1);
     expect(rerun.result.stderr).toContain('no gate run proved these tarballs');
     expect(rerun.uploads).toEqual([]);
+  });
+});
+
+describe('publish access is checked for every package before any gate or upload (#2029)', () => {
+  test('a token that can publish every listed package passes and uploads all six', () => {
+    const { result, uploads, commands } = publishForReal(realStampRepo());
+    expect(result.status).toBe(0);
+    expect(commands).toContain('npm access list packages releaser --json');
+    expect(uploads).toEqual(PACKED_UPLOADS);
+  });
+
+  test('a package not yet on the registry is refused before the gates, naming it and the scope access it needs', () => {
+    const { result, uploads, commands } = publishForReal(realStampRepo(), { ACCESS_JSON: FIVE_EXISTING, NEW_PACKAGES: '@pyric/live' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('@pyric/live');
+    expect(result.stderr).toContain('not on the registry yet');
+    expect(result.stderr).toContain('read-write access to the @pyric scope');
+    expect(result.stderr).toContain('PYRIC_PUBLISH_SCOPE_WRITE=@pyric');
+    expect(commands).not.toContain('bun run test');
+    expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
+    expect(uploads).toEqual([]);
+  });
+
+  test('the owner acknowledging a scope-wide token lets the new package through', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), {
+      ACCESS_JSON: FIVE_EXISTING, NEW_PACKAGES: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('@pyric/live');
+    expect(uploads).toEqual(PACKED_UPLOADS);
+  });
+
+  test('an acknowledgement for another scope does not cover the new package', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), {
+      ACCESS_JSON: FIVE_EXISTING, NEW_PACKAGES: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@other',
+    });
+    expect(result.status).toBe(1);
+    expect(uploads).toEqual([]);
+  });
+
+  test('an existing package the account can only read is refused, and the acknowledgement does not cover it', () => {
+    const access = JSON.stringify({ ...JSON.parse(ALL_READ_WRITE), 'pyric-admin': 'read-only' });
+    const { result, uploads } = publishForReal(realStampRepo(), { ACCESS_JSON: access, PYRIC_PUBLISH_SCOPE_WRITE: '@pyric' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('pyric-admin');
+    expect(result.stderr).toContain('read-only');
+    expect(uploads).toEqual([]);
+  });
+
+  test('an existing package missing from the account\'s list is refused', () => {
+    const access = accessJson(PUBLISHED_NAMES.filter((name) => name !== '@pyric/ui'));
+    const { result, uploads } = publishForReal(realStampRepo(), { ACCESS_JSON: access });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('@pyric/ui');
+    expect(uploads).toEqual([]);
+  });
+
+  test('a failed account listing falls back to each package\'s collaborators, and passes a read-write account', () => {
+    const { result, uploads, commands } = publishForReal(realStampRepo(), {
+      LISTING_FAILS: '1', COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-write', someone: 'read-only' }),
+    });
+    expect(result.status).toBe(0);
+    expect(commands).toContain('npm access list collaborators @pyric/live --json');
+    expect(uploads).toEqual(PACKED_UPLOADS);
+  });
+
+  test('a failed account listing whose collaborators fallback fails too is refused', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), { LISTING_FAILS: '1', COLLABORATORS_FAIL: '1' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('collaborator list failed (npm error code E403)');
+    expect(uploads).toEqual([]);
+  });
+
+  test('a collaborator list that holds the account read-only is refused', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), {
+      LISTING_FAILS: '1', COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-only' }),
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('read-only access as a collaborator');
+    expect(uploads).toEqual([]);
+  });
+
+  test('a listing that prints null is refused, not a crash', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), { ACCESS_JSON: 'null' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('npm access list packages releaser did not print JSON');
+    expect(result.stderr).not.toContain('TypeError');
+    expect(uploads).toEqual([]);
+  });
+
+  test('a registry lookup that fails for a reason other than E404 is refused, even with the acknowledgement', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), {
+      ACCESS_JSON: FIVE_EXISTING, VIEW_FAILS: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric',
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('@pyric/live: not in the account\'s package list, and the registry lookup failed (npm error code ECONNRESET)');
+    expect(uploads).toEqual([]);
+  });
+
+  test('the check runs before the gates on a real release, a dry run and a gate-skipping rerun', () => {
+    for (const options of [{}, { dryRun: true }, { skip: true }]) {
+      const { result, commands } = runPublish(options);
+      expect(result.status).toBe(0);
+      const check = commands.findIndex((command) => command.includes('scripts/lib/check-publish-access.mjs'));
+      const smoke = commands.findIndex((command) => command.startsWith('bash scripts/release-smoke.sh'));
+      const publish = commands.findIndex((command) => command.startsWith('npm publish '));
+      expect(check).toBeGreaterThanOrEqual(0);
+      expect(check).toBeLessThan(smoke);
+      expect(check).toBeLessThan(publish);
+      expect(commands[check]).toContain(PUBLISHED_NAMES.join(' '));
+    }
   });
 });
 

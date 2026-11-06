@@ -1,0 +1,134 @@
+{
+  "format": "pyric-replay/1",
+  "project": "demo-replay-storage",
+  "source": "hand-written from capture S (packages/conformance/src/capture/storage-live/recordings/capture-s-wire.json, firebase 12.19.0): the first account's signUp and lookup (seq 1 and 2), its uploadBytes of 6 bytes (seq 6) and getMetadata (seq 17) on the default bucket, and the denied upload (seq 37), with the capture's run path dropped from each object name. The denied upload matches any account, since production denied it for the second one with the same rules. The etag, which the capture redacts, is a fixed test value.",
+  "exchanges": [
+    {
+      "kind": "auth",
+      "id": "sign-up-1",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:signUp",
+        "body": { "returnSecureToken": true }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#SignupNewUserResponse",
+          "idToken": { "$": "idToken", "uid": "user-1", "provider": "anonymous" },
+          "refreshToken": { "$": "refreshToken" },
+          "expiresIn": "3600",
+          "localId": "user-1"
+        }
+      }
+    },
+    {
+      "kind": "auth",
+      "id": "lookup-1",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:lookup",
+        "body": { "idToken": { "$": "idToken", "uid": "user-1" } }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#GetAccountInfoResponse",
+          "users": [
+            {
+              "localId": "user-1",
+              "lastLoginAt": "1793937599013",
+              "createdAt": "1793937599013",
+              "lastRefreshAt": "2026-11-06T03:59:59.013Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "storage",
+      "id": "upload-bytes",
+      "as": "user-1",
+      "request": {
+        "method": "POST",
+        "bucket": "demo-replay-storage.firebasestorage.app",
+        "query": { "name": "pyric_oracle/a.bin" },
+        "upload": { "protocol": "multipart" },
+        "metadata": { "name": "pyric_oracle/a.bin", "contentType": "application/octet-stream" },
+        "bytes": { "length": 6, "sha256": "7192385c3c0605de55bb9476ce1d90748190ecb32a8eed7f5207b30cf6a1fe89" }
+      },
+      "response": {
+        "status": 200,
+        "headers": { "content-type": "application/json; charset=UTF-8" },
+        "body": {
+          "name": "pyric_oracle/a.bin",
+          "bucket": "demo-replay-storage.firebasestorage.app",
+          "generation": { "$": "generation" },
+          "metageneration": "1",
+          "contentType": "application/octet-stream",
+          "timeCreated": { "$": "timeCreated" },
+          "updated": { "$": "timeCreated" },
+          "storageClass": "STANDARD",
+          "size": "6",
+          "md5Hash": "asHla8ePAxBZvnvoVFIsTA==",
+          "contentEncoding": "identity",
+          "contentDisposition": "inline; filename*=utf-8''a.bin",
+          "crc32c": "T037qw==",
+          "etag": "replay-etag",
+          "downloadTokens": { "$": "downloadToken" }
+        }
+      }
+    },
+    {
+      "kind": "storage",
+      "id": "get-metadata",
+      "as": "user-1",
+      "request": {
+        "method": "GET",
+        "bucket": "demo-replay-storage.firebasestorage.app",
+        "object": "pyric_oracle/a.bin",
+        "query": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": { "content-type": "application/json; charset=UTF-8" },
+        "body": {
+          "name": "pyric_oracle/a.bin",
+          "bucket": "demo-replay-storage.firebasestorage.app",
+          "generation": { "$": "generation" },
+          "metageneration": "1",
+          "contentType": "application/octet-stream",
+          "timeCreated": { "$": "timeCreated" },
+          "updated": { "$": "timeCreated" },
+          "storageClass": "STANDARD",
+          "size": "6",
+          "md5Hash": "asHla8ePAxBZvnvoVFIsTA==",
+          "contentEncoding": "identity",
+          "contentDisposition": "inline; filename*=utf-8''a.bin",
+          "crc32c": "T037qw==",
+          "etag": "replay-etag",
+          "downloadTokens": { "$": "downloadToken" }
+        }
+      }
+    },
+    {
+      "kind": "storage",
+      "id": "denied-upload",
+      "request": {
+        "method": "POST",
+        "bucket": "demo-replay-storage.firebasestorage.app",
+        "query": { "name": "pyric_oracle_denied_storage/forbidden.bin" },
+        "upload": { "protocol": "multipart" },
+        "metadata": { "name": "pyric_oracle_denied_storage/forbidden.bin", "contentType": "application/octet-stream" },
+        "bytes": { "length": 6, "sha256": "7192385c3c0605de55bb9476ce1d90748190ecb32a8eed7f5207b30cf6a1fe89" }
+      },
+      "response": {
+        "status": 403,
+        "headers": { "content-type": "application/json; charset=UTF-8" },
+        "body": { "error": { "code": 403, "message": "Permission denied." } }
+      }
+    }
+  ]
+}

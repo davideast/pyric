@@ -1,0 +1,31 @@
+name: "Plan or epic"
+description: "Plan work that spans several issues."
+title: "Plan: <outcome>"
+labels: ["plan"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: "Goal"
+      description: "The outcome, in one or two lines."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps"
+      description: "The issues or steps, one line each."
+    validations:
+      required: true
+  - type: textarea
+    id: decisions
+    attributes:
+      label: "Decisions"
+      description: "Open choices and who decides."
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "The check that shows the outcome is met."
+    validations:
+      required: true

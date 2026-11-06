@@ -3,8 +3,8 @@
  *
  * `auth.createCustomToken` mints the token this redeems, so the two compose the
  * way a backend and a client do: mint on the admin side, redeem here. The
- * sandbox has no signing key, so no signature is checked; the token is read for
- * the identity it asserts and the claims it carries.
+ * token must carry the sandbox signature, name this sandbox's project and be
+ * unexpired; an unsigned one is refused with `auth/invalid-custom-token`.
  */
 import { z } from 'zod';
 import { getAuth, signInWithCustomToken } from 'pyric/auth';
@@ -19,16 +19,17 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'auth',
   method: 'signInWithCustomToken',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'signInWithCustomToken(token)',
   description: 'Sign the app session in with a minted custom token.',
   args: z.object({
-    token: z.string().describe('The custom token. Its signature is not checked.'),
+    token: z.string().describe('The custom token, from createCustomToken.'),
   }),
   operation: 'signin_auth_token',
   renames: { customToken: 'token', idToken: 'token' },
-  example: { token: 'eyJ1aWQiOiJhbGljZSJ9' },
+  example: { token: '<the token auth.createCustomToken returned>' },
   async handler(args, ctx) {
     const token = String(args.token);
     scopeToStoredTenant(ctx.sandbox, { uid: customTokenSubject(token) });

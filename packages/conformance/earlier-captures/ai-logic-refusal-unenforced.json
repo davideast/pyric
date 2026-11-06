@@ -1,0 +1,443 @@
+{
+  "description": "AI Logic's 403 refusal, as captured on 2026-10-22 from a project whose enforcement mode read UNENFORCED, on firebase 12.13.0. This is not a capture of ENFORCED mode. The sandbox replayed this refusal until the 2026-11-03 capture of an enforced project, which answers 401 UNAUTHENTICATED; it is kept as evidence of what an unenforced project can answer. Copied unchanged from the observations at sourceCommit. Lives outside observations/ because the version guard requires those to name the installed SDK. See #1300.",
+  "observedAt": "2026-10-22",
+  "fbSdkVersion": "12.13.0",
+  "appCheckEnforcementModeAtCapture": "UNENFORCED",
+  "sourceCommit": "784260b82a32e46fbb20919564077d2e3cf902a4",
+  "captures": {
+    "app-check-ai-gate-wire": {
+      "appCheckEnforcementModeAtCapture": "UNENFORCED",
+      "noHeader": {
+        "httpStatus": 403,
+        "isJson": true,
+        "errorKeySet": [
+          "code",
+          "message",
+          "status"
+        ],
+        "errorCode": 403,
+        "errorStatus": "PERMISSION_DENIED",
+        "messageText": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+        "raw": {
+          "error": {
+            "code": 403,
+            "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+            "status": "PERMISSION_DENIED"
+          }
+        }
+      },
+      "malformedHeader": {
+        "httpStatus": 403,
+        "isJson": true,
+        "errorKeySet": [
+          "code",
+          "message",
+          "status"
+        ],
+        "errorCode": 403,
+        "errorStatus": "PERMISSION_DENIED",
+        "messageText": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+        "raw": {
+          "error": {
+            "code": 403,
+            "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+            "status": "PERMISSION_DENIED"
+          }
+        }
+      },
+      "sdkPlaceholderToken": {
+        "httpStatus": 403,
+        "isJson": true,
+        "errorKeySet": [
+          "code",
+          "message",
+          "status"
+        ],
+        "errorCode": 403,
+        "errorStatus": "PERMISSION_DENIED",
+        "messageText": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+        "raw": {
+          "error": {
+            "code": 403,
+            "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+            "status": "PERMISSION_DENIED"
+          }
+        }
+      },
+      "tamperedSignature": {
+        "httpStatus": 403,
+        "isJson": true,
+        "errorKeySet": [
+          "code",
+          "message",
+          "status"
+        ],
+        "errorCode": 403,
+        "errorStatus": "PERMISSION_DENIED",
+        "messageText": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+        "raw": {
+          "error": {
+            "code": 403,
+            "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+            "status": "PERMISSION_DENIED"
+          }
+        }
+      },
+      "validAdminMintedToken": {
+        "httpStatus": 200,
+        "finishReason": "STOP"
+      }
+    },
+    "app-check-client-ai-header": {
+      "appCheckInitialized": {
+        "requestSeen": true,
+        "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+        "headerNames": [
+          "accept",
+          "content-type",
+          "origin",
+          "referer",
+          "sec-ch-ua",
+          "sec-ch-ua-mobile",
+          "sec-ch-ua-platform",
+          "user-agent",
+          "x-firebase-appcheck",
+          "x-firebase-appid",
+          "x-goog-api-client",
+          "x-goog-api-key"
+        ],
+        "appCheckHeaderPresent": true,
+        "appCheckHeaderShape": {
+          "length": 932,
+          "segmentCount": 3,
+          "isJwt": true,
+          "headerKeySet": [
+            "alg",
+            "kid",
+            "typ"
+          ],
+          "alg": "RS256",
+          "typ": "JWT",
+          "kidPresent": true,
+          "claimNames": [
+            "aud",
+            "exp",
+            "iat",
+            "iss",
+            "jti",
+            "provider",
+            "sub"
+          ],
+          "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
+          "audShape": [
+            "projects/<projectNumber>",
+            "projects/genkit-idx"
+          ],
+          "subEqualsAppId": true,
+          "ttlSeconds": 3600,
+          "hasJti": true
+        },
+        "appCheckHeaderIsSdkDummyToken": false,
+        "responseStatus": 200,
+        "responseBody": {
+          "ok": true
+        },
+        "appCheckHeaderEquals": {
+          "cachedGetToken": true
+        },
+        "generation": {
+          "threw": false,
+          "value": {
+            "finishReason": "STOP"
+          }
+        }
+      },
+      "limitedUseModel": {
+        "requestSeen": true,
+        "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+        "headerNames": [
+          "accept",
+          "content-type",
+          "origin",
+          "referer",
+          "sec-ch-ua",
+          "sec-ch-ua-mobile",
+          "sec-ch-ua-platform",
+          "user-agent",
+          "x-firebase-appcheck",
+          "x-firebase-appid",
+          "x-goog-api-client",
+          "x-goog-api-key"
+        ],
+        "appCheckHeaderPresent": true,
+        "appCheckHeaderShape": {
+          "length": 932,
+          "segmentCount": 3,
+          "isJwt": true,
+          "headerKeySet": [
+            "alg",
+            "kid",
+            "typ"
+          ],
+          "alg": "RS256",
+          "typ": "JWT",
+          "kidPresent": true,
+          "claimNames": [
+            "aud",
+            "exp",
+            "iat",
+            "iss",
+            "jti",
+            "provider",
+            "sub"
+          ],
+          "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
+          "audShape": [
+            "projects/<projectNumber>",
+            "projects/genkit-idx"
+          ],
+          "subEqualsAppId": true,
+          "ttlSeconds": 3600,
+          "hasJti": true
+        },
+        "appCheckHeaderIsSdkDummyToken": false,
+        "responseStatus": 200,
+        "responseBody": {
+          "ok": true
+        },
+        "appCheckHeaderEquals": {
+          "limitedUseAppCachedGetToken": false
+        },
+        "headerTokenIsNewLimitedUse": true,
+        "generation": {
+          "threw": false,
+          "value": {
+            "finishReason": "STOP"
+          }
+        }
+      },
+      "noAppCheck": {
+        "requestSeen": true,
+        "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+        "headerNames": [
+          "accept",
+          "content-type",
+          "origin",
+          "referer",
+          "sec-ch-ua",
+          "sec-ch-ua-mobile",
+          "sec-ch-ua-platform",
+          "user-agent",
+          "x-firebase-appid",
+          "x-goog-api-client",
+          "x-goog-api-key"
+        ],
+        "appCheckHeaderPresent": false,
+        "appCheckHeaderShape": null,
+        "appCheckHeaderIsSdkDummyToken": false,
+        "responseStatus": 403,
+        "responseBody": {
+          "error": {
+            "code": 403,
+            "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+            "status": "PERMISSION_DENIED"
+          }
+        },
+        "appCheckHeaderEquals": {},
+        "generation": {
+          "threw": true,
+          "name": "FirebaseError",
+          "code": "fetch-error",
+          "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent: [403 Forbidden] Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check (AI/fetch-error)",
+          "customDataKeys": [],
+          "customData": null
+        }
+      }
+    },
+    "app-check-client-get-token-before-initialize": {
+      "publicGetTokenWithUninitializedApp": {
+        "threw": true,
+        "name": "FirebaseError",
+        "code": "appCheck/use-before-activation",
+        "message": "AppCheck: App Check is being used before initializeAppCheck() is called for FirebaseApp before. Call initializeAppCheck() before instantiating other Firebase services. (appCheck/use-before-activation).",
+        "customDataKeys": [
+          "appName"
+        ],
+        "customData": {
+          "appName": "before"
+        }
+      },
+      "initializeAfterAi": {
+        "threw": false
+      },
+      "getTokenAfterLateInitialize": {
+        "keySet": [
+          "token"
+        ],
+        "token": {
+          "length": 932,
+          "segmentCount": 3,
+          "isJwt": true,
+          "headerKeySet": [
+            "alg",
+            "kid",
+            "typ"
+          ],
+          "alg": "RS256",
+          "typ": "JWT",
+          "kidPresent": true,
+          "claimNames": [
+            "aud",
+            "exp",
+            "iat",
+            "iss",
+            "jti",
+            "provider",
+            "sub"
+          ],
+          "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
+          "audShape": [
+            "projects/<projectNumber>",
+            "projects/genkit-idx"
+          ],
+          "subEqualsAppId": true,
+          "ttlSeconds": 3600,
+          "hasJti": true
+        },
+        "error": null,
+        "internalError": null
+      },
+      "aiGenerationAfterLateInitialize": {
+        "threw": true,
+        "name": "FirebaseError",
+        "code": "fetch-error",
+        "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent: [403 Forbidden] Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check (AI/fetch-error)",
+        "customDataKeys": [],
+        "customData": null
+      },
+      "aiRequestAfterLateInitialize": {
+        "requestSeen": true,
+        "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+        "headerNames": [
+          "accept",
+          "content-type",
+          "origin",
+          "referer",
+          "sec-ch-ua",
+          "sec-ch-ua-mobile",
+          "sec-ch-ua-platform",
+          "user-agent",
+          "x-firebase-appid",
+          "x-goog-api-client",
+          "x-goog-api-key"
+        ],
+        "appCheckHeaderPresent": false,
+        "appCheckHeaderShape": null,
+        "appCheckHeaderIsSdkDummyToken": false,
+        "responseStatus": 403,
+        "responseBody": {
+          "error": {
+            "code": 403,
+            "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+            "status": "PERMISSION_DENIED"
+          }
+        },
+        "appCheckHeaderEquals": {
+          "lateGetToken": false
+        }
+      }
+    },
+    "app-check-client-invalid-debug-token": {
+      "customProviderCalls": 0,
+      "getToken": {
+        "threw": true,
+        "name": "FirebaseError",
+        "code": "appCheck/fetch-status-error",
+        "message": "AppCheck: Fetch server returned an HTTP error status. HTTP status: 403. (appCheck/fetch-status-error).",
+        "customDataKeys": [
+          "httpStatus"
+        ],
+        "customData": {
+          "httpStatus": 403
+        }
+      },
+      "getLimitedUseToken": {
+        "threw": true,
+        "name": "FirebaseError",
+        "code": "appCheck/fetch-status-error",
+        "message": "AppCheck: Fetch server returned an HTTP error status. HTTP status: 403. (appCheck/fetch-status-error).",
+        "customDataKeys": [
+          "httpStatus"
+        ],
+        "customData": {
+          "httpStatus": 403
+        }
+      },
+      "aiGeneration": {
+        "threw": true,
+        "name": "FirebaseError",
+        "code": "fetch-error",
+        "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent: [403 Forbidden] Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check (AI/fetch-error)",
+        "customDataKeys": [],
+        "customData": null
+      },
+      "aiRequest": {
+        "requestSeen": true,
+        "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+        "headerNames": [
+          "accept",
+          "content-type",
+          "origin",
+          "referer",
+          "sec-ch-ua",
+          "sec-ch-ua-mobile",
+          "sec-ch-ua-platform",
+          "user-agent",
+          "x-firebase-appcheck",
+          "x-firebase-appid",
+          "x-goog-api-client",
+          "x-goog-api-key"
+        ],
+        "appCheckHeaderPresent": true,
+        "appCheckHeaderShape": {
+          "length": 36,
+          "segmentCount": 1,
+          "isJwt": false
+        },
+        "appCheckHeaderIsSdkDummyToken": true,
+        "responseStatus": 403,
+        "responseBody": {
+          "error": {
+            "code": 403,
+            "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+            "status": "PERMISSION_DENIED"
+          }
+        },
+        "appCheckHeaderEquals": {
+          "getTokenResult": false
+        }
+      },
+      "aiLimitedUseGeneration": {
+        "threw": true,
+        "name": "FirebaseError",
+        "code": "error",
+        "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent: AppCheck: Fetch server returned an HTTP error status. HTTP status: 403. (appCheck/fetch-status-error). (AI/error)",
+        "customDataKeys": [],
+        "customData": null
+      },
+      "aiLimitedUseRequest": {
+        "requestSeen": false,
+        "path": null,
+        "headerNames": [],
+        "appCheckHeaderPresent": false,
+        "appCheckHeaderShape": null,
+        "appCheckHeaderIsSdkDummyToken": false,
+        "responseStatus": null,
+        "responseBody": null,
+        "appCheckHeaderEquals": {
+          "getTokenResult": false
+        }
+      }
+    }
+  }
+}

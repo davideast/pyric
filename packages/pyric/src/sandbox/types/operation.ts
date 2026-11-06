@@ -58,9 +58,38 @@ export interface ActivityEventProvenance {
   groupKind?: 'transaction';
 }
 
+/**
+ * Which connection to the sandbox sent the operation behind an event. A host
+ * stamps it from the connection the frame arrived on, never from the frame.
+ *
+ *   - `page`: a browser page. `pageId` names the page, one id per tab, and
+ *     the host hands each page its own id on its event subscription, so a
+ *     page can tell its own requests from another tab's.
+ *   - `node`: a server process using the client SDK, such as a script under
+ *     `node --import @pyric/cli/register` or server-rendered code.
+ *   - `admin`: server code using `firebase-admin` or `pyric-admin`.
+ *   - `mcp`: an agent's MCP tool call.
+ *   - `studio`: Pyric Studio.
+ *
+ * `clientId` names the client behind the connection: a browser profile,
+ * which every tab of that profile shares, a service worker realm, or one
+ * Node process. A page or service worker declares it; a Node process is
+ * named by its connection. A label, never an authority.
+ *
+ * Absent on events a host did not stamp, such as those of an in-page sandbox,
+ * where every request is the page's own.
+ */
+export interface EventCaller {
+  kind: 'page' | 'node' | 'admin' | 'mcp' | 'studio' | 'service-worker';
+  pageId?: string;
+  clientId?: string;
+}
+
 /** Compatibility provenance carried by sandbox events while producers and
  * consumers migrate to the canonical `operationContext`. */
 export interface EventProvenance {
+  /** The connection that sent the operation; see {@link EventCaller}. */
+  caller?: EventCaller;
   /** Wall-clock observation time, independent of the simulated service clock. */
   observedAt?: number;
   service?: EventService;

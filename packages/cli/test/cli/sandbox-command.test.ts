@@ -266,18 +266,17 @@ describe('pyric sandbox unsupported-runtime warning', () => {
 });
 
 /**
- * With blocking turned on (`PYRIC_GUARD=block`), the AI upstream `pyric
- * sandbox` resolves is a destination the developer chose, so the launcher
- * adds it to the child's allow list while every other catalog host stays
- * refused. The child dials both with a resolver of its own, so the
- * permitted connection stops there instead of reaching DNS.
+ * The child's guard refuses only token sources (ADR 0022), so the AI upstream
+ * `pyric sandbox` resolves and a Firebase data host both get through, and a
+ * token request is refused. The child dials each with a resolver of its own,
+ * so a connection the guard lets through stops there instead of reaching DNS.
  */
 describe('pyric sandbox and the AI upstream', () => {
-  it("permits the configured AI upstream in the child's guard and refuses other catalog hosts", () => {
+  it("lets the configured AI upstream through the child's guard and refuses a token request", () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-ai-upstream-'));
     try {
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
-      // The child script names catalog hosts, so it stays out of the served
+      // The child script names Google hosts, so it stays out of the served
       // directory, which `pyric sandbox` checks for bundled Firebase SDKs.
       writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ hosting: { public: 'public' } }));
       mkdirSync(join(dir, 'public'));
@@ -298,7 +297,8 @@ function dial(host) {
 }
 const upstream = await dial('aiplatform.googleapis.com');
 const firestore = await dial('firestore.googleapis.com');
-console.log('DIAL ' + JSON.stringify({ upstream, firestore }));
+const token = await dial('oauth2.googleapis.com');
+console.log('DIAL ' + JSON.stringify({ upstream, firestore, token }));
 `,
       );
       const result = spawnSync(
@@ -310,7 +310,7 @@ console.log('DIAL ' + JSON.stringify({ upstream, firestore }));
           timeout: 30_000,
           env: {
             ...process.env,
-            PYRIC_GUARD: 'block',
+            PYRIC_GUARD: undefined,
             PYRIC_GUARD_ALLOW: undefined,
             PYRIC_AI_PROXY_UPSTREAM:
               'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi',
@@ -322,10 +322,11 @@ console.log('DIAL ' + JSON.stringify({ upstream, firestore }));
       expect(dialLine).not.toBeNull();
       expect(JSON.parse(dialLine![1]!)).toEqual({
         upstream: 'FIXTURE_NO_DNS',
-        firestore: 'PYRIC_GUARD_BLOCKED',
+        firestore: 'FIXTURE_NO_DNS',
+        token: 'PYRIC_GUARD_BLOCKED',
       });
-      expect(all).toContain('net-guard ALLOW aiplatform.googleapis.com');
-      expect(all).toContain('net-guard BLOCK firestore.googleapis.com');
+      expect(all).toContain('net-guard BLOCK oauth2.googleapis.com');
+      expect(all).not.toContain('net-guard BLOCK firestore.googleapis.com');
       expect(result.status).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });

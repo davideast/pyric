@@ -1,8 +1,8 @@
 /**
  * The auth tool families against a real bridge over real MCP.
  *
- * The unit tests inject the transport; this one does not. It starts the
- * standalone bridge, registers a client in its registry, runs `pyric auth
+ * The unit tests inject the transport; this one does not. It starts a bridge
+ * with a browser peer socket (`test/bridge/peer-bridge-server.ts`), registers a client in its registry, runs `pyric auth
  * reset` with its default `callTool` (the one identity command that still
  * needs a running bridge, because retargeting a connected client is a concept
  * only a bridge has), and calls the bridge's `auth_sessions`,
@@ -22,7 +22,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
-import { startServer, type ServerHandle } from '../../src/bridge/server.js';
+import { startPeerBridgeServer, type PeerBridgeServer } from '../bridge/peer-bridge-server.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
 import { isBridgeMessage } from '../../src/bridge/protocol.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
@@ -31,13 +31,14 @@ import { runServeSessions } from '../../src/cli/serve-sessions.js';
 import type { BridgeCommandDeps } from '../../src/cli/bridge-tool-call.js';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
 
-const PORT = 5183;
+let PORT = 0;
 
-let server: ServerHandle;
+let server: PeerBridgeServer;
 const clientFrames: BridgeMessage[] = [];
 
 beforeAll(async () => {
-  server = await startServer({ port: PORT, disableAuditLog: true, silent: true });
+  server = await startPeerBridgeServer();
+  PORT = server.port;
   server.bridge.consumers.register({
     clientSessionId: 'sess-live',
     platform: 'kotlin',

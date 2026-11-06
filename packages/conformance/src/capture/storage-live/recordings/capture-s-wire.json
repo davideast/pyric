@@ -1,0 +1,1930 @@
+{
+  "name": "storage-live-capture-s-wire",
+  "description": "Every HTTP exchange the Node builds of firebase/storage and firebase/auth made against the default bucket for two anonymous sign-ins, uploadBytes, uploadString raw and base64, a resumable upload and a second one paused after its first chunk and resumed, getMetadata, getDownloadURL, getBytes, getStream, updateMetadata, list with maxResults 2 and its second page, listAll over a nested prefix, a read by the second account, deleteObject on each object, getMetadata and deleteObject on a missing object, a denied upload, getBytes and list, and an upload with no signed-in user. t is milliseconds since the capture started; op is the operation running when the request was sent; account is the uid the Authorization header named.",
+  "observedAt": "2026-11-06T04:00:09.849Z",
+  "sdkVersion": "12.19.0",
+  "bucket": "<bucket>",
+  "runPath": "pyric_oracle/<run>",
+  "deniedPath": "pyric_oracle_denied_storage/<run>",
+  "operations": [
+    "signIn",
+    "preflight",
+    "uploadBytes",
+    "uploadString-raw",
+    "uploadString-base64",
+    "uploadBytesResumable",
+    "uploadBytesResumable-paused",
+    "getMetadata",
+    "getDownloadURL",
+    "getBytes",
+    "getStream",
+    "updateMetadata",
+    "setup-nested",
+    "list",
+    "listAll",
+    "getMetadata-second-account",
+    "deleteObject",
+    "getMetadata-missing",
+    "deleteObject-missing",
+    "denied-upload",
+    "denied-getBytes",
+    "denied-list",
+    "signed-out-upload",
+    "cleanup",
+    "teardown"
+  ],
+  "accounts": [
+    "<uid-1>",
+    "<uid-2>"
+  ],
+  "placeholders": [
+    "<project>",
+    "<bucket>",
+    "<run>",
+    "<uid-N>",
+    "<id-token>",
+    "<refresh-token>",
+    "<api-key>",
+    "<app-id>",
+    "<boundary>",
+    "<upload-session>",
+    "<download-token>",
+    "<page-token>",
+    "<generation>",
+    "<time-created>",
+    "<time-updated>",
+    "<etag>"
+  ],
+  "results": {
+    "signIn": {
+      "ok": true
+    },
+    "preflight": {
+      "ok": true
+    },
+    "uploadBytes": {
+      "ok": true
+    },
+    "uploadString-raw": {
+      "ok": true
+    },
+    "uploadString-base64": {
+      "ok": true
+    },
+    "uploadBytesResumable": {
+      "ok": true
+    },
+    "uploadBytesResumable-paused": {
+      "ok": true
+    },
+    "getMetadata": {
+      "ok": true
+    },
+    "getDownloadURL": {
+      "ok": true
+    },
+    "getBytes": {
+      "ok": true
+    },
+    "getStream": {
+      "ok": true
+    },
+    "updateMetadata": {
+      "ok": true
+    },
+    "setup-nested": {
+      "ok": true
+    },
+    "list": {
+      "ok": true
+    },
+    "listAll": {
+      "ok": true
+    },
+    "getMetadata-second-account": {
+      "ok": true
+    },
+    "deleteObject": {
+      "ok": true
+    },
+    "getMetadata-missing": {
+      "ok": false,
+      "code": "storage/object-not-found"
+    },
+    "deleteObject-missing": {
+      "ok": false,
+      "code": "storage/object-not-found"
+    },
+    "denied-upload": {
+      "ok": false,
+      "code": "storage/unauthorized"
+    },
+    "denied-getBytes": {
+      "ok": false,
+      "code": "storage/unauthorized"
+    },
+    "denied-list": {
+      "ok": false,
+      "code": "storage/unauthorized"
+    },
+    "signed-out-upload": {
+      "ok": false,
+      "code": "storage/unauthorized"
+    },
+    "cleanup": {
+      "ok": true
+    },
+    "teardown": {
+      "ok": true
+    }
+  },
+  "invariants": {
+    "runPrefixEmpty": true,
+    "accountsDeleted": true
+  },
+  "exchanges": [
+    {
+      "seq": 1,
+      "t": 17.1,
+      "op": "signIn",
+      "client": "client-1",
+      "service": "auth",
+      "account": null,
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/accounts:signUp",
+      "query": {
+        "key": "<api-key>"
+      },
+      "request": {
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "returnSecureToken": true
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#SignupNewUserResponse",
+            "idToken": "<id-token>",
+            "refreshToken": "<refresh-token>",
+            "expiresIn": "3600",
+            "localId": "<uid-1>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 2,
+      "t": 514.6,
+      "op": "signIn",
+      "client": "client-1",
+      "service": "auth",
+      "account": null,
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/accounts:lookup",
+      "query": {
+        "key": "<api-key>"
+      },
+      "request": {
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "idToken": "<id-token>"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#GetAccountInfoResponse",
+            "users": [
+              {
+                "localId": "<uid-1>",
+                "lastLoginAt": "1793937599013",
+                "createdAt": "1793937599013",
+                "lastRefreshAt": "2026-11-06T03:59:59.013Z"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 3,
+      "t": 594.7,
+      "op": "signIn",
+      "client": "client-2",
+      "service": "auth",
+      "account": null,
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/accounts:signUp",
+      "query": {
+        "key": "<api-key>"
+      },
+      "request": {
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "returnSecureToken": true
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#SignupNewUserResponse",
+            "idToken": "<id-token>",
+            "refreshToken": "<refresh-token>",
+            "expiresIn": "3600",
+            "localId": "<uid-2>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 4,
+      "t": 994.2,
+      "op": "signIn",
+      "client": "client-2",
+      "service": "auth",
+      "account": null,
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/accounts:lookup",
+      "query": {
+        "key": "<api-key>"
+      },
+      "request": {
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "idToken": "<id-token>"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#GetAccountInfoResponse",
+            "users": [
+              {
+                "localId": "<uid-2>",
+                "lastLoginAt": "1793937599473",
+                "createdAt": "1793937599473",
+                "lastRefreshAt": "2026-11-06T03:59:59.473Z"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 5,
+      "t": 1085.1,
+      "op": "preflight",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "prefix": "pyric_oracle/<run>/",
+        "delimiter": "/"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "prefixes": [],
+            "items": []
+          }
+        }
+      }
+    },
+    {
+      "seq": 6,
+      "t": 1262.2,
+      "op": "uploadBytes",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/a.bin"
+      },
+      "request": {
+        "headers": {
+          "content-type": "multipart/related; boundary=<boundary>",
+          "x-goog-upload-protocol": "multipart"
+        },
+        "body": {
+          "kind": "multipart",
+          "parts": [
+            {
+              "contentType": "application/json; charset=utf-8",
+              "body": {
+                "kind": "json",
+                "json": {
+                  "name": "pyric_oracle/<run>/a.bin",
+                  "contentType": "application/octet-stream"
+                }
+              }
+            },
+            {
+              "contentType": "application/octet-stream",
+              "body": {
+                "kind": "bytes",
+                "length": 6,
+                "sha256": "7192385c3c0605de55bb9476ce1d90748190ecb32a8eed7f5207b30cf6a1fe89",
+                "base64": "AQIDBAUG"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/a.bin",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "1",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "6",
+            "md5Hash": "asHla8ePAxBZvnvoVFIsTA==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''a.bin",
+            "crc32c": "T037qw==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 7,
+      "t": 1507.8,
+      "op": "uploadString-raw",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/raw.txt"
+      },
+      "request": {
+        "headers": {
+          "content-type": "multipart/related; boundary=<boundary>",
+          "x-goog-upload-protocol": "multipart"
+        },
+        "body": {
+          "kind": "multipart",
+          "parts": [
+            {
+              "contentType": "application/json; charset=utf-8",
+              "body": {
+                "kind": "json",
+                "json": {
+                  "name": "pyric_oracle/<run>/raw.txt",
+                  "contentType": "application/octet-stream"
+                }
+              }
+            },
+            {
+              "contentType": "application/octet-stream",
+              "body": {
+                "kind": "bytes",
+                "length": 9,
+                "sha256": "ee55c7f8490dce4f434b77c968aaf85939b785a4f641fb3696b6a82d82e609da",
+                "base64": "Y2FwdHVyZSBz"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/raw.txt",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "1",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "9",
+            "md5Hash": "dOK4QenFEl7s1sZQsM3Jkw==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''raw.txt",
+            "crc32c": "tO8izw==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 8,
+      "t": 1724.3,
+      "op": "uploadString-base64",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/b64.bin"
+      },
+      "request": {
+        "headers": {
+          "content-type": "multipart/related; boundary=<boundary>",
+          "x-goog-upload-protocol": "multipart"
+        },
+        "body": {
+          "kind": "multipart",
+          "parts": [
+            {
+              "contentType": "application/json; charset=utf-8",
+              "body": {
+                "kind": "json",
+                "json": {
+                  "name": "pyric_oracle/<run>/b64.bin",
+                  "contentType": "application/octet-stream"
+                }
+              }
+            },
+            {
+              "contentType": "application/octet-stream",
+              "body": {
+                "kind": "bytes",
+                "length": 9,
+                "sha256": "ee55c7f8490dce4f434b77c968aaf85939b785a4f641fb3696b6a82d82e609da",
+                "base64": "Y2FwdHVyZSBz"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/b64.bin",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "1",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "9",
+            "md5Hash": "dOK4QenFEl7s1sZQsM3Jkw==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''b64.bin",
+            "crc32c": "tO8izw==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 9,
+      "t": 2009.3,
+      "op": "uploadBytesResumable",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/big.bin"
+      },
+      "request": {
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-goog-upload-command": "start",
+          "x-goog-upload-header-content-length": "614400",
+          "x-goog-upload-header-content-type": "application/octet-stream",
+          "x-goog-upload-protocol": "resumable"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/big.bin",
+            "contentType": "application/octet-stream"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-goog-upload-chunk-granularity": "262144",
+          "x-goog-upload-control-url": "https://firebasestorage.googleapis.com/v0/b/<bucket>/o?name=pyric_oracle%2F<run>%2Fbig.bin&upload_id=<upload-session>&upload_protocol=resumable",
+          "x-goog-upload-status": "active",
+          "x-goog-upload-url": "https://firebasestorage.googleapis.com/v0/b/<bucket>/o?name=pyric_oracle%2F<run>%2Fbig.bin&upload_id=<upload-session>&upload_protocol=resumable"
+        },
+        "body": null
+      }
+    },
+    {
+      "seq": 10,
+      "t": 2104.3,
+      "op": "uploadBytesResumable",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/big.bin",
+        "upload_id": "<upload-session>",
+        "upload_protocol": "resumable"
+      },
+      "request": {
+        "headers": {
+          "x-goog-upload-command": "upload",
+          "x-goog-upload-offset": "0"
+        },
+        "body": {
+          "kind": "bytes",
+          "length": 262144,
+          "sha256": "31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-goog-upload-status": "active"
+        },
+        "body": null
+      }
+    },
+    {
+      "seq": 11,
+      "t": 2286.5,
+      "op": "uploadBytesResumable",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/big.bin",
+        "upload_id": "<upload-session>",
+        "upload_protocol": "resumable"
+      },
+      "request": {
+        "headers": {
+          "x-goog-upload-command": "upload, finalize",
+          "x-goog-upload-offset": "262144"
+        },
+        "body": {
+          "kind": "bytes",
+          "length": 352256,
+          "sha256": "3596cf46ca277e7370c099e1e1abb0f83bf99cf780025a24982c3f1a3669809c"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "x-goog-upload-status": "final"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/big.bin",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "1",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "614400",
+            "md5Hash": "tZPO3O3DhIafgoYZFUhduw==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''big.bin",
+            "crc32c": "J4pEAg==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 12,
+      "t": 2998.8,
+      "op": "uploadBytesResumable-paused",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/paused.bin"
+      },
+      "request": {
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-goog-upload-command": "start",
+          "x-goog-upload-header-content-length": "614400",
+          "x-goog-upload-header-content-type": "application/octet-stream",
+          "x-goog-upload-protocol": "resumable"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/paused.bin",
+            "contentType": "application/octet-stream"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-goog-upload-chunk-granularity": "262144",
+          "x-goog-upload-control-url": "https://firebasestorage.googleapis.com/v0/b/<bucket>/o?name=pyric_oracle%2F<run>%2Fpaused.bin&upload_id=<upload-session>&upload_protocol=resumable",
+          "x-goog-upload-status": "active",
+          "x-goog-upload-url": "https://firebasestorage.googleapis.com/v0/b/<bucket>/o?name=pyric_oracle%2F<run>%2Fpaused.bin&upload_id=<upload-session>&upload_protocol=resumable"
+        },
+        "body": null
+      }
+    },
+    {
+      "seq": 13,
+      "t": 3117.7,
+      "op": "uploadBytesResumable-paused",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/paused.bin",
+        "upload_id": "<upload-session>",
+        "upload_protocol": "resumable"
+      },
+      "request": {
+        "headers": {
+          "x-goog-upload-command": "upload",
+          "x-goog-upload-offset": "0"
+        },
+        "body": {
+          "kind": "bytes",
+          "length": 262144,
+          "sha256": "31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-goog-upload-status": "active"
+        },
+        "body": null
+      }
+    },
+    {
+      "seq": 14,
+      "t": 3289.7,
+      "op": "uploadBytesResumable-paused",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/paused.bin",
+        "upload_id": "<upload-session>",
+        "upload_protocol": "resumable"
+      },
+      "request": {
+        "headers": {
+          "x-goog-upload-command": "query"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-goog-upload-chunk-granularity": "262144",
+          "x-goog-upload-size-received": "262144",
+          "x-goog-upload-status": "active"
+        },
+        "body": null
+      }
+    },
+    {
+      "seq": 15,
+      "t": 3342.3,
+      "op": "uploadBytesResumable-paused",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/paused.bin",
+        "upload_id": "<upload-session>",
+        "upload_protocol": "resumable"
+      },
+      "request": {
+        "headers": {
+          "x-goog-upload-command": "upload",
+          "x-goog-upload-offset": "262144"
+        },
+        "body": {
+          "kind": "bytes",
+          "length": 262144,
+          "sha256": "e31bdc63577fe76f6441014aaaa2226d9ffce11b44d0d510cade132b79fd7d76"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-goog-upload-status": "active"
+        },
+        "body": null
+      }
+    },
+    {
+      "seq": 16,
+      "t": 3464.4,
+      "op": "uploadBytesResumable-paused",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/paused.bin",
+        "upload_id": "<upload-session>",
+        "upload_protocol": "resumable"
+      },
+      "request": {
+        "headers": {
+          "x-goog-upload-command": "upload, finalize",
+          "x-goog-upload-offset": "524288"
+        },
+        "body": {
+          "kind": "bytes",
+          "length": 90112,
+          "sha256": "81a507467416748daf233c1641e03f0591ec218e0ff487aeb9990a0fe24d415f"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "x-goog-upload-status": "final"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/paused.bin",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "1",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "614400",
+            "md5Hash": "tZPO3O3DhIafgoYZFUhduw==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''paused.bin",
+            "crc32c": "J4pEAg==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 17,
+      "t": 4027.5,
+      "op": "getMetadata",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fa.bin",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/a.bin",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "1",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "6",
+            "md5Hash": "asHla8ePAxBZvnvoVFIsTA==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''a.bin",
+            "crc32c": "T037qw==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 18,
+      "t": 4106.9,
+      "op": "getDownloadURL",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fa.bin",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/a.bin",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "1",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "6",
+            "md5Hash": "asHla8ePAxBZvnvoVFIsTA==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''a.bin",
+            "crc32c": "T037qw==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 19,
+      "t": 4210.3,
+      "op": "getBytes",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fa.bin",
+      "query": {
+        "alt": "media"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/octet-stream"
+        },
+        "body": {
+          "kind": "bytes",
+          "length": 6,
+          "sha256": "7192385c3c0605de55bb9476ce1d90748190ecb32a8eed7f5207b30cf6a1fe89",
+          "base64": "AQIDBAUG"
+        }
+      }
+    },
+    {
+      "seq": 20,
+      "t": 4401.5,
+      "op": "getStream",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fa.bin",
+      "query": {
+        "alt": "media"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/octet-stream"
+        },
+        "body": {
+          "kind": "bytes",
+          "length": 6,
+          "sha256": "7192385c3c0605de55bb9476ce1d90748190ecb32a8eed7f5207b30cf6a1fe89",
+          "base64": "AQIDBAUG"
+        }
+      }
+    },
+    {
+      "seq": 21,
+      "t": 4560.2,
+      "op": "updateMetadata",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "PATCH",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fa.bin",
+      "query": {},
+      "request": {
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "cacheControl": "no-store",
+            "metadata": {
+              "capture": "s"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/a.bin",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "2",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "6",
+            "md5Hash": "asHla8ePAxBZvnvoVFIsTA==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''a.bin",
+            "cacheControl": "no-store",
+            "crc32c": "T037qw==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>",
+            "metadata": {
+              "capture": "s"
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 22,
+      "t": 4929.4,
+      "op": "setup-nested",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/nested/x/one.txt"
+      },
+      "request": {
+        "headers": {
+          "content-type": "multipart/related; boundary=<boundary>",
+          "x-goog-upload-protocol": "multipart"
+        },
+        "body": {
+          "kind": "multipart",
+          "parts": [
+            {
+              "contentType": "application/json; charset=utf-8",
+              "body": {
+                "kind": "json",
+                "json": {
+                  "name": "pyric_oracle/<run>/nested/x/one.txt",
+                  "contentType": "application/octet-stream"
+                }
+              }
+            },
+            {
+              "contentType": "application/octet-stream",
+              "body": {
+                "kind": "bytes",
+                "length": 3,
+                "sha256": "7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed",
+                "base64": "b25l"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/nested/x/one.txt",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "1",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "3",
+            "md5Hash": "+XxdKZQb+xsv2rCHSQargg==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''one.txt",
+            "crc32c": "KpSy6Q==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 23,
+      "t": 5146.2,
+      "op": "setup-nested",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/nested/two.txt"
+      },
+      "request": {
+        "headers": {
+          "content-type": "multipart/related; boundary=<boundary>",
+          "x-goog-upload-protocol": "multipart"
+        },
+        "body": {
+          "kind": "multipart",
+          "parts": [
+            {
+              "contentType": "application/json; charset=utf-8",
+              "body": {
+                "kind": "json",
+                "json": {
+                  "name": "pyric_oracle/<run>/nested/two.txt",
+                  "contentType": "application/octet-stream"
+                }
+              }
+            },
+            {
+              "contentType": "application/octet-stream",
+              "body": {
+                "kind": "bytes",
+                "length": 3,
+                "sha256": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+                "base64": "dHdv"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/nested/two.txt",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "1",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "3",
+            "md5Hash": "uKn3Fdu2T9XFbneDxoIKYQ==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''two.txt",
+            "crc32c": "Utizow==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 24,
+      "t": 5355,
+      "op": "list",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "prefix": "pyric_oracle/<run>/",
+        "delimiter": "/",
+        "maxResults": "2"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "prefixes": [],
+            "items": [
+              {
+                "name": "pyric_oracle/<run>/a.bin",
+                "bucket": "<bucket>"
+              },
+              {
+                "name": "pyric_oracle/<run>/b64.bin",
+                "bucket": "<bucket>"
+              }
+            ],
+            "nextPageToken": "<page-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 25,
+      "t": 5445.6,
+      "op": "list",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "prefix": "pyric_oracle/<run>/",
+        "delimiter": "/",
+        "pageToken": "<page-token>",
+        "maxResults": "2"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "prefixes": [
+              "pyric_oracle/<run>/nested/"
+            ],
+            "items": [
+              {
+                "name": "pyric_oracle/<run>/big.bin",
+                "bucket": "<bucket>"
+              }
+            ],
+            "nextPageToken": "<page-token>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 26,
+      "t": 5524.6,
+      "op": "listAll",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "prefix": "pyric_oracle/<run>/nested/",
+        "delimiter": "/"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "prefixes": [
+              "pyric_oracle/<run>/nested/x/"
+            ],
+            "items": [
+              {
+                "name": "pyric_oracle/<run>/nested/two.txt",
+                "bucket": "<bucket>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 27,
+      "t": 5611,
+      "op": "getMetadata-second-account",
+      "client": "client-2",
+      "service": "storage",
+      "account": "<uid-2>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fa.bin",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "name": "pyric_oracle/<run>/a.bin",
+            "bucket": "<bucket>",
+            "generation": "<generation>",
+            "metageneration": "2",
+            "contentType": "application/octet-stream",
+            "timeCreated": "<time-created>",
+            "updated": "<time-updated>",
+            "storageClass": "STANDARD",
+            "size": "6",
+            "md5Hash": "asHla8ePAxBZvnvoVFIsTA==",
+            "contentEncoding": "identity",
+            "contentDisposition": "inline; filename*=utf-8''a.bin",
+            "cacheControl": "no-store",
+            "crc32c": "T037qw==",
+            "etag": "<etag>",
+            "downloadTokens": "<download-token>",
+            "metadata": {
+              "capture": "s"
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 28,
+      "t": 5692.2,
+      "op": "deleteObject",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "DELETE",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fa.bin",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "seq": 29,
+      "t": 5925.6,
+      "op": "deleteObject",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "DELETE",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fraw.txt",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "seq": 30,
+      "t": 6226.9,
+      "op": "deleteObject",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "DELETE",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fb64.bin",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "seq": 31,
+      "t": 6462.4,
+      "op": "deleteObject",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "DELETE",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fbig.bin",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "seq": 32,
+      "t": 6704.8,
+      "op": "deleteObject",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "DELETE",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fpaused.bin",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "seq": 33,
+      "t": 6970.9,
+      "op": "deleteObject",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "DELETE",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fnested%2Fx%2Fone.txt",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "seq": 34,
+      "t": 7216.4,
+      "op": "deleteObject",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "DELETE",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fnested%2Ftwo.txt",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "seq": 35,
+      "t": 7457.1,
+      "op": "getMetadata-missing",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fmissing.bin",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": {
+              "code": 404,
+              "message": "Not Found."
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 36,
+      "t": 7522.8,
+      "op": "deleteObject-missing",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "DELETE",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle%2F<run>%2Fmissing.bin",
+      "query": {},
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": {
+              "code": 404,
+              "message": "Not Found."
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 37,
+      "t": 7610.8,
+      "op": "denied-upload",
+      "client": "client-2",
+      "service": "storage",
+      "account": "<uid-2>",
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle_denied_storage/<run>/forbidden.bin"
+      },
+      "request": {
+        "headers": {
+          "content-type": "multipart/related; boundary=<boundary>",
+          "x-goog-upload-protocol": "multipart"
+        },
+        "body": {
+          "kind": "multipart",
+          "parts": [
+            {
+              "contentType": "application/json; charset=utf-8",
+              "body": {
+                "kind": "json",
+                "json": {
+                  "name": "pyric_oracle_denied_storage/<run>/forbidden.bin",
+                  "contentType": "application/octet-stream"
+                }
+              }
+            },
+            {
+              "contentType": "application/octet-stream",
+              "body": {
+                "kind": "bytes",
+                "length": 6,
+                "sha256": "7192385c3c0605de55bb9476ce1d90748190ecb32a8eed7f5207b30cf6a1fe89",
+                "base64": "AQIDBAUG"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": {
+              "code": 403,
+              "message": "Permission denied."
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 38,
+      "t": 7663.5,
+      "op": "denied-getBytes",
+      "client": "client-2",
+      "service": "storage",
+      "account": "<uid-2>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o/pyric_oracle_denied_storage%2F<run>%2Fforbidden.bin",
+      "query": {
+        "alt": "media"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": {
+              "code": 403,
+              "message": "Permission denied."
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 39,
+      "t": 7694.8,
+      "op": "denied-list",
+      "client": "client-2",
+      "service": "storage",
+      "account": "<uid-2>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "prefix": "pyric_oracle_denied_storage/<run>/",
+        "delimiter": "/"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": {
+              "code": 403,
+              "message": "Permission denied."
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 40,
+      "t": 7735.4,
+      "op": "signed-out-upload",
+      "client": "signed-out",
+      "service": "storage",
+      "account": null,
+      "method": "POST",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "name": "pyric_oracle/<run>/signed-out.bin"
+      },
+      "request": {
+        "headers": {
+          "content-type": "multipart/related; boundary=<boundary>",
+          "x-goog-upload-protocol": "multipart"
+        },
+        "body": {
+          "kind": "multipart",
+          "parts": [
+            {
+              "contentType": "application/json; charset=utf-8",
+              "body": {
+                "kind": "json",
+                "json": {
+                  "name": "pyric_oracle/<run>/signed-out.bin",
+                  "contentType": "application/octet-stream"
+                }
+              }
+            },
+            {
+              "contentType": "application/octet-stream",
+              "body": {
+                "kind": "bytes",
+                "length": 6,
+                "sha256": "7192385c3c0605de55bb9476ce1d90748190ecb32a8eed7f5207b30cf6a1fe89",
+                "base64": "AQIDBAUG"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": {
+              "code": 403,
+              "message": "Permission denied."
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 41,
+      "t": 9879.6,
+      "op": "cleanup",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "prefix": "pyric_oracle/<run>/",
+        "delimiter": "/"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "prefixes": [],
+            "items": []
+          }
+        }
+      }
+    },
+    {
+      "seq": 42,
+      "t": 9941.4,
+      "op": "cleanup",
+      "client": "client-1",
+      "service": "storage",
+      "account": "<uid-1>",
+      "method": "GET",
+      "host": "firebasestorage.googleapis.com",
+      "path": "/v0/b/<bucket>/o",
+      "query": {
+        "prefix": "pyric_oracle/<run>/",
+        "delimiter": "/"
+      },
+      "request": {
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "prefixes": [],
+            "items": []
+          }
+        }
+      }
+    },
+    {
+      "seq": 43,
+      "t": 10013.7,
+      "op": "teardown",
+      "client": "client-1",
+      "service": "auth",
+      "account": null,
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/accounts:delete",
+      "query": {
+        "key": "<api-key>"
+      },
+      "request": {
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "idToken": "<id-token>"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#DeleteAccountResponse"
+          }
+        }
+      }
+    },
+    {
+      "seq": 44,
+      "t": 10213.1,
+      "op": "teardown",
+      "client": "client-2",
+      "service": "auth",
+      "account": null,
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/accounts:delete",
+      "query": {
+        "key": "<api-key>"
+      },
+      "request": {
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "idToken": "<id-token>"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#DeleteAccountResponse"
+          }
+        }
+      }
+    }
+  ]
+}

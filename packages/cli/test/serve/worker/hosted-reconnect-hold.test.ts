@@ -1,9 +1,9 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, jest, test } from 'bun:test';
 import { getHostedFirestore, type HostedConnectionState } from '../../../src/serve/worker/client/websocket-connection.js';
 import { setHoldDeadlineForTesting } from '../../../src/serve/worker/client/held-messages.js';
 import { nextId, nextSubId, openSnapshotSubscription, rawRpc } from '../../../src/serve/worker/client/core.js';
 import type { ClientDb } from '../../../src/serve/worker/client/handles.js';
-import type { BridgeMessage } from '../../../src/bridge/protocol.js';
+import { HOSTED_CLIENT_LIVENESS_TIMEOUT_MS, HOSTED_HEARTBEAT_INTERVAL_MS, type BridgeMessage } from '../../../src/bridge/protocol.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 
 // ADR-0019 decision 7, as amended 2026-10-14: the web hosted client holds an
@@ -425,4 +425,31 @@ test('close() while a re-sent RTDB write waits fails it once and sends it no mor
   db.port.close();
   expect(await settle(write!.outcome)).toEqual({ code: 'unavailable', message: CONNECTION_CLOSED });
   expect(host.sent(write!.id)).toHaveLength(1);
+});
+
+/** Waits on real socket I/O while the test's fake timers stand still; `setImmediate` is not faked. */
+async function untilOverRealIo(condition: () => boolean): Promise<void> {
+  for (let turns = 0; !condition(); turns += 1) {
+    if (turns > 1_000_000) throw new Error('Condition was not met in time.');
+    await new Promise(resolve => setImmediate(resolve));
+  }
+}
+
+test('a host that stops answering pings is dropped 45 s after the first unanswered ping, and the client reattaches (#2097)', async () => {
+  // This Host never answers `ping`, as a host that stopped reading would not.
+  const host = new Host();
+  host.start();
+  jest.useFakeTimers();
+  cleanups.push(() => jest.useRealTimers());
+  const { states } = open(host);
+  await untilOverRealIo(() => states.includes('attached'));
+
+  // Pings go out at 15, 30, 45 and 60 s; the first waits 45 s unanswered at 60 s.
+  jest.advanceTimersByTime(HOSTED_HEARTBEAT_INTERVAL_MS + HOSTED_CLIENT_LIVENESS_TIMEOUT_MS - 1);
+  expect(states.at(-1)).toBe('attached');
+  jest.advanceTimersByTime(1);
+  expect(states.at(-1)).toBe('interrupted');
+
+  jest.advanceTimersByTime(1_000);
+  await untilOverRealIo(() => states.filter(state => state === 'attached').length === 2);
 });

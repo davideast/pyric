@@ -1,0 +1,26 @@
+{
+  "name": "app-check-client-initialize-twice-unset-auto-refresh",
+  "matrixRow": "",
+  "rowIds": [
+    "app-check#initialize-twice-unset-auto-refresh"
+  ],
+  "description": "initializeAppCheck called a second time on the same app with the same provider instance, where one of the two calls omits isTokenAutoRefreshEnabled: omitted then false, false then omitted, and omitted both times.",
+  "observedAt": "2026-11-03T23:22:18.654Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
+  "behavior": {
+    "unsetThenFalse": {
+      "threw": false,
+      "returnsSameInstance": true
+    },
+    "falseThenUnset": {
+      "threw": false,
+      "returnsSameInstance": true
+    },
+    "unsetThenUnset": {
+      "threw": false,
+      "returnsSameInstance": true
+    }
+  }
+}

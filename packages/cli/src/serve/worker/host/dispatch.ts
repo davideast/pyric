@@ -60,6 +60,8 @@ import {
   lensProvenance,
   opProvenance,
 } from './core.js';
+import { bindCaller, callerFor, markPortConnection, setPortClientId, setPortTabId } from './caller.js';
+import { handleObserve } from './observe.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './rules.js';
@@ -198,6 +200,7 @@ export async function handleMessage(
     targetPort = needsRemoteSession
       ? getOrCreateRemoteClientPort(ctx, port, clientSessionId)
       : new RemoteClientPort(port, clientSessionId);
+    markPortConnection(ctx, targetPort, 'relay');
   }
 
   const disconnectsRemoteClient = isDisconnect && isRemoteClient;
@@ -220,6 +223,8 @@ export async function handleMessage(
   const configuresApp = msg.t === 'appConfig';
   if (configuresApp) {
     if (msg.origin !== undefined) setPortOrigin(targetPort, msg.origin);
+    if (msg.tabId !== undefined) setPortTabId(ctx, targetPort, msg.tabId);
+    if (msg.clientId !== undefined) setPortClientId(targetPort, msg.clientId);
     handleAppConfig(ctx, targetPort, msg, stalePort => cleanupPort(ctx, stalePort));
     return;
   }
@@ -227,7 +232,7 @@ export async function handleMessage(
   // disconnect handshake completes. Never swallow that teardown frame.
   const rejectsConfig = ctx.rejectedConfigPorts?.has(targetPort) === true && !isDisconnect;
   if (rejectsConfig) {
-    const isOperation = msg.t === 'op' || msg.t === 'tool';
+    const isOperation = msg.t === 'op' || msg.t === 'tool' || msg.t === 'observe';
     const isDataSubscription = msg.t === 'sub' && msg.target !== 'events';
     const error = configConflictError(refusalBaseline(ctx), ctx.rejectedConfigDetails?.get(targetPort));
     if (isOperation) {
@@ -253,6 +258,10 @@ export async function handleMessage(
   // provenance EXPLICITLY instead (see `handleOp`'s storage cases). Without the
   // lens on admin ops, `verdictFor` mislabeled a rules BYPASS as ALLOW (the
   // RTDB/Firestore asymmetry the traffic-metrics work flagged).
+  // The connection that sent the frame, read before the relay's port is
+  // swapped in, and bound to the frame so every event its operation emits
+  // names it (`caller.ts`).
+  bindCaller(msg, callerFor(ctx, port, msg));
   const isRemoteRelay = msg.relaySource === 'remote'
     || Boolean(msg.clientSessionId);
   const isOperation = msg.t === 'op';
@@ -276,7 +285,7 @@ export async function handleMessage(
 }
 
 function refuseDeletedMessage(port: PortLike, msg: InboundMessage): void {
-  const isOperation = msg.t === 'op' || msg.t === 'tool';
+  const isOperation = msg.t === 'op' || msg.t === 'tool' || msg.t === 'observe';
   const isDataSubscription = msg.t === 'sub' && msg.target !== 'events';
   const error = { code: 'app/app-deleted', message: 'Firebase App was deleted' };
   if (isOperation) {
@@ -297,6 +306,7 @@ async function dispatchMessage(
   const isDisconnect = msg.t === 'disconnect';
   const isClockSubscription = msg.t === 'clock-subscribe';
   const isTool = msg.t === 'tool';
+  const isObservation = msg.t === 'observe';
   if (isOperation) {
     const isActionCode = isAuthActionCodeOp(msg);
     const isCustomToken = msg.method === 'auth.signInWithCustomToken';
@@ -362,6 +372,8 @@ async function dispatchMessage(
     subscribeClock(ctx, port);
   } else if (isTool) {
     await handleTool(ctx, port, msg);
+  } else if (isObservation) {
+    handleObserve(ctx, port, msg);
   }
 }
 

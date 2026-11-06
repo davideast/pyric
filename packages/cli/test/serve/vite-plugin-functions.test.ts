@@ -17,14 +17,14 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
-import { discoverFunctionsRtdbProject } from '../../src/functions-rtdb/project.js';
+import { discoverFunctionsProject } from '../../src/functions/project.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
 import { connectRemoteSandbox, type RemoteSandbox } from '../../src/remote/index.js';
 import { connectFunctionsWorkerPeer, createFunctionsWorkerHostCtx } from '../functions-rtdb/worker-peer.js';
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
-const builtChild = join(cliRoot, 'dist/functions-rtdb/child.js');
+const builtChild = join(cliRoot, 'dist/functions/child.js');
 
 let server: ViteDevServer | undefined;
 let peer: { close(): Promise<void> } | undefined;
@@ -210,7 +210,7 @@ exports.makeUppercase = onValueCreated(
     writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ hosting: { public: 'public' } }));
 
     // Discovery itself is silent-off without a `functions` block.
-    expect(discoverFunctionsRtdbProject(cwd)).toBeNull();
+    expect(discoverFunctionsProject(cwd)).toBeNull();
 
     const logs: string[] = [];
     const record = (msg: string): void => { logs.push(msg); };

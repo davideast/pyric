@@ -93,8 +93,11 @@ export function stateCount(node: RegexNode): number {
     case 'char':
     case 'assert':
       return 1;
-    case 'seq':
-      return boundedSum(node.items.map(stateCount), MAX_REGEX_STATES);
+    case 'seq': {
+      // A capture group adds the two save states that record its span.
+      const saves = node.capture === undefined ? 0 : 2;
+      return boundedSum([...node.items.map(stateCount), saves], MAX_REGEX_STATES);
+    }
     case 'alt':
       return boundedSum([stateCount(node.left), stateCount(node.right), 1], MAX_REGEX_STATES);
     case 'rep':

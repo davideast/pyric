@@ -1,0 +1,460 @@
+/**
+ * The provider forwarder: how a factory sandbox reaches the media provider
+ * without holding its key. Like the upstream forwarder
+ * (`upstream-forwarder.ts`), it listens on a Unix socket that a bridge
+ * inside the sandbox pipes to, and it alone holds the key. Inside, the app
+ * has a placeholder key that only turns its media routes on.
+ *
+ * Each request is allowed by method, path and model, else refused with a
+ * named reason:
+ *
+ * - `POST /v1beta/interactions` with a body `model` in the price table;
+ * - `POST /v1beta/models/<model in the table>:generateContent`;
+ * - `GET /v1beta/interactions/<id>`, polling, which is free;
+ * - `GET /v1beta/files/<id>:download?alt=media`, downloading a file a call
+ *   made (a song returned by file name), which is free. `alt=media` is the
+ *   one query allowed, on this route only, and it is sent as a constant.
+ *
+ * Video, file uploads, file listing and deletion, model listing and
+ * streaming are refused. The
+ * forwarder drops the app's `x-goog-api-key` and the whole query
+ * string, sets the real key, read once per request, and sends the call
+ * over TLS to the one fixed host (`PROVIDER_HOST`), whatever `Host` the app
+ * named. Redirects are never followed. A billable body must keep to its
+ * model's limits (`provider-body-limits.ts`): `maxOutputTokens` set and
+ * under the model's cap, thinking within the model's levels and budget, and
+ * its input under the model's bytes and image parts. A body that keeps to
+ * them reserves its model's worst-case price in the ledger
+ * (`provider-ledger.ts`) before it is sent.
+ *
+ * Every request is one line of `<run>.host/provider/calls.jsonl`, with the
+ * path without its query. Never a header's value or a query string.
+ */
+import http from 'node:http';
+import https from 'node:https';
+import type { Listening } from '../model-channel.ts';
+import type { Upstream } from '../model-forwarder.ts';
+import { appendFile } from './host-files.ts';
+import type { CallerKind, CallOutcome, LedgerReservation, LedgerRefusal, ProviderLedger } from './provider-ledger.ts';
+import { limitProblem, withOutputCap, type LimitRefusal } from './provider-body-limits.ts';
+import { camel, entryOf, fieldsOf, PRICED_IMAGE_SIZES } from './provider-body-parts.ts';
+import { bareModel, MAX_PROVIDER_REQUEST_BYTES, priceOf, PROVIDER_HOST } from './provider-prices.ts';
+
+/** How long one call may take, polling included, before it is cut off. */
+export const PROVIDER_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** The key placeholder the sandbox holds; it only turns the app's routes on. */
+export const PLACEHOLDER_KEY = 'factory-forwarded';
+
+export type ProviderKeyRead = { ok: true; key: string } | { ok: false; problem: string };
+
+export type ProviderRefusal = 'path' | 'model' | 'method' | 'streaming' | 'agent' | 'field' | 'body-not-json' | 'body-too-large' | 'encoded-body' | 'no-key' | 'query' | LimitRefusal | LedgerRefusal;
+
+/** One request to the forwarder, as a line of the calls record. */
+export interface ProviderCall {
+  time: string;
+  caller: CallerKind;
+  method: string | null;
+  path: string | null;
+  model: string | null;
+  action: 'forwarded' | 'refused';
+  reason: string | null;
+  /** The status the app got; null when the connection closed first. */
+  status: number | null;
+  chargedUsd: number;
+}
+
+export interface ProviderUpstream extends Upstream {
+  /** Test seam: the certificate authority the fake upstream's certificate is signed by. */
+  ca?: string;
+}
+
+export interface ProviderForwarderOptions {
+  socketPath: string;
+  /** Who calls through this socket; the ledger caps each kind. */
+  caller: CallerKind;
+  ledger: ProviderLedger;
+  /** `<run>.host/provider/calls.jsonl`. */
+  calls: string;
+  /** Reads the key, once per request. */
+  credential: () => ProviderKeyRead;
+  /** Test seam: where calls are sent instead of `PROVIDER_HOST`. The TLS name and `host` header stay `PROVIDER_HOST`. */
+  upstream?: ProviderUpstream;
+  timeoutMs?: number;
+  now?: () => Date;
+  /** Told when a request fails in a way the forwarder did not expect. Never holds a value. */
+  onFault?: (reason: string) => void;
+}
+
+const DEFAULT_UPSTREAM: ProviderUpstream = { host: PROVIDER_HOST, port: 443, tls: true };
+
+/** The app's headers that pass. The key's header, cookies, the hop's own and the body's type are never among them. */
+const FORWARDED_HEADERS = new Set(['accept', 'accept-encoding', 'user-agent', 'x-goog-api-client']);
+
+/** Response headers the app never gets: the hop's own, cookies, and where a redirect points. */
+const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'set-cookie', 'location']);
+
+const INTERACTIONS = '/v1beta/interactions';
+const GENERATE_CONTENT = /^\/v1beta\/models\/([A-Za-z0-9._-]+):generateContent$/;
+const INTERACTION = /^\/v1beta\/interactions\/([A-Za-z0-9][A-Za-z0-9._-]*)$/;
+/** The path the SDK's `files.download` requests, for a file id in the charset the app accepts. */
+const FILE_DOWNLOAD = /^\/v1beta\/files\/[A-Za-z0-9][A-Za-z0-9_-]*:download$/;
+/** The one query a download sends, and the only query the forwarder ever sends on. */
+const DOWNLOAD_QUERY = 'alt=media';
+
+/** What a request line asks for, once its method and path are allowed. */
+export type Route =
+  | { kind: 'interactions' }
+  | { kind: 'generate'; model: string }
+  | { kind: 'poll' }
+  | { kind: 'download' }
+  | { kind: 'refused'; reason: 'path' | 'model' | 'method' };
+
+export function routeOf(method: string, path: string): Route {
+  const generate = GENERATE_CONTENT.exec(path);
+  const isPost = method === 'POST';
+  if (path === INTERACTIONS) return isPost ? { kind: 'interactions' } : { kind: 'refused', reason: 'method' };
+  if (INTERACTION.test(path)) return method === 'GET' ? { kind: 'poll' } : { kind: 'refused', reason: 'method' };
+  if (FILE_DOWNLOAD.test(path)) return method === 'GET' ? { kind: 'download' } : { kind: 'refused', reason: 'method' };
+  if (generate === null) return { kind: 'refused', reason: 'path' };
+  const model = generate[1] ?? '';
+  if (!isPost) return { kind: 'refused', reason: 'method' };
+  return priceOf(model) === undefined ? { kind: 'refused', reason: 'model' } : { kind: 'generate', model };
+}
+
+export function forwardedHeaders(headers: http.IncomingHttpHeaders, key: string, bodyLength: number): Record<string, string> {
+  const forwarded: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (value === undefined || !FORWARDED_HEADERS.has(name)) continue;
+    forwarded[name] = Array.isArray(value) ? value.join(', ') : value;
+  }
+  // The body sent is JSON the forwarder serialized, whatever type the app named.
+  return { ...forwarded, host: PROVIDER_HOST, 'content-type': 'application/json', 'content-length': String(bodyLength), 'x-goog-api-key': key };
+}
+
+function responseHeaders(upstream: http.IncomingMessage): http.OutgoingHttpHeaders {
+  const headers: http.OutgoingHttpHeaders = {};
+  for (const [name, value] of Object.entries(upstream.headers)) {
+    if (value !== undefined && !HOP_BY_HOP.has(name)) headers[name] = value;
+  }
+  return headers;
+}
+
+/** The longest model name the calls record keeps; an unpriced one can be as long as the body. */
+export const MAX_RECORDED_MODEL_CHARS = 128;
+
+function recordedModel(model: string | null | undefined): string | null {
+  if (model === undefined || model === null) return null;
+  return model.length > MAX_RECORDED_MODEL_CHARS ? `${model.slice(0, MAX_RECORDED_MODEL_CHARS)}...` : model;
+}
+
+type Fields = Pick<ProviderCall, 'action' | 'reason' | 'status'> & Partial<Pick<ProviderCall, 'model' | 'chargedUsd'>>;
+
+/** Writes a request's line once, whichever way it ends. */
+function recorder(options: ProviderForwarderOptions, request: http.IncomingMessage) {
+  let written = false;
+  return (fields: Fields) => {
+    if (written) return;
+    written = true;
+    const call: ProviderCall = {
+      time: (options.now?.() ?? new Date()).toISOString(),
+      caller: options.caller,
+      method: request.method ?? null,
+      path: request.url === undefined ? null : request.url.split('?')[0] ?? null,
+      chargedUsd: 0,
+      ...fields,
+      model: recordedModel(fields.model),
+    };
+    try {
+      appendFile(options.calls, `${JSON.stringify(call)}\n`);
+    } catch (error) {
+      // Often called from a stream's listener, where a throw would crash the host. The spend is settled first.
+      const code = error instanceof Error ? (error as NodeJS.ErrnoException).code ?? error.name : 'unknown';
+      options.onFault?.(`the provider calls record could not be written (${code})`);
+    }
+  };
+}
+
+type RecordLine = ReturnType<typeof recorder>;
+
+const STATUS_FOR: Record<string, number> = {
+  'body-not-json': 400, 'body-too-large': 413, 'encoded-body': 415, 'no-key': 503,
+  'run-cap': 429, 'caller-cap': 429, 'in-flight': 429, 'ledger-unreadable': 503,
+};
+
+const IS_BUDGET = new Set(['run-cap', 'caller-cap', 'in-flight']);
+
+/** A refusal in the provider's error shape, which the app's client reads. */
+function refuse(response: http.ServerResponse, record: RecordLine, reason: ProviderRefusal, message: string, model: string | null = null): void {
+  const status = STATUS_FOR[reason] ?? 403;
+  record({ action: 'refused', reason, status, model });
+  const isBudget = IS_BUDGET.has(reason);
+  const error = isBudget
+    ? { code: 429, status: 'RESOURCE_EXHAUSTED', message: `factory provider budget reached (${reason})` }
+    : { code: status, status: status === 403 ? 'PERMISSION_DENIED' : 'FAILED_PRECONDITION', message: `pyric provider forwarder: ${message}`, reason };
+  const body = JSON.stringify({ error });
+  response.writeHead(status, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), connection: 'close' });
+  response.end(body);
+}
+
+type BodyRead = { kind: 'body'; body: Buffer } | { kind: 'too-large' } | { kind: 'closed' };
+
+function readBody(request: http.IncomingMessage, maxBytes: number, done: (read: BodyRead) => void): void {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  let reported = false;
+  const report = (read: BodyRead) => {
+    if (reported) return;
+    reported = true;
+    done(read);
+  };
+  request.on('data', (chunk: Buffer) => {
+    total += chunk.length;
+    if (total > maxBytes) return report({ kind: 'too-large' });
+    chunks.push(chunk);
+  });
+  request.once('end', () => report({ kind: 'body', body: Buffer.concat(chunks) }));
+  request.once('close', () => report({ kind: 'closed' }));
+}
+
+/**
+ * The fields a body may set, by name. An allowlist, so a field that could
+ * make one call cost more than its price (more candidates, tools,
+ * cached content, files) is refused unless it is named here.
+ */
+const TOP_FIELDS = new Set(['model', 'store', 'contents', 'input', 'systemInstruction', 'generationConfig', 'safetySettings', 'responseModalities', 'responseMimeType', 'responseFormat']);
+const CONFIG_FIELDS = new Set(['temperature', 'topP', 'topK', 'maxOutputTokens', 'seed', 'stopSequences', 'candidateCount', 'responseModalities', 'responseMimeType', 'responseSchema', 'responseJsonSchema', 'imageConfig', 'thinkingConfig', 'thinkingLevel']);
+const IMAGE_CONFIG_FIELDS = new Set(['aspectRatio', 'imageSize']);
+/** Keys that point a part at a stored file, anywhere in the body. */
+const FILE_KEYS = new Set(['fileData', 'fileUri', 'uri']);
+
+function unknownField(fields: Record<string, unknown>, allowed: ReadonlySet<string>, where: string): string | undefined {
+  const name = Object.keys(fields).find((key) => !allowed.has(camel(key)));
+  return name === undefined ? undefined : `${where}${name}`;
+}
+
+/** A key naming a stored file, or one of two keys that spell one field, at any level of the body. */
+function walkedField(value: unknown): string | undefined {
+  if (Array.isArray(value)) return value.map(walkedField).find((found) => found !== undefined);
+  const fields = fieldsOf(value);
+  if (fields === undefined) return undefined;
+  const spelled = new Set<string>();
+  for (const [key, inner] of Object.entries(fields)) {
+    const name = camel(key);
+    if (spelled.has(name)) return key;
+    spelled.add(name);
+    if (FILE_KEYS.has(name)) return key;
+    const found = walkedField(inner);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** The first field that is not allowed, or could make the call cost more than its price. */
+export function costlyField(fields: Record<string, unknown>): string | undefined {
+  const top = unknownField(fields, TOP_FIELDS, '');
+  if (top !== undefined) return top;
+  // Whether the provider keeps the interaction, which costs nothing: a boolean only.
+  const store = entryOf(fields, 'store');
+  if (store !== undefined && typeof store !== 'boolean') return 'store';
+  const walked = walkedField(fields);
+  if (walked !== undefined) return walked;
+  const rawConfig = entryOf(fields, 'generationConfig');
+  if (rawConfig === undefined) return undefined;
+  const config = fieldsOf(rawConfig);
+  if (config === undefined) return 'generationConfig';
+  const inConfig = unknownField(config, CONFIG_FIELDS, 'generationConfig.');
+  if (inConfig !== undefined) return inConfig;
+  const count = entryOf(config, 'candidateCount');
+  if (count !== undefined && count !== 1) return 'generationConfig.candidateCount';
+  const rawImage = entryOf(config, 'imageConfig');
+  if (rawImage === undefined) return undefined;
+  const image = fieldsOf(rawImage);
+  if (image === undefined) return 'generationConfig.imageConfig';
+  const inImage = unknownField(image, IMAGE_CONFIG_FIELDS, 'generationConfig.imageConfig.');
+  if (inImage !== undefined) return inImage;
+  const size = entryOf(image, 'imageSize');
+  const isPricedSize = size === undefined || (typeof size === 'string' && PRICED_IMAGE_SIZES.has(size));
+  return isPricedSize ? undefined : 'generationConfig.imageConfig.imageSize';
+}
+
+type BodyCheck = { ok: true; model: string | null; body: Buffer } | { ok: false; reason: ProviderRefusal; message: string; model?: string };
+
+/**
+ * The body's model, and the body sent on. The body sent is the one checked,
+ * serialized again from what was parsed, so a duplicate key can't name one
+ * model to the check and another to the provider. A token-billed body
+ * without `maxOutputTokens` gets its model's cap (`withOutputCap`) before
+ * it is checked.
+ */
+function checkBody(route: Route, body: Buffer): BodyCheck {
+  if (route.kind === 'poll' || route.kind === 'download') return { ok: true, model: null, body: Buffer.alloc(0) };
+  let parsed: unknown;
+  try {
+    parsed = body.length === 0 && route.kind === 'generate' ? {} : JSON.parse(body.toString('utf8'));
+  } catch {
+    return { ok: false, reason: 'body-not-json', message: 'the body is not JSON' };
+  }
+  const isObject = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
+  if (!isObject) return { ok: false, reason: 'body-not-json', message: 'the body is not a JSON object' };
+  const parsedFields = parsed as Record<string, unknown>;
+  const names = new Set(Object.keys(parsedFields).map(camel));
+  if (names.has('stream')) return { ok: false, reason: 'streaming', message: 'streaming calls are not metered' };
+  if (names.has('agent') && route.kind === 'interactions') return { ok: false, reason: 'agent', message: 'an interaction may not name an agent' };
+  const costly = costlyField(parsedFields);
+  if (costly !== undefined) return { ok: false, reason: 'field', message: `the body's ${costly} could cost more than one call's price` };
+  const named = typeof parsedFields.model === 'string' ? bareModel(parsedFields.model) : null;
+  const isOtherModel = route.kind === 'generate' && 'model' in parsedFields && named !== route.model;
+  if (isOtherModel) return { ok: false, reason: 'model', message: 'the body names another model than the path', model: named ?? undefined };
+  const model = route.kind === 'generate' ? route.model : named;
+  const price = model === null ? undefined : priceOf(model);
+  if (model === null || price === undefined) return { ok: false, reason: 'model', message: `the model ${model ?? '(none)'} is not one a factory run may call`, model: model ?? undefined };
+  const fields = withOutputCap(parsedFields, price, route.kind === 'generate' ? 'generate' : 'interactions');
+  const sent = Buffer.from(JSON.stringify(fields));
+  const problem = limitProblem(fields, sent.length, price);
+  if (problem !== undefined) return { ok: false, ...problem, model };
+  return { ok: true, model, body: sent };
+}
+
+interface Admitted {
+  method: 'GET' | 'POST';
+  path: string;
+  body: Buffer;
+  model: string | null;
+  headers: Record<string, string>;
+  reservation: LedgerReservation | null;
+}
+
+function forward(response: http.ServerResponse, admitted: Admitted, options: ProviderForwarderOptions, record: RecordLine): void {
+  const upstream = options.upstream ?? DEFAULT_UPSTREAM;
+  const transport = upstream.tls ? https : http;
+  const chargedUsd = admitted.reservation?.reservedUsd ?? 0;
+  let status: number | null = null;
+  const finish = (outcome: CallOutcome, reason: string | null) => {
+    clearTimeout(deadline);
+    admitted.reservation?.settle(outcome);
+    record({ action: 'forwarded', reason, status, model: admitted.model, chargedUsd });
+  };
+  const outgoing = transport.request({
+    host: upstream.host,
+    port: upstream.port,
+    method: admitted.method,
+    path: admitted.path,
+    headers: admitted.headers,
+    agent: false,
+    ...(upstream.tls ? { servername: PROVIDER_HOST, ...(upstream.ca === undefined ? {} : { ca: upstream.ca }) } : {}),
+  }, (incoming) => {
+    status = incoming.statusCode ?? 502;
+    const outcome: CallOutcome = status >= 400 ? 'refused-upstream' : 'complete';
+    try {
+      response.writeHead(status, responseHeaders(incoming));
+    } catch {
+      finish('upstream-error', 'upstream-error');
+      incoming.destroy();
+      response.destroy();
+      return;
+    }
+    // Streamed through: an image or a clip can be large, and only requests are capped.
+    incoming.pipe(response);
+    incoming.once('end', () => finish(outcome, null));
+    incoming.once('error', () => {
+      finish('cut-off', 'upstream-error');
+      response.destroy();
+    });
+    incoming.once('aborted', () => {
+      finish('cut-off', 'upstream-error');
+      response.destroy();
+    });
+  });
+  const deadline = setTimeout(() => {
+    finish('cut-off', 'upstream-timeout');
+    outgoing.destroy();
+    response.destroy();
+  }, options.timeoutMs ?? PROVIDER_TIMEOUT_MS);
+  outgoing.once('error', () => {
+    const answered = status !== null;
+    status ??= 502;
+    finish(answered ? 'cut-off' : 'upstream-error', 'upstream-error');
+    if (answered) return response.destroy();
+    response.writeHead(502, { 'content-type': 'application/json', connection: 'close' });
+    response.end(JSON.stringify({ error: { code: 502, status: 'UNAVAILABLE', message: 'pyric provider forwarder: the provider could not be reached' } }));
+  });
+  response.once('close', () => {
+    finish('cut-off', 'client-closed');
+    outgoing.destroy();
+  });
+  outgoing.end(admitted.body);
+}
+
+function admit(request: http.IncomingMessage, response: http.ServerResponse, route: Route, body: Buffer, options: ProviderForwarderOptions, record: RecordLine): void {
+  const check = checkBody(route, body);
+  if (!check.ok) return refuse(response, record, check.reason, check.message, check.model ?? null);
+  const read = options.credential();
+  if (!read.ok) return refuse(response, record, 'no-key', 'the provider key could not be read');
+  const price = check.model === null ? undefined : priceOf(check.model);
+  let reservation: LedgerReservation | null = null;
+  if (price !== undefined && check.model !== null) {
+    const reserved = options.ledger.reserve(options.caller, check.model, price.usdPerCall);
+    if (typeof reserved === 'string') return refuse(response, record, reserved, `the call was refused (${reserved})`, check.model);
+    reservation = reserved;
+  }
+  // The app's query is never sent on: it could carry a key, switch to streaming or override the method.
+  const bare = (request.url ?? '').split('?')[0] ?? '';
+  const path = route.kind === 'download' ? `${bare}?${DOWNLOAD_QUERY}` : bare;
+  const method = route.kind === 'poll' || route.kind === 'download' ? 'GET' : 'POST';
+  try {
+    forward(response, { method, path, body: check.body, model: check.model, headers: forwardedHeaders(request.headers, read.key, check.body.length), reservation }, options, record);
+  } catch (error) {
+    // Thrown before the call went out, such as a header the transport rejects: settle the
+    // reservation so it can't hold an in-flight slot. It is still charged, erring high.
+    reservation?.settle('upstream-error');
+    record({ action: 'refused', reason: 'upstream-error', status: null, model: check.model, chargedUsd: reservation?.reservedUsd ?? 0 });
+    throw error;
+  }
+}
+
+function handle(request: http.IncomingMessage, response: http.ServerResponse, options: ProviderForwarderOptions): void {
+  const record = recorder(options, request);
+  request.on('error', () => request.destroy());
+  const path = (request.url ?? '').split('?')[0] ?? '';
+  const route = routeOf(request.method ?? '', path);
+  if (route.kind === 'refused') return refuse(response, record, route.reason, `${request.method} ${path} is not a call a factory run may make`);
+  const query = (request.url ?? '').split('?').slice(1).join('?');
+  const isDownloadQuery = route.kind !== 'download' || query === DOWNLOAD_QUERY;
+  if (!isDownloadQuery) return refuse(response, record, 'query', `a download may only ask for ${DOWNLOAD_QUERY}`);
+  const encoding = request.headers['content-encoding'];
+  const isEncoded = encoding !== undefined && encoding !== 'identity';
+  if (isEncoded) return refuse(response, record, 'encoded-body', `a body sent with content-encoding ${encoding} can't be checked`);
+  const maxBytes = route.kind === 'generate' ? priceOf(route.model)?.limits.maxRequestBytes ?? 0 : MAX_PROVIDER_REQUEST_BYTES;
+  readBody(request, maxBytes, (read) => {
+    if (read.kind === 'closed') return record({ action: 'refused', reason: 'client-closed', status: null });
+    if (read.kind === 'too-large') return refuse(response, record, 'body-too-large', `the body is over ${maxBytes} bytes`);
+    guarded(response, options, () => admit(request, response, route, read.body, options, record));
+  });
+}
+
+/** Runs `step`; anything it throws drops this request and is reported as a fault, never thrown out of the harness. */
+function guarded(response: http.ServerResponse, options: ProviderForwarderOptions, step: () => void): void {
+  try {
+    step();
+  } catch (error) {
+    // The code alone: a header error's message can quote the header's value.
+    const code = error instanceof Error ? (error as NodeJS.ErrnoException).code ?? error.name : 'unknown';
+    response.destroy();
+    options.onFault?.(`the provider forwarder dropped a request that failed (${code})`);
+  }
+}
+
+/** Starts the forwarder on `socketPath`. */
+export function startProviderForwarder(options: ProviderForwarderOptions): Promise<Listening> {
+  const server = http.createServer({ maxHeaderSize: 16 * 1024 }, (request, response) => guarded(response, options, () => handle(request, response, options)));
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(options.socketPath, () => resolve({
+      close: () => new Promise<void>((done) => {
+        server.closeAllConnections();
+        server.close(() => done());
+      }),
+    }));
+  });
+}

@@ -5,8 +5,8 @@
     "firestore#composite-index-required"
   ],
   "description": "Queries on a collection id no composite index covers: two controls that need only single-field indexes, and four shapes that need a composite index (equality plus orderBy on another field, range plus orderBy on another field, ranges on two fields, array-contains plus orderBy).",
-  "observedAt": "2026-10-27T19:28:03.815Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:07:22.094Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "controlEqOnly": {

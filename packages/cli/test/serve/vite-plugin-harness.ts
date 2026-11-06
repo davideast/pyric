@@ -58,6 +58,8 @@ export interface PyricReq {
   url: string;
   originalUrl: string;
   headers: Record<string, string>;
+  /** The peer a real socket reports; the namespace reads it to issue the session token. */
+  socket: { remoteAddress: string };
 }
 
 export type PyricMiddleware = (
@@ -116,6 +118,7 @@ export async function callPyric(
     url: options.mountedPath ?? options.path,
     originalUrl: options.path,
     headers: { host: options.host ?? 'localhost', ...(options.headers ?? {}) },
+    socket: { remoteAddress: '127.0.0.1' },
   };
   const response = new MockRes();
   let nexted = false;
@@ -148,6 +151,7 @@ export async function callPyricStack(
     url: options.path,
     originalUrl: options.path,
     headers: { host: options.host ?? 'localhost', ...(options.headers ?? {}) },
+    socket: { remoteAddress: '127.0.0.1' },
   };
   const response = new MockRes();
   let nexted = false;

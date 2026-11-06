@@ -21,15 +21,16 @@ export const TARGET_SYMBOL: unique symbol = Symbol('pyric/auth/target');
 /**
  * Result of `getIdTokenResult()`. Mirrors the `firebase/auth` shape.
  *
- * On the sandbox backend `token` is an opaque sandbox-issued string
- * with a recognizable prefix (`sandbox-id-token-`) — NOT a JWT and
- * NOT cryptographically signed. `claims` echoes the user's
- * `customClaims` (from `sandbox.seedUsers`) plus a small set of
- * synthesized standard claims (`sub`, `aud`, `iss`). Expiration is
- * set far in the future since the sandbox has no refresh story.
+ * On the sandbox backend `token` is a JWT in production's shape: three
+ * base64url segments, a header naming `alg` RS256, `typ` JWT and a `kid`,
+ * and a payload that decodes to `claims`. The third segment is a sandbox
+ * tag, not an RSA signature. `claims` carries the standard claims, with
+ * `iss` `https://securetoken.google.com/<projectId>` and `aud` the project
+ * id, plus the user's custom claims. Expiration is set far in the future
+ * since the sandbox has no refresh story.
  */
 export interface IdTokenResult {
-  /** Opaque sandbox token string: `sandbox-id-token-<uid>-<hash>`. */
+  /** The ID token: `<header>.<payload>.<tag>`, each segment base64url. */
   token: string;
   /** Custom + standard claims. Same map seen by the rules engine as
    *  `request.auth.token.*`. */

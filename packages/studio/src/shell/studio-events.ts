@@ -17,6 +17,7 @@ import type {
   SandboxOperationEvent,
 } from 'pyric/sandbox';
 import { activeListeners, isOperationEvent, toOperationRecord } from 'pyric/sandbox';
+import { messagingRequestsLine, storageGsPath } from 'pyric/sandbox/internal';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { foldSessionEventLog } from '../events/fold.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
@@ -190,11 +191,20 @@ function toTrafficEvent(
       operationContext: record.context,
       rulesDisposition: record.rules,
       queryProof: record.queryProof,
+      ...callerOf(e),
     };
   }
   let pathVal = '(service)';
   if (e.path !== undefined) {
     pathVal = e.path;
+  }
+  const gsPath = storageGsPath(e, e.path);
+  if (gsPath !== undefined) {
+    pathVal = gsPath;
+  }
+  const requestsLine = messagingRequestsLine(e);
+  if (requestsLine !== undefined) {
+    pathVal = requestsLine;
   }
   let reasonsVal: string[] = [];
   if (e.reasons !== undefined) {
@@ -221,7 +231,14 @@ function toTrafficEvent(
     operationContext: record.context,
     rulesDisposition: record.rules,
     queryProof: record.queryProof,
+    ...callerOf(e),
+    ...(e.kind === 'operation' && e.production !== undefined ? { production: e.production } : {}),
   };
+}
+
+/** The caller field to carry onto an adapted event, when the host stamped one. */
+function callerOf(e: EventProvenance): Pick<StudioTrafficEvent, 'caller'> {
+  return e.caller === undefined ? {} : { caller: e.caller };
 }
 
 /**
@@ -231,10 +248,12 @@ function toTrafficEvent(
  */
 export function useStudioTraffic(): StudioTrafficEvent[] {
   const events = useStudioEvents();
-  return useMemo<StudioTrafficEvent[]>(
-    () => events.filter(isTrafficEvent).map(toTrafficEvent),
-    [events],
-  );
+  return useMemo<StudioTrafficEvent[]>(() => studioTrafficEvents(events), [events]);
+}
+
+/** The traffic rows {@link useStudioTraffic} reads, from any event array. */
+export function studioTrafficEvents(events: readonly SandboxEvent[]): StudioTrafficEvent[] {
+  return events.filter(isTrafficEvent).map(toTrafficEvent);
 }
 
 /** The denied ops (rules-failure debugging), derived from the live stream. */

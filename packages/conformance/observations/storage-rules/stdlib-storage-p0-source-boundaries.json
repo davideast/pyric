@@ -3,8 +3,8 @@
   "matrixRow": "",
   "rowIds": [],
   "description": "Paired Firestore/Storage Rules Test API source-boundary probe: ordinary v2, import syntax under v2 and 2+modules, multi-file linking, and file-order permutations.",
-  "observedAt": "2026-07-21T12:32:33.369Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:19:44.782Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "firestore: single-v2-baseline": "ALLOW",
@@ -57,7 +57,7 @@
       "httpStatus": 400,
       "error": {
         "code": 400,
-        "message": "Request contains an invalid argument.",
+        "message": "Currently only one file source can be passed to firebase rules.",
         "status": "INVALID_ARGUMENT"
       }
     },
@@ -65,7 +65,7 @@
       "httpStatus": 400,
       "error": {
         "code": 400,
-        "message": "Request contains an invalid argument.",
+        "message": "Currently only one file source can be passed to firebase rules.",
         "status": "INVALID_ARGUMENT"
       }
     },
@@ -73,7 +73,7 @@
       "httpStatus": 400,
       "error": {
         "code": 400,
-        "message": "Request contains an invalid argument.",
+        "message": "Currently only one file source can be passed to firebase rules.",
         "status": "INVALID_ARGUMENT"
       }
     },
@@ -113,7 +113,7 @@
       "httpStatus": 400,
       "error": {
         "code": 400,
-        "message": "Request contains an invalid argument.",
+        "message": "Currently only one file source can be passed to firebase rules.",
         "status": "INVALID_ARGUMENT"
       }
     },
@@ -121,7 +121,7 @@
       "httpStatus": 400,
       "error": {
         "code": 400,
-        "message": "Request contains an invalid argument.",
+        "message": "Currently only one file source can be passed to firebase rules.",
         "status": "INVALID_ARGUMENT"
       }
     },
@@ -129,7 +129,7 @@
       "httpStatus": 400,
       "error": {
         "code": 400,
-        "message": "Request contains an invalid argument.",
+        "message": "Currently only one file source can be passed to firebase rules.",
         "status": "INVALID_ARGUMENT"
       }
     }

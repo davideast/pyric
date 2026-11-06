@@ -37,6 +37,7 @@ import {
   reviveCaseLiterals,
   reviveFirestoreNumbers,
 } from './firestore-values.js';
+import { typeClaimNumbers } from './rules-int.js';
 import { caseShapeRefusal } from '../test/case-shape.js';
 import { requestTimeRefusal } from '../test/case-refusals.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
@@ -418,7 +419,7 @@ function buildContext(
   }
 
   const request: SimulationContext['request'] = {
-    auth: tc.auth ? { uid: tc.auth.uid, token: tc.auth.token ?? {} } : null,
+    auth: tc.auth ? { uid: tc.auth.uid, token: typeClaimNumbers(tc.auth.token ?? {}) as Record<string, unknown> } : null,
     method: tc.method,
     path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
     ...(requestQuery(tc) ? { query: requestQuery(tc) } : {}),

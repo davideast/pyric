@@ -5,8 +5,8 @@
     "storage-rules#storage.stdlib.bytes-hashing"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"bytes-literal\" (Coverage: bytes literal). A bytes literal b'...' or B\"...\" is the UTF-8 encoding of its characters, with \\x hex and \\ooo octal escapes that each produce one byte; it equals only bytes, orders lexicographically, and hashes like its string, and + and [] on bytes are error values that || true absorbs.",
-  "observedAt": "2026-09-27T16:56:49.444Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:52.402Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

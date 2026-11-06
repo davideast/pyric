@@ -5,8 +5,8 @@
     "storage-rules#206"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-v1-recursive-wildcard\" (STORAGE-H1-V1-GLOB). Version 1 recursive wildcards need at least one segment; a zero-segment match is an ALLOW production never grants.",
-  "observedAt": "2026-10-27T02:46:26.385Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:55.219Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

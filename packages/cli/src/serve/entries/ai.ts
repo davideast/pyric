@@ -16,8 +16,11 @@
  * config with no `baseUrl` targets serve's same-origin `/__pyric/ai-proxy`
  * route (which forwards to the configured upstream, default
  * `http://localhost:11434/v1`) — so a localhost Ollama needs no CORS setup
- * on EITHER path. A custom AnswerEngine OBJECT can't cross the port and is
- * rejected in worker mode rather than creating a second page-local backend.
+ * on EITHER path. A gemini config without its own `apiKey` sends through
+ * `/__pyric/ai-proxy/gemini`, where the server attaches the key from its
+ * environment, so the key never reaches the page. A custom AnswerEngine
+ * OBJECT can't cross the port and is rejected in worker mode rather than
+ * creating a second page-local backend.
  * Direct/in-process `pyric/ai` sandboxes still accept custom engines.
  *
  * Engine config is per-sandbox (#98.4) and first-call-wins at the worker
@@ -27,14 +30,29 @@
  */
 import * as ipAi from 'pyric/ai';
 import { aiErrorFromEnvelope, unpackAiEvidence, getAiEvidence, setAiEvidence } from 'pyric/ai/internal';
+import type { AppCheckClaim } from 'pyric/ai/internal';
 import { getAI as pyricGetAI } from 'pyric/ai';
 import { createTransportAI } from 'pyric/ai/internal';
 import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
 import { isSandboxAppDeleted } from 'pyric/app/internal';
 import type { AiEngineConfigWire } from '../worker/protocol.js';
 import { aiGenerateContent, aiCountTokens, aiStreamGenerateContent } from '../worker/client.js';
+import { AI_PROXY_PATH, browserGeminiEngine } from '../worker/ai-proxy-paths.js';
 import { useWorker } from './worker-runtime.js';
 import { workerClientForApp } from './app-client.js';
+import { sandbox } from './app-backend.js';
+import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
+
+// An in-page sandbox runs its own AI broker, so its `request_rejected`,
+// `response_blocked`, and `model_substituted` events need a relay to reach
+// the dev server terminal. The worker and hosted planes relay from their own
+// broker. This entry is the only one that runs the in-page broker, so the
+// relay is installed here, once per page, whatever other services the page
+// imports (#1638). It needs no capability token: the denial relay it rides
+// carries none.
+if (!useWorker) {
+  setupAiDiagnosticsRelay({ subscribe: (listener) => sandbox.onEvent(listener) }, fetch);
+}
 
 // ── Mirror surface — path-independent (the mirror always runs in-page) ────
 export {
@@ -79,9 +97,6 @@ export {
 
 type EngineOption = NonNullable<ipAi.AIOptions['engine']>;
 type AnswerTransport = Parameters<typeof createTransportAI>[2];
-
-/** The serve proxy route the browser openai engine defaults to (#98.2). */
-const AI_PROXY_PATH = '/__pyric/ai-proxy';
 
 /** A custom AnswerEngine object (vs a plain, worker-cloneable EngineConfig). */
 function isAnswerEngine(engine: EngineOption): boolean {
@@ -150,20 +165,7 @@ function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
     } as EngineOption;
   }
   const isGeminiWire = wire.kind === 'gemini';
-  if (isGeminiWire) {
-    const result: Record<string, unknown> = {
-      kind: 'gemini',
-    };
-    const hasBaseUrl = wire.baseUrl !== undefined;
-    if (hasBaseUrl) {
-      result.baseUrl = wire.baseUrl;
-    }
-    const hasApiKey = wire.apiKey !== undefined;
-    if (hasApiKey) {
-      result.apiKey = wire.apiKey;
-    }
-    return result as unknown as EngineOption;
-  }
+  if (isGeminiWire) return browserGeminiEngine(wire) as EngineOption;
   return {
     kind: 'scripted',
     ...(wire.script !== undefined
@@ -172,7 +174,10 @@ function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
   } as EngineOption;
 }
 
-/** In-page path: default an openai config's absent baseUrl to the proxy. */
+/**
+ * In-page path: default an openai config's absent baseUrl to the proxy, and
+ * send a gemini config without its own key through the gemini proxy.
+ */
 function withProxyDefault(options?: ipAi.AIOptions): ipAi.AIOptions | undefined {
   const engine = options?.engine;
   if (!engine || isAnswerEngine(engine)) return options;
@@ -180,46 +185,60 @@ function withProxyDefault(options?: ipAi.AIOptions): ipAi.AIOptions | undefined 
   if (config.kind === 'openai' && config.baseUrl === undefined) {
     return { ...options, engine: { ...config, baseUrl: AI_PROXY_PATH } as EngineOption };
   }
+  const isKeylessGemini = config.kind === 'gemini' && (engine as { apiKey?: string }).apiKey === undefined;
+  if (isKeylessGemini) {
+    return { ...options, engine: browserGeminiEngine({ kind: 'gemini' }) as EngineOption };
+  }
   return options;
 }
 
-function aiErrorFromWire(err: unknown, modelResource: string, op: string): unknown {
+/** The worker's wire error as the SDK's AIError, its URL built for the handle's backend as the in-page plane builds it (#1640). */
+function aiErrorFromWire(err: unknown, modelResource: string, op: string, backend: ipAi.Backend | undefined): unknown {
   const envelope = (err as { aiEnvelope?: Parameters<typeof aiErrorFromEnvelope>[0] } | null)
     ?.aiEnvelope;
-  return envelope ? setAiEvidence(aiErrorFromEnvelope(envelope, modelResource, op), err && typeof err === 'object' ? getAiEvidence(err) ?? {} : {}) : err;
+  return envelope ? setAiEvidence(aiErrorFromEnvelope(envelope, modelResource, op, backend), err && typeof err === 'object' ? getAiEvidence(err) ?? {} : {}) : err;
 }
 
 // ── The port-forwarding AnswerEngine (worker path) ─────────────────────────
 
-function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEngineConfigWire | undefined): AnswerTransport {
-  const params = (model: string, request: Record<string, unknown>) => ({
+/**
+ * The handle's App Check claim rides every request to the worker broker,
+ * which plays AI Logic's gate (`pyric/ai`'s `app-check-gate.ts`).
+ */
+function portEngine(
+  db: ReturnType<typeof workerClientForApp>,
+  engineWire: AiEngineConfigWire | undefined,
+  backend: ipAi.Backend | undefined,
+): AnswerTransport {
+  const params = (model: string, request: Record<string, unknown>, appCheck: AppCheckClaim | undefined) => ({
     model,
     request,
     ...(engineWire !== undefined ? { engine: engineWire } : {}),
+    ...(appCheck !== undefined ? { appCheck } : {}),
   });
   const engine = {
-    async generateContent(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>> {
+    async generateContent(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): Promise<Record<string, unknown>> {
       try {
-        return unpackAiEvidence(await aiGenerateContent(db, params(model, req)));
+        return unpackAiEvidence(await aiGenerateContent(db, params(model, req, appCheck)));
       } catch (err) {
-        throw aiErrorFromWire(err, model, 'generateContent');
+        throw aiErrorFromWire(err, model, 'generateContent', backend);
       }
     },
-    streamGenerateContent(req: Record<string, unknown>, model: string): AsyncIterable<Record<string, unknown>> {
-      const inner = aiStreamGenerateContent(db, params(model, req));
+    streamGenerateContent(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): AsyncIterable<Record<string, unknown>> {
+      const inner = aiStreamGenerateContent(db, params(model, req, appCheck));
       return (async function* mapped(): AsyncGenerator<Record<string, unknown>> {
         try {
           for await (const chunk of inner) yield unpackAiEvidence(chunk);
         } catch (err) {
-          throw aiErrorFromWire(err, model, 'streamGenerateContent');
+          throw aiErrorFromWire(err, model, 'streamGenerateContent', backend);
         }
       })();
     },
-    async countTokens(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>> {
+    async countTokens(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): Promise<Record<string, unknown>> {
       try {
-        return unpackAiEvidence(await aiCountTokens(db, params(model, req)));
+        return unpackAiEvidence(await aiCountTokens(db, params(model, req, appCheck)));
       } catch (err) {
-        throw aiErrorFromWire(err, model, 'countTokens');
+        throw aiErrorFromWire(err, model, 'countTokens', backend);
       }
     },
   };
@@ -303,7 +322,7 @@ export const getAI = (
         return createTransportAI(
           resolved,
           options,
-          portEngine(workerClientForApp(resolved), wire),
+          portEngine(workerClientForApp(resolved), wire, options?.backend),
           assertAlive,
         );
       }
@@ -318,9 +337,6 @@ export const getAI = (
 ) as typeof pyricGetAI;
 
 export {
-  ImagenAspectRatio,
-  ImagenPersonFilterLevel,
-  ImagenSafetyFilterLevel,
   InferenceMode,
   InferenceSource,
   LiveResponseType,

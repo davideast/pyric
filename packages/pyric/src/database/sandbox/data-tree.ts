@@ -26,39 +26,12 @@
  * `local-environment.ts`. The tree just stores bytes.
  */
 
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+import { jsonEqual } from '../../rules/rtdb/data/json-equal.js';
+import type { JsonValue } from '../../rules/rtdb/data/json-value.js';
+import { pathSegments } from '../../rules/rtdb/data/paths.js';
 
-/** Path segments that must never be walked or written: because the tree
- *  is backed by plain JS objects, a segment named `__proto__` (or, as
- *  defence-in-depth, `constructor`/`prototype`) would reach the shared
- *  `Object.prototype` and let a rule-permitted write pollute it
- *  process-wide. Real RTDB stores a server-side tree with no such
- *  reserved keys, so rejecting them is a sandbox-only safety constraint,
- *  not a parity regression. */
-const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
-
-/** Normalise a path to an array of non-empty segments. `'/'` → [].
- *  Throws if any segment is a prototype-pollution vector. */
-export function pathSegments(path: string): string[] {
-  if (path === '' || path === '/') return [];
-  // Strip leading + trailing slashes, then split on `/` and drop empties.
-  const segs = path.split('/').filter((s) => s.length > 0);
-  for (const seg of segs) {
-    if (UNSAFE_SEGMENTS.has(seg)) {
-      throw new Error(
-        `Invalid RTDB path segment '${seg}': the keys __proto__, prototype, ` +
-          'and constructor are reserved and cannot appear in a path.',
-      );
-    }
-  }
-  return segs;
-}
+export { pathSegments };
+export type { JsonValue };
 
 /** Join segments back into a `/`-prefixed canonical path. `[]` → `'/'`. */
 export function joinPath(segments: string[]): string {
@@ -102,25 +75,14 @@ export function isJsonObject(value: unknown): value is Record<string, JsonValue>
 }
 
 /**
- * Structural RTDB JSON equality.
+ * Structural RTDB JSON equality: the rules engine's {@link jsonEqual}.
  *
- * Object key order is ignored, array order is preserved, and primitive
- * leaves compare by value. This is the equality RTDB listener diffs and
- * fixture replay use when deciding whether two JSON states are the same.
+ * Object key order is ignored, array order is preserved, keys are own
+ * keys (an own `__proto__` is an ordinary key), and numbers compare with
+ * `===`, so `-0` equals `0` as it does once JSON carries it. RTDB listener
+ * diffs and fixture replay use it to decide whether two states are the same.
  */
-export function jsonValuesEqual(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b)) return false;
-    if (a.length !== b.length) return false;
-    return a.every((value, index) => jsonValuesEqual(value, b[index]));
-  }
-  if (!isJsonObject(a) || !isJsonObject(b)) return false;
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key) => key in b && jsonValuesEqual(a[key], b[key]));
-}
+export const jsonValuesEqual = jsonEqual;
 
 /**
  * In-memory JSON tree. One instance per sandbox.

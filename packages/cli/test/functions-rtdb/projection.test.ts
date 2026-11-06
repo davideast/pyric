@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   projectValueCreates,
   type RtdbSnapshotCommit,
-} from '../../src/functions-rtdb/projection.js';
+} from '../../src/functions/rtdb/projection.js';
 
 describe('projectValueCreates', () => {
   test('projects one exact absent-to-present transition at the matched ref', () => {

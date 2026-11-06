@@ -1,0 +1,31 @@
+name: "Behaves differently from production"
+description: "Report pyric behavior that differs from production."
+title: "<Service>: pyric <does X>, production <does Y>"
+labels: ["divergence"]
+body:
+  - type: textarea
+    id: pyric
+    attributes:
+      label: "pyric"
+      description: "What pyric does, in one or two lines."
+    validations:
+      required: true
+  - type: textarea
+    id: production
+    attributes:
+      label: "Production"
+      description: "What production does, with evidence such as a doc link or a recorded response."
+    validations:
+      required: true
+  - type: textarea
+    id: who-notices
+    attributes:
+      label: "Who notices"
+      description: "Who hits the difference and how."
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "The check that shows the two agree."
+    validations:
+      required: true

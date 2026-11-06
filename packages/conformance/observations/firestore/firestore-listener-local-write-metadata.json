@@ -6,8 +6,8 @@
     "firestore#docchanges-metadata-ack"
   ],
   "description": "One setDoc observed by a doc listener and a query listener, each with and without includeMetadataChanges. Records hasPendingWrites and fromCache per snapshot, and per-doc hasPendingWrites in docChanges (with includeMetadataChanges on the metadata listener).",
-  "observedAt": "2026-10-27T19:30:54.532Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T14:55:50.189Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "docDefault": [

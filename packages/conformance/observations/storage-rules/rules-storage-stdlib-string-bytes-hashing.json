@@ -6,8 +6,8 @@
     "storage-rules#storage.stdlib.bytes-hashing"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-string-bytes-hashing\" (STORAGE-STDLIB-STRING). String case, trim, regular-expression replace-all, and toUtf8, plus Bytes encodings and equality and the md5/sha256/crc32/crc32c digests, with int receivers, int hash input, and an invalid pattern as negative controls. String literals decode the escapes production accepts: \\x and octal as code points, \\u as one UTF-16 code unit, and \\b and \\f.",
-  "observedAt": "2026-09-27T17:34:54.157Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:57.181Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

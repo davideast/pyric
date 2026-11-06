@@ -84,6 +84,19 @@ export const PEER_REPLACED_CLOSE_CODE = 4001;
 /** Human-readable reason sent with {@link PEER_REPLACED_CLOSE_CODE}. */
 export const PEER_REPLACED_CLOSE_REASON = 'replaced by a newer sandbox peer';
 
+/**
+ * WS close code the standalone `pyric bridge` sends a page that opens its
+ * `/sandbox` socket. That bridge has no browser peer (#1468): the page is
+ * closed before it can register, and `connectBridge` stops instead of
+ * reconnecting. A page that needs a browser bridge runs under
+ * `pyric sandbox --bridge`, which serves the page and guards its socket.
+ */
+export const NO_BROWSER_PEER_CLOSE_CODE = 4010;
+
+/** Reason sent with {@link NO_BROWSER_PEER_CLOSE_CODE}; a close frame carries at most 123 bytes. */
+export const NO_BROWSER_PEER_CLOSE_REASON =
+  'pyric bridge does not accept a browser sandbox. Run pyric sandbox --bridge, which serves the page and its bridge.';
+
 // ── Bridge ↔ browser WebSocket protocol ──────────────────────────────
 //
 // All messages are JSON. Each message has a `type` discriminator.
@@ -187,9 +200,13 @@ export const WORKER_SESSION_RETENTION_MS = 60_000;
 /** How often every bridge client sends `ping` while attached (ADR-0019). */
 export const HOSTED_HEARTBEAT_INTERVAL_MS = 15_000;
 /**
- * How long a client waits without any frame from the host before it treats
- * its socket as dropped and reconnects (ADR-0019). Checked before each
- * heartbeat, so three heartbeats go unanswered first.
+ * How long a client waits for the host before it treats its socket as dropped
+ * and reconnects (ADR-0019). Checked before each heartbeat. The web hosted
+ * client counts it from its oldest unanswered ping, so a hidden tab whose
+ * throttled heartbeats run 60 s apart stays attached, and it also drops a
+ * socket that has delivered no frame for {@link HOST_PEER_LIVENESS_TIMEOUT_MS}
+ * (#2097). The Node remote client and the native clients count it from the
+ * last frame of any kind.
  */
 export const HOSTED_CLIENT_LIVENESS_TIMEOUT_MS = 3 * HOSTED_HEARTBEAT_INTERVAL_MS;
 /**
@@ -207,6 +224,12 @@ export interface WorkerMessageFrame {
   type: 'worker-message';
   clientSessionId?: string;
   message: import('../serve/worker/protocol.js').InboundMessage;
+  /**
+   * Bridge to sandbox peer only: the platform the consumer attached with
+   * (`clientInfo.platform`), so the host can say which connection sent each
+   * event. A consumer's own value here is replaced.
+   */
+  platform?: string;
 }
 
 export interface WorkerMessageResultFrame {

@@ -5,8 +5,8 @@
     "storage-rules#216"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"storage-named-bucket-binding\" (STORAGE-H2-BUCKET-BINDING). Pin that the bucket wildcard, request.resource.bucket and resource.bucket carry the real bucket name, so a ruleset that names its bucket is honored.",
-  "observedAt": "2026-10-27T02:38:03.549Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:57.646Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

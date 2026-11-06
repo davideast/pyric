@@ -14,6 +14,7 @@ import type {
   ResolvedIdentity,
   OpMessage,
 } from '../protocol.js';
+import { FirebaseError } from 'pyric/app';
 import { absolutePhotoUrl, realmOrigin } from 'pyric/sandbox/internal';
 import { closeSubscription, isDisconnectedPort, nextId, nextSubId, openSnapshotSubscription, rpc, wirePort } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
@@ -88,6 +89,22 @@ export interface ClientAuth {
  *  user-only signature). Non-enumerable — never serialized. */
 const CLIENT_USER_PORT: unique symbol = Symbol('pyric.clientUser.port');
 
+/** Hidden per-`ClientUser` worker session key ({@link SerializedUser.sessionKey}).
+ *  Non-enumerable, like the port. */
+const CLIENT_USER_SESSION_KEY: unique symbol = Symbol('pyric.clientUser.sessionKey');
+
+/** The worker session key `user` carries, which a page stores to resume the
+ *  session after a reload; undefined when the worker sent none. */
+export function clientUserSessionKey(user: ClientUser): string | undefined {
+  return (user as { [CLIENT_USER_SESSION_KEY]?: string })[CLIENT_USER_SESSION_KEY];
+}
+
+/** `{ sessionKey }` for a user that carries one, so the worker continues its session. */
+function sessionKeyField(user: ClientUser): { sessionKey?: string } {
+  const sessionKey = clientUserSessionKey(user);
+  return sessionKey === undefined ? {} : { sessionKey };
+}
+
 /** Build a token-capable ClientUser from a wire SerializedUser. */
 function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
   const user: ClientUser = {
@@ -113,6 +130,7 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
     },
   };
   Object.defineProperty(user, CLIENT_USER_PORT, { value: port, enumerable: false });
+  Object.defineProperty(user, CLIENT_USER_SESSION_KEY, { value: raw.sessionKey, enumerable: false });
   return user;
 }
 
@@ -165,7 +183,7 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     await request({ t: 'op', id: nextId(), method: 'auth.setTenantId', tenantId: auth.tenantId });
     const user = auth.currentUser;
     const isSignedIn = user !== null;
-    if (isSignedIn) await restorePortSession(auth, user.uid, request, user.tenantId);
+    if (isSignedIn) await restorePortSession(auth, user.uid, request, user.tenantId, clientUserSessionKey(user));
   };
 
   // ID-token updates also refresh same-UID changes such as provider linking.
@@ -253,6 +271,65 @@ export async function acceptProviderCredential(
   return hydrateCred(auth, raw);
 }
 
+/** The parts of a staged `UserCredential` the host needs: who signs in, and through which provider. */
+export interface StagedSignInResult {
+  readonly user: {
+    readonly uid: string;
+    readonly email?: string | null;
+    readonly displayName?: string | null;
+    readonly photoURL?: string | null;
+    readonly emailVerified?: boolean;
+  };
+  readonly providerId: string | null;
+}
+
+/**
+ * Stage the user this port's next `signInWithCredential` for
+ * `result.providerId` signs in as (served `sandbox.mockSignInResult`, #1466).
+ * Sent without waiting, as the `tenantId` setter is: the port delivers in
+ * order, so the host has it before the next sign-in. The checks the host would
+ * make run here first, so a malformed result throws at the call.
+ */
+export function stageSignInResult(auth: ClientAuth, result: StagedSignInResult): void {
+  const providerId = result.providerId;
+  const uid = result.user?.uid;
+  const hasProvider = typeof providerId === 'string' && providerId !== '';
+  const hasUid = typeof uid === 'string' && uid !== '';
+  if (!hasProvider || !hasUid) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'sandbox.mockSignInResult: result.providerId and result.user.uid must be non-empty strings.',
+    );
+  }
+  const identity: ResolvedIdentity = {
+    uid,
+    providerId,
+    email: profileField(result.user.email),
+    displayName: profileField(result.user.displayName),
+    photoURL: profileField(result.user.photoURL),
+    customClaims: {},
+    // In-page, a staged user without the flag is unverified; the wire says so.
+    emailVerified: result.user.emailVerified === true,
+  };
+  // The signature is void, so an error reply (a deleted app, a refused send)
+  // has nowhere to go; the next sign-in reports auth/no-mock-configured.
+  rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.mockSignInResult', identity }).catch(() => {});
+}
+
+/** A staged profile field the host accepts: a string, or null when absent. Anything else throws at the call. */
+function profileField(value: unknown): string | null {
+  const isAbsent = value === undefined || value === null;
+  if (isAbsent) return null;
+  const isString = typeof value === 'string';
+  if (!isString) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'sandbox.mockSignInResult: result.user.email, displayName and photoURL must be strings or null.',
+    );
+  }
+  return value;
+}
+
 /**
  * Re-establish THIS PORT's session for an existing identity (#754).
  */
@@ -261,10 +338,11 @@ export async function restorePortSession(
   uid: string,
   request: (message: OpMessage) => Promise<unknown> = message => rpc(auth.port, message),
   tenantId: string | null = auth.tenantId,
+  sessionKey?: string,
 ): Promise<ClientUser | null> {
   const raw = (await request({
     t: 'op', id: nextId(), method: 'auth.restorePortSession', uid,
-    tenantId,
+    tenantId, ...(sessionKey === undefined ? {} : { sessionKey }),
   })) as SerializedUser | null;
   const user = toClientUser(auth.port, raw);
   auth.currentUser = user;
@@ -420,6 +498,7 @@ export async function updateCurrentUser(
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.updateCurrentUser', uid: user?.uid ?? null,
     tenantId: user?.tenantId ?? auth.tenantId ?? null,
+    ...(user === null ? {} : sessionKeyField(user)),
   })) as SerializedUser | null;
   auth.currentUser = toClientUser(auth.port, raw);
 }

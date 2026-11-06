@@ -5,8 +5,8 @@
     "firestore-rules#197"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"simcase-mock-and-path-fidelity\" (FS-CON-6). functionMocks are per-function and order-free; a sibling recursive deny cannot revoke a list grant.",
-  "observedAt": "2026-10-17T20:35:43.152Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:42.871Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

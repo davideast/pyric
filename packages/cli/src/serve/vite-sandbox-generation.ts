@@ -3,11 +3,13 @@ import { existsSync } from 'node:fs';
 import type { ViteDevServer } from 'vite';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
 import { resolveFirebaseProject } from '../cli/firebase-project.js';
+import { requireLiveProject } from './live-project.js';
+import { createLiveHostState } from './live-host-state.js';
 import { registerModuleUrl } from '../cli/sandbox-runner.js';
 import {
-  discoverFunctionsRtdbProject,
-  type FunctionsRtdbProject,
-} from '../functions-rtdb/project.js';
+  discoverFunctionsProject,
+  type FunctionsProject,
+} from '../functions/project.js';
 import { formatActivityWarning } from './activity-warning.js';
 import { formatAiStatusNote } from './ai-status.js';
 import {
@@ -33,6 +35,7 @@ import { resolveAvatarsConfig, type PyricAvatarsOptions } from './avatars-config
 import { resolveViteRulesConfig } from './vite-rules-source.js';
 import type { ViteWorkerRuntime, ViteWorkerRuntimeStatus } from './vite-worker-runtime.js';
 import { viteWorkerEpochSalt } from './vite-ai-config.js';
+import { geminiProxyConfig } from './gemini-proxy.js';
 import {
   attachViteGenerationBridge,
   createViteGenerationBridge,
@@ -44,6 +47,7 @@ import {
 import { attachViteGenerationMiddleware } from './vite-generation-middleware.js';
 import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
 import { claimProjectState, type ProjectStateScope } from './hosted/project-ownership.js';
+import { refuseOwnWrite, type PyricWriteRefusal } from './hosted/own-writes.js';
 
 export interface ViteSandboxGenerationOptions {
   hosted?: boolean;
@@ -59,6 +63,17 @@ export interface ViteSandboxGenerationOptions {
   avatars: PyricAvatarsOptions | undefined;
   /** The plugin's `project` option: the first source `resolveFirebaseProject` tries. */
   project?: string;
+  /** Set only through `@pyric/live`'s seam: the host reports its status as live (`live-host-state.ts`). */
+  liveHost?: boolean;
+  /** The live host's pass-through imports, which its health report lists (`live-host-state.ts`). */
+  livePassThrough?: readonly string[];
+  /**
+   * Live mode's refusal of pyric's own writes, from the installed
+   * `@pyric/live` when the live rows are open (`hosted/own-writes.ts`). With
+   * it, the seed file is refused and the host refuses every write it is
+   * asked for. Absent outside live mode.
+   */
+  ownWriteRefusal?: PyricWriteRefusal;
 }
 
 export interface ViteSandboxGenerationInput {
@@ -100,7 +115,7 @@ export interface ViteSandboxGenerationDependencies {
   resolveAvatarsConfig: typeof resolveAvatarsConfig;
   prepareWorker(runtime: ViteWorkerRuntime, epochSalt: string): Promise<void>;
   workerStatus(runtime: ViteWorkerRuntime): ViteWorkerRuntimeStatus;
-  discoverFunctionsProject(cwd: string): FunctionsRtdbProject | null;
+  discoverFunctionsProject(cwd: string): FunctionsProject | null;
   resolveSiteUiDir: typeof resolveSiteUiDir;
   createBridge(options: BridgeMountOptions): BridgeMount;
   createSession(options: SandboxSessionOptions): Promise<SandboxSession>;
@@ -117,7 +132,7 @@ const DEFAULT_DEPENDENCIES: ViteSandboxGenerationDependencies = {
   resolveAvatarsConfig,
   prepareWorker: (runtime, epochSalt) => runtime.prepare(epochSalt),
   workerStatus: (runtime) => runtime.status(),
-  discoverFunctionsProject: discoverFunctionsRtdbProject,
+  discoverFunctionsProject: discoverFunctionsProject,
   resolveSiteUiDir,
   createBridge: createBridgeMount,
   createSession: createSandboxSession,
@@ -160,6 +175,9 @@ export async function createViteSandboxGeneration(
   };
 
   try {
+    // In live mode a seed is one of pyric's own writes, refused before anything starts.
+    const seed = options.seed;
+    if (seed !== undefined) refuseOwnWrite(options.ownWriteRefusal, { action: `seed ${seed}`, writer: 'seed' });
     const usesHostedSandbox = options.hosted === true;
     const lacksHttpServer = usesHostedSandbox && !server.httpServer;
     if (lacksHttpServer) {
@@ -208,10 +226,21 @@ export async function createViteSandboxGeneration(
       discover: dependencies.discoverFunctionsProject,
       firebaseProject,
     });
+    const isLive = options.liveHost === true;
+    const liveHost = isLive
+      ? createLiveHostState({
+        configProjectId: requireLiveProject(firebaseProject, cwd),
+        configSource: firebaseProject.source,
+        optionName: 'the `project` option of pyricLive()',
+        warn: (line) => server.config.logger.warn(line, { timestamp: true }),
+        passThrough: options.livePassThrough,
+      })
+      : undefined;
     const bridgeInput = {
       server,
       projectDir: cwd,
       hosted: usesHostedSandbox,
+      liveHost,
       options: options.bridge,
       functionsProject: functions.project,
       functionsProjectId: functions.projectId,
@@ -278,6 +307,7 @@ export async function createViteSandboxGeneration(
       ai: aiOptions,
       avatars: avatarsConfig,
       aiProxyUpstream: ai.proxyUpstream,
+      aiGemini: geminiProxyConfig(ai.engineWire),
       activity: (incident) => server.config.logger.warn(formatActivityWarning(incident)),
       logger: {
         info: (message) => server.config.logger.info(message),
@@ -332,6 +362,7 @@ export async function createViteSandboxGeneration(
       await bridge?.startHostedSandbox(session.payload(), baseUrl, {
         proxyUpstream: ai.proxyUpstream, logger: sessionOptions.logger,
         persistence: session.hostedPersistence,
+        ownWriteRefusal: options.ownWriteRefusal,
       });
       server.config.logger.info('  ⓘ [pyric] sandbox runs in this server process (hosted)');
     }

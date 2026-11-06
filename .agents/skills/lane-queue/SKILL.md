@@ -1,6 +1,6 @@
 ---
 name: lane-queue
-description: Pyric's work queue on GitHub issues - lanes per priority, a plan in each issue, David's approval, and automatic starts once an approved plan is unblocked. Use when asked to plan work for a lane, write or update a plan on an issue, check what is approved and ready, start the next item, or report the queue's state. Not for doing the work itself; an item that starts follows its own plan and the repo's other skills.
+description: Pyric's work queue on GitHub issues - items ordered by priority, a plan in each issue, David's approval, and automatic starts once an approved plan is unblocked. Use when asked to plan work for a priority, write or update a plan on an issue, check what is approved and ready, start the next item, or report the queue's state. Not for doing the work itself; an item that starts follows its own plan and the repo's other skills.
 ---
 
 # Lane queue
@@ -9,25 +9,6 @@ Planning is cheap and safe to run in parallel. Running work is limited by two
 things: which files it touches and how much of the machine it needs. The queue
 keeps the two apart. Plans are written ahead of time and approved one by one,
 and each approved plan starts as soon as nothing blocks it.
-
-## Lanes
-
-A lane is one priority's stream of work, in the order `PRIORITIES.md` gives.
-Each lane has a label:
-
-| Label | Priority |
-|---|---|
-| `lane:app-check` | App Check, by November 2 |
-| `lane:velocity` | CI and release velocity |
-| `lane:rules` | Rules fidelity and tooling |
-| `lane:multi-resource` | Multi-resource support |
-| `lane:reliability` | Reliability and trust |
-| `lane:node-host` | Prove the Node host |
-| `lane:functions` | Cloud Functions |
-| `lane:demos` | Work that enables demos |
-| `lane:live-mode` | Live mode |
-
-When `PRIORITIES.md` changes, this table changes with it.
 
 ## Stages
 
@@ -83,8 +64,9 @@ All of these hold:
    share the machine: check it first (the `machine-load` skill), and run at
    most two at a time.
 
-When several items can start, take the highest-priority lane first, then the
-lowest issue number.
+When several items can start, order them by the `PRIORITIES.md` priority
+named on each plan's **Priority:** line, highest first, then the lowest issue
+number.
 
 ## What still needs David's yes
 
@@ -98,6 +80,6 @@ David's yes every time:
 
 ## Reporting the queue
 
-When asked for the queue's state, list each lane's items in plain words: the
-issue number and what it is, its stage, and what blocks it. Lead with what can
-start now and what is waiting on David.
+When asked for the queue's state, list the items by priority in plain words:
+the issue number and what it is, its stage, and what blocks it. Lead with what
+can start now and what is waiting on David.

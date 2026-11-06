@@ -21,7 +21,7 @@ import {
   signInFailure,
   WRONG_PASSWORD_FIX,
 } from '../../../src/bridge/surface/sign-in.js';
-import { mintSandboxCustomToken } from '../../../src/auth/users.js';
+import { mintCustomToken } from 'pyric/sandbox/internal';
 
 function seeded(): LocalSandbox {
   const sandbox = initializeSandbox();
@@ -165,15 +165,17 @@ describe('signInFailure', () => {
 
 describe('customTokenSubject', () => {
   it('reads the uid out of a minted token', () => {
-    expect(customTokenSubject(mintSandboxCustomToken('riley', { role: 'viewer' }))).toBe('riley');
+    const token = mintCustomToken({ uid: 'riley', claims: { role: 'viewer' }, projectId: 'demo-sign-in', nowMs: Date.now() });
+    expect(customTokenSubject(token)).toBe('riley');
   });
 
-  it('reads the subject out of the middle segment of a three-part token', () => {
+  it('reads nothing out of an unsigned token, which the sign-in refuses', () => {
     const payload = btoa(JSON.stringify({ sub: 'sam' }))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/, '');
-    expect(customTokenSubject(`header.${payload}.signature`)).toBe('sam');
+    expect(customTokenSubject(`header.${payload}.signature`)).toBeUndefined();
+    expect(customTokenSubject(JSON.stringify({ uid: 'sam' }))).toBeUndefined();
   });
 
   it('reads nothing out of a token that asserts no identity', () => {

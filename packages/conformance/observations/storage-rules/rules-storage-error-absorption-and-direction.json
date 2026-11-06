@@ -5,8 +5,8 @@
     "storage-rules#133"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"error-absorption-and-direction\" (STORAGE-P4-ERROR-ABSORPTION). Storage && absorbs commutatively like Firestore: !(error && false) allows; (error && false) == false allows; error && true and true && error propagate to DENY.",
-  "observedAt": "2026-09-28T03:39:09.365Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:52.958Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

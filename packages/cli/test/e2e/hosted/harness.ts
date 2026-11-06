@@ -35,6 +35,8 @@ export function createHostedProject(extraFiles: Record<string, string> = {}): Ho
     join(dir, 'package.json'),
     JSON.stringify({ name: 'hosted-smoke-project', type: 'module' }),
   );
+  // The pages these tests open are hosted files, so the project declares hosting.
+  writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ hosting: { public: '.' } }));
   writeFileSync(
     join(dir, 'firestore.rules'),
     `rules_version = '2';

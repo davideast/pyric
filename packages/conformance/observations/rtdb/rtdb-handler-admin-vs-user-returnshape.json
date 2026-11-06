@@ -6,9 +6,9 @@
     "rtdb#11"
   ],
   "description": "DataHandler return shape — invoke handler.execute() against a real RTDB in admin mode (no auth) and user mode (anonymous auth) and verify both return `{ success: true, data: <value> }` with the same value. Locks the admin/user-mode return-shape contract end-to-end against the live service.",
-  "observedAt": "2026-05-18T10:20:17.886Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:59.739Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "seedThrew": false,
     "adminError": null,

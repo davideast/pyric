@@ -39,10 +39,9 @@ import type { FlowConfig } from './flow-config.js';
  * the same `/__pyric/*` routes. If the worker bundle fails, the plugin falls back
  * to the in-page sandbox (single-tab, ephemeral).
  */
-import type { Plugin, UserConfig } from 'vite';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
+import { findFirebaseProjectDir } from '../cli/firebase-project.js';
 import { readPyricConfig } from '../cli/pyric-config.js';
 import { resolveOwnersConfig, type OwnersConfig } from './owners-config.js';
 import type { PyricAiOptions } from './vite-ai-config.js';
@@ -59,12 +58,19 @@ import { createViteModuleContext, createViteModuleSwap } from './vite-module-swa
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
 import { installViteNetGuard } from './vite-net-guard.js';
+import { attachLiveSdkRequestGate } from './vite-live-sdk-requests.js';
+import { installViteProcessStop } from './vite-process-stop.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
+import type { SuppliedRows } from './vite-supplied-rows.js';
+import type { PyricWriteRefusal } from './hosted/own-writes.js';
+import { loadRowModulePackage } from './vite-live-package.js';
+import { pyricFsDeny } from './vite-state-deny.js';
+import { attachViteRealPathDeny } from './vite-real-path-deny.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
-interface EnvironmentHooks {
+export interface EnvironmentHooks {
   configEnvironment(name: string, config: { consumer?: string }): { resolve: { external: string[] } } | null;
 }
 
@@ -224,24 +230,38 @@ async function readOwners(projectDir: string, overrides: OwnersConfig | undefine
 /**
  * Resolves the Firebase project root directory from Vite's server root. In
  * split-directory or full-stack monorepo layouts where Vite operates inside a
- * subdirectory (e.g. `/web` or `/frontend`) while hosting and security rules
- * configuration (`firebase.json`) resides in an ancestor workspace directory,
- * this ascends to locate the authoritative configuration root.
+ * subdirectory (e.g. `/web` or `/frontend`) while `firebase.json` or
+ * `.firebaserc` resides in an ancestor workspace directory, this ascends to
+ * that folder (`findFirebaseProjectDir`, which the live register shares).
  */
-function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): string {
+export function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): string {
   const hasExplicitRoot = explicitRoot !== undefined && explicitRoot.length > 0;
   if (hasExplicitRoot) return explicitRoot as string;
-  let current = resolve(defaultRoot);
-  while (true) {
-    const candidateConfig = join(current, 'firebase.json');
-    const configExists = existsSync(candidateConfig);
-    if (configExists) return current;
-    const parent = dirname(current);
-    const isRootOfFilesystem = parent === current;
-    if (isRootOfFilesystem) break;
-    current = parent;
-  }
-  return defaultRoot;
+  return findFirebaseProjectDir(defaultRoot) ?? defaultRoot;
+}
+
+/**
+ * Opens the live rows with the installed `@pyric/live`, the supplier's own
+ * or else the one the project root resolves, and lets the page load its files.
+ */
+async function openSuppliedRows(supplied: SuppliedRows, resolved: ResolvedConfig): Promise<void> {
+  const found = await loadRowModulePackage(resolved.root, supplied.liveRoot);
+  supplied.open(found);
+  const allow = resolved.server?.fs?.allow;
+  const needsAllowance = Array.isArray(allow) && !allow.includes(found.root);
+  if (needsAllowance) allow.push(found.root);
+}
+
+/**
+ * Live mode's refusal of pyric's own writes, for a plugin with live rows; none
+ * for `pyric()`. The rows opened in `configResolved`, so shut rows here mean
+ * the host must not start.
+ */
+function ownWriteRefusalOf(supplied: SuppliedRows | undefined): PyricWriteRefusal | undefined {
+  if (supplied === undefined) return undefined;
+  const found = supplied.package();
+  if (found === null) throw new Error('pyric: the live rows are shut, so the dev server does not start its host.');
+  return found.writeRefusal;
 }
 
 /**
@@ -251,6 +271,17 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
  *   export default defineConfig({ plugins: [pyric()] });
  */
 export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
+  return createPyricPlugin(options);
+}
+
+/**
+ * The plugin, with the live rows serving pages in place of the swap
+ * (`vite-supplied-rows.ts`). `pyric()` passes none; only the internal
+ * `@pyric/cli/vite/internal/supplied-rows` entry passes them. They open in
+ * `configResolved`, from the `@pyric/live` that supplied them or else the
+ * one the project root resolves, and the dev server refuses to start without it.
+ */
+export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows): Plugin & EnvironmentHooks {
   const moduleContext = createViteModuleContext();
   const { entries, cliRoot } = moduleContext;
   const workerRuntime = createViteWorkerRuntime();
@@ -266,6 +297,7 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
   let serviceWorkerContext: ServiceWorkerWiringContext = { root: process.cwd(), devServer: false };
   const moduleSwap = createViteModuleSwap(moduleContext, {
     getAiMode: () => pageRuntime.ai().mode,
+    supplied,
   });
 
   // Normalize the public bridge shorthand once. The active generation owns the
@@ -297,28 +329,39 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
     config(config, env) {
       // Before the page runtime permits its AI upstreams on the guard. Only
       // the dev server: a build or a preview runs no server-rendered app code.
+      // The stop hook covers what Node loads itself in this process, such as
+      // an externalized package that imports firebase-admin (ADR 0022).
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
-      if (isDevServer) installViteNetGuard();
+      if (isDevServer) {
+        // Under live rows PYRIC_GUARD is not read: nothing in the environment turns the guard off.
+        installViteNetGuard({ fixedMode: supplied !== undefined });
+        installViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
+      }
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
       const moduleConfig = moduleSwap.config({ devServer: isDevServer });
       const pageConfig = pageRuntime.config(config, env);
-      const serverWatchConfig: UserConfig = {
+      const serverConfig: UserConfig = {
         server: {
           watch: {
             ignored: ['**/.pyric/**'],
+          },
+          fs: {
+            deny: pyricFsDeny(config),
           },
         },
       };
       const finalizedConfig: UserConfig = {
         ...moduleConfig,
         ...pageConfig,
-        ...serverWatchConfig,
+        ...serverConfig,
       };
       return finalizedConfig;
     },
 
     async configResolved(resolved) {
+      pageRuntime.configResolved(resolved);
       moduleSwap.configResolved(resolved);
+      if (supplied !== undefined) await openSuppliedRows(supplied, resolved);
       serviceWorkerContext = { ...serviceWorkerContext, root: resolved.root };
       // A sandbox build stamps pages without a dev server, so configureServer
       // never reads pyric.json for it.
@@ -356,6 +399,10 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
 
       async configureServer(server) {
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
+      // Before Vite's own middleware, which follows symlinks into `.pyric/` and to `.env`.
+      attachViteRealPathDeny(server, projectDir);
+      // Before Vite's too, which drops a `t=` query: a loaded SDK file under another URL is an unwrapped copy.
+      if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
       const stateScope = generationStateScope(options);
       const ownsProjectState = stateScope !== null;
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
@@ -378,6 +425,10 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
         avatars: options.avatars,
         flow: options.flow,
         project: options.project,
+        // Rows supplied through `@pyric/live`'s seam make this host live.
+        liveHost: supplied !== undefined,
+        livePassThrough: supplied === undefined ? undefined : [...supplied.passThrough],
+        ownWriteRefusal: ownWriteRefusalOf(supplied),
       };
       const generationInput: ViteSandboxGenerationInput = {
         server,

@@ -24,6 +24,7 @@ import {
   type OutboundMessage,
   type AuthPersistenceMode,
   type AiEngineConfigWire,
+  type AiAppCheckWire,
   type AppConfigMessage,
 } from './protocol.js';
 
@@ -40,9 +41,11 @@ import {
  */
 export interface AiBrokerLike {
   observationIdentity?(model: string): import('pyric/ai/internal').AiEvidence;
-  generateContent(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;
-  streamGenerateContent(req: Record<string, unknown>, model: string): AsyncIterable<Record<string, unknown>>;
-  countTokens(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;
+  /** AI Logic's App Check gate; a request with no claim passes. */
+  admitAppCheck(model: string, appCheck: AiAppCheckWire | undefined): Promise<void>;
+  generateContent(req: Record<string, unknown>, model: string, appCheck?: AiAppCheckWire): Promise<Record<string, unknown>>;
+  streamGenerateContent(req: Record<string, unknown>, model: string, appCheck?: AiAppCheckWire): AsyncIterable<Record<string, unknown>>;
+  countTokens(req: Record<string, unknown>, model: string, appCheck?: AiAppCheckWire): Promise<Record<string, unknown>>;
 }
 
 // ─── Port interface ───────────────────────────────────────────────────────
@@ -76,6 +79,10 @@ export interface HostCtx {
   /** Stable worker-lifetime activity identity for each page/app port. */
   activityJourneyIds?: WeakMap<PortLike, string>;
   activityJourneySequence?: number;
+  /** Ports a host admitted as something other than a page; see `host/caller.ts`. */
+  portConnections?: WeakMap<PortLike, 'page' | 'node' | 'relay'>;
+  /** The tab id each page port declared in its `appConfig`; see `host/caller.ts`. */
+  portTabIds?: WeakMap<PortLike, string>;
   /** Stable per-SharedWorker instance id (see {@link INSTANCE_ID_KEY}). Reported
    *  via `getVersion` so the UI can identify which sandbox instance this is. */
   instanceId: string;
@@ -279,6 +286,13 @@ export interface HostCtx {
   /** Server-only OpenAI transport. Browser workers retain the same-origin proxy. */
   aiUpstream?: { baseUrl: string; fetch: typeof fetch };
   /**
+   * The broker's engines run in the browser SharedWorker, which has no server
+   * environment: the gemini engine sends through the dev server's gemini
+   * proxy, which attaches the key (#1584). Set by the worker entry only; a
+   * Node host and a Node repro replay leave it unset.
+   */
+  aiRunsInBrowser?: boolean;
+  /**
    * Lazily-built agent tool dispatcher (the canonical sandbox tool set) bound to
    * THIS worker's sandbox. The bridge peer forwards `tool` messages here so the
    * agent executes against the one shared sandbox, not a separate in-page
@@ -334,6 +348,13 @@ export interface ActiveRulesState {
 }
 
 // ─── Utility: post a typed reply to a port ───────────────────────────────
+
+/** The project id the host serves: the server's, else the first app port's. */
+export function hostProjectId(ctx: HostCtx): string | undefined {
+  if (ctx.rtdbProjectId) return ctx.rtdbProjectId;
+  const fromApp = ctx.appOptions?.projectId;
+  return typeof fromApp === 'string' && fromApp.length > 0 ? fromApp : undefined;
+}
 
 export function post(port: PortLike, msg: OutboundMessage): void {
   port.postMessage(msg);

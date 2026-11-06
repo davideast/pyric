@@ -25,9 +25,17 @@ export type {
   ServiceEventTarget,
 } from './service-event-record.js';
 export type {
+  ObservedAccount,
+  ObservedCall,
+  ObservedCallService,
+  ObservedProduction,
+  ProductionOutcome,
+} from './observed-call.js';
+export type {
   ActivityEventProvenance,
   AuthLens,
   EventActor,
+  EventCaller,
   EventProvenance,
   EventService,
   OperationContext,
@@ -488,6 +496,9 @@ export interface SessionBoundaryEvent {
  */
 export interface SandboxOperationEvent {
   observation?: import('./request-observation.js').RequestObservation;
+  /** Present when production served the call and a client reported what it
+   *  answered; pyric did not run it. See `observed-call.ts`. */
+  production?: import('./observed-call.js').ObservedProduction;
   kind: 'operation';
   id: string;
   at: number;

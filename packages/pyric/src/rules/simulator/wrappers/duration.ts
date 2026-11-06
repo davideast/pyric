@@ -35,12 +35,18 @@ const MAX_SECONDS = 315_576_000_000;
 export const DURATION_NOT_VALID =
   'Duration is not valid. Seconds must be in range [-315,576,000,000, +315,576,000,000]. Nanos must be in range [-999,999,999, +999,999,999]. Nanos must have the same sign as seconds.';
 
-const SECONDS_PER_UNIT: Record<string, number> = {
-  w: 7 * 24 * 60 * 60,
-  d: 24 * 60 * 60,
-  h: 60 * 60,
-  m: 60,
-  s: 1,
+const BIG_NANOS_PER_SECOND = 1_000_000_000n;
+const BIG_MAX_SECONDS = 315_576_000_000n;
+
+/** Nanoseconds in one of each `duration.value()` unit. */
+const NANOS_PER_UNIT: Readonly<Record<string, bigint>> = {
+  w: 7n * 24n * 60n * 60n * BIG_NANOS_PER_SECOND,
+  d: 24n * 60n * 60n * BIG_NANOS_PER_SECOND,
+  h: 60n * 60n * BIG_NANOS_PER_SECOND,
+  m: 60n * BIG_NANOS_PER_SECOND,
+  s: BIG_NANOS_PER_SECOND,
+  ms: 1_000_000n,
+  ns: 1n,
 };
 
 /**
@@ -91,33 +97,40 @@ export class Duration extends RulesValue {
   }
 
   /**
-   * `duration.value(magnitude, unit)` — magnitude is Integer per spec.
-   * For `ms` and `ns` we route through integer math so a magnitude of
-   * `2500` ns doesn't become `2.5e-6` seconds (float artifact); for
-   * larger units the seconds-per-unit factor is exact.
+   * `duration.value(magnitude, unit)`. The magnitude is an int64 (a bigint,
+   * or an integral number from a host value). The magnitude converts to whole
+   * nanoseconds in bigint math, so `2500` ns doesn't become `2.5e-6`
+   * seconds and an `ns` magnitude above 2^53 keeps every digit.
    */
-  static fromValue(magnitude: number, unit: string): Duration {
-    if (unit in SECONDS_PER_UNIT) {
-      return new Duration(magnitude * SECONDS_PER_UNIT[unit], 0);
+  static fromValue(magnitude: bigint | number, unit: string): Duration {
+    const nanosPerUnit = Object.hasOwn(NANOS_PER_UNIT, unit) ? NANOS_PER_UNIT[unit] : undefined;
+    if (nanosPerUnit === undefined) {
+      throw new Error(
+        `Unknown duration unit '${unit}' (expected one of: w, d, h, m, s, ms, ns)`,
+      );
     }
-    if (unit === 'ms') {
-      const wholeSec = Math.trunc(magnitude / 1000);
-      const remainderMs = magnitude - wholeSec * 1000;
-      return new Duration(wholeSec, remainderMs * 1_000_000);
-    }
-    if (unit === 'ns') {
-      const wholeSec = Math.trunc(magnitude / NANOS_PER_SECOND);
-      const remainderNs = magnitude - wholeSec * NANOS_PER_SECOND;
-      return new Duration(wholeSec, remainderNs);
-    }
-    throw new Error(
-      `Unknown duration unit '${unit}' (expected one of: w, d, h, m, s, ms, ns)`,
-    );
+    // The public `duration()` value helper may pass a fractional magnitude,
+    // which rounds to the nearest nanosecond.
+    const fractional = typeof magnitude === 'number' && !Number.isInteger(magnitude);
+    if (fractional) return Duration.fromNanos(BigInt(Math.round(magnitude * Number(nanosPerUnit))));
+    return Duration.fromNanos(BigInt(magnitude) * nanosPerUnit);
   }
 
-  /** `duration.time(h, m, s, ns)`. */
-  static fromTime(h: number, m: number, s: number, ns: number): Duration {
-    return new Duration(h * 3600 + m * 60 + s, ns);
+  /** `duration.time(h, m, s, ns)`, each an int64, summed in bigint math. */
+  static fromTime(h: bigint | number, m: bigint | number, s: bigint | number, ns: bigint | number): Duration {
+    const seconds = BigInt(h) * 3600n + BigInt(m) * 60n + BigInt(s);
+    return Duration.fromNanos(seconds * BIG_NANOS_PER_SECOND + BigInt(ns));
+  }
+
+  /**
+   * The duration of `total` nanoseconds. Past the protobuf bound it is
+   * production's "Duration is not valid" error, decided before the seconds
+   * become a JavaScript number.
+   */
+  private static fromNanos(total: bigint): Duration {
+    const seconds = total / BIG_NANOS_PER_SECOND;
+    if (seconds > BIG_MAX_SECONDS || seconds < -BIG_MAX_SECONDS) throw new ValueRangeError(DURATION_NOT_VALID);
+    return new Duration(Number(seconds), Number(total % BIG_NANOS_PER_SECOND));
   }
 
   /**
@@ -127,6 +140,14 @@ export class Duration extends RulesValue {
    */
   static abs(d: Duration): Duration {
     return new Duration(Math.abs(d.seconds), Math.abs(d.nanos));
+  }
+
+  /**
+   * Unary minus, `-d`. Canonical form keeps both fields the same sign and
+   * the range bound is symmetric, so negating a valid duration is valid.
+   */
+  negated(): Duration {
+    return new Duration(-this.seconds, -this.nanos);
   }
 
   /**

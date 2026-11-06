@@ -21,9 +21,12 @@ This repo carries two MCP tool contracts, both sourced from
    persisted to `.pyric/state/in-process.json`. `--attach` insists on the
    running one and fails when there is none; `--in-process` insists on owning
    one and never looks. The first line the server logs says which happened.
-2. **`pyric sandbox --bridge`** (or `pyric bridge`): the **transport
+2. **`pyric sandbox --bridge`**: the **transport
    surface** a browser sandbox peer executes, plus the rules and conformance
-   tools that run in the bridge process. Its names are authored per family in
+   tools that run in the bridge process. The standalone `pyric bridge` serves
+   only the tools that run in the bridge process: it has no browser socket, so
+   no page can attach to it, and `connectBridge` pointed at it stops with an
+   error that names `pyric sandbox --bridge`. Its names are authored per family in
    `packages/cli/src/bridge/tool-family-records/` and pinned as
    `BRIDGE_TOOL_NAMES` (41 tools today, unchanged flat names such as
    `firestore_get_document` and `sandbox_inspect`). The
@@ -276,7 +279,7 @@ The file form is derived from the argument names a record declares rather than
 declared on the record, so every method has it and no method mentions it. An
 argument passed both inline and from a file is refused.
 
-## The transport surface: `pyric sandbox --bridge` / `pyric bridge`
+## The transport surface: `pyric sandbox --bridge`
 
 Counts and names below are generated from the factory sources (grep
 `name: '…'` under each file). If this table disagrees with the code, the code
@@ -421,7 +424,7 @@ does not fetch or deploy production rules.
 
 Library surface for provisioning / status, and the client the service surface's
 `storage.status` and `storage.provision` reach through. **Not** on the default
-`pyric bridge` surface; on `pyric mcp` it is the two production methods above,
+`pyric sandbox --bridge` surface; on `pyric mcp` it is the two production methods above,
 which no server runs without `--allow-production`.
 
 ## Discovery — `createFirestoreDiscoverTools` (`@pyric/cli/discover`)
@@ -432,7 +435,7 @@ provide the data source:
 `firestore_discover_paths` · `firestore_find_collection_group`
 
 These exist in `@pyric/cli/discover` but are **not** registered on the default
-`pyric bridge` / `pyric sandbox --bridge` surface. The product surface's
+`pyric sandbox --bridge` surface. The product surface's
 `firestore.discoverPaths` and `firestore.findCollectionGroup` (above) are a
 separate, exhaustive implementation over the sandbox's own document index
 rather than a sampled crawl, and are registered on `pyric mcp`.
@@ -440,7 +443,7 @@ rather than a sampled crawl, and are registered on `pyric mcp`.
 ## Assurance — `createAssuranceTools` (`@pyric/cli/assurance`)
 
 Available for applications that compose their own tool registry, but **not**
-registered on the default `pyric bridge` / `pyric sandbox --bridge` surface:
+registered on the default `pyric sandbox --bridge` surface:
 
 `firebase_assurance_attach` · `firebase_assurance_start` ·
 `firebase_assurance_map` · `firebase_assurance_define` ·

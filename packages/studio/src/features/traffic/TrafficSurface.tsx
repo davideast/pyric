@@ -37,12 +37,15 @@ import {
   defaultFormatTime,
   type TimeWindow,
 } from '@pyric/ui/traffic';
+import { callerSource, callerSourceLabelOutsidePage } from 'pyric/sandbox/internal';
 import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
+import { useLiveHost } from '../../shell/live-status.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
   filterByVerdict,
   filterStudioTraffic,
   opensRulesInspector,
+  productionLabel,
   subjectTarget,
   verdictFor,
   verdictLabel,
@@ -150,14 +153,56 @@ function timelineRangeLabel(window: TimeWindow): string {
   return `${defaultFormatTime(window.start)}–${defaultFormatTime(window.end)}`;
 }
 
-/** The per-row verdict cell (blank for non-rule ops). */
-function VerdictCell({ event }: { event: StudioTrafficEvent }) {
-  const v = verdictFor(event);
-  if (!v) return null;
+/** Which connection sent the row's op: a page, server code, admin code, MCP or Studio. */
+function SourceCell({ event }: { event: StudioTrafficEvent }) {
+  const source = callerSource(event.caller);
   return (
-    <span className="traffic__verdict" data-verdict={v}>
-      {verdictLabel(v)}
+    <span className="traffic__source" data-source={source}>
+      {callerSourceLabelOutsidePage(source)}
     </span>
+  );
+}
+
+/** What production answered an op it served; stands in for the Rules verdict. */
+function ProductionCell({ production }: { production: NonNullable<StudioTrafficEvent['production']> }) {
+  return (
+    <span className="traffic__production" data-production={production.outcome.status}>
+      {productionLabel(production)}
+    </span>
+  );
+}
+
+/** On a live host, marks a row the local sandbox served: only Production rows went to the real project. */
+function SandboxServedCell() {
+  return (
+    <span className="traffic__production" data-sandbox-served title="Served by the local sandbox, not your Firebase project">
+      Sandbox
+    </span>
+  );
+}
+
+/** The per-row source and verdict cells (the verdict is blank for non-rule ops). */
+function VerdictCell({ event }: { event: StudioTrafficEvent }) {
+  const isLiveHost = useLiveHost() !== null;
+  if (event.production !== undefined) {
+    return (
+      <>
+        <SourceCell event={event} />
+        <ProductionCell production={event.production} />
+      </>
+    );
+  }
+  const v = verdictFor(event);
+  return (
+    <>
+      {isLiveHost ? <SandboxServedCell /> : null}
+      <SourceCell event={event} />
+      {v ? (
+        <span className="traffic__verdict" data-verdict={v}>
+          {verdictLabel(v)}
+        </span>
+      ) : null}
+    </>
   );
 }
 

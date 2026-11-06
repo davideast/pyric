@@ -80,6 +80,7 @@ PACKAGES=(
   "packages/create-pyric"
   "packages/cli"
   "packages/ui"
+  "packages/live"
 )
 
 # ─── Phase 0: optional rebuild ─────────────────────────────────────────
@@ -191,7 +192,7 @@ echo ""
 ls -lh "$OUT_DIR" | tail -n +2 | awk '{print "  " $9 "  " $5}'
 
 echo ""
-echo "✓ All 5 publishable packages packed into $OUT_DIR/"
+echo "✓ All ${#PACKAGES[@]} packages packed into $OUT_DIR/"
 echo ""
 echo "See $OUT_DIR/manifest.json for exact tarball filenames."
 

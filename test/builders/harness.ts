@@ -1,0 +1,177 @@
+#!/usr/bin/env bun
+/**
+ * The app-builder harness. Dev tooling only: nothing here runs on pull
+ * requests, and no builder app enters CI. See test/builders/README.md.
+ *
+ *   bun test/builders/harness.ts <command> [options]
+ *
+ * Commands:
+ *   canary [--build] [--packages <dir>]
+ *       The scripted builder: installs the packed packages into a scratch app,
+ *       plants requests to Google hosts from Node, from the harness browser
+ *       and from Bun and curl inside the run's sandbox, and exits
+ *       non-zero if a recorder misses one or one succeeds. Run it before
+ *       every round.
+ *   round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd>
+ *         [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build]
+ *         [--concurrency 1|2] [--token-file <path>]
+ *       Runs every brief of the round once per model, each builder in its
+ *       own sandbox, at the run cap given, under the round cap given.
+ *       Neither cap has a default. The model forwarder's token comes from
+ *       --token-file, or from CLAUDE_CODE_OAUTH_TOKEN without it.
+ *   check-briefs <round> [--briefs <dir>]
+ *       Validates a round's briefs as `round` would, and starts nothing.
+ *   reproduce <round> <run> --list
+ *   reproduce <round> <run> <problem> --script <file.mjs> [--expect <text>] [--register]
+ *             [--packages <dir>] [--minutes <n>]
+ *       Re-runs one problem of a kept run with the verifier's script, in a
+ *       fresh copy of the builder's app on the same tarballs, in the same
+ *       sandbox as a round's run and with no model channel: up to two
+ *       tries. Exits 0 when it reproduced, 1 when unconfirmed, 3 when no try
+ *       could tell, 4 when a try planted a link: the run is invalid, unless
+ *       the verifier's own script planted it. Files nothing.
+ *   measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
+ *       Per model: cost per run and per verification, confirmed new findings
+ *       per app, the share thrown out, cost per confirmed new finding, and
+ *       the nightly model and cap.
+ *   factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
+ *       Keeps the factory's roles working against one app until the run's
+ *       deadline, fixed at the start from --hours. --resume goes on with the
+ *       run in --run-dir, with its own deadline.
+ *   factory-summary --run-dir <dir>
+ *       Prints a factory run's timeline for the morning review.
+ *   factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
+ *       Restarts the supervisor's systemd unit when its heartbeat is stale.
+ *   factory-drafts --run-dir <dir>
+ *       Lists the run's issue drafts and checks each against the issue
+ *       standard. Exits 1 when any breaks it. Files nothing.
+ *   factory-setup --run-dir <dir> --app-source <repo> [--commit <sha>] [--brief-dir <dir>] [--packages <dir> | --build]
+ *       Clones and installs the factory's app before a run starts.
+ *   factory-hour --run-dir <dir> --hour <n>
+ *       Runs the hourly check once, as the supervisor does each hour.
+ *
+ * Every command that runs a builder refuses to run (exit 2) where the
+ * sandbox is unavailable; there is no fallback without it.
+ */
+import { readBriefsDir } from './brief.ts';
+import { PreflightFailed, runCanary } from './canary/canary.ts';
+import { flagValue, positionals, rejectUnknownFlags, UsageError } from './cli-args.ts';
+import {
+  FACTORY_CHECK_USAGE, FACTORY_DRAFTS_USAGE, FACTORY_SUMMARY_USAGE, FACTORY_USAGE, factoryCheckCommand, factoryCommand,
+  factoryDraftsCommand, factorySummaryCommand,
+} from './factory/commands.ts';
+import { FACTORY_HOUR_USAGE, FACTORY_SETUP_USAGE, factoryHourCommand, factorySetupCommand } from './factory/app-commands.ts';
+import { formatSummary, summarize } from './measure.ts';
+import { readMeasurements } from './measurement.ts';
+import { NamespaceUnavailable } from './namespace.ts';
+import { runRound } from './round.ts';
+import { parseRoundOptions } from './round-options.ts';
+import { briefsDir, measurementsFile } from './round-paths.ts';
+import { RESULT_EXIT } from './repro-verdict.ts';
+import { runReproduce } from './reproduce.ts';
+import { listLines } from './reproduce-check.ts';
+import { parseReproduceOptions, REPRODUCE_USAGE } from './reproduce-options.ts';
+
+interface Command {
+  usage: string;
+  run(args: readonly string[]): Promise<number>;
+}
+
+function positiveInteger(flag: string, raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) throw new UsageError(`${flag} takes a whole number of at least 1, received "${raw}"`);
+  return value;
+}
+
+/** Each command, by name. The run command joins this table. */
+const COMMANDS: Record<string, Command> = {
+  canary: {
+    usage: 'canary [--build] [--packages <dir>]',
+    async run(args) {
+      rejectUnknownFlags(args, ['--build', '--packages']);
+      const packages = flagValue(args, '--packages');
+      const passed = await runCanary({ build: args.includes('--build'), ...(packages === undefined ? {} : { packages }) });
+      return passed ? 0 : 1;
+    },
+  },
+  round: {
+    usage: 'round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd> [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2] [--token-file <path>]',
+    async run(args) {
+      const passed = await runRound(parseRoundOptions(args));
+      return passed ? 0 : 1;
+    },
+  },
+  'check-briefs': {
+    usage: 'check-briefs <round> [--briefs <dir>]',
+    async run(args) {
+      rejectUnknownFlags(args, ['--briefs']);
+      const [round, ...extra] = positionals(args, new Set(['--briefs']));
+      if (round === undefined || extra.length > 0) throw new UsageError('check-briefs takes one round name');
+      const dir = flagValue(args, '--briefs') ?? briefsDir(round);
+      const { briefs, errors } = readBriefsDir(dir);
+      for (const error of errors) console.error(`✗ ${error}`);
+      if (errors.length === 0) console.log(`✓ ${briefs.length} briefs in ${dir}: ${briefs.map((brief) => brief.id).join(', ')}`);
+      return errors.length === 0 ? 0 : 1;
+    },
+  },
+  reproduce: {
+    usage: REPRODUCE_USAGE,
+    async run(args) {
+      const command = parseReproduceOptions(args);
+      if (!command.list) return RESULT_EXIT[await runReproduce(command)];
+      for (const line of listLines(command.round, command.run)) console.log(line);
+      return 0;
+    },
+  },
+  measure: {
+    usage: 'measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]',
+    async run(args) {
+      rejectUnknownFlags(args, ['--file', '--runs-per-night', '--json']);
+      const file = flagValue(args, '--file') ?? measurementsFile();
+      const runsPerNight = positiveInteger('--runs-per-night', flagValue(args, '--runs-per-night'));
+      const { lines, errors } = readMeasurements(file);
+      for (const error of errors) console.error(`${file}: ${error}`);
+      const summary = summarize(lines, runsPerNight === undefined ? {} : { runsPerNight });
+      console.log(args.includes('--json') ? JSON.stringify(summary, null, 2) : formatSummary(summary));
+      return errors.length === 0 ? 0 : 1;
+    },
+  },
+  factory: { usage: FACTORY_USAGE, run: factoryCommand },
+  'factory-summary': { usage: FACTORY_SUMMARY_USAGE, run: factorySummaryCommand },
+  'factory-check': { usage: FACTORY_CHECK_USAGE, run: factoryCheckCommand },
+  'factory-drafts': { usage: FACTORY_DRAFTS_USAGE, run: factoryDraftsCommand },
+  'factory-setup': { usage: FACTORY_SETUP_USAGE, run: factorySetupCommand },
+  'factory-hour': { usage: FACTORY_HOUR_USAGE, run: factoryHourCommand },
+};
+
+function usage(): string {
+  const lines = Object.values(COMMANDS).map((command) => `  bun test/builders/harness.ts ${command.usage}`);
+  return `usage:\n${lines.join('\n')}`;
+}
+
+async function main(argv: readonly string[]): Promise<number> {
+  const [name, ...args] = argv;
+  const command = name === undefined ? undefined : COMMANDS[name];
+  if (command === undefined) {
+    console.error(name === undefined ? usage() : `unknown command: ${name}\n${usage()}`);
+    return 2;
+  }
+  try {
+    return await command.run(args);
+  } catch (error) {
+    if (error instanceof NamespaceUnavailable) {
+      console.error(`refusing to run: ${error.message}`);
+      return 2;
+    }
+    if (error instanceof PreflightFailed) {
+      console.error(error.message);
+      return 2;
+    }
+    if (!(error instanceof UsageError)) throw error;
+    console.error(`${error.message}\n${usage()}`);
+    return 2;
+  }
+}
+
+if (import.meta.main) process.exit(await main(process.argv.slice(2)));

@@ -5,9 +5,9 @@
     "auth#10"
   ],
   "description": "onAuthStateChanged fires exactly once per state transition (no same-value double-fire). Subscribe, then signInAnonymously → signOut → signInAnonymously; count fires per transition. Matrix claim: each of the 3 transitions produces 1 fire.",
-  "observedAt": "2026-05-18T00:12:18.119Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T12:08:18.598Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "initialFires": 1,
     "afterSignIn1": 2,
@@ -23,16 +23,16 @@
         "ts": 0
       },
       {
-        "uid": "wxIj2ocuVtc5YrzufpW8DwR6qit1",
-        "ts": 607
+        "uid": "OYGvvsqzHZRgrRyiwVYPgD7T2dz1",
+        "ts": 678
       },
       {
         "uid": null,
-        "ts": 1012
+        "ts": 1082
       },
       {
-        "uid": "cqLogb3OS3bPRdEYoJHfv022W2a2",
-        "ts": 1760
+        "uid": "Wd76FkTp21RnmJP57L1Fum8ADH32",
+        "ts": 1853
       }
     ]
   }

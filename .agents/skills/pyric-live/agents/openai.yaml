@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Pyric Live Mode"
+  short_description: "Install @pyric/live from npm or a checkout and exercise live mode"
+  default_prompt: "Use $pyric-live to install @pyric/live from npm (exp) or my local checkout, start live mode against my test Firebase project, verify it names that project, and work through the live mode test checklist."

@@ -1,10 +1,15 @@
+import 'fake-indexeddb/auto';
 import { JSDOM } from 'jsdom';
-import { createSdkActivityJournal, createSdkRateMonitor } from 'pyric/sandbox/internal';
+import { createAppForSandbox } from 'pyric/app/internal';
+import { initializeSandbox } from 'pyric/sandbox';
+import { createSdkActivityJournal, createSdkRateMonitor, observedCallEvent } from 'pyric/sandbox/internal';
+import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
+import { createListenerMode, type ListenerMode } from '../../../src/serve/runtime/listener-mode.js';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
-import type { AuthLens, SandboxEvent } from 'pyric/sandbox';
+import type { AuthLens, EventCaller, SandboxEvent } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
 import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
 import type { RuntimeIdentityBindings } from '../../../src/serve/runtime/identity.js';
@@ -42,6 +47,8 @@ function setup(options: {
   clipboard?: Pick<Clipboard, 'writeText'>;
   useRealClient?: boolean;
   manifest?: PyricRuntimeManifest;
+  liveStatus?: PyricRuntimeChipOptions['liveStatus'];
+  liveStatusTimers?: PyricRuntimeChipOptions['liveStatusTimers'];
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
   const runtime = createPyricRuntimeStatus(options.manifest ?? manifest);
@@ -95,10 +102,12 @@ function setup(options: {
   if ('studioUrl' in options) {
     chipOptions.studioUrl = options.studioUrl;
   }
+  if (options.liveStatus) chipOptions.liveStatus = options.liveStatus;
+  if (options.liveStatusTimers) chipOptions.liveStatusTimers = options.liveStatusTimers;
   if (options.clipboard) {
     chipOptions.clipboard = options.clipboard;
   }
-  let pushEvents: ((events: readonly SandboxEvent[]) => void) | null = null;
+  let pushEvents: ((events: readonly SandboxEvent[], batch: { history: boolean; pageId?: string }) => void) | null = null;
   if (options.withSandboxEvents) {
     chipOptions.sandboxEvents = (callback) => {
       pushEvents = callback;
@@ -117,7 +126,7 @@ function setup(options: {
     chip,
     root,
     setLensMock,
-    push: (events: readonly SandboxEvent[]) => pushEvents?.(events),
+    push: (events: readonly SandboxEvent[], batch: { history: boolean; pageId?: string } = { history: false }) => pushEvents?.(events, batch),
     showTab(tab: ChipTab) {
       root.querySelector<HTMLButtonElement>(`[data-chip-tab="${tab}"]`)!.click();
     },
@@ -605,6 +614,259 @@ describe('the Traffic view', () => {
     expect(written[0]).toContain('u9');
   });
 
+  it("lists this page's own requests by default, and every source with its label in the All view", () => {
+    const { root, showTab, push, runtime } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+    const now = Date.now();
+    const from = (event: SandboxEvent, caller: EventCaller): SandboxEvent => ({ ...event, caller } as SandboxEvent);
+    push([
+      from(request('mine', now - 5000, 'notes/mine', 'allow'), { kind: 'page', pageId: 'tab-1' }),
+      from(request('tab', now - 4000, 'notes/tab', 'allow'), { kind: 'page', pageId: 'tab-2' }),
+      from(request('server', now - 3000, 'notes/server', 'allow'), { kind: 'node' }),
+      from(request('admin', now - 2000, 'notes/admin', 'deny'), { kind: 'admin' }),
+      from(request('agent', now - 1000, 'notes/agent', 'allow'), { kind: 'mcp' }),
+    ], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const scope = (value: string) => root.querySelector<HTMLButtonElement>(`[data-traffic-scope="${value}"]`)!;
+    expect(scope('page').getAttribute('aria-pressed')).toBe('true');
+    expect(scope('page').textContent).toBe('This page');
+    expect(scope('all').textContent).toBe('All sandbox traffic');
+    const rowIds = () => [...root.querySelectorAll<HTMLElement>('[data-request-row]')].map((row) => row.dataset.requestRow);
+    expect(rowIds()).toEqual(['mine']);
+    expect(root.querySelector('[data-traffic-row-source]')).toBeNull();
+    expect(root.querySelector('[data-traffic-hosted-note]')).toBeNull();
+
+    scope('all').click();
+    expect(scope('all').getAttribute('aria-pressed')).toBe('true');
+    expect(rowIds().sort()).toEqual(['admin', 'agent', 'mine', 'server', 'tab']);
+    const labelOf = (id: string) => root.querySelector(`[data-request-row="${id}"] [data-traffic-row-source]`)?.textContent;
+    expect(labelOf('mine')).toBe('This page');
+    expect(labelOf('tab')).toBe('Other tab');
+    expect(labelOf('server')).toBe('Server (client SDK)');
+    expect(labelOf('admin')).toBe('Server (admin)');
+    expect(labelOf('agent')).toBe('MCP');
+    const admin = root.querySelector(`[data-request-row="admin"]`)!;
+    expect(admin.querySelector('.slot')!.textContent).toBe('Bypassed');
+    expect(admin.classList.contains('problem')).toBe(false);
+    expect(root.querySelector('[data-traffic-hosted-note]')!.textContent).toContain('pyric sandbox --hosted');
+
+    root.querySelector<HTMLButtonElement>('[data-traffic-denied]')!.click();
+    expect(rowIds()).toEqual([]);
+  });
+
+  it('marks a call production served apart from the calls the sandbox served', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    const observed = observedCallEvent({
+      service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: now - 1000,
+      outcome: { status: 'error', code: 'permission-denied' }, account: { uid: 'alice' },
+    });
+    push([
+      request('served', now - 2000, 'rooms/r2', 'allow'),
+      { ...observed, caller: { kind: 'page', pageId: 'tab-1' } } as SandboxEvent,
+    ], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const served = root.querySelector(`[data-request-row="served"]`)!;
+    expect(served.querySelector('[data-traffic-row-production]')).toBeNull();
+    expect(served.querySelector('.slot')!.textContent).toBe('Allowed');
+    const row = root.querySelector(`[data-request-row="${observed.id}"]`)!;
+    expect(row.querySelector('[data-traffic-row-production]')!.textContent).toBe('Production');
+    expect(row.querySelector('.c1')!.textContent).toBe('Production · firestore.getDoc');
+    expect(row.querySelector('.s2')!.textContent).toBe('alice');
+    expect(row.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production denied');
+    expect(row.querySelector('.slot')!.textContent).toBe('Denied');
+
+    root.querySelector<HTMLButtonElement>(`[data-request-row="${observed.id}"]`)!.click();
+    const facts = root.querySelector<HTMLElement>('[data-traffic-detail]')!.textContent!;
+    expect(facts).toContain('Served byProduction');
+    expect(facts).toContain('Denied in production (permission-denied)');
+    expect(facts).toContain('Pyric observed it and did not check it against local rules.');
+  });
+
+  it("shows an AI call production served with production's answer and its tokens", () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    const model = 'models/gemini-flash-lite-latest';
+    const answered = observedCallEvent({
+      service: 'ai', method: 'generateContent', at: now - 2000, durationMs: 80, outcome: { status: 'ok' },
+      ai: { model, reportedModel: 'gemini-flash-lite-001', usage: { promptTokenCount: 9, candidatesTokenCount: 2, totalTokenCount: 11 } },
+    });
+    const refused = observedCallEvent({
+      service: 'ai', method: 'generateContent', at: now - 1000, durationMs: 20,
+      outcome: { status: 'error', code: 'unauthenticated' }, ai: { model },
+    });
+    push([answered, refused].map(event => ({ ...event, caller: { kind: 'page', pageId: 'tab-1' } }) as SandboxEvent), { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const row = root.querySelector(`[data-request-row="${answered.id}"]`)!;
+    expect(row.querySelector('.c1')!.textContent).toBe('Production · ai.generateContent');
+    expect(row.querySelector('.c2')!.textContent).toBe('Requestedgemini-flash-lite-latestRouted togemini-flash-lite-001');
+    expect(row.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production succeeded');
+    const failed = root.querySelector(`[data-request-row="${refused.id}"]`)!;
+    expect(failed.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production failed');
+    expect(failed.querySelector('.c2')!.textContent).toContain('Routed toNot reported');
+
+    root.querySelector<HTMLButtonElement>(`[data-request-row="${answered.id}"]`)!.click();
+    const facts = root.querySelector<HTMLElement>('[data-traffic-detail]')!.textContent!;
+    expect(facts).toContain('Served byProduction');
+    expect(facts).toContain('OutcomeSucceeded in production');
+    expect(facts).toContain('Routed togemini-flash-lite-001');
+    expect(facts).toContain('Input tokens9');
+    expect(facts).toContain('Output tokens2');
+    expect(facts).toContain('Response content was not recorded for this request.');
+
+    root.querySelector<HTMLButtonElement>('[data-request-back]')!.click();
+    root.querySelector<HTMLButtonElement>(`[data-request-row="${refused.id}"]`)!.click();
+    const refusal = root.querySelector<HTMLElement>('[data-traffic-detail]')!.textContent!;
+    expect(refusal).toContain('OutcomeFailed in production (unauthenticated)');
+  });
+
+  /** Timers the test runs by hand, and a clock that moves with them. */
+  function manualTimers() {
+    let clock = 0;
+    let next = 0;
+    const due = new Map<number, { at: number; run: () => void }>();
+    return {
+      timers: {
+        setTimeout: (run: () => void, ms: number) => { next += 1; due.set(next, { at: clock + ms, run }); return next; },
+        clearTimeout: (handle: unknown) => { due.delete(handle as number); },
+        now: () => clock,
+      },
+      async advance(ms: number) {
+        clock += ms;
+        for (const [handle, timer] of [...due]) {
+          if (timer.at > clock) continue;
+          due.delete(handle);
+          timer.run();
+        }
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      },
+      pending: () => due.size,
+    };
+  }
+
+  const settle = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); };
+
+  function liveStatus(billed: { reads: number; writes: number; deliveries: number }, appProjectIds: string[] = ['my-project']) {
+    return {
+      projectId: appProjectIds.join(', ') || 'my-project',
+      configProjectId: 'my-project',
+      configSource: '.firebaserc',
+      appProjectIds,
+      billed,
+    };
+  }
+
+  it("shows the host's live line and billed count, and reads the count again after traffic", async () => {
+    const clock = manualTimers();
+    const statuses = [
+      liveStatus({ reads: 0, writes: 0, deliveries: 0 }),
+      liveStatus({ reads: 1, writes: 1, deliveries: 1 }),
+    ];
+    let reads = 0;
+    const { root, push, runtime, showTab } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => statuses[Math.min(reads++, statuses.length - 1)]!,
+    });
+    // A sandbox page never asks: only a hosted page can be on a live host.
+    expect(reads).toBe(0);
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    expect(reads).toBe(1);
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: my-project');
+    expect(root.querySelector('[data-chip-live-mismatch]')).toBeNull();
+    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners');
+
+    const now = Date.now();
+    const observed = observedCallEvent({ service: 'firestore', method: 'getDoc', at: now, outcome: { status: 'ok' } });
+    push([
+      { ...observed, caller: { kind: 'page', pageId: 'tab-1' } } as SandboxEvent,
+      request('served', now - 1000, 'rooms/r2', 'allow'),
+    ], { history: true, pageId: 'tab-1' });
+    await clock.advance(150);
+    expect(reads).toBe(2);
+    // The count is the host's, so every view shows the same one.
+    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 1 read, 1 write, 1 document delivered to listeners');
+
+    showTab('traffic');
+    const served = root.querySelector('[data-request-row="served"]')!;
+    expect(served.querySelector('[data-traffic-row-sandbox]')!.textContent).toBe('Sandbox');
+    expect(served.querySelector('[data-traffic-row-production]')).toBeNull();
+    const production = root.querySelector(`[data-request-row="${observed.id}"]`)!;
+    expect(production.querySelector('[data-traffic-row-production]')!.textContent).toBe('Production');
+    root.querySelector<HTMLButtonElement>('[data-request-row="served"]')!.click();
+    expect(root.querySelector('[data-traffic-detail]')!.textContent).toContain('Served bySandbox');
+
+    root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+    expect(root.querySelector('[data-expand] [data-chip-live]')!.textContent).toBe('Live: my-project');
+  });
+
+  it("names the project the app's Firebase config names, and warns that the host's settings name another", async () => {
+    const clock = manualTimers();
+    const { root, runtime } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => ({ ...liveStatus({ reads: 0, writes: 0, deliveries: 0 }, ['prod']), projectId: 'prod', configProjectId: 'staging' }),
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: prod');
+    expect(root.querySelector('[data-chip-live-mismatch]')!.textContent).toBe('Your Firebase config says prod; .firebaserc says staging.');
+    root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+    expect(root.querySelector('[data-expand] [data-chip-live]')!.getAttribute('title')).toContain('Your Firebase config says prod; .firebaserc says staging.');
+  });
+
+  it('reads the live status again after a failed read, until one succeeds', async () => {
+    const clock = manualTimers();
+    let reads = 0;
+    const { root, runtime } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => {
+        reads += 1;
+        if (reads < 3) throw new Error('host restarting');
+        return liveStatus({ reads: 0, writes: 0, deliveries: 0 });
+      },
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    expect(root.querySelector('[data-chip-live]')).toBeNull();
+    await clock.advance(250);
+    await clock.advance(500);
+    expect(reads).toBe(3);
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: my-project');
+  });
+
+  it('shows no live line on a hosted sandbox host, and stops reading', async () => {
+    const clock = manualTimers();
+    let reads = 0;
+    const { root, runtime } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => { reads += 1; return null; },
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    expect(root.querySelector('[data-chip-live]')).toBeNull();
+    expect(root.querySelector('[data-chip-billed]')).toBeNull();
+    await clock.advance(10_000);
+    expect(reads).toBe(1);
+    expect(clock.pending()).toBe(0);
+  });
+
+  it('leaves out the hosted note when the sandbox is hosted', () => {
+    const { root, showTab, push, runtime } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    runtime.setWorker({ mode: 'hosted' });
+    push([request('mine', Date.now(), 'notes/mine', 'allow')], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    root.querySelector<HTMLButtonElement>('[data-traffic-scope="all"]')!.click();
+    expect(root.querySelector('[data-traffic-hosted-note]')).toBeNull();
+  });
+
   it('carries the failures that are not requests from the runtime error feed', () => {
     const { root, showTab, runtime } = setup({ initiallyOpen: true });
     runtime.reportError('worker crashed', 'sandbox');
@@ -672,5 +934,90 @@ describe('the Identity view when switching fails', () => {
     root.querySelector<HTMLButtonElement>('[data-sign-out]')!.click();
     await flush();
     expect(announced(root)).toContain('Signed out.');
+  });
+});
+
+describe('Storage traffic by its activity source', () => {
+  const APP_BUCKET = 'demo-app.appspot.com';
+  // Reads are open; a write of more than one byte is denied.
+  const SMALL_WRITES_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow read: if true; allow write: if request.resource.size < 2; }
+  }
+}`;
+
+  /** A sandboxed app with a default bucket, and the chip serving its page with the Data view. */
+  function storagePage() {
+    const dom = new JSDOM('<!doctype html><body><div id="gallery"><img id="photo"></div></body>', { url: 'http://localhost/' });
+    const document = dom.window.document;
+    const photo = document.querySelector('#photo')!;
+    // React's fiber for the photo, so a render after a result has a region.
+    Reflect.set(photo, '__reactFiber$k', { tag: 5, type: 'img', stateNode: photo, return: null, child: null });
+    const sandbox = initializeSandbox({});
+    const unique = Math.random().toString(36).slice(2, 10);
+    getStorageSandbox(sandbox, { dbName: `pyric-chip-storage-${unique}`, rules: SMALL_WRITES_RULES });
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: APP_BUCKET }, `chip-storage-${unique}`);
+    let pushEvents: ((events: readonly SandboxEvent[], batch: { history: boolean }) => void) | null = null;
+    const stopEvents = sandbox.onEvent(event => pushEvents?.([event], { history: false }));
+    let commit: (() => void) | null = null;
+    let delivered: ((listenerId: string) => void) | null = null;
+    let changedNodes: unknown[] = [];
+    let mode: ListenerMode | null = null;
+    const chip = mountPyricRuntimeChip({
+      document,
+      runtime: createPyricRuntimeStatus(manifest),
+      initiallyOpen: true,
+      sandboxEvents: (callback) => { pushEvents = callback; return () => { pushEvents = null; }; },
+      listeners: (onChange) => (mode = createListenerMode({
+        document, onChange, paintStorage: null, attributionEnabled: () => true,
+        commits: { available: () => true, reason: () => null, subscribe: (listener) => { commit = listener; return () => { commit = null; }; }, dispose: () => {} },
+        flow: {
+          subscribeDeliveries: (listener) => { delivered = listener; return () => { delivered = null; }; },
+          changedNodes: () => ({ drain: () => changedNodes.splice(0), discard: () => { changedNodes = []; }, stop: () => {} }),
+        },
+        subscribeEvents: (callback) => { callback([], { history: true }); return () => {}; },
+      })),
+    });
+    cleanups.push(() => { chip.dispose(); stopEvents(); dom.window.close(); });
+    const root = chip.element.shadowRoot!;
+    return {
+      document,
+      root,
+      storage: getStorage(app),
+      mode: () => mode!,
+      /** The page renders the photo after an activity's result. */
+      rendered: (listenerId: string) => { delivered?.(listenerId); changedNodes = [photo]; commit?.(); },
+      showTab: (tab: ChipTab) => root.querySelector<HTMLButtonElement>(`[data-chip-tab="${tab}"]`)!.click(),
+    };
+  }
+
+  it('lists a Storage row under the activity source that made it', async () => {
+    const page = storagePage();
+    await uploadBytes(ref(page.storage, 'avatars/alice.png'), new Uint8Array([1]));
+    page.showTab('traffic');
+    expect(texts(page.root, '[data-request-row] .c2')).toContain(`gs://${APP_BUCKET}/avatars/alice.png`);
+    page.showTab('listeners');
+    const source = [...page.root.querySelectorAll<HTMLButtonElement>('[data-listener-row]')]
+      .find(row => row.textContent?.includes('avatars/alice.png'))!;
+    source.click();
+    page.root.querySelector<HTMLAnchorElement>('[data-source-traffic]')!.click();
+    expect(page.root.querySelector('.breadcrumb-target')!.textContent).toBe(`gs://${APP_BUCKET}/avatars/alice.png`);
+    expect(texts(page.root, '[data-request-row] .c2')).toEqual([`gs://${APP_BUCKET}/avatars/alice.png`]);
+  });
+
+  it('marks the region a denied upload would have changed', async () => {
+    const page = storagePage();
+    page.mode().setMode('flow');
+    page.mode().setEnabled(true);
+    // The page's activity journal is the process's, so this test's object is its own.
+    const target = ref(page.storage, 'avatars/bob.png');
+    const allowed = uploadBytes(target, new Uint8Array([1]));
+    const upload = page.mode().outlines().find(outline => outline.target.endsWith('avatars/bob.png'))!;
+    await allowed;
+    page.rendered(upload.listenerId);
+    await expect(uploadBytes(target, new Uint8Array([1, 2, 3]))).rejects.toThrow();
+    const badge = page.document.querySelector('[data-pyric-denials] [data-pyric-listener-badge]');
+    expect(badge?.textContent).toBe(`⚠ Write denied — related region: gs://${APP_BUCKET}/avatars/bob.png`);
   });
 });

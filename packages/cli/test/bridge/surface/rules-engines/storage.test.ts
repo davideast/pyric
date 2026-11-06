@@ -517,6 +517,46 @@ service firebase.storage {
     expect(allowedOf(simulated)).toBe(live);
   });
 
+  // Production checks an upload over a stored object as a create: capture
+  // `stdlib-realstorage-request-resource-fields`, overwrite cases
+  // `verb-create` ALLOW and `verb-update` DENY (#1884).
+  it('checks a coarse write with data over a stored object as a create, as the live upload is', async () => {
+    const { ctx, alice } = await seeded();
+    const rules = OPEN_RULES.replace(
+      'allow read, write: if true;',
+      'allow create: if request.resource.size < 10 * 1024 * 1024; allow update: if true;',
+    );
+    await STORAGE_RULES.install(ctx, rules);
+    const oversized = await STORAGE_RULES.simulate(ctx, {
+      operation: 'write',
+      path: 'docs/readme.txt',
+      uid: 'alice',
+      data: { size: 50 * 1024 * 1024 },
+    });
+    expect(allowedOf(oversized)).toBe(false);
+    const small = await STORAGE_RULES.simulate(ctx, {
+      operation: 'write',
+      path: 'docs/readme.txt',
+      uid: 'alice',
+      data: { size: 6 },
+    });
+    expect(allowedOf(small)).toBe(true);
+    const createOnly = OPEN_RULES.replace('allow read, write: if true;', 'allow create: if true;');
+    const updateOnly = OPEN_RULES.replace('allow read, write: if true;', 'allow update: if true;');
+    const verdict = async (source: string) => allowedOf(await STORAGE_RULES.simulate(ctx, {
+      operation: 'write',
+      path: 'docs/readme.txt',
+      rules: source,
+      data: { size: 6 },
+    }));
+    expect(await verdict(createOnly)).toBe(true);
+    expect(await verdict(updateOnly)).toBe(false);
+    const live = await liveAllows(() =>
+      uploadBytes(ref(alice, 'docs/readme.txt'), new Uint8Array(6)),
+    );
+    expect(live).toBe(true);
+  });
+
   it('gives an upload with no data the upload defaults', async () => {
     const rules = OPEN_RULES.replace(
       'allow read, write: if true;',

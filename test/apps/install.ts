@@ -6,18 +6,26 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { endGroup, watchChildExit } from './unreaped-exit.ts';
+import { DEFAULT_EXIT_TIMING, describeGroupProcesses, endGroup, watchChildExit, type ExitTiming } from './unreaped-exit.ts';
+import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
 
-/** How long a process a command left behind gets after SIGTERM, before SIGKILL. */
-const LEFTOVER_TERM_MS = 1000;
+/** The waits `runCommand` uses. Tests pass short ones; the runner uses the defaults. */
+export interface CommandTiming {
+  exit: ExitTiming;
+  /** How long a process a command left behind gets after SIGTERM, before SIGKILL. */
+  leftoverTermMs: number;
+}
 
-/** The published packages, in the order scripts/pack-packages.sh packs them. */
+const DEFAULT_COMMAND_TIMING: CommandTiming = { exit: DEFAULT_EXIT_TIMING, leftoverTermMs: 1000 };
+
+/** The packages scripts/pack-packages.sh packs, in its order: the published ones. */
 const PUBLISHED_PACKAGE_DIRS = [
   'packages/pyric',
   'packages/pyric-admin',
   'packages/create-pyric',
   'packages/cli',
   'packages/ui',
+  'packages/live',
 ];
 
 /** Files in an app directory that drive it and are not part of the app. */
@@ -49,29 +57,63 @@ export interface CommandResult {
   output: string;
 }
 
+export interface CommandOptions {
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+  spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+  timing?: CommandTiming;
+}
+
 /**
  * Runs a command to exit. An exit the runner only half sees (#1274), a child
  * whose pipes a process it started holds open, or one never reaped, resolves
  * too (watchChildExit).
  */
-export function runCommand(
-  command: string,
-  args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv; spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess },
-): Promise<CommandResult> {
+export async function runCommand(command: string, args: string[], options: CommandOptions): Promise<CommandResult> {
+  const { code, output } = await spawnCommand(command, args, options, undefined);
+  return { code, output };
+}
+
+/**
+ * `runCommand`, stopped at `timeoutMs` with its whole process group. The
+ * result says it timed out and names what was still running.
+ */
+export function runTimedCommand(command: string, args: string[], options: CommandOptions & { timeoutMs: number }): Promise<TimedResult> {
+  return spawnCommand(command, args, options, options.timeoutMs);
+}
+
+function spawnCommand(command: string, args: string[], options: CommandOptions, timeoutMs: number | undefined): Promise<TimedResult> {
   return new Promise((resolvePromise, reject) => {
     const spawnChild = options.spawnChild ?? spawn;
+    const timing = options.timing ?? DEFAULT_COMMAND_TIMING;
     // Its own process group, so what it starts and leaves running can be found and ended.
     const child = spawnChild(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const outputSockets = childOutputSockets(child.pid);
     let output = '';
     child.stdout?.on('data', (chunk) => { output += chunk; });
     child.stderr?.on('data', (chunk) => { output += chunk; });
+    let limit: ReturnType<typeof setTimeout> | undefined;
     const stopWatching = watchChildExit(child, command, (exit) => {
+      clearTimeout(limit);
       const hasLeftovers = exit.leftovers.length > 0 && child.pid !== undefined;
-      if (hasLeftovers) void endGroup(child.pid ?? 0, LEFTOVER_TERM_MS);
-      resolvePromise({ code: exit.code, output: `${output}${exit.note}` });
-    });
+      if (hasLeftovers) void endGroup(child.pid ?? 0, timing.leftoverTermMs);
+      // Without `close`, output can go missing: say whether the kernel still holds it (#1797).
+      const whereOutputWent = isExitWithoutClose(exit.source) ? describeOutputSockets(command, outputSockets) : '';
+      resolvePromise({ code: exit.code, output: `${output}${exit.note}${whereOutputWent}`, timedOut: false });
+    }, timing.exit);
+    if (timeoutMs !== undefined) {
+      limit = setTimeout(() => {
+        stopWatching();
+        const group = child.pid ?? 0;
+        // Read before the stop ends them: what the command was still running.
+        const running = group === 0 ? '(unknown)' : describeGroupProcesses(group);
+        const note = `\n[runner] ${command} stopped after ${timeoutMs / 1000} s; processes in its group:\n${running}\n`;
+        if (group !== 0) void endGroup(group, timing.leftoverTermMs);
+        resolvePromise({ code: null, output: `${output}${note}`, timedOut: true });
+      }, timeoutMs);
+    }
     child.on('error', (error) => {
+      clearTimeout(limit);
       stopWatching();
       reject(error);
     });
@@ -129,15 +171,26 @@ export function pinPyricPackages(projectDir: string, tarballs: Tarballs): void {
  */
 const FETCH_TIMEOUT_MS = 60_000;
 
+const QUIET_NPM_FLAGS = ['--no-audit', '--no-fund', '--loglevel=error', '--progress=false', '--update-notifier=false'];
+
 /**
  * `npm install` as the runner runs it: quiet, with the shared cache. Offline
  * first by default; `online` revalidates the cached package listings. With
  * `logsDir`, npm writes its debug log there, so a hang can be read back.
  */
 export function npmInstallArgs(npmCache: string, metadata: 'offline' | 'online' = 'offline', logsDir?: string): string[] {
-  const quiet = ['--no-audit', '--no-fund', '--loglevel=error', '--progress=false', '--update-notifier=false'];
   const logs = logsDir ? [`--logs-dir=${logsDir}`] : [];
-  return ['install', ...quiet, `--fetch-timeout=${FETCH_TIMEOUT_MS}`, `--prefer-${metadata}`, '--cache', npmCache, ...logs];
+  return ['install', ...QUIET_NPM_FLAGS, `--fetch-timeout=${FETCH_TIMEOUT_MS}`, `--prefer-${metadata}`, '--cache', npmCache, ...logs];
+}
+
+/**
+ * `npm install` with no registry: `--offline`, an npm cache of its own that
+ * starts empty, and a registry nothing listens on, so a request npm should
+ * not make fails at once instead of waiting. The dependency store runs it to
+ * install a run's Pyric tarballs into a tree it already holds.
+ */
+export function npmOfflineInstallArgs(npmCache: string, registry: string): string[] {
+  return ['install', ...QUIET_NPM_FLAGS, '--offline', `--registry=${registry}`, '--cache', npmCache];
 }
 
 /** npm's codes for a version range the cached package listing has no match for. */
