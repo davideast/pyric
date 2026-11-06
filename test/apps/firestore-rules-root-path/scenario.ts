@@ -5,6 +5,14 @@
 // applies and every read and write of c/1 is denied. The page on the dev
 // server and a registered Node process both get permission-denied, and once
 // `pyric rules set` installs the standard root both succeed.
+//
+// A root `match /{path=**}` matches the request's full resource name, so the
+// allow statements written on it apply as on any other block (#1894,
+// FS3-ROOT-1). Production allows get `c/1` under its `allow read: if true`
+// and denies a signed-out create under its `allow write: if request.auth !=
+// null` (captures `c4a-root-recursive-with-own-allow`,
+// `c5e-root-recursive-own-allow-write`). Both clients are signed out, so
+// they read c/1 and are denied the write.
 import assert from 'node:assert/strict';
 import { scenario, type App } from '../driver.ts';
 
@@ -16,6 +24,14 @@ service cloud.firestore {
     match /c/{id} {
       allow read, write: if true;
     }
+  }
+}`;
+
+const RECURSIVE_ROOT_OWN_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /{path=**} {
+    allow read: if true;
+    allow write: if request.auth != null;
   }
 }`;
 
@@ -59,5 +75,19 @@ export default scenario(async (app) => {
 
   await app.step('the Node process reads and writes c/1 under the standard root', async () => {
     assert.deepEqual(await serverOutcomes(app, env), { write: 'ok', read: 'ok' });
+  });
+
+  await app.step('pyric rules set installs a root /{path=**} with rules of its own', async () => {
+    const result = await app.pyric(['rules', 'set', '--service', 'firestore', '--rules', RECURSIVE_ROOT_OWN_RULES], { env });
+    assert.equal(result.code, 0, result.output);
+  });
+
+  await app.step("the page reads c/1 under the root's allow read and is denied the signed-out write", async () => {
+    assert.equal(await page.evaluate(() => rootPath.read()), 'ok');
+    assert.equal(await page.evaluate(() => rootPath.write()), 'permission-denied');
+  });
+
+  await app.step("the Node process reads c/1 under the root's allow read and is denied the signed-out write", async () => {
+    assert.deepEqual(await serverOutcomes(app, env), { write: 'permission-denied', read: 'ok' });
   });
 });
