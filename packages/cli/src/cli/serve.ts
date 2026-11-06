@@ -750,14 +750,14 @@ async function startServeRuntime(opts: {
           changedStorageFiles.clear();
           for (const changed of files) {
             void session.reloadStorageRules(changed).then((results) => {
-              for (const { bucket, file: source, result } of results) {
-                const label = storageBucketLabel(bucket);
+              for (const { bucket, target, file: source, result } of results) {
+                const label = storageBucketLabel(bucket, target);
                 if (result.kind === 'reloaded') {
                   logger.note(`  ↻ storage rules reloaded for ${label} (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
                 } else if (result.kind === 'rejected') {
                   logger.note(`  ⚠ storage rules NOT reloaded for ${label} (last-good stays live): ${result.error.message}`);
                 } else if (result.kind === 'removed') {
-                  logger.note(`  ⚠ ${formatStorageRulesRemoved(source, bucket)} → ${result.clients} page(s)`);
+                  logger.note(`  ⚠ ${formatStorageRulesRemoved(source, bucket, target)} → ${result.clients} page(s)`);
                 }
               }
             });

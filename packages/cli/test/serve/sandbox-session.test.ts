@@ -505,6 +505,93 @@ service firebase.storage {
     await session.close();
   });
 
+  it('serves each bucket firebase.json names its own Storage rules, not the first entry\'s (#1313)', async () => {
+    const root = project();
+    writeFileSync(join(root, 'media.rules'), storageRules('media'));
+    writeFileSync(join(root, 'storage.rules'), storageRules('default'));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: {
+        storage: [
+          { bucket: 'media-bucket', rules: 'media.rules' },
+          { bucket: 'demo-app.appspot.com', rules: 'storage.rules' },
+        ],
+      },
+      sdk: { dir: join(root, 'sdk') },
+    });
+    const payload = session.payload();
+    expect(payload.storageRules).toBeNull();
+    expect(Object.keys(payload.storageBucketRules ?? {})).toEqual(['media-bucket', 'demo-app.appspot.com']);
+    expect(payload.storageBucketRules?.['media-bucket']?.rules).toContain('/media/{file}');
+    expect(payload.storageBucketRules?.['demo-app.appspot.com']?.rules).toContain('/default/{file}');
+    expect(session.summary.rules.storageBuckets.map((loaded) => loaded.bucket)).toEqual(['media-bucket', 'demo-app.appspot.com']);
+    expect(session.storageRulesFiles()).toEqual([join(root, 'media.rules'), join(root, 'storage.rules')]);
+    await session.close();
+  });
+
+  it('reloads only the buckets that deploy the changed Storage rules file, and deploys each to its bucket on the Node sandbox', async () => {
+    const root = project();
+    const mediaPath = join(root, 'media.rules');
+    writeFileSync(mediaPath, storageRules('media'));
+    writeFileSync(join(root, 'storage.rules'), storageRules('default'));
+    const deployed: unknown[] = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: {
+        storage: [
+          { bucket: 'media-bucket', rules: 'media.rules' },
+          { bucket: 'demo-app.appspot.com', rules: 'storage.rules' },
+        ],
+      },
+      sdk: { dir: join(root, 'sdk') },
+      deployHostedRules: async (service, source, destination) => {
+        deployed.push([service, source === null ? null : 'source', destination]);
+      },
+    });
+    const defaultRules = session.payload().storageBucketRules?.['demo-app.appspot.com'];
+    writeFileSync(mediaPath, storageRules('media-two'));
+    const reloaded = await session.reloadStorageRules(mediaPath);
+    expect(reloaded.map(({ bucket, result }) => [bucket, result.kind])).toEqual([['media-bucket', 'reloaded']]);
+    expect(session.payload().storageBucketRules?.['media-bucket']?.rules).toContain('/media-two/{file}');
+    expect(session.payload().storageBucketRules?.['demo-app.appspot.com']).toEqual(defaultRules);
+    rmSync(mediaPath);
+    const removed = await session.reloadStorageRules(mediaPath);
+    expect(removed.map(({ bucket, result }) => [bucket, result.kind])).toEqual([['media-bucket', 'removed']]);
+    expect(session.payload().storageBucketRules?.['media-bucket']).toBeUndefined();
+    expect(deployed).toEqual([
+      ['storage', 'source', { bucket: 'media-bucket' }],
+      ['storage', null, { bucket: 'media-bucket' }],
+    ]);
+    await session.close();
+  });
+
+  it('carries a Storage deploy target no project resolved, with the buckets .firebaserc maps it to per project', async () => {
+    const root = project();
+    const mediaPath = join(root, 'media.rules');
+    writeFileSync(mediaPath, storageRules('media'));
+    writeFileSync(join(root, '.firebaserc'), JSON.stringify({ targets: { 'demo-app': { storage: { media: ['media-bucket'] } } } }));
+    const deployed: unknown[] = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: { storage: [{ target: 'media', rules: 'media.rules' }] },
+      sdk: { dir: join(root, 'sdk') },
+      deployHostedRules: async (service, source, destination) => {
+        deployed.push([service, source === null ? null : 'source', destination]);
+      },
+    });
+    const [pending] = session.payload().storagePendingTargets ?? [];
+    expect(pending?.target).toBe('media');
+    expect(pending?.rules).toContain('/media/{file}');
+    expect(pending?.bucketsByProject).toEqual({ 'demo-app': ['media-bucket'] });
+    expect(session.storageRulesFiles()).toEqual([mediaPath]);
+    writeFileSync(mediaPath, storageRules('media-two'));
+    const reloaded = await session.reloadStorageRules(mediaPath);
+    expect(reloaded.map(({ target, result }) => [target, result.kind])).toEqual([['media', 'reloaded']]);
+    expect(session.payload().storagePendingTargets?.[0]?.rules).toContain('/media-two/{file}');
+    expect(deployed).toEqual([['storage', 'source', { target: 'media' }]]);
+    await session.close();
+  });
+
   it('deploys each reloaded database instance\'s rules to that instance on the Node sandbox', async () => {
     const root = project();
     const aPath = join(root, 'a.rules.json');

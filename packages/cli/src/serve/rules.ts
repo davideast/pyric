@@ -343,8 +343,8 @@ export function storageRulesPath(cwd: string, config: FirebaseJson | null): stri
 
 /** The notice a dev server logs when the Storage rules file it loaded is
  *  deleted and Storage returns to denying every client operation. */
-export function formatStorageRulesRemoved(path: string, bucket: string | null = null): string {
-  return `storage rules removed: ${path} does not exist, client Storage operations on ${storageBucketLabel(bucket)} default to DENY`;
+export function formatStorageRulesRemoved(path: string, bucket: string | null = null, target?: string): string {
+  return `storage rules removed: ${path} does not exist, client Storage operations on ${storageBucketLabel(bucket, target)} default to DENY`;
 }
 
 /** One Storage rules file deployed to one bucket, or to the app's default bucket. */
@@ -365,6 +365,8 @@ export interface PendingStorageRulesTarget {
   label: string;
   /** Absolute path of the rules file. */
   path: string;
+  /** The bucket names `.firebaserc` maps the target to, for each project that maps it. */
+  bucketsByProject: Record<string, string[]>;
   /** Why the target did not resolve at startup. */
   reason: string;
 }
@@ -391,8 +393,9 @@ export interface LoadedProjectStorageRules extends LoadedStorageRules, StorageRu
   buckets: Map<string, LoadedStorageBucketRules>;
 }
 
-/** How a Storage deploy names its bucket in a log line. */
-export function storageBucketLabel(bucket: string | null): string {
+/** How a Storage deploy names its bucket, or the pending deploy target it waits on, in a log line. */
+export function storageBucketLabel(bucket: string | null, target?: string): string {
+  if (target !== undefined) return `the buckets of deploy target ${target}`;
   return bucket === null ? 'the default bucket' : `bucket ${bucket}`;
 }
 
@@ -438,6 +441,7 @@ export function storageRulesTargets(
       target: target.target,
       label: target.label,
       path: target.file,
+      bucketsByProject: targetMappings(readRc(), 'storage', target.target),
       reason: projectId === undefined
         ? 'no Firebase project is set'
         : `project ${describeFirebaseProject(project)} has no .firebaserc mapping for it (firebase target:apply storage ${target.target} <bucket>)`,
@@ -448,7 +452,7 @@ export function storageRulesTargets(
 /** The startup warning for Storage deploy targets no project resolved: each target, why, and how to fix it. */
 export function formatUnresolvedStorageTargets(pending: readonly PendingStorageRulesTarget[]): string {
   const lines = pending.map((target) =>
-    `  ⚠ Storage deploy target "${target.target}" (${target.label}) is unresolved: ${target.reason}. Its buckets deny every client operation.`);
+    `  ⚠ Storage deploy target "${target.target}" (${target.label}) is unresolved: ${target.reason}. Its buckets deny every client operation until the page's app config names a project .firebaserc maps it for.`);
   lines.push(`    To set the project: ${FIREBASE_PROJECT_FIXES}.`);
   return lines.join('\n');
 }
@@ -469,6 +473,24 @@ export async function loadStorageRulesTarget(target: StorageRulesTarget): Promis
   }
   const rules = prepareStorageRulesSource(raw, target.path);
   return { bucket: target.bucket, rules, rulesHash: rulesHashOf(rules), sourcePath: target.path };
+}
+
+/**
+ * Load a pending deploy target's rules file through the same check. Null
+ * while the file does not exist: its buckets stay locked until it does.
+ */
+export async function loadPendingStorageTarget(
+  target: PendingStorageRulesTarget,
+): Promise<{ rules: string; rulesHash: string } | null> {
+  let raw: string;
+  try {
+    raw = await readFile(target.path, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw e;
+  }
+  const rules = prepareStorageRulesSource(raw, target.path);
+  return { rules, rulesHash: rulesHashOf(rules) };
 }
 
 /**
@@ -616,7 +638,7 @@ export function databaseRulesTargets(
       target: target.target,
       label: target.label,
       path: target.file,
-      instancesByProject: targetMappings(readRc(), target.target),
+      instancesByProject: targetMappings(readRc(), 'database', target.target),
       reason: projectId === undefined
         ? 'no Firebase project is set'
         : `project ${describeFirebaseProject(project)} has no .firebaserc mapping for it (firebase target:apply database ${target.target} <instance>)`,
@@ -625,10 +647,10 @@ export function databaseRulesTargets(
 }
 
 /** The instance names `.firebaserc` maps `target` to, for each project that maps it. */
-function targetMappings(rc: FirebaseRc | null, target: string): Record<string, string[]> {
+function targetMappings(rc: FirebaseRc | null, service: 'database' | 'storage', target: string): Record<string, string[]> {
   const mappings: Record<string, string[]> = {};
   for (const [projectId, types] of Object.entries(rc?.targets ?? {})) {
-    const names = types?.database?.[target];
+    const names = types?.[service]?.[target];
     if (Array.isArray(names) && names.length > 0) mappings[projectId] = [...names];
   }
   return mappings;

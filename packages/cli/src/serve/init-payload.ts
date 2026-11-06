@@ -26,7 +26,9 @@ export interface DatabaseInstancesRules {
  *  default instance, or an unresolved deploy target. */
 export type DatabaseRulesDestination = string | { target: string };
 
-/** Where a ruleset deploys on the Node host: a database destination, or a Storage bucket by name (absent for the default bucket). */
+/** Where a ruleset deploys on the Node host: a database destination, or a
+ *  Storage bucket by name (absent for the default bucket). A Storage ruleset
+ *  with `{ target }` deploys to a pending Storage deploy target. */
 export type RulesDestination = DatabaseRulesDestination | { bucket: string };
 
 /**
@@ -41,6 +43,16 @@ export interface PendingDatabaseTargetRules {
   rules: RtdbRulesJson | null;
   /** The instance names `.firebaserc` maps the target to, by project id. */
   instancesByProject: Record<string, string[]>;
+}
+
+/** A `firebase.json` Storage deploy target the server could not map to buckets. */
+export interface PendingStorageTargetRules {
+  /** The deploy target name. */
+  target: string;
+  /** The target's rules source; null while its rules file does not exist. */
+  rules: string | null;
+  /** The bucket names `.firebaserc` maps the target to, by project id. */
+  bucketsByProject: Record<string, string[]>;
 }
 
 /** Browser-safe wire contract served by `/__pyric/init.json`. */
@@ -77,6 +89,8 @@ export interface InitPayload {
    * `bucket` named. Absent on older servers.
    */
   storageBucketRules?: Record<string, { rules: string; rulesHash: string }> | null;
+  /** Storage deploy targets no project resolved at startup. Their buckets stay locked until the page's app config names a project `.firebaserc` maps them for. */
+  storagePendingTargets?: PendingStorageTargetRules[];
   /**
    * Local project identity — the served project directory. Scopes the
    * storage IndexedDB database name (`pyric-storage:<projectKey>`, issue

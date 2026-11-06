@@ -35,7 +35,8 @@ import { setRules } from 'pyric/sandbox/firestore';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
-import { DEFAULT_BUCKET, installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
+import { DEFAULT_BUCKET, installStorageBackend } from 'pyric/storage/internal';
+import { applyStorageRulesUpdate, storageRulesUpdateFor } from '../storage-rules-install.js';
 import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
@@ -604,10 +605,12 @@ export async function createHostedRuntime(
     async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: RulesDestination): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
       if (service === 'storage') {
-        // A bucket by name gets its own rules; without one, the default bucket's (#1313).
-        const bucket = typeof instance === 'object' && 'bucket' in instance ? instance.bucket : undefined;
-        await replaceStorageRules(ctx.sandbox, source, bucket === undefined ? {} : { bucket });
-        if (bucket === undefined) recorder?.note({ kind: 'rules', at: Date.now(), service, source });
+        // A bucket by name gets its own rules, a pending deploy target its
+        // buckets' once resolved, and without either the default bucket (#1313).
+        const update = storageRulesUpdateFor(source, instance);
+        await applyStorageRulesUpdate(ctx.sandbox, update);
+        const isDefaultBucket = update.bucket === undefined && update.target === undefined;
+        if (isDefaultBucket) recorder?.note({ kind: 'rules', at: Date.now(), service, source });
         return;
       }
       if (instance !== undefined && typeof instance === 'object' && 'bucket' in instance) {

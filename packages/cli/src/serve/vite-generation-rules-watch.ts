@@ -98,8 +98,8 @@ export function watchViteGenerationRules(input: {
       }
       for (const storageFile of changedStorageFiles) {
         void session.reloadStorageRules(storageFile).then((results) => {
-          for (const { bucket, result } of results) {
-            const label = storageBucketLabel(bucket);
+          for (const { bucket, target, result } of results) {
+            const label = storageBucketLabel(bucket, target);
             if (result.kind === 'reloaded') {
               server.config.logger.info(`  ↻ [pyric] storage rules reloaded for ${label} (${result.rulesHash})${getVerifyHint()}`);
             } else if (result.kind === 'rejected') {
@@ -107,7 +107,7 @@ export function watchViteGenerationRules(input: {
                 `  ⚠ [pyric] storage rules NOT reloaded for ${label} (last-good stays live): ${result.error.message}`,
               );
             } else if (result.kind === 'removed') {
-              server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(storageFile, bucket)}`);
+              server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(storageFile, bucket, target)}`);
             }
           }
         });

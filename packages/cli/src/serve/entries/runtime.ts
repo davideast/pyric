@@ -184,7 +184,7 @@ if (!useWorker) try {
   // shared database. `projectKey` is absent on older servers → legacy name.
   // Each bucket firebase.json names gets its own rules, and a bucket nothing
   // deploys to is locked (#1313).
-  installServedStorageRules(sandbox, payload);
+  for (const notice of installServedStorageRules(sandbox, payload)) console.info(`[pyric sandbox] ${notice}`);
   if (payload.storageRules) {
     diagnostics.storageRulesDeployed = true;
     diagnostics.storageRulesHash = payload.storageRulesHash;

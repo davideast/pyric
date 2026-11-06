@@ -36,7 +36,12 @@ import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
-import { applyStorageRulesUpdate, installServedStorageRules, storageRulesUpdateNotice, type StorageRulesUpdate } from '../storage-rules-install.js';
+import {
+  applyStorageRulesUpdate,
+  installServedStorageRules,
+  storageRulesUpdateNotice,
+  type StorageRulesUpdate,
+} from '../storage-rules-install.js';
 import type { PersistenceBackend } from 'pyric/sandbox';
 import { createSandboxRoot, EventHistory } from 'pyric/sandbox/internal';
 import {
@@ -339,7 +344,8 @@ export function applyServeInit(
   //     would land on the legacy shared database.
   //     Each bucket firebase.json names gets its own rules, and a bucket
   //     nothing deploys to is locked (#1313).
-  installServedStorageRules(ctx.sandbox, payload);
+  //     An app port that connected first resolves pending deploy targets now.
+  for (const notice of installServedStorageRules(ctx.sandbox, payload)) console.info(`[pyric] ${notice}`);
   const deploysBucketRules = Object.keys(payload.storageBucketRules ?? {}).length > 0;
   if (payload.storageRules || deploysBucketRules) {
     result.storageRulesDeployed = true;

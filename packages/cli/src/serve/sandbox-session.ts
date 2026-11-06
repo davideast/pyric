@@ -24,12 +24,14 @@ import {
   loadProjectRules,
   loadProjectStorageRules,
   loadStorageRulesTarget,
+  loadPendingStorageTarget,
   formatUnresolvedStorageTargets,
   prepareProjectRules,
   storageBucketLabel,
   rulesHashOf,
   RulesPrepareError,
   type DatabaseRulesTarget,
+  type PendingStorageRulesTarget,
   type StorageRulesTarget,
 } from './rules.js';
 import { createEventHub, createPyricNamespace } from './namespace.js';
@@ -162,14 +164,17 @@ export type RulesReloadResult =
    *  in without a rules file: no rules, and `policy` for every read and write. */
   | { kind: 'removed'; policy: 'allow' | 'deny'; clients: number };
 
-/** One database instance's reload after its rules file changed. */
+/** One bucket's, or one pending deploy target's, reload after its rules file changed. */
 export interface StorageRulesReloadResult {
-  /** The bucket by name, or null for the app's default bucket. */
+  /** The bucket by name, or null for the app's default bucket or a pending target. */
   bucket: string | null;
+  /** The deploy target no project resolved at startup, when the reload is a pending target's. */
+  target?: string;
   file: string;
   result: RulesReloadResult;
 }
 
+/** One database instance's reload after its rules file changed. */
 export interface DatabaseRulesReloadResult {
   /** The instance name, or `deploy target "<name>"` for an unresolved target. */
   instance: string;
@@ -242,6 +247,9 @@ export async function createSandboxSession(
       .filter((target) => target.bucket !== null)
       .map((target) => [target.bucket as string, storage.buckets.get(target.bucket as string) ?? null]),
   );
+  // Each unresolved Storage deploy target's rules, by target name, null while its file is missing.
+  const livePendingStorage = new Map<string, { rules: string; rulesHash: string } | null>();
+  for (const target of storage.pending) livePendingStorage.set(target.target, await loadPendingStorageTarget(target));
   // Each declared instance's rules in force, null while its file is missing.
   const liveDatabase = new Map<string, { rules: RtdbRulesJson; rulesHash: string } | null>(
     database.targets.map((target) => [target.instance, database.instances.get(target.instance) ?? null]),
@@ -404,6 +412,11 @@ export async function createSandboxSession(
         storageRules: live.storageRules,
         storageRulesHash: live.storageRulesHash,
         storageBucketRules: storageBucketRules(),
+        storagePendingTargets: storage.pending.map((target) => ({
+          target: target.target,
+          rules: livePendingStorage.get(target.target)?.rules ?? null,
+          bucketsByProject: target.bucketsByProject,
+        })),
         projectKey: options.projectDir,
         bridgeUrl: options.bridgeUrl?.() ?? null,
         hosted: options.hosted,
@@ -618,7 +631,9 @@ export async function createSandboxSession(
       }
       return results;
     };
-    const storageRulesFiles = (): readonly string[] => [...new Set(storage.targets.map((target) => target.path))];
+    const storageRulesFiles = (): readonly string[] => [
+      ...new Set([...storage.targets.map((target) => target.path), ...storage.pending.map((target) => target.path)]),
+    ];
     // Without a rules file, a bucket denies every client operation, as in
     // production. Permissive mode does not open Storage, so a deleted file
     // returns its bucket to that state rather than keeping the last-good rules.
@@ -656,10 +671,31 @@ export async function createSandboxSession(
         return { kind: 'rejected', error: failure };
       }
     };
+    // A pending target's rules reach its buckets once the page's app config
+    // resolves it; until then each plane keeps them for that resolution.
+    const reloadPendingStorageTarget = async (target: PendingStorageRulesTarget): Promise<RulesReloadResult> => {
+      const destination = { target: target.target };
+      try {
+        const loaded = await loadPendingStorageTarget(target);
+        const hadRules = livePendingStorage.get(target.target) != null;
+        if (loaded === null && !hadRules) return { kind: 'not-configured' };
+        await options.deployHostedRules?.('storage', loaded?.rules ?? null, destination);
+        livePendingStorage.set(target.target, loaded);
+        events.broadcast('storage-rules-update', { rules: loaded?.rules ?? null, rulesHash: loaded?.rulesHash ?? null, ...destination });
+        if (loaded === null) return { kind: 'removed', policy: 'deny', clients: events.clientCount() };
+        return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        return { kind: 'rejected', error: failure };
+      }
+    };
     const reloadStorageRules = async (file: string): Promise<StorageRulesReloadResult[]> => {
       const results: StorageRulesReloadResult[] = [];
       for (const target of storage.targets.filter((candidate) => candidate.path === file)) {
         results.push({ bucket: target.bucket, file, result: await reloadStorageBucketRules(target) });
+      }
+      for (const target of storage.pending.filter((candidate) => candidate.path === file)) {
+        results.push({ bucket: null, target: target.target, file, result: await reloadPendingStorageTarget(target) });
       }
       return results;
     };
