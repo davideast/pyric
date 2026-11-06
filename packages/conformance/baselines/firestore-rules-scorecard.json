@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 130,
+    "numerator": 132,
     "denominator": 140,
-    "ratio": 0.9285714285714286,
-    "percent": 92.9
+    "ratio": 0.9428571428571428,
+    "percent": 94.3
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 131,
-      "diverged": 7,
+      "verified": 133,
+      "diverged": 5,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 130,
-    "diverged": 7,
+    "conformant": 132,
+    "diverged": 5,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -683,8 +683,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "get-missing-doc",
@@ -693,11 +693,10 @@
       ],
       "verifiedByRows": [
         "firestore-rules#165",
-        "firestore-rules#197"
-      ],
-      "divergedByRows": [
+        "firestore-rules#197",
         "firestore-rules#224"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.function.exists": {
       "productionAcceptance": "accepted",
@@ -708,8 +707,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "get-missing-doc",
         "interpolated-lookup-path-segments",
@@ -719,11 +718,10 @@
       "verifiedByRows": [
         "firestore-rules#165",
         "firestore-rules#196",
-        "firestore-rules#197"
-      ],
-      "divergedByRows": [
+        "firestore-rules#197",
         "firestore-rules#224"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.function.getAfter": {
       "productionAcceptance": "accepted",
