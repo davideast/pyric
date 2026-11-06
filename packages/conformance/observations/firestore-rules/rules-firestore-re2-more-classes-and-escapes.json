@@ -1,0 +1,32 @@
+{
+  "name": "rules-firestore-re2-more-classes-and-escapes",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#228"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"re2-more-classes-and-escapes\" (Coverage: RE2 classes and escapes in matches(), split() and replace()). RE2's Unicode classes (`\\pN`, `\\p{Greek}`), POSIX classes, `\\Q..\\E`, `(?i)`, `\\x61`, `\\b`, `\\d` and a class range over emoji give production's result in matches(), split() and replace().",
+  "observedAt": "2026-11-04T02:34:28.077Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "61b0e16efe24c7a52911d12e5fa61fae75d35e763e22b5cdd017dbb146abdb9d"
+  },
+  "behavior": {
+    "ar0: '😀'.replace('[😀-😂]', 'x') == 'x'": "ALLOW",
+    "ar1: 'a😀'.split('[😀-😂]') == ['a']": "ALLOW",
+    "ci0: 'É'.replace('(?i)é', 'x') == 'x'": "ALLOW",
+    "ci1: 'É'.matches('(?i)é')": "ALLOW",
+    "pn0: 'a1'.replace('\\\\pN', 'x') == 'ax'": "ALLOW",
+    "pg0: 'α'.replace('\\\\p{Greek}', 'x') == 'x'": "ALLOW",
+    "pg1: 'α'.matches('\\\\p{Greek}')": "ALLOW",
+    "px1: 'a'.replace('[[:^alpha:]]', 'x') == 'a'": "ALLOW",
+    "px2: 'a.b'.split('[[:punct:]]') == ['a', 'b']": "ALLOW",
+    "ls0: '\\u2028'.replace('.', 'x') == 'x'": "ALLOW",
+    "hx0: 'a'.replace('\\\\x61', 'b') == 'b'": "ALLOW",
+    "qs0: 'a.b'.split('\\\\Q.\\\\E') == ['a', 'b']": "ALLOW",
+    "wb0: 'é a'.replace('\\\\b', '|') == 'é |a|'": "ALLOW",
+    "dg0: '٣'.replace('\\\\d', 'x') == '٣'": "ALLOW",
+    "dg1: !'٣'.matches('\\\\d')": "ALLOW"
+  }
+}

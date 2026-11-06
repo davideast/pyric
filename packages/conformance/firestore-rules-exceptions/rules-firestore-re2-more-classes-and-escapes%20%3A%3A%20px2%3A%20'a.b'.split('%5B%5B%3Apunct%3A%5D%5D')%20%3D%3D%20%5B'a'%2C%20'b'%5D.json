@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#228","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production reads [[:punct:]] in split() as the RE2 POSIX punctuation class; pyric reads it as the set [:punct followed by a literal ]","issue":"#2211"}
