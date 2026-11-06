@@ -485,7 +485,10 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
             res.end(JSON.stringify({ ok: false, summary: 'The discovered host instance has changed.' }));
             return true;
           }
-          const result = await runtime.runMethod(call, req.socket);
+          // Loaded with the runtime, so the method registry stays out of a mount that never runs one.
+          const { runHostedMethod } = await import('./hosted/live-reads.js');
+          const liveTabs = opts.liveHost === undefined ? undefined : bridge.tabTools;
+          const result = await runHostedMethod(liveTabs, call, () => runtime.runMethod(call, req.socket));
           res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
         } catch (error) {
           const summary = error instanceof Error ? error.message : String(error);

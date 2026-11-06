@@ -37,6 +37,7 @@ import { hasValidReplyOutcome, snapshotError } from '../../serve/worker/outbound
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
 import { createWorkerSessions } from './worker-sessions.js';
 import { createCallerIdentity, type CallerIdentityStore } from '../../auth/identity.js';
+import { createTabTools, type TabTools } from './tab-tools.js';
 
 /** The tool result shape the bridge emits. */
 export type BridgeToolResult = ToolResult;
@@ -136,6 +137,8 @@ export interface Bridge {
    * `tool-call` frame as `actAs`, and the peer runs the tool under it.
    */
   readonly callerIdentity: CallerIdentityStore;
+  /** Tools a connected tab of the app answers; a live host sends service reads there. */
+  readonly tabTools: TabTools;
   /** Broadcast presence snapshot to sandbox peer and Studio consumers. */
   broadcastConsumerPresence(): void;
   /**
@@ -779,6 +782,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     consumers,
     workerSessions,
     callerIdentity,
+    tabTools: createTabTools(callTimeoutMs),
     broadcastConsumerPresence,
     recordToolEvent,
     registerSandboxPeer,
