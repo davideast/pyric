@@ -1,8 +1,8 @@
 /**
  * Storage rules `lower()` and `upper()` map the ASCII letters only (#1885).
  *
- * Captures `st3-case-mapping` and `st3-case-mapping-ascii` (corpus scenario
- * `string-case-mapping`): production leaves é, Ä, Σ, ж, ß, İ, ı, ſ, ǅ, ﬁ, և
+ * Captures `st3-case-mapping` and `st3-case-mapping-ascii` (corpus scenarios
+ * of the same names): production leaves é, Ä, Σ, ж, ß, İ, ı, ſ, ǅ, ﬁ, և
  * and the fullwidth ａ as they are, so `'ÉVE@X.COM'.lower()` is
  * `'Éve@x.com'`. Each case runs through `uploadBytes` in the in-process
  * sandbox and expects production's verdict.
