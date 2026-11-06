@@ -37,8 +37,8 @@ export const OBSERVED_DISPOSITION: RulesDisposition = Object.freeze({
   reason: 'external-execution',
 });
 
-const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai']);
-const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'instance', 'billedDocuments', 'ai']);
+const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage']);
+const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'instance', 'bucket', 'billedDocuments', 'ai']);
 const ACCOUNT_FIELDS = new Set(['uid', 'claimNames']);
 const AI_FIELDS = new Set(['model', 'reportedModel', 'usage', 'firstChunkMs']);
 const AI_USAGE_FIELDS: ReadonlySet<keyof ObservedAiUsage> = new Set(['promptTokenCount', 'candidatesTokenCount', 'totalTokenCount', 'totalTokens']);
@@ -52,6 +52,13 @@ const CODE_PATTERN = /^[a-z0-9_/-]{1,100}$/i;
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 /** RTDB instance names, as the SDK's namespace holds them: `my-project-default-rtdb`. */
 const INSTANCE_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/;
+/** Bare Cloud Storage bucket names, never a `gs://` URL: `my-project.firebasestorage.app`. */
+const BUCKET_PATTERN = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
+/**
+ * The Storage codes production denies with, as the SDK maps them: Rules
+ * denial (403) and App Check rejection (401).
+ */
+const STORAGE_DENIED_CODES: ReadonlySet<string> = new Set(['storage/unauthorized', 'storage/unauthorized-app']);
 const MAX_PATH_LENGTH = 1500;
 const MAX_UID_LENGTH = 128;
 const MAX_CLAIM_NAMES = 64;
@@ -190,6 +197,14 @@ export function readObservedCall(value: unknown): ObservedCall {
     requireField(isRtdbInstance, 'instance');
     call.instance = value.instance as string;
   }
+  // A Storage call always names its bucket, so a second bucket's rows never
+  // read as the default's. No other call names one.
+  const isStorage = call.service === 'storage';
+  if (isStorage || value.bucket !== undefined) {
+    const isBucket = isStorage && typeof value.bucket === 'string' && BUCKET_PATTERN.test(value.bucket);
+    requireField(isBucket, 'bucket');
+    call.bucket = value.bucket as string;
+  }
   if (value.billedDocuments !== undefined) {
     requireField(isDocumentCount(value.billedDocuments), 'billedDocuments');
     call.billedDocuments = value.billedDocuments;
@@ -264,11 +279,18 @@ function aiObservation(id: string, call: ObservedCall, ai: ObservedAi): RequestO
  * returned an error and `not-applicable` otherwise, since no local Rules
  * verdict exists; `production` holds what production answered. An `ai` call's
  * path is its model, and its `observation` holds the model and token counts.
+ * A `storage` call's bucket is its `detail.bucket`.
  */
 export function observedCallEvent(call: ObservedCall): SandboxOperationEvent {
   const event = observedOperationEvent(call);
   const ai = call.ai;
   return ai === undefined ? event : { ...event, observation: aiObservation(event.id, call, ai) };
+}
+
+/** A Storage call's bucket, under the key the sandbox's own Storage events use. */
+function eventDetail(call: ObservedCall): { detail?: { bucket: string } } {
+  const bucket = call.bucket;
+  return bucket === undefined ? {} : { detail: { bucket } };
 }
 
 function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
@@ -281,6 +303,7 @@ function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
     method: call.method,
     ...(path === undefined ? {} : { path }),
     ...eventInstance(call),
+    ...eventDetail(call),
     auth: account === undefined ? null : { uid: account.uid },
     result: call.outcome.status === 'error' ? 'error' : 'not-applicable',
     origin: 'user',
@@ -301,10 +324,16 @@ export function isProductionServed(rules: RulesDisposition | undefined): boolean
 /** How every traffic view reads production's answer. */
 export type ProductionVerdict = 'ok' | 'denied' | 'failed';
 
-/** Production's answer as a view reads it: `permission-denied`, in any service's spelling, is denied. */
+/**
+ * Production's answer as a view reads it: `permission-denied`, in any
+ * service's spelling, is denied, and so are Storage's `storage/unauthorized`
+ * (a Rules denial) and `storage/unauthorized-app` (an App Check rejection,
+ * read as denied like Firestore's).
+ */
 export function productionVerdict(outcome: ProductionOutcome): ProductionVerdict {
   if (outcome.status === 'ok') return 'ok';
   const code = outcome.code.toLowerCase();
-  const isDenied = code === 'permission-denied' || code === 'permission_denied' || code.endsWith('/permission-denied');
+  const isPermissionDenied = code === 'permission-denied' || code === 'permission_denied' || code.endsWith('/permission-denied');
+  const isDenied = isPermissionDenied || STORAGE_DENIED_CODES.has(code);
   return isDenied ? 'denied' : 'failed';
 }

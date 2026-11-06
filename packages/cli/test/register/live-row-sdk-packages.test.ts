@@ -2,9 +2,9 @@
  * The `@firebase/*` packages the live register lets the live rows load
  * (`LIVE_ROW_SDK_PACKAGES` in `swap-or-stop.ts`) are derived again here, from
  * the installed SDK: a plain Node process imports `firebase/app`,
- * `firebase/auth`, `firebase/firestore`, `firebase/app-check` and
- * `firebase/database` as a live row does (an ESM import, Node's
- * conditions), and records every file Node resolves. A Firebase SDK in the
+ * `firebase/auth`, `firebase/firestore`, `firebase/app-check`,
+ * `firebase/database` and `firebase/ai` as a live row does (an ESM import,
+ * Node's conditions), and records every file Node resolves. A Firebase SDK in the
  * supported range that loads one more package fails this test, instead of
  * stopping the app at run time.
  *
@@ -22,7 +22,7 @@ const repoRoot = resolve(import.meta.dir, '../../../..');
 const requireFromRepo = createRequire(join(repoRoot, 'package.json'));
 const firebaseDir = realpathSync(dirname(requireFromRepo.resolve('firebase/package.json')));
 
-const LIVE_ROWS = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check', 'firebase/database'];
+const LIVE_ROWS = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check', 'firebase/database', 'firebase/ai'];
 
 /** Imports the live rows' entries from the installed firebase and prints every URL Node resolved. */
 const PROBE = `import Module from 'node:module';

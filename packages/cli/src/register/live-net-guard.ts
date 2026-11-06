@@ -10,7 +10,7 @@
  *
  * - a token source (`../google-token-endpoints.ts`) is refused, as the
  *   register's guard refuses it;
- * - a host the Firestore, Auth and App Check rows' SDK reaches
+ * - a host the Firestore, Auth, App Check and AI Logic SDKs reach
  *   ({@link LIVE_ROW_HOSTS}) passes;
  * - a Realtime Database host ({@link DATABASE_ROW_HOSTS}), which the database
  *   row's SDK reaches, and a host of an import the register passes through
@@ -72,12 +72,17 @@ import {
 import { nodeAgentPrototypes, nodeClientRequestPrototypes } from './connect-prototypes.js';
 import { INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
 
-/** The hosts the Firestore, Auth and App Check rows' SDK reaches in Node: Firestore, Auth, its token refresh, and App Check. */
+/**
+ * The hosts the live rows' SDK reaches in Node by host: Firestore, Auth, its
+ * token refresh, App Check, and AI Logic, which the AI row's `firebase/ai`
+ * calls with `fetch`.
+ */
 export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
   'firestore.googleapis.com',
   'identitytoolkit.googleapis.com',
   'securetoken.googleapis.com',
   'content-firebaseappcheck.googleapis.com',
+  FIREBASE_AI_LOGIC_HOST,
 ]);
 
 /**
@@ -102,7 +107,6 @@ const MESSAGING_HOSTS = ['fcmregistrations.googleapis.com', INSTALLATIONS_HOST];
  * Installations ID. Its calls go to production unobserved, as the app asked.
  */
 const PASS_THROUGH_HOSTS: Readonly<Record<string, readonly string[]>> = {
-  'firebase/ai': [FIREBASE_AI_LOGIC_HOST],
   'firebase/storage': ['firebasestorage.googleapis.com'],
   'firebase/functions': ['cloudfunctions.net'],
   'firebase/messaging': MESSAGING_HOSTS,
@@ -134,9 +138,13 @@ const LIVE_REMEDY = 'Make this request from a process without @pyric/live/regist
 const LIVE_FETCH_REASON = "in live mode a fetch to Google is made only by the installed SDK that @pyric/live's rows load";
 const LIVE_REQUEST_REASON = "in live mode only the installed Firebase SDK, wrapped by @pyric/live's rows, reaches this host, " +
   'and it never sends an http.request, so pyric would not see this one';
-/** For a request to a {@link LIVE_ROW_HOSTS} host, which only these three imports' SDKs reach. */
+/** For a request to a Firestore, Auth or App Check host, which only these three imports' SDKs reach. */
 const LIVE_REQUEST_REMEDY = 'Make the call through firebase/auth, firebase/firestore or firebase/app-check, ' +
   'so pyric observes it, or from a process without @pyric/live/register';
+const AI_REQUEST_REASON = 'in live mode only the installed AI Logic SDK, firebase/ai, reaches this host, ' +
+  'and it calls fetch, never http.request';
+/** For a request to the AI Logic host, which only `firebase/ai`'s SDK reaches. */
+const AI_REQUEST_REMEDY = 'Make the call through firebase/ai, or from a process without @pyric/live/register';
 const PASSED_REASON = 'in live mode only the installed SDK of an import that passes through reaches this host, ' +
   'from its own files, and pyric does not observe it';
 const PASSED_REQUEST_REASON = `${PASSED_REASON}; that SDK never sends an http.request`;
@@ -390,6 +398,9 @@ function liveRowRequestVerdict(request: RequestLike, passed: PassedThrough): Egr
   const host = requestHost(request);
   if (host === null) return null;
   const service = googleServiceOf(host) ?? 'Google APIs';
+  if (host === FIREBASE_AI_LOGIC_HOST) {
+    return { verdict: 'block', permitted: false, host, service, reason: AI_REQUEST_REASON, remedy: AI_REQUEST_REMEDY };
+  }
   if (LIVE_ROW_HOSTS.has(host)) {
     return { verdict: 'block', permitted: false, host, service, reason: LIVE_REQUEST_REASON, remedy: LIVE_REQUEST_REMEDY };
   }

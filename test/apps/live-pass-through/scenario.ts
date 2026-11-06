@@ -1,11 +1,12 @@
 /**
  * Live mode for an app whose Firebase init module also sets up services live
  * mode does not serve. The notes app imports `firebase/app`, `firebase/auth`,
- * `firebase/storage` and `firebase/ai` in one file. With
- * `pyricLive({ passThrough: ['firebase/storage', 'firebase/ai'] })` the page
- * loads: Auth is the live row, and Cloud Storage and AI Logic are the
- * app's installed SDK, unwrapped, on the same app object. The start line, the
- * health report and the chip name each one as not observed and still billed.
+ * `firebase/storage` and `firebase/functions` in one file. With
+ * `pyricLive({ passThrough: ['firebase/storage', 'firebase/functions'] })` the
+ * page loads: Auth is the live row, and Cloud Storage and Cloud Functions are
+ * the app's installed SDK, unwrapped, on the same app object. The start line,
+ * the health report and the chip name each one as not observed and still
+ * billed.
  *
  * Without the list, the same page is refused: the dev server names every
  * unserved import it was asked for and the `passThrough` option that would
@@ -22,7 +23,7 @@ import type { Page } from 'playwright';
 import { scenario, sleep, type App, type ExpectedCrash } from '../driver.ts';
 
 const ENTRY = '@pyric/live/vite';
-const PASSED = ['firebase/storage', 'firebase/ai'];
+const PASSED = ['firebase/storage', 'firebase/functions'];
 
 function passThroughLine(specifier: string): string {
   return `${specifier} passes through to production: its calls are not observed and still bill.`;
@@ -63,8 +64,8 @@ async function eventually<T>(read: () => Promise<T>, check: (value: T) => boolea
 
 export const expectedCrashes: ExpectedCrash[] = [
   {
-    message: /^Error: @pyric\/live: firebase\/(storage|ai) \((Cloud Storage|Firebase AI Logic)\) is refused in live mode\. .*passThrough/s,
-    source: /^page http:\/\/127\.0\.0\.1:\d+\/ \(at http:\/\/127\.0\.0\.1:\d+\/@id\/__x00__pyric-stop:refused:page:firebase\/(storage|ai):\d+\)$/,
+    message: /^Error: @pyric\/live: firebase\/(storage|functions) \((Cloud Storage|Cloud Functions)\) is refused in live mode\. .*passThrough/s,
+    source: /^page http:\/\/127\.0\.0\.1:\d+\/ \(at http:\/\/127\.0\.0\.1:\d+\/@id\/__x00__pyric-stop:refused:page:firebase\/(storage|functions):\d+\)$/,
     reason: 'the step that starts the dev server without passThrough loads a page that imports both, and the first refusal throws at module evaluation',
   },
 ];
@@ -84,11 +85,11 @@ export default scenario(async (app) => {
     assert.deepEqual(live.passThrough, PASSED);
   });
 
-  const page = await app.step('the page loads: Auth, Cloud Storage and AI Logic share the app it made', async () => {
+  const page = await app.step('the page loads: Auth, Cloud Storage and Cloud Functions share the app it made', async () => {
     const opened = await app.page(`${host.url}/`);
     await opened.waitForFunction(() => document.querySelector('#status')?.textContent === 'Ready', undefined, { timeout: 30_000 });
     const services = await opened.locator('#services li').allTextContents();
-    assert.deepEqual(services, ['auth: ready', 'storage: ready', 'ai: ready']);
+    assert.deepEqual(services, ['auth: ready', 'storage: ready', 'functions: ready']);
     return opened;
   });
 
@@ -111,15 +112,15 @@ export default scenario(async (app) => {
   await app.step('without the list, the dev server names every unserved import and the option that allows it, and the page is refused', async () => {
     const refusing = await app.devServer({ env: { PASS_THROUGH: '[]' } });
     const opened = await app.page(`${refusing.url}/`);
-    const option = "pyricLive({ passThrough: ['firebase/ai', 'firebase/storage'] })";
+    const option = "pyricLive({ passThrough: ['firebase/functions', 'firebase/storage'] })";
     await refusing.process.waitForLog(new RegExp(escaped(option)), { timeoutMs: 30_000 });
-    assert.match(refusing.process.output, /firebase\/ai \(Firebase AI Logic\) and firebase\/storage \(Cloud Storage\)/);
+    assert.match(refusing.process.output, /firebase\/functions \(Cloud Functions\) and firebase\/storage \(Cloud Storage\)/);
     const refusal = await eventually(
       async () => app.browserLog.find((line) => line.includes('PYRIC_LIVE_REFUSED') || line.includes('is refused in live mode')) ?? null,
       (line) => line !== null,
       'the page throws the refusal',
     );
-    assert.match(refusal!, /firebase\/(storage|ai) \((Cloud Storage|Firebase AI Logic)\) is refused in live mode/);
+    assert.match(refusal!, /firebase\/(storage|functions) \((Cloud Storage|Cloud Functions)\) is refused in live mode/);
     assert.notEqual(await opened.locator('#status').textContent(), 'Ready');
     await opened.close();
     await refusing.process.stop();

@@ -61,7 +61,7 @@ window.billedDocumentCount = () => billedDocuments;
 /** What each call live mode refuses does: its error, or what it returned. */
 const refusedOutcome = (error) => `${error.code}: ${error.message}`;
 window.refused = {
-  storage: () => import("firebase/storage").then(() => "loaded", refusedOutcome),
+  functions: () => import("firebase/functions").then(() => "loaded", refusedOutcome),
   sdkPackage: () => import("@firebase/firestore").then(() => "loaded", refusedOutcome),
   namedDatabase: () => {
     try {

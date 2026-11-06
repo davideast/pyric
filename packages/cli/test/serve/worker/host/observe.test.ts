@@ -149,6 +149,36 @@ describe('host: observed calls', () => {
     expect(event?.kind === 'operation' ? event.observation : undefined).not.toHaveProperty('response');
   });
 
+  it('writes a Storage call with its path and its bucket as detail.bucket', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const pageId = await subscribe(ctx, page);
+    const call = {
+      service: 'storage',
+      method: 'uploadBytes',
+      path: 'pyric-live-capture/replay/a.bin',
+      bucket: 'demo-project-live-second',
+      at: 1,
+      durationMs: 12,
+      outcome: { status: 'error', code: 'storage/unauthorized' },
+      account: { uid: 'alice' },
+      projectId: 'demo-project',
+    };
+    expect(await observe(ctx, page, { call })).toMatchObject({ ok: true });
+    const [event] = streamed(page);
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'storage',
+      method: 'uploadBytes',
+      path: 'pyric-live-capture/replay/a.bin',
+      detail: { bucket: 'demo-project-live-second' },
+      auth: { uid: 'alice' },
+      caller: { kind: 'page', pageId },
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      production: { outcome: { status: 'error', code: 'storage/unauthorized' } },
+    });
+  });
+
   it('refuses a malformed record with invalid-argument and writes nothing', async () => {
     const ctx = makeCtx();
     const page = fakePort();
@@ -156,7 +186,10 @@ describe('host: observed calls', () => {
     const before = ctx.sandbox.history().length;
     const malformed: unknown[] = [
       undefined,
-      { ...DENIED_READ, service: 'storage' },
+      { ...DENIED_READ, service: 'functions' },
+      { ...DENIED_READ, bucket: 'demo-project.firebasestorage.app' },
+      { service: 'storage', method: 'getBytes', path: 'a.bin', at: 1, outcome: { status: 'ok' } },
+      { service: 'storage', method: 'getBytes', path: 'a.bin', bucket: 'gs://demo-project.firebasestorage.app', at: 1, outcome: { status: 'ok' } },
       { ...DENIED_READ, instance: 'demo-project-named' },
       { ...DENIED_READ, service: 'rtdb', instance: 'Not An Instance' },
       { ...DENIED_READ, outcome: { status: 'error' } },

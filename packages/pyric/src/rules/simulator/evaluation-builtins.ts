@@ -4,6 +4,7 @@ import { FirestoreSet, SET_ALGEBRA_NAMES, SetMethodFailure, setMethod } from './
 import { MAP_METHOD_NAMES, MapMethodFailure, mapList } from './map-keys.js';
 import { describeRulesType, isRulesMap, re2FullMatch, replaceRe2 } from './rules-type.js';
 import { splitRe2 } from './string-split.js';
+import { lowerRulesString, upperRulesString } from './string-case.js';
 import { trimRulesString } from './string-trim.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
@@ -422,8 +423,8 @@ export function evaluateMethodCall(
           throw new EvalError(`Incorrect number of arguments. Received: ${argValues.length}. Expected: string.${method}().`);
         }
         if (method === 'size') return obj.length;
-        if (method === 'lower') return obj.toLowerCase();
-        if (method === 'upper') return obj.toUpperCase();
+        if (method === 'lower') return lowerRulesString(obj);
+        if (method === 'upper') return upperRulesString(obj);
         if (method === 'trim') return trimRulesString(obj);
         return Bytes.fromUtf8(obj);
       case 'split':
