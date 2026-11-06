@@ -18,7 +18,8 @@
  * Run it with the network off: `unshare -rn sh -c 'ip link set lo up && bun test test/apps/replay/messaging-browser.test.ts'`.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createRequire } from 'node:module';
@@ -88,12 +89,19 @@ const messaging = getMessaging(initializeApp(${JSON.stringify(appConfig('main'))
 onBackgroundMessage(messaging, (payload) => fetch('/__test/background', { method: 'POST', body: JSON.stringify(payload) }));
 `;
 
-async function bundle(directory: string, name: string, source: string): Promise<string> {
+/**
+ * Bundles `source` for the browser in a `bun build` process of its own.
+ * `Bun.build` inside the test process fails to read `@firebase/app`'s ESM
+ * build ("Unexpected reading file") when this file runs after the other
+ * `test/apps` and replay tests in one `bun test` process, as CI runs them.
+ */
+function bundle(directory: string, name: string, source: string): string {
   const entry = join(directory, `${name}.entry.js`);
+  const outfile = join(directory, `${name}.js`);
   writeFileSync(entry, source);
-  const build = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'esm', minify: false });
-  if (!build.success) throw new Error(`bundling ${name} failed: ${build.logs.join('\n')}`);
-  return build.outputs[0]!.text();
+  const build = spawnSync(process.execPath, ['build', entry, '--target=browser', '--format=esm', `--outfile=${outfile}`], { encoding: 'utf8' });
+  if (build.status !== 0) throw new Error(`bundling ${name} failed (${build.status}):\n${build.stdout}${build.stderr}`);
+  return readFileSync(outfile, 'utf8');
 }
 
 /** Serves the page and its worker on loopback, and records each background delivery the worker reports. */
@@ -197,7 +205,7 @@ describe('firebase/messaging in Chromium against capture M', () => {
   beforeAll(async () => {
     replay = await startReplayProcess([], undefined, { messagingCapture: PROJECT });
     directory = mkdtempSync(join(tmpdir(), 'pyric-messaging-browser-'));
-    appServer = await startAppServer(await bundle(directory, 'page', PAGE_ENTRY), await bundle(directory, 'sw', WORKER_ENTRY), background);
+    appServer = await startAppServer(bundle(directory, 'page', PAGE_ENTRY), bundle(directory, 'sw', WORKER_ENTRY), background);
     appOrigin = `http://localhost:${(appServer.address() as AddressInfo).port}`;
     // The headless shell reports `Notification.permission` as denied even once
     // granted, which getToken refuses; Chromium's own headless mode keeps the grant.
