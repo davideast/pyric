@@ -66,6 +66,11 @@ const OPERATIONS = [
   'denied-malformed-key', 'denied-referrer', 'denied-other-api-only', 'installations-only-key-allowed', 'cleanup',
 ];
 
+/** Bun's toMatchObject writes asymmetric matchers into the received object, so match against a copy of the shared recording. */
+function copy<T>(value: T): T {
+  return structuredClone(value);
+}
+
 function exchangesOf(op: string): Exchange[] {
   return recording.exchanges.filter((e) => e.op === op);
 }
@@ -129,13 +134,13 @@ describe('capture M: Messaging wire recording', () => {
     expect(installation.path).toBe('/v1/projects/<project>/installations');
     expect(installation.status).toBe(200);
     expect(installation.requestBodyKeys).toEqual(expect.arrayContaining(['appId', 'authVersion', 'fid', 'sdkVersion']));
-    expect(installation.responseBody).toMatchObject({ fid: expect.stringMatching(/^<fid-\d+>$/), refreshToken: expect.any(String), authToken: { token: expect.any(String), expiresIn: expect.any(String) } });
+    expect(copy(installation.responseBody)).toMatchObject({ fid: expect.stringMatching(/^<fid-\d+>$/), refreshToken: expect.any(String), authToken: { token: expect.any(String), expiresIn: expect.any(String) } });
     const registration = only('getToken', 'registrations', 'create');
     expect(registration.path).toBe('/v1/projects/<project>/registrations');
     expect(registration.status).toBe(200);
     expect(registration.requestHeaderNames).toEqual(expect.arrayContaining(['x-goog-api-key', 'x-goog-firebase-installations-auth']));
     expect(registration.requestBodyKeys).toEqual(expect.arrayContaining(['web.auth', 'web.endpoint', 'web.p256dh']));
-    expect(registration.responseBody).toMatchObject({ token: expect.stringMatching(/^<fcm-token-\d+>$/) });
+    expect(copy(registration.responseBody)).toMatchObject({ token: expect.stringMatching(/^<fcm-token-\d+>$/) });
   });
 
   test('a getToken answered from the stored token sends no request', () => {
@@ -174,7 +179,7 @@ describe('capture M: Messaging wire recording', () => {
     for (const [kind, want] of Object.entries(expected)) {
       const denial = recording.denials[kind]!;
       expect({ kind, api: denial.api, action: denial.action, status: denial.status }).toEqual({ kind, ...want });
-      expect(denial.body.error).toMatchObject({ code: want.status, status: expect.any(String), message: expect.any(String) });
+      expect(copy(denial.body.error)).toMatchObject({ code: want.status, status: expect.any(String), message: expect.any(String) });
       const exchange = only(denial.op, want.api as Exchange['api'], want.action);
       expect(exchange.status).toBe(want.status);
       expect(exchange.responseBody).toEqual(denial.body);
@@ -193,7 +198,7 @@ describe('capture M: Messaging wire recording', () => {
     expect(only('installations-only-key-allowed', 'installations', 'create').status).toBe(200);
     const registration = only('installations-only-key-allowed', 'registrations', 'create');
     expect(registration.status).toBe(200);
-    expect(registration.responseBody).toMatchObject({ token: expect.stringMatching(/^<fcm-token-\d+>$/) });
+    expect(copy(registration.responseBody)).toMatchObject({ token: expect.stringMatching(/^<fcm-token-\d+>$/) });
     const getToken = recording.calls.find((c) => c.op === 'installations-only-key-allowed' && c.call === 'getToken')!;
     expect(getToken.outcome).toBe('ok');
   });
