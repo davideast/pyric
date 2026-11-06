@@ -4,6 +4,36 @@
  * when none would show them.
  */
 import type { LiveHostReach } from '@pyric/cli/register/internal/supplied-rows';
+import { ADMIN_PASS_THROUGH } from './refusal.js';
+
+const REGISTER_ENTRY = '@pyric/live/register';
+
+/**
+ * The Admin line of `entry`: `firebase-admin` passes through to the Node
+ * processes under the live register, whose Admin SDK calls use their own
+ * credential, reach production unobserved and bypass Security Rules. The
+ * register says it of its own process; the Vite host, of those processes.
+ */
+export function adminPassThroughLine(entry: string): string {
+  const callers = entry === REGISTER_ENTRY ? "This process's Admin SDK calls" : 'Their Admin SDK calls';
+  return (
+    `${entry}: ${ADMIN_PASS_THROUGH} passes through for Node processes under ${REGISTER_ENTRY}. ` +
+    `${callers} use the process's own credential, go to production unobserved, and bypass Security Rules.`
+  );
+}
+
+/**
+ * One start line for each passed-through import: the Admin line for
+ * `firebase-admin`, and `passThroughLine` for the rest. Each entry hands in
+ * the line from its own `@pyric/cli` seam, so the Vite plugin never loads
+ * the register's.
+ */
+export function passThroughLines(entry: string, passThrough: readonly string[], passThroughLine: (specifier: string) => string): string[] {
+  return passThrough.map((specifier) => {
+    const isAdmin = specifier === ADMIN_PASS_THROUGH;
+    return isAdmin ? adminPassThroughLine(entry) : `${entry}: ${passThroughLine(specifier)}`;
+  });
+}
 
 /** The start line of `entry` (`pyric-live`, `@pyric/live/vite`, `@pyric/live/register`). */
 export function liveStartLine(entry: string, projectId: string): string {
