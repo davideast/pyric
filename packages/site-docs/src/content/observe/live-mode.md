@@ -4,7 +4,7 @@ navLabel: "Live mode"
 group: "Observe & shape"
 section: ""
 order: 30
-description: "Run your app against your real Firebase project and see each Firestore, Realtime Database and Auth call, with production's answer, in the chip, Studio and the terminal."
+description: "Run your app against your real Firebase project and see each Firestore, Realtime Database, Cloud Storage and Auth call, with production's answer, in the chip, Studio and the terminal."
 ---
 
 # Watch your app's calls to a real Firebase project
@@ -65,8 +65,9 @@ Live mode forwards what your app sends, as it would without pyric:
 
 - **Firestore** reads, queries, listeners and writes on the `(default)` database.
 - **Realtime Database** reads, writes, transactions, listeners and `onDisconnect` writes, on the default instance and on named instances.
+- **Cloud Storage** uploads, downloads, metadata, lists and deletes, on the default bucket and on any other bucket the app names.
 - **Auth** calls, including the ones that reach real people: account creation and deletion, password reset and sign-in link emails, and SMS sign-in.
-- **App Check**, on the same app object as Firestore, Realtime Database and Auth.
+- **App Check**, on the same app object as Firestore, Realtime Database, Cloud Storage and Auth.
 
 Each call is a row in traffic, marked as served by production. A row shows the method, such as `setDoc` or `sendPasswordResetEmail`, production's answer (success or an error code such as `permission-denied`), the client that made it (this page, another tab or a Node process), and the signed-in account's id and claim names. It never shows the token.
 
@@ -78,11 +79,22 @@ Each Realtime Database call is a row in Traffic, and so is each delivery to a li
 - **`.info` paths.** A call or listener on a path under `/.info`, such as `.info/connected`, runs as your SDK runs it and makes no row. The SDK answers these paths itself, so production never sees them.
 - **Not yet shown.** Realtime Database listeners don't appear in the chip's Data tab or Studio's Listeners view, and Realtime Database calls don't add to the billed-call count.
 
+## Cloud Storage calls
+
+Each Cloud Storage call is a row in Traffic. The row names the call with its service, such as `storage.uploadBytes` or `storage.getMetadata`, and shows the object as a `gs://` path, such as `gs://my-project.firebasestorage.app/photos/a.jpg`.
+
+- **The calls.** `uploadBytes`, `uploadString`, `uploadBytesResumable`, `getDownloadURL`, `getBytes`, `getBlob` (on a page), `getStream` (in a Node process), `getMetadata`, `updateMetadata`, `list`, `listAll` and `deleteObject`.
+- **Every bucket.** A call on another bucket, such as `getStorage(app, 'gs://my-project-uploads')`, is a row too, and its path names that bucket.
+- **One row per upload task.** An `uploadBytesResumable` task is one row however many chunks it sends, and a pause and resume stay on that row. The row appears when the task finishes, fails or is canceled. Progress isn't shown.
+- **Denials.** A call the project's rules deny shows `storage/unauthorized`, and the row reads "Production denied".
+- **Download URLs.** Fetching the URL `getDownloadURL` returns isn't observed. See [Calls that skip your Firebase SDK](#calls-that-skip-your-firebase-sdk).
+- **Not counted.** Cloud Storage calls don't add to the billed-call count.
+
 ## What it refuses
 
 Each refusal throws an error with the code `PYRIC_LIVE_REFUSED` before any request leaves, and says what was refused and why:
 
-- **Other services.** Importing Cloud Storage, Cloud Functions, Cloud Messaging, Firebase AI Logic, Analytics, Remote Config, Performance Monitoring or Firestore Lite. The sandbox doesn't serve them either, so one app never mixes production and sandbox services.
+- **Other services.** Importing Cloud Functions, Cloud Messaging, Firebase AI Logic, Analytics, Remote Config, Performance Monitoring or Firestore Lite. The sandbox doesn't serve them either, so one app never mixes production and sandbox services.
 - **Named Firestore databases**, such as `getFirestore(app, 'reports')`.
 - **`firebase-admin`** in a Node process under `@pyric/live/register`.
 - **Pyric's own writes.** Studio edits, MCP tools that write, `pyric` commands that write, and seed files.
@@ -121,11 +133,12 @@ A list that names an import live mode serves stops the dev server at start. Live
 
 ## Calls that skip your Firebase SDK
 
-Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore`, `firebase/database` or `firebase/app-check`. Live mode refuses these other routes to production, so none of them reaches your project unseen:
+Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore`, `firebase/database`, `firebase/storage` or `firebase/app-check`. Live mode refuses these other routes to production, so none of them reaches your project unseen:
 
 - **`@google-cloud/firestore`** in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` instead.
 - **Your own requests to Firestore, Auth or App Check** from a Node process, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`, and the terminal names the host.
 - **Your own requests to Realtime Database** from a Node process, to a `firebaseio.com` or `firebasedatabase.app` host, with the global `fetch`, `https.request` or a socket your code opens. Each fails with `PYRIC_GUARD_BLOCKED`. Only your installed `firebase/database` reaches those hosts.
+- **Your own requests to Cloud Storage** from a Node process, such as a `fetch` of a download URL. Each fails with `PYRIC_GUARD_BLOCKED`. A server that downloads files by URL stops under live mode; read them with `getBytes` or `getStream` instead.
 - **A second copy of the SDK on a page.** Importing an SDK file the page already loaded under another URL that reaches the dev server, such as the same URL with an extra query, fails with `PYRIC_LIVE_REFUSED`.
 
 ## What live mode can't see
@@ -135,6 +148,7 @@ Some requests from a page never reach the dev server, so live mode can't refuse 
 - **The exact URL of an SDK file the page already loaded.** The browser answers `import()` of that URL from its own module cache, so the page gets the SDK without pyric in between.
 - **That URL with a fragment added**, such as `#copy`. The browser keeps the fragment to itself, so the dev server sees the URL it already served, and the page gets a second copy of the SDK.
 - **The page's own `fetch` to the Firestore REST API**, or to Auth or App Check. The browser sends it straight to Google.
+- **The page's own `fetch` of a download URL**, or any request to `firebasestorage.googleapis.com`. The browser sends it straight to Google.
 - **The page's own `WebSocket` or `fetch` to a Realtime Database host**, such as `my-project-default-rtdb.firebaseio.com`. The browser sends it straight to Google.
 
 In a Node process, live mode lets these through without showing them, because each looks the same as your Firebase SDK's own traffic:
@@ -148,7 +162,7 @@ None of these calls shows in traffic, and production still bills them.
 
 The chip and Studio show a running count of your app's Firestore reads, writes and listener deliveries in production. Reads and writes are counted per call, not per document, so a query counts once however many documents production bills for it. Listener deliveries count the documents delivered to listeners. An HMR reload that restarts a listener reads its documents again.
 
-The count is an estimate from the calls pyric observed, and it understates the bill for large queries. It doesn't cap anything. Your project's usage in the Firebase console is the number production charges. Realtime Database calls aren't in the count.
+The count is an estimate from the calls pyric observed, and it understates the bill for large queries. It doesn't cap anything. Your project's usage in the Firebase console is the number production charges. Realtime Database and Cloud Storage calls aren't in the count.
 
 ## Related
 
