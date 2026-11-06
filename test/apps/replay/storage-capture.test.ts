@@ -376,6 +376,53 @@ test('a chunk that starts past what its session received is refused, not answere
   expect((await unmatchedBy(server.origin)).length).toBe(before + 1);
 });
 
+/** Starts a resumable upload of `RESUMABLE_BYTES` to `name` on the default bucket as the first account, and returns what sends its chunks and queries. */
+async function resumableSession(name: string): Promise<(command: string, offset: number, bytes?: Uint8Array) => Promise<Response>> {
+  const token = await auth.getAuth(firebase.getApp(`storage-s-${BUCKETS.default}-one`)).currentUser!.getIdToken();
+  const start = await fetch(`${server.origin}/v0/b/${BUCKETS.default}/o?name=${encodeURIComponent(`${RUN_PATH}/${name}`)}`, {
+    method: 'POST',
+    headers: { authorization: `Firebase ${token}`, 'content-type': 'application/json; charset=utf-8', 'x-goog-upload-protocol': 'resumable', 'x-goog-upload-command': 'start', 'x-goog-upload-header-content-length': String(RESUMABLE_BYTES.length), 'x-goog-upload-header-content-type': 'application/octet-stream' },
+    body: JSON.stringify({ name: `${RUN_PATH}/${name}`, contentType: 'application/octet-stream' }),
+  });
+  expect(start.status, await start.clone().text()).toBe(200);
+  const uploadUrl = start.headers.get('x-goog-upload-url')!;
+  return (command, offset, bytes) => {
+    const headers: Record<string, string> = { authorization: `Firebase ${token}`, 'x-goog-upload-command': command };
+    if (bytes) headers['x-goog-upload-offset'] = String(offset);
+    return fetch(uploadUrl, { method: 'POST', headers, body: bytes });
+  };
+}
+
+test('a resumed upload that sends the rest of its file in one final chunk gets production\'s final answer for the object', async () => {
+  // A page's pause can land before the SDK makes the second chunk's request.
+  // Nothing was cancelled, so the resume sends the rest at the doubled chunk
+  // size: one `upload, finalize` of 352256 bytes at 262144, as production
+  // accepted for big.bin (capture S's exchange 11). Production answers a
+  // final chunk with the object it completes, paused.bin (exchange 16).
+  const before = (await unmatchedBy(server.origin)).length;
+  const send = await resumableSession('paused.bin');
+  expect((await send('upload', 0, RESUMABLE_BYTES.slice(0, 262144))).status).toBe(200);
+  const query = await send('query', 0);
+  expect(query.headers.get('x-goog-upload-size-received')).toBe('262144');
+  const rest = await send('upload, finalize', 262144, RESUMABLE_BYTES.slice(262144));
+  const body = await rest.text();
+  expect(rest.status, body).toBe(200);
+  expect(rest.headers.get('x-goog-upload-status')).toBe('final');
+  expect(JSON.parse(body)).toMatchObject({ name: `${RUN_PATH}/paused.bin`, bucket: BUCKETS.default, size: '614400', md5Hash: 'tZPO3O3DhIafgoYZFUhduw==' });
+  expect((await unmatchedBy(server.origin)).length).toBe(before);
+});
+
+test('a final chunk is refused when its session\'s bytes are not the object production finalized', async () => {
+  const before = (await unmatchedBy(server.origin)).length;
+  const send = await resumableSession('paused.bin');
+  expect((await send('upload', 0, RESUMABLE_BYTES.slice(0, 262144))).status).toBe(200);
+  const other = RESUMABLE_BYTES.slice(262144).map((byte) => byte ^ 1);
+  const rest = await send('upload, finalize', 262144, other);
+  expect(rest.status).toBe(400);
+  expect(((await rest.json()) as { error: { message: string } }).error.message).toContain('the bytes its session received hash to');
+  expect((await unmatchedBy(server.origin)).length).toBe(before + 1);
+});
+
 test('metadata that is not JSON and a path with a bad % escape are refused with a 400 the SDK does not retry', async () => {
   const before = (await unmatchedBy(server.origin)).length;
   const badJson = await fetch(`${server.origin}/v0/b/${BUCKETS.default}/o/${encodeURIComponent(`${RUN_PATH}/a.bin`)}`, { method: 'PATCH', headers: { 'content-type': 'application/json; charset=utf-8' }, body: '{not json' });

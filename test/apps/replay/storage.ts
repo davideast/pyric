@@ -9,7 +9,12 @@
 // chunk sent, refuses a chunk whose offset is not that count, and answers a
 // `query` with that count as `X-Goog-Upload-Size-Received`, so a resume after
 // a pause continues from what this server received. The chunks' statuses and
-// the final answer come from the recording. An answer body
+// the final answer come from the recording. As production does, a session
+// answers a chunk by its offset and whether it finalizes, not by its size: a
+// resume may send the rest of the file in one final chunk where the recorded
+// run sent two (capture S's `big.bin` shows production accepting that). A
+// final chunk is answered only when the bytes its session received hash to
+// the `md5Hash` of the object the recording finalized. An answer body
 // `{ "$media": "<base64>" }` under a content type that is not JSON is an
 // object's bytes (`alt=media`), sent as they are.
 //
@@ -20,7 +25,7 @@
 // `@firebase/storage`) for up to 10 minutes on an upload
 // (`maxUploadRetryTime`) and 2 on any other call, so a missing recording
 // would hang the test instead of failing it.
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, type Hash } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { placeholderName, type Json, type JsonObject, type StorageExchange } from './format.ts';
 import type { ReplayState } from './firestore.ts';
@@ -49,6 +54,8 @@ export interface StorageRequest {
   bytes?: { length: number; sha256: string };
   /** The `X-Goog-Upload-Offset` a resumable chunk sent. */
   offset?: number;
+  /** The bytes a resumable chunk sent, which its session hashes. */
+  chunk?: Buffer;
   /** The uid the Authorization header named, null for none or a token this server did not mint. */
   as: string | null;
   /** Why the replay could not read the request, which it then refuses. */
@@ -104,7 +111,7 @@ export function readStorageRequest(state: ReplayState, method: string, path: str
   const upload = uploadOf(headerOf(headers, 'x-goog-upload-protocol'), headerOf(headers, 'x-goog-upload-command'), request.query);
   if (upload) request.upload = upload;
   const offset = headerOf(headers, 'x-goog-upload-offset');
-  if (offset !== undefined) request.offset = Number(offset);
+  if (offset !== undefined) Object.assign(request, { offset: Number(offset), chunk: body });
   try {
     Object.assign(request, sentContent(headerOf(headers, 'content-type') ?? '', body));
   } catch {
@@ -165,12 +172,18 @@ interface ObjectValues {
   timeCreated: string;
 }
 
+/** An upload session this server opened: the bytes its chunks sent so far, and their MD5 so far. */
+interface UploadSession {
+  received: number;
+  md5: Hash;
+}
+
 /** Storage state one replay server keeps: the calls it received, the objects it named, the upload sessions it opened. */
 export class StorageReplay {
   readonly received: StorageReceived[] = [];
   private readonly objects = new Map<string, ObjectValues>();
-  /** Each open upload session's id, with the bytes its chunks sent so far. */
-  private readonly sessions = new Map<string, number>();
+  /** Each open upload session, by its id. */
+  private readonly sessions = new Map<string, UploadSession>();
   private readonly used = new Set<string>();
   private lastGeneration = 0;
 
@@ -183,6 +196,8 @@ export class StorageReplay {
     if (refusal) return this.refuse(request, refusal);
     const exchange = this.take(request);
     if (!exchange) return this.refuse(request);
+    const contentRefusal = this.contentRefusal(exchange, request);
+    if (contentRefusal) return this.refuse(request, contentRefusal);
     const headers = this.headersOf(exchange, request, origin);
     this.advanceSession(request);
     const { status, body } = exchange.response;
@@ -209,7 +224,9 @@ export class StorageReplay {
     const sameCall = recorded.method === request.method && recorded.bucket === request.bucket && recorded.object === request.object;
     const sameUpload = recorded.upload?.protocol === request.upload?.protocol && recorded.upload?.command === request.upload?.command;
     const sameMetadata = recorded.metadata === undefined || matches(recorded.metadata, request.metadata);
-    const sameBytes = recorded.bytes === undefined || (recorded.bytes.length === request.bytes?.length && recorded.bytes.sha256 === request.bytes.sha256);
+    // A session's chunk is answered by its offset and command, which the session checks, not by its size.
+    const isSessionChunk = this.sessionOf(request) !== undefined && request.offset !== undefined;
+    const sameBytes = isSessionChunk || recorded.bytes === undefined || (recorded.bytes.length === request.bytes?.length && recorded.bytes.sha256 === request.bytes.sha256);
     return sameAccount && sameCall && sameUpload && sameMetadata && sameBytes && this.queryFits(recorded.query ?? {}, request.query);
   }
 
@@ -234,7 +251,7 @@ export class StorageReplay {
     }
     const session = this.sessionOf(request);
     const isQuery = session !== undefined && request.upload?.command === 'query';
-    if (isQuery) headers['x-goog-upload-size-received'] = String(this.sessions.get(session));
+    if (isQuery) headers['x-goog-upload-size-received'] = String(this.sessions.get(session)!.received);
     return headers;
   }
 
@@ -249,16 +266,35 @@ export class StorageReplay {
     const session = this.sessionOf(request);
     const isChunk = session !== undefined && request.offset !== undefined && commandsOf(request).includes('upload');
     if (!isChunk) return undefined;
-    const received = this.sessions.get(session)!;
+    const { received } = this.sessions.get(session)!;
     return request.offset === received ? undefined : `the chunk starts at ${String(request.offset)}, but its session received ${received} bytes`;
   }
 
-  /** Counts a chunk's bytes against its session, and closes the session it finalizes. */
+  /**
+   * Why a final chunk is refused: the bytes its session received, this chunk's
+   * included, are not the object the recorded answer finalized, by the
+   * `md5Hash` production answered with.
+   */
+  private contentRefusal(exchange: StorageExchange, request: StorageRequest): string | undefined {
+    const session = this.sessionOf(request);
+    const body = exchange.response.body;
+    const recorded = typeof body === 'object' && body !== null && !Array.isArray(body) ? stringOf(body.md5Hash) : undefined;
+    const isFinalChunk = session !== undefined && request.chunk !== undefined && commandsOf(request).includes('finalize');
+    if (!isFinalChunk || recorded === undefined) return undefined;
+    const received = this.sessions.get(session)!.md5.copy().update(request.chunk!).digest('base64');
+    return received === recorded ? undefined : `the bytes its session received hash to md5 ${received}, but the object production finalized has md5Hash ${recorded}`;
+  }
+
+  /** Counts and hashes a chunk's bytes against its session, and closes the session it finalizes. */
   private advanceSession(request: StorageRequest): void {
     const session = this.sessionOf(request);
     if (session === undefined) return;
     const commands = commandsOf(request);
-    if (commands.includes('upload')) this.sessions.set(session, this.sessions.get(session)! + (request.bytes?.length ?? 0));
+    const open = this.sessions.get(session)!;
+    if (commands.includes('upload')) {
+      open.received += request.bytes?.length ?? 0;
+      if (request.chunk) open.md5.update(request.chunk);
+    }
     if (commands.includes('finalize')) this.sessions.delete(session);
   }
 
@@ -273,7 +309,7 @@ export class StorageReplay {
   /** Opens an upload session and returns its upload URL on this server, what an `uploadSession` header is filled with. */
   private openSession(request: StorageRequest, origin: string): string {
     const id = `replay-upload-${randomUUID()}`;
-    this.sessions.set(id, 0);
+    this.sessions.set(id, { received: 0, md5: createHash('md5') });
     const name = stringOf(request.query.name) ?? request.object ?? '';
     const query = new URLSearchParams({ name, upload_id: id, upload_protocol: 'resumable' });
     return `${origin}/v0/b/${encodeURIComponent(request.bucket)}/o?${query}`;
