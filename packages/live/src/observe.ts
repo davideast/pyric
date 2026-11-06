@@ -39,7 +39,7 @@
  * and calls the SDK's own unsubscribe (`listener-journal.ts`).
  */
 import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
-import { liveProjectRefusal, type LiveClient, type ProjectField } from './refusal.js';
+import { CALL_TARGET_FIELDS, liveProjectRefusal, type CallTargetField, type LiveClient, type ProjectField } from './refusal.js';
 
 export type { LiveListener, LiveListenerActivity, LiveListenerJournal } from './listener-journal.js';
 
@@ -359,6 +359,9 @@ function projectOf(args: readonly unknown[]): string | undefined {
   }
 }
 
+/** The config fields beside the projectId that the check judges. */
+type ConfigField = Exclude<ProjectField, 'projectId' | CallTargetField>;
+
 /** A project id's form: lowercase letters, digits and hyphens. */
 const PROJECT = '([a-z0-9-]+)';
 
@@ -380,6 +383,11 @@ function databaseHost(databaseURL: string): string | undefined {
   }
 }
 
+/** An auth domain as a host: without a `:port` or a trailing dot, so `b.firebaseapp.com.:443` is judged as `b.firebaseapp.com`. */
+function authHost(authDomain: string): string {
+  return authDomain.replace(/:\d*$/, '').replace(/\.$/, '');
+}
+
 function projectMatched(pattern: RegExp, value: string | undefined): string | undefined {
   return value === undefined ? undefined : pattern.exec(value.toLowerCase())?.[1];
 }
@@ -389,13 +397,29 @@ function projectMatched(pattern: RegExp, value: string | undefined): string | un
  * default forms do. A custom auth domain, a bucket or RTDB instance with a
  * name of its own, and the emulator encode none, so they cannot be judged.
  */
-const CONFIG_PROJECTS: Readonly<Record<Exclude<ProjectField, 'projectId'>, (value: string) => string | undefined>> = {
+const CONFIG_PROJECTS: Readonly<Record<ConfigField, (value: string) => string | undefined>> = {
   databaseURL: (value) => projectMatched(DEFAULT_DATABASE_HOST, databaseHost(value)),
   storageBucket: (value) => projectMatched(DEFAULT_BUCKET, value),
-  authDomain: (value) => projectMatched(DEFAULT_AUTH_DOMAIN, value),
+  authDomain: (value) => projectMatched(DEFAULT_AUTH_DOMAIN, authHost(value)),
 };
 
-const CONFIG_FIELDS = Object.keys(CONFIG_PROJECTS) as Exclude<ProjectField, 'projectId'>[];
+const CONFIG_FIELDS = Object.keys(CONFIG_PROJECTS) as ConfigField[];
+
+/** A default RTDB instance, as the SDK's namespace names it: `<project>-default-rtdb`. */
+const DEFAULT_INSTANCE = new RegExp(`^${PROJECT}-default-rtdb$`);
+
+/**
+ * How the instance or bucket a call reaches encodes a project: only its
+ * default forms do. `getDatabase(app, url)`, `getStorage(app, 'gs://...')`
+ * and `ref(storage, 'gs://...')` reach one the config does not name. A named
+ * instance, a legacy default instance (`<project>.firebaseio.com`, whose
+ * namespace looks like a named one), a bucket with a name of its own, and
+ * one the SDK reference did not name encode none, so they cannot be judged.
+ */
+const TARGET_PROJECTS: Readonly<Record<CallTargetField, (value: string) => string | undefined>> = {
+  instance: (value) => projectMatched(DEFAULT_INSTANCE, value),
+  bucket: (value) => projectMatched(DEFAULT_BUCKET, value),
+};
 
 /** One project the app's config names, and the field that names it. */
 interface NamedProject {
@@ -458,17 +482,30 @@ function appProjectsOf(callSite: ObservedSite): NamedProject[] {
   return projectId === undefined ? configured : [{ field: 'projectId', projectId }, ...configured];
 }
 
+/** The projects the instance and bucket the call reaches encode, as its module's context hook read them. */
+function targetProjectsOf(callSite: ObservedSite): NamedProject[] {
+  const projects: NamedProject[] = [];
+  for (const field of CALL_TARGET_FIELDS) {
+    const value = callSite[field];
+    const projectId = value === undefined ? undefined : TARGET_PROJECTS[field](value);
+    if (projectId !== undefined) projects.push({ field, projectId });
+  }
+  return projects;
+}
+
 /**
- * The refusal of a call whose app names another project than the host's, or
- * null when it may run: the observer names no host project, the module
- * makes no request, or every project the app's config names, as far as it
- * can be read, is the host's.
+ * The refusal of a call whose app, or the instance or bucket it reaches,
+ * names another project than the host's, or null when it may run: the
+ * observer names no host project, the module makes no request, or every
+ * project the app's config and the call's target name, as far as they can
+ * be read, is the host's.
  */
 function refusedProject(callSite: ObservedSite): Error | null {
   const { hostProjectId, client } = callSite.observer;
   const isUnchecked = hostProjectId === undefined || REQUESTLESS_MODULES.has(callSite.module);
   if (isUnchecked) return null;
-  const other = appProjectsOf(callSite).find((named) => named.projectId !== hostProjectId);
+  const named = [...appProjectsOf(callSite), ...targetProjectsOf(callSite)];
+  const other = named.find((project) => project.projectId !== hostProjectId);
   if (other === undefined) return null;
   return liveProjectRefusal(callSite.name, { field: other.field, appProjectId: other.projectId, hostProjectId }, client);
 }

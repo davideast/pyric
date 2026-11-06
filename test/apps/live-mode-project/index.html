@@ -18,10 +18,14 @@
       // the live host serves, and a second one whose config names another
       // project. Each reads the lobby. Their backend is the local one a
       // `?backend=<origin>` query names, through the SDK's own emulator
-      // connectors.
+      // connectors. The host app also opens a database on another project's
+      // default instance and a storage on another project's default bucket,
+      // which its config does not name.
       import { initializeApp } from "firebase/app";
       import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
+      import { connectDatabaseEmulator, get, getDatabase, ref as databaseRef } from "firebase/database";
       import { connectFirestoreEmulator, doc, getDoc, getFirestore } from "firebase/firestore";
+      import { connectStorageEmulator, getDownloadURL, getStorage, ref as storageRef } from "firebase/storage";
 
       const config = (projectId) => ({
         projectId,
@@ -36,6 +40,10 @@
       connectAuthEmulator(auth, backend.origin, { disableWarnings: true });
       const databases = { host: getFirestore(host), other: getFirestore(other) };
       for (const db of Object.values(databases)) connectFirestoreEmulator(db, backend.hostname, Number(backend.port));
+      const otherInstance = getDatabase(host, "https://demo-live-other-default-rtdb.firebaseio.com");
+      connectDatabaseEmulator(otherInstance, backend.hostname, Number(backend.port));
+      const otherBucket = getStorage(host, "gs://demo-live-other.appspot.com");
+      connectStorageEmulator(otherBucket, backend.hostname, Number(backend.port));
 
       /** What a call settled with: its value, or its error's code, a project refusal's field and projects, and its message. */
       const settle = (call) => Promise.resolve().then(call).then(
@@ -46,6 +54,16 @@
       window.signIn = () => settle(() => signInWithEmailAndPassword(auth, "reader@example.com", "reader-password").then((credential) => credential.user.uid));
       /** Reads the lobby through the `host` or the `other` app. */
       window.readLobby = (name) => settle(() => getDoc(doc(databases[name], "rooms/lobby")).then((snapshot) => snapshot.data() ?? null));
+
+      /** A call that production never answers settles after 5 s with this code, so a step that expects a refusal fails instead of waiting. */
+      const answered = (call) => Promise.race([
+        settle(call),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: false, code: "unanswered" }), 5000)),
+      ]);
+      /** Reads the lobby from the other project's default RTDB instance, through the host app. */
+      window.readOtherInstance = () => answered(() => get(databaseRef(otherInstance, "rooms/lobby")).then((snapshot) => snapshot.val()));
+      /** Asks for the lobby picture's URL from the other project's default bucket, through the host app. */
+      window.readOtherBucket = () => answered(() => getDownloadURL(storageRef(otherBucket, "rooms/lobby.png")));
 
       document.querySelector("#status").textContent = "Ready";
     </script>

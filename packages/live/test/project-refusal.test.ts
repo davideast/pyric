@@ -6,8 +6,11 @@
  * project can't be read, and a call to the host's project, run as the app
  * called them. An app with no projectId names its project through the
  * default forms of its databaseURL, storageBucket and authDomain; a custom
- * domain or bucket encodes none and is not judged. Each row is a stand-in
- * module, so a spy tells whether the real function ran.
+ * domain or bucket encodes none and is not judged. A Realtime Database or
+ * Cloud Storage call is also judged by the instance or bucket it reaches,
+ * which `getDatabase(app, url)`, `getStorage(app, 'gs://...')` and
+ * `ref(storage, 'gs://...')` can point away from the config. Each row is a
+ * stand-in module, so a spy tells whether the real function ran.
  */
 import { describe, expect, test } from 'bun:test';
 import { wrapLiveModule, type LiveModuleSite } from '../src/modules.js';
@@ -80,9 +83,14 @@ interface RowCall {
 
 const noop = () => undefined;
 
+/** The host's default RTDB instance and bucket, which every row reaches unless a test names another. */
+const HOST_INSTANCE = `${HOST}-default-rtdb`;
+const HOST_BUCKET = `${HOST}.firebasestorage.app`;
+
 /**
  * A call through a stand-in Realtime Database row, on a reference to the
  * database the row noted from `getDatabase(app)`, as the SDK's repo is.
+ * `namespace` is the instance the repo reaches.
  */
 function databaseCall(
   site: LiveModuleSite,
@@ -90,14 +98,23 @@ function databaseCall(
   name: string,
   returned: () => unknown,
   call: (live: Record<string, Callback>, ref: unknown) => unknown,
+  namespace: string = HOST_INSTANCE,
 ): { readonly ran: string[]; readonly invoke: () => unknown } {
-  const repo = { repoInfo_: { namespace: 'demo-default-rtdb' } };
+  const repo = { repoInfo_: { namespace } };
   const real = standIn([name], returned);
   const module: Record<string, Callback> = { ...real.module, getDatabase: () => ({ app, _repoInternal: repo }) };
   const live = wrapLiveModule('live-database', 'firebase/database', module, site);
   live.getDatabase!(app);
   const ref = { _repo: repo, _path: { toString: () => '/items' } };
   return { ran: real.ran, invoke: () => call(live, ref) };
+}
+
+/** A `getDownloadURL` through a stand-in Cloud Storage row, on a reference to `bucket`. */
+function storageCall(site: LiveModuleSite, app: unknown, bucket: string): { readonly ran: string[]; readonly invoke: () => unknown } {
+  const real = standIn(['getDownloadURL']);
+  const live = wrapLiveModule('live-storage', 'firebase/storage', real.module, site);
+  const ref = { storage: { app }, bucket, fullPath: 'images/a.png' };
+  return { ran: real.ran, invoke: () => live.getDownloadURL!(ref) };
 }
 
 const ROW_CALLS: readonly RowCall[] = [
@@ -132,12 +149,7 @@ const ROW_CALLS: readonly RowCall[] = [
   {
     row: 'Cloud Storage',
     call: 'getDownloadURL',
-    make: (site, app) => {
-      const real = standIn(['getDownloadURL']);
-      const live = wrapLiveModule('live-storage', 'firebase/storage', real.module, site);
-      const ref = { storage: { app }, bucket: 'demo.firebasestorage.app', fullPath: 'images/a.png' };
-      return { ran: real.ran, invoke: () => live.getDownloadURL!(ref) };
-    },
+    make: (site, app) => storageCall(site, app, HOST_BUCKET),
   },
   {
     row: 'AI Logic',
@@ -319,6 +331,9 @@ const OTHER_PROJECT_FIELDS: readonly Record<string, string>[] = [
   { storageBucket: `gs://${OTHER}.firebasestorage.app` },
   { authDomain: `${OTHER}.firebaseapp.com` },
   { authDomain: `${OTHER}.web.app` },
+  { authDomain: `${OTHER}.firebaseapp.com:443` },
+  { authDomain: `${OTHER}.web.app.` },
+  { authDomain: `${OTHER}.firebaseapp.com.:8080` },
   { authDomain: `${HOST}.firebaseapp.com`, storageBucket: `${OTHER}.appspot.com` },
 ];
 
@@ -330,6 +345,8 @@ const HOST_PROJECT_FIELDS: readonly Record<string, string>[] = [
   { storageBucket: `${HOST}.firebasestorage.app` },
   { authDomain: `${HOST}.firebaseapp.com` },
   { authDomain: `${HOST}.web.app` },
+  { authDomain: `${HOST}.firebaseapp.com:443` },
+  { authDomain: `${HOST}.web.app.` },
   {
     authDomain: `${HOST}.firebaseapp.com`,
     databaseURL: `https://${HOST}-default-rtdb.firebaseio.com`,
@@ -464,6 +481,106 @@ describe('a live row whose app names the host project as projectId, on a host fo
     expect(error?.code).toBe(LIVE_REFUSED);
     expect(error?.field).toBe('projectId');
     expect(error?.appProjectId).toBe(OTHER);
+  });
+});
+
+/** A call that reaches an instance or bucket of its own, beside the app's config. */
+interface TargetCall {
+  readonly row: string;
+  readonly field: 'instance' | 'bucket';
+  readonly make: (site: LiveModuleSite, app: unknown, target: string) => { readonly ran: string[]; readonly invoke: () => unknown };
+}
+
+const TARGET_CALLS: readonly TargetCall[] = [
+  {
+    row: 'Realtime Database get',
+    field: 'instance',
+    make: (site, app, target) => databaseCall(site, app, 'get', () => Promise.resolve('real'), (live, ref) => live.get!(ref), target),
+  },
+  {
+    row: 'Realtime Database onValue',
+    field: 'instance',
+    make: (site, app, target) => databaseCall(site, app, 'onValue', () => noop, (live, ref) => live.onValue!(ref, noop), target),
+  },
+  { row: 'Cloud Storage getDownloadURL', field: 'bucket', make: storageCall },
+];
+
+/** Instances and buckets of project `b`, in the default forms that encode it, by the field that reaches them. */
+const OTHER_TARGETS: Readonly<Record<TargetCall['field'], readonly string[]>> = {
+  instance: [`${OTHER}-default-rtdb`],
+  bucket: [`${OTHER}.appspot.com`, `${OTHER}.firebasestorage.app`],
+};
+
+/**
+ * Instances and buckets that encode no project: a named instance, a legacy
+ * default instance (which looks like one), the instance or bucket the SDK
+ * reference did not name, and a bucket with a name of its own.
+ */
+const UNJUDGED_TARGETS: Readonly<Record<TargetCall['field'], readonly string[]>> = {
+  instance: [OTHER, `${OTHER}-chat`, 'instance-not-read-from-the-sdk-reference'],
+  bucket: ['uploads-bucket', `${OTHER}-uploads`, 'bucket-not-read-from-the-sdk-reference'],
+};
+
+const HOST_TARGETS: Readonly<Record<TargetCall['field'], string>> = { instance: HOST_INSTANCE, bucket: HOST_BUCKET };
+
+const TARGET_APPS: readonly (readonly [string, ReturnType<typeof appOn>])[] = [
+  ['the host projectId', appOn(HOST)],
+  ['no projectId', appOn(undefined)],
+];
+
+describe("a live call that reaches another project's instance or bucket, on a host for project a", () => {
+  for (const targetCall of TARGET_CALLS) {
+    for (const target of OTHER_TARGETS[targetCall.field]) {
+      for (const [appName, app] of TARGET_APPS) {
+        test(`${targetCall.row} on ${target}, from an app with ${appName}, throws PYRIC_LIVE_REFUSED naming ${targetCall.field}`, async () => {
+          const { records, observer } = hostObserver(HOST);
+          const { ran, invoke } = targetCall.make(siteOf(observer), app, target);
+          const error = thrown(invoke);
+          await tick();
+          expect(error?.code).toBe(LIVE_REFUSED);
+          expect(error?.field).toBe(targetCall.field);
+          expect(error?.appProjectId).toBe(OTHER);
+          expect(error?.hostProjectId).toBe(HOST);
+          expect(ran).toEqual([]);
+          expect(records).toEqual([]);
+        });
+      }
+    }
+
+    for (const target of UNJUDGED_TARGETS[targetCall.field]) {
+      test(`${targetCall.row} on ${target} cannot be judged, so it runs and is recorded`, async () => {
+        const { records, observer } = hostObserver(HOST);
+        const { ran, invoke } = targetCall.make(siteOf(observer), appOn(HOST), target);
+        expect(thrown(invoke)).toBeUndefined();
+        await tick();
+        expect(ran.length).toBe(1);
+        expect(records.length).toBeGreaterThan(0);
+      });
+    }
+
+    test(`${targetCall.row} on the host's ${targetCall.field} runs`, async () => {
+      const { observer } = hostObserver(HOST);
+      const { ran, invoke } = targetCall.make(siteOf(observer), appOn(HOST), HOST_TARGETS[targetCall.field]);
+      expect(thrown(invoke)).toBeUndefined();
+      await tick();
+      expect(ran.length).toBe(1);
+    });
+
+    test(`${targetCall.row} on another project's ${targetCall.field} is not refused by an observer that names no host project`, async () => {
+      const { observer } = hostObserver(undefined);
+      const target = OTHER_TARGETS[targetCall.field][0]!;
+      const { ran, invoke } = targetCall.make(siteOf(observer), appOn(HOST), target);
+      expect(thrown(invoke)).toBeUndefined();
+      await tick();
+      expect(ran.length).toBe(1);
+    });
+  }
+
+  test('a config field naming another project is the field judged, ahead of the instance', () => {
+    const { observer } = hostObserver(HOST);
+    const app = hostAppWith({ storageBucket: `${OTHER}.appspot.com` });
+    const error = thrown(TARGET_CALLS[0]!.make(siteOf(observer), app, `${OTHER}-default-rtdb`).invoke);
+    expect(error?.field).toBe('storageBucket');
   });
 });
 
