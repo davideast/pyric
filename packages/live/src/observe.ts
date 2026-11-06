@@ -10,8 +10,14 @@
  * A record names the module, the export and the outcome, plus the error code
  * on a failure, the project, the signed-in account the call ran as
  * (`account.ts`, which a site supplies) and, on a Firestore snapshot, the
- * documents production billed it for. It never carries an argument or a
- * result, so no document value, credential or token reaches it.
+ * documents production billed it for. A Realtime Database record also names
+ * the instance and the reference's path, read through the module's context
+ * hook (`database.ts`). It never carries an argument's value or a result, so
+ * no document value, credential or token reaches it.
+ *
+ * A thenable that is not a promise, as RTDB's `push` returns, is another
+ * exception when the module marks it: the app gets the SDK's own object,
+ * with its `then` and `catch` taken from a promise that follows it.
  *
  * Recording is isolated from the app: building a record, calling the
  * observer and a rejection from an async observer are each caught, so an
@@ -61,6 +67,13 @@ export interface LiveCallRecord {
    * when it ran signed out.
    */
   readonly account?: LiveAccount;
+  /**
+   * On a Realtime Database call: the instance it went to, as the SDK's
+   * namespace names it (`my-project-default-rtdb`). Absent on other records.
+   */
+  readonly instance?: string;
+  /** On a Realtime Database call: the reference's path, `/items/a`. Absent on other records. */
+  readonly path?: string;
 }
 
 /** The account a call ran as: the uid and its token's claim names, never the token. */
@@ -78,8 +91,43 @@ export type LiveObserver = ((record: LiveCallRecord) => unknown) & { readonly jo
 /** What the SDK itself does with a listener error when the app passed no error callback. */
 export type UncaughtListenerError = (error: unknown) => void;
 
+/** Marks a call production never answers: it runs as the app called it and makes no record. */
+export const UNOBSERVED: unique symbol = Symbol('unobserved');
+
+/** What a module's own objects say about one call: the argument that names its account, its project, instance and path. */
+export interface CallContext {
+  readonly subject?: unknown;
+  readonly projectId?: string;
+  readonly instance?: string;
+  readonly path?: string;
+}
+
+/** Reads one call's context from its export name, arguments and `this`, or marks it unobserved. */
+export type CallContextOf = (name: string, args: readonly unknown[], self: unknown) => CallContext | typeof UNOBSERVED;
+
+type Callback = (this: unknown, ...values: unknown[]) => unknown;
+
+/**
+ * What a module whose objects differ from Firestore's and Auth's supplies to
+ * every wrapper it has. Each is absent for the modules that need none.
+ */
+export interface ObservedHooks {
+  /** Replaces reading the project and account from the first argument. */
+  readonly context?: CallContextOf;
+  /** Replaces reading a failure's code from the error's `code` or name. */
+  readonly codeOf?: (error: unknown) => string;
+  /** Puts a listener's arguments where the recording callbacks expect them: callback, then error callback. */
+  readonly listenerArguments?: (args: unknown[]) => unknown[];
+  /**
+   * The recording callback for one app callback: one `make` builds, or one
+   * already handed the SDK for the same listener, so the SDK can match the
+   * app's callback later, as `off()` does.
+   */
+  readonly listenerCallback?: (name: string, args: readonly unknown[], appCallback: Callback, make: () => Callback) => Callback;
+}
+
 /** Where a wrapped export sits: its module and name, and who receives its records. */
-export interface ObservedSite {
+export interface ObservedSite extends ObservedHooks {
   readonly module: string;
   readonly name: string;
   readonly observer: LiveObserver;
@@ -99,9 +147,15 @@ export interface ObservedSite {
   readonly accountOf?: (subject: unknown) => LiveAccount | undefined;
   /** For one listener the observer journals: its activity. */
   readonly activity?: LiveListenerActivity;
+  /** The instance and path of the call this site records, read by the module's context hook. */
+  readonly instance?: string;
+  readonly path?: string;
+  /**
+   * Whether the export returns a thenable that is not a promise, whose
+   * settlement is production's answer, as `push` returns its reference.
+   */
+  readonly followsThenable?: boolean;
 }
-
-type Callback = (this: unknown, ...values: unknown[]) => unknown;
 
 const FAILURE_OUTCOMES: ReadonlySet<LiveCallOutcome> = new Set(['threw', 'rejected', 'listener-error']);
 
@@ -128,13 +182,20 @@ function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown):
   }
 }
 
+/** The site's instance and path, as a record carries them. */
+function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'path'> {
+  const instance = site.instance === undefined ? {} : { instance: site.instance };
+  return site.path === undefined ? instance : { ...instance, path: site.path };
+}
+
 /** `value` is the delivered value or the error, by outcome. */
 function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, value: unknown): LiveCallRecord {
   const isFailure = FAILURE_OUTCOMES.has(outcome);
   const project = site.projectId === undefined ? {} : { projectId: site.projectId };
   const account = site.accountOf?.(site.subject);
-  const context = account === undefined ? project : { ...project, account };
-  if (isFailure) return { module: site.module, name: site.name, outcome, code: errorCode(value), ...context };
+  const context = { ...(account === undefined ? project : { ...project, account }), ...placeOf(site) };
+  const codeOf = site.codeOf ?? errorCode;
+  if (isFailure) return { module: site.module, name: site.name, outcome, code: codeOf(value), ...context };
   const billedDocuments = billedOf(site, outcome, value);
   const billed = billedDocuments === undefined ? {} : { billedDocuments };
   return { module: site.module, name: site.name, outcome, ...context, ...billed };
@@ -173,11 +234,29 @@ function projectOf(args: readonly unknown[]): string | undefined {
   return undefined;
 }
 
-/** The site with the project its call's arguments name, and the argument that names its account. */
-function siteFor(site: ObservedSite, args: readonly unknown[]): ObservedSite {
-  const projectId = projectOf(args);
-  const subject = { ...site, subject: args[0] };
-  return projectId === undefined ? subject : { ...subject, projectId };
+/** The context a module's hook reads, or an empty one when the hook throws: the call is still recorded. */
+function hookContext(site: ObservedSite, context: CallContextOf, args: readonly unknown[], self: unknown): CallContext | typeof UNOBSERVED {
+  try {
+    return context(site.name, args, self);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The site with the project its call's arguments name, and the argument that
+ * names its account, or null for a call the module's context hook marks
+ * unobserved. A module with a context hook reads all of them from it.
+ */
+function siteFor(site: ObservedSite, args: readonly unknown[], self: unknown): ObservedSite | null {
+  if (site.context === undefined) {
+    const projectId = projectOf(args);
+    const subject = { ...site, subject: args[0] };
+    return projectId === undefined ? subject : { ...subject, projectId };
+  }
+  const context = hookContext(site, site.context, args, self);
+  if (context === UNOBSERVED) return null;
+  return { ...site, ...context };
 }
 
 function ignoreRejection(returned: unknown): void {
@@ -206,6 +285,8 @@ function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): 
  */
 function observeSettlement(site: ObservedSite, result: unknown): unknown {
   const isPromise = result instanceof Promise;
+  const isFollowed = !isPromise && site.followsThenable === true && thenOf(result) !== undefined;
+  if (isFollowed) return followThenable(site, result as object);
   if (!isPromise) {
     report(site, 'returned');
     return result;
@@ -221,6 +302,34 @@ function observeSettlement(site: ObservedSite, result: unknown): unknown {
       throw error;
     },
   );
+}
+
+/** A thenable's own `then`, or undefined for any other value. */
+function thenOf(value: unknown): Callback | undefined {
+  const isObject = (typeof value === 'object' || typeof value === 'function') && value !== null;
+  if (!isObject) return undefined;
+  const then: unknown = Reflect.get(value, 'then');
+  return typeof then === 'function' ? (then as Callback) : undefined;
+}
+
+/**
+ * Records a thenable's settlement and hands the app the same object, its
+ * `then` and `catch` replaced with those of a promise that follows it, the
+ * way the SDK built them from its own promise. The SDK's promise is then
+ * handled here, and the app's handling of the object decides whether a
+ * rejection is unhandled. An object that refuses the new methods comes back
+ * unchanged, and its settlement is still recorded.
+ */
+function followThenable(site: ObservedSite, result: object): unknown {
+  const then = thenOf(result)!;
+  const followed = new Promise<unknown>((resolve, reject) => {
+    Reflect.apply(then, result, [resolve, reject]);
+  });
+  const settled = observeSettlement({ ...site, followsThenable: false }, followed) as Promise<unknown>;
+  const settledThen = Promise.prototype.then;
+  const isReplaced = Reflect.set(result, 'then', settledThen.bind(settled)) && Reflect.set(result, 'catch', settledThen.bind(settled, undefined));
+  if (!isReplaced) ignoreRejection(settled);
+  return result;
 }
 
 /**
@@ -354,7 +463,9 @@ function callReal(site: ObservedSite, real: Callback, self: unknown, args: unkno
 /** A wrapper for a one-shot export: reads, writes, sign-in and token calls. */
 export function observedCall(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
-    return callReal(siteFor(site, args), real, this, args);
+    const callSite = siteFor(site, args, this);
+    if (callSite === null) return Reflect.apply(real, this, args);
+    return callReal(callSite, real, this, args);
   };
 }
 
@@ -479,18 +590,42 @@ function recordingArguments(site: ObservedSite, args: unknown[]): unknown[] {
     copy[nextIndex] = recordingObserver(site, first);
     return copy;
   }
-  copy[nextIndex] = recordingCallback(site, 'delivered', first as Callback);
+  copy[nextIndex] = deliveryCallback(site, args, first as Callback);
   copy[nextIndex + 1] = errorSlot(site, copy[nextIndex + 1]);
   return copy;
 }
 
-/** A wrapper for a listener export: `onSnapshot`, `onAuthStateChanged`, `onTokenChanged`. */
+/** The recording callback for the app's delivery callback: the module's own choice, when it has a hook, else a new one. */
+function deliveryCallback(site: ObservedSite, args: readonly unknown[], appCallback: Callback): Callback {
+  const make = () => recordingCallback(site, 'delivered', appCallback);
+  const choose = site.listenerCallback;
+  if (choose === undefined) return make();
+  try {
+    return choose(site.name, args, appCallback, make);
+  } catch {
+    return make();
+  }
+}
+
+/** The listener's arguments as the module's hook places them, or as the app passed them. */
+function listenerArguments(site: ObservedSite, args: unknown[]): unknown[] {
+  const place = site.listenerArguments;
+  if (place === undefined) return args;
+  try {
+    return place(args);
+  } catch {
+    return args;
+  }
+}
+
+/** A wrapper for a listener export: `onSnapshot`, `onAuthStateChanged`, `onTokenChanged`, `onValue`. */
 export function observedListener(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
-    const callSite = siteFor(site, args);
+    const callSite = siteFor(site, args, this);
+    if (callSite === null) return Reflect.apply(real, this, args);
     const activity = openActivity(site.observer, site.name, args[0]);
     const listenerSite = { ...callSite, billing: billedDocuments(), activity };
-    const listening = recordingArguments(listenerSite, args);
+    const listening = recordingArguments(listenerSite, listenerArguments(site, args));
     if (activity === undefined) return callReal(callSite, real, this, listening);
     let unsubscribe: unknown;
     try {
