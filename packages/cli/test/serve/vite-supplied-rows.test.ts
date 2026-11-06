@@ -26,6 +26,7 @@ import {
   OBSERVER_SPECIFIER,
   ROW_MODULE_IDS,
   suppliedRows,
+  suppliedRowsResolution,
   type SuppliedRowsPlane,
 } from '../../src/serve/vite-supplied-rows.js';
 import { SSR_SWAP_PREFIX } from '../../src/serve/vite-ssr-routing.js';
@@ -304,9 +305,17 @@ describe('live rows with imports that pass through', () => {
     expect(await unlisted.resolveTo(installationsPackage, '@firebase/installations', functionsEntry)).toEqual({ id: installationsPackage });
   });
 
-  it('take no import a row serves, nor firebase/firestore/lite or firebase-admin', () => {
-    for (const entry of ['firebase/firestore', 'firebase/firestore/lite', 'firebase-admin', '@firebase/database']) {
+  it('take no import a row serves, nor firebase/firestore/lite or an Admin SDK subpath', () => {
+    for (const entry of ['firebase/firestore', 'firebase/firestore/lite', 'firebase-admin/app', '@firebase/database']) {
       expect(() => suppliedRows(refusal, { passThrough: [entry] })).toThrow(`pyric: ${entry} cannot pass through`);
+    }
+  });
+
+  it('take firebase-admin for Node processes, and still refuse it on the page', () => {
+    const { rows } = passingSwap(['firebase-admin']);
+    expect([...rows.passThrough]).toEqual(['firebase-admin']);
+    for (const specifier of ['firebase-admin', 'firebase-admin/app']) {
+      expect(suppliedRowsResolution(rows, specifier, userImporter).kind, specifier).toBe('refused');
     }
   });
 });

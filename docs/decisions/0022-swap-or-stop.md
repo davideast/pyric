@@ -88,7 +88,7 @@ reads (`packages/cli/src/serve/firebase-module-swap.ts` and
 
 | Package | Real load allowed when | Otherwise |
 | --- | --- | --- |
-| `firebase-admin` | Never, in any mode. Live mode refuses Admin per call with pyric's own module, so it stays swapped there too | Stop |
+| `firebase-admin` | Never under `@pyric/cli/register`, in any mode. Under `@pyric/live/register`, only when the live host lists it in `pyricLive({ passThrough: ['firebase-admin'] })`: the app's own `firebase-admin` import then loads the real Admin SDK with the app's own credential, which pyric never reads, and every file that import reaches loads too. Its calls go to production unobserved and bypass security rules. From those files only, the live network guard passes a fixed set: the token sources `oauth2.googleapis.com`, `iamcredentials.googleapis.com` and the metadata server, gtoken's `www.googleapis.com/oauth2/v4/token`, `storage.googleapis.com`, the public keys at `www.googleapis.com/robot/v1/metadata/x509/`, `https.request` to the live row hosts, and sockets to the project's own Realtime Database hosts and the shard hosts its connection moves to. Every other Google host, FCM included, stays refused. Pages and server code the dev server runs still refuse it | Stop |
 | `firebase` | The table chose the real SDK: `firebase/ai` in production AI mode (`mapping.ts:102`); `firebase/app` and `firebase/app-check` imported by pyric's own shadow modules (`isBypassedBridgeImport`, `mapping.ts:96`); a file of the `firebase` package imported from inside that package; later, the rows a live mode adds | Stop |
 
 **The stop.** The resolve hook throws before the file loads. The error names

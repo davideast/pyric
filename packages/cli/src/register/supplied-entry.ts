@@ -10,9 +10,15 @@
  * reads this module, and no option, flag or environment variable turns live
  * mode on. It installs live mode's network guard first (`live-net-guard.ts`),
  * so only the live rows' SDK, and the SDK of each passed-through import,
- * reaches Google from the process.
+ * reaches Google from the process. When `firebase-admin` passes through, the
+ * real Admin SDK loads with the app's own credential, which pyric never
+ * reads, and the guard admits its Google traffic only from the files its
+ * import reached.
  */
 import Module from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { packageNameOf } from './package-identity.js';
+import { liveProjectId } from '../serve/live-project.js';
 import { isLiveRegisterActive, isRegisterActive, markLiveRegisterActive } from './activation.js';
 import { installChildProcessGuard } from './child-process-guard.js';
 import {
@@ -73,32 +79,81 @@ const moduleApi = Module as unknown as {
 const LOG_PREFIX = '@pyric/live/register';
 
 /**
- * The resolve hook: rows, the installed SDK for a row's own import and for a
- * passed-through one, refusals, and the stop. `allowedUrls` is the stop's
- * record of the installed SDK files it let load, which the network guard
- * reads too.
+ * The files of the passed-through Admin SDK's tree: the entry an app's own
+ * `firebase-admin` import resolved to, and every file a file of the tree
+ * resolved, directly or not. Built-ins (`node:*`) are not files, so they
+ * never join.
  */
-function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>): Resolve {
+interface AdminTree {
+  has(url: string): boolean;
+  add(url: string): void;
+}
+
+/** Whether `url` is a file of the tree, as an import made from it names its importer. */
+function isAdminTreeImporter(tree: AdminTree, importer: string | undefined): boolean {
+  return importer !== undefined && tree.has(importer);
+}
+
+/**
+ * Whether this resolve is Node 22 resolving again a CommonJS file of the
+ * Admin SDK's tree, by its own path and with no importer, as the stop's
+ * `isCjsReloadOfAllowedFile` lets the rows' files through.
+ */
+function isAdminTreeReload(tree: AdminTree, specifier: string, importer: string | undefined, url: string): boolean {
+  const isFile = url.startsWith('file:');
+  if (importer !== undefined || !isFile || !tree.has(url)) return false;
+  return specifier === fileURLToPath(url);
+}
+
+/** Adds a resolved file to the tree and returns the resolution. */
+function joinAdminTree(tree: AdminTree, result: ResolveResult): ResolveResult {
+  if (result.url.startsWith('file:')) tree.add(result.url);
+  return result;
+}
+
+/**
+ * The resolve hook: rows, the installed SDK for a row's own import and for a
+ * passed-through one, the real Admin SDK when it passes through, refusals,
+ * and the stop. `allowedUrls` is the stop's record of the installed SDK
+ * files it let load, and `adminTree` the passed-through Admin SDK's files;
+ * the network guard reads both.
+ */
+function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>, adminTree: AdminTree): Resolve {
   const report = createStopReporter((line) => void process.stderr.write(line));
   const passThroughPackages = passThroughSdkPackages(rows.passThrough);
   return (specifier, context, nextResolve) => {
-    const request = { specifier, importer: context.parentURL, conditions: context.conditions };
+    const importer = context.parentURL;
+    // The Admin SDK's own files load whatever it needs, as Node resolves it, and the stop lets it (`isFromAdminTree`).
+    if (isAdminTreeImporter(adminTree, importer)) {
+      const fromTree = nextResolve(specifier, context);
+      const stop = suppliedRowsStopFor({ specifier, importer, url: fromTree.url }, allowedUrls, { isRowImport: false, isEsmImport: false, isFromAdminTree: true });
+      if (stop !== null) throw stop;
+      return joinAdminTree(adminTree, fromTree);
+    }
+    const request = { specifier, importer, conditions: context.conditions };
     const resolution = registerRowsResolution(rows, request);
     if (resolution.kind === 'refused') throw resolution.error;
     if (resolution.kind === 'module') return { url: resolution.url, format: 'module', shortCircuit: true };
     const isRowImport = resolution.kind === 'installed-sdk';
     const isPassThroughImport = resolution.kind === 'pass-through';
+    const isAdminImport = resolution.kind === 'admin-pass-through';
     // A row resolves its own specifier as the app would: from the project root.
     // A passed-through import is the app's own, so it resolves as written.
     const result = isRowImport
       ? nextResolve(specifier, { ...context, parentURL: resolution.projectUrl })
       : nextResolve(specifier, context);
+    if (isAdminTreeReload(adminTree, specifier, importer, result.url)) return result;
     const isEsmImport = isImportCondition(context.conditions);
-    const load = { specifier, importer: context.parentURL, url: result.url };
-    const stop = suppliedRowsStopFor(load, allowedUrls, { isRowImport, isEsmImport, isPassThroughImport, passThroughPackages });
-    if (stop === null) return result;
-    report(stop);
-    throw stop;
+    const load = { specifier, importer, url: result.url };
+    const grant = { isRowImport, isEsmImport, isPassThroughImport, passThroughPackages, isAdminImport };
+    const stop = suppliedRowsStopFor(load, allowedUrls, grant);
+    if (stop !== null) {
+      report(stop);
+      throw stop;
+    }
+    // Only the real firebase-admin starts the tree, never an alias that lands elsewhere.
+    const isAdminEntry = isAdminImport && packageNameOf(result.url) === 'firebase-admin';
+    return isAdminEntry ? joinAdminTree(adminTree, result) : result;
   };
 }
 
@@ -113,6 +168,15 @@ function loadWithRows(rows: RegisterRows): Load {
 
 function isRefusedInProduction(): boolean {
   return process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1';
+}
+
+/** The live project in `projectRoot`, or null when none is set: the register entry refuses that start itself. */
+function projectIdOrNull(projectRoot: string): string | null {
+  try {
+    return liveProjectId(projectRoot);
+  } catch {
+    return null;
+  }
 }
 
 /** What the register entry gives the seam. */
@@ -165,8 +229,18 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   // First, before any hook: the network guard (`live-net-guard.ts`). A fetch
   // to Google passes only from a file of the installed SDK the stop let load.
   const allowedUrls = new Set<string>();
-  installLiveNetGuard({ isLiveSdkFile: (url) => allowedUrls.has(url), passThrough });
+  // Stays empty unless `firebase-admin` passes through: only an app's own import of it starts the tree.
+  const adminTree = new Set<string>();
+  // The project whose own Realtime Database the Admin SDK's tree may reach, once the rows find the project root.
+  let adminProjectId: string | null = null;
+  installLiveNetGuard({
+    isLiveSdkFile: (url) => allowedUrls.has(url),
+    isAdminSdkFile: (url) => adminTree.has(url),
+    adminProjectId: () => adminProjectId,
+    passThrough,
+  });
   const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
+  adminProjectId = projectIdOrNull(installed.projectRoot);
   const rows = registerRows(passThrough);
   rows.open(installed.rows);
   // Children and workers open the rows for this process's project and its checked firebase, wherever they start.
@@ -175,6 +249,6 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   process.env[LIVE_PASS_THROUGH_VARIABLE] = [...passThrough].join(',');
   installWorkerGuard(installed.entryUrl);
   installChildProcessGuard(installed.entryUrl);
-  registerHooks({ resolve: resolveWithRows(rows, allowedUrls), load: loadWithRows(rows) });
+  registerHooks({ resolve: resolveWithRows(rows, allowedUrls, adminTree), load: loadWithRows(rows) });
   markLiveRegisterActive();
 }
