@@ -14,6 +14,7 @@ import {
   requestsInScope,
   type ChipRequest,
 } from '../../../src/serve/runtime/chip-traffic.js';
+import { serviceLabel } from '../../../src/serve/runtime/service-presentation.js';
 
 function request(id: string, at: number, result: 'allow' | 'deny'): SandboxEvent {
   return {
@@ -500,7 +501,7 @@ describe('a call production served', () => {
     expect(chipRequestFromEvent(missing)).toMatchObject({ verdict: 'error', production: { status: 'error', code: 'storage/object-not-found' } });
   });
 
-  it("reads a Messaging getToken production refused with permission_denied as denied, with no path", () => {
+  it("reads a Messaging getToken production refused with permission_denied as denied, listing its requests", () => {
     const denied = observed({
       service: 'messaging',
       method: 'getToken',
@@ -515,13 +516,34 @@ describe('a call production served', () => {
     expect(chipRequestFromEvent(denied, 'tab-1')).toMatchObject({
       service: 'messaging',
       method: 'getToken',
-      path: null,
+      path: 'Installations create, 200; registrations create, 403',
       verdict: 'denied',
       production: { status: 'error', code: 'permission_denied' },
       source: 'page',
     });
     const failed = observed({ service: 'messaging', method: 'deleteToken', path: undefined, outcome: { status: 'error', code: 'unauthenticated' } });
-    expect(chipRequestFromEvent(failed)).toMatchObject({ verdict: 'error', production: { status: 'error', code: 'unauthenticated' } });
+    expect(chipRequestFromEvent(failed)).toMatchObject({ path: null, verdict: 'error', production: { status: 'error', code: 'unauthenticated' } });
+  });
+
+  it('lists a Messaging request with no status by its API and action, and names the service Cloud Messaging', () => {
+    const refreshed = observed({
+      service: 'messaging',
+      method: 'getToken',
+      path: undefined,
+      requests: [
+        { api: 'installations', action: 'generateAuthToken' },
+        { api: 'registrations', action: 'update', status: 200 },
+      ],
+    });
+    expect(chipRequestFromEvent(refreshed)?.path).toBe('Installations generate auth token; registrations update, 200');
+    const deleted = observed({ service: 'messaging', method: 'deleteToken', path: undefined, requests: [{ api: 'registrations', action: 'delete', status: 200 }] });
+    expect(chipRequestFromEvent(deleted)?.path).toBe('Registrations delete, 200');
+    expect(serviceLabel('messaging')).toBe('Cloud Messaging');
+  });
+
+  it('lists requests only on a Messaging row', () => {
+    const borrowed = { ...observed({ service: 'firestore', method: 'getDoc', path: 'items/a' }), detail: { requests: [{ api: 'installations', action: 'create', status: 200 }] } } as SandboxEvent;
+    expect(chipRequestFromEvent(borrowed)?.path).toBe('items/a');
   });
 
   it('leaves a sandbox-served operation without a production answer', () => {

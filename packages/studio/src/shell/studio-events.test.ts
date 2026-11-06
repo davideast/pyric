@@ -122,3 +122,36 @@ describe("a Storage row's gs:// path opens the pane", () => {
     expect(subjectTarget({ service: 'firestore', method: 'get', path: 'gs://not/a/doc' })).toEqual({ tab: 'firestore', rest: ['gs:', 'not', 'a', 'doc'] });
   });
 });
+
+describe('a Messaging row in Studio lists its requests', () => {
+  test("reads an observed getToken's path as the requests it made, with no record to open", () => {
+    const event = observedCallEvent({
+      service: 'messaging',
+      method: 'getToken',
+      at: 1000,
+      outcome: { status: 'error', code: 'permission_denied' },
+      requests: [
+        { api: 'installations', action: 'create', status: 200 },
+        { api: 'registrations', action: 'create', status: 403 },
+      ],
+    });
+    expect(trafficPath(event)).toBe('Installations create, 200; registrations create, 403');
+    expect(subjectTarget(studioTrafficEvents([event])[0]!)).toBeNull();
+  });
+
+  test('lists a request with no status by its API and action', () => {
+    const event = observedCallEvent({
+      service: 'messaging',
+      method: 'getToken',
+      at: 1000,
+      outcome: { status: 'ok' },
+      requests: [{ api: 'installations', action: 'generateAuthToken' }, { api: 'registrations', action: 'update', status: 200 }],
+    });
+    expect(trafficPath(event)).toBe('Installations generate auth token; registrations update, 200');
+  });
+
+  test('keeps the service placeholder for a Messaging call with no requests', () => {
+    const event = observedCallEvent({ service: 'messaging', method: 'deleteToken', at: 1000, outcome: { status: 'ok' } });
+    expect(trafficPath(event)).toBe('(service)');
+  });
+});

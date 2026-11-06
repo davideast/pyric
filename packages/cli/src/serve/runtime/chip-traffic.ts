@@ -1,5 +1,5 @@
 import {
-  callerSource, EventHistory, isProductionServed, OBSERVATION_HISTORY_LIMITS, productionVerdict, storageGsPath,
+  callerSource, EventHistory, isProductionServed, messagingRequestsLine, OBSERVATION_HISTORY_LIMITS, productionVerdict, storageGsPath,
 } from 'pyric/sandbox/internal';
 import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal';
 /**
@@ -135,9 +135,10 @@ const OBSERVED_VERDICTS = { ok: 'ok', denied: 'denied', failed: 'error' } as con
 /**
  * A row's target. A Storage row reads `gs://<bucket>/<path>`, as Studio's
  * StoragePane shows an object, and `gs://<bucket>/` for the bucket's root.
+ * A Messaging row reads the requests its call made, as Studio does.
  */
 function rowPath(event: SandboxEvent, path: string | undefined): string | null {
-  return storageGsPath(event, path) ?? path ?? null;
+  return storageGsPath(event, path) ?? messagingRequestsLine(event) ?? path ?? null;
 }
 
 /**

@@ -7,6 +7,7 @@ const SERVICE_LABELS: Record<string, string> = {
   storage: 'Storage',
   auth: 'Authentication',
   ai: 'AI Logic',
+  messaging: 'Cloud Messaging',
 };
 
 export function serviceLabel(service: string | null): string {
