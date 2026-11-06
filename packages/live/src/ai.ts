@@ -380,13 +380,21 @@ function always(call: string, reaches: string): RefusalCheck {
 
 /**
  * The parts of `firebase/ai` live mode does not observe. Each throws live
- * mode's refusal before any request leaves. Imagen's exports are gone from
- * firebase 12.19, and an export the installed SDK lacks stays absent.
+ * mode's refusal before any request leaves. A refused class throws it at
+ * `new`, before its constructor runs: `new LiveSession(...)` opens the Live
+ * API's WebSocket from its constructor, and `new LiveGenerativeModel(...)`
+ * opens it on `connect()`. Imagen's exports are gone from firebase 12.19,
+ * and an export the installed SDK lacks stays absent.
  */
 export const AI_REFUSED_CALLS: Readonly<Record<string, RefusalCheck>> = {
   getLiveGenerativeModel: always('getLiveGenerativeModel', 'the Gemini Live API'),
+  LiveGenerativeModel: always('new LiveGenerativeModel', 'the Gemini Live API'),
+  LiveSession: always('new LiveSession', 'the Gemini Live API'),
   startAudioConversation: always('startAudioConversation', 'a Gemini Live API audio conversation'),
   getTemplateGenerativeModel: always('getTemplateGenerativeModel', 'Firebase AI Logic server prompt templates'),
+  TemplateGenerativeModel: always('new TemplateGenerativeModel', 'Firebase AI Logic server prompt templates'),
   getImagenModel: always('getImagenModel', 'Imagen image generation'),
+  ImagenModel: always('new ImagenModel', 'Imagen image generation'),
   getTemplateImagenModel: always('getTemplateImagenModel', 'Firebase AI Logic server prompt templates for Imagen'),
+  TemplateImagenModel: always('new TemplateImagenModel', 'Firebase AI Logic server prompt templates for Imagen'),
 };

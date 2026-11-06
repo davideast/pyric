@@ -98,6 +98,53 @@ async function until(done: () => boolean): Promise<void> {
   while (!done()) await new Promise((resolve) => setTimeout(resolve, 5));
 }
 
+/** A Live API model, as `connect` is all the tests below call on one. */
+interface Connectable {
+  connect(): Promise<unknown>;
+}
+
+/** `new cls(...args)`, for the SDK classes whose constructors its types hide. */
+function construct(cls: unknown, args: readonly unknown[]): Connectable {
+  return Reflect.construct(cls as new (...values: unknown[]) => Connectable, args);
+}
+
+/**
+ * Every WebSocket and fetch `act` opens, from `globalThis`, while it runs,
+ * and what it threw. Each socket fails at once and each fetch rejects, so
+ * nothing leaves the process.
+ */
+async function reachedHosts(act: () => unknown): Promise<{ reached: string[]; error: unknown }> {
+  const reached: string[] = [];
+  const realWebSocket = globalThis.WebSocket;
+  const realFetch = globalThis.fetch;
+  class ObservedWebSocket extends EventTarget {
+    readonly readyState = 3;
+    binaryType = 'blob';
+    constructor(url: string | URL) {
+      super();
+      reached.push(`websocket ${String(url)}`);
+      queueMicrotask(() => this.dispatchEvent(new Event('error')));
+    }
+    close(): void {}
+    send(): void {}
+  }
+  Reflect.set(globalThis, 'WebSocket', ObservedWebSocket);
+  Reflect.set(globalThis, 'fetch', async (input: unknown) => {
+    reached.push(`fetch ${String(input)}`);
+    throw new TypeError('the test reaches no host');
+  });
+  let error: unknown;
+  try {
+    await act();
+  } catch (thrown) {
+    error = thrown;
+  } finally {
+    Reflect.set(globalThis, 'WebSocket', realWebSocket);
+    Reflect.set(globalThis, 'fetch', realFetch);
+  }
+  return { reached, error };
+}
+
 /** The records one action makes, once `count` have arrived. */
 async function recordsOf(count: number, act: () => Promise<unknown>): Promise<LiveCallRecord[]> {
   const from = records.length;
@@ -277,6 +324,51 @@ describe('what live mode does not observe', () => {
     expect(server.unmatched).toEqual([]);
   });
 
+  test('new LiveGenerativeModel, new LiveSession and new TemplateGenerativeModel throw the refusal at construction', () => {
+    const ai = aiOf(withToken);
+    const constructed = [
+      ['LiveGenerativeModel', [ai, { model: MODEL }], 'the Gemini Live API'],
+      ['LiveSession', [{ setup: { model: MODEL_RESOURCE } }, {}], 'the Gemini Live API'],
+      ['TemplateGenerativeModel', [ai], 'Firebase AI Logic server prompt templates'],
+    ] as const;
+    for (const [name, args, reaches] of constructed) {
+      expect(() => construct(Reflect.get(live, name), args)).toThrow(expect.objectContaining({ code: LIVE_REFUSED }));
+      expect(() => construct(Reflect.get(live, name), args)).toThrow(`@pyric/live: new ${name} is refused in live mode, from a Node process: it would reach ${reaches}`);
+    }
+  });
+
+  test('Imagen\'s classes are refused at construction where the installed SDK exports them, and absent where it does not', () => {
+    let built = 0;
+    class Built {
+      constructor() {
+        built++;
+      }
+    }
+    const older = wrapLiveModule('live-ai', 'firebase/ai', { ImagenModel: Built, TemplateImagenModel: Built }, site);
+    expect(() => construct(older.ImagenModel, [{}, { model: 'imagen-3.0-generate-002' }])).toThrow('@pyric/live: new ImagenModel is refused in live mode, from a Node process: it would reach Imagen image generation');
+    expect(() => construct(older.TemplateImagenModel, [{}])).toThrow('@pyric/live: new TemplateImagenModel is refused in live mode, from a Node process: it would reach Firebase AI Logic server prompt templates for Imagen');
+    expect(built).toBe(0);
+    expect(Object.hasOwn(live, 'ImagenModel')).toBe(Object.hasOwn(real, 'ImagenModel'));
+  });
+
+  test('the real SDK\'s Live API opens a WebSocket on connect, which the observer below sees', async () => {
+    const seen = await reachedHosts(() => construct(real.LiveGenerativeModel, [aiOf(withToken, real), { model: MODEL }]).connect());
+    expect(seen.reached).toEqual([expect.stringMatching(/^websocket wss:\/\/firebasevertexai\.googleapis\.com\//)]);
+  });
+
+  test('getLiveGenerativeModel(...).connect() and new LiveGenerativeModel(...).connect() open no WebSocket and send no request', async () => {
+    const received = server.ai.length;
+    const ai = aiOf(withToken);
+    const fromFactory = await reachedHosts(() => live.getLiveGenerativeModel(ai, { model: MODEL }).connect());
+    const fromClass = await reachedHosts(() => construct(live.LiveGenerativeModel, [ai, { model: MODEL }]).connect());
+    const fromSession = await reachedHosts(() => construct(live.LiveSession, [{ setup: { model: MODEL_RESOURCE } }, {}]));
+    for (const seen of [fromFactory, fromClass, fromSession]) {
+      expect(seen).toEqual({ reached: [], error: expect.objectContaining({ code: LIVE_REFUSED }) });
+    }
+    expect(server.ai.length).toBe(received);
+    expect(server.unmatched).toEqual([]);
+  });
+
   test('an answer made on device makes no record', async () => {
     const languageModel = {
       availability: async () => 'available',
@@ -355,6 +447,24 @@ const GOOD_FRAME = 'data: {"candidates":[{"content":{"role":"model","parts":[{"t
 const BAD_FRAME = 'data: {not json\r\n\r\n';
 
 /**
+ * The stream calls an app makes, as the app below starts each one, and what
+ * the SDK does with the failed response without live mode: a model's
+ * `generateContentStream` leaves it unhandled, and a chat's
+ * `sendMessageStream` handles it on its own send queue and logs it.
+ */
+const STREAM_CASES = {
+  generateContentStream: { start: "await model.generateContentStream('x');", unhandled: ['parse-failed'], logged: 0 },
+  'chat.sendMessageStream': { start: "await model.startChat().sendMessageStream('x');", unhandled: [], logged: 1 },
+} as const;
+
+type StreamCall = keyof typeof STREAM_CASES;
+
+/** The SDK's log lines on stderr, without their timestamp. */
+function loggedLines(stderr: string): string[] {
+  return stderr.split('\n').filter((line) => /^\[\d{4}-/.test(line)).map((line) => line.replace(/^\[[^\]]+\]\s+/, ''));
+}
+
+/**
  * Runs, in a Node process of its own, an app whose stream call's response
  * fails and that never handles the response: the real SDK against a
  * stand-in host that sends one good chunk, then a frame the SDK cannot
@@ -362,7 +472,7 @@ const BAD_FRAME = 'data: {not json\r\n\r\n';
  * runtime's own behavior is checked in Node, as `observe.test.ts` does. The
  * source imports its siblings as `.js`, so a resolve hook finds the `.ts`.
  */
-function unhandledInNode(wrapped: boolean): { unhandled: string[]; records: LiveCallRecord[] } {
+function unhandledInNode(wrapped: boolean, call: StreamCall): { unhandled: string[]; records: LiveCallRecord[]; logged: string[] } {
   const app = [
     "import { registerHooks } from 'node:module';",
     "registerHooks({ resolve(specifier, context, next) { try { return next(specifier, context); } catch (error) { if (!specifier.endsWith('.js')) throw error; return next(`${specifier.slice(0, -3)}.ts`, context); } } });",
@@ -383,7 +493,7 @@ function unhandledInNode(wrapped: boolean): { unhandled: string[]; records: Live
     `const ai = ${wrapped} ? wrapLiveModule('live-ai', 'firebase/ai', real, { observer: (record) => records.push(record), sdkVersion: realApp.SDK_VERSION, client: 'node' }) : real;`,
     `const firebaseApp = realApp.initializeApp(${JSON.stringify(CONFIG)});`,
     `const model = ai.getGenerativeModel(ai.getAI(firebaseApp, { backend: new ai.GoogleAIBackend() }), { model: ${JSON.stringify(MODEL)} }, { baseUrl: origin });`,
-    "await model.generateContentStream('x');",
+    STREAM_CASES[call].start,
     'await new Promise((resolve) => setTimeout(resolve, 200));',
     'server.close();',
     'console.log(JSON.stringify({ unhandled, records }));',
@@ -391,16 +501,20 @@ function unhandledInNode(wrapped: boolean): { unhandled: string[]; records: Live
   ].join('\n');
   const cwd = dirname(fileURLToPath(import.meta.url));
   const run = spawnSync('node', ['--experimental-strip-types', '--no-warnings', '--input-type=module', '--eval', app], { encoding: 'utf8', cwd });
-  expect(run.stderr).toBe('');
-  return JSON.parse(run.stdout.trim().split('\n').at(-1)!) as { unhandled: string[]; records: LiveCallRecord[] };
+  const logged = loggedLines(run.stderr);
+  if (logged.length === 0) expect(run.stderr).toBe('');
+  const ran = JSON.parse(run.stdout.trim().split('\n').at(-1)!) as { unhandled: string[]; records: LiveCallRecord[] };
+  return { ...ran, logged };
 }
 
-test('a stream response the app never handles still reaches unhandledRejection, as without live mode, and is the record', () => {
-  const withoutLive = unhandledInNode(false);
-  const withLive = unhandledInNode(true);
-  expect(withoutLive.unhandled).toEqual(['parse-failed']);
-  expect(withLive.unhandled).toEqual(['parse-failed']);
-  expect(withLive.records).toEqual([{ module: 'firebase/ai', name: 'generateContentStream', outcome: 'rejected', code: 'parse-failed', projectId: PROJECT, ai: { model: MODEL_RESOURCE } }]);
+test.each(Object.keys(STREAM_CASES) as StreamCall[])('a %s response the app never handles fails as it does without live mode, and is the record', (call) => {
+  const withoutLive = unhandledInNode(false, call);
+  const withLive = unhandledInNode(true, call);
+  expect(withoutLive.unhandled).toEqual([...STREAM_CASES[call].unhandled]);
+  expect(withoutLive.logged).toHaveLength(STREAM_CASES[call].logged);
+  expect(withLive.unhandled).toEqual(withoutLive.unhandled);
+  expect(withLive.logged).toEqual(withoutLive.logged);
+  expect(withLive.records).toEqual([{ module: 'firebase/ai', name: call, outcome: 'rejected', code: 'parse-failed', projectId: PROJECT, ai: { model: MODEL_RESOURCE } }]);
 }, 20_000);
 
 test('a record with no model names the unread model, which the host takes', () => {
