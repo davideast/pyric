@@ -29,7 +29,7 @@ import {
 import { getFirestore } from 'pyric/firestore';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { getAdminDatabase } from 'pyric/database';
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import { deployStorageBucketRules, getAdminStorageSandbox } from 'pyric/storage/internal';
 import type { FirebaseStorage } from 'pyric/storage';
 import {
   saveStorageSidecar,
@@ -57,7 +57,8 @@ import {
   firestoreDatabaseWarnings,
   firestoreDatabases,
   prepareStorageRulesSource,
-  storageRulesPath,
+  storageRulesTargets,
+  type StorageRulesTarget,
 } from '../../serve/rules.js';
 import { readFirebaseRcSync, type FirebaseJson } from '../../cli/firebase-json.js';
 import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
@@ -151,6 +152,9 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
       callHosted: opts?.callHosted,
     });
   const surfaceContext = createSurfaceContext(sandbox, projectDir, targetRouter);
+  // With no page, rules see the default bucket under the name the project gives it.
+  const defaultBucketName = inProcessDefaultBucketName(projectDir);
+  surfaceContext.storageBucketName = () => defaultBucketName;
   return registerRenderedSurface(server, bridge, rendered, surfaceContext, {
     onCallRejected: onCallRejected ? rejectionEvent : undefined,
     onAfterCall: opts?.onAfterDispatch,
@@ -215,30 +219,68 @@ export function loadProjectRules(
  * codec reads and writes; storage keeps its own durability and is not in the
  * bundle at all.
  *
- * Storage enforces the rules file the project deploys, found and prepared as
- * the dev server finds and prepares it: the first `firebase.json` `storage`
- * entry with a `rules` path, else `storage.rules` in `cwd`, with `2+modules`
- * imports resolved against the file's own directory.
+ * Storage enforces the rules `firebase.json` deploys to each bucket, resolved
+ * by the dev server's `storageRulesTargets` and prepared by
+ * `prepareStorageRulesSource`, with `2+modules` imports resolved against the
+ * file's own directory. With no page to name the default bucket, it is the
+ * bucket `.firebaserc`'s project names (see {@link inProcessDefaultBucketName}).
  */
 export function openPersistedServices(sandbox: LocalSandbox, cwd: string): FirebaseStorage {
   getAuth(sandbox);
   getAdminDatabase(sandbox);
   // Storage rules are read only by the call that opens the service, so the
   // project's rules have to be in hand here or not at all.
-  const rulesPath = storageRulesPath(cwd, readProjectFirebaseJson(cwd));
-  if (!existsSync(rulesPath)) return getAdminStorageSandbox(sandbox);
-  const source = readFileSync(rulesPath, 'utf8');
+  const projectId = readFirebaseRcSync(cwd)?.projects?.default;
+  const { targets } = storageRulesTargets(cwd, readProjectFirebaseJson(cwd), projectId === undefined ? {} : { projectId });
+  const defaultTarget = targets.find((target) => isDefaultBucketTarget(target, projectId));
+  for (const target of targets) {
+    if (target.bucket === null) continue;
+    const prepared = prepareStorageTarget(sandbox, target);
+    if (prepared !== null) deployStorageBucketRules(sandbox, target.bucket, prepared);
+  }
+  const defaultRules = defaultTarget === undefined ? null : prepareStorageTarget(sandbox, defaultTarget);
+  if (defaultRules === null) return getAdminStorageSandbox(sandbox);
+  return getAdminStorageSandbox(sandbox, { rules: defaultRules });
+}
+
+/**
+ * The default bucket's name with no page to give it: the bucket
+ * `firebase.json` names that `.firebaserc`'s project owns by default,
+ * `<project>.appspot.com` or `<project>.firebasestorage.app`, else
+ * `<project>.appspot.com`. Undefined without a project.
+ */
+export function inProcessDefaultBucketName(cwd: string): string | undefined {
+  const projectId = readFirebaseRcSync(cwd)?.projects?.default;
+  if (projectId === undefined) return undefined;
+  const { targets } = storageRulesTargets(cwd, readProjectFirebaseJson(cwd), { projectId });
+  const named = targets.find((target) => target.bucket !== null && isDefaultBucketTarget(target, projectId));
+  return named?.bucket ?? `${projectId}.appspot.com`;
+}
+
+/** Whether a deploy target is the default bucket's: unnamed, or named for the project's default bucket. */
+function isDefaultBucketTarget(target: StorageRulesTarget, projectId: string | undefined): boolean {
+  if (target.bucket === null) return true;
+  if (projectId === undefined) return false;
+  return target.bucket === `${projectId}.appspot.com` || target.bucket === `${projectId}.firebasestorage.app`;
+}
+
+/**
+ * One target's rules, prepared for install, or null when its file is missing
+ * or does not install. A rules file the sandbox cannot install cannot govern
+ * its bucket, but a lint call must still be able to say what is wrong with
+ * it, so the source is kept for the lint operation.
+ */
+function prepareStorageTarget(sandbox: LocalSandbox, target: StorageRulesTarget): string | null {
+  if (!existsSync(target.path)) return null;
+  const source = readFileSync(target.path, 'utf8');
   try {
-    return getAdminStorageSandbox(sandbox, { rules: prepareStorageRulesSource(source, rulesPath) });
+    return prepareStorageRulesSource(source, target.path);
   } catch (error) {
-    // A rules file the sandbox cannot install cannot govern the service, but a
-    // lint call must still be able to say what is wrong with it. The service
-    // opens without rules and the source is kept for the lint operation.
     process.stderr.write(
       `[pyric mcp in-process] Storage rules not loaded: ${error instanceof Error ? error.message : String(error)}\n`,
     );
     rememberUnloadedStorageRules(sandbox, source);
-    return getAdminStorageSandbox(sandbox);
+    return null;
   }
 }
 
