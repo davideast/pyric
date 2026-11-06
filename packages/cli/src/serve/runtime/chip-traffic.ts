@@ -137,7 +137,39 @@ const OBSERVED_VERDICTS = { ok: 'ok', denied: 'denied', failed: 'error' } as con
  * StoragePane shows an object, and `gs://<bucket>/` for the bucket's root.
  */
 function rowPath(event: SandboxEvent, path: string | undefined): string | null {
-  return storageGsPath(event, path) ?? path ?? null;
+  return storageGsPath(event, path) ?? messagingRequestsLine(event) ?? path ?? null;
+}
+
+const MESSAGING_API_LABELS: Record<string, string> = { installations: 'Installations', registrations: 'registrations' };
+const MESSAGING_ACTION_LABELS: Record<string, string> = {
+  create: 'create', generateAuthToken: 'generate auth token', update: 'update', delete: 'delete',
+};
+
+/** One request as `<api> <action>, <status>`, with no status when the browser reported none. */
+function messagingRequestText(request: unknown): string | undefined {
+  if (typeof request !== 'object' || request === null) return undefined;
+  const { api, action, status } = request as { api?: unknown; action?: unknown; status?: unknown };
+  const apiLabel = typeof api === 'string' ? MESSAGING_API_LABELS[api] : undefined;
+  const actionLabel = typeof action === 'string' ? MESSAGING_ACTION_LABELS[action] : undefined;
+  if (apiLabel === undefined || actionLabel === undefined) return undefined;
+  const hasStatus = typeof status === 'number';
+  return hasStatus ? `${apiLabel} ${actionLabel}, ${status}` : `${apiLabel} ${actionLabel}`;
+}
+
+/**
+ * A Messaging row's target: the Installations and FCM registration requests
+ * its call made, such as "Installations create, 200; registrations create,
+ * 403". `undefined` for any other row, and for a Messaging call that lists none.
+ */
+function messagingRequestsLine(event: SandboxEvent): string | undefined {
+  const isMessagingOperation = event.kind === 'operation' && event.service === 'messaging';
+  if (!isMessagingOperation) return undefined;
+  const requests = event.detail?.requests;
+  if (!Array.isArray(requests)) return undefined;
+  const texts = requests.flatMap(request => messagingRequestText(request) ?? []);
+  if (texts.length === 0) return undefined;
+  const line = texts.join('; ');
+  return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
 /**
