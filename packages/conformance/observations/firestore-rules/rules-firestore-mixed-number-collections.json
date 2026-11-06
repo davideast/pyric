@@ -1,0 +1,34 @@
+{
+  "name": "rules-firestore-mixed-number-collections",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#205"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"mixed-number-collections\" (Coverage: ints and floats in collections). An int and the equal float are one value under ==, distinct elements in a List or Map, and one element in a Set; past 2^53 a Set keeps an int and the float it rounds to apart.",
+  "observedAt": "2026-11-04T02:25:44.658Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "f5e4dfd60eee2a8b2afe4b5d56560ca724f06faf18763a8c8ac4c291c863bd80"
+  },
+  "behavior": {
+    "s0: 1 == 1.0": "ALLOW",
+    "s1: [1] == [1.0]": "DENY",
+    "s2: 1 in [1.0]": "DENY",
+    "s3: {'a': 1} == {'a': 1.0}": "DENY",
+    "s4: [1].hasAll([1.0])": "DENY",
+    "s5: [1.0].hasAny([1])": "DENY",
+    "s6: [1, 2].removeAll([1.0]) == [2]": "DENY",
+    "s7: {'a': [1]} == {'a': [1.0]}": "DENY",
+    "s8: [1.0].toSet().hasOnly([1])": "ALLOW",
+    "b0: 9007199254740993 == 9007199254740992.0": "ALLOW",
+    "b1: [9007199254740993] == [9007199254740992.0]": "DENY",
+    "b2: 9007199254740993 in [9007199254740992.0]": "DENY",
+    "b3: [9007199254740992] == [9007199254740992.0]": "DENY",
+    "b4: 9007199254740992 in [9007199254740992.0]": "DENY",
+    "b5: [9007199254740993].removeAll([9007199254740992.0]) == []": "DENY",
+    "b6: [9007199254740993].toSet() == [9007199254740992.0].toSet()": "DENY",
+    "b7: 9007199254740993 != 9007199254740992.0": "DENY"
+  }
+}

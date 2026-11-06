@@ -1,0 +1,130 @@
+{
+  "name": "rules-firestore-int64-conversions-and-mixed-equality",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#204"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"int64-conversions-and-mixed-equality\" (Coverage: int64 conversions and mixed int and float equality). int() of strings and floats saturates or fails as production does, math functions and int64 overflow keep production's results, and an int and a float past 2^53 are equal under == but distinct in a List, a Map, a Set and a map diff.",
+  "observedAt": "2026-11-04T02:25:29.600Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "23da4ddd5f44dd2ea6d87860631f328426b0306e3bd980b0bf9e00244bfe1e08"
+  },
+  "behavior": {
+    "ab0: math.abs((-9223372036854775807 - 1)) == (-9223372036854775807 - 1)": "ALLOW",
+    "ab1: math.abs((-9223372036854775807 - 1)) > 0": "DENY",
+    "ab2: math.abs((-9223372036854775807 - 1)) == 0 || true": "ALLOW",
+    "in0: int('9223372036854775807') == 9223372036854775807": "ALLOW",
+    "in1: int('9223372036854775808') == 9223372036854775807": "DENY",
+    "in2: int('9223372036854775808') > 0 || int('9223372036854775808') <= 0": "DENY",
+    "in3: int('-9223372036854775808') == (-9223372036854775807 - 1)": "ALLOW",
+    "in4: int('+1') == 1": "ALLOW",
+    "in5: int(' 1') == 1": "DENY",
+    "in6: int('1.5') == 1": "DENY",
+    "in7: int('0x10') == 16": "DENY",
+    "in8: int('-0') == 0": "ALLOW",
+    "in9: int('1e3') == 1000": "DENY",
+    "if0: int(float('1e19')) == 9223372036854775807": "ALLOW",
+    "if1: int(float('-1e19')) == (-9223372036854775807 - 1)": "ALLOW",
+    "if2: int(float('NaN')) == 0": "ALLOW",
+    "if3: int(float('Infinity')) == 9223372036854775807": "ALLOW",
+    "if4: int(-2.7) == -2": "ALLOW",
+    "fl0: float(9007199254740993) == 9007199254740992.0": "ALLOW",
+    "eq0: 9007199254740993 == 9007199254740992.0": "ALLOW",
+    "eq1: [9007199254740993] == [9007199254740992.0]": "DENY",
+    "eq2: 9007199254740993 in [9007199254740992.0]": "DENY",
+    "eq3: {'a': 9007199254740993} == {'a': 9007199254740992.0}": "DENY",
+    "eq4: [1, 1.0].toSet().size() == 1": "ALLOW",
+    "eq5: [1].toSet() == [1.0].toSet()": "ALLOW",
+    "eq6: {'a': 1}.diff({'a': 1.0}).affectedKeys().size() == 0": "ALLOW",
+    "eq7: 9007199254740993 in [9007199254740992.0].toSet()": "DENY",
+    "eq8: {'a': 9007199254740993}.diff({'a': 9007199254740992.0}).affectedKeys().size() == 0": "DENY",
+    "eq9: [9007199254740993].hasAll([9007199254740992.0])": "DENY",
+    "ma0: math.floor(2.5) == 2": "ALLOW",
+    "ma1: math.floor(2.5) is int": "DENY",
+    "ma2: math.ceil(float('1e300')) == 9223372036854775807": "DENY",
+    "ma3: math.round(-2.5) == -3": "DENY",
+    "ma4: math.round(-2.5) == -2": "ALLOW",
+    "ma5: math.round(2.5) == 3": "ALLOW",
+    "ma6: int(math.pow(2, 63)) == 9223372036854775807": "ALLOW",
+    "ma7: math.floor(-0.5) == -1": "ALLOW",
+    "ma8: math.abs(-0.0) == 0.0": "ALLOW",
+    "ma9: math.sqrt(-1.0) > 0 || math.isNaN(math.sqrt(-1.0))": "ALLOW",
+    "ov0: ((-9223372036854775807 - 1) * -1) < 0": "DENY",
+    "ov1: ((-9223372036854775807 - 1) * -1) > 0": "DENY",
+    "ov2: ((-9223372036854775807 - 1) % -1) == 0": "ALLOW",
+    "ov3: -(-9223372036854775807 - 1) < 0": "DENY",
+    "ov4: string((-9223372036854775807 - 1)) == '-9223372036854775808'": "ALLOW",
+    "ov5: 9223372036854775807 * -1 == -9223372036854775807": "ALLOW",
+    "fd0: math.isInfinite(1 / 0.0)": "DENY",
+    "fd1: math.isInfinite(1.0 / 0)": "DENY",
+    "fd2: math.isNaN(0.0 / 0.0)": "ALLOW",
+    "fd3: 5 % 2.0 == 1.0": "ALLOW",
+    "fd4: -5.5 % 2 == -1.5": "ALLOW",
+    "fd5: math.isNaN(1.0 % 0)": "ALLOW",
+    "fd6: 7 / 2.0 == 3.5": "ALLOW",
+    "du0: duration.value(9223372036854775807, 's') > duration.value(0, 's') || true": "ALLOW",
+    "du1: duration.value(9223372036854775807, 'ns') > duration.value(0, 's')": "ALLOW",
+    "du2: duration.value(1, 'w') == duration.value(7, 'd')": "ALLOW",
+    "du3: duration.time(0, 0, 0, 9223372036854775807) > duration.value(0, 's')": "ALLOW"
+  },
+  "diagnostics": {
+    "in1: int('9223372036854775808') == 9223372036854775807": {
+      "notes": [
+        "Error: firestore.rules line [17], column [21]. Type conversion error. Argument: [9223372036854775808], From type: [string], To type: [int]."
+      ]
+    },
+    "in2: int('9223372036854775808') > 0 || int('9223372036854775808') <= 0": {
+      "notes": [
+        "Error: firestore.rules line [20], column [21]. Type conversion error. Argument: [9223372036854775808], From type: [string], To type: [int]."
+      ]
+    },
+    "in5: int(' 1') == 1": {
+      "notes": [
+        "Error: firestore.rules line [29], column [21]. Type conversion error. Argument: [ 1], From type: [string], To type: [int]."
+      ]
+    },
+    "in6: int('1.5') == 1": {
+      "notes": [
+        "Error: firestore.rules line [32], column [21]. Type conversion error. Argument: [1.5], From type: [string], To type: [int]."
+      ]
+    },
+    "in7: int('0x10') == 16": {
+      "notes": [
+        "Error: firestore.rules line [35], column [21]. Type conversion error. Argument: [0x10], From type: [string], To type: [int]."
+      ]
+    },
+    "in9: int('1e3') == 1000": {
+      "notes": [
+        "Error: firestore.rules line [41], column [21]. Type conversion error. Argument: [1e3], From type: [string], To type: [int]."
+      ]
+    },
+    "ov0: ((-9223372036854775807 - 1) * -1) < 0": {
+      "notes": [
+        "Error: firestore.rules line [122], column [49]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ]
+    },
+    "ov1: ((-9223372036854775807 - 1) * -1) > 0": {
+      "notes": [
+        "Error: firestore.rules line [125], column [49]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ]
+    },
+    "ov3: -(-9223372036854775807 - 1) < 0": {
+      "notes": [
+        "Error: firestore.rules line [131], column [21]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ]
+    },
+    "fd0: math.isInfinite(1 / 0.0)": {
+      "notes": [
+        "Error: firestore.rules line [140], column [21]. Function not found error: Name: [math.isInfinite]."
+      ]
+    },
+    "fd1: math.isInfinite(1.0 / 0)": {
+      "notes": [
+        "Error: firestore.rules line [143], column [21]. Function not found error: Name: [math.isInfinite]."
+      ]
+    }
+  }
+}
