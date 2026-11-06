@@ -39,6 +39,7 @@
  * and calls the SDK's own unsubscribe (`listener-journal.ts`).
  */
 import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
+import { liveProjectRefusal, type LiveClient } from './refusal.js';
 
 export type { LiveListener, LiveListenerActivity, LiveListenerJournal } from './listener-journal.js';
 
@@ -136,8 +137,15 @@ export interface LiveAccount {
 /**
  * The hook a plane supplies to receive records. Its return value is ignored.
  * A plane whose listeners the runtime chip shows also supplies `journal`.
+ * A plane that knows the host's project supplies `hostProjectId`, and the
+ * client it runs in: every wrapper then refuses a call whose app names
+ * another project (`refusedProject`).
  */
-export type LiveObserver = ((record: LiveCallRecord) => unknown) & { readonly journal?: LiveListenerJournal };
+export type LiveObserver = ((record: LiveCallRecord) => unknown) & {
+  readonly journal?: LiveListenerJournal;
+  readonly hostProjectId?: string;
+  readonly client?: LiveClient;
+};
 
 /** What the SDK itself does with a listener error when the app passed no error callback. */
 export type UncaughtListenerError = (error: unknown) => void;
@@ -367,6 +375,22 @@ function siteFor(site: ObservedSite, args: readonly unknown[], self: unknown): O
   const context = hookContext(site, site.context, args, self);
   if (context === UNOBSERVED) return null;
   return { ...site, ...context };
+}
+
+/** `firebase/app`'s exports make no request, so a call to another project's app there is never refused. */
+const REQUESTLESS_MODULES: ReadonlySet<string> = new Set(['firebase/app']);
+
+/**
+ * The refusal of a call whose app names another project than the host's, or
+ * null when it may run: the observer names no host project, the call's
+ * project can't be read, the projects match, or the module makes no request.
+ */
+function refusedProject(callSite: ObservedSite): Error | null {
+  const { hostProjectId, client } = callSite.observer;
+  const appProjectId = callSite.projectId;
+  const isUnchecked = hostProjectId === undefined || appProjectId === undefined || REQUESTLESS_MODULES.has(callSite.module);
+  if (isUnchecked || appProjectId === hostProjectId) return null;
+  return liveProjectRefusal(callSite.name, { appProjectId, hostProjectId }, client);
 }
 
 function ignoreRejection(returned: unknown): void {
@@ -644,6 +668,8 @@ export function observedCall(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args, this);
     if (callSite === null) return Reflect.apply(real, this, args);
+    const refusal = refusedProject(callSite);
+    if (refusal !== null) throw refusal;
     return callReal(callSite, real, this, args);
   };
 }
@@ -802,6 +828,8 @@ export function observedListener(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args, this);
     if (callSite === null) return Reflect.apply(real, this, args);
+    const refusal = refusedProject(callSite);
+    if (refusal !== null) throw refusal;
     const activity = openActivity(site.observer, site.name, args[0]);
     const listenerSite = { ...callSite, billing: billedDocuments(), activity };
     const listening = recordingArguments(listenerSite, listenerArguments(site, args));
