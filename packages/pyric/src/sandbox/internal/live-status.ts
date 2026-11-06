@@ -9,14 +9,16 @@
  * every view reads it there, so two views never disagree and a view that
  * trims its history keeps the count.
  *
- * The count is of calls production answered with success: each Firestore
- * read and write, and for a listener, each document its deliveries were
+ * The count is of the documents production billed for the Firestore calls it
+ * answered with success, as the recorder measured them (`usage`): a query's
+ * documents, a count's reads per thousand entries, a write's documents
+ * written and deleted. For a listener, each document its deliveries were
  * billed for (`billedDocuments`): those added, changed or removed, at least
  * one for its first snapshot, and none for a snapshot only its metadata
- * changed. A delivery with no count counts once. A cache read never reaches
- * production, and Auth calls are not billed per call, so neither is counted.
- * A transaction counts as one write, however many documents it reads and
- * writes.
+ * changed. A call or delivery with no measure counts once, as does one whose
+ * usage names no documents. A cache read never reaches production, and Auth
+ * calls are not billed per call, so neither is counted. An aggregate counts
+ * one read and a transaction one write, as their usage says.
  */
 import type { ObservedCall } from '../types/observed-call.js';
 
@@ -253,17 +255,32 @@ export function billedCallKind(call: Pick<ObservedCall, 'service' | 'method' | '
   return isMetadataOnly ? null : kind;
 }
 
-/** How many of its kind a billed call counts: a delivery its billed documents, every other call one. */
-function billedUnits(kind: BilledCallKind, call: Pick<ObservedCall, 'billedDocuments'>): number {
+type BilledCall = Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments' | 'usage'>;
+
+/** The documents a call's usage names for its kind: reads for a read or delivery, writes and deletes for a write. Undefined when it names none. */
+function usageUnits(kind: BilledCallKind, usage: ObservedCall['usage']): number | undefined {
+  if (usage === undefined) return undefined;
+  if (kind !== 'write') return usage.documentReads;
+  const hasWrites = usage.documentWrites !== undefined || usage.documentDeletes !== undefined;
+  return hasWrites ? (usage.documentWrites ?? 0) + (usage.documentDeletes ?? 0) : undefined;
+}
+
+/**
+ * How many of its kind a billed call counts: the documents production billed
+ * it for (a delivery's `billedDocuments`, else its usage), and one when the
+ * recorder measured neither.
+ */
+function billedUnits(kind: BilledCallKind, call: BilledCall): number {
   const isDelivery = kind === 'delivery';
-  return isDelivery ? call.billedDocuments ?? 1 : 1;
+  const delivered = isDelivery ? call.billedDocuments : undefined;
+  return delivered ?? usageUnits(kind, call.usage) ?? 1;
 }
 
 export interface BilledCallCounter {
   /** Adds `units` of `kind`, one by default. */
   add(kind: BilledCallKind, units?: number): void;
   /** Adds what an observed call was billed for, and nothing for a call production did not bill. */
-  addCall(call: Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments'>): void;
+  addCall(call: BilledCall): void;
   count(): BilledCallCount;
 }
 

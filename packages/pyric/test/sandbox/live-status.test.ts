@@ -61,6 +61,27 @@ describe('createBilledCallCounter', () => {
     expect(counter.count()).toEqual({ reads: 1, writes: 0, deliveries: 6 });
     expect(billedCallKind({ ...call('onSnapshot'), billedDocuments: 0 })).toBeNull();
   });
+
+  it('counts a one-shot call by the documents production billed it for', () => {
+    const counter = createBilledCallCounter();
+    const calls: ObservedCall[] = [
+      { ...call('getDocs'), usage: { documentReads: 3, payloadBytes: 120 } },
+      { ...call('getCountFromServer'), usage: { documentReads: 2 } },
+      { ...call('getAggregateFromServer'), usage: { documentReads: 1, unmeasured: 1 } },
+      { ...call('setDoc'), usage: { documentWrites: 1 } },
+      { ...call('deleteDoc'), usage: { documentDeletes: 1 } },
+      { ...call('runTransaction'), usage: { documentWrites: 1, unmeasured: 1 } },
+    ];
+    for (const observed of calls) counter.addCall(observed);
+    expect(counter.count()).toEqual({ reads: 6, writes: 3, deliveries: 0 });
+  });
+
+  it('counts a call once when its usage is missing or names no documents', () => {
+    const counter = createBilledCallCounter();
+    const calls: ObservedCall[] = [call('getDocs'), { ...call('getDocs'), usage: {} }, { ...call('setDoc'), usage: {} }];
+    for (const observed of calls) counter.addCall(observed);
+    expect(counter.count()).toEqual({ reads: 2, writes: 1, deliveries: 0 });
+  });
 });
 
 describe('the live project line', () => {
