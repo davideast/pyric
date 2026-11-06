@@ -3,6 +3,7 @@
 // gRPC streams, which only Node's HTTP/2 server carries for grpc-js.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import type { AiReceived } from './ai.ts';
 import type { Received, Unmatched } from './firestore.ts';
 import type { RtdbReceived } from './rtdb.ts';
 
@@ -11,16 +12,20 @@ export const SERVE_SCRIPT = fileURLToPath(new URL('./serve.ts', import.meta.url)
 export interface ReplayProcessOptions {
   /** Also serve RTDB capture A for this project (`--rtdb-capture`). */
   rtdbCapture?: string;
+  /** Also answer AI Logic from the committed observations (`--ai`). */
+  ai?: boolean;
 }
 
 /**
  * The `node` arguments that run a replay server for `recordings`, with gRPC
- * from the SDK installed in `grpcProjectDir`, and capture A with `rtdbCapture`.
+ * from the SDK installed in `grpcProjectDir`, capture A with `rtdbCapture`,
+ * and AI Logic with `ai`.
  */
 export function replayServerArgs(recordings: string[], grpcProjectDir?: string, options: ReplayProcessOptions = {}): string[] {
   const grpc = grpcProjectDir ? ['--grpc', grpcProjectDir] : [];
   const capture = options.rtdbCapture ? ['--rtdb-capture', options.rtdbCapture] : [];
-  return ['--experimental-transform-types', '--no-warnings', SERVE_SCRIPT, ...grpc, ...capture, ...recordings];
+  const ai = options.ai ? ['--ai'] : [];
+  return ['--experimental-transform-types', '--no-warnings', SERVE_SCRIPT, ...grpc, ...capture, ...ai, ...recordings];
 }
 
 /** A replay server in another process, by the origins it printed. */
@@ -39,9 +44,9 @@ export function endpointsIn(output: string): ReplayEndpoints | null {
   return line ? (JSON.parse(line) as ReplayEndpoints) : null;
 }
 
-/** Every request the server at `origin` received: Firestore and Auth in arrival order, then RTDB frames in arrival order. */
-export async function receivedBy(origin: string): Promise<Array<Received | RtdbReceived>> {
-  return (await (await fetch(`${origin}/__replay/received`)).json()) as Array<Received | RtdbReceived>;
+/** Every request the server at `origin` received: Firestore and Auth in arrival order, then RTDB frames, then AI Logic calls, each in arrival order. */
+export async function receivedBy(origin: string): Promise<Array<Received | RtdbReceived | AiReceived>> {
+  return (await (await fetch(`${origin}/__replay/received`)).json()) as Array<Received | RtdbReceived | AiReceived>;
 }
 
 /** Every request the server at `origin` had no recording for. */

@@ -21,6 +21,8 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { appFirebaseRoot } from '../../../live/src/start-checks.js';
+import { liveAppDirs } from '../../src/register/live-package.js';
 
 const cliDir = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliDir, '../..');
@@ -82,10 +84,11 @@ interface Run {
   sdkFiles: string[];
 }
 
-function run(registers: readonly string[], specifiers: readonly string[], options: { cwd?: string; env?: Record<string, string> } = {}): Run {
+/** Runs the probe under `registers` from `cwd`, with the probe in `entryDir` (the project by default). */
+function run(registers: readonly string[], specifiers: readonly string[], options: { cwd?: string; entryDir?: string; env?: Record<string, string> } = {}): Run {
   const cwd = options.cwd ?? projectDir;
   const imports = ['--import', pathToFileURL(join(projectDir, 'observer.mjs')).href, ...registers.flatMap((entry) => ['--import', entry])];
-  const result = spawnSync('node', [...imports, join(projectDir, 'probe.mjs')], {
+  const result = spawnSync('node', [...imports, join(options.entryDir ?? projectDir, 'probe.mjs')], {
     cwd,
     encoding: 'utf8',
     timeout: 60_000,
@@ -139,6 +142,7 @@ beforeAll(() => {
   writeFileSync(join(projectDir, 'probe.mjs'), PROBE);
   otherDir = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-stop-other-')));
   writeFileSync(join(otherDir, 'package.json'), JSON.stringify({ name: 'no-live', type: 'module' }));
+  writeFileSync(join(otherDir, 'probe.mjs'), PROBE);
 });
 
 afterAll(() => {
@@ -152,7 +156,7 @@ const LIVE_ROWS = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'fireb
 
 describe('@pyric/live/register', () => {
   it('loads the installed SDK for the four live rows and refuses every other Firebase import and firebase-admin', () => {
-    const refused = ['firebase/storage', 'firebase/database', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
+    const refused = ['firebase/storage', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
     const res = run([LIVE_REGISTER], [...LIVE_ROWS, ...refused]);
     expect(res.status, res.stderr).toBe(0);
     for (const specifier of LIVE_ROWS) expect(res.outcome[specifier], specifier).toBe('loaded');
@@ -283,11 +287,15 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { status: String(result.statu
   }, 60_000);
 
   it('opens from its own package in a project without @pyric/live, refuses to start without the app SDK, and nothing loads', () => {
-    const res = run([pathToFileURL(liveRegisterFile).href], ['firebase/firestore'], { cwd: otherDir });
+    // The probe in otherDir too: the register reads the app's firebase from the entry script's folder first (#2166).
+    const res = run([pathToFileURL(liveRegisterFile).href], ['firebase/firestore'], { cwd: otherDir, entryDir: otherDir });
     expect(res.status).not.toBe(0);
     // The register found @pyric/live where it was loaded from (#2116), so the start checks ran.
     expect(res.stderr).not.toContain('live rows need @pyric/live installed in the project');
     expect(res.stderr).toContain('This project has no firebase installed');
+    // The refusal names the folder it looked from and says where to start.
+    expect(res.stderr).toContain(`None resolves from ${otherDir}.`);
+    expect(res.stderr).toContain('Start from the folder of the app that installs firebase.');
     expect(res.sdkFiles).toEqual([]);
   }, 60_000);
 
@@ -318,4 +326,50 @@ describe('@pyric/cli/register alone, with @pyric/live installed', () => {
     for (const id of rowIds) expect(res.outcome[id], id).toBe('ERR_MODULE_NOT_FOUND');
     expect(res.sdkFiles).toEqual([]);
   }, 60_000);
+});
+
+describe('the folders the register reads the app firebase from (#2166)', () => {
+  let base: string;
+  beforeAll(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-app-dirs-')));
+    for (const name of ['entry', 'cwd', 'root', 'links']) mkdirSync(join(base, name));
+    for (const name of ['entry', 'cwd']) {
+      mkdirSync(join(base, name, 'node_modules', 'firebase'), { recursive: true });
+      writeFileSync(join(base, name, 'node_modules', 'firebase', 'package.json'), JSON.stringify({ name: 'firebase', version: '12.12.0' }));
+    }
+    writeFileSync(join(base, 'entry', 'server.mjs'), '');
+    symlinkSync(join(base, 'entry', 'server.mjs'), join(base, 'links', 'server.mjs'));
+  });
+  afterAll(() => {
+    if (base) rmSync(base, { recursive: true, force: true });
+  });
+
+  it('lists the entry script folder, then the working directory', () => {
+    expect(liveAppDirs(join(base, 'entry', 'server.mjs'), join(base, 'cwd'), [])).toEqual([join(base, 'entry'), join(base, 'cwd')]);
+  });
+
+  it('lists the working directory once when the entry script is in it, and alone without an entry script', () => {
+    expect(liveAppDirs(join(base, 'cwd', 'server.mjs'), join(base, 'cwd'), [])).toEqual([join(base, 'cwd')]);
+    expect(liveAppDirs(undefined, join(base, 'cwd'), [])).toEqual([join(base, 'cwd')]);
+  });
+
+  it('skips argv[1] when the process runs code from the command line', () => {
+    for (const flag of ['-e', '--eval', '-p', '--print']) {
+      expect(liveAppDirs(join(base, 'entry', 'server.mjs'), join(base, 'cwd'), [flag, 'code'])).toEqual([join(base, 'cwd')]);
+    }
+  });
+
+  it('follows a symlinked entry script to its real folder, unless --preserve-symlinks-main', () => {
+    const link = join(base, 'links', 'server.mjs');
+    expect(liveAppDirs(link, join(base, 'cwd'), [])[0]).toBe(join(base, 'entry'));
+    expect(liveAppDirs(link, join(base, 'cwd'), ['--preserve-symlinks-main'])[0]).toBe(join(base, 'links'));
+  });
+
+  it('reads firebase from the first folder that resolves it, else the project root', () => {
+    const [entry, cwd, root] = ['entry', 'cwd', 'root'].map((name) => join(base, name));
+    expect(appFirebaseRoot([entry, cwd], root)).toBe(entry);
+    expect(appFirebaseRoot([cwd, entry], root)).toBe(cwd);
+    expect(appFirebaseRoot([join(base, 'links'), cwd], root)).toBe(cwd);
+    expect(appFirebaseRoot([join(base, 'links')], root)).toBe(root);
+  });
 });
