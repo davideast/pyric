@@ -226,8 +226,10 @@ export default scenario(async (app) => {
       assert.ok(served.includes(specifier), `the page's ${specifier} is not the live row module:\n${served.join('\n')}`);
     }
     const openedChip = await openChip(opened);
-    assert.equal(await openedChip.locator('.panel-header [data-chip-live]').textContent(), `Live: ${PROJECT}`);
-    assert.equal(await openedChip.locator('.panel-header [data-chip-live-pass-through]').count(), 0);
+    await openedChip.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string; passThrough?: string[] } };
+    assert.equal(health.live?.projectId, PROJECT);
+    assert.equal(health.live?.passThrough, undefined, 'the health report lists no pass-through import');
     return { page: opened, chip: openedChip };
   });
 

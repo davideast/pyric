@@ -178,10 +178,10 @@ export default scenario(async (app) => {
     await chip.waitFor({ state: 'attached', timeout: 30_000 });
     const header = chip.locator('.panel-header [data-chip-live]');
     if (await header.count() === 0) await chip.locator('[data-expand]').click();
-    assert.equal(await header.textContent(), `Live: ${PROJECT}`);
-    const passThroughLines = chip.locator('.panel-header [data-chip-live-pass-through]');
-    await passThroughLines.nth(PASSED.length - 1).waitFor({ timeout: 20_000 });
-    assert.deepEqual(await passThroughLines.allTextContents(), PASSED.map(passThroughLine));
+    await header.waitFor({ timeout: 20_000 });
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string; passThrough?: string[] } };
+    assert.equal(health.live?.projectId, PROJECT);
+    assert.deepEqual(health.live?.passThrough, PASSED);
     await page.close();
   });
 

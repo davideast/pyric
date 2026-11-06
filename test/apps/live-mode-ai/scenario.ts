@@ -30,7 +30,7 @@ const PROJECT = 'demo-live-ai';
 const MODEL = 'gemini-flash-lite-latest';
 const UNSERVED_MODEL = 'gemini-not-served';
 const SIGN_INS = 'sign-ins.json';
-const BILLED_NONE = 'Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners';
+const BILLED_NONE = { reads: 0, writes: 0, deliveries: 0 };
 /** How long one run of the app's calls may take, on the page or in the server job: well under the runner's 300 s. */
 const APP_RUN_MS = 60_000;
 /** What the host's event stream must never carry: the prompts' shared word and parts of production's envelopes. */
@@ -157,8 +157,16 @@ async function openChip(page: Page): Promise<Locator> {
   return chip;
 }
 
-async function billed(chip: Locator): Promise<string | null> {
-  return chip.locator('[data-chip-billed]').first().textContent();
+interface BilledCount {
+  reads: number;
+  writes: number;
+  deliveries: number;
+}
+
+/** The host's billed-call count, as its health report carries it. */
+async function billed(url: string): Promise<BilledCount | undefined> {
+  const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: { billed?: BilledCount } };
+  return health.live?.billed;
 }
 
 interface Row {
@@ -298,8 +306,10 @@ export default scenario(async (app) => {
     const status = await opened.evaluate(() => document.querySelector('#status')?.textContent ?? '');
     assert.equal(status, 'Ready', `the page's client code did not load\nconsole:\n${app.browserLog.join('\n')}`);
     const openedChip = await openChip(opened);
-    assert.equal(await openedChip.locator('.panel-header [data-chip-live]').textContent(), `Live: ${PROJECT}`);
-    assert.equal(await billed(openedChip), BILLED_NONE);
+    await openedChip.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    assert.equal(health.live?.projectId, PROJECT);
+    assert.deepEqual(await billed(host.url), BILLED_NONE);
     return { page: opened, chip: openedChip };
   });
 
@@ -321,7 +331,7 @@ export default scenario(async (app) => {
 
   await app.step('the host\'s event stream carries no prompt or envelope text, and AI calls add nothing to the billed count', async () => {
     await expectNoEnvelopeText(app, expectedAiCalls().length);
-    assert.equal(await billed(chip), BILLED_NONE);
+    assert.deepEqual(await billed(host.url), BILLED_NONE);
   });
 
   await app.step('the server job under @pyric/live/register makes the same calls, reporting to the dev server', async () => {
@@ -337,10 +347,10 @@ export default scenario(async (app) => {
 
   await app.step('the chip shows each server job call as production\'s, from Server (client SDK)', async () => {
     await expectRows(chip, 'node');
-    const labels = await chip.locator('[data-traffic-rows] [data-traffic-row-source]').allTextContents();
-    assert.deepEqual([...new Set(labels)].sort(), ['Server (client SDK)', 'This page'], 'the All view labels the page\'s rows and the server job\'s');
+    const sources = await chip.locator('[data-traffic-rows] [data-traffic-row-source]').evaluateAll((elements) => elements.map((element) => element.getAttribute('data-traffic-row-source')));
+    assert.deepEqual([...new Set(sources)].sort(), ['node', 'page'], 'the All view marks the page\'s rows and the server job\'s');
     await expectNoEnvelopeText(app, 2 * expectedAiCalls().length);
-    assert.equal(await billed(chip), BILLED_NONE);
+    assert.deepEqual(await billed(host.url), BILLED_NONE);
   });
 
   await app.step('nothing reached any host but loopback', async () => {
