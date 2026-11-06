@@ -40,6 +40,7 @@ import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { InitPayload, RulesDestination } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
 import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, HOSTED_REPRO_PATH, hostedMethodRequest, hostedReproRequest } from './hosted/method-protocol.js';
+import { liveCallRoute, runHostedMethod } from './hosted/live-reads.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-project.js';
 import { proxyTargetsOf } from './vite-proxy-check.js';
 
@@ -171,6 +172,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     projectKey: opts.projectKey,
     version: BRIDGE_VERSION,
     onToolEvent: recordsAudit ? (event: BridgeToolEvent) => auditWriter.write(event) : undefined,
+    liveRoute: opts.liveHost === undefined ? undefined : liveCallRoute,
   });
 
   // STATEFUL MCP: a per-session transport+server map, mirroring the standalone
@@ -485,8 +487,6 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
             res.end(JSON.stringify({ ok: false, summary: 'The discovered host instance has changed.' }));
             return true;
           }
-          // Loaded with the runtime, so the method registry stays out of a mount that never runs one.
-          const { runHostedMethod } = await import('./hosted/live-reads.js');
           const liveTabs = opts.liveHost === undefined ? undefined : bridge.tabTools;
           const result = await runHostedMethod(liveTabs, call, () => runtime.runMethod(call, req.socket));
           res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));

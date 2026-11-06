@@ -66,6 +66,11 @@ export interface BridgeOptions {
    * The bridge does not own audit-log persistence.
    */
   onToolEvent?: (event: BridgeToolEvent) => void;
+  /**
+   * A live host's routing of a forwarded call: a tab's answer or a refusal,
+   * or undefined to forward it to the sandbox peer as usual.
+   */
+  liveRoute?: (tabs: TabTools, name: string, args: Record<string, unknown>) => Promise<ToolResult> | ToolResult | undefined;
 }
 
 /**
@@ -309,6 +314,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     close: disconnectConsumer,
   });
   const callerIdentity = createCallerIdentity();
+  const tabTools = createTabTools(callTimeoutMs);
 
   function broadcastConsumerPresence(): void {
     consumers.broadcastPresence(peer?.send);
@@ -422,7 +428,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
     const startedAtMs = Date.now();
     let result: BridgeToolResult;
     try {
-      result = await dispatchSandbox(name, args, signal, callerId);
+      const routed = opts.liveRoute?.(tabTools, name, args);
+      result = await (routed ?? dispatchSandbox(name, args, signal, callerId));
     } catch (err) {
       const isError = err instanceof Error;
       result = {
@@ -782,7 +789,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     consumers,
     workerSessions,
     callerIdentity,
-    tabTools: createTabTools(callTimeoutMs),
+    tabTools,
     broadcastConsumerPresence,
     recordToolEvent,
     registerSandboxPeer,
