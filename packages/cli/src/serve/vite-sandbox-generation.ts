@@ -89,6 +89,8 @@ export interface ViteSandboxGenerationInput {
 
 export interface ViteSandboxGeneration {
   readonly instanceId?: string;
+  /** The Firebase project this host runs as; a live host always has one. */
+  readonly projectId?: string;
   close(): Promise<void>;
 }
 
@@ -229,9 +231,11 @@ export async function createViteSandboxGeneration(
       firebaseProject,
     });
     const isLive = options.liveHost === true;
-    const liveHost = isLive
+    const liveProjectId = isLive ? requireLiveProject(firebaseProject, cwd) : undefined;
+    const projectId = liveProjectId ?? firebaseProject.projectId;
+    const liveHost = liveProjectId !== undefined
       ? createLiveHostState({
-        configProjectId: requireLiveProject(firebaseProject, cwd),
+        configProjectId: liveProjectId,
         configSource: firebaseProject.source,
         optionName: 'the `project` option of pyricLive()',
         warn: (line) => server.config.logger.warn(line, { timestamp: true }),
@@ -400,7 +404,7 @@ export async function createViteSandboxGeneration(
       listenerDisposers.push(() => httpServer.removeListener('close', onServerClose));
     }
 
-    return { instanceId: bridge?.instanceId, close };
+    return { instanceId: bridge?.instanceId, projectId, close };
   } catch (error) {
     await close();
     throw error;

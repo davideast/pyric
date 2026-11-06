@@ -68,6 +68,7 @@ import type { PyricWriteRefusal } from './hosted/own-writes.js';
 import { loadRowModulePackage } from './vite-live-package.js';
 import { pyricFsDeny } from './vite-state-deny.js';
 import { attachViteRealPathDeny } from './vite-real-path-deny.js';
+import { attachViteProxyCheck } from './vite-proxy-check.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
 export interface EnvironmentHooks {
@@ -445,6 +446,12 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       const ssrActivation = attachViteSsrActivation(server, options.hosted === true);
       hostedProjectKey = options.hosted ? projectDir : undefined;
       hostedInstanceId = options.hosted ? generation.instanceId : undefined;
+      // Each loopback `server.proxy` target is asked what it is once the server listens (#2304 G-5).
+      const stopProxyReport = attachViteProxyCheck(server, {
+        mode: supplied === undefined ? 'sandbox' : 'live',
+        instanceId: generation.instanceId,
+        projectId: generation.projectId,
+      });
       // Vite creates a replacement before closing the old server. Cleanup
       // belongs to this server, even when another generation is now active;
       // closing a generation its replacement already closed is a no-op.
@@ -452,6 +459,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       server.close = async () => {
         slot.release(generation);
         ssrActivation.close();
+        stopProxyReport();
         try {
           await generation.close();
         } finally {
