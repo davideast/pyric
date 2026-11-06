@@ -16,6 +16,8 @@ import { parseToASTOrError } from '../grammar/FirestoreParser.js';
 import { describeCompileLimitViolations } from '../grammar/compile-limits.js';
 import {
   checkRulesSource,
+  DUPLICATE_SERVICE_REASON,
+  duplicateServiceRejection,
   wrongServiceReason,
   type RulesSourceRejection,
 } from '../grammar/source-compile-limits.js';
@@ -185,7 +187,7 @@ function toEngineResult(r: CaseResult) {
  * Compile Firestore rules source into a deep, safe-by-default handle.
  *
  * @throws {RulesCompileError} when the source does not parse, names a
- *   service other than `cloud.firestore`, or breaks one of production's
+ *   service other than `cloud.firestore`, declares one service twice, or breaks one of production's
  *   compile limits. The thrown error carries the
  *   compile-blocking issues on `.issues`.
  */
@@ -197,8 +199,9 @@ export function firestoreRules(source: string): FirestoreRuleset {
 
 /**
  * The error `firestoreRules()` throws for a source production's load check
- * refuses: it does not parse, its service is not `cloud.firestore`, or it is
- * past one of production's compile limits (call depth, `let` count, nesting).
+ * refuses: it does not parse, its service is not `cloud.firestore`, it
+ * declares one service twice, or it is past one of production's compile
+ * limits (call depth, `let` count, nesting).
  */
 function compileError(source: string, rejection: RulesSourceRejection): RulesCompileError {
   if (rejection.kind === 'compile') {
@@ -208,11 +211,21 @@ function compileError(source: string, rejection: RulesSourceRejection): RulesCom
     );
   }
   if (rejection.otherService !== undefined) {
-    const message = wrongServiceReason(rejection.otherService);
-    const issue: RuleIssue = { code: 'PARSE_ERROR', severity: 'error', message, line: rejection.line, origin: 'parse' };
-    return new RulesCompileError(`Firestore rules source failed to compile: ${message}`, [issue]);
+    return serviceError(wrongServiceReason(rejection.otherService), rejection.line);
   }
   const parsed = parseToASTOrError(source);
-  const issues: RuleIssue[] = parsed.ok ? [] : [parseErrorToIssue(parsed.error)];
-  return new RulesCompileError('Firestore rules source failed to compile', issues);
+  if (!parsed.ok) {
+    return new RulesCompileError('Firestore rules source failed to compile', [parseErrorToIssue(parsed.error)]);
+  }
+  // The source parses, so the check refused its service blocks: two of them
+  // name one service (capture c5b-two-firestore-services).
+  const declaresServiceTwice = duplicateServiceRejection(parsed.ast) !== null;
+  if (declaresServiceTwice) return serviceError(DUPLICATE_SERVICE_REASON, rejection.line);
+  return new RulesCompileError('Firestore rules source failed to compile', []);
+}
+
+/** A refusal of the source's service blocks with production's reason, at the refused block's `service` keyword. */
+function serviceError(reason: string, line: number): RulesCompileError {
+  const issue: RuleIssue = { code: 'PARSE_ERROR', severity: 'error', message: reason, line, origin: 'parse' };
+  return new RulesCompileError(`Firestore rules source failed to compile: ${reason}`, [issue]);
 }

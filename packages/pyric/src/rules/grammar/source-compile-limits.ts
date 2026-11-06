@@ -1,11 +1,12 @@
 /**
  * Production's load check for a Firestore rules source, for a caller that
  * holds the source rather than its AST: the source must parse, its service
- * must be `cloud.firestore`, and it must be within production's compile
- * limits. Every path that loads Firestore rules runs this one check: the
- * CLI's `rules.set`, the in-process server's project rules, a seed's rules,
- * the dev server's rules load, the served worker's rules deploy, the
- * simulator, and `firestoreRules()` each refuse a source it rejects. The SDK
+ * must be `cloud.firestore`, it must not declare one service twice, and it
+ * must be within production's compile limits. Every path that loads
+ * Firestore rules runs this one check: the CLI's `rules.set`, the
+ * in-process server's project rules, a seed's rules, the dev server's rules
+ * load, the served worker's rules deploy, the simulator, and
+ * `firestoreRules()` each refuse a source it rejects. The SDK
  * sandbox's `setRules` installs such a source, evaluates no request against
  * it, and reports the same reason as its status and its denial reason.
  *
@@ -69,10 +70,44 @@ export function checkRulesSource(
   if (!checked.ok) return checked;
   const service = checked.ast.service;
   if (isOtherService(service)) return { ok: false, rejection: wrongServiceRejection(service) };
+  const duplicate = duplicateServiceRejection(checked.ast);
+  if (duplicate !== null) return { ok: false, rejection: duplicate };
   return checked;
 }
 
 const FIRESTORE_SERVICE = 'cloud.firestore';
+
+/** Production's reason for a file with two blocks for one service. */
+export const DUPLICATE_SERVICE_REASON = 'Duplicate service name declaration.';
+
+/** The first block that names a service an earlier block in the file already names. */
+function duplicateService(services: readonly ServiceBlock[]): ServiceBlock | undefined {
+  const seen = new Set<string>();
+  for (const block of services) {
+    if (seen.has(block.name)) return block;
+    seen.add(block.name);
+  }
+  return undefined;
+}
+
+/**
+ * Why production refuses a parsed file with two blocks for one service,
+ * reported at the second block's `service` keyword (capture
+ * c5b-two-firestore-services), or null when every block names its own
+ * service. Kind `'parse'`, as the wrong-service rejection, so every caller
+ * refuses it as it refuses a parse failure. The module resolver runs it
+ * too, since it rebuilds the source from one block.
+ */
+export function duplicateServiceRejection(ast: FirestoreRules): Extract<RulesSourceRejection, { kind: 'parse' }> | null {
+  const block = duplicateService(ast.services ?? []);
+  if (block === undefined) return null;
+  return {
+    kind: 'parse',
+    line: block.loc?.line ?? 1,
+    column: block.loc?.col ?? 1,
+    message: `rules did not compile: ${DUPLICATE_SERVICE_REASON}`,
+  };
+}
 
 function isOtherService(service: ServiceBlock | undefined): service is ServiceBlock {
   return service !== undefined && service.name !== FIRESTORE_SERVICE;

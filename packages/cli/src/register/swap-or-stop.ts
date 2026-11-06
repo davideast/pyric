@@ -41,6 +41,7 @@ import {
   type AiMode,
 } from '../serve/firebase-module-swap.js';
 import { INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
+import { joinedList } from './word-list.js';
 
 /** The code on the error a stopped import throws. */
 export const REAL_SDK_STOPPED_CODE = 'PYRIC_REAL_SDK_STOPPED';
@@ -190,14 +191,8 @@ function isNode22Require(load: ResolvedLoad): boolean {
   return isNode22 && isFileImporter && usesCommonJs(fileURLToPath(importer));
 }
 
-/** `a, b or c`. */
-function orList(items: readonly string[]): string {
-  if (items.length < 2) return items.join('');
-  return `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`;
-}
-
 /** `firebase/app, firebase/auth, ... or firebase/database`: one import per live row. */
-const LIVE_ROW_IMPORTS = orList([...INSTALLED_SDK_SPECIFIERS]);
+const LIVE_ROW_IMPORTS = joinedList([...INSTALLED_SDK_SPECIFIERS], 'or');
 
 function liveStopFix(family: SdkFamily, isUnservedRequire: boolean): string {
   if (family === 'admin') return 'firebase-admin is refused in live mode, so move this code to a process without @pyric/live/register';

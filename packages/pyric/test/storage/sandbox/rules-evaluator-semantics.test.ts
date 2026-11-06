@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseStorageRules, type StorageRequestMethod } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 import { StoragePath } from '../../../src/storage/sandbox/rules-path.js';
+import {
+  OBSERVATION_NAME,
+  probePath,
+  requestResourceRules,
+} from '../../../../conformance/src/storage-request-resource-probes.ts';
 
 // Storage evaluator semantics that production and the Firestore engine
 // share: unknown methods are absorbable errors, a coarse request binds each
@@ -17,6 +24,14 @@ service firebase.storage {
     match /docs/{docId} { allow ${verb}: if ${cond}; }
   }
 }`);
+}
+
+/** Production's verdicts for uploads over a stored object, from the committed capture. */
+function overwriteVerdicts(): Record<string, 'ALLOW' | 'DENY'> {
+  const file = join(
+    import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations', 'storage-rules', `${OBSERVATION_NAME}.json`,
+  );
+  return JSON.parse(readFileSync(file, 'utf8')).behavior.overwrite;
 }
 
 function evaluate(verb: string, cond: string, method: StorageRequestMethod = 'get') {
@@ -90,17 +105,51 @@ describe('evaluateStorageRules: coarse requests bind granular methods', () => {
     expect(write(10).allowed).toBe(true);
   });
 
-  // A coarse write over a stored object is an update, so a `create` arm
-  // can't admit it.
-  it('binds a coarse write with a payload over a stored object to update only', () => {
-    const rules = rulesFor('write', "request.method == 'create' || request.resource.size < 10 * 1024 * 1024");
+  // A coarse write with a payload over a stored object is an upload over
+  // it, and production checks that upload as a create (#1884), so an
+  // `update` arm can't admit an oversized overwrite.
+  it('binds a coarse write with a payload over a stored object to create only', () => {
+    const rules = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{docId} {
+      allow create: if request.resource.size < 10 * 1024 * 1024;
+      allow update: if true;
+    }
+  }
+}`);
     const write = (size: number) => evaluateStorageRules(rules, {
       request: { auth: { uid: 'alice' }, method: 'write', path, resource: { size } },
       resource: { size: 1 },
     });
-    expect(write(20 * 1024 * 1024).allowed).toBe(false);
+    expect(write(50 * 1024 * 1024).allowed).toBe(false);
     expect(write(10).allowed).toBe(true);
   });
+
+  // `stdlib-realstorage-request-resource-fields` deploys these probes to a
+  // real bucket and uploads 6 bytes over a stored 5-byte object at each
+  // path. A coarse write with that payload over that object must match
+  // production's verdict for the upload.
+  it.each(['verb-create', 'verb-update', 'create-stored-and-new-size', 'resource-existing'])(
+    'matches production for a coarse write over a stored object: overwrite/%s',
+    (id) => {
+      const prefix = 'replay/request-resource';
+      const rules = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {${requestResourceRules(prefix)}  }
+}`);
+      const r = evaluateStorageRules(rules, {
+        request: {
+          auth: null,
+          method: 'write',
+          path: `b/pyric-default/o/${probePath(prefix, 'overwrite', id)}`,
+          resource: { size: 6 },
+        },
+        resource: { size: 5 },
+      });
+      expect(r.allowed ? 'ALLOW' : 'DENY').toBe(overwriteVerdicts()[id]!);
+    },
+  );
 
   it('applies only the grants for the verb a coarse write binds', () => {
     const rules = rulesFor('delete', 'true');
