@@ -12,6 +12,8 @@
 // the default bucket enforces, and the page's next upload obeys them. Under
 // `pyric sandbox --hosted --permissive`, a bucket nothing deploys to is open,
 // as an RTDB instance without rules is, and deployed rules still decide.
+// `pyric verify` replays the page's session, each bucket under its own rules,
+// and `--rules storage:<bucket>=<path>` replaces one bucket's rules.
 import assert from 'node:assert/strict';
 import type { Page } from '@playwright/test';
 import { scenario, sleep, type App, type DevServer } from '../driver.ts';
@@ -55,6 +57,39 @@ async function pageUploads(app: App, host: DevServer, plane: Plane, path: string
   return page.evaluate((objectPath) => uploadToEachBucket(objectPath), path);
 }
 
+interface CapturedEvent { kind?: string; service?: string; path?: string }
+
+/** Wait until the host's capture holds an upload at `path` on each of the three buckets. */
+async function waitForCapture(app: App, path: string): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    let uploads: CapturedEvent[] = [];
+    try {
+      const capture = JSON.parse(app.readFile('.pyric/last-session.json')) as { events?: CapturedEvent[] };
+      uploads = (capture.events ?? []).filter((event) => event.kind === 'operation' && event.service === 'storage' && event.path === path);
+    } catch {
+      // The host has not written the capture yet.
+    }
+    if (uploads.length >= 3) return;
+    if (Date.now() > deadline) throw new Error(`.pyric/last-session.json has no upload at ${path} on each bucket after 15s`);
+    await sleep(250);
+  }
+}
+
+interface VerifyReport {
+  results: Array<{ services: { storage?: { divergences: Array<{ kind: string; bucket?: string; path?: string }> } } }>;
+}
+
+/** Run `pyric verify --json` and return its exit code and each Storage divergence. */
+async function verifyStorage(app: App, args: string[] = []): Promise<{ code: number | null; divergences: Array<{ kind: string; bucket?: string; path?: string }> }> {
+  const result = await app.pyric(['verify', '--json', ...args]);
+  const line = result.output.split('\n').find((text) => text.startsWith('{'));
+  assert.ok(line !== undefined, result.output);
+  const report = JSON.parse(line) as VerifyReport;
+  const divergences = (report.results[0]?.services.storage?.divergences ?? []).map(({ kind, bucket, path }) => ({ kind, bucket, path }));
+  return { code: result.code, divergences };
+}
+
 function assertServerOutput(output: string): void {
   for (const line of EXPECTED) assert.match(output, new RegExp(`^${line}$`, 'm'), output);
 }
@@ -71,6 +106,18 @@ export default scenario(async (app) => {
 
   await app.step('the page on the Node host gets each bucket its own rules', async () => {
     assert.deepEqual(await pageUploads(app, host, 'hosted', 'hosted/a.txt'), EXPECTED);
+  });
+
+  await app.step('pyric verify replays each bucket under its own rules, and --rules storage:<bucket> replaces one', async () => {
+    await waitForCapture(app, 'hosted/a.txt');
+    assert.deepEqual(await verifyStorage(app), { code: 0, divergences: [] });
+    // media-strict.rules requires sign-in, so the anonymous media upload is now denied.
+    // The capture can record one upload as more than one operation, so the
+    // divergences are compared as a set.
+    const strict = await verifyStorage(app, ['--rules', 'storage:gs://media-bucket=media-strict.rules']);
+    assert.equal(strict.code, 1);
+    const distinct = [...new Set(strict.divergences.map((divergence) => JSON.stringify(divergence)))].map((text) => JSON.parse(text));
+    assert.deepEqual(distinct, [{ kind: 'now-denied', bucket: 'media-bucket', path: 'hosted/a.txt' }]);
   });
 
   await app.step('a server script attached to the Node host gets each bucket its own rules', async () => {
