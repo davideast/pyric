@@ -12,7 +12,7 @@ export type RegexNode =
   | { kind: 'assert'; check: (chars: readonly string[], pos: number) => boolean }
   | { kind: 'seq'; items: RegexNode[] }
   | { kind: 'alt'; left: RegexNode; right: RegexNode }
-  | { kind: 'rep'; body: RegexNode; min: number; max: number };
+  | { kind: 'rep'; body: RegexNode; min: number; max: number; greedy?: boolean };
 
 type NfaState =
   | { kind: 'char'; test: (ch: string) => boolean; out: number }
@@ -79,16 +79,20 @@ function buildNfa(ast: RegexNode): Nfa {
         return addState({ kind: 'split', out1: a, out2: b });
       }
       case 'rep': {
+        // `out1` is the branch a leftmost-first search prefers: one more
+        // repeat when greedy, the exit when not.
+        const choose = (more: number, exit: number): NfaState =>
+          node.greedy === false ? { kind: 'split', out1: exit, out2: more } : { kind: 'split', out1: more, out2: exit };
         let tail = out;
         if (node.max === Infinity) {
-          const splitId = addState({ kind: 'split', out1: 0, out2: out });
+          const splitId = addState(choose(0, out));
           const loopBody = emit(node.body, splitId);
-          states[splitId] = { kind: 'split', out1: loopBody, out2: out };
+          states[splitId] = choose(loopBody, out);
           tail = splitId;
         } else {
           for (let k = node.min; k < node.max; k++) {
             const optBody = emit(node.body, tail);
-            tail = addState({ kind: 'split', out1: optBody, out2: tail });
+            tail = addState(choose(optBody, tail));
           }
         }
         for (let k = node.min - 1; k >= 0; k--) {
@@ -233,5 +237,177 @@ class LazyDfa {
     this.index = new Map();
     this.stored = 0;
     this.start = this.intern(this.closure.of([this.nfa.start], NO_CHARS, 0));
+  }
+}
+
+/**
+ * `ast` with each repeat's greediness set from `greedy`, given in the order
+ * the parser built the repeats: a repeat's body before the repeat, a
+ * sequence left to right, an alternation's left side first. A list whose
+ * length is not the tree's repeat count leaves `ast` unchanged.
+ */
+export function withRepeatGreediness(ast: RegexNode, greedy: readonly boolean[]): RegexNode {
+  let next = 0;
+  const annotate = (node: RegexNode): RegexNode => {
+    switch (node.kind) {
+      case 'seq':
+        return { kind: 'seq', items: node.items.map(annotate) };
+      case 'alt': {
+        const left = annotate(node.left);
+        return { kind: 'alt', left, right: annotate(node.right) };
+      }
+      case 'rep': {
+        const body = annotate(node.body);
+        return { ...node, body, greedy: greedy[next++] ?? true };
+      }
+      default:
+        return node;
+    }
+  };
+  const annotated = annotate(ast);
+  return next === greedy.length ? annotated : ast;
+}
+
+/** Where a match starts or ends: an index into `chars`, or the lead unit's position. */
+export type RegexPosition = number | 'lead';
+
+export interface RegexSpan {
+  start: RegexPosition;
+  end: RegexPosition;
+}
+
+/**
+ * One unit read before `chars[from]`, for a search that starts inside the
+ * character before it (the low half of a surrogate pair, after `split()`
+ * steps one code unit past an empty match). Assertions at its position see
+ * `context` at `pos`.
+ */
+export interface LeadUnit {
+  unit: string;
+  context: readonly string[];
+  pos: number;
+}
+
+/**
+ * The leftmost match starting at or after `from`, or null. Among matches at
+ * that start it returns the one RE2 picks: alternatives in order, a greedy
+ * repeat taking as much as it can, a lazy one as little.
+ */
+export type RegexSearch = (chars: readonly string[], from: number, lead?: LeadUnit) => RegexSpan | null;
+
+/**
+ * Compile `ast` for leftmost-first search: a Pike VM that keeps its threads
+ * in priority order, so one search costs O(states * chars) however the
+ * pattern nests.
+ */
+export function compileRegexSearch(ast: RegexNode): RegexSearch {
+  const nfa = buildNfa(ast);
+  const closure = new OrderedClosure(nfa.states);
+  return (chars, from, lead) => leftmostFirst(nfa, closure, { chars, from, lead });
+}
+
+interface Thread {
+  state: number;
+  start: RegexPosition;
+}
+
+interface SearchInput {
+  chars: readonly string[];
+  from: number;
+  lead: LeadUnit | undefined;
+}
+
+interface StepResult {
+  match: RegexSpan | null;
+  next: Thread[];
+}
+
+function leftmostFirst(nfa: Nfa, closure: OrderedClosure, input: SearchInput): RegexSpan | null {
+  const { chars, from, lead } = input;
+  let found: RegexSpan | null = null;
+  let threads: Thread[] = [];
+  if (lead !== undefined) {
+    const list = closure.of([{ state: nfa.start, start: 'lead' }], lead.context, lead.pos);
+    ({ match: found, next: threads } = stepThreads(nfa.states, list, 'lead', lead.unit));
+  }
+  for (let pos = from; ; pos++) {
+    const seeds = found === null ? [...threads, { state: nfa.start, start: pos }] : threads;
+    if (seeds.length === 0) return found;
+    const step = stepThreads(nfa.states, closure.of(seeds, chars, pos), pos, chars[pos]);
+    if (step.match !== null) found = step.match;
+    const atEnd = pos >= chars.length;
+    if (atEnd) return found;
+    threads = step.next;
+  }
+}
+
+/**
+ * Move each thread of `list`, in priority order, across `ch`. A thread at
+ * the accept state is a match, and every thread after it has lower
+ * priority, so it is dropped.
+ */
+function stepThreads(
+  states: readonly NfaState[],
+  list: readonly Thread[],
+  pos: RegexPosition,
+  ch: string | undefined,
+): StepResult {
+  const next: Thread[] = [];
+  for (const thread of list) {
+    const st = states[thread.state]!;
+    if (st.kind === 'accept') return { match: { start: thread.start, end: pos }, next };
+    const reads = st.kind === 'char' && ch !== undefined && st.test(ch);
+    if (reads) next.push({ state: st.out, start: thread.start });
+  }
+  return { match: null, next };
+}
+
+/**
+ * Epsilon closure that keeps priority order: a split's `out1` and all it
+ * reaches come before its `out2`, and a state reached twice keeps the
+ * thread that reached it first.
+ */
+class OrderedClosure {
+  private readonly marks: Uint32Array;
+  private mark = 0;
+
+  constructor(private readonly states: readonly NfaState[]) {
+    this.marks = new Uint32Array(states.length);
+  }
+
+  of(seeds: readonly Thread[], chars: readonly string[], pos: number): Thread[] {
+    this.nextMark();
+    const active: Thread[] = [];
+    for (const seed of seeds) this.follow(seed, chars, pos, active);
+    return active;
+  }
+
+  private follow(seed: Thread, chars: readonly string[], pos: number, active: Thread[]): void {
+    const stack = [seed.state];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (this.marks[id] === this.mark) continue;
+      this.marks[id] = this.mark;
+      const st = this.states[id]!;
+      if (st.kind === 'split') stack.push(st.out2, st.out1);
+      else if (st.kind === 'assert') this.followAssert(st, chars, pos, stack);
+      else active.push({ state: id, start: seed.start });
+    }
+  }
+
+  private followAssert(
+    st: Extract<NfaState, { kind: 'assert' }>,
+    chars: readonly string[],
+    pos: number,
+    stack: number[],
+  ): void {
+    if (st.check(chars, pos)) stack.push(st.out);
+  }
+
+  private nextMark(): void {
+    this.mark++;
+    if (this.mark !== 0xffffffff) return;
+    this.marks.fill(0);
+    this.mark = 1;
   }
 }
