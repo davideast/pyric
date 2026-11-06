@@ -14,6 +14,7 @@ import { initializeSandbox, type ObservedCall, type SandboxEvent } from 'pyric/s
 import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { markPortConnection } from '../../../../src/serve/worker/host/caller.js';
+import { heldLiveCallValueCount, liveCallValues } from '../../../../src/serve/worker/host/observe.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { requestEnvelopeError } from '../../../../src/bridge/server/request-envelope.js';
 import type { BridgeMessage } from '../../../../src/bridge/protocol.js';
@@ -233,6 +234,57 @@ describe('host: observed calls', () => {
     expect(event?.kind === 'operation' ? event.production : undefined).toEqual({ outcome: { status: 'ok' }, usage, billedDocuments: 3 });
   });
 
+  it("writes a server process's Admin call as bypassing rules under the Admin lens, with production's answer", async () => {
+    const ctx = makeCtx();
+    const viewer = fakePort();
+    await subscribe(ctx, viewer);
+    const server = fakePort();
+    markPortConnection(ctx, server, 'node');
+    const call = {
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      at: 1,
+      durationMs: 9,
+      outcome: { status: 'error', code: 'not-found' },
+      projectId: 'demo-project',
+      writeData: { title: 'x' },
+      sdk: 'admin',
+    };
+    expect(await observe(ctx, server, { call })).toMatchObject({ ok: true });
+    const [event] = streamed(viewer);
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      result: 'error',
+      caller: { kind: 'node', clientId: expect.any(String) },
+      authLens: { mode: 'admin' },
+      detail: { sdk: 'admin' },
+      rulesDisposition: { kind: 'bypassed', reason: 'admin' },
+      production: { outcome: { status: 'error', code: 'not-found' } },
+    });
+    // Admin calls bypass Security Rules, so the host records no local verdict.
+    expect(event?.kind === 'operation' ? event.production : undefined).toEqual({ outcome: { status: 'error', code: 'not-found' } });
+  });
+
+  it('refuses sdk on an AI or Messaging call, and any value but admin, and writes nothing', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const before = ctx.sandbox.history().length;
+    const malformed: unknown[] = [
+      { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m' }, sdk: 'admin' },
+      { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, sdk: 'admin' },
+      { ...DENIED_READ, sdk: 'client' },
+    ];
+    for (const call of malformed) {
+      expect(await observe(ctx, page, { call })).toMatchObject({ t: 'res', ok: false, error: { code: 'invalid-argument' } });
+    }
+    expect(ctx.sandbox.history().length).toBe(before);
+  });
+
   it('refuses a malformed record with invalid-argument and writes nothing', async () => {
     const ctx = makeCtx();
     const page = fakePort();
@@ -281,6 +333,22 @@ describe('host: observed calls', () => {
     await observe(ctx, page, { call: { ...DENIED_READ, method: 'setDoc', outcome: { status: 'ok' } } });
     // One event: no Rules request, no write, no commit.
     expect(ctx.sandbox.history().map((event) => event.kind)).toEqual(['operation']);
+  });
+
+  it("keeps a live call's values only while the history holds its event", async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const withValues = { ...DENIED_READ, account: { uid: 'alice', claims: { admin: true } } };
+    for (let round = 0; round < 3; round++) {
+      for (let index = 0; index < 300; index++) await observe(ctx, page, { call: withValues });
+      ctx.sandbox.reset();
+    }
+    // Observing alone prunes what earlier resets dropped: the last round's 300 and at most one earlier round's.
+    expect(heldLiveCallValueCount(ctx.sandbox)).toBeLessThanOrEqual(600);
+    expect(liveCallValues(ctx.sandbox).size).toBe(0);
+    await observe(ctx, page, { call: withValues });
+    const held = ctx.sandbox.history().filter((event) => event.kind === 'operation').map((event) => event.id);
+    expect([...liveCallValues(ctx.sandbox).keys()]).toEqual(held);
   });
 
   it('admits an observed call through the bridge socket envelope only with a request id', () => {

@@ -17,7 +17,14 @@ import {
   type StoredMetadata,
 } from 'pyric/storage/internal';
 import { rtdbRulesSourceRejection, type RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
-import { isProductionServed, type RtdbReplayDivergence } from 'pyric/sandbox/internal';
+import {
+  isProductionServed,
+  observedMethod,
+  productionVerdict,
+  type RtdbReplayDivergence,
+} from 'pyric/sandbox/internal';
+import type { ObservedCall } from 'pyric/sandbox';
+import { evaluateFirestoreCall, type FirestoreSimulate } from '../serve/worker/host/observe-local-verdict.js';
 import {
   rulesSourceRejection,
   SimulateFirestoreRulesHandler,
@@ -37,6 +44,7 @@ import {
   parseVerifyFixture,
   VERIFY_FIXTURE_SCHEMA,
   type PyricVerifyFixture,
+  type VerifyObservedCallValues,
 } from './fixture.js';
 import { runStagingInstance, StagingDeployRefusedError, withStagingInstance, type StagingRunHooks } from './staging/engine.js';
 import type { RtdbRestClient } from './staging/rest.js';
@@ -68,6 +76,7 @@ export {
   type BuildVerifyFixtureInput,
   type PyricVerifyFixture,
   type VerifyFirestoreRulesBlock,
+  type VerifyObservedCallValues,
   type VerifyRtdbInstanceCapture,
   type VerifyRtdbRulesBlock,
   type VerifyStorageRulesBlock,
@@ -463,15 +472,77 @@ function verifyFirestoreSandbox(
     }
   }
 
+  const live = verifyLiveFirestoreCalls(fixture, rules);
+  mapped.push(...live.divergences);
+
   return {
     engine: 'sandbox',
     ok: mapped.every(isInformational),
     checkedEvents:
       fixture.events.filter(isProtectedFirestoreWrite).length +
       readCases.length +
-      deniedWriteCases.length,
+      deniedWriteCases.length +
+      live.checkedEvents,
     divergences: mapped,
   };
+}
+
+/** A live Firestore call's event: production served it, and it named a path. */
+function isLiveFirestoreCall(event: PyricVerifyFixture['events'][number]): event is SandboxOperationEvent & { path: string } {
+  if (event.kind !== 'operation' || event.service !== 'firestore') return false;
+  const operation = event as SandboxOperationEvent;
+  return isProductionServed(operation.rulesDisposition) && operation.production !== undefined && typeof operation.path === 'string';
+}
+
+/** A captured live call as the host observed it: its event, with the values the capture kept beside it. */
+function observedCallOf(event: SandboxOperationEvent & { path: string }, values: VerifyObservedCallValues | undefined): ObservedCall {
+  const uid = event.auth?.uid;
+  return {
+    service: 'firestore',
+    method: event.method,
+    path: event.path,
+    at: event.at,
+    outcome: event.production!.outcome,
+    ...(uid === undefined ? {} : { account: { uid, ...(values?.claims === undefined ? {} : { claims: values.claims }) } }),
+    ...(values?.writeData === undefined ? {} : { writeData: values.writeData }),
+    ...(values?.document === undefined ? {} : { document: values.document }),
+  };
+}
+
+/**
+ * Replay each live Firestore call the capture holds against the candidate
+ * rules, the way the host evaluated it (`evaluateFirestoreCall`), and report
+ * each one the rules now answer differently from production: a call
+ * production allowed is `now-denied`, one it denied is `now-allowed`. A
+ * call whose answer rests on data the capture lacks (a stored document, the
+ * written data, a claim's value or an email, a query), and a call
+ * production failed for another reason, is not checked.
+ */
+function verifyLiveFirestoreCalls(fixture: PyricVerifyFixture, rules: string): { checkedEvents: number; divergences: VerifyDivergence[] } {
+  const simulator = new SimulateFirestoreRulesHandler();
+  const simulate: FirestoreSimulate = (cases, lookups) => simulator.simulate(rules, cases, lookups);
+  const divergences: VerifyDivergence[] = [];
+  let checkedEvents = 0;
+  for (const event of fixture.events.filter(isLiveFirestoreCall)) {
+    const method = observedMethod('firestore', event.method);
+    const verdict = productionVerdict(event.production!.outcome);
+    if (method === null || verdict === 'failed') continue;
+    const evaluation = evaluateFirestoreCall(simulate, observedCallOf(event, fixture.observedCalls?.[event.id]), method);
+    const isDecided = evaluation !== undefined && evaluation.needs.length === 0;
+    if (!isDecided) continue;
+    const allowed = evaluation.allowed;
+    checkedEvents += 1;
+    const productionAllowed = verdict === 'ok';
+    if (allowed === productionAllowed) continue;
+    divergences.push({
+      service: 'firestore',
+      kind: productionAllowed ? 'now-denied' : 'now-allowed',
+      path: event.path,
+      method,
+      reason: productionAllowed ? 'production allowed this live call; the local rules deny it' : 'production denied this live call; the local rules allow it',
+    });
+  }
+  return { checkedEvents, divergences };
 }
 
 function reconstructInitialFirestoreDocuments(

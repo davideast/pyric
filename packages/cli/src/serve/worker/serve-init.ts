@@ -54,6 +54,7 @@ import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
 import { defaultInstanceNameOf, rtdbInstance } from './host/rtdb-instances.js';
+import { liveCallValues } from './host/observe.js';
 import {
   databaseInstanceRulesHost,
   deployFirestoreRulesToHost,
@@ -429,6 +430,8 @@ export function applyServeInit(
         // Stamp WHO produced this capture so a booting worker only re-hydrates
         // its OWN session (see hydrateEventHistory's identity guard).
         capturedBy: ctx.instanceId,
+        // What each live call carried, so `pyric verify` can replay it.
+        observedCalls: Object.fromEntries(liveCallValues(ctx.sandbox)),
       }));
       // Relative URL resolves against the worker script's origin (same origin
       // as the page). Fire-and-forget — capture failures never break ops.

@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox, type EventCaller, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
-import { observedCallEvent } from 'pyric/sandbox/internal';
+import { observedCallEvent, readObservedCall } from 'pyric/sandbox/internal';
 import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
 import {
   chipRequestFromEvent,
@@ -563,10 +563,30 @@ describe('a call production served', () => {
     expect(chipRequestFromEvent(denied)?.localDrift).toBeUndefined();
   });
 
+  it("reads an Admin call production answered not-found as failed, as production's row", () => {
+    const call = readObservedCall({ service: 'firestore', method: 'DocumentReference.update', path: 'rooms/missing', at: 1000, outcome: { status: 'error', code: 'not-found' }, sdk: 'admin' });
+    const missing = { ...observedCallEvent(call), caller: { kind: 'node' } } as SandboxEvent;
+    expect(missing).toMatchObject({ rulesDisposition: { kind: 'bypassed', reason: 'admin' } });
+    expect(chipRequestFromEvent(missing, 'tab-1')).toEqual({
+      id: expect.any(String),
+      at: 1000,
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      verdict: 'error',
+      identity: 'signed out',
+      production: { status: 'error', code: 'not-found' },
+      source: 'node',
+    });
+  });
+
   it('leaves a sandbox-served operation without a production answer', () => {
     expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
     const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;
     expect(chipRequestFromEvent(unmarked)?.production).toBeUndefined();
+    // A sandbox Admin operation bypasses rules too, but carries no production answer.
+    const { production: _production, ...sandboxAdmin } = { ...observed({}), rulesDisposition: { kind: 'bypassed', reason: 'admin' } } as SandboxEvent & { production?: unknown };
+    expect(chipRequestFromEvent(sandboxAdmin as SandboxEvent)?.production).toBeUndefined();
   });
 });
 

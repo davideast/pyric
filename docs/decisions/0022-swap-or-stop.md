@@ -4,6 +4,12 @@ Status: Accepted
 
 Date: 2026-10-28
 
+Amended: 2026-11-06. Under `@pyric/live/register`, the real `firebase-admin`
+loads with the process's own credential when the live host passes it through
+or the Admin rows serve it, and the choke point lets its own files reach their
+token sources. See
+[the amendment](#amendment-2026-11-06-the-admin-sdk-in-live-mode).
+
 David approved the direction on 2026-10-28, and later that day accepted the
 recommendation for each of the seven decisions this record raised. The
 answers are in [Rulings](#rulings). This record states the design, checks it
@@ -88,7 +94,7 @@ reads (`packages/cli/src/serve/firebase-module-swap.ts` and
 
 | Package | Real load allowed when | Otherwise |
 | --- | --- | --- |
-| `firebase-admin` | Never under `@pyric/cli/register`, in any mode. Under `@pyric/live/register`, only when the live host lists it in `pyricLive({ passThrough: ['firebase-admin'] })`: the app's own `firebase-admin` import then loads the real Admin SDK with the app's own credential, which pyric never reads, and every file that import reaches loads too. Its calls go to production unobserved and bypass security rules. From those files only, the live network guard passes a fixed set: the token sources `oauth2.googleapis.com`, `iamcredentials.googleapis.com` and the metadata server, gtoken's `www.googleapis.com/oauth2/v4/token`, `storage.googleapis.com`, the public keys at `www.googleapis.com/robot/v1/metadata/x509/`, `https.request` to the live row hosts, and sockets to the project's own Realtime Database hosts and the shard hosts its connection moves to. Every other Google host, FCM included, stays refused. Pages and server code the dev server runs still refuse it | Stop |
+| `firebase-admin` | Never in the sandbox, in any mode. Under `@pyric/live/register` only, when the live host passes it through (stopgap) or the Admin rows serve it. Then the real package and the packages it loads, and only from its own files, load with the process's own credential. Pyric never reads that credential. Under the stopgap its calls go to production unobserved, and under either they bypass security rules. Decision 4 says what the guard lets those files reach. Pages and server code the dev server runs still refuse it | Stop |
 | `firebase` | The table chose the real SDK: `firebase/ai` in production AI mode (`mapping.ts:102`); `firebase/app` and `firebase/app-check` imported by pyric's own shadow modules (`isBypassedBridgeImport`, `mapping.ts:96`); a file of the `firebase` package imported from inside that package; later, the rows a live mode adds | Stop |
 
 **The stop.** The resolve hook throws before the file loads. The error names
@@ -201,6 +207,30 @@ Some destinations are deliberately left off the list:
   choke point. This carries over the rule David set on #1475: live mode "may
   only allow the client SDK's own project hosts". Under this design those
   hosts are never refused, so live mode needs no allowance at all.
+- Amended 2026-11-06 ([#2304](https://github.com/davideast/pyric/issues/2304)):
+  the previous rule holds in the sandbox and in live mode with Admin off.
+  Admin is on in a live process when the live host passes `firebase-admin`
+  through (`pyricLive({ passThrough: ['firebase-admin'] })`, the stopgap) or
+  the Admin rows serve it. Then:
+  - **The token rule.** The choke point lets the token sources,
+    `storage.googleapis.com` and `www.googleapis.com/robot/v1/metadata/x509/*`
+    through only when the nearest caller is a file in the Admin SDK's load
+    closure: the files of `firebase-admin` and of the packages it loads. The
+    token sources are `oauth2.googleapis.com`, `iamcredentials.googleapis.com`,
+    the metadata server and gtoken's `www.googleapis.com/oauth2/v4/token`. From
+    the same files, `https.request` reaches the live row hosts, and sockets
+    reach the project's own Realtime Database hosts and the shard hosts its
+    connection moves to. Every other caller is still refused, and every other
+    Google host, FCM included, stays refused for every caller.
+  - **`@google-cloud/firestore` and `@google-cloud/storage`** load only from
+    `firebase-admin`'s own files. The app's own import of either still stops.
+  - **The credential scrub.** If decision 5's scrub of
+    `GOOGLE_APPLICATION_CREDENTIALS` lands, it skips live processes with Admin
+    on, because that credential is the one the process authenticates with.
+  - **Residual.** A dependency that the app and `firebase-admin` share in one
+    hoisted copy, such as google-auth-library or gaxios, is in the load closure
+    either way. So the app's own token request through that shared copy passes.
+    Using the token at a Google host outside the list above is still refused.
 - The rules-viewer credential the live-mode research gives pyric gets its
   token in the `pyric` launcher process. That process never installs the
   guard. A guarded process gets no exemption.
@@ -275,6 +305,8 @@ exchanges there, not at `oauth2.googleapis.com`.
 | #1488, every Google host after the tripwire, the Fonts exemption, escalation scope | Superseded. Only its manifest-name check carries over. David decides when to close it |
 | #1499, children inherit the narrower list | Mostly moot: the choke point is the same in every registered process. What's left is the child that isn't Node, which is listed as a residual. Close it with PR 2 |
 | #1442 and #1445, address forms, tunnels, workers | Kept. The choke point depends on them |
+| #2304, the stopgap (`passThrough: ['firebase-admin']` under `@pyric/live/register`) | Added by the 2026-11-06 amendment. The real Admin SDK loads with the process's own credential and its calls go to production unobserved. Its own files reach their token sources under decision 4's token rule |
+| #2304, the Admin rows | Added by the 2026-11-06 amendment. The register serves firebase-admin's Firestore, Storage, Realtime Database and Auth loads through row modules, so its calls show as production rows that bypass security rules. The guard rules are the stopgap's |
 | `GOOGLE_ENDPOINT_CATALOG` | Kept for `inlined-sdk-scanner.ts`, which greps built output for SDK fingerprints. The guard stops reading it, and the metadata entries move to the token list |
 | `PYRIC_GUARD_ALLOW`, the launcher's AI upstream allowance (`serve/ai-proxy.ts:196`), `permitGuardHost` | Nothing they permit is refused any more. Retired in PR 5 (decision 3) |
 
@@ -389,6 +421,19 @@ David accepted each recommendation above on 2026-10-28
    at the undici dispatcher and `http.ClientRequest`.
 7. Stop covers `@firebase/*` imported directly by app code, on the Node, Vite
    and Next server planes.
+
+### Amendment 2026-11-06: the Admin SDK in live mode
+
+The owner approved the order of the
+[#2304](https://github.com/davideast/pyric/issues/2304) work on 2026-11-06.
+Live mode could only run the browser half of a full-stack app, because a Node
+backend under `@pyric/live/register` that uses `firebase-admin` was refused.
+This amendment lets that backend use the real Admin SDK with the process's own
+credential: first unobserved (the stopgap), then observed as Admin rows. It
+changes the `firebase-admin` row of the table in decision 1, and decision 4
+gains the token rule, the `@google-cloud/*` rule and the credential-scrub
+exception. The sandbox is unchanged: a registered sandbox process still stops
+every real `firebase-admin` load and refuses every token source.
 
 ## Consequences
 

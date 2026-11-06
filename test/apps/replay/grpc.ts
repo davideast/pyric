@@ -244,7 +244,13 @@ function uidOf(state: ReplayState, call: DuplexCall): string | null {
   return state.tokens.uidOf(bearer);
 }
 
-/** Whether a call came from the Admin SDK in emulator mode, which always sends `Bearer owner`. */
+/**
+ * Whether a call came from the Admin SDK in emulator mode, which always sends
+ * `Bearer owner`. The header is all this reads, so a client SDK call that
+ * sends the same bearer (`connectFirestoreEmulator` with
+ * `mockUserToken: 'owner'`) also gets Admin answers. Any other bearer is
+ * refused before an Admin exchange is tried (`admin-auth.test.ts`).
+ */
 function isAdminCall(call: DuplexCall): boolean {
   return call.metadata.get('authorization')[0] === 'Bearer owner';
 }

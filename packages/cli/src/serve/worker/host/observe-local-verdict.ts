@@ -12,7 +12,9 @@
  * A call may carry its token's claim values (`request.auth.token`), the data
  * a Firestore write sent (`request.resource.data`) and the document a
  * Firestore read returned (`resource.data`); the host feeds them to the
- * simulator from memory and keeps them off the event. It never carries a
+ * simulator from memory and keeps them off the event, except as the scalar
+ * check values a Firestore verdict's trace holds, as a sandbox request's
+ * `rulesEvidence` does, with the account's email left out. It never carries a
  * `get()` or `exists()` document, an RTDB write's value or a query. A
  * verdict that rests on data the call did not carry is `unevaluated`,
  * naming what it needed, rather than a guess the local rules would not make
@@ -20,9 +22,10 @@
  * gets no verdict: the sandbox's stand-in rules are not the app's.
  */
 import { rtdbRules, type RtdbRulesJson } from 'pyric/rules';
-import { projectEvaluatedRule, type TestResult } from 'pyric/rules/internal';
+import { projectEvaluatedRule, type TestCase, type TestResult } from 'pyric/rules/internal';
 import { getActiveRules } from 'pyric/sandbox/database';
 import {
+  captureRulesEvidence,
   getInternalEnv,
   LOCKED_DATABASE_RULES,
   observedMethod,
@@ -37,13 +40,22 @@ type LocalVerdict = NonNullable<ObservedProduction['local']>;
 type Gap = Extract<LocalVerdict, { result: 'unevaluated' }>['needs'][number];
 type Decided = Extract<LocalVerdict, { result: 'allow' | 'deny' }>;
 type Rule = Decided['rule'];
+type Trace = NonNullable<Decided['trace']>;
+type TraceCheck = Trace['rules'][number]['checks'][number];
 
-/** One method's local answer: allowed or not, the deciding rule, and the data it needed. */
-interface Evaluation {
+/** One method's local answer: allowed or not, the deciding rule, the data it needed, and its evaluation trace. */
+export interface Evaluation {
   allowed: boolean;
   rule: Rule;
   needs: Gap[];
+  trace?: Trace;
 }
+
+/** The largest trace, as JSON, a verdict keeps; a larger one is dropped and the verdict kept. */
+const TRACE_LIMIT = 16 * 1024;
+
+/** The trace's rules version: the host's loaded rules, which a sandbox request's random id does not name. */
+const LOCAL_TRACE_VERSION = 'local-rules';
 
 /** The order a verdict lists its gaps in. */
 const GAP_ORDER: readonly Gap[] = ['stored-document', 'write-data', 'claim-values', 'query'];
@@ -51,6 +63,8 @@ const GAP_ORDER: readonly Gap[] = ['stored-document', 'write-data', 'claim-value
 /** The data one evaluation was given, which fills the gaps it would otherwise leave. */
 interface Given {
   claims: boolean;
+  /** Whether the claims keep the account's email; a captured call's never do. */
+  emails: boolean;
   writeData: boolean;
   document: boolean;
   /** Whether the write data is the whole document the write leaves, as a create's or a `setDoc`'s is and an `updateDoc`'s is not. */
@@ -64,6 +78,8 @@ const ALWAYS_OPEN = (): boolean => true;
 const RESOURCE_READ = /(?<![\w.])resource\b/;
 const LOOKUP = /\b(?:get|exists|getAfter|existsAfter)\s*\(/;
 const WRITE_READ = /\brequest\.resource\b/;
+/** A token's email claim, top level or among its sign-in identities. */
+const EMAIL_CLAIM = /\brequest\.auth\.token\.(?:email\b|firebase\.identities\b)/;
 
 /** What each gap looks like in an evaluated Firestore expression. */
 const FIRESTORE_GAPS: readonly GapPattern[] = [
@@ -73,6 +89,8 @@ const FIRESTORE_GAPS: readonly GapPattern[] = [
   // An update's incoming document merges the written fields onto the stored one.
   ['stored-document', WRITE_READ, (given) => given.writeData && !given.wholeWrite],
   ['claim-values', /\brequest\.auth\.token\b/, (given) => !given.claims],
+  // Emails are left out of the claims a call keeps.
+  ['claim-values', EMAIL_CLAIM, (given) => !given.emails],
   ['query', /\brequest\.query\b/, ALWAYS_OPEN],
 ];
 
@@ -109,6 +127,7 @@ function gapsIn(expressions: ReadonlyArray<string | undefined>, patterns: readon
 function givenBy(call: ObservedCall, method: ObservedMethod): Given {
   return {
     claims: call.account?.claims !== undefined,
+    emails: call.account?.claims?.email !== undefined,
     writeData: call.writeData !== undefined,
     document: call.document !== undefined,
     wholeWrite: method === 'create' || method === 'set',
@@ -120,16 +139,52 @@ function definedOnly<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
 }
 
+/** The email values the call's claims carry, top level or among its sign-in identities. */
+function emailsOf(call: ObservedCall): string[] {
+  const claims = call.account?.claims;
+  if (claims === undefined) return [];
+  const firebase = claims.firebase as { identities?: { email?: unknown } } | undefined;
+  const identityEmails = firebase?.identities?.email;
+  const listed = Array.isArray(identityEmails) ? identityEmails : [];
+  return [claims.email, ...listed].filter((value): value is string => typeof value === 'string' && value !== '');
+}
+
+/** A check with its value or error left out when it holds one of `emails`. */
+function checkWithoutEmail(check: TraceCheck, emails: string[]): TraceCheck {
+  let text: string | undefined;
+  if (check.state === 'value' && typeof check.value === 'string') text = check.value;
+  if (check.state === 'error') text = check.error;
+  const holdsEmail = text !== undefined && emails.some((email) => text.includes(email));
+  if (!holdsEmail) return check;
+  const { value: _value, error: _error, ...location } = check as TraceCheck & { value?: unknown; error?: unknown };
+  return { ...location, state: 'unavailable' };
+}
+
+/**
+ * The trace a verdict keeps: the evaluation's, with the account's email
+ * left out of every check, or `undefined` when it is larger than the cap.
+ */
+function keptTrace(call: ObservedCall, trace: Trace | undefined): Trace | undefined {
+  if (trace === undefined) return undefined;
+  const emails = emailsOf(call);
+  const rules = trace.rules.map((rule) => ({ ...rule, checks: rule.checks.map((check) => checkWithoutEmail(check, emails)) }));
+  const kept = { ...trace, rules };
+  const tooLarge = JSON.stringify(kept).length > TRACE_LIMIT;
+  return tooLarge ? undefined : kept;
+}
+
 /** An evaluation as a verdict: unevaluated when it needed data, else flagged as drift when it disagrees with production. */
 function verdictOf(call: ObservedCall, evaluation: Evaluation): LocalVerdict {
   if (evaluation.needs.length > 0) return { result: 'unevaluated', needs: evaluation.needs };
   const { allowed, rule } = evaluation;
   const production = productionVerdict(call.outcome);
   const disagrees = (production === 'ok' && !allowed) || (production === 'denied' && allowed);
+  const trace = keptTrace(call, evaluation.trace);
   return {
     result: allowed ? 'allow' : 'deny',
     ...(rule === undefined ? {} : { rule }),
     ...(disagrees ? { drift: true as const } : {}),
+    ...(trace === undefined ? {} : { trace }),
   };
 }
 
@@ -167,13 +222,22 @@ function hasAppFirestoreRules(ctx: HostCtx, source: string): boolean {
 }
 
 /**
- * One Firestore method through the deployed rules' cached parse, with the
- * claim values, write data and stored document the call carries, or
- * `undefined` when the simulator abstains.
+ * A Firestore rules simulator with its rules bound: the host's deployed
+ * rules' cached parse, or `pyric verify`'s candidate rules.
  */
-function evaluateFirestore(ctx: HostCtx, call: ObservedCall, path: string, method: Exclude<ObservedMethod, 'set'>, given: Given): Evaluation | undefined {
+export type FirestoreSimulate = (
+  cases: TestCase[],
+  lookups: { getDoc: (path: string) => null },
+) => { success: true; data: { results: TestResult[] } } | { success: false };
+
+/**
+ * One Firestore method through `simulate`, with the claim values, write
+ * data and stored document the call carries, or `undefined` when the
+ * simulator abstains.
+ */
+function evaluateFirestore(simulate: FirestoreSimulate, call: ObservedCall, path: string, method: Exclude<ObservedMethod, 'set'>, given: Given): Evaluation | undefined {
   let looked = false;
-  const simulated = getInternalEnv(ctx.sandbox).simulateDeployedRules(
+  const simulated = simulate(
     [{
       description: `${method} ${path}`,
       expectation: 'ALLOW',
@@ -192,7 +256,7 @@ function evaluateFirestore(ctx: HostCtx, call: ObservedCall, path: string, metho
   const needs = looked ? unionOf(['stored-document'], gaps) : gaps;
   const deciding = projectEvaluatedRule(result);
   const rule = deciding === undefined ? undefined : definedOnly({ line: deciding.line, expression: deciding.expression });
-  return { allowed, rule, needs };
+  return { allowed, rule, needs, trace: captureRulesEvidence(result, LOCAL_TRACE_VERSION) };
 }
 
 /**
@@ -200,11 +264,11 @@ function evaluateFirestore(ctx: HostCtx, call: ObservedCall, path: string, metho
  * is evaluated as both: one answer when they agree, else the data that
  * would tell them apart.
  */
-function evaluateSetDoc(ctx: HostCtx, call: ObservedCall, path: string): Evaluation | undefined {
+function evaluateSetDoc(simulate: FirestoreSimulate, call: ObservedCall, path: string): Evaluation | undefined {
   // Either way the written data is the whole document the set leaves.
   const given = givenBy(call, 'set');
-  const create = evaluateFirestore(ctx, call, path, 'create', given);
-  const update = evaluateFirestore(ctx, call, path, 'update', given);
+  const create = evaluateFirestore(simulate, call, path, 'create', given);
+  const update = evaluateFirestore(simulate, call, path, 'update', given);
   if (create === undefined || update === undefined) return undefined;
   const needs = unionOf(create.needs, update.needs);
   const agrees = create.allowed === update.allowed;
@@ -212,11 +276,24 @@ function evaluateSetDoc(ctx: HostCtx, call: ObservedCall, path: string): Evaluat
   return { ...create, needs: unionOf(['stored-document'], needs) };
 }
 
-function firestoreVerdict(ctx: HostCtx, call: ObservedCall, method: ObservedMethod): LocalVerdict | undefined {
-  const source = getInternalEnv(ctx.sandbox).getRules();
+/**
+ * One observed Firestore call through `simulate`: allowed or not, the
+ * deciding rule, and the data the answer needed that the call did not carry
+ * (an answer that needs any is not one the rules would give). `undefined`
+ * for a call with no path or one the simulator abstains on. `pyric verify`
+ * replays captured live calls through this with the candidate rules.
+ */
+export function evaluateFirestoreCall(simulate: FirestoreSimulate, call: ObservedCall, method: ObservedMethod): Evaluation | undefined {
   const path = call.path;
-  if (!hasAppFirestoreRules(ctx, source) || path === undefined) return undefined;
-  const evaluation = method === 'set' ? evaluateSetDoc(ctx, call, path) : evaluateFirestore(ctx, call, path, method, givenBy(call, method));
+  if (path === undefined) return undefined;
+  if (method === 'set') return evaluateSetDoc(simulate, call, path);
+  return evaluateFirestore(simulate, call, path, method, givenBy(call, method));
+}
+
+function firestoreVerdict(ctx: HostCtx, call: ObservedCall, method: ObservedMethod): LocalVerdict | undefined {
+  const env = getInternalEnv(ctx.sandbox);
+  if (!hasAppFirestoreRules(ctx, env.getRules())) return undefined;
+  const evaluation = evaluateFirestoreCall((cases, lookups) => env.simulateDeployedRules(cases, lookups), call, method);
   return evaluation === undefined ? undefined : verdictOf(call, evaluation);
 }
 

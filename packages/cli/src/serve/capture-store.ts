@@ -15,8 +15,41 @@
  * (.pyric/state/…) so it fits the same .gitignore pattern and feels like
  * one artifact family.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+
+/** The `.gitignore` line the capture step adds. */
+const PYRIC_IGNORE_LINE = '.pyric/';
+
+/** A `.gitignore` line that already ignores `.pyric/`. */
+const IGNORES_PYRIC = /^\/?\.pyric\/?(?:\*\*?)?$/;
+
+/** The app's `.gitignore`, or an empty one when it has none. */
+function readGitignore(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Make sure the app's `.gitignore` ignores `.pyric/`, creating the file when
+ * absent: a capture holds live calls' claim values and documents, which
+ * must never reach a commit. Never throws: a read-only project still captures.
+ */
+function ensureGitignored(projectDir: string): void {
+  const path = join(projectDir, '.gitignore');
+  const text = readGitignore(path);
+  const isIgnored = text.split(/\r?\n/).some((line) => IGNORES_PYRIC.test(line.trim()));
+  if (isIgnored) return;
+  const separator = text === '' || text.endsWith('\n') ? '' : '\n';
+  try {
+    appendFileSync(path, `${separator}${PYRIC_IGNORE_LINE}\n`);
+  } catch {
+    // An unwritable .gitignore leaves the capture as it is.
+  }
+}
 
 /**
  * Relative path (from project root) where the serve capture lives.
@@ -54,11 +87,15 @@ export interface CaptureStore {
  */
 export function createCaptureStore(projectDir: string): CaptureStore {
   const path = join(projectDir, CAPTURE_RELATIVE_PATH);
+  let isIgnored = false;
   return {
     path,
     write(fixtureJson: string): void {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, fixtureJson);
+      if (isIgnored) return;
+      ensureGitignored(projectDir);
+      isIgnored = true;
     },
     read(): string | null {
       try {
