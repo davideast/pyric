@@ -17,10 +17,16 @@
 // A WebSocket upgrade on `/.ws` is an RTDB connection, the URL
 // `connectDatabaseEmulator` builds: its `ns` names the instance, and
 // `rtdb.ts` answers it from the same recordings.
+//
+// With `ai`, a POST to `/v1beta/projects/<project>/models/<model>:<task>`,
+// the path the `firebase/ai` SDK builds from a model's `baseUrl`, is AI
+// Logic's, answered from the committed observations (`ai.ts`). Its CORS
+// preflight is answered like every other.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
+import { aiCallOf, answerAi, type AiReceived } from './ai.ts';
 import { answerAuth, AUTH_HOSTS, parseRestBody } from './auth.ts';
 import type { Recording } from './format.ts';
 import { ListenStream, ReplayState, WriteStream, type Received, type Unmatched } from './firestore.ts';
@@ -44,12 +50,16 @@ export interface ReplayServer {
   grpc: GrpcReplay | null;
   /** Every RTDB connection in the order it opened, with each frame the server sent on it. */
   rtdb: RtdbLog[];
+  /** Every AI Logic call the server answered, in arrival order. Empty without `ai`. */
+  ai: AiReceived[];
   close(): Promise<void>;
 }
 
 export interface ReplayOptions {
   /** Also answer Firestore over gRPC, with the `@grpc/grpc-js` and protos of the SDK installed in `projectDir`. */
   grpc?: { projectDir: string };
+  /** Also answer AI Logic's generateContent, streamGenerateContent and countTokens (`ai.ts`). */
+  ai?: boolean;
 }
 
 /** Where a request was meant to go. */
@@ -75,8 +85,9 @@ export async function startReplayServer(recordings: Recording[], options: Replay
   const sessions = new Map<string, WebChannelSession>();
   const sockets = new Set<ServerSocket>();
   const rtdb = new RtdbShared();
+  const ai: AiReceived[] | null = options.ai ? [] : null;
   const server = createServer((request, response) => {
-    void handle(state, rtdb, sessions, request, response).catch((error: unknown) => {
+    void handle(state, rtdb, ai, sessions, request, response).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'text/plain' });
       response.end(`pyric replay: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -92,6 +103,7 @@ export async function startReplayServer(recordings: Recording[], options: Replay
     received: state.received,
     grpc,
     rtdb: rtdb.connections,
+    ai: ai ?? [],
     close: async () => {
       grpc?.close();
       for (const socket of sockets) socket.terminate();
@@ -108,7 +120,7 @@ async function closeServer(server: Server, sessions: Map<string, WebChannelSessi
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
-async function handle(state: ReplayState, rtdb: RtdbShared, sessions: Map<string, WebChannelSession>, request: IncomingMessage, response: ServerResponse): Promise<void> {
+async function handle(state: ReplayState, rtdb: RtdbShared, ai: AiReceived[] | null, sessions: Map<string, WebChannelSession>, request: IncomingMessage, response: ServerResponse): Promise<void> {
   allowCrossOrigin(request, response);
   if (request.method === 'OPTIONS') {
     response.writeHead(204);
@@ -118,11 +130,13 @@ async function handle(state: ReplayState, rtdb: RtdbShared, sessions: Map<string
   const report = REPORTS[request.url ?? ''];
   if (request.method === 'GET' && report) {
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-    response.end(JSON.stringify(report(state, rtdb)));
+    response.end(JSON.stringify(report(state, rtdb, ai ?? [])));
     return;
   }
   const route = routeOf(request);
   const body = await readBody(request);
+  const aiCall = ai && request.method === 'POST' ? aiCallOf(request.url ?? '') : null;
+  if (aiCall) return answerAiCall(ai!, aiCall, request, response);
   if (route?.host === FIRESTORE_HOST) return channel(state, sessions, route, request, response, body);
   if (route) {
     const answer = answerAuth(state, { method: request.method ?? 'GET', host: route.host, path: route.path, body: parseRestBody(body) });
@@ -138,12 +152,22 @@ async function handle(state: ReplayState, rtdb: RtdbShared, sessions: Map<string
 /**
  * What the server saw, for a caller in another process (`serve.ts`,
  * `process.ts`). `received` lists the Firestore and Auth requests in arrival
- * order, then the RTDB frames in arrival order.
+ * order, then the RTDB frames in arrival order, then the AI Logic calls in
+ * arrival order.
  */
-const REPORTS: Record<string, (state: ReplayState, rtdb: RtdbShared) => Array<Received | RtdbReceived> | Unmatched[]> = {
-  '/__replay/received': (state, rtdb) => [...state.received, ...rtdb.received],
+const REPORTS: Record<string, (state: ReplayState, rtdb: RtdbShared, ai: AiReceived[]) => Array<Received | RtdbReceived | AiReceived> | Unmatched[]> = {
+  '/__replay/received': (state, rtdb, ai) => [...state.received, ...rtdb.received, ...ai],
   '/__replay/unmatched': (state) => state.unmatched,
 };
+
+function answerAiCall(log: AiReceived[], call: NonNullable<ReturnType<typeof aiCallOf>>, request: IncomingMessage, response: ServerResponse): void {
+  const appCheck = Boolean(request.headers['x-firebase-appcheck']);
+  log.push({ rpc: 'ai', as: null, message: { ...call, appCheck } });
+  const answer = answerAi(call.task, call.model, appCheck);
+  const type = answer.kind === 'sse' ? 'text/event-stream' : 'application/json; charset=utf-8';
+  response.writeHead(answer.status, { 'content-type': type });
+  response.end(answer.kind === 'sse' ? answer.body : JSON.stringify(answer.body));
+}
 
 const CHANNEL_PATH = /^\/google\.firestore\.v1\.Firestore\/(Listen|Write)\/channel$/;
 
