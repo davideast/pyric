@@ -41,7 +41,9 @@ export interface LiveHostStatus {
   readonly billed: BilledCallCount;
   /**
    * The `firebase/*` imports the app's installed SDK serves unwrapped, with no
-   * row and no observer (`pyricLive({ passThrough })`). Absent when there are none.
+   * row and no observer, and `firebase-admin` when a Node process under the
+   * live register loads the real Admin SDK (`pyricLive({ passThrough })`).
+   * Absent when there are none.
    */
   readonly passThrough?: readonly string[];
   /**
@@ -73,11 +75,17 @@ export function liveMismatchLine(status: Pick<LiveHostStatus, 'appProjectIds' | 
   return `Your Firebase config says ${status.appProjectIds.join(', ')}; ${status.configSource} says ${status.configProjectId}.`;
 }
 
+/** The Admin SDK, which passes through only to a Node process under the live register. */
+const ADMIN_SDK = 'firebase-admin';
+
 /**
  * The start line for one passed-through import: `firebase/functions passes
  * through to production: its calls are not observed and still bill.`
  */
 export function livePassThroughLine(specifier: string): string {
+  if (specifier === ADMIN_SDK) {
+    return `${specifier} passes through to production: its calls are not observed, bypass security rules and still bill.`;
+  }
   return `${specifier} passes through to production: its calls are not observed and still bill.`;
 }
 
@@ -111,14 +119,25 @@ function readProjects(value: unknown): string[] | null {
 
 const FIREBASE_IMPORT = /^firebase\/[a-z-]+(?:\/[a-z-]+)*$/;
 
+/** An observed import: a `firebase/*` import the app resolved to a live row. */
 function isFirebaseImport(value: unknown): value is string {
   return typeof value === 'string' && FIREBASE_IMPORT.test(value);
 }
 
-/** A list of `firebase/*` imports: absent stays absent, and anything but such a list is malformed. */
-function readImports<K extends 'passThrough' | 'observed'>(field: K, value: unknown): Partial<Record<K, string[]>> | null {
+/** A passed-through import: a `firebase/*` import, or `firebase-admin` itself. */
+function isPassThroughImport(value: unknown): value is string {
+  const isAdmin = value === ADMIN_SDK;
+  return isAdmin || isFirebaseImport(value);
+}
+
+/** A list of imports: absent stays absent, and anything but a list `isImport` accepts is malformed. */
+function readImports<K extends 'passThrough' | 'observed'>(
+  field: K,
+  value: unknown,
+  isImport: (entry: unknown) => entry is string,
+): Partial<Record<K, string[]>> | null {
   if (value === undefined) return {};
-  const isList = Array.isArray(value) && value.every(isFirebaseImport);
+  const isList = Array.isArray(value) && value.every(isImport);
   return isList ? ({ [field]: [...(value as string[])] } as Partial<Record<K, string[]>>) : null;
 }
 
@@ -134,8 +153,8 @@ export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const configSource: unknown = Reflect.get(live, 'configSource');
   const appProjectIds = readProjects(Reflect.get(live, 'appProjectIds'));
   const billed = readCount(Reflect.get(live, 'billed'));
-  const passThrough = readImports('passThrough', Reflect.get(live, 'passThrough'));
-  const observed = readImports('observed', Reflect.get(live, 'observed'));
+  const passThrough = readImports('passThrough', Reflect.get(live, 'passThrough'), isPassThroughImport);
+  const observed = readImports('observed', Reflect.get(live, 'observed'), isFirebaseImport);
   const hasFields = isProjectName(projectId) && isProjectName(configProjectId) && isProjectName(configSource);
   const hasLists = appProjectIds !== null && billed !== null && passThrough !== null && observed !== null;
   if (!hasFields || !hasLists) return null;
