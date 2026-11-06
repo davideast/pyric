@@ -6,6 +6,7 @@ import { getServiceWorkerFirestore } from '../worker/client/service-worker-conne
 import { ownClientUntilPagehide } from '../worker/client/pagehide.js';
 import { disconnectClient } from '../worker/client/disconnect.js';
 import { isServiceWorkerRealm } from '../worker/service-worker-channel.js';
+import { SERVICE_WORKER_TAB_ID } from '../worker/host/caller.js';
 import { PYRIC_WORKER_URL } from '../runtime/manifest.js';
 import { workerNameForEpoch } from '../runtime/worker-generation.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
@@ -51,7 +52,9 @@ export async function messagingSwClient(app: FirebaseApp): Promise<ClientDb | nu
         await lifecycle.disconnect();
       });
     }
-    client.port.postMessage({ t: 'appConfig', options: { ...app.options } });
+    // A service worker has no tab; it declares its realm, so its rows read "Service worker".
+    const tabId = isServiceWorkerRealm() ? SERVICE_WORKER_TAB_ID : undefined;
+    client.port.postMessage({ t: 'appConfig', options: { ...app.options }, tabId });
     return client;
   } finally { release(); }
 }
