@@ -128,6 +128,23 @@ export function hostingOffLine(hasFirebaseJson: boolean): string {
   return '• hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.';
 }
 
+/**
+ * The startup line for Storage buckets firebase.json deploys no rules to. A
+ * bucket with no rules is locked, as production creates one, or open under
+ * permissive mode, as an RTDB instance without rules is (#1313).
+ */
+export function undeployedStorageLine(hasNoStorageRules: boolean, policy: 'allow' | 'deny'): string {
+  const isOpen = policy === 'allow';
+  if (hasNoStorageRules) {
+    return isOpen
+      ? '• rules    no storage.rules — storage sandbox allows client operations (permissive mode)'
+      : '• rules    no storage.rules — storage sandbox denies client operations by default';
+  }
+  return isOpen
+    ? '• rules    any other Storage bucket allows every client operation (permissive mode) until firebase.json deploys rules to it'
+    : '• rules    any other Storage bucket denies every client operation until firebase.json deploys rules to it';
+}
+
 /** firebase.json's SPA idiom: a `**` rewrite to /index.html. */
 export function wantsSpaRewrite(hosting: HostingConfig | null): boolean {
   return (hosting?.rewrites ?? []).some(
@@ -818,12 +835,7 @@ async function startServeRuntime(opts: {
     logger.info(`✔ rules    ${loaded.sourcePath} → deployed to Storage bucket ${loaded.bucket} (hash ${loaded.hash})`);
   }
   const hasNoStorageRules = !hasStorageRules && storageBuckets.length === 0;
-  if (hasNoStorageRules) {
-    logger.info('• rules    no storage.rules — storage sandbox denies client operations by default');
-  } else {
-    // A bucket firebase.json deploys nothing to is locked, as production creates one (#1313).
-    logger.info('• rules    any other Storage bucket denies every client operation until firebase.json deploys rules to it');
-  }
+  logger.info(undeployedStorageLine(hasNoStorageRules, opts.permissive ? 'allow' : 'deny'));
   const hasStudioUrl = uiUrl !== null;
   if (hasStudioUrl) {
     logger.info(`✔ studio   Pyric Studio: ${uiUrl}`);

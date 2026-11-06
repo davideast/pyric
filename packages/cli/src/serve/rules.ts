@@ -365,7 +365,7 @@ export interface StorageRulesTarget {
   configured: boolean;
 }
 
-/** A Storage deploy target no `.firebaserc` mapping resolved at startup. Its buckets stay locked. */
+/** A Storage deploy target no `.firebaserc` mapping resolved at startup. Its buckets stay locked, or open in permissive mode. */
 export interface PendingStorageRulesTarget {
   target: string;
   label: string;

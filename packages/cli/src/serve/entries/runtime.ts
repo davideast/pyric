@@ -183,7 +183,7 @@ if (!useWorker) try {
   // issue #359) — a lazy first open from app code would land on the legacy
   // shared database. `projectKey` is absent on older servers → legacy name.
   // Each bucket firebase.json names gets its own rules, and a bucket nothing
-  // deploys to is locked (#1313).
+  // deploys to is locked (#1313), or open in permissive mode.
   for (const notice of installServedStorageRules(sandbox, payload)) console.info(`[pyric sandbox] ${notice}`);
   // Rules deployed only by bucket name count as deployed, as the worker
   // plane counts them (serve-init.ts).
