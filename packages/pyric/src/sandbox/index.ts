@@ -40,6 +40,7 @@ export type {
   ObservedCall,
   ObservedCallService,
   ObservedProduction,
+  ObservedUsage,
   ProductionOutcome,
   PersistableService,
   RequestEvent,
