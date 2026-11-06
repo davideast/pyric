@@ -58,7 +58,7 @@ type DevServer = Parameters<ConfigureServerHook>[0];
 export type PyricLiveOptions = Omit<PyricOptions, 'hosted' | 'swapInBuild'> & {
   /**
    * Firebase imports live mode does not serve, such as `firebase/functions`
-   * or `firebase/messaging`, that load the app's installed SDK unwrapped. Their
+   * or `firebase/remote-config`, that load the app's installed SDK unwrapped. Their
    * calls go to production unobserved and still bill. Listing an import live
    * mode serves, `firebase-admin` or an `@firebase/*` package stops the dev
    * server at start.
