@@ -1,19 +1,21 @@
 /**
  * The page plane's observer: each live record of a Firestore, Auth, Realtime
- * Database or AI Logic call becomes the observed call the Node host writes to
- * its event stream, with production's answer. Records of `firebase/app` and
- * `firebase/app-check` calls stay in the page: the host's observed calls name
- * Firestore, Auth, RTDB and AI Logic only. A call that returned synchronously, such as
- * a listener's subscribe, has no production answer and is not sent. A call
- * that ran signed in names its account: the uid and claim names, never the
- * token. An RTDB call also names its instance and path, and an AI Logic call
- * its model and production's token counts.
+ * Database, AI Logic or Cloud Storage call becomes the observed call the Node
+ * host writes to its event stream, with production's answer. Records of
+ * `firebase/app` and `firebase/app-check` calls stay in the page: the host's
+ * observed calls name Firestore, Auth, RTDB, AI Logic and Storage only. A
+ * call that returned synchronously, such as a listener's subscribe, has no
+ * production answer and is not sent. A call that ran signed in names its
+ * account: the uid and claim names, never the token. An RTDB call also names
+ * its instance and path, an AI Logic call its model and production's token
+ * counts, and a Storage call its bucket and, below the root, its path.
  *
  * Loaded in the page, so it imports only types from `@pyric/cli`.
  */
 import type { ObservedCall, ObservedCallService, ProductionOutcome } from '@pyric/cli/vite/internal/supplied-rows';
 import { UNREAD_MODEL } from './ai.js';
 import { UNREAD_INSTANCE } from './database.js';
+import { UNREAD_BUCKET } from './storage.js';
 import type { LiveCallOutcome, LiveCallRecord, LiveObserver } from './observe.js';
 
 const SERVICES: ReadonlyMap<string, ObservedCallService> = new Map<string, ObservedCallService>([
@@ -21,6 +23,7 @@ const SERVICES: ReadonlyMap<string, ObservedCallService> = new Map<string, Obser
   ['firebase/auth', 'auth'],
   ['firebase/database', 'rtdb'],
   ['firebase/ai', 'ai'],
+  ['firebase/storage', 'storage'],
 ]);
 
 const ANSWERED: ReadonlySet<LiveCallOutcome> = new Set(['resolved', 'delivered']);
@@ -43,14 +46,18 @@ function accountOf(record: LiveCallRecord): Pick<ObservedCall, 'account'> {
 }
 
 /**
- * The record's instance and path, as the host takes them. The host requires
- * an instance on every RTDB call, so an RTDB record without one names the
- * unread instance rather than drop out of Traffic.
+ * The record's instance, bucket and path, as the host takes them. The host
+ * requires an instance on every RTDB call and a bucket on every Storage call,
+ * so an RTDB record without an instance names the unread instance, and a
+ * Storage record without a bucket the unread bucket, rather than drop out of
+ * Traffic.
  */
-function placeOf(service: ObservedCallService, record: LiveCallRecord): Pick<ObservedCall, 'instance' | 'path'> {
-  const named = record.instance ?? (service === 'rtdb' ? UNREAD_INSTANCE : undefined);
-  const instance = named === undefined ? {} : { instance: named };
-  return record.path === undefined ? instance : { ...instance, path: record.path };
+function placeOf(service: ObservedCallService, record: LiveCallRecord): Pick<ObservedCall, 'instance' | 'bucket' | 'path'> {
+  const namedInstance = record.instance ?? (service === 'rtdb' ? UNREAD_INSTANCE : undefined);
+  const namedBucket = record.bucket ?? (service === 'storage' ? UNREAD_BUCKET : undefined);
+  const instance = namedInstance === undefined ? {} : { instance: namedInstance };
+  const bucket = namedBucket === undefined ? instance : { ...instance, bucket: namedBucket };
+  return record.path === undefined ? bucket : { ...bucket, path: record.path };
 }
 
 /**

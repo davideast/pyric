@@ -367,8 +367,12 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
     case 'literal':
       return expr.value;
     case 'ident': {
-      // Local (param / let) bindings win over globals and path params.
+      // Local (param / let) bindings win over path params, and path params
+      // win over the globals: production reads `request` under
+      // `match /pt/{request}` as the wildcard, as the Firestore simulator
+      // does (capture st3-wildcard-shadows-global, #1886).
       if (Object.hasOwn(ctx.locals, expr.name)) return ctx.locals[expr.name];
+      if (Object.hasOwn(ctx.params, expr.name)) return ctx.params[expr.name];
       if (ctx.scopeKind !== 'global') {
         if (expr.name === 'request') return buildRequestObject(ctx.input, ctx.now);
         // Production exposes no usable `resource` value when the target object
@@ -380,7 +384,6 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
             : buildResourceObject(ctx.input.resource);
         }
       }
-      if (Object.hasOwn(ctx.params, expr.name)) return ctx.params[expr.name];
       return new RuleError(`Identifier ${expr.name} is undefined.`);
     }
     case 'member': {

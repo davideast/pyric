@@ -12,7 +12,8 @@
  * - Realtime Database's hosts, which the live database row's SDK reaches,
  *   pass with no list, but only from a file of the installed SDK;
  * - AI Logic's host is a live row host: it passes with no list, a `fetch` to
- *   it only from a file of the installed SDK, and no import passes it through.
+ *   it only from a file of the installed SDK, and no import passes it through;
+ * - so is Cloud Storage's, which the Storage row's SDK reaches with `fetch`.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -162,7 +163,7 @@ describe('the network guard for a passed-through import', () => {
     const hosts = passThroughHosts(['firebase/functions']);
     const fromAnyFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => true });
     expect(fromAnyFile(FUNCTIONS_HOST, '/')).toBeNull();
-    expect(fromAnyFile('firebasestorage.googleapis.com', '/')).not.toBeNull();
+    expect(fromAnyFile('fcmregistrations.googleapis.com', '/')).not.toBeNull();
     const fromNoSdkFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => false });
     expect(fromNoSdkFile(FUNCTIONS_HOST, '/')?.reason).toContain('only the installed SDK of an import that passes through');
     expect(liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => true })(FUNCTIONS_HOST, '/')).not.toBeNull();
@@ -340,6 +341,7 @@ describe('the network guard for the AI Logic host, with no list', () => {
       const refusal = seams.logged.find((line) => line.includes(`BLOCK ${AI_LOGIC_HOST}`)) ?? '';
       expect(seams.sent).toEqual(['https.request refused']);
       expect(refusal).toContain('in live mode only the installed AI Logic SDK, firebase/ai, reaches this host');
+      expect(refusal).toContain('the Live API WebSocket, which @pyric/live refuses at the factory');
       expect(refusal).toContain('Make the call through firebase/ai, or from a process without @pyric/live/register');
       expect(refusal).not.toContain('firebase/firestore');
     } finally {
@@ -354,6 +356,41 @@ describe('the network guard for the AI Logic host, with no list', () => {
       const refusal = seams.logged.find((line) => line.includes('BLOCK firestore.googleapis.com')) ?? '';
       expect(refusal).toContain('Make the call through firebase/auth, firebase/firestore or firebase/app-check, so pyric observes it');
       expect(refusal).not.toContain('firebase/ai');
+    } finally {
+      seams.stop();
+    }
+  });
+});
+
+const STORAGE_HOST = 'firebasestorage.googleapis.com';
+const STORAGE_OBJECT = `https://${STORAGE_HOST}/v0/b/demo.firebasestorage.app/o/a.bin`;
+
+describe('the network guard for the Cloud Storage host, with no list', () => {
+  test('passes it as a live row host', () => {
+    expect(liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => true })(STORAGE_HOST, '/')).toBeNull();
+    expect(liveEgressRule()(STORAGE_HOST, '/')).toBeNull();
+  });
+
+  test("lets a fetch out from a file the stop let load, and refuses the app's own fetch", async () => {
+    const seams = guardedSeams((url) => url === sdkUrl);
+    try {
+      const sdk = (await import(sdkUrl)) as StandInSdk;
+      await sdk.sdkFetch(seams.fetchScope, STORAGE_OBJECT);
+      const fromApp = await seams.fetchScope.fetch(STORAGE_OBJECT).then(() => 'sent', (error: Error) => error.message);
+      expect({ fromApp, sent: seams.sent }).toEqual({ fromApp: 'fetch failed', sent: ['fetch'] });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test('refuses an https.request, naming firebase/storage as the way to make the call', () => {
+    const seams = guardedSeams(() => true);
+    try {
+      seams.httpsRequest(STORAGE_HOST);
+      const refusal = seams.logged.find((line) => line.includes(`BLOCK ${STORAGE_HOST}`)) ?? '';
+      expect(seams.sent).toEqual(['https.request refused']);
+      expect(refusal).toContain('Make the call through firebase/storage, or from a process without @pyric/live/register');
+      expect(refusal).not.toContain('firebase/firestore');
     } finally {
       seams.stop();
     }

@@ -10,8 +10,8 @@
  *
  * - a token source (`../google-token-endpoints.ts`) is refused, as the
  *   register's guard refuses it;
- * - a host the Firestore, Auth, App Check and AI Logic SDKs reach
- *   ({@link LIVE_ROW_HOSTS}) passes;
+ * - a host the Firestore, Auth, App Check, AI Logic and Cloud Storage SDKs
+ *   reach ({@link LIVE_ROW_HOSTS}) passes;
  * - a Realtime Database host ({@link DATABASE_ROW_HOSTS}), which the database
  *   row's SDK reaches, and a host of an import the register passes through
  *   ({@link passThroughHosts}), such as `firebase/functions`'s, pass only
@@ -37,6 +37,11 @@
  * Firestore reaches Google over gRPC, on HTTP/2, and Realtime Database over a
  * WebSocket on `tls.connect`. Only a `CONNECT` through a proxy, which gRPC
  * sends to tunnel to its host, passes.
+ *
+ * The socket seams pass a live row host from any caller, so a `WebSocket`
+ * to one is not backstopped here. The one an SDK opens is the AI Live API's
+ * (`wss://firebasevertexai.googleapis.com/...`, from `@firebase/ai`), and
+ * `@pyric/live` refuses the Live API at its factory, before that socket opens.
  *
  * Firestore's gRPC sockets open later than the call that asked for them, so
  * the socket seams decide by host, and a gRPC client the app loads itself
@@ -72,9 +77,13 @@ import {
 import { nodeAgentPrototypes, nodeClientRequestPrototypes } from './connect-prototypes.js';
 import { INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
 
+/** Cloud Storage's host, which the Storage row's SDK and a passed-through `firebase/storage` reach. */
+const STORAGE_HOST = 'firebasestorage.googleapis.com';
+
 /**
  * The hosts the live rows' SDK reaches in Node by host: Firestore, Auth, its
- * token refresh, App Check, and AI Logic, which the AI row's `firebase/ai`
+ * token refresh, App Check, AI Logic, which the AI row's `firebase/ai` calls
+ * with `fetch`, and Cloud Storage, which the Storage row's `firebase/storage`
  * calls with `fetch`.
  */
 export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
@@ -83,6 +92,7 @@ export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
   'securetoken.googleapis.com',
   'content-firebaseappcheck.googleapis.com',
   FIREBASE_AI_LOGIC_HOST,
+  STORAGE_HOST,
 ]);
 
 /**
@@ -107,7 +117,7 @@ const MESSAGING_HOSTS = ['fcmregistrations.googleapis.com', INSTALLATIONS_HOST];
  * Installations ID. Its calls go to production unobserved, as the app asked.
  */
 const PASS_THROUGH_HOSTS: Readonly<Record<string, readonly string[]>> = {
-  'firebase/storage': ['firebasestorage.googleapis.com'],
+  'firebase/storage': [STORAGE_HOST],
   'firebase/functions': ['cloudfunctions.net'],
   'firebase/messaging': MESSAGING_HOSTS,
   'firebase/messaging/sw': MESSAGING_HOSTS,
@@ -142,9 +152,14 @@ const LIVE_REQUEST_REASON = "in live mode only the installed Firebase SDK, wrapp
 const LIVE_REQUEST_REMEDY = 'Make the call through firebase/auth, firebase/firestore or firebase/app-check, ' +
   'so pyric observes it, or from a process without @pyric/live/register';
 const AI_REQUEST_REASON = 'in live mode only the installed AI Logic SDK, firebase/ai, reaches this host, ' +
-  'and it calls fetch, never http.request';
+  'and it calls fetch, never http.request; its one other path is the Live API WebSocket, ' +
+  'which @pyric/live refuses at the factory';
 /** For a request to the AI Logic host, which only `firebase/ai`'s SDK reaches. */
 const AI_REQUEST_REMEDY = 'Make the call through firebase/ai, or from a process without @pyric/live/register';
+const STORAGE_REQUEST_REASON = 'in live mode only the installed Cloud Storage SDK, firebase/storage, reaches this host, ' +
+  'and it calls fetch, never http.request';
+/** For a request to the Cloud Storage host, which only `firebase/storage`'s SDK reaches. */
+const STORAGE_REQUEST_REMEDY = 'Make the call through firebase/storage, or from a process without @pyric/live/register';
 const PASSED_REASON = 'in live mode only the installed SDK of an import that passes through reaches this host, ' +
   'from its own files, and pyric does not observe it';
 const PASSED_REQUEST_REASON = `${PASSED_REASON}; that SDK never sends an http.request`;
@@ -400,6 +415,9 @@ function liveRowRequestVerdict(request: RequestLike, passed: PassedThrough): Egr
   const service = googleServiceOf(host) ?? 'Google APIs';
   if (host === FIREBASE_AI_LOGIC_HOST) {
     return { verdict: 'block', permitted: false, host, service, reason: AI_REQUEST_REASON, remedy: AI_REQUEST_REMEDY };
+  }
+  if (host === STORAGE_HOST) {
+    return { verdict: 'block', permitted: false, host, service, reason: STORAGE_REQUEST_REASON, remedy: STORAGE_REQUEST_REMEDY };
   }
   if (LIVE_ROW_HOSTS.has(host)) {
     return { verdict: 'block', permitted: false, host, service, reason: LIVE_REQUEST_REASON, remedy: LIVE_REQUEST_REMEDY };

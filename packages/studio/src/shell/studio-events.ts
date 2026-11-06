@@ -17,6 +17,7 @@ import type {
   SandboxOperationEvent,
 } from 'pyric/sandbox';
 import { activeListeners, isOperationEvent, toOperationRecord } from 'pyric/sandbox';
+import { storageGsPath } from 'pyric/sandbox/internal';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { foldSessionEventLog } from '../events/fold.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
@@ -197,9 +198,9 @@ function toTrafficEvent(
   if (e.path !== undefined) {
     pathVal = e.path;
   }
-  const bucket = storageBucket(e);
-  if (bucket !== undefined) {
-    pathVal = bucketPath(bucket, e.path);
+  const gsPath = storageGsPath(e, e.path);
+  if (gsPath !== undefined) {
+    pathVal = gsPath;
   }
   let reasonsVal: string[] = [];
   if (e.reasons !== undefined) {
@@ -229,31 +230,6 @@ function toTrafficEvent(
     ...callerOf(e),
     ...(e.kind === 'operation' && e.production !== undefined ? { production: e.production } : {}),
   };
-}
-
-function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === 'string' && value !== '' ? value : undefined;
-}
-
-/**
- * The bucket a Storage operation names, sandbox or production. The sandbox
- * keeps its store key (`pyric-default`) in `detail.bucket` and the app's name
- * for the bucket in `detail.bucketName`; production sends only `bucket`.
- */
-function storageBucket(e: SandboxEvent): string | undefined {
-  const isStorageOperation = e.kind === 'operation' && e.service === 'storage';
-  if (!isStorageOperation) return undefined;
-  const detail = e.detail;
-  return nonEmptyString(detail?.bucketName) ?? nonEmptyString(detail?.bucket);
-}
-
-/**
- * A Storage row's path, as the StoragePane shows an object:
- * `gs://<bucket>/<path>`, and `gs://<bucket>/` for the bucket's root.
- */
-function bucketPath(bucket: string, path: string | undefined): string {
-  const objectPath = (path ?? '').replace(/^\/+/, '');
-  return `gs://${bucket}/${objectPath}`;
 }
 
 /** The caller field to carry onto an adapted event, when the host stamped one. */
