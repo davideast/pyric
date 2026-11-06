@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'bun:test';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { REAL_SDK_STOPPED_CODE, createStopReporter, stopFor, type ResolvedLoad } from '../../src/register/swap-or-stop.js';
+import { REAL_SDK_STOPPED_CODE, createStopReporter, stopFor, suppliedRowsStopFor, type ResolvedLoad } from '../../src/register/swap-or-stop.js';
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const SHADOW_IMPORTER = pathToFileURL(join(cliRoot, 'src/register/app-bridge-shadow.ts')).href;
@@ -217,6 +217,26 @@ describe('stopFor: the client SDK', () => {
 
   it('still stops other @firebase/* packages in production AI mode', () => {
     expect(stopFor(load({ url: AT_FIRESTORE_FILE, aiMode: 'production' }), noneAllowed())).not.toBeNull();
+  });
+});
+
+describe('suppliedRowsStopFor: @firebase/ai under live rows', () => {
+  const fromAllowedFile = { isRowImport: false, isEsmImport: true };
+
+  it("lets an allowed firebase/ai file's ESM import load @firebase/ai, as a live row's would", () => {
+    const allowed = new Set([FIREBASE_AI_FILE]);
+    const atAi = load({ specifier: '@firebase/ai', url: AT_AI_FILE, importer: FIREBASE_AI_FILE });
+    expect(suppliedRowsStopFor(atAi, allowed, fromAllowedFile)).toBeNull();
+    expect(allowed.has(AT_AI_FILE)).toBe(true);
+  });
+
+  it('still stops an app file importing @firebase/ai, by ESM import or require()', () => {
+    const fromApp = load({ specifier: '@firebase/ai', url: AT_AI_FILE });
+    const stop = suppliedRowsStopFor(fromApp, new Set([FIREBASE_AI_FILE]), fromAllowedFile);
+    expect((stop as Error & { code?: string } | null)?.code).toBe(REAL_SDK_STOPPED_CODE);
+    expect(stop?.message).toContain('@pyric/live/register: stopped loading');
+    const required = load({ specifier: '@firebase/ai', url: AT_AI_FILE, importer: FIREBASE_AI_FILE });
+    expect(suppliedRowsStopFor(required, new Set([FIREBASE_AI_FILE]), { isRowImport: false, isEsmImport: false })).not.toBeNull();
   });
 });
 
