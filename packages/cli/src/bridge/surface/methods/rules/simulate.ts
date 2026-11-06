@@ -9,11 +9,13 @@
  */
 import { z } from 'zod';
 import {
+  bucket,
   cases,
   checkDatabaseInstance,
   checkOneForm,
   checkOperation,
   checkRequestTime,
+  checkStorageBucket,
   data,
   instance,
   operation,
@@ -38,6 +40,7 @@ function requestOf(
   rules: unknown,
   requestTime: unknown,
   callInstance: unknown,
+  callBucket: unknown,
 ): RulesRequest {
   const request: RulesRequest = {
     operation: String(source.operation),
@@ -46,6 +49,7 @@ function requestOf(
   if (source.uid !== undefined) request.uid = String(source.uid);
   if (rules !== undefined) request.rules = String(rules);
   if (callInstance !== undefined) request.instance = String(callInstance);
+  if (callBucket !== undefined) request.bucket = String(callBucket);
   const instant = source.requestTime ?? requestTime;
   if (instant !== undefined) request.requestTime = String(instant);
   if (source.data !== undefined) {
@@ -73,9 +77,9 @@ export default {
   runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: `simulate(service: ${SERVICES.join('|')}, operation?: ${REQUEST_METHODS.join('|')}, path?, uid?, data?, query?, cases?, rules?, instance?, requestTime?)`,
+  signature: `simulate(service: ${SERVICES.join('|')}, operation?: ${REQUEST_METHODS.join('|')}, path?, uid?, data?, query?, cases?, rules?, instance?, bucket?, requestTime?)`,
   description:
-    'Evaluate one request, or many through cases, at requestTime or the sandbox clock, and report allow or deny. For database rules, data may be any JSON value, update takes a patch keyed by the paths written, and a read may carry a query.',
+    'Evaluate one request, or many via cases, at requestTime or the sandbox clock, and report allow or deny. For database rules, data may be any JSON value, update takes a patch keyed by the paths written, and a read may carry a query.',
   args: z.object({
     service,
     operation: operation.optional(),
@@ -89,6 +93,7 @@ export default {
       .optional()
       .describe('Rules source to evaluate. Defaults to the rules the sandbox is running.'),
     instance,
+    bucket,
     requestTime: z
       .string()
       .optional()
@@ -104,6 +109,7 @@ export default {
   example: { service: 'firestore', operation: 'get', path: 'users/alice', uid: 'alice' },
   validate: (args, { fail }) =>
     checkDatabaseInstance(args, fail) ??
+    checkStorageBucket(args, fail) ??
     checkOneForm(args, fail) ??
     checkOperation(args, fail) ??
     checkRequestShape(args, fail) ??
@@ -112,13 +118,13 @@ export default {
     const target = String(args.service);
     if (Array.isArray(args.cases)) {
       const requests = args.cases.map((one) =>
-        requestOf(one as Args, target, args.rules, args.requestTime, args.instance),
+        requestOf(one as Args, target, args.rules, args.requestTime, args.instance, args.bucket),
       );
       return simulateCases(ctx, target, requests);
     }
     return rulesEngineFor(target).simulate(
       ctx,
-      requestOf(args, target, args.rules, args.requestTime, args.instance),
+      requestOf(args, target, args.rules, args.requestTime, args.instance, args.bucket),
     );
   },
 } satisfies MethodRecord;
