@@ -95,9 +95,10 @@ function resolveInnerRecursive(
 }
 
 /**
- * Every block under the root that resolves the request, each with the root's
- * bindings folded into its own. Returns an empty list when the root does not
- * apply, so the request is denied as production denies it.
+ * Every block that resolves the request, each with the root's bindings folded
+ * into its own: the root block itself when its path matches the request's
+ * full resource name, then the blocks under it. Returns an empty list when
+ * the root does not apply, so the request is denied as production denies it.
  */
 export function collectRootMatches(
   ast: FirestoreRules,
@@ -108,21 +109,54 @@ export function collectRootMatches(
   const root = resolveRootMatch(ast, documentPath);
   if (!root) return [];
   const tail = root.recursiveTail;
-  const results = tail
+  const children = tail
     ? collectBelowRootRecursive(ast.service.match, tail.name, root.remaining, functions, ast.version, recorder)
     : ast.service.match.children.flatMap((child) => collectMatches(child, root.remaining, functions, ast.version, recorder));
-  for (const result of results) {
+  for (const result of children) {
     result.pathVariables = { ...root.bindings, ...result.pathVariables };
   }
-  return results;
+  const own = rootBlockMatch(ast, root, functions);
+  return own ? [own, ...children] : children;
+}
+
+/**
+ * The root block as a match of its own, when its path matches the request's
+ * full resource name. Production then evaluates the `allow` statements
+ * written on it, as on any other block: under `match /{path=**}`, an
+ * `allow read` on the root grants get `c/1` and list `c`, and `path` binds
+ * `databases/(default)/documents/c/1` (captures
+ * `c4a-root-recursive-with-own-allow`, `c4c-root-recursive-path-value`,
+ * `c5e-root-recursive-own-allow-write`). A root that stops short of the
+ * document, such as `/databases/{database}/documents`, matches only through
+ * its children, and its own rules grant nothing (capture
+ * `c4b-root-documents-own-allow`).
+ */
+function rootBlockMatch(ast: FirestoreRules, root: RootMatch, functions: FunctionDef[]): MatchResult | null {
+  const tail = root.recursiveTail;
+  const reachesTheDocument = tail
+    ? root.remaining.length >= recursiveWildcardMinimum(ast.version)
+    : root.remaining.length === 0;
+  if (!reachesTheDocument) return null;
+  const pathVariables = tail ? { ...root.bindings, [tail.name]: root.remaining.join('/') } : root.bindings;
+  const block = ast.service.match;
+  return { block, pathVariables, candidateVariables: rootCandidateVariables(block, root), functions };
+}
+
+/** The root wildcard that binds the request's last segment, the candidate
+ *  document of a list query. */
+function rootCandidateVariables(block: MatchBlock, root: RootMatch): string[] {
+  const tail = root.recursiveTail;
+  if (tail) return root.remaining.length > 0 ? [tail.name] : [];
+  const last = block.path.segments.at(-1);
+  return last?.type === 'wildcard' ? [last.name] : [];
 }
 
 /** Children of a root that ends in a recursive wildcard resolve through a
  *  stand-in block with that wildcard alone and no rules of its own, so they
  *  follow the same depth search as any block under a final recursive one.
  *  The stand-in is not a block the author wrote, so its own resolution
- *  attempt is left out of the trace. Allow rules on the root block itself
- *  are not evaluated, for this root or any other. */
+ *  attempt is left out of the trace. The root block's own allow rules are
+ *  evaluated through `rootBlockMatch`, not through the stand-in. */
 function collectBelowRootRecursive(
   rootBlock: MatchBlock,
   name: string,
