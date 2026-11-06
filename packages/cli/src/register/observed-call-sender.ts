@@ -2,7 +2,7 @@
  * Sends an observed call (`ObservedCall` in `pyric/sandbox`) from a Node
  * process to the Node host, as the `observe` frame, on one hosted connection
  * of its own. The host stamps the caller from that connection, a Node
- * process, so the row reads "Server (client SDK)".
+ * process, so the row reads "Node process".
  *
  * Only the live rows' observer module imports this, by the file URL the
  * register gives it (`supplied-entry.ts`); nothing else in `@pyric/cli`

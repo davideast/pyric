@@ -276,7 +276,7 @@ describe('computeActivityDigest — actor / lens / subject attribution', () => {
     expect(d.bands[0].attribution).toBeUndefined();
   });
 
-  it('labels each row by the connection its op came from', () => {
+  it('marks each row with the connection its op came from', () => {
     const d = computeActivityDigest(
       [
         writeEvent({ id: 'page', method: 'create', caller: { kind: 'page', pageId: 'tab-1' } }),
@@ -287,13 +287,13 @@ describe('computeActivityDigest — actor / lens / subject attribution', () => {
       ],
       { now: NOW },
     );
-    const labels = new Map(d.bands[0].rows.map((r) => [r.id, r.sourceLabel]));
-    expect(Object.fromEntries(labels)).toEqual({
-      page: 'App page',
-      node: 'Server (client SDK)',
-      admin: 'Server (admin)',
-      mcp: 'MCP',
-      studio: 'Studio',
+    const sources = new Map(d.bands[0].rows.map((r) => [r.id, r.source]));
+    expect(Object.fromEntries(sources)).toEqual({
+      page: 'page',
+      node: 'node',
+      admin: 'admin',
+      mcp: 'mcp',
+      studio: 'studio',
     });
   });
 
