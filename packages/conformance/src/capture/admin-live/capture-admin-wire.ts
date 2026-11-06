@@ -73,6 +73,9 @@ import {
   runWithAdminCleanup,
   userEmailFor,
   type AdminRunState,
+  runIdProblem,
+  cleanupCommand,
+  type RunControl,
   type Stamp,
 } from './live-capture.ts';
 
@@ -285,16 +288,32 @@ export function runSpec(c: Clients, v: RunValues): Step[] {
   return [...authSteps(c, v), ...firestoreSteps(c, v), ...rtdbSteps(c, v), ...storageSteps(c, v)];
 }
 
-/** Runs every step in order; each outcome is a result, never a throw. Returns each case that missed its answer. */
-export async function drive(steps: readonly Step[], stamp: Stamp, settle: () => Promise<void>): Promise<{ results: Record<string, string>; misses: string[] }> {
+/**
+ * Runs every step in order; each outcome is a result, never a throw. Stops
+ * before the next step once `control` aborts. Each step's own promise is
+ * tracked, so a step a timeout abandoned is still waited for before cleanup.
+ * Returns each case that missed its answer.
+ */
+export async function drive(
+  steps: readonly Step[],
+  stamp: Stamp,
+  settle: () => Promise<void>,
+  control: RunControl,
+): Promise<{ results: Record<string, string>; misses: string[] }> {
   const results: Record<string, string> = {};
   const misses: string[] = [];
   for (const step of steps) {
+    if (control.signal.aborted) {
+      misses.push(`stopped before ${step.op}: the run was aborted`);
+      break;
+    }
     stamp.op = step.op;
     stamp.paused = step.op === 'auth.clientSignIn';
     let outcome: string;
     try {
-      await withTimeout(step.op, step.run(), STEP_TIMEOUT_MS);
+      const running = step.run();
+      control.track(running);
+      await withTimeout(step.op, running, STEP_TIMEOUT_MS);
       outcome = OK;
     } catch (error) {
       outcome = codeOf(error);
@@ -382,13 +401,28 @@ async function cleanupOnly(ctx: LiveContext, databaseURL: string, bucket: string
   const { deleteApp } = await import('firebase-admin/app');
   await deleteApp(clients.app);
   console.log(`[capture-admin] cleanup of ${runId}: ${JSON.stringify(invariants)}`);
-  process.exit(allHeld(invariants) ? 0 : 3);
+  if (!allHeld(invariants)) {
+    console.error(`[capture-admin] cleanup did not read back clean; run it again: ${cleanupCommand(runId)}`);
+    process.exit(3);
+  }
+  process.exit(0);
 }
+
+/** The run id once it is printed, so a throw after that still prints its cleanup command. */
+let announcedRun: string | null = null;
 
 async function main(): Promise<void> {
   const refusal = captureRefusal(process.env);
   if (refusal) {
     console.error(`[capture-admin] ${refusal}`);
+    process.exit(2);
+  }
+  // Checked before any credential or client: a bad id must never reach the run root.
+  const cleanupAt = process.argv.indexOf('--cleanup');
+  const cleanupRun = cleanupAt === -1 ? null : (process.argv[cleanupAt + 1] ?? '');
+  const runProblem = cleanupRun === null ? null : runIdProblem(cleanupRun);
+  if (runProblem) {
+    console.error(`[capture-admin] --cleanup: ${runProblem}. Nothing was touched.`);
     process.exit(2);
   }
   const instance = instanceFromEnv(process.env, DEFAULT_INSTANCE_VARIABLE, 'default');
@@ -399,8 +433,7 @@ async function main(): Promise<void> {
   const ctx = await loadLiveContext();
   const bucket = ctx.webConfig.storageBucket;
   if (!bucket) throw new Error('the oracle web config has no storageBucket; Storage is not enabled on the project');
-  const cleanupAt = process.argv.indexOf('--cleanup');
-  if (cleanupAt !== -1) await cleanupOnly(ctx, instance.url, bucket, process.argv[cleanupAt + 1] ?? '');
+  if (cleanupRun !== null) await cleanupOnly(ctx, instance.url, bucket, cleanupRun);
 
   const redactor = redactorFor(ctx, [instance]);
   redactor.add(bucket, '<bucket>');
@@ -429,10 +462,11 @@ async function main(): Promise<void> {
   rtdb.install(persistentConnectionOf(clients.database));
 
   announceRunId(ctx.runId);
+  announcedRun = ctx.runId;
   stamp.paused = true;
-  const run = await runWithAdminCleanup('capture A (Admin)', adminRunState(clients), { runId: ctx.runId }, async () => {
+  const run = await runWithAdminCleanup('capture A (Admin)', adminRunState(clients), { runId: ctx.runId }, async (control) => {
     stamp.paused = false;
-    const driven = await drive(runSpec(clients, values), stamp, () => http.settled());
+    const driven = await drive(runSpec(clients, values), stamp, () => http.settled(), control);
     stamp.paused = true;
     return driven;
   }, {
@@ -446,12 +480,13 @@ async function main(): Promise<void> {
   await deleteApp(clients.app);
 
   if (!allHeld(run.invariants)) {
-    console.error(`[capture-admin] an invariant failed; nothing written. Run --cleanup ${ctx.runId}.`);
+    console.error(`[capture-admin] an invariant failed; nothing written. Clean the run up with: ${cleanupCommand(ctx.runId)}`);
     process.exit(3);
   }
   const failures = [...(run.error ? [run.error.message] : []), ...run.failures, ...(run.result?.misses ?? [])];
   if (failures.length > 0) {
     console.error(`[capture-admin] capture failed; nothing written:\n  ${failures.join('\n  ')}`);
+    console.error(`[capture-admin] cleanup read back clean; to check again: ${cleanupCommand(ctx.runId)}`);
     process.exit(1);
   }
 
@@ -473,4 +508,12 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-if (import.meta.main) await main();
+if (import.meta.main) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(`[capture-admin] ${error instanceof Error ? error.message : String(error)}`);
+    if (announcedRun !== null) console.error(`[capture-admin] nothing written. Clean the run up with: ${cleanupCommand(announcedRun)}`);
+    process.exit(1);
+  }
+}

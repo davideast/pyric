@@ -33,10 +33,36 @@ import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
 import type { ClientRequest, IncomingMessage } from 'node:http';
 import type { Redactor } from '../rtdb-live/live-capture.ts';
 
-/** The root every live capture writes under, in Firestore, RTDB and Storage. */
+/**
+ * The root this capture writes its run under, in Firestore, RTDB and Storage.
+ * Other oracle runs and the served-surface oracle base live under it too, so
+ * nothing here ever touches the root itself, only `pyric_oracle/<run id>`.
+ */
 export const RUN_ROOT = 'pyric_oracle';
 
-export const runPathFor = (runId: string): string => `${RUN_ROOT}/${runId}`;
+/** The shape `loadLiveContext` gives a run id: milliseconds, a dash, up to six base-36 characters. */
+export const RUN_ID_PATTERN = /^\d{13}-[a-z0-9]{1,6}$/;
+
+/** Why `runId` cannot name a run, or null when it can. */
+export function runIdProblem(runId: string): string | null {
+  if (RUN_ID_PATTERN.test(runId)) return null;
+  return `refusing run id ${JSON.stringify(runId)}: a run id looks like 1762400000000-abc123 (the one the run printed)`;
+}
+
+function assertRunId(runId: string): void {
+  const problem = runIdProblem(runId);
+  if (problem) throw new Error(problem);
+}
+
+/** The run's own path; throws for anything that is not a run id, so no caller can reach the root. */
+export const runPathFor = (runId: string): string => {
+  assertRunId(runId);
+  return `${RUN_ROOT}/${runId}`;
+};
+
+/** The exact command that cleans up one run. */
+export const cleanupCommand = (runId: string): string =>
+  `node packages/conformance/src/capture/admin-live/capture-admin-wire.ts --cleanup ${runId}`;
 export const userEmailFor = (runId: string): string => `pyric-admin-capture-${runId}@example.com`;
 
 /** The variables a CI runner sets. Capture A (Admin) reaches production, so it never runs there. */
@@ -54,10 +80,6 @@ export function captureRefusal(env: Readonly<Record<string, string | undefined>>
 
 // ─── Run id notice ────────────────────────────────────────────────────────
 
-export function newRunId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 /** Where every run id is appended, so a run that stops partway can still be cleaned up. */
 export function runIdFile(): string {
   return join(tmpdir(), 'pyric-capture-admin-run-ids.log');
@@ -74,7 +96,7 @@ export interface RunIdNotice {
  * recording still reads `<run>`.
  */
 export function announceRunId(runId: string, notice: RunIdNotice = {}): string {
-  const line = `[capture-admin] run ${runId}; if it stops partway, run the cleanup with --cleanup ${runId}`;
+  const line = `[capture-admin] run ${runId}; if it stops partway, clean it up with: ${cleanupCommand(runId)}`;
   (notice.write ?? console.log)(line);
   appendFileSync(notice.file ?? runIdFile(), `${new Date().toISOString()} ${line}\n`);
   return line;
@@ -542,24 +564,47 @@ export interface AdminInvariants {
   rtdbRemoved: boolean;
   /** The run's Storage prefix listed back empty. */
   objectsRemoved: boolean;
+  /** No step was still running when cleanup started, so nothing could write after the read-back. */
+  stepsSettled: boolean;
+}
+
+/**
+ * What the sequence gets from the run: whether to stop, and where to register
+ * each step's own promise. A step abandoned by a timeout stays registered, so
+ * cleanup waits for it before it reads anything.
+ */
+export interface RunControl {
+  readonly signal: AbortSignal;
+  track(running: Promise<unknown>): void;
 }
 
 export interface AdminCleanupOptions {
   /** Stops anything still running (a listener, an app) before the state is read. */
   quiesce?: () => Promise<void>;
-  /** Install SIGINT and SIGTERM handlers that run the same cleanup once, then exit. */
+  /**
+   * Install SIGINT and SIGTERM handlers. A signal stops the sequence before
+   * its next step; the run then drains, cleans up, reads back, and exits.
+   */
   handleSignals?: boolean;
+  /** Aborts the sequence as a signal would, without exiting (tests). */
+  abort?: AbortSignal;
+  /** How long to wait for the sequence to return after an abort, and for steps still in flight. Default 30 s. */
+  drainMs?: number;
 }
 
 export interface AdminRunResult<T> {
   result?: T;
   error?: Error;
+  /** The sequence was stopped by a signal or `abort`. */
+  aborted: boolean;
   invariants: AdminInvariants;
   failures: string[];
 }
 
+const DEFAULT_DRAIN_MS = 30_000;
+
 export function allHeld(invariants: AdminInvariants): boolean {
-  return invariants.userDeleted && invariants.documentsRemoved && invariants.rtdbRemoved && invariants.objectsRemoved;
+  return invariants.userDeleted && invariants.documentsRemoved && invariants.rtdbRemoved && invariants.objectsRemoved && invariants.stepsSettled;
 }
 
 async function attempt<T>(failures: string[], step: string, task: () => Promise<T>): Promise<{ value: T } | null> {
@@ -575,8 +620,14 @@ async function removeAll(failures: string[], what: string, names: readonly strin
   for (const name of names) await attempt(failures, `remove ${what} ${name}`, () => remove(name));
 }
 
+function reportFailure(label: string, runId: string, invariants: AdminInvariants, failures: readonly string[]): void {
+  console.error(`[capture-admin] ${label}: invariant failed`, invariants, { failures });
+  console.error(`[capture-admin] ${label}: clean the run up with: ${cleanupCommand(runId)}`);
+}
+
 /**
- * The cleanup after a run, and all of `--cleanup <run id>`. Every step runs
+ * The cleanup after a run, and all of `--cleanup <run id>`. Refuses (throws)
+ * a run id that is not one, before it touches anything. Every step runs
  * whatever the earlier ones did: a failed delete still reads the others back.
  * A failed step is an invariant failure, never a throw.
  */
@@ -586,9 +637,19 @@ export async function cleanupAdminRun(
   run: AdminRun,
   options: Pick<AdminCleanupOptions, 'quiesce'> = {},
 ): Promise<{ invariants: AdminInvariants; failures: string[] }> {
-  const failures: string[] = [];
+  const cleaned = await cleanRun(state, run, options);
+  if (!allHeld(cleaned.invariants) || cleaned.failures.length > 0) reportFailure(label, run.runId, cleaned.invariants, cleaned.failures);
+  return cleaned;
+}
+
+async function cleanRun(
+  state: AdminRunState,
+  run: AdminRun,
+  options: Pick<AdminCleanupOptions, 'quiesce'>,
+): Promise<{ invariants: AdminInvariants; failures: string[] }> {
   const runPath = runPathFor(run.runId);
   const email = userEmailFor(run.runId);
+  const failures: string[] = [];
   if (options.quiesce) await attempt(failures, 'quiesce', options.quiesce);
 
   const uid = await attempt(failures, 'find user', () => state.users.find(email));
@@ -611,15 +672,12 @@ export async function cleanupAdminRun(
     documentsRemoved: documentsBack !== null && documentsBack.value.length === 0,
     rtdbRemoved: rtdbBack !== null && rtdbBack.value === null,
     objectsRemoved: objectsBack !== null && objectsBack.value.length === 0,
+    stepsSettled: true,
   };
-  if (!allHeld(invariants) || failures.length > 0) {
-    console.error(`[capture-admin] ${label}: invariant failed`, invariants, { failures });
-    console.error(`[capture-admin] ${label}: run --cleanup ${run.runId}, or read the user, documents, RTDB path and objects back by hand.`);
-  }
   return { invariants, failures };
 }
 
-/** What the run already holds before it starts; a run id is never reused. */
+/** What the run holds: before it starts (a run id is never reused), and once more after cleanup. */
 async function leftovers(state: AdminRunState, run: AdminRun): Promise<string[]> {
   const runPath = runPathFor(run.runId);
   const found: string[] = [];
@@ -630,26 +688,71 @@ async function leftovers(state: AdminRunState, run: AdminRun): Promise<string[]>
   return found;
 }
 
+const after = (ms: number): Promise<'timeout'> => new Promise((resolve) => { setTimeout(() => resolve('timeout'), ms); });
+
+/** Resolves `ms` after `signal` aborts; never, while it does not. */
+function drainAfterAbort(signal: AbortSignal, ms: number): Promise<'timeout'> {
+  return new Promise((resolve) => {
+    const start = () => { void after(ms).then(resolve); };
+    if (signal.aborted) start();
+    else signal.addEventListener('abort', start, { once: true });
+  });
+}
+
+/** Waits for every tracked step, up to `ms`; returns how many were still running. */
+async function settleTracked(pending: Set<Promise<unknown>>, ms: number): Promise<number> {
+  if (pending.size === 0) return 0;
+  await Promise.race([Promise.allSettled([...pending]), after(ms)]);
+  return pending.size;
+}
+
+const FINAL_FIELDS: ReadonlyArray<readonly [string, keyof AdminInvariants]> = [
+  ['the user', 'userDeleted'],
+  ['documents', 'documentsRemoved'],
+  ['RTDB data', 'rtdbRemoved'],
+  ['objects', 'objectsRemoved'],
+];
+
+function runControl(controller: AbortController, pending: Set<Promise<unknown>>): RunControl {
+  return {
+    signal: controller.signal,
+    track(running) {
+      const settled = running.then(() => {}, () => {});
+      pending.add(settled);
+      void settled.then(() => pending.delete(settled));
+    },
+  };
+}
+
 /**
- * Refuse a run that already holds anything, run `body`, then remove the
- * run's user, documents, RTDB path and objects and read each back. The
- * invariants are reported whether or not `body` threw.
+ * Refuse a run id that is not one, or a run that already holds anything; run
+ * `body`; wait for any step still in flight; remove the run's user,
+ * documents, RTDB path and objects and read each back; then read everything
+ * back once more. A signal stops `body` before its next step, and the same
+ * path runs before the process exits. The invariants are reported whether or
+ * not `body` threw.
  */
 export async function runWithAdminCleanup<T>(
   label: string,
   state: AdminRunState,
   run: AdminRun,
-  body: () => Promise<T>,
+  body: (control: RunControl) => Promise<T>,
   options: AdminCleanupOptions = {},
 ): Promise<AdminRunResult<T>> {
+  assertRunId(run.runId);
   const found = await leftovers(state, run);
   if (found.length > 0) throw new Error(`${label}: refusing: run ${run.runId} already holds ${found.join(', ')}`);
 
-  let cleanup: Promise<{ invariants: AdminInvariants; failures: string[] }> | undefined;
-  const cleanupOnce = () => (cleanup ??= cleanupAdminRun(label, state, run, options));
+  const drainMs = options.drainMs ?? DEFAULT_DRAIN_MS;
+  const controller = new AbortController();
+  if (options.abort?.aborted) controller.abort();
+  options.abort?.addEventListener('abort', () => controller.abort(), { once: true });
+  const pending = new Set<Promise<unknown>>();
+  let signalled = false;
   const onSignal = (signal: NodeJS.Signals) => {
-    console.error(`[capture-admin] ${label}: ${signal}; cleaning up before exit.`);
-    void cleanupOnce().then(({ invariants }) => process.exit(allHeld(invariants) ? 130 : 3));
+    signalled = true;
+    console.error(`[capture-admin] ${label}: ${signal}; stopping before the next step, then cleaning up.`);
+    controller.abort();
   };
   if (options.handleSignals) {
     process.once('SIGINT', onSignal);
@@ -658,15 +761,27 @@ export async function runWithAdminCleanup<T>(
 
   let result: T | undefined;
   let error: Error | undefined;
-  try {
-    result = await body();
-  } catch (e) {
-    error = e instanceof Error ? e : new Error(String(e));
-  }
-  const { invariants, failures } = await cleanupOnce();
+  const finished = body(runControl(controller, pending)).then(
+    (value) => { result = value; },
+    (e: unknown) => { error = e instanceof Error ? e : new Error(String(e)); },
+  );
+  const ended = await Promise.race([finished.then(() => 'done' as const), drainAfterAbort(controller.signal, drainMs)]);
+  const stillRunning = await settleTracked(pending, drainMs);
+
+  const { invariants, failures } = await cleanRun(state, run, options);
+  if (ended === 'timeout') failures.push(`the sequence had not returned ${drainMs} ms after the abort`);
+  if (stillRunning > 0) failures.push(`${stillRunning} step(s) still running when cleanup started`);
+  invariants.stepsSettled = ended === 'done' && stillRunning === 0;
+  const finalRead = await attempt(failures, 'final read-back', () => leftovers(state, run));
+  const left = finalRead?.value ?? FINAL_FIELDS.map(([name]) => name);
+  for (const [name, field] of FINAL_FIELDS) if (left.includes(name)) invariants[field] = false;
+  if (finalRead && left.length > 0) failures.push(`final read-back found ${left.join(', ')}`);
+  if (!allHeld(invariants) || failures.length > 0) reportFailure(label, run.runId, invariants, failures);
+
   if (options.handleSignals) {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
   }
-  return { result, error, invariants, failures };
+  if (signalled) process.exit(allHeld(invariants) ? 130 : 3);
+  return { result, error, aborted: controller.signal.aborted, invariants, failures };
 }

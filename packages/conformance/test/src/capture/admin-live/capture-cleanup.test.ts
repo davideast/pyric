@@ -2,17 +2,23 @@
  * Capture A (Admin)'s cleanup removes the run's user, every document under the
  * run path, the RTDB run path and every object under the run prefix, whatever
  * failed before it, reads each back, and reports a failure as an invariant,
- * not a throw. The recorders drop the RTDB credential frame and keep gRPC
- * statuses. Production is a fake; nothing reaches the network.
+ * not a throw. It refuses anything that is not a run id before it touches
+ * anything, and an abort stops the sequence, waits for the step in flight,
+ * cleans up and reads back once more. The recorders drop the RTDB credential
+ * frame, never record a token exchange, and keep gRPC statuses. Production is
+ * a fake; nothing reaches the network.
  */
 import { describe, expect, test } from 'bun:test';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { drive, type Step } from '../../../../src/capture/admin-live/capture-admin-wire.ts';
 import {
   announceRunId,
   cleanupAdminRun,
   GrpcRecorder,
+  HttpRecorder,
   newStamp,
   Placeholders,
   RtdbRecorder,
@@ -84,7 +90,7 @@ function leaveHalfARun(project: FakeProject): void {
   project.objects.add(`${OTHER}/kept.txt`);
 }
 
-const HELD = { userDeleted: true, documentsRemoved: true, rtdbRemoved: true, objectsRemoved: true };
+const HELD = { userDeleted: true, documentsRemoved: true, rtdbRemoved: true, objectsRemoved: true, stepsSettled: true };
 
 function expectOnlyOtherRunLeft(project: FakeProject): void {
   expect([...project.users.values()]).toEqual(['uid-kept']);
@@ -130,7 +136,7 @@ describe('runWithAdminCleanup', () => {
     const project = fakeProject(`remove document ${RUN_PATH}/notes/a`);
     const run = await runWithAdminCleanup('fake', project.state, RUN, async () => leaveHalfARun(project));
     expect(run.invariants).toEqual({ ...HELD, documentsRemoved: false });
-    expect(run.failures).toEqual([`remove document ${RUN_PATH}/notes/a: UNAVAILABLE`]);
+    expect(run.failures).toEqual([`remove document ${RUN_PATH}/notes/a: UNAVAILABLE`, 'final read-back found documents']);
     expect([...project.documents]).toEqual([`${RUN_PATH}/notes/a`, `${OTHER}/notes/kept`]);
     expect(project.rtdb.has(RUN_PATH)).toBe(false);
     expect(project.objects.has(`${RUN_PATH}/note.txt`)).toBe(false);
@@ -173,17 +179,147 @@ describe('cleanupAdminRun, the --cleanup path', () => {
   });
 });
 
+describe('a run id that is not one', () => {
+  for (const runId of ['', 'replay', 'a/b']) {
+    test(`${JSON.stringify(runId)} is refused before anything is read or deleted`, async () => {
+      const project = fakeProject();
+      project.rtdb.set('pyric_oracle', { everyOtherRun: true });
+      project.documents.add('pyric_oracle/replay/served/doc');
+      const reads: string[] = [];
+      const state: AdminRunState = {
+        ...project.state,
+        rtdb: { read: async (path) => { reads.push(path); return project.state.rtdb.read(path); }, remove: project.state.rtdb.remove },
+      };
+      await expect(cleanupAdminRun('fake', state, { runId })).rejects.toThrow(/refusing run id/);
+      let ran = false;
+      await expect(runWithAdminCleanup('fake', state, { runId }, async () => { ran = true; })).rejects.toThrow(/refusing run id/);
+      expect(ran).toBe(false);
+      expect(reads).toEqual([]);
+      expect(project.calls).toEqual([]);
+      expect(project.rtdb.get('pyric_oracle')).toEqual({ everyOtherRun: true });
+      expect(project.documents.has('pyric_oracle/replay/served/doc')).toBe(true);
+    });
+  }
+});
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** A step that writes one document after `ms`, as a Firestore write in flight would. */
+function writeStep(project: FakeProject, name: string, ms: number, ran: string[]): Step {
+  return { op: `write-${name}`, expect: 'ok', run: async () => {
+    ran.push(name);
+    await pause(ms);
+    project.documents.add(`${RUN_PATH}/notes/${name}`);
+  } };
+}
+
+describe('an abort during the sequence', () => {
+  test('stops before the next step, waits for the one in flight, then cleans up and reads back clean', async () => {
+    const project = fakeProject();
+    const abort = new AbortController();
+    const ran: string[] = [];
+    const steps = [writeStep(project, 'a', 5, ran), writeStep(project, 'b', 40, ran), writeStep(project, 'c', 5, ran)];
+    setTimeout(() => abort.abort(), 20);
+    const run = await runWithAdminCleanup('fake', project.state, RUN, (control) => drive(steps, newStamp(), async () => {}, control), {
+      abort: abort.signal,
+      drainMs: 1_000,
+    });
+    expect(ran).toEqual(['a', 'b']);
+    expect(run.aborted).toBe(true);
+    expect(run.result?.misses).toEqual(['stopped before write-c: the run was aborted']);
+    expect(run.invariants).toEqual(HELD);
+    expect([...project.documents].filter((path) => path.startsWith(RUN_PATH))).toEqual([]);
+  });
+
+  test('a step a timeout abandoned is waited for before cleanup reads anything', async () => {
+    const project = fakeProject();
+    const run = await runWithAdminCleanup('fake', project.state, RUN, async (control) => {
+      control.track(pause(30).then(() => project.documents.add(`${RUN_PATH}/notes/late`)));
+    }, { drainMs: 1_000 });
+    expect(run.invariants).toEqual(HELD);
+    expect(project.documents.has(`${RUN_PATH}/notes/late`)).toBe(false);
+  });
+
+  test('a step still running past the drain fails the run, so nothing is written', async () => {
+    const project = fakeProject();
+    const run = await runWithAdminCleanup('fake', project.state, RUN, async (control) => {
+      control.track(pause(80).then(() => project.documents.add(`${RUN_PATH}/notes/late`)));
+    }, { drainMs: 10 });
+    expect(run.invariants.stepsSettled).toBe(false);
+    expect(run.failures).toContain('1 step(s) still running when cleanup started');
+    await pause(100);
+    expect(project.documents.has(`${RUN_PATH}/notes/late`)).toBe(true);
+  });
+
+  test('the final read-back catches a write that landed after cleanup read its own kind back', async () => {
+    const project = fakeProject();
+    const state: AdminRunState = {
+      ...project.state,
+      objects: {
+        list: project.state.objects.list,
+        async remove(name) {
+          await project.state.objects.remove(name);
+          project.documents.add(`${RUN_PATH}/notes/after-read-back`);
+        },
+      },
+    };
+    const run = await runWithAdminCleanup('fake', state, RUN, async () => { project.objects.add(`${RUN_PATH}/note.txt`); });
+    expect(run.invariants).toEqual({ ...HELD, documentsRemoved: false });
+    expect(run.failures).toEqual(['final read-back found documents']);
+  });
+});
+
 describe('announceRunId', () => {
   test('prints the cleanup command and appends it to the run-id file', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'capture-admin-')), 'run-ids.log');
     const printed: string[] = [];
     announceRunId(RUN.runId, { write: (line) => printed.push(line), file });
-    expect(printed).toEqual([`[capture-admin] run ${RUN.runId}; if it stops partway, run the cleanup with --cleanup ${RUN.runId}`]);
+    expect(printed).toEqual([`[capture-admin] run ${RUN.runId}; if it stops partway, clean it up with: node packages/conformance/src/capture/admin-live/capture-admin-wire.ts --cleanup ${RUN.runId}`]);
     expect(readFileSync(file, 'utf8')).toContain(`--cleanup ${RUN.runId}`);
   });
 });
 
 describe('recorders', () => {
+  test('the HTTP recorder never records a token exchange, and records an Auth call', async () => {
+    const sent: string[] = [];
+    /** A fake `https` module: each request answers 200 with a JSON body on the next turn. */
+    const https = {
+      request(options: { host: string; path: string; method?: string }) {
+        const request = Object.assign(new EventEmitter(), {
+          host: options.host,
+          path: options.path,
+          method: options.method ?? 'POST',
+          getHeaders: () => ({ 'content-type': 'application/json' }),
+          write: (_chunk: unknown) => true,
+          end(chunk?: unknown) {
+            sent.push(`${options.host}${options.path}`);
+            setTimeout(() => {
+              const response = Object.assign(new EventEmitter(), { statusCode: 200, headers: { 'content-type': 'application/json' } });
+              request.emit('response', response);
+              response.emit('data', Buffer.from(JSON.stringify({ access_token: 'ya29.never-recorded-token', localId: 'u' })));
+              response.emit('close');
+            }, 0);
+            void chunk;
+            return request;
+          },
+        });
+        return request;
+      },
+    };
+    const recorder = new HttpRecorder(newStamp(), new Placeholders(new Redactor()));
+    const uninstall = recorder.install(https as unknown as Parameters<HttpRecorder['install']>[0]);
+    const call = (host: string, path: string) => (https.request as (o: unknown) => { end(body: string): void })({ host, path }).end('{"assertion":"eyJ.secret"}');
+    call('oauth2.googleapis.com', '/token');
+    call('www.googleapis.com', '/oauth2/v4/token');
+    call('identitytoolkit.googleapis.com', '/v1/projects/p/accounts:lookup');
+    await pause(5);
+    await recorder.settled();
+    uninstall();
+    expect(sent).toHaveLength(3);
+    expect(recorder.exchanges.map((e) => `${e.host}${e.path}`)).toEqual(['identitytoolkit.googleapis.com/v1/projects/p/accounts:lookup']);
+    expect(JSON.stringify(recorder.exchanges)).not.toContain('oauth2');
+  });
+
   test('the RTDB recorder drops the gauth body and its answer, and keeps the data messages', () => {
     class FakeConnection {
       realtime_ = null;
