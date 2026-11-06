@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#232","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production reads (?U) in replace() as ungreedy; pyric drops the flag and matches greedily","issue":"#1891"}
