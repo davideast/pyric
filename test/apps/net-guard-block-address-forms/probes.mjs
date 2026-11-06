@@ -123,6 +123,7 @@ function workerStdout(options) {
 const workerEnvProbes = {
   'an env of only PATH': { env: { PATH: process.env.PATH }, argv: ['env-of-path'] },
   'an env spread from process.env': { env: { ...process.env }, argv: ['env-spread'] },
+  'an env with NODE_ENV=production': { env: { ...process.env, NODE_ENV: 'production' }, argv: ['env-production'] },
 };
 
 // Child processes (#1618). The register reached this process on the command

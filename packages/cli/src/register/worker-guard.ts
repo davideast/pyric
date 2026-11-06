@@ -20,11 +20,14 @@
  * `PYRIC_SANDBOX`, so a worker given its own `env` object
  * (`new Worker(file, { env: { PATH } })`) gets each `PYRIC_*` variable this
  * thread has and that `env` lacks, as a child process does. A variable the
- * caller set for the worker keeps the caller's value. A worker that shares
+ * caller set for the worker keeps the caller's value. When the register is
+ * active in this thread, the worker's env also gets `PYRIC_SANDBOX_FORCE=1`,
+ * so a `NODE_ENV=production` there does not refuse it. A worker that shares
  * this thread's env (`SHARE_ENV`) or copies it (no `env`) needs nothing.
  */
 import Module, { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { isRegisterActive } from './activation.js';
 import { withSandboxVariables } from './child-process-guard.js';
 
 type Env = Record<string, string | undefined>;
@@ -44,21 +47,39 @@ const GUARDED_WORKER = Symbol.for('pyric.guardedWorker');
 /** A `'use strict'` directive, which must stay the first statement. */
 const USE_STRICT = /^(\s*(['"])use strict\2;?[ \t]*\n?)/;
 
-/** Whether `env` is an env object of the worker's own, rather than `SHARE_ENV`. */
+/**
+ * Whether the caller gave the worker an env object of its own. `SHARE_ENV` is
+ * a symbol, and a worker with no `env` gets a copy of this thread's env; both
+ * already carry this thread's `PYRIC_*` variables.
+ */
 function isOwnEnv(env: unknown): env is Env {
   return typeof env === 'object' && env !== null;
 }
 
 /**
+ * A worker's own env, carrying the sandbox. When the register is active in
+ * this thread, `PYRIC_SANDBOX_FORCE=1` is set too, unless the caller set it,
+ * so an env with `NODE_ENV=production` does not make the worker refuse the
+ * sandbox its parent is in.
+ */
+function workerEnv(env: Env, parentEnv: Env, parentActive: boolean): Env {
+  const guarded = withSandboxVariables(env, parentEnv);
+  if (parentActive && guarded.PYRIC_SANDBOX_FORCE === undefined) guarded.PYRIC_SANDBOX_FORCE = '1';
+  return guarded;
+}
+
+/**
  * The arguments to build the worker with, so that it loads the register at
- * `registerUrl` in the sandbox `parentEnv` names. Returns new values and never
- * changes the caller's.
+ * `registerUrl` in the sandbox `parentEnv` names. `parentActive` says whether
+ * the register is active in this thread; `@pyric/live/register` installs this
+ * guard too, without it. Returns new values and never changes the caller's.
  */
 export function guardWorkerArguments(
   source: unknown,
   options: WorkerOptionsLike | undefined,
   registerUrl: string,
   parentEnv: Env = process.env,
+  parentActive: boolean = isRegisterActive(),
 ): [unknown, WorkerOptionsLike | undefined] {
   let guardedSource = source;
   let guardedOptions = options;
@@ -69,7 +90,7 @@ export function guardWorkerArguments(
     guardedOptions = { ...options, execArgv: [...options.execArgv, '--import', registerUrl] };
   }
   if (isOwnEnv(options?.env)) {
-    guardedOptions = { ...guardedOptions, env: withSandboxVariables(options.env, parentEnv) };
+    guardedOptions = { ...guardedOptions, env: workerEnv(options.env, parentEnv, parentActive) };
   }
   return [guardedSource, guardedOptions];
 }

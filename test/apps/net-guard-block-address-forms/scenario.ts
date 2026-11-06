@@ -96,6 +96,7 @@ export default scenario(async (app) => {
     assert.deepEqual(workers, {
       'worker: an env of only PATH': 'swapped, guard block',
       'worker: an env spread from process.env': 'swapped, guard block',
+      'worker: an env with NODE_ENV=production': 'swapped, guard block',
     });
   });
 
