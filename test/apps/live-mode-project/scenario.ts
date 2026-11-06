@@ -44,7 +44,9 @@ interface Replay {
   unmatched(): Promise<unknown[]>;
 }
 
-type Settled = { ok: true; value: unknown } | { ok: false; code: string; message: string };
+type Settled =
+  | { ok: true; value: unknown }
+  | { ok: false; code: string; field?: string; appProjectId?: string; hostProjectId?: string; message: string };
 
 declare function signIn(): Promise<Settled>;
 declare function readLobby(name: 'host' | 'other'): Promise<Settled>;
@@ -114,18 +116,24 @@ async function receivedForOther(replay: Replay): Promise<Received[]> {
   return received.filter((entry) => JSON.stringify(entry.message ?? {}).includes(`projects/${OTHER}/`));
 }
 
-/** The read through the second app threw the project refusal, naming both projects. */
+/** The read through the second app threw the project refusal, judging `projectId` and naming both projects as data. */
 function expectRefused(settled: Settled, project: string, plane: string): void {
   assert.equal(settled.ok, false, `the ${plane}'s read through the ${OTHER} app was refused: ${JSON.stringify(settled)}`);
-  const refusal = settled as Extract<Settled, { ok: false }>;
-  assert.equal(refusal.code, REFUSED, `the ${plane}'s refusal code: ${JSON.stringify(settled)}`);
-  assert.ok(refusal.message.includes(`'${OTHER}'`), `the refusal names the app's project: ${refusal.message}`);
-  assert.ok(refusal.message.includes(`'${project}'`), `the refusal names the host's project: ${refusal.message}`);
+  const { code, field, appProjectId, hostProjectId } = settled as Extract<Settled, { ok: false }>;
+  assert.deepEqual(
+    { code, field, appProjectId, hostProjectId },
+    { code: REFUSED, field: 'projectId', appProjectId: OTHER, hostProjectId: project },
+    `the ${plane}'s refusal: ${JSON.stringify(settled)}`,
+  );
 }
 
 /** A loopback request to the live host. */
 async function hostJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  return jsonBody<T>(url, await fetch(url, init));
+}
+
+/** A response's JSON body; a failed request or a body that does not parse fails the run with the body. */
+async function jsonBody<T>(url: string, response: Response): Promise<T> {
   const text = await response.text();
   assert.ok(response.ok, `${url} answered ${response.status}: ${text}`);
   try {
@@ -140,19 +148,15 @@ interface CapturedEvent { kind?: string; service?: string; method?: string; call
 /**
  * The host's Firestore events, from `/__pyric/capture` with the session token
  * `/__pyric/init.json` hands a loopback client; null while the host has not
- * written a capture, or is writing one.
+ * written a capture.
  */
 async function firestoreEvents(base: string): Promise<CapturedEvent[] | null> {
   const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+  const url = `${base}/__pyric/capture`;
+  const response = await fetch(url, { headers: { 'x-pyric-session-token': sessionToken } });
   if (response.status === 404) return null;
-  assert.ok(response.ok, `/__pyric/capture answered ${response.status}`);
-  try {
-    const capture = JSON.parse(await response.text()) as { events?: CapturedEvent[] };
-    return (capture.events ?? []).filter((event) => event.kind === 'operation' && event.service === 'firestore');
-  } catch {
-    return null;
-  }
+  const capture = await jsonBody<{ events?: CapturedEvent[] }>(url, response);
+  return (capture.events ?? []).filter((event) => event.kind === 'operation' && event.service === 'firestore');
 }
 
 /** The client kind (`page` or `node`) of each `getDoc` the capture holds, sorted. Live rows carry no path yet. */

@@ -21,10 +21,10 @@ const databases = { host: getFirestore(host), other: getFirestore(other) };
 const [firestoreHost, firestorePort] = process.env.ROOMS_FIRESTORE_HOST.split(":");
 for (const db of Object.values(databases)) connectFirestoreEmulator(db, firestoreHost, Number(firestorePort));
 
-/** What a call settled with: its value, or its error's code and message. */
+/** What a call settled with: its value, or its error's code, a project refusal's field and projects, and its message. */
 const settle = (call) => Promise.resolve().then(call).then(
   (value) => ({ ok: true, value }),
-  (error) => ({ ok: false, code: error.code ?? String(error), message: error.message }),
+  (error) => ({ ok: false, code: error.code ?? String(error), field: error.field, appProjectId: error.appProjectId, hostProjectId: error.hostProjectId, message: error.message }),
 );
 const readLobby = (name) => settle(() => getDoc(doc(databases[name], "rooms/lobby")).then((snapshot) => snapshot.data() ?? null));
 
