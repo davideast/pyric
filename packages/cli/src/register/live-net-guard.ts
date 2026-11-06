@@ -37,8 +37,9 @@
  *   and its calls go to production unobserved and bypass security rules. The
  *   app's own call to the same hosts is still refused, and so is a tree
  *   file's call to any other Google host. A tree file's socket to the live
- *   host's project's own Realtime Database hosts passes too, so
- *   `firebase-admin/database` works; another project's stays refused. FCM
+ *   host's project's own Realtime Database hosts, and to the shard hosts a
+ *   connection moves to, passes too, so `firebase-admin/database` works;
+ *   another project's named hosts stay refused. FCM
  *   stays refused, with a reason that names `firebase-admin/messaging`.
  *   Firestore's gRPC sockets pass by host, as the live rows' do;
  * - every other Google endpoint, a host in `../google-endpoints.ts` or under
@@ -270,22 +271,53 @@ const ADMIN_STORAGE_HOST = 'storage.googleapis.com';
 /** The Google hosts besides the live row hosts and token sources that a file of the Admin SDK's tree may reach. */
 const ADMIN_HOSTS: ReadonlySet<string> = new Set([ADMIN_STORAGE_HOST, ADMIN_KEYS_HOST]);
 
+/**
+ * gtoken's token path on `www.googleapis.com`, where the Admin SDK's Cloud
+ * Storage client gets its token with a service-account key:
+ * google-auth-library 9 skips the self-signed JWT for Storage's scopes.
+ */
+const ADMIN_STORAGE_TOKEN_PATH = '/oauth2/v4/token';
+
+/**
+ * A request path as a server reads it: without its query or fragment, and
+ * percent-decoded, or null when it cannot be decoded, still holds an escape
+ * after decoding, or has a `.` or `..` segment or a backslash. So
+ * `/robot/v1/metadata/x509/../../drive/v3/files`, and its `%2e%2e` and
+ * `%252e` spellings, never read as a key path.
+ */
+function decodedPath(path: string): string | null {
+  const bare = path.replace(/[?#].*$/, '');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(bare);
+  } catch {
+    return null;
+  }
+  const hasEscape = /%[0-9a-f]{2}/i.test(decoded);
+  const hasDotSegment = decoded.split('/').some((segment) => segment === '.' || segment === '..');
+  const hasBackslash = decoded.includes('\\');
+  return hasEscape || hasDotSegment || hasBackslash ? null : decoded;
+}
+
 /** Whether a refused token source is one the Admin SDK's tree may reach. */
-function isAdminTokenSource(verdict: EgressVerdict): boolean {
-  return ADMIN_TOKEN_HOSTS.has(verdict.host) || verdict.service === METADATA_SERVER;
+function isAdminTokenSource(verdict: EgressVerdict, path: string | undefined): boolean {
+  const isListed = ADMIN_TOKEN_HOSTS.has(verdict.host) || verdict.service === METADATA_SERVER;
+  if (isListed) return true;
+  const isStorageToken = verdict.host === ADMIN_KEYS_HOST && path !== undefined && decodedPath(path) === ADMIN_STORAGE_TOKEN_PATH;
+  return isStorageToken;
 }
 
 /**
  * Whether the Admin SDK's tree may reach `host` at `path`: Cloud Storage, or
  * a public-key path on `www.googleapis.com`. A socket names no path, so it
  * passes there by host; the dispatch and request seams, which see the path,
- * hold `www.googleapis.com` to its key paths.
+ * hold `www.googleapis.com` to its key paths, read decoded.
  */
 function isAdminHost(host: string, path: string | undefined): boolean {
   if (!ADMIN_HOSTS.has(host)) return false;
   const isKeysHost = host === ADMIN_KEYS_HOST;
-  const isKeysPath = path === undefined || path.startsWith(ADMIN_KEYS_PATH);
-  return !isKeysHost || isKeysPath;
+  if (!isKeysHost || path === undefined) return true;
+  return decodedPath(path)?.startsWith(ADMIN_KEYS_PATH) ?? false;
 }
 
 /**
@@ -319,7 +351,7 @@ export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), pass
   return (hostname, path) => {
     const tokenRefusal = evaluateEgress(hostname, { mode: 'block', endpoints }, path);
     if (tokenRefusal !== null) {
-      const isAdminToken = isAdminTokenSource(tokenRefusal) && isAdminCaller(passed);
+      const isAdminToken = isAdminTokenSource(tokenRefusal, path) && isAdminCaller(passed);
       if (isAdminToken) return null;
       return { ...tokenRefusal, reason: TOKEN_REASON, remedy: LIVE_REMEDY };
     }
@@ -328,7 +360,10 @@ export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), pass
     if (isDatabaseHost(host)) {
       const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile);
       if (isFromSdk) return null;
-      const isAdminDatabaseCall = isProjectDatabaseHost(host, passed) && isAdminCaller(passed);
+      // A socket names no path: the project's hosts, and after the handshake its shard, pass there.
+      const isSocket = path === undefined;
+      const isAdminDatabaseHost = isProjectDatabaseHost(host, passed) || (isSocket && isDatabaseShardHost(host));
+      const isAdminDatabaseCall = isAdminDatabaseHost && isAdminCaller(passed);
       if (isAdminDatabaseCall) return null;
       return { ...liveVerdict(host, googleServiceOf(host) ?? 'Realtime Database', DATABASE_REASON), remedy: DATABASE_REMEDY };
     }
@@ -359,6 +394,21 @@ const FCM_REMEDY = 'Send messages from a process without @pyric/live/register';
  * `<project>.firebaseio.com` an older project's databaseURL names. Another
  * project's, and any other instance, is not.
  */
+/**
+ * Whether `host` is a Realtime Database shard, which a connection moves to
+ * after its handshake: `s-<shard>.firebaseio.com` or
+ * `s-<shard>.<region>.firebasedatabase.app`. Shards serve many projects, and
+ * the socket cannot see the `ns=` the connection names, so a shard passes
+ * for the Admin SDK's tree whichever project's database it serves.
+ */
+function isDatabaseShardHost(host: string): boolean {
+  const labels = host.split('.');
+  const isShardLabel = labels[0]?.startsWith('s-') === true && labels[0].length > 2;
+  const isLegacy = labels.length === 3 && host.endsWith('.firebaseio.com');
+  const isRegional = labels.length === 4 && host.endsWith('.firebasedatabase.app');
+  return isShardLabel && (isLegacy || isRegional);
+}
+
 function isProjectDatabaseHost(host: string, passed: PassedThrough): boolean {
   const projectId = passed.adminProjectId?.() ?? null;
   if (projectId === null || projectId === '') return false;

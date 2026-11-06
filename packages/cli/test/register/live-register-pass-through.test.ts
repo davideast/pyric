@@ -627,6 +627,8 @@ describe('the network guard for firebase-admin, listed', () => {
       ['iamcredentials.googleapis.com', '/v1/projects/-/serviceAccounts/a@b.iam.gserviceaccount.com:signBlob'],
       ['storage.googleapis.com', '/storage/v1/b/demo/o'],
       ['www.googleapis.com', '/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com'],
+      ['www.googleapis.com', '/robot/v1/metadata/x509/securetoken%40system.gserviceaccount.com?alt=json'],
+      ['www.googleapis.com', '/oauth2/v4/token'],
       ['www.googleapis.com', undefined],
     ];
     expect(destinations.map(([host, path]) => fromTree(host, path))).toEqual(destinations.map(() => null));
@@ -640,8 +642,15 @@ describe('the network guard for firebase-admin, listed', () => {
       ['fcm.googleapis.com', '/v1/projects/demo/messages:send'],
       ['sts.googleapis.com', '/v1/token'],
       ['www.googleapis.com', '/drive/v3/files'],
-      ['www.googleapis.com', '/oauth2/v4/token'],
+      ['www.googleapis.com', '/oauth2/v3/token'],
+      ['www.googleapis.com', '/oauth2/v4/token/../../drive/v3/files'],
+      ['www.googleapis.com', '/robot/v1/metadata/x509/../../../drive/v3/files'],
+      ['www.googleapis.com', '/robot/v1/metadata/x509/%2e%2e/%2E%2E/%2e%2e/drive/v3/files'],
+      ['www.googleapis.com', '/robot/v1/metadata/x509/%252e%252e/drive/v3/files'],
+      ['www.googleapis.com', '/robot/v1/metadata/x509/..%2f..%2f..%2fdrive/v3/files'],
+      ['www.googleapis.com', '/robot/v1/metadata/x509/%5c..%5cdrive'],
       ['demo-default-rtdb.firebaseio.com', '/.json'],
+      ['s-usc1a-nss-2001.firebaseio.com', '/.json'],
     ];
     expect(destinations.map(([host, path]) => fromTree(host, path)?.verdict)).toEqual(destinations.map(() => 'block'));
   });
@@ -693,6 +702,35 @@ describe('the network guard for firebase-admin, listed', () => {
         own: ownHosts.map(() => 'connected'),
         other: otherHosts.map(() => 'PYRIC_GUARD_BLOCKED'),
       });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test("passes its socket to a Realtime Database shard, and refuses the app's own", async () => {
+    const seams = await adminSeams(['firebase-admin'], 'demo');
+    try {
+      const { admin } = seams;
+      const shards = ['s-usc1a-nss-2001.firebaseio.com', 's-gke-euw1-nssi1-1.europe-west1.firebasedatabase.app'];
+      expect({
+        fromTree: shards.map((host) => connectOutcome(() => admin.adminConnect(seams.tls, host))),
+        fromApp: shards.map((host) => connectOutcome(() => seams.tls.connect({ host, port: 443 }))),
+      }).toEqual({
+        fromTree: shards.map(() => 'connected'),
+        fromApp: shards.map(() => 'PYRIC_GUARD_BLOCKED'),
+      });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test("passes gtoken's Storage token path for its tree, and refuses the app's own fetch to it", async () => {
+    const seams = await adminSeams(['firebase-admin']);
+    try {
+      const url = 'https://www.googleapis.com/oauth2/v4/token';
+      const fromTree = await seams.admin.adminFetch(seams.fetchScope, url).then(() => 'sent', (error: Error) => error.message);
+      const fromApp = await seams.fetchScope.fetch(url).then(() => 'sent', (error: Error) => error.message);
+      expect({ fromTree, fromApp }).toEqual({ fromTree: 'sent', fromApp: 'fetch failed' });
     } finally {
       seams.stop();
     }
