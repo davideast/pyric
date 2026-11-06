@@ -95,6 +95,26 @@ describe('the live host state', () => {
     expect(warnings).toEqual([]);
   });
 
+  it('reports the imports the app resolved to live rows, read at report time, in first-import order', () => {
+    const imports = new Set<string>();
+    const live = createLiveHostState({ configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined, observed: imports });
+    expect(live.report()).not.toHaveProperty('observed');
+    // Imports arrive as the app loads, after the host started.
+    imports.add('firebase/firestore');
+    imports.add('firebase/auth');
+    expect(live.report().observed).toEqual(['firebase/firestore', 'firebase/auth']);
+  });
+
+  it('reads an observed-imports function each report and lists each import once', () => {
+    const resolved: string[] = [];
+    const live = createLiveHostState({ configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined, observed: () => resolved });
+    expect(live.report()).not.toHaveProperty('observed');
+    resolved.push('firebase/database', 'firebase/storage', 'firebase/database');
+    expect(live.report().observed).toEqual(['firebase/database', 'firebase/storage']);
+    resolved.push('firebase/ai');
+    expect(live.report().observed).toEqual(['firebase/database', 'firebase/storage', 'firebase/ai']);
+  });
+
   it('names each project source as the developer set it', () => {
     expect(projectSourceName('firebaserc', '--project')).toBe('.firebaserc');
     expect(projectSourceName('firebase-use', '--project')).toBe('`firebase use`');
