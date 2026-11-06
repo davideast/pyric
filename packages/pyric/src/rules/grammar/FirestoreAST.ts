@@ -20,7 +20,12 @@ export interface FirestoreRules {
    *  service block). Visible everywhere inside the service. Absent on ASTs
    *  constructed programmatically. */
   functions?: FunctionDef[];
+  /** The service the ruleset governs: the file's `cloud.firestore` block,
+   *  or its first block when it has none. */
   service: ServiceBlock;
+  /** Every service block in the file, in source order, `service` among
+   *  them. Absent on ASTs constructed programmatically. */
+  services?: ServiceBlock[];
   loc?: SourceLoc;
 }
 
