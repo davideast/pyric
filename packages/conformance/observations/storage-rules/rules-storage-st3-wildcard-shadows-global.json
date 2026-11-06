@@ -2,7 +2,7 @@
   "name": "rules-storage-st3-wildcard-shadows-global",
   "matrixRow": "",
   "rowIds": [
-    "storage-rules#220"
+    "storage-rules#221"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"st3-wildcard-shadows-global\" (ST3-WILDCARD-SHADOWS-GLOBAL). A path wildcard named request or resource shadows the global of the same name inside its block.",
   "observedAt": "2026-11-04T02:28:10.895Z",

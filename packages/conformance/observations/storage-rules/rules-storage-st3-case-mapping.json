@@ -1,0 +1,30 @@
+{
+  "name": "rules-storage-st3-case-mapping",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#220"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"st3-case-mapping\" (ST3-CASE-MAPPING). lower() and upper() where full and simple Unicode case mapping differ.",
+  "observedAt": "2026-11-04T02:27:15.469Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "0c9a141317a6cca521d5d2e120576d6b089d7952eb75a569b9bc84c69eecf3fa"
+  },
+  "behavior": {
+    "ascii-upper: 'aB'.upper() == 'AB' (pyric ALLOW)": "ALLOW",
+    "sharp-s-upper-unchanged: 'ß'.upper() == 'ß' (pyric DENY)": "ALLOW",
+    "sharp-s-upper-size: 'ß'.upper().size() == 1 (pyric DENY)": "ALLOW",
+    "sigma-lower-simple: 'ΑΣ'.lower() == 'ασ' (pyric DENY)": "DENY",
+    "ligature-upper-unchanged: 'ﬁ'.upper() == 'ﬁ' (pyric DENY)": "ALLOW",
+    "dotted-i-lower-plain-i: 'İ'.lower() == 'i' (pyric DENY)": "DENY",
+    "dotted-i-lower-size-1: 'İ'.lower().size() == 1 (pyric DENY)": "ALLOW",
+    "dotless-i-upper: 'ı'.upper() == 'I' (pyric ALLOW)": "DENY",
+    "long-s-upper: 'ſ'.upper() == 'S' (pyric ALLOW)": "DENY",
+    "titlecase-dz-upper: 'ǅ'.upper() == 'Ǆ' (pyric ALLOW)": "DENY",
+    "armenian-ligature-upper-size: 'և'.upper().size() == 1 (pyric DENY)": "ALLOW",
+    "upper-sharp-s-to-capital: 'ß'.upper() == 'ẞ' (pyric DENY)": "DENY",
+    "lookup map with one path key: .path is path (pyric DENY)": "ALLOW"
+  }
+}

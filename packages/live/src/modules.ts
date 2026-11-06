@@ -28,6 +28,11 @@
  * own object, with its `response` replaced by a promise that follows the
  * SDK's and its `stream` by one that yields the SDK's own chunks.
  *
+ * The Storage row (`storage.ts`) observes exports. `uploadBytesResumable`
+ * returns the SDK's own UploadTask, its `then` and `catch` following the
+ * task's settlement, and `getStream` returns a stream that follows the
+ * SDK's.
+ *
  * The real module is passed in. A plane loads it from the app's own installed
  * `firebase`, so the app object, Auth, Firestore and App Check all come from
  * one `@firebase/app` component registry. The app object the app holds is the
@@ -49,10 +54,11 @@ import {
   offByCallback,
 } from './database.js';
 import { AI_REFUSED_CALLS, aiCode, aiContext, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
+import { observedGetStream, STORAGE_CALLS, storageContext } from './storage.js';
 import { observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite, type UncaughtListenerError } from './observe.js';
 import { liveCallRefusal, type LiveClient, type RefusedCall } from './refusal.js';
 
-export type LiveModuleKey = 'live-app' | 'live-auth' | 'live-firestore' | 'live-app-check' | 'live-database' | 'live-ai';
+export type LiveModuleKey = 'live-app' | 'live-auth' | 'live-firestore' | 'live-app-check' | 'live-database' | 'live-ai' | 'live-storage';
 
 type Callback = (this: unknown, ...args: unknown[]) => unknown;
 
@@ -88,6 +94,8 @@ export interface LiveModuleSpec {
   readonly noted?: readonly string[];
   /** One-shot exports whose result is a thenable, not a promise, whose settlement is production's answer. */
   readonly thenables?: readonly string[];
+  /** Thenables whose SDK handles its own promise's rejection, so the promise that follows one is handled too (`observe.ts`). */
+  readonly swallowsRejection?: readonly string[];
   /** What every wrapper of this module reads differently from Firestore and Auth (`observe.ts`). */
   readonly hooks?: ObservedHooks;
   /** Exports called as the app called them, unrecorded, whose result is decorated before the app gets it. */
@@ -232,6 +240,14 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
       ChatSession: observedChatClass,
     },
   },
+  'live-storage': {
+    calls: STORAGE_CALLS,
+    listeners: [],
+    thenables: ['uploadBytesResumable'],
+    swallowsRejection: ['uploadBytesResumable'],
+    hooks: { context: storageContext, throwsLocally: true },
+    replaced: { getStream: observedGetStream },
+  },
 };
 
 type Wrap = typeof observedCall;
@@ -242,13 +258,16 @@ function wrapExports(
   wrap: Wrap,
   site: Omit<ObservedSite, 'name'>,
   thenables: readonly string[] = [],
+  swallowing: readonly string[] = [],
 ): void {
   for (const name of names) {
     const real = wrapped[name];
     // A name this SDK version does not export stays absent.
     if (typeof real !== 'function') continue;
     const followsThenable = thenables.includes(name);
-    wrapped[name] = wrap({ ...site, name, ...(followsThenable ? { followsThenable } : {}) }, real as Parameters<Wrap>[1]);
+    const swallowsRejection = followsThenable && swallowing.includes(name);
+    const thenable = { ...(followsThenable ? { followsThenable } : {}), ...(swallowsRejection ? { swallowsRejection } : {}) };
+    wrapped[name] = wrap({ ...site, name, ...thenable }, real as Parameters<Wrap>[1]);
   }
 }
 
@@ -321,7 +340,7 @@ export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: 
   const spec = LIVE_MODULES[key];
   const wrapped: Record<string, unknown> = { ...(real as Record<string, unknown>) };
   const observedSite = { module: specifier, observer: site.observer, accountOf, ...spec.hooks };
-  wrapExports(wrapped, spec.calls, observedCall, observedSite, spec.thenables);
+  wrapExports(wrapped, spec.calls, observedCall, observedSite, spec.thenables, spec.swallowsRejection);
   const uncaughtListenerError = spec.uncaughtListenerError?.(site.sdkVersion);
   wrapExports(wrapped, spec.listeners, observedListener, { ...observedSite, uncaughtListenerError });
   guardExports(wrapped, spec.refused ?? {}, site.client);

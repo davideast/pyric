@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#220","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"pyric reads a one-key {path} map from a firestore.get() function mock as a path, so .path on it is an error; production keeps it a map whose .path is a path","issue":"ST3-D-3"}

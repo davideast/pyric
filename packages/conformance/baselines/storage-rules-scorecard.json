@@ -234,7 +234,7 @@
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [
-        "storage-rules#220"
+        "storage-rules#221"
       ],
       "divergedByRows": []
     },
@@ -561,7 +561,7 @@
       ],
       "verifiedByRows": [
         "storage-rules#118",
-        "storage-rules#220"
+        "storage-rules#221"
       ],
       "divergedByRows": []
     },
@@ -672,6 +672,8 @@
         "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
+        "st3-case-mapping",
+        "st3-case-mapping-ascii",
         "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -1042,7 +1044,8 @@
       "verifiedBy": [
         "firestore-lookup",
         "firestore-lookup-budget",
-        "h1-lookup-interpolated-slash"
+        "h1-lookup-interpolated-slash",
+        "st3-case-mapping"
       ],
       "verifiedByRows": [
         "storage-rules#131",
@@ -1459,6 +1462,7 @@
         "bytes-literal",
         "h1-auth-token-default",
         "list-map-literals-and-slice",
+        "st3-case-mapping",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
@@ -1697,9 +1701,13 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "st3-case-mapping",
+        "st3-case-mapping-ascii",
         "stdlib-string-bytes-hashing"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#220"
+      ],
       "divergedByRows": []
     },
     "storage.method.string.upper": {
@@ -1714,9 +1722,13 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "st3-case-mapping",
+        "st3-case-mapping-ascii",
         "stdlib-string-bytes-hashing"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#220"
+      ],
       "divergedByRows": []
     },
     "storage.method.string.trim": {
@@ -2338,6 +2350,8 @@
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "resource-object-identity",
+        "st3-case-mapping",
+        "st3-case-mapping-ascii",
         "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -2758,6 +2772,7 @@
         "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
+        "st3-case-mapping",
         "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -2833,6 +2848,7 @@
         "h1-auth-token-default",
         "h1-v1-recursive-wildcard",
         "math-namespace",
+        "st3-case-mapping",
         "stdlib-storage-modules",
         "stdlib-timestamp-duration",
         "type-checks-is",
@@ -3021,6 +3037,8 @@
         "h1-resource-unmodeled-fields",
         "metadata-access",
         "resource-object-identity",
+        "st3-case-mapping",
+        "st3-case-mapping-ascii",
         "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-string-bytes-hashing",
@@ -3196,6 +3214,8 @@
         "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
+        "st3-case-mapping",
+        "st3-case-mapping-ascii",
         "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -3302,6 +3322,8 @@
         "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
+        "st3-case-mapping",
+        "st3-case-mapping-ascii",
         "st3-wildcard-shadows-global",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
