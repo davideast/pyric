@@ -19,15 +19,46 @@ import { ok, fail, type HostCtx, type PortLike } from '../host-context.js';
 import { callerOf } from './caller.js';
 import { localVerdict } from './observe-local-verdict.js';
 
-/** Each sandbox's live call values, by event id: host memory, read only by the capture. */
-const LIVE_CALL_VALUES = new WeakMap<Sandbox, Map<string, VerifyLiveCallValues>>();
+/** One sandbox's live call values by event id, and the size at which they are next pruned. */
+interface ValueStore {
+  byEvent: Map<string, VerifyLiveCallValues>;
+  pruneAt: number;
+}
+
+/** Each sandbox's live call values: host memory, read only by the capture. */
+const LIVE_CALL_VALUES = new WeakMap<Sandbox, ValueStore>();
+
+/** The fewest entries a store holds before an observed call prunes it. */
+const MIN_PRUNE_AT = 256;
+
+/**
+ * Drop the values whose events the history no longer holds. A pruned
+ * store is next pruned at twice its size, so pruning stays a constant cost
+ * per observed call and the store stays within twice the history.
+ */
+function prune(sandbox: Sandbox, store: ValueStore): void {
+  const held = new Set(sandbox.history().map((event) => event.id));
+  for (const id of store.byEvent.keys()) {
+    if (!held.has(id)) store.byEvent.delete(id);
+  }
+  store.pruneAt = Math.max(MIN_PRUNE_AT, store.byEvent.size * 2);
+}
+
+/** How many live calls' values `sandbox`'s host holds right now, without pruning them. */
+export function heldLiveCallValueCount(sandbox: Sandbox): number {
+  return LIVE_CALL_VALUES.get(sandbox)?.byEvent.size ?? 0;
+}
 
 /**
  * The values each live call in `sandbox` carried, by event id, for the
- * capture file to hold beside the events. Emails are already left out.
+ * capture file to hold beside the events, pruned to the events the history
+ * still holds. Emails are already left out.
  */
 export function liveCallValues(sandbox: Sandbox): ReadonlyMap<string, VerifyLiveCallValues> {
-  return LIVE_CALL_VALUES.get(sandbox) ?? new Map();
+  const store = LIVE_CALL_VALUES.get(sandbox);
+  if (store === undefined) return new Map();
+  prune(sandbox, store);
+  return store.byEvent;
 }
 
 /** A token's claims without the account's email, top level or among its sign-in identities. */
@@ -58,9 +89,10 @@ function valuesOf(call: ObservedCall): VerifyLiveCallValues | undefined {
 function rememberValues(sandbox: Sandbox, eventId: string, call: ObservedCall): void {
   const values = valuesOf(call);
   if (values === undefined) return;
-  const byEvent = LIVE_CALL_VALUES.get(sandbox) ?? new Map<string, VerifyLiveCallValues>();
-  byEvent.set(eventId, values);
-  LIVE_CALL_VALUES.set(sandbox, byEvent);
+  const store = LIVE_CALL_VALUES.get(sandbox) ?? { byEvent: new Map<string, VerifyLiveCallValues>(), pruneAt: MIN_PRUNE_AT };
+  LIVE_CALL_VALUES.set(sandbox, store);
+  if (store.byEvent.size >= store.pruneAt) prune(sandbox, store);
+  store.byEvent.set(eventId, values);
 }
 
 /** Write one observed call to the event stream with its caller, then answer the frame. */

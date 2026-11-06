@@ -615,6 +615,44 @@ service cloud.firestore {
     expect(result.services.firestore?.divergences).toMatchObject([{ service: 'firestore', kind: 'now-allowed', path: 'rooms/r1', method: 'get' }]);
   });
 
+  const OWNER_READS = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow read: if resource.data.owner == request.auth.uid; }
+  }
+}`;
+  const EMAIL_READS = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow read: if request.auth.token.email == 'alice@example.com'; }
+  }
+}`;
+
+  it('skips a live call whose answer rests on data the capture lacks, under unchanged rules', async () => {
+    const cases: Array<[string, LiveValues]> = [
+      [OWNER_READS, {}],
+      [ADMIN_READS, {}],
+      [EMAIL_READS, { claims: { admin: true } }],
+      [OWNER_WRITES, {}],
+    ];
+    for (const [rules, values] of cases) {
+      const call = rules === OWNER_WRITES ? write : read({ status: 'ok' });
+      const result = await verifyFixture(liveCapture(call, values, rules), { rules: { firestore: rules } });
+      expect(result.ok).toBe(true);
+      expect(result.services.firestore?.divergences).toEqual([]);
+      expect(result.services.firestore?.checkedEvents).toBe(0);
+    }
+  });
+
+  it('replays a live read with the document it returned, and reports a real rules change', async () => {
+    const fixture = liveCapture(read({ status: 'ok' }), { document: { owner: 'alice' } }, OWNER_READS);
+    const unchanged = await verifyFixture(fixture, { rules: { firestore: OWNER_READS } });
+    expect(unchanged.services.firestore?.divergences).toEqual([]);
+    expect(unchanged.services.firestore?.checkedEvents).toBe(1);
+    const closed = await verifyFixture(fixture, { rules: { firestore: NO_ONE } });
+    expect(closed.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'get' }]);
+  });
+
   it('replays a live write with the data it sent', async () => {
     const agrees = await verifyFixture(liveCapture(write, { writeData: { owner: 'alice' } }, OWNER_WRITES), { rules: { firestore: OWNER_WRITES } });
     expect(agrees.services.firestore?.divergences).toEqual([]);
