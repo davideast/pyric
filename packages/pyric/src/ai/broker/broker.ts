@@ -1,4 +1,4 @@
-import { aiEndpoint, getAiEvidence, setAiEvidence, type AiEvidence } from '../../sandbox/internal/ai-evidence.js';
+import { aiEndpoint, aiUsageEvidence, getAiEvidence, setAiEvidence, type AiEvidence } from '../../sandbox/internal/ai-evidence.js';
 /**
  * The sandbox AI broker — the ONE in-process Gemini-wire model every plane
  * consumes (house pattern: the messaging broker):
@@ -153,10 +153,10 @@ export class AiBroker {
   private annotate<T extends WireResponse>(response: T, identity: AiEvidence): T {
     const usage = response.usageMetadata;
     const original = getAiEvidence(response);
-    const valid = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined;
+    const { reportedModel, ...tokens } = aiUsageEvidence(usage, response.modelVersion);
     return setAiEvidence(response, { ...identity,
-      ...(identity.engine === 'gemini' ? { reportedModel: response.modelVersion, usageSource: usage ? 'backend' as const : 'unknown' as const } : {}),
-      ...original, inputTokens: valid(usage?.promptTokenCount), outputTokens: valid(usage?.candidatesTokenCount), totalTokens: valid(usage?.totalTokenCount) });
+      ...(identity.engine === 'gemini' ? { reportedModel, usageSource: usage ? 'backend' as const : 'unknown' as const } : {}),
+      ...original, ...tokens });
   }
 
   /** One-line construction-time summary of what this broker resolved to. */
@@ -384,7 +384,8 @@ export class AiBroker {
     try {
       const response = await this.engine.countTokens(req, model);
       this.emit('count_tokens', model, { totalTokens: response.totalTokens });
-      return setAiEvidence(response, { ...identity, totalTokens: response.totalTokens, usageSource: this.engineKind === 'gemini' ? 'backend' : this.engineKind === 'openai' ? 'estimated' : this.engineKind === 'scripted' ? 'scripted' : 'unknown' });
+      const { totalTokens } = aiUsageEvidence({ totalTokenCount: response.totalTokens });
+      return setAiEvidence(response, { ...identity, totalTokens, usageSource: this.engineKind === 'gemini' ? 'backend' : this.engineKind === 'openai' ? 'estimated' : this.engineKind === 'scripted' ? 'scripted' : 'unknown' });
     } catch (err) {
       this.emitRejectionIfBrokerError(model, err);
       throw err;
