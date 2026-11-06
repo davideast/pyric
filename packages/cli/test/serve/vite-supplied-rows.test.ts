@@ -109,7 +109,7 @@ describe('live rows, once opened', () => {
   it("send only a fixed row module's own import of its specifier to the installed SDK", () => {
     expect(swap.resolveId('firebase/firestore', rowId('firebase/firestore'))).toBeNull();
     expect(swap.resolveId('firebase/app', rowId('firebase/firestore'))).toBe(rowId('firebase/app'));
-    expect(swap.resolveId('firebase/storage', rowId('firebase/firestore'))).toStartWith(STOP_PREFIX);
+    expect(swap.resolveId('firebase/functions', rowId('firebase/firestore'))).toStartWith(STOP_PREFIX);
     expect(swap.resolveId('firebase/app', userFirebaseFile)).toBe(rowId('firebase/app'));
   });
 
@@ -125,8 +125,8 @@ describe('live rows, once opened', () => {
 
   it('refuse every other served specifier with the supplier error, never the sandbox entry', async () => {
     const refused = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
-    expect(refused).toContain('firebase/storage');
     expect(refused).toContain('firebase/functions');
+    expect(refused).toContain('firebase/messaging');
     expect(refused).not.toContain('firebase/database');
     for (const specifier of refused) {
       const id = swap.resolveId(specifier, userImporter);
@@ -139,8 +139,8 @@ describe('live rows, once opened', () => {
   });
 
   it("declare the refused module's export names, so the page's named import links and gets the refusal", async () => {
-    const source = await swap.loadPluginModule(swap.resolveId('firebase/storage', userImporter) as string);
-    expect(source).toContain('__pyricStopped as getStorage');
+    const source = await swap.loadPluginModule(swap.resolveId('firebase/functions', userImporter) as string);
+    expect(source).toContain('__pyricStopped as getFunctions');
   });
 
   it('refuse a real subpath pyric does not serve, and firebase-admin, on the page', async () => {
@@ -222,7 +222,7 @@ describe('live rows, once opened', () => {
 
   it('refuse server-rendered firebase and firebase-admin imports, never routing them to the sandbox', async () => {
     const fake = fakeContext(runnableSsr);
-    for (const specifier of ['firebase/firestore', 'firebase/storage', 'firebase-admin/app']) {
+    for (const specifier of ['firebase/firestore', 'firebase/functions', 'firebase-admin/app']) {
       const id = await swap.resolvePluginId(fake, aliased(specifier), userImporter);
       expect(id).toStartWith(STOP_PREFIX);
       const error = await thrownBy(await swap.loadPluginModule(id as string));
