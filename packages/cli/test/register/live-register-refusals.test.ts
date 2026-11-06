@@ -229,7 +229,7 @@ process.exit(0);
     expect(res.stderr).toContain("in live mode a fetch to Google is made only by the installed SDK that @pyric/live's rows load");
     expect(res.stderr).toContain('net-guard BLOCK storage.googleapis.com (Cloud Storage)');
     expect(res.stderr).toContain(
-      'in live mode only the imports @pyric/live serves (firebase/auth, firebase/firestore, firebase/app-check, firebase/database and firebase/storage) reach Google',
+      'in live mode only the imports @pyric/live serves (firebase/auth, firebase/firestore, firebase/app-check, firebase/database, firebase/ai and firebase/storage) reach Google',
     );
     expect(res.stderr).not.toContain('BLOCK identitytoolkit.googleapis.com (Firebase Authentication) via socket');
   }, 60_000);

@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Assistant</title></head>
+  <body>
+    <h1>Assistant</h1>
+    <output id="status">Starting</output>
+    <script>
+      // A client module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+    </script>
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>
