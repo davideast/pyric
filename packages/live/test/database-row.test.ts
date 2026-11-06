@@ -284,7 +284,7 @@ describe('the live-database row over capture A', () => {
       at: 7,
       outcome: { status: 'error', code: 'permission_denied' },
       projectId: PROJECT,
-      account: { uid: 'user-3', claimNames: expect.any(Array) },
+      account: { uid: 'user-3', claimNames: expect.any(Array), claims: expect.any(Object) },
       instance: `${PROJECT}-named`,
       path: '/secret',
     });
