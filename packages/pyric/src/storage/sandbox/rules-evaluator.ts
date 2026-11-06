@@ -77,19 +77,19 @@ export function evaluateStorageRules(
 /**
  * The granular verbs a request implies. A coarse `read` is a `get` or a
  * `list`. A coarse `write` without `request.resource` is a `delete`. One
- * with a payload stores an object: a `create` when nothing is stored at the
- * path (`resource` is null), an `update` when something is, never both.
- * Binding only the verb production could evaluate keeps a coarse request
- * from allowing what production would deny for the operation it stands
- * for, such as an oversized upload admitted by a
- * `request.method == 'delete'` or `request.method == 'update'` arm.
+ * with a payload uploads an object, and production checks an upload as a
+ * `create` whether or not an object is stored at the path, with `resource`
+ * bound to the stored object when one is (capture
+ * `stdlib-realstorage-request-resource-fields`, overwrite cases
+ * `verb-create` ALLOW and `verb-update` DENY; #1884). Binding only the verb
+ * production evaluates keeps a coarse request from allowing what production
+ * would deny for the operation it stands for, such as an oversized upload
+ * admitted by a `request.method == 'delete'` arm or an `allow update` grant.
  */
 function impliedVerbs(input: EvaluationInput): readonly StorageVerb[] {
   const { request } = input;
   if (request.method !== 'write') return expandVerb(request.method);
-  if (request.resource === undefined) return ['delete'];
-  const objectStored = input.resource !== null;
-  return objectStored ? ['update'] : ['create'];
+  return request.resource === undefined ? ['delete'] : ['create'];
 }
 
 /** The input with its request's method replaced by one granular verb. */

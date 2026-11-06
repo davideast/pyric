@@ -505,7 +505,8 @@
         "stdlib-storage-modules"
       ],
       "verifiedByRows": [
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#222"
       ],
       "divergedByRows": []
     },
@@ -2992,7 +2993,8 @@
         "xref-root-literal-bucket"
       ],
       "verifiedByRows": [
-        "storage-rules#96"
+        "storage-rules#96",
+        "storage-rules#222"
       ],
       "divergedByRows": []
     },
