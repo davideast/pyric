@@ -1,10 +1,11 @@
 /**
  * `@pyric/live/vite`: live mode for a Vite page. The page's `firebase/app`,
- * `firebase/auth`, `firebase/firestore`, `firebase/app-check` and
- * `firebase/database` are the app's own installed SDK, wrapped by the live
- * rows, so the app talks to its real project. Each wrapped Firestore, Auth
- * and Realtime Database call's outcome reaches the Node host as an observed
- * call, and the chip shows it as production's row. Every other served
+ * `firebase/auth`, `firebase/firestore`, `firebase/app-check`,
+ * `firebase/database` and `firebase/storage` are the app's own installed
+ * SDK, wrapped by the live rows, so the app talks to its real project. Each
+ * wrapped Firestore, Auth, Realtime Database and Cloud Storage call's
+ * outcome reaches the Node host as an observed call, and the chip shows it
+ * as production's row. Every other served
  * Firebase import is refused (`refusal.ts`), unless the app lists it in
  * `passThrough`: then it is the app's installed SDK, unwrapped and
  * unobserved, and the start line, the chip and Studio say so. A list that
@@ -56,8 +57,8 @@ type DevServer = Parameters<ConfigureServerHook>[0];
 /** The plugin options live mode takes: `@pyric/cli`'s, always on the Node host, and the imports that pass through. */
 export type PyricLiveOptions = Omit<PyricOptions, 'hosted' | 'swapInBuild'> & {
   /**
-   * Firebase imports live mode does not serve, such as `firebase/database`
-   * or `firebase/ai`, that load the app's installed SDK unwrapped. Their
+   * Firebase imports live mode does not serve, such as `firebase/functions`
+   * or `firebase/messaging`, that load the app's installed SDK unwrapped. Their
    * calls go to production unobserved and still bill. Listing an import live
    * mode serves, `firebase-admin` or an `@firebase/*` package stops the dev
    * server at start.
