@@ -54,8 +54,11 @@ const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const INSTANCE_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/;
 /** Bare Cloud Storage bucket names, never a `gs://` URL: `my-project.firebasestorage.app`. */
 const BUCKET_PATTERN = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
-/** The one Storage code production denies with: 403, as the SDK maps it. */
-const STORAGE_DENIED_CODE = 'storage/unauthorized';
+/**
+ * The Storage codes production denies with, as the SDK maps them: Rules
+ * denial (403) and App Check rejection (401).
+ */
+const STORAGE_DENIED_CODES: ReadonlySet<string> = new Set(['storage/unauthorized', 'storage/unauthorized-app']);
 const MAX_PATH_LENGTH = 1500;
 const MAX_UID_LENGTH = 128;
 const MAX_CLAIM_NAMES = 64;
@@ -323,12 +326,14 @@ export type ProductionVerdict = 'ok' | 'denied' | 'failed';
 
 /**
  * Production's answer as a view reads it: `permission-denied`, in any
- * service's spelling, is denied, and so is Storage's `storage/unauthorized`.
+ * service's spelling, is denied, and so are Storage's `storage/unauthorized`
+ * (a Rules denial) and `storage/unauthorized-app` (an App Check rejection,
+ * read as denied like Firestore's).
  */
 export function productionVerdict(outcome: ProductionOutcome): ProductionVerdict {
   if (outcome.status === 'ok') return 'ok';
   const code = outcome.code.toLowerCase();
   const isPermissionDenied = code === 'permission-denied' || code === 'permission_denied' || code.endsWith('/permission-denied');
-  const isDenied = isPermissionDenied || code === STORAGE_DENIED_CODE;
+  const isDenied = isPermissionDenied || STORAGE_DENIED_CODES.has(code);
   return isDenied ? 'denied' : 'failed';
 }
