@@ -17,6 +17,7 @@ import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { markPortConnection, SERVICE_WORKER_TAB_ID } from '../../../../src/serve/worker/host/caller.js';
 import { pageTabId } from '../../../../src/serve/worker/client/tab-id.js';
+import { profileClientId } from '../../../../src/serve/worker/client/client-id.js';
 import { messagingAppConfig } from '../../../../src/serve/entries/messaging-sw-client.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../../src/serve/worker/protocol.js';
@@ -158,7 +159,7 @@ describe('host: each event names the connection that sent its operation', () => 
     await handleMessage(ctx, messaging, messagingAppConfig({ projectId: 'demo-app' }));
     const callers = await callersOf(events, () => send(ctx, messaging, { t: 'op', method: 'rtdb.set', path: '/messaging/page', value: 1 }));
     expect(callers.length).toBeGreaterThan(0);
-    for (const caller of callers) expect(caller).toEqual({ kind: 'page', pageId: pageTabId() });
+    for (const caller of callers) expect(caller).toEqual({ kind: 'page', pageId: pageTabId(), clientId: profileClientId() });
   });
 
   it('stamps a port whose appConfig declares the service worker realm as the service worker', async () => {
@@ -170,7 +171,8 @@ describe('host: each event names the connection that sent its operation', () => 
     await handleMessage(ctx, serviceWorker, hello);
     const callers = await callersOf(events, () => send(ctx, serviceWorker, { t: 'op', method: 'rtdb.set', path: '/sw/a', value: 1 }));
     expect(callers.length).toBeGreaterThan(0);
-    for (const caller of callers) expect(caller).toEqual({ kind: 'service-worker' });
+    for (const caller of callers) expect(caller).toEqual({ kind: 'service-worker', clientId: hello.clientId });
+    expect(hello.clientId).toMatch(/^profile-[0-9a-f]{32}$/);
     expect(await subscribedPageId(ctx, serviceWorker)).toBeUndefined();
   });
 

@@ -5,6 +5,7 @@ import type { ClientDb } from '../worker/client.js';
 import type { InboundMessage } from '../worker/protocol.js';
 import { ownClientUntilPagehide } from '../worker/client/pagehide.js';
 import { pageTabId } from '../worker/client/tab-id.js';
+import { profileClientId } from '../worker/client/client-id.js';
 import { openWorkerDb } from './worker-runtime.js';
 import { realmOrigin } from 'pyric/sandbox/internal';
 
@@ -25,6 +26,7 @@ export function workerClientForApp(app: FirebaseApp): ClientDb {
     options: app.options as Record<string, unknown>,
     ...pageOriginScope(),
     tabId: pageTabId(),
+    clientId: profileClientId(),
   } satisfies InboundMessage);
   clients.set(app, client);
   return client;
