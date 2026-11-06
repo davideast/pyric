@@ -52,6 +52,7 @@ interface Recording {
   calls: Call[];
   pushes: Push[];
   denials: Record<string, { op: string; api: string; action: string; status: number; body: { error?: { code?: number; status?: string; message?: string } } }>;
+  allowed: Record<string, { op: string; installationsCreate: number; registrationsCreate: number; tokenMinted: boolean }>;
   apiKeys: { before: number; created: number; after: number };
   invariants: Record<string, boolean>;
 }
@@ -62,7 +63,7 @@ const recording = JSON.parse(text) as Recording;
 const OPERATIONS = [
   'getToken', 'getToken-again', 'onMessage', 'onBackgroundMessage', 'getToken-reload', 'deleteToken',
   'getToken-after-delete', 'deleteToken-again', 'delete-deleted-token',
-  'denied-malformed-key', 'denied-referrer', 'denied-installations-only', 'cleanup',
+  'denied-malformed-key', 'denied-referrer', 'denied-other-api-only', 'installations-only-key-allowed', 'cleanup',
 ];
 
 function exchangesOf(op: string): Exchange[] {
@@ -117,9 +118,9 @@ describe('capture M: Messaging wire recording', () => {
     for (const exchange of recording.exchanges) expect(recording.operations).toContain(exchange.op);
   });
 
-  test('cleanup held: tokens, installations and both restricted keys deleted and read back', () => {
+  test('cleanup held: tokens, installations and the three restricted keys deleted and read back', () => {
     expect(recording.invariants).toEqual({ tokensDeleted: true, installationsDeleted: true, keysDeleted: true });
-    expect(recording.apiKeys).toMatchObject({ before: 0, created: 2, after: 0 });
+    expect(recording.apiKeys).toMatchObject({ before: 0, created: 3, after: 0 });
   });
 
   test('the first getToken on a fresh profile creates an installation and a registration', () => {
@@ -168,7 +169,7 @@ describe('capture M: Messaging wire recording', () => {
     const expected: Record<string, { api: string; action: string; status: number }> = {
       'malformed-key': { api: 'installations', action: 'create', status: 400 },
       'referrer-blocked': { api: 'installations', action: 'create', status: 403 },
-      'installations-only': { api: 'registrations', action: 'create', status: 403 },
+      'other-api-only': { api: 'installations', action: 'create', status: 403 },
     };
     for (const [kind, want] of Object.entries(expected)) {
       const denial = recording.denials[kind]!;
@@ -181,8 +182,20 @@ describe('capture M: Messaging wire recording', () => {
       expect({ kind, outcome: call.outcome, code: typeof call.error?.code }).toEqual({ kind, outcome: 'error', code: 'string' });
     }
     expect(recording.denials['referrer-blocked']!.body.error!.status).toBe('PERMISSION_DENIED');
-    expect(recording.denials['installations-only']!.body.error!.status).toBe('PERMISSION_DENIED');
-    expect(only('denied-installations-only', 'installations', 'create').status).toBe(200);
+    expect(recording.denials['other-api-only']!.body.error!.status).toBe('PERMISSION_DENIED');
+    expect(recording.denials['installations-only']).toBeUndefined();
+  });
+
+  test('a key restricted to the Installations API alone is allowed: production mints a token', () => {
+    expect(recording.allowed['installations-only']).toEqual({
+      op: 'installations-only-key-allowed', installationsCreate: 200, registrationsCreate: 200, tokenMinted: true,
+    });
+    expect(only('installations-only-key-allowed', 'installations', 'create').status).toBe(200);
+    const registration = only('installations-only-key-allowed', 'registrations', 'create');
+    expect(registration.status).toBe(200);
+    expect(registration.responseBody).toMatchObject({ token: expect.stringMatching(/^<fcm-token-\d+>$/) });
+    const getToken = recording.calls.find((c) => c.op === 'installations-only-key-allowed' && c.call === 'getToken')!;
+    expect(getToken.outcome).toBe('ok');
   });
 
   test('every answered exchange keeps its content type and its header names', () => {

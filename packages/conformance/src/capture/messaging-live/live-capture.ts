@@ -90,12 +90,32 @@ export function announceRunId(runId: string, notice: RunIdNotice = {}): string {
 
 // ─── Restricted API keys ──────────────────────────────────────────────────
 
-export type KeyRestriction = 'referrer-blocked' | 'installations-only';
-export const KEY_RESTRICTIONS: readonly KeyRestriction[] = ['referrer-blocked', 'installations-only'];
+/**
+ * The three restricted keys, created together so they share one propagation wait:
+ * referrer-blocked (localhost is not an allowed referrer), installations-only
+ * (API targets: Installations alone; production still lets registrations through),
+ * and other-api-only (API targets: one API that is neither, so Installations refuses it).
+ */
+export type KeyRestriction = 'referrer-blocked' | 'installations-only' | 'other-api-only';
+export const KEY_RESTRICTIONS: readonly KeyRestriction[] = ['referrer-blocked', 'installations-only', 'other-api-only'];
 
 /** A referrer no page of the capture is served from, so localhost is blocked. */
 export const ALLOWED_REFERRER = 'https://pyric-capture-m.invalid/*';
 export const INSTALLATIONS_SERVICE = 'firebaseinstallations.googleapis.com';
+/** A harmless API that is neither Installations nor FCM registrations. */
+export const OTHER_API_SERVICE = 'firebaseremoteconfig.googleapis.com';
+
+const KEY_ID_SUFFIX: Record<KeyRestriction, string> = {
+  'referrer-blocked': 'ref',
+  'installations-only': 'fis',
+  'other-api-only': 'rc',
+};
+
+const KEY_RESTRICTION_BODY: Record<KeyRestriction, Record<string, unknown>> = {
+  'referrer-blocked': { browserKeyRestrictions: { allowedReferrers: [ALLOWED_REFERRER] } },
+  'installations-only': { apiTargets: [{ service: INSTALLATIONS_SERVICE }] },
+  'other-api-only': { apiTargets: [{ service: OTHER_API_SERVICE }] },
+};
 
 export interface ApiKeyEntry {
   name: string;
@@ -122,13 +142,11 @@ export function keyDisplayName(runId: string, restriction: KeyRestriction): stri
 }
 
 export function keyId(runId: string, restriction: KeyRestriction): string {
-  return `pyric-m-${runId}-${restriction === 'referrer-blocked' ? 'ref' : 'fis'}`.toLowerCase();
+  return `pyric-m-${runId}-${KEY_ID_SUFFIX[restriction]}`.toLowerCase();
 }
 
 export function keyRestrictions(restriction: KeyRestriction): Record<string, unknown> {
-  return restriction === 'referrer-blocked'
-    ? { browserKeyRestrictions: { allowedReferrers: [ALLOWED_REFERRER] } }
-    : { apiTargets: [{ service: INSTALLATIONS_SERVICE }] };
+  return KEY_RESTRICTION_BODY[restriction];
 }
 
 const API_KEYS = 'https://apikeys.googleapis.com/v2';
@@ -294,7 +312,7 @@ export async function cleanupCaptureRun(
 }
 
 /**
- * List the run's keys (none may exist yet), create the two restricted keys,
+ * List the run's keys (none may exist yet), create the restricted keys,
  * run `body`, then clean up once and read everything back. The invariants are
  * reported whether or not `body` threw.
  */

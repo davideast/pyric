@@ -51,7 +51,7 @@ function fakeKeys(options: { failRemove?: KeyRestriction; failCreate?: boolean; 
       return key;
     },
     async remove(name) {
-      if (options.failRemove && name.endsWith(options.failRemove === 'referrer-blocked' ? '-ref' : '-fis')) throw new Error('delete answered 500');
+      if (options.failRemove && name === `keys/${keyId(RUN, options.failRemove)}`) throw new Error('delete answered 500');
       live.delete(name);
       deleted.add(name);
     },
@@ -65,17 +65,17 @@ function fakeKeys(options: { failRemove?: KeyRestriction; failCreate?: boolean; 
 const CLEAN: ClientReadBack = { tokensDeleted: true, installationsDeleted: true };
 
 describe('runWithCaptureCleanup', () => {
-  test('creates both keys, runs the body, then deletes both and reads them back', async () => {
+  test('creates the three keys, runs the body, then deletes them and reads them back', async () => {
     const fake = fakeKeys();
     const seen: string[] = [];
     const run = await runWithCaptureCleanup(fake.keys, RUN, async (created) => {
-      seen.push(created['referrer-blocked'].keyString, created['installations-only'].keyString);
+      seen.push(created['referrer-blocked'].keyString, created['installations-only'].keyString, created['other-api-only'].keyString);
       return 'done';
     }, { client: async () => CLEAN });
     expect(run.result).toBe('done');
-    expect(seen).toEqual(['secret-referrer-blocked', 'secret-installations-only']);
+    expect(seen).toEqual(['secret-referrer-blocked', 'secret-installations-only', 'secret-other-api-only']);
     expect(run.invariants).toEqual({ tokensDeleted: true, installationsDeleted: true, keysDeleted: true });
-    expect(run.keys).toEqual({ before: 0, created: 2, after: 0 });
+    expect(run.keys).toEqual({ before: 0, created: 3, after: 0 });
     expect(fake.live.size).toBe(0);
   });
 
@@ -106,13 +106,13 @@ describe('runWithCaptureCleanup', () => {
     expect(fake.deleted.size).toBe(2);
   });
 
-  test('a failed key delete still deletes the other key and fails the invariant', async () => {
+  test('a failed key delete still deletes the other keys and fails the invariant', async () => {
     const fake = fakeKeys({ failRemove: 'referrer-blocked' });
     const logs: string[] = [];
     const run = await runWithCaptureCleanup(fake.keys, RUN, async () => 'done', { client: async () => CLEAN, log: (m) => logs.push(m) });
     expect(run.invariants).toEqual({ tokensDeleted: true, installationsDeleted: true, keysDeleted: false });
     expect(run.keys.after).toBe(1);
-    expect([...fake.deleted]).toEqual([`keys/${keyId(RUN, 'installations-only')}`]);
+    expect([...fake.deleted]).toEqual([`keys/${keyId(RUN, 'installations-only')}`, `keys/${keyId(RUN, 'other-api-only')}`]);
     expect(logs.join('\n')).toContain(`--cleanup ${RUN}`);
   });
 

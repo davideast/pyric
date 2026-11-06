@@ -18,7 +18,9 @@
  *   delete-deleted-token     one registrations DELETE of the deleted token
  *   denied-malformed-key     an app whose API key is malformed
  *   denied-referrer          an API key restricted by HTTP referrer, so localhost is blocked
- *   denied-installations-only an API key restricted to the Installations API
+ *   denied-other-api-only    an API key restricted to one API that is neither Installations nor registrations
+ *   installations-only-key-allowed an API key restricted to the Installations API: production
+ *                            lets Installations create and registrations create through and mints a token
  *   cleanup                  the run's installations deleted and read back
  *
  * A page init script wraps `fetch` before the SDK loads and keeps every
@@ -33,9 +35,11 @@
  * and every credential are never written. The file is written only when no
  * token-shaped string remains.
  *
- * Safety: the two restricted API keys carry the run id in their display
- * names; the run lists keys by the run id before (none may exist) and after
- * (none may remain), deletes both, and reads each back as deleted. Every
+ * Safety: the three restricted API keys carry the run id in their display
+ * names and are created together, so they share one propagation wait; the
+ * run lists keys by the run id before (none may exist) and after (none may
+ * remain), deletes all three, and reads each back as deleted. The recording
+ * is written only when every case reaches its expected answer. Every
  * installation the run made is deleted and read back, and every token it
  * minted is deleted and read back through a dry-run send. Cleanup runs on any
  * failure and on SIGINT; the recording is written only when it held. Refuses
@@ -72,6 +76,7 @@ import {
   cleanupCaptureRun,
   CONFIG_VARIABLE,
   exchangeApi,
+  KEY_RESTRICTIONS,
   loadCaptureCredential,
   missingVariables,
   newRunId,
@@ -100,7 +105,7 @@ const ORIGIN = `http://localhost:${PORT}`;
 const OPERATIONS = [
   'getToken', 'getToken-again', 'onMessage', 'onBackgroundMessage', 'getToken-reload', 'deleteToken',
   'getToken-after-delete', 'deleteToken-again', 'delete-deleted-token',
-  'denied-malformed-key', 'denied-referrer', 'denied-installations-only', 'cleanup',
+  'denied-malformed-key', 'denied-referrer', 'denied-other-api-only', 'installations-only-key-allowed', 'cleanup',
 ] as const;
 type Operation = (typeof OPERATIONS)[number];
 
@@ -608,10 +613,12 @@ interface PushRecord {
   delivered: { to: string; payload: unknown };
 }
 interface DenialRecord { op: Operation; api: string; action: string; status: number; body: unknown }
+interface AllowedRecord { op: Operation; installationsCreate: number; registrationsCreate: number; tokenMinted: boolean }
 
 const calls: CallRecord[] = [];
 const pushes: PushRecord[] = [];
 const denials: Record<string, DenialRecord> = {};
+const allowed: Record<string, AllowedRecord> = {};
 let browserInfo: { channel: Channel; headless: false; chromiumMajor: string } | null = null;
 
 /** Open the page on a fresh profile and wait for its first getToken; if this browser cannot reach the push service, try the next. */
@@ -691,8 +698,9 @@ function statusOf(taken: RawExchange[], api: string, action: string): number | n
 async function sequence(created: Record<KeyRestriction, CreatedKey>): Promise<void> {
   redactor.add(created['referrer-blocked'].keyString, '<restricted-key-1>');
   redactor.add(created['installations-only'].keyString, '<restricted-key-2>');
+  redactor.add(created['other-api-only'].keyString, '<restricted-key-3>');
   const keysCreatedAt = Date.now();
-  say(`[capture-m] run ${runId}: two restricted keys created`);
+  say(`[capture-m] run ${runId}: three restricted keys created`);
 
   const token1 = await firstToken();
   const run = current!;
@@ -771,9 +779,37 @@ async function sequence(created: Record<KeyRestriction, CreatedKey>): Promise<vo
   await denial(run, 'denied-referrer', 'referrer-blocked', created['referrer-blocked'].keyString,
     (taken) => (statusOf(taken, 'installations', 'create') === 403 ? 'held' : 'retry'),
     { api: 'installations', action: 'create' }, DENIAL_ATTEMPTS);
-  await denial(run, 'denied-installations-only', 'installations-only', created['installations-only'].keyString,
-    (taken) => (statusOf(taken, 'installations', 'create') === 200 && statusOf(taken, 'registrations', 'create') === 403 ? 'held' : 'retry'),
-    { api: 'registrations', action: 'create' }, DENIAL_ATTEMPTS);
+  await denial(run, 'denied-other-api-only', 'other-api-only', created['other-api-only'].keyString,
+    (taken) => (statusOf(taken, 'installations', 'create') === 403 ? 'held' : 'retry'),
+    { api: 'installations', action: 'create' }, DENIAL_ATTEMPTS);
+  // After the two denials above held, the restrictions have propagated, so an allowed answer here is production's.
+  await installationsOnlyKeyAllowed(run, created['installations-only'].keyString);
+}
+
+/**
+ * A key restricted to the Installations API alone: production answers
+ * Installations create 200 and registrations create 200 and mints a token.
+ * Anything else fails the run, so nothing is written.
+ */
+async function installationsOnlyKeyAllowed(run: BrowserRun, apiKey: string): Promise<void> {
+  const op: Operation = 'installations-only-key-allowed';
+  const app = 'installations-only';
+  const result = await tools<{ ok: boolean; token?: string; error?: unknown }>(run, 'getTokenAs', app, apiKey);
+  if (result.ok && result.token) noteToken(result.token);
+  const taken = await take(run, op);
+  const installationsCreate = statusOf(taken, 'installations', 'create');
+  const registrationsCreate = statusOf(taken, 'registrations', 'create');
+  const tokenMinted = result.ok && typeof result.token === 'string';
+  const asExpected = installationsCreate === 200 && registrationsCreate === 200 && tokenMinted;
+  if (!asExpected) {
+    throw new Error(`installations-only key: expected Installations create 200, registrations create 200 and a token; got ${installationsCreate}, ${registrationsCreate}, token ${tokenMinted}`);
+  }
+  allowed[app] = { op, installationsCreate, registrationsCreate, tokenMinted };
+  calls.push({ op, app, call: 'getToken', outcome: 'ok' });
+  await tools(run, 'deleteTokenAs', app, apiKey);
+  await take(run, op);
+  calls.push({ op, app, call: 'deleteToken', outcome: 'ok' });
+  say('[capture-m] installations-only key: allowed, a token minted and deleted');
 }
 
 announceRunId(runId);
@@ -816,7 +852,7 @@ const resourceTiming = timings.filter((t) => kept.has(t.op)).map(({ url, ...rest
 
 writeMessagingRecording(OUT, {
   name: 'messaging-live-capture-m-wire',
-  description: 'Every request the firebase/messaging SDK sent to Firebase Installations and FCM registrations from the page, with production\'s answers, for getToken on a fresh profile, getToken again and after a reload (no request), deleteToken, a second token minted and deleted, a DELETE of a deleted token, and three denied getTokens (a malformed API key, a key restricted by HTTP referrer, a key restricted to the Installations API); and each push the service worker received, before the SDK read it, for one foreground and one background message. Request headers keep their names and Content-Type, request bodies their key sets, responses their status, the headers the SDK and CORS read, every header name, and the body. Resource Timing is what the page saw for each request. Push payloads keep key sets and the values the run sent.',
+  description: 'Every request the firebase/messaging SDK sent to Firebase Installations and FCM registrations from the page, with production\'s answers, for getToken on a fresh profile, getToken again and after a reload (no request), deleteToken, a second token minted and deleted, a DELETE of a deleted token, three denied getTokens (a malformed API key, a key restricted by HTTP referrer, a key restricted to one API that is neither Installations nor registrations), and a getToken with a key restricted to the Installations API alone, which production allowed; and each push the service worker received, before the SDK read it, for one foreground and one background message. Request headers keep their names and Content-Type, request bodies their key sets, responses their status, the headers the SDK and CORS read, every header name, and the body. Resource Timing is what the page saw for each request. Push payloads keep key sets and the values the run sent.',
   observedAt: new Date().toISOString(),
   sdkVersion: resolvedFirebaseVersion(),
   adminSdkVersion: resolvedAdminVersion(),
@@ -828,7 +864,8 @@ writeMessagingRecording(OUT, {
   calls,
   pushes,
   denials,
-  apiKeys: { ...outcome.keys, restrictions: ['referrer-blocked', 'installations-only'] },
+  allowed,
+  apiKeys: { ...outcome.keys, restrictions: KEY_RESTRICTIONS },
   invariants: outcome.invariants,
 }, redactor);
 say(`[capture-m] wrote ${OUT}`);
