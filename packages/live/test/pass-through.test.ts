@@ -31,7 +31,7 @@ function startError(value: unknown): string {
 describe('the passThrough option', () => {
   test('takes every served Firebase import live mode has no row for, except Firestore Lite, and nothing else', () => {
     const passable = [
-      'firebase/ai', 'firebase/analytics', 'firebase/database', 'firebase/functions', 'firebase/messaging',
+      'firebase/ai', 'firebase/analytics', 'firebase/functions', 'firebase/messaging',
       'firebase/messaging/sw', 'firebase/performance', 'firebase/remote-config', 'firebase/storage',
     ];
     const unserved: string[] = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
@@ -52,10 +52,13 @@ describe('the passThrough option', () => {
 
   test('is empty when absent, and lists each import once', () => {
     expect(passThroughOption(ENTRY, undefined)).toEqual([]);
-    expect(passThroughOption(ENTRY, ['firebase/database', 'firebase/ai', 'firebase/database'])).toEqual(['firebase/database', 'firebase/ai']);
+    expect(passThroughOption(ENTRY, ['firebase/functions', 'firebase/ai', 'firebase/functions'])).toEqual(['firebase/functions', 'firebase/ai']);
   });
 
-  test('refuses an import live mode already serves', () => {
+  test('refuses an import live mode already serves, firebase/database among them', () => {
+    expect(startError(['firebase/database'])).toBe(
+      `${ENTRY}: passThrough lists firebase/database, which live mode already serves and observes; remove it.`,
+    );
     for (const served of INSTALLED_SDK_SPECIFIERS) {
       expect(startError([served])).toBe(`${ENTRY}: passThrough lists ${served}, which live mode already serves and observes; remove it.`);
     }
@@ -70,8 +73,8 @@ describe('the passThrough option', () => {
   });
 
   test('refuses an @firebase/* package name and names the import to list', () => {
-    expect(startError(['@firebase/database'])).toBe(
-      `${ENTRY}: passThrough lists @firebase/database, an SDK package name; list firebase/database, the import apps write.`,
+    expect(startError(['@firebase/functions'])).toBe(
+      `${ENTRY}: passThrough lists @firebase/functions, an SDK package name; list firebase/functions, the import apps write.`,
     );
   });
 
@@ -81,7 +84,7 @@ describe('the passThrough option', () => {
     expect(message).toContain('passThrough lists firebase/databse, which is not');
     expect(message).toContain('passThrough lists firebase/compat/app, which is not');
     expect(message).toContain('passThrough lists 7, which is not an import name.');
-    expect(startError('firebase/database')).toBe(`${ENTRY}: passThrough takes a list of Firebase imports, such as ['firebase/database'].`);
+    expect(startError('firebase/functions')).toBe(`${ENTRY}: passThrough takes a list of Firebase imports, such as ['firebase/functions'].`);
   });
 
   test('stops pyricLive() before it builds a plugin', () => {
@@ -89,11 +92,14 @@ describe('the passThrough option', () => {
       `${ENTRY}: passThrough lists firebase/firestore, which live mode already serves and observes; remove it. ` +
         'passThrough lists firebase-admin, which never passes through',
     );
-    expect(() => pyricLive({ passThrough: ['firebase/database'] })).not.toThrow();
+    expect(() => pyricLive({ passThrough: ['firebase/database'] })).toThrow(
+      `${ENTRY}: passThrough lists firebase/database, which live mode already serves and observes; remove it.`,
+    );
+    expect(() => pyricLive({ passThrough: ['firebase/functions'] })).not.toThrow();
   });
 
   test("is checked again at @pyric/cli's seam, so no supplier passes a served import or firebase-admin through", () => {
-    for (const entry of ['firebase/auth', 'firebase-admin', '@firebase/database']) {
+    for (const entry of ['firebase/auth', 'firebase/database', 'firebase-admin', '@firebase/database']) {
       expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: [entry] })).toThrow(`pyric: ${entry} cannot pass through`);
     }
   });
@@ -101,23 +107,23 @@ describe('the passThrough option', () => {
 
 describe('a refused import that could pass through', () => {
   test('keeps the refusal and its code, and names the option that would let it load', () => {
-    const hinted = withPassThroughHint(liveRefusal('firebase/database', 'page'), 'firebase/database');
+    const hinted = withPassThroughHint(liveRefusal('firebase/functions', 'page'), 'firebase/functions');
     expect((hinted as Error & { code?: string }).code).toBe(LIVE_REFUSED);
-    expect(hinted.message).toStartWith('@pyric/live: firebase/database (Realtime Database) is refused in live mode.');
+    expect(hinted.message).toStartWith('@pyric/live: firebase/functions (Cloud Functions) is refused in live mode.');
     expect(hinted.message).toEndWith(
-      " To load it from your installed Firebase SDK without observing it, list it in pyricLive({ passThrough: ['firebase/database'] }); " +
+      " To load it from your installed Firebase SDK without observing it, list it in pyricLive({ passThrough: ['firebase/functions'] }); " +
         'its calls then go to production unobserved and still bill.',
     );
   });
 
   test('is named on the dev server with every import asked for so far, sorted', () => {
-    expect(refusedImportsLine(ENTRY, ['firebase/database'])).toBe(
-      `${ENTRY}: a page imports firebase/database (Realtime Database), which live mode does not serve, so that import is refused. ` +
-        "To load it from your installed Firebase SDK without observing it, start with pyricLive({ passThrough: ['firebase/database'] }). " +
+    expect(refusedImportsLine(ENTRY, ['firebase/functions'])).toBe(
+      `${ENTRY}: a page imports firebase/functions (Cloud Functions), which live mode does not serve, so that import is refused. ` +
+        "To load it from your installed Firebase SDK without observing it, start with pyricLive({ passThrough: ['firebase/functions'] }). " +
         'Its calls then go to production unobserved and still bill.',
     );
-    const both = refusedImportsLine(ENTRY, ['firebase/database', 'firebase/ai', 'firebase/messaging']);
-    expect(both).toContain('a page imports firebase/ai (Firebase AI Logic), firebase/database (Realtime Database) and firebase/messaging (Cloud Messaging)');
-    expect(both).toContain("start with pyricLive({ passThrough: ['firebase/ai', 'firebase/database', 'firebase/messaging'] })");
+    const both = refusedImportsLine(ENTRY, ['firebase/functions', 'firebase/ai', 'firebase/messaging']);
+    expect(both).toContain('a page imports firebase/ai (Firebase AI Logic), firebase/functions (Cloud Functions) and firebase/messaging (Cloud Messaging)');
+    expect(both).toContain("start with pyricLive({ passThrough: ['firebase/ai', 'firebase/functions', 'firebase/messaging'] })");
   });
 });

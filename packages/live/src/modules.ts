@@ -20,6 +20,14 @@
  * its app, and the OnDisconnect `onDisconnect` returns gets observed
  * methods. Its `off` takes the app's callback and removes the recording one.
  *
+ * The AI row (`ai.ts`) observes instances, not exports: the GenerativeModel
+ * `getGenerativeModel` returns, and each one `new GenerativeModel(...)` or
+ * `new ChatSession(...)` builds, gets own-property wrappers for the calls
+ * that reach production, and `startChat` does the same to its chat. The SDK's
+ * classes and prototypes stay its own. A stream call's result is the SDK's
+ * own object, with its `response` replaced by a promise that follows the
+ * SDK's and its `stream` by one that yields the SDK's own chunks.
+ *
  * The real module is passed in. A plane loads it from the app's own installed
  * `firebase`, so the app object, Auth, Firestore and App Check all come from
  * one `@firebase/app` component registry. The app object the app holds is the
@@ -40,15 +48,19 @@ import {
   observeOnDisconnect,
   offByCallback,
 } from './database.js';
+import { AI_REFUSED_CALLS, aiCode, aiContext, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
 import { observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite, type UncaughtListenerError } from './observe.js';
 import { liveCallRefusal, type LiveClient, type RefusedCall } from './refusal.js';
 
-export type LiveModuleKey = 'live-app' | 'live-auth' | 'live-firestore' | 'live-app-check' | 'live-database';
+export type LiveModuleKey = 'live-app' | 'live-auth' | 'live-firestore' | 'live-app-check' | 'live-database' | 'live-ai';
 
 type Callback = (this: unknown, ...args: unknown[]) => unknown;
 
 /** Takes what an export returned, unrecorded, before the app gets it: to note it, or to observe its methods. */
 export type Decorate = (returned: unknown, site: Omit<ObservedSite, 'name'>) => void;
+
+/** Builds the row's own function of the SDK's export, for the site its records go to. */
+export type Replace = (real: Callback, site: Omit<ObservedSite, 'name'>) => Callback;
 
 export interface LiveModuleSpec {
   /** One-shot exports: each call's return, throw, resolution or rejection is recorded. */
@@ -81,7 +93,7 @@ export interface LiveModuleSpec {
   /** Exports called as the app called them, unrecorded, whose result is decorated before the app gets it. */
   readonly decorated?: Readonly<Record<string, Decorate>>;
   /** Exports the row replaces with its own function of the SDK's, unrecorded. */
-  readonly replaced?: Readonly<Record<string, (real: Callback) => Callback>>;
+  readonly replaced?: Readonly<Record<string, Replace>>;
 }
 
 /** The call an export's arguments make when live mode refuses it, or null when it serves them. */
@@ -209,6 +221,17 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     },
     replaced: { off: offByCallback },
   },
+  'live-ai': {
+    calls: [],
+    listeners: [],
+    hooks: { context: aiContext, codeOf: aiCode, resultOf: aiResult },
+    refused: AI_REFUSED_CALLS,
+    replaced: {
+      getGenerativeModel: observedGetGenerativeModel,
+      GenerativeModel: observedModelClass,
+      ChatSession: observedChatClass,
+    },
+  },
 };
 
 type Wrap = typeof observedCall;
@@ -273,10 +296,10 @@ function decorateExports(wrapped: Record<string, unknown>, decorators: Readonly<
 }
 
 /** Replaces each export the row rewires with its own function of the SDK's. */
-function replaceExports(wrapped: Record<string, unknown>, replacements: Readonly<Record<string, (real: Callback) => Callback>>): void {
+function replaceExports(wrapped: Record<string, unknown>, replacements: Readonly<Record<string, Replace>>, site: Omit<ObservedSite, 'name'>): void {
   for (const [name, replace] of Object.entries(replacements)) {
     const real = wrapped[name];
-    if (typeof real === 'function') wrapped[name] = replace(real as Callback);
+    if (typeof real === 'function') wrapped[name] = replace(real as Callback, site);
   }
 }
 
@@ -304,7 +327,7 @@ export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: 
   guardExports(wrapped, spec.refused ?? {}, site.client);
   noteExports(wrapped, spec.noted ?? []);
   decorateExports(wrapped, spec.decorated ?? {}, observedSite);
-  replaceExports(wrapped, spec.replaced ?? {});
+  replaceExports(wrapped, spec.replaced ?? {}, observedSite);
   return wrapped as T;
 }
 

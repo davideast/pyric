@@ -1,14 +1,16 @@
 /**
  * `@pyric/live/vite`: live mode for a Vite page. The page's `firebase/app`,
- * `firebase/auth`, `firebase/firestore` and `firebase/app-check` are the
- * app's own installed SDK, wrapped by the live rows, so the app talks to its
- * real project. Each wrapped Firestore and Auth call's outcome reaches the
- * Node host as an observed call, and the chip shows it as production's row.
- * Every other served Firebase import is refused (`refusal.ts`), unless the
- * app lists it in `passThrough`: then it is the app's installed SDK,
- * unwrapped and unobserved, and the start line, the chip and Studio say so.
+ * `firebase/auth`, `firebase/firestore`, `firebase/app-check` and
+ * `firebase/database` are the app's own installed SDK, wrapped by the live
+ * rows, so the app talks to its real project. Each wrapped Firestore, Auth
+ * and Realtime Database call's outcome reaches the Node host as an observed
+ * call, and the chip shows it as production's row. Every other served
+ * Firebase import is refused (`refusal.ts`), unless the app lists it in
+ * `passThrough`: then it is the app's installed SDK, unwrapped and
+ * unobserved, and the start line, the chip and Studio say so. A list that
+ * names an import live mode serves stops the dev server at start.
  *
- *   pyricLive({ passThrough: ['firebase/database', 'firebase/ai'] })
+ *   pyricLive({ passThrough: ['firebase/functions', 'firebase/remote-config'] })
  *
  * The first time a page asks for an unserved import that is not listed, the
  * dev server names every one asked for so far and the `passThrough` option

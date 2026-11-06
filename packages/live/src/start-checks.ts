@@ -4,7 +4,7 @@
  *
  * - the app's installed `firebase` is in the range live mode supports, and
  * - one copy of `@firebase/app` is installed, so the app object Firestore,
- *   Auth and App Check read is the one the app made.
+ *   Auth, App Check and Realtime Database read is the one the app made.
  *
  * Either failure refuses the start with the reason: the version found, or the
  * path of every copy. Nothing here loads the SDK; it reads package.json files.
@@ -20,7 +20,7 @@ const LOWEST_MINOR = 12;
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
 
 /** The `@firebase/*` packages a live row loads, each of which resolves its own `@firebase/app`. */
-const ROW_PACKAGES = ['@firebase/app', '@firebase/auth', '@firebase/firestore', '@firebase/app-check'];
+const ROW_PACKAGES = ['@firebase/app', '@firebase/auth', '@firebase/firestore', '@firebase/app-check', '@firebase/database'];
 
 /** How deep the walk follows nested `node_modules` folders. */
 const MAX_NESTING = 8;
@@ -190,7 +190,7 @@ function copiesRefusal(copies: readonly string[]): string | null {
   const hasExtraCopies = copies.length > 1;
   if (!hasExtraCopies) return null;
   return [
-    `${NOT_STARTED} @pyric/live needs one copy of @firebase/app, so that Firestore, Auth and App Check read the app object your app made.`,
+    `${NOT_STARTED} @pyric/live needs one copy of @firebase/app, so that Firestore, Auth, App Check and Realtime Database read the app object your app made.`,
     `This project has ${copies.length} copies of @firebase/app installed:`,
     ...copies.map((copy) => `  ${copy}`),
     'Remove the extra copies, for example with npm dedupe, then start again.',

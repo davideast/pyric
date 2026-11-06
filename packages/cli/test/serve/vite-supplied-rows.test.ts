@@ -1,5 +1,5 @@
 /**
- * Live rows on the Vite page plane: the four fixed row modules, which reach
+ * Live rows on the Vite page plane: the five fixed row modules, which reach
  * the installed SDK only once the project's `@pyric/live` opens them; the
  * refusal of every other served specifier; and the refusal of every
  * server-rendered Firebase import.
@@ -126,7 +126,8 @@ describe('live rows, once opened', () => {
   it('refuse every other served specifier with the supplier error, never the sandbox entry', async () => {
     const refused = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
     expect(refused).toContain('firebase/storage');
-    expect(refused).toContain('firebase/database');
+    expect(refused).toContain('firebase/functions');
+    expect(refused).not.toContain('firebase/database');
     for (const specifier of refused) {
       const id = swap.resolveId(specifier, userImporter);
       expect(id).toStartWith(STOP_PREFIX);

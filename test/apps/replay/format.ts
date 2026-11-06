@@ -22,9 +22,14 @@ export type JsonObject = { [key: string]: Json };
  * and keeps the client's key under its name; in an answer it is filled with
  * that path, or with the key alone when it has no `parent`. In an answer an
  * object key `$pushId:<name>` is filled with the key too; an RTDB key cannot
- * hold `$`, so it never names a real child.
+ * hold `$`, so it never names a real child. `uploadSession`,
+ * `downloadToken`, `generation` and `timeCreated` fill a Storage answer
+ * (`storage.ts`): in a request query `uploadSession` matches an upload id this
+ * server issued, and in an answer header it is filled with a fresh session's
+ * upload URL on this server; the other three are filled once per object, so
+ * every answer about one object carries the same token, generation and time.
  */
-export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId'] as const;
+export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId', 'uploadSession', 'downloadToken', 'generation', 'timeCreated'] as const;
 export type PlaceholderName = (typeof PLACEHOLDERS)[number];
 
 /** A batch of Listen responses for one target. `after` names the write exchange whose answer releases it. */
@@ -92,7 +97,36 @@ export interface RtdbBatch {
   events: JsonObject[];
 }
 
-export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange;
+/**
+ * One Cloud Storage REST call (`/v0/b/<bucket>/o...`) and production's
+ * answer. `object` is the decoded object name a path names after `/o/`,
+ * absent for a call on the bucket (`list`, and an upload, which names its
+ * object in the `name` query). `query` matches the whole query string, with
+ * placeholders. `upload` is the `X-Goog-Upload-Protocol` and
+ * `X-Goog-Upload-Command` the request sent; `metadata` the JSON it sent (a
+ * multipart upload's first part, a resumable start or an update); `bytes` the
+ * length and SHA-256 of the object bytes a multipart upload sent. A request
+ * matches when every field the exchange holds matches. `headers` are the
+ * response headers the SDK reads, and `body` is JSON, text, or null for none.
+ */
+export interface StorageExchange {
+  kind: 'storage';
+  id: string;
+  /** The uid the `Authorization: Firebase <token>` header named, null for none. Absent matches any. */
+  as?: string | null;
+  request: {
+    method: string;
+    bucket: string;
+    object?: string;
+    query?: JsonObject;
+    upload?: { protocol: string; command?: string };
+    metadata?: JsonObject;
+    bytes?: { length: number; sha256: string };
+  };
+  response: { status: number; headers?: JsonObject; body: Json };
+}
+
+export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange;
 
 export interface Recording {
   format: typeof FORMAT;
@@ -157,7 +191,43 @@ export function assertShapesOnly(recording: Recording): void {
   walk(recording.exchanges as unknown as Json, `exchanges`, (path, key, value) => checkValue(recording.project, path, key, value));
   recording.exchanges.forEach((exchange, index) => {
     if (exchange.kind === 'rtdb') checkRtdb(recording.project, `exchanges[${index}]`, exchange, ids);
+    if (exchange.kind === 'storage') checkStorage(recording.project, `exchanges[${index}]`, exchange);
   });
+}
+
+/** Object resource keys whose values production picks, and the placeholder each must be. */
+const STORAGE_RESOURCE_PLACEHOLDERS: Record<string, PlaceholderName> = { downloadTokens: 'downloadToken', generation: 'generation', timeCreated: 'timeCreated' };
+
+/**
+ * Throws unless a Storage exchange names one of the project's buckets (its id,
+ * or its id then `.` or `-`), its upload ids and upload URLs are
+ * `uploadSession` placeholders, and every download token, generation and
+ * creation time in its answer is a placeholder.
+ */
+function checkStorage(project: string, path: string, exchange: StorageExchange): void {
+  const { bucket } = exchange.request;
+  const isProjectBucket = bucket === project || bucket.startsWith(`${project}.`) || bucket.startsWith(`${project}-`);
+  if (!isProjectBucket) throw new Error(`replay: ${path}.request.bucket names ${bucket}, outside project ${project}`);
+  const uploadId = exchange.request.query?.upload_id;
+  if (uploadId !== undefined && placeholderName(uploadId) !== 'uploadSession') throw new Error(`replay: ${path}.request.query.upload_id must be the placeholder {"$":"uploadSession"}`);
+  for (const header of ['x-goog-upload-url', 'x-goog-upload-control-url']) {
+    const value = exchange.response.headers?.[header];
+    if (value !== undefined && placeholderName(value) !== 'uploadSession') throw new Error(`replay: ${path}.response.headers.${header} must be the placeholder {"$":"uploadSession"}`);
+  }
+  const resources = storageResources(exchange.response.body);
+  resources.forEach((resource, index) => {
+    for (const [key, name] of Object.entries(STORAGE_RESOURCE_PLACEHOLDERS)) {
+      if (key in resource && placeholderName(resource[key]) !== name) throw new Error(`replay: ${path}.response.body resource ${index} ${key} must be the placeholder {"$":"${name}"}`);
+    }
+  });
+}
+
+/** The object resources a Storage answer holds: the body itself, or a list's `items`. */
+function storageResources(body: Json): JsonObject[] {
+  const isObject = typeof body === 'object' && body !== null && !Array.isArray(body);
+  if (!isObject) return [];
+  const items = Array.isArray(body.items) ? body.items.filter((item): item is JsonObject => typeof item === 'object' && item !== null && !Array.isArray(item)) : [];
+  return [body, ...items];
 }
 
 /** The placeholder each handshake field must be: production's values name its own hosts and sessions. */

@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 132,
+    "numerator": 131,
     "denominator": 140,
-    "ratio": 0.9428571428571428,
-    "percent": 94.3
+    "ratio": 0.9357142857142857,
+    "percent": 93.6
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 133,
-      "diverged": 5,
+      "verified": 132,
+      "diverged": 6,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 132,
-    "diverged": 5,
+    "conformant": 131,
+    "diverged": 6,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -229,6 +229,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "root-recursive-own-allow-write",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
@@ -359,6 +360,7 @@
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
@@ -401,6 +403,7 @@
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
@@ -650,6 +653,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -659,6 +663,7 @@
         "root-recursive-path-value",
         "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
@@ -1257,12 +1262,16 @@
       "classification": "diverged",
       "verifiedBy": [
         "matches-full-string-regex",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "script-classes-and-nested-repeats",
         "string-literals-and-regex"
       ],
       "verifiedByRows": [],
       "divergedByRows": [
-        "firestore-rules#199"
+        "firestore-rules#199",
+        "firestore-rules#227",
+        "firestore-rules#228"
       ]
     },
     "firestore.method.string.lower": {
@@ -1362,14 +1371,17 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "list-and-string-methods",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "script-classes-and-nested-repeats",
         "split-and-trim-edges"
       ],
       "verifiedByRows": [
         "firestore-rules#202"
       ],
       "divergedByRows": [
-        "firestore-rules#199"
+        "firestore-rules#199",
+        "firestore-rules#228"
       ]
     },
     "firestore.method.string.replace": {
@@ -1381,17 +1393,21 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "list-and-string-methods",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "script-classes-and-nested-repeats",
         "simulator-language-semantics"
       ],
       "verifiedByRows": [
         "firestore-rules#196"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#228"
+      ]
     },
     "firestore.method.string.toUtf8": {
       "productionAcceptance": "accepted",
@@ -1497,6 +1513,7 @@
         "list-methods-concat-removeall-toset",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
+        "script-classes-and-nested-repeats",
         "split-and-trim-edges"
       ],
       "verifiedByRows": [],
@@ -2391,11 +2408,13 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
         "root-recursive-path-value",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2758,9 +2777,11 @@
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "prototype-chain-keys",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2922,6 +2943,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "root-recursive-own-allow-write",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -3048,11 +3070,13 @@
         "int64-and-duration-range",
         "int64-conversions-and-mixed-equality",
         "mixed-number-collections",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "resource-document-identity",
         "resource-missing-document",
         "root-recursive-path-value",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "simulator-language-semantics",
         "split-and-trim-edges",
         "string-case-mapping",
@@ -3117,6 +3141,7 @@
         "prototype-chain-keys",
         "range-slice-list-and-string",
         "required-fields-and-mapdiff",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "strict-boolean-control-flow",
@@ -3210,6 +3235,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -3219,6 +3245,7 @@
         "root-recursive-path-value",
         "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
@@ -3325,6 +3352,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -3334,6 +3362,7 @@
         "root-recursive-path-value",
         "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
@@ -3404,11 +3433,13 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",

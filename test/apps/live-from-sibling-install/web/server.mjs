@@ -1,8 +1,8 @@
 // The app's server process. It sets up Auth, Firestore and Realtime Database
 // on one app object and builds a reference in each database, and gets Cloud
-// Functions on the same app. None of that sends a request. It prints where
-// each import resolved, so the scenario can tell a live row from the
-// installed SDK.
+// Functions, which passes through, on the same app. None of that sends a
+// request. It prints where each import resolved, so the scenario can tell a
+// live row from the installed SDK.
 import { deleteApp, initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { doc, getFirestore } from "firebase/firestore";

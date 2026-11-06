@@ -5,20 +5,22 @@
  * `@pyric/cli` and `@pyric/live` are in `rules/`, beside `web/`, which the
  * app's own resolution never reaches. The app's Vite config loads
  * `pyricLive()` from `rules/` with createRequire. The dev server starts in
- * live mode, and the page's `firebase/app`, `firebase/auth` and
- * `firebase/firestore` load through the live rows, whose files the page
- * loads by `/@fs` from the `@pyric/live` in `rules/`, outside the Vite root.
+ * live mode, and the page's `firebase/app`, `firebase/auth`,
+ * `firebase/firestore` and `firebase/database` load through the live rows,
+ * whose files the page loads by `/@fs` from the `@pyric/live` in `rules/`,
+ * outside the Vite root.
  *
  * The app's server process, `web/server.mjs`, runs from `web/`, below the
  * project folder that holds `.firebaserc` and `firebase.json`, under the
  * register from `rules/`. The register walks up from `web/` to that folder
  * for its project (#2134): `node --import` with the file
- * `rules/node_modules/@pyric/live/register` resolves to (#2116). Its `firebase/firestore` is the live row, and its
- * `firebase/database` and `firebase/functions` are the app's installed SDK,
- * passed through because the dev server's `pyricLive({ passThrough })` lists
- * them and the process reads that list from the dev server's health report
- * (#2122). The page gets both on its app too, and the dev server's start
- * line, its health report and the chip name each one as passed through.
+ * `rules/node_modules/@pyric/live/register` resolves to (#2116). Its
+ * `firebase/firestore` and `firebase/database` are live rows, and its
+ * `firebase/functions` is the app's installed SDK, passed through because
+ * the dev server's `pyricLive({ passThrough })` lists it and the process
+ * reads that list from the dev server's health report (#2122). The page
+ * gets both on its app too, and the dev server's start line, its health
+ * report and the chip name only `firebase/functions` as passed through.
  *
  * Then `pyric-live`, the command from `rules/`, starts from `web/` too. It
  * walks up to the same project folder (#2148) and opens with its own
@@ -46,7 +48,9 @@ import { pathToFileURL } from 'node:url';
 import { scenario, sleep, type App } from '../driver.ts';
 
 const PROJECT = 'demo-live-sibling';
-const PASSED = ['firebase/database', 'firebase/functions'];
+const PASSED = ['firebase/functions'];
+/** Served by a live row on both planes, so never given a pass-through line. */
+const LIVE_ROW_IMPORTS = ['firebase/firestore', 'firebase/database'];
 
 function passThroughLine(specifier: string): string {
   return `${specifier} passes through to production: its calls are not observed and still bill.`;
@@ -92,6 +96,9 @@ async function startViteDev(app: App) {
   for (const specifier of PASSED) {
     assert.ok(vite.output.includes(`@pyric/live/vite: ${passThroughLine(specifier)}`), vite.output);
   }
+  for (const specifier of LIVE_ROW_IMPORTS) {
+    assert.ok(!vite.output.includes(passThroughLine(specifier)), `${specifier} got a pass-through line:\n${vite.output}`);
+  }
   return { url, vite };
 }
 
@@ -108,16 +115,25 @@ async function pyricLiveStartsFromWeb(app: App): Promise<void> {
   await live.stop();
 }
 
-/** Checks the server's start lines and result: Firestore is the live row, and each passed-through import is the SDK in `sdkDir`. */
+/**
+ * Checks the server's start lines and result: Firestore and Realtime
+ * Database are live rows, and each passed-through import is the SDK in `sdkDir`.
+ */
 function serverPassesThrough(output: string, sdkDir: string): void {
   for (const specifier of PASSED) {
     assert.ok(output.includes(`@pyric/live/register: ${passThroughLine(specifier)}`), output);
   }
+  for (const specifier of LIVE_ROW_IMPORTS) {
+    assert.ok(!output.includes(passThroughLine(specifier)), `${specifier} got a pass-through line:\n${output}`);
+  }
   const result = resultOf(output);
   assert.equal(result.firestore, 'rooms/lobby');
+  // The live row hands back the SDK's own ref, so a reference reads as it does unobserved.
   assert.equal(result.database, 'https://demo-live-sibling-default-rtdb.firebaseio.com/rooms/lobby');
   assert.equal(result.functionsSharesApp, true);
-  assert.match(result.resolved['firebase/firestore']!, /\/live-rows\/firebase\/firestore\.js$/, 'firebase/firestore is the live row');
+  for (const specifier of LIVE_ROW_IMPORTS) {
+    assert.ok(result.resolved[specifier]!.endsWith(`/live-rows/${specifier}.js`), `${specifier} is the live row: ${result.resolved[specifier]}`);
+  }
   const sdk = pathToFileURL(`${realpathSync(sdkDir)}/`).href;
   for (const specifier of PASSED) {
     assert.ok(result.resolved[specifier]!.startsWith(sdk), `${specifier} is the SDK in ${sdkDir}: ${result.resolved[specifier]}`);
@@ -148,13 +164,16 @@ export default scenario(async (app) => {
 
   const host = await app.step('vite dev on web/ starts with pyricLive() loaded from rules/', () => startViteDev(app));
 
-  await app.step('the page loads firebase/app, firebase/auth and firebase/firestore through the live rows from rules/, and firebase/database and firebase/functions pass through', async () => {
+  await app.step('the page loads firebase/app, firebase/auth, firebase/firestore and firebase/database through the live rows from rules/, and firebase/functions passes through', async () => {
     const requested: string[] = [];
     (await app.browser()).on('request', (request) => requested.push(request.url()));
     const page = await app.page(`${host.url}/`);
     await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Ready', undefined, { timeout: 30_000 });
     const fromLive = requested.map(fsPathOf).filter((path): path is string => path !== null && path.startsWith(`${liveDir}/`));
     assert.ok(fromLive.some((path) => path.endsWith('/rows.js')), `the page loaded no live row file from ${liveDir}:\n${requested.join('\n')}`);
+    // Vite serves a `\0` module id at /@id/__x00__<id>: the page's firebase/database is the row module.
+    const rowModules = requested.map((url) => decodeURIComponent(new URL(url).pathname)).filter((path) => path.startsWith('/@id/__x00__pyric-live:'));
+    assert.ok(rowModules.includes('/@id/__x00__pyric-live:firebase/database'), `the page's firebase/database is not the live row module:\n${rowModules.join('\n')}`);
     const chip = page.locator('[data-pyric-runtime-chip-host]');
     await chip.waitFor({ state: 'attached', timeout: 30_000 });
     const header = chip.locator('.panel-header [data-chip-live]');
@@ -166,12 +185,12 @@ export default scenario(async (app) => {
     await page.close();
   });
 
-  await app.step('the health report lists firebase/database and firebase/functions as passed through', async () => {
+  await app.step('the health report lists only firebase/functions as passed through', async () => {
     const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { passThrough?: string[] } };
     assert.deepEqual(health.live?.passThrough, PASSED);
   });
 
-  await app.step('a server started from web/ under the register from rules/ loads its live rows and passes firebase/database and firebase/functions through', async () => {
+  await app.step('a server started from web/ under the register from rules/ loads its live rows, firebase/database among them, and passes firebase/functions through', async () => {
     const register = pathToFileURL(createRequire(join(app.dir, 'rules', 'package.json')).resolve('@pyric/live/register')).href;
     assert.ok(register.startsWith(pathToFileURL(`${liveDir}/`).href), `the register entry is the one in rules/: ${register}`);
     // From web/, below the folder that holds firebase.json and .firebaserc: the register walks up to it (#2134).
@@ -198,7 +217,7 @@ export default scenario(async (app) => {
     await pyricLiveStartsFromWeb(app);
   });
 
-  const dev = await app.step('with firebase installed only in web/, the server from web/ loads its live rows and passes firebase/database and firebase/functions through', async () => {
+  const dev = await app.step('with firebase installed only in web/, the server from web/ loads its live rows, firebase/database among them, and passes firebase/functions through', async () => {
     // The dev server again, for the pass-through list the server reads from its health report.
     const dev = await startViteDev(app);
     await serverLoadsFromWeb(app, dev.url, 'web', 'server.mjs');
