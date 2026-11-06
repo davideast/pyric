@@ -38,6 +38,11 @@
 // edited after signing, an expired token, a token for another project, a
 // custom token, and a plain string each get 401, with firebase-admin's reason.
 //
+// A page signed in on production sends this sandbox backend a token
+// production issued (#2304). The API refuses it with firebase-admin's code
+// and pyric's PYRIC_MODE_MISMATCH. The token is production-shaped, signed
+// with a throwaway RSA key under a 40-hex kid, and reaches no real host.
+//
 // A custom token the API mints with createCustomToken is exchanged with
 // signInWithCustomToken, from the page and from the API's own process, and
 // the API verifies the ID token that comes back, with the uid and the
@@ -48,7 +53,7 @@
 // fails with auth/invalid-custom-token from the page and from the API's own
 // process (#2009).
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createSign, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { scenario } from '../driver.ts';
 
 interface Answer { status?: number; body?: Record<string, unknown>; threw?: string }
@@ -94,6 +99,13 @@ function signedIdToken(claims: Record<string, unknown>): string {
   return `${input}.${Buffer.concat(blocks).toString('base64url')}`;
 }
 
+/** An ID token shaped as production's: RS256 under a 40-hex `kid`, signed with a throwaway RSA key. */
+function productionShapedIdToken(claims: Record<string, unknown>): string {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const input = `${segment({ alg: 'RS256', kid: randomBytes(20).toString('hex'), typ: 'JWT' })}.${segment(claims)}`;
+  return `${input}.${createSign('RSA-SHA256').update(input).sign(privateKey).toString('base64url')}`;
+}
+
 function idTokenClaims(uid: string, projectId: string, issuedAtSec: number): Record<string, unknown> {
   return {
     iss: `https://securetoken.google.com/${projectId}`,
@@ -108,10 +120,10 @@ function idTokenClaims(uid: string, projectId: string, issuedAtSec: number): Rec
 }
 
 /** The API's answer to `token` in an `Authorization: Bearer` header. */
-async function whoami(apiUrl: string, token: string, checkRevoked = false): Promise<{ status: number; body: { error?: string } }> {
+async function whoami(apiUrl: string, token: string, checkRevoked = false): Promise<{ status: number; body: { error?: string; pyricCode?: string } }> {
   const path = checkRevoked ? '/whoami?checkRevoked=1' : '/whoami';
   const response = await fetch(`${apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  return { status: response.status, body: await response.json() as { error?: string } };
+  return { status: response.status, body: await response.json() as { error?: string; pyricCode?: string } };
 }
 
 function assertRefused(answer: { status: number; body: { error?: string } }, reason: RegExp): void {
@@ -231,6 +243,12 @@ export default scenario(async (app) => {
   await app.step('the API refuses a token for another project', async () => {
     const other = signedIdToken(idTokenClaims('signed-uid', 'demo-other-project', Math.floor(Date.now() / 1000)));
     assertRefused(await whoami(apiUrl, other), /incorrect "aud" \(audience\) claim/);
+  });
+
+  await app.step('the API refuses an ID token production issued for its project as a mode mismatch', async () => {
+    const answer = await whoami(apiUrl, productionShapedIdToken(idTokenClaims('production-uid', PROJECT, Math.floor(Date.now() / 1000))));
+    assert.equal(answer.status, 401, JSON.stringify(answer));
+    assert.equal(answer.body.pyricCode, 'PYRIC_MODE_MISMATCH', JSON.stringify(answer));
   });
 
   await app.step('the API refuses a plain string', async () => {
