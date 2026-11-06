@@ -158,4 +158,32 @@ export interface ObservedProduction {
   usage?: ObservedUsage;
   /** A listener delivery's {@link ObservedCall.billedDocuments}, when the recorder counted them. */
   billedDocuments?: number;
+  /**
+   * What the local rules files say about the same request, when the host
+   * evaluated it. Production decided the call: this never changes the
+   * event's `result` or Rules disposition.
+   */
+  local?: LocalVerdict;
 }
+
+/**
+ * Data a local evaluation needed and an observed call does not carry: a
+ * stored document (`resource`, `get()`, `exists()`, or an RTDB `data` or
+ * `root`), the written value, a token claim's value, or a list's query.
+ */
+export type LocalVerdictGap = 'stored-document' | 'write-data' | 'claim-values' | 'query';
+
+/** The local rule that decided: its source line, its condition, and the match path it sits under. */
+export interface LocalRule {
+  line?: number;
+  expression?: string;
+  path?: string;
+}
+
+/**
+ * The local rules' answer to an observed call. `drift` marks an answer
+ * that disagrees with production's allow or deny.
+ */
+export type LocalVerdict =
+  | { result: 'allow' | 'deny'; rule?: LocalRule; drift?: true }
+  | { result: 'unevaluated'; needs: LocalVerdictGap[] };
