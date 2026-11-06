@@ -1,6 +1,7 @@
 import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyric/sandbox/internal';
 import { createLiveStatusPoller, liveLabel, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { healthLiveStatus } from './chip-live-status.js';
+import { LIVE_TAB_LABEL, LIVE_VIEW_STYLES, liveViewHtml } from './chip-live-view.js';
 import { workerAiRates } from './worker-ai-rates.js';
 import { aiModelHtml, aiModelRoute } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
@@ -409,6 +410,7 @@ const styles = `
     @keyframes pyric-enter { from { opacity: 0; transform: translateY(4px) scale(.98); } }
   }
   ${THEME_DIALOG_STYLES}
+  ${LIVE_VIEW_STYLES}
 `;
 
 function avatarHtml(photoUrl: string | null | undefined, label: string): string {
@@ -1122,6 +1124,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (tab === 'identity') return identityViewHtml(activeUid, isAdmin);
     if (tab === 'listeners') return options.listeners && dataView ? dataView.view() : { body: emptyHtml('Data unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
+    const live = liveStatusPoller.current();
+    if (live !== null) return liveViewHtml(live, { user: readCurrentUser(), supportsListeners: options.listeners !== undefined });
     return sandboxViewHtml();
   };
 
@@ -1234,11 +1238,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const chipTitle = current.failedRecently
       ? 'A request failed in the last minute'
       : current.duplicateListener ? 'A listener is attached twice' : current.missingIndex ? 'A query is missing an index in local configuration' : current.rateThreshold ? 'Activity exceeded a threshold. Open Traffic to review.' : current.updatePending ? 'New worker available' : '';
+    // On a live host the sandbox tab is the Live tab: the host's facts, not the sandbox's.
+    const tabLabel = (candidate: ChipTab): string => (liveStatus !== null && candidate === 'sandbox' ? LIVE_TAB_LABEL : CHIP_TAB_LABELS[candidate]);
     const tabsHtml = CHIP_TABS.map((candidate) => {
       const tone = candidate !== problem
         ? ''
         : current.failedRecently || current.duplicateListener ? ' problem' : ' pending';
-      return `<button class="tab${tone}" type="button" role="tab" id="pyric-tab-${candidate}" data-chip-tab="${candidate}" tabindex="${candidate === tab ? 0 : -1}" aria-selected="${candidate === tab}" aria-controls="pyric-view">${CHIP_TAB_LABELS[candidate]}</button>`;
+      return `<button class="tab${tone}" type="button" role="tab" id="pyric-tab-${candidate}" data-chip-tab="${candidate}" tabindex="${candidate === tab ? 0 : -1}" aria-selected="${candidate === tab}" aria-controls="pyric-view">${tabLabel(candidate)}</button>`;
     }).join('');
 
     const studioSection = tab === 'identity'
@@ -1270,7 +1276,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       </div></section>`
       : `<button class="chip${chipTone}${liveStatus === null ? '' : ' live'}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric${liveLabelHtml(liveStatus, escapeAttribute)}</button>`;
 
-    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}${identityNotice === '' ? '' : ` ${identityNotice}`}`;
+    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${tabLabel(tab)}.` : ''}${identityNotice === '' ? '' : ` ${identityNotice}`}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
     // A view edited outside render (a refreshed rate cell, a copied-response
     // icon) is rebuilt from state even when the markup matches.
