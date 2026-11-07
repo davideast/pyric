@@ -52,8 +52,9 @@ export interface Facts {
   /** Whether main moved past the run, or a newer push run is pending, so a
    *  rerun would join a newer run's concurrency group. */
   superseded: boolean;
-  /** The open revert pull request for this commit, if one exists. */
-  openRevert?: number;
+  /** A revert pull request for this commit in any state. One a person closed
+   *  is never opened again. */
+  existingRevert?: { number: number; state: string };
   quarantine: Pick<Entry, 'test' | 'expires'>[];
   today: string;
 }
@@ -118,7 +119,8 @@ function firstAttempt(facts: Facts): Verdict {
 
 function secondAttempt(facts: Facts): Verdict {
   const { run } = facts;
-  if (facts.openRevert !== undefined) return { kind: 'skip', reason: `revert pull request #${facts.openRevert} is already open` };
+  const existing = facts.existingRevert;
+  if (existing !== undefined) return { kind: 'skip', reason: `revert pull request #${existing.number} already exists (${existing.state.toLowerCase()})` };
   return {
     kind: 'revert',
     title: `revert: ${originalTitle(run)}`,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { handle, type Io } from './auto-revert-github.ts';
+import { handle, reportFailure, type Io } from './auto-revert-github.ts';
 import { decide, isRevert, quarantinedFailures, revertBody, revertCommands, type FailedRun, type Facts } from './auto-revert.ts';
 
 const SHA = 'b'.repeat(40);
@@ -56,7 +56,11 @@ describe('culprit selection', () => {
   });
 
   test('an open revert pull request for the commit is not opened twice', () => {
-    expect(decide(facts({ openRevert: 40 }))).toEqual({ kind: 'skip', reason: 'revert pull request #40 is already open' });
+    expect(decide(facts({ existingRevert: { number: 40, state: 'OPEN' } }))).toEqual({ kind: 'skip', reason: 'revert pull request #40 already exists (open)' });
+  });
+
+  test('a revert pull request someone closed is not opened again', () => {
+    expect(decide(facts({ existingRevert: { number: 41, state: 'CLOSED' } }))).toEqual({ kind: 'skip', reason: 'revert pull request #41 already exists (closed)' });
   });
 
   test('an unwatched workflow and a third attempt do nothing', () => {
@@ -148,7 +152,17 @@ describe('the revert pull request body', () => {
 describe('carrying out the verdict', () => {
   interface Fake { io: Io; gh: string[][]; git: string[][]; logs: string[] }
 
-  function fake(options: { attempt: number; workflow?: string; prCreate?: () => string; parentConclusion?: string }): Fake {
+  interface FakeOptions {
+    attempt: number;
+    workflow?: string;
+    prCreate?: () => string;
+    parentConclusion?: string;
+    existingPrs?: { number: number; state: string }[];
+    remoteBranch?: boolean;
+    push?: () => string;
+  }
+
+  function fake(options: FakeOptions): Fake {
     const calls: Fake = { gh: [], git: [], logs: [], io: undefined as unknown as Io };
     const responses: Record<string, unknown> = {
       [`actions/runs/9/attempts/${options.attempt}`]: {
@@ -172,12 +186,15 @@ describe('carrying out the verdict', () => {
           if (!(path in responses)) throw new Error(`unexpected api ${path}`);
           return JSON.stringify(responses[path]);
         }
-        if (args[0] === 'pr' && args[1] === 'list') return '[]';
+        if (args[0] === 'pr' && args[1] === 'list') return JSON.stringify(options.existingPrs ?? []);
         if (args[0] === 'pr' && args[1] === 'create') return options.prCreate?.() ?? 'https://github.com/owner/repo/pull/50\n';
         return '';
       },
       git: (args) => {
         calls.git.push(args);
+        if (args[0] === 'ls-remote') return options.remoteBranch ? `${SHA}\trefs/heads/auto-revert/${SHA}\n` : '';
+        if (args[0] === 'push') return options.push?.() ?? '';
+        return '';
       },
       failures: () => run().failures,
       log: (text) => calls.logs.push(text),
@@ -204,6 +221,45 @@ describe('carrying out the verdict', () => {
     expect(calls.gh).toContainEqual(['pr', 'merge', 'https://github.com/owner/repo/pull/50', '--repo', 'owner/repo', '--auto', '--merge']);
   });
 
+  test('the revert branch gets Build & Test by dispatch, since a workflow token pull request starts no workflows', () => {
+    const calls = fake({ attempt: 2 });
+    handle(calls.io, 9, 2, false, [], '2026-11-06');
+    const dispatch = ['workflow', 'run', 'build.yml', '--repo', 'owner/repo', '--ref', `auto-revert/${SHA}`];
+    expect(calls.gh).toContainEqual(dispatch);
+    const index = (match: (args: string[]) => boolean) => calls.gh.findIndex(match);
+    const created = index((args) => args[1] === 'create');
+    const dispatched = index((args) => args.join(' ') === dispatch.join(' '));
+    const autoMerge = index((args) => args[1] === 'merge');
+    expect(created).toBeLessThan(dispatched);
+    expect(dispatched).toBeLessThan(autoMerge);
+  });
+
+  test('closed pull requests count too: the lookup asks for every state', () => {
+    const calls = fake({ attempt: 2, existingPrs: [{ number: 41, state: 'CLOSED' }] });
+    expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
+    expect(calls.gh.find((args) => args[1] === 'list')).toContain('all');
+    expect(calls.git).toEqual([]);
+  });
+
+  test('an existing revert branch ends quietly without pushing', () => {
+    const calls = fake({ attempt: 2, remoteBranch: true });
+    expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
+    expect(calls.git.some((args) => args[0] === 'push' || args[0] === 'revert')).toBe(false);
+    expect(calls.gh.some((args) => args[1] === 'create')).toBe(false);
+  });
+
+  test('a second job that loses the push race ends quietly', () => {
+    const calls = fake({ attempt: 2, push: () => { throw new Error('git push failed: ! [rejected] HEAD -> auto-revert/x (fetch first)'); } });
+    expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
+    expect(calls.gh.some((args) => args[1] === 'create')).toBe(false);
+  });
+
+  test('a second job that loses the pull request race ends quietly', () => {
+    const calls = fake({ attempt: 2, prCreate: () => { throw new Error('gh pr create failed: a pull request for branch "auto-revert/x" into branch "main" already exists'); } });
+    expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
+    expect(calls.gh.some((args) => args[1] === 'merge' || args[0] === 'workflow')).toBe(false);
+  });
+
   test('a dry run decides and changes nothing', () => {
     const calls = fake({ attempt: 2 });
     expect(handle(calls.io, 9, 2, true, [], '2026-11-06').kind).toBe('revert');
@@ -225,13 +281,43 @@ describe('carrying out the verdict', () => {
   });
 });
 
+describe('a failed revert job', () => {
+  test('files a Red on main flake issue naming both runs, or comments on the open one', () => {
+    const gh: string[][] = [];
+    const bodies: string[] = [];
+    const io = {
+      repo: 'owner/repo',
+      gh: (args: string[]) => {
+        gh.push(args);
+        if (args[0] === 'issue' && args[1] === 'list') return '[]';
+        return 'https://github.com/owner/repo/issues/77\n';
+      },
+      writeFile: (name: string, text: string) => {
+        bodies.push(text);
+        return `/tmp/${name}`;
+      },
+    };
+    reportFailure(io, { laneRunUrl: 'https://github.com/owner/repo/actions/runs/3', failedRunUrl: RUN_URL, workflow: 'Slow app scenarios', headSha: SHA });
+    expect(gh).toContainEqual(['issue', 'create', '--title', 'Red on main: Auto revert', '--label', 'flake', '--body-file', '/tmp/failure-body.md']);
+    expect(bodies[0]).toContain('actions/runs/3');
+    expect(bodies[0]).toContain(RUN_URL);
+    expect(bodies[0]).toContain(SHA);
+  });
+});
+
 describe('the auto revert workflow', () => {
   const workflowDir = resolve(import.meta.dir, '../../.github/workflows');
   const read = (file: string) => Bun.YAML.parse(readFileSync(resolve(workflowDir, file), 'utf8')) as {
     name: string;
     on: Record<string, Record<string, unknown> | null>;
     permissions: Record<string, string>;
-    jobs: Record<string, { if?: string; permissions?: Record<string, string>; steps: { run?: string; env?: Record<string, string> }[] }>;
+    jobs: Record<string, {
+      if?: string;
+      needs?: string;
+      concurrency?: Record<string, unknown>;
+      permissions?: Record<string, string>;
+      steps: { run?: string; env?: Record<string, string> }[];
+    }>;
   };
   const lane = read('auto-revert.yml');
 
@@ -246,7 +332,8 @@ describe('the auto revert workflow', () => {
   test('each job holds only the permissions its stage needs', () => {
     expect(lane.permissions).toEqual({ contents: 'read' });
     expect(lane.jobs.confirm?.permissions).toEqual({ actions: 'write', contents: 'read' });
-    expect(lane.jobs.revert?.permissions).toEqual({ actions: 'read', contents: 'write', 'pull-requests': 'write' });
+    expect(lane.jobs.revert?.permissions).toEqual({ actions: 'write', contents: 'write', 'pull-requests': 'write' });
+    expect(lane.jobs.report?.permissions).toEqual({ contents: 'read', issues: 'write' });
     expect(lane.jobs.preview?.steps.at(-1)?.env?.DRY_RUN).toBe('true');
   });
 
@@ -254,6 +341,17 @@ describe('the auto revert workflow', () => {
     expect(lane.jobs.confirm?.if).toContain('run_attempt == 1');
     expect(lane.jobs.revert?.if).toContain('run_attempt == 2');
     expect(lane.jobs.revert?.if).toContain("triggering_actor.login == 'github-actions[bot]'");
-    for (const job of Object.values(lane.jobs)) expect(job.steps.at(-1)?.run).toBe('bun scripts/ci/auto-revert-github.ts');
+    for (const name of ['confirm', 'revert', 'preview']) expect(lane.jobs[name]?.steps.at(-1)?.run).toBe('bun scripts/ci/auto-revert-github.ts');
+  });
+
+  test('a failed revert job is reported, and two revert jobs for one commit run one at a time', () => {
+    expect(lane.jobs.report?.needs).toBe('revert');
+    expect(lane.jobs.report?.if).toContain("needs.revert.result == 'failure'");
+    expect(lane.jobs.report?.steps.at(-1)?.run).toBe('bun scripts/ci/auto-revert-github.ts report');
+    expect(lane.jobs.revert?.concurrency).toEqual({ group: 'auto-revert-commit-${{ github.event.workflow_run.head_sha }}', 'cancel-in-progress': false });
+  });
+
+  test('Build & Test can be dispatched on a revert branch', () => {
+    expect(Object.keys(read('build.yml').on)).toContain('workflow_dispatch');
   });
 });

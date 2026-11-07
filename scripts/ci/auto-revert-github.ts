@@ -9,14 +9,24 @@
 // reruns), or push a revert branch, open a ready `revert: <title>` pull
 // request and enable auto-merge (attempt 2). It never pushes to main.
 //
+// A pull request opened with the workflow token starts no workflows, so it
+// then dispatches Build & Test on the revert branch, whose `CI / required`
+// meets the ruleset's required check on the branch's head commit. A branch or
+// pull request another job already made, or one a person closed, ends the
+// job quietly.
+//
 // Environment: RUN_ID and RUN_ATTEMPT (required), GITHUB_REPOSITORY,
 // GH_TOKEN, DRY_RUN ('true' prints the verdict and changes nothing).
+//
+// `bun scripts/ci/auto-revert-github.ts report` files or comments on the one
+// `Red on main: Auto revert` issue when the revert job fails. Environment:
+// LANE_RUN_URL, FAILED_RUN_URL, FAILED_WORKFLOW, HEAD_SHA, GH_REPO.
 
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Gh } from './github-issues.ts';
+import { openOrUpdateIssue, type Gh } from './github-issues.ts';
 import { collectAttempt, defaultContext, type Context } from '../lib/main-failure/github.ts';
 import { readEntries, todayUtc } from '../lib/quarantine/entries.ts';
 import { BRANCH_PREFIX, decide, revertBody, revertCommands, type FailedRun, type Facts, type Verdict } from './auto-revert.ts';
@@ -24,10 +34,17 @@ import { BRANCH_PREFIX, decide, revertBody, revertCommands, type FailedRun, type
 /** What `gh pr create` prints when the repository does not let workflows
  *  open pull requests (Settings, Actions, General). */
 const PR_CREATE_REFUSED = 'not permitted to create or approve pull requests';
+/** What a second job sees when the first opened the pull request. */
+const PR_EXISTS = /pull request for branch .* already exists/;
+/** What a second job sees when the first pushed the branch. */
+const PUSH_LOST_RACE = /\[rejected\]|fetch first|non-fast-forward|already exists/;
+/** Started on the revert branch, since its pull request starts no workflows. */
+const BUILD_WORKFLOW = 'build.yml';
+const FAILURE_ISSUE = 'Red on main: Auto revert';
 
 export interface Io {
   gh: Gh;
-  git: (args: string[]) => void;
+  git: (args: string[]) => string;
   /** Reads the failures of one attempt from its job logs. */
   failures: (runId: number, attempt: number) => FailedRun['failures'];
   log: (text: string) => void;
@@ -83,11 +100,13 @@ function superseded(io: Io, run: RunJson, runId: number): boolean {
   return head !== run.head_sha || newerPending;
 }
 
-function openRevert(io: Io, sha: string): number | undefined {
-  const open = JSON.parse(io.gh([
-    'pr', 'list', '--repo', io.repo, '--state', 'open', '--head', `${BRANCH_PREFIX}${sha}`, '--json', 'number',
-  ])) as { number: number }[];
-  return open[0]?.number;
+/** A revert pull request for the commit in any state, so one a person closed
+ *  is not opened again. */
+function existingRevert(io: Io, sha: string): Facts['existingRevert'] {
+  const found = JSON.parse(io.gh([
+    'pr', 'list', '--repo', io.repo, '--state', 'all', '--head', `${BRANCH_PREFIX}${sha}`, '--json', 'number,state',
+  ])) as { number: number; state: string }[];
+  return found[0];
 }
 
 export interface Gathered {
@@ -117,27 +136,54 @@ export function gather(io: Io, runId: number, attempt: number, quarantine: Facts
     run: failedRun,
     parentConclusion: parent?.status === 'completed' ? parent.conclusion ?? undefined : undefined,
     superseded: attempt === 1 && superseded(io, run, runId),
-    openRevert: attempt === 2 ? openRevert(io, run.head_sha) : undefined,
+    existingRevert: attempt === 2 ? existingRevert(io, run.head_sha) : undefined,
     quarantine,
     today,
   };
   return { facts, failedJobs: [...new Set(failures.map((failure) => failure.job))], parentRunUrl: parent?.html_url };
 }
 
-function openPullRequest(io: Io, gathered: Gathered, verdict: Extract<Verdict, { kind: 'revert' }>): string {
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+/** Opens the pull request. Returns undefined when another job opened it first. */
+function openPullRequest(io: Io, gathered: Gathered, verdict: RevertVerdict): string | undefined {
   const body = io.writeFile('revert-body.md', revertBody({ run: gathered.facts.run, failedJobs: gathered.failedJobs, parentRunUrl: gathered.parentRunUrl }));
   try {
     return io.gh(['pr', 'create', '--repo', io.repo, '--base', 'main', '--head', verdict.branch, '--title', verdict.title, '--body-file', body]).trim();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(error);
+    if (PR_EXISTS.test(message)) return undefined;
     if (!message.includes(PR_CREATE_REFUSED)) throw error;
     const compare = `https://github.com/${io.repo}/compare/main...${verdict.branch}?expand=1`;
     throw new Error(`The revert is pushed to ${verdict.branch}, but this repository does not let workflows open pull requests. Open it by hand: ${compare}`);
   }
 }
 
-function revert(io: Io, gathered: Gathered, verdict: Extract<Verdict, { kind: 'revert' }>): void {
+/** Pushes the revert branch. Returns false when another job pushed it first. */
+function pushBranch(io: Io, branch: string): boolean {
+  try {
+    io.git(['push', 'origin', `HEAD:refs/heads/${branch}`]);
+    return true;
+  } catch (error) {
+    if (PUSH_LOST_RACE.test(errorText(error))) return false;
+    throw error;
+  }
+}
+
+type RevertVerdict = Extract<Verdict, { kind: 'revert' }>;
+
+function quietly(io: Io, reason: string): Verdict {
+  io.log(`Nothing to do: ${reason}.`);
+  return { kind: 'skip', reason };
+}
+
+function revert(io: Io, gathered: Gathered, verdict: RevertVerdict): Verdict {
   const { run } = gathered.facts;
+  const remote = io.git(['ls-remote', 'origin', `refs/heads/${verdict.branch}`]);
+  if (remote.trim() !== '') return quietly(io, `${verdict.branch} already exists, so another job is reverting this commit`);
   io.git(['config', 'user.name', 'github-actions[bot]']);
   io.git(['config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com']);
   const [branch, revertCommit] = revertCommands(run, verdict);
@@ -145,13 +191,40 @@ function revert(io: Io, gathered: Gathered, verdict: Extract<Verdict, { kind: 'r
   try {
     io.git(revertCommit);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Reverting ${run.headSha} does not apply cleanly to main; revert it by hand. ${message}`);
+    throw new Error(`Reverting ${run.headSha} does not apply cleanly to main; revert it by hand. ${errorText(error)}`);
   }
-  io.git(['push', 'origin', `HEAD:refs/heads/${verdict.branch}`]);
+  if (!pushBranch(io, verdict.branch)) return quietly(io, `another job pushed ${verdict.branch} first`);
   const url = openPullRequest(io, gathered, verdict);
+  if (url === undefined) return quietly(io, `another job opened the pull request for ${verdict.branch} first`);
+  // A pull request opened with the workflow token starts no workflows, but a
+  // dispatch does, and its `CI / required` lands on the branch's head commit.
+  io.gh(['workflow', 'run', BUILD_WORKFLOW, '--repo', io.repo, '--ref', verdict.branch]);
   io.gh(['pr', 'merge', url, '--repo', io.repo, '--auto', '--merge']);
-  io.log(`Opened ${url} with auto-merge: ${verdict.title}`);
+  io.log(`Opened ${url}, started ${BUILD_WORKFLOW} on ${verdict.branch}, and enabled auto-merge: ${verdict.title}`);
+  return verdict;
+}
+
+export interface LaneFailure {
+  laneRunUrl: string;
+  failedRunUrl: string;
+  workflow: string;
+  headSha: string;
+}
+
+/** Files, or comments on, the one `Red on main: Auto revert` issue when the
+ *  revert job fails, so a person reverts by hand. */
+export function reportFailure(io: Pick<Io, 'gh' | 'writeFile' | 'repo'>, failure: LaneFailure): string {
+  const body = [
+    `The auto revert lane failed while reverting ${failure.headSha}, which turned ${failure.workflow} red on main.`,
+    '',
+    `- Lane run: ${failure.laneRunUrl}`,
+    `- Failing run: ${failure.failedRunUrl}`,
+    '',
+    'Main stays red until someone reverts or fixes that commit by hand. The lane run says why it stopped.',
+    '',
+  ].join('\n');
+  const bodyFile = io.writeFile('failure-body.md', body);
+  return openOrUpdateIssue(io.gh, { prefix: FAILURE_ISSUE, title: FAILURE_ISSUE, label: 'flake', bodyFile });
 }
 
 /** Decides on one attempt and carries out the verdict, unless `dryRun`. */
@@ -168,7 +241,7 @@ export function handle(io: Io, runId: number, attempt: number, dryRun: boolean, 
   else io.log(`${prefix}revert ${gathered.facts.run.headSha} on ${verdict.branch}: ${verdict.title}`);
   if (dryRun) return verdict;
   if (verdict.kind === 'rerun') io.gh(['run', 'rerun', String(runId), '--failed', '--repo', io.repo]);
-  if (verdict.kind === 'revert') revert(io, gathered, verdict);
+  if (verdict.kind === 'revert') return revert(io, gathered, verdict);
   return verdict;
 }
 
@@ -182,9 +255,7 @@ function defaultIo(repo: string, context: Context): Io {
   let dir: string | undefined;
   return {
     gh: (args) => spawn('gh', args),
-    git: (args) => {
-      spawn('git', args);
-    },
+    git: (args) => spawn('git', args),
     failures: (runId, attempt) => collectAttempt(context, runId, attempt).failures,
     log: (text) => {
       console.log(text);
@@ -207,7 +278,29 @@ function positive(value: string | undefined): number | undefined {
   return undefined;
 }
 
-if (import.meta.main) {
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    console.error(`${name} is required`);
+    process.exit(2);
+  }
+  return value;
+}
+
+function mainReport(): void {
+  const repo = required('GITHUB_REPOSITORY');
+  const url = reportFailure(defaultIo(repo, defaultContext(repo)), {
+    laneRunUrl: required('LANE_RUN_URL'),
+    failedRunUrl: required('FAILED_RUN_URL'),
+    workflow: required('FAILED_WORKFLOW'),
+    headSha: required('HEAD_SHA'),
+  });
+  console.log(url);
+}
+
+if (import.meta.main && process.argv[2] === 'report') {
+  mainReport();
+} else if (import.meta.main) {
   const runId = positive(process.env.RUN_ID);
   const attempt = positive(process.env.RUN_ATTEMPT);
   const repo = process.env.GITHUB_REPOSITORY;
