@@ -300,7 +300,7 @@ for (const runtime of ['inpage', 'worker']) {
       const detailBack = page.locator('[data-request-back]');
       if (await detailBack.count()) await detailBack.click();
       // Inspecting a request pins the list; the next scenario's requests arrive after it.
-      const resume = page.locator('[data-request-pause][aria-label^="Resume live"]');
+      const resume = page.locator('[data-request-pause][aria-checked="false"]');
       if (await resume.count()) await resume.click();
       const row = page.locator('[data-traffic-rows] [data-request-row]').filter({ hasText: path! }).filter({ hasText: 'Denied' }).first();
       await row.click();

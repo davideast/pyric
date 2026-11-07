@@ -63,7 +63,7 @@ for (const runtime of ['inpage', 'worker']) {
       const back = page.locator('[data-clear-traffic-source]');
       if (await back.count()) await back.click();
       // Inspecting a request pins the list; this field's read arrives after it.
-      const resume = page.locator('[data-request-pause][aria-label^="Resume live"]');
+      const resume = page.locator('[data-request-pause][aria-checked="false"]');
       if (await resume.count()) await resume.click();
       await page.locator('[data-inspect-request]').filter({ hasText: `projects-${runtime}` }).first().click();
       await expect(page.locator('[data-index-details]')).toContainText(field);

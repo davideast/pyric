@@ -239,7 +239,7 @@ export function createChipDataView(host: ChipDataViewHost): ChipDataView {
         className: group.members.some(member => member.incident) ? 'listener-row problem' : indexMissing ? 'listener-row pending' : 'listener-row', title: `Inspect ${group.target}`,
         attributes: `${group.members.some(member => member.incident) ? 'data-listener-incident="true" ' : ''}data-listener-row="${escapeAttribute(group.activityId)}" data-activate-listener="${escapeAttribute(group.activityId)}"`,
         label: `Inspect ${group.target}`, expanded: false,
-      }) + `<button type="button" role="switch" class="switch bare" data-highlight-source="${escapeAttribute(group.id)}" aria-label="${escapeAttribute(outlineLabel)}" title="${escapeAttribute(unplaced ?? outlineLabel)}" aria-checked="${sourceOutlined(listenerMode, group.id)}"${unplaced ? ' disabled' : ''}><span class="switch-track" aria-hidden="true"></span></button></div>`;
+      }) + `<button type="button" role="switch" class="switch bare" data-highlight-source="${escapeAttribute(group.id)}" aria-label="${escapeAttribute(outlineLabel)}" title="${escapeAttribute(unplaced ?? outlineLabel)}" aria-checked="${!unplaced && sourceOutlined(listenerMode, group.id)}"${unplaced ? ' disabled' : ''}><span class="switch-track" aria-hidden="true"></span></button></div>`;
     });
     const blocked = outlinesRefused;
     const allOn = outlinesOn && paintMode === 'overview' && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
