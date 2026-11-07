@@ -1256,7 +1256,7 @@ export function observedListener(site: ObservedSite, real: Callback): Callback {
     if (callSite === null) return Reflect.apply(real, this, args);
     const refusal = refusedProject(callSite);
     if (refusal !== null) throw refusal;
-    const activity = openActivity(site.observer, site.name, args[0]);
+    const activity = openActivity(site.observer, site.name, args);
     const lifecycle = lifecycleOf(callSite, args);
     const listenerSite: ObservedSite = { ...callSite, billing: billedDocuments(), activity, ...lifecycle?.fields };
     const listening = recordingArguments(listenerSite, listenerArguments(site, args));

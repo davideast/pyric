@@ -10,7 +10,8 @@
  *
  * Each subscribe and unsubscribe reaches the host as a listener attach or
  * detach with the caller that made it (`/__pyric/capture`), and the resumed
- * halls listener's rows name the halls collection. An agent's
+ * halls listener's rows name the halls collection. The resumed halls
+ * listener is active while the page keeps it, and not after it unsubscribes. An agent's
  * `pyric sandbox listeners` lists the page's and the server job's active
  * listeners, and `pyric sandbox activity` reports the page's three duplicate
  * lobby listeners, counted apart from the server job's, and the patio's
@@ -42,6 +43,7 @@ declare function signIn(): Promise<unknown>;
 declare function listenToLobbyThrice(): Promise<unknown[]>;
 declare function rerenderPatio(): number;
 declare function resumeHalls(rendered: unknown): Promise<number>;
+declare function closeHalls(): boolean;
 declare function listenToScores(): Promise<unknown>;
 
 interface Replay {
@@ -293,6 +295,8 @@ function renderedHalls(job: AppProcess): unknown {
 }
 
 const SERVER_ONLY = ['node firestore rooms/lobby'];
+/** The page's and the server job's active listeners once each has subscribed, before the page resumes the halls. */
+const ACTIVE = ['node firestore rooms/lobby', 'page database /scores', 'page firestore rooms/lobby', 'page firestore rooms/lobby', 'page firestore rooms/lobby'];
 
 /** Waits until `sandbox.listeners` lists exactly `expected`. */
 async function listenersAre(app: App, expected: readonly string[], what: string): Promise<void> {
@@ -339,8 +343,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('pyric sandbox listeners lists the page\'s and the server job\'s active listeners', async () => {
-    const expected = ['node firestore rooms/lobby', 'page database /scores', 'page firestore rooms/lobby', 'page firestore rooms/lobby', 'page firestore rooms/lobby'];
-    await eventually(() => activeListeners(app), (listed) => JSON.stringify(listed) === JSON.stringify(expected), 'the active listeners');
+    await listenersAre(app, ACTIVE, 'the active listeners');
   });
 
   await app.step('pyric sandbox activity reports the page\'s three duplicate lobby listeners, apart from the server job\'s, and the patio\'s churn', async () => {
@@ -352,6 +355,12 @@ export default scenario(async (app) => {
     const rendered = renderedHalls(server);
     assert.equal(await page.evaluate((json) => resumeHalls(json), rendered), 0);
     await eventually(() => resumedPaths(host.url), (paths) => paths.length > 0 && paths.every((path) => path === 'halls'), 'the resumed rows');
+  });
+
+  await app.step('pyric sandbox listeners lists the resumed halls listener while it is subscribed, and drops it after unsubscribe', async () => {
+    await listenersAre(app, [...ACTIVE, 'page firestore halls'].sort(), 'the listeners with the resumed halls');
+    assert.equal(await page.evaluate(() => closeHalls()), true);
+    await listenersAre(app, ACTIVE, 'the listeners after the halls closed');
   });
 
   await app.step('the chip\'s Data view lists the scores listener as a source, which opens', async () => {
