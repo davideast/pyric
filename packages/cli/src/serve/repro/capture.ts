@@ -8,8 +8,8 @@
  */
 import { readFile } from 'node:fs/promises';
 import { captureCheckpoint } from 'pyric/sandbox/checkpoints';
-import { get as rtdbGet, getAdminDatabase, ref as rtdbRef } from 'pyric/database';
-import { sdkActivity, UNNAMED_DEFAULT_DATABASE_INSTANCE } from 'pyric/sandbox/internal';
+import { exportDatabaseVal } from 'pyric/database/internal';
+import { UNNAMED_DEFAULT_DATABASE_INSTANCE } from 'pyric/sandbox/internal';
 import { cliVersion } from '../../pkg-version.js';
 import type { HostCtx, PortLike } from '../worker/host-context.js';
 import { portSession } from '../worker/host-auth.js';
@@ -39,9 +39,7 @@ export async function captureReproBase(
     const name = isDefault ? defaultInstance : key;
     if (isDefault) continue;
     database[name] = enforced(entry.rules) as ReproDatabaseRules[string];
-    const adminDb = getAdminDatabase(ctx.sandbox, entry.selector);
-    const snap = await sdkActivity.silence(() => rtdbGet(rtdbRef(adminDb, '/')));
-    databaseInstances[name] = snap.exportVal();
+    databaseInstances[name] = exportDatabaseVal(entry.live);
   }
   // The default instance's tree and rules are the checkpoint's.
   database[defaultInstance] = checkpoint.state.rules.database;

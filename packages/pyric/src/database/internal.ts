@@ -12,3 +12,4 @@ export { assertGettablePath } from './info-read.js';
 export { isInfoPath, validateUpdatePaths, validateWritablePath } from './writable-path.js';
 export { valueAtChildPath, valueChildren, type ValueChild } from './internal/value-children.js';
 export { coerceArrays, errorPrefix, inlinePriorities, normalizeNode, validateUpdate, validateWrite } from './sandbox/normalize.js';
+export { exportDatabaseVal } from './internal/export-val.js';
