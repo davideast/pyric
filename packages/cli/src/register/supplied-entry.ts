@@ -33,7 +33,9 @@ import { passThroughSdkPackages, passThroughSet } from '../serve/vite-supplied-r
 import { createStopReporter, suppliedRowsStopFor } from './swap-or-stop.js';
 import { installLiveNetGuard } from './live-net-guard.js';
 import { isRegisterLiveModule } from './live-row.js';
+import { ADMIN_ROW_LOADS, adminRowOfUrl, isAdminRowUrl } from './admin-row.js';
 import {
+  adminTreeResolution,
   isImportCondition,
   registerLiveModuleSource,
   registerRows,
@@ -44,6 +46,7 @@ import { installWorkerGuard } from './worker-guard.js';
 import { installProcessHealth } from './process-health.js';
 
 export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
+export { ADMIN_ROW_LOADS, ADMIN_ROW_URLS, adminRowOfUrl, type AdminRowName } from './admin-row.js';
 export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
 export { liveProjectId } from '../serve/live-project.js';
 export { LIVE_PROJECT_ROOT_VARIABLE, liveAppDirs, liveProjectRoot } from './live-package.js';
@@ -113,6 +116,47 @@ function joinAdminTree(tree: AdminTree, result: ResolveResult): ResolveResult {
 }
 
 /**
+ * The real file behind each Admin row: where the Admin SDK's own load of it
+ * first resolved. A `require()` resolves from its calling module, not from a
+ * `parentURL` a hook passes on, so the row's own require is answered with
+ * this file's path.
+ */
+type AdminRowFiles = Map<string, string>;
+
+/**
+ * The real module behind an Admin row: the row's own require of its load's
+ * specifier gets the file the Admin SDK's load resolved to, which joins the
+ * tree. Null for any other import from a row id.
+ */
+function resolveAdminRowOwn(
+  realFiles: AdminRowFiles,
+  adminTree: AdminTree,
+  specifier: string,
+  context: ResolveContext,
+  nextResolve: NextResolve,
+): ResolveResult | null {
+  const importer = context.parentURL;
+  const row = adminRowOfUrl(importer);
+  const realFile = importer === undefined ? undefined : realFiles.get(importer);
+  const isOwnLoad = row !== null && realFile !== undefined && ADMIN_ROW_LOADS.get(row)?.specifier === specifier;
+  if (!isOwnLoad) return null;
+  return joinAdminTree(adminTree, nextResolve(fileURLToPath(realFile), context));
+}
+
+/**
+ * What a load of the Admin SDK gets from the Admin rows (`adminTreeResolution`):
+ * its row module, with the real file it stands for recorded, a thrown
+ * refusal, or null to load as Node resolved it.
+ */
+function adminRowResult(rows: RegisterRows, realFiles: AdminRowFiles, specifier: string, url: string): ResolveResult | null {
+  const served = adminTreeResolution(rows, { specifier, url });
+  if (served.kind === 'refused') throw served.error;
+  if (served.kind !== 'admin-row') return null;
+  if (!realFiles.has(served.url)) realFiles.set(served.url, url);
+  return { url: served.url, format: 'commonjs', shortCircuit: true };
+}
+
+/**
  * The resolve hook: rows, the installed SDK for a row's own import and for a
  * passed-through one, the real Admin SDK when it passes through, refusals,
  * and the stop. `allowedUrls` is the stop's record of the installed SDK
@@ -122,11 +166,17 @@ function joinAdminTree(tree: AdminTree, result: ResolveResult): ResolveResult {
 function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>, adminTree: AdminTree): Resolve {
   const report = createStopReporter((line) => void process.stderr.write(line));
   const passThroughPackages = passThroughSdkPackages(rows.passThrough);
+  const realFiles: AdminRowFiles = new Map();
   return (specifier, context, nextResolve) => {
     const importer = context.parentURL;
-    // The Admin SDK's own files load whatever it needs, as Node resolves it, and the stop lets it (`isFromAdminTree`).
+    const rowOwn = resolveAdminRowOwn(realFiles, adminTree, specifier, context, nextResolve);
+    if (rowOwn !== null) return rowOwn;
+    // The Admin SDK's own files load whatever it needs, as Node resolves it, and the stop lets it (`isFromAdminTree`),
+    // except where the Admin rows, when on, serve a row or refuse a service.
     if (isAdminTreeImporter(adminTree, importer)) {
       const fromTree = nextResolve(specifier, context);
+      const rowResult = adminRowResult(rows, realFiles, specifier, fromTree.url);
+      if (rowResult !== null) return rowResult;
       const stop = suppliedRowsStopFor({ specifier, importer, url: fromTree.url }, allowedUrls, { isRowImport: false, isEsmImport: false, isFromAdminTree: true });
       if (stop !== null) throw stop;
       return joinAdminTree(adminTree, fromTree);
@@ -154,13 +204,17 @@ function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>, adminTree
     }
     // Only the real firebase-admin starts the tree, never an alias that lands elsewhere.
     const isAdminEntry = isAdminImport && packageNameOf(result.url) === 'firebase-admin';
-    return isAdminEntry ? joinAdminTree(adminTree, result) : result;
+    if (!isAdminEntry) return result;
+    // An entry of a service the Admin rows do not serve, when on, is refused (the row loads are never entries).
+    adminRowResult(rows, realFiles, specifier, result.url);
+    return joinAdminTree(adminTree, result);
   };
 }
 
-/** The load hook: a fixed live module's source, from the installed `@pyric/live`. */
+/** The load hook: a fixed live module's source, from the installed `@pyric/live`. Admin rows are CommonJS, as the Admin SDK is. */
 function loadWithRows(rows: RegisterRows): Load {
   return (url, context, nextLoad) => {
+    if (isAdminRowUrl(url)) return { format: 'commonjs', source: registerLiveModuleSource(rows, url), shortCircuit: true };
     const isLiveModule = isRegisterLiveModule(url);
     if (!isLiveModule) return nextLoad(url, context);
     return { format: 'module', source: registerLiveModuleSource(rows, url), shortCircuit: true };
@@ -196,6 +250,11 @@ export interface SuppliedRowsActivation {
    * or worker, which passes through what its first process recorded.
    */
   readonly passThrough?: readonly string[];
+  /**
+   * Whether a passed-through Admin SDK's class-defining loads go to the Admin
+   * rows (`admin-row.ts`). Nothing passes it yet; the Admin rows' tests do.
+   */
+  readonly adminRows?: boolean;
 }
 
 /**
@@ -242,7 +301,7 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   });
   const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
   adminProjectId = projectIdOrNull(installed.projectRoot);
-  const rows = registerRows(passThrough);
+  const rows = registerRows(passThrough, input.adminRows === true);
   rows.open(installed.rows);
   // Children and workers open the rows for this process's project and its checked firebase, wherever they start.
   process.env[LIVE_PROJECT_ROOT_VARIABLE] = installed.projectRoot;

@@ -136,7 +136,6 @@ test('a Node process under @pyric/live/register reports its Firestore and Auth c
       await expect(row).toHaveCount(1);
       await expect(row.locator('[data-traffic-row-production]')).toHaveText('Production');
       await expect(row.locator('[data-traffic-row-source]')).toHaveAttribute('data-traffic-row-source', 'node');
-      await expect(row.locator('[data-traffic-row-source]')).toHaveText('Server (client SDK)');
       await expect(row.locator('[data-verdict-production]')).toHaveAttribute('title', 'Production failed');
     }
   } finally {

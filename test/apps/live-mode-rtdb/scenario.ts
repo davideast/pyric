@@ -337,7 +337,7 @@ export default scenario(async (app) => {
     await expectNoInfoFrames(nodeReplay);
   });
 
-  await app.step('the chip shows each server job call as production\'s, from Server (client SDK)', async () => {
+  await app.step('the chip shows each server job call as production\'s, from a Node process', async () => {
     await expectRows(chip, 'node');
     assert.ok(await chip.locator('[data-traffic-row-source=node]').count() > 0, 'the server job\'s rows carry the node source');
     assert.deepEqual(await billed(host.url), { reads: 0, writes: 0, deliveries: 0 });

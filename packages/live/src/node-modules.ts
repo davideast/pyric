@@ -11,10 +11,17 @@
  *
  * Every live module hands its records to one observer module, which sends
  * them to the Node host on the process's own connection.
+ *
+ * It also answers the Admin row ids (`ADMIN_ROW_URLS`): CommonJS modules, as
+ * the Admin SDK is, that each load the real module at one of the Admin SDK's
+ * class-defining loads and export it as it is. The Admin rows' observers
+ * (A-4 to A-7 in the #2304 plan) patch its classes here.
  */
 import {
+  ADMIN_ROW_LOADS,
   REGISTER_OBSERVER_URL,
   REGISTER_ROW_URLS,
+  adminRowOfUrl,
   type ServedFirebaseSpecifier,
 } from '@pyric/cli/register/internal/supplied-rows';
 import { LIVE_ROWS } from './rows.js';
@@ -56,12 +63,20 @@ function observerImports(): RowImports {
   return { ...NODE_IMPORTS, hostProjectId };
 }
 
+/** An Admin row's source: the real module at its load, required by its own specifier, exported unchanged. */
+function adminRowSource(specifier: string): string {
+  return `'use strict';\nmodule.exports = require(${JSON.stringify(specifier)});\n`;
+}
+
 /**
  * The source of a module the register serves, or null for any other id.
  * `senderUrl` is `@pyric/cli`'s Node observed-call sender, by file URL.
  */
 export function liveRegisterModuleSource(url: string, senderUrl: string): string | null {
   if (url === REGISTER_OBSERVER_URL) return observerModuleSource(senderUrl, observerImports());
+  const adminRow = adminRowOfUrl(url);
+  const adminLoad = adminRow === null ? undefined : ADMIN_ROW_LOADS.get(adminRow);
+  if (adminLoad !== undefined) return adminRowSource(adminLoad.specifier);
   const specifier = rowOf(url);
   return specifier === undefined ? null : rowModuleSource(specifier, NODE_IMPORTS);
 }

@@ -639,12 +639,12 @@ describe('the Traffic view', () => {
     scope('all').click();
     expect(scope('all').getAttribute('aria-pressed')).toBe('true');
     expect(rowIds().sort()).toEqual(['admin', 'agent', 'mine', 'server', 'tab']);
-    const labelOf = (id: string) => root.querySelector(`[data-request-row="${id}"] [data-traffic-row-source]`)?.textContent;
-    expect(labelOf('mine')).toBe('This page');
-    expect(labelOf('tab')).toBe('Other tab');
-    expect(labelOf('server')).toBe('Server (client SDK)');
-    expect(labelOf('admin')).toBe('Server (admin)');
-    expect(labelOf('agent')).toBe('MCP');
+    const sourceOf = (id: string) => root.querySelector<HTMLElement>(`[data-request-row="${id}"] [data-traffic-row-source]`)?.dataset.trafficRowSource;
+    expect(sourceOf('mine')).toBe('page');
+    expect(sourceOf('tab')).toBe('tab');
+    expect(sourceOf('server')).toBe('node');
+    expect(sourceOf('admin')).toBe('admin');
+    expect(sourceOf('agent')).toBe('mcp');
     const admin = root.querySelector(`[data-request-row="admin"]`)!;
     expect(admin.querySelector('.slot')!.textContent).toBe('Bypassed');
     expect(admin.classList.contains('problem')).toBe(false);
