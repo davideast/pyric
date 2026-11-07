@@ -16,9 +16,9 @@
  *
  * Each Google host no row observes gets one "unobserved" line, and the
  * process health lists it, with the Admin subpath. The project gate still
- * holds: a named Realtime Database instance of the live project opens, and
- * another project's instance and another project's Admin call are refused
- * before any request.
+ * holds: the live project's regional Realtime Database instance opens, and
+ * `<project>-prod-default-rtdb`, another project's instance, and another
+ * project's Admin call are refused before any request.
  *
  * The Admin SDK's Agent sends its requests to a local stand-in for Google.
  * Every other connection reaches the scenario's trap (`trap.mjs`), which
@@ -90,7 +90,7 @@ async function checkBackend(app: App, instrument: 'assign' | 'define'): Promise<
   for (const host of ['www.googleapis.com', 'us-central1-aiplatform.googleapis.com', 'cloudtrace.googleapis.com', 'firebaseappcheck.googleapis.com']) {
     assert.ok(trappedHosts.includes(host), `${host} went out: ${trappedHosts.join(', ')}`);
   }
-  assert.ok(!trappedHosts.includes('another-project-default-rtdb.firebaseio.com'), 'the refused instance opened no connection');
+  assert.ok(!trappedHosts.includes(`${PROJECT}-prod-default-rtdb.firebaseio.com`), 'the refused instance opened no connection');
   for (const host of UNOBSERVED) assert.equal(unobservedLines(run.output, host), 1, `one line for ${host}:\n${run.output}`);
   assert.equal(unobservedLines(run.output, 'identitytoolkit.googleapis.com'), 0, 'the Auth row observes its lookups');
   assert.match(run.output, new RegExp(`${ENTRY}: firebase-admin/messaging loads unobserved\\.`));

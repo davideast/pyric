@@ -292,15 +292,16 @@ function instanceOf(db: object): string | undefined {
 }
 
 /**
- * Whether `instance` belongs to the host's project: `<project>` and
- * `<project>-*`, on firebaseio.com or firebasedatabase.app, or one
- * firebase.json names. Another project whose id starts with the host's and a
- * dash passes too: the name alone can't tell them apart.
+ * Whether `instance` is one of the host's project's own: its default
+ * instance, `<project>-default-rtdb` on firebaseio.com or a regional
+ * firebasedatabase.app host, its legacy `<project>` instance, or one
+ * firebase.json names. Any other name is refused, `<project>-*` included:
+ * `acme-prod-default-rtdb` is project acme-prod's default instance, not acme's.
  */
 function isHostInstance(instance: string, row: AdminDatabaseRow): boolean {
   const project = row.hostProjectId.toLowerCase();
-  const isProjectNamed = instance === project || instance.startsWith(`${project}-`);
-  return isProjectNamed || (row.hostInstances ?? []).some((named) => named.toLowerCase() === instance);
+  const isDefault = instance === project || instance === `${project}-default-rtdb`;
+  return isDefault || (row.hostInstances ?? []).some((named) => named.toLowerCase() === instance);
 }
 
 /**

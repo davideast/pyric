@@ -351,14 +351,15 @@ export interface AdminInstanceMismatch {
 }
 
 /**
- * The refusal of an Admin Realtime Database call to an instance that is not
- * the live host's project's: not `<project>`, not `<project>-*`, and not one
- * firebase.json names.
+ * The refusal of an Admin Realtime Database call to an instance live mode
+ * can't tell is the live host's project's: not `<project>-default-rtdb`, not
+ * `<project>`, and not one firebase.json names.
  */
 export function liveAdminInstanceRefusal(mismatch: AdminInstanceMismatch): Error & AdminInstanceMismatch {
   const error = refused(`@pyric/live: firebase-admin is refused in live mode, from a Node process: ` +
-    `the app's databaseURL names the Realtime Database instance '${mismatch.instance}', which is not an instance of '${mismatch.hostProjectId}', the project this live host serves. ` +
-    `No Admin request left. Point databaseURL at an instance of '${mismatch.hostProjectId}', or name the instance in firebase.json's database list.`);
+    `the app's databaseURL names the Realtime Database instance '${mismatch.instance}', and live mode can't tell it belongs to '${mismatch.hostProjectId}', the project this live host serves. ` +
+    `No Admin request left. If it is an instance of '${mismatch.hostProjectId}', name it in firebase.json's database list ` +
+    `({ "instance": "${mismatch.instance}", "rules": "..." }) and start again; otherwise start live mode for the project it belongs to.`);
   return Object.assign(error, mismatch);
 }
 

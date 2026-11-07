@@ -170,7 +170,7 @@ The health report lists the same hosts. These are calls such as a token request,
 Live mode still refuses these:
 
 - **`@google-cloud/firestore`** imported by your own code in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` or `firebase-admin/firestore` instead.
-- **An Admin call to another project.** An Admin app that names another project is refused before any request. So is a Realtime Database instance that isn't your project's: live mode accepts `<project>` and `<project>-*` instances, and the instances your firebase.json names.
+- **An Admin call to another project.** An Admin app that names another project is refused before any request. So is a Realtime Database instance live mode can't tell is your project's: it accepts `<project>-default-rtdb` and `<project>`, and the instances your firebase.json names. To use another instance of your project, add it to firebase.json's `database` list.
 - **A second copy of the SDK on a page.** Importing an SDK file the page already loaded under another URL that reaches the dev server, such as the same URL with an extra query, fails with `PYRIC_LIVE_REFUSED`.
 
 ## What live mode can't see

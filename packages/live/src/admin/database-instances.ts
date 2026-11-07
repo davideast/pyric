@@ -3,7 +3,10 @@
  * live project: each `database[].instance`, and each `database[].target`
  * through `.firebaserc`'s `targets.<project>.database.<target>`. The Admin
  * Realtime Database row lets these through its instance check beside
- * `<project>` and `<project>-*` (ADR 0022, amendment 2026-11-07).
+ * `<project>-default-rtdb` and `<project>` (ADR 0022, amendment 2026-11-07).
+ * An app's own `databaseURL` names no instance here: live mode reads it only
+ * at the call, so an instance outside the defaults must be listed in
+ * firebase.json.
  *
  * The register reads it once at start, so it reads the two files directly
  * and never throws: a file that is missing or unreadable names nothing.

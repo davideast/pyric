@@ -62,7 +62,7 @@ let hostProjectId: string | undefined;
  * (the register calls it once it has resolved the project), so each row refuses a
  * call whose app names another project. `databaseInstances` are the
  * Realtime Database instances firebase.json names for it, which the Admin
- * Realtime Database row lets through beside `<project>` and `<project>-*`.
+ * Realtime Database row lets through beside `<project>-default-rtdb` and `<project>`.
  */
 export function serveHostProject(projectId: string, databaseInstances: readonly string[] = []): void {
   hostProjectId = projectId;

@@ -477,11 +477,16 @@ credential could not already reach.
   gate stays on every served row.
 - **The project gate still refuses another project.** The Admin rows refuse a
   call whose app names another project before any request. The Admin
-  Realtime Database row also refuses an instance that is not the live
-  project's: it accepts `<project>` and `<project>-*` on firebaseio.com and
-  firebasedatabase.app, and the instances firebase.json names. A project
-  whose id starts with the live project's and a dash passes that check: the
-  instance name alone can't tell them apart.
+  Realtime Database row also refuses an instance it can't tell is the live
+  project's. It accepts the default instance, `<project>-default-rtdb` on
+  firebaseio.com or a regional firebasedatabase.app host, the legacy
+  `<project>` instance, and the instances firebase.json names, directly or
+  through a `.firebaserc` database target. It refuses `<project>-*` beyond
+  those: with the live project `acme`, `acme-prod-default-rtdb` is project
+  acme-prod's default instance. The refusal tells the developer to name
+  the instance in firebase.json. An app's own `databaseURL` can't add an
+  instance: the row reads it only at the call, where it is the thing being
+  checked, so firebase.json is the one place to list one.
 - **The module swap is unchanged.** Live mode still refuses Firebase imports
   it does not serve or pass through, and `@google-cloud/firestore` and
   `@google-cloud/storage` still load only from `firebase-admin`'s own files.

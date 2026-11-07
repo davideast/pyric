@@ -164,10 +164,11 @@ outcome.jwks = await fetch("https://firebaseappcheck.googleapis.com/v1/jwks").th
 // A firebase-admin service no row serves loads, unobserved.
 outcome.messaging = await import("firebase-admin/messaging").then(() => "loaded", codeOf);
 
-// Realtime Database: a named instance of the live project, and another project's.
+// Realtime Database: the live project's regional default instance, and another project's.
 const databaseOptions = { projectId: PROJECT, credential: callbackCredential, httpAgent: agent };
-const ownInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${PROJECT}-reports.firebaseio.com` }, "own-instance");
-const otherInstance = initializeApp({ ...databaseOptions, databaseURL: "https://another-project-default-rtdb.firebaseio.com" }, "other-instance");
+const ownInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${PROJECT}-default-rtdb.europe-west1.firebasedatabase.app` }, "own-instance");
+// Project <live project>-prod's default instance, as a dev and prod pair names it.
+const otherInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${PROJECT}-prod-default-rtdb.firebaseio.com` }, "other-instance");
 outcome.ownInstance = openDatabase(ownInstance);
 outcome.otherInstance = openDatabase(otherInstance);
 
