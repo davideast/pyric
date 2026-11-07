@@ -3,9 +3,17 @@ import {
   computeWhereDomains,
   dataFieldPath,
   inlineFunctionsInExpr,
+  isClosedConstantExpr,
   isRequestAuthUid,
   isResourceData,
+  isSafePrecisionRulesScalar,
+  isScalar,
   queryResidual,
+  resolveStaticRulesOperand,
+  rulesScalarToJsScalar,
+  toRulesQueryScalar,
+  type RulesScalar,
+  type Scalar,
 } from './query-proof-residual.js';
 /**
  * RULES-B11 (rules-side) — query-proof evaluation for `list` operations.
@@ -50,6 +58,8 @@ import {
  */
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import type { Expression, FunctionDef, SourceLoc } from '../grammar/FirestoreAST.js';
+import { getValidFunctionLexicalScope } from './match-resolution.js';
+import { rulesValuesEqual } from './value-equality.js';
 
 /** A single `where(field, op, value)` constraint carried by the query. */
 export interface QueryWhereConstraint {
@@ -181,23 +191,33 @@ function evaluateEqualityQueryProof(
   const domains = computeWhereDomains(constraints);
   const missing: QueryProofMissing[] = [];
   const mismatched: QueryProofMismatch[] = [];
-  let hasEmptyDomain = false;
+  let needsResidualProjection = false;
   for (const req of required) {
     const domain = domains.get(req.field);
     const filterSets = filterSetsByField.get(req.field);
     const impliedByIntersection =
-      domain !== undefined && domain.length === 1 && valuesEqual(domain[0], req.value);
+      domain !== undefined &&
+      domain.length > 0 &&
+      domain.every((v) => rulesValuesEqual(toRulesQueryScalar(v), req.rulesValue));
     const impliedByFilter =
       filterSets !== undefined &&
-      filterSets.some((set) => set.length === 1 && valuesEqual(set[0], req.value));
+      filterSets.some(
+        (set) => set.length > 0 && set.every((v) => rulesValuesEqual(toRulesQueryScalar(v), req.rulesValue)),
+      );
     const discharged = impliedByIntersection || impliedByFilter;
     if (discharged) {
-      if ((domain?.length ?? 0) === 0) hasEmptyDomain = true;
+      if ((domain?.length ?? 0) !== 1) needsResidualProjection = true;
       continue;
     }
     // A `where(field, '==', other)` on the same field with a different value is
     // a mismatch (actionable: the wrong value); anything else is simply missing.
-    const conflict = wheres.find((w) => w.field === req.field && w.op === '==' && !valuesEqual(w.value, req.value));
+    const conflict = wheres.find(
+      (w) =>
+        w.field === req.field &&
+        w.op === '==' &&
+        isScalar(w.value) &&
+        !rulesValuesEqual(toRulesQueryScalar(w.value), req.rulesValue),
+    );
     if (conflict) {
       mismatched.push({ field: req.field, expectedValue: req.value, actualValue: conflict.value });
     } else {
@@ -210,7 +230,7 @@ function evaluateEqualityQueryProof(
       provable: true,
       reason: 'every per-document predicate the rule requires is guaranteed by a query where(...) constraint',
     };
-    if (hasEmptyDomain) {
+    if (needsResidualProjection) {
       provableResult.residualCondition = extraction.residual;
     }
     return provableResult;
@@ -359,6 +379,8 @@ export function isProvablyDocIndependent(
         if (!fn) return true;
         // Recursive helper → fail closed.
         if (visited.has(e.name)) return false;
+        const nextFnMap = getValidFunctionLexicalScope(fn, fnMap);
+        if (!nextFnMap) return false;
         const nextVisited = new Set(visited).add(e.name);
         const bindings = new Map<string, Expression>();
         fn.parameters.forEach((p, i) => {
@@ -367,12 +389,12 @@ export function isProvablyDocIndependent(
         });
         for (const b of fn.lets) {
           const bound = substituteIdentifiers(b.value, bindings);
-          if (!isProvablyDocIndependent(bound, fnMap, nextVisited)) return false;
+          if (!isProvablyDocIndependent(bound, nextFnMap, nextVisited)) return false;
           bindings.set(b.name, bound);
         }
         return isProvablyDocIndependent(
           substituteIdentifiers(fn.body, bindings),
-          fnMap,
+          nextFnMap,
           nextVisited,
         );
       }
@@ -387,7 +409,8 @@ export function isProvablyDocIndependent(
 /** A per-doc equality required by the rule, with provenance for remediation. */
 interface RequiredEquality {
   field: string;
-  value: unknown;
+  value: Scalar;
+  rulesValue: RulesScalar;
   fromAuthUid: boolean;
 }
 
@@ -432,29 +455,43 @@ function extractRequiredDataEqualities(
   const required: RequiredEquality[] = [];
   let predicate = expr;
   let predicateLoc = expr.loc;
-  const walkAnd = (e: Expression, visited: Set<string>, enclosingLoc = expr.loc): Expression | null => {
+  const walkAnd = (
+    e: Expression,
+    currentFnMap: Map<string, FunctionDef>,
+    visited: Set<string>,
+    enclosingLoc = expr.loc,
+  ): Expression | null => {
     if (e.type === 'binaryOp' && e.op === '&&') {
-      const left = walkAnd(e.left, visited, enclosingLoc);
+      const left = walkAnd(e.left, currentFnMap, visited, enclosingLoc);
       if (!left) return null;
-      const right = walkAnd(e.right, visited, enclosingLoc);
+      const right = walkAnd(e.right, currentFnMap, visited, enclosingLoc);
       if (!right) return null;
       return { type: 'binaryOp', op: '&&', left, right };
     }
-    if (e.type === 'functionCall' && fnMap.has(e.name) && !visited.has(e.name)) {
-      const fn = fnMap.get(e.name)!;
-      // Bind parameters to the call's argument expressions, then resolve `let`
-      // bindings in that scope (a let can reference params + earlier lets).
+    if (e.type === 'functionCall' && currentFnMap.has(e.name) && !visited.has(e.name)) {
+      const fn = currentFnMap.get(e.name)!;
+      const nextFnMap = getValidFunctionLexicalScope(fn, currentFnMap);
+      if (!nextFnMap) {
+        predicate = e;
+        predicateLoc = e.loc ?? enclosingLoc;
+        return null;
+      }
+      // Bind parameters to the call's argument expressions (inlined in the
+      // caller's scope when they call caller-scoped helpers), then resolve `let`
+      // bindings in the callee's lexical scope.
       const bindings = new Map<string, Expression>();
-      fn.parameters.forEach((p, i) => {
+      for (let i = 0; i < fn.parameters.length; i++) {
         const arg = e.args[i];
-        if (arg) bindings.set(p, arg);
-      });
+        if (!arg) continue;
+        const callerExpandedArg = inlineFunctionsInExpr(arg, currentFnMap, visited) ?? arg;
+        bindings.set(fn.parameters[i]!, callerExpandedArg);
+      }
       for (const b of fn.lets) bindings.set(b.name, substituteIdentifiers(b.value, bindings));
       const inlined = substituteIdentifiers(fn.body, bindings);
       const nextVisited = new Set(visited).add(e.name);
-      return walkAnd(inlined, nextVisited, fn.loc ?? enclosingLoc);
+      return walkAnd(inlined, nextFnMap, nextVisited, fn.loc ?? enclosingLoc);
     }
-    const eq = asDataEquality(e, fnMap, authUid, visited);
+    const eq = asDataEquality(e, currentFnMap, authUid, visited);
     if (eq) {
       required.push(eq);
       return { type: 'literal', value: true, raw: 'true' };
@@ -464,7 +501,7 @@ function extractRequiredDataEqualities(
     // faithfully (auth / time / request.query). Anything else, including any
     // node shape the classifier doesn't positively recognize, fails the
     // extraction (fail closed).
-    const independent = isProvablyDocIndependent(e, fnMap);
+    const independent = isProvablyDocIndependent(e, currentFnMap);
     if (!independent) {
       predicate = e;
       // Older parsed expressions lack token locations; the enclosing helper
@@ -474,7 +511,7 @@ function extractRequiredDataEqualities(
     }
     return e;
   };
-  const residual = walkAnd(expr, new Set());
+  const residual = walkAnd(expr, fnMap, new Set());
   if (residual) {
     return { ok: true, required, residual };
   }
@@ -499,9 +536,19 @@ function asDataEquality(
   const fromSide = (data: Expression, other: Expression): RequiredEquality | null => {
     const field = dataFieldPath(data);
     if (field === null) return null;
-    if (other.type === 'literal') return { field, value: other.value, fromAuthUid: false };
-    if (authUid !== undefined && isRequestAuthUid(other)) return { field, value: authUid, fromAuthUid: true };
-    return null;
+    if (isRequestAuthUid(other)) {
+      if (authUid === undefined) return null;
+      return { field, value: authUid, rulesValue: authUid, fromAuthUid: true };
+    }
+    if (!isClosedConstantExpr(other, fnMap)) return null;
+    const resolved = resolveStaticRulesOperand(other, fnMap, authUid);
+    if (resolved === undefined || !isSafePrecisionRulesScalar(resolved)) return null;
+    return {
+      field,
+      value: rulesScalarToJsScalar(resolved),
+      rulesValue: resolved,
+      fromAuthUid: false,
+    };
   };
   return fromSide(e.left, e.right) ?? fromSide(e.right, e.left);
 }
@@ -549,8 +596,4 @@ export function substituteIdentifiers(expr: Expression, bindings: Map<string, Ex
     }
   };
   return sub(expr);
-}
-
-function valuesEqual(a: unknown, b: unknown): boolean {
-  return a === b;
 }

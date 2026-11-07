@@ -26,7 +26,7 @@ import type {
 } from '../grammar/FirestoreAST.js';
 import { resolveAuthoredSourceLoc } from '../modules/resolver-core.js';
 import type { EvaluatedRuleInfo, ListQuery } from '../test/spec.js';
-import type { MatchResult } from './match-resolution.js';
+import { indexRulesetScopes, type MatchResult } from './match-resolution.js';
 import { collectRootMatches } from './root-match.js';
 import {
   evaluateQueryProof,
@@ -146,6 +146,7 @@ export function proveListQuery(
   if (isAstDefined === false) {
     return { kind: 'no-rule' };
   }
+  indexRulesetScopes(ast!);
   // Like handler.ts, the root match is compared with the request first, and
   // its children resolve what it leaves with every enclosing helper in scope.
   const rootFunctions = [
