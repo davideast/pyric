@@ -242,7 +242,13 @@ function countOperations(batch: object, usage: BatchUsage): void {
   }
 }
 
-/** Makes the batch's `commit` one observed `writeBatch` call, with the usage counted so far and the context of `writeBatch`'s arguments. */
+/**
+ * Makes the batch's `commit` one observed `writeBatch` call, with the usage
+ * counted so far and the context of `writeBatch`'s arguments. The name stays
+ * `writeBatch`: the senders' `measureObservedUsage` returns undefined for it,
+ * so the counted usage stands, while `writeBatch.commit` would measure as
+ * `unmeasured` and replace it.
+ */
 function observeCommit(batch: object, usage: BatchUsage, site: Omit<ObservedSite, 'name'>, args: readonly unknown[]): void {
   const real: unknown = Reflect.get(batch, 'commit');
   if (typeof real !== 'function') return;
