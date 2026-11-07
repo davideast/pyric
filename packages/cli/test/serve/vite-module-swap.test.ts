@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { installedFirebaseSdkNames } from '../../src/bundler/externals.js';
 import { SDK_MODULES, pyricPackageRoot } from '../../src/serve/bundler.js';
 import { REAL_SDK_ENTRIES } from '../../src/serve/firebase-module-swap.js';
 import {
@@ -10,6 +13,7 @@ import {
 } from '../../src/serve/vite-module-swap.js';
 import { SSR_SWAP_PREFIX } from '../../src/serve/vite-ssr-routing.js';
 import { sdkImportMap } from '../../src/serve/html-injection.js';
+import { suppliedRows } from '../../src/serve/vite-supplied-rows.js';
 
 const context = createViteModuleContext();
 const swap = createViteModuleSwap(context);
@@ -149,6 +153,29 @@ function fakeContext(environment?: SwapEnvironment): SwapResolveContext & { pass
   };
 }
 
+const scratch: string[] = [];
+afterAll(() => {
+  for (const dir of scratch) rmSync(dir, { recursive: true, force: true });
+});
+
+/** A project whose node_modules holds two @firebase/* packages, firebase-admin under an npm alias, and another package. */
+function projectWithSdkNames(): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'pyric-dev-sdk-names-'));
+  scratch.push(root);
+  const manifests: Record<string, string> = {
+    '@firebase/app': '@firebase/app',
+    '@firebase/firestore': '@firebase/firestore',
+    'admin-alias': 'firebase-admin',
+    'not-firebase': 'not-firebase',
+  };
+  for (const [folder, name] of Object.entries(manifests)) {
+    const dir = path.join(root, 'node_modules', folder);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name }));
+  }
+  return root;
+}
+
 const runnableSsr = { name: 'ssr', config: { consumer: 'server' }, runner: {} } as SwapEnvironment;
 const workerdSsr: SwapEnvironment = { name: 'worker', config: { consumer: 'server' } };
 const clientEnvironment: SwapEnvironment = { name: 'client', config: { consumer: 'client' } };
@@ -164,13 +191,13 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     for (const specifier of ['firebase/unknown-subpath', 'firebase-functions', 'firebase']) {
       expect(alias.find.test(specifier)).toBe(false);
     }
-    expect(config.ssr?.external).toEqual(['@pyric/cli']);
+    expect(config.ssr?.external).toEqual(['@pyric/cli', ...installedFirebaseSdkNames({ projectDir: process.cwd() })]);
     expect(swap.config({ devServer: false }).resolve).toBeUndefined();
   });
 
   it('keeps the SSR loader external in other server environments, only under vite dev', () => {
     const devSwap = createViteModuleSwap(context);
-    devSwap.config({ devServer: true });
+    devSwap.config({ devServer: true, userConfig: { ssr: { external: true } } });
     expect(devSwap.configEnvironment('worker', {})).toEqual({ resolve: { external: ['@pyric/cli'] } });
     expect(devSwap.configEnvironment('rsc', { consumer: 'server' })).toEqual({ resolve: { external: ['@pyric/cli'] } });
     expect(devSwap.configEnvironment('ssr', { consumer: 'server' })).toBeNull();
@@ -178,6 +205,26 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     const buildSwap = createViteModuleSwap(context);
     buildSwap.config({ devServer: false });
     expect(buildSwap.configEnvironment('worker', {})).toBeNull();
+  });
+
+  it('keeps every installed Firebase SDK name external on the server, so the stop hook decides it (#2345)', () => {
+    const root = projectWithSdkNames();
+    const devSwap = createViteModuleSwap(context);
+    const config = devSwap.config({ devServer: true, userConfig: { root, ssr: { noExternal: true } } });
+    const names = ['firebase', 'firebase-admin', '@firebase/app', '@firebase/firestore', 'admin-alias'];
+    expect(config.ssr?.external).toEqual(expect.arrayContaining(['@pyric/cli', ...names]));
+    expect(config.ssr?.external).not.toContain('not-firebase');
+    const environment = devSwap.configEnvironment('rsc', { consumer: 'server' });
+    expect(environment?.resolve.external).toEqual(config.ssr?.external as string[]);
+  });
+
+  it('leaves server externals as they were under live rows, ssr.external: true, and a build', () => {
+    const root = projectWithSdkNames();
+    const live = createViteModuleSwap(context, { supplied: suppliedRows((specifier) => new Error(specifier)) });
+    expect(live.config({ devServer: true, userConfig: { root } }).ssr?.external).toEqual(['@pyric/cli']);
+    const everything = createViteModuleSwap(context);
+    expect(everything.config({ devServer: true, userConfig: { root, ssr: { external: true } } }).ssr?.external).toEqual(['@pyric/cli']);
+    expect(createViteModuleSwap(context).config({ devServer: false, userConfig: { root } }).ssr).toBeUndefined();
   });
 
   it('gives the client its entries through the alias, and firebase-admin the stop', async () => {
