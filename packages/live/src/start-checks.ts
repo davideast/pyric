@@ -8,6 +8,13 @@
  *
  * Either failure refuses the start with the reason: the version found, or the
  * path of every copy. Nothing here loads the SDK; it reads package.json files.
+ *
+ * The register entry also runs the Admin check (`adminStartRefusal`): when
+ * the app installs `firebase-admin`, the Admin rows need its major 13, whose
+ * internals they patch. They also need Node 23 or later, since Node 22's
+ * CommonJS `require()` never reaches the register's hooks
+ * (`adminRowsNodeProblem` in `refusal.ts`); there the rows stay shut and
+ * `firebase-admin` is refused at import.
  */
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -218,4 +225,40 @@ export function liveStartRefusal(projectRoot: string, appDirs: string | readonly
   const appFolders = typeof appDirs === 'string' ? [appDirs] : appDirs;
   const searched = [...new Set([...appFolders, projectRoot])];
   return versionRefusal(installedFirebaseVersion(sdkRoot), searched) ?? copiesRefusal(firebaseAppCopies(sdkRoot));
+}
+
+/** The `firebase-admin` major the Admin rows patch: its internal files and classes are pinned to it. */
+export const SUPPORTED_ADMIN_MAJOR = 13;
+
+/** The major of a `major.minor.patch` version, or NaN. */
+function majorOf(version: string): number {
+  return Number(version.split('.')[0]);
+}
+
+/**
+ * The version of the `firebase-admin` the app loads, from the first of
+ * `appDirs`, then the project root, it resolves from, or null when the app
+ * installs none.
+ */
+export function installedAdminVersion(appDirs: string | readonly string[], projectRoot: string): string | null {
+  const candidates = [...(typeof appDirs === 'string' ? [appDirs] : appDirs), projectRoot];
+  for (const dir of candidates) {
+    const adminDir = resolvedPackageDir('firebase-admin', dir);
+    if (adminDir !== null) return readVersion(join(adminDir, 'package.json'));
+  }
+  return null;
+}
+
+/**
+ * Why the register refuses to start for an app that installs
+ * `firebase-admin`, or null: its major is not {@link SUPPORTED_ADMIN_MAJOR}.
+ * An app with no `firebase-admin` is never refused here.
+ */
+export function adminStartRefusal(appDirs: string | readonly string[], projectRoot: string): string | null {
+  const version = installedAdminVersion(appDirs, projectRoot);
+  if (version === null) return null;
+  const isSupportedAdmin = majorOf(version) === SUPPORTED_ADMIN_MAJOR;
+  if (isSupportedAdmin) return null;
+  return `${NOT_STARTED} @pyric/live observes firebase-admin ${SUPPORTED_ADMIN_MAJOR}. This project has firebase-admin ${version} installed. ` +
+    `Install a supported version with: npm install firebase-admin@${SUPPORTED_ADMIN_MAJOR}`;
 }

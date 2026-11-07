@@ -4,8 +4,10 @@
  *
  * `@pyric/live/register` opens the real-SDK stop only for its live rows
  * (`LIVE_ROWS` in this file): they load the installed SDK, every other
- * Firebase import and `firebase-admin` is refused with
- * `PYRIC_LIVE_REFUSED`, and a load of the real SDK by any other route stops.
+ * Firebase import is refused with `PYRIC_LIVE_REFUSED`, and a load of the
+ * real SDK by any other route stops. From Node 23, `firebase-admin` loads
+ * through the Admin rows (D2 in the #2304 plan); on Node 22, whose
+ * `require()` skips the hooks, it is refused.
  * `@pyric/cli/register` alone keeps the stop for every real `firebase/*` and
  * `firebase-admin` load, the row module ids included, and no file under the
  * real packages loads.
@@ -153,31 +155,37 @@ afterAll(() => {
 const LIVE_REGISTER = '@pyric/live/register';
 const CLI_REGISTER = '@pyric/cli/register';
 const LIVE_ROWS = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check', 'firebase/database'];
+/** Whether the `node` on PATH runs the Admin rows: Node 23 or later, whose require() reaches the hooks. */
+const nodeMajor = Number(spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' }).stdout.split('.')[0]);
+const adminRowsOn = nodeMajor >= 23;
+const ADMIN_IMPORTS = ['firebase-admin', 'firebase-admin/app'];
 
 describe('@pyric/live/register', () => {
-  it('loads the installed SDK for the app, Auth, Firestore, App Check and Realtime Database rows and refuses every other Firebase import and firebase-admin', () => {
-    const refused = ['firebase/remote-config', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
-    const res = run([LIVE_REGISTER], [...LIVE_ROWS, ...refused]);
+  it('loads the installed SDK for the app, Auth, Firestore, App Check and Realtime Database rows and firebase-admin from Node 23, and refuses every other Firebase import', () => {
+    const refused = ['firebase/remote-config', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase'];
+    const res = run([LIVE_REGISTER], [...LIVE_ROWS, ...refused, ...ADMIN_IMPORTS]);
     expect(res.status, res.stderr).toBe(0);
     for (const specifier of LIVE_ROWS) expect(res.outcome[specifier], specifier).toBe('loaded');
     for (const specifier of refused) expect(res.outcome[specifier], specifier).toBe('PYRIC_LIVE_REFUSED');
+    for (const specifier of ADMIN_IMPORTS) expect(res.outcome[specifier], specifier).toBe(adminRowsOn ? 'loaded' : 'PYRIC_LIVE_REFUSED');
     const loaded = packagesOf(res.sdkFiles);
     expect(loaded).toContain('firebase');
     expect(loaded).toContain('@firebase/firestore');
     expect(loaded).toContain('@firebase/auth');
     expect(loaded).toContain('@firebase/database');
-    for (const name of ['firebase-admin', '@firebase/messaging', '@firebase/functions', '@firebase/remote-config']) expect(loaded, name).not.toContain(name);
+    for (const name of ['@firebase/messaging', '@firebase/functions', '@firebase/remote-config']) expect(loaded, name).not.toContain(name);
   }, 60_000);
 
   it('names live mode and the service in the refusal', () => {
-    const script = `import('firebase-admin/app').catch((error) => { console.log('OUTCOME ' + JSON.stringify({ outcome: { message: error.message }, sdkFiles: [] })); });`;
+    const script = `import('firebase-admin/security-rules').catch((error) => { console.log('OUTCOME ' + JSON.stringify({ outcome: { message: error.message }, sdkFiles: [] })); });`;
     writeFileSync(join(projectDir, 'refusal.mjs'), script);
     const result = spawnSync('node', ['--import', LIVE_REGISTER, join(projectDir, 'refusal.mjs')], {
       cwd: projectDir, encoding: 'utf8', timeout: 60_000, env: { PATH: process.env.PATH, HOME: projectDir },
     });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain('firebase-admin/app (the Admin SDK) is refused in live mode');
-    expect(result.stdout).toContain('to a Node process');
+    expect(result.stdout).toContain('firebase-admin/security-rules (the Admin SDK) is refused in live mode');
+    expect(result.stdout).toContain(adminRowsOn ? 'to a Node process' : 'Node 23 or later');
+    expect(result.stdout).not.toContain('passThrough');
   }, 60_000);
 
   it('stops the real SDK reached by any route but a live row: a file URL or an @firebase/* import', async () => {
@@ -241,7 +249,7 @@ console.log('OUTCOME ' + JSON.stringify({ outcome, sdkFiles: loaded.slice(before
     expect(sdkFiles).toEqual([]);
   }, 60_000);
 
-  it("serves require() the live row, or stops it where Node's require skips the hooks; firebase-admin never loads", () => {
+  it("serves require() the live row and firebase-admin, or stops them where Node's require skips the hooks", () => {
     const script = `const outcome = {};
 for (const specifier of ['firebase/firestore', 'firebase-admin']) {
   try { require(specifier); outcome[specifier] = 'loaded'; } catch (error) { outcome[specifier] = error?.code ?? String(error); }
@@ -257,13 +265,14 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { ...outcome, node: process.v
     const line = result.stdout.split('\n').find((entry) => entry.startsWith('OUTCOME ')) ?? 'OUTCOME {}';
     const { outcome, sdkFiles } = JSON.parse(line.slice('OUTCOME '.length)) as { outcome: Record<string, string>; sdkFiles: string[] };
     expect(result.status, result.stderr).toBe(0);
-    expect(sdkFiles).toEqual([]);
     // Node 22.15 resolves a CommonJS entry's require() without the sync hooks, so the stop is what meets it.
     const requireReachesHooks = Number(outcome.node.split('.')[0]) >= 23;
     if (requireReachesHooks) {
       expect(outcome['firebase/firestore']).toBe('loaded');
-      expect(outcome['firebase-admin']).toBe('PYRIC_LIVE_REFUSED');
+      expect(outcome['firebase-admin']).toBe('loaded');
+      expect(sdkFiles.length).toBeGreaterThan(0);
     } else {
+      expect(sdkFiles).toEqual([]);
       expect(outcome['firebase/firestore']).toBe('PYRIC_REAL_SDK_STOPPED');
       expect(['PYRIC_LIVE_REFUSED', 'PYRIC_REAL_SDK_STOPPED']).toContain(outcome['firebase-admin']);
       expect(result.stderr).toContain(`CommonJS require() on Node ${outcome.node} can't be served under live mode`);
