@@ -1,5 +1,5 @@
 import type { FirestoreRules, MatchBlock, FunctionDef } from '../grammar/FirestoreAST.js';
-import { collectRulesetScopes, type NameScope } from '../grammar/function-scopes.js';
+import { collectRulesetScopes, functionReferences, type NameScope } from '../grammar/function-scopes.js';
 import { recursiveWildcardMinimum } from '../grammar/recursive-wildcard-minimum.js';
 import type { PathResolutionEntry } from '../test/spec.js';
 
@@ -22,6 +22,25 @@ export function indexRulesetScopes(ast: FirestoreRules): void {
 
 export function getFunctionScope(fn: FunctionDef): NameScope | undefined {
   return functionScopes.get(fn);
+}
+
+/**
+ * Return the lexical function map visible at `fn`'s declaration site when `fn`
+ * has no lexically undefined calls or unbound variables, or `null` when `fn`
+ * references out-of-scope functions or path captures. Falls back to
+ * `fallbackFunctions` when `fn`'s ruleset was not indexed via `indexRulesetScopes`.
+ */
+export function getValidFunctionLexicalScope(
+  fn: FunctionDef,
+  fallbackFunctions: ReadonlyMap<string, FunctionDef>,
+): Map<string, FunctionDef> | null {
+  const scope = functionScopes.get(fn);
+  if (!scope) return fallbackFunctions as Map<string, FunctionDef>;
+  const refs = functionReferences({ ...scope, fn });
+  if (refs.undefinedCalls.length > 0 || refs.unboundVariables.length > 0) {
+    return null;
+  }
+  return scope.functions as Map<string, FunctionDef>;
 }
 
 export interface MatchResult {

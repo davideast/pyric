@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test';
+import { rtdbRules } from 'pyric/rules';
 import { compileRtdbRules, simulateRtdbRules } from '../../../src/rules/rtdb/compiled-rules.js';
 import { validateExpression } from '../../../src/rules/rtdb/grammar/validator.js';
 import {
@@ -10,12 +11,13 @@ import {
   orderByChild,
   orderByValue,
   orderByKey,
+  equalTo,
   limitToFirst,
   limitToLast,
   onValue,
-} from '../../../src/database/index.js';
-import { setRules } from '../../../src/database/sandbox-controls.js';
-import { initializeSandbox } from '../../../src/sandbox/index.js';
+} from 'pyric/database';
+import { setRules } from 'pyric/sandbox/database';
+import { initializeSandbox } from 'pyric/sandbox';
 
 describe('Realtime Database Query Rule Expressions & .indexOn Sandbox Enforcement', () => {
   describe('R1: Realtime Database query.* Rule Expression Evaluation', () => {
@@ -101,7 +103,6 @@ describe('Realtime Database Query Rule Expressions & .indexOn Sandbox Enforcemen
       });
       await set(ref(db, 'items/i1'), { category: 'books', title: 'Dune' });
 
-      const { equalTo } = await import('../../../src/database/index.js');
       const snap = await get(query(ref(db, 'items'), orderByChild('category'), equalTo('books')));
       expect(snap.exists()).toBe(true);
     });
@@ -172,6 +173,74 @@ describe('Realtime Database Query Rule Expressions & .indexOn Sandbox Enforcemen
       } finally {
         console.warn = originalWarn;
       }
+    });
+
+    it('rejects unindexed queries on a literal child node even when a sibling $wildcard declares .indexOn', async () => {
+      const siblingRules = {
+        rules: {
+          items: {
+            public: { '.read': true, '.write': true },
+            $bucket: { '.read': true, '.write': true, '.indexOn': ['score', '.value'] },
+          },
+        },
+      };
+
+      const sandbox = initializeSandbox({ projectId: 'r2-sibling-index-project' });
+      const db = getDatabase(sandbox);
+      await setRules(db, siblingRules);
+      await set(ref(db, 'items/public/a'), { score: 5 });
+      await set(ref(db, 'items/other/a'), { score: 5 });
+
+      await expect(
+        get(query(ref(db, 'items/public'), orderByChild('score'), equalTo(5))),
+      ).rejects.toThrow('Index not defined, add ".indexOn": "score", for path "/items/public", to the rules');
+
+      await expect(
+        get(query(ref(db, 'items/public'), orderByValue())),
+      ).rejects.toThrow('Index not defined, add ".indexOn": ".value", for path "/items/public", to the rules');
+
+      const otherSnap = await get(query(ref(db, 'items/other'), orderByChild('score'), equalTo(5)));
+      expect(otherSnap.val()).toEqual({ a: { score: 5 } });
+    });
+
+    it('reports missingIndexes in rtdbRules.simulate for a literal child without .indexOn next to a $wildcard sibling', () => {
+      const siblingRules = {
+        rules: {
+          items: {
+            $bucket: { '.read': true, '.indexOn': ['score'] },
+            public: { '.read': true },
+          },
+        },
+      };
+
+      const ruleset = rtdbRules(siblingRules);
+      const publicSim = ruleset.simulate([
+        {
+          expectation: 'ALLOW',
+          operation: 'read',
+          path: '/items/public',
+          query: { orderByChild: 'score', equalTo: 5 },
+        },
+      ]);
+      expect(publicSim.coverage.missingIndexes).toEqual([
+        { path: '/items/public', index: 'score' },
+      ]);
+      expect(
+        publicSim.coverage.rules.find((r) => r.path === '/items/$bucket' && r.kind === 'indexOn')?.status,
+      ).toBe('never-evaluated');
+
+      const otherSim = ruleset.simulate([
+        {
+          expectation: 'ALLOW',
+          operation: 'read',
+          path: '/items/other',
+          query: { orderByChild: 'score', equalTo: 5 },
+        },
+      ]);
+      expect(otherSim.coverage.missingIndexes).toEqual([]);
+      expect(
+        otherSim.coverage.rules.find((r) => r.path === '/items/$bucket' && r.kind === 'indexOn')?.status,
+      ).toBe('allow');
     });
   });
 });
