@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { closeOpenIssue, openOrUpdateIssue, type Gh } from '../../ci/github-issues.ts';
 import { FAILED, MAX_FLAKE_ISSUES, decide, type AttemptReport, type IssueAction, type OpenIssue, type Plan } from './decide.ts';
-import { FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX, describePlan, testFilePath } from './issue-text.ts';
+import { FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX, describePlan, failingApp, testFilePath } from './issue-text.ts';
 import { checkoutResolver, namedFailedJobs, parseFailures, type Failure, type FileResolver } from './parse-log.ts';
 
 const ISSUE_LABEL = 'flake';
@@ -168,13 +168,19 @@ function searchIssues(context: Context, query: string): OpenIssue[] {
   return checkedList<OpenIssue>(found, ISSUE_SHAPE, 'issues');
 }
 
-/** This lane's open issues, and any open issue that names the repository
- *  path of a test file in `failures`. `decide` checks the path again on a
- *  word boundary, since search matches loosely. */
+function distinct(values: (string | undefined)[]): string[] {
+  return [...new Set(values.filter((value) => value !== undefined))].slice(0, MAX_FLAKE_ISSUES);
+}
+
+/** This lane's open issues, any open issue that names the repository path of
+ *  a test file in `failures`, and any whose title names a failing app.
+ *  `decide` checks each name again on a word boundary, since search matches
+ *  loosely. */
 function openIssues(context: Context, failures: Failure[]): OpenIssue[] {
   const prefixes = [FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX].map((prefix) => `"${prefix.replace(/: $/, '')}" in:title`);
-  const paths = [...new Set(failures.map(testFilePath).filter((path) => path !== undefined))].slice(0, MAX_FLAKE_ISSUES);
-  const queries = [...prefixes, ...paths.map((path) => `"${path}" in:title,body`)];
+  const paths = distinct(failures.map(testFilePath)).map((path) => `"${path}" in:title,body`);
+  const apps = distinct(failures.map(failingApp)).map((app) => `"${app}" in:title`);
+  const queries = [...prefixes, ...paths, ...apps];
   const byNumber = new Map<number, OpenIssue>();
   for (const issue of queries.flatMap((query) => searchIssues(context, query))) byNumber.set(issue.number, issue);
   return [...byNumber.values()].sort((a, b) => a.number - b.number);
