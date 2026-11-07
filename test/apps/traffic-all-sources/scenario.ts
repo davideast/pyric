@@ -88,7 +88,7 @@ function trafficRows(page: Page): Promise<TrafficRow[]> {
       const source = row.querySelector<HTMLElement>('[data-traffic-row-source]');
       return {
         source: source?.dataset.trafficRowSource ?? null,
-        call: text(row, '.c1'),
+        call: row.dataset.trafficRowCall ?? '',
         path: text(row, '.c2'),
         verdict: text(row, '.slot'),
       };

@@ -178,6 +178,24 @@ export function scopeSelectHtml(attribute: string, scope: ChipScope, options: Sc
 }
 
 /**
+ * What Rates' Scope fact reads for `scope` on a live host: this page, all
+ * clients, the client by its kind and label, Studio and agents, the user by
+ * the email its client reported or its uid, or signed-out calls. A client
+ * no longer listed reads as the option it was chosen from.
+ */
+export function scopeLabel(scope: ChipScope, clients: readonly LiveClient[], chosen: ScopeOption | null): string {
+  if (scope.kind === 'page') return CALLER_SOURCE_LABELS.page;
+  if (scope.kind === 'all') return 'All clients';
+  if (scope.kind === 'agents') return AGENTS_LABEL;
+  if (scope.kind === 'user') return scope.user === null ? 'Signed-out calls' : emailsByUser(clients).get(scope.user) ?? scope.user;
+  const client = scope.client;
+  const listed = clients.find((entry) => entry.clientId === client.clientId && CALLER_KINDS[entry.kind] === client.kind);
+  if (listed !== undefined) return withLabel(CLIENT_KIND_LABELS[listed.kind], listed.label);
+  const kept = chosen?.value === scopeValue(scope) ? chosen.label.replace(/^From /, '') : client.clientId;
+  return kept.charAt(0).toUpperCase() + kept.slice(1);
+}
+
+/**
  * The source a row reads on a live host: this page, the listed client that
  * sent it, by kind and label, Studio and agents for a call no client sent,
  * and otherwise the source's own label.

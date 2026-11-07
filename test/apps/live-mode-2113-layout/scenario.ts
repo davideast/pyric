@@ -151,10 +151,10 @@ async function rows(chip: Locator, service: string): Promise<string[]> {
     return [
       element.querySelector('[data-traffic-row-production]') ? 'production' : 'sandbox',
       element.querySelector('[data-traffic-row-source]')?.getAttribute('data-traffic-row-source') ?? '-',
-      (element.querySelector('.c1')?.textContent ?? '').split(' · ').at(-1),
+      element.getAttribute('data-traffic-row-call') ?? '',
       models.length > 0 ? models.join(' ') : element.querySelector('.c2')?.textContent ?? '',
       element.querySelector('[data-verdict-production]')?.getAttribute('title') ?? '-',
-      element.querySelector('.s2')?.textContent ?? '',
+      element.getAttribute('data-traffic-row-identity') ?? '',
     ].join(' ');
   }));
 }

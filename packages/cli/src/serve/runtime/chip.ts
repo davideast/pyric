@@ -7,7 +7,7 @@ import { LIVE_TAB_LABEL, LIVE_VIEW_STYLES, liveViewHtml } from './chip-live-view
 import { profileClientId } from '../worker/client/client-id.js';
 import { workerAiRates } from './worker-ai-rates.js';
 import { liveRates } from './live-rates.js';
-import { EVERY_CLIENT_SCOPE, inChipScope, liveSourceLabel, PAGE_SCOPE, scopeFromValue, scopeOptions, scopeSelectHtml, scopeValue, type ChipScope, type ChipScopeFields, type ScopeOption } from './chip-scope.js';
+import { EVERY_CLIENT_SCOPE, inChipScope, liveSourceLabel, PAGE_SCOPE, scopeFromValue, scopeLabel, scopeOptions, scopeSelectHtml, scopeValue, type ChipScope, type ChipScopeFields, type ScopeOption } from './chip-scope.js';
 import { aiModelHtml, aiModelRoute } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
 import type { CaptureEntry } from '../rate-capture-store.js';
@@ -766,7 +766,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const hosted = overlays.live?.(snapshot) ?? snapshot;
     return overlays.ai?.(hosted) ?? hosted;
   } };
-  const ratesScopeLabel = () => liveStatusPoller.current() === null ? 'This page' : 'All clients';
+  /** Rates' Scope fact: this page on a sandbox host, the chosen scope on a live one. */
+  const ratesScopeLabel = () => {
+    const live = liveStatusPoller.current();
+    return live === null ? 'This page' : scopeLabel(ratesScope, live.clients ?? [], ratesScopeChoice);
+  };
   let captureError = '';
   let savedCaptureList: CaptureEntry[] | null = null;
   let capturesLoading = false;
@@ -1154,9 +1158,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const live = liveStatusPoller.current();
     const liveClients = live?.clients ?? [];
     const selfClientId = live === null ? '' : profileClientId();
+    // A live host names every row's source, this page's included; a sandbox host only in its All view.
     const rowSourceLabel = (request: ChipRequest, source: NonNullable<ChipRequest['source']>): string => {
-      if (trafficScope.kind === 'page') return '';
-      return live === null ? CALLER_SOURCE_LABELS[source] : liveSourceLabel(request, source, liveClients, selfClientId);
+      if (live !== null) return liveSourceLabel(request, source, liveClients, selfClientId);
+      return trafficScope.kind === 'page' ? '' : CALLER_SOURCE_LABELS[source];
     };
     const rows = shown.map((request) => {
       // Keep named cells stable for copying while the path owns the main line.
@@ -1167,21 +1172,24 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const bypassed = bypassesRules(request);
       const rowSource = request.source ?? 'page';
       const sourceLabel = rowSourceLabel(request, rowSource);
-      const source = sourceLabel ? `<span class="traffic-source" data-traffic-row-source="${rowSource}">${sourceLabel}</span> · ` : '';
+      const source = sourceLabel ? `<span class="traffic-source" data-traffic-row-source="${rowSource}">${sourceLabel}</span>` : '';
       const isSandboxRowOnLiveHost = !request.production && liveStatusPoller.current() !== null;
       const servedLabel = isSandboxRowOnLiveHost ? 'Sandbox' : '';
       const productionLabel = request.production ? 'Production' : servedLabel;
       const servedBy = request.production ? 'data-traffic-row-production' : 'data-traffic-row-sandbox';
-      const production = productionLabel ? `<span class="traffic-production" ${servedBy}>${productionLabel}</span> · ` : '';
+      const production = productionLabel ? `<span class="traffic-production" ${servedBy}>${productionLabel}</span>` : '';
+      // The call has the first line to itself; who served it, who sent it and as whom read below.
+      const context = [production, source, escapeAttribute(request.identity ?? '')].filter(part => part !== '').join(' · ');
+      const identityAttribute = request.identity === null ? '' : ` data-traffic-row-identity="${escapeAttribute(request.identity)}"`;
       return buttonRowHtml({
-        c1: driftMarkerHtml(request) + production + source + escapeAttribute(call),
+        c1: driftMarkerHtml(request) + escapeAttribute(call),
         c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined, request.production ? 'production' : 'sandbox') : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
-        s2: escapeAttribute(request.identity ?? ''),
+        s2: context,
         slot: request.aiRequest && !request.production ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing, bypassed, request.production !== undefined),
         className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' || bypassed ? '' : ' problem'}`,
         title: [productionLabel, sourceLabel, call, what, request.identity].filter(Boolean).join(' —'),
-        attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
+        attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}" data-traffic-row-call="${escapeAttribute(call)}"${identityAttribute}`,
         label: `Inspect ${productionLabel ? `${productionLabel.toLowerCase()} ` : ''}${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}${request.localDrift ? `. ${DRIFT_TITLE}` : ''}`,
       });
     });

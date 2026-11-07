@@ -165,7 +165,7 @@ async function readRows(rows: Locator): Promise<TrafficRow[]> {
     source: element.querySelector('[data-traffic-row-source]')?.getAttribute('data-traffic-row-source') ?? null,
     text: element.textContent ?? '',
     answer: element.querySelector('[data-verdict-production]')?.getAttribute('data-verdict-production') ?? null,
-    identity: element.querySelector('.s2')?.textContent ?? null,
+    identity: element.getAttribute('data-traffic-row-identity'),
   })));
 }
 

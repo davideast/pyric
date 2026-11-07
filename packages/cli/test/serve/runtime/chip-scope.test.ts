@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { LiveHostStatus } from 'pyric/sandbox/internal';
 import {
   EVERY_CLIENT_SCOPE, inChipScope, liveSourceLabel, PAGE_SCOPE, scopeFromValue, scopeOptions, scopeSelectHtml, scopeValue,
-  type ChipScope, type ChipScopeFields,
+  scopeLabel, type ChipScope, type ChipScopeFields,
 } from '../../../src/serve/runtime/chip-scope.js';
 import { escapeAttribute } from '../../../src/serve/runtime/chip-markup.js';
 
@@ -70,6 +70,17 @@ describe('the chip scope rule', () => {
     const chosen = { value: scopeValue(gone), label: 'chosen' };
     const html = scopeSelectHtml('data-traffic-from', gone, scopeOptions(CLIENTS, SELF, []), chosen, escapeAttribute);
     expect(html).toContain('<option value="client:node:journey-9" selected>');
+  });
+
+  it("names Rates' scope by the chosen scope, never one label for all of them", () => {
+    const scopes: ChipScope[] = [
+      PAGE_SCOPE, EVERY_CLIENT_SCOPE, { kind: 'agents' }, { kind: 'user', user: null }, { kind: 'user', user: 'u2' },
+      { kind: 'client', client: { kind: 'page', clientId: 'profile-b' } }, { kind: 'client', client: { kind: 'node', clientId: 'journey-1' } },
+    ];
+    const labels = scopes.map((scope) => scopeLabel(scope, CLIENTS, null));
+    expect(new Set(labels).size).toBe(scopes.length);
+    // A user reads as the email its client reported, as the select's option does.
+    expect(scopeLabel({ kind: 'user', user: 'u2' }, CLIENTS, null)).toBe('b@example.com');
   });
 
   it('names a row by the listed client that sent it, and by its source otherwise', () => {

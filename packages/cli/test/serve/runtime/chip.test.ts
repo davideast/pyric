@@ -728,8 +728,11 @@ describe('the Traffic view', () => {
     expect(served.querySelector('.slot')!.textContent).toBe('Allowed');
     const row = root.querySelector(`[data-request-row="${observed.id}"]`)!;
     expect(row.querySelector('[data-traffic-row-production]')!.textContent).toBe('Production');
-    expect(row.querySelector('.c1')!.textContent).toBe('Production · firestore.getDoc');
-    expect(row.querySelector('.s2')!.textContent).toBe('alice');
+    expect(row.getAttribute('data-traffic-row-call')).toBe('firestore.getDoc');
+    expect(row.getAttribute('data-traffic-row-identity')).toBe('alice');
+    // The call has the first line to itself; production's mark sits on the second.
+    expect(row.querySelector('.c1 [data-traffic-row-production]')).toBeNull();
+    expect(row.querySelector('.s2 [data-traffic-row-production]')).not.toBeNull();
     expect(row.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production denied');
     expect(row.querySelector('.slot')!.textContent).toBe('Denied');
 
@@ -804,7 +807,7 @@ describe('the Traffic view', () => {
     push([answered, refused].map(event => ({ ...event, caller: { kind: 'page', pageId: 'tab-1' } }) as SandboxEvent), { history: true, pageId: 'tab-1' });
     showTab('traffic');
     const row = root.querySelector(`[data-request-row="${answered.id}"]`)!;
-    expect(row.querySelector('.c1')!.textContent).toBe('Production · ai.generateContent');
+    expect(row.getAttribute('data-traffic-row-call')).toBe('ai.generateContent');
     expect(row.querySelector('.c2')!.textContent).toBe('Requestedgemini-flash-lite-latestRouted togemini-flash-lite-001');
     expect(row.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production succeeded');
     const failed = root.querySelector(`[data-request-row="${refused.id}"]`)!;
@@ -960,7 +963,8 @@ describe('the Traffic view', () => {
     expect(from().closest('.request-controls')!.querySelector('[data-request-service]')).not.toBeNull();
     expect(from().value).toBe('page');
     expect(rowIds()).toEqual(idsOf('mine'));
-    expect(root.querySelector('[data-traffic-row-source]')).toBeNull();
+    // A live host names this page's rows as this page's, too.
+    expect([...root.querySelectorAll<HTMLElement>('[data-traffic-row-source]')].map((source) => source.dataset.trafficRowSource)).toEqual(['page']);
 
     choose(from(), 'all');
     expect(rowIds()).toEqual(idsOf('mine', 'b', 'node', 'studio'));
