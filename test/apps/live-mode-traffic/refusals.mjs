@@ -1,6 +1,8 @@
 // Calls a server job might make that live mode does not serve: another
-// Firebase service, a named Firestore database, the Admin SDK, Google's
-// server Firestore client, and a raw https.request to Firestore's REST API.
+// Firebase service, a named Firestore database, Google's server Firestore
+// client, and a raw https.request to Firestore's REST API. The Admin SDK
+// loads where live mode observes it (Node 23 or later) and is refused on
+// Node 22.
 // Each outcome is printed: the error it threw, or what it returned.
 import { readFileSync } from "node:fs";
 import https from "node:https";

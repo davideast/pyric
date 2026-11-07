@@ -16,8 +16,9 @@ import { emitSandboxEvent, observedCallEvent, observedListenerEvent, readObserve
 import type { EventCaller, ObservedCall, Sandbox } from 'pyric/sandbox';
 import type { VerifyObservedCallValues } from '../../../verify/fixture.js';
 import type { ObserveMessage } from '../protocol.js';
-import { ok, fail, type HostCtx, type PortLike } from '../host-context.js';
+import { activityJourneyId, ok, fail, type HostCtx, type PortLike } from '../host-context.js';
 import { callerOf } from './caller.js';
+import { claimNodeClient, closeNodeClient, forgetNodeClient, resumeNodeClient } from './node-client-restarts.js';
 import { localVerdict } from './observe-local-verdict.js';
 
 /** A listener's attach or detach, as the reader returns it. */
@@ -102,20 +103,50 @@ function rememberValues(sandbox: Sandbox, eventId: string, call: ObservedCall): 
 /**
  * The listener id the event names: the page's own id scoped to the
  * connection that minted it, so a page's and a Node process's `l-1` stay two
- * listeners. The page's id stays the event's `activity.listenerId`.
+ * listeners. A caller with neither a page id nor a client id, such as a
+ * relayed frame, is scoped to its port's journey id, so two such callers
+ * never share one. The page's id stays the event's `activity.listenerId`.
  */
-function scopedListenerId(caller: EventCaller | undefined, id: string): string {
-  if (caller === undefined) return id;
-  return `${caller.kind}:${caller.pageId ?? caller.clientId ?? ''}:${id}`;
+function scopedListenerId(ctx: HostCtx, port: PortLike, caller: EventCaller | undefined, id: string): string {
+  const scope = caller?.pageId ?? caller?.clientId ?? activityJourneyId(ctx, port);
+  return `${caller?.kind ?? 'port'}:${scope}:${id}`;
+}
+
+/** A listener's attach or detach record, and the caller that sent it. */
+interface ListenerRecord {
+  readonly call: ObservedCall;
+  readonly listener: ObservedListener;
+  readonly caller: EventCaller | undefined;
+}
+
+/** The most listeners one port is held to; past it the oldest is no longer swept. */
+const MAX_ATTACHED_PER_PORT = 1024;
+
+/** Each port's attached listeners by scoped id, until they detach or the port closes. */
+const ATTACHED_BY_PORT = new WeakMap<PortLike, Map<string, ListenerRecord>>();
+
+/** Hold an attach until its detach, or drop the listener a detach ends. */
+function trackListener(port: PortLike, scopedId: string, record: ListenerRecord): void {
+  const held = ATTACHED_BY_PORT.get(port) ?? new Map<string, ListenerRecord>();
+  ATTACHED_BY_PORT.set(port, held);
+  if (record.listener.phase === 'detach') {
+    held.delete(scopedId);
+    return;
+  }
+  const oldest = held.keys().next().value;
+  if (held.size >= MAX_ATTACHED_PER_PORT && oldest !== undefined) held.delete(oldest);
+  held.set(scopedId, record);
 }
 
 /**
  * Write a listener's attach or detach with its caller. It runs no local
  * rules and holds no values: the record carries none.
  */
-function emitListener(ctx: HostCtx, call: ObservedCall, listener: ObservedListener, caller: EventCaller | undefined): void {
-  const observed = observedListenerEvent(call);
-  const event = { ...observed, listenerId: scopedListenerId(caller, listener.id) };
+function emitListener(ctx: HostCtx, port: PortLike, record: ListenerRecord): void {
+  const { call, listener, caller } = record;
+  const listenerId = scopedListenerId(ctx, port, caller, listener.id);
+  const event = { ...observedListenerEvent(call), listenerId };
+  trackListener(port, listenerId, record);
   emitSandboxEvent(ctx.sandbox, event, {
     actor: { kind: 'app' },
     authLens: { mode: 'app-session' },
@@ -124,13 +155,63 @@ function emitListener(ctx: HostCtx, call: ObservedCall, listener: ObservedListen
   });
 }
 
+/**
+ * Detach every listener `port` attached and never detached, once the port
+ * closes: a closed tab, a reload or an exited process ends its listeners
+ * without an unsubscribe. Each would otherwise stay active, and a page
+ * reloaded three times would read as three duplicate listeners.
+ */
+export function sweepObservedListeners(ctx: HostCtx, port: PortLike, now: () => number = Date.now): void {
+  const held = ATTACHED_BY_PORT.get(port);
+  if (held === undefined) return;
+  const at = now();
+  for (const { call, listener, caller } of [...held.values()]) {
+    const detach: ObservedListener = { ...listener, phase: 'detach' };
+    emitListener(ctx, port, { call: { ...call, at, listener: detach }, listener: detach, caller });
+  }
+  ATTACHED_BY_PORT.delete(port);
+}
+
+/** Sweep the ports of earlier runs of a Node process (`node-client-restarts.ts`). */
+function sweepEarlierRuns(ctx: HostCtx, earlier: readonly PortLike[]): void {
+  for (const port of earlier) sweepObservedListeners(ctx, port);
+}
+
+/**
+ * The host retains `port`'s closed connection for a while. When it is a Node
+ * process whose next run has already connected, its listeners end now.
+ */
+export function observedPortInterrupted(ctx: HostCtx, port: PortLike): void {
+  sweepEarlierRuns(ctx, closeNodeClient(ctx, port));
+}
+
+/** `port`'s connection resumed its retained session, so it is no earlier run. */
+export function observedPortResumed(ctx: HostCtx, port: PortLike): void {
+  resumeNodeClient(ctx, port);
+}
+
+/** The host ended `port`: sweep what it left attached and forget it. */
+export function endObservedPort(ctx: HostCtx, port: PortLike): void {
+  sweepObservedListeners(ctx, port);
+  forgetNodeClient(ctx, port);
+}
+
+/** A Node process's first labelled frame: an earlier run of it that closed ends its listeners. */
+function claimNodeRun(ctx: HostCtx, port: PortLike, msg: ObserveMessage): void {
+  const label = msg.nodeClient;
+  const isNodeProcess = callerOf(msg)?.kind === 'node';
+  if (label === undefined || !isNodeProcess) return;
+  sweepEarlierRuns(ctx, claimNodeClient(ctx, port, label));
+}
+
 /** Write one observed call to the event stream with its caller, then answer the frame. */
 export function handleObserve(ctx: HostCtx, port: PortLike, msg: ObserveMessage): void {
   try {
     const call = readObservedCall(msg.call);
+    claimNodeRun(ctx, port, msg);
     const listener = call.listener;
     if (listener !== undefined) {
-      emitListener(ctx, call, listener, callerOf(msg));
+      emitListener(ctx, port, { call, listener, caller: callerOf(msg) });
       ok(port, msg.id, undefined);
       return;
     }

@@ -63,6 +63,16 @@ describe('billedCallKind', () => {
     expect(billedCallKind(call('getDocsFromCache'))).toBeNull();
     expect(billedCallKind(call('signInAnonymously', { status: 'ok' }, 'auth'))).toBeNull();
   });
+
+  it("leaves out a listener's attach and detach, which production never bills", () => {
+    for (const phase of ['attach', 'detach'] as const) {
+      const lifecycle: ObservedCall = { ...call('onSnapshot'), listener: { phase, id: 'l-1', target: 'rooms/lobby', key: '0123456789abcdef' } };
+      expect(billedCallKind(lifecycle), phase).toBeNull();
+      const counter = createBilledCallCounter();
+      counter.addCall(lifecycle);
+      expect(counter.count(), phase).toEqual({ reads: 0, writes: 0, deliveries: 0 });
+    }
+  });
 });
 
 describe('createBilledCallCounter', () => {

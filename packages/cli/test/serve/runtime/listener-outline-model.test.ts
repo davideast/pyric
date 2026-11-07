@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { createSdkActivityJournal } from 'pyric/sandbox/internal';
+import { createSdkActivityJournal, observedListenerEvent } from 'pyric/sandbox/internal';
 import { activityOutlines, listenerOutlines } from '../../../src/serve/runtime/listener-outline-model.js';
 
 const auth = { uid: null, token: null };
@@ -38,6 +38,15 @@ function delivery(id: string, listenerId: string, target: Target, owners?: unkno
 }
 
 describe('listenerOutlines', () => {
+  it("leaves out a live listener's attach, which the page draws from its journal", () => {
+    const live = observedListenerEvent({
+      service: 'firestore', method: 'onSnapshot', path: 'rooms/lobby', at: 1, outcome: { status: 'ok' },
+      listener: { phase: 'attach', id: 'l-1', target: 'rooms/lobby', key: '0123456789abcdef' },
+    }) as SandboxEvent;
+    const sandbox = attach('e1', 'l1', { kind: 'doc', path: 'users/u1' }, []);
+    expect(listenerOutlines([live, sandbox], []).map((outline) => outline.listenerId)).toEqual(['l1']);
+  });
+
   it('labels a tagged listener and a region-owned listener with their targets and counts', () => {
     const events: SandboxEvent[] = [
       attach('e1', 'l1', { kind: 'query', collection: 'todos' }, [{ kind: 'tag', name: 'TodoList', element: '#todos' }]),

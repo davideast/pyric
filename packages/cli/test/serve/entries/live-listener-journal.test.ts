@@ -65,3 +65,32 @@ describe('a live listener in the page journal', () => {
     expect(journal.records().map((record) => [record.target, record.status])).toEqual([['rooms', 'failed'], ['rooms/lobby', 'closed']]);
   });
 });
+
+describe('a live Realtime Database listener in the page journal', () => {
+  const database = {};
+  const items: LiveListener = { service: 'database', database, method: 'onValue', target: '/items', isQuery: false, key: '["demo","/items","default"]' };
+
+  test('opens a database subscription named by its path and method', () => {
+    const { journal } = journalWithEvents();
+    journalLiveListener(items, journal);
+    expect(journal.records()).toMatchObject([
+      { service: 'database', target: '/items', isQuery: false, method: 'onValue', kind: 'subscription', status: 'active', deliveryCount: 0 },
+    ]);
+  });
+
+  test("measures each delivery's payload, never a document count", () => {
+    const journal = createSdkActivityJournal({ now: () => 1_000, monotonicNow: () => 1 });
+    const usages: unknown[] = [];
+    journal.observe((observation) => usages.push((observation as { usage?: unknown }).usage));
+    journalLiveListener(items, journal).deliver({ val: () => ({ a: 1 }) }, 1, () => undefined);
+    expect(usages.filter((usage) => usage !== undefined)).toEqual([{ payloadBytes: 7 }]);
+  });
+
+  test('keeps a database and a Firestore listener with the same key apart', () => {
+    const { journal } = journalWithEvents();
+    journalLiveListener(items, journal);
+    journalLiveListener({ firestore: database, method: 'onSnapshot', target: '/items', isQuery: false, key: items.key }, journal);
+    const [first, second] = journal.records();
+    expect(first?.sourceId).not.toBe(second?.sourceId);
+  });
+});
