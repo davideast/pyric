@@ -6,16 +6,18 @@
  * `Messaging.<method>`, with `sdk: 'admin'`, the project and production's
  * answer. No record carries a registration token, a topic or a message.
  *
- * The app's Agent sends every request to a local stand-in for FCM, and the
- * app uses firebase-admin's HTTP/1 transport so `sendEach` takes the Agent
+ * Every request to FCM or Instance ID goes to a local stand-in, in plain
+ * HTTP with its Google host kept: the test wraps `https.request` while it
+ * runs, since Bun ignores an Agent's `createConnection`. The app uses
+ * firebase-admin's HTTP/1 transport, so `sendEach` takes `https.request`
  * too. Run it with the network off:
  * `unshare -rn sh -c 'ip link set lo up && bun test packages/live/test/admin-messaging-row.test.ts'`.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { createServer, type Server } from 'node:http';
+import http, { createServer, type Server } from 'node:http';
 import https from 'node:https';
 import { createRequire } from 'node:module';
-import net, { type AddressInfo } from 'node:net';
+import type { AddressInfo } from 'node:net';
 import { observedCallOf } from '../src/page-observer.js';
 import { adminProjectGate } from '../src/admin/project-gate.js';
 import { ADMIN_MESSAGING_MODULE, observeAdminMessaging } from '../src/admin/messaging.js';
@@ -43,13 +45,26 @@ const observer: LiveObserver = (record) => {
 /** The paths FCM's stand-in received. */
 const received: string[] = [];
 let stand: Server;
-let agent: https.Agent;
 let messaging: Messaging;
+const realRequest = https.request;
+
+/** The hosts the stand-in answers for. */
+const STAND_IN_HOSTS = new Set(['fcm.googleapis.com', 'iid.googleapis.com']);
+
+/** `https.request` that sends a request for an FCM or Instance ID host to the stand-in on `port`, keeping its host header. */
+function toStandIn(port: number): typeof https.request {
+  return ((options: https.RequestOptions, callback?: (response: http.IncomingMessage) => void) => {
+    const host = options.hostname ?? options.host ?? '';
+    if (!STAND_IN_HOSTS.has(host)) return realRequest(options, callback);
+    const headers = { ...(options.headers ?? {}), host };
+    return http.request({ ...options, protocol: 'http:', host: '127.0.0.1', hostname: '127.0.0.1', port, agent: undefined, headers }, callback);
+  }) as typeof https.request;
+}
 
 const credential = { getAccessToken: async () => ({ access_token: 'stand-in-access-token', expires_in: 3600 }) };
 
 function appFor(projectId: string, name: string): Messaging {
-  const app = initializeApp({ projectId, credential, httpAgent: agent }, name);
+  const app = initializeApp({ projectId, credential }, name);
   const made = getMessaging(app);
   (made.enableLegacyHttpTransport as AnyFunction).call(made);
   return made;
@@ -69,17 +84,13 @@ beforeAll(async () => {
   });
   await new Promise<void>((done) => stand.listen(0, '127.0.0.1', done));
   const { port } = stand.address() as AddressInfo;
-  // Keeps each request's FCM host, and connects to the stand-in in plain HTTP.
-  agent = new (class extends https.Agent {
-    override createConnection(): net.Socket {
-      return net.connect({ host: '127.0.0.1', port });
-    }
-  })({ keepAlive: false });
+  https.request = toStandIn(port);
   observeAdminMessaging(messagingModule, { observer, gate: adminProjectGate(PROJECT, (line) => lines.push(line), {}) });
   messaging = appFor(PROJECT, 'admin-messaging-row');
 });
 
 afterAll(async () => {
+  https.request = realRequest;
   await new Promise((done) => stand?.close(done));
 });
 

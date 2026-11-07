@@ -12,14 +12,17 @@
  *   out;
  * - the backend's own calls to Vertex AI, Cloud Trace and App Check's public
  *   keys go out;
- * - a firebase-admin service no row serves loads.
+ * - a firebase-admin service no row serves loads;
+ * - a Messaging send on the live project goes out, observed by its row.
  *
  * Each Google host no row observes gets one "unobserved" line, and the
- * process health lists it, with the Admin subpath. The project gate still
+ * process health lists it, with the Admin subpath no row serves and App
+ * Check, whose row gates its calls but records none. The project gate still
  * holds: the live project's regional Realtime Database instance and the
  * instance firebase.json names open, and `<project>-prod-default-rtdb`,
  * another project's instance, an instance firebase.json doesn't name, and
- * another project's Admin call are refused before any request.
+ * another project's Admin calls, App Check's among them, are refused before
+ * any request.
  *
  * The Admin SDK's Agent sends its requests to a local stand-in for Google.
  * Every other connection reaches the scenario's trap (`trap.mjs`), which
@@ -78,12 +81,14 @@ async function checkBackend(app: App, instrument: 'assign' | 'define'): Promise<
     vertex: 'SCENARIO_TRAP',
     trace: 'SCENARIO_TRAP',
     jwks: 'SCENARIO_TRAP',
-    messaging: 'loaded',
+    remoteConfig: 'loaded',
+    messagingSend: 'ok',
     ownInstance: 'ok',
     otherInstance: 'PYRIC_LIVE_REFUSED',
     listedInstance: 'ok',
     unlistedInstance: 'PYRIC_LIVE_REFUSED',
     otherProjectLookup: 'PYRIC_LIVE_REFUSED',
+    otherProjectAppCheck: 'PYRIC_LIVE_REFUSED',
     otherProjectSent: 0,
   });
   // The custom credential's https.request reached the stand-in, and its fetch reached the trap: neither was refused.
@@ -98,11 +103,16 @@ async function checkBackend(app: App, instrument: 'assign' | 'define'): Promise<
   }
   for (const host of UNOBSERVED) assert.equal(unobservedLines(run.output, host), 1, `one line for ${host}:\n${run.output}`);
   assert.equal(unobservedLines(run.output, 'identitytoolkit.googleapis.com'), 0, 'the Auth row observes its lookups');
-  assert.match(run.output, new RegExp(`${ENTRY}: firebase-admin/messaging loads unobserved\\.`));
-  const { unobserved, unobservedAdmin, ...process } = health as { unobserved: string[]; unobservedAdmin: string[] };
+  assert.equal(unobservedLines(run.output, 'fcm.googleapis.com'), 0, 'the Messaging row observes its sends');
+  assert.match(run.output, new RegExp(`${ENTRY}: firebase-admin/remote-config loads unobserved\\.`));
+  for (const served of ['messaging', 'app-check']) {
+    assert.doesNotMatch(run.output, new RegExp(`firebase-admin/${served} loads unobserved`), `a row serves firebase-admin/${served}`);
+  }
+  const { unobserved, unobservedAdmin, gatedAdmin, ...process } = health as { unobserved: string[]; unobservedAdmin: string[]; gatedAdmin: string[] };
   assert.deepEqual(process, { mode: 'live', projectId: PROJECT });
   assert.deepEqual([...unobserved].sort(), UNOBSERVED);
-  assert.deepEqual(unobservedAdmin, ['firebase-admin/messaging']);
+  assert.deepEqual(unobservedAdmin, ['firebase-admin/remote-config']);
+  assert.deepEqual(gatedAdmin, ['firebase-admin/app-check']);
 }
 
 export default scenario(async (app) => {

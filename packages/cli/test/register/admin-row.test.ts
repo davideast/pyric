@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { registerRows, adminTreeResolution } from '../../src/register/supplied-rows.js';
+import { ADMIN_ROW_URLS as SOURCE_ROW_URLS } from '../../src/register/admin-row.js';
 
 const cliDir = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliDir, '../..');
@@ -170,8 +171,8 @@ describe('Admin rows on the live register', () => {
       pathInPackage: () => `lib/${folder}/${file}.js`,
     });
     expect([load('app-check', 'app-check'), load('messaging', 'messaging'), load('messaging', 'messaging-internal')]).toEqual([
-      { kind: 'admin-row', url: ADMIN_ROW_URLS.get('app-check' as never) },
-      { kind: 'admin-row', url: ADMIN_ROW_URLS.get('messaging' as never) },
+      { kind: 'admin-row', url: SOURCE_ROW_URLS.get('app-check') },
+      { kind: 'admin-row', url: SOURCE_ROW_URLS.get('messaging') },
       { kind: 'unserved' },
     ]);
   });
