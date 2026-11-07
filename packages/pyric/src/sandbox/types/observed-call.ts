@@ -150,8 +150,8 @@ export interface ObservedListener {
   id: string;
   /**
    * What the listener watches: a Firestore document or collection path, a
-   * collection group's id, or an RTDB path. Never a value, a token or an
-   * email address.
+   * collection group's id, or an RTDB path. Bounded as the call's `path`
+   * is, so any target a call's path may name is taken.
    */
   target: string;
   /**

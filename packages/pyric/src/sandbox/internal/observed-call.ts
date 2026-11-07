@@ -513,7 +513,7 @@ function readQuery(value: unknown): ObservedQuery {
 
 /**
  * A listener's attach or detach: its phase, the id the page minted, its
- * target under a query field's refusals, and the hash of its journal key.
+ * target under the call's path bounds, and the hash of its journal key.
  * Any other key, a value among them, is refused.
  */
 function readListener(value: unknown): ObservedListener {
@@ -523,7 +523,9 @@ function readListener(value: unknown): ObservedListener {
   requireField(typeof phase === 'string' && LISTENER_PHASES.has(phase), 'listener.phase');
   const id = value.id;
   requireField(typeof id === 'string' && LISTENER_ID_PATTERN.test(id) && !isTokenShaped(id), 'listener.id');
-  const target = readQueryField(value.target, 'listener.target');
+  // A target is a path, read with the call's path bounds: a document id may be a pair of uids or a hash.
+  const target = value.target;
+  requireField(isBoundedString(target, MAX_PATH_LENGTH), 'listener.target');
   const listener: ObservedListener = { phase: phase as ObservedListener['phase'], id, target };
   if (value.key !== undefined) {
     const key = value.key;

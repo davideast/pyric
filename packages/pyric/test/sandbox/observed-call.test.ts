@@ -747,18 +747,25 @@ describe('observed listener lifecycle', () => {
     expect(readObservedCall(detach)).toEqual(detach as ObservedCall);
   });
 
-  it('refuses a listener target, id or key that could carry a value, and a listener on any other service', () => {
+  it("takes any target the call's path would take: a pair-of-uids chat, its messages, a content-hash id", () => {
+    const pair = `chats/${'a1B2c3D4e5F6g7H8i9J0k1L2m3N4'}_${'z9Y8x7W6v5U4t3S2r1Q0p9O8n7M6'}`;
+    const hash = `blobs/${'0123456789abcdef'.repeat(4)}`;
+    for (const target of [pair, `${pair}/messages`, hash]) {
+      const call = { ...ROOMS_ATTACH, path: target, listener: { ...ROOMS_ATTACH.listener!, target } };
+      expect(readObservedCall(call).path).toBe(target);
+      expect(readObservedCall(call).listener?.target).toBe(target);
+    }
+  });
+
+  it('refuses a listener target past the path bounds, an id or key that could carry a value, and a listener on any other service', () => {
     const listener = ROOMS_ATTACH.listener!;
     const cases: Array<[unknown, string]> = [
       [{ ...listener, phase: 'delivery' }, 'listener.phase'],
       [{ ...listener, value: 'alice' }, 'listener.value'],
       [{ ...listener, target: '' }, 'listener.target'],
       [{ ...listener, target: 'a'.repeat(1501) }, 'listener.target'],
-      [{ ...listener, target: 'users/alice@example.com' }, 'listener.target'],
-      [{ ...listener, target: `tokens/${FIS_AUTH_TOKEN}` }, 'listener.target'],
-      [{ ...listener, target: `devices/${FCM_TOKEN}` }, 'listener.target'],
-      [{ ...listener, target: VAPID_KEY }, 'listener.target'],
       [{ ...listener, target: 7 }, 'listener.target'],
+      [{ ...listener, target: ['rooms'] }, 'listener.target'],
       [{ ...listener, id: '' }, 'listener.id'],
       [{ ...listener, id: 'a'.repeat(65) }, 'listener.id'],
       [{ ...listener, id: 'l 1' }, 'listener.id'],

@@ -437,7 +437,7 @@ describe('host: observed listener lifecycle', () => {
     const page = fakePort();
     const attach = roomListener('attach', 'l-1');
     const malformed = [
-      { ...attach, listener: { ...attach.listener, target: 'users/alice@example.com' } },
+      { ...attach, listener: { ...attach.listener, target: 'a'.repeat(1501) } },
       { ...attach, listener: { ...attach.listener, key: JSON.stringify(['doc', 'rooms/r1']) } },
       { ...attach, listener: { ...attach.listener, phase: 'delivery' } },
       { ...attach, service: 'storage', bucket: 'demo.firebasestorage.app' },
