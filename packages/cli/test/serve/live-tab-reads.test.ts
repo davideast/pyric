@@ -12,7 +12,7 @@ import { attachPeer } from '../../src/bridge/server/peer.js';
 import { createSilentLogger } from '../../src/bridge/server/logger.js';
 import { DEFAULT_SANDBOX_PATH, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../../src/bridge/protocol.js';
 import { getHostedFirestore, type HostedConnectionState } from '../../src/serve/worker/client/websocket-connection.js';
-import { liveCallRoute, runHostedMethod } from '../../src/serve/hosted/live-reads.js';
+import { runHostedMethod, tabCallRoute } from '../../src/serve/hosted/live-reads.js';
 
 interface ReadHub {
   reader?: {
@@ -39,7 +39,7 @@ async function until(condition: () => boolean, timeoutMs = 8_000): Promise<void>
 
 /** A live host's bridge on a loopback socket, with the hosted runtime as its sandbox peer. */
 async function liveHost() {
-  const bridge = createBridge({ version: 'test', projectKey: 'orbit', logger: createSilentLogger(), liveRoute: liveCallRoute });
+  const bridge = createBridge({ version: 'test', projectKey: 'orbit', logger: createSilentLogger(), tabRoute: tabCallRoute });
   bridge.registerSandboxPeer(() => {}, [], 'host', [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY]);
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1', path: DEFAULT_SANDBOX_PATH });
   server.on('connection', socket => attachPeer(bridge, socket));

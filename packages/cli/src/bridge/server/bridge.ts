@@ -70,7 +70,7 @@ export interface BridgeOptions {
    * A live host's routing of a forwarded call: a tab's answer or a refusal,
    * or undefined to forward it to the sandbox peer as usual.
    */
-  liveRoute?: (tabs: TabTools, name: string, args: Record<string, unknown>) => Promise<ToolResult> | ToolResult | undefined;
+  tabRoute?: (tabs: TabTools, name: string, args: Record<string, unknown>) => Promise<ToolResult> | ToolResult | undefined;
 }
 
 /**
@@ -428,7 +428,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     const startedAtMs = Date.now();
     let result: BridgeToolResult;
     try {
-      const routed = opts.liveRoute?.(tabTools, name, args);
+      const routed = opts.tabRoute?.(tabTools, name, args);
       result = await (routed ?? dispatchSandbox(name, args, signal, callerId));
     } catch (err) {
       const isError = err instanceof Error;
