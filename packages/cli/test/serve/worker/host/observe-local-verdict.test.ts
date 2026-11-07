@@ -281,6 +281,15 @@ service cloud.firestore {
   }
 }`;
 
+const INVITEE_ONLY = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+      allow read: if resource.data.inviteeEmail == request.auth.token.email;
+    }
+  }
+}`;
+
 /** A create rule that compares `fields` long written strings, so its trace passes the size cap. */
 function longChecks(fields: number): string {
   const checks = Array.from({ length: fields }, (_, index) => `request.resource.data.f${index} == request.resource.data.f${index}`);
@@ -351,6 +360,22 @@ describe('host: the local evaluation trace of an observed call', () => {
         },
       },
     });
+    expect(JSON.stringify(event)).not.toContain('alice@example.com');
+  });
+
+  it('keeps an address from a returned document out of the trace', async () => {
+    const ctx = ctxWithFirestoreRules(INVITEE_ONLY);
+    const call = { ...getDoc(DENIED), account: { uid: 'alice', claims: { email: 'alice@example.com' } }, document: { inviteeEmail: 'bob@example.com' } };
+    const event = await observedEvent(ctx, call);
+    expect(event).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          trace: { rules: [{ checks: expect.arrayContaining([expect.objectContaining({ expression: 'resource.data.inviteeEmail', state: 'unavailable' })]) }] },
+        },
+      },
+    });
+    expect(JSON.stringify(event)).not.toContain('bob@example.com');
     expect(JSON.stringify(event)).not.toContain('alice@example.com');
   });
 

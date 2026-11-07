@@ -214,7 +214,7 @@ export interface LocalRule {
  * The local rules' answer to an observed call. `drift` marks an answer
  * that disagrees with production's allow or deny. `trace` is the same
  * bounded evaluation record a sandbox Firestore request carries as
- * `rulesEvidence`, with the account's email left out; absent for RTDB, and
+ * `rulesEvidence`, with every email address left out; absent for RTDB, and
  * when the record was too large to keep.
  */
 export type LocalVerdict =
