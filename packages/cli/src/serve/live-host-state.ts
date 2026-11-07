@@ -9,7 +9,9 @@
  * bridge mount hands this every frame on its way to and from the Node
  * sandbox (`bridge-mount.ts`); an observed call counts once the host has
  * accepted it, so a refused frame never reaches the count. The same frames
- * name the clients connected to the host (`live-clients.ts`).
+ * name the clients connected to the host (`live-clients.ts`). Each accepted
+ * call that production denied, or an AI request it rejected, prints a block
+ * to the host's terminal (`live-terminal-lines.ts`).
  *
  * Only a host a live seam started holds one: `serve/live-host.ts` for the
  * `pyric-live` command, and the Vite generation `@pyric/live/vite` starts.
@@ -28,6 +30,7 @@ import type { BridgeMessage } from '../bridge/protocol.js';
 import type { FirebaseProjectSource } from '../cli/firebase-project.js';
 import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import { createLiveClients, type SandboxClientIds } from './live-clients.js';
+import { createLiveTerminalLines, type LiveCallSource, type LiveRulesFiles } from './live-terminal-lines.js';
 import { liveUnobservedHosts } from '../register/live-net-guard.js';
 
 /** Observed calls waiting on the host's answer; a bound, since a client could send replies it never gets. */
@@ -44,6 +47,8 @@ export interface LiveHostState {
   outbound(message: BridgeMessage): void;
   /** Name each client by the id the Node sandbox stamps on its events, once the sandbox runs (`live-clients.ts`). */
   readClientIds(lookup: SandboxClientIds): void;
+  /** Name the local rules files in the production denial lines, once the session runs (`live-terminal-lines.ts`). */
+  readRulesFiles(read: () => LiveRulesFiles): void;
 }
 
 export interface LiveHostStateInput {
@@ -55,6 +60,8 @@ export interface LiveHostStateInput {
   optionName: string;
   /** Writes a warning to the host's terminal. */
   warn(line: string): void;
+  /** Writes a production denial or AI block to the host's terminal; `warn` by default. */
+  print?(block: string): void;
   /** The `firebase/*` imports the app's installed SDK serves unwrapped and unobserved (`pyricLive({ passThrough })`). */
   passThrough?: readonly string[];
   /**
@@ -99,15 +106,22 @@ function pendingKey(clientSessionId: string, id: string): string {
   return `${clientSessionId}\u0000${id}`;
 }
 
+/** An observed call waiting on the host's answer, with the connection that sent it. */
+interface PendingCall {
+  call: ObservedCall;
+  clientSessionId: string;
+}
+
 /** The observed call in a frame from a client, or null for any other frame or a malformed record. */
-function observedCallIn(message: BridgeMessage): { key: string; call: ObservedCall } | null {
+function observedCallIn(message: BridgeMessage): { key: string; pending: PendingCall } | null {
   const isClientFrame = message.type === 'worker-message' && message.clientSessionId !== undefined;
   if (!isClientFrame) return null;
   const inner = message.message;
   const isObserve = inner.t === 'observe';
   if (!isObserve) return null;
+  const clientSessionId = message.clientSessionId as string;
   try {
-    return { key: pendingKey(message.clientSessionId as string, inner.id), call: readObservedCall(inner.call) };
+    return { key: pendingKey(clientSessionId, inner.id), pending: { call: readObservedCall(inner.call), clientSessionId } };
   } catch {
     // The host refuses it and names the field; nothing to count.
     return null;
@@ -153,13 +167,14 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const appProjectIds: string[] = [];
   const warned = new Set<string>();
   const billed = createBilledCallCounter();
-  const pending = new Map<string, ObservedCall>();
+  const pending = new Map<string, PendingCall>();
   const passThrough = [...(input.passThrough ?? [])];
   const passThroughField = passThrough.length === 0 ? {} : { passThrough };
   // A Node process under the live register observes firebase-admin, so every live host reports it. The host
   // sees only its own Node; a backend on Node 22 says in its own start line that its Admin rows stay shut.
   const admin: NonNullable<LiveHostStatus['admin']> = { mode: 'observed', observed: true, bypassesRules: true };
   const clients = createLiveClients(input.now ?? Date.now);
+  const terminal = createLiveTerminalLines({ print: input.print ?? input.warn, now: input.now });
 
   const report = (): LiveHostStatus => ({
     projectId: liveProjectOf(appProjectIds, input.configProjectId),
@@ -184,9 +199,11 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     input.warn(mismatchWarning(report()));
   };
 
-  const accept = (call: ObservedCall): void => {
+  const accept = ({ call, clientSessionId }: PendingCall): void => {
     noteProject(call.projectId);
     billed.addCall(call);
+    const source: LiveCallSource | undefined = clients.sourceOf(clientSessionId);
+    terminal.accepted(call, source);
   };
 
   return {
@@ -197,18 +214,21 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
       if (observed === null) return;
       const isFull = pending.size >= MAX_PENDING_CALLS;
       if (isFull) pending.delete(pending.keys().next().value as string);
-      pending.set(observed.key, observed.call);
+      pending.set(observed.key, observed.pending);
     },
     outbound(message) {
       const reply = replyIn(message);
       if (reply === null) return;
-      const call = pending.get(reply.key);
-      if (call === undefined) return;
+      const waiting = pending.get(reply.key);
+      if (waiting === undefined) return;
       pending.delete(reply.key);
-      if (reply.ok) accept(call);
+      if (reply.ok) accept(waiting);
     },
     readClientIds(lookup) {
       clients.readClientIds(lookup);
+    },
+    readRulesFiles(read) {
+      terminal.readRulesFiles(read);
     },
   };
 }

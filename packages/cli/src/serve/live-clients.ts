@@ -80,6 +80,8 @@ export interface LiveClients {
   readClientIds(lookup: SandboxClientIds): void;
   /** The clients field of the host's report: absent when none is connected. */
   field(): { clients?: LiveClient[] };
+  /** The kind and label of the client a connection belongs to, or undefined when the host lists none. */
+  sourceOf(clientSessionId: string): { kind: LiveClientKind; label?: string } | undefined;
 }
 
 function clientKey(kind: LiveClientKind, clientId: string): string {
@@ -269,6 +271,12 @@ export function createLiveClients(now: () => number): LiveClients {
     field() {
       const entries = [...clients.values()].map((record) => entryOf(record, sandboxIds));
       return entries.length === 0 ? {} : { clients: entries };
+    },
+    sourceOf(clientSessionId) {
+      const key = sessionKeys.get(clientSessionId);
+      const record = key === undefined ? undefined : clients.get(key);
+      if (record === undefined) return undefined;
+      return record.label === undefined ? { kind: record.kind } : { kind: record.kind, label: record.label };
     },
   };
 }

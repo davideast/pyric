@@ -35,6 +35,7 @@ import { injectServeTags } from '../serve/html-injection.js';
 import { liveHostPageImportMap } from '../serve/live-host-pages.js';
 import { requireLiveProject } from '../serve/live-project.js';
 import { createLiveHostState } from '../serve/live-host-state.js';
+import { rulesFilesOf } from '../serve/live-terminal-lines.js';
 import { refuseOwnWrite, type PyricWriteRefusal } from '../serve/hosted/own-writes.js';
 import { workerInitPayload } from '../serve/runtime/hosted-target.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
@@ -537,6 +538,8 @@ async function startServeRuntime(opts: {
     }
     throw error;
   }
+  const runningSession = session;
+  liveHost?.readRulesFiles(() => rulesFilesOf(runningSession, opts.cwd));
   const resetsHostedState = Boolean(opts.hosted && opts.fresh);
   if (resetsHostedState) logger.note('  ⓘ --fresh: archived hosted state; starting a new store');
   const resetsPersistedState = Boolean(opts.persist && opts.fresh && !opts.hosted);
