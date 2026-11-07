@@ -329,15 +329,14 @@ interface ServerSdkStop {
 }
 
 /**
- * The Google server SDKs that reach a host the network guard passes on their
- * own connection. `@google-cloud/firestore` speaks gRPC to
- * `firestore.googleapis.com`, as the live rows' Firestore does, so the guard
- * cannot tell its sockets from the rows' (`live-net-guard.ts`).
- * `@google-cloud/storage` reaches `storage.googleapis.com`, which the guard
- * passes for a passed-through `firebase-admin` and which a shared HTTP
- * library's frame could reach as the Admin SDK's. Other Google client
- * libraries reach hosts the guard refuses by host. A passed-through
- * `firebase-admin` still loads both, from its own tree.
+ * The Google server SDKs whose calls would read as a live row's: an app's
+ * own import of either would reach production with no row observing it.
+ * `@google-cloud/firestore` speaks gRPC to `firestore.googleapis.com`, as the
+ * live rows' Firestore does, so the network report cannot tell its sockets
+ * from the rows' (`live-net-guard.ts`). `@google-cloud/storage` reaches
+ * `storage.googleapis.com`, which the report reads as the Admin Storage
+ * row's. A passed-through `firebase-admin` still loads both, from its own
+ * tree.
  */
 const LIVE_HOST_SERVER_SDKS: Readonly<Record<string, ServerSdkStop>> = {
   '@google-cloud/firestore': {

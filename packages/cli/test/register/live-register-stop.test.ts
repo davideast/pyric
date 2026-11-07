@@ -176,15 +176,20 @@ describe('@pyric/live/register', () => {
     for (const name of ['@firebase/messaging', '@firebase/functions', '@firebase/remote-config']) expect(loaded, name).not.toContain(name);
   }, 60_000);
 
-  it('names live mode and the service in the refusal', () => {
-    const script = `import('firebase-admin/security-rules').catch((error) => { console.log('OUTCOME ' + JSON.stringify({ outcome: { message: error.message }, sdkFiles: [] })); });`;
+  it('loads an Admin service no row serves unobserved from Node 23, naming it, and refuses it on Node 22, naming why', () => {
+    const script = `import('firebase-admin/security-rules').then(() => console.log('OUTCOME loaded'), (error) => console.log('OUTCOME ' + error.message));`;
     writeFileSync(join(projectDir, 'refusal.mjs'), script);
     const result = spawnSync('node', ['--import', LIVE_REGISTER, join(projectDir, 'refusal.mjs')], {
       cwd: projectDir, encoding: 'utf8', timeout: 60_000, env: { PATH: process.env.PATH, HOME: projectDir },
     });
     expect(result.status, result.stderr).toBe(0);
+    if (adminRowsOn) {
+      expect(result.stdout).toContain('OUTCOME loaded');
+      expect(result.stderr).toContain('@pyric/live/register: firebase-admin/security-rules loads unobserved.');
+      return;
+    }
     expect(result.stdout).toContain('firebase-admin/security-rules (the Admin SDK) is refused in live mode');
-    expect(result.stdout).toContain(adminRowsOn ? 'to a Node process' : 'Node 23 or later');
+    expect(result.stdout).toContain('Node 23 or later');
     expect(result.stdout).not.toContain('passThrough');
   }, 60_000);
 

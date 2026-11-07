@@ -1,10 +1,12 @@
 /**
- * A live dev server process reads no `PYRIC_GUARD` and reaches no production
- * project on pyric's behalf. A real Node process starts Vite with
- * `pyricLive()` under `PYRIC_GUARD=off`, then:
+ * A live dev server process reaches no production project on pyric's behalf,
+ * and blocks nothing at the network (ADR 0022, amendment 2026-11-07). A real
+ * Node process starts Vite with `pyricLive()` under `PYRIC_GUARD=block`, then:
  *
- * - asks for a Google access token with `fetch`, which the dev server's
- *   guard refuses before any connection opens;
+ * - opens a connection to Google's token endpoint, as app code in the dev
+ *   server could, which goes out (to a closed loopback port, by its own
+ *   lookup) and is named once as unobserved, in its line and in the health
+ *   report;
  * - sends `storage.provision` and `assurance.testRulesHosted` with
  *   `allowProduction` and `confirm: true` to the hosted method route, as
  *   `pyric storage provision --allow-production` does, and `storage.status`
@@ -30,6 +32,7 @@ const realFirebaseDir = realpathSync(dirname(createRequire(join(repoRoot, 'packa
 
 const SCENARIO = `
 import { createRequire } from 'node:module';
+import net from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createServer } from 'vite';
@@ -43,13 +46,23 @@ const server = await createServer({
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\\/$/, '');
 const outcome = { guardMode: globalThis[Symbol.for('pyric.netGuard')]?.mode ?? null };
-try {
-  await fetch('https://oauth2.googleapis.com/token', { method: 'POST', body: 'grant_type=x' });
-  outcome.token = 'sent';
-} catch (error) {
-  outcome.token = error?.cause?.code ?? error?.code ?? String(error);
-}
+// Google's token host, resolved to a closed loopback port: the connection goes out, and nothing reaches Google.
+const toLoopback = (_host, options, callback) => {
+  const done = typeof options === 'function' ? options : callback;
+  if (typeof options === 'object' && options?.all === true) done(null, [{ address: '127.0.0.1', family: 4 }]);
+  else done(null, '127.0.0.1', 4);
+};
+outcome.token = await new Promise((resolve) => {
+  try {
+    const socket = net.connect({ host: 'oauth2.googleapis.com', port: 9, lookup: toLoopback });
+    socket.on('connect', () => { socket.destroy(); resolve('connected'); });
+    socket.on('error', (error) => resolve(error.code ?? String(error)));
+  } catch (error) {
+    resolve(error.code ?? String(error));
+  }
+});
 const health = await (await fetch(base + '/__pyric/health')).json();
+outcome.unobserved = health.live?.unobserved ?? null;
 const method = async (key, args, allowProduction) => {
   const response = await fetch(base + '/__pyric/hosted/method', {
     method: 'POST',
@@ -103,8 +116,8 @@ afterAll(() => {
   rmSync(projectDir, { recursive: true, force: true });
 });
 
-describe('a live dev server process under PYRIC_GUARD=off', () => {
-  it('still refuses a token request, and refuses every production command on the host', () => {
+describe('a live dev server process under PYRIC_GUARD=block', () => {
+  it('lets a token request out and names it, and refuses every production command on the host', () => {
     const result = spawnSync('node', ['scenario.mjs'], {
       cwd: projectDir,
       encoding: 'utf8',
@@ -112,7 +125,7 @@ describe('a live dev server process under PYRIC_GUARD=off', () => {
       // No credential source either, so a regression stops at the credential lookup, not at Google.
       env: {
         ...process.env,
-        PYRIC_GUARD: 'off',
+        PYRIC_GUARD: 'block',
         FIREBASE_SA_BASE64: '',
         GOOGLE_APPLICATION_CREDENTIALS: join(projectDir, 'no-credentials.json'),
         CLOUDSDK_CONFIG: join(projectDir, 'no-gcloud'),
@@ -121,17 +134,19 @@ describe('a live dev server process under PYRIC_GUARD=off', () => {
     });
     const line = result.stdout.split('\n').find((entry) => entry.startsWith('OUTCOME '));
     expect(line, `${result.stdout}\n${result.stderr}`).toBeDefined();
-    const outcome = JSON.parse((line as string).slice('OUTCOME '.length)) as Record<string, string | null>;
+    const outcome = JSON.parse((line as string).slice('OUTCOME '.length)) as Record<string, unknown>;
     const refusedCommand = (key: string) =>
       expect.stringContaining(`PYRIC_LIVE_REFUSED: @pyric/live: ${key} from a pyric command is refused in live mode.`);
     expect(outcome).toEqual({
-      guardMode: 'block',
-      token: 'PYRIC_GUARD_BLOCKED',
+      guardMode: null,
+      token: 'ECONNREFUSED',
+      unobserved: ['oauth2.googleapis.com'],
       provision: refusedCommand('storage.provision'),
       testRulesHosted: refusedCommand('assurance.testRulesHosted'),
       status: refusedCommand('storage.status'),
       impersonate: refusedCommand('auth.impersonate'),
     });
-    expect(result.stderr).not.toContain('disabled (PYRIC_GUARD=off)');
+    expect(result.stderr).toContain('@pyric/live/vite: unobserved call to oauth2.googleapis.com (');
+    expect(result.stderr).not.toContain('PYRIC_GUARD_BLOCKED');
   }, 70_000);
 });
