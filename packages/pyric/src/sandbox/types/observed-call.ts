@@ -20,6 +20,18 @@ export type ProductionOutcome =
   | { status: 'error'; code: string };
 
 /**
+ * What production answered, as a client reports it: a {@link ProductionOutcome}
+ * whose error may also carry production's own message, as the SDK's error
+ * held it (`Missing or insufficient permissions.`). The message is at most
+ * 500 characters, an email address in it reads `[email]`, and one shaped like
+ * a token is dropped. Only the host's terminal prints it: the event's
+ * `production.outcome` holds the status and code alone.
+ */
+export type ObservedOutcome =
+  | { status: 'ok' }
+  | { status: 'error'; code: string; message?: string };
+
+/**
  * The signed-in account a call ran as: the account id, the names of its
  * token claims, and their values. Never the token. The values stay in the
  * host's memory, emails left out, so the local rules can read
@@ -57,6 +69,15 @@ export interface ObservedAi {
   usage?: ObservedAiUsage;
   /** On a stream: ms from the call until the method resolved with its first chunk. */
   firstChunkMs?: number;
+  /**
+   * On a call production answered with no usable content: the first
+   * candidate's `finishReason` when it is not `STOP` or `MAX_TOKENS`
+   * (`SAFETY`, `RECITATION`, `BLOCKLIST`). Production answers a filter block
+   * with HTTP 200, so the call's outcome is still `ok`.
+   */
+  finishReason?: string;
+  /** On a prompt production refused before generation: `promptFeedback.blockReason`. */
+  blockReason?: string;
 }
 
 /** The Google APIs a Messaging call sends its requests to. */
@@ -203,7 +224,7 @@ export interface ObservedCall {
   at: number;
   /** How long production took to answer, in ms. */
   durationMs?: number;
-  outcome: ProductionOutcome;
+  outcome: ObservedOutcome;
   /** Absent when the call ran signed out. */
   account?: ObservedAccount;
   /**

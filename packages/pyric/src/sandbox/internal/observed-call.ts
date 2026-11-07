@@ -18,6 +18,7 @@ import type {
   ObservedCall,
   ObservedCallService,
   ObservedListener,
+  ObservedOutcome,
   ObservedQuery,
   ObservedQueryFilter,
   ObservedQueryOperator,
@@ -68,6 +69,8 @@ export const OBSERVED_ADMIN_DISPOSITION: RulesDisposition = Object.freeze({
 
 /** An email address anywhere in a text: another person's from a document or a field path, or the account's own. */
 export const EMAIL_SHAPE = /[^\s@"']+@[^\s@"']+\.[^\s@"']+/;
+/** Each email address in a message, which may sit between the segments of a path. */
+const MESSAGE_EMAIL = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
 
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
 /** The services the Admin SDK rows observe. AI Logic and Messaging calls come only from a client SDK. */
@@ -100,7 +103,13 @@ const MAX_CLAIMS_SIZE = 8 * 1024;
 const MAX_FIELDS_SIZE = 64 * 1024;
 /** Firestore nests maps and arrays at most 20 levels deep. */
 const MAX_VALUE_DEPTH = 20;
-const AI_FIELDS = new Set(['model', 'reportedModel', 'usage', 'firstChunkMs']);
+const AI_FIELDS = new Set(['model', 'reportedModel', 'usage', 'firstChunkMs', 'finishReason', 'blockReason']);
+/** A wire reason enum: `SAFETY`, `PROHIBITED_CONTENT`, `IMAGE_SAFETY`. */
+const REASON_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+/** The finish reasons of an answer with content, which no block names. */
+const UNBLOCKED_FINISH_REASONS: ReadonlySet<string> = new Set(['STOP', 'MAX_TOKENS', 'FINISH_REASON_UNSPECIFIED']);
+/** The longest production message a record carries; a recorder cuts a longer one. */
+export const MAX_OUTCOME_MESSAGE_LENGTH = 500;
 /** Production's sizes: counts only, so a value, a document or a payload has no key to ride in. */
 const USAGE_FIELDS: ReadonlySet<keyof ObservedUsage> = new Set([
   'documentReads',
@@ -217,17 +226,29 @@ function isTime(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
-function readOutcome(value: unknown): ProductionOutcome {
+/**
+ * Production's message as a record may carry it: an email address in it reads
+ * `[email]`, and a message shaped like a token is dropped, so neither reaches
+ * the host's terminal.
+ */
+function readOutcomeMessage(value: unknown): { message?: string } {
+  if (value === undefined) return {};
+  requireField(isBoundedString(value, MAX_OUTCOME_MESSAGE_LENGTH), 'outcome.message');
+  const message = value.replace(MESSAGE_EMAIL, '[email]');
+  return isTokenShaped(message) ? {} : { message };
+}
+
+function readOutcome(value: unknown): ObservedOutcome {
   requireField(isFields(value), 'outcome');
   if (value.status === 'ok') {
     requireOnly(value, new Set(['status']), 'outcome.');
     return { status: 'ok' };
   }
   requireField(value.status === 'error', 'outcome.status');
-  requireOnly(value, new Set(['status', 'code']), 'outcome.');
+  requireOnly(value, new Set(['status', 'code', 'message']), 'outcome.');
   const code = value.code;
   requireField(typeof code === 'string' && CODE_PATTERN.test(code), 'outcome.code');
-  return { status: 'error', code };
+  return { status: 'error', code, ...readOutcomeMessage(value.message) };
 }
 
 function readClaimNames(value: unknown): string[] {
@@ -347,7 +368,7 @@ function readUsage(value: unknown): ObservedUsage {
   return usage;
 }
 
-/** An `ai` call's model and token counts; any other key (text, a response) is refused. */
+/** An `ai` call's model, token counts and block reasons; any other key (text, a response) is refused. */
 function readAi(value: unknown): ObservedAi {
   requireField(isFields(value), 'ai');
   requireOnly(value, AI_FIELDS, 'ai.');
@@ -362,6 +383,15 @@ function readAi(value: unknown): ObservedAi {
   if (value.firstChunkMs !== undefined) {
     requireField(isTime(value.firstChunkMs), 'ai.firstChunkMs');
     ai.firstChunkMs = value.firstChunkMs;
+  }
+  if (value.finishReason !== undefined) {
+    const isBlock = typeof value.finishReason === 'string' && REASON_PATTERN.test(value.finishReason) && !UNBLOCKED_FINISH_REASONS.has(value.finishReason);
+    requireField(isBlock, 'ai.finishReason');
+    ai.finishReason = value.finishReason as string;
+  }
+  if (value.blockReason !== undefined) {
+    requireField(typeof value.blockReason === 'string' && REASON_PATTERN.test(value.blockReason), 'ai.blockReason');
+    ai.blockReason = value.blockReason;
   }
   return ai;
 }
@@ -807,6 +837,11 @@ function observedResult(outcome: ProductionOutcome): SandboxOperationEvent['resu
   return RESULT_BY_VERDICT[productionVerdict(outcome)];
 }
 
+/** Production's answer as the event holds it: the status and code, never production's message. */
+function eventOutcome(outcome: ObservedOutcome): ProductionOutcome {
+  return outcome.status === 'ok' ? { status: 'ok' } : { status: 'error', code: outcome.code };
+}
+
 function observedOperationEvent(call: ObservedCall): ObservedOperationEvent {
   const { rulesDisposition, authLens } = eventLens(call);
   const event = productionOperationEvent(call, rulesDisposition);
@@ -831,7 +866,7 @@ function productionOperationEvent(call: ObservedCall, rulesDisposition: RulesDis
     ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
     rulesDisposition,
     production: {
-      outcome: { ...call.outcome },
+      outcome: eventOutcome(call.outcome),
       ...(claimNames === undefined ? {} : { claimNames: [...claimNames] }),
       ...productionSizes(call),
     },

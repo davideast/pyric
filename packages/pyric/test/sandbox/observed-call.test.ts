@@ -493,6 +493,53 @@ describe('readObservedCall', () => {
   });
 });
 
+describe("production's message and an AI block", () => {
+  const MESSAGE = 'Missing or insufficient permissions.';
+
+  it("keeps production's message on an error outcome, and refuses one too long or on a success", () => {
+    const denied = { ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: MESSAGE } };
+    expect(readObservedCall(denied).outcome).toEqual({ status: 'error', code: 'permission-denied', message: MESSAGE });
+    const cases: Array<[unknown, string]> = [
+      [{ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: 'a'.repeat(501) } }, 'outcome.message'],
+      [{ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: '' } }, 'outcome.message'],
+      [{ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: 7 } }, 'outcome.message'],
+      [{ ...DENIED_READ, outcome: { status: 'ok', message: MESSAGE } }, 'outcome.message'],
+    ];
+    for (const [record, field] of cases) expect(() => readObservedCall(record)).toThrow(`Invalid observed call field: ${field}.`);
+  });
+
+  it('leaves an email out of the message and drops a message shaped like a token', () => {
+    const message = "User does not have permission to access 'users/ada@example.com/a.png'.";
+    const withEmail = { ...UPLOAD, outcome: { status: 'error', code: 'storage/unauthorized', message } };
+    expect(readObservedCall(withEmail).outcome).toEqual({
+      status: 'error',
+      code: 'storage/unauthorized',
+      message: "User does not have permission to access 'users/[email]/a.png'.",
+    });
+    const withToken = { ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: `bad token ${FIS_AUTH_TOKEN}` } };
+    expect(readObservedCall(withToken).outcome).toEqual({ status: 'error', code: 'permission-denied' });
+  });
+
+  it("never puts production's message on the event", () => {
+    const denied = readObservedCall({ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: MESSAGE } });
+    expect(observedCallEvent(denied).production?.outcome).toEqual({ status: 'error', code: 'permission-denied' });
+    const rejected = readObservedCall({ ...GENERATE, outcome: { status: 'error', code: 'invalid_argument', message: 'Request contains an invalid argument.' } });
+    expect(JSON.stringify(observedCallEvent(rejected))).not.toContain('invalid argument.');
+  });
+
+  it("keeps an AI call's block reasons, refuses an answer's own finish reason, and puts neither on the event", () => {
+    const blocked = { ...GENERATE, ai: { model: 'models/gemini-flash-lite-latest', finishReason: 'SAFETY' } };
+    expect(readObservedCall(blocked).ai).toEqual({ model: 'models/gemini-flash-lite-latest', finishReason: 'SAFETY' });
+    const refusedPrompt = { ...GENERATE, ai: { model: 'models/gemini-flash-lite-latest', blockReason: 'PROHIBITED_CONTENT' } };
+    expect(readObservedCall(refusedPrompt).ai).toEqual({ model: 'models/gemini-flash-lite-latest', blockReason: 'PROHIBITED_CONTENT' });
+    for (const finishReason of ['STOP', 'MAX_TOKENS', 'safety', 'SAFETY because', 7]) {
+      const record = { ...GENERATE, ai: { model: 'models/gemini-flash-lite-latest', finishReason } };
+      expect(() => readObservedCall(record)).toThrow('Invalid observed call field: ai.finishReason.');
+    }
+    expect(JSON.stringify(observedCallEvent(readObservedCall(blocked)))).not.toContain('SAFETY');
+  });
+});
+
 describe('observedCallEvent', () => {
   it('lands in the event stream as production-served, with the caller the host names', () => {
     const sandbox = initializeSandbox();
