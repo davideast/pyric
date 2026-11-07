@@ -246,6 +246,10 @@ function projectRequest(event: SandboxEvent): ChipRequest | null {
     }
     return request;
   }
+  // A live listener's attach is production's, not a sandbox listen: Traffic
+  // shows its deliveries, and the Data view and monitor read the attach.
+  const isObservedListener = event.kind === 'listener' && isProductionServed(event.rulesDisposition);
+  if (isObservedListener) return null;
   if (event.kind === 'listener' && event.phase === 'attach') {
     return {
       id: event.id,
