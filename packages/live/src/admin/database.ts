@@ -310,6 +310,18 @@ function isHostInstance(instance: string, row: AdminDatabaseRow): boolean {
 }
 
 /**
+ * The refusal for a Database whose instance is not the host project's
+ * ({@link isHostInstance}), or whose instance the row can't read, as after a
+ * firebase-admin upgrade that moves the field; undefined for the host's own.
+ */
+function instanceRefusal(row: AdminDatabaseRow, db: object): Error | undefined {
+  const instance = instanceOf(db);
+  if (instance === undefined) return liveAdminInstanceUnreadable({ hostProjectId: row.hostProjectId, adminVersion: row.adminVersion });
+  if (isHostInstance(instance, row)) return undefined;
+  return liveAdminInstanceRefusal({ instance, hostProjectId: row.hostProjectId });
+}
+
+/**
  * The connection gate, run by `ref()`, `refFromURL()` and `goOnline()`
  * before the SDK opens the connection there and sends the credential. A
  * Database whose instance is not the host project's ({@link isHostInstance}),
@@ -322,14 +334,10 @@ function gateConnection(row: ConnectionRow, db: object): void {
   const known = connections.get(db);
   if (known instanceof Error) throw known;
   if (known !== undefined) return;
-  const instance = instanceOf(db);
-  const isUnread = instance === undefined;
-  if (isUnread || !isHostInstance(instance, row)) {
-    const refusal = isUnread
-      ? liveAdminInstanceUnreadable({ hostProjectId: row.hostProjectId, adminVersion: row.adminVersion })
-      : liveAdminInstanceRefusal({ instance, hostProjectId: row.hostProjectId });
-    connections.set(db, refusal);
-    throw refusal;
+  const instanceRefused = instanceRefusal(row, db);
+  if (instanceRefused !== undefined) {
+    connections.set(db, instanceRefused);
+    throw instanceRefused;
   }
   const app = adminAppOf(fieldOf(db, 'app'));
   const named = namedProject(app);
@@ -399,11 +407,13 @@ const RULES_CALLS = ['getRules', 'getRulesJSON', 'setRules'] as const;
  * the Database's own properties right after `initStandalone`
  * (`lib/database/database.js`), so the row can't patch them in place: an
  * accessor on the prototype takes that assignment and keeps a copy that
- * waits for the project gate. An app on another project is refused before
- * any request, as every other Admin RTDB call is. They make no record: they
- * read and write rules, not data.
+ * checks the instance, then waits for the project gate. Another project's
+ * instance, one the row can't read, and an app on another project are refused
+ * before any request, as every other Admin RTDB call is: firebase-admin sends
+ * these to the instance's own `.settings/rules.json`. They make no record:
+ * they read and write rules, not data.
  */
-function gateRulesCalls(prototype: object, gate: AdminProjectGate): void {
+function gateRulesCalls(prototype: object, row: AdminDatabaseRow): void {
   for (const name of RULES_CALLS) {
     const gated = new WeakMap<object, Method>();
     Object.defineProperty(prototype, name, {
@@ -415,7 +425,9 @@ function gateRulesCalls(prototype: object, gate: AdminProjectGate): void {
         if (!isObject(this) || typeof real !== 'function') return;
         const db = this;
         gated.set(db, keepShape(function rulesCall(this: unknown, ...args: unknown[]): unknown {
-          return gate(adminAppOf(fieldOf(db, 'app')), () => Reflect.apply(real, this, args));
+          const refusal = instanceRefusal(row, db);
+          if (refusal !== undefined) return Promise.reject(refusal);
+          return row.gate(adminAppOf(fieldOf(db, 'app')), () => Reflect.apply(real, this, args));
         }, real as Method));
       },
     });
@@ -438,7 +450,7 @@ export function observeAdminDatabase(sdk: unknown, row: AdminDatabaseRow): void 
     replace(database, 'refFromURL', (real) => gatedRef(connectionRow, real));
     replace(database, 'goOnline', () => gatedGoOnline(connectionRow));
     replace(database, 'goOffline', () => trackedGoOffline(connectionRow));
-    gateRulesCalls(database, row.gate);
+    gateRulesCalls(database, row);
   }
   const query = prototypeOf(sdk, 'Query');
   const queryMethods = [...calls(['get']), ...calls(['once'], onceFailure)];
