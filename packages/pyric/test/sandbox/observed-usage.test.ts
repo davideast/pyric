@@ -116,3 +116,25 @@ describe('calls with nothing to measure', () => {
     });
   }
 });
+
+describe('Admin calls, measured as the client method each counts as', () => {
+  const ADMIN_FIRESTORE = '@google-cloud/firestore';
+  /** firebase-admin's snapshots: `exists` is a property, and a query has no metadata. */
+  const adminDoc = { exists: true };
+  const adminQuery = { docs: [adminDoc, adminDoc, adminDoc], size: 3 };
+  const rows: [string, string, unknown, ObservedUsage][] = [
+    [ADMIN_FIRESTORE, 'DocumentReference.get', adminDoc, { documentReads: 1 }],
+    [ADMIN_FIRESTORE, 'Query.get', adminQuery, { documentReads: 3 }],
+    [ADMIN_FIRESTORE, 'Firestore.getAll', [adminDoc, adminDoc], { documentReads: 2 }],
+    [ADMIN_FIRESTORE, 'DocumentReference.set', {}, { documentWrites: 1 }],
+    [ADMIN_FIRESTORE, 'DocumentReference.delete', {}, { documentDeletes: 1 }],
+    [ADMIN_FIRESTORE, 'WriteBatch.commit', [{}, {}], { documentWrites: 2 }],
+    ['@firebase/database-compat/standalone', 'Query.once', { val: () => ({ n: 1 }) }, { payloadBytes: 7 }],
+    ['@google-cloud/storage', 'File.save', undefined, { unmeasured: 1 }],
+  ];
+  for (const [module, method, value, expected] of rows) {
+    it(`${method} measures ${JSON.stringify(expected)}`, () => {
+      expect(measureObservedUsage(module, method, value)).toEqual(expected);
+    });
+  }
+});

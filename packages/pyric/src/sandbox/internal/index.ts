@@ -198,6 +198,7 @@ export { EventHistory } from './event-history.js';
 export { firestoreReadUsage } from './usage-evidence.js';
 export type { UsageEvidence } from './usage-evidence.js';
 export { measureObservedUsage } from './observed-usage.js';
+export { coverageMethodOf } from './admin-methods.js';
 export type { ObservedUsage } from '../types/observed-call.js';
 
 export { OBSERVATION_HISTORY_LIMITS } from './observation-history.js';

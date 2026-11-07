@@ -37,6 +37,24 @@ describe('billedCallKind', () => {
     for (const method of ['onSnapshot', 'onSnapshotResume']) expect(billedCallKind(call(method)), method).toBe('delivery');
   });
 
+  it('counts each Admin Firestore call as the client method it bills as', () => {
+    for (const method of ['DocumentReference.get', 'Query.get', 'AggregateQuery.get', 'Firestore.getAll']) {
+      expect(billedCallKind(call(method)), method).toBe('read');
+    }
+    const writes = ['DocumentReference.set', 'DocumentReference.update', 'DocumentReference.delete', 'DocumentReference.create', 'CollectionReference.add', 'WriteBatch.commit', 'Firestore.runTransaction'];
+    for (const method of writes) expect(billedCallKind(call(method)), method).toBe('write');
+    for (const method of ['DocumentReference.onSnapshot', 'Query.onSnapshot']) expect(billedCallKind(call(method)), method).toBe('delivery');
+    expect(billedCallKind(call('DocumentReference.listCollections'))).toBeNull();
+    expect(billedCallKind(call('Auth.getUser', { status: 'ok' }, 'auth'))).toBeNull();
+  });
+
+  it('counts an Admin Query.get by the documents it returned', () => {
+    const counter = createBilledCallCounter();
+    counter.addCall({ ...call('Query.get'), usage: { documentReads: 3 } });
+    counter.addCall({ ...call('WriteBatch.commit'), usage: { documentWrites: 2 } });
+    expect(counter.count()).toEqual({ reads: 3, writes: 2, deliveries: 0 });
+  });
+
   it('leaves out failures, cache reads and Auth calls', () => {
     expect(billedCallKind(call('getDoc', { status: 'error', code: 'permission-denied' }))).toBeNull();
     expect(billedCallKind(call('onSnapshot', { status: 'error', code: 'unavailable' }))).toBeNull();
