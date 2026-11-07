@@ -15,7 +15,9 @@
 import { isQueryProofUnsupported } from '../rules-debug/query-proof.js';
 import type { EventCaller, ObservedProduction, RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
-import { productionVerdict } from 'pyric/sandbox/internal';
+import { observedMethod, productionVerdict } from 'pyric/sandbox/internal';
+import type { ExprTraceEntry } from 'pyric/rules/internal';
+import type { Denial } from '../rules-debug/index.js';
 import type { CommandTarget } from '../home/command.js';
 
 /** A traffic event as Studio's adapter emits it: the library shape plus the
@@ -227,4 +229,79 @@ export function localDrift(event: { production?: ObservedProduction }): LocalDri
   const local = event.production?.local;
   if (local === undefined || local.result === 'unevaluated') return undefined;
   return local.drift === true ? local : undefined;
+}
+
+/** The bounded evaluation record the host keeps on a live op's local verdict, as a sandbox request's `rulesEvidence`. */
+type RulesEvidence = NonNullable<LocalDrift['trace']>;
+type EvidenceRule = RulesEvidence['rules'][number];
+type EvidenceCheck = EvidenceRule['checks'][number];
+
+const LIVE_RESULTS = { ALLOW: 'allow', DENY: 'deny', UNSUPPORTED: 'unsupported' } as const;
+
+/** One recorded check as the rules view's sub-expression trace entry. */
+function traceEntryOf(check: EvidenceCheck): ExprTraceEntry {
+  const entry: ExprTraceEntry = {
+    source: check.expression,
+    // The host records the simulator's own kind; a record without one reads as a plain name.
+    kind: (check.kind ?? 'identifier') as ExprTraceEntry['kind'],
+    parent: check.parent,
+  };
+  if (check.operator !== undefined) entry.operator = check.operator;
+  if (check.binding !== undefined) entry.letBinding = { name: check.binding };
+  if (check.helper !== undefined) entry.inlinedFrom = { name: check.helper };
+  if (check.state === 'value') entry.value = check.value;
+  if (check.state === 'skipped') entry.skipped = true;
+  if (check.state === 'error') entry.error = check.error;
+  return entry;
+}
+
+/** The rule that decided, as the sandbox picks it: the allowing rule, else the first that denied or failed, else the last. */
+function decidingRule(trace: RulesEvidence): { rule: EvidenceRule; index: number } | undefined {
+  const rules = trace.rules;
+  const wanted = trace.decision === 'ALLOW'
+    ? rules.findIndex((rule) => rule.verdict === 'ALLOW')
+    : rules.findIndex((rule) => rule.verdict === 'DENY' || rule.verdict === 'ERROR');
+  const index = wanted === -1 ? rules.length - 1 : wanted;
+  const rule = rules[index];
+  return rule === undefined ? undefined : { rule, index };
+}
+
+/**
+ * A live Firestore op's local rules evaluation in the shape the sandbox
+ * rules view reads, from the trace the host recorded on
+ * `production.local.trace`. Undefined for an op with no trace: a sandbox op,
+ * an unevaluated or RTDB verdict, or a trace too large to keep.
+ */
+export function liveRuleEvaluation(event: StudioTrafficEvent): Denial | undefined {
+  const local = event.production?.local;
+  const trace = local === undefined || local.result === 'unevaluated' ? undefined : local.trace;
+  if (trace === undefined) return undefined;
+  const result = LIVE_RESULTS[trace.decision];
+  const denial: Denial = {
+    id: event.id,
+    at: event.at,
+    result,
+    method: event.method,
+    service: event.service ?? 'firestore',
+    path: event.path,
+    auth: event.auth as Denial['auth'],
+    reasons: [],
+    origin: event.origin as Denial['origin'],
+    unsupported: result === 'unsupported',
+  };
+  const deciding = decidingRule(trace);
+  if (deciding === undefined) return denial;
+  const { rule, index } = deciding;
+  const decided = result === 'unsupported' ? undefined : result;
+  if (decided !== undefined) {
+    denial.evaluatedRule = {
+      verdict: decided,
+      ...(rule.line === undefined ? {} : { line: rule.line }),
+      expression: rule.expression,
+      expressionTrace: rule.checks.map(traceEntryOf),
+    };
+  }
+  const operation = observedMethod('firestore', event.method);
+  if (operation !== null) denial.matchedRule = { ruleIndex: index, operations: [operation] };
+  return denial;
 }

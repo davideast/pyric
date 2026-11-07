@@ -64,7 +64,6 @@ import {
   requestsInScope,
   sandboxAiRequests,
   type ChipRequest,
-  type LocalDrift,
   type TrafficFeed,
   type TrafficScope,
 } from './chip-traffic.js';
@@ -483,7 +482,7 @@ function aiTokenFacts(request: AiRequestObservation, fact: (label: string, value
 const PRODUCTION_REASON = 'Production answered this request. Pyric observed it and did not check it against local rules.';
 
 const DRIFT_TITLE = 'Local rules disagree with production';
-const DRIFT_REASON = "The local rules file differs from the deployed rules, or Pyric's rules engine differs from production's.";
+const DRIFT_REASON = "The local rules file differs from the deployed rules, or pyric's rules engine differs from production's.";
 
 /** The one mark on a row whose local rules disagree with production's answer; empty on every other row. */
 function driftMarkerHtml(request: ChipRequest): string {
@@ -491,23 +490,17 @@ function driftMarkerHtml(request: ChipRequest): string {
   return `<span class="traffic-drift" data-traffic-row-drift title="${DRIFT_TITLE}" aria-hidden="true">${iconHtml('warning')}</span>`;
 }
 
-/** Where the local rule that decided sits: its line and the match path above it. */
-function localRuleLocation(rule: NonNullable<LocalDrift['rule']>): string {
-  const line = rule.line === undefined ? '' : `Line ${rule.line}`;
-  const path = rule.path === undefined ? '' : `match ${rule.path}`;
-  return [line, path].filter(Boolean).join(', ');
-}
-
-/** The detail facts that explain a disagreement: the local verdict, the rule that decided, and why they can differ. */
-function driftFactsHtml(drift: LocalDrift, escape: (value: string) => string): string {
-  const fact = (label: string, value: string, attribute = '') => `<div class="request-fact"${attribute}><dt>${label}</dt><dd class="activity-path">${escape(value)}</dd></div>`;
-  const verdict = drift.result === 'allow' ? 'Allowed by the local rules' : 'Denied by the local rules';
-  let html = fact('Local rules', verdict, ` data-traffic-local-verdict="${drift.result}"`);
-  const rule = drift.rule;
-  if (rule?.expression) html += `<div class="request-fact" data-traffic-local-rule><dt>Local rule</dt><dd><code class="mono">${escape(rule.expression)}</code></dd></div>`;
-  const location = rule === undefined ? '' : localRuleLocation(rule);
-  if (location) html += fact('Location', location);
-  return html + fact('Reason', DRIFT_REASON);
+/**
+ * A production row's reason and rules view. With the local rules' trace it
+ * reads as a sandbox row does, from that trace, under production's outcome;
+ * a disagreement adds one sentence. Without a trace it keeps the
+ * observed-only reason.
+ */
+function productionReasonHtml(request: ChipRequest, fact: (label: string, value: string, cell: string) => string): { reason: string; evidence: string } {
+  const drift = request.localDrift === undefined ? '' : fact('Reason', DRIFT_REASON, '');
+  if (request.rulesEvidence === undefined) return { reason: drift || fact('Reason', PRODUCTION_REASON, ''), evidence: '' };
+  const evidence = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
+  return { reason: fact('Local rules', rulesSummary(request), '') + drift, evidence };
 }
 
 /** A shared icon and label track keeps request statuses aligned across rows. */
@@ -1030,10 +1023,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       if (request.identity) identityFact += fact('Identity', request.identity, 's2');
       let evidenceDetails = '';
       let reasonFact = request.indexFailure ? fact('Reason', 'The required index was missing.', '') : '';
-      if (request.localDrift) {
-        reasonFact = driftFactsHtml(request.localDrift, escapeAttribute);
-      } else if (request.production) {
-        reasonFact = fact('Reason', PRODUCTION_REASON, '');
+      if (request.production) {
+        const production = productionReasonHtml(request, fact);
+        reasonFact = production.reason;
+        evidenceDetails = production.evidence;
       } else if (request.service === 'firestore') {
         reasonFact = fact('Reason', rulesSummary(request), '');
         evidenceDetails = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));

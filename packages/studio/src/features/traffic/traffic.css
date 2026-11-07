@@ -828,36 +828,17 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.traffic__drift-detail {
-  background: var(--panel);
-}
-.traffic__drift-facts {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 6px 16px;
+.traffic__live-production {
   margin: 0;
-  font-size: var(--fs-caption);
-}
-.traffic__drift-facts dt {
-  color: var(--muted);
-}
-.traffic__drift-facts dd {
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
   color: var(--ink);
-}
-.traffic__drift-facts code {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+  font-weight: 600;
 }
 .traffic__drift-reason {
   margin: 0;
   color: var(--muted);
   font-size: var(--fs-caption);
-}
-.traffic__drift-detail .traffic__inspector-close {
-  justify-self: start;
-  margin-left: 0;
 }
 
 /* ── Source: the connection the op came from ───────────────────────── */

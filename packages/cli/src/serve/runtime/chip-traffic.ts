@@ -75,7 +75,10 @@ export type LocalDrift = Extract<NonNullable<ObservedProduction['local']>, { res
 function localDriftOf(production: ObservedProduction): LocalDrift | undefined {
   const local = production.local;
   const isDrift = local !== undefined && local.result !== 'unevaluated' && local.drift === true;
-  return isDrift ? structuredClone(local) : undefined;
+  if (!isDrift) return undefined;
+  // The trace rides as the row's rulesEvidence; the drift keeps the verdict only.
+  const { trace: _trace, ...verdict } = local;
+  return structuredClone(verdict);
 }
 
 /** Which requests Traffic lists: this page's own, or everything the sandbox received. */
@@ -177,6 +180,9 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
     production: { ...outcome },
     ...(localDrift === undefined ? {} : { localDrift }),
   };
+  // The local rules' trace reads as a sandbox row's evidence; production still decided.
+  const trace = production.local?.result === 'unevaluated' ? undefined : production.local?.trace;
+  if (trace !== undefined) request.rulesEvidence = structuredClone(trace);
   const observation = event.observation;
   const ai = observation?.ai;
   if (observation === undefined || ai === undefined) return request;

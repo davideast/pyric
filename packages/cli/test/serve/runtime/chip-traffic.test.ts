@@ -561,6 +561,10 @@ describe('a call production served', () => {
     const gap = chipRequestFromEvent(withLocal(denied, { result: 'unevaluated', needs: ['stored-document'] }));
     expect(gap?.localDrift).toBeUndefined();
     expect(chipRequestFromEvent(denied)?.localDrift).toBeUndefined();
+    const trace = { version: 'local-rules', scope: 'request', decision: 'ALLOW', truncated: false, rules: [], paths: [] };
+    const traced = chipRequestFromEvent(withLocal(denied, { result: 'allow', rule, drift: true, trace }));
+    expect(traced?.rulesEvidence).toEqual(trace);
+    expect(traced?.localDrift).toEqual({ result: 'allow', rule, drift: true });
   });
 
   it("reads an Admin call production answered not-found as failed, as production's row", () => {

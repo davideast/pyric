@@ -44,6 +44,7 @@ import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.j
 import {
   filterByVerdict,
   filterStudioTraffic,
+  liveRuleEvaluation,
   localDrift,
   opensRulesInspector,
   productionLabel,
@@ -51,12 +52,13 @@ import {
   verdictFor,
   verdictLabel,
   VERDICT_FILTERS,
-  type LocalDrift,
   type StudioTrafficEvent,
   type VerdictFilter,
 } from './verdict.js';
 import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-selection.js';
 import { TrafficRulesInspector } from './TrafficRulesInspector.js';
+import { DenialDetail, type Denial } from '../rules-debug/index.js';
+import { useStudioRulesSource } from '../../shell/studio-rules-source.js';
 import { BillableMetricsView, RulesMetricsView } from './TrafficMetricsViews.js';
 import {
   ListenerPageSurface,
@@ -176,7 +178,7 @@ function ProductionCell({ production }: { production: NonNullable<StudioTrafficE
 
 const DRIFT_TITLE = 'Local rules disagree with production';
 const DRIFT_REASON =
-  "The local rules file differs from the deployed rules, or Pyric's rules engine differs from production's.";
+  "The local rules file differs from the deployed rules, or pyric's rules engine differs from production's.";
 
 /** The one mark on a production row whose local rules disagree with production's answer. */
 function DriftMarker() {
@@ -190,54 +192,46 @@ function DriftMarker() {
   );
 }
 
-/** Where the local rule that decided sits: its line and the match path above it. */
-function localRuleLocation(rule: NonNullable<LocalDrift['rule']>): string {
-  const line = rule.line === undefined ? '' : `Line ${rule.line}`;
-  const path = rule.path === undefined ? '' : `match ${rule.path}`;
-  return [line, path].filter(Boolean).join(', ');
-}
-
-/** Explains a disagreement in place under its row: both verdicts, the local rule, and why they can differ. */
-function TrafficDriftDetail({
+/**
+ * A live Firestore op's details: the sandbox rules view, fed from the local
+ * rules' trace, under production's verdict. A disagreement adds one sentence.
+ */
+function LiveRulesDetail({
   event,
-  drift,
+  evaluation,
   onClose,
 }: {
   event: StudioTrafficEvent;
-  drift: LocalDrift;
+  evaluation: Denial;
   onClose: () => void;
 }) {
+  const rulesSource = useStudioRulesSource('firestore');
   const production = event.production;
-  const rule = drift.rule;
-  const location = rule === undefined ? '' : localRuleLocation(rule);
+  const drifts = localDrift(event) !== undefined;
   return (
-    <div data-pyric-ui="traffic-drift-detail" className="traffic__inspector traffic__drift-detail">
-      <dl className="traffic__drift-facts">
-        <dt>Production</dt>
-        <dd>{production === undefined ? '' : productionLabel(production)}</dd>
-        <dt>Local rules</dt>
-        <dd data-local-verdict={drift.result}>
-          {drift.result === 'allow' ? 'Allowed by the local rules' : 'Denied by the local rules'}
-        </dd>
-        {rule?.expression ? (
-          <>
-            <dt>Local rule</dt>
-            <dd>
-              <code data-local-rule="">{rule.expression}</code>
-            </dd>
-          </>
-        ) : null}
-        {location ? (
-          <>
-            <dt>Location</dt>
-            <dd>{location}</dd>
-          </>
-        ) : null}
-      </dl>
-      <p className="traffic__drift-reason">{DRIFT_REASON}</p>
-      <button type="button" className="traffic__inspector-close" onClick={onClose}>
-        Close details
-      </button>
+    <div data-pyric-ui="traffic-live-rules-inspector" className="traffic__inspector">
+      <div className="traffic__inspector-bar">
+        <span className="traffic__inspector-title">rules inspector</span>
+        <button
+          type="button"
+          className="traffic__inspector-close"
+          onClick={onClose}
+          aria-label="Close rules inspector (Esc)"
+        >
+          close (esc)
+        </button>
+      </div>
+      {production === undefined ? null : (
+        <p className="traffic__live-production" data-production-verdict={production.outcome.status}>
+          {productionLabel(production)}
+        </p>
+      )}
+      {drifts ? (
+        <p className="traffic__drift-reason" data-drift-reason="">
+          {DRIFT_REASON}
+        </p>
+      ) : null}
+      <DenialDetail denial={evaluation} rulesSource={rulesSource} />
     </div>
   );
 }
@@ -277,12 +271,12 @@ function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   );
 }
 
-/** Whether a row's click opens a detail in place: a rules decision, or a production row the local rules disagree with. */
+/** Whether a row's click opens the rules view in place: a sandbox rules decision, or a live op with a local rules trace. */
 function opensDetail(event: StudioTrafficEvent): boolean {
-  return opensRulesInspector(event) || localDrift(event) !== undefined;
+  return opensRulesInspector(event) || liveRuleEvaluation(event) !== undefined;
 }
 
-/** The detail an inspected id opens: the drift explanation for a disagreeing production row, else the rules inspector. */
+/** The detail an inspected id opens: a live op's rules view from its local trace, else the sandbox rules inspector. */
 function InspectedDetail({
   eventId,
   events,
@@ -293,9 +287,9 @@ function InspectedDetail({
   onClose: () => void;
 }) {
   const event = events.find((candidate) => candidate.id === eventId);
-  const drift = event === undefined ? undefined : localDrift(event);
-  if (event !== undefined && drift !== undefined) {
-    return <TrafficDriftDetail event={event} drift={drift} onClose={onClose} />;
+  const evaluation = event === undefined ? undefined : liveRuleEvaluation(event);
+  if (event !== undefined && evaluation !== undefined) {
+    return <LiveRulesDetail event={event} evaluation={evaluation} onClose={onClose} />;
   }
   return <TrafficRulesInspector eventId={eventId} onClose={onClose} />;
 }
