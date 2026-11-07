@@ -38,6 +38,10 @@ function observe(clientSessionId: string, platform: string, uid?: string): Bridg
   return frame(clientSessionId, platform, { t: 'observe', id: 'o1', call });
 }
 
+function unobserved(clientSessionId: string, platform: string, lists: Record<string, unknown>): BridgeMessage {
+  return frame(clientSessionId, platform, { t: 'unobserved', id: 'u1', ...lists });
+}
+
 function disconnect(clientSessionId: string): BridgeMessage {
   return { type: 'worker-client-disconnect', clientSessionId } as unknown as BridgeMessage;
 }
@@ -163,5 +167,41 @@ describe('the live host clients', () => {
     expect(capture).toContain('presence.register');
     expect(capture).not.toContain('ada@example.com');
     expect(JSON.stringify(message)).not.toContain('ada@example.com');
+  });
+
+  it("lists what a Node process left unobserved under its client, follows each change, and drops it with the client", () => {
+    const { live, tick } = host();
+    live.inbound(unobserved('s-node', 'node', { unobserved: ['cloudtrace.googleapis.com'] }));
+    live.readClientIds((session) => (session === 's-node' ? 'page-2' : undefined));
+    expect(live.report().clients).toEqual([
+      { kind: 'node', clientId: 'page-2', user: null, lastSeen: 1000, unobserved: ['cloudtrace.googleapis.com'] },
+    ]);
+    tick(5);
+    const lists = {
+      unobserved: ['cloudtrace.googleapis.com', 'us-central1-aiplatform.googleapis.com'],
+      unobservedAdmin: ['firebase-admin/remote-config'],
+      gatedAdmin: ['firebase-admin/app-check'],
+    };
+    live.inbound(unobserved('s-node', 'node', lists));
+    expect(live.report().clients).toEqual([{ kind: 'node', clientId: 'page-2', user: null, lastSeen: 1005, ...lists }]);
+    live.inbound(disconnect('s-node'));
+    expect(live.report()).not.toHaveProperty('clients');
+  });
+
+  it('keeps no list that is not names in its shape, and none from a page', () => {
+    const { live } = host();
+    live.inbound(unobserved('s-node', 'node', { unobserved: ['cloudtrace.googleapis.com'] }));
+    const malformed = [
+      { unobserved: ['https://user:secret@cloudtrace.googleapis.com/v2?key=k'] },
+      { unobserved: ['cloudtrace.googleapis.com/v2/projects/p/traces'] },
+      { unobserved: ['cloudtrace.googleapis.com', 'cloudtrace.googleapis.com'] },
+      { unobserved: Array.from({ length: 65 }, (_, index) => `host-${index}.googleapis.com`) },
+      { unobservedAdmin: ['remote-config'] },
+      { gatedAdmin: 'firebase-admin/app-check' },
+    ];
+    for (const lists of malformed) live.inbound(unobserved('s-node', 'node', lists));
+    expect(live.report().clients?.[0]?.unobserved).toEqual(['cloudtrace.googleapis.com']);
+    live.inbound(unobserved('s-page', 'browser', { unobserved: ['cloudtrace.googleapis.com'] }));
+    expect(live.report().clients?.[1]).not.toHaveProperty('unobserved');
   });
 });
