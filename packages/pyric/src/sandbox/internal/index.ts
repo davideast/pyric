@@ -104,6 +104,10 @@ export {
   type BilledCallCount, type BilledCallCounter, type BilledCallKind, type LiveHostStatus,
 } from './live-status.js';
 export {
+  MAX_NODE_UNOBSERVED_ENTRIES, NODE_UNOBSERVED_LIST_NAMES, boundNodeUnobservedList, readNodeUnobservedLists,
+  type NodeUnobservedListName, type NodeUnobservedLists,
+} from './node-unobserved.js';
+export {
   LIVE_REFRESH_MS, LIVE_RETRY_MS, LIVE_TRAFFIC_REFRESH_MS, createLiveStatusPoller,
   type LiveStatusPoller, type LiveStatusTimers, type ReadLiveStatus,
 } from './live-status-poller.js';

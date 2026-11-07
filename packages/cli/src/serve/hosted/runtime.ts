@@ -465,8 +465,8 @@ export async function createHostedRuntime(
     const isServiceWorker = transport === 'worker-port' && platform === SERVICE_WORKER_TAB_ID;
     if (isServiceWorker) setPortTabId(ctx, owned.port, SERVICE_WORKER_TAB_ID);
     let releaseOperation: (() => void) | undefined;
-    // An observed call is charged like an operation, so a client cannot queue them without bound.
-    const isOperation = incoming.t === 'op' || incoming.t === 'tool' || incoming.t === 'observe';
+    // An observed call or unobserved lists are charged like an operation, so a client cannot queue them without bound.
+    const isOperation = incoming.t === 'op' || incoming.t === 'tool' || incoming.t === 'observe' || incoming.t === 'unobserved';
     if (isOperation) {
       const reservation = owned.budget.reserve(incoming);
       const isRefused = !reservation.accepted;
