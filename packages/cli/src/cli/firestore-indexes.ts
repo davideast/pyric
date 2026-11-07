@@ -65,7 +65,8 @@ export async function runFirestoreIndexesGenerate(
 
   out.write(`pyric firestore indexes generate: wrote ${outputPath}\n`);
   for (const warning of result.data.warnings) {
-    err.write(`pyric firestore indexes generate: warning: ${warning.file}: ${warning.message}\n`);
+    const where = warning.line === undefined ? warning.file : `${warning.file}:${warning.line}`;
+    err.write(`pyric firestore indexes generate: warning: ${where}: ${warning.message}\n`);
   }
   return 0;
 }

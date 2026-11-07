@@ -16,6 +16,10 @@
  *     `CallResolver` to recursively inline a same-file wrapper that takes
  *     the chain variable as a parameter and returns a modified chain.
  *     Single-level only, root-context only, identifier-arg only.
+ *   - Every `query(...)` call the walker records joins the caller's
+ *     `consumed` set. The extractor treats each `query(...)` call left
+ *     out of it as a standalone query (`scanStandaloneQuery`), so a query
+ *     passed inline to `getDocs` or `onSnapshot` is still seen.
  */
 import ts from 'typescript';
 import { getCalleeName } from './ast.js';
@@ -95,10 +99,50 @@ function attachContext(frag: ClassifiedFragment, ctx: BranchContext): Fragment {
   };
 }
 
+/**
+ * Record one `query(...)` call on `decl`: its INIT sets the base, and its
+ * constraints become fragments under `ctx`. The single path every query
+ * call takes, whether it is assigned to the chain variable, narrows the
+ * chain inline (`getDocs(query(q, ...))`), or stands alone.
+ */
+function recordQueryCall(decl: QueryBaseDecl, call: ts.CallExpression, chainVar: string, ctx: BranchContext): void {
+  const r = classifyQueryCall(call, chainVar);
+  if (r.isInit) {
+    // The first INIT we see wins. Subsequent re-INITs would mean
+    // the chain restarts — rare in real code, ignored for v1.
+    if (decl.collectionPath === null) {
+      decl.collectionPath = r.collectionPath ?? null;
+      decl.isCollectionGroup = r.isCollectionGroup ?? false;
+    }
+  }
+  for (const f of r.fragments) {
+    decl.fragments.push(attachContext(f, ctx));
+  }
+}
+
+/** True for `query(<chainVar>, ...)`: a call that builds on the chain variable. */
+function narrowsChain(call: ts.CallExpression, chainVar: string): boolean {
+  const first = call.arguments[0];
+  return getCalleeName(call) === 'query' && first !== undefined && ts.isIdentifier(first) && first.text === chainVar;
+}
+
+/**
+ * A `query(...)` call that isn't part of a chain-variable chain, such as
+ * one passed straight into `getDocs` or assigned to another name, as its
+ * own one-call query. Its `collectionPath` stays `null` when the call
+ * doesn't start from a literal `collection(...)` or `collectionGroup(...)`.
+ */
+export function scanStandaloneQuery(call: ts.CallExpression): QueryBaseDecl {
+  const decl: QueryBaseDecl = { varName: '', collectionPath: null, isCollectionGroup: false, fragments: [] };
+  recordQueryCall(decl, call, '', ROOT_CTX);
+  return decl;
+}
+
 export function scanFunctionBody(
   body: ts.Node,
   varName: string,
   callResolver?: CallResolver,
+  consumed: Set<ts.CallExpression> = new Set(),
 ): QueryBaseDecl {
   const decl: QueryBaseDecl = {
     varName,
@@ -178,18 +222,8 @@ export function scanFunctionBody(
     function processAssignmentRHS(rhs: ts.Expression, ctx: BranchContext): void {
       if (!ts.isCallExpression(rhs)) return;
       if (getCalleeName(rhs) === 'query') {
-        const r = classifyQueryCall(rhs, chainVar);
-        if (r.isInit) {
-          // The first INIT we see wins. Subsequent re-INITs would mean
-          // the chain restarts — rare in real code, ignored for v1.
-          if (decl.collectionPath === null) {
-            decl.collectionPath = r.collectionPath ?? null;
-            decl.isCollectionGroup = r.isCollectionGroup ?? false;
-          }
-        }
-        for (const f of r.fragments) {
-          decl.fragments.push(attachContext(f, ctx));
-        }
+        consumed.add(rhs);
+        recordQueryCall(decl, rhs, chainVar, ctx);
         return;
       }
       // Not a `query(...)` call — try the inter-procedural follower.
@@ -218,7 +252,14 @@ export function scanFunctionBody(
         }
       }
 
-      // 3. if/else chain: open a new branchId, walk each clause separately.
+      // 3. Inline narrowing: `getDocs(query(q, ...))` adds to the chain
+      //    as `q = query(q, ...)` would.
+      if (ts.isCallExpression(node) && !consumed.has(node) && narrowsChain(node, chainVar)) {
+        processAssignmentRHS(node, ctx);
+        return;
+      }
+
+      // 4. if/else chain: open a new branchId, walk each clause separately.
       if (ts.isIfStatement(node)) {
         const branchId = scan.nextBranchId++;
         const skippable = !ifChainHasFinalElse(node);
