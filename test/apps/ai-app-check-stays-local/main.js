@@ -65,10 +65,17 @@ window.runWithoutAppCheck = () => run(initializeApp(options, "without-app-check"
  * A SharedWorker asks for a host outside the machine. The scenario's resolver
  * rules stop it, so the request never leaves; the scenario checks that its
  * request watch saw it, which proves the watch sees SharedWorker requests.
+ * Opening the worker and sending it the URL are two calls, so the scenario
+ * can wait in between until the watch records the worker's requests.
  */
+let egressControl;
+
+window.openEgressControl = () => {
+  egressControl = new SharedWorker("/control-worker.js", { name: "egress-control" });
+};
+
 window.runEgressControl = (url) =>
   new Promise((resolve) => {
-    const worker = new SharedWorker("/control-worker.js", { name: "egress-control" });
-    worker.port.onmessage = (event) => resolve(event.data);
-    worker.port.postMessage(url);
+    egressControl.port.onmessage = (event) => resolve(event.data);
+    egressControl.port.postMessage(url);
   });
