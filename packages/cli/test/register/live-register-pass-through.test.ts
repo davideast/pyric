@@ -599,6 +599,13 @@ async function adminSeams(passThrough: string[], adminProjectId: string | null =
       sent.push(error === undefined || error === null ? 'https.request' : 'https.request refused');
     },
   };
+  // The runtime's Agent and https.request, as an app or its wrapper reaches them: no frame of the Admin SDK's tree.
+  const runtimeAgent = { addRequest(request: { onSocket(socket: unknown): unknown }) { const sockets = [request.onSocket({})]; return sockets[0]; } };
+  const runtimeRequest = (request: unknown) => {
+    const sent = [runtimeAgent.addRequest(request as { onSocket(socket: unknown): unknown })];
+    return sent[0];
+  };
+  const https = { request: runtimeRequest };
   const hooks = installLiveNetGuard({
     isLiveSdkFile: () => false,
     isAdminSdkFile: (url) => url === adminUrl,
@@ -614,9 +621,39 @@ async function adminSeams(passThrough: string[], adminProjectId: string | null =
     socketPrototypes: [],
     requestPrototypes: [requestPrototype],
     liveAgentPrototypes: [admin.adminAgent],
+    adminEntryPoints: [
+      { object: https, key: 'request' },
+      { object: tls, key: 'connect' },
+      { object: fetchScope, key: 'fetch' },
+    ],
   });
+  const realFetch = fetchScope.fetch;
   const request = (host: string) => Object.assign(Object.create(requestPrototype) as object, { host, method: 'POST', path: '/v1/accounts:lookup' });
-  return { admin, sent, fetchScope, tls, request, stop: () => hooks.stop() };
+  return { admin, sent, fetchScope, tls, https, runtimeRequest, realFetch, request, stop: () => hooks.stop() };
+}
+
+/** An APM's pass-through wrappers on https.request, fetch and tls.connect, in an app file, installed after the guard. */
+function wrapLikeAnApm(seams: { https: { request: (request: unknown) => unknown }; fetchScope: { fetch: typeof fetch }; tls: { connect: (...args: unknown[]) => unknown } }) {
+  const wrap = { calls: 0 };
+  const request = seams.https.request;
+  seams.https.request = function wrappedRequest(this: unknown, ...args: unknown[]) {
+    wrap.calls += 1;
+    const results = [Reflect.apply(request, this, args)];
+    return results[0];
+  };
+  const fetchFn = seams.fetchScope.fetch;
+  seams.fetchScope.fetch = function wrappedFetch(this: unknown, ...args: unknown[]) {
+    wrap.calls += 1;
+    const results = [Reflect.apply(fetchFn, this, args) as ReturnType<typeof fetch>];
+    return results[0]!;
+  } as typeof fetch;
+  const connect = seams.tls.connect;
+  seams.tls.connect = function wrappedConnect(this: unknown, ...args: unknown[]) {
+    wrap.calls += 1;
+    const results = [Reflect.apply(connect, this, args)];
+    return results[0];
+  };
+  return wrap;
 }
 
 describe('the network guard for firebase-admin, listed', () => {
@@ -703,36 +740,61 @@ describe('the network guard for firebase-admin, listed', () => {
     const seams = await adminSeams(['firebase-admin']);
     try {
       const { admin } = seams;
-      // The runtime's Agent, as the app's wrapper reaches it: no frame of the Admin SDK's tree.
-      const runtimeAgent = { addRequest(request: { onSocket(socket: unknown): unknown }) { const sockets = [request.onSocket({})]; return sockets[0]; } };
-      // An APM's wrappers, in an app file: each passes its call through unchanged.
-      const wrappedRequest = function wrappedRequest(request: unknown) {
-        const sent = [runtimeAgent.addRequest(request as { onSocket(socket: unknown): unknown })];
-        return sent[0];
-      };
-      const wrappedFetch = function wrappedFetch(url: string) {
-        const calls = [seams.fetchScope.fetch(url)];
-        return calls[0]!;
-      };
-      const wrappedConnect = function wrappedConnect(host: string) {
-        const sockets = [seams.tls.connect({ host, port: 443, servername: host })];
-        return sockets[0];
-      };
+      const wrap = wrapLikeAnApm(seams);
       const tokenRequest = () => Object.assign(seams.request(TOKEN_HOST), { path: '/token' });
-      admin.adminVia(wrappedRequest, tokenRequest());
-      admin.adminVia(wrappedRequest, seams.request(ADMIN_AUTH_HOST));
-      await admin.adminVia(wrappedFetch, TOKEN_URL).catch(() => 'refused');
-      connectOutcome(() => admin.adminVia(wrappedConnect, TOKEN_HOST));
+      admin.adminVia(seams.https.request, tokenRequest());
+      admin.adminVia(seams.https.request, seams.request(ADMIN_AUTH_HOST));
+      await admin.adminVia(seams.fetchScope.fetch, TOKEN_URL).catch(() => 'refused');
+      connectOutcome(() => admin.adminVia(seams.tls.connect, { host: TOKEN_HOST, port: 443, servername: TOKEN_HOST }));
       const fromAdmin = [...seams.sent];
-      wrappedRequest(tokenRequest());
-      wrappedRequest(seams.request(ADMIN_AUTH_HOST));
-      const fetched = await wrappedFetch(TOKEN_URL).then(() => 'sent', (error: Error) => error.message);
-      const connected = connectOutcome(() => wrappedConnect(TOKEN_HOST));
-      expect({ fromAdmin, fromApp: seams.sent.slice(fromAdmin.length), fetched, connected }).toEqual({
+      seams.https.request(tokenRequest());
+      seams.https.request(seams.request(ADMIN_AUTH_HOST));
+      const fetched = await seams.fetchScope.fetch(TOKEN_URL).then(() => 'sent', (error: Error) => error.message);
+      const connected = connectOutcome(() => seams.tls.connect({ host: TOKEN_HOST, port: 443, servername: TOKEN_HOST }));
+      expect({ wrapped: wrap.calls, fromAdmin, fromApp: seams.sent.slice(fromAdmin.length), fetched, connected }).toEqual({
+        wrapped: 8,
         fromAdmin: ['https.request', 'https.request', 'fetch', 'tls.connect'],
         fromApp: ['https.request refused', 'https.request refused'],
         fetched: 'fetch failed',
         connected: 'PYRIC_GUARD_BLOCKED',
+      });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test('refuses an app callback the Admin SDK runs, through the wrappers or not, for each of its hosts', async () => {
+    const seams = await adminSeams(['firebase-admin'], 'demo');
+    try {
+      const { admin } = seams;
+      wrapLikeAnApm(seams);
+      const hosts: Array<[string, string]> = [
+        [TOKEN_HOST, '/token'],
+        ['www.googleapis.com', '/oauth2/v4/token'],
+        ['iamcredentials.googleapis.com', '/v1/projects/-/serviceAccounts/x:generateAccessToken'],
+        ['storage.googleapis.com', '/storage/v1/b/other-bucket/o'],
+        [ADMIN_AUTH_HOST, '/v1/accounts:lookup'],
+      ];
+      const fetches: Array<Promise<string>> = [];
+      const connections: Array<string | undefined> = [];
+      // A custom credential's getAccessToken, a token listener or a transaction update: app code the Admin SDK calls.
+      const callback = () => {
+        for (const [host, path] of hosts) {
+          seams.https.request(Object.assign(seams.request(host), { path }));
+          seams.runtimeRequest(Object.assign(seams.request(host), { path }));
+          fetches.push(seams.fetchScope.fetch(`https://${host}${path}`).then(() => 'sent', (error: Error) => error.message));
+          fetches.push(seams.realFetch(`https://${host}${path}`).then(() => 'sent', (error: Error) => error.message));
+          // A live row host's socket passes for any caller; its request is what the guard refuses.
+          const isLiveRowHost = host === ADMIN_AUTH_HOST;
+          if (!isLiveRowHost) connections.push(connectOutcome(() => seams.tls.connect({ host, port: 443, servername: host })));
+        }
+        return null;
+      };
+      admin.adminVia(callback);
+      expect({ sent: seams.sent, fetched: await Promise.all(fetches), connections }).toEqual({
+        sent: hosts.flatMap(() => ['https.request refused', 'https.request refused']),
+        fetched: hosts.flatMap(() => ['fetch failed', 'fetch failed']),
+        connections: hosts.slice(0, -1).map(() => 'PYRIC_GUARD_BLOCKED'),
       });
     } finally {
       seams.stop();

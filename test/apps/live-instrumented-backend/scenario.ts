@@ -8,7 +8,8 @@
  * Application Default Credentials and from a service-account key, though
  * the instrumentation's wrapper sits between them and the runtime. The
  * backend's own request to the token endpoint, through the same wrapper, is
- * still refused.
+ * still refused, and so are the requests a custom credential's
+ * `getAccessToken` makes while the Admin SDK runs it.
  *
  * The Admin SDK's Agent sends its requests to a local stand-in for Google,
  * and the guard still judges each one by the Google host it names. The
@@ -47,13 +48,18 @@ export default scenario(async (app) => {
     const run = await runBackend(app, 'server.mjs');
     assert.equal(run.code, 0, run.output);
     assert.match(run.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${PROJECT}\\.`));
-    assert.doesNotMatch(run.output, /net-guard BLOCK www\.googleapis\.com/);
+    // Every refusal names the backend's own file; none names a file of firebase-admin's tree.
+    assert.doesNotMatch(run.output, /net-guard BLOCK [^\n]* from [^\n]*node_modules/);
+    assert.match(run.output, /net-guard BLOCK oauth2\.googleapis\.com [^\n]* from server\.mjs/);
     assert.deepEqual(jobOutcome(run.output), {
       adcLookup: 'order-owner',
       tokenExchanges: 1,
       trapped: ['www.googleapis.com'],
       instrumented: true,
       ownTokenRequest: GUARD_BLOCKED,
+      callbackLookup: 'order-owner',
+      callbackRequests: [GUARD_BLOCKED],
+      callbackCount: 8,
     });
   });
 

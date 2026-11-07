@@ -92,6 +92,43 @@ function ownTokenRequest() {
   });
 }
 
+/** The backend's own requests, from the hosts the Admin SDK is let reach. */
+const CALLBACK_TARGETS = [
+  ["oauth2.googleapis.com", "/token"],
+  ["www.googleapis.com", "/oauth2/v4/token"],
+  ["iamcredentials.googleapis.com", "/v1/projects/-/serviceAccounts/orders-api:generateAccessToken"],
+  ["storage.googleapis.com", "/storage/v1/b/another-bucket/o"],
+];
+
+/** The backend's own https.request to `host`, through the instrumentation and the Agent. */
+function ownRequest(host, path) {
+  return new Promise((resolve) => {
+    const request = https.request({ host, path, method: "POST", agent }, (response) => {
+      response.resume();
+      resolve("sent");
+    });
+    request.on("error", (error) => resolve(codeOf(error)));
+    request.end("{}");
+  });
+}
+
+/**
+ * A custom credential: app code the Admin SDK calls for each token. Its own
+ * requests start inside that call, with the Admin SDK's frames beneath
+ * them, and are still the backend's own.
+ */
+const callbackRequests = [];
+const callbackCredential = {
+  async getAccessToken() {
+    const sent = CALLBACK_TARGETS.flatMap(([host, path]) => [
+      ownRequest(host, path),
+      fetch(`https://${host}${path}`, { method: "POST" }).then(() => "sent", codeOf),
+    ]);
+    callbackRequests.push(...(await Promise.all(sent)));
+    return { access_token: TOKEN, expires_in: 3600 };
+  },
+};
+
 const outcome = {};
 const adcApp = initializeApp({ projectId: PROJECT, credential: applicationDefault(agent), httpAgent: agent }, "adc");
 const certApp = initializeApp({ projectId: PROJECT, credential: cert(serviceAccount, agent), httpAgent: agent }, "cert");
@@ -102,6 +139,10 @@ outcome.tokenExchanges = answered.filter((path) => path.endsWith("/token")).leng
 outcome.trapped = [...new Set(trapped)];
 outcome.instrumented = instrumented.requests > 0;
 outcome.ownTokenRequest = await ownTokenRequest();
+const callbackApp = initializeApp({ projectId: PROJECT, credential: callbackCredential, httpAgent: agent }, "callback");
+outcome.callbackLookup = await lookup(callbackApp);
+outcome.callbackRequests = [...new Set(callbackRequests)];
+outcome.callbackCount = callbackRequests.length;
 google.close();
 console.log(`OUTCOME ${JSON.stringify(outcome)}`);
 process.exit(0);
