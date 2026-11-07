@@ -27,8 +27,7 @@
  */
 import Module, { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { isRegisterActive } from './activation.js';
-import { withSandboxVariables } from './child-process-guard.js';
+import { isSandboxParent, withInheritedSandbox } from './child-process-guard.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -57,18 +56,6 @@ function isOwnEnv(env: unknown): env is Env {
 }
 
 /**
- * A worker's own env, carrying the sandbox. When the register is active in
- * this thread, `PYRIC_SANDBOX_FORCE=1` is set too, unless the caller set it,
- * so an env with `NODE_ENV=production` does not make the worker refuse the
- * sandbox its parent is in.
- */
-function workerEnv(env: Env, parentEnv: Env, parentActive: boolean): Env {
-  const guarded = withSandboxVariables(env, parentEnv);
-  if (parentActive && guarded.PYRIC_SANDBOX_FORCE === undefined) guarded.PYRIC_SANDBOX_FORCE = '1';
-  return guarded;
-}
-
-/**
  * The arguments to build the worker with, so that it loads the register at
  * `registerUrl` in the sandbox `parentEnv` names. `parentActive` says whether
  * the register is active in this thread; `@pyric/live/register` installs this
@@ -79,7 +66,7 @@ export function guardWorkerArguments(
   options: WorkerOptionsLike | undefined,
   registerUrl: string,
   parentEnv: Env = process.env,
-  parentActive: boolean = isRegisterActive(),
+  parentActive: boolean = isSandboxParent(),
 ): [unknown, WorkerOptionsLike | undefined] {
   let guardedSource = source;
   let guardedOptions = options;
@@ -90,7 +77,7 @@ export function guardWorkerArguments(
     guardedOptions = { ...options, execArgv: [...options.execArgv, '--import', registerUrl] };
   }
   if (isOwnEnv(options?.env)) {
-    guardedOptions = { ...guardedOptions, env: workerEnv(options.env, parentEnv, parentActive) };
+    guardedOptions = { ...guardedOptions, env: withInheritedSandbox(options.env, parentEnv, parentActive) };
   }
   return [guardedSource, guardedOptions];
 }
