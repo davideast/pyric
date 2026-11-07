@@ -37,6 +37,7 @@ import { hasValidReplyOutcome, snapshotError } from '../../serve/worker/outbound
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
 import { createWorkerSessions } from './worker-sessions.js';
 import { createCallerIdentity, type CallerIdentityStore } from '../../auth/identity.js';
+import { createTabTools, type TabTools } from './tab-tools.js';
 
 /** The tool result shape the bridge emits. */
 export type BridgeToolResult = ToolResult;
@@ -65,6 +66,11 @@ export interface BridgeOptions {
    * The bridge does not own audit-log persistence.
    */
   onToolEvent?: (event: BridgeToolEvent) => void;
+  /**
+   * A live host's routing of a forwarded call: a tab's answer or a refusal,
+   * or undefined to forward it to the sandbox peer as usual.
+   */
+  tabRoute?: (tabs: TabTools, name: string, args: Record<string, unknown>) => Promise<ToolResult> | ToolResult | undefined;
 }
 
 /**
@@ -136,6 +142,8 @@ export interface Bridge {
    * `tool-call` frame as `actAs`, and the peer runs the tool under it.
    */
   readonly callerIdentity: CallerIdentityStore;
+  /** Tools a connected tab of the app answers; a live host sends service reads there. */
+  readonly tabTools: TabTools;
   /** Broadcast presence snapshot to sandbox peer and Studio consumers. */
   broadcastConsumerPresence(): void;
   /**
@@ -306,6 +314,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     close: disconnectConsumer,
   });
   const callerIdentity = createCallerIdentity();
+  const tabTools = createTabTools(callTimeoutMs);
 
   function broadcastConsumerPresence(): void {
     consumers.broadcastPresence(peer?.send);
@@ -419,7 +428,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
     const startedAtMs = Date.now();
     let result: BridgeToolResult;
     try {
-      result = await dispatchSandbox(name, args, signal, callerId);
+      const routed = opts.tabRoute?.(tabTools, name, args);
+      result = await (routed ?? dispatchSandbox(name, args, signal, callerId));
     } catch (err) {
       const isError = err instanceof Error;
       result = {
@@ -779,6 +789,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     consumers,
     workerSessions,
     callerIdentity,
+    tabTools,
     broadcastConsumerPresence,
     recordToolEvent,
     registerSandboxPeer,
