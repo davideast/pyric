@@ -17,7 +17,9 @@
  *
  * Each Google host no row observes gets one "unobserved" line, and the
  * process health lists it, with the Admin subpath no row serves and App
- * Check, whose row gates its calls but records none. The project gate still
+ * Check, whose row gates its calls but records none. The process sends the
+ * same lists to the live host, whose health lists them under the process's
+ * client while it runs. The project gate still
  * holds: the live project's regional Realtime Database instance and the
  * instance firebase.json names open, and `<project>-prod-default-rtdb`,
  * another project's instance, an instance firebase.json doesn't name, and
@@ -95,9 +97,18 @@ function unobservedLines(output: string, host: string): number {
 }
 
 /** Runs the backend under the live register, from the app's project, with its instrumentation installed as `instrument` says. */
-function runBackend(app: App, instrument: 'assign' | 'define') {
-  return app.command('node', ['--import', ENTRY, 'server.mjs'], { env: { INSTRUMENT: instrument }, timeoutMs: 90_000 });
+function runBackend(app: App, hostUrl: string, instrument: 'assign' | 'define') {
+  return app.command('node', ['--import', ENTRY, 'server.mjs'], { env: { INSTRUMENT: instrument, LIVE_HOST_URL: hostUrl }, timeoutMs: 90_000 });
 }
+
+/** A Node client as the live host's health lists it. */
+interface HostNodeClient {
+  clientId?: string;
+  unobserved?: string[];
+  unobservedAdmin?: string[];
+  gatedAdmin?: string[];
+}
+
 
 /**
  * One run's checks: everything goes out, each unobserved host is named once,
@@ -105,11 +116,11 @@ function runBackend(app: App, instrument: 'assign' | 'define') {
  * `sendsBefore` is how many the host held before this run.
  */
 async function checkBackend(app: App, hostUrl: string, instrument: 'assign' | 'define', sendsBefore: number): Promise<void> {
-  const run = await runBackend(app, instrument);
+  const run = await runBackend(app, hostUrl, instrument);
   assert.equal(run.code, 0, run.output);
   assert.match(run.output, new RegExp(`${ENTRY}: live mode for the Firebase project ${PROJECT}\\.`));
   assert.doesNotMatch(run.output, /PYRIC_GUARD_BLOCKED|net-guard BLOCK/);
-  const { trapped, health, callbackRequests, ...outcome } = jobOutcome(run.output);
+  const { trapped, health, callbackRequests, hostNodeClients: listedByHost, ...outcome } = jobOutcome(run.output);
   assert.deepEqual(outcome, {
     instrument,
     adcLookup: 'order-owner',
@@ -151,6 +162,14 @@ async function checkBackend(app: App, hostUrl: string, instrument: 'assign' | 'd
   assert.deepEqual([...unobserved].sort(), UNOBSERVED);
   assert.deepEqual(unobservedAdmin, ['firebase-admin/remote-config']);
   assert.deepEqual(gatedAdmin, ['firebase-admin/app-check']);
+  // While the backend ran, the live host's health listed the same lists under its client: hosts and subpath names only.
+  const withLists = (listedByHost as HostNodeClient[]).filter((client) => client.unobserved !== undefined);
+  assert.equal(withLists.length, 1, `one Node client of this run lists them: ${JSON.stringify(listedByHost)}`);
+  const [listed] = withLists;
+  assert.ok(typeof listed!.clientId === 'string' && listed!.clientId !== '', 'named by its client id');
+  assert.deepEqual([...listed!.unobserved!].sort(), UNOBSERVED);
+  assert.deepEqual(listed!.unobservedAdmin, ['firebase-admin/remote-config']);
+  assert.deepEqual(listed!.gatedAdmin, ['firebase-admin/app-check']);
   // The Messaging row recorded the send, and the host captured it as an Admin call, as it does a Firestore or Auth call.
   const sends = await eventually(() => messagingEvents(hostUrl), (events) => events.length > sendsBefore, 'the Messaging.send event');
   assert.equal(sends.length, sendsBefore + 1, 'one event for the one send');

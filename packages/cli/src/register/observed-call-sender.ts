@@ -4,9 +4,10 @@
  * of its own. The host stamps the caller from that connection, a Node
  * process, so the row reads "Node process".
  *
- * Only the live rows' observer module imports this, by the file URL the
- * register gives it (`supplied-entry.ts`); nothing else in `@pyric/cli`
- * does. The connection finds the host as the Node client does
+ * The live rows' observer module imports this, by the file URL the
+ * register gives it (`supplied-entry.ts`), and the register imports it the
+ * same way when the process first leaves something unobserved, to send its
+ * unobserved lists (`unobserved-forward.ts`) on the same connection. The connection finds the host as the Node client does
  * (`./client/bootstrap.ts`): `PYRIC_SANDBOX=remote:<url>`, or the host
  * `.pyric/serve.json` names. It opens at the first observed call.
  *
@@ -17,6 +18,7 @@
  */
 import './client/bootstrap.js';
 import type { ObservedCall } from 'pyric/sandbox';
+import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
 import { openWorkerDb } from '../serve/entries/worker-runtime.js';
 import { nextId, rpc } from '../serve/worker/client/core.js';
 import { disconnectClient } from '../serve/worker/client/disconnect.js';
@@ -63,4 +65,10 @@ function nodeClient(): string {
 export async function sendObservedCall(call: ObservedCall): Promise<void> {
   connection ??= openConnection();
   await rpc(connection.port, { t: 'observe', id: nextId(), call, nodeClient: nodeClient() });
+}
+
+/** Sends the process's unobserved lists, bounded. Rejects when the process cannot reach the Node host. */
+export async function sendUnobservedLists(lists: NodeUnobservedLists): Promise<void> {
+  connection ??= openConnection();
+  await rpc(connection.port, { t: 'unobserved', id: nextId(), ...lists });
 }

@@ -44,6 +44,8 @@ import {
 } from './supplied-rows.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { installProcessHealth } from './process-health.js';
+import { createUnobservedForwarder, type UnobservedForwarder } from './unobserved-forward.js';
+import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
 
 export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
 export { ADMIN_ROW_LOADS, ADMIN_ROW_URLS, adminRowOfUrl, type AdminRowName } from './admin-row.js';
@@ -164,7 +166,7 @@ export function adminUnobservedLine(subpath: string): string {
   return `${LOG_PREFIX}: ${subpath} loads unobserved. Live mode lets it reach Google with your credential, and no row records its calls.`;
 }
 
-function createAdminUnobserved(write: (line: string) => void): AdminUnobserved {
+function createAdminUnobserved(write: (line: string) => void, changed: () => void): AdminUnobserved {
   const loaded: string[] = [];
   const gated: string[] = [];
   return {
@@ -172,10 +174,13 @@ function createAdminUnobserved(write: (line: string) => void): AdminUnobserved {
       if (loaded.includes(subpath)) return;
       loaded.push(subpath);
       write(`${adminUnobservedLine(subpath)}\n`);
+      changed();
     },
     list: () => [...loaded],
     noteGated(subpath) {
-      if (!gated.includes(subpath)) gated.push(subpath);
+      if (gated.includes(subpath)) return;
+      gated.push(subpath);
+      changed();
     },
     gated: () => [...gated],
   };
@@ -289,6 +294,16 @@ function unobservedFields(
   };
 }
 
+/**
+ * Sends the lists to the live host on the connection observed calls use
+ * (`observed-call-sender.ts`), which loads at the first send, so a process
+ * that leaves nothing unobserved never loads it for this.
+ */
+async function sendToLiveHost(lists: NodeUnobservedLists): Promise<void> {
+  const { sendUnobservedLists } = await import('./observed-call-sender.js');
+  await sendUnobservedLists(lists);
+}
+
 /** What the register entry gives the seam. */
 export interface SuppliedRowsActivation {
   /**
@@ -345,12 +360,16 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   const adminRows = input.adminRows === true;
   // First, before any hook: the network report (`live-net-guard.ts`). It never
   // refuses a call, and names each Google host no live row observes.
-  const network = installLiveNetGuard({ adminRows });
+  // Each list sent to the live host when it first gains an entry and on each change, so the host's health lists them.
+  let forwarder: UnobservedForwarder | undefined;
+  const changed = (): void => forwarder?.changed();
+  const network = installLiveNetGuard({ adminRows, onUnobserved: changed });
   // The installed SDK files the stop let load.
   const allowedUrls = new Set<string>();
   // Stays empty unless `firebase-admin` passes through: only an app's own import of it starts the tree.
   const adminTree = new Set<string>();
-  const adminUnobserved = createAdminUnobserved((line) => void process.stderr.write(line));
+  const adminUnobserved = createAdminUnobserved((line) => void process.stderr.write(line), changed);
+  forwarder = createUnobservedForwarder({ read: () => unobservedFields(network.unobserved(), adminUnobserved), send: sendToLiveHost });
   const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
   const rows = registerRows(passThrough, adminRows);
   rows.open(installed.rows);

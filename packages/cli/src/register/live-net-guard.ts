@@ -199,6 +199,8 @@ export interface LiveNetReportOptions extends NetGuardHooks {
   readonly adminRows?: boolean;
   /** What each line starts with. Defaults to `@pyric/live/register`. */
   readonly logPrefix?: string;
+  /** Called after each host joins the unobserved list, so the register can send the list to the live host. */
+  readonly onUnobserved?: () => void;
 }
 
 /** The installed report. */
@@ -223,6 +225,7 @@ export function installLiveNetGuard(options: LiveNetReportOptions = {}): LiveNet
     const shared = ledger();
     if (!shared.includes(host)) shared.push(host);
     write(`${liveUnobservedLine(prefix, host, service)}\n`);
+    options.onUnobserved?.();
   };
   const reporterOptions: ReporterOptions = {
     mode: 'block',
