@@ -16,7 +16,9 @@
  * A supplier may also name served specifiers that pass through
  * (`passThrough`): each loads the app's installed SDK unwrapped, with no row
  * and no observer, as a row module's own import does. Only a specifier with
- * no live row can pass through, and `firebase-admin` never does.
+ * no live row can pass through. `firebase-admin` may be listed too, but it
+ * passes through only to a Node process under the live register
+ * (`../register/supplied-entry.ts`): a page still refuses it.
  *
  * `pyric()` supplies no rows. A plugin gets them only through
  * `@pyric/cli/vite/internal/supplied-rows`, which takes no module ids.
@@ -80,8 +82,12 @@ export interface SuppliedRows {
    * supplier did not say.
    */
   readonly liveRoot?: string;
-  /** The served specifiers with no row that load the installed SDK unwrapped and unobserved. */
-  readonly passThrough: ReadonlySet<ServedFirebaseSpecifier>;
+  /**
+   * The served specifiers with no row that load the installed SDK unwrapped
+   * and unobserved, and `firebase-admin` when the supplier lists it for its
+   * Node processes.
+   */
+  readonly passThrough: ReadonlySet<PassThroughSpecifier>;
   /** The installed `@pyric/live`, or null while the rows are shut. */
   package(): RowModulePackage | null;
   /** Opens the rows with the installed package (`vite-live-package.ts`). */
@@ -101,22 +107,39 @@ export interface SuppliedRows {
  */
 const ROW_SERVICE_SPECIFIERS: ReadonlySet<ServedFirebaseSpecifier> = new Set<ServedFirebaseSpecifier>(['firebase/firestore/lite']);
 
-/** The specifiers a supplier may pass through: every served one with no live row, and no row's service. */
-const PASS_THROUGH_SPECIFIERS: ReadonlySet<string> = new Set(
-  SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier) && !ROW_SERVICE_SPECIFIERS.has(specifier)),
-);
+/**
+ * The Admin SDK entry a supplier may list. It passes through only to a Node
+ * process under the live register, which loads the real `firebase-admin`
+ * with the app's own credential (`../register/supplied-entry.ts`); pages and
+ * server code Vite runs still refuse it.
+ */
+export const ADMIN_PASS_THROUGH = 'firebase-admin';
+
+/** A specifier a supplier may pass through: a served one with no live row, or `firebase-admin`. */
+export type PassThroughSpecifier = ServedFirebaseSpecifier | typeof ADMIN_PASS_THROUGH;
+
+/** The specifiers a supplier may pass through: every served one with no live row, no row's service, and `firebase-admin`. */
+const PASS_THROUGH_SPECIFIERS: ReadonlySet<string> = new Set([
+  ...SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier) && !ROW_SERVICE_SPECIFIERS.has(specifier)),
+  ADMIN_PASS_THROUGH,
+]);
 
 /**
  * The pass-through set, or a throw naming each entry that cannot pass
  * through. The Node register checks its list with this too
  * (`../register/supplied-entry.ts`).
  */
-export function passThroughSet(listed: readonly string[]): ReadonlySet<ServedFirebaseSpecifier> {
+export function passThroughSet(listed: readonly string[]): ReadonlySet<PassThroughSpecifier> {
   const invalid = listed.filter((specifier) => !PASS_THROUGH_SPECIFIERS.has(specifier));
   if (invalid.length > 0) {
     throw new Error(`pyric: ${invalid.join(', ')} cannot pass through: only ${[...PASS_THROUGH_SPECIFIERS].join(', ')} can.`);
   }
-  return new Set(listed as readonly ServedFirebaseSpecifier[]);
+  return new Set(listed as readonly PassThroughSpecifier[]);
+}
+
+/** Whether the pass-through set lists `firebase-admin`, for the Node processes under the live register. */
+export function passesAdminThrough(passThrough: ReadonlySet<PassThroughSpecifier>): boolean {
+  return passThrough.has(ADMIN_PASS_THROUGH);
 }
 
 /** The `@firebase/*` packages that `firebase/installations` serves to the services that import it. */
@@ -128,9 +151,11 @@ const INSTALLATIONS_USERS: ReadonlySet<string> = new Set(['messaging', 'analytic
  * `@firebase/messaging`), and `@firebase/installations` for the services
  * that import it.
  */
-export function passThroughSdkPackages(passThrough: ReadonlySet<ServedFirebaseSpecifier>): Set<string> {
+export function passThroughSdkPackages(passThrough: ReadonlySet<PassThroughSpecifier>): Set<string> {
   const packages = new Set<string>();
   for (const specifier of passThrough) {
+    // The Admin SDK's own tree is recorded as it loads, on the Node plane only.
+    if (specifier === ADMIN_PASS_THROUGH) continue;
     const service = specifier.slice('firebase/'.length).split('/')[0]!;
     packages.add(`@firebase/${service}`);
     if (INSTALLATIONS_USERS.has(service)) packages.add('@firebase/installations');
@@ -219,7 +244,9 @@ export function suppliedRowsResolution(rows: SuppliedRows, source: string, impor
     const isSdkOwnImport = isOpen && isLoadedSdkFile(rows, importer);
     return isSdkOwnImport ? { kind: 'unserved' } : { kind: 'refused', error: rows.refusal(source, 'page') };
   }
-  const isPassThrough = isOpen && rows.passThrough.has(source as ServedFirebaseSpecifier);
+  // `firebase-admin` passes through to Node processes only: a page still refuses it.
+  const isPageSpecifier = source !== ADMIN_PASS_THROUGH;
+  const isPassThrough = isOpen && isPageSpecifier && rows.passThrough.has(source as PassThroughSpecifier);
   if (isPassThrough) return { kind: 'pass-through' };
   const id = ROW_MODULE_IDS.get(source as ServedFirebaseSpecifier);
   const isShut = rows.package() === null;

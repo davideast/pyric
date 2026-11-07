@@ -156,7 +156,7 @@ for (const hosted of [false, true]) {
         await page.locator('[data-sources-back]').click();
 
         // Overview draws a box wherever the listener has a page position.
-        await page.getByRole('button', { name: 'Overview', exact: true }).click();
+        await page.locator('[data-listener-mode=overview]').click();
         const eye = row(page).locator('[data-highlight-source]');
         if (located[kind]) {
           await expect(box(page).first()).toBeVisible();
@@ -177,7 +177,7 @@ for (const hosted of [false, true]) {
         if (kind === 'react') {
           await expect(flow).toBeEnabled();
           await flow.click();
-          await expect(flow).toHaveAttribute('aria-pressed', 'true');
+          await expect(flow).toHaveAttribute('aria-selected', 'true');
           await page.locator('#write').click();
           await expect(page.locator('#live')).toHaveText('Listener v3');
           await expect(page.locator('[data-pyric-flow]').first()).toBeAttached();

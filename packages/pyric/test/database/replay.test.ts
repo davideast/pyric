@@ -21,7 +21,7 @@ import {
   update,
   sandbox as rtdbSandbox,
 } from '../../src/database/index.js';
-import { replay } from '../../src/sandbox/internal/index.js';
+import { observedCallEvent, replay } from '../../src/sandbox/internal/index.js';
 
 const ALLOW_ALL = { rules: { '.read': true, '.write': true } };
 const DENY_ALL = { rules: { '.read': false, '.write': false } };
@@ -68,6 +68,20 @@ async function captureJourney() {
 }
 
 describe('database replay()', () => {
+  it("skips calls production served, whose allow and deny are production's, not the captured rules'", async () => {
+    const live = { service: 'rtdb' as const, at: 1, projectId: 'demo-app', instance: 'demo-app-default-rtdb', account: { uid: 'alice' } };
+    const events = [
+      observedCallEvent({ ...live, method: 'get', path: '/rooms/r1', outcome: { status: 'ok' } }),
+      observedCallEvent({ ...live, method: 'set', path: '/rooms/r2', outcome: { status: 'error', code: 'permission_denied' } }),
+    ];
+    expect(events.map((event) => 'result' in event && event.result)).toEqual(['allow', 'deny']);
+    for (const rules of [DENY_ALL, ALLOW_ALL]) {
+      const result = await replay(events, { rules });
+      expect(result.divergences).toEqual([]);
+      expect(result.checkedEvents).toBe(0);
+    }
+  });
+
   it('replays set, update, remove, and transaction commits through RTDB rules', async () => {
     const captured = await captureJourney();
     const result = await replay(captured.events, {

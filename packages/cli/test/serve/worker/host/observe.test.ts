@@ -10,10 +10,12 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
+import { activeListeners, initializeSandbox, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
+import { incidentsFromEvents } from '../../../../src/serve/runtime/listener-incidents.js';
 import { getFirestore } from 'pyric/firestore';
-import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
+import { cleanupPort, handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { markPortConnection } from '../../../../src/serve/worker/host/caller.js';
+import { heldLiveCallValueCount, liveCallValues, observedPortInterrupted, observedPortResumed } from '../../../../src/serve/worker/host/observe.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { requestEnvelopeError } from '../../../../src/bridge/server/request-envelope.js';
 import type { BridgeMessage } from '../../../../src/bridge/protocol.js';
@@ -76,6 +78,7 @@ describe('host: observed calls', () => {
       method: 'getDoc',
       path: 'rooms/r1',
       auth: { uid: 'alice' },
+      result: 'deny',
       caller: { kind: 'page', pageId },
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'error', code: 'permission-denied' }, claimNames: ['admin'] },
@@ -173,6 +176,7 @@ describe('host: observed calls', () => {
       path: 'pyric-live-capture/replay/a.bin',
       detail: { bucket: 'demo-project-live-second' },
       auth: { uid: 'alice' },
+      result: 'deny',
       caller: { kind: 'page', pageId },
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'error', code: 'storage/unauthorized' } },
@@ -205,6 +209,7 @@ describe('host: observed calls', () => {
       method: 'getToken',
       detail: { requests },
       auth: { uid: 'alice' },
+      result: 'deny',
       caller: { kind: 'page', pageId },
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'error', code: 'permission_denied' } },
@@ -228,6 +233,78 @@ describe('host: observed calls', () => {
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
     });
     expect(event?.kind === 'operation' ? event.production : undefined).toEqual({ outcome: { status: 'ok' }, usage, billedDocuments: 3 });
+  });
+
+  it("writes a server process's Admin call as bypassing rules under the Admin lens, with production's answer", async () => {
+    const ctx = makeCtx();
+    const viewer = fakePort();
+    await subscribe(ctx, viewer);
+    const server = fakePort();
+    markPortConnection(ctx, server, 'node');
+    const call = {
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      at: 1,
+      durationMs: 9,
+      outcome: { status: 'error', code: 'not-found' },
+      projectId: 'demo-project',
+      writeData: { title: 'x' },
+      sdk: 'admin',
+    };
+    expect(await observe(ctx, server, { call })).toMatchObject({ ok: true });
+    const [event] = streamed(viewer);
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      result: 'error',
+      caller: { kind: 'node', clientId: expect.any(String) },
+      authLens: { mode: 'admin' },
+      detail: { sdk: 'admin' },
+      rulesDisposition: { kind: 'bypassed', reason: 'admin' },
+      production: { outcome: { status: 'error', code: 'not-found' } },
+    });
+    // Admin calls bypass Security Rules, so the host records no local verdict.
+    expect(event?.kind === 'operation' ? event.production : undefined).toEqual({ outcome: { status: 'error', code: 'not-found' } });
+  });
+
+  it("writes a server process's Admin Messaging call as an Admin operation, with production's answer", async () => {
+    const ctx = makeCtx();
+    const viewer = fakePort();
+    await subscribe(ctx, viewer);
+    const server = fakePort();
+    markPortConnection(ctx, server, 'node');
+    const before = ctx.sandbox.history().length;
+    const call = { service: 'messaging', method: 'Messaging.send', at: 1, outcome: { status: 'ok' }, projectId: 'demo-project', sdk: 'admin' };
+    expect(await observe(ctx, server, { call })).toMatchObject({ ok: true });
+    expect(ctx.sandbox.history().length).toBe(before + 1);
+    const [event] = streamed(viewer);
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'messaging',
+      method: 'Messaging.send',
+      caller: { kind: 'node', clientId: expect.any(String) },
+      detail: { sdk: 'admin' },
+      production: { outcome: { status: 'ok' } },
+    });
+  });
+
+  it('refuses sdk on an AI call, and any value but admin, and writes nothing', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const before = ctx.sandbox.history().length;
+    const malformed: unknown[] = [
+      { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m' }, sdk: 'admin' },
+      { ...DENIED_READ, sdk: 'client' },
+      { service: 'messaging', method: 'Messaging.send', at: 1, outcome: { status: 'ok' }, sdk: 'client' },
+    ];
+    for (const call of malformed) {
+      expect(await observe(ctx, page, { call })).toMatchObject({ t: 'res', ok: false, error: { code: 'invalid-argument' } });
+    }
+    expect(ctx.sandbox.history().length).toBe(before);
   });
 
   it('refuses a malformed record with invalid-argument and writes nothing', async () => {
@@ -280,9 +357,266 @@ describe('host: observed calls', () => {
     expect(ctx.sandbox.history().map((event) => event.kind)).toEqual(['operation']);
   });
 
+  it("keeps a live call's values only while the history holds its event", async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const withValues = { ...DENIED_READ, account: { uid: 'alice', claims: { admin: true } } };
+    for (let round = 0; round < 3; round++) {
+      for (let index = 0; index < 300; index++) await observe(ctx, page, { call: withValues });
+      ctx.sandbox.reset();
+    }
+    // Observing alone prunes what earlier resets dropped: the last round's 300 and at most one earlier round's.
+    expect(heldLiveCallValueCount(ctx.sandbox)).toBeLessThanOrEqual(600);
+    expect(liveCallValues(ctx.sandbox).size).toBe(0);
+    await observe(ctx, page, { call: withValues });
+    const held = ctx.sandbox.history().filter((event) => event.kind === 'operation').map((event) => event.id);
+    expect([...liveCallValues(ctx.sandbox).keys()]).toEqual(held);
+  });
+
   it('admits an observed call through the bridge socket envelope only with a request id', () => {
     const envelope = (message: Record<string, unknown>) => ({ type: 'worker-message', message }) as unknown as BridgeMessage;
     expect(requestEnvelopeError(envelope({ t: 'observe', id: 'o1', call: DENIED_READ }))).toBeUndefined();
     expect(requestEnvelopeError(envelope({ t: 'observe', call: DENIED_READ }))).toBe('Invalid worker message envelope.');
+  });
+});
+
+/** A live `onSnapshot` on one document, as the row records its attach or detach. */
+function roomListener(phase: 'attach' | 'detach', id: string, at = 1_700_000_000_000): ObservedCall {
+  return {
+    service: 'firestore',
+    method: 'onSnapshot',
+    path: 'rooms/r1',
+    at,
+    outcome: { status: 'ok' },
+    account: { uid: 'alice' },
+    listener: { phase, id, target: 'rooms/r1', key: '0123456789abcdef' },
+  };
+}
+
+describe('host: observed listener lifecycle', () => {
+  it('writes attach and detach as listener events with the caller, and no production answer', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const pageId = await subscribe(ctx, page);
+    expect(await observe(ctx, page, { call: roomListener('attach', 'l-1') })).toMatchObject({ ok: true });
+    expect(await observe(ctx, page, { call: roomListener('detach', 'l-1', 1_700_000_000_500) })).toMatchObject({ ok: true });
+    const [attach, detach] = streamed(page);
+    const shared = {
+      kind: 'listener',
+      service: 'firestore',
+      target: { kind: 'doc', path: 'rooms/r1' },
+      auth: { uid: 'alice' },
+      caller: { kind: 'page', pageId },
+      activity: { listenerId: 'l-1' },
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      operationContext: { source: { kind: 'app' } },
+    };
+    expect(attach).toMatchObject({ ...shared, phase: 'attach' });
+    expect(detach).toMatchObject({ ...shared, phase: 'detach', listenerId: (attach as { listenerId: string }).listenerId });
+    expect(attach).not.toHaveProperty('production');
+    expect(ctx.sandbox.history().map((event) => event.kind)).toEqual(['listener', 'listener']);
+  });
+
+  it("keeps a page's and a Node process's listeners apart when both mint the same id", async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const server = fakePort();
+    markPortConnection(ctx, server, 'node');
+    await observe(ctx, page, { call: roomListener('attach', 'l-1') });
+    await observe(ctx, server, { call: roomListener('attach', 'l-1') });
+    expect(activeListeners(ctx.sandbox.history())).toEqual([
+      expect.objectContaining({ target: 'rooms/r1', clientListenerId: 'l-1' }),
+      expect.objectContaining({ target: 'rooms/r1', clientListenerId: 'l-1' }),
+    ]);
+    await observe(ctx, server, { call: roomListener('detach', 'l-1') });
+    const [left] = activeListeners(ctx.sandbox.history());
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(1);
+    expect(left?.attachedAt).toBe(1_700_000_000_000);
+    const pageAttach = ctx.sandbox.history()[0] as { listenerId: string; caller?: { kind: string } };
+    expect(pageAttach.caller?.kind).toBe('page');
+    expect(left?.id).toBe(pageAttach.listenerId);
+  });
+
+  it('raises the duplicate-listener and churn incidents the activity monitor reads', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    for (const id of ['d-1', 'd-2', 'd-3']) await observe(ctx, page, { call: roomListener('attach', id) });
+    for (let cycle = 0; cycle < 4; cycle++) {
+      const at = 1_700_000_001_000 + cycle * 100;
+      const churn = (phase: 'attach' | 'detach') => ({ ...roomListener(phase, `c-${cycle}`, at), path: 'rooms/r2', listener: { phase, id: `c-${cycle}`, target: 'rooms/r2' } });
+      await observe(ctx, page, { call: churn('attach') });
+      await observe(ctx, page, { call: churn('detach') });
+    }
+    const patterns = incidentsFromEvents(ctx.sandbox.history()).map((incident) => incident.pattern);
+    expect(patterns).toContain('duplicate-listener');
+    expect(patterns).toContain('listener-churn');
+  });
+
+  it('refuses a listener record that carries a value, and writes nothing', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const attach = roomListener('attach', 'l-1');
+    const malformed = [
+      { ...attach, listener: { ...attach.listener, target: 'a'.repeat(1501) } },
+      { ...attach, listener: { ...attach.listener, key: JSON.stringify(['doc', 'rooms/r1']) } },
+      { ...attach, listener: { ...attach.listener, phase: 'delivery' } },
+      { ...attach, service: 'storage', bucket: 'demo.firebasestorage.app' },
+    ];
+    for (const call of malformed) {
+      expect(await observe(ctx, page, { call })).toMatchObject({ ok: false, error: { code: 'invalid-argument' } });
+    }
+    expect(ctx.sandbox.history()).toEqual([]);
+  });
+});
+
+describe('host: listeners a port leaves behind', () => {
+  it('scopes the same page-minted id apart on two ports that name no page or client', async () => {
+    const ctx = makeCtx();
+    const first = fakePort();
+    const second = fakePort();
+    await observe(ctx, first, { call: roomListener('attach', 'l-1') });
+    await observe(ctx, second, { call: roomListener('attach', 'l-1') });
+    const [one, two] = ctx.sandbox.history() as Array<{ listenerId: string }>;
+    expect(one?.listenerId).not.toBe(two?.listenerId);
+    await observe(ctx, second, { call: roomListener('detach', 'l-1') });
+    expect(activeListeners(ctx.sandbox.history()).map((listener) => listener.id)).toEqual([one!.listenerId]);
+  });
+
+  it('detaches, when the port closes, only the listeners it never detached', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    await observe(ctx, page, { call: roomListener('attach', 'l-1') });
+    await observe(ctx, page, { call: roomListener('attach', 'l-2') });
+    await observe(ctx, page, { call: roomListener('detach', 'l-2') });
+    const before = ctx.sandbox.history().length;
+    cleanupPort(ctx, page);
+    const swept = ctx.sandbox.history().slice(before) as Array<{ kind: string; phase: string; activity?: { listenerId?: string } }>;
+    expect(swept.map((event) => [event.kind, event.phase, event.activity?.listenerId])).toEqual([['listener', 'detach', 'l-1']]);
+    expect(activeListeners(ctx.sandbox.history())).toEqual([]);
+    cleanupPort(ctx, page);
+    expect(ctx.sandbox.history()).toHaveLength(before + 1);
+  });
+
+  it('detaches the oldest listener when a port holds more than it keeps, so it stops counting as active', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const held = 1024;
+    for (let index = 0; index <= held; index++) await observe(ctx, page, { call: roomListener('attach', `l-${index}`) });
+    const active = activeListeners(ctx.sandbox.history());
+    expect(active).toHaveLength(held);
+    expect(active.map((listener) => listener.clientListenerId)).not.toContain('l-0');
+    const oldest = ctx.sandbox.history().filter((event) => event.kind === 'listener' && event.activity?.listenerId === 'l-0');
+    expect(oldest.map((event) => (event as { phase: string }).phase)).toEqual(['attach', 'detach']);
+    const before = ctx.sandbox.history().length;
+    cleanupPort(ctx, page);
+    expect(ctx.sandbox.history()).toHaveLength(before + held);
+    expect(activeListeners(ctx.sandbox.history())).toEqual([]);
+  });
+
+  it('counts duplicate listeners per connection: a page and a Node process with two each raise none', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const server = nodePort(ctx);
+    for (const id of ['l-1', 'l-2']) {
+      await observe(ctx, page, { call: roomListener('attach', id) });
+      await observe(ctx, server, { call: roomListener('attach', id) });
+    }
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(4);
+    expect(incidentsFromEvents(ctx.sandbox.history()).map((incident) => incident.pattern)).not.toContain('duplicate-listener');
+    await observe(ctx, page, { call: roomListener('attach', 'l-3') });
+    const duplicates = incidentsFromEvents(ctx.sandbox.history()).filter((incident) => incident.pattern === 'duplicate-listener');
+    expect(duplicates.map((incident) => incident.count)).toEqual([3]);
+  });
+
+  it('raises no duplicate-listener incident when a reloaded page attaches its listeners again', async () => {
+    const ctx = makeCtx();
+    for (let load = 0; load < 3; load++) {
+      const page = fakePort();
+      for (const id of ['l-1', 'l-2']) {
+        await observe(ctx, page, { call: roomListener('attach', id, 1_700_000_000_000 + load * 10_000) });
+      }
+      cleanupPort(ctx, page);
+    }
+    expect(activeListeners(ctx.sandbox.history())).toEqual([]);
+    const patterns = incidentsFromEvents(ctx.sandbox.history()).map((incident) => incident.pattern);
+    expect(patterns).not.toContain('duplicate-listener');
+  });
+});
+
+/** A Node host socket, as the hosted runtime admits a server process's connection. */
+function nodePort(ctx: HostCtx): FakePort {
+  const port = fakePort();
+  markPortConnection(ctx, port, 'node');
+  return port;
+}
+
+/** The label the live rows' sender sends for one project root and entry script. */
+const ENTRY = '5f1d2c3b4a5968778695a4b3c2d1e0f1';
+
+describe('host: listeners a restarted Node process leaves behind', () => {
+  it('detaches the old connection\'s listeners when the same entry script connects again', async () => {
+    const ctx = makeCtx();
+    for (let run = 0; run < 3; run++) {
+      const job = nodePort(ctx);
+      await observe(ctx, job, { call: roomListener('attach', 'l-1', 1_700_000_000_000 + run * 1_000), nodeClient: ENTRY });
+      observedPortInterrupted(ctx, job);
+    }
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(1);
+    const patterns = incidentsFromEvents(ctx.sandbox.history()).map((incident) => incident.pattern);
+    expect(patterns).not.toContain('duplicate-listener');
+  });
+
+  it('detaches them when the old connection closes after the new one attached', async () => {
+    const ctx = makeCtx();
+    const before = nodePort(ctx);
+    const after = nodePort(ctx);
+    await observe(ctx, before, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    await observe(ctx, after, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(2);
+    observedPortInterrupted(ctx, before);
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(1);
+  });
+
+  it('leaves two running processes of one entry script their own listeners', async () => {
+    const ctx = makeCtx();
+    for (const worker of [nodePort(ctx), nodePort(ctx)]) {
+      await observe(ctx, worker, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    }
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(2);
+  });
+
+  it('keeps the listeners of a connection that resumed before the next one attached', async () => {
+    const ctx = makeCtx();
+    const job = nodePort(ctx);
+    await observe(ctx, job, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    observedPortInterrupted(ctx, job);
+    observedPortResumed(ctx, job);
+    await observe(ctx, nodePort(ctx), { call: roomListener('attach', 'l-2'), nodeClient: ENTRY });
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(2);
+  });
+
+  it('leaves another entry script\'s listeners and a page\'s alone', async () => {
+    const ctx = makeCtx();
+    const other = nodePort(ctx);
+    const page = fakePort();
+    await observe(ctx, other, { call: roomListener('attach', 'l-1'), nodeClient: 'another-entry' });
+    await observe(ctx, page, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    observedPortInterrupted(ctx, other);
+    observedPortInterrupted(ctx, page);
+    await observe(ctx, nodePort(ctx), { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(3);
+  });
+
+  it('refuses a node client label that is not a short string, and writes nothing', async () => {
+    const ctx = makeCtx();
+    for (const nodeClient of [7, '', 'x'.repeat(65)]) {
+      const reply = await observe(ctx, nodePort(ctx), { call: roomListener('attach', 'l-1'), nodeClient });
+      expect(reply).toMatchObject({ t: 'res', ok: false, error: { code: 'invalid-argument' } });
+    }
+    expect(ctx.sandbox.history()).toEqual([]);
   });
 });

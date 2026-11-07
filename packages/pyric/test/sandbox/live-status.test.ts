@@ -10,6 +10,7 @@ import {
   createBilledCallCounter,
   createLiveStatusPoller,
   liveMismatchLine,
+  livePassThroughLine,
   liveProjectOf,
   readLiveHostStatus,
 } from '../../src/sandbox/internal/index.js';
@@ -31,10 +32,28 @@ describe('billedCallKind', () => {
     for (const method of ['getDoc', 'getDocs', 'getDocFromServer', 'getDocsFromServer', 'getCountFromServer', 'getAggregateFromServer']) {
       expect(billedCallKind(call(method)), method).toBe('read');
     }
-    for (const method of ['setDoc', 'updateDoc', 'deleteDoc', 'addDoc', 'runTransaction']) {
+    for (const method of ['setDoc', 'updateDoc', 'deleteDoc', 'addDoc', 'runTransaction', 'writeBatch']) {
       expect(billedCallKind(call(method)), method).toBe('write');
     }
     for (const method of ['onSnapshot', 'onSnapshotResume']) expect(billedCallKind(call(method)), method).toBe('delivery');
+  });
+
+  it('counts each Admin Firestore call as the client method it bills as', () => {
+    for (const method of ['DocumentReference.get', 'Query.get', 'AggregateQuery.get', 'Firestore.getAll']) {
+      expect(billedCallKind(call(method)), method).toBe('read');
+    }
+    const writes = ['DocumentReference.set', 'DocumentReference.update', 'DocumentReference.delete', 'DocumentReference.create', 'CollectionReference.add', 'WriteBatch.commit', 'Firestore.runTransaction'];
+    for (const method of writes) expect(billedCallKind(call(method)), method).toBe('write');
+    for (const method of ['DocumentReference.onSnapshot', 'Query.onSnapshot']) expect(billedCallKind(call(method)), method).toBe('delivery');
+    expect(billedCallKind(call('DocumentReference.listCollections'))).toBeNull();
+    expect(billedCallKind(call('Auth.getUser', { status: 'ok' }, 'auth'))).toBeNull();
+  });
+
+  it('counts an Admin Query.get by the documents it returned', () => {
+    const counter = createBilledCallCounter();
+    counter.addCall({ ...call('Query.get'), usage: { documentReads: 3 } });
+    counter.addCall({ ...call('WriteBatch.commit'), usage: { documentWrites: 2 } });
+    expect(counter.count()).toEqual({ reads: 3, writes: 2, deliveries: 0 });
   });
 
   it('leaves out failures, cache reads and Auth calls', () => {
@@ -43,6 +62,16 @@ describe('billedCallKind', () => {
     expect(billedCallKind(call('getDocFromCache'))).toBeNull();
     expect(billedCallKind(call('getDocsFromCache'))).toBeNull();
     expect(billedCallKind(call('signInAnonymously', { status: 'ok' }, 'auth'))).toBeNull();
+  });
+
+  it("leaves out a listener's attach and detach, which production never bills", () => {
+    for (const phase of ['attach', 'detach'] as const) {
+      const lifecycle: ObservedCall = { ...call('onSnapshot'), listener: { phase, id: 'l-1', target: 'rooms/lobby', key: '0123456789abcdef' } };
+      expect(billedCallKind(lifecycle), phase).toBeNull();
+      const counter = createBilledCallCounter();
+      counter.addCall(lifecycle);
+      expect(counter.count(), phase).toEqual({ reads: 0, writes: 0, deliveries: 0 });
+    }
   });
 });
 
@@ -60,6 +89,33 @@ describe('createBilledCallCounter', () => {
     for (const delivery of [...deliveries, call('onSnapshot'), call('getDoc')]) counter.addCall(delivery);
     expect(counter.count()).toEqual({ reads: 1, writes: 0, deliveries: 6 });
     expect(billedCallKind({ ...call('onSnapshot'), billedDocuments: 0 })).toBeNull();
+  });
+
+  it('counts a one-shot call by the documents production billed it for', () => {
+    const counter = createBilledCallCounter();
+    const calls: ObservedCall[] = [
+      { ...call('getDocs'), usage: { documentReads: 3, payloadBytes: 120 } },
+      { ...call('getCountFromServer'), usage: { documentReads: 2 } },
+      { ...call('getAggregateFromServer'), usage: { documentReads: 1, unmeasured: 1 } },
+      { ...call('setDoc'), usage: { documentWrites: 1 } },
+      { ...call('deleteDoc'), usage: { documentDeletes: 1 } },
+      { ...call('runTransaction'), usage: { documentWrites: 1, unmeasured: 1 } },
+    ];
+    for (const observed of calls) counter.addCall(observed);
+    expect(counter.count()).toEqual({ reads: 6, writes: 3, deliveries: 0 });
+  });
+
+  it('counts a writeBatch commit by the writes and deletes its batch held', () => {
+    const counter = createBilledCallCounter();
+    counter.addCall({ ...call('writeBatch'), usage: { documentWrites: 2, documentDeletes: 1 } });
+    expect(counter.count()).toEqual({ reads: 0, writes: 3, deliveries: 0 });
+  });
+
+  it('counts a call once when its usage is missing or names no documents', () => {
+    const counter = createBilledCallCounter();
+    const calls: ObservedCall[] = [call('getDocs'), { ...call('getDocs'), usage: {} }, { ...call('setDoc'), usage: {} }];
+    for (const observed of calls) counter.addCall(observed);
+    expect(counter.count()).toEqual({ reads: 2, writes: 1, deliveries: 0 });
   });
 });
 
@@ -85,6 +141,73 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, billed: { reads: -1, writes: 0, deliveries: 0 } } })).toBeNull();
     expect(readLiveHostStatus({ live: { ...LIVE, appProjectIds: [''] } })).toBeNull();
     expect(readLiveHostStatus(null)).toBeNull();
+  });
+
+  it('reads the imports the app resolved to live rows, and refuses anything but a list of firebase/* imports', () => {
+    const observed = ['firebase/firestore', 'firebase/auth'];
+    expect(readLiveHostStatus({ live: { ...LIVE, observed } })).toEqual({ ...LIVE, observed });
+    expect(readLiveHostStatus({ live: LIVE })).not.toHaveProperty('observed');
+    expect(readLiveHostStatus({ live: { ...LIVE, observed: 'firebase/firestore' } })).toBeNull();
+    expect(readLiveHostStatus({ live: { ...LIVE, observed: ['firebase/firestore', 'lodash'] } })).toBeNull();
+    expect(readLiveHostStatus({ live: { ...LIVE, observed: ['firebase/firestore', 7] } })).toBeNull();
+  });
+
+  it('reads the observed Admin SDK, and drops a malformed or pass-through one without losing the status', () => {
+    const admin = { mode: 'observed', observed: true, bypassesRules: true };
+    expect(readLiveHostStatus({ live: { ...LIVE, admin } })).toEqual({ ...LIVE, admin });
+    expect(readLiveHostStatus({ live: LIVE })).not.toHaveProperty('admin');
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: { mode: 'pass-through', observed: false, bypassesRules: true } } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: { ...admin, observed: false } } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: { ...admin, bypassesRules: false } } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: 'observed' } })).toEqual(LIVE);
+  });
+
+  it('reads the hosts the host process called that no live row observed, and drops a malformed list without losing the status', () => {
+    const unobserved = ['oauth2.googleapis.com', 'cloudtrace.googleapis.com'];
+    expect(readLiveHostStatus({ live: { ...LIVE, unobserved } })).toEqual({ ...LIVE, unobserved });
+    expect(readLiveHostStatus({ live: { ...LIVE, unobserved: [] } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, unobserved: ['oauth2.googleapis.com', 7] } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, unobserved: 'oauth2.googleapis.com' } })).toEqual(LIVE);
+  });
+
+  it('reads only firebase/* imports as passed through, now that firebase-admin is observed', () => {
+    expect(readLiveHostStatus({ live: { ...LIVE, passThrough: ['firebase/functions'] } })).toEqual({ ...LIVE, passThrough: ['firebase/functions'] });
+    expect(readLiveHostStatus({ live: { ...LIVE, passThrough: ['firebase/functions', 'firebase-admin'] } })).toBeNull();
+  });
+
+  it('gives firebase-admin no pass-through line of its own', () => {
+    expect(livePassThroughLine('firebase/functions')).toBe('firebase/functions passes through to production: its calls are not observed and still bill.');
+    expect(livePassThroughLine('firebase-admin')).not.toContain('bypass');
+  });
+
+  it('reads the clients connected to the host, and drops a malformed entry without losing the status', () => {
+    const page = { kind: 'browser', clientId: 'profile-1', label: '/orders', user: 'user-1', lastSeen: 1000 };
+    const worker = { kind: 'service-worker', clientId: 'profile-1', user: null, lastSeen: 1000 };
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [page, worker] } })).toEqual({ ...LIVE, clients: [page, worker] });
+    expect(readLiveHostStatus({ live: LIVE })).not.toHaveProperty('clients');
+    const malformed = [{ ...page, kind: 'tab' }, { ...page, lastSeen: 'now' }, { ...page, user: 7 }, null, worker];
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: malformed } })).toEqual({ ...LIVE, clients: [worker] });
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: 'all' } })).toEqual(LIVE);
+    const many = Array.from({ length: 200 }, (_, n) => ({ ...worker, clientId: `c-${n}` }));
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: many } })?.clients).toHaveLength(64);
+  });
+
+  it('reads the email a browser client reports, and drops an entry whose email is not text', () => {
+    const page = { kind: 'browser', clientId: 'profile-1', label: '/', user: 'user-1', email: 'ada@example.com', lastSeen: 1000 };
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [page] } })?.clients).toEqual([page]);
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [{ ...page, email: 7 }] } })).toEqual(LIVE);
+  });
+
+  it("reads a Node client's unobserved lists, and drops malformed lists but keeps the client", () => {
+    const lists = {
+      unobserved: ['cloudtrace.googleapis.com'],
+      unobservedAdmin: ['firebase-admin/remote-config'],
+      gatedAdmin: ['firebase-admin/app-check'],
+    };
+    const node = { kind: 'node', clientId: 'page-2', user: null, lastSeen: 1000 };
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [{ ...node, ...lists }] } })?.clients).toEqual([{ ...node, ...lists }]);
+    const malformed = { ...node, ...lists, unobserved: ['https://cloudtrace.googleapis.com/v2?key=k'] };
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [malformed] } })?.clients).toEqual([node]);
   });
 });
 

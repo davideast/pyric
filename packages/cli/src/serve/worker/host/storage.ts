@@ -350,8 +350,9 @@ function opStorage(
 
 /**
  * {@link lensStorage} for a bucket other than the default one: the same
- * lenses, on a handle scoped to `bucket`. Each bucket's objects are its own;
- * the ruleset is shared, as one project's buckets share `storage.rules`.
+ * lenses, on a handle scoped to `bucket`. Each bucket's objects are its own,
+ * and so are its rules: the ones `firebase.json` deploys to it by name, or
+ * none, which locks it (#1313).
  */
 function bucketLensStorage(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike, bucket: string): FirebaseStorage {
   if (actAs?.mode === 'admin') return getAdminStorageSandbox(ctx.sandbox, { bucket });
@@ -645,6 +646,8 @@ export async function handleStorageOp(
         const existing = await service.backend.getMetadata(r.fullPath);
         const operationProvenance = storageOperationProvenance(target, opProvenance(msg));
         const settable = toSettableMetadata(msg);
+        // Finishing the upload checks the rules again as the object lands and
+        // records that decision, so this early check records only a denial.
         enforceRules(service, {
           request: {
             auth: storageAuth(target),
@@ -661,7 +664,7 @@ export async function handleStorageOp(
             }, 'upload'),
           },
           resource: resourceFromStored(existing),
-        }, target, operationProvenance);
+        }, target, operationProvenance, { record: 'denials' });
         if (!service.backend.beginUpload) {
           throw new FirebaseError('storage/unsupported', 'Current storage backend does not support chunked uploads.');
         }

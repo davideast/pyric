@@ -3,6 +3,9 @@
 // only: every token, timestamp the server picks, and stream id is a
 // placeholder the replay server fills in when it answers.
 import { readFileSync } from 'node:fs';
+import type { AdminStorageExchange } from './admin-storage.ts';
+
+export type { AdminStorageExchange };
 
 export const FORMAT = 'pyric-replay/1';
 
@@ -13,7 +16,7 @@ export type JsonObject = { [key: string]: Json };
 /**
  * A value the replay server fills in when it answers, written as
  * `{ "$": "<name>" }`. `any` matches every request value. `idToken` is minted
- * from its `uid`, `email` and `provider` fields; in an Auth request it matches
+ * from its `uid`, `email`, `provider` and `unsigned` fields (`values.ts`); in an Auth request it matches
  * a token this server minted for its `uid`. `host`, `session` and
  * `serverTime` fill an RTDB handshake: the host the client connected to, a
  * fresh session id, and the server's clock in milliseconds. `pushId` stands
@@ -36,9 +39,13 @@ export type JsonObject = { [key: string]: Json };
  * `fisAuthToken` matches `FIS <token>` for a token this server issued.
  * `transaction` stands for an Admin Firestore transaction id
  * (`admin-firestore.ts`): in a request it matches an open transaction this
- * server issued, and in an answer it issues a new one.
+ * server issued, and in an answer it issues a new one. `autoId` stands for
+ * a document id the Admin SDK picks for `add`: `{ "$": "autoId", "name":
+ * "<name>", "parent": "<collection name>" }` matches `<parent>/<id>` in a
+ * request, for any id the SDK could pick until one is kept under its name,
+ * then only that id; in an answer it is filled with the kept document name.
  */
-export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId', 'uploadSession', 'downloadToken', 'generation', 'timeCreated', 'fid', 'fisAuthToken', 'fcmToken', 'transaction'] as const;
+export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId', 'uploadSession', 'downloadToken', 'generation', 'timeCreated', 'fid', 'fisAuthToken', 'fcmToken', 'transaction', 'autoId'] as const;
 export type PlaceholderName = (typeof PLACEHOLDERS)[number];
 
 /** A batch of Listen responses for one target. `after` names the write exchange whose answer releases it. */
@@ -182,7 +189,22 @@ export interface AdminFirestoreExchange {
   error?: { code: number; status: string; message: string };
 }
 
-export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange | MessagingExchange | AdminFirestoreExchange;
+/**
+ * One Auth user-management call the Admin SDK (`firebase-admin/auth`) sent
+ * and production's answer (`admin-auth.ts`). `path` is the path under
+ * `identitytoolkit.googleapis.com`, `/v1/projects/<project>/accounts...`,
+ * with no query string; `query` matches the whole query, and `body` the JSON
+ * the call sent, key for key, with placeholders. With no `body`, the call
+ * sends none.
+ */
+export interface AdminAuthExchange {
+  kind: 'admin-auth';
+  id: string;
+  request: { method: string; path: string; query?: JsonObject; body?: JsonObject };
+  response: { status: number; body: JsonObject };
+}
+
+export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange | MessagingExchange | AdminFirestoreExchange | AdminAuthExchange | AdminStorageExchange;
 
 export interface Recording {
   format: typeof FORMAT;
@@ -250,7 +272,35 @@ export function assertShapesOnly(recording: Recording): void {
     if (exchange.kind === 'rtdb') checkRtdb(recording.project, `exchanges[${index}]`, exchange, ids);
     if (exchange.kind === 'storage') checkStorage(recording.project, `exchanges[${index}]`, exchange);
     if (exchange.kind === 'messaging') checkMessaging(recording.project, `exchanges[${index}]`, exchange);
+    if (exchange.kind === 'admin-auth') checkAdminAuth(recording.project, `exchanges[${index}]`, exchange);
+    if (exchange.kind === 'admin-storage') checkAdminStorage(recording.project, `exchanges[${index}]`, exchange);
+    if (exchange.kind === 'write' && exchange.response) checkDeleteResults(`exchanges[${index}].response`, exchange.writes, exchange.response);
+    if (exchange.kind === 'admin-firestore' && exchange.rpc === 'Commit') {
+      const writes = Array.isArray(exchange.request.writes) ? exchange.request.writes : [];
+      (exchange.responses ?? []).forEach((response, at) => checkDeleteResults(`exchanges[${index}].responses[${at}]`, writes, response));
+    }
   });
+}
+
+/**
+ * Throws when the result of a delete write carries an `updateTime`:
+ * production leaves it unset after a delete (`WriteResult` in
+ * `google.firestore.v1`), so an answer that sets it is not one production gave.
+ */
+function checkDeleteResults(path: string, writes: Json[], response: JsonObject): void {
+  const results = Array.isArray(response.writeResults) ? response.writeResults : [];
+  writes.forEach((write, index) => {
+    const isDelete = typeof write === 'object' && write !== null && !Array.isArray(write) && 'delete' in write;
+    const result = results[index];
+    const setsUpdateTime = typeof result === 'object' && result !== null && !Array.isArray(result) && 'updateTime' in result;
+    if (isDelete && setsUpdateTime) throw new Error(`replay: ${path}.writeResults[${index}] answers a delete with an updateTime, which production leaves unset`);
+  });
+}
+
+/** Throws unless an Admin Auth exchange's path is under the recording's project. */
+function checkAdminAuth(project: string, path: string, exchange: AdminAuthExchange): void {
+  const isProjectPath = exchange.request.path.startsWith(`/v1/projects/${project}/`);
+  if (!isProjectPath) throw new Error(`replay: ${path}.request.path names ${exchange.request.path}, outside project ${project}`);
 }
 
 /** The placeholder each server-issued answer key must be, per Messaging API. */
@@ -284,8 +334,7 @@ const STORAGE_RESOURCE_PLACEHOLDERS: Record<string, PlaceholderName> = { downloa
  */
 function checkStorage(project: string, path: string, exchange: StorageExchange): void {
   const { bucket } = exchange.request;
-  const isProjectBucket = bucket === project || bucket.startsWith(`${project}.`) || bucket.startsWith(`${project}-`);
-  if (!isProjectBucket) throw new Error(`replay: ${path}.request.bucket names ${bucket}, outside project ${project}`);
+  if (!isProjectBucket(project, bucket)) throw new Error(`replay: ${path}.request.bucket names ${bucket}, outside project ${project}`);
   const uploadId = exchange.request.query?.upload_id;
   if (uploadId !== undefined && placeholderName(uploadId) !== 'uploadSession') throw new Error(`replay: ${path}.request.query.upload_id must be the placeholder {"$":"uploadSession"}`);
   for (const header of ['x-goog-upload-url', 'x-goog-upload-control-url']) {
@@ -298,6 +347,17 @@ function checkStorage(project: string, path: string, exchange: StorageExchange):
       if (key in resource && placeholderName(resource[key]) !== name) throw new Error(`replay: ${path}.response.body resource ${index} ${key} must be the placeholder {"$":"${name}"}`);
     }
   });
+}
+
+/** Whether a bucket is one of the project's: its id, or its id then `.` or `-`. */
+function isProjectBucket(project: string, bucket: string): boolean {
+  return bucket === project || bucket.startsWith(`${project}.`) || bucket.startsWith(`${project}-`);
+}
+
+/** Throws unless an Admin Storage exchange's path names one of the project's buckets. */
+function checkAdminStorage(project: string, path: string, exchange: AdminStorageExchange): void {
+  const bucket = /\/b\/([^/]+)\/o(?:\/|$)/.exec(exchange.request.path)?.[1] ?? '';
+  if (!isProjectBucket(project, bucket)) throw new Error(`replay: ${path}.request.path names bucket ${bucket || 'none'}, outside project ${project}`);
 }
 
 /** The object resources a Storage answer holds: the body itself, or a list's `items`. */
@@ -332,6 +392,7 @@ function checkRtdb(project: string, path: string, exchange: RtdbExchange, ids: S
 }
 
 function checkValue(project: string, path: string, key: string, value: Json): void {
+  if (placeholderName(value) === 'autoId') checkValue(project, `${path}.parent`, 'parent', (value as JsonObject).parent ?? null);
   if (typeof value === 'string') {
     for (const { name, pattern } of SECRET_PATTERNS) {
       if (pattern.test(value)) throw new Error(`replay: ${path} holds ${name}`);

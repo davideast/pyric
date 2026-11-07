@@ -18,8 +18,11 @@
  * reference's path (`storage.ts`). A Cloud Messaging record also lists the
  * Installations and FCM registration requests the call made, as API and
  * action names, read by the module's result and rejection hooks
- * (`messaging.ts`). It never carries an argument's value or a result, so no
- * document value, prompt, response text, file content, credential, token or
+ * (`messaging.ts`). A Firestore record also carries, for the host's local
+ * rules only, the data a write sent and the document a `getDoc` returned,
+ * read by the module's context and result hooks (`firestore.ts`), and the
+ * account its claim values. It never carries another argument's value or
+ * result, so no prompt, response text, file content, credential, token or
  * push payload reaches it.
  *
  * A thenable that is not a promise, as RTDB's `push` and Storage's
@@ -31,31 +34,62 @@
  * observer and a rejection from an async observer are each caught, so an
  * observer that fails never changes what the app sees.
  *
- * An observer may also journal Firestore listeners (`journal`), as the page's
- * does, so the runtime chip's Listeners view and Flow see them. The listener
- * wrapper then opens the listener's activity at the subscribe call, reports
- * each delivery immediately before the app's callback runs, and closes the
- * activity when the app unsubscribes: the app gets a function that closes it
- * and calls the SDK's own unsubscribe (`listener-journal.ts`).
+ * An observer may also journal Firestore and Realtime Database listeners
+ * (`journal`), as the page's does, so the runtime chip's Listeners view and
+ * Flow see them. The listener wrapper then opens the listener's activity at
+ * the subscribe call, reports each delivery immediately before the app's
+ * callback runs, and closes the activity when the app unsubscribes, or when
+ * RTDB `off()` ends the listener: the app gets a function that closes it and
+ * calls the SDK's own unsubscribe (`listener-journal.ts`).
  */
 import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
-import { liveProjectRefusal, type LiveClient } from './refusal.js';
+import { randomKey, realmHash } from './keyed-hash.js';
+import { CALL_TARGET_FIELDS, liveProjectRefusal, type CallTargetField, type LiveClient, type ProjectField } from './refusal.js';
 
 export type { LiveListener, LiveListenerActivity, LiveListenerJournal } from './listener-journal.js';
 
 /**
  * What happened to one call or one listener event: the call returned or
  * threw, its promise resolved or rejected, or its listener was handed a
- * value or an error.
+ * value or an error. A Firestore or Realtime Database listener records
+ * `attached` when the app subscribed, in place of `returned`, and `detached`
+ * once when it ended: the app unsubscribed, called `off()` for it, or the
+ * SDK ended it with an error.
  */
-export type LiveCallOutcome = 'returned' | 'threw' | 'resolved' | 'rejected' | 'delivered' | 'listener-error';
+export type LiveCallOutcome = 'returned' | 'threw' | 'resolved' | 'rejected' | 'delivered' | 'listener-error' | 'attached' | 'detached';
+
+/**
+ * One listener's lifecycle, on its `attached` and `detached` records: the id
+ * this realm minted for the subscription, and the realm's keyed hash of the
+ * key two listeners on the same document or query share. Never the key,
+ * which holds the query's values.
+ */
+export interface LiveListenerLifecycle {
+  readonly id: string;
+  readonly key: string;
+}
+
+/**
+ * What a listener watches, as a module's `listenerOf` hook reads it: the
+ * path or group id, and the key two listeners on the same document or query
+ * share, which may hold the query's values and never leaves the realm.
+ */
+export interface ListenerIdentity {
+  readonly target: string;
+  readonly key: string;
+}
 
 export interface LiveCallRecord {
   /** The specifier the app imported, such as `firebase/firestore`. */
   readonly module: string;
-  /** The export the app called, such as `getDoc`. */
+  /** The export the app called, such as `getDoc`. An Admin call names its class and method, such as `DocumentReference.get`. */
   readonly name: string;
   readonly outcome: LiveCallOutcome;
+  /**
+   * `'admin'` on a call a server process made through the Admin SDK, which
+   * bypasses Security Rules (`admin/patch.ts`). Absent for the client SDK.
+   */
+  readonly sdk?: 'admin';
   /** On `threw`, `rejected` and `listener-error`: the error's `code`, such as `permission-denied`, or its name. */
   readonly code?: string;
   /**
@@ -66,10 +100,17 @@ export interface LiveCallRecord {
   /**
    * On a delivered Firestore snapshot: the documents production billed it
    * for, zero for a snapshot only its metadata changed (`billedDocuments`
-   * below). Absent on any other record, and when the snapshot could not be
-   * read.
+   * below). On a resolved call whose result hook counts them, such as the
+   * Admin SDK's `Query.get`: the documents it read. Absent on any other
+   * record, and when the snapshot could not be read.
    */
   readonly billedDocuments?: number;
+  /**
+   * On a resolved call: what production billed or moved for it, as the
+   * observer's `measure` read it from the resolved value. Counts only.
+   * Absent when the observer does not measure, or measured nothing.
+   */
+  readonly usage?: LiveUsage;
   /**
    * The signed-in account the call ran as when the record was made: the
    * current user of the Auth its first argument's app was handed. Absent
@@ -98,6 +139,45 @@ export interface LiveCallRecord {
    * Timing.
    */
   readonly requests?: readonly LiveRequest[];
+  /**
+   * On a Firestore `setDoc`, `updateDoc` or `addDoc`: the fields it wrote, as
+   * JSON values. Sent to the host for its local rules only.
+   */
+  readonly writeData?: Readonly<Record<string, unknown>>;
+  /**
+   * On a resolved Firestore `getDoc`: the fields of the document it
+   * returned, as JSON values. Sent to the host for its local rules only.
+   */
+  readonly document?: Readonly<Record<string, unknown>>;
+  /** On a Firestore list or listener: the shape of its query. Never a value. */
+  readonly query?: LiveQuery;
+  /** On an `attached` or `detached` record: the listener's id and hashed key. */
+  readonly listener?: LiveListenerLifecycle;
+}
+
+/** One `where` filter of a query: its field path and operator. Never its value. */
+export interface LiveQueryFilter {
+  readonly field: string;
+  readonly op: '<' | '<=' | '==' | '!=' | '>=' | '>' | 'array-contains' | 'in' | 'not-in' | 'array-contains-any';
+}
+
+/** One `orderBy` of a query: its field path and direction. */
+export interface LiveQueryOrder {
+  readonly field: string;
+  readonly direction: 'asc' | 'desc';
+}
+
+/**
+ * The shape of a Firestore query: its scope, filters and orders, whether it
+ * set a limit, and `fingerprint`, 16 lowercase hex characters of a hash of
+ * its filter and cursor values keyed per realm (`keyed-hash.ts`). Never a value.
+ */
+export interface LiveQuery {
+  readonly scope: 'collection' | 'collection-group';
+  readonly filters?: readonly LiveQueryFilter[];
+  readonly orderBy?: readonly LiveQueryOrder[];
+  readonly limit?: true;
+  readonly fingerprint?: string;
 }
 
 /** One request a Cloud Messaging call made: the API, what the request did, and production's HTTP status. Never its URL. */
@@ -128,10 +208,26 @@ export interface LiveAiRecord {
   readonly firstChunkMs?: number;
 }
 
-/** The account a call ran as: the uid and its token's claim names, never the token. */
+/** What production billed or moved for one call: counts only, never a document, a value or a payload. */
+export interface LiveUsage {
+  readonly documentReads?: number;
+  readonly documentWrites?: number;
+  readonly documentDeletes?: number;
+  readonly payloadBytes?: number;
+  readonly uploadedBytes?: number;
+  readonly downloadedBytes?: number;
+  readonly unmeasured?: number;
+}
+
+/** Measures a resolved call from its value, as the senders' `measureObservedUsage` does. Undefined measures nothing. */
+export type LiveMeasure = (module: string, name: string, value: unknown) => LiveUsage | undefined;
+
+/** The account a call ran as: the uid, its token's claim names and their values with emails left out, never the token. */
 export interface LiveAccount {
   readonly uid: string;
   readonly claimNames?: readonly string[];
+  /** The claims by name, as JSON values. Sent to the host for its local rules only. */
+  readonly claims?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -139,10 +235,12 @@ export interface LiveAccount {
  * A plane whose listeners the runtime chip shows also supplies `journal`.
  * A plane that knows the host's project supplies `hostProjectId`, and the
  * client it runs in: every wrapper then refuses a call whose app names
- * another project (`refusedProject`).
+ * another project (`refusedProject`). A plane that measures supplies
+ * `measure`: each resolved record then carries the call's `usage`.
  */
 export type LiveObserver = ((record: LiveCallRecord) => unknown) & {
   readonly journal?: LiveListenerJournal;
+  readonly measure?: LiveMeasure;
   readonly hostProjectId?: string;
   readonly client?: LiveClient;
 };
@@ -169,10 +267,18 @@ export interface CallContext {
   readonly timelineStart?: number;
   /** On a Cloud Messaging call: the requests it made, once a hook has read them. */
   readonly requests?: readonly LiveRequest[];
+  /** On a Firestore write: the fields it wrote. */
+  readonly writeData?: Readonly<Record<string, unknown>>;
+  /** On a Firestore read: the document it returned, once a hook has read it. */
+  readonly document?: Readonly<Record<string, unknown>>;
+  /** On a Firestore list or listener: the shape of its query. */
+  readonly query?: LiveQuery;
+  /** On a resolved read: the documents production billed it for, once a hook has counted them. */
+  readonly billedDocuments?: number;
 }
 
 /** What a resolved call's value adds to its record, or `UNOBSERVED` when production never answered it. */
-export type ResultReading = Pick<CallContext, 'ai' | 'requests'> | typeof UNOBSERVED;
+export type ResultReading = Pick<CallContext, 'ai' | 'requests' | 'document' | 'billedDocuments'> | typeof UNOBSERVED;
 
 /**
  * What a rejected call's error adds to its record: the requests it made and
@@ -205,6 +311,18 @@ export interface ObservedHooks {
    */
   readonly listenerCallback?: (name: string, args: readonly unknown[], appCallback: Callback, make: () => Callback) => Callback;
   /**
+   * What a listener export's arguments watch. A module that has it gets
+   * `attached` and `detached` records for each subscription; undefined for
+   * a subscription it cannot name keeps the plain `returned` record.
+   */
+  readonly listenerOf?: (name: string, args: readonly unknown[]) => ListenerIdentity | undefined;
+  /**
+   * Told of each subscription that attached, with the function that detaches
+   * it, so an export that ends listeners without their unsubscribe, as
+   * RTDB's `off()` does, can detach them. Returns what forgets it again.
+   */
+  readonly listenerAttached?: (name: string, args: readonly unknown[], detach: () => void) => (() => void) | undefined;
+  /**
    * Reads a one-shot call's resolved value before the app gets it: what it
    * adds to the record, or `UNOBSERVED` to make none. A promise of the
    * reading defers the record until it settles; its rejection is recorded as
@@ -230,6 +348,10 @@ export interface ObservedSite extends ObservedHooks {
   readonly module: string;
   readonly name: string;
   readonly observer: LiveObserver;
+  /** `'admin'` for a site the Admin rows patched; every record it makes carries it. */
+  readonly sdk?: 'admin';
+  /** For a resolved read: the documents its result hook counted. */
+  readonly billedDocuments?: number;
   /**
    * For a listener export: what the SDK does with an error when the app gave
    * no error callback, done after the error is recorded. Absent means
@@ -238,14 +360,22 @@ export interface ObservedSite extends ObservedHooks {
   readonly uncaughtListenerError?: UncaughtListenerError;
   /** The project of the call this site records, read from its arguments. */
   readonly projectId?: string;
+  /** For a resolved call: its usage, as the observer measured it. */
+  readonly usage?: LiveUsage;
   /** For one listener: counts the documents each delivery was billed for. */
   readonly billing?: BilledDocuments;
   /** The call's first argument, which names the app whose Auth the call runs as. */
   readonly subject?: unknown;
   /** Reads the account a call whose first argument is `subject` runs as. Absent records no account. */
   readonly accountOf?: (subject: unknown) => LiveAccount | undefined;
+  /** The SDK's initialized apps (`getApps()` of `firebase/app`), so a factory called with no app finds the default one. */
+  readonly apps?: () => readonly unknown[];
   /** For one listener the observer journals: its activity. */
   readonly activity?: LiveListenerActivity;
+  /** For one listener with a lifecycle: its id and hashed key. */
+  readonly listener?: LiveListenerLifecycle;
+  /** For one listener with a lifecycle: records its `detached`, once. */
+  readonly endListener?: () => void;
   /** The instance, bucket and path of the call this site records, read by the module's context hook. */
   readonly instance?: string;
   readonly bucket?: string;
@@ -258,6 +388,12 @@ export interface ObservedSite extends ObservedHooks {
   readonly timelineStart?: number;
   /** The Cloud Messaging requests the call this site records made. */
   readonly requests?: readonly LiveRequest[];
+  /** The fields the Firestore write this site records sent. */
+  readonly writeData?: Readonly<Record<string, unknown>>;
+  /** The document the Firestore read this site records returned. */
+  readonly document?: Readonly<Record<string, unknown>>;
+  /** The shape of the query the Firestore list or listener this site records ran. */
+  readonly query?: LiveQuery;
   /**
    * Whether the export returns a thenable that is not a promise, whose
    * settlement is production's answer, as `push` returns its reference.
@@ -273,6 +409,7 @@ export interface ObservedSite extends ObservedHooks {
 }
 
 const FAILURE_OUTCOMES: ReadonlySet<LiveCallOutcome> = new Set(['threw', 'rejected', 'listener-error']);
+const LIFECYCLE_OUTCOMES: ReadonlySet<LiveCallOutcome> = new Set(['attached', 'detached']);
 
 /** The error's string `code`, else its constructor name, else `unknown`. Reading either can throw; the caller catches it. */
 function errorCode(error: unknown): string {
@@ -285,8 +422,13 @@ function errorCode(error: unknown): string {
   return 'unknown';
 }
 
-/** The billed documents of a delivered value, or undefined when it is no snapshot or reading it threw. */
+/**
+ * The billed documents of a delivered value, or undefined when it is no
+ * snapshot or reading it threw. On a resolved call, the count its result
+ * hook read, if any.
+ */
 function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown): number | undefined {
+  if (outcome === 'resolved') return site.billedDocuments;
   const isDelivery = outcome === 'delivered' && site.billing !== undefined;
   if (!isDelivery) return undefined;
   try {
@@ -297,26 +439,33 @@ function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown):
   }
 }
 
-/** The site's instance, bucket, path, AI Logic model and Messaging requests, as a record carries them. */
-function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket' | 'path' | 'ai' | 'requests'> {
+/** The site's instance, bucket, path, AI Logic model, Messaging requests and Firestore values and query shape, as a record carries them. */
+function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket' | 'path' | 'ai' | 'requests' | 'writeData' | 'document' | 'query'> {
   const instance = site.instance === undefined ? {} : { instance: site.instance };
   const bucket = site.bucket === undefined ? instance : { ...instance, bucket: site.bucket };
   const place = site.path === undefined ? bucket : { ...bucket, path: site.path };
   const ai = site.ai === undefined ? place : { ...place, ai: site.ai };
-  return site.requests === undefined ? ai : { ...ai, requests: site.requests };
+  const requests = site.requests === undefined ? ai : { ...ai, requests: site.requests };
+  const written = site.writeData === undefined ? requests : { ...requests, writeData: site.writeData };
+  const returned = site.document === undefined ? written : { ...written, document: site.document };
+  return site.query === undefined ? returned : { ...returned, query: site.query };
 }
 
 /** `value` is the delivered value or the error, by outcome. */
 function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, value: unknown): LiveCallRecord {
   const isFailure = FAILURE_OUTCOMES.has(outcome);
-  const project = site.projectId === undefined ? {} : { projectId: site.projectId };
+  const named = site.sdk === undefined ? {} : { sdk: site.sdk };
+  const project = site.projectId === undefined ? named : { ...named, projectId: site.projectId };
   const account = site.accountOf?.(site.subject);
   const context = { ...(account === undefined ? project : { ...project, account }), ...placeOf(site) };
   const codeOf = site.codeOf ?? errorCode;
   if (isFailure) return { module: site.module, name: site.name, outcome, code: codeOf(value), ...context };
   const billedDocuments = billedOf(site, outcome, value);
   const billed = billedDocuments === undefined ? {} : { billedDocuments };
-  return { module: site.module, name: site.name, outcome, ...context, ...billed };
+  const usage = outcome === 'resolved' && site.usage !== undefined ? { usage: site.usage } : {};
+  const isLifecycle = LIFECYCLE_OUTCOMES.has(outcome) && site.listener !== undefined;
+  const listener = isLifecycle ? { listener: site.listener } : {};
+  return { module: site.module, name: site.name, outcome, ...context, ...billed, ...usage, ...listener };
 }
 
 function stringAt(value: unknown, path: readonly string[]): string | undefined {
@@ -330,26 +479,116 @@ function stringAt(value: unknown, path: readonly string[]): string | undefined {
 }
 
 /**
- * Where the app's own objects keep the project: a reference or query's
- * `firestore.app`, a Firestore or Auth instance's `app`, or the app itself.
+ * Where the app's own objects keep its config: a reference or query's
+ * `firestore.app`, a Firestore, Auth, Messaging or App Check instance's
+ * `app`, or the app itself.
  */
-const PROJECT_PATHS = [
-  ['firestore', 'app', 'options', 'projectId'],
-  ['app', 'options', 'projectId'],
-  ['options', 'projectId'],
+const OPTIONS_PATHS = [
+  ['firestore', 'app', 'options'],
+  ['app', 'options'],
+  ['options'],
 ] as const;
 
-/** The project the first argument's app names, read without calling anything of the app's. */
-function projectOf(args: readonly unknown[]): string | undefined {
-  try {
-    for (const path of PROJECT_PATHS) {
-      const projectId = stringAt(args[0], path);
-      if (projectId !== undefined) return projectId;
-    }
-  } catch {
-    // An argument that throws on read names no project; the call is still recorded.
+/** The string the first config on `subject` holds at `field`, read without calling anything of the app's. */
+function configString(subject: unknown, field: string): string | undefined {
+  for (const path of OPTIONS_PATHS) {
+    const value = stringAt(subject, [...path, field]);
+    if (value !== undefined) return value;
   }
   return undefined;
+}
+
+/** The project the first argument's app names, read without calling anything of the app's. */
+export function projectOf(args: readonly unknown[]): string | undefined {
+  try {
+    return configString(args[0], 'projectId');
+  } catch {
+    // An argument that throws on read names no project; the call is still recorded.
+    return undefined;
+  }
+}
+
+/** The config fields beside the projectId that the check judges. */
+type ConfigField = Exclude<ProjectField, 'projectId' | CallTargetField>;
+
+/** A project id's form: lowercase letters, digits and hyphens. */
+const PROJECT = '([a-z0-9-]+)';
+
+/** A default RTDB instance's host: `<project>-default-rtdb.firebaseio.com`, or a region's `firebasedatabase.app`. */
+const DEFAULT_DATABASE_HOST = new RegExp(`^${PROJECT}-default-rtdb\\.(?:firebaseio\\.com|[a-z0-9-]+\\.firebasedatabase\\.app)$`);
+
+/** A default bucket: `<project>.appspot.com` or `<project>.firebasestorage.app`, with or without `gs://`. */
+const DEFAULT_BUCKET = new RegExp(`^(?:gs://)?${PROJECT}\\.(?:appspot\\.com|firebasestorage\\.app)/?$`);
+
+/** A default auth domain: the default Hosting site, `<project>.firebaseapp.com` or `<project>.web.app`. */
+const DEFAULT_AUTH_DOMAIN = new RegExp(`^${PROJECT}\\.(?:firebaseapp\\.com|web\\.app)$`);
+
+function databaseHost(databaseURL: string): string | undefined {
+  try {
+    return new URL(databaseURL).hostname.toLowerCase();
+  } catch {
+    // A value that is no URL names no instance.
+    return undefined;
+  }
+}
+
+/** An auth domain as a host: without a `:port` or a trailing dot, so `b.firebaseapp.com.:443` is judged as `b.firebaseapp.com`. */
+function authHost(authDomain: string): string {
+  return authDomain.replace(/:\d*$/, '').replace(/\.$/, '');
+}
+
+function projectMatched(pattern: RegExp, value: string | undefined): string | undefined {
+  return value === undefined ? undefined : pattern.exec(value.toLowerCase())?.[1];
+}
+
+/**
+ * How each config field beside the projectId encodes a project: only its
+ * default forms do. A custom auth domain, a bucket or RTDB instance with a
+ * name of its own, and the emulator encode none, so they cannot be judged.
+ */
+const CONFIG_PROJECTS: Readonly<Record<ConfigField, (value: string) => string | undefined>> = {
+  databaseURL: (value) => projectMatched(DEFAULT_DATABASE_HOST, databaseHost(value)),
+  storageBucket: (value) => projectMatched(DEFAULT_BUCKET, value),
+  authDomain: (value) => projectMatched(DEFAULT_AUTH_DOMAIN, authHost(value)),
+};
+
+const CONFIG_FIELDS = Object.keys(CONFIG_PROJECTS) as ConfigField[];
+
+/** A default RTDB instance, as the SDK's namespace names it: `<project>-default-rtdb`. */
+const DEFAULT_INSTANCE = new RegExp(`^${PROJECT}-default-rtdb$`);
+
+/**
+ * How the instance or bucket a call reaches encodes a project: only its
+ * default forms do. `getDatabase(app, url)`, `getStorage(app, 'gs://...')`
+ * and `ref(storage, 'gs://...')` reach one the config does not name. A named
+ * instance, a legacy default instance (`<project>.firebaseio.com`, whose
+ * namespace looks like a named one), a bucket with a name of its own, and
+ * one the SDK reference did not name encode none, so they cannot be judged.
+ */
+const TARGET_PROJECTS: Readonly<Record<CallTargetField, (value: string) => string | undefined>> = {
+  instance: (value) => projectMatched(DEFAULT_INSTANCE, value),
+  bucket: (value) => projectMatched(DEFAULT_BUCKET, value),
+};
+
+/** One project the app's config names, and the field that names it. */
+interface NamedProject {
+  readonly field: ProjectField;
+  readonly projectId: string;
+}
+
+/** The projects the app's databaseURL, storageBucket and authDomain encode, read without calling anything of the app's. */
+function configProjects(subject: unknown): NamedProject[] {
+  const projects: NamedProject[] = [];
+  try {
+    for (const field of CONFIG_FIELDS) {
+      const value = configString(subject, field);
+      const projectId = value === undefined ? undefined : CONFIG_PROJECTS[field](value);
+      if (projectId !== undefined) projects.push({ field, projectId });
+    }
+  } catch {
+    // A config that throws on read names no project; the call is judged by what was read.
+  }
+  return projects;
 }
 
 /** The context a module's hook reads, or an empty one when the hook throws: the call is still recorded. */
@@ -381,16 +620,61 @@ function siteFor(site: ObservedSite, args: readonly unknown[], self: unknown): O
 const REQUESTLESS_MODULES: ReadonlySet<string> = new Set(['firebase/app']);
 
 /**
- * The refusal of a call whose app names another project than the host's, or
- * null when it may run: the observer names no host project, the call's
- * project can't be read, the projects match, or the module makes no request.
+ * Every project the call's app names: its projectId, then each project its
+ * databaseURL, storageBucket or authDomain encodes. RTDB, Storage and Auth
+ * run without a projectId, and those fields can point an app at another
+ * project than its projectId, so every field that can be judged is.
+ */
+function appProjectsOf(callSite: ObservedSite): NamedProject[] {
+  const configured = configProjects(callSite.subject);
+  const projectId = callSite.projectId;
+  return projectId === undefined ? configured : [{ field: 'projectId', projectId }, ...configured];
+}
+
+/** The projects the instance and bucket the call reaches encode, as its module's context hook read them. */
+function targetProjectsOf(callSite: ObservedSite): NamedProject[] {
+  const projects: NamedProject[] = [];
+  for (const field of CALL_TARGET_FIELDS) {
+    const value = callSite[field];
+    const projectId = value === undefined ? undefined : TARGET_PROJECTS[field](value);
+    if (projectId !== undefined) projects.push({ field, projectId });
+  }
+  return projects;
+}
+
+/**
+ * The refusal of a call whose app, or the instance or bucket it reaches,
+ * names another project than the host's, or null when it may run: the
+ * observer names no host project, the module makes no request, or every
+ * project the app's config and the call's target name, as far as they can
+ * be read, is the host's.
  */
 function refusedProject(callSite: ObservedSite): Error | null {
   const { hostProjectId, client } = callSite.observer;
-  const appProjectId = callSite.projectId;
-  const isUnchecked = hostProjectId === undefined || appProjectId === undefined || REQUESTLESS_MODULES.has(callSite.module);
-  if (isUnchecked || appProjectId === hostProjectId) return null;
-  return liveProjectRefusal(callSite.name, { appProjectId, hostProjectId }, client);
+  const isUnchecked = hostProjectId === undefined || REQUESTLESS_MODULES.has(callSite.module);
+  if (isUnchecked) return null;
+  const named = [...appProjectsOf(callSite), ...targetProjectsOf(callSite)];
+  const other = named.find((project) => project.projectId !== hostProjectId);
+  if (other === undefined) return null;
+  return liveProjectRefusal(callSite.name, { field: other.field, appProjectId: other.projectId, hostProjectId }, client);
+}
+
+/**
+ * The refusal of a factory call that has not run, or null when it may run:
+ * judged as a call is, by every project `app`'s config names and then by
+ * the instance or bucket its arguments name. `getDatabase` is one: the SDK
+ * opens its connection at `ref()`, before any call a wrapper judges, and
+ * sends the account's ID token and the App Check token on it.
+ */
+export function refusedFactory(
+  site: Omit<ObservedSite, 'name'>,
+  name: string,
+  app: unknown,
+  target: Pick<ObservedSite, CallTargetField>,
+): Error | null {
+  const projectId = projectOf([app]);
+  const named = projectId === undefined ? {} : { projectId };
+  return refusedProject({ module: site.module, observer: site.observer, name, subject: app, ...named, ...target });
 }
 
 function ignoreRejection(returned: unknown): void {
@@ -416,8 +700,20 @@ function reportReading(site: ObservedSite, reading: ResultReading): void {
   report({ ...site, ...reading }, 'resolved');
 }
 
+/** The observer's measure of a resolved value: a fresh copy, or nothing when it does not measure or its measure throws. */
+function measuredUsage(site: ObservedSite, value: unknown): Pick<ObservedSite, 'usage'> {
+  try {
+    const usage = site.observer.measure?.(site.module, site.name, value);
+    return usage === undefined ? {} : { usage: { ...usage } };
+  } catch {
+    // A value the measure cannot read is still recorded, without usage.
+    return {};
+  }
+}
+
 /** Records a resolved call with what its value adds: now, or when a deferred reading settles. */
-function reportResolved(site: ObservedSite, value: unknown): void {
+function reportResolved(resolvedSite: ObservedSite, value: unknown): void {
+  const site = { ...resolvedSite, ...measuredUsage(resolvedSite, value) };
   const reading = readResult(site, value);
   const isDeferred = reading instanceof Promise;
   if (!isDeferred) return reportReading(site, reading);
@@ -580,12 +876,25 @@ function queryChanges(value: unknown): number | undefined {
   return Array.isArray(changes) ? changes.length : undefined;
 }
 
+/**
+ * The state an Admin SDK document snapshot shows: its `exists` getter, and
+ * data that is never compared. Its `data()` can run the app's converter, and
+ * the Admin SDK raises no snapshot for a metadata change only, so every
+ * delivery counts as changed. Undefined for any other value.
+ */
+function adminDocumentState(value: unknown): DocumentState | undefined {
+  const isObject = typeof value === 'object' && value !== null;
+  const shown: unknown = isObject ? Reflect.get(value, 'exists') : undefined;
+  const isAdminDocument = typeof shown === 'boolean' && methodOf(value, 'data') !== undefined;
+  return isAdminDocument ? { exists: shown, data: UNCOMPARABLE } : undefined;
+}
+
 /** What a document snapshot shows, or undefined for any other value. */
 function documentState(value: unknown): DocumentState | undefined {
   const exists = methodOf(value, 'exists');
   const data = methodOf(value, 'data');
   const isDocument = exists !== undefined && data !== undefined;
-  if (!isDocument) return undefined;
+  if (!isDocument) return adminDocumentState(value);
   const converter: unknown = Reflect.get(value as object, '_converter');
   const hasConverter = converter !== undefined && converter !== null;
   const shown = Reflect.apply(exists, value, []) === true;
@@ -674,6 +983,27 @@ export function observedCall(site: ObservedSite, real: Callback): Callback {
   };
 }
 
+/**
+ * Records that the SDK ended the listener: it is handed one error and then
+ * stops, so the app's later unsubscribe records nothing more.
+ */
+function endListener(site: ObservedSite): void {
+  try {
+    site.endListener?.();
+  } catch {
+    // Recording never changes what the app sees.
+  }
+}
+
+/** Tells the journal the listener closed. A journal failure never reaches the app. */
+function closeActivity(site: ObservedSite): void {
+  try {
+    site.activity?.close();
+  } catch {
+    // The journal is a diagnostic; the SDK still ended the listener.
+  }
+}
+
 /** Tells the journal the listener failed. A journal failure never reaches the app. */
 function journalFailure(site: ObservedSite): void {
   try {
@@ -714,6 +1044,7 @@ function recordingCallback(site: ObservedSite, outcome: LiveCallOutcome, callbac
     const isDelivery = outcome === 'delivered';
     if (isDelivery) return deliverThrough(site, values[0], record?.billedDocuments, callApp);
     journalFailure(site);
+    endListener(site);
     return callApp();
   };
 }
@@ -727,6 +1058,7 @@ function uncaughtErrorCallback(site: ObservedSite): Callback {
   return function recorded(...values: unknown[]): void {
     report(site, 'listener-error', values[0]);
     journalFailure(site);
+    endListener(site);
     try {
       site.uncaughtListenerError?.(values[0]);
     } catch {
@@ -823,24 +1155,121 @@ function listenerArguments(site: ObservedSite, args: unknown[]): unknown[] {
   }
 }
 
-/** A wrapper for a listener export: `onSnapshot`, `onAuthStateChanged`, `onTokenChanged`, `onValue`. */
+/** This realm's prefix for the listener ids it mints: random, so a reloaded page never reuses a past page's id. */
+const LISTENER_REALM = Array.from(randomKey().slice(0, 4), (byte) => byte.toString(16).padStart(2, '0')).join('');
+let listenerSerial = 0;
+
+/** A fresh listener id, `l-<realm>-<n>`: unique in this realm and unlike any other realm's. */
+function mintListenerId(): string {
+  listenerSerial += 1;
+  return `l-${LISTENER_REALM}-${listenerSerial}`;
+}
+
+/** What the module's hook says the listener watches, or undefined when it has no hook, names nothing or throws. */
+function identityOf(site: ObservedSite, args: readonly unknown[]): ListenerIdentity | undefined {
+  try {
+    return site.listenerOf?.(site.name, args);
+  } catch {
+    return undefined;
+  }
+}
+
+/** One subscription's lifecycle: the fields its site carries, and the step that records it attached. */
+interface Lifecycle {
+  readonly fields: Required<Pick<ObservedSite, 'listener' | 'endListener' | 'path'>>;
+  attached(site: ObservedSite, args: readonly unknown[]): void;
+}
+
+/**
+ * The lifecycle of one subscription the module's hook names: a fresh id,
+ * the realm's keyed hash of its key, and its target as the path of every
+ * record it makes when the call's context named none, as a resumed
+ * snapshot's does not. Its `endListener` records `detached`
+ * once, however many of unsubscribe, `off()` and an error end it, and tells
+ * the module to forget the subscription.
+ */
+function lifecycleOf(site: ObservedSite, args: readonly unknown[]): Lifecycle | undefined {
+  const identity = identityOf(site, args);
+  if (identity === undefined) return undefined;
+  const listener: LiveListenerLifecycle = { id: mintListenerId(), key: realmHash(identity.key) };
+  let ended = false;
+  let forget: (() => void) | undefined;
+  const fields: Lifecycle['fields'] = {
+    listener,
+    path: site.path ?? identity.target,
+    endListener() {
+      if (ended) return;
+      ended = true;
+      forget?.();
+      report({ ...site, ...fields }, 'detached');
+    },
+  };
+  return {
+    fields,
+    attached(attachedSite, appArgs) {
+      report(attachedSite, 'attached');
+      // A listener the module ends without its unsubscribe (RTDB `off()`) closes its journal activity too.
+      const endedElsewhere = (): void => {
+        fields.endListener();
+        closeActivity(attachedSite);
+      };
+      try {
+        forget = site.listenerAttached?.(site.name, appArgs, endedElsewhere);
+      } catch {
+        // A module that cannot note the subscription still has its unsubscribe and errors.
+      }
+    },
+  };
+}
+
+/** Subscribes as the app called it and records `attached`, or `threw` when the SDK threw. */
+function subscribe(site: ObservedSite, lifecycle: Lifecycle, call: { real: Callback; self: unknown; args: unknown[]; appArgs: readonly unknown[] }): unknown {
+  let unsubscribe: unknown;
+  try {
+    unsubscribe = Reflect.apply(call.real, call.self, call.args);
+  } catch (error) {
+    if (site.throwsLocally !== true) report(site, 'threw', error);
+    throw error;
+  }
+  lifecycle.attached(site, call.appArgs);
+  return unsubscribe;
+}
+
+/** The SDK's unsubscribe, recording the listener's `detached` first. Any other result is passed back unchanged. */
+function endingUnsubscribe(site: ObservedSite, unsubscribe: unknown): unknown {
+  if (typeof unsubscribe !== 'function') return unsubscribe;
+  return function unsubscribed(this: unknown, ...values: unknown[]): unknown {
+    endListener(site);
+    return Reflect.apply(unsubscribe as Callback, this, values);
+  };
+}
+
+/**
+ * A wrapper for a listener export: `onSnapshot`, `onAuthStateChanged`,
+ * `onTokenChanged`, `onValue`. A listener the module's `listenerOf` hook
+ * names records `attached` at subscribe, in place of `returned`, and
+ * `detached` once when it ends.
+ */
 export function observedListener(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args, this);
     if (callSite === null) return Reflect.apply(real, this, args);
     const refusal = refusedProject(callSite);
     if (refusal !== null) throw refusal;
-    const activity = openActivity(site.observer, site.name, args[0]);
-    const listenerSite = { ...callSite, billing: billedDocuments(), activity };
+    const activity = openActivity(site.observer, site.name, args);
+    const lifecycle = lifecycleOf(callSite, args);
+    const listenerSite: ObservedSite = { ...callSite, billing: billedDocuments(), activity, ...lifecycle?.fields };
     const listening = recordingArguments(listenerSite, listenerArguments(site, args));
-    if (activity === undefined) return callReal(callSite, real, this, listening);
     let unsubscribe: unknown;
     try {
-      unsubscribe = callReal(callSite, real, this, listening);
+      unsubscribe = lifecycle === undefined
+        ? callReal(callSite, real, this, listening)
+        : subscribe(listenerSite, lifecycle, { real, self: this, args: listening, appArgs: args });
     } catch (error) {
       journalFailure(listenerSite);
       throw error;
     }
-    return closingUnsubscribe(activity, unsubscribe);
+    const ending = lifecycle === undefined ? unsubscribe : endingUnsubscribe(listenerSite, unsubscribe);
+    return activity === undefined ? ending : closingUnsubscribe(activity, ending);
   };
 }

@@ -8,7 +8,7 @@
  * geometry, and reads the activity monitor's incidents for the badge mark. The
  * overlay that paints these records owns no derivation of its own.
  */
-import { createActiveListenerState } from 'pyric/sandbox/internal';
+import { createActiveListenerState, isProductionServed } from 'pyric/sandbox/internal';
 import { activeListeners, type ActiveListener, type ActiveListenerTarget } from 'pyric/sandbox';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
@@ -256,13 +256,28 @@ function outlineFor(
   };
 }
 
+/**
+ * A live listener's attach or detach, which production served. The page's
+ * own live listeners are drawn from its journal (`activityOutlines`), so the
+ * overlay leaves these out.
+ */
+function isObservedListener(event: SandboxEvent): boolean {
+  return event.kind === 'listener' && isProductionServed(event.rulesDisposition);
+}
+
+/** The events the overlay folds: every one but a live listener's. */
+function sandboxListenerEvents(events: readonly SandboxEvent[]): readonly SandboxEvent[] {
+  return events.filter((event) => !isObservedListener(event));
+}
+
 /** Every currently attached listener, as the overlay draws it. */
 export function listenerOutlines(
   events: readonly SandboxEvent[],
   incidents: readonly ActivityIncident[],
 ): readonly ListenerOutline[] {
-  const attachEventIds = latestAttachEventIds(events);
-  return activeListeners(events).map((listener) => outlineFor(listener, attachEventIds, incidents));
+  const folded = sandboxListenerEvents(events);
+  const attachEventIds = latestAttachEventIds(folded);
+  return activeListeners(folded).map((listener) => outlineFor(listener, attachEventIds, incidents));
 }
 
 /** Current listener state, independent of how much history the page has seen. */
@@ -271,8 +286,9 @@ export function createListenerOutlineState() {
   const attachEventIds = new Map<string, string>();
   return {
     append(events: readonly SandboxEvent[]) {
-      for (const event of events) listeners.append(event);
-      for (const [id, eventId] of latestAttachEventIds(events)) attachEventIds.set(id, eventId);
+      const folded = sandboxListenerEvents(events);
+      for (const event of folded) listeners.append(event);
+      for (const [id, eventId] of latestAttachEventIds(folded)) attachEventIds.set(id, eventId);
     },
     read(incidents: readonly ActivityIncident[]): readonly ListenerOutline[] {
       const active = listeners.snapshot();

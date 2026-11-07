@@ -4,18 +4,32 @@
  * dev server about the option. The pass-through itself, a listed import
  * loading the installed SDK on a page, runs through Vite and Chromium in
  * `test/apps/live-pass-through`.
+ *
+ * Live mode serves firebase-admin itself (D2 in the #2304 plan), so the
+ * option refuses it, the register's Admin start check pins its major and
+ * the Node floor, and the Admin rows observe for the host's project.
  */
 import { describe, expect, test } from 'bun:test';
-import { INSTALLED_SDK_SPECIFIERS, SDK_MODULES, pyricWithSuppliedRows } from '@pyric/cli/vite/internal/supplied-rows';
+import { INSTALLED_SDK_SPECIFIERS, SDK_MODULES, livePassThroughLine, pyricWithSuppliedRows } from '@pyric/cli/vite/internal/supplied-rows';
 import {
+  ADMIN_PASS_THROUGH,
+  ADMIN_ROWS_NODE_MAJOR,
   LIVE_REFUSED,
+  adminRowsNodeProblem,
   PASS_THROUGH_CANDIDATES,
   liveRefusal,
   passThroughOption,
   refusedImportsLine,
   withPassThroughHint,
 } from '../src/refusal.js';
+import { passThroughLines } from '../src/start-line.js';
 import { pyricLive } from '../src/vite.js';
+import { SUPPORTED_ADMIN_MAJOR, adminStartRefusal, installedAdminVersion } from '../src/start-checks.js';
+import { observeAdminRow, serveHostProject } from '../src/node-modules.js';
+import type { LiveCallRecord } from '../src/observe.js';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const ENTRY = '@pyric/live/vite';
 
@@ -63,12 +77,22 @@ describe('the passThrough option', () => {
     }
   });
 
-  test('refuses firebase-admin and every subpath of it', () => {
-    for (const admin of ['firebase-admin', 'firebase-admin/firestore']) {
-      expect(startError([admin])).toBe(
-        `${ENTRY}: passThrough lists ${admin}, which never passes through: live mode refuses the Admin SDK in every process.`,
-      );
-    }
+  test('refuses firebase-admin and its subpaths: live mode serves and observes the Admin SDK in a Node process', () => {
+    expect(ADMIN_PASS_THROUGH).toBe('firebase-admin');
+    expect(startError(['firebase/functions', 'firebase-admin'])).toBe(
+      `${ENTRY}: passThrough lists firebase-admin, which live mode already serves and observes; remove it.`,
+    );
+    expect(PASS_THROUGH_CANDIDATES).not.toContain('firebase-admin');
+    expect(startError(['firebase-admin/firestore'])).toContain('passThrough lists firebase-admin/firestore');
+    expect(startError(['firebase-admin/firestore'])).toContain('already serves and observes firebase-admin');
+    expect(startError(['firebase-admin/firestore'])).not.toContain('list firebase-admin');
+  });
+
+  test('no Admin refusal suggests passThrough any more', () => {
+    const refusal = liveRefusal('firebase-admin/security-rules', 'node');
+    expect((refusal as Error & { code?: string }).code).toBe(LIVE_REFUSED);
+    expect(refusal.message).not.toContain('passThrough');
+    expect(startError(['firebase'])).not.toContain('firebase-admin');
   });
 
   test('refuses an @firebase/* package name and names the import to list', () => {
@@ -87,9 +111,9 @@ describe('the passThrough option', () => {
   });
 
   test('stops pyricLive() before it builds a plugin', () => {
-    expect(() => pyricLive({ passThrough: ['firebase/firestore', 'firebase-admin'] })).toThrow(
+    expect(() => pyricLive({ passThrough: ['firebase/firestore', 'firebase-admin/app'] })).toThrow(
       `${ENTRY}: passThrough lists firebase/firestore, which live mode already serves and observes; remove it. ` +
-        'passThrough lists firebase-admin, which never passes through',
+        'passThrough lists firebase-admin/app',
     );
     expect(() => pyricLive({ passThrough: ['firebase/database'] })).toThrow(
       `${ENTRY}: passThrough lists firebase/database, which live mode already serves and observes; remove it.`,
@@ -101,12 +125,16 @@ describe('the passThrough option', () => {
       `${ENTRY}: passThrough lists firebase/messaging/sw, which live mode already serves and observes; remove it.`,
     );
     expect(() => pyricLive({ passThrough: ['firebase/functions'] })).not.toThrow();
+    expect(() => pyricLive({ passThrough: ['firebase-admin'] })).toThrow(
+      `${ENTRY}: passThrough lists firebase-admin, which live mode already serves and observes; remove it.`,
+    );
   });
 
-  test("is checked again at @pyric/cli's seam, so no supplier passes a served import or firebase-admin through", () => {
-    for (const entry of ['firebase/auth', 'firebase/database', 'firebase/ai', 'firebase/messaging', 'firebase/messaging/sw', 'firebase-admin', '@firebase/database']) {
+  test("is checked again at @pyric/cli's seam, so no supplier passes a served import or an Admin SDK subpath through", () => {
+    for (const entry of ['firebase/auth', 'firebase/database', 'firebase/ai', 'firebase/messaging', 'firebase/messaging/sw', 'firebase-admin/app', '@firebase/database']) {
       expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: [entry] })).toThrow(`pyric: ${entry} cannot pass through`);
     }
+    expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: ['firebase-admin'] })).not.toThrow();
   });
 });
 
@@ -130,5 +158,105 @@ describe('a refused import that could pass through', () => {
     const both = refusedImportsLine(ENTRY, ['firebase/functions', 'firebase/analytics', 'firebase/remote-config']);
     expect(both).toContain('a page imports firebase/analytics (Analytics), firebase/functions (Cloud Functions) and firebase/remote-config (Remote Config)');
     expect(both).toContain("start with pyricLive({ passThrough: ['firebase/analytics', 'firebase/functions', 'firebase/remote-config'] })");
+  });
+});
+
+describe('the start lines for a pass-through list', () => {
+  test('give each import the seam\'s line, under the entry', () => {
+    const lines = passThroughLines(ENTRY, ['firebase/functions', 'firebase/remote-config'], livePassThroughLine);
+    expect(lines).toEqual([`${ENTRY}: ${livePassThroughLine('firebase/functions')}`, `${ENTRY}: ${livePassThroughLine('firebase/remote-config')}`]);
+    expect(passThroughLines(ENTRY, [], livePassThroughLine)).toEqual([]);
+  });
+});
+
+describe('the Admin start check', () => {
+  /** A project folder that installs firebase-admin at `version`, or none. */
+  function project(version: string | null): string {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-admin-check-')));
+    if (version !== null) {
+      mkdirSync(join(root, 'node_modules', 'firebase-admin'), { recursive: true });
+      writeFileSync(join(root, 'node_modules', 'firebase-admin', 'package.json'), JSON.stringify({ name: 'firebase-admin', version }));
+    }
+    return root;
+  }
+
+  test('passes firebase-admin 13, and an app with no firebase-admin', () => {
+    const admin13 = project('13.6.0');
+    const none = project(null);
+    try {
+      expect(SUPPORTED_ADMIN_MAJOR).toBe(13);
+      expect(installedAdminVersion(admin13, admin13)).toBe('13.6.0');
+      expect(adminStartRefusal(admin13, admin13)).toBeNull();
+      expect(installedAdminVersion(none, none)).toBeNull();
+      expect(adminStartRefusal(none, none)).toBeNull();
+    } finally {
+      rmSync(admin13, { recursive: true, force: true });
+      rmSync(none, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses another firebase-admin major at start', () => {
+    const admin12 = project('12.7.0');
+    try {
+      expect(adminStartRefusal(admin12, admin12)).toContain('firebase-admin 12.7.0');
+    } finally {
+      rmSync(admin12, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps the Admin rows shut on Node 22, where require() never reaches the hooks, and says so in each Admin refusal", () => {
+    expect(ADMIN_ROWS_NODE_MAJOR).toBe(23);
+    expect(adminRowsNodeProblem('24.16.0')).toBeNull();
+    expect(adminRowsNodeProblem('23.0.0')).toBeNull();
+    expect(adminRowsNodeProblem('22.15.0')).toContain('Node 23 or later');
+    expect(adminRowsNodeProblem('22.15.0')).toContain('22.15.0');
+    const onThisNode = adminRowsNodeProblem();
+    const refusal = liveRefusal('firebase-admin/app', 'node').message;
+    if (onThisNode === null) expect(refusal).toContain("firebase-admin's app, Firestore, Auth");
+    else expect(refusal).toContain(onThisNode);
+  });
+});
+
+describe('the Admin rows, on by default', () => {
+  const HOST = 'demo-host-project';
+  const records: LiveCallRecord[] = [];
+  let calls = 0;
+
+  /** A stand-in for `@google-cloud/storage`'s classes, shaped as the Admin Storage row reads them. */
+  class Bucket {
+    constructor(readonly name: string, readonly storage: { projectId: string }) {}
+    getFiles(): Promise<unknown[]> {
+      calls += 1;
+      return Promise.resolve([[]]);
+    }
+  }
+  class File {
+    constructor(readonly bucket: Bucket, readonly name: string) {}
+    exists(): Promise<boolean[]> {
+      calls += 1;
+      return Promise.resolve([true]);
+    }
+  }
+  const client = { projectId: HOST };
+  serveHostProject(HOST);
+  observeAdminRow('storage', { Bucket, File }, '/stand-in/storage/index.js', (record) => void records.push(record));
+
+  test("refuses a default-form bucket of another project before the SDK runs, even when the client is the host's", async () => {
+    const before = calls;
+    for (const name of ['other-project.appspot.com', 'other-project.firebasestorage.app']) {
+      const refused = await new File(new Bucket(name, client), 'notes/a.txt').exists().catch((error: unknown) => error);
+      expect((refused as Error & { code?: string }).code).toBe(LIVE_REFUSED);
+    }
+    expect(calls).toBe(before);
+  });
+
+  test("observes a call to the host's default bucket, and leaves a custom-named bucket unjudged", async () => {
+    const before = calls;
+    expect(await new File(new Bucket(`${HOST}.appspot.com`, client), 'notes/a.txt').exists()).toEqual([true]);
+    expect(await new Bucket('my-uploads', client).getFiles()).toEqual([[]]);
+    expect(calls).toBe(before + 2);
+    const names = records.map((record) => [record.name, record.sdk]);
+    expect(names).toContainEqual(['File.exists', 'admin']);
+    expect(names).toContainEqual(['Bucket.getFiles', 'admin']);
   });
 });

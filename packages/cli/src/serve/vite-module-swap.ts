@@ -130,6 +130,8 @@ export interface ViteModuleSwap {
   load(id: string): string | null;
   /** The plugin's load hook: the node shims, and the routed SSR modules. */
   loadPluginModule(id: string): Promise<string | null>;
+  /** The served specifiers the page resolved to live rows, in first-import order; empty without supplied rows. */
+  readonly observed: ReadonlySet<ServedFirebaseSpecifier>;
 }
 
 /** A server environment's own config, for `configEnvironment`. Unset consumers default as Vite defaults them. */
@@ -205,6 +207,8 @@ export function createViteModuleSwap(
   const stopIds = new Map<string, string>();
   /** The real SDK files the stop allowed, as the register's hook keeps them. */
   const allowedUrls = new Set<string>();
+  /** The served specifiers resolved to a live row module, which the live host reports (`live-host-state.ts`). */
+  const observed = new Set<ServedFirebaseSpecifier>();
 
   /** The files an import resolves from: the importer's, when it is a file, then the root's. */
   function resolveBases(importer: string | undefined): string[] {
@@ -267,7 +271,11 @@ export function createViteModuleSwap(
   /** The supplied rows' answer for a Firebase or `firebase-admin` import on the page plane. */
   function resolveSupplied(supplied: SuppliedRows, source: string, importer: string | undefined): string | null {
     const resolution = suppliedRowsResolution(supplied, source, importer);
-    if (resolution.kind === 'module') return resolution.id;
+    if (resolution.kind === 'module') {
+      // A row module id is only ever handed out for a served specifier.
+      observed.add(source as ServedFirebaseSpecifier);
+      return resolution.id;
+    }
     if (resolution.kind === 'refused') return refusalIdFor(source, 'page', resolution.error);
     // `installed-sdk`, `pass-through` and `unserved` resolve as Vite would, then meet the gate.
     return null;
@@ -606,5 +614,6 @@ export function createViteModuleSwap(
     resolvePluginId,
     load,
     loadPluginModule,
+    observed,
   };
 }

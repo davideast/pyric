@@ -3,7 +3,7 @@ import type { UserConfig } from 'vite';
 import { NET_GUARD_GLOBAL, GUARD_BLOCKED_CODE } from '../../src/register/net-guard.js';
 import { FIREBASE_AI_LOGIC_HOST } from '../../src/google-endpoints.js';
 import type { PyricOptions } from '../../src/serve/vite-plugin.js';
-import { installViteNetGuard, viteGuardEnv } from '../../src/serve/vite-net-guard.js';
+import { installViteLiveReport, installViteNetGuard, viteGuardEnv } from '../../src/serve/vite-net-guard.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
 
 type Connect = (...args: unknown[]) => unknown;
@@ -122,33 +122,23 @@ describe('installViteNetGuard', () => {
     installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: off.write, slot: fresh, hooks: fakeSeams().hooks });
     expect(off.lines).toHaveLength(1);
   });
+});
 
-  it('under live rows reads no PYRIC_GUARD: off still refuses, even after an earlier attempt read off', () => {
+describe('installViteLiveReport', () => {
+  it('lets a token request out under live rows, names it once with the Vite prefix, and installs once', () => {
     const slot: Record<symbol, unknown> = {};
-    const off = logLines();
-    expect(installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: off.write, slot, hooks: fakeSeams().hooks })).toBeNull();
-
     const seams = fakeSeams();
     const log = logLines();
-    const guard = installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: log.write, slot, hooks: seams.hooks, fixedMode: true });
-    expect(guard?.mode).toBe('block');
-    expect(slot[NET_GUARD_GLOBAL]).toBe(guard);
-    let refusal: unknown;
-    try {
-      seams.net.connect({ host: 'oauth2.googleapis.com', port: 443 });
-    } catch (error) {
-      refusal = error;
-    }
-    expect((refusal as { code?: string }).code).toBe(GUARD_BLOCKED_CODE);
-    expect(seams.connected).toEqual([]);
-    expect(log.lines.join('')).not.toContain('PYRIC_GUARD=off for it');
-    expect(log.lines.join('')).toContain('Live mode keeps this refusal on, whatever PYRIC_GUARD says');
-
-    const warned = fakeSeams();
-    const warnLog = logLines();
-    const warnGuard = installViteNetGuard({ env: { PYRIC_GUARD: 'warn' }, write: warnLog.write, slot: {}, hooks: warned.hooks, fixedMode: true });
-    expect(warnGuard?.mode).toBe('block');
-    expect(warnLog.lines.join('')).not.toContain('PYRIC_GUARD=warn');
+    const report = installViteLiveReport({ env: { PYRIC_GUARD: 'block' }, write: log.write, slot, hooks: seams.hooks });
+    seams.net.connect({ host: 'oauth2.googleapis.com', port: 443 });
+    seams.net.connect({ host: 'oauth2.googleapis.com', port: 443 });
+    expect(seams.connected).toEqual(['oauth2.googleapis.com', 'oauth2.googleapis.com']);
+    expect(report.unobserved()).toEqual(['oauth2.googleapis.com']);
+    expect(log.lines).toHaveLength(1);
+    expect(log.lines[0]).toStartWith('@pyric/live/vite: unobserved call to oauth2.googleapis.com (');
+    expect(slot[NET_GUARD_GLOBAL]).toBeUndefined();
+    expect(installViteLiveReport({ env: {}, write: log.write, slot, hooks: fakeSeams().hooks })).toBe(report);
+    report.stop();
   });
 });
 

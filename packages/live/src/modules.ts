@@ -15,10 +15,15 @@
  * function that closes the listener's journal activity and then calls the
  * SDK's own unsubscribe.
  *
- * The database row (`database.ts`) also decorates what two exports return:
- * the Database `getDatabase` returns is noted, so a reference's repo names
- * its app, and the OnDisconnect `onDisconnect` returns gets observed
+ * The database row (`database.ts`) also replaces `getDatabase`: an app whose
+ * config names another project, or a URL that names another project's
+ * default instance, is refused before the SDK's factory runs, and the
+ * Database it returns is noted, so a reference's repo
+ * names its app. The OnDisconnect `onDisconnect` returns gets observed
  * methods. Its `off` takes the app's callback and removes the recording one.
+ *
+ * The Firestore row replaces `writeBatch`: the batch it returns counts its
+ * operations, and its `commit` is one observed `writeBatch` call (`firestore.ts`).
  *
  * The AI row (`ai.ts`) observes instances, not exports: the GenerativeModel
  * `getGenerativeModel` returns, and each one `new GenerativeModel(...)` or
@@ -27,6 +32,14 @@
  * classes and prototypes stay its own. A stream call's result is the SDK's
  * own object, with its `response` replaced by a promise that follows the
  * SDK's and its `stream` by one that yields the SDK's own chunks.
+ *
+ * The Firestore, Database and Storage rows also hand their wrapped module to the
+ * reads a live page answers for its host (`tab-reads.ts`), which notes each
+ * instance their factories return.
+ *
+ * The Firestore row reads each call's path, the document or collection its
+ * reference or query names, and a write's data through its context hook,
+ * and a `getDoc`'s returned document through its result hook (`firestore.ts`).
  *
  * The Storage row (`storage.ts`) observes exports. `uploadBytesResumable`
  * returns the SDK's own UploadTask, its `then` and `catch` following the
@@ -53,13 +66,16 @@ import { accountOf, noteAuth } from './account.js';
 import {
   databaseCode,
   databaseContext,
+  databaseListener,
   databaseListenerArguments,
+  databaseListenerAttached,
   databaseListenerCallback,
-  noteDatabase,
+  guardedGetDatabase,
   observeOnDisconnect,
   offByCallback,
 } from './database.js';
 import { AI_REFUSED_CALLS, aiCode, aiContext, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
+import { firestoreContext, firestoreListener, firestoreResult, observedWriteBatch } from './firestore.js';
 import { observedGetStream, STORAGE_CALLS, storageContext } from './storage.js';
 import {
   MESSAGING_CALLS,
@@ -72,6 +88,7 @@ import {
 } from './messaging.js';
 import { observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite, type UncaughtListenerError } from './observe.js';
 import { liveCallRefusal, type LiveClient, type RefusedCall } from './refusal.js';
+import { noteReadModule, readFactoryNames } from './tab-reads.js';
 
 export type LiveModuleKey =
   | 'live-app'
@@ -228,6 +245,8 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     ],
     listeners: ['onSnapshot', 'onSnapshotResume'],
     uncaughtListenerError: firestoreUncaughtListenerError,
+    hooks: { context: firestoreContext, resultOf: firestoreResult, listenerOf: firestoreListener },
+    replaced: { writeBatch: observedWriteBatch },
     refused: {
       getFirestore: getFirestoreDatabase,
       initializeFirestore: initializeFirestoreDatabase,
@@ -246,12 +265,11 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
       codeOf: databaseCode,
       listenerArguments: databaseListenerArguments,
       listenerCallback: databaseListenerCallback,
+      listenerOf: databaseListener,
+      listenerAttached: databaseListenerAttached,
     },
-    decorated: {
-      getDatabase: noteDatabase,
-      onDisconnect: observeOnDisconnect,
-    },
-    replaced: { off: offByCallback },
+    decorated: { onDisconnect: observeOnDisconnect },
+    replaced: { getDatabase: guardedGetDatabase, off: offByCallback },
   },
   'live-ai': {
     calls: [],
@@ -365,6 +383,12 @@ export interface LiveModuleSite {
   readonly sdkVersion: string;
   /** The client the module runs in, which a refusal names. */
   readonly client: LiveClient;
+  /**
+   * The SDK's initialized apps, `getApps()` of the app's own `firebase/app`.
+   * No row observes `getApps`, so reading it records nothing; the app row
+   * observes `getApp`, so a row never calls that.
+   */
+  readonly apps?: () => readonly unknown[];
 }
 
 /**
@@ -375,7 +399,8 @@ export interface LiveModuleSite {
 export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: string, real: T, site: LiveModuleSite): T {
   const spec = LIVE_MODULES[key];
   const wrapped: Record<string, unknown> = { ...(real as Record<string, unknown>) };
-  const observedSite = { module: specifier, observer: site.observer, accountOf, ...spec.hooks };
+  const apps = site.apps === undefined ? {} : { apps: site.apps };
+  const observedSite = { module: specifier, observer: site.observer, accountOf, ...apps, ...spec.hooks };
   wrapExports(wrapped, spec.calls, observedCall, observedSite, spec.thenables, spec.swallowsRejection);
   const uncaughtListenerError = spec.uncaughtListenerError?.(site.sdkVersion);
   wrapExports(wrapped, spec.listeners, observedListener, { ...observedSite, uncaughtListenerError });
@@ -383,18 +408,24 @@ export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: 
   noteExports(wrapped, spec.noted ?? []);
   decorateExports(wrapped, spec.decorated ?? {}, observedSite);
   replaceExports(wrapped, spec.replaced ?? {}, observedSite);
+  noteReadModule(key, wrapped);
   return wrapped as T;
 }
 
-/** Every export a live module replaces: the observed, the refused, the noted, the decorated and the rewired ones. */
+/**
+ * Every export a live module replaces: the observed, the refused, the noted,
+ * the decorated and the rewired ones, and the factories whose instances the
+ * page's reads use (`tab-reads.ts`), each once.
+ */
 export function replacedExports(key: LiveModuleKey): string[] {
   const spec = LIVE_MODULES[key];
-  return [
+  return [...new Set([
     ...spec.calls,
     ...spec.listeners,
     ...Object.keys(spec.refused ?? {}),
     ...(spec.noted ?? []),
     ...Object.keys(spec.decorated ?? {}),
     ...Object.keys(spec.replaced ?? {}),
-  ];
+    ...readFactoryNames(key),
+  ])];
 }

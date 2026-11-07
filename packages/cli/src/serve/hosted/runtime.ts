@@ -35,7 +35,8 @@ import { setRules } from 'pyric/sandbox/firestore';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
-import { DEFAULT_BUCKET, installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
+import { DEFAULT_BUCKET, installStorageBackend } from 'pyric/storage/internal';
+import { applyStorageRulesUpdate, storageRulesUpdateFor } from '../storage-rules-install.js';
 import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
@@ -43,13 +44,14 @@ import { createSurfaceContext } from '../../bridge/surface/context.js';
 import { callMethod } from '../../bridge/surface/method-call.js';
 import { methodByKey } from '../../bridge/surface/methods/registry.js';
 import type { OperationResult } from '../../bridge/surface/types.js';
-import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
+import type { InitPayload, RulesDestination } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { ensureAuth, setPortSession } from '../worker/host-auth.js';
-import { callerFor, markPortConnection, SERVICE_WORKER_TAB_ID, setPortTabId, type PortConnection } from '../worker/host/caller.js';
+import { callerFor, markPortConnection, portClientId, SERVICE_WORKER_TAB_ID, setPortTabId, type PortConnection } from '../worker/host/caller.js';
 import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
+import { observedPortInterrupted, observedPortResumed } from '../worker/host/observe.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
 import { rtdbInstance } from '../worker/host/rtdb-instances.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
@@ -463,8 +465,8 @@ export async function createHostedRuntime(
     const isServiceWorker = transport === 'worker-port' && platform === SERVICE_WORKER_TAB_ID;
     if (isServiceWorker) setPortTabId(ctx, owned.port, SERVICE_WORKER_TAB_ID);
     let releaseOperation: (() => void) | undefined;
-    // An observed call is charged like an operation, so a client cannot queue them without bound.
-    const isOperation = incoming.t === 'op' || incoming.t === 'tool' || incoming.t === 'observe';
+    // An observed call or unobserved lists are charged like an operation, so a client cannot queue them without bound.
+    const isOperation = incoming.t === 'op' || incoming.t === 'tool' || incoming.t === 'observe' || incoming.t === 'unobserved';
     if (isOperation) {
       const reservation = owned.budget.reserve(incoming);
       const isRefused = !reservation.accepted;
@@ -480,7 +482,10 @@ export async function createHostedRuntime(
       : { ...incoming, clientSessionId: undefined, resumeSession: undefined };
     owned.pending = owned.pending.then(async () => {
       owned.transport = transport;
-      if (message.resumeSession === true) ctx.disconnectedPorts?.delete(owned.port);
+      if (message.resumeSession === true) {
+        ctx.disconnectedPorts?.delete(owned.port);
+        observedPortResumed(ctx, owned.port);
+      }
       await recorder?.inbound(clientSessionId, message);
       refusePortWrite(owned.port, message);
       const changesDurableState = message.t === 'op' && requiresHealthyPersistence(message);
@@ -521,6 +526,8 @@ export async function createHostedRuntime(
     const owned = ports.get(clientSessionId);
     const isMissingPort = owned === undefined;
     if (isMissingPort) return;
+    // A Node process whose next run already connected ends its listeners now.
+    observedPortInterrupted(ctx, owned.port);
     owned.pending = owned.pending.then(() => {
       recorder?.note({ kind: 'client', at: Date.now(), session: clientSessionId, event: 'interrupted' });
       return drainPortRtdbDisconnects(ctx, owned.port);
@@ -601,12 +608,19 @@ export async function createHostedRuntime(
      *  `instance` names the RTDB instance a database ruleset deploys to, as
      *  {@link setDatabaseRules} takes it, absent for the default instance, or
      *  an unresolved deploy target, as {@link setDatabaseTargetRules} takes it. */
-    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void> {
+    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: RulesDestination): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
       if (service === 'storage') {
-        await replaceStorageRules(ctx.sandbox, source);
-        recorder?.note({ kind: 'rules', at: Date.now(), service, source });
+        // A bucket by name gets its own rules, a pending deploy target its
+        // buckets' once resolved, and without either the default bucket (#1313).
+        const update = storageRulesUpdateFor(source, instance);
+        await applyStorageRulesUpdate(ctx.sandbox, update);
+        const isDefaultBucket = update.bucket === undefined && update.target === undefined;
+        if (isDefaultBucket) recorder?.note({ kind: 'rules', at: Date.now(), service, source });
         return;
+      }
+      if (instance !== undefined && typeof instance === 'object' && 'bucket' in instance) {
+        throw new Error(`A ${service} ruleset does not deploy to a Storage bucket.`);
       }
       if (service === 'database') {
         const deployed = typeof instance === 'object'
@@ -666,6 +680,11 @@ export async function createHostedRuntime(
           }
         },
       );
+    },
+    /** The client id the events of a connection's frames carry (`caller.ts`), or undefined for one that names none or has closed. */
+    clientIdOf(clientSessionId: string): string | undefined {
+      const owned = ports.get(clientSessionId);
+      return owned === undefined ? undefined : portClientId(ctx, owned.port);
     },
     /** Clears tracked active Firestore rules metadata without changing enforced sandbox rules. */
     clearActiveFirestoreRules(): void {

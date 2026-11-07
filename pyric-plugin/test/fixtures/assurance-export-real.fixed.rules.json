@@ -1,0 +1,31 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "spaces_app": {
+      "spaces": {
+        "$spaceid": {
+          "metadata": {
+            ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+            "members": {
+              "$uid": {
+                ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && (root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('role').val() == 'admin' || (auth.uid == $uid && newData.child('role').val() != 'admin'))"
+              }
+            }
+          },
+          "chatHistory": {
+            "$tabid": {
+              ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && (!root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').exists() || root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').child(auth.uid).val() == true)",
+              ".indexOn": [
+                "whenNeg"
+              ],
+              "$messageid": {
+                ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && (!root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').exists() || root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').child(auth.uid).val() == true) && (!data.exists() ? newData.child('speaker').child('uid').val() == auth.uid : data.child('speaker').child('uid').val() == auth.uid)"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

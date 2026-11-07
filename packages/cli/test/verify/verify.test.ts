@@ -39,6 +39,7 @@ import { setRules as setFirestoreRules, seedDocuments as seedFirestoreDocuments 
 import { runDerivedCases } from '../../src/bridge/surface/assurance-cases.js';
 import { getMetadata, getStorage, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
 import { createAppForSandbox } from 'pyric/app/internal';
+import { emitSandboxEvent, observedCallEvent } from 'pyric/sandbox/internal';
 import {
   buildVerifyFixture,
   deriveRulesTestCases,
@@ -558,6 +559,108 @@ describe('verifyFixture RTDB case kinds', () => {
   });
 });
 
+// ─── Live calls: production's answer replayed against the local rules ───
+describe('verifyFixture live Firestore calls', () => {
+  const ADMIN_READS = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow read: if request.auth.token.admin == true; }
+  }
+}`;
+  const OWNER_WRITES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow create, update: if request.resource.data.owner == request.auth.uid; }
+  }
+}`;
+  const NO_ONE = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{p=**} { allow read, write: if false; }
+  }
+}`;
+
+  type ObservedValues = NonNullable<PyricVerifyFixture['observedCalls']>[string];
+
+  /** A capture holding one live call production answered, with the values it carried. */
+  function liveCapture(call: Parameters<typeof observedCallEvent>[0], values: ObservedValues, rules: string): PyricVerifyFixture {
+    const sandbox = initializeSandbox();
+    emitSandboxEvent(sandbox, observedCallEvent(call), { caller: { kind: 'node' } });
+    const id = sandbox.history().at(-1)!.id;
+    return buildVerifyFixture({ sandbox, firestoreRules: rules, observedCalls: { [id]: values } });
+  }
+
+  const read = (outcome: { status: 'ok' } | { status: 'error'; code: string }) => ({
+    service: 'firestore' as const, method: 'getDoc', path: 'rooms/r1', at: 1, outcome, account: { uid: 'alice' },
+  });
+  const write = { service: 'firestore' as const, method: 'setDoc', path: 'rooms/r1', at: 1, outcome: { status: 'ok' as const }, account: { uid: 'alice' } };
+
+  it('reports no divergence when the local rules still answer as production did', async () => {
+    const fixture = liveCapture(read({ status: 'ok' }), { claims: { admin: true } }, ADMIN_READS);
+    const result = await verifyFixture(fixture, { rules: { firestore: ADMIN_READS } });
+    expect(result.services.firestore?.divergences).toEqual([]);
+    expect(result.services.firestore?.checkedEvents).toBe(1);
+  });
+
+  it('reports now-denied for a live read production allowed and the local rules deny', async () => {
+    const fixture = liveCapture(read({ status: 'ok' }), { claims: { admin: true } }, ADMIN_READS);
+    const result = await verifyFixture(fixture, { rules: { firestore: NO_ONE } });
+    expect(result.ok).toBe(false);
+    expect(result.services.firestore?.divergences).toMatchObject([{ service: 'firestore', kind: 'now-denied', path: 'rooms/r1', method: 'get' }]);
+  });
+
+  it('reports now-allowed for a live read production denied and the local rules allow', async () => {
+    const fixture = liveCapture(read({ status: 'error', code: 'permission-denied' }), { claims: { admin: true } }, ADMIN_READS);
+    const result = await verifyFixture(fixture, { rules: { firestore: ADMIN_READS } });
+    expect(result.services.firestore?.divergences).toMatchObject([{ service: 'firestore', kind: 'now-allowed', path: 'rooms/r1', method: 'get' }]);
+  });
+
+  const OWNER_READS = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow read: if resource.data.owner == request.auth.uid; }
+  }
+}`;
+  const EMAIL_READS = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow read: if request.auth.token.email == 'alice@example.com'; }
+  }
+}`;
+
+  it('skips a live call whose answer rests on data the capture lacks, under unchanged rules', async () => {
+    const cases: Array<[string, ObservedValues]> = [
+      [OWNER_READS, {}],
+      [ADMIN_READS, {}],
+      [EMAIL_READS, { claims: { admin: true } }],
+      [OWNER_WRITES, {}],
+    ];
+    for (const [rules, values] of cases) {
+      const call = rules === OWNER_WRITES ? write : read({ status: 'ok' });
+      const result = await verifyFixture(liveCapture(call, values, rules), { rules: { firestore: rules } });
+      expect(result.ok).toBe(true);
+      expect(result.services.firestore?.divergences).toEqual([]);
+      expect(result.services.firestore?.checkedEvents).toBe(0);
+    }
+  });
+
+  it('replays a live read with the document it returned, and reports a real rules change', async () => {
+    const fixture = liveCapture(read({ status: 'ok' }), { document: { owner: 'alice' } }, OWNER_READS);
+    const unchanged = await verifyFixture(fixture, { rules: { firestore: OWNER_READS } });
+    expect(unchanged.services.firestore?.divergences).toEqual([]);
+    expect(unchanged.services.firestore?.checkedEvents).toBe(1);
+    const closed = await verifyFixture(fixture, { rules: { firestore: NO_ONE } });
+    expect(closed.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'get' }]);
+  });
+
+  it('replays a live write with the data it sent', async () => {
+    const agrees = await verifyFixture(liveCapture(write, { writeData: { owner: 'alice' } }, OWNER_WRITES), { rules: { firestore: OWNER_WRITES } });
+    expect(agrees.services.firestore?.divergences).toEqual([]);
+    const differs = await verifyFixture(liveCapture(write, { writeData: { owner: 'bob' } }, OWNER_WRITES), { rules: { firestore: OWNER_WRITES } });
+    expect(differs.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'set' }]);
+  });
+});
+
 // ─── Storage rules — capture / restore round-trip ───────────────────────
 //
 // `services.storage.rules` used to be a typed-but-never-written slot:
@@ -608,6 +711,32 @@ service firebase.storage {
     await getMetadata(storageRef(storage, 'x/a.txt'));
     const result = await verifyFixture(buildVerifyFixture({ sandbox, storageRules: rules }), { rules: { storage: rules } });
     expect(result.services.storage?.checkedEvents).toBe(2);
+    expect(result.services.storage?.divergences).toEqual([]);
+  });
+
+  it("skips a call production served, whose allow is production's, not the captured rules'", async () => {
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{p=**} { allow read, write: if false; }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    getStorageSandbox(sandbox, { dbName: uniqueDbName('observed'), rules });
+    const call = {
+      service: 'storage' as const,
+      method: 'getDownloadURL',
+      path: 'avatars/alice.png',
+      at: 1,
+      outcome: { status: 'ok' as const },
+      account: { uid: 'alice' },
+      bucket: 'demo-app.appspot.com',
+    };
+    emitSandboxEvent(sandbox, observedCallEvent(call), { caller: { kind: 'node' } });
+    const fixture = buildVerifyFixture({ sandbox, storageRules: rules });
+    expect(fixture.events).toContainEqual(expect.objectContaining({ service: 'storage', result: 'allow' }));
+    const result = await verifyFixture(fixture, { rules: { storage: rules } });
+    expect(result.services.storage?.checkedEvents).toBe(0);
     expect(result.services.storage?.divergences).toEqual([]);
   });
 

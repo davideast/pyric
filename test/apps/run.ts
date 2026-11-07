@@ -21,7 +21,9 @@
  *   --shard-plan <file> --shard <n>
  *                     run shard n of a plan from shard-plan.ts. The run
  *                     first checks that the plan's apps are exactly the
- *                     apps this run would select without it, then runs
+ *                     apps this run would select without it (or, for a
+ *                     plan of a pull request's selected apps, only such
+ *                     apps), then runs
  *                     only shard n's, and writes the apps it ran to
  *                     test-results/app-shards/shard-<n>.json for the
  *                     completeness check in `CI / required`
@@ -186,7 +188,9 @@ async function runApp(name: string, context: {
     inScenario = false;
     const hostErrors = run.unexpectedHostErrors();
     if (hostErrors.length > 0) {
-      throw new StepFailure('every Pyric host route the page requested answered without an error', new Error(hostErrors.join('\n')));
+      // The report prints the stack, so it carries the list itself, as the crash verdict below does.
+      const report = hostErrors.join('\n');
+      throw new StepFailure('every Pyric host route the page requested answered without an error', Object.assign(new Error(report), { stack: report }));
     }
     const leftovers = run.unexpectedLeftoverProcesses();
     if (leftovers.length > 0) {
@@ -291,7 +295,7 @@ async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R
   return results;
 }
 
-/** The apps of one shard of a plan, after checking the plan covers exactly the apps this run selects. */
+/** The apps of one shard of a plan, after checking the plan's apps against the apps this run selects. */
 function planShard(shard: ShardOption, selected: readonly string[]): string[] {
   const plan = readPlan(readFileSync(shard.planFile, 'utf8'));
   const mismatches = checkPlanCoversSelection(plan, selected);

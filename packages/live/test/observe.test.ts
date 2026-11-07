@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'bun:test';
+import { firestoreListener } from '../src/firestore.js';
 import { observedCall, observedListener, type LiveCallRecord, type LiveListenerJournal, type LiveObserver } from '../src/observe.js';
 
 const OBSERVE_URL = new URL('../src/observe.ts', import.meta.url).href;
@@ -142,6 +143,65 @@ describe('a one-shot wrapper', () => {
     const wrapped = observedCall({ module: 'firebase/auth', name: 'getIdToken', observer }, async () => 'secret-token');
     await wrapped('secret-argument');
     expect(JSON.stringify(records)).not.toContain('secret');
+  });
+});
+
+describe('a one-shot wrapper whose observer measures', () => {
+  /** Measures as the senders' `measureObservedUsage` does for these four calls: counts read off the resolved value. */
+  function measure(module: string, method: string, value: unknown): Record<string, number> | undefined {
+    const answer = value as { docs?: unknown[]; val?: () => unknown; metadata?: { size?: number }; byteLength?: number };
+    if (method === 'getDocs') return { documentReads: answer.docs?.length ?? 0 };
+    if (method === 'get') return { payloadBytes: JSON.stringify(answer.val?.()).length };
+    if (method === 'uploadBytes' || method === 'uploadBytesResumable') return { uploadedBytes: answer.metadata?.size ?? 0 };
+    if (method === 'getBytes') return { downloadedBytes: answer.byteLength ?? 0 };
+    return module === 'firebase/auth' ? undefined : { unmeasured: 1 };
+  }
+
+  const CALLS: readonly [string, string, unknown, Record<string, number>][] = [
+    ['firebase/firestore', 'getDocs', { docs: [{ secret: 1 }, { secret: 2 }, { secret: 3 }] }, { documentReads: 3 }],
+    ['firebase/database', 'get', { val: () => ({ secret: 'value' }) }, { payloadBytes: 18 }],
+    ['firebase/storage', 'uploadBytes', { metadata: { size: 42, name: 'secret.png' } }, { uploadedBytes: 42 }],
+    ['firebase/storage', 'getBytes', new ArrayBuffer(7), { downloadedBytes: 7 }],
+  ];
+
+  for (const [module, name, value, usage] of CALLS) {
+    test(`a resolved ${name} carries the usage the observer measured, and no value`, async () => {
+      const { records, observer } = collector();
+      const measuring = Object.assign(observer, { measure });
+      const wrapped = observedCall({ module, name, observer: measuring }, () => Promise.resolve(value));
+      expect(await wrapped('secret-argument')).toBe(value);
+      expect(records).toEqual([{ module, name, outcome: 'resolved', usage }]);
+      expect(JSON.stringify(records)).not.toContain('secret');
+    });
+
+    test(`a resolved ${name} carries no usage when the observer does not measure`, async () => {
+      const { records, observer } = collector();
+      const wrapped = observedCall({ module, name, observer }, () => Promise.resolve(value));
+      await wrapped();
+      expect(records).toEqual([{ module, name, outcome: 'resolved' }]);
+    });
+  }
+
+  test('an uploadBytesResumable task is measured by the snapshot it settles with, not the task', async () => {
+    const { records, observer } = collector();
+    const snapshot = { metadata: { size: 9 } };
+    const task = { then: (resolve: (value: unknown) => void) => resolve(snapshot) };
+    const site = { module: 'firebase/storage', name: 'uploadBytesResumable', observer: Object.assign(observer, { measure }), followsThenable: true };
+    const wrapped = observedCall(site, () => task);
+    expect(await (wrapped() as Promise<unknown>)).toBe(snapshot);
+    expect(records).toEqual([{ module: 'firebase/storage', name: 'uploadBytesResumable', outcome: 'resolved', usage: { uploadedBytes: 9 } }]);
+  });
+
+  test('a rejection and a measure that throws carry no usage, and the app still gets its answer', async () => {
+    const thrown = collector();
+    const rejected = collector();
+    const throwing = Object.assign(thrown.observer, { measure: () => { throw new Error('measure down'); } });
+    const read = observedCall({ module: 'firebase/firestore', name: 'getDocs', observer: throwing }, () => Promise.resolve({ docs: [] }));
+    const denied = observedCall({ module: 'firebase/firestore', name: 'getDocs', observer: Object.assign(rejected.observer, { measure }) }, () => Promise.reject(new CodedError('permission-denied')));
+    expect(await read()).toEqual({ docs: [] });
+    expect(await (denied() as Promise<unknown>).catch((error: CodedError) => error.code)).toBe('permission-denied');
+    expect(thrown.records).toEqual([{ module: 'firebase/firestore', name: 'getDocs', outcome: 'resolved' }]);
+    expect(rejected.records).toEqual([{ module: 'firebase/firestore', name: 'getDocs', outcome: 'rejected', code: 'permission-denied' }]);
   });
 });
 
@@ -484,5 +544,132 @@ describe('a listener wrapper whose observer journals listeners', () => {
     });
     expect(caught).toBe(thrown);
     expect(calls).toBe(1);
+  });
+});
+
+/** A listener id this realm mints. */
+const LISTENER_ID = /^l-[0-9a-f]{8}-[0-9]+$/;
+/** A key's keyed hash. */
+const KEY_HASH = /^[0-9a-f]{16}$/;
+
+/** A stand-in listener export: it hands the test its callbacks and returns an unsubscribe that counts its calls. */
+function standInListener(): { real: (...args: unknown[]) => unknown; next: () => (value: unknown) => void; error: () => (reason: unknown) => void; unsubscribes: () => number } {
+  let handed: unknown[] = [];
+  let unsubscribes = 0;
+  return {
+    real: (...args: unknown[]) => {
+      handed = args;
+      return () => {
+        unsubscribes += 1;
+      };
+    },
+    next: () => handed.find((arg) => typeof arg === 'function') as (value: unknown) => void,
+    error: () => handed.filter((arg) => typeof arg === 'function')[1] as (reason: unknown) => void,
+    unsubscribes: () => unsubscribes,
+  };
+}
+
+/** The lifecycle records, as `[outcome, id, key]`. */
+function lifecycleOf(records: readonly LiveCallRecord[]): unknown[][] {
+  return records.filter((record) => record.listener !== undefined).map((record) => [record.outcome, record.listener?.id, record.listener?.key]);
+}
+
+describe('a listener whose module names what it watches', () => {
+  const lobby = { type: 'document', firestore, path: 'rooms/lobby' };
+
+  test('records attached at subscribe, in place of returned, and detached once at unsubscribe, sharing one id', () => {
+    const { records, observer } = collector();
+    const sdk = standInListener();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, sdk.real);
+    const unsubscribe = subscribe(lobby, () => undefined) as () => void;
+    sdk.next()('snapshot');
+    unsubscribe();
+    unsubscribe();
+    expect(records.map((record) => record.outcome)).toEqual(['attached', 'delivered', 'detached']);
+    const [attached, , detached] = records;
+    expect(attached?.listener?.id).toMatch(LISTENER_ID);
+    expect(attached?.listener?.key).toMatch(KEY_HASH);
+    expect(detached?.listener).toEqual(attached?.listener);
+    expect(records[1]).not.toHaveProperty('listener');
+    expect(attached).toMatchObject({ path: 'rooms/lobby', projectId: 'demo' });
+    expect(sdk.unsubscribes()).toBe(2);
+  });
+
+  test('gives each subscription its own id, and two on one document one hashed key that holds no path', () => {
+    const { records, observer } = collector();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, standInListener().real);
+    subscribe(lobby, () => undefined);
+    subscribe({ ...lobby }, () => undefined);
+    subscribe({ type: 'document', firestore, path: 'rooms/hall' }, () => undefined);
+    const [first, second, hall] = lifecycleOf(records);
+    expect(new Set([first![1], second![1], hall![1]]).size).toBe(3);
+    expect(second![2]).toBe(first![2]);
+    expect(hall![2]).not.toBe(first![2]);
+    expect(JSON.stringify(records.map((record) => record.listener))).not.toContain('rooms');
+  });
+
+  test("an error ends the listener: the error, then detached, and the app's later unsubscribe records nothing", () => {
+    for (const appError of [(_reason: unknown) => undefined, undefined]) {
+      const { records, observer } = collector();
+      const sdk = standInListener();
+      const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, sdk.real);
+      const unsubscribe = subscribe(lobby, () => undefined, appError) as () => void;
+      sdk.error()(new CodedError('permission-denied'));
+      unsubscribe();
+      expect(records.map((record) => [record.outcome, record.code])).toEqual([
+        ['attached', undefined],
+        ['listener-error', 'permission-denied'],
+        ['detached', undefined],
+      ]);
+    }
+  });
+
+  test('a subscribe the SDK throws on records the throw and no lifecycle', () => {
+    const { records, observer } = collector();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, () => {
+      throw new CodedError('invalid-argument');
+    });
+    expect(() => subscribe(lobby, () => undefined)).toThrow('invalid-argument');
+    expect(records.map((record) => record.outcome)).toEqual(['threw']);
+  });
+
+  test('a target the hook cannot name, or a hook that throws, keeps the plain returned record', () => {
+    const { records, observer } = collector();
+    const named = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, standInListener().real);
+    named({ type: 'unknown' }, () => undefined);
+    const throwing = observedListener({ module: 'm', name: 'onSnapshot', observer, listenerOf: () => { throw new Error('hook down'); } }, standInListener().real);
+    throwing(lobby, () => undefined);
+    expect(records.map((record) => [record.outcome, record.listener])).toEqual([['returned', undefined], ['returned', undefined]]);
+  });
+
+  test("hands the module a detach for the subscription, which records detached once and forgets it", () => {
+    const { records, observer } = collector();
+    const detaches: Array<() => void> = [];
+    let forgotten = 0;
+    const listenerAttached = (_name: string, _args: readonly unknown[], detach: () => void) => {
+      detaches.push(detach);
+      return () => { forgotten += 1; };
+    };
+    const subscribe = observedListener({ module: 'firebase/database', name: 'onValue', observer, listenerOf: () => ({ target: '/items', key: 'items' }), listenerAttached }, standInListener().real);
+    const unsubscribe = subscribe({}, () => undefined) as () => void;
+    detaches[0]!();
+    detaches[0]!();
+    unsubscribe();
+    expect(records.map((record) => record.outcome)).toEqual(['attached', 'detached']);
+    expect(forgotten).toBe(1);
+  });
+
+  test('an onSnapshotResume of a document snapshot listens to that document; of a query snapshot, to nothing it can name', () => {
+    const { records, observer } = collector();
+    const resume = observedListener({ module: 'firebase/firestore', name: 'onSnapshotResume', observer, listenerOf: firestoreListener }, standInListener().real);
+    const unsubscribe = resume(firestore, { bundleSource: 'DocumentSnapshot', bundleName: 'rooms/lobby', bundle: '' }, () => undefined) as () => void;
+    unsubscribe();
+    resume(firestore, { bundleSource: 'QuerySnapshot', bundleName: 'AbC123', bundle: '' }, () => undefined);
+    expect(records.map((record) => record.outcome)).toEqual(['attached', 'detached', 'returned']);
+    const resumed = lifecycleOf(records)[0]!;
+    const direct = collector();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer: direct.observer, listenerOf: firestoreListener }, standInListener().real);
+    subscribe(lobby, () => undefined);
+    expect(lifecycleOf(direct.records)[0]![2]).toBe(resumed[2]);
   });
 });

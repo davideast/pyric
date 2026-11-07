@@ -15,6 +15,7 @@ import { createHeldMessages } from './held-messages.js';
 import { watchHostSilence } from './host-silence.js';
 import { settleInFlightAtDrop } from './in-flight-at-drop.js';
 import { closeSendOrder, waitsToSend } from './send-order.js';
+import { announceTabReads, answerTabCall } from './tab-reads.js';
 
 /** The HTTP origin that serves a WebSocket endpoint. */
 function httpOriginOf(socketUrl: string): string {
@@ -109,6 +110,9 @@ export function getHostedFirestore(target: {
   let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   let hostSilence = watchHostSilence(0);
   const realm = target.realm;
+  /** A page tab announces the live reads it answers (`tab-reads.ts`); a Node process or service worker does not. */
+  const answersReads = realm === undefined && !isServiceWorkerRealm();
+  let stopAnnouncingReads: (() => void) | undefined;
   // Settles once the first attachment says whether the host has a byte route,
   // or the connection ends without one; Storage waits on it before choosing.
   let byteRouteKnown = false;
@@ -200,6 +204,7 @@ export function getHostedFirestore(target: {
     clearTimeout(attachDeadline);
     clearTimeout(reconnectTimer);
     clearTimeout(heartbeatTimer);
+    stopAnnouncingReads?.();
     const closingSocket = socket;
     socket = undefined;
     const canNotifyHost = closingSocket?.readyState === WebSocket.OPEN;
@@ -230,6 +235,11 @@ export function getHostedFirestore(target: {
 
   function send(connection: WebSocket, message: BridgeMessage): void {
     connection.send(encodeRequest(message));
+  }
+
+  /** Sends a frame of the tab's own on the connection while it is current. */
+  function postFrame(connection: WebSocket, message: BridgeMessage): void {
+    if (isCurrent(connection)) send(connection, message);
   }
 
   function deliver(message: OutboundMessage): void {
@@ -348,6 +358,8 @@ export function getHostedFirestore(target: {
     if (needsMessagingRestore) restoreMessagingSubscriptions(port, replay);
     // Held messages follow the whole restore, in the order the app issued them.
     held.flush(postMessage);
+    stopAnnouncingReads?.();
+    if (answersReads) stopAnnouncingReads = announceTabReads(connectionId, frame => postFrame(connection, frame));
     notifyConnectionChange();
   }
 
@@ -509,6 +521,10 @@ export function getHostedFirestore(target: {
             if (isPersistenceFailure) target.onError?.(new FirebaseError(response.error.code, response.error.message));
           }
           deliver(response);
+          return;
+        }
+        case 'tool-call': {
+          if (answersReads) void answerTabCall(message, reply => postFrame(connection, reply));
           return;
         }
       }

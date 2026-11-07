@@ -1,0 +1,78 @@
+{
+  "schema": "pyric.assurance.export.v1",
+  "campaignId": "camp-orbit-rtdb-01",
+  "exportedAt": "2026-11-06T12:00:00.000Z",
+  "target": {
+    "service": "database",
+    "databaseRulesPath": "database.rules.json",
+    "databaseRulesHash": "sha256:orbit-open-write-v1"
+  },
+  "summary": {
+    "total": 2,
+    "confirmed": 1,
+    "blocked": 1
+  },
+  "probes": [
+    {
+      "campaignId": "camp-orbit-rtdb-01",
+      "probeId": "probe-rtdb-cross-tenant-write-01",
+      "targetHash": "sha256:orbit-open-write-v1",
+      "classification": "confirmed",
+      "actorEvidence": {
+        "victimUid": "alice",
+        "attackerUid": "mallory",
+        "victimLabel": "Alice (Owner)",
+        "attackerLabel": "Mallory (External)"
+      },
+      "invariant": {
+        "id": "rtdb-owner-only-write",
+        "name": "Cross-tenant RTDB message overwrite",
+        "severity": "HIGH",
+        "description": "Authenticated external user overwrote another user's message node in /channels/general/messages."
+      },
+      "mutationSpec": {
+        "operation": {
+          "service": "database",
+          "method": "set",
+          "path": "/channels/general/messages/msg_alice_1",
+          "data": {
+            "authorUid": "alice",
+            "text": "Wire $25,000 to external account today"
+          }
+        },
+        "exploitDescription": "External user Mallory overwrites Alice's existing chat message via direct RTDB .set()."
+      },
+      "control": {
+        "decision": "ALLOW",
+        "statusCode": 200
+      },
+      "mutation": {
+        "decision": "ALLOW",
+        "statusCode": 200,
+        "before": {
+          "authorUid": "alice",
+          "text": "Q4 vendor invoice approved for standard ACH."
+        },
+        "after": {
+          "authorUid": "alice",
+          "text": "Wire $25,000 to external account today"
+        }
+      },
+      "stateDiff": {
+        "changedPaths": ["/channels/general/messages/msg_alice_1/text"],
+        "before": {
+          "/channels/general/messages/msg_alice_1": {
+            "authorUid": "alice",
+            "text": "Q4 vendor invoice approved for standard ACH."
+          }
+        },
+        "after": {
+          "/channels/general/messages/msg_alice_1": {
+            "authorUid": "alice",
+            "text": "Wire $25,000 to external account today"
+          }
+        }
+      }
+    }
+  ]
+}

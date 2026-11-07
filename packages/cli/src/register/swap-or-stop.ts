@@ -195,7 +195,12 @@ function isNode22Require(load: ResolvedLoad): boolean {
 const LIVE_ROW_IMPORTS = joinedList([...INSTALLED_SDK_SPECIFIERS], 'or');
 
 function liveStopFix(family: SdkFamily, isUnservedRequire: boolean): string {
-  if (family === 'admin') return 'firebase-admin is refused in live mode, so move this code to a process without @pyric/live/register';
+  if (family === 'admin') {
+    // Node 22's require() skips the hooks, so the Admin rows stay shut there and live mode refuses firebase-admin.
+    const servesAdmin = Number(process.versions.node.split('.')[0]) >= 23;
+    const where = servesAdmin ? 'by its package name, which live mode serves and observes' : 'from Node 23 or later, where live mode serves and observes it';
+    return `import firebase-admin ${where}, or move this code to a process without @pyric/live/register`;
+  }
   if (isUnservedRequire) return `import ${LIVE_ROW_IMPORTS} from an ES module, or run Node 23 or later`;
   return `import ${LIVE_ROW_IMPORTS} by its package name, so its live row loads the installed SDK`;
 }
@@ -274,6 +279,18 @@ export interface SuppliedRowsGrant {
    * rows' (`passThroughSdkPackages` in `../serve/vite-supplied-rows.ts`).
    */
   readonly passThroughPackages?: ReadonlySet<string>;
+  /**
+   * The app's own `firebase-admin` import, which the register serves through the Admin rows
+   * (`passThrough: ['firebase-admin']`): it may load the real Admin SDK.
+   */
+  readonly isAdminImport?: boolean;
+  /**
+   * An import made by a file of the Admin SDK's tree: every file a passed-through
+   * `firebase-admin` import reached, directly or not (`supplied-entry.ts`). It
+   * loads what the Admin SDK needs, `@google-cloud/firestore` and the
+   * `@firebase/*` packages it uses among them.
+   */
+  readonly isFromAdminTree?: boolean;
 }
 
 /**
@@ -304,25 +321,49 @@ function isAllowedLiveRowLoad(load: ResolvedLoad, packageName: string, allowedUr
   return isFromAllowedFile && isLoadedPackage;
 }
 
+/** Why a server SDK stops under live rows, and what the app imports instead. */
+interface ServerSdkStop {
+  /** What the SDK would reach that pyric neither observes nor can tell from what it lets through. */
+  readonly reaches: string;
+  readonly fix: string;
+}
+
 /**
- * The Google server SDKs that reach a live row host on their own connection:
+ * The Google server SDKs whose calls would read as a live row's: an app's
+ * own import of either would reach production with no row observing it.
  * `@google-cloud/firestore` speaks gRPC to `firestore.googleapis.com`, as the
- * live rows' Firestore does, so the network guard cannot tell its sockets
- * from the rows' (`live-net-guard.ts`). Other Google client libraries reach
- * hosts the guard refuses by host.
+ * live rows' Firestore does, so the network report cannot tell its sockets
+ * from the rows' (`live-net-guard.ts`). `@google-cloud/storage` reaches
+ * `storage.googleapis.com`, which the report reads as the Admin Storage
+ * row's. A passed-through `firebase-admin` still loads both, from its own
+ * tree.
  */
-const LIVE_HOST_SERVER_SDKS: ReadonlySet<string> = new Set(['@google-cloud/firestore']);
+const LIVE_HOST_SERVER_SDKS: Readonly<Record<string, ServerSdkStop>> = {
+  '@google-cloud/firestore': {
+    reaches: "Cloud Firestore on its own gRPC connection, which pyric neither observes nor can tell from the rows'",
+    fix: 'import firebase/firestore, which live mode serves to a Node process',
+  },
+  '@google-cloud/storage': {
+    reaches: "Cloud Storage's JSON API, which pyric neither observes nor can tell from the Admin SDK's own calls",
+    fix: "import firebase/storage, which live mode serves to a Node process, or firebase-admin/storage, which it observes",
+  },
+};
+
+function isLiveHostServerSdk(packageName: string | null): packageName is string {
+  return packageName !== null && Object.hasOwn(LIVE_HOST_SERVER_SDKS, packageName);
+}
 
 /** The stop's message for a server SDK under live rows: it would reach production unobserved. */
 function serverSdkStopMessage(load: ResolvedLoad, packageName: string): string {
+  const stop = LIVE_HOST_SERVER_SDKS[packageName]!;
   return [
     `${LIVE_LOG_PREFIX}: stopped loading ${packageName}`,
     `  import '${load.specifier}'`,
     `  from   ${load.importer ?? 'the entry point'}`,
     `  found  ${load.url}`,
     "In live mode, only the installed Firebase SDK reaches production, through @pyric/live's rows, so pyric sees each call. " +
-      `${packageName} would reach Cloud Firestore on its own gRPC connection, which pyric neither observes nor can tell from the rows'.`,
-    'Fix: import firebase/firestore, which live mode serves to a Node process, or move this code to a process without @pyric/live/register.',
+      `${packageName} would reach ${stop.reaches}.`,
+    `Fix: ${stop.fix}, or move this code to a process without @pyric/live/register.`,
     `code: ${REAL_SDK_STOPPED_CODE}`,
   ].join('\n');
 }
@@ -337,15 +378,20 @@ function serverSdkStop(load: ResolvedLoad, packageName: string): Error {
  * load, or `null` when it may go ahead. The client SDK loads only for a row
  * module's own ESM import of its specifier, and then for the packages those
  * files import ({@link isAllowedLiveRowLoad}); `firebase-admin` and the
- * server SDKs in {@link LIVE_HOST_SERVER_SDKS} never load.
+ * server SDKs in {@link LIVE_HOST_SERVER_SDKS} load only when the register
+ * passes `firebase-admin` through: the app's own import of it, then whatever
+ * its tree imports ({@link SuppliedRowsGrant.isFromAdminTree}).
  * An allowed load joins `allowedUrls`. The swap table and AI mode play no
  * part: live rows replace the swap.
  */
 export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>, grant: SuppliedRowsGrant): Error | null {
   if (!isInstalledFile(load.url)) return null;
+  // The Admin SDK passes through as a whole: its tree loads what it needs, unobserved.
+  if (grant.isFromAdminTree === true) return null;
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
-  const isServerSdk = packageName !== null && LIVE_HOST_SERVER_SDKS.has(packageName);
-  if (isServerSdk) return serverSdkStop(load, packageName);
+  const isAdminEntry = grant.isAdminImport === true && packageName === 'firebase-admin';
+  if (isAdminEntry) return null;
+  if (isLiveHostServerSdk(packageName)) return serverSdkStop(load, packageName);
   const family = sdkFamilyOf(packageName);
   if (family === null || packageName === null) return null;
   if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;

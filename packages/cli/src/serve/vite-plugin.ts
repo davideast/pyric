@@ -57,7 +57,7 @@ import { localGenerationSlot, projectGenerationSlot } from './vite-generation-re
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
-import { installViteNetGuard } from './vite-net-guard.js';
+import { installViteLiveReport, installViteNetGuard } from './vite-net-guard.js';
 import { attachLiveSdkRequestGate } from './vite-live-sdk-requests.js';
 import { installViteProcessStop } from './vite-process-stop.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
@@ -68,6 +68,7 @@ import type { PyricWriteRefusal } from './hosted/own-writes.js';
 import { loadRowModulePackage } from './vite-live-package.js';
 import { pyricFsDeny } from './vite-state-deny.js';
 import { attachViteRealPathDeny } from './vite-real-path-deny.js';
+import { attachViteProxyCheck } from './vite-proxy-check.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
 export interface EnvironmentHooks {
@@ -333,8 +334,9 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       // an externalized package that imports firebase-admin (ADR 0022).
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
       if (isDevServer) {
-        // Under live rows PYRIC_GUARD is not read: nothing in the environment turns the guard off.
-        installViteNetGuard({ fixedMode: supplied !== undefined });
+        // Live mode observes and never blocks at the network (ADR 0022, amendment 2026-11-07).
+        if (supplied !== undefined) installViteLiveReport();
+        else installViteNetGuard();
         installViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
       }
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
@@ -428,6 +430,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         // Rows supplied through `@pyric/live`'s seam make this host live.
         liveHost: supplied !== undefined,
         livePassThrough: supplied === undefined ? undefined : [...supplied.passThrough],
+        liveObserved: moduleSwap.observed,
         ownWriteRefusal: ownWriteRefusalOf(supplied),
       };
       const generationInput: ViteSandboxGenerationInput = {
@@ -444,6 +447,12 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       const ssrActivation = attachViteSsrActivation(server, options.hosted === true);
       hostedProjectKey = options.hosted ? projectDir : undefined;
       hostedInstanceId = options.hosted ? generation.instanceId : undefined;
+      // Each loopback `server.proxy` target is asked what it is once the server listens (#2304 G-5).
+      const stopProxyReport = attachViteProxyCheck(server, {
+        mode: supplied === undefined ? 'sandbox' : 'live',
+        instanceId: generation.instanceId,
+        projectId: generation.projectId,
+      });
       // Vite creates a replacement before closing the old server. Cleanup
       // belongs to this server, even when another generation is now active;
       // closing a generation its replacement already closed is a no-op.
@@ -451,6 +460,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       server.close = async () => {
         slot.release(generation);
         ssrActivation.close();
+        stopProxyReport();
         try {
           await generation.close();
         } finally {

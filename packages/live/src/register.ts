@@ -8,8 +8,12 @@
  * rows, so the app talks to its real project. Each wrapped Firestore and
  * Auth call's outcome reaches the Node host (`pyric-live`, or a Vite dev
  * server with `pyricLive()`) as an observed call, and the chip shows it as
- * production's row from a server process. Every other Firebase import, and
- * `firebase-admin`, is refused (`refusal.ts`), unless the live host passes
+ * production's row from a server process. `firebase-admin` loads with the
+ * app's own credential through the Admin rows, which observe its Firestore,
+ * Auth, Realtime Database and Storage calls for the host's project; the
+ * start line says those calls bypass Security Rules, and the register sets
+ * `GOOGLE_CLOUD_PROJECT` to the host's project when it is unset. Every other
+ * Firebase import is refused (`refusal.ts`), unless the live host passes
  * it through: a process passes through the imports its host lists in
  * `pyricLive({ passThrough })`, which the host's `/__pyric/health` reports.
  * Each is then the app's installed SDK, unwrapped and unobserved, and the
@@ -27,7 +31,9 @@
  * The first process runs the start checks (`start-checks.ts`), prints the
  * start line, and says which host its calls reach, or how to start one. A
  * child process or worker it starts opens the same rows, with the same
- * pass-through imports, quietly. Every process hands its rows the project it
+ * pass-through imports, quietly. One exception: a child on Node 22 of a
+ * Node 23 or later process refuses the `firebase-admin` it inherited, as a
+ * Node 22 first process does, and prints the line that says so. Every process hands its rows the project it
  * resolved (`serveHostProject`), so a call whose app names another project
  * is refused.
  */
@@ -41,11 +47,14 @@ import {
   liveProjectId,
   liveProjectRoot,
   reachLiveHost,
+  recordedPassThrough,
 } from '@pyric/cli/register/internal/supplied-rows';
-import { serveHostProject } from './node-modules.js';
-import { passThroughOption } from './refusal.js';
-import { hostReachLine, liveStartLine } from './start-line.js';
-import { liveStartRefusal } from './start-checks.js';
+import { refuseAdminWithoutHostProject, serveHostProject } from './node-modules.js';
+import { ADMIN_PASS_THROUGH, adminRowsNodeProblem, passThroughOption } from './refusal.js';
+import { hostReachLine, liveStartLine, passThroughLines } from './start-line.js';
+import { adminStartRefusal, installedAdminVersion, liveStartRefusal } from './start-checks.js';
+import { adminEnvRefusal } from './admin/project-gate.js';
+import { configuredDatabaseInstances } from './admin/database-instances.js';
 
 const ENTRY = '@pyric/live/register';
 
@@ -65,26 +74,81 @@ function childProject(projectRoot: string): string | undefined {
 /** This package's folder: the one above `dist/` in the installed files, or above `src/` in the workspace. */
 const LIVE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
+/** The line for a process on Node 22, where firebase-admin is refused, with the reason. */
+function adminRefusedLine(problem: string): string {
+  return `${ENTRY}: firebase-admin is refused in this process. ${problem}`;
+}
+
+/**
+ * The Admin start line: firebase-admin is observed, with its own credential,
+ * and its calls bypass Security Rules. Then one line per Admin emulator
+ * variable that is set, naming where those calls go instead.
+ */
+function adminLines(projectId: string, env: NodeJS.ProcessEnv): string[] {
+  if (adminNodeProblem !== null) return [adminRefusedLine(adminNodeProblem)];
+  const observed =
+    `${ENTRY}: firebase-admin is observed for the Firebase project ${projectId}. ` +
+    'This process uses its own credential, and its Admin calls bypass Security Rules. ' +
+    'Its Firestore, Auth, Realtime Database, Storage and Messaging calls are observed. ' +
+    'Its App Check calls are checked against the project but not observed, so they do not show in traffic. ' +
+    'Any other firebase-admin service loads unobserved, and a line names it when it loads.';
+  const redirected = ADMIN_EMULATOR_VARIABLES.filter(([variable]) => (env[variable] ?? '') !== '').map(
+    ([variable, service]) => `${ENTRY}: ${variable} is set, so firebase-admin's ${service} calls go to ${env[variable]}, not to production.`,
+  );
+  return [observed, ...redirected];
+}
+
+/** The emulator variables firebase-admin reads, and the service each sends elsewhere. */
+const ADMIN_EMULATOR_VARIABLES: readonly (readonly [string, string])[] = [
+  ['FIRESTORE_EMULATOR_HOST', 'Firestore'],
+  ['FIREBASE_AUTH_EMULATOR_HOST', 'Auth'],
+  ['FIREBASE_DATABASE_EMULATOR_HOST', 'Realtime Database'],
+  ['FIREBASE_STORAGE_EMULATOR_HOST', 'Storage'],
+  ['STORAGE_EMULATOR_HOST', 'Storage'],
+];
+
 const isFirstProcess = process.env[LIVE_PROJECT_ROOT_VARIABLE] === undefined;
 // The first process asks its host what passes through before any hook goes in;
 // a child or worker passes through what its first process recorded.
 const reach = isFirstProcess ? await reachLiveHost(liveProjectRoot(process.env, process.cwd())) : null;
 const hostPassThrough = reach?.kind === 'live' ? reach.passThrough : [];
+// A child of a Node 23 or later process inherits firebase-admin in its list. On Node 22 the seam drops it, and the child says so.
+const inheritsAdmin = !isFirstProcess && recordedPassThrough(process.env).includes(ADMIN_PASS_THROUGH);
 const passThrough = isFirstProcess ? passThroughOption(ENTRY, hostPassThrough) : undefined;
-await activateWithSuppliedRows({ liveRoot: LIVE_ROOT, passThrough });
+// The Admin rows are on from Node 23: firebase-admin loads through the seam's Admin tree, and its four
+// class-defining loads get the rows. On Node 22 they stay shut, and every firebase-admin import is refused.
+const adminNodeProblem = adminRowsNodeProblem();
+const adminRows = adminNodeProblem === null;
+const adminImport = adminRows ? [ADMIN_PASS_THROUGH] : [];
+const seamPassThrough = passThrough === undefined ? undefined : [...passThrough, ...adminImport];
+await activateWithSuppliedRows({ liveRoot: LIVE_ROOT, passThrough: seamPassThrough, adminRows });
 // The seam records the project root only when the rows opened.
 const projectRoot = process.env[LIVE_PROJECT_ROOT_VARIABLE];
 const startsLive = reach !== null && projectRoot !== undefined;
 const isChild = !isFirstProcess && projectRoot !== undefined;
 const servedChildProject = isChild ? childProject(projectRoot) : undefined;
-if (servedChildProject !== undefined) serveHostProject(servedChildProject);
+if (servedChildProject !== undefined) serveHostProject(servedChildProject, configuredDatabaseInstances(projectRoot!, servedChildProject));
+// A child whose first process recorded a root with no project: no Admin call could be gated, so the rows refuse firebase-admin.
+const isChildWithoutProject = isChild && servedChildProject === undefined;
+if (isChildWithoutProject) refuseAdminWithoutHostProject(projectRoot);
+const refusesInheritedAdmin = isChild && inheritsAdmin && adminNodeProblem !== null;
+if (refusesInheritedAdmin) process.stderr.write(`${adminRefusedLine(adminNodeProblem)}\n`);
 if (startsLive) {
   // The app's firebase as its rows read it: from the entry script's folder, then the working directory.
-  const refusal = liveStartRefusal(projectRoot, liveAppDirs(process.argv[1], process.cwd()));
+  const appDirs = liveAppDirs(process.argv[1], process.cwd());
+  const refusal = liveStartRefusal(projectRoot, appDirs) ?? adminStartRefusal(appDirs, projectRoot);
   if (refusal !== null) throw new Error(`${ENTRY}: ${refusal}`);
   const projectId = liveProjectId(projectRoot);
-  serveHostProject(projectId);
-  const passing = (passThrough ?? []).map((specifier) => `${ENTRY}: ${livePassThroughLine(specifier)}`);
-  const lines = [liveStartLine(ENTRY, projectId), ...passing, hostReachLine(ENTRY, reach, projectId, projectRoot)];
+  const hasAdmin = installedAdminVersion(appDirs, projectRoot) !== null;
+  // Only a process whose Admin rows are on checks the Admin project variables; a client-only process starts as before.
+  const checksAdminEnv = hasAdmin && adminRows;
+  const envRefusal = checksAdminEnv ? adminEnvRefusal(process.env, projectId) : null;
+  if (envRefusal !== null) throw envRefusal;
+  // firebase-admin and @google-cloud/storage read the project from here when the app names none, as a functions child does.
+  if ((process.env.GOOGLE_CLOUD_PROJECT ?? '') === '') process.env.GOOGLE_CLOUD_PROJECT = projectId;
+  serveHostProject(projectId, configuredDatabaseInstances(projectRoot, projectId));
+  const passing = passThroughLines(ENTRY, passThrough ?? [], livePassThroughLine);
+  const admin = hasAdmin ? adminLines(projectId, process.env) : [];
+  const lines = [liveStartLine(ENTRY, projectId), ...passing, ...admin, hostReachLine(ENTRY, reach, projectId, projectRoot)];
   process.stderr.write(`${lines.join('\n')}\n`);
 }

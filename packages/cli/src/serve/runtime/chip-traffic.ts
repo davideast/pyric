@@ -1,5 +1,5 @@
 import {
-  callerSource, EventHistory, isProductionServed, messagingRequestsLine, OBSERVATION_HISTORY_LIMITS, productionVerdict, storageGsPath,
+  callerSource, EventHistory, isProductionServed, messagingRequestsLine, OBSERVATION_HISTORY_LIMITS, observedMethod, productionVerdict, storageGsPath,
 } from 'pyric/sandbox/internal';
 import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal';
 /**
@@ -17,7 +17,7 @@ import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal'
  * which line went wrong; the full disposition, the rule that matched, and the
  * payload are Studio's job, which is where a row's click goes.
  */
-import type { EventProvenance, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
+import type { EventProvenance, ObservedCall, ObservedProduction, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import { captureIndexQuery, captureDatabaseIndexQuery, type ServiceIndexQuery } from 'pyric/sandbox/internal';
 
@@ -60,6 +60,25 @@ export interface ChipRequest {
    * `verdict` is production's: `denied` for `permission-denied`.
    */
   production?: ProductionOutcome;
+  /**
+   * What the local rules files said about a call production served, present
+   * only when they disagree with production's allow or deny. An agreeing
+   * verdict, or one the host could not decide, leaves the row as it was.
+   */
+  localDrift?: LocalDrift;
+}
+
+/** A local verdict that disagrees with production's: the local answer and the rule that decided it. */
+export type LocalDrift = Extract<NonNullable<ObservedProduction['local']>, { result: 'allow' | 'deny' }>;
+
+/** The local verdict on `production` when it disagrees with production's answer. */
+function localDriftOf(production: ObservedProduction): LocalDrift | undefined {
+  const local = production.local;
+  const isDrift = local !== undefined && local.result !== 'unevaluated' && local.drift === true;
+  if (!isDrift) return undefined;
+  // The trace rides as the row's rulesEvidence; the drift keeps the verdict only.
+  const { trace: _trace, ...verdict } = local;
+  return structuredClone(verdict);
 }
 
 /** Which requests Traffic lists: this page's own, or everything the sandbox received. */
@@ -148,16 +167,23 @@ function rowPath(event: SandboxEvent, path: string | undefined): string | null {
 function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefined): ChipRequest | null {
   const isOperation = event.kind === 'operation';
   if (!isOperation) return null;
-  const outcome = event.production?.outcome;
-  const isObserved = outcome !== undefined && isProductionServed(rules);
+  const production = event.production;
+  const isObserved = production !== undefined && isProductionServed(rules);
   if (!isObserved) return null;
+  const outcome = production.outcome;
   const verdict = OBSERVED_VERDICTS[productionVerdict(outcome)];
+  const localDrift = localDriftOf(production);
   const request: ChipRequest = {
     id: event.id, at: event.at, service: event.service, method: event.method,
     path: rowPath(event, event.path), verdict,
     identity: event.auth === null ? 'signed out' : event.auth.uid,
     production: { ...outcome },
+    ...(localDrift === undefined ? {} : { localDrift }),
+    ...observedIndexFields(event, outcome),
   };
+  // The local rules' trace reads as a sandbox row's evidence; production still decided.
+  const trace = production.local?.result === 'unevaluated' ? undefined : production.local?.trace;
+  if (trace !== undefined) request.rulesEvidence = structuredClone(trace);
   const observation = event.observation;
   const ai = observation?.ai;
   if (observation === undefined || ai === undefined) return request;
@@ -170,9 +196,39 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
   return { ...request, at: answeredAt, aiRequest };
 }
 
+/** Firestore's code for a query that needs an index production does not have. */
+function isFailedPrecondition(outcome: ProductionOutcome): boolean {
+  if (outcome.status === 'ok') return false;
+  const code = outcome.code.toLowerCase();
+  return code === 'failed-precondition' || code.endsWith('/failed-precondition');
+}
+
+/**
+ * An observed Firestore query's index check, from the shape the page sent
+ * (fields and operators, never a value), and production's
+ * `failed-precondition` as the index it lacked.
+ */
+function observedIndexFields(
+  event: Extract<SandboxEvent, { kind: 'operation' }>,
+  outcome: ProductionOutcome,
+): Pick<ChipRequest, 'indexQuery' | 'indexFailure'> {
+  const isFirestoreList = event.service === 'firestore' && observedMethod('firestore', event.method) === 'list';
+  const shape = event.request?.query as ObservedCall['query'];
+  const path = event.path;
+  if (!isFirestoreList || shape === undefined || path === undefined) return {};
+  const filters = (shape.filters ?? []).map(filter => ({ kind: 'where', ...filter }));
+  const indexQuery = captureIndexQuery(path, shape.scope === 'collection-group', filters, shape.orderBy ?? []);
+  return isFailedPrecondition(outcome) ? { indexQuery, indexFailure: true } : { indexQuery };
+}
+
 /** The AI rows the sandbox served, which Rates and the Sandbox tab count; production's rows are Traffic's only. */
 export function sandboxAiRequests(requests: readonly ChipRequest[]): AiRequestObservation[] {
-  return requests.flatMap(request => request.aiRequest !== undefined && request.production === undefined ? [request.aiRequest] : []);
+  return hostAiRequests(requests.filter(request => request.production === undefined));
+}
+
+/** Every AI row on the host, production's included: what a live host's Rates count. */
+export function hostAiRequests(requests: readonly ChipRequest[]): AiRequestObservation[] {
+  return requests.flatMap(request => request.aiRequest === undefined ? [] : [request.aiRequest]);
 }
 
 function projectRequest(event: SandboxEvent): ChipRequest | null {
@@ -216,6 +272,10 @@ function projectRequest(event: SandboxEvent): ChipRequest | null {
     }
     return request;
   }
+  // A live listener's attach is production's, not a sandbox listen: Traffic
+  // shows its deliveries, and the Data view and monitor read the attach.
+  const isObservedListener = event.kind === 'listener' && isProductionServed(event.rulesDisposition);
+  if (isObservedListener) return null;
   if (event.kind === 'listener' && event.phase === 'attach') {
     return {
       id: event.id,

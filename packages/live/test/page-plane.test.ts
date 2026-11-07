@@ -69,7 +69,7 @@ describe('the modules a page gets for the live rows', () => {
       const quoted = JSON.stringify(specifier);
       expect(source).toContain(`import * as __pyricReal from ${quoted};`);
       expect(source).toContain(`export * from ${quoted};`);
-      expect(source).toContain(`liveModuleFor(${quoted}, __pyricReal, { observer, sdkVersion: SDK_VERSION, client: "page" })`);
+      expect(source).toContain(`liveModuleFor(${quoted}, __pyricReal, { observer, sdkVersion: SDK_VERSION, client: "page", apps: __pyricGetApps })`);
       for (const name of replacedExports(key)) {
         expect(source).toContain(`export const ${name} = __pyricLive.${name};`);
       }

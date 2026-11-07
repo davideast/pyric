@@ -59,6 +59,35 @@ describe('a client on another machine', () => {
   });
 });
 
+describe('the health route on a loopback socket', () => {
+  function healthCall(handler: ReturnType<typeof createBridgeMount>['handler'], host: string) {
+    let status = 0;
+    let body: unknown;
+    const res = {
+      writeHead(code: number) { status = code; return res; },
+      end(chunk?: unknown) { body = chunk; return res; },
+    };
+    const req = { method: 'GET', headers: { host }, socket: { remoteAddress: '127.0.0.1', localPort: 5173 }, on() { return req; } };
+    return handler(req as never, res as never, new URL('http://localhost/__pyric/health')).then(() => ({ status, body }));
+  }
+
+  // A Vite server with `allowedHosts: true` skips its own Host check, so a
+  // page whose name rebinds to 127.0.0.1 reaches the mount directly.
+  const mount = createBridgeMount({ upgradeGuard: { boundHost: 'localhost', allowedHosts: true }, disableAuditLog: true });
+
+  it('refuses a Host that names another site, with no body', async () => {
+    const answer = await healthCall(mount.handler, 'evil.example:5173');
+    expect(answer.status).toBe(403);
+    expect(answer.body).toBeUndefined();
+  });
+
+  it('answers a loopback Host on any port', async () => {
+    for (const host of ['localhost:5173', '127.0.0.1:5173', '[::1]:5173', 'localhost']) {
+      expect((await healthCall(mount.handler, host)).status).toBe(200);
+    }
+  });
+});
+
 describe('pyric dev --bridge', () => {
   it('mounts health + advertises the ws URL in the init payload', async () => {
     const r = await serve(true);

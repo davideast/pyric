@@ -6,7 +6,7 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
+import { initializeSandbox, type LocalSandbox, type SandboxEvent, type SandboxOperationEvent } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import { getBytes, getMetadata, getStorage, ref, uploadBytes } from '../../src/storage/index.js';
 import {
@@ -110,6 +110,21 @@ describe('per-bucket Storage rules', () => {
     expect(await uploadOutcome(scoped, 'a.txt')).toBe('storage/unauthorized');
   });
 
+  it('names the bucket in a rules denial', async () => {
+    const sandbox = freshSandbox();
+    await deployHuntRules(sandbox);
+    await replaceStorageRules(sandbox, SIGNED_IN, { bucket: MEDIA_BUCKET });
+    const denial = await uploadBytes(ref(appStorage(sandbox, `gs://${MEDIA_BUCKET}`), 'a.txt'), BYTES).catch(
+      (error: unknown) => error as { code?: string; message?: string },
+    );
+    expect(denial).toMatchObject({ code: 'storage/unauthorized' });
+    expect((denial as { message?: string }).message).toContain(`"${MEDIA_BUCKET}"`);
+    const defaultDenial = await uploadBytes(ref(appStorage(sandbox), 'a.txt'), BYTES).catch(
+      (error: unknown) => error as { message?: string },
+    );
+    expect((defaultDenial as { message?: string }).message).toContain(`"${DEFAULT_BUCKET}"`);
+  });
+
   it('replaceStorageRules with a bucket leaves the other buckets alone', async () => {
     const sandbox = freshSandbox();
     await deployHuntRules(sandbox);
@@ -152,5 +167,54 @@ describe('per-bucket Storage rules', () => {
     expect(await uploadOutcome(strict, 'x.txt')).toBe('ok');
     await expect(getBytes(ref(strict, 'x.txt'))).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(getBytes(ref(open, 'x.txt'))).rejects.toThrow('is a second default bucket in this sandbox, which already serves "strict-bucket"');
+  });
+
+  describe('permissive mode (owner decision multi-resource-1)', () => {
+    it('opens a bucket nothing deploys to, and the default bucket with no rules', async () => {
+      const sandbox = freshSandbox();
+      lockUndeployedStorageBuckets(sandbox, 'allow');
+      expect(await uploadOutcome(appStorage(sandbox), 'a.txt')).toBe('ok');
+      expect(await uploadOutcome(appStorage(sandbox, 'gs://other-bucket'), 'a.txt')).toBe('ok');
+      expect(await uploadOutcome(getStorageSandbox(sandbox, { bucket: 'other-bucket' }), 'b.txt')).toBe('ok');
+    });
+
+    it('still enforces the rules deployed to a bucket', async () => {
+      const sandbox = freshSandbox();
+      lockUndeployedStorageBuckets(sandbox, 'allow');
+      await replaceStorageRules(sandbox, SIGNED_IN, { bucket: MEDIA_BUCKET });
+      expect(await uploadOutcome(appStorage(sandbox, `gs://${MEDIA_BUCKET}`), 'a.txt')).toBe('storage/unauthorized');
+      expect(await uploadOutcome(appStorage(sandbox), 'a.txt')).toBe('ok');
+    });
+
+    it('keeps the policy when a bucket is deployed after it is set', async () => {
+      const sandbox = freshSandbox();
+      lockUndeployedStorageBuckets(sandbox, 'allow');
+      await replaceStorageRules(sandbox, SIGNED_IN, { bucket: MEDIA_BUCKET });
+      await replaceStorageRules(sandbox, null, { bucket: MEDIA_BUCKET });
+      expect(await uploadOutcome(appStorage(sandbox, `gs://${MEDIA_BUCKET}`), 'a.txt')).toBe('ok');
+    });
+
+    it('reports the open bucket as permissive mode, not as an evaluated rule', async () => {
+      const sandbox = freshSandbox();
+      lockUndeployedStorageBuckets(sandbox, 'allow');
+      const events: SandboxEvent[] = [];
+      sandbox.onEvent((event) => events.push(event));
+      await uploadBytes(ref(appStorage(sandbox, 'gs://other-bucket'), 'a.txt'), BYTES);
+      const ops = events.filter((event): event is SandboxOperationEvent => event.kind === 'operation');
+      expect(ops).toHaveLength(1);
+      expect(ops[0]).toMatchObject({
+        service: 'storage',
+        result: 'allow',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'no-rules' },
+        detail: { bucketName: 'other-bucket', defaultPolicy: 'allow' },
+      });
+      expect(ops[0]!.rules).toBeUndefined();
+    });
+
+    it('a deny policy locks an undeployed bucket, as with no policy', async () => {
+      const sandbox = freshSandbox();
+      lockUndeployedStorageBuckets(sandbox, 'deny');
+      expect(await uploadOutcome(appStorage(sandbox, 'gs://other-bucket'), 'a.txt')).toBe('storage/unauthorized');
+    });
   });
 });

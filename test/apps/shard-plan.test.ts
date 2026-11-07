@@ -7,6 +7,9 @@ import {
   checkCompleteness,
   checkPlanCoversSelection,
   discoverPlannedApps,
+  discoverScenarios,
+  readAppSelection,
+  selectPlannedApps,
   mergeDurations,
   MOST_SHARDS,
   planId,
@@ -222,6 +225,40 @@ describe('the apps the plan covers', () => {
     expect(checkPlanCoversSelection(plan, ['a', 'b'])).toEqual([]);
     expect(checkPlanCoversSelection(plan, ['a', 'b', 'c'])).toEqual(['the plan leaves out c, which this run selects']);
     expect(checkPlanCoversSelection(plan, ['a'])).toEqual(['the plan names b, which this run does not select']);
+  });
+
+  test('a plan of selected apps may leave apps out, but names only apps the runner would run', () => {
+    const plan = planShards([{ name: 'a', set: 's' }], {}, { scope: 'selected' });
+    expect(plan.scope).toBe('selected');
+    expect(checkPlanCoversSelection(plan, ['a', 'b', 'c'])).toEqual([]);
+    expect(checkPlanCoversSelection(plan, ['b'])).toEqual(['the plan names a, which this run does not select']);
+  });
+
+  test('a plan of every app says so', () => {
+    expect(planShards([{ name: 'a', set: 's' }], {}).scope).toBe('all');
+  });
+
+  test('--apps keeps the selected apps, and refuses names that are not apps the plan could hold', () => {
+    const planned: PlannedApp[] = [{ name: 'a', set: 's' }, { name: 'b', set: 's' }, { name: 'c', set: 't' }];
+    expect(selectPlannedApps(planned, 'all')).toEqual(planned);
+    expect(selectPlannedApps(planned, ['c', 'a']).map((app) => app.name)).toEqual(['a', 'c']);
+    expect(() => selectPlannedApps(planned, ['a', 'slow-one'])).toThrow('--apps names slow-one');
+    expect(() => selectPlannedApps(planned, [])).toThrow('--apps names no app');
+  });
+
+  test('reads the selection file scripts/ci/plan.ts writes', () => {
+    expect(readAppSelection('{"apps":"all"}')).toBe('all');
+    expect(readAppSelection('{"apps":["a","b"]}')).toEqual(['a', 'b']);
+    expect(() => readAppSelection('{"apps":3}')).toThrow('the app selection file must hold');
+    expect(() => readAppSelection('{}')).toThrow('the app selection file must hold');
+  });
+
+  test('every scenario is discovered with its slow marker', () => {
+    const scenarios = discoverScenarios(root);
+    expect(scenarios.find((scenario) => scenario.name === 'host-closes-silent-page')?.slow).toBe(true);
+    expect(scenarios.find((scenario) => scenario.name === 'create-pyric-chat-app-check')?.slow).toBe(false);
+    expect(scenarios.filter((scenario) => !scenario.slow).map((scenario) => scenario.name))
+      .toEqual(discoverPlannedApps(root).map((app) => app.name));
   });
 });
 

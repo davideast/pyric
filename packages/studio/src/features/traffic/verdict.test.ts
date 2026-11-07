@@ -1,6 +1,7 @@
 /** Traffic verdict derivation (specs/traffic.md MVP) — pure mapping tests. */
 import { describe, expect, it } from 'bun:test';
 import type { OperationContext } from 'pyric/sandbox';
+import type { StudioTrafficEvent } from './verdict.js';
 import {
   rulesDecisionEvents,
   queryProofUnsupportedCount,
@@ -9,6 +10,9 @@ import {
   filterByVerdict,
   filterStudioTraffic,
   isStudioTraffic,
+  declaredOperations,
+  liveRuleEvaluation,
+  localDrift,
   opensRulesInspector,
   productionLabel,
   subjectTarget,
@@ -219,5 +223,81 @@ describe('productionLabel', () => {
 
   it('leaves an observed op without a Rules verdict', () => {
     expect(verdictFor({ rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' } })).toBeNull();
+  });
+});
+
+describe('localDrift', () => {
+  const denied = { status: 'error', code: 'permission-denied' } as const;
+  const rule = { line: 7, expression: 'request.auth != null', path: '/rooms/{room}' };
+
+  it('returns the local verdict when it disagrees with production', () => {
+    const local = { result: 'allow', rule, drift: true } as const;
+    expect(localDrift({ production: { outcome: denied, local } })).toEqual(local);
+  });
+
+  it('leaves an agreeing verdict, a gap and a sandbox op without one', () => {
+    expect(localDrift({ production: { outcome: denied, local: { result: 'deny', rule } } })).toBeUndefined();
+    expect(localDrift({ production: { outcome: denied, local: { result: 'unevaluated', needs: ['stored-document'] } } })).toBeUndefined();
+    expect(localDrift({ production: { outcome: denied } })).toBeUndefined();
+    expect(localDrift({})).toBeUndefined();
+  });
+});
+
+describe('liveRuleEvaluation', () => {
+  const trace = {
+    version: 'local-rules', scope: 'request', decision: 'ALLOW', truncated: false,
+    rules: [{ expression: 'request.auth != null', verdict: 'ALLOW', line: 5, path: '/rooms/{room}', checks: [
+      { expression: 'request.auth', parent: 0, kind: 'memberAccess', state: 'unavailable' },
+      { expression: 'request.auth != null', parent: null, operator: '!=', kind: 'binaryOp', state: 'value', value: true },
+    ] }],
+    paths: [{ path: '/rooms/{room}', matched: true, line: 4 }],
+  } as const;
+  const live = (local: unknown) => ({
+    id: 'live-1', kind: 'operation', service: 'firestore', at: 1000, method: 'getDoc', path: 'rooms/vip',
+    auth: { uid: 'alice' }, result: 'deny', reasons: [], origin: 'user',
+    operationContext: { source: { kind: 'app' }, authLens: { mode: 'app-session' } },
+    rulesDisposition: { kind: 'not-evaluated', reason: 'production-served' },
+    production: { outcome: { status: 'error', code: 'permission-denied' }, local },
+  }) as unknown as StudioTrafficEvent;
+
+  it("projects the local trace into the sandbox view's shape, with the local verdict", () => {
+    const evaluation = liveRuleEvaluation(live({ result: 'allow', drift: true, trace }));
+    expect(evaluation).toMatchObject({
+      id: 'live-1', result: 'allow', service: 'firestore', method: 'get', path: 'rooms/vip', auth: { uid: 'alice' },
+      matchedRule: { ruleIndex: 0, operations: ['get'] },
+      evaluatedRule: { verdict: 'allow', line: 5, expression: 'request.auth != null' },
+    });
+    expect(evaluation?.evaluatedRule?.expressionTrace).toEqual([
+      { source: 'request.auth', kind: 'memberAccess', parent: 0 },
+      { source: 'request.auth != null', kind: 'binaryOp', parent: null, operator: '!=', value: true },
+    ]);
+  });
+
+  it("names the rule by the operations its line declares in the loaded rules source", () => {
+    const source = "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /rooms/{room} {\n      allow read: if request.auth != null;\n    }\n  }\n}\n";
+    const evaluation = liveRuleEvaluation(live({ result: 'allow', drift: true, trace }), source);
+    expect(evaluation?.matchedRule).toEqual({ ruleIndex: 0, operations: ['read'] });
+    expect(evaluation?.method).toBe('get');
+  });
+
+  it('leaves an op with no trace to its current details', () => {
+    expect(liveRuleEvaluation(live({ result: 'allow', drift: true }))).toBeUndefined();
+    expect(liveRuleEvaluation(live({ result: 'unevaluated', needs: ['stored-document'] }))).toBeUndefined();
+    expect(liveRuleEvaluation(live(undefined))).toBeUndefined();
+  });
+});
+
+describe('declaredOperations', () => {
+  const source = "service cloud.firestore {\n  match /rooms/{room} {\n    allow read, write: if true;\n    allow get;\n  }\n}\n// @pyric-source-map: []";
+  it("reads the allow statement's operations on a line", () => {
+    expect(declaredOperations(source, 3)).toEqual(['read', 'write']);
+    expect(declaredOperations(source, 4)).toEqual(['get']);
+  });
+
+  it('gives none without a source, a line or an allow statement', () => {
+    expect(declaredOperations(undefined, 3)).toBeUndefined();
+    expect(declaredOperations(source, undefined)).toBeUndefined();
+    expect(declaredOperations(source, 2)).toBeUndefined();
+    expect(declaredOperations(source, 99)).toBeUndefined();
   });
 });

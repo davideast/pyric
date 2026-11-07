@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Rooms</title></head>
+  <body>
+    <h1>Rooms</h1>
+    <output id="status">Starting</output>
+    <script>
+      // A client module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+      addEventListener("unhandledrejection", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.reason?.message ?? event.reason}`;
+      });
+    </script>
+    <script type="module">
+      // A rooms page with two Firebase apps: the default one on the project
+      // the live host serves, and a second one whose config names another
+      // project. Each reads the lobby. Their backend is the local one a
+      // `?backend=<origin>` query names, through the SDK's own emulator
+      // connectors. The host app also opens a database on another project's
+      // default instance and a storage on another project's default bucket,
+      // which its config does not name, and the second app opens the
+      // database its own config's databaseURL names.
+      import { initializeApp } from "firebase/app";
+      import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
+      import { connectDatabaseEmulator, get, getDatabase, ref as databaseRef } from "firebase/database";
+      import { connectFirestoreEmulator, doc, getDoc, getFirestore } from "firebase/firestore";
+      import { connectStorageEmulator, getDownloadURL, getStorage, ref as storageRef } from "firebase/storage";
+
+      const config = (projectId) => ({
+        projectId,
+        apiKey: `${projectId}-key`,
+        appId: `1:1:web:${projectId}`,
+        authDomain: `${projectId}.firebaseapp.com`,
+      });
+      // `?default=other` makes the other-project app the default one, which `getDatabase()` with no app opens.
+      const query = new URLSearchParams(location.search);
+      const isOtherDefault = query.get("default") === "other";
+      const host = initializeApp(config("demo-live-traffic"), isOtherDefault ? "host" : undefined);
+      const other = initializeApp({ ...config("demo-live-other"), databaseURL: "https://demo-live-other-default-rtdb.firebaseio.com" }, isOtherDefault ? undefined : "other");
+      const backend = new URL(query.get("backend"));
+      const auth = getAuth(host);
+      connectAuthEmulator(auth, backend.origin, { disableWarnings: true });
+      const databases = { host: getFirestore(host), other: getFirestore(other) };
+      for (const db of Object.values(databases)) connectFirestoreEmulator(db, backend.hostname, Number(backend.port));
+      const otherBucket = getStorage(host, "gs://demo-live-other.appspot.com");
+      connectStorageEmulator(otherBucket, backend.hostname, Number(backend.port));
+
+      /** What a call settled with: its value, or its error's code, a project refusal's field and projects, and its message. */
+      const settle = (call) => Promise.resolve().then(call).then(
+        (value) => ({ ok: true, value }),
+        (error) => ({ ok: false, code: error.code ?? String(error), field: error.field, appProjectId: error.appProjectId, hostProjectId: error.hostProjectId, message: error.message }),
+      );
+
+      window.signIn = () => settle(() => signInWithEmailAndPassword(auth, "reader@example.com", "reader-password").then((credential) => credential.user.uid));
+      /** Reads the lobby through the `host` or the `other` app. */
+      window.readLobby = (name) => settle(() => getDoc(doc(databases[name], "rooms/lobby")).then((snapshot) => snapshot.data() ?? null));
+
+      /** A call that production never answers settles after 5 s with this code, so a step that expects a refusal fails instead of waiting. */
+      const answered = (call) => Promise.race([
+        settle(call),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: false, code: "unanswered" }), 5000)),
+      ]);
+      /** Opens a database on the other project's default RTDB instance through the host app, and reads the lobby from it. */
+      const readFromOtherInstance = () => {
+        const otherInstance = getDatabase(host, "https://demo-live-other-default-rtdb.firebaseio.com");
+        connectDatabaseEmulator(otherInstance, backend.hostname, Number(backend.port));
+        return get(databaseRef(otherInstance, "rooms/lobby")).then((snapshot) => snapshot.val());
+      };
+      window.readOtherInstance = () => answered(readFromOtherInstance);
+      /** Opens the other app's own database, the instance its config's databaseURL names, and reads the lobby from it. */
+      const readFromOtherApp = () => {
+        const otherDatabase = getDatabase(other);
+        connectDatabaseEmulator(otherDatabase, backend.hostname, Number(backend.port));
+        return get(databaseRef(otherDatabase, "rooms/lobby")).then((snapshot) => snapshot.val());
+      };
+      window.readOtherAppDatabase = () => answered(readFromOtherApp);
+      /** Opens the default app's database with `getDatabase()`, no app named, and reads the lobby from it. */
+      const readFromDefaultApp = () => {
+        const defaultDatabase = getDatabase();
+        connectDatabaseEmulator(defaultDatabase, backend.hostname, Number(backend.port));
+        return get(databaseRef(defaultDatabase, "rooms/lobby")).then((snapshot) => snapshot.val());
+      };
+      window.readDefaultAppDatabase = () => answered(readFromDefaultApp);
+      /** Asks for the lobby picture's URL from the other project's default bucket, through the host app. */
+      window.readOtherBucket = () => answered(() => getDownloadURL(storageRef(otherBucket, "rooms/lobby.png")));
+
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>

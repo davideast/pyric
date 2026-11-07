@@ -4,8 +4,10 @@
  *
  * `@pyric/live/register` opens the real-SDK stop only for its live rows
  * (`LIVE_ROWS` in this file): they load the installed SDK, every other
- * Firebase import and `firebase-admin` is refused with
- * `PYRIC_LIVE_REFUSED`, and a load of the real SDK by any other route stops.
+ * Firebase import is refused with `PYRIC_LIVE_REFUSED`, and a load of the
+ * real SDK by any other route stops. From Node 23, `firebase-admin` loads
+ * through the Admin rows (D2 in the #2304 plan); on Node 22, whose
+ * `require()` skips the hooks, it is refused.
  * `@pyric/cli/register` alone keeps the stop for every real `firebase/*` and
  * `firebase-admin` load, the row module ids included, and no file under the
  * real packages loads.
@@ -153,31 +155,42 @@ afterAll(() => {
 const LIVE_REGISTER = '@pyric/live/register';
 const CLI_REGISTER = '@pyric/cli/register';
 const LIVE_ROWS = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check', 'firebase/database'];
+/** Whether the `node` on PATH runs the Admin rows: Node 23 or later, whose require() reaches the hooks. */
+const nodeMajor = Number(spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' }).stdout.split('.')[0]);
+const adminRowsOn = nodeMajor >= 23;
+const ADMIN_IMPORTS = ['firebase-admin', 'firebase-admin/app'];
 
 describe('@pyric/live/register', () => {
-  it('loads the installed SDK for the app, Auth, Firestore, App Check and Realtime Database rows and refuses every other Firebase import and firebase-admin', () => {
-    const refused = ['firebase/remote-config', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
-    const res = run([LIVE_REGISTER], [...LIVE_ROWS, ...refused]);
+  it('loads the installed SDK for the app, Auth, Firestore, App Check and Realtime Database rows and firebase-admin from Node 23, and refuses every other Firebase import', () => {
+    const refused = ['firebase/remote-config', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase'];
+    const res = run([LIVE_REGISTER], [...LIVE_ROWS, ...refused, ...ADMIN_IMPORTS]);
     expect(res.status, res.stderr).toBe(0);
     for (const specifier of LIVE_ROWS) expect(res.outcome[specifier], specifier).toBe('loaded');
     for (const specifier of refused) expect(res.outcome[specifier], specifier).toBe('PYRIC_LIVE_REFUSED');
+    for (const specifier of ADMIN_IMPORTS) expect(res.outcome[specifier], specifier).toBe(adminRowsOn ? 'loaded' : 'PYRIC_LIVE_REFUSED');
     const loaded = packagesOf(res.sdkFiles);
     expect(loaded).toContain('firebase');
     expect(loaded).toContain('@firebase/firestore');
     expect(loaded).toContain('@firebase/auth');
     expect(loaded).toContain('@firebase/database');
-    for (const name of ['firebase-admin', '@firebase/messaging', '@firebase/functions', '@firebase/remote-config']) expect(loaded, name).not.toContain(name);
+    for (const name of ['@firebase/messaging', '@firebase/functions', '@firebase/remote-config']) expect(loaded, name).not.toContain(name);
   }, 60_000);
 
-  it('names live mode and the service in the refusal', () => {
-    const script = `import('firebase-admin/app').catch((error) => { console.log('OUTCOME ' + JSON.stringify({ outcome: { message: error.message }, sdkFiles: [] })); });`;
+  it('loads an Admin service no row serves unobserved from Node 23, naming it, and refuses it on Node 22, naming why', () => {
+    const script = `import('firebase-admin/security-rules').then(() => console.log('OUTCOME loaded'), (error) => console.log('OUTCOME ' + error.message));`;
     writeFileSync(join(projectDir, 'refusal.mjs'), script);
     const result = spawnSync('node', ['--import', LIVE_REGISTER, join(projectDir, 'refusal.mjs')], {
       cwd: projectDir, encoding: 'utf8', timeout: 60_000, env: { PATH: process.env.PATH, HOME: projectDir },
     });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain('firebase-admin/app (the Admin SDK) is refused in live mode');
-    expect(result.stdout).toContain('to a Node process');
+    if (adminRowsOn) {
+      expect(result.stdout).toContain('OUTCOME loaded');
+      expect(result.stderr).toContain('@pyric/live/register: firebase-admin/security-rules loads unobserved.');
+      return;
+    }
+    expect(result.stdout).toContain('firebase-admin/security-rules (the Admin SDK) is refused in live mode');
+    expect(result.stdout).toContain('Node 23 or later');
+    expect(result.stdout).not.toContain('passThrough');
   }, 60_000);
 
   it('stops the real SDK reached by any route but a live row: a file URL or an @firebase/* import', async () => {
@@ -241,7 +254,7 @@ console.log('OUTCOME ' + JSON.stringify({ outcome, sdkFiles: loaded.slice(before
     expect(sdkFiles).toEqual([]);
   }, 60_000);
 
-  it("serves require() the live row, or stops it where Node's require skips the hooks; firebase-admin never loads", () => {
+  it("serves require() the live row and firebase-admin, or stops them where Node's require skips the hooks", () => {
     const script = `const outcome = {};
 for (const specifier of ['firebase/firestore', 'firebase-admin']) {
   try { require(specifier); outcome[specifier] = 'loaded'; } catch (error) { outcome[specifier] = error?.code ?? String(error); }
@@ -257,13 +270,14 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { ...outcome, node: process.v
     const line = result.stdout.split('\n').find((entry) => entry.startsWith('OUTCOME ')) ?? 'OUTCOME {}';
     const { outcome, sdkFiles } = JSON.parse(line.slice('OUTCOME '.length)) as { outcome: Record<string, string>; sdkFiles: string[] };
     expect(result.status, result.stderr).toBe(0);
-    expect(sdkFiles).toEqual([]);
     // Node 22.15 resolves a CommonJS entry's require() without the sync hooks, so the stop is what meets it.
     const requireReachesHooks = Number(outcome.node.split('.')[0]) >= 23;
     if (requireReachesHooks) {
       expect(outcome['firebase/firestore']).toBe('loaded');
-      expect(outcome['firebase-admin']).toBe('PYRIC_LIVE_REFUSED');
+      expect(outcome['firebase-admin']).toBe('loaded');
+      expect(sdkFiles.length).toBeGreaterThan(0);
     } else {
+      expect(sdkFiles).toEqual([]);
       expect(outcome['firebase/firestore']).toBe('PYRIC_REAL_SDK_STOPPED');
       expect(['PYRIC_LIVE_REFUSED', 'PYRIC_REAL_SDK_STOPPED']).toContain(outcome['firebase-admin']);
       expect(result.stderr).toContain(`CommonJS require() on Node ${outcome.node} can't be served under live mode`);
@@ -316,6 +330,97 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { status: String(result.statu
     expect(res.stderr).toContain('@pyric/cli/register: not activating, because @pyric/live/register is active');
     expect(res.outcome['firebase/firestore']).toBe('loaded');
     expect(packagesOf(res.sdkFiles)).toContain('@firebase/firestore');
+  }, 60_000);
+});
+
+describe('@pyric/live/register and the Admin project', () => {
+  /** A project installing @pyric/live and firebase, with firebase-admin only when `withAdmin`, and a project only when `project` is set. */
+  function fixture(prefix: string, withAdmin: boolean, project: string | null): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+    const nm = join(dir, 'node_modules');
+    mkdirSync(join(nm, '@pyric'), { recursive: true });
+    symlinkSync(cliDir, join(nm, '@pyric/cli'));
+    symlinkSync(liveDir, join(nm, '@pyric/live'));
+    symlinkSync(realFirebaseDir, join(nm, 'firebase'));
+    if (withAdmin) symlinkSync(realAdminDir, join(nm, 'firebase-admin'));
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'live-admin-project-fixture', type: 'module' }));
+    if (project !== null) writeFileSync(join(dir, '.firebaserc'), JSON.stringify({ projects: { default: project } }));
+    writeFileSync(join(dir, 'probe.mjs'), PROBE);
+    return dir;
+  }
+
+  it('starts a client-only process whose GOOGLE_CLOUD_PROJECT or FIREBASE_CONFIG names another project', () => {
+    const clientDir = fixture('pyric-live-client-only-', false, 'live-client-only');
+    try {
+      for (const env of [{ GOOGLE_CLOUD_PROJECT: 'another-project' }, { FIREBASE_CONFIG: JSON.stringify({ projectId: 'another-project' }) }]) {
+        const res = run([LIVE_REGISTER], ['firebase/firestore'], { cwd: clientDir, entryDir: clientDir, env });
+        expect(res.status, res.stderr).toBe(0);
+        expect(res.outcome['firebase/firestore'], res.stderr).toBe('loaded');
+      }
+    } finally {
+      rmSync(clientDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('refuses a start with the Admin rows on whose GOOGLE_CLOUD_PROJECT names another project', () => {
+    const res = run([LIVE_REGISTER], ['firebase/firestore'], { env: { GOOGLE_CLOUD_PROJECT: 'another-project' } });
+    if (adminRowsOn) {
+      expect(res.status).not.toBe(0);
+      expect(res.stderr).toContain("names the project 'another-project'");
+    } else {
+      expect(res.status, res.stderr).toBe(0);
+    }
+  }, 60_000);
+
+  it('refuses firebase-admin in a child process whose recorded project root names no project', () => {
+    const noProjectDir = fixture('pyric-live-no-project-', true, null);
+    try {
+      const env = {
+        PYRIC_LIVE_PROJECT_ROOT: noProjectDir,
+        PYRIC_LIVE_SDK_ROOT: noProjectDir,
+        PYRIC_LIVE_PASS_THROUGH: adminRowsOn ? 'firebase-admin' : '',
+      };
+      const res = run([LIVE_REGISTER], ['firebase-admin/auth'], { cwd: noProjectDir, entryDir: noProjectDir, env });
+      expect(res.status, res.stderr).toBe(0);
+      expect(res.outcome['firebase-admin/auth'], res.stderr).toBe('PYRIC_LIVE_REFUSED');
+    } finally {
+      rmSync(noProjectDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
+describe('@pyric/live/register in a child of a Node 23 or later process', () => {
+  // What a Node 23 or later first process hands its children: its project root, its SDK root, and firebase-admin
+  // in the pass-through list. A child started with a Node 22 binary reads the same variables.
+  const handedByNode24Parent = (dir: string) => ({
+    PYRIC_LIVE_PROJECT_ROOT: dir,
+    PYRIC_LIVE_SDK_ROOT: dir,
+    PYRIC_LIVE_PASS_THROUGH: 'firebase-admin',
+  });
+
+  it('refuses the firebase-admin it inherits on Node 22, loads none of its files, and says so; loads it from Node 23', () => {
+    const res = run([LIVE_REGISTER], ['firebase-admin/app', 'firebase-admin/firestore'], { env: handedByNode24Parent(projectDir) });
+    expect(res.status, res.stderr).toBe(0);
+    const adminFiles = res.sdkFiles.filter((url) => url.includes('/node_modules/firebase-admin/'));
+    if (adminRowsOn) {
+      expect(res.outcome['firebase-admin/app'], res.stderr).toBe('loaded');
+      expect(res.outcome['firebase-admin/firestore'], res.stderr).toBe('loaded');
+      expect(res.stderr).not.toContain('firebase-admin is refused in this process');
+      return;
+    }
+    expect(res.outcome['firebase-admin/app'], res.stderr).toBe('PYRIC_LIVE_REFUSED');
+    expect(res.outcome['firebase-admin/firestore'], res.stderr).toBe('PYRIC_LIVE_REFUSED');
+    expect(adminFiles).toEqual([]);
+    expect(res.stderr).toContain('@pyric/live/register: firebase-admin is refused in this process.');
+    expect(res.stderr).toContain('Node 23 or later');
+  }, 60_000);
+
+  it('stays quiet about firebase-admin in a Node 22 child whose parent passed none through', () => {
+    const env = { ...handedByNode24Parent(projectDir), PYRIC_LIVE_PASS_THROUGH: '' };
+    const res = run([LIVE_REGISTER], ['firebase/firestore'], { env });
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.outcome['firebase/firestore'], res.stderr).toBe('loaded');
+    expect(res.stderr).not.toContain('firebase-admin');
   }, 60_000);
 });
 

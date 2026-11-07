@@ -36,7 +36,12 @@ import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
-import { replaceStorageRules } from 'pyric/storage/internal';
+import {
+  applyStorageRulesUpdate,
+  installServedStorageRules,
+  storageRulesUpdateNotice,
+  type StorageRulesUpdate,
+} from '../storage-rules-install.js';
 import type { PersistenceBackend } from 'pyric/sandbox';
 import { createSandboxRoot, EventHistory } from 'pyric/sandbox/internal';
 import {
@@ -49,6 +54,7 @@ import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
 import { defaultInstanceNameOf, rtdbInstance } from './host/rtdb-instances.js';
+import { liveCallValues } from './host/observe.js';
 import {
   databaseInstanceRulesHost,
   deployFirestoreRulesToHost,
@@ -159,13 +165,10 @@ export function setupWorkerHotReload(
     // Null rules mean the rules file was deleted: Storage then denies every
     // client operation, as it does when the worker starts without rules.
     void (async () => {
-      const { rules } = JSON.parse(ev.data) as { rules: string | null; rulesHash?: string | null };
-      await replaceStorageRules(ctx.sandbox, rules);
-      const notice = rules === null
-        ? 'storage.rules removed; client Storage operations default to deny'
-        : 'storage.rules hot-reloaded';
+      const update = JSON.parse(ev.data) as StorageRulesUpdate;
+      await applyStorageRulesUpdate(ctx.sandbox, update);
       // eslint-disable-next-line no-console
-      console.info(`[pyric worker] ${notice}`);
+      console.info(`[pyric worker] ${storageRulesUpdateNotice(update)}`);
     })().catch((err: unknown) => {
       const errorMessage = err instanceof Error ? err.message : String(err);
       // eslint-disable-next-line no-console
@@ -340,11 +343,12 @@ export function applyServeInit(
   //     (`pyric-storage:<projectKey>`, issue #359) — which is why it now runs
   //     unconditionally: a lazy first open from `ensureStorage`/`lensStorage`
   //     would land on the legacy shared database.
-  getStorageSandbox(ctx.sandbox, {
-    ...(payload.storageRules ? { rules: payload.storageRules } : {}),
-    ...(payload.projectKey ? { projectId: payload.projectKey } : {}),
-  });
-  if (payload.storageRules) {
+  //     Each bucket firebase.json names gets its own rules, and a bucket
+  //     nothing deploys to is locked (#1313), or open in permissive mode.
+  //     An app port that connected first resolves pending deploy targets now.
+  for (const notice of installServedStorageRules(ctx.sandbox, payload)) console.info(`[pyric] ${notice}`);
+  const deploysBucketRules = Object.keys(payload.storageBucketRules ?? {}).length > 0;
+  if (payload.storageRules || deploysBucketRules) {
     result.storageRulesDeployed = true;
   }
 
@@ -426,6 +430,8 @@ export function applyServeInit(
         // Stamp WHO produced this capture so a booting worker only re-hydrates
         // its OWN session (see hydrateEventHistory's identity guard).
         capturedBy: ctx.instanceId,
+        // What each live call carried, so `pyric verify` can replay it.
+        observedCalls: Object.fromEntries(liveCallValues(ctx.sandbox)),
       }));
       // Relative URL resolves against the worker script's origin (same origin
       // as the page). Fire-and-forget — capture failures never break ops.

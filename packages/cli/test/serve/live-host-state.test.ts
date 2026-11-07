@@ -5,7 +5,9 @@
  */
 import { describe, expect, it } from 'bun:test';
 import type { ObservedCall } from 'pyric/sandbox';
+import { readLiveHostStatus } from 'pyric/sandbox/internal';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
+import type { ServedFirebaseSpecifier } from '../../src/serve/firebase-module-swap.js';
 import { createLiveHostState, projectSourceName } from '../../src/serve/live-host-state.js';
 
 function observe(id: string, call: Partial<ObservedCall> & { method: string }, clientSessionId = 'client-1'): BridgeMessage {
@@ -20,7 +22,14 @@ function reply(id: string, ok: boolean, clientSessionId = 'client-1'): BridgeMes
 
 function state(configProjectId = 'staging') {
   const warnings: string[] = [];
-  const live = createLiveHostState({ configProjectId, configSource: 'firebaserc', optionName: '--project', warn: (line) => warnings.push(line) });
+  // Its own empty unobserved source: the default reads the process's ledger, which other test files in this process fill.
+  const live = createLiveHostState({
+    configProjectId,
+    configSource: 'firebaserc',
+    optionName: '--project',
+    warn: (line) => warnings.push(line),
+    unobserved: () => [],
+  });
   const call = (id: string, observed: Partial<ObservedCall> & { method: string }, ok = true, clientSessionId = 'client-1') => {
     live.inbound(observe(id, observed, clientSessionId));
     live.outbound(reply(id, ok, clientSessionId));
@@ -37,6 +46,7 @@ describe('the live host state', () => {
       configSource: '.firebaserc',
       appProjectIds: [],
       billed: { reads: 0, writes: 0, deliveries: 0 },
+      admin: { mode: 'observed', observed: true, bypassesRules: true },
     });
   });
 
@@ -93,6 +103,48 @@ describe('the live host state', () => {
     call('1', { method: 'getDoc', projectId: 'staging' });
     expect(live.report().projectId).toBe('staging');
     expect(warnings).toEqual([]);
+  });
+
+  it('reports the imports the app resolved to live rows, read at report time, in first-import order', () => {
+    const imports = new Set<ServedFirebaseSpecifier>();
+    const live = createLiveHostState({ configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined, observed: imports });
+    expect(live.report()).not.toHaveProperty('observed');
+    // Imports arrive as the app loads, after the host started.
+    imports.add('firebase/firestore');
+    imports.add('firebase/auth');
+    expect(live.report().observed).toEqual(['firebase/firestore', 'firebase/auth']);
+  });
+
+  it('reads an observed-imports function each report and lists each import once', () => {
+    const resolved: ServedFirebaseSpecifier[] = [];
+    const live = createLiveHostState({ configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined, observed: () => resolved });
+    expect(live.report()).not.toHaveProperty('observed');
+    resolved.push('firebase/database', 'firebase/storage', 'firebase/database');
+    expect(live.report().observed).toEqual(['firebase/database', 'firebase/storage']);
+    resolved.push('firebase/ai');
+    expect(live.report().observed).toEqual(['firebase/database', 'firebase/storage', 'firebase/ai']);
+  });
+
+  it('leaves observed out of the report when its source throws, so the health report still answers', () => {
+    const live = createLiveHostState({
+      configProjectId: 'staging',
+      configSource: 'firebaserc',
+      optionName: '--project',
+      warn: () => undefined,
+      observed: () => { throw new Error('not ready'); },
+    });
+    expect(live.report()).not.toHaveProperty('observed');
+    expect(live.report().projectId).toBe('staging');
+  });
+
+  it('reports the Admin SDK as observed on every live host, apart from the passed-through imports', () => {
+    const input = { configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined } as const;
+    const admin = { mode: 'observed', observed: true, bypassesRules: true };
+    expect(createLiveHostState(input).report().admin).toEqual(admin);
+    const live = createLiveHostState({ ...input, passThrough: ['firebase/functions'] });
+    expect(live.report().admin).toEqual(admin);
+    expect(live.report().passThrough).toEqual(['firebase/functions']);
+    expect(readLiveHostStatus({ live: live.report() })?.admin).toEqual(admin);
   });
 
   it('names each project source as the developer set it', () => {

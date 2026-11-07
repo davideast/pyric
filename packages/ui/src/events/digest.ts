@@ -93,7 +93,7 @@ export interface ActivityRow {
   // ── Structured provenance (for styling / pivots / drill) ───────────
   /** The connection the op came from, `unknown` when no host stamped one. */
   source: CallerSource;
-  /** `source` as a row label: `App page`, `Server (admin)`, `MCP`, … */
+  /** `source` as a row label: `App page`, `Node process, Admin SDK`, `MCP`, … */
   sourceLabel: string;
   actor: ActivityActor;
   authLens: ActivityLens;
@@ -119,7 +119,7 @@ export interface ActivityBand {
   /** Total rows in the band (== `rows.length`; explicit for the header). */
   count: number;
   /** A short attribution phrase when the band has a dominant actor /
-   *  subject (`all by alice`, `by Server (admin)`, `by agent atlas`). Absent
+   *  subject (`all by alice`, `by Node process, Admin SDK`, `by agent atlas`). Absent
    *  when attribution is mixed — the header then shows just the count. */
   attribution?: string;
   rows: ActivityRow[];
@@ -517,7 +517,7 @@ function groupKeyFor(row: ActivityRow, by: ActivityGroupBy): string {
 
 /**
  * Compute the band attribution phrase: when one actor OR one subject
- * dominates the band, say so ("all by alice", "by Server (admin)"). Mixed ⇒
+ * dominates the band, say so ("all by alice", "by Node process, Admin SDK"). Mixed ⇒
  * undefined (header shows just the count).
  */
 function attributionFor(rows: ActivityRow[]): string | undefined {
@@ -532,7 +532,7 @@ function attributionFor(rows: ActivityRow[]): string | undefined {
     return rows.length > 1 ? `all by ${only}` : `by ${only}`;
   }
 
-  // Actor dominance ("by Server (admin)", "by agent atlas").
+  // Actor dominance ("by Node process, Admin SDK", "by agent atlas").
   const names = new Set(rows.map(attributionLabel));
   const [only] = names;
   const isOneNamed = names.size === 1 && only !== undefined;

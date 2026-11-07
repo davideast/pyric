@@ -5,7 +5,10 @@
  * real project, and a recorder beside the app reported what production
  * answered. A host accepts the record from a client connection and writes it
  * to the event stream as an `operation` event whose Rules disposition is
- * `external-execution` and whose `production` field holds the answer.
+ * `external-execution` and whose `production` field holds the answer. A
+ * call a server process made through the Admin SDK is marked `sdk: 'admin'`
+ * and becomes an event that bypassed Security Rules under the Admin lens,
+ * with production's answer beside it.
  */
 
 /** The services a client may report observed calls for. */
@@ -17,12 +20,16 @@ export type ProductionOutcome =
   | { status: 'error'; code: string };
 
 /**
- * The signed-in account a call ran as: the account id and the names of its
- * token claims. Never the token, and never a claim's value.
+ * The signed-in account a call ran as: the account id, the names of its
+ * token claims, and their values. Never the token. The values stay in the
+ * host's memory, emails left out, so the local rules can read
+ * `request.auth.token`; no event holds them.
  */
 export interface ObservedAccount {
   uid: string;
   claimNames?: string[];
+  /** The token's claims by name, as JSON values. Absent when the client did not send them. */
+  claims?: Record<string, unknown>;
 }
 
 /**
@@ -87,11 +94,90 @@ export interface ObservedUsage {
   unmeasured?: number;
 }
 
+/** The operators a Firestore `where` filter takes. */
+export type ObservedQueryOperator =
+  | '<'
+  | '<='
+  | '=='
+  | '!='
+  | '>='
+  | '>'
+  | 'array-contains'
+  | 'in'
+  | 'not-in'
+  | 'array-contains-any';
+
+/** One `where` filter: the field path and the operator. Never the value. */
+export interface ObservedQueryFilter {
+  field: string;
+  op: ObservedQueryOperator;
+}
+
+/** One `orderBy`: the field path and the direction. */
+export interface ObservedQueryOrder {
+  field: string;
+  direction: 'asc' | 'desc';
+}
+
+/**
+ * The shape of a Firestore query a call ran: its scope, the fields it
+ * filtered and ordered on, and whether it set a limit. Never a filter value,
+ * a cursor or the limit's number. `fingerprint` is a hash of the filter and
+ * cursor values the page computed, so two runs of one query with different
+ * values read as different targets without either value leaving the page.
+ */
+export interface ObservedQuery {
+  scope: 'collection' | 'collection-group';
+  filters?: ObservedQueryFilter[];
+  orderBy?: ObservedQueryOrder[];
+  limit?: true;
+  /** Exactly 16 lowercase hex characters. */
+  fingerprint?: string;
+}
+
+/**
+ * A listener's lifecycle, as the page saw it: the app subscribed (`attach`)
+ * or unsubscribed (`detach`). Deliveries are calls of their own; this record
+ * carries none, and production answered nothing for it.
+ */
+export interface ObservedListener {
+  phase: 'attach' | 'detach';
+  /**
+   * The id the page or process minted for this subscription, shared by its
+   * attach and detach: at most 64 letters, digits, `_` and `-`. The host
+   * scopes it to the connection, so two callers may mint the same id.
+   */
+  id: string;
+  /**
+   * What the listener watches: a Firestore document or collection path, a
+   * collection group's id, or an RTDB path. Bounded as the call's `path`
+   * is, so any target a call's path may name is taken.
+   */
+  target: string;
+  /**
+   * A hash of the key the page's listener journal gives this listener,
+   * equal for two listeners on one document or query: exactly 16 lowercase
+   * hex characters. Never the key itself, which holds the query's values.
+   */
+  key?: string;
+}
+
 /** One observed call, as a client sends it to a host. */
 export interface ObservedCall {
   service: ObservedCallService;
-  /** The SDK function the app called, such as `getDoc` or `signInWithEmailAndPassword`. */
+  /**
+   * The SDK function the app called, such as `getDoc` or
+   * `signInWithEmailAndPassword`. An Admin call names its class and method,
+   * such as `DocumentReference.get` or `Auth.verifyIdToken`.
+   */
   method: string;
+  /**
+   * `'admin'` when a server process made the call through the Admin SDK,
+   * which bypasses Security Rules; absent for the client SDK. Taken only on
+   * `firestore`, `rtdb`, `storage` and `auth` calls; the event carries it as
+   * `detail.sdk`.
+   */
+  sdk?: 'admin';
   /**
    * The document or collection path the call named, when it named one. On an
    * `rtdb` call, the reference's path, such as `/items/a`. On a `storage`
@@ -144,6 +230,29 @@ export interface ObservedCall {
    * Refused on any other call; the event carries them as `detail.requests`.
    */
   requests?: ObservedRequest[];
+  /**
+   * `firestore` only: the fields a `setDoc`, `updateDoc` or `addDoc` wrote,
+   * as JSON values, so the local rules can read `request.resource.data`.
+   * Memory only, emails left out; no event holds them.
+   */
+  writeData?: Record<string, unknown>;
+  /**
+   * `firestore` only: the fields of the document an allowed read returned,
+   * as JSON values, so the local rules can read `resource.data`. Memory
+   * only, emails left out; no event holds them.
+   */
+  document?: Record<string, unknown>;
+  /**
+   * `firestore` only: the shape of the query a list or listener ran. Refused
+   * on any other call; the event carries it as `request.query`.
+   */
+  query?: ObservedQuery;
+  /**
+   * `firestore` and `rtdb` only: a listener's attach or detach. Refused on
+   * any other call and on an error outcome. Such a record becomes a
+   * `listener` event, not an `operation` event.
+   */
+  listener?: ObservedListener;
 }
 
 /**
@@ -158,4 +267,35 @@ export interface ObservedProduction {
   usage?: ObservedUsage;
   /** A listener delivery's {@link ObservedCall.billedDocuments}, when the recorder counted them. */
   billedDocuments?: number;
+  /**
+   * What the local rules files say about the same request, when the host
+   * evaluated it. Production decided the call: this never changes the
+   * event's `result` or Rules disposition.
+   */
+  local?: LocalVerdict;
 }
+
+/**
+ * Data a local evaluation needed and an observed call did not carry: a
+ * stored document (`resource`, `get()`, `exists()`, or an RTDB `data` or
+ * `root`), the written value, a token claim's value, or a list's query.
+ */
+export type LocalVerdictGap = 'stored-document' | 'write-data' | 'claim-values' | 'query';
+
+/** The local rule that decided: its source line, its condition, and the match path it sits under. */
+export interface LocalRule {
+  line?: number;
+  expression?: string;
+  path?: string;
+}
+
+/**
+ * The local rules' answer to an observed call. `drift` marks an answer
+ * that disagrees with production's allow or deny. `trace` is the same
+ * bounded evaluation record a sandbox Firestore request carries as
+ * `rulesEvidence`, with every email address left out; absent for RTDB, and
+ * when the record was too large to keep.
+ */
+export type LocalVerdict =
+  | { result: 'allow' | 'deny'; rule?: LocalRule; drift?: true; trace?: import('./rules-evidence.js').RulesEvidence }
+  | { result: 'unevaluated'; needs: LocalVerdictGap[] };

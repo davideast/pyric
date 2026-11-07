@@ -23,11 +23,13 @@
  * command on the `pyric-live` host) throws pyric's refusal, and the replay
  * server receives nothing for it. So does app code that would skip the live
  * rows: the page importing the SDK file the rows loaded under a cache-busting
- * query, and the server job loading `@google-cloud/firestore` or sending its
- * own `https.request` to Firestore. Like every app scenario this runs offline,
+ * query, and the server job loading `@google-cloud/firestore`. A raw request of
+ * the job's own goes out as it would without pyric (ADR 0022, amendment
+ * 2026-11-07), so `live-instrumented-backend` covers it. Like every app scenario this runs offline,
  * and the browser blocks every host but loopback.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from 'playwright';
@@ -35,6 +37,13 @@ import { scenario, sleep, type App } from '../driver.ts';
 
 const FIXTURE = fileURLToPath(new URL('../replay/fixtures/live-mode-traffic.json', import.meta.url));
 const REFUSED = 'PYRIC_LIVE_REFUSED';
+/**
+ * Whether the `node` the server job runs serves the Admin rows: Node 23 or
+ * later. On Node 22, CommonJS require() never reaches the register's hooks,
+ * so firebase-admin stays refused, with the reason.
+ */
+const NODE_VERSION = spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' }).stdout.trim();
+const ADMIN_ROWS_ON = Number(NODE_VERSION.split('.')[0]) >= 23;
 
 interface Received {
   rpc: 'Listen' | 'Write' | 'auth';
@@ -125,7 +134,9 @@ async function openChip(page: Page): Promise<Locator> {
 
 async function trafficRows(chip: Locator): Promise<Locator> {
   await chip.locator('[data-chip-tab=traffic]').click();
-  await chip.locator('[data-traffic-scope=all]').click();
+  // The scope is a switch: flip it only when it is not already on All traffic.
+  const scope = chip.locator('[data-traffic-scope]');
+  if (await scope.getAttribute('aria-checked') !== 'true') await scope.click();
   return chip.locator('[data-traffic-rows] [data-request-row]');
 }
 
@@ -194,6 +205,36 @@ async function sendsNothing<T>(app: App, replay: Replay, run: () => Promise<T>):
   assert.equal((await replay.received()).length, before, 'the replay server received a request for a refused call');
   assert.deepEqual(blockedLines(app).slice(blockedBefore), [], 'a refused call tried another host');
   return result;
+}
+
+/** A captured live call's event, as the capture file holds it. */
+interface CapturedLiveCall {
+  id: string;
+  service: string;
+  path?: string;
+  production?: { outcome: { status: string }; local?: { result: string; drift?: true } };
+}
+
+/** The live Firestore calls the dev server's capture file holds. */
+function capturedLiveCalls(app: App): CapturedLiveCall[] {
+  const capture = JSON.parse(app.readFile('.pyric/last-session.json')) as { events: CapturedLiveCall[] };
+  return capture.events.filter((event) => event.service === 'firestore' && event.production !== undefined);
+}
+
+interface VerifyReport {
+  ok: boolean;
+  results: Array<{ services: { firestore?: { checkedEvents: number; divergences: Array<{ kind: string; path?: string }> } } }>;
+}
+
+/** `pyric verify` over the capture file, as JSON, with its exit code. */
+async function verifyCapture(app: App, args: string[]): Promise<{ code: number | null; firestore: NonNullable<VerifyReport['results'][number]['services']['firestore']>; ok: boolean }> {
+  const run = await app.command('node', ['node_modules/.bin/pyric', 'verify', '--service', 'firestore', '--json', ...args], { timeoutMs: 60_000 });
+  const line = run.output.split('\n').find((text) => text.startsWith('{"ok"'));
+  assert.ok(line, `pyric verify printed no JSON report:\n${run.output}`);
+  const report = JSON.parse(line) as VerifyReport;
+  const firestore = report.results[0]?.services.firestore;
+  assert.ok(firestore, `pyric verify checked no Firestore calls:\n${run.output}`);
+  return { code: run.code, firestore, ok: report.ok };
 }
 
 function blockedLines(app: App): string[] {
@@ -327,18 +368,41 @@ export default scenario(async (app) => {
     assert.equal(run.code, 0, run.output);
     const outcomes = resultOf(run.output) as Record<string, string>;
     assert.match(outcomes.functions!, new RegExp(`^${REFUSED}: @pyric/live: firebase/functions \\(Cloud Functions\\) is refused in live mode`));
-    assert.match(outcomes.admin!, new RegExp(`^${REFUSED}: @pyric/live: firebase-admin/firestore \\(the Admin SDK\\) is refused in live mode`));
+    // A live Node process observes firebase-admin where it can, so there its import loads.
+    if (ADMIN_ROWS_ON) assert.equal(outcomes.admin, 'loaded');
+    else assert.match(outcomes.admin!, new RegExp(`^${REFUSED}: @pyric/live: firebase-admin/firestore \\(the Admin SDK\\) is refused in live mode\\. @pyric/live observes firebase-admin on Node 23 or later`));
     assert.match(outcomes.namedDatabase!, new RegExp(`^${REFUSED}: @pyric/live: getFirestore with the database "reports" is refused in live mode, from a Node process`));
-    // Google's server Firestore client stops at import, and a raw request to a live row host never opens a socket.
+    // Google's server Firestore client stops at import.
     assert.match(outcomes.cloudFirestore!, /^PYRIC_REAL_SDK_STOPPED: @pyric\/live\/register: stopped loading @google-cloud\/firestore/);
     assert.match(outcomes.cloudFirestore!, /only the installed Firebase SDK reaches production, through @pyric\/live's rows/);
-    assert.match(outcomes.httpsRequest!, /^PYRIC_GUARD_BLOCKED: pyric net-guard blocked socket egress to firestore\.googleapis\.com \(Cloud Firestore\): in live mode only the installed Firebase SDK, wrapped by @pyric\/live's rows, reaches this host/);
-    assert.match(run.output, /@pyric\/live\/register: net-guard BLOCK firestore\.googleapis\.com \(Cloud Firestore\) via socket/);
+    assert.doesNotMatch(run.output, /PYRIC_GUARD_BLOCKED|net-guard BLOCK/);
   });
 
   await app.step('stop the dev server', async () => {
     await page.close();
     await host.process.stop();
+  });
+
+  await app.step('the capture file holds the live calls with both verdicts, and .gitignore ignores it', async () => {
+    const calls = capturedLiveCalls(app);
+    const localOf = (status: string) => calls.filter((call) => call.production?.outcome.status === status).map((call) => call.production?.local?.result);
+    assert.ok(localOf('ok').includes('allow'), 'a call production allowed is captured with the local allow');
+    assert.ok(localOf('error').includes('deny'), 'the call production denied is captured with the local deny');
+    assert.deepEqual(calls.filter((call) => call.production?.local?.drift), [], 'the local rules agree with production on every call');
+    assert.ok(app.readFile('.gitignore').split('\n').includes('.pyric/'), 'the capture step adds .pyric/ to .gitignore');
+  });
+
+  await app.step('pyric verify replays the captured live calls against the local rules', async () => {
+    const agrees = await verifyCapture(app, []);
+    assert.equal(agrees.code, 0);
+    assert.ok(agrees.firestore.checkedEvents > 0, 'pyric verify checked the live calls');
+    assert.deepEqual(agrees.firestore.divergences, []);
+    app.writeFile('closed.rules', "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} { allow read, write: if false; }\n  }\n}\n");
+    const closed = await verifyCapture(app, ['--rules', 'firestore=closed.rules']);
+    assert.equal(closed.code, 1);
+    assert.equal(closed.ok, false);
+    const kinds = new Set(closed.firestore.divergences.map((divergence) => divergence.kind));
+    assert.deepEqual([...kinds], ['now-denied'], 'each live call production allowed is now denied');
   });
 
   const live = await app.step('start pyric-live: the Node host in live mode', async () => {

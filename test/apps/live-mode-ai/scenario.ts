@@ -178,7 +178,9 @@ interface Row {
 /** Every AI row Traffic lists in `scope`, picking the AI filter afresh so the list follows new rows. */
 async function aiRows(chip: Locator, scope: 'page' | 'all'): Promise<Row[]> {
   await chip.locator('[data-chip-tab=traffic]').click();
-  await chip.locator(`[data-traffic-scope=${scope}]`).click();
+  // The scope is a switch, on for All traffic: flip it only when it differs from `scope`.
+  const scopeSwitch = chip.locator('[data-traffic-scope]');
+  if (await scopeSwitch.getAttribute('aria-checked') !== String(scope === 'all')) await scopeSwitch.click();
   const service = chip.locator('[data-request-service]');
   await service.selectOption('');
   await service.selectOption('ai');
@@ -345,7 +347,7 @@ export default scenario(async (app) => {
     assert.deepEqual(await replay.unmatched(), []);
   });
 
-  await app.step('the chip shows each server job call as production\'s, from Server (client SDK)', async () => {
+  await app.step('the chip shows each server job call as production\'s, from a Node process', async () => {
     await expectRows(chip, 'node');
     const sources = await chip.locator('[data-traffic-rows] [data-traffic-row-source]').evaluateAll((elements) => elements.map((element) => element.getAttribute('data-traffic-row-source')));
     assert.deepEqual([...new Set(sources)].sort(), ['node', 'page'], 'the All view marks the page\'s rows and the server job\'s');

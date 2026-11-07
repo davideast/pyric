@@ -25,6 +25,8 @@ export interface FillContext {
   /** The commit time of this answer, shared by every write result in it. */
   commitTime?: string;
   tokens: ReplayTokens;
+  /** The document ids the Admin SDK picked for `add`, by the name of the `autoId` placeholder that matched each. */
+  autoIds?: ReadonlyMap<string, string>;
 }
 
 /** Opaque tokens and the uid each minted ID token stands for. */
@@ -40,7 +42,11 @@ export class ReplayTokens {
   /**
    * An ID token with Firebase Auth's claims for a test project, signed by no
    * one. An anonymous token also carries `provider_id: "anonymous"`, as the
-   * ones capture A's clients got from production do.
+   * ones capture A's clients got from production do. An `unsigned` token
+   * has the header `alg: none` and no signature, as the Auth emulator issues
+   * one: firebase-admin's `verifyIdToken` under `FIREBASE_AUTH_EMULATOR_HOST`
+   * accepts only that shape, so a page whose backend checks its token there
+   * signs in with one.
    */
   mintIdToken(project: string, fields: JsonObject): string {
     const uid = String(fields.uid);
@@ -61,7 +67,10 @@ export class ReplayTokens {
       firebase: { identities: email ? { email: [email] } : {}, sign_in_provider: provider },
     };
     const segment = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
-    const token = `${segment({ alg: 'RS256', kid: 'replay', typ: 'JWT' })}.${segment(claims)}.${Buffer.from('replay').toString('base64url')}`;
+    const isUnsigned = fields.unsigned === true;
+    const header = isUnsigned ? { alg: 'none', typ: 'JWT' } : { alg: 'RS256', kid: 'replay', typ: 'JWT' };
+    const signature = isUnsigned ? '' : Buffer.from('replay').toString('base64url');
+    const token = `${segment(header)}.${segment(claims)}.${signature}`;
     this.users.set(token, uid);
     return token;
   }
@@ -98,9 +107,18 @@ function fillPlaceholder(name: string, value: JsonObject, context: FillContext):
       return context.tokens.opaque('refresh');
     case 'idToken':
       return context.tokens.mintIdToken(context.project, value);
+    case 'autoId':
+      return autoIdName(value, context.autoIds);
     default:
       throw new Error(`replay: the ${name} placeholder only matches requests`);
   }
+}
+
+/** An `autoId` placeholder's document name: its parent and the id kept under its name. */
+function autoIdName(placeholder: JsonObject, autoIds: ReadonlyMap<string, string> | undefined): string {
+  const id = autoIds?.get(String(placeholder.name));
+  if (id === undefined) throw new Error(`replay: an answer names the document id ${String(placeholder.name)}, which no request has picked`);
+  return `${String(placeholder.parent)}/${id}`;
 }
 
 /**

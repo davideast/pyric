@@ -9,16 +9,21 @@
  * every view reads it there, so two views never disagree and a view that
  * trims its history keeps the count.
  *
- * The count is of calls production answered with success: each Firestore
- * read and write, and for a listener, each document its deliveries were
+ * The count is of the documents production billed for the Firestore calls it
+ * answered with success, as the recorder measured them (`usage`): a query's
+ * documents, a count's reads per thousand entries, a write's documents
+ * written and deleted. For a listener, each document its deliveries were
  * billed for (`billedDocuments`): those added, changed or removed, at least
  * one for its first snapshot, and none for a snapshot only its metadata
- * changed. A delivery with no count counts once. A cache read never reaches
- * production, and Auth calls are not billed per call, so neither is counted.
- * A transaction counts as one write, however many documents it reads and
- * writes.
+ * changed. A call or delivery with no measure counts once, as does one whose
+ * usage names no documents. A cache read never reaches production, and Auth
+ * calls are not billed per call, so neither is counted. An aggregate counts
+ * one read and a transaction one write, as their usage says. A `writeBatch`
+ * commit counts each write and delete its batch held.
  */
 import type { ObservedCall } from '../types/observed-call.js';
+import { coverageMethodOf } from './admin-methods.js';
+import { readNodeUnobservedLists, type NodeUnobservedLists } from './node-unobserved.js';
 
 export type BilledCallKind = 'read' | 'write' | 'delivery';
 
@@ -41,10 +46,76 @@ export interface LiveHostStatus {
   readonly billed: BilledCallCount;
   /**
    * The `firebase/*` imports the app's installed SDK serves unwrapped, with no
-   * row and no observer (`pyricLive({ passThrough })`). Absent when there are none.
+   * row and no observer (`pyricLive({ passThrough })`). Absent when there are
+   * none.
    */
   readonly passThrough?: readonly string[];
+  /**
+   * The `firebase/*` imports the app resolved to live rows, whose calls the
+   * host observes, in the order the app first imported them. Absent when
+   * there are none.
+   */
+  readonly observed?: readonly string[];
+  /**
+   * The Google and Firebase hosts the host process called that no live row
+   * observed, in first-call order. Live mode lets each call through and only
+   * names it (ADR 0022, amendment 2026-11-07). Absent when there are none.
+   */
+  readonly unobserved?: readonly string[];
+  /**
+   * The Admin SDK a Node process under the live register loads: its calls
+   * are observed and bypass Security Rules. A live host always reports it;
+   * absent only in a report a reader could not read it from.
+   */
+  readonly admin?: LiveAdminStatus;
+  /**
+   * The clients connected to the host, one per browser profile, service
+   * worker and Node process. Absent when none is connected.
+   */
+  readonly clients?: readonly LiveClient[];
 }
+
+/**
+ * The Admin SDK, as a live host's health report carries it: observed, and
+ * bypassing Security Rules. The host does not judge Node: it sees only its
+ * own Node, not a backend's. A backend on Node 22, where the Admin rows stay
+ * shut, says so in that process's own start line, and each of its
+ * firebase-admin imports is refused there.
+ */
+export interface LiveAdminStatus {
+  readonly mode: 'observed';
+  readonly observed: true;
+  readonly bypassesRules: true;
+}
+
+/** The one Admin status a live host reports. */
+const LIVE_ADMIN_STATUS: LiveAdminStatus = { mode: 'observed', observed: true, bypassesRules: true };
+
+/** What connected to a live host: a page of a browser profile, its service worker, or a Node process. */
+export type LiveClientKind = 'browser' | 'service-worker' | 'node';
+
+/**
+ * One client connected to a live host, keyed by kind and client id, so a
+ * service worker is never grouped with the pages of its profile. A Node
+ * process under the live register also carries what it reports it left
+ * unobserved (`NodeUnobservedLists`), each list absent when empty.
+ */
+export interface LiveClient extends NodeUnobservedLists {
+  readonly kind: LiveClientKind;
+  /** The browser profile's or service worker realm's client id, or the connection's own for a Node process. */
+  readonly clientId: string;
+  /** The path of the page the client last reported. Absent for a service worker or a Node process. */
+  readonly label?: string;
+  /** The uid its last observed call ran as, or null when signed out. */
+  readonly user: string | null;
+  /** The email of the user a browser client's page reports signed in. Absent when signed out or unknown; kept in host memory only. */
+  readonly email?: string;
+  /** The host time, in epoch milliseconds, of its last frame. */
+  readonly lastSeen: number;
+}
+
+/** The most clients a status lists; a bound on what a host's report can grow. */
+const MAX_LIVE_CLIENTS = 64;
 
 /** What the chip and Studio show beside "pyric" for as long as the host runs: the project name. */
 export function liveLabel(projectId: string): string {
@@ -105,15 +176,80 @@ function readProjects(value: unknown): string[] | null {
 
 const FIREBASE_IMPORT = /^firebase\/[a-z-]+(?:\/[a-z-]+)*$/;
 
+/** An observed import: a `firebase/*` import the app resolved to a live row. */
 function isFirebaseImport(value: unknown): value is string {
   return typeof value === 'string' && FIREBASE_IMPORT.test(value);
 }
 
-/** The pass-through list: absent stays absent, and anything but a list of `firebase/*` imports is malformed. */
-function readPassThrough(value: unknown): { passThrough?: string[] } | null {
+/** A list of imports: absent stays absent, and anything but a list `isImport` accepts is malformed. */
+function readImports<K extends 'passThrough' | 'observed'>(
+  field: K,
+  value: unknown,
+  isImport: (entry: unknown) => entry is string,
+): Partial<Record<K, string[]>> | null {
   if (value === undefined) return {};
-  const isList = Array.isArray(value) && value.every(isFirebaseImport);
-  return isList ? { passThrough: [...(value as string[])] } : null;
+  const isList = Array.isArray(value) && value.every(isImport);
+  return isList ? ({ [field]: [...(value as string[])] } as Partial<Record<K, string[]>>) : null;
+}
+
+const LIVE_CLIENT_KINDS: ReadonlySet<unknown> = new Set<LiveClientKind>(['browser', 'service-worker', 'node']);
+
+function isLiveClientKind(value: unknown): value is LiveClientKind {
+  return LIVE_CLIENT_KINDS.has(value);
+}
+
+function isLiveClientUser(value: unknown): value is string | null {
+  return value === null || isProjectName(value);
+}
+
+/** One client entry, or null for a malformed one. */
+function readClient(value: unknown): LiveClient | null {
+  const isObject = typeof value === 'object' && value !== null;
+  if (!isObject) return null;
+  const kind: unknown = Reflect.get(value, 'kind');
+  const clientId: unknown = Reflect.get(value, 'clientId');
+  const label: unknown = Reflect.get(value, 'label');
+  const user: unknown = Reflect.get(value, 'user');
+  const lastSeen: unknown = Reflect.get(value, 'lastSeen');
+  const email: unknown = Reflect.get(value, 'email');
+  const hasLabel = label === undefined || typeof label === 'string';
+  const hasEmail = email === undefined || typeof email === 'string';
+  const isValid = isLiveClientKind(kind) && isProjectName(clientId) && hasLabel && isLiveClientUser(user) && hasEmail && isCount(lastSeen);
+  if (!isValid) return null;
+  const labelField = label === undefined ? {} : { label: label as string };
+  const emailField = email === undefined ? {} : { email: email as string };
+  // Malformed lists drop, and the client stays.
+  const lists = readNodeUnobservedLists(value as Record<string, unknown>) ?? {};
+  return { kind, clientId, ...labelField, user, ...emailField, lastSeen, ...lists };
+}
+
+/** The clients field: its well-formed entries, at most {@link MAX_LIVE_CLIENTS}; a malformed entry or list never loses the status. */
+function readClients(value: unknown): { clients?: LiveClient[] } {
+  if (!Array.isArray(value)) return {};
+  const clients = value.map(readClient).filter((client): client is LiveClient => client !== null).slice(0, MAX_LIVE_CLIENTS);
+  return clients.length === 0 ? {} : { clients };
+}
+
+/** A host name as a report lists it: a nonempty string with no whitespace. */
+function isHostName(value: unknown): value is string {
+  return typeof value === 'string' && value !== '' && !/\s/.test(value);
+}
+
+/** The unobserved field: a nonempty list of host names, else absent; a malformed one never loses the status. */
+function readUnobserved(value: unknown): { unobserved?: string[] } {
+  const isList = Array.isArray(value) && value.length > 0 && value.every(isHostName);
+  return isList ? { unobserved: [...(value as string[])] } : {};
+}
+
+/** The admin field: the observed Admin SDK, else absent; a malformed one never loses the status. */
+function readAdmin(value: unknown): { admin?: LiveAdminStatus } {
+  const isObject = typeof value === 'object' && value !== null;
+  if (!isObject) return {};
+  const isObservedMode = Reflect.get(value, 'mode') === 'observed';
+  const isObserved = Reflect.get(value, 'observed') === true;
+  const bypassesRules = Reflect.get(value, 'bypassesRules') === true;
+  const isValid = isObservedMode && isObserved && bypassesRules;
+  return isValid ? { admin: { ...LIVE_ADMIN_STATUS } } : {};
 }
 
 /** The live status in a `/__pyric/health` report, or null for a sandbox host. */
@@ -128,10 +264,15 @@ export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const configSource: unknown = Reflect.get(live, 'configSource');
   const appProjectIds = readProjects(Reflect.get(live, 'appProjectIds'));
   const billed = readCount(Reflect.get(live, 'billed'));
-  const passThrough = readPassThrough(Reflect.get(live, 'passThrough'));
+  const passThrough = readImports('passThrough', Reflect.get(live, 'passThrough'), isFirebaseImport);
+  const observed = readImports('observed', Reflect.get(live, 'observed'), isFirebaseImport);
   const hasFields = isProjectName(projectId) && isProjectName(configProjectId) && isProjectName(configSource);
-  if (!hasFields || appProjectIds === null || billed === null || passThrough === null) return null;
-  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough };
+  const hasLists = appProjectIds !== null && billed !== null && passThrough !== null && observed !== null;
+  if (!hasFields || !hasLists) return null;
+  const admin = readAdmin(Reflect.get(live, 'admin'));
+  const clients = readClients(Reflect.get(live, 'clients'));
+  const unobserved = readUnobserved(Reflect.get(live, 'unobserved'));
+  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough, ...observed, ...unobserved, ...admin, ...clients };
 }
 
 const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, BilledCallKind>([
@@ -146,31 +287,54 @@ const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, Bil
   ['deleteDoc', 'write'],
   ['addDoc', 'write'],
   ['runTransaction', 'write'],
+  ['writeBatch.commit', 'write'],
   ['onSnapshot', 'delivery'],
   ['onSnapshotResume', 'delivery'],
 ]);
 
-/** The billed kind of an observed call, or null for one production did not bill. */
-export function billedCallKind(call: Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments'>): BilledCallKind | null {
+/**
+ * The billed kind of an observed call, or null for one production did not
+ * bill. An Admin call counts as the client method it reads as
+ * (`coverageMethodOf`), so `DocumentReference.get` is a read and
+ * `WriteBatch.commit` a write. A listener's attach or detach (`listener`)
+ * bills nothing; its deliveries do.
+ */
+export function billedCallKind(call: Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments' | 'listener'>): BilledCallKind | null {
   const succeeded = call.outcome.status === 'ok';
   const isFirestore = call.service === 'firestore';
-  if (!succeeded || !isFirestore) return null;
-  const kind = FIRESTORE_KINDS.get(call.method) ?? null;
+  const isLifecycle = call.listener !== undefined;
+  if (!succeeded || !isFirestore || isLifecycle) return null;
+  const kind = FIRESTORE_KINDS.get(coverageMethodOf('firestore', call.method)) ?? null;
   const isMetadataOnly = kind === 'delivery' && call.billedDocuments === 0;
   return isMetadataOnly ? null : kind;
 }
 
-/** How many of its kind a billed call counts: a delivery its billed documents, every other call one. */
-function billedUnits(kind: BilledCallKind, call: Pick<ObservedCall, 'billedDocuments'>): number {
+type BilledCall = Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments' | 'usage' | 'listener'>;
+
+/** The documents a call's usage names for its kind: reads for a read or delivery, writes and deletes for a write. Undefined when it names none. */
+function usageUnits(kind: BilledCallKind, usage: ObservedCall['usage']): number | undefined {
+  if (usage === undefined) return undefined;
+  if (kind !== 'write') return usage.documentReads;
+  const hasWrites = usage.documentWrites !== undefined || usage.documentDeletes !== undefined;
+  return hasWrites ? (usage.documentWrites ?? 0) + (usage.documentDeletes ?? 0) : undefined;
+}
+
+/**
+ * How many of its kind a billed call counts: the documents production billed
+ * it for (a delivery's `billedDocuments`, else its usage), and one when the
+ * recorder measured neither.
+ */
+function billedUnits(kind: BilledCallKind, call: BilledCall): number {
   const isDelivery = kind === 'delivery';
-  return isDelivery ? call.billedDocuments ?? 1 : 1;
+  const delivered = isDelivery ? call.billedDocuments : undefined;
+  return delivered ?? usageUnits(kind, call.usage) ?? 1;
 }
 
 export interface BilledCallCounter {
   /** Adds `units` of `kind`, one by default. */
   add(kind: BilledCallKind, units?: number): void;
   /** Adds what an observed call was billed for, and nothing for a call production did not bill. */
-  addCall(call: Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments'>): void;
+  addCall(call: BilledCall): void;
   count(): BilledCallCount;
 }
 

@@ -32,6 +32,12 @@ import {
   rtdbInstanceOfRulesKey,
   type RtdbRulesOverrides,
 } from './verify-rtdb-rules.js';
+import {
+  isStorageBucketRulesKey,
+  resolveStorageCandidateRules,
+  storageBucketOfRulesKey,
+  type StorageRulesOverrides,
+} from './verify-storage-rules.js';
 
 export type Fixture = PyricVerifyFixture;
 
@@ -104,7 +110,8 @@ export function formatResults(results: FixtureResult[]): string {
         : [{ label: '', divergences: service.divergences }];
       for (const group of groups) {
         for (const divergence of failingDivergences(group.divergences)) {
-          const instance = divergence.instance === undefined ? '' : ` ${divergence.instance}`;
+          const resource = divergence.instance ?? divergence.bucket;
+          const instance = resource === undefined ? '' : ` ${resource}`;
           lines.push(`    [${service.service}${instance}${group.label}] ${formatDivergence(divergence)}`);
         }
       }
@@ -576,21 +583,15 @@ async function resolveCandidateRules(
     Object.assign(paths, rtdb.paths);
   }
   if (services.includes('storage')) {
-    const configured = configuredStorageRules(await readConfig());
-    const defaultStoragePath = resolve(cwd, 'storage.rules');
-    const rel =
-      overrides.storage ??
-      configured ??
-      (existsSync(defaultStoragePath) ? 'storage.rules' : undefined);
-    if (!rel) {
-      throw new Error('missing candidate storage rules. Pass --rules storage=<path> or configure firebase.json.');
-    }
-    const path = resolve(cwd, rel);
-    if (!existsSync(path)) {
-      throw new Error(`rules file not found for storage: ${path}`);
-    }
-    paths.storage = path;
-    rules.storage = readFileSync(path, 'utf8');
+    const storage = await resolveStorageCandidateRules({
+      cwd,
+      fixtures: input.fixtures,
+      overrides: overrides.storage,
+      readFirebaseJson: readConfig,
+      ...(input.project ? { project: input.project } : {}),
+    });
+    Object.assign(rules, storage.rules);
+    Object.assign(paths, storage.paths);
   }
   return { rules, paths };
 }
@@ -603,19 +604,14 @@ function configuredFirestoreRules(cwd: string, config: FirebaseJson | null, proj
   return entry?.configured === true ? entry.rulesFile : undefined;
 }
 
-function configuredStorageRules(config: FirebaseJson | null): string | undefined {
-  const block = config?.storage;
-  const entries = block ? (Array.isArray(block) ? block : [block]) : [];
-  return entries.find((e) => e && typeof e === 'object' && e.rules)?.rules;
-}
-
 function parseRulesOverrides(flag: FlagValue | undefined): {
   firestore?: string;
   rtdb: RtdbRulesOverrides;
-  storage?: string;
+  storage: StorageRulesOverrides;
 } {
-  const out: { firestore?: string; rtdb: RtdbRulesOverrides; storage?: string } = {
+  const out: { firestore?: string; rtdb: RtdbRulesOverrides; storage: StorageRulesOverrides } = {
     rtdb: { instances: [] },
+    storage: { buckets: [] },
   };
   for (const raw of flagStrings(flag)) {
     const eq = raw.indexOf('=');
@@ -628,9 +624,13 @@ function parseRulesOverrides(flag: FlagValue | undefined): {
       out.rtdb.instances.push({ instance: rtdbInstanceOfRulesKey(key), path });
       continue;
     }
+    if (isStorageBucketRulesKey(key)) {
+      out.storage.buckets.push({ bucket: storageBucketOfRulesKey(key), path });
+      continue;
+    }
     const service = toVerifiableService(key);
     if (service === 'rtdb') out.rtdb.default = path;
-    else if (service === 'storage') out.storage = path;
+    else if (service === 'storage') out.storage.default = path;
     else out.firestore = path;
   }
   return out;

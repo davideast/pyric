@@ -8,23 +8,65 @@
  * the health report lists each one, and the chip's header names the project
  * only.
  *
+ * The app's server job (`admin-server.mjs`) looks a user up with the Admin
+ * SDK under `node --import @pyric/live/register`. Live mode serves and
+ * observes firebase-admin by default: the real firebase-admin loads with the
+ * app's own credential through the Admin rows, the start line says its calls
+ * bypass Security Rules, and the job's lookup gets its answer. The job's own
+ * fetch and https.request to Google's hosts go out as they would without
+ * pyric (ADR 0022, amendment 2026-11-07), and the fetch to a host no row
+ * observes gets its unobserved line. The job's Agent sends every https
+ * request to a local stand-in for Google, and the run is offline, so no
+ * request reaches a real host.
+ *
  * Without the list, the same page is refused: the dev server names every
  * unserved import it was asked for and the `passThrough` option that would
  * allow them, and the page throws `PYRIC_LIVE_REFUSED`. A list that names an
  * import live mode serves, such as `firebase/database`, `firebase/ai`,
- * `firebase/storage`, `firebase/messaging` or `firebase/messaging/sw`, or
- * `firebase-admin`, stops the dev server at start.
+ * `firebase/storage`, `firebase/messaging` or `firebase/messaging/sw`,
+ * `firebase-admin` or a `firebase-admin/*` subpath, stops the dev server at
+ * start.
  *
  * The page gets each service and makes no call, so no request leaves. Like
  * every app scenario this runs offline, and the browser blocks every host but
  * loopback.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import type { Page } from 'playwright';
 import { scenario, sleep, type App, type ExpectedCrash } from '../driver.ts';
 
 const ENTRY = '@pyric/live/vite';
 const PASSED = ['firebase/functions', 'firebase/remote-config'];
+const GUARD_BLOCKED = 'PYRIC_GUARD_BLOCKED';
+const UNOBSERVED_TOKEN_LINE = '@pyric/live/register: unobserved call to oauth2.googleapis.com (';
+/**
+ * Whether the `node` the app's processes run serves the Admin rows: Node 23
+ * or later. Node 22's CommonJS require() never reaches the register's hooks,
+ * so there firebase-admin stays refused, with the reason.
+ */
+const NODE_VERSION = spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' }).stdout.trim();
+const ADMIN_ROWS_ON = Number(NODE_VERSION.split('.')[0]) >= 23;
+const ADMIN_LINE =
+  '@pyric/live/register: firebase-admin is observed for the Firebase project demo-live-pass-through. ' +
+  'This process uses its own credential, and its Admin calls bypass Security Rules.';
+
+/** What the server job's calls got, from its `OUTCOME` line. */
+function jobOutcome(output: string): Record<string, string> {
+  const line = output.split('\n').find((text) => text.startsWith('OUTCOME '));
+  assert.ok(line, `the server job printed its outcome:\n${output}`);
+  return JSON.parse(line.slice('OUTCOME '.length)) as Record<string, string>;
+}
+
+/**
+ * Runs the server job under the live register. The register reads the
+ * project from the checkout, as the Vite plugin reads its `project` option,
+ * so `.firebaserc` names the same one.
+ */
+function runServerJob(app: App) {
+  app.writeFile('.firebaserc', `${JSON.stringify({ projects: { default: 'demo-live-pass-through' } })}\n`);
+  return app.command('node', ['--import', '@pyric/live/register', 'admin-server.mjs'], { timeoutMs: 60_000 });
+}
 
 function passThroughLine(specifier: string): string {
   return `${specifier} passes through to production: its calls are not observed and still bill.`;
@@ -69,6 +111,11 @@ export const expectedCrashes: ExpectedCrash[] = [
     source: /^page http:\/\/127\.0\.0\.1:\d+\/ \(at http:\/\/127\.0\.0\.1:\d+\/@id\/__x00__pyric-stop:refused:page:firebase\/(functions|remote-config):\d+\)$/,
     reason: 'the step that starts the dev server without passThrough loads a page that imports both, and the first refusal throws at module evaluation',
   },
+  ...(ADMIN_ROWS_ON ? [] : [{
+    message: /^Error: @pyric\/live: firebase-admin\/app \(the Admin SDK\) is refused in live mode\. @pyric\/live observes firebase-admin on Node 23 or later/,
+    source: /^command \d+ \(node --import @pyric\/live\/register admin-server\.mjs\)$/,
+    reason: 'on Node 22, whose require() skips the hooks, the Admin rows stay shut and the server job is refused its import',
+  }]),
 ];
 
 export default scenario(async (app) => {
@@ -86,6 +133,27 @@ export default scenario(async (app) => {
     assert.deepEqual(live.passThrough, PASSED);
   });
 
+  await app.step('the server job under @pyric/live/register loads the observed firebase-admin, gets its lookup answered, and its own calls to Google go out', async () => {
+    const run = await runServerJob(app);
+    if (!ADMIN_ROWS_ON) {
+      assert.notEqual(run.code, 0, run.output);
+      assert.match(run.output, new RegExp(escaped(`@pyric/live/register: firebase-admin is refused in this process. @pyric/live observes firebase-admin on Node 23 or later`)));
+      assert.doesNotMatch(run.output, /passThrough: \['firebase-admin'\]/);
+      return;
+    }
+    assert.equal(run.code, 0, run.output);
+    assert.doesNotMatch(run.output, /PYRIC_LIVE_REFUSED|PYRIC_REAL_SDK_STOPPED/);
+    assert.match(run.output, /@pyric\/live\/register: live mode for the Firebase project demo-live-pass-through\./);
+    assert.match(run.output, new RegExp(escaped(ADMIN_LINE)));
+    assert.doesNotMatch(run.output, /firebase-admin passes through/);
+    const { ownFetch, ...outcome } = jobOutcome(run.output);
+    assert.deepEqual(outcome, { firestore: 'loaded', adminLookup: 'scenario-user', ownRequest: 'sent' });
+    // Offline, the fetch fails at the network, never at pyric.
+    assert.notEqual(ownFetch, GUARD_BLOCKED);
+    assert.ok(run.output.includes(UNOBSERVED_TOKEN_LINE), run.output);
+    assert.doesNotMatch(run.output, new RegExp(GUARD_BLOCKED));
+  });
+
   const page = await app.step('the page loads: Auth, Cloud Functions and Remote Config share the app it made', async () => {
     const opened = await app.page(`${host.url}/`);
     await opened.waitForFunction(() => document.querySelector('#status')?.textContent === 'Ready', undefined, { timeout: 30_000 });
@@ -100,6 +168,7 @@ export default scenario(async (app) => {
     const live = await liveHealth(host.url);
     assert.equal(live.projectId, 'demo-live-pass-through');
     assert.deepEqual(live.passThrough, PASSED);
+    assert.deepEqual(live.observed, ['firebase/app', 'firebase/auth']);
   });
 
   await app.step("the chip's Live tab lists the project and each passed-through import, and its controls are usable", async () => {
@@ -140,9 +209,9 @@ export default scenario(async (app) => {
     await refusing.process.stop();
   });
 
-  await app.step('a list naming a served import, such as firebase/database, firebase/ai, firebase/storage or firebase/messaging, or firebase-admin stops the dev server at start', async () => {
+  await app.step('a list naming a served import, such as firebase/database, firebase/ai, firebase/storage, firebase/messaging or firebase-admin, or a firebase-admin subpath stops the dev server at start', async () => {
     const port = await app.freePort();
-    const env = { PASS_THROUGH: JSON.stringify(['firebase/firestore', 'firebase/database', 'firebase/ai', 'firebase/storage', 'firebase/messaging', 'firebase/messaging/sw', 'firebase-admin', '@firebase/functions']) };
+    const env = { PASS_THROUGH: JSON.stringify(['firebase/firestore', 'firebase/database', 'firebase/ai', 'firebase/storage', 'firebase/messaging', 'firebase/messaging/sw', 'firebase-admin', 'firebase-admin/app', '@firebase/functions']) };
     const run = await app.command('node', ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { env, timeoutMs: 60_000 });
     assert.notEqual(run.code, 0, run.output);
     assert.match(run.output, /@pyric\/live\/vite: passThrough lists firebase\/firestore, which live mode already serves and observes; remove it\./);
@@ -151,7 +220,8 @@ export default scenario(async (app) => {
     assert.match(run.output, /passThrough lists firebase\/storage, which live mode already serves and observes; remove it\./);
     assert.match(run.output, /passThrough lists firebase\/messaging, which live mode already serves and observes; remove it\./);
     assert.match(run.output, /passThrough lists firebase\/messaging\/sw, which live mode already serves and observes; remove it\./);
-    assert.match(run.output, /firebase-admin, which never passes through/);
+    assert.match(run.output, /passThrough lists firebase-admin, which live mode already serves and observes; remove it\./);
+    assert.match(run.output, /passThrough lists firebase-admin\/app/);
     assert.match(run.output, /@firebase\/functions, an SDK package name; list firebase\/functions/);
   });
 

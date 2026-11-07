@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Rooms</title></head>
+  <body>
+    <h1>Rooms</h1>
+    <output id="status">Starting</output>
+    <script>
+      // A client module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+      addEventListener("unhandledrejection", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.reason?.message ?? event.reason}`;
+      });
+    </script>
+    <script type="module">
+      // A rooms app that signs its user in and reads nothing itself. Its
+      // backend is the local one a `?backend=<origin>` query names, through
+      // the SDK's own emulator connector.
+      import { initializeApp } from "firebase/app";
+      import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
+
+      const app = initializeApp({
+        projectId: "demo-live-traffic",
+        apiKey: "demo-live-traffic-key",
+        appId: "1:1:web:live-sandbox-surfaces",
+        authDomain: "demo-live-traffic.firebaseapp.com",
+      });
+      const backend = new URL(new URLSearchParams(location.search).get("backend"));
+      const auth = getAuth(app);
+      connectAuthEmulator(auth, backend.origin, { disableWarnings: true });
+
+      window.signIn = () => signInWithEmailAndPassword(auth, "reader@example.com", "reader-password").then((credential) => credential.user.uid);
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>

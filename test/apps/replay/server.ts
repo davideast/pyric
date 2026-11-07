@@ -41,13 +41,27 @@
 // other: the allowed headers echo the ones the preflight asks for
 // (`x-goog-api-key`, `x-goog-firebase-installations-auth`, `Authorization`,
 // `x-firebase-client`), and the allowed methods include DELETE and PATCH.
+//
+// An Auth call that sends `Authorization: Bearer owner` is the Admin SDK's
+// (`firebase-admin/auth` under `FIREBASE_AUTH_EMULATOR_HOST`), at
+// `/identitytoolkit.googleapis.com/v1/projects/<p>/accounts...`.
+// `admin-auth.ts` answers it from the recordings' `admin-auth` exchanges,
+// never from a client's `auth` exchanges.
+//
+// A Cloud Storage JSON API call, `/b/<bucket>/o...` or
+// `/upload/storage/v1/b/<bucket>/o`, is the Admin SDK's
+// (`firebase-admin/storage` under `STORAGE_EMULATOR_HOST`).
+// `admin-storage.ts` answers it from the recordings' `admin-storage`
+// exchanges, and lists it with the Storage calls in `received`.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
+import { ADMIN_AUTH_HOST, AdminAuth, isAdminAuthCall } from './admin-auth.ts';
+import { AdminStorage, isAdminStoragePath } from './admin-storage.ts';
 import { aiCallOf, answerAi, type AiReceived } from './ai.ts';
 import { answerAuth, AUTH_HOSTS, parseRestBody } from './auth.ts';
-import type { Recording } from './format.ts';
+import type { JsonObject, Recording } from './format.ts';
 import { MESSAGING_HOSTS, MessagingReplay, readMessagingRequest, type MessagingReceived } from './messaging.ts';
 import { ListenStream, ReplayState, WriteStream, type Received, type Unmatched } from './firestore.ts';
 import { startGrpcReplay, type GrpcReplay } from './grpc.ts';
@@ -139,9 +153,11 @@ export async function startReplayServer(recordings: Recording[], options: Replay
   const ai: AiReceived[] | null = options.ai ? [] : null;
   const storage = new StorageReplay(state);
   const messaging = new MessagingReplay(state);
+  const adminAuth = new AdminAuth(state);
+  const adminStorage = new AdminStorage(state, storage.received);
   let origin = '';
   const server = createServer((request, response) => {
-    void handle({ state, rtdb, ai, storage, messaging, origin: () => origin }, sessions, request, response).catch((error: unknown) => {
+    void handle({ state, rtdb, ai, storage, messaging, adminAuth, adminStorage, origin: () => origin }, sessions, request, response).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'text/plain' });
       response.end(`pyric replay: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -184,6 +200,8 @@ interface Services {
   ai: AiReceived[] | null;
   storage: StorageReplay;
   messaging: MessagingReplay;
+  adminAuth: AdminAuth;
+  adminStorage: AdminStorage;
   origin: () => string;
 }
 
@@ -201,6 +219,8 @@ async function handle(services: Services, sessions: Map<string, WebChannelSessio
     response.end(JSON.stringify(report(state, rtdb, ai ?? [], storage.received, messaging.received)));
     return;
   }
+  const url = new URL(request.url ?? '/', 'http://replay.invalid');
+  if (isAdminStoragePath(url.pathname)) return answerAdminStorage(services, url, request, response);
   const storageRoute = storageRouteOf(request);
   if (storageRoute) return answerStorage(services, storageRoute, request, response);
   const messagingRoute = messagingRouteOf(request);
@@ -210,6 +230,8 @@ async function handle(services: Services, sessions: Map<string, WebChannelSessio
   const aiCall = ai && request.method === 'POST' ? aiCallOf(request.url ?? '') : null;
   if (aiCall) return answerAiCall(ai!, aiCall, request, response);
   if (route?.host === FIRESTORE_HOST) return channel(state, sessions, route, request, response, body);
+  const isAdminAuth = route?.host === ADMIN_AUTH_HOST && isAdminAuthCall(request);
+  if (isAdminAuth) return answerAdminAuth(services.adminAuth, route!, request, response, body);
   if (route) {
     const answer = answerAuth(state, { method: request.method ?? 'GET', host: route.host, path: route.path, body: parseRestBody(body) });
     response.writeHead(answer.status, { 'content-type': 'application/json; charset=utf-8' });
@@ -242,6 +264,14 @@ function answerAiCall(log: AiReceived[], call: NonNullable<ReturnType<typeof aiC
   response.end(answer.kind === 'sse' ? answer.body : JSON.stringify(answer.body));
 }
 
+/** Answers one Admin Auth call from the recordings, or fails it closed. */
+function answerAdminAuth(adminAuth: AdminAuth, route: Route, request: IncomingMessage, response: ServerResponse, body: string): void {
+  const query = Object.fromEntries(route.url.searchParams) as JsonObject;
+  const answer = adminAuth.answer({ method: request.method ?? 'GET', path: route.path, query, body: parseRestBody(body) });
+  response.writeHead(answer.status, { 'content-type': 'application/json; charset=utf-8' });
+  response.end(JSON.stringify(answer.body));
+}
+
 /** Answers one Storage call from the recordings, or fails it closed. The body is read raw: an upload carries bytes. */
 async function answerStorage(services: Services, route: Route, request: IncomingMessage, response: ServerResponse): Promise<void> {
   const body = await readRawBody(request);
@@ -254,6 +284,16 @@ async function answerStorage(services: Services, route: Route, request: Incoming
     return;
   }
   const answer = services.storage.answer(call, services.origin());
+  response.writeHead(answer.status, answer.headers);
+  response.end(answer.body);
+}
+
+/** Answers one Admin Storage call from the recordings, or fails it closed. The body is read raw: an upload carries bytes. */
+async function answerAdminStorage(services: Services, url: URL, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = await readRawBody(request);
+  const query = Object.fromEntries(url.searchParams) as JsonObject;
+  const call = { method: request.method ?? 'GET', path: url.pathname, query, contentType: request.headers['content-type'] ?? '', body };
+  const answer = services.adminStorage.answer(call, services.origin());
   response.writeHead(answer.status, answer.headers);
   response.end(answer.body);
 }

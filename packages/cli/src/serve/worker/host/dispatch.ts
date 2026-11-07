@@ -61,7 +61,7 @@ import {
   opProvenance,
 } from './core.js';
 import { bindCaller, callerFor, markPortConnection, setPortClientId, setPortTabId } from './caller.js';
-import { handleObserve } from './observe.js';
+import { endObservedPort, handleObserve } from './observe.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './rules.js';
@@ -232,7 +232,7 @@ export async function handleMessage(
   // disconnect handshake completes. Never swallow that teardown frame.
   const rejectsConfig = ctx.rejectedConfigPorts?.has(targetPort) === true && !isDisconnect;
   if (rejectsConfig) {
-    const isOperation = msg.t === 'op' || msg.t === 'tool' || msg.t === 'observe';
+    const isOperation = msg.t === 'op' || msg.t === 'tool' || msg.t === 'observe' || msg.t === 'unobserved';
     const isDataSubscription = msg.t === 'sub' && msg.target !== 'events';
     const error = configConflictError(refusalBaseline(ctx), ctx.rejectedConfigDetails?.get(targetPort));
     if (isOperation) {
@@ -285,7 +285,7 @@ export async function handleMessage(
 }
 
 function refuseDeletedMessage(port: PortLike, msg: InboundMessage): void {
-  const isOperation = msg.t === 'op' || msg.t === 'tool' || msg.t === 'observe';
+  const isOperation = msg.t === 'op' || msg.t === 'tool' || msg.t === 'observe' || msg.t === 'unobserved';
   const isDataSubscription = msg.t === 'sub' && msg.target !== 'events';
   const error = { code: 'app/app-deleted', message: 'Firebase App was deleted' };
   if (isOperation) {
@@ -307,6 +307,7 @@ async function dispatchMessage(
   const isClockSubscription = msg.t === 'clock-subscribe';
   const isTool = msg.t === 'tool';
   const isObservation = msg.t === 'observe';
+  const isUnobservedLists = msg.t === 'unobserved';
   if (isOperation) {
     const isActionCode = isAuthActionCodeOp(msg);
     const isCustomToken = msg.method === 'auth.signInWithCustomToken';
@@ -374,6 +375,9 @@ async function dispatchMessage(
     await handleTool(ctx, port, msg);
   } else if (isObservation) {
     handleObserve(ctx, port, msg);
+  } else if (isUnobservedLists) {
+    // The live host lists them under the client on their way in (`live-clients.ts`); the sandbox keeps nothing.
+    ok(port, msg.id, undefined);
   }
 }
 
@@ -436,6 +440,10 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   attempt(() => { cleanupPortPresence(ctx, port); });
   attempt(() => { forgetPortRtdbConnection(ctx, port); });
   attempt(() => { unsubscribeClock(ctx, port); });
+
+  // A live page or process that closed ends its production listeners without
+  // unsubscribing: detach the ones it reported attached (`observe.ts`).
+  attempt(() => { endObservedPort(ctx, port); });
 
   const portSubs = ctx.subs.get(port);
   const hasPortSubscriptions = portSubs !== undefined;

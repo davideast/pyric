@@ -8,7 +8,8 @@
  * The host learns both from the observed calls its live clients send. The
  * bridge mount hands this every frame on its way to and from the Node
  * sandbox (`bridge-mount.ts`); an observed call counts once the host has
- * accepted it, so a refused frame never reaches the count.
+ * accepted it, so a refused frame never reaches the count. The same frames
+ * name the clients connected to the host (`live-clients.ts`).
  *
  * Only a host a live seam started holds one: `serve/live-host.ts` for the
  * `pyric-live` command, and the Vite generation `@pyric/live/vite` starts.
@@ -25,6 +26,9 @@ import {
 import type { ObservedCall } from 'pyric/sandbox';
 import type { BridgeMessage } from '../bridge/protocol.js';
 import type { FirebaseProjectSource } from '../cli/firebase-project.js';
+import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
+import { createLiveClients, type SandboxClientIds } from './live-clients.js';
+import { liveUnobservedHosts } from '../register/live-net-guard.js';
 
 /** Observed calls waiting on the host's answer; a bound, since a client could send replies it never gets. */
 const MAX_PENDING_CALLS = 4096;
@@ -38,6 +42,8 @@ export interface LiveHostState {
   inbound(message: BridgeMessage): void;
   /** One frame on its way from the Node sandbox to the bridge. */
   outbound(message: BridgeMessage): void;
+  /** Name each client by the id the Node sandbox stamps on its events, once the sandbox runs (`live-clients.ts`). */
+  readClientIds(lookup: SandboxClientIds): void;
 }
 
 export interface LiveHostStateInput {
@@ -51,7 +57,23 @@ export interface LiveHostStateInput {
   warn(line: string): void;
   /** The `firebase/*` imports the app's installed SDK serves unwrapped and unobserved (`pyricLive({ passThrough })`). */
   passThrough?: readonly string[];
+  /**
+   * The `firebase/*` imports the app resolved to live rows, in the order it
+   * first imported them. The app imports after the host starts, so the report
+   * reads this each time: a live set, or a function that returns the list.
+   */
+  observed?: ObservedImportsSource;
+  /**
+   * The Google and Firebase hosts this process called that no live row
+   * observed. Defaults to the process's own list (`liveUnobservedHosts`).
+   */
+  unobserved?: () => readonly string[];
+  /** The host clock, in epoch milliseconds, for each client's last frame. `Date.now` by default. */
+  now?: () => number;
 }
+
+/** Where the report reads the imports the app resolved to live rows. */
+export type ObservedImportsSource = Iterable<ServedFirebaseSpecifier> | (() => Iterable<ServedFirebaseSpecifier>);
 
 /** Where a project came from, as the developer set it. */
 export function projectSourceName(source: FirebaseProjectSource | undefined, optionName: string): string {
@@ -100,6 +122,32 @@ function replyIn(message: BridgeMessage): { key: string; ok: boolean } | null {
   return { key: pendingKey(message.clientSessionId, reply.id), ok: reply.ok };
 }
 
+/** The imports a source lists, or none when reading it throws, so the health report always answers. */
+function readObserved(source: ObservedImportsSource): ServedFirebaseSpecifier[] {
+  try {
+    return [...new Set(typeof source === 'function' ? source() : source)];
+  } catch {
+    return [];
+  }
+}
+
+/** The observed field of a report: each import once, in first-import order, and absent when there are none. */
+function observedField(source: ObservedImportsSource | undefined): { observed?: string[] } {
+  if (source === undefined) return {};
+  const observed = readObserved(source);
+  return observed.length === 0 ? {} : { observed };
+}
+
+/** The unobserved field of a report: each host once, and absent when there are none, so the health report always answers. */
+function unobservedField(source: () => readonly string[]): { unobserved?: string[] } {
+  try {
+    const unobserved = [...new Set(source())];
+    return unobserved.length === 0 ? {} : { unobserved };
+  } catch {
+    return {};
+  }
+}
+
 export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const configSource = projectSourceName(input.configSource, input.optionName);
   const appProjectIds: string[] = [];
@@ -108,6 +156,10 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const pending = new Map<string, ObservedCall>();
   const passThrough = [...(input.passThrough ?? [])];
   const passThroughField = passThrough.length === 0 ? {} : { passThrough };
+  // A Node process under the live register observes firebase-admin, so every live host reports it. The host
+  // sees only its own Node; a backend on Node 22 says in its own start line that its Admin rows stay shut.
+  const admin: NonNullable<LiveHostStatus['admin']> = { mode: 'observed', observed: true, bypassesRules: true };
+  const clients = createLiveClients(input.now ?? Date.now);
 
   const report = (): LiveHostStatus => ({
     projectId: liveProjectOf(appProjectIds, input.configProjectId),
@@ -116,6 +168,10 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     appProjectIds: [...appProjectIds],
     billed: billed.count(),
     ...passThroughField,
+    ...observedField(input.observed),
+    ...unobservedField(input.unobserved ?? liveUnobservedHosts),
+    admin,
+    ...clients.field(),
   });
 
   const noteProject = (projectId: string | undefined): void => {
@@ -136,6 +192,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   return {
     report,
     inbound(message) {
+      clients.inbound(message);
       const observed = observedCallIn(message);
       if (observed === null) return;
       const isFull = pending.size >= MAX_PENDING_CALLS;
@@ -149,6 +206,9 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
       if (call === undefined) return;
       pending.delete(reply.key);
       if (reply.ok) accept(call);
+    },
+    readClientIds(lookup) {
+      clients.readClientIds(lookup);
     },
   };
 }

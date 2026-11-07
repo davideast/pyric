@@ -87,18 +87,26 @@ export {
 } from '../attribution/element-selector.js';
 export { ClockReading, getClock } from '../clock.js';
 export { stampProvenance } from './provenance.js';
-export { CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, type CallerSource } from './caller-source.js';
+export {
+  CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, eventScope,
+  type CallerSource, type EventScope, type ScopeClient, type ScopedEventFields,
+} from './caller-source.js';
 export { storageGsPath } from './storage-gs-path.js';
 export { messagingRequestsLine } from './messaging-requests-line.js';
 export {
-  OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, productionVerdict, readObservedCall,
-  type ProductionVerdict,
+  EMAIL_SHAPE, OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, observedListenerEvent, productionVerdict,
+  readObservedCall, type ObservedListenerEvent, type ProductionVerdict,
 } from './observed-call.js';
+export { observedMethod, rulesOperation, type ObservedMethod } from './observed-method.js';
 export {
   billedCallKind, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, liveProjectOf,
   readLiveHostStatus,
   type BilledCallCount, type BilledCallCounter, type BilledCallKind, type LiveHostStatus,
 } from './live-status.js';
+export {
+  MAX_NODE_UNOBSERVED_ENTRIES, NODE_UNOBSERVED_LIST_NAMES, boundNodeUnobservedList, readNodeUnobservedLists,
+  type NodeUnobservedListName, type NodeUnobservedLists,
+} from './node-unobserved.js';
 export {
   LIVE_REFRESH_MS, LIVE_RETRY_MS, LIVE_TRAFFIC_REFRESH_MS, createLiveStatusPoller,
   type LiveStatusPoller, type LiveStatusTimers, type ReadLiveStatus,
@@ -153,6 +161,7 @@ export {
   type DeleteResult,
 } from '../../firestore/sandbox/local-state.js';
 export * from '../../firestore/sandbox/event-log.js';
+export { captureRulesEvidence } from '../../firestore/sandbox/rules-evidence.js';
 export * from '../../firestore/sandbox/auto-id.js';
 export * from '../../firestore/sandbox/transaction.js';
 export * from '../../firestore/sandbox/transaction-merge.js';
@@ -192,6 +201,9 @@ export { assertCompleteHistory } from './history-integrity.js';
 export { EventHistory } from './event-history.js';
 export { firestoreReadUsage } from './usage-evidence.js';
 export type { UsageEvidence } from './usage-evidence.js';
+export { measureObservedUsage } from './observed-usage.js';
+export { coverageMethodOf } from './admin-methods.js';
+export type { ObservedUsage } from '../types/observed-call.js';
 
 export { OBSERVATION_HISTORY_LIMITS } from './observation-history.js';
 export { observationPayload, observationText } from './observation-payload.js';

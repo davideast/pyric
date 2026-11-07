@@ -12,7 +12,7 @@ import type { ActivityIncident } from 'pyric/firestore/internal';
 import { defaultAvatarSvg } from 'pyric/auth/internal';
 import type { FirebaseJson } from '../cli/firebase-json.js';
 import { createCaptureStore, type CaptureStore } from './capture-store.js';
-import type { DatabaseInstancesRules, DatabaseRulesDestination, InitPayload, RtdbRulesJson } from './init-payload.js';
+import type { DatabaseInstancesRules, InitPayload, RtdbRulesJson, RulesDestination } from './init-payload.js';
 import type { FirebaseProjectResolution } from '../cli/firebase-project.js';
 import {
   firestoreRulesPath,
@@ -23,12 +23,16 @@ import {
   loadProjectDatabaseRules,
   loadProjectRules,
   loadProjectStorageRules,
+  loadStorageRulesTarget,
+  loadPendingStorageTarget,
+  formatUnresolvedStorageTargets,
   prepareProjectRules,
-  prepareStorageRulesSource,
-  storageRulesPath,
+  storageBucketLabel,
   rulesHashOf,
   RulesPrepareError,
   type DatabaseRulesTarget,
+  type PendingStorageRulesTarget,
+  type StorageRulesTarget,
 } from './rules.js';
 import { createEventHub, createPyricNamespace } from './namespace.js';
 import type { BeaconReport } from '../register/beacon.js';
@@ -70,7 +74,7 @@ export interface SandboxSessionOptions {
   hostInstanceId?: () => string | undefined;
   /** Deploys file rules to the Node sandbox. A null database or Storage source
    *  clears the rules, so the sandbox's default policy applies. */
-  deployHostedRules?: (service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination) => Promise<void>;
+  deployHostedRules?: (service: 'firestore' | 'database' | 'storage', source: string | null, destination?: RulesDestination) => Promise<void>;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
   /** The gemini engine the dev server's gemini proxy sends for a browser engine. */
@@ -100,6 +104,8 @@ export interface SandboxSessionSummary {
     /** Each Realtime Database instance whose rules loaded at startup. */
     database: Array<{ instance: string; sourcePath: string; hash: string }>;
     storage: { sourcePath: string | null; hash: string | null };
+    /** Each Storage bucket `firebase.json` names, with the rules it loaded at startup. */
+    storageBuckets: Array<{ bucket: string; sourcePath: string; hash: string }>;
   };
   persistence: null | {
     path: string;
@@ -123,7 +129,8 @@ export interface SandboxSession {
   reloadFirestoreRules(): Promise<RulesReloadResult>;
   /** Reload the rules of each database instance that deploys `file`. */
   reloadDatabaseRules(file: string): Promise<DatabaseRulesReloadResult[]>;
-  reloadStorageRules(): Promise<RulesReloadResult>;
+  /** Reload the Storage rules of each bucket that deploys `file`. */
+  reloadStorageRules(file: string): Promise<StorageRulesReloadResult[]>;
   /** The Firestore rules source file, the module files it imported at the
    *  last successful load, and the module files a failed reload since then
    *  asked for, found or not. A successful reload replaces the list. The
@@ -133,8 +140,8 @@ export interface SandboxSession {
   /** The Realtime Database rules files the instances load from, whether or
    *  not they exist. */
   databaseRulesFiles(): readonly string[];
-  /** The Storage rules file the rules load from, whether or not it exists. */
-  storageRulesFile(): string;
+  /** The Storage rules files the buckets load from, whether or not they exist. */
+  storageRulesFiles(): readonly string[];
   close(): Promise<void>;
 }
 
@@ -156,6 +163,16 @@ export type RulesReloadResult =
   /** The rules file was deleted. The service is back to the state it starts
    *  in without a rules file: no rules, and `policy` for every read and write. */
   | { kind: 'removed'; policy: 'allow' | 'deny'; clients: number };
+
+/** One bucket's, or one pending deploy target's, reload after its rules file changed. */
+export interface StorageRulesReloadResult {
+  /** The bucket by name, or null for the app's default bucket or a pending target. */
+  bucket: string | null;
+  /** The deploy target no project resolved at startup, when the reload is a pending target's. */
+  target?: string;
+  file: string;
+  result: RulesReloadResult;
+}
 
 /** One database instance's reload after its rules file changed. */
 export interface DatabaseRulesReloadResult {
@@ -221,7 +238,18 @@ export async function createSandboxSession(
   const firestore = await loadProjectRules(options.projectDir, options.firebaseConfig, options.project);
   for (const warning of firestore.warnings) options.logger?.note(`  ⚠ ${warning}`);
   const database = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig, options.project);
-  const storage = await loadProjectStorageRules(options.projectDir, options.firebaseConfig);
+  const storage = await loadProjectStorageRules(options.projectDir, options.firebaseConfig, options.project);
+  if (storage.pending.length > 0) options.logger?.note(formatUnresolvedStorageTargets(storage.pending, options.permissive ? 'allow' : 'deny'));
+  // Each named bucket's rules in force, null while its file is missing. The
+  // default bucket's are `live.storageRules`.
+  const liveStorageBuckets = new Map<string, { rules: string; rulesHash: string } | null>(
+    storage.targets
+      .filter((target) => target.bucket !== null)
+      .map((target) => [target.bucket as string, storage.buckets.get(target.bucket as string) ?? null]),
+  );
+  // Each unresolved Storage deploy target's rules, by target name, null while its file is missing.
+  const livePendingStorage = new Map<string, { rules: string; rulesHash: string } | null>();
+  for (const target of storage.pending) livePendingStorage.set(target.target, await loadPendingStorageTarget(target));
   // Each declared instance's rules in force, null while its file is missing.
   const liveDatabase = new Map<string, { rules: RtdbRulesJson; rulesHash: string } | null>(
     database.targets.map((target) => [target.instance, database.instances.get(target.instance) ?? null]),
@@ -365,6 +393,13 @@ export async function createSandboxSession(
         })),
       }),
     });
+    const storageBucketRules = (): Record<string, { rules: string; rulesHash: string }> => {
+      const record: Record<string, { rules: string; rulesHash: string }> = {};
+      for (const [bucket, loaded] of liveStorageBuckets) {
+        if (loaded !== null) record[bucket] = { rules: loaded.rules, rulesHash: loaded.rulesHash };
+      }
+      return record;
+    };
     const payload = (): InitPayload => {
       const hasPersistedState = state?.exists() === true;
       const defaultDatabase = liveDatabase.get(database.defaultInstance) ?? null;
@@ -376,6 +411,12 @@ export async function createSandboxSession(
         databaseInstances: databaseInstances(),
         storageRules: live.storageRules,
         storageRulesHash: live.storageRulesHash,
+        storageBucketRules: storageBucketRules(),
+        storagePendingTargets: storage.pending.map((target) => ({
+          target: target.target,
+          rules: livePendingStorage.get(target.target)?.rules ?? null,
+          bucketsByProject: target.bucketsByProject,
+        })),
         projectKey: options.projectDir,
         bridgeUrl: options.bridgeUrl?.() ?? null,
         hosted: options.hosted,
@@ -407,6 +448,11 @@ export async function createSandboxSession(
           hash: loaded.rulesHash,
         })),
         storage: { sourcePath: storage.sourcePath, hash: storage.rulesHash },
+        storageBuckets: [...storage.buckets.values()].map((loaded) => ({
+          bucket: loaded.bucket as string,
+          sourcePath: loaded.sourcePath,
+          hash: loaded.rulesHash,
+        })),
       },
       persistence: hasStateStore
         ? {
@@ -585,35 +631,77 @@ export async function createSandboxSession(
       }
       return results;
     };
-    const storageSourcePath = storageRulesPath(options.projectDir, options.firebaseConfig);
-    const storageRulesFile = (): string => storageSourcePath;
-    // Without a rules file, Storage denies every client operation, as in
-    // production. Permissive mode does not open Storage, so a deleted file
-    // returns Storage to that state rather than keeping the last-good rules.
-    const reloadStorageRules = async (): Promise<RulesReloadResult> => {
-      const isSourceMissing = !existsSync(storageSourcePath);
-      if (isSourceMissing) {
-        const hasNoLoadedRules = live.storageRules === null;
-        if (hasNoLoadedRules) return { kind: 'not-configured' };
-        await options.deployHostedRules?.('storage', null);
-        live.storageRules = null;
-        live.storageRulesHash = null;
-        events.broadcast('storage-rules-update', { rules: null, rulesHash: null });
-        return { kind: 'removed', policy: 'deny', clients: events.clientCount() };
+    const storageRulesFiles = (): readonly string[] => [
+      ...new Set([...storage.targets.map((target) => target.path), ...storage.pending.map((target) => target.path)]),
+    ];
+    // Without a rules file, a bucket denies every client operation, as in
+    // production, and a deleted file returns its bucket to that state rather
+    // than keeping the last-good rules. In permissive mode that state is
+    // open, as an undeployed RTDB instance is (owner decision
+    // multi-resource-1 on #1313): the init payload's `permissive` flag sets
+    // the Storage sandbox's default policy on every served plane.
+    const storagePolicy = options.permissive ? 'allow' : 'deny';
+    const loadedStorageRules = (bucket: string | null): string | null => {
+      if (bucket === null) return live.storageRules;
+      return liveStorageBuckets.get(bucket)?.rules ?? null;
+    };
+    const setLiveStorageRules = (bucket: string | null, loaded: { rules: string; rulesHash: string } | null): void => {
+      if (bucket !== null) {
+        liveStorageBuckets.set(bucket, loaded);
+        return;
+      }
+      live.storageRules = loaded?.rules ?? null;
+      live.storageRulesHash = loaded?.rulesHash ?? null;
+    };
+    const reloadStorageBucketRules = async (target: StorageRulesTarget): Promise<RulesReloadResult> => {
+      const destination = target.bucket === null ? undefined : { bucket: target.bucket };
+      const named = target.bucket === null ? {} : { bucket: target.bucket };
+      if (!existsSync(target.path)) {
+        if (loadedStorageRules(target.bucket) === null) return { kind: 'not-configured' };
+        await options.deployHostedRules?.('storage', null, destination);
+        setLiveStorageRules(target.bucket, null);
+        events.broadcast('storage-rules-update', { rules: null, rulesHash: null, policy: storagePolicy, ...named });
+        return { kind: 'removed', policy: storagePolicy, clients: events.clientCount() };
       }
       try {
-        const raw = await readFile(storageSourcePath, 'utf8');
-        const rules = prepareStorageRulesSource(raw, storageSourcePath);
-        const rulesHash = rulesHashOf(rules);
-        await options.deployHostedRules?.('storage', rules);
-        live.storageRules = rules;
-        live.storageRulesHash = rulesHash;
-        events.broadcast('storage-rules-update', { rules, rulesHash });
-        return { kind: 'reloaded', rulesHash, clients: events.clientCount() };
+        const loaded = await loadStorageRulesTarget({ ...target, configured: true });
+        if (loaded === null) return { kind: 'not-configured' };
+        await options.deployHostedRules?.('storage', loaded.rules, destination);
+        setLiveStorageRules(target.bucket, loaded);
+        events.broadcast('storage-rules-update', { rules: loaded.rules, rulesHash: loaded.rulesHash, ...named });
+        return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
       } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));
         return { kind: 'rejected', error: failure };
       }
+    };
+    // A pending target's rules reach its buckets once the page's app config
+    // resolves it; until then each plane keeps them for that resolution.
+    const reloadPendingStorageTarget = async (target: PendingStorageRulesTarget): Promise<RulesReloadResult> => {
+      const destination = { target: target.target };
+      try {
+        const loaded = await loadPendingStorageTarget(target);
+        const hadRules = livePendingStorage.get(target.target) != null;
+        if (loaded === null && !hadRules) return { kind: 'not-configured' };
+        await options.deployHostedRules?.('storage', loaded?.rules ?? null, destination);
+        livePendingStorage.set(target.target, loaded);
+        events.broadcast('storage-rules-update', { rules: loaded?.rules ?? null, rulesHash: loaded?.rulesHash ?? null, policy: storagePolicy, ...destination });
+        if (loaded === null) return { kind: 'removed', policy: storagePolicy, clients: events.clientCount() };
+        return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        return { kind: 'rejected', error: failure };
+      }
+    };
+    const reloadStorageRules = async (file: string): Promise<StorageRulesReloadResult[]> => {
+      const results: StorageRulesReloadResult[] = [];
+      for (const target of storage.targets.filter((candidate) => candidate.path === file)) {
+        results.push({ bucket: target.bucket, file, result: await reloadStorageBucketRules(target) });
+      }
+      for (const target of storage.pending.filter((candidate) => candidate.path === file)) {
+        results.push({ bucket: null, target: target.target, file, result: await reloadPendingStorageTarget(target) });
+      }
+      return results;
     };
 
     let closePromise: Promise<void> | null = null;
@@ -637,7 +725,7 @@ export async function createSandboxSession(
       reloadStorageRules,
       firestoreRulesFiles,
       databaseRulesFiles,
-      storageRulesFile,
+      storageRulesFiles,
       close,
     };
   } catch (error) {

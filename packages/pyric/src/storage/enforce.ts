@@ -7,6 +7,9 @@
  *   - No rules configured → deny. Matches Firebase production fail-closed
  *     security invariants: bare `getStorage` with no `rules` option
  *     rejects client operations with `storage/unauthorized`.
+ *   - A bucket with no rules deployed in permissive mode → allow, with no
+ *     rule evaluated: the event says the bucket is open by its default
+ *     policy rather than naming a synthetic rule.
  *   - Rules configured → call `evaluateStorageRules`. Throw
  *     `storage/unauthorized` with the evaluator's `reasons` joined
  *     into the message on denial.
@@ -54,15 +57,29 @@ import type { EvaluationInput, FirestoreLookup } from './sandbox/rules.js';
 import { unauthorized } from './errors.js';
 import { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
 
+/** What {@link enforceRules} records besides deciding. */
+export interface EnforceOptions {
+  /**
+   * `'denials'` records only a denial. An early check of an operation that a
+   * later check decides again passes it, so the stream shows one decision
+   * per operation: a chunked upload checks at its start and as it lands.
+   */
+  record?: 'every-decision' | 'denials';
+}
+
 export function enforceRules(
   service: StorageService,
   input: EvaluationInput,
   target?: Target,
   provenance?: EventProvenance,
+  { record = 'every-decision' }: EnforceOptions = {},
 ): void {
   const boundProvenance = target?.kind === 'sandbox'
     ? storageOperationProvenance(target, provenance)
     : provenance;
+  const recordsAllow = record === 'every-decision';
+  // Where an allow or admin bypass is recorded; nowhere when only denials are.
+  const allowTarget = recordsAllow ? target : undefined;
   // Admin plane (internal `getAdminStorageSandbox` handles): rules are
   // bypassed entirely — firebase-admin semantics. See `SandboxTarget.admin`.
   // Rules never ran; the event still lands so Studio can show the op, with
@@ -70,14 +87,18 @@ export function enforceRules(
   // admin plane (`adminSet`/`adminGet`/...) emits, with an explicit
   // bypass disposition independent of source or auth-lens presentation.
   if (target?.kind === 'sandbox' && target.admin === true) {
-    emitOperation(target, input, 'not-applicable', undefined, 'admin', false, boundProvenance);
+    emitOperation(allowTarget, input, 'not-applicable', undefined, 'admin', false, boundProvenance);
     return;
   }
   const inForce = rulesFor(service, target);
+  if (inForce.kind === 'open') {
+    emitOperation(allowTarget, input, 'allow', [openBucketReason(inForce.bucket)], 'user', false, boundProvenance, 'allow');
+    return;
+  }
   if (inForce.kind !== 'rules') {
     const reason = noRulesReason(inForce);
     emitOperation(target, input, 'deny', [reason], 'user', false, boundProvenance);
-    throw unauthorized(input.request.method, input.request.path, ` — ${reason}`);
+    throw unauthorized(input.request.method, input.request.path, ` — ${reason}`, deniedBucketName(target));
   }
   const evaluationInput = target ? withCanonicalRulesPath(input, target) : input;
   // `request.time` is the sandbox's clock when the caller has a sandbox handle,
@@ -93,9 +114,15 @@ export function enforceRules(
   if (!result.allowed) {
     emitOperation(target, input, 'deny', result.reasons, 'user', true, boundProvenance);
     const detail = result.reasons.length > 0 ? ` — ${result.reasons.join('; ')}` : '';
-    throw unauthorized(input.request.method, input.request.path, detail);
+    throw unauthorized(input.request.method, input.request.path, detail, deniedBucketName(target));
   }
-  emitOperation(target, input, 'allow', result.reasons, 'user', true, boundProvenance);
+  emitOperation(allowTarget, input, 'allow', result.reasons, 'user', true, boundProvenance);
+}
+
+/** The name a denial gives the bucket: the one its rules saw, when the request came through a sandbox handle. */
+function deniedBucketName(target: Target | undefined): string | undefined {
+  if (target?.kind !== 'sandbox') return undefined;
+  return rulesBucketName(target.bucket, target.bucketName);
 }
 
 /** The rules a request is checked against: its bucket's, through a sandbox handle. */
@@ -105,8 +132,13 @@ function rulesFor(service: StorageService, target: Target | undefined): StorageR
   return { kind: 'none' };
 }
 
+/** Why a request to a bucket with no rules deployed is allowed in permissive mode. */
+function openBucketReason(bucket: string): string {
+  return `Storage bucket "${bucket}" has no rules deployed in firebase.json; permissive mode allows every client operation on it.`;
+}
+
 /** Why a request with no rules to check denies. A locked bucket names the fix. */
-function noRulesReason(inForce: Exclude<StorageRulesInForce, { kind: 'rules' }>): string {
+function noRulesReason(inForce: Exclude<StorageRulesInForce, { kind: 'rules' | 'open' }>): string {
   if (inForce.kind === 'none') return 'No Storage rules configured; default deny.';
   if (inForce.kind === 'second-default') {
     return `Storage bucket "${inForce.bucket}" is a second default bucket in this sandbox, which already serves "${inForce.defaultBucket}" as its default bucket, so pyric denies every client operation on it rather than share that bucket's objects. Give each app the same storageBucket, or open the other bucket with getStorage(app, "gs://${inForce.bucket}").`;
@@ -139,6 +171,7 @@ function emitOperation(
   origin: 'user' | 'admin',
   evaluated: boolean,
   provenance: EventProvenance | undefined,
+  defaultPolicy?: 'allow',
 ): void {
   if (!target) return;
   try {
@@ -155,7 +188,12 @@ function emitOperation(
         reasons,
         // The store key, and the name the rules saw it by, so a replay binds
         // the same name (ST-H2-4).
-        detail: { bucket: target.bucket, bucketName: rulesBucketName(target.bucket, target.bucketName) },
+        // A permissive-mode open bucket says so, since no rule decided it.
+        detail: {
+          bucket: target.bucket,
+          bucketName: rulesBucketName(target.bucket, target.bucketName),
+          ...(defaultPolicy === undefined ? {} : { defaultPolicy }),
+        },
         rulesDisposition: origin === 'admin'
           ? { kind: 'bypassed', reason: 'admin' }
           : evaluated

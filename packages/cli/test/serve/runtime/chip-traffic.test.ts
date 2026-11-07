@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox, type EventCaller, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
-import { observedCallEvent } from 'pyric/sandbox/internal';
+import { analyzeIndexQuery, observedCallEvent, observedListenerEvent, readObservedCall } from 'pyric/sandbox/internal';
 import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
 import {
   chipRequestFromEvent,
@@ -408,6 +408,19 @@ describe('a call production served', () => {
     });
   });
 
+  it("makes no row for a live listener's attach or detach: its deliveries are the rows", () => {
+    for (const [service, method] of [['firestore', 'onSnapshot'], ['rtdb', 'onValue']] as const) {
+      for (const phase of ['attach', 'detach'] as const) {
+        const call: ObservedCall = {
+          service, method, path: 'rooms/r1', at: 1000, outcome: { status: 'ok' },
+          listener: { phase, id: 'l-1', target: 'rooms/r1', key: '0123456789abcdef' },
+        };
+        const event = { ...observedListenerEvent(call), caller: { kind: 'page', pageId: 'tab-1' } } as SandboxEvent;
+        expect(chipRequestFromEvent(event, 'tab-1'), `${service} ${phase}`).toBeNull();
+      }
+    }
+  });
+
   it("reads production's permission-denied as denied and any other code as failed", () => {
     const denied = chipRequestFromEvent(observed({ outcome: { status: 'error', code: 'permission-denied' } }));
     expect(denied).toMatchObject({ verdict: 'denied', identity: 'signed out', production: { status: 'error', code: 'permission-denied' } });
@@ -546,10 +559,84 @@ describe('a call production served', () => {
     expect(chipRequestFromEvent(borrowed)?.path).toBe('items/a');
   });
 
+  it('carries the local verdict only when it disagrees with production', () => {
+    const withLocal = (event: SandboxEvent, local: unknown): SandboxEvent => {
+      const production = (event as { production: object }).production;
+      return { ...event, production: { ...production, local } } as SandboxEvent;
+    };
+    const rule = { line: 7, expression: 'request.auth != null', path: '/rooms/{room}' };
+    const denied = observed({ outcome: { status: 'error', code: 'permission-denied' }, account: { uid: 'alice' } });
+    const drift = chipRequestFromEvent(withLocal(denied, { result: 'allow', rule, drift: true }));
+    expect(drift?.localDrift).toEqual({ result: 'allow', rule, drift: true });
+    expect(drift?.verdict).toBe('denied');
+    const agrees = chipRequestFromEvent(withLocal(denied, { result: 'deny', rule }));
+    expect(agrees?.localDrift).toBeUndefined();
+    const gap = chipRequestFromEvent(withLocal(denied, { result: 'unevaluated', needs: ['stored-document'] }));
+    expect(gap?.localDrift).toBeUndefined();
+    expect(chipRequestFromEvent(denied)?.localDrift).toBeUndefined();
+    const trace = { version: 'local-rules', scope: 'request', decision: 'ALLOW', truncated: false, rules: [], paths: [] };
+    const traced = chipRequestFromEvent(withLocal(denied, { result: 'allow', rule, drift: true, trace }));
+    expect(traced?.rulesEvidence).toEqual(trace);
+    expect(traced?.localDrift).toEqual({ result: 'allow', rule, drift: true });
+  });
+
+  it("keeps a live call's SDK method on its row", () => {
+    const method = (service: string, sdkMethod: string) => chipRequestFromEvent(observed({ service, method: sdkMethod }))?.method;
+    expect(method('firestore', 'getDoc')).toBe('getDoc');
+    expect(method('firestore', 'setDoc')).toBe('setDoc');
+    expect(method('rtdb', 'push')).toBe('push');
+    expect(method('storage', 'uploadBytes')).toBe('uploadBytes');
+  });
+
+  it("reads an Admin call production answered not-found as failed, as production's row", () => {
+    const call = readObservedCall({ service: 'firestore', method: 'DocumentReference.update', path: 'rooms/missing', at: 1000, outcome: { status: 'error', code: 'not-found' }, sdk: 'admin' });
+    const missing = { ...observedCallEvent(call), caller: { kind: 'node' } } as SandboxEvent;
+    expect(missing).toMatchObject({ rulesDisposition: { kind: 'bypassed', reason: 'admin' } });
+    expect(chipRequestFromEvent(missing, 'tab-1')).toEqual({
+      id: expect.any(String),
+      at: 1000,
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      verdict: 'error',
+      identity: 'signed out',
+      production: { status: 'error', code: 'not-found' },
+      source: 'node',
+    });
+  });
+
+  it("checks an observed query's shape against the index file, never a value", () => {
+    const query = { scope: 'collection' as const, filters: [{ field: 'status', op: '==' as const }], orderBy: [{ field: 'createdAt', direction: 'desc' as const }], limit: true as const };
+    const row = chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms', query }));
+    expect(row?.indexQuery).toEqual({
+      collectionGroup: 'rooms', queryScope: 'COLLECTION',
+      filters: [{ field: 'status', op: '==' }], orders: [{ field: 'createdAt', direction: 'desc' }],
+    });
+    expect(analyzeIndexQuery(row!.indexQuery!, { indexes: [] })).toMatchObject({ status: 'missing', index: { collectionGroup: 'rooms' } });
+    const group = chipRequestFromEvent(observed({ method: 'getDocsFromServer', path: 'messages', query: { ...query, scope: 'collection-group' } }));
+    expect(group?.indexQuery).toMatchObject({ collectionGroup: 'messages', queryScope: 'COLLECTION_GROUP' });
+  });
+
+  it("marks production's failed-precondition on a query as an index failure", () => {
+    const query = { scope: 'collection' as const, filters: [{ field: 'status', op: '==' as const }], orderBy: [{ field: 'createdAt', direction: 'desc' as const }] };
+    const failed = chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms', query, outcome: { status: 'error', code: 'failed-precondition' } }));
+    expect(failed).toMatchObject({ verdict: 'error', indexFailure: true, indexQuery: { collectionGroup: 'rooms' } });
+    const other = chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms', query, outcome: { status: 'error', code: 'unavailable' } }));
+    expect(other?.indexFailure).toBeUndefined();
+  });
+
+  it('gives a document read and an unshaped query no index query', () => {
+    expect(chipRequestFromEvent(observed({}))?.indexQuery).toBeUndefined();
+    expect(chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms' }))?.indexQuery).toBeUndefined();
+  });
+
   it('leaves a sandbox-served operation without a production answer', () => {
     expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
     const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;
     expect(chipRequestFromEvent(unmarked)?.production).toBeUndefined();
+    // A sandbox Admin operation bypasses rules too, but carries no production answer.
+    const { production: _production, ...sandboxAdmin } = { ...observed({}), rulesDisposition: { kind: 'bypassed', reason: 'admin' } } as SandboxEvent & { production?: unknown };
+    expect(chipRequestFromEvent(sandboxAdmin as SandboxEvent)?.production).toBeUndefined();
   });
 });
 

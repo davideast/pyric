@@ -812,6 +812,35 @@
   background: var(--deny);
 }
 
+/* ── Drift: the local rules disagree with production's answer ──────── */
+.traffic__drift {
+  display: inline-grid;
+  place-items: center;
+  align-self: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+  color: var(--update-modified-ink);
+}
+.traffic__drift svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.traffic__live-production {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+.traffic__drift-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}
+
 /* ── Source: the connection the op came from ───────────────────────── */
 .traffic__source {
   align-self: center;

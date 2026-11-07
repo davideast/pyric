@@ -219,7 +219,7 @@ async function drive(one: Database, two: Database): Promise<Drive> {
 
 /** A record as the assertions read it: what was called, how it ended, and where. */
 function shape(record: LiveCallRecord): Record<string, unknown> {
-  const { module: _module, account, ...rest } = record;
+  const { module: _module, account, listener: _listener, ...rest } = record;
   return { ...rest, account: account?.uid ?? null };
 }
 
@@ -252,18 +252,31 @@ describe('the live-database row over capture A', () => {
         { name: 'update', outcome: 'resolved', ...where(`${RUN}/items/a`) },
         { name: 'push', outcome: 'resolved', ...where(`${RUN}/list`) },
         { name: 'runTransaction', outcome: 'resolved', ...where(`${RUN}/counter`) },
-        { name: 'onValue', outcome: 'returned', ...where(`${RUN}/items/a`) },
+        { name: 'onValue', outcome: 'attached', ...where(`${RUN}/items/a`) },
         { name: 'onValue', outcome: 'delivered', ...where(`${RUN}/items/a`) },
         { name: 'onValue', outcome: 'delivered', ...where(`${RUN}/items/a`) },
-        { name: 'onChildAdded', outcome: 'returned', ...where(`${RUN}/list`) },
+        { name: 'onValue', outcome: 'detached', ...where(`${RUN}/items/a`) },
+        { name: 'onChildAdded', outcome: 'attached', ...where(`${RUN}/list`) },
         { name: 'onChildAdded', outcome: 'delivered', ...where(`${RUN}/list`) },
         { name: 'onChildAdded', outcome: 'delivered', ...where(`${RUN}/list`) },
+        { name: 'onChildAdded', outcome: 'detached', ...where(`${RUN}/list`) },
         { name: 'get', outcome: 'rejected', code: 'permission_denied', ...where('/secret') },
         { name: 'set', outcome: 'rejected', code: 'permission_denied', ...where('/secret') },
         { name: 'set', outcome: 'resolved', ...where(`${RUN}/presence`) },
         { name: 'onDisconnect.set', outcome: 'resolved', ...where(`${RUN}/presence`) },
       ]);
       expect(run.records.some((record) => record.path?.startsWith('/.info'))).toBe(false);
+    });
+
+    test(`on the ${label} instance, off() and the returned unsubscribe each detach their listener, which keeps one id and key`, () => {
+      const run = runs.find((entry) => entry.label === label)!;
+      for (const name of ['onValue', 'onChildAdded']) {
+        const lifecycle = run.records.filter((record) => record.name === name && record.listener !== undefined);
+        expect(lifecycle.map((record) => record.outcome)).toEqual(['attached', 'detached']);
+        expect(lifecycle[0]!.listener!.id).toMatch(/^l-[0-9a-f]{8}-[0-9]+$/);
+        expect(lifecycle[0]!.listener!.key).toMatch(/^[0-9a-f]{16}$/);
+        expect(lifecycle[1]!.listener).toEqual(lifecycle[0]!.listener!);
+      }
     });
 
     test(`push on the ${label} instance returns the SDK's reference, and off() stops the app's callback`, () => {
@@ -284,12 +297,22 @@ describe('the live-database row over capture A', () => {
       at: 7,
       outcome: { status: 'error', code: 'permission_denied' },
       projectId: PROJECT,
-      account: { uid: 'user-3', claimNames: expect.any(Array) },
+      account: { uid: 'user-3', claimNames: expect.any(Array), claims: expect.any(Object) },
       instance: `${PROJECT}-named`,
       path: '/secret',
     });
-    const subscribe = runs[0]!.records.find((record) => record.outcome === 'returned')!;
-    expect(observedCallOf(subscribe, 7)).toBeNull();
+    const attached = runs[0]!.records.find((record) => record.outcome === 'attached')!;
+    expect(observedCallOf(attached, 7)).toEqual({
+      service: 'rtdb',
+      method: 'onValue',
+      at: 7,
+      outcome: { status: 'ok' },
+      projectId: PROJECT,
+      account: { uid: 'user-1', claimNames: expect.any(Array) },
+      instance: replay.captureInstance(PROJECT, 'default'),
+      path: `${RUN}/items/a`,
+      listener: { phase: 'attach', id: attached.listener!.id, target: `${RUN}/items/a`, key: attached.listener!.key },
+    });
   });
 });
 
@@ -343,10 +366,11 @@ describe('the wrappers capture A has no frames for', () => {
     const names = ['onChildChanged', 'onChildRemoved', 'onChildMoved'];
     const at = { instance: 'demo-named', path: '/rooms' };
     expect(ownRecords.map(({ name, outcome, code, instance, path }): Record<string, unknown> => ({ name, outcome, code, instance, path }))).toEqual([
-      ...names.map((name) => ({ name, outcome: 'returned', code: undefined, ...at })),
+      ...names.map((name) => ({ name, outcome: 'attached', code: undefined, ...at })),
       ...names.flatMap((name) => [
         { name, outcome: 'delivered', code: undefined, ...at },
         { name, outcome: 'listener-error', code: 'permission_denied', ...at },
+        { name, outcome: 'detached', code: undefined, ...at },
       ]),
     ]);
   });
@@ -394,6 +418,28 @@ describe('the wrappers capture A has no frames for', () => {
     row.off(ref);
     expect(offCalls).toEqual([[ref, 'child_moved', first![1]], [ref, 'child_added', appCallback], [ref]]);
   });
+
+  test('off() detaches the listeners it ends: one per view for a callback, all of an event type, then all at the path', () => {
+    ownRecords.length = 0;
+    const ref = standInRef('demo', '/halls');
+    const appCallback = () => undefined;
+    const other = () => undefined;
+    row.onChildMoved(ref, appCallback);
+    row.onChildMoved(ref, appCallback);
+    row.onChildChanged(ref, other);
+    row.onChildRemoved(standInRef('demo', '/elsewhere'), other);
+    const ids = ownRecords.map((record) => record.listener!.id);
+    const detachedIds = () => ownRecords.filter((record) => record.outcome === 'detached').map((record) => record.listener!.id);
+    row.off(ref, 'child_moved', appCallback);
+    expect(detachedIds()).toEqual([ids[0]]);
+    row.off(ref, 'child_added');
+    expect(detachedIds()).toEqual([ids[0]]);
+    row.off(ref, 'child_changed');
+    expect(detachedIds()).toEqual([ids[0], ids[2]]);
+    row.off(ref);
+    row.off(ref);
+    expect(detachedIds()).toEqual([ids[0], ids[2], ids[1]]);
+  });
 });
 
 describe('the instance every RTDB record names', () => {
@@ -405,7 +451,7 @@ describe('the instance every RTDB record names', () => {
     const stop = live.onValue(live.ref(db, 'items'), () => undefined);
     stop();
     const [subscribe] = records.slice(before);
-    expect(subscribe).toMatchObject({ name: 'onValue', outcome: 'returned', instance: 'demo-live-rtdb-mixed', path: '/items', projectId: PROJECT });
+    expect(subscribe).toMatchObject({ name: 'onValue', outcome: 'attached', instance: 'demo-live-rtdb-mixed', path: '/items', projectId: PROJECT });
   });
 
   test('a record without an instance still reaches the host, naming the unread instance', () => {
@@ -435,6 +481,42 @@ describe('the instance every RTDB record names', () => {
     expect(ownRecords[0]).toMatchObject({ name: 'onChildMoved', instance: UNREAD_INSTANCE, path: '/rooms' });
     row.off(withoutRepo(), 'child_moved', appCallback);
     expect(registered.size).toBe(0);
+  });
+});
+
+describe("the database row's listeners in the page journal", () => {
+  test('opens each listener by path and query, reports its deliveries, and closes it on unsubscribe or off()', () => {
+    const steps: unknown[][] = [];
+    const journal: NonNullable<LiveObserver['journal']> = (listener) => {
+      steps.push(['open', listener.service, listener.method, listener.target, listener.isQuery, listener.key]);
+      return {
+        deliver(_value, _billed, run) { steps.push(['deliver', listener.target]); return run(); },
+        fail: () => steps.push(['fail', listener.target]),
+        close: () => steps.push(['close', listener.target]),
+      };
+    };
+    const deliveries: Array<(value: unknown) => void> = [];
+    const standIn = {
+      onValue: (_query: unknown, next: unknown) => { deliveries.push(next as (value: unknown) => void); return () => undefined; },
+      off: (..._args: unknown[]) => undefined,
+    };
+    const observer: LiveObserver = Object.assign(() => undefined, { journal });
+    const row = wrapLiveModule('live-database', 'firebase/database', standIn, { observer, sdkVersion: '12.0.0', client: 'node' });
+    const items = standInRef('demo-journal', '/items');
+    const ranked = Object.assign(standInRef('demo-journal', '/ranked'), { _queryIdentifier: '{"l":3}' });
+    const unsubscribe = row.onValue(items, () => undefined) as () => void;
+    row.onValue(ranked, () => undefined);
+    deliveries[0]!({ val: () => 1 });
+    unsubscribe();
+    row.off(ranked);
+    row.onValue(standInRef('demo-journal', '/.info/connected'), () => undefined);
+    expect(steps).toEqual([
+      ['open', 'database', 'onValue', '/items', false, JSON.stringify(['demo-journal', '/items', 'default'])],
+      ['open', 'database', 'onValue', '/ranked', true, JSON.stringify(['demo-journal', '/ranked', '{"l":3}'])],
+      ['deliver', '/items'],
+      ['close', '/items'],
+      ['close', '/ranked'],
+    ]);
   });
 });
 

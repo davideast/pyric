@@ -8,15 +8,22 @@
  * imports a live host passes through (`pyricLive({ passThrough })`), which
  * the process then passes through too.
  */
-import { parsePyricSandbox, readLiveHostStatus } from 'pyric/sandbox/internal';
+import { parsePyricSandbox, readLiveHostStatus, type LiveHostStatus } from 'pyric/sandbox/internal';
 import { resolveRemoteHost } from '../remote/resolve-host.js';
 
 export type LiveHostReach =
   /**
-   * A live host answers: its url, the project it was started for, and the
-   * `firebase/*` imports it passes through, as its health report lists them.
+   * A live host answers: its url, the project it was started for, the
+   * imports it passes through (its health report's `firebase/*` list), and
+   * its `admin` field, which says firebase-admin is observed.
    */
-  | { readonly kind: 'live'; readonly url: string; readonly projectId: string; readonly passThrough: readonly string[] }
+  | {
+      readonly kind: 'live';
+      readonly url: string;
+      readonly projectId: string;
+      readonly passThrough: readonly string[];
+      readonly admin?: LiveHostStatus['admin'];
+    }
   /** A host answers, but a sandbox one: it would show the calls among sandbox traffic. */
   | { readonly kind: 'sandbox'; readonly url: string }
   /** No host answers for the project. */
@@ -39,7 +46,10 @@ export async function reachLiveHost(projectRoot: string, env: NodeJS.ProcessEnv 
     const live = readLiveHostStatus(await healthOf(host.wsBase));
     if (live === null) return { kind: 'sandbox', url: host.serveUrl };
     // The project the host was started for, which this process's own start resolves the same way.
-    return { kind: 'live', url: host.serveUrl, projectId: live.configProjectId, passThrough: live.passThrough ?? [] };
+    const admin = live.admin === undefined ? {} : { admin: live.admin };
+    // The host's `admin` field says firebase-admin is observed; only its `firebase/*` imports pass through.
+    const passThrough = [...(live.passThrough ?? [])];
+    return { kind: 'live', url: host.serveUrl, projectId: live.configProjectId, passThrough, ...admin };
   } catch {
     return { kind: 'none' };
   }

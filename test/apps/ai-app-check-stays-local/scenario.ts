@@ -10,10 +10,12 @@
 //   dev server terminal prints pyric's hint (#1535).
 // - Every request the page makes goes to the local machine. Playwright's
 //   routes don't see a SharedWorker's requests, so the scenario watches the
-//   browser over its own CDP connection, attached to every page and worker
-//   target before it runs, and records each request and WebSocket. A control
+//   browser over its own CDP connection, auto-attached to every page and
+//   worker target, and records each request and WebSocket. A control
 //   SharedWorker asks for an outside host at the end, which proves the watch
 //   sees worker requests; the resolver rules stop that request on the machine.
+//   The scenario waits until the watch records a worker's requests before it
+//   drives that worker (#2154).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -22,6 +24,7 @@ import { guardContext, launchScenarioBrowser, scenario, type App } from '../driv
 
 declare function runWithAppCheck(): Promise<Record<string, unknown>>;
 declare function runWithoutAppCheck(): Promise<Record<string, unknown>>;
+declare function openEgressControl(): void;
 declare function runEgressControl(url: string): Promise<string>;
 
 const OBSERVATIONS = join(import.meta.dirname, '..', '..', '..', 'packages', 'conformance', 'observations', 'app-check');
@@ -30,6 +33,10 @@ const ANSWER = 'The report is ready for review.';
 const CHUNKS = ['Requests stay ', 'on this machine, ', 'chunk by chunk.'];
 const HINT = /Call initializeAppCheck\(app, \{ provider \}\) before getAI\(app\)\./;
 const CONTROL_URL = 'https://egress-control.invalid/ai-app-check-stays-local';
+const PYRIC_WORKER_PATH = '/__pyric/sdk/worker.js';
+const CONTROL_WORKER_PATH = '/control-worker.js';
+/** How long a worker may take to start before the watch gives up on it. */
+const WORKER_START_MS = 10_000;
 
 interface GateCapture { behavior: { noHeader: { httpStatus: number; messageText: string } } }
 
@@ -67,10 +74,22 @@ function isOnMachine(url: string): boolean {
   return NO_NETWORK_SCHEMES.has(parsed.protocol) || LOCAL_HOSTS.has(parsed.hostname);
 }
 
+interface TargetInfo { type: string; url: string }
+
+/** A step waiting for the watch to record a worker's requests. */
+interface WorkerWaiter { path: string; resolve: () => void }
+
 /**
  * A CDP client on the browser's debugging port. It auto-attaches to every
- * target, pausing each until Network is enabled on it, so a worker's first
- * request is recorded too, and records every request and WebSocket.
+ * target and records every request and WebSocket once Network is enabled on
+ * the target.
+ *
+ * It can't hold a SharedWorker until then. The worker starts paused for each
+ * auto-attached client, but Playwright detaches from every SharedWorker as
+ * soon as it attaches, and that detach lets the worker run, before this
+ * client has enabled Network. A request the worker sends in that window is
+ * never reported (#2154). So a step that needs a worker's requests waits for
+ * `watching` before it asks the worker to send.
  */
 class RequestWatch {
   readonly seen: Seen[] = [];
@@ -78,6 +97,8 @@ class RequestWatch {
   private nextId = 0;
   private readonly pending = new Map<number, (message: CdpMessage) => void>();
   private readonly sessionTypes = new Map<string, string>();
+  private readonly watchedPaths = new Set<string>();
+  private readonly waiters: WorkerWaiter[] = [];
 
   private constructor(private readonly socket: WebSocket) {
     socket.addEventListener('message', (event) => this.receive(JSON.parse(String(event.data)) as CdpMessage));
@@ -113,7 +134,7 @@ class RequestWatch {
       return;
     }
     if (message.method === 'Target.attachedToTarget') {
-      void this.watchTarget(message.params as { sessionId: string; targetInfo: { type: string } });
+      void this.watchTarget(message.params as { sessionId: string; targetInfo: TargetInfo });
       return;
     }
     this.record(message);
@@ -130,11 +151,33 @@ class RequestWatch {
     }
   }
 
+  /**
+   * Resolves once Network is enabled on a SharedWorker whose script is at
+   * `path`, so every request it sends from then on is recorded.
+   */
+  watching(path: string): Promise<void> {
+    if (this.watchedPaths.has(path)) return Promise.resolve();
+    const recorded = new Promise<void>((resolve) => this.waiters.push({ path, resolve }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const gaveUp = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`no SharedWorker at ${path} started within ${WORKER_START_MS / 1000}s; targets: ${[...this.targetTypes].join(', ')}`)), WORKER_START_MS);
+    });
+    return Promise.race([recorded, gaveUp]).finally(() => clearTimeout(timer));
+  }
+
+  private markWatched(targetInfo: TargetInfo): void {
+    if (targetInfo.type !== 'shared_worker') return;
+    const path = new URL(targetInfo.url).pathname;
+    this.watchedPaths.add(path);
+    for (const waiter of this.waiters.filter((entry) => entry.path === path)) waiter.resolve();
+  }
+
   /** Enables Network on a new target and its children, then lets it run. */
-  private async watchTarget({ sessionId, targetInfo }: { sessionId: string; targetInfo: { type: string } }): Promise<void> {
+  private async watchTarget({ sessionId, targetInfo }: { sessionId: string; targetInfo: TargetInfo }): Promise<void> {
     this.sessionTypes.set(sessionId, targetInfo.type);
     this.targetTypes.add(targetInfo.type);
     await this.send('Network.enable', {}, sessionId);
+    this.markWatched(targetInfo);
     await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId);
     await this.send('Runtime.runIfWaitingForDebugger', {}, sessionId);
   }
@@ -164,6 +207,7 @@ export default scenario(async (app) => {
     await app.watchCrashes(context);
     const page = await context.newPage();
     await app.step('open the page', () => openPage(app, page, host.url));
+    await app.step('the watch records the SharedWorker\'s requests', () => watch.watching(PYRIC_WORKER_PATH));
 
     await app.step('with App Check, generateContent answers and generateContentStream streams', async () => {
       const result = await page.evaluate(() => runWithAppCheck());
@@ -191,6 +235,8 @@ export default scenario(async (app) => {
     });
 
     await app.step('the watch sees a SharedWorker request to an outside host, and it stays on the machine', async () => {
+      await page.evaluate(() => openEgressControl());
+      await watch.watching(CONTROL_WORKER_PATH);
       const outcome = await page.evaluate((url) => runEgressControl(url), CONTROL_URL);
       assert.equal(outcome, 'failed');
       assert.deepEqual(watch.offMachine(), [{ targetType: 'shared_worker', kind: 'request', url: CONTROL_URL }]);

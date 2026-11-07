@@ -23,6 +23,7 @@ import {
 import type { QuerySpec } from './internal/query-projection.js';
 import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
 import { resolveDatabaseInstance } from '../sandbox/internal/instances.js';
+import { isProductionServed } from '../sandbox/internal/observed-call.js';
 import { getOrCreateBackend } from './sandbox/backend-for.js';
 import type { RtdbBackend } from './sandbox/backend.js';
 
@@ -296,11 +297,13 @@ async function replayRtdbAppCommit(
  * attach of a listener, whose first read the same `.read` rules decide. The
  * candidate rules must keep allowing it: its `.read` rules, and the `query.*`
  * rule expressions when it carried a query. An admin read and a denied read
- * carry no claim the candidate rules must keep.
+ * carry no claim the candidate rules must keep, and neither does a read
+ * production served, whose answer came from production's rules.
  */
 function isAllowedRead(event: SandboxEvent): event is SandboxOperationEvent {
   return event.kind === 'operation'
     && event.service === 'rtdb'
+    && !isProductionServed(event.rulesDisposition)
     && (event.method === 'get' || (event.method === 'listen' && event.origin === 'listener'))
     && event.origin !== 'admin'
     && event.result === 'allow';
@@ -334,10 +337,12 @@ async function replayRtdbRead(
 /**
  * An operation by an application user that the rules denied. A candidate
  * ruleset that allows it has opened access the captured rules kept closed.
+ * A denial production served came from production's rules, not the captured ones.
  */
 function isAppDenial(event: SandboxEvent): event is SandboxOperationEvent {
   return event.kind === 'operation'
     && event.service === 'rtdb'
+    && !isProductionServed(event.rulesDisposition)
     && event.origin !== 'admin'
     && event.result === 'deny'
     && !isRevocation(event);

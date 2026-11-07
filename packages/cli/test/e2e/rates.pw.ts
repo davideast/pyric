@@ -25,10 +25,10 @@ async function calls(page: Page, service: string, method: string): Promise<numbe
 // window, so pause if needed and then resume, whatever state the open chose.
 async function resumeLive(page: Page): Promise<void> {
   const toggle = page.locator('[data-history-toggle]');
-  if (await toggle.textContent() === 'Pause') await toggle.click();
-  await expect(toggle).toHaveText('Resume live');
+  if (await toggle.getAttribute('aria-checked') === 'true') await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
   await toggle.click();
-  await expect(toggle).toHaveText('Pause');
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
 }
 
 // Since #643 a service opens on its activity chart; the method table lives under More actions.
@@ -50,7 +50,7 @@ for (const runtime of ['inpage', 'worker']) {
     expect(await calls(page, 'firestore', 'setDoc')).toBe(1);
     expect(await calls(page, 'rtdb', 'set')).toBe(1);
     await page.getByRole('tab', { name: 'Data', exact: true }).click();
-    await page.getByRole('button', { name: 'Overview', exact: true }).click();
+    await page.locator('[data-listener-mode=overview]').click();
     await page.locator('[data-read=database]').click();
     await expect.poll(() => calls(page, 'rtdb', 'get')).toBe(1);
     await page.locator('[data-listener-row]').filter({ hasText: 'Realtime Database' }).first().click();
@@ -58,7 +58,7 @@ for (const runtime of ['inpage', 'worker']) {
     expect(await calls(page, 'rtdb', 'get')).toBe(1);
     await page.locator('[data-listen]').click();
     await page.getByRole('tab', { name: 'Traffic', exact: true }).click();
-    await page.getByRole('button', { name: 'Rates', exact: true }).click();
+    await page.locator('[data-traffic-display=rates]').click();
     await page.screenshot({ path: `/tmp/service-rates-${runtime}-overview.png` });
     await openMeasurements(page, 'rtdb');
     const method = page.locator('[data-rate-method=onValue]');
@@ -92,7 +92,7 @@ for (const runtime of ['inpage', 'worker']) {
     await page.locator('[data-denied]').click();
     await expect.poll(() => calls(page, 'firestore', 'getDoc')).toBe(151);
     await page.getByRole('tab', { name: 'Traffic', exact: true }).click();
-    await page.getByRole('button', { name: 'Rates', exact: true }).click();
+    await page.locator('[data-traffic-display=rates]').click();
     // Storage is measured since #644, so its row summarizes activity instead of saying Not measured.
     await expect(page.locator('[data-service-summary=storage]')).toContainText('0 reads / 0 writes / 0 deletes');
     await openMeasurements(page, 'firestore');

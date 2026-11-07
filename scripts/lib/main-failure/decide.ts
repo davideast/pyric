@@ -8,6 +8,7 @@ import {
   RED_PREFIX,
   UNCONFIRMED_PREFIX,
   closeBody,
+  failingApp,
   failureSubject,
   flakePrefix,
   flakeText,
@@ -79,13 +80,25 @@ function mentions(issue: OpenIssue, path: string): boolean {
   return namesPath(issue.title, path) || namesPath(issue.body ?? '', path);
 }
 
+/** Whether an issue's title names an app scenario: by its directory, or by
+ *  its name when the name has a hyphen. A one-word name such as `replay` is a
+ *  common word, and an issue's body often names other apps, so neither is
+ *  enough. */
+function namesApp(issue: OpenIssue, app: string): boolean {
+  const byName = app.includes('-') && namesPath(issue.title, app);
+  return byName || namesPath(issue.title, `test/apps/${app}`);
+}
+
 /** The open issue a flake belongs to: this lane's issue for the test, or else
  *  any other open issue that names the test file's repository path, such as
  *  one filed by hand or this lane's issue for another test in the same file.
- *  A failure with no test file matches only its own issue. */
+ *  An app scenario's flake goes to an issue whose title names the app. A
+ *  failure with no test file or app matches only its own issue. */
 function flakeIssue(openIssues: OpenIssue[], failure: Failure): number | undefined {
   const own = issueWithPrefix(openIssues, flakePrefix(failure));
   if (own !== undefined) return own;
+  const app = failingApp(failure);
+  if (app !== undefined) return openIssues.find((issue) => !isLaneStandingIssue(issue) && namesApp(issue, app))?.number;
   const path = testFilePath(failure);
   if (path === undefined) return undefined;
   return openIssues.find((issue) => !isLaneStandingIssue(issue) && mentions(issue, path))?.number;

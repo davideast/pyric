@@ -2,6 +2,111 @@
 
 ## Unreleased
 
+This release has two themes. A Node backend can now run `firebase-admin` in live mode, and its Admin calls show in Traffic as production rows that bypass Security Rules (#2304). Live mode now monitors an app the way sandbox mode does: listeners, Rates, billed counts, rules verdicts, index checks and clients (#2305). Live mode also changes its model. It observes and never blocks at the network: a call no row records goes to production as it would without pyric, and pyric names it (ADR 0022, second amendment, #2445).
+
+### New in this release
+
+- **`firebase-admin` in live mode.** Under `node --import @pyric/live/register` on Node 23 or later, `firebase-admin` 13 loads with the process's own credential. Its Firestore, Auth, Realtime Database, Cloud Storage and Messaging calls are rows named `<Class>.<method>`, such as `DocumentReference.set`, marked as Admin calls that bypass Security Rules (#2393, #2401, #2417, #2421, #2422, #2426, #2437, #2470).
+- **More live rows.** `firebase/database` (#2205), `firebase/storage` (#2261), `firebase/ai` (#2267), `firebase/messaging` and `firebase/messaging/sw` (#2301) are served and observed on the page and in Node processes.
+- **`pyricLive({ passThrough })`.** A list of Firebase imports live mode has no row for, such as `firebase/functions`. Each loads the app's installed SDK, unobserved (#2121). A Node process under the live register reads the same list from its host (#2133).
+- **Process health.** Every HTTP server in a process under `@pyric/cli/register` or `@pyric/live/register` answers a request to `/__pyric/health` that carries `x-pyric-process-health: 1` with its mode, and its project or sandbox instance (#2371).
+- **The proxy check.** At start, the Vite plugin asks each `server.proxy` target on this machine what it is. It warns when the target is in another mode or on another project, and lists each verdict in the health report's `proxyTargets`. It never refuses (#2378).
+- **Live calls replay in `pyric verify`.** The capture file keeps each live call with production's answer, the local rules verdict and the values it carried, and `pyric verify` replays them against the rules you have now (#2386).
+- **Storage rules by bucket.** `pyric verify` takes `--rules storage:<bucket>=<path>` and the `firebase.json` storage array, so each bucket replays under its own rules (#2348, #2356). `rules.simulate` for Storage takes a `bucket` (#2374).
+
+### Behavior changes
+
+Each entry names the old behavior, the new behavior and the PR.
+
+#### Live mode
+
+- A Google call from a Node process under `@pyric/live/register` that no row serves, such as a token exchange, Cloud Trace, Vertex AI or a key fetch: before, refused with `PYRIC_GUARD_BLOCKED`. Now, it goes out, and the terminal prints one "unobserved" line per host. The host is listed in the health report's `unobserved`. The live Vite dev server does the same with the `@pyric/live/vite` prefix (#2469).
+- A call from an app whose config names another project than the live host's: before, it went to that project. Now, it is refused with `PYRIC_LIVE_REFUSED` before the SDK runs, and no row is made. The check reads `projectId`, `databaseURL`, `storageBucket` and `authDomain`, and the Realtime Database instance and Storage bucket the call reaches. `getDatabase(app, url)` on another project's default instance is refused too (#2311, #2319, #2326, #2338, #2342).
+- `firebase/database`, `firebase/storage`, `firebase/ai`, `firebase/messaging` and `firebase/messaging/sw` on a live page or in a live Node process: before, refused with `PYRIC_LIVE_REFUSED`. Now, served by live rows. Listing one of them in `passThrough` stops the dev server at start with `passThrough lists <import>, which live mode already serves and observes; remove it.` The imports `passThrough` takes are `firebase/analytics`, `firebase/functions`, `firebase/performance` and `firebase/remote-config` (#2205, #2261, #2267, #2301).
+- Messaging's `register`, `unregister`, `onRegistered` and `onUnregistered` in live mode: throw `PYRIC_LIVE_REFUSED` before any request (#2301).
+- `new LiveGenerativeModel`, `LiveSession`, `TemplateGenerativeModel` and the Imagen classes from `firebase/ai` in live mode are refused with `PYRIC_LIVE_REFUSED` at construction, before any request (#2240).
+- A Firestore rules write from a page or Studio on a live host: before, it succeeded and changed sandbox rules the live app never uses. Now, refused with `PYRIC_LIVE_REFUSED` (#2353).
+- A data read through the host's MCP tools or `pyric <service> <method>` on a live host: before, answered from the empty sandbox. Now, an open tab of the app answers it from production as its signed-in user, for Firestore and Realtime Database reads and Storage lists and metadata. With no open tab, it is refused (#2402, #2406, #2411).
+- An observed call production denied: before, its event read `result: 'error'`. Now, `deny`, so `events({ kind: 'denials' })` lists it (#2359).
+- A live `onSnapshot`: before, the chip's Listeners view stayed empty. Now, it lists the listener and its deliveries (#2088). Each Firestore and Realtime Database listener's attach and detach now reach the host, so `pyric sandbox listeners` and `pyric sandbox activity` see a live app's listeners (#2466, #2471).
+- Chip Rates on a live host: before, counted this page's own calls. Now, count every observed call from the host's event stream, with production's sizes (#2403). The health report's `live.billed`: before, one per call. Now, the documents production billed for each call (#2377). A `writeBatch` commit is one call that counts its writes and deletes (#2424).
+- Live Firestore rows: now carry the document or collection path (#2362) and the query's shape, with a hash in place of every filter value (#2429). They feed the chip's index check and Studio's Billable metrics (#2454).
+- Each observed Firestore and Realtime Database call now carries a local verdict from the app's rules files, beside production's answer. Its Traffic row opens the same rules evaluation view a sandbox row uses (#2368, #2380, #2382, #2405, #2409).
+- A live row in a module service worker: before, its calls never reached Traffic. Now, they reach the host on the worker's own connection, and the row reads "Service worker" (#2284, #2292).
+- The live register and `pyric-live`: before, refused to start from a folder below the Firebase project, or when `pyric`, `@pyric/live` or `firebase` were installed in a sibling or app folder. Now, they find the nearest folder with `.firebaserc` or `firebase.json`, and resolve the app's `firebase` from the entry script's folder first (#2115, #2133, #2147, #2159, #2164, #2187).
+- The live health report: `live.observed` lists the `firebase/*` imports the app resolved to live rows (#2332, #2349). `live.clients` lists each connected page, service worker and Node process by the client id its events carry, with the page's user and email (#2352, #2366, #2471). A Node process's `unobserved`, `unobservedAdmin` and `gatedAdmin` lists show under its client (#2473).
+
+#### Admin SDK in live mode
+
+- A `firebase-admin` import under `@pyric/live/register`: before, refused with `PYRIC_LIVE_REFUSED`. Now, on Node 23 or later, it loads and its calls are observed (#2437). On Node 22, each import is still refused, and the start line names Node 23. A Node 22 child of a Node 23 or later process refuses it the same way and prints the same line (#2437, #2475).
+- A `firebase-admin` service no row serves, such as `firebase-admin/remote-config`: before, refused at import. Now, it loads unobserved, with one line in the terminal, and the process health lists it in `unobservedAdmin`. `firebase-admin/app-check` is checked against the project but makes no row, and is listed in `gatedAdmin` (#2469, #2470).
+- An Admin app whose project resolves to another project: refused with `PYRIC_LIVE_REFUSED` on every call, before any request. The project is read in `firebase-admin`'s own order: `projectId`, the `cert()` credential, `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT`, then application default credentials (#2392, #2437). A count query is checked too (#2461).
+- At start, with `firebase-admin` installed: the register refuses when `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT` or the `projectId` in `FIREBASE_CONFIG` names another project. When `GOOGLE_CLOUD_PROJECT` is unset, it sets it to the live project. A `firebase-admin` major other than 13 stops the start (#2437).
+- An Admin Realtime Database call to an instance that isn't the live project's: refused before it connects. Accepted instances are `<project>-default-rtdb`, the legacy `<project>`, and the instances `firebase.json` names. `acme-prod-default-rtdb` belongs to `acme-prod`, not `acme`. An instance the row can't read is refused too, and so are `getRules`, `getRulesJSON` and `setRules` on such an instance (#2469, #2470).
+- An Admin Storage call to another project's default bucket, such as `other.appspot.com`: refused before the SDK runs (#2437).
+- A callback-style Admin Storage or Realtime Database call is recorded when it settles, and its callback hears a refusal (#2452).
+- A live backend's `verifyIdToken` or `verifySessionCookie` on a token a pyric sandbox issued rejects with `auth/argument-error` and `pyricCode: 'PYRIC_MODE_MISMATCH'`, before any request (#2452).
+- Admin calls count in Rates and `live.billed` as the client method that bills the same way, with the documents they read or wrote. `Query.get` counts as `getDocs`, for example (#2452, #2461).
+- `pyricLive({ passThrough: ['firebase-admin'] })` stops the dev server at start with `passThrough lists firebase-admin, which live mode already serves and observes; remove it.` The health report's `live.admin` reads `{ mode: 'observed', observed: true, bypassesRules: true }` (#2437, #2438, #2464).
+- When an emulator variable such as `FIRESTORE_EMULATOR_HOST` is set, the register prints one line naming the service and the address its calls go to (#2437).
+
+#### Auth
+
+- A sandbox backend's `verifyIdToken` on an ID token production issued: before, `auth/argument-error`. Now, the same code, plus `pyricCode: 'PYRIC_MODE_MISMATCH'` and a message that names the sandbox instance (#2321).
+- The `pyric dev` sign-in dialog: before, it cleared what you typed when the account list arrived. Now, it keeps it (#2126).
+
+#### Firestore and Rules
+
+- A rules lookup path with an interpolated value that holds `/`, such as `/users/$(owner)`: before, the value split into segments and could name a nested document. Now, it is one segment, as production reads it (#2177).
+- `allow` statements on a root `match /{path=**}` block: before, ignored, so every request was denied. Now, applied (#2179).
+- An int and a float past 2^53 in Sets and `diff()`: before, `9007199254740993` matched the double it rounds to. Now, they compare by exact value (#2181).
+- `matches()` with a script class such as `\p{Cyrillic}`: before, matched no character. Now, matches the script. A class range outside the Basic Multilingual Plane, such as `[😀-😂]`: before, `setRules` refused it. Now, it compiles (#2206).
+- `lower()` and `upper()`: before, mapped every letter, so `'ÉVE@X.COM'.lower()` was `'éve@x.com'`. Now, only A to Z, as production does, in Firestore and Storage rules (#2216, #2242).
+- `split()` and `replace()`: now run on the same linear RE2 matcher as `matches()`. `split('(a+)+b')` on 40 `a`s takes about 3 ms, down from 515 ms. Scoped flags, `\pL`, `(?U)`, POSIX classes, `\Q..\E` and code points read as production reads them (#2268, #2277).
+- `--1`, `- -1` and `-(9223372036854775808)`: before, compiled. Now, refused at compile with production's messages (#2256).
+- A rules file with a `firebase.storage` block before its `cloud.firestore` block: before, failed to parse. Now, it loads and the Firestore block applies. Two `cloud.firestore` blocks fail with `Duplicate service name declaration.` from `firestoreRules()` and `pyric sandbox` (#2258, #2262).
+- A Firestore rules source of 262,144 bytes or more: before, it loaded. Now, refused with `Total size of sources must be smaller than 262144.` A counted regex past 10,000 positions, such as `(a{1000}){11}`: before, refused. Now, it compiles, up to 200,000 matcher states (#2285).
+- `onSnapshotResume` listeners: now counted in the chip's Rates, as `onSnapshot` is (#2354).
+
+#### Realtime Database
+
+- A `-0` write over a stored `0`: before, fired `onValue` and `child_changed`. Now, it is stored as `0` and fires nothing, as production does. The CLI worker compares values the same way (#2168, #2171).
+- A hosted page left in a hidden tab for more than five minutes: before, it reconnected and its `onDisconnect` writes ran while the page was still open. Now, it keeps its connection (#2103).
+
+#### Storage
+
+- Buckets with their own rules in `firebase.json`: before, the dev server, SharedWorker, in-page runtime and Node host gave every bucket the first entry's rules. Now, each bucket enforces its own. `pyric mcp` and the `--in-process` CLI load each bucket's rules too (#2323, #2369).
+- In permissive mode, a bucket with no rules deployed: before, locked. Now, open, as an undeployed Realtime Database instance is (#2334).
+- `pyric rules set --service storage` on the Node host, before any page names the default bucket: before, reported success. Now, refuses with `default-bucket-name-unknown` and exits 2 (#2335).
+- A path wildcard named `request` or `resource`: before, read as the global. Now, read as the wildcard inside its block (#2249).
+- A coarse `write` with a payload over a stored object: before, checked as `update`. Now, as `create`, as production checks an upload (#2251).
+- One allowed upload over the hosted byte route: before, two `create` decisions. Now, one (#2360).
+- A Storage call's activity source: before, `pyric-default/<path>`. Now, `gs://<bucket>/<path>`, the same string as its Traffic row (#2259).
+- `storage/unauthorized-app` from production: before, read as failed. Now, as a production denial (#2234).
+
+#### CLI and Studio
+
+- `/__pyric/health` on the dev server: before, answered any Host the server allowed. Now, answers only a loopback or bound Host, and 403 to others (#2370).
+- Traffic labels: a client SDK call from a Node process now reads "Node process" (was "Server (client SDK)"), and a `firebase-admin` call "Node process, Admin SDK" (was "Server (admin)"). A service worker's rows read "Service worker" (was "Other tab") (#2286, #2408).
+- Storage rows in the chip and Studio now name their bucket as `gs://<bucket>/<path>` (#2235). A Messaging row shows its Installations and FCM registration requests (#2296). An observed AI Logic row shows its model and token counts (#2213).
+- The chip's on and off controls are one switch style, and its view pickers are a segmented control (#2418). In live mode its header is one line: pyric and the project name (#2307).
+- Every event's caller now carries `clientId`: one per browser profile, service worker or Node process (#2310, #2320).
+- A worker thread given its own `env` in a registered process: before, it loaded the real SDK with no guard. Now, it inherits the sandbox (#2339).
+- `PYRIC_GUARD_ALLOW: ''` in a child process's env: before, replaced with the parent's list. Now, kept empty (#2102).
+- `pyricViteExternals()` in a Vite SSR build: before, kept only `firebase` and `firebase-admin` external. Now, every installed `@firebase/*` package and every npm alias of a Firebase SDK too (#2344).
+
+### Known gaps
+
+- Some Admin calls go out unobserved, and the project check doesn't see them: Firestore's `Query.stream`, `BulkWriter` and `recursiveDelete`, Storage's `File.createReadStream` and `File.createWriteStream`, and any method the rows don't patch, such as `createCustomToken`, `createSessionCookie`, `verifySessionCookie` and `getSignedUrl`. Treat them as a gap in what pyric shows, not as checked (#2472).
+- Admin `subscribeToTopic` and `unsubscribeFromTopic` go to `iid.googleapis.com` with no project in the request. The check reads the app's project, but the project the call reaches comes from the credential and the registration tokens (#2470).
+- In a Node process, your own request to a host a row's SDK reaches, such as a `fetch` to `firestore.googleapis.com`, goes through with no line and reads as observed, though no row records it (#2469).
+- Admin App Check calls are checked against the project but make no row. Observed App Check rows in the chip and Studio wait on a design review (#2470).
+- The Admin rows need Node 23 or later. On Node 22, `firebase-admin` is refused in live processes, because Node 22's `require()` doesn't reach the register's hooks (#2437, #2475).
+
+## 0.1.0-alpha.34
+
+pyric 0.1.0-alpha.34 is on the `exp` dist-tag, and it is the first publish of `@pyric/live`. The full list of its changes is in its release pull request, #2075. The entries below shipped in it.
+
 ### Behavior changes
 
 #### Auth
@@ -13,6 +118,8 @@
 - `signInWithCustomToken` on a custom token in firebase-admin's shape: before, read without checks. Now, an edited token or one past its `exp` on the sandbox clock rejects with `auth/invalid-custom-token`, and one for another project rejects with `auth/custom-token-mismatch`. A token signed with a real service account key is refused, since the sandbox cannot verify it (#1952).
 - `signInWithCustomToken` on an unsigned custom token: before, signed in as whatever uid and claims it named, even past its `exp`. That covered the JSON `{uid, claims}` shape, its base64url form, a JWT for another audience or none, and a custom-token-audience JWT whose payload carried `=` padding. Now, each rejects with `auth/invalid-custom-token`, as production does, in the page, the SharedWorker host and the Node host. Mint the token with `pyric-admin` `createCustomToken` or the CLI's `auth` `createCustomToken`. Repro replay mints a fresh token for each custom-token session it restores (#2009).
 - The client ID token shape alpha.33 and earlier mint (`sandbox-id-token-<uid>-<n>:<claims>`): before, `verifyIdToken` decoded it. Now, rejects with `auth/argument-error`. The client now mints a JWT, which verifies (#1836, #1949).
+
+**Full changelog:** https://github.com/davideast/pyric/compare/v0.1.0-alpha.33...v0.1.0-alpha.34
 
 ## 0.1.0-alpha.33
 

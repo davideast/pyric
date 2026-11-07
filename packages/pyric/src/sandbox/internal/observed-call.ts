@@ -7,6 +7,9 @@
  * unknown field, a wrong type, an over-long string, or a token value where
  * claim names belong. A record never names its own caller or event id; the
  * host stamps the caller from the connection and the sandbox mints the id.
+ * Claim values, written data and a returned document are bounded JSON the
+ * host holds in memory for the local rules: one that is malformed or too
+ * large is dropped and the call is kept, and the event holds none of them.
  */
 import type {
   ObservedAccount,
@@ -14,16 +17,30 @@ import type {
   ObservedAiUsage,
   ObservedCall,
   ObservedCallService,
+  ObservedListener,
+  ObservedQuery,
+  ObservedQueryFilter,
+  ObservedQueryOperator,
+  ObservedQueryOrder,
   ObservedRequest,
   ObservedRequestApi,
   ObservedUsage,
   ProductionOutcome,
 } from '../types/observed-call.js';
-import type { RulesDisposition, SandboxOperationEvent } from '../types/events.js';
+import type {
+  AuthLens,
+  EventProvenance,
+  RulesDisposition,
+  SandboxListenerEvent,
+  SandboxOperationEvent,
+} from '../types/events.js';
 import type { RequestObservation } from '../types/request-observation.js';
 import { AI_LOGIC_ENDPOINT, aiUsageEvidence, type AiEvidence } from './ai-evidence.js';
 import { isDefaultDatabaseInstance } from './instances.js';
-import { makeSandboxOperationEvent } from './sandbox-impl.js';
+import { makeSandboxListenerEvent, makeSandboxOperationEvent } from './sandbox-impl.js';
+
+/** The event an observed call becomes; an Admin call's names its own auth lens. */
+export type ObservedOperationEvent = SandboxOperationEvent & Pick<EventProvenance, 'authLens'>;
 
 /** Thrown for a record that is not an {@link ObservedCall}; names the field. */
 export class ObservedCallError extends Error {
@@ -40,9 +57,49 @@ export const OBSERVED_DISPOSITION: RulesDisposition = Object.freeze({
   reason: 'external-execution',
 });
 
+/**
+ * The disposition of an observed Admin SDK call: production ran it, and the
+ * Admin SDK skips Security Rules, as the sandbox's own Admin operations do.
+ */
+export const OBSERVED_ADMIN_DISPOSITION: RulesDisposition = Object.freeze({
+  kind: 'bypassed',
+  reason: 'admin',
+});
+
+/** An email address anywhere in a text: another person's from a document or a field path, or the account's own. */
+export const EMAIL_SHAPE = /[^\s@"']+@[^\s@"']+\.[^\s@"']+/;
+
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
-const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'instance', 'bucket', 'billedDocuments', 'usage', 'ai', 'requests']);
-const ACCOUNT_FIELDS = new Set(['uid', 'claimNames']);
+/** The services the Admin SDK rows observe. AI Logic and Messaging calls come only from a client SDK. */
+const ADMIN_SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'rtdb', 'storage', 'auth', 'messaging']);
+const CALL_FIELDS = new Set([
+  'service',
+  'method',
+  'sdk',
+  'path',
+  'at',
+  'durationMs',
+  'outcome',
+  'account',
+  'projectId',
+  'instance',
+  'bucket',
+  'billedDocuments',
+  'usage',
+  'ai',
+  'requests',
+  'writeData',
+  'document',
+  'query',
+  'listener',
+]);
+const ACCOUNT_FIELDS = new Set(['uid', 'claimNames', 'claims']);
+/** A token's claims fit in a few kilobytes; production caps custom claims at 1000 bytes. */
+const MAX_CLAIMS_SIZE = 8 * 1024;
+/** Written data or a returned document the host holds in memory for one evaluation. */
+const MAX_FIELDS_SIZE = 64 * 1024;
+/** Firestore nests maps and arrays at most 20 levels deep. */
+const MAX_VALUE_DEPTH = 20;
 const AI_FIELDS = new Set(['model', 'reportedModel', 'usage', 'firstChunkMs']);
 /** Production's sizes: counts only, so a value, a document or a payload has no key to ride in. */
 const USAGE_FIELDS: ReadonlySet<keyof ObservedUsage> = new Set([
@@ -97,8 +154,42 @@ const MIN_FCM_TAIL = 20;
 /** An opaque key or token, such as a VAPID key or a refresh token: a run this long that holds a digit. */
 const MIN_OPAQUE_RUN = 40;
 const MAX_UID_LENGTH = 128;
+const QUERY_FIELDS = new Set(['scope', 'filters', 'orderBy', 'limit', 'fingerprint']);
+const QUERY_FILTER_FIELDS = new Set(['field', 'op']);
+const QUERY_ORDER_FIELDS = new Set(['field', 'direction']);
+const QUERY_SCOPES: ReadonlySet<string> = new Set<ObservedQuery['scope']>(['collection', 'collection-group']);
+const QUERY_OPERATORS: ReadonlySet<string> = new Set<ObservedQueryOperator>([
+  '<',
+  '<=',
+  '==',
+  '!=',
+  '>=',
+  '>',
+  'array-contains',
+  'in',
+  'not-in',
+  'array-contains-any',
+]);
+const QUERY_DIRECTIONS: ReadonlySet<string> = new Set<ObservedQueryOrder['direction']>(['asc', 'desc']);
+/** A query's filters or orders: Firestore takes at most 100 filters, and no real query comes near 64. */
+const MAX_QUERY_CLAUSES = 64;
+/** The page's hash of the filter and cursor values: 64 bits as lowercase hex. */
+const FINGERPRINT_PATTERN = /^[0-9a-f]{16}$/;
 const MAX_CLAIM_NAMES = 64;
 const MAX_CLAIM_NAME_LENGTH = 128;
+const LISTENER_FIELDS = new Set(['phase', 'id', 'target', 'key']);
+const LISTENER_PHASES: ReadonlySet<string> = new Set<ObservedListener['phase']>(['attach', 'detach']);
+/** The services whose listeners a row observes. */
+const LISTENER_SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'rtdb']);
+/** A subscription id the page or process minted: a counter, a short random id or a UUID. */
+const LISTENER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+/** The RTDB event each listener export subscribes to, as the sandbox's own RTDB listener targets name it. */
+const RTDB_LISTENER_KINDS: ReadonlyMap<string, string> = new Map([
+  ['onChildAdded', 'child_added'],
+  ['onChildChanged', 'child_changed'],
+  ['onChildRemoved', 'child_removed'],
+  ['onChildMoved', 'child_moved'],
+]);
 
 type Fields = Record<string, unknown>;
 
@@ -147,13 +238,82 @@ function readClaimNames(value: unknown): string[] {
   });
 }
 
-function readAccount(value: unknown): ObservedAccount {
+/** Whether a value is an object a client built from a literal, not a Date, a Map or a class instance. */
+function isPlainFields(value: unknown): value is Fields {
+  if (!isFields(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** A copy of one JSON value, or `undefined` when it is not one or pushes `budget` past its size. */
+function copyJsonValue(value: unknown, depth: number, budget: { left: number }): unknown {
+  const isScalar = value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
+  if (isScalar) {
+    budget.left -= 8;
+    return value;
+  }
+  if (typeof value === 'string') {
+    budget.left -= value.length + 2;
+    return value;
+  }
+  const isNested = Array.isArray(value) || isPlainFields(value);
+  if (!isNested || depth >= MAX_VALUE_DEPTH) return undefined;
+  if (Array.isArray(value)) {
+    const copy: unknown[] = [];
+    for (const entry of value) {
+      const copied = copyJsonValue(entry, depth + 1, budget);
+      if (copied === undefined || budget.left < 0) return undefined;
+      copy.push(copied);
+    }
+    return copy;
+  }
+  return copyJsonFields(value, depth, budget);
+}
+
+function copyJsonFields(value: Fields, depth: number, budget: { left: number }): Fields | undefined {
+  const copy: Fields = {};
+  for (const key of Object.keys(value)) {
+    budget.left -= key.length + 4;
+    const copied = copyJsonValue(value[key], depth + 1, budget);
+    if (copied === undefined || budget.left < 0) return undefined;
+    copy[key] = copied;
+  }
+  return copy;
+}
+
+/**
+ * A fresh copy of a JSON object a client sent (claim values, written data,
+ * a returned document), or `undefined` for one that is malformed, nested
+ * deeper than Firestore allows, or larger than `maxSize`. The reader drops
+ * such a value rather than the call: the call still records production's answer.
+ */
+function readJsonFields(value: unknown, maxSize: number): Fields | undefined {
+  if (!isPlainFields(value)) return undefined;
+  return copyJsonFields(value, 0, { left: maxSize });
+}
+
+function readAccount(value: unknown, keepsClaims: boolean): ObservedAccount {
   requireField(isFields(value), 'account');
   requireOnly(value, ACCOUNT_FIELDS, 'account.');
   const uid = value.uid;
   requireField(isBoundedString(uid, MAX_UID_LENGTH), 'account.uid');
-  const hasClaims = value.claimNames !== undefined;
-  return hasClaims ? { uid, claimNames: readClaimNames(value.claimNames) } : { uid };
+  const account: ObservedAccount = { uid };
+  if (value.claimNames !== undefined) account.claimNames = readClaimNames(value.claimNames);
+  const claims = keepsClaims ? readJsonFields(value.claims, MAX_CLAIMS_SIZE) : undefined;
+  if (claims !== undefined) account.claims = claims;
+  return account;
+}
+
+/**
+ * A Messaging call's record without its claim values. No Messaging rule
+ * reads them, and a token's nested claims would trip the walk that keeps
+ * credentials out of a Messaging record.
+ */
+function withoutClaimValues(value: Fields): Fields {
+  const account = value.account;
+  if (!isFields(account) || account.claims === undefined) return value;
+  const { claims: _claims, ...rest } = account;
+  return { ...value, account: rest };
 }
 
 function isModelName(value: unknown): value is string {
@@ -296,15 +456,95 @@ function readRequests(value: unknown): ObservedRequest[] {
   return value.map(readRequest);
 }
 
+/** A field path a query names: bounded, and never shaped like a token, a key or an email address a value could be. */
+function readQueryField(value: unknown, field: string): string {
+  const bounded = isBoundedString(value, MAX_PATH_LENGTH);
+  requireField(bounded && !isTokenShaped(value) && !EMAIL_SHAPE.test(value), field);
+  return value;
+}
+
+function readQueryFilter(value: unknown): ObservedQueryFilter {
+  requireField(isFields(value), 'query.filters');
+  requireOnly(value, QUERY_FILTER_FIELDS, 'query.filters.');
+  const field = readQueryField(value.field, 'query.filters.field');
+  const op = value.op;
+  requireField(typeof op === 'string' && QUERY_OPERATORS.has(op), 'query.filters.op');
+  return { field, op: op as ObservedQueryOperator };
+}
+
+function readQueryOrder(value: unknown): ObservedQueryOrder {
+  requireField(isFields(value), 'query.orderBy');
+  requireOnly(value, QUERY_ORDER_FIELDS, 'query.orderBy.');
+  const field = readQueryField(value.field, 'query.orderBy.field');
+  const direction = value.direction;
+  requireField(typeof direction === 'string' && QUERY_DIRECTIONS.has(direction), 'query.orderBy.direction');
+  return { field, direction: direction as ObservedQueryOrder['direction'] };
+}
+
+function readQueryClauses<T>(value: unknown, field: string, readClause: (clause: unknown) => T): T[] {
+  requireField(Array.isArray(value) && value.length <= MAX_QUERY_CLAUSES, field);
+  return value.map(readClause);
+}
+
+/**
+ * A Firestore query's shape: its scope, its filters' fields and operators,
+ * its orders, whether it set a limit, and the page's fingerprint of its
+ * values. Any other key, a filter value among them, is refused.
+ */
+function readQuery(value: unknown): ObservedQuery {
+  requireField(isFields(value), 'query');
+  requireOnly(value, QUERY_FIELDS, 'query.');
+  const scope = value.scope;
+  requireField(typeof scope === 'string' && QUERY_SCOPES.has(scope), 'query.scope');
+  const query: ObservedQuery = { scope: scope as ObservedQuery['scope'] };
+  if (value.filters !== undefined) query.filters = readQueryClauses(value.filters, 'query.filters', readQueryFilter);
+  if (value.orderBy !== undefined) query.orderBy = readQueryClauses(value.orderBy, 'query.orderBy', readQueryOrder);
+  if (value.limit !== undefined) {
+    requireField(value.limit === true, 'query.limit');
+    query.limit = true;
+  }
+  if (value.fingerprint !== undefined) {
+    const fingerprint = value.fingerprint;
+    requireField(typeof fingerprint === 'string' && FINGERPRINT_PATTERN.test(fingerprint), 'query.fingerprint');
+    query.fingerprint = fingerprint;
+  }
+  return query;
+}
+
+/**
+ * A listener's attach or detach: its phase, the id the page minted, its
+ * target under the call's path bounds, and the hash of its journal key.
+ * Any other key, a value among them, is refused.
+ */
+function readListener(value: unknown): ObservedListener {
+  requireField(isFields(value), 'listener');
+  requireOnly(value, LISTENER_FIELDS, 'listener.');
+  const phase = value.phase;
+  requireField(typeof phase === 'string' && LISTENER_PHASES.has(phase), 'listener.phase');
+  const id = value.id;
+  requireField(typeof id === 'string' && LISTENER_ID_PATTERN.test(id) && !isTokenShaped(id), 'listener.id');
+  // A target is a path, read with the call's path bounds: a document id may be a pair of uids or a hash.
+  const target = value.target;
+  requireField(isBoundedString(target, MAX_PATH_LENGTH), 'listener.target');
+  const listener: ObservedListener = { phase: phase as ObservedListener['phase'], id, target };
+  if (value.key !== undefined) {
+    const key = value.key;
+    requireField(typeof key === 'string' && FINGERPRINT_PATTERN.test(key), 'listener.key');
+    listener.key = key;
+  }
+  return listener;
+}
+
 /**
  * Read one observed call from untrusted input. Returns a fresh record that
  * holds only the known fields; throws {@link ObservedCallError} otherwise.
  */
-export function readObservedCall(value: unknown): ObservedCall {
-  requireField(isFields(value), 'call');
+export function readObservedCall(input: unknown): ObservedCall {
+  requireField(isFields(input), 'call');
   // A Messaging call handles an installation's tokens and the FCM token, so
   // nothing in its record may look like one, a field the reader drops included.
-  const isMessaging = value.service === 'messaging';
+  const isMessaging = input.service === 'messaging';
+  const value = isMessaging ? withoutClaimValues(input) : input;
   if (isMessaging) requireNoTokens(value, '');
   requireOnly(value, CALL_FIELDS, '');
   const service = value.service;
@@ -318,6 +558,10 @@ export function readObservedCall(value: unknown): ObservedCall {
     at: value.at,
     outcome: readOutcome(value.outcome),
   };
+  if (value.sdk !== undefined) {
+    requireField(value.sdk === 'admin' && ADMIN_SERVICES.has(call.service), 'sdk');
+    call.sdk = 'admin';
+  }
   const isAi = call.service === 'ai';
   if (value.path !== undefined) {
     // An AI call's path is its model, so a second path could disagree with it.
@@ -329,7 +573,7 @@ export function readObservedCall(value: unknown): ObservedCall {
     requireField(isTime(value.durationMs), 'durationMs');
     call.durationMs = value.durationMs;
   }
-  if (value.account !== undefined) call.account = readAccount(value.account);
+  if (value.account !== undefined) call.account = readAccount(value.account, !isMessaging);
   if (value.projectId !== undefined) {
     requireField(typeof value.projectId === 'string' && PROJECT_ID_PATTERN.test(value.projectId), 'projectId');
     call.projectId = value.projectId;
@@ -365,6 +609,22 @@ export function readObservedCall(value: unknown): ObservedCall {
     requireField(isMessaging, 'requests');
     call.requests = readRequests(value.requests);
   }
+  // Only a Firestore call's rules read written data or a stored document.
+  const isFirestore = call.service === 'firestore';
+  // Only a Firestore list or listener names a query's shape.
+  if (value.query !== undefined) {
+    requireField(isFirestore, 'query');
+    call.query = readQuery(value.query);
+  }
+  // Only a Firestore or RTDB listener attaches, and production answers nothing for it.
+  if (value.listener !== undefined) {
+    requireField(LISTENER_SERVICES.has(call.service) && call.outcome.status === 'ok', 'listener');
+    call.listener = readListener(value.listener);
+  }
+  const writeData = isFirestore ? readJsonFields(value.writeData, MAX_FIELDS_SIZE) : undefined;
+  if (writeData !== undefined) call.writeData = writeData;
+  const returned = isFirestore ? readJsonFields(value.document, MAX_FIELDS_SIZE) : undefined;
+  if (returned !== undefined) call.document = returned;
   return call;
 }
 
@@ -426,28 +686,103 @@ function aiObservation(id: string, call: ObservedCall, ai: ObservedAi): RequestO
 }
 
 /**
- * The event an observed call becomes. Its `result` is `error` when production
- * returned an error and `not-applicable` otherwise, since no local Rules
- * verdict exists; `production` holds what production answered. An `ai` call's
- * path is its model, and its `observation` holds the model and token counts.
- * A `storage` call's bucket is its `detail.bucket`, and a `messaging` call's
- * requests are its `detail.requests`.
+ * The event an observed call becomes. Its `result` reads production's answer
+ * as the sandbox's own events read theirs: `allow` for a success, `deny` for a
+ * denial ({@link productionVerdict}), and `error` otherwise. Its Rules
+ * disposition stays {@link OBSERVED_DISPOSITION}, since pyric's Rules did not
+ * decide; `production` holds what production answered. An Admin call's is
+ * {@link OBSERVED_ADMIN_DISPOSITION} under the Admin lens, with `detail.sdk`.
+ * An `ai` call's path is its model, and its `observation` holds the model
+ * and token counts. A `storage` call's bucket is its `detail.bucket`, and a
+ * `messaging` call's requests are its `detail.requests`.
  */
-export function observedCallEvent(call: ObservedCall): SandboxOperationEvent {
+export function observedCallEvent(call: ObservedCall): ObservedOperationEvent {
   const event = observedOperationEvent(call);
   const ai = call.ai;
   return ai === undefined ? event : { ...event, observation: aiObservation(event.id, call, ai) };
 }
 
+/** The event an observed listener record becomes; an Admin listener's names its own auth lens. */
+export type ObservedListenerEvent = SandboxListenerEvent & Pick<EventProvenance, 'authLens'>;
+
+/**
+ * What a listener watches, in the shape the sandbox's own listener events
+ * use: a Firestore document (an even number of segments) or a query, with
+ * the query's shape when the call carried one; or the RTDB event its export
+ * subscribes to.
+ */
+function listenerTarget(call: ObservedCall, listener: ObservedListener): SandboxListenerEvent['target'] {
+  const path = listener.target;
+  if (call.service === 'rtdb') return { kind: RTDB_LISTENER_KINDS.get(call.method) ?? 'value', path };
+  const segments = path.split('/').filter((segment) => segment.length > 0).length;
+  const kind = segments % 2 === 0 ? 'doc' : 'query';
+  const query = eventRequest(call).request?.query;
+  return query === undefined ? { kind, path } : { kind, path, query };
+}
+
+/**
+ * The `listener` event an observed attach or detach becomes, as the
+ * sandbox's own listener events read: its phase, the id the page minted,
+ * its target and the account. Production answered nothing, so it has no
+ * `production` side and no result; its Rules disposition is
+ * {@link OBSERVED_DISPOSITION}, or an Admin listener's under the Admin
+ * lens. The journal key's hash is its `detail.key`. Throws
+ * {@link ObservedCallError} for a call that is not a listener record.
+ */
+export function observedListenerEvent(call: ObservedCall): ObservedListenerEvent {
+  const listener = call.listener;
+  requireField(listener !== undefined, 'listener');
+  const { rulesDisposition, authLens } = eventLens(call);
+  const detail = { ...eventDetail(call).detail, ...(listener.key === undefined ? {} : { key: listener.key }) };
+  const event = makeSandboxListenerEvent({
+    at: call.at,
+    service: call.service,
+    ...eventInstance(call),
+    phase: listener.phase,
+    listenerId: listener.id,
+    target: listenerTarget(call, listener),
+    auth: call.account === undefined ? null : { uid: call.account.uid },
+    rulesDisposition,
+    ...(Object.keys(detail).length === 0 ? {} : { detail }),
+  });
+  return authLens === undefined ? event : { ...event, authLens };
+}
+
 /**
  * A Storage call's bucket, under the key the sandbox's own Storage events use,
- * and a Messaging call's requests, each copied.
+ * a Messaging call's requests, each copied, and an Admin call's `sdk`.
  */
-function eventDetail(call: ObservedCall): { detail?: { bucket: string } | { requests: ObservedRequest[] } } {
-  const bucket = call.bucket;
-  if (bucket !== undefined) return { detail: { bucket } };
+function eventDetail(call: ObservedCall): { detail?: Record<string, unknown> } {
   const requests = call.requests;
-  return requests === undefined ? {} : { detail: { requests: requests.map((request) => ({ ...request })) } };
+  const detail = definedOnly({
+    bucket: call.bucket,
+    requests: requests?.map((request) => ({ ...request })),
+    sdk: call.sdk,
+  });
+  return Object.keys(detail).length === 0 ? {} : { detail };
+}
+
+/**
+ * How the event reads at the Rules seam. A client call ran under production's
+ * rules, which pyric did not evaluate. An Admin call bypassed them under the
+ * Admin lens, which wins over the app-session lens a host stamps.
+ */
+function eventLens(call: ObservedCall): { rulesDisposition: RulesDisposition; authLens?: AuthLens } {
+  const isAdmin = call.sdk === 'admin';
+  if (!isAdmin) return { rulesDisposition: OBSERVED_DISPOSITION };
+  return { rulesDisposition: OBSERVED_ADMIN_DISPOSITION, authLens: { mode: 'admin' } };
+}
+
+/** A Firestore call's query shape as the event's `request.query`, each clause copied. */
+function eventRequest(call: ObservedCall): { request?: { query: ObservedQuery } } {
+  const query = call.query;
+  if (query === undefined) return {};
+  const copy: ObservedQuery = definedOnly({
+    ...query,
+    filters: query.filters?.map((filter) => ({ ...filter })),
+    orderBy: query.orderBy?.map((order) => ({ ...order })),
+  });
+  return { request: { query: copy } };
 }
 
 /** Production's sizes, copied onto the event's production side when the call carried them. */
@@ -460,7 +795,25 @@ function productionSizes(call: ObservedCall): { usage?: ObservedUsage; billedDoc
   };
 }
 
-function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
+/** The result each verdict reads as, the way the sandbox's own events read. */
+const RESULT_BY_VERDICT: Readonly<Record<ProductionVerdict, SandboxOperationEvent['result']>> = {
+  ok: 'allow',
+  denied: 'deny',
+  failed: 'error',
+};
+
+/** Production's answer as an event's result: allowed, denied, or an error. */
+function observedResult(outcome: ProductionOutcome): SandboxOperationEvent['result'] {
+  return RESULT_BY_VERDICT[productionVerdict(outcome)];
+}
+
+function observedOperationEvent(call: ObservedCall): ObservedOperationEvent {
+  const { rulesDisposition, authLens } = eventLens(call);
+  const event = productionOperationEvent(call, rulesDisposition);
+  return authLens === undefined ? event : { ...event, authLens };
+}
+
+function productionOperationEvent(call: ObservedCall, rulesDisposition: RulesDisposition): SandboxOperationEvent {
   const account = call.account;
   const claimNames = account?.claimNames;
   const path = call.ai?.model ?? call.path;
@@ -471,11 +824,12 @@ function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
     ...(path === undefined ? {} : { path }),
     ...eventInstance(call),
     ...eventDetail(call),
+    ...eventRequest(call),
     auth: account === undefined ? null : { uid: account.uid },
-    result: call.outcome.status === 'error' ? 'error' : 'not-applicable',
+    result: observedResult(call.outcome),
     origin: 'user',
     ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
-    rulesDisposition: OBSERVED_DISPOSITION,
+    rulesDisposition,
     production: {
       outcome: { ...call.outcome },
       ...(claimNames === undefined ? {} : { claimNames: [...claimNames] }),
@@ -484,9 +838,18 @@ function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
   });
 }
 
-/** Whether a Rules disposition marks a call production served and pyric only observed. */
+/**
+ * Whether a Rules disposition can mark a call production served and pyric
+ * only observed: a client call's `external-execution`, or an Admin call's
+ * `bypassed`/`admin`. The sandbox's own Admin operations carry `bypassed` too,
+ * with no `production` field, so a view that shows production's answer reads
+ * this beside the event's `production`. Replay and verify skip both kinds:
+ * neither ran under the captured rules.
+ */
 export function isProductionServed(rules: RulesDisposition | undefined): boolean {
-  return rules?.kind === 'not-evaluated' && rules.reason === 'external-execution';
+  const isClientCall = rules?.kind === 'not-evaluated' && rules.reason === 'external-execution';
+  const isAdminCall = rules?.kind === 'bypassed' && rules.reason === 'admin';
+  return isClientCall || isAdminCall;
 }
 
 /** How every traffic view reads production's answer. */

@@ -5,6 +5,15 @@
  */
 import type { LiveHostReach } from '@pyric/cli/register/internal/supplied-rows';
 
+/**
+ * One start line for each passed-through import, from `passThroughLine`.
+ * Each entry hands in the line from its own `@pyric/cli` seam, so the Vite
+ * plugin never loads the register's.
+ */
+export function passThroughLines(entry: string, passThrough: readonly string[], passThroughLine: (specifier: string) => string): string[] {
+  return passThrough.map((specifier) => `${entry}: ${passThroughLine(specifier)}`);
+}
+
 /** The start line of `entry` (`pyric-live`, `@pyric/live/vite`, `@pyric/live/register`). */
 export function liveStartLine(entry: string, projectId: string): string {
   return (

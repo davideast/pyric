@@ -182,6 +182,12 @@ describe('allowances that match nothing', () => {
     expect(app.unexpectedHostErrors()).toEqual(['500 POST /__pyric/denials (during "setup")']);
   });
 
+  test('an error no pattern matched names its status, route, step, and the first line of its body', () => {
+    const app = run();
+    app.noteErrorResponse(500, 'GET', 'http://127.0.0.1:3000/__pyric/health', '\n  Internal Server Error\nsecond line');
+    expect(app.unexpectedHostErrors()).toEqual(['500 GET /__pyric/health (during "setup"): Internal Server Error']);
+  });
+
   test('a pattern whose error comes only in some runs says so, and passes a run without it', () => {
     const app = run();
     app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: 'a race decides whether the post lands before the routes mount (#2098)' });
@@ -375,12 +381,21 @@ function peerOf(inode: number): number {
 /** The runner's ends of the sockets `pid` writes stdout and stderr to, from the kernel. */
 const runnerEndsOf = (pid: number | undefined) => [peerOf(socketOf(pid, 1)), peerOf(socketOf(pid, 2))];
 
+/** A shell prefix that waits until the spawner below ends the child's stdin. */
+const GATED = 'read _;';
+
 /**
  * A spawner whose children never report `close`, as when the runner loses
  * it (#1274). After each spawn, before the driver looks for the child's
  * sockets, it starts a neighbor with output sockets of its own: sockets the
  * runner opened after the spawn. It notes the runner's end of each socket
  * from the kernel's peer record, not from the driver's numbering rule.
+ *
+ * The kernel keeps that record only while both ends are open, so the child
+ * and the neighbor each start with `GATED` and wait on stdin. The spawner
+ * ends their stdin on the next turn, after its lookups and after the
+ * driver has read the child's sockets in this one. A stalled runner then
+ * only delays them, however long it stalls (#2225).
  */
 function losingCloseWithNeighbor(): { spawnChild: SpawnChild; childEnds: number[]; neighborEnds: number[]; neighborOutput: Promise<string> } {
   const childEnds: number[] = [];
@@ -389,10 +404,14 @@ function losingCloseWithNeighbor(): { spawnChild: SpawnChild; childEnds: number[
   let neighborDone: (text: string) => void = () => {};
   const neighborOutput = new Promise<string>((resolve) => { neighborDone = resolve; });
   const spawnChild: SpawnChild = (command, args, options) => {
-    const child = spawn(command, args, options);
-    const neighbor = spawn('sh', ['-c', 'sleep 0.3; echo neighbor-output'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] });
+    const neighbor = spawn('sh', ['-c', `${GATED} echo neighbor-output`], { stdio: ['pipe', 'pipe', 'pipe'] });
     childEnds.push(...runnerEndsOf(child.pid));
     neighborEnds.push(...runnerEndsOf(neighbor.pid));
+    setImmediate(() => {
+      child.stdin?.end();
+      neighbor.stdin?.end();
+    });
     neighbor.stdout?.on('data', (chunk) => { neighborText += String(chunk); });
     neighbor.on('close', () => neighborDone(neighborText));
     const emit = child.emit.bind(child);
@@ -410,7 +429,7 @@ const LOST_CLOSE_TIMING: ProcessTiming = {
 describe('where the output went when the runner lost close (#1797)', () => {
   test.if(process.platform === 'linux')('an exit recorded without `close` logs what the kernel still queues for the child\'s sockets, and only the child\'s', async () => {
     const { spawnChild, childEnds, neighborEnds, neighborOutput } = losingCloseWithNeighbor();
-    const script = 'sleep 0.3; echo started; echo refused >&2; exit 1';
+    const script = `${GATED} echo started; echo refused >&2; exit 1`;
     const child = new AppProcess('refuser', 'sh', ['-c', script], '.', { PATH: process.env.PATH }, spawnChild, LOST_CLOSE_TIMING);
     expect(await child.exited).toBe(1);
     expect(child.output).toContain('the runner lost `close`; the driver records the exit (#1274)');
@@ -423,7 +442,7 @@ describe('where the output went when the runner lost close (#1797)', () => {
 
   test.if(process.platform === 'linux')('a command whose exit is recorded without `close` logs the same line', async () => {
     const { spawnChild, childEnds } = losingCloseWithNeighbor();
-    const result = await runTimedCommand('sh', ['-c', 'sleep 0.3; echo installed; exit 3'], { cwd: '.', spawnChild, timeoutMs: 5_000, timing: { exit: LOST_CLOSE_TIMING.exit, leftoverTermMs: 200 } });
+    const result = await runTimedCommand('sh', ['-c', `${GATED} echo installed; exit 3`], { cwd: '.', spawnChild, timeoutMs: 5_000, timing: { exit: LOST_CLOSE_TIMING.exit, leftoverTermMs: 200 } });
     expect(result.code).toBe(3);
     expect(result.output).toContain('the runner lost `close`');
     expect(result.output).toContain(`[driver] sh's output sockets: stdout`);

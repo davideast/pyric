@@ -29,6 +29,8 @@ export interface RulesRequest {
   rules?: string;
   /** Realtime Database instance name, URL, or `default` when evaluating non-default instances. */
   instance?: string;
+  /** Cloud Storage bucket, by name or `gs://` URL, whose rules evaluate; omit for the default bucket. */
+  bucket?: string;
   /**
    * The instant `request.time` (Firestore, Storage) or `now` (database)
    * evaluates at, as an ISO 8601 string. Omit to evaluate at the sandbox

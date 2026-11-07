@@ -9,6 +9,7 @@ import {
   replaceStorageRules,
   resourceFromStored,
   rulesBucketName,
+  storageBucketsWithRules,
   targetOf,
   storageFirestoreLookup,
 } from 'pyric/storage/internal';
@@ -18,15 +19,46 @@ import { describeCompileLimitViolations, sourceCompileLimitViolations } from 'py
 import { operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { storageFor } from '../service-handles.js';
-import { activeStorageRules } from '../storage-rules.js';
+import { activeStorageRules, storageForBucket } from '../storage-rules.js';
 import type { OperationResult, SurfaceContext } from '../types.js';
 import { markLintFindings } from '../rules-verdict.js';
 import { simulatedRequestResource } from './storage-request-resource.js';
 import type { RulesEngine, RulesSourceProblem } from './types.js';
 
+/**
+ * Why a `set` on the default bucket was refused: buckets hold rules by name
+ * and the host does not yet know which of them is the default bucket.
+ */
+const DEFAULT_BUCKET_NAME_UNKNOWN = {
+  code: 'default-bucket-name-unknown',
+  summary: "Load the app's page first, so the host knows which bucket the default Storage rules belong to.",
+} as const;
+
+/**
+ * Where a `set` on the default bucket installs: under the default bucket's
+ * name when rules are deployed to it by name, as a served project whose
+ * `firebase.json` names its bucket deploys them, since that entry is the
+ * one the bucket enforces (#1313). Otherwise the default bucket's own rules.
+ * `null` when buckets hold rules by name and the default bucket's name is
+ * unknown, since an install there could land on an entry nothing enforces.
+ */
+function defaultBucketDeploy(ctx: SurfaceContext): { bucket?: string } | null {
+  const byName = storageBucketsWithRules(ctx.sandbox);
+  const nameUnknown = byName.length > 0 && ctx.storageBucketName?.() === undefined;
+  if (nameUnknown) return null;
+  const target = targetOf(storageFor(ctx));
+  const name = rulesBucketName(target.bucket, target.bucketName);
+  return byName.includes(name) ? { bucket: name } : {};
+}
+
 /** What a call has to do when it named no source and the sandbox holds none. */
 const NO_RULES_LOADED =
   "No storage rules were supplied and none are loaded in the sandbox. Pass rules, or call rules.set with service 'storage' first.";
+
+/** What a call naming a bucket has to do when that bucket has no rules deployed. */
+function noBucketRules(bucket: string): string {
+  return `No storage rules were supplied and none are deployed to bucket "${bucket}". Pass rules, or deploy rules to that bucket in firebase.json.`;
+}
 
 /** The identity a simulation runs as, in the shape the rules evaluator takes. */
 function identityFor(
@@ -123,9 +155,9 @@ export const STORAGE_RULES: RulesEngine = {
   },
 
   async simulate(ctx, request) {
-    const source = request.rules ?? activeStorageRules(ctx);
+    const source = request.rules ?? activeStorageRules(ctx, request.bucket);
     if (source === null) {
-      return operationFailure(NO_RULES_LOADED);
+      return operationFailure(request.bucket === undefined ? NO_RULES_LOADED : noBucketRules(request.bucket));
     }
 
     let parsed;
@@ -135,7 +167,9 @@ export const STORAGE_RULES: RulesEngine = {
       return operationFailure(error instanceof Error ? error.message : String(error));
     }
 
-    const object = ref(storageFor(ctx), request.path);
+    // A named bucket is simulated on its own handle, so the stored object,
+    // `{bucket}` and the match path are that bucket's (#1313).
+    const object = ref(storageForBucket(ctx, request.bucket), request.path);
     const service = await getStorageService(object.storage);
     const existing = object.fullPath
       ? await service.backend.getMetadata(object.fullPath, object.bucket)
@@ -177,8 +211,12 @@ export const STORAGE_RULES: RulesEngine = {
   },
 
   async install(ctx, rules) {
+    const deploy = defaultBucketDeploy(ctx);
+    if (deploy === null) {
+      return operationFailure(DEFAULT_BUCKET_NAME_UNKNOWN.summary, { code: DEFAULT_BUCKET_NAME_UNKNOWN.code });
+    }
     try {
-      await replaceStorageRules(ctx.sandbox, rules);
+      await replaceStorageRules(ctx.sandbox, rules, deploy);
     } catch (error) {
       const problem = sourceProblem(rules, error);
       return operationFailure(`Storage ${problem.body} ${problem.fix}`);

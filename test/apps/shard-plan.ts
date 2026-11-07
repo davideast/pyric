@@ -3,12 +3,14 @@
  * Splits the app scenarios across CI jobs, and checks that the jobs together
  * ran every planned app exactly once.
  *
- *   bun test/apps/shard-plan.ts plan --durations <file>
+ *   bun test/apps/shard-plan.ts plan --durations <file> [--apps <file>]
  *   bun test/apps/shard-plan.ts check --reports <dir> [--durations-out <file>]
  *
  * `plan` (in the plan job) reads the times main recorded for each app, groups
  * the apps by dependency set, and packs them into shards of about
- * TARGET_SHARD_SECONDS each. It writes the plan (`app-plan`) and the matrix
+ * TARGET_SHARD_SECONDS each. With `--apps`, it plans only the apps that file
+ * names (the scenarios scripts/ci/plan.ts selected for a pull request); the
+ * file says `"all"` for every app that is not slow. It writes the plan (`app-plan`) and the matrix
  * (`app-shards`) to the step outputs. Each App scenarios job then runs
  * `run.ts --shard-plan <file> --shard <n>`, which runs that shard's apps and
  * writes a report of the apps it ran (`ShardReport`).
@@ -38,9 +40,9 @@ export const TARGET_SHARD_SECONDS = 90;
 /**
  * The most app shards one run starts. #1571 decision 3 gives the planner a
  * budget of about 30 jobs per pull request run (the account runs 40 at once).
- * A pull request with the `ci-packaging` label starts 23 jobs besides the
- * app shards, so 7 shards make 30. Past this, shards get longer instead of
- * more numerous.
+ * An unlabeled pull request starts 23 jobs besides the app shards, so 7
+ * shards make 30; the `ci-packaging` label adds 6 more. Past this, shards get
+ * longer instead of more numerous.
  */
 export const MOST_SHARDS = 7;
 
@@ -80,8 +82,16 @@ export interface Shard {
   predictedSeconds: number;
 }
 
+/**
+ * Whether a plan holds every app that is not slow (`all`, the default), or
+ * the apps scripts/ci/plan.ts selected for a pull request (`selected`).
+ */
+export type PlanScope = 'all' | 'selected';
+
 export interface AppPlan {
   format: number;
+  /** Absent in a plan written before scopes, which held every app. */
+  scope?: PlanScope;
   /** Every planned app, sorted. The shards' apps together are exactly this list. */
   apps: string[];
   shards: Shard[];
@@ -195,7 +205,7 @@ function placeUnit(shards: readonly ShardLoad[], unit: Unit): ShardLoad {
  * shard, unless it holds more than a shard's share; then it is split into
  * chunks. Units go longest first onto the shard that ends up shortest.
  */
-export function planShards(planned: readonly PlannedApp[], recorded: Durations, options: { mostShards?: number } = {}): AppPlan {
+export function planShards(planned: readonly PlannedApp[], recorded: Durations, options: { mostShards?: number; scope?: PlanScope } = {}): AppPlan {
   if (planned.length === 0) throw new Error('no app scenario to plan: test/apps has no scenario.ts that is not slow');
   const apps = [...planned].sort((a, b) => a.name.localeCompare(b.name));
   const names = apps.map((app) => app.name);
@@ -229,6 +239,7 @@ export function planShards(planned: readonly PlannedApp[], recorded: Durations, 
   if (carriers !== 1) throw new Error(`the plan gives the runner unit tests to ${carriers} shards, and exactly one must run them`);
   return {
     format: PLAN_FORMAT,
+    scope: options.scope ?? 'all',
     apps: names,
     shards: used.map((shard, position) => ({
       index: position + 1,
@@ -295,29 +306,78 @@ export function appSetKey(appDir: string, name: string, published: readonly stri
 /** `export const slow = true` at the top level of scenario.ts, the marker run.ts reads by import. */
 const SLOW_MARKER = /^export const slow = true;?\s*$/m;
 
+/** A directory of test/apps with a scenario.ts, and whether it marks itself slow. */
+export interface Scenario {
+  name: string;
+  slow: boolean;
+}
+
+/**
+ * Every app scenario: each directory of test/apps with a scenario.ts, sorted.
+ * The plan job has no `bun install`, so it reads the slow marker as text.
+ */
+export function discoverScenarios(root: string): Scenario[] {
+  const appsDir = join(root, 'test/apps');
+  return readdirSync(appsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(appsDir, entry.name, 'scenario.ts')))
+    .map((entry) => entry.name)
+    .sort()
+    .map((name) => ({ name, slow: SLOW_MARKER.test(readFileSync(join(appsDir, name, 'scenario.ts'), 'utf8')) }));
+}
+
 /**
  * The apps a `--skip-slow` run drives: each directory with a scenario.ts,
- * less the slow ones. The plan job has no `bun install`, so it reads the
- * marker as text; each shard's runner imports every scenario and fails if
+ * less the slow ones. Each shard's runner imports every scenario and fails if
  * the plan's apps differ from its own selection (`checkPlanCoversSelection`).
  */
 export function discoverPlannedApps(root: string): PlannedApp[] {
   const appsDir = join(root, 'test/apps');
   const published = publishedPackageNames(root);
-  return readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && existsSync(join(appsDir, entry.name, 'scenario.ts')))
-    .map((entry) => entry.name)
-    .filter((name) => !SLOW_MARKER.test(readFileSync(join(appsDir, name, 'scenario.ts'), 'utf8')))
-    .sort()
-    .map((name) => ({ name, set: appSetKey(join(appsDir, name), name, published) }));
+  return discoverScenarios(root)
+    .filter((scenario) => !scenario.slow)
+    .map(({ name }) => ({ name, set: appSetKey(join(appsDir, name), name, published) }));
 }
 
-/** Why the plan's apps differ from the apps this run selects, or nothing when they match. */
+/** What `--apps` names: every app that is not slow, or the selected ones. */
+export type AppSelection = 'all' | readonly string[];
+
+/**
+ * The planned apps a selection keeps. A selected name that is not a planned
+ * app (unknown, or slow) is an error, since scripts/ci/plan.ts selects only
+ * apps that are not slow; an empty selection is one too, since a plan with no
+ * app would pass without running anything.
+ */
+export function selectPlannedApps(planned: readonly PlannedApp[], selection: AppSelection): PlannedApp[] {
+  if (selection === 'all') return [...planned];
+  const known = new Set(planned.map((app) => app.name));
+  const unknown = selection.filter((name) => !known.has(name));
+  if (unknown.length > 0) throw new Error(`--apps names ${unknown.join(', ')}, which is not an app scenario that is not slow`);
+  if (selection.length === 0) throw new Error('--apps names no app; the plan job plans every app when none is selected');
+  const chosen = new Set(selection);
+  return planned.filter((app) => chosen.has(app.name));
+}
+
+/** Reads the `--apps` file scripts/ci/plan.ts writes: `{"apps": "all"}` or `{"apps": ["name", ...]}`. */
+export function readAppSelection(text: string): AppSelection {
+  const { apps } = JSON.parse(text) as { apps?: unknown };
+  if (apps === 'all') return 'all';
+  const isNameList = Array.isArray(apps) && apps.every((name) => typeof name === 'string');
+  if (!isNameList) throw new Error('the app selection file must hold {"apps": "all"} or {"apps": [names]}');
+  return apps as string[];
+}
+
+/**
+ * Why the plan's apps differ from the apps this run selects, or nothing when
+ * they match. A plan of every app must name exactly the run's selection; a
+ * plan of selected apps must name only apps the run selects.
+ */
 export function checkPlanCoversSelection(plan: AppPlan, selected: readonly string[]): string[] {
   const planned = new Set(plan.apps);
   const chosen = new Set(selected);
+  const isSelectedPlan = plan.scope === 'selected';
+  const leftOut = isSelectedPlan ? [] : [...chosen].filter((name) => !planned.has(name));
   return [
-    ...[...chosen].filter((name) => !planned.has(name)).sort().map((name) => `the plan leaves out ${name}, which this run selects`),
+    ...leftOut.sort().map((name) => `the plan leaves out ${name}, which this run selects`),
     ...[...planned].filter((name) => !chosen.has(name)).sort().map((name) => `the plan names ${name}, which this run does not select`),
   ];
 }
@@ -451,7 +511,12 @@ function readReports(dir: string): ShardReport[] {
 function runPlan(argv: readonly string[]): void {
   const root = resolve(import.meta.dir, '../..');
   const durationsFile = option(argv, '--durations');
-  const plan = planShards(discoverPlannedApps(root), durationsFile ? readDurations(durationsFile) : {});
+  const appsFile = option(argv, '--apps');
+  const selection = appsFile ? readAppSelection(readFileSync(appsFile, 'utf8')) : 'all';
+  const planned = selectPlannedApps(discoverPlannedApps(root), selection);
+  const scope: PlanScope = selection === 'all' ? 'all' : 'selected';
+  const plan = planShards(planned, durationsFile ? readDurations(durationsFile) : {}, { scope });
+  console.log(scope === 'all' ? 'planning every app that is not slow' : `planning the selected apps: ${plan.apps.join(', ')}`);
   for (const shard of plan.shards) {
     console.log(`shard ${shard.index}/${plan.shards.length}: ${shard.apps.length} apps, ${shard.sets.length} sets, about ${Math.round(shard.predictedSeconds)} s${shard.runnerTests ? ', with the runner tests' : ''}`);
     console.log(`  ${shard.apps.join(' ')}`);
@@ -491,7 +556,7 @@ if (import.meta.main) {
   if (command === 'plan') runPlan(rest);
   else if (command === 'check') runCheck(rest);
   else {
-    console.error('usage: bun test/apps/shard-plan.ts plan --durations <file> | check --reports <dir> [--durations-out <file>]');
+    console.error('usage: bun test/apps/shard-plan.ts plan --durations <file> [--apps <file>] | check --reports <dir> [--durations-out <file>]');
     process.exit(2);
   }
 }

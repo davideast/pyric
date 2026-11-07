@@ -38,6 +38,7 @@ import type {
   ObservedCall,
 } from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
+import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
 import type {
   BrokerMessage,
   ClientVisibilityState,
@@ -338,6 +339,8 @@ export type OpMessage = (
       kind: PresenceClientKind;
       route: string;
       visibility: PresenceVisibility;
+      /** A live page's signed-in user's email, null when signed out. A live host keeps it in memory and strips it before the Node sandbox. */
+      email?: string | null;
     }
   | { t: 'op'; id: string; method: 'presence.heartbeat'; clientId: string }
   | {
@@ -347,6 +350,8 @@ export type OpMessage = (
       clientId: string;
       route?: string;
       visibility?: PresenceVisibility;
+      /** Sent when a live page's user changes; see `presence.register`. */
+      email?: string | null;
     }
   | { t: 'op'; id: string; method: 'presence.disconnect'; clientId: string }
 ) & {
@@ -374,6 +379,8 @@ export interface EventSubMessage {
   target: 'events';
   /** The subscribing page's tab id (`AppConfigMessage.tabId`); the history batch answers with `pageId`. */
   tabId?: string;
+  /** The subscribing page's browser profile id (`AppConfigMessage.clientId`), for a port that sends no `appConfig`. */
+  clientId?: string;
 }
 
 export interface RtdbValueSubMessage {
@@ -541,6 +548,29 @@ export interface ObserveMessage {
   t: 'observe';
   id: string;
   call: ObservedCall;
+  /**
+   * A live Node process's label for its project root and entry script, a
+   * hash that carries no path. When a connection with a label sends its
+   * first frame, the host detaches the listeners an earlier connection with
+   * the same label reported if that one has closed: a restarted process. A
+   * label, never an authority.
+   */
+  nodeClient?: string;
+}
+
+/**
+ * What a Node process under the live register left unobserved: the Google
+ * hosts it called that no live row observed, and the firebase-admin
+ * subpaths it loaded that no row serves or whose row records no call
+ * (`NodeUnobservedLists` in `pyric/sandbox/internal`). Names only, each list
+ * bounded and absent when empty. The process sends the whole lists when one
+ * first gains an entry and again on each change; the live host lists them
+ * under the process's client (`live-clients.ts`) and the sandbox answers
+ * `res`. A frame whose lists are malformed is refused with `invalid-argument`.
+ */
+export interface UnobservedMessage extends NodeUnobservedLists {
+  t: 'unobserved';
+  id: string;
 }
 
 export type InboundMessage = (
@@ -552,6 +582,7 @@ export type InboundMessage = (
   | ClockSubscribeMessage
   | ToolMessage
   | ObserveMessage
+  | UnobservedMessage
 ) & {
   clientSessionId?: string;
   resumeSession?: boolean;

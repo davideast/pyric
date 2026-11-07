@@ -18,6 +18,11 @@
 // real package runs, and trap.cjs, preloaded into the hosted dev server,
 // records no connection. A page that imports firebase/installations, which the
 // plugin doesn't serve, gets the stop error in Chromium.
+//
+// A server built with `vite build --ssr` and `ssr.noExternal: true` keeps
+// every Firebase SDK external through pyricViteExternals, including a direct
+// `@firebase/*` import and an npm alias of firebase-admin, so under
+// `pyric sandbox` each of those imports stops at load (#1756).
 import assert from 'node:assert/strict';
 import { cpSync } from 'node:fs';
 import { join } from 'node:path';
@@ -123,6 +128,42 @@ async function externalizationShape(app: App, noExternal: 'firebase' | 'all', ru
   });
   await app.step(`ssr.noExternal ${noExternal}: nothing reached production`, () => assertNoProductionTraffic(server, since));
   await app.step(`stop the ssr.noExternal ${noExternal} dev server`, () => server.process.stop());
+}
+
+/** The npm alias the SSR build imports firebase-admin by: `"admin-alias": "npm:firebase-admin@13.6.0"`. */
+const ADMIN_ALIAS = 'admin-alias';
+const SDK_NAMES_OUT_DIR = 'dist-ssr';
+const SDK_NAMES = ['@firebase/app', '@firebase/firestore', `${ADMIN_ALIAS}/app`];
+
+/** `vite build --ssr` with `ssr.noExternal: true`, then the built entry under `pyric sandbox` (#1756). */
+async function builtServerStops(app: App): Promise<void> {
+  // What an alias install lays out: the package's files in the alias's
+  // folder, its manifest still naming firebase-admin, its dependencies
+  // hoisted beside it. Copied, so the app installs the same dependency set.
+  await app.step(`install firebase-admin under the npm alias ${ADMIN_ALIAS}`, () =>
+    cpSync(join(app.dir, 'node_modules', 'firebase-admin'), join(app.dir, 'node_modules', ADMIN_ALIAS), { recursive: true }));
+  await app.step('vite build --ssr with ssr.noExternal: true keeps each Firebase SDK name external', async () => {
+    const build = await app.command(
+      'node',
+      ['node_modules/vite/bin/vite.js', 'build', '--ssr', 'src/ssr-sdk-names.js', '--outDir', SDK_NAMES_OUT_DIR],
+      { env: { PYRIC_TEST_NO_EXTERNAL: 'all' }, timeoutMs: 120_000 },
+    );
+    assert.equal(build.code, 0, build.output);
+    const built = app.readFile(join(SDK_NAMES_OUT_DIR, 'ssr-sdk-names.js'));
+    for (const name of SDK_NAMES) assert.match(built, new RegExp(`import\\(["']${name}["']\\)`), `${name} was bundled`);
+  });
+  await app.step('under pyric sandbox, each built import of a Firebase SDK name stops at load', async () => {
+    const port = await app.freePort();
+    const command = ['node', join(SDK_NAMES_OUT_DIR, 'ssr-sdk-names.js')];
+    const result = await app.pyric(['sandbox', '--no-open', '--port', String(port), '--', ...command], { timeoutMs: 120_000 });
+    assert.equal(result.code, 0, result.output);
+    // `pyric sandbox` prints its command's output with a `[dev] ` prefix.
+    const lines = result.output.split('\n').map((text) => text.replace(/^\[dev\] /, ''));
+    const line = lines.find((text) => text.startsWith('sdk-names '));
+    assert.ok(line, `the built entry printed no outcomes:\n${result.output}`);
+    const outcomes = JSON.parse(line.slice('sdk-names '.length)) as Outcomes;
+    for (const name of SDK_NAMES) expectCode(outcomes, name, 'PYRIC_REAL_SDK_STOPPED');
+  });
 }
 
 export default scenario(async (app) => {
@@ -270,4 +311,6 @@ export default scenario(async (app) => {
     assert.match(output, /^programmatic closed$/m, output);
     assert.ok(Date.now() - startedAt < 60_000, output);
   });
+
+  await builtServerStops(app);
 });

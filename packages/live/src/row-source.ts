@@ -34,11 +34,15 @@ export interface RowImports {
   readonly hostProjectId?: string;
 }
 
-/** Where a live module reads the installed SDK's version: `firebase/app` itself, or the live app row. */
+/**
+ * Where a live module reads the installed SDK's version and its initialized
+ * apps (`getApps`, which no row observes): `firebase/app` itself, or the
+ * live app row.
+ */
 function sdkVersionImport(specifier: ServedFirebaseSpecifier): string {
   const isApp = specifier === 'firebase/app';
-  if (isApp) return 'const SDK_VERSION = __pyricReal.SDK_VERSION;';
-  return "import { SDK_VERSION } from 'firebase/app';";
+  if (isApp) return 'const SDK_VERSION = __pyricReal.SDK_VERSION; const __pyricGetApps = __pyricReal.getApps;';
+  return "import { SDK_VERSION, getApps as __pyricGetApps } from 'firebase/app';";
 }
 
 /** The source of the live row module for `specifier`. Throws for a specifier with no live row. */
@@ -46,7 +50,7 @@ export function rowModuleSource(specifier: ServedFirebaseSpecifier, imports: Row
   const key = LIVE_ROWS.get(specifier);
   if (key === undefined) throw new Error(`@pyric/live has no live row for ${specifier}.`);
   const names = replacedExports(key);
-  const site = `{ observer, sdkVersion: SDK_VERSION, client: ${JSON.stringify(imports.client)} }`;
+  const site = `{ observer, sdkVersion: SDK_VERSION, client: ${JSON.stringify(imports.client)}, apps: __pyricGetApps }`;
   const quoted = JSON.stringify(specifier);
   return [
     `import * as __pyricReal from ${quoted};`,
@@ -67,14 +71,19 @@ function observerFields(imports: RowImports): string[] {
   return [`hostProjectId: ${JSON.stringify(imports.hostProjectId)}`, client];
 }
 
+/** Both planes' observers measure each resolved call with their sender's `measureObservedUsage`. */
+const MEASURE_LINE = 'Object.assign(observer, { measure: measureObservedUsage });';
+
 /** The observer module's lines on a page, whose observer also journals each Firestore listener. */
 function pageObserverLines(sender: string, observer: string, imports: RowImports): string[] {
   const fields = ['journal: journalLiveListener', ...observerFields(imports)].join(', ');
   return [
     `import { sendObservedCall } from ${JSON.stringify(sender)};`,
     `import { journalLiveListener } from ${JSON.stringify(sender)};`,
+    `import { measureObservedUsage } from ${JSON.stringify(sender)};`,
     `import { pageObserver } from ${observer};`,
     `export const observer = Object.assign(pageObserver(sendObservedCall), { ${fields} });`,
+    MEASURE_LINE,
   ];
 }
 
@@ -83,15 +92,18 @@ function nodeObserverLines(sender: string, observer: string, imports: RowImports
   const fields = observerFields(imports).join(', ');
   return [
     `import { sendObservedCall } from ${JSON.stringify(sender)};`,
+    `import { measureObservedUsage } from ${JSON.stringify(sender)};`,
     `import { pageObserver } from ${observer};`,
     `export const observer = Object.assign(pageObserver(sendObservedCall), { ${fields} });`,
+    MEASURE_LINE,
   ];
 }
 
 /**
  * The source of the observer module: each record that has a row goes to the
- * host through `sender`. On a page, the observer also journals each Firestore
- * listener through the page sender's `journalLiveListener`, in the SDK
+ * host through `sender`, measured by the sender's `measureObservedUsage`.
+ * On a page, the observer also journals each Firestore listener through the
+ * page sender's `journalLiveListener`, in the SDK
  * activity the runtime chip's Listeners view and Flow read. The observer
  * names the client and, once the plane has resolved it, the host's project,
  * so every row it serves refuses a call to another project.

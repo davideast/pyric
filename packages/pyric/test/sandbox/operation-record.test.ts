@@ -264,6 +264,29 @@ describe('canonical operation records', () => {
     const record = toOperationRecord(event)!;
     expect(record.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
   });
+
+  it("keeps production's answer on a record of a call production served", () => {
+    const production = { outcome: { status: 'error' as const, code: 'permission-denied' }, claimNames: ['admin'] };
+    const event: SandboxEvent = {
+      kind: 'operation',
+      id: 'observed-denial',
+      at: 1,
+      service: 'firestore',
+      method: 'getDoc',
+      path: 'rooms/r1',
+      auth: { uid: 'alice' },
+      result: 'deny',
+      origin: 'user',
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      production,
+    };
+    const record = toOperationRecord(event)!;
+    expect(record.result).toBe('deny');
+    expect(record.rules).toEqual({ kind: 'not-evaluated', reason: 'external-execution' });
+    expect(record.production).toEqual(production);
+    expect(record.production).not.toBe(production);
+    expect(Object.isFrozen(record.production)).toBe(true);
+  });
 });
 
 

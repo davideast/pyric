@@ -13,6 +13,7 @@ import type { HostedConnectionState } from '../worker/client/websocket-connectio
 import { getServiceWorkerFirestore } from '../worker/client/service-worker-connection.js';
 import { getDeferredFirestore } from '../worker/client/deferred-connection.js';
 import { getHostedFirestore } from '../worker/client/websocket-connection.js';
+import { ownClientUntilPagehide } from '../worker/client/pagehide.js';
 import { currentHostInstanceId, currentHostPayload, currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
@@ -23,6 +24,7 @@ import {
   PYRIC_WORKER_URL,
 } from '../runtime/manifest.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
+import { pageLiveIdentity } from '../runtime/live-identity.js';
 import { connectRuntimeWorker } from '../runtime/worker-connection.js';
 import { createWorkerReplacement } from '../runtime/worker-replacement.js';
 import {
@@ -154,6 +156,11 @@ function reportPersistenceHealth(configuration: WorkerInitPayload | null): void 
   if (persistenceUnhealthy) runtimeStatus.reportError({ code: 'persistence-unhealthy', message: 'Hosted persistence is unhealthy. Repair the store and restart the host.' }, 'runtime');
 }
 
+/** A hosted page (the only kind a live host serves) sends its signed-in user's email with its presence. */
+function presenceIdentity(hosted: boolean): { identity?: ReturnType<typeof pageLiveIdentity> } {
+  return hosted ? { identity: pageLiveIdentity() } : {};
+}
+
 function initialize(configuration: WorkerInitPayload | null): void {
   payload = configuration;
   // Every listener attach on this page reads this, on the worker path and
@@ -170,9 +177,14 @@ function initialize(configuration: WorkerInitPayload | null): void {
 
   workerDb = createControlClient(workerRequested);
   useWorker = useHosted || (workerRequested && (!hasSharedWorker || workerDb !== null));
+  // A hosted page that leaves for good never resumes its session, so it ends
+  // it at once: the host then ends what the page held, such as the live
+  // listeners it reported, instead of keeping them for the retention window.
+  const hostedSession = useHosted ? workerDb : null;
+  if (hostedSession !== null) ownClientUntilPagehide(hostedSession);
 
   presenceSession = useWorker && workerDb
-    ? startPresence({ db: workerDb, kind: 'app' })
+    ? startPresence({ db: workerDb, kind: 'app', ...presenceIdentity(useHosted) })
     : null;
 
   let runtimeMode: 'hosted' | 'shared-worker' | 'in-page' = 'in-page';

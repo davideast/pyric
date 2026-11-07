@@ -12,6 +12,10 @@
  * The starting state is read between frames. A frame another port is still
  * handling while it is read can land on either side of it; replay reports such
  * a frame as a divergence rather than hiding it.
+ *
+ * An observed call is recorded without its claim values, write data and
+ * returned document: the host holds those in memory for its local rules, and
+ * a repro file is made to share.
  */
 import type { InboundMessage, OutboundMessage } from '../worker/protocol.js';
 import type { ReproBase, ReproEntry } from './format.js';
@@ -56,11 +60,23 @@ export interface ReproRecorder {
   log(): Promise<ReproLog>;
 }
 
-/** Event-stream and clock frames are Studio telemetry, not application operations. */
+/**
+ * Event-stream and clock frames are Studio telemetry, and a live Node
+ * process's unobserved lists are host status, not application operations.
+ */
 function isRecordedInbound(frame: InboundMessage): boolean {
-  if (frame.t === 'clock-subscribe') return false;
+  if (frame.t === 'clock-subscribe' || frame.t === 'unobserved') return false;
   const isEventStream = frame.t === 'sub' && frame.target === 'events';
   return !isEventStream;
+}
+
+/** An observe frame without the values the host keeps in memory only; any other frame as it came. */
+function recordedFrame(frame: InboundMessage): InboundMessage {
+  if (frame.t !== 'observe') return frame;
+  const { writeData: _writeData, document: _document, account, ...call } = frame.call;
+  if (account === undefined) return { ...frame, call };
+  const { claims: _claims, ...named } = account;
+  return { ...frame, call: { ...call, account: named } };
 }
 
 export function createReproRecorder(options: {
@@ -139,7 +155,7 @@ export function createReproRecorder(options: {
           console.warn(`[pyric] The repro log could not read a starting state: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      append({ kind: 'in', at: now(), session, frame });
+      append({ kind: 'in', at: now(), session, frame: recordedFrame(frame) });
       track(session, frame);
     },
     outbound(session, frame) {

@@ -71,6 +71,12 @@ export interface PresenceSession {
   stop(): void;
 }
 
+/** The page's signed-in user, as the live identity store (`runtime/live-identity.ts`) holds it. */
+export interface PresenceIdentity {
+  current(): { email: string | null } | null;
+  subscribe(listener: (user: { email: string | null } | null) => void): () => void;
+}
+
 export interface StartPresenceOptions {
   db: ClientDb;
   kind: PresenceClientKind;
@@ -78,6 +84,15 @@ export interface StartPresenceOptions {
   clientId?: string;
   /** Heartbeat interval. Default: {@link PRESENCE_HEARTBEAT_INTERVAL_MS}. */
   heartbeatIntervalMs?: number;
+  /**
+   * The page's signed-in user. Its email goes with the register frame, and
+   * again with an update when the user changes, so a live host can list it.
+   */
+  identity?: PresenceIdentity;
+}
+
+function emailOf(user: { email: string | null } | null): string | null {
+  return user?.email ?? null;
 }
 
 /**
@@ -90,6 +105,9 @@ export function startPresence(opts: StartPresenceOptions): PresenceSession {
   const intervalMs = opts.heartbeatIntervalMs ?? PRESENCE_HEARTBEAT_INTERVAL_MS;
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | null = null;
+  const identity = opts.identity;
+  let email = identity === undefined ? undefined : emailOf(identity.current());
+  const emailField = (): { email?: string | null } => (email === undefined ? {} : { email });
 
   const register = (): void => {
     void rpc(db.port, {
@@ -100,6 +118,7 @@ export function startPresence(opts: StartPresenceOptions): PresenceSession {
       kind,
       route: currentRoute(),
       visibility: currentVisibility(),
+      ...emailField(),
     }).catch(() => {});
   };
 
@@ -123,6 +142,19 @@ export function startPresence(opts: StartPresenceOptions): PresenceSession {
     }).catch(() => {});
   };
 
+  const userChanged = (user: { email: string | null } | null): void => {
+    const next = emailOf(user);
+    if (stopped || next === email) return;
+    email = next;
+    void rpc(db.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'presence.update',
+      clientId,
+      email: next,
+    }).catch(() => {});
+  };
+
   const disconnect = (): void => {
     void rpc(db.port, {
       t: 'op',
@@ -133,6 +165,7 @@ export function startPresence(opts: StartPresenceOptions): PresenceSession {
   };
 
   register();
+  const stopIdentity = identity?.subscribe(userChanged);
 
   if (supportsDocumentEventListeners()) {
     document.addEventListener('visibilitychange', update);
@@ -155,6 +188,7 @@ export function startPresence(opts: StartPresenceOptions): PresenceSession {
   function stop(): void {
     if (stopped) return;
     stopped = true;
+    stopIdentity?.();
     if (timer != null) {
       clearInterval(timer);
       timer = null;

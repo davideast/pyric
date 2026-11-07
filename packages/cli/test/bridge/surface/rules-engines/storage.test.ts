@@ -7,6 +7,9 @@ import { describe, expect, it } from 'bun:test';
 import { getClock, initializeSandbox } from 'pyric/sandbox';
 import { deleteObject, getMetadata, getStorageSandbox, ref, updateMetadata, uploadBytes } from 'pyric/storage';
 import { compileStorageRules } from 'pyric/storage/internal';
+import { getStorage as appStorage } from 'pyric/storage';
+import { createAppForSandbox } from 'pyric/app/internal';
+import { installServedStorageRules } from '../../../../src/serve/storage-rules-install.js';
 
 import { createSurfaceContext } from '../../../../src/bridge/surface/context.js';
 import { METHODS_BY_KEY } from '../../../../src/bridge/surface/index.js';
@@ -129,6 +132,62 @@ describe('install', () => {
     expect(result.summary).toContain('Storage rules did not compile: Line 5: Expression is too complex to evaluate safely.');
     const problem = STORAGE_RULES.compileFailure(deep);
     expect(problem?.body).toBe('rules did not compile: Line 5: Expression is too complex to evaluate safely.');
+  });
+
+  it('installs on the default bucket by name when the served project deploys to it by name (#1313)', async () => {
+    const sandbox = initializeSandbox();
+    installServedStorageRules(sandbox, {
+      storageRules: null,
+      projectKey: `/project-${Math.random()}`,
+      storageBucketRules: {
+        'media-bucket': { rules: OPEN_RULES, rulesHash: 'm' },
+        'demo-app.appspot.com': { rules: OPEN_RULES, rulesHash: 'd' },
+      },
+    });
+    // The Node host names the default bucket by the page app's storageBucket.
+    const ctx = createSurfaceContext(sandbox);
+    ctx.storageBucketName = () => 'demo-app.appspot.com';
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: 'demo-app.appspot.com' }, `app-${Math.random()}`);
+    const upload = async (bucketUrl?: string): Promise<string> =>
+      uploadBytes(ref(appStorage(app, bucketUrl), 'uploads/a.txt'), new Uint8Array([1])).then(
+        () => 'ok',
+        (error: { code?: string }) => error.code ?? String(error),
+      );
+    expect(await upload()).toBe('ok');
+
+    const installed = await STORAGE_RULES.install(ctx, SIGNED_IN_ONLY_RULES);
+    expect(installed.ok).toBe(true);
+    expect(await upload()).toBe('storage/unauthorized');
+    expect(await upload('gs://media-bucket')).toBe('ok');
+    // What the tool reports in force is what the default bucket enforces.
+    const simulated = await STORAGE_RULES.simulate(ctx, { operation: 'create', path: 'uploads/a.txt' });
+    expect((simulated.data as { allowed: boolean }).allowed).toBe(false);
+  });
+
+  it('refuses a default-bucket install when buckets deploy by name and the default bucket\'s name is unknown (#1313)', async () => {
+    const sandbox = initializeSandbox();
+    installServedStorageRules(sandbox, {
+      storageRules: null,
+      projectKey: `/project-${Math.random()}`,
+      storageBucketRules: {
+        'media-bucket': { rules: OPEN_RULES, rulesHash: 'm' },
+        'demo-app.appspot.com': { rules: SIGNED_IN_ONLY_RULES, rulesHash: 'd' },
+      },
+    });
+    // No page has connected, so the host does not know the app's storageBucket.
+    const ctx = createSurfaceContext(sandbox);
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: 'demo-app.appspot.com' }, `app-${Math.random()}`);
+    const upload = async (): Promise<string> =>
+      uploadBytes(ref(appStorage(app), 'uploads/a.txt'), new Uint8Array([1])).then(
+        () => 'ok',
+        (error: { code?: string }) => error.code ?? String(error),
+      );
+
+    const installed = await STORAGE_RULES.install(ctx, OPEN_RULES);
+    expect(installed.ok).toBe(false);
+    expect(installed.data).toEqual({ code: 'default-bucket-name-unknown' });
+    // The bucket keeps the rules firebase.json deployed to it.
+    expect(await upload()).toBe('storage/unauthorized');
   });
 
   it('installs a parsed source', async () => {
@@ -366,6 +425,86 @@ service firebase.storage {
     expect(() => compileStorageRules(v2WithImport)).toThrow(/rules_version = '2\+modules'/);
     const v2Install = await STORAGE_RULES.install(ctx, v2WithImport);
     expect(v2Install.ok).toBe(false);
+  });
+});
+
+/**
+ * `rules.simulate` with a top-level `bucket` evaluates that bucket's rules in
+ * force, as a served project's firebase.json deploys them per bucket; without
+ * one, the default bucket's.
+ */
+describe('simulate on a named bucket (#1313)', () => {
+  const DEFAULT_BUCKET_NAME = 'demo-app.appspot.com';
+  const simulate = METHODS_BY_KEY.get('rules.simulate')!;
+
+  /** A served project deploying open rules to media-bucket and sign-in rules to the default bucket. */
+  function servedContext() {
+    const sandbox = initializeSandbox();
+    installServedStorageRules(sandbox, {
+      storageRules: null,
+      projectKey: `/project-${Math.random()}`,
+      storageBucketRules: {
+        'media-bucket': { rules: OPEN_RULES, rulesHash: 'm' },
+        [DEFAULT_BUCKET_NAME]: { rules: SIGNED_IN_ONLY_RULES, rulesHash: 'd' },
+      },
+    });
+    const ctx = createSurfaceContext(sandbox);
+    ctx.storageBucketName = () => DEFAULT_BUCKET_NAME;
+    return ctx;
+  }
+
+  function verdict(result: { ok: boolean; data?: unknown }): boolean {
+    expect(result.ok).toBe(true);
+    return (result.data as { allowed: boolean }).allowed;
+  }
+
+  it('takes a top-level bucket', () => {
+    const parsed = simulate.args.safeParse({
+      service: 'storage',
+      operation: 'create',
+      path: 'a.txt',
+      bucket: 'media-bucket',
+    });
+    expect(parsed.success).toBe(true);
+    expect((parsed.data as { bucket?: string } | undefined)?.bucket).toBe('media-bucket');
+  });
+
+  it("evaluates the named bucket's rules, and the default bucket's without one", async () => {
+    const ctx = servedContext();
+    const request = { service: 'storage', operation: 'create', path: 'uploads/a.txt' };
+    expect(verdict(await simulate.handler({ ...request, bucket: 'media-bucket' }, ctx))).toBe(true);
+    expect(verdict(await simulate.handler({ ...request, bucket: 'gs://media-bucket' }, ctx))).toBe(true);
+    expect(verdict(await simulate.handler({ ...request, bucket: DEFAULT_BUCKET_NAME }, ctx))).toBe(false);
+    expect(verdict(await simulate.handler(request, ctx))).toBe(false);
+  });
+
+  it('evaluates every case on the named bucket', async () => {
+    const ctx = servedContext();
+    const result = await simulate.handler(
+      {
+        service: 'storage',
+        bucket: 'media-bucket',
+        cases: [
+          { operation: 'create', path: 'uploads/a.txt' },
+          { operation: 'get', path: 'uploads/a.txt' },
+        ],
+      },
+      ctx,
+    );
+    expect(result.ok).toBe(true);
+    const cases = (result.data as { cases: Array<{ allowed: boolean }> }).cases;
+    expect(cases.map((one) => one.allowed)).toEqual([true, true]);
+  });
+
+  it('refuses bucket on a service other than storage', () => {
+    const fail = (_body: string, _fix: string, field?: string) =>
+      ({ ok: false, summary: '', data: { code: 'invalid_arguments', tool: 'rules', method: 'simulate', field, fix: '' } }) as const;
+    const refused = simulate.validate!(
+      { service: 'firestore', operation: 'get', path: 'a/b', bucket: 'media-bucket' },
+      { fail },
+    );
+    expect(refused?.data.code).toBe('invalid_arguments');
+    expect(refused?.data.field).toBe('bucket');
   });
 });
 

@@ -8,6 +8,10 @@
 // stream's are. A request no exchange holds is listed in `unmatched` and
 // refused, so the Admin call fails.
 //
+// A document name the SDK picked for `add` is an `autoId` placeholder: the
+// first request it matches keeps the id, and later requests and answers name
+// that id.
+//
 // State: the transaction ids this server issued and has not closed. A
 // `{ "$": "transaction" }` in an answer (BeginTransaction, or the first read
 // of a lazily started transaction) issues a new id; in a request it matches
@@ -77,10 +81,13 @@ export class AdminFirestore {
     const candidates = this.state.recordings
       .flatMap((recording) => recording.exchanges)
       .filter((exchange): exchange is AdminFirestoreExchange => exchange.kind === 'admin-firestore' && exchange.rpc === rpc)
-      .filter((exchange) => matches(exchange.request, request));
-    const chosen = candidates.find((exchange) => !this.used.has(exchange.id)) ?? candidates.at(-1) ?? null;
-    if (chosen) this.used.add(chosen.id);
-    return chosen;
+      .map((exchange) => ({ exchange, picked: new Map<string, string>() }))
+      .filter(({ exchange, picked }) => matchesRequest(exchange.request, request, this.state.autoIds, picked));
+    const chosen = candidates.find(({ exchange }) => !this.used.has(exchange.id)) ?? candidates.at(-1) ?? null;
+    if (!chosen) return null;
+    this.used.add(chosen.exchange.id);
+    for (const [name, id] of chosen.picked) this.state.autoIds.set(name, id);
+    return chosen.exchange;
   }
 
   /** A copy of `response` with each top-level `transaction` placeholder replaced by a newly issued id. */
@@ -90,6 +97,42 @@ export class AdminFirestore {
     this.open.add(id);
     return { ...response, transaction: id };
   }
+}
+
+/** A document id the Admin SDK picks: 20 characters of its `autoId` alphabet. */
+const AUTO_ID = /^[A-Za-z0-9]{20}$/;
+
+/**
+ * Whether a request value matches a recorded one, as `matches` does, where an
+ * `autoId` placeholder matches `<parent>/<id>`: for the id kept under its
+ * name, or, before one is kept, for any id, which it puts in `picked`.
+ */
+function matchesRequest(recorded: Json, actual: Json | undefined, kept: ReadonlyMap<string, string>, picked: Map<string, string>): boolean {
+  const name = placeholderName(recorded);
+  if (name === 'autoId') return matchesAutoId(recorded as JsonObject, actual, kept, picked);
+  if (Array.isArray(recorded)) {
+    return Array.isArray(actual) && actual.length === recorded.length && recorded.every((item, index) => matchesRequest(item, actual[index], kept, picked));
+  }
+  const isPlainObject = typeof recorded === 'object' && recorded !== null && name === null;
+  if (!isPlainObject) return matches(recorded, actual);
+  const isActualObject = typeof actual === 'object' && actual !== null && !Array.isArray(actual);
+  if (!isActualObject) return false;
+  const recordedKeys = Object.keys(recorded).sort();
+  const actualKeys = Object.keys(actual).sort();
+  const sameKeys = recordedKeys.length === actualKeys.length && recordedKeys.every((key, index) => key === actualKeys[index]);
+  return sameKeys && recordedKeys.every((key) => matchesRequest(recorded[key] ?? null, actual[key], kept, picked));
+}
+
+function matchesAutoId(placeholder: JsonObject, actual: Json | undefined, kept: ReadonlyMap<string, string>, picked: Map<string, string>): boolean {
+  if (typeof actual !== 'string') return false;
+  const prefix = `${String(placeholder.parent)}/`;
+  const id = actual.startsWith(prefix) ? actual.slice(prefix.length) : '';
+  const name = String(placeholder.name);
+  const known = kept.get(name) ?? picked.get(name);
+  if (known !== undefined) return id === known;
+  if (!AUTO_ID.test(id)) return false;
+  picked.set(name, id);
+  return true;
 }
 
 /**

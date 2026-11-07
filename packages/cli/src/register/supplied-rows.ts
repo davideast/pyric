@@ -7,19 +7,29 @@
  * does the refusal. The real-SDK stop opens only for one of those modules'
  * own ESM import of its specifier.
  * Every other Firebase import, served or not, and every `firebase-admin`
- * import is refused, never sent to a sandbox mirror, so one app object never
- * mixes the installed SDK with sandbox services.
+ * import the register does not pass through, is refused, never sent to a
+ * sandbox mirror, so one app object never mixes the installed SDK with
+ * sandbox services.
  *
  * The register may also pass served specifiers through (`passThrough`), as
  * the page plane does: each loads the app's installed SDK unwrapped, with no
- * row and no observer. Only a specifier with no live row can pass through,
- * and `firebase-admin` never does (`passThroughSet`).
+ * row and no observer. Only a specifier with no live row can pass through
+ * (`passThroughSet`). `@pyric/live/register` lists `firebase-admin` itself
+ * on Node 23 or later: every `firebase-admin` and `firebase-admin/*` import
+ * then loads the real Admin SDK, with the app's own credential
+ * (`supplied-entry.ts` records the files it loads).
+ *
+ * The register opens the Admin rows (`admin-row.ts`) with it (`adminRows`):
+ * the Admin SDK's four class-defining loads resolve to the Admin row modules,
+ * which observe them, and its other services are refused.
  *
  * Imports node built-ins and side-effect-free modules only.
  */
-import type { SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
+import { passesAdminThrough, type PassThroughSpecifier, type SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
 import type { ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 import { REGISTER_ROW_URLS, isRegisterLiveModule } from './live-row.js';
+import { ADMIN_ROW_URLS, adminRowOf, unservedAdminService } from './admin-row.js';
+import { packageNameOf, pathInPackageOf } from './package-identity.js';
 
 /** What the register reads from the installed `@pyric/live`. */
 export interface RegisterRowPackage {
@@ -36,8 +46,10 @@ export interface RegisterRowPackage {
  * import, until {@link RegisterRows.open} is given the installed `@pyric/live`.
  */
 export interface RegisterRows {
-  /** The served specifiers with no row that load the installed SDK unwrapped and unobserved. */
-  readonly passThrough: ReadonlySet<ServedFirebaseSpecifier>;
+  /** The served specifiers with no row that load the installed SDK unwrapped and unobserved, and `firebase-admin` when listed. */
+  readonly passThrough: ReadonlySet<PassThroughSpecifier>;
+  /** Whether the passed-through Admin SDK's loads go to the Admin rows (`admin-row.ts`). */
+  readonly adminRows: boolean;
   /** The installed `@pyric/live`, or null while the rows are shut. */
   package(): RegisterRowPackage | null;
   open(found: RegisterRowPackage): void;
@@ -49,11 +61,15 @@ function shutRefusal(specifier: string): Error {
   return Object.assign(error, { code: 'PYRIC_LIVE_REFUSED' });
 }
 
-/** Shut live rows, with the specifiers that pass through once they open. */
-export function registerRows(passThrough: ReadonlySet<ServedFirebaseSpecifier> = new Set()): RegisterRows {
+/**
+ * Shut live rows, with the specifiers that pass through once they open.
+ * `adminRows` opens the Admin rows, as `@pyric/live/register` does on Node 23 or later.
+ */
+export function registerRows(passThrough: ReadonlySet<PassThroughSpecifier> = new Set(), adminRows = false): RegisterRows {
   let found: RegisterRowPackage | null = null;
   return {
     passThrough,
+    adminRows,
     package: () => found,
     open(next) {
       found = next;
@@ -65,11 +81,17 @@ export type RegisterRowsResolution =
   | { readonly kind: 'module'; readonly url: string }
   | { readonly kind: 'installed-sdk'; readonly projectUrl: string }
   | { readonly kind: 'pass-through' }
+  | { readonly kind: 'admin-pass-through' }
+  | { readonly kind: 'admin-row'; readonly url: string }
+  | { readonly kind: 'admin-unobserved'; readonly subpath: string }
   | { readonly kind: 'refused'; readonly error: Error }
   | { readonly kind: 'unserved' };
 
 /** `firebase`, `firebase/*`, `firebase-admin` and `firebase-admin/*`, as an app names them. */
 const FIREBASE_IMPORT = /^firebase(-admin)?(\/.+)?$/;
+
+/** `firebase-admin` and `firebase-admin/*`. */
+const ADMIN_IMPORT = /^firebase-admin(\/.+)?$/;
 
 /** How an import names its module: the specifier, the importer's URL, and the resolve conditions. */
 export interface RegisterRowsImport {
@@ -102,7 +124,8 @@ function isOwnRowImport(rowUrl: string, request: RegisterRowsImport): boolean {
 /**
  * What an import gets under live rows: the row's module; the installed SDK,
  * when that row module imports its own specifier; the installed SDK
- * unwrapped, for a specifier the register passes through; the refusal, for every
+ * unwrapped, for a specifier the register passes through; the real Admin
+ * SDK, for a `firebase-admin` import when the register passes it through; the refusal, for every
  * other Firebase and `firebase-admin` import and for every one while the rows
  * are shut; or `unserved` for anything else, which resolves as Node resolves
  * it and still meets the stop.
@@ -116,10 +139,43 @@ export function registerRowsResolution(rows: RegisterRows, request: RegisterRows
   if (!isFirebaseImport) return { kind: 'unserved' };
   const url = REGISTER_ROW_URLS.get(specifier as ServedFirebaseSpecifier);
   if (found === null) return { kind: 'refused', error: shutRefusal(specifier) };
-  const isPassThrough = rows.passThrough.has(specifier as ServedFirebaseSpecifier);
+  const isPassThrough = rows.passThrough.has(specifier as PassThroughSpecifier) && !ADMIN_IMPORT.test(specifier);
   if (isPassThrough) return { kind: 'pass-through' };
+  const isAdminPassThrough = ADMIN_IMPORT.test(specifier) && passesAdminThrough(rows.passThrough);
+  if (isAdminPassThrough) return { kind: 'admin-pass-through' };
   if (url === undefined) return { kind: 'refused', error: found.refusal(specifier, 'node') };
   return isOwnRowImport(url, request) ? { kind: 'installed-sdk', projectUrl: found.projectUrl } : { kind: 'module', url };
+}
+
+/** A load the passed-through Admin SDK made, or the app's own `firebase-admin` import, and where Node resolved it. */
+export interface AdminTreeRequest {
+  readonly specifier: string;
+  readonly url: string;
+  /** Defaults to the manifest lookup in `package-identity.ts`. */
+  readonly nameOf?: (url: string) => string | null;
+  /** Defaults to `pathInPackageOf` in `package-identity.ts`. */
+  readonly pathInPackage?: (url: string, packageName: string) => string | null;
+}
+
+/**
+ * What a load of the passed-through Admin SDK gets while the Admin rows are
+ * on: the Admin row module at its four class-defining loads, the subpath of
+ * a `lib/<service>/` folder the rows do not serve, which loads the real
+ * module unobserved (ADR 0022, amendment 2026-11-07), or `unserved` for
+ * anything else, which loads as Node resolved it. Always `unserved` while the
+ * Admin rows are shut.
+ */
+export function adminTreeResolution(rows: RegisterRows, request: AdminTreeRequest): RegisterRowsResolution {
+  const found = rows.package();
+  if (!rows.adminRows || found === null) return { kind: 'unserved' };
+  const packageName = (request.nameOf ?? packageNameOf)(request.url);
+  const pathOf = request.pathInPackage ?? pathInPackageOf;
+  const pathInPackage = packageName === null ? null : pathOf(request.url, packageName);
+  const row = adminRowOf({ specifier: request.specifier, packageName, pathInPackage });
+  if (row !== null) return { kind: 'admin-row', url: ADMIN_ROW_URLS.get(row)! };
+  const service = unservedAdminService(packageName, pathInPackage);
+  if (service === null) return { kind: 'unserved' };
+  return { kind: 'admin-unobserved', subpath: `firebase-admin/${service}` };
 }
 
 /** The source the load hook serves for a fixed live module. Throws while the rows are shut. */

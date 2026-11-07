@@ -110,12 +110,18 @@ jobs:
       - name: Test fail-closed selection policy
         run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts test/apps/shard-plan.test.ts
       - name: Select proof
+        # On a pull request, the app scenarios are the ones under
+        # test/apps/<name>/ the diff changes and the test/apps/<name> paths
+        # the body names, as the body read when this run started; an edit to
+        # the body later does not start a run. plan.ts writes the selection to
+        # test-results/app-selection.json for the shard planner below.
         id: plan
         env:
           CI_EVENT_NAME: ${{ github.event_name }}
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CI_PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          CI_PR_BODY: ${{ github.event.pull_request.body }}
         run: bun scripts/ci/plan.ts
       - name: Restore the app scenario times main recorded
         # Only main saves app-durations-main-* (in CI / required), so a pull
@@ -133,10 +139,11 @@ jobs:
       - name: Plan the app scenario shards
         # test/apps/shard-plan.ts groups the apps by dependency set and packs
         # them into shards whose App scenarios step should take about 90 s, at most 7 (#1571).
+        # It plans the apps plan.ts selected, or every app that is not slow.
         # It always plans, so the App scenarios matrix is never empty, and
         # prints the plan's id, which names each shard's report artifact.
         id: app-plan
-        run: bun test/apps/shard-plan.ts plan --durations test-results/app-durations.json
+        run: bun test/apps/shard-plan.ts plan --durations test-results/app-durations.json --apps test-results/app-selection.json
 
   deletion-guard:
     # A removed test cannot fail, so a pull request that deletes test files or
@@ -341,13 +348,16 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
       - name: Build packages and the embedded Studio site
-        # Pull requests may restore this build from its exact-key cache. A
-        # push to main and the nightly run always build it fresh, as the
-        # packaging gate did before it took the tarballs from this job.
+        # Pull requests and pushes to main restore this build from its
+        # exact-key cache, keyed on every build input and the pinned
+        # toolchain, and build it as before on a miss. A push to main reads
+        # only caches main saved, never a pull request's. The nightly run
+        # always builds it fresh, so main's inputs still build from source
+        # every day.
         uses: ./.github/actions/restore-dist
         with:
           flavor: studio
-          fresh: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
+          fresh: ${{ github.event_name == 'schedule' }}
       - name: Pack the published packages
         run: bash scripts/pack-packages.sh --skip-build
       - name: Upload the packed tarballs and their manifest
@@ -380,7 +390,7 @@ jobs:
           retention-days: 1
 
   build-and-test:
-    name: Build all packages + run tests (${{ matrix.shard }}/2)
+    name: Build all packages + run tests (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: [plan, build-packages]
@@ -388,7 +398,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
 
@@ -419,17 +429,18 @@ jobs:
           flavor: packages
 
       - name: Run CLI tests
-        # Sharded across 2 runners by scripts/ci/test-shard.ts (bun test has no
-        # shard option, so files are split by index modulo 2). The CLI suite is
+        # Sharded across 3 runners by scripts/ci/test-shard.ts (bun test has no
+        # shard option, so it splits the files into shards of about equal
+        # time from the slow-file times it records). The CLI suite is
         # load-sensitive under CPU contention (verify replays flip verdicts when
-        # sharing a 2-core VM).
-        # Sharding gives each half of the suite its own dedicated 2-core VM
-        # without CPU starvation, cutting job wall-clock time in half (~48s).
+        # sharing a 2-core VM), so each shard gets a runner of its own. Two
+        # modulo shards took 224 s and 295 s on PR run 42329320713; three timed
+        # shards plan about 175 s each.
         # --quarantine applies quarantine only in these CI test steps; every
         # other caller of the runners, publish included, keeps its exit code.
         env:
           PYRIC_QUARANTINE_BASE_ENTRIES: ${{ needs.plan.outputs.quarantine-base }}
-        run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/2 --quarantine
+        run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/3 --quarantine
 
       - name: Upload the quarantine report
         # Each quarantined test's result in this run, which the release check
@@ -444,7 +455,7 @@ jobs:
           retention-days: 30
 
   library-tests:
-    name: Run library + UI tests (${{ matrix.shard }}/2)
+    name: Run library + UI tests (${{ matrix.part }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [plan, build-packages]
@@ -452,7 +463,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        # pyric-1 to pyric-3 are the timed shards of packages/pyric; rest is
+        # test:ci:libraries:rest.
+        part: [pyric-1, pyric-2, pyric-3, rest]
     steps:
       - uses: actions/checkout@v4
 
@@ -487,9 +500,11 @@ jobs:
         # its own conformance-suite job. In-job concurrency was measured first
         # and rejected: on a 2-core runner two CPU-bound streams saved 16s and
         # starved the conformance model's 60s beforeAll budget into a timeout.
-        # packages/pyric, about 240s of the 290s serial step, is split across
-        # the two shards by scripts/ci/test-shard.ts; shard 2 also runs the
-        # remaining suites (test:ci:libraries:rest, about 45s).
+        # packages/pyric, about 430 s serial, is split into three shards of
+        # about equal time by scripts/ci/test-shard.ts, and the remaining
+        # suites (test:ci:libraries:rest, about 90 s) run in a leg of their
+        # own. Two modulo shards, the second carrying the rest, took 154 s and
+        # 379 s on PR run 42329320713.
         # test:ci:libraries stays the canonical serial form for local runs and
         # the release gates; scripts/ci/library-split.test.ts pins
         # core = libraries minus conformance and rest = core minus
@@ -498,9 +513,13 @@ jobs:
         # other caller of the runners, publish included, keeps its exit code.
         env:
           PYRIC_QUARANTINE_BASE_ENTRIES: ${{ needs.plan.outputs.quarantine-base }}
+          PART: ${{ matrix.part }}
         run: |
-          bun scripts/ci/test-shard.ts --package=pyric --shard=${{ matrix.shard }}/2 --quarantine
-          if [ "${{ matrix.shard }}" = "2" ]; then bun run test:ci:libraries:rest; fi
+          if [ "$PART" = "rest" ]; then
+            bun run test:ci:libraries:rest && bun run test:plugin:unit
+          else
+            bun scripts/ci/test-shard.ts --package=pyric --shard="${PART#pyric-}/3" --quarantine
+          fi
 
       - name: Upload the quarantine report
         # Each quarantined test's result in this run, which the release check
@@ -509,7 +528,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quarantine-report-pyric-${{ matrix.shard }}-a${{ github.run_attempt }}
+          name: quarantine-report-${{ matrix.part }}-a${{ github.run_attempt }}
           path: test-results/quarantine/
           if-no-files-found: ignore
           retention-days: 30
@@ -555,12 +574,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [plan, pack-packages]
-    # Selected by scripts/ci/plan.ts for changes to the Vite plugin and served
-    # hosts, the register hook, pyric-admin, the AI broker, the published
-    # manifests, packaging, or test/apps, and always outside pull requests.
-    # Every selected run drives every app that is not slow, split into the
-    # shards the plan job made; CI / required checks that the shards together
-    # ran each planned app exactly once.
+    # Selected by scripts/ci/plan.ts. Outside pull requests, and on a pull
+    # request labeled `ci-full` or `ci-slow-scenarios`, every app that is not
+    # slow runs. Any other pull request runs the scenarios whose files under
+    # test/apps/<name>/ it changes and the test/apps/<name> scenarios its body
+    # names, plus a fixed smoke set (SMOKE_SCENARIOS) when it changes code
+    # the scenarios run. A change to the runner's shared files under
+    # test/apps, to the build, pack and install path, or to this workflow
+    # runs every app. With no app selected, this job, node-24-stop
+    # and (unless packaging needs it) the pack job are skipped, and
+    # CI / required passes without them. The apps run in the shards the plan
+    # job made; CI / required checks that the shards together ran each planned
+    # app exactly once.
     if: needs.plan.outputs.app-scenarios == 'true'
     strategy:
       # A failing shard does not cancel the others, so one run reports every failing app.
@@ -636,8 +661,9 @@ jobs:
         # wait on real timeouts (`export const slow = true`) are skipped here,
         # on pull requests and main alike; slow-scenarios.yml runs them. The
         # runner fails before installing anything unless the plan's apps are
-        # exactly the apps an unsharded run would select, then runs this
-        # shard's apps, longest first.
+        # exactly the apps an unsharded run would select (for a pull
+        # request's selected apps: only such apps), then runs this shard's
+        # apps, longest first.
         # --quarantine applies quarantine only in these CI test steps; every
         # other caller of the runners, publish included, keeps its exit code.
         env:
@@ -735,6 +761,20 @@ jobs:
         run: bun test --cwd packages/cli ./test/serve/vite-real-sdk-stop-node.test.ts
       - name: The Vite SSR client SDK app on Node 24.16
         run: bun test/apps/run.ts --packages dist/packages vite-ssr-client-sdk
+      # The Admin rows serve firebase-admin only on Node 23 or later, so the
+      # app scenarios on NODE_VERSION see its import refused. Here the
+      # observed Admin calls and their events run (#2304).
+      - name: The live-mode Admin SDK app on Node 24.16
+        run: bun test/apps/run.ts --packages dist/packages live-mode-admin
+      # The page and its API server under the live register, with the
+      # server's Admin calls observed (#2304).
+      - name: The live-mode full-stack app on Node 24.16
+        run: bun test/apps/run.ts --packages dist/packages live-mode-full-stack
+      # A backend under the live register with request instrumentation and
+      # firebase-admin: its token exchanges, Admin rows and project gate, and
+      # its unobserved lists in the live host's health (#2445).
+      - name: The live-mode instrumented backend on Node 24.16
+        run: bun test/apps/run.ts --packages dist/packages live-instrumented-backend
       - name: Upload app scenario logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -792,11 +832,21 @@ jobs:
           retention-days: 30
 
   browser-conformance:
-    name: Served app + SharedWorker conformance
+    name: Served app + SharedWorker conformance (${{ matrix.part }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: [plan, build-packages]
+    # Not after build-packages: this job builds the site flavor, a superset of
+    # the packages build, so waiting for that job only delayed it (about
+    # 110 s on PR run 42329320713, where this job finished last).
+    needs: plan
     if: needs.plan.outputs.check-set == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        # e2e-1 and e2e-2 are the two Playwright shards of the root e2e config
+        # (269 s whole on PR run 42329320713); studio runs the configs with a
+        # server of their own.
+        part: [e2e-1, e2e-2, studio]
     steps:
       - uses: actions/checkout@v4
 
@@ -856,23 +906,31 @@ jobs:
         # deletion teardown, the worker-owned AI boundary), runtime identity,
         # Flow treatments, the listener contract, and every other served-page
         # proof. Running the whole config means a new file cannot be left out
-        # of CI. The folders with their own config run in the steps below.
-        run: bun run --cwd packages/cli test:e2e --output=test-results/e2e --trace=retain-on-failure
+        # of CI; Playwright's --shard splits it, and the two shards together
+        # run every file. The folders with their own config run in the studio
+        # part below.
+        if: matrix.part != 'studio'
+        env:
+          PART: ${{ matrix.part }}
+        run: bun run --cwd packages/cli test:e2e --shard="${PART#e2e-}/2" --output=test-results/e2e --trace=retain-on-failure
 
       - name: CLI-hosted Studio
+        if: matrix.part == 'studio'
         run: bun run --cwd packages/cli test:site-cli --output=test-results/site-cli --trace=retain-on-failure
 
       - name: Public Studio
+        if: matrix.part == 'studio'
         run: bun run --cwd packages/cli test:site-static --output=test-results/site-static --trace=retain-on-failure
 
       - name: Node host smoke set
+        if: matrix.part == 'studio'
         run: bun run --cwd packages/cli test:hosted-smoke --output=test-results/hosted-smoke --trace=retain-on-failure
 
       - name: Upload browser conformance results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-conformance-results-${{ github.run_attempt }}
+          name: browser-conformance-results-${{ matrix.part }}-${{ github.run_attempt }}
           path: packages/cli/test-results/
           if-no-files-found: warn
           retention-days: 7
@@ -1271,9 +1329,10 @@ jobs:
       - name: Check the shards ran every planned app exactly once
         # The shard completeness rule for the app scenarios (#1571). Each
         # shard's runner already checked that the plan covers every app that
-        # is not slow; this checks that the shards together ran each planned
-        # app exactly once, in its own shard, so no shard can drop an app or
-        # come back empty and still count.
+        # is not slow, or only such apps for a pull request's selection;
+        # this checks that the shards together ran each planned app exactly
+        # once, in its own shard, so no shard can drop an app or come back
+        # empty and still count.
         if: always() && needs.plan.outputs.app-scenarios == 'true'
         env:
           APP_PLAN: ${{ needs.plan.outputs.app-plan }}

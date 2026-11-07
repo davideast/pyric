@@ -267,7 +267,8 @@ export function refreshHistory(root: ParentNode, frame: HistoryFrame) {
   const summaryElement = root.querySelector('[data-history-summary]');
   if (summaryElement) summaryElement.innerHTML = summary(frame);
   for (const button of root.querySelectorAll<HTMLElement>('[data-history-mode]')) {
-    if (button.hasAttribute('data-history-toggle')) { button.dataset.historyMode = frame.paused ? 'live' : 'pause'; button.textContent = frame.imported ? 'Return to live' : frame.paused ? 'Resume live' : 'Pause'; }
+    // The Auto-update switch: its track follows aria-checked, so its label stays.
+    if (button.hasAttribute('data-history-toggle')) { button.dataset.historyMode = frame.paused ? 'live' : 'pause'; button.setAttribute('aria-checked', String(!frame.paused)); }
     else button.setAttribute('aria-pressed', String(button.dataset.historyMode === (frame.paused ? 'pause' : 'live')));
   }
 }

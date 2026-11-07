@@ -26,6 +26,11 @@ export interface DatabaseInstancesRules {
  *  default instance, or an unresolved deploy target. */
 export type DatabaseRulesDestination = string | { target: string };
 
+/** Where a ruleset deploys on the Node host: a database destination, or a
+ *  Storage bucket by name (absent for the default bucket). A Storage ruleset
+ *  with `{ target }` deploys to a pending Storage deploy target. */
+export type RulesDestination = DatabaseRulesDestination | { bucket: string };
+
 /**
  * A `firebase.json` deploy target the server could not map to instances,
  * because no project was set or the project does not map it. The sandbox
@@ -38,6 +43,16 @@ export interface PendingDatabaseTargetRules {
   rules: RtdbRulesJson | null;
   /** The instance names `.firebaserc` maps the target to, by project id. */
   instancesByProject: Record<string, string[]>;
+}
+
+/** A `firebase.json` Storage deploy target the server could not map to buckets. */
+export interface PendingStorageTargetRules {
+  /** The deploy target name. */
+  target: string;
+  /** The target's rules source; null while its rules file does not exist. */
+  rules: string | null;
+  /** The bucket names `.firebaserc` maps the target to, by project id. */
+  bucketsByProject: Record<string, string[]>;
 }
 
 /** Browser-safe wire contract served by `/__pyric/init.json`. */
@@ -67,6 +82,16 @@ export interface InitPayload {
    *  replaces them over `storage-rules-update` when the rules file changes. */
   storageRules: string | null;
   storageRulesHash: string | null;
+  /**
+   * The Storage rules each bucket `firebase.json` names gets, by bucket name.
+   * The default bucket's are `storageRules`. A bucket in neither is locked,
+   * or open when `permissive` is set.
+   * A dev server replaces one bucket's over `storage-rules-update` with its
+   * `bucket` named. Absent on older servers.
+   */
+  storageBucketRules?: Record<string, { rules: string; rulesHash: string }> | null;
+  /** Storage deploy targets no project resolved at startup. Their buckets stay locked (open when `permissive` is set) until the page's app config names a project `.firebaserc` maps them for. */
+  storagePendingTargets?: PendingStorageTargetRules[];
   /**
    * Local project identity — the served project directory. Scopes the
    * storage IndexedDB database name (`pyric-storage:<projectKey>`, issue

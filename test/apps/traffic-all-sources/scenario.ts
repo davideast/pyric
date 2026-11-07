@@ -6,14 +6,17 @@
 // page's own requests, and still does after a reload. All sandbox traffic
 // lists all four, each labelled with its source, and the admin write reads
 // Bypassed. On the default SharedWorker setup, All sandbox traffic says that
-// server code using the client SDK needs `--hosted`.
+// server code using the client SDK needs `--hosted`. The scope, denied and
+// auto-update controls are switches (role=switch, aria-checked) that each flip
+// their effect, and the footer holds only the Requests/Rates picker, with
+// nothing in it overflowing at 1280px or 360px.
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
 import { scenario, sleep, type App } from '../driver.ts';
 
 declare function writeFromPage(): Promise<unknown>;
 
-interface TrafficRow { source: string | null; label: string | null; call: string; path: string; verdict: string }
+interface TrafficRow { source: string | null; call: string; path: string; verdict: string }
 
 async function waitFor(what: string, check: () => Promise<boolean>, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -48,13 +51,31 @@ async function openTraffic(page: Page): Promise<void> {
   const expand = chip.locator('[data-expand]');
   if (await expand.isVisible()) await expand.click();
   await chip.locator('[data-chip-tab="traffic"]').click();
-  await chip.locator('[data-traffic-scope="page"]').waitFor({ timeout: 15_000 });
+  await chip.locator('[data-traffic-scope][role="switch"]').waitFor({ timeout: 15_000 });
+}
+
+/** Flips a Traffic switch, when it is not already in `on`, and waits for its aria-checked. */
+async function setSwitch(page: Page, selector: string, on: boolean): Promise<void> {
+  const control = page.locator(`[data-pyric-runtime-chip-host] ${selector}[role="switch"]`);
+  const wanted = String(on);
+  if ((await control.getAttribute('aria-checked')) !== wanted) await control.click();
+  await waitFor(`${selector} did not turn ${on ? 'on' : 'off'}`, async () => (await control.getAttribute('aria-checked')) === wanted, 5_000);
 }
 
 async function chooseScope(page: Page, scope: 'page' | 'all'): Promise<void> {
-  const button = page.locator(`[data-pyric-runtime-chip-host] [data-traffic-scope="${scope}"]`);
-  await button.click();
-  await waitFor(`the ${scope} scope did not turn on`, async () => (await button.getAttribute('aria-pressed')) === 'true', 5_000);
+  await setSwitch(page, '[data-traffic-scope]', scope === 'all');
+}
+
+/** The footer controls whose content is wider than their box. */
+function overflowingFooterControls(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const root = document.querySelector('[data-pyric-runtime-chip-host]')?.shadowRoot;
+    const bar = root?.querySelector<HTMLElement>('[data-action-bar]');
+    if (!bar) return ['no footer'];
+    return [bar, ...bar.querySelectorAll<HTMLElement>('*')]
+      .filter((element) => element.scrollWidth > element.clientWidth && element.clientWidth > 0)
+      .map((element) => `${element.tagName.toLowerCase()}.${element.className} ${element.scrollWidth} > ${element.clientWidth}`);
+  });
 }
 
 /** The rows the Traffic panel lists now. */
@@ -67,7 +88,6 @@ function trafficRows(page: Page): Promise<TrafficRow[]> {
       const source = row.querySelector<HTMLElement>('[data-traffic-row-source]');
       return {
         source: source?.dataset.trafficRowSource ?? null,
-        label: source?.textContent ?? null,
         call: text(row, '.c1'),
         path: text(row, '.c2'),
         verdict: text(row, '.slot'),
@@ -119,8 +139,9 @@ export default scenario(async (app) => {
 
   await app.step("Traffic opens on This page, listing only the page's own requests", async () => {
     await openTraffic(page);
-    const scope = page.locator('[data-pyric-runtime-chip-host] [data-traffic-scope="page"]');
-    assert.equal(await scope.getAttribute('aria-pressed'), 'true');
+    const scope = page.locator('[data-pyric-runtime-chip-host] [data-traffic-scope]');
+    assert.equal(await scope.getAttribute('role'), 'switch');
+    assert.equal(await scope.getAttribute('aria-checked'), 'false');
     await waitFor("the page's own rows did not appear", async () => rowsFor(await trafficRows(page), 'notes/from-page').length > 0);
     const rows = await trafficRows(page);
     for (const other of ['notes/from-admin', 'notes/from-client-read', 'notes/from-mcp']) {
@@ -131,28 +152,62 @@ export default scenario(async (app) => {
 
   await app.step('All sandbox traffic lists all four callers, each with its source', async () => {
     await chooseScope(page, 'all');
-    const expected: Array<[string, string, string]> = [
-      ['notes/from-page', 'page', 'This page'],
-      ['notes/from-admin', 'admin', 'Server (admin)'],
-      ['notes/from-client-read', 'node', 'Server (client SDK)'],
-      ['notes/from-mcp', 'mcp', 'MCP'],
+    const expected: Array<[string, string]> = [
+      ['notes/from-page', 'page'],
+      ['notes/from-admin', 'admin'],
+      ['notes/from-client-read', 'node'],
+      ['notes/from-mcp', 'mcp'],
     ];
     await waitFor('All sandbox traffic did not list every caller', async () => {
       const rows = await trafficRows(page);
       return expected.every(([path]) => rowsFor(rows, path).length > 0);
     });
     const rows = await trafficRows(page);
-    for (const [path, source, label] of expected) {
+    for (const [path, source] of expected) {
       const matching = rowsFor(rows, path);
       assert.ok(
-        matching.every((row) => row.source === source && row.label === label),
-        `${path} must read ${label}:\n${JSON.stringify(matching, null, 2)}`,
+        matching.every((row) => row.source === source),
+        `${path} must come from ${source}:\n${JSON.stringify(matching, null, 2)}`,
       );
     }
     const admin = rowsFor(rows, 'notes/from-admin');
     assert.ok(admin.every((row) => row.verdict === 'Bypassed'), `the admin write must read Bypassed:\n${JSON.stringify(admin, null, 2)}`);
     const note = page.locator('[data-pyric-runtime-chip-host] [data-traffic-hosted-note]');
     assert.equal(await note.count(), 0, 'the Node host shows the --hosted note');
+  });
+
+  await app.step('the denied and auto-update switches flip and filter or hold the list', async () => {
+    const rowCount = async () => (await trafficRows(page)).length;
+    const listed = await rowCount();
+    await setSwitch(page, '[data-traffic-denied]', true);
+    await waitFor('the denied switch did not narrow the list', async () => (await rowCount()) < listed);
+    const problems = await page.evaluate(() => {
+      const root = document.querySelector('[data-pyric-runtime-chip-host]')?.shadowRoot;
+      return [...(root?.querySelectorAll<HTMLElement>('[data-request-row]') ?? [])].map((row) => row.classList.contains('problem'));
+    });
+    assert.ok(problems.every(Boolean), `the denied switch lists a request that succeeded: ${JSON.stringify(problems)}`);
+    await setSwitch(page, '[data-traffic-denied]', false);
+    await waitFor('the denied switch did not restore the list', async () => (await rowCount()) === listed);
+
+    const fromPage = async () => rowsFor(await trafficRows(page), 'notes/from-page').length;
+    const before = await fromPage();
+    await setSwitch(page, '[data-request-pause]', false);
+    assert.deepEqual(await page.evaluate(() => writeFromPage()), { from: 'page' });
+    await sleep(1_000);
+    assert.equal(await fromPage(), before, 'a paused list took a new request');
+    await setSwitch(page, '[data-request-pause]', true);
+    await waitFor('turning auto-update on did not show the new request', async () => (await fromPage()) > before);
+  });
+
+  await app.step('the footer holds only the view picker, and nothing in it overflows at 1280px or 360px', async () => {
+    const footer = page.locator('[data-pyric-runtime-chip-host] [data-action-bar] button');
+    assert.deepEqual(await footer.evaluateAll((buttons) => buttons.map((button) => button.getAttribute('role'))), ['tab', 'tab']);
+    for (const width of [1280, 360]) {
+      await page.setViewportSize({ width, height: 800 });
+      await sleep(200);
+      assert.deepEqual(await overflowingFooterControls(page), [], `footer overflow at ${width}px`);
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
   });
 
   await app.step("after a reload, This page still lists the page's earlier requests as its own", async () => {

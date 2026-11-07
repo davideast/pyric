@@ -11,12 +11,20 @@ import {
   bindRulesBucket,
   compileStorageRules,
   DEFAULT_BUCKET,
+  type CompiledStorageRules,
   requestResourceFor,
   resourceFromStored,
   type StoredMetadata,
 } from 'pyric/storage/internal';
 import { rtdbRulesSourceRejection, type RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
-import type { RtdbReplayDivergence } from 'pyric/sandbox/internal';
+import {
+  isProductionServed,
+  observedMethod,
+  productionVerdict,
+  type RtdbReplayDivergence,
+} from 'pyric/sandbox/internal';
+import type { ObservedCall } from 'pyric/sandbox';
+import { evaluateFirestoreCall, type FirestoreSimulate } from '../serve/worker/host/observe-local-verdict.js';
 import {
   rulesSourceRejection,
   SimulateFirestoreRulesHandler,
@@ -36,6 +44,7 @@ import {
   parseVerifyFixture,
   VERIFY_FIXTURE_SCHEMA,
   type PyricVerifyFixture,
+  type VerifyObservedCallValues,
 } from './fixture.js';
 import { runStagingInstance, StagingDeployRefusedError, withStagingInstance, type StagingRunHooks } from './staging/engine.js';
 import type { RtdbRestClient } from './staging/rest.js';
@@ -44,6 +53,13 @@ import {
   recordsDefaultRtdbInstance,
   replayRtdbInstance,
 } from './rtdb-instances.js';
+import {
+  lockedBucketReason,
+  recordedBucketName,
+  storageBucketRules,
+  type StorageBucketRules,
+  type StorageCandidateRuleset,
+} from './storage-buckets.js';
 import {
   deriveRulesTestCases,
   type DeriveRulesTestCasesOptions,
@@ -60,6 +76,7 @@ export {
   type BuildVerifyFixtureInput,
   type PyricVerifyFixture,
   type VerifyFirestoreRulesBlock,
+  type VerifyObservedCallValues,
   type VerifyRtdbInstanceCapture,
   type VerifyRtdbRulesBlock,
   type VerifyStorageRulesBlock,
@@ -108,8 +125,17 @@ export type VerifyRulesInput = {
    * the result names it in `skippedInstances`.
    */
   rtdbInstances?: Record<string, RtdbCandidateRules>;
-  storage?: string | { source: string };
+  /** The default bucket's candidate Storage rules, or every bucket's when `storageBuckets` is absent. */
+  storage?: StorageCandidateSource;
+  /**
+   * Each bucket's candidate Storage rules, by the bucket name its rules see.
+   * Passing it replays each bucket under its own rules; a recorded bucket
+   * without an entry, other than the default bucket, replays as locked.
+   */
+  storageBuckets?: Record<string, StorageCandidateSource>;
 };
+
+type StorageCandidateSource = string | { source: string };
 
 export interface VerifyFixtureOptions {
   rules: VerifyRulesInput;
@@ -156,8 +182,11 @@ export interface VerifyEngineResult {
   results?: TestResult[];
 }
 
-/** A divergence; an RTDB divergence on a named instance names it in `instance`. */
-export type VerifyDivergence = VerifyDivergenceKind & { instance?: string };
+/**
+ * A divergence; an RTDB divergence on a named instance names it in
+ * `instance`, and a Storage divergence names its bucket in `bucket`.
+ */
+export type VerifyDivergence = VerifyDivergenceKind & { instance?: string; bucket?: string };
 
 type VerifyDivergenceKind =
   | {
@@ -443,15 +472,77 @@ function verifyFirestoreSandbox(
     }
   }
 
+  const live = verifyLiveFirestoreCalls(fixture, rules);
+  mapped.push(...live.divergences);
+
   return {
     engine: 'sandbox',
     ok: mapped.every(isInformational),
     checkedEvents:
       fixture.events.filter(isProtectedFirestoreWrite).length +
       readCases.length +
-      deniedWriteCases.length,
+      deniedWriteCases.length +
+      live.checkedEvents,
     divergences: mapped,
   };
+}
+
+/** A live Firestore call's event: production served it, and it named a path. */
+function isLiveFirestoreCall(event: PyricVerifyFixture['events'][number]): event is SandboxOperationEvent & { path: string } {
+  if (event.kind !== 'operation' || event.service !== 'firestore') return false;
+  const operation = event as SandboxOperationEvent;
+  return isProductionServed(operation.rulesDisposition) && operation.production !== undefined && typeof operation.path === 'string';
+}
+
+/** A captured live call as the host observed it: its event, with the values the capture kept beside it. */
+function observedCallOf(event: SandboxOperationEvent & { path: string }, values: VerifyObservedCallValues | undefined): ObservedCall {
+  const uid = event.auth?.uid;
+  return {
+    service: 'firestore',
+    method: event.method,
+    path: event.path,
+    at: event.at,
+    outcome: event.production!.outcome,
+    ...(uid === undefined ? {} : { account: { uid, ...(values?.claims === undefined ? {} : { claims: values.claims }) } }),
+    ...(values?.writeData === undefined ? {} : { writeData: values.writeData }),
+    ...(values?.document === undefined ? {} : { document: values.document }),
+  };
+}
+
+/**
+ * Replay each live Firestore call the capture holds against the candidate
+ * rules, the way the host evaluated it (`evaluateFirestoreCall`), and report
+ * each one the rules now answer differently from production: a call
+ * production allowed is `now-denied`, one it denied is `now-allowed`. A
+ * call whose answer rests on data the capture lacks (a stored document, the
+ * written data, a claim's value or an email, a query), and a call
+ * production failed for another reason, is not checked.
+ */
+function verifyLiveFirestoreCalls(fixture: PyricVerifyFixture, rules: string): { checkedEvents: number; divergences: VerifyDivergence[] } {
+  const simulator = new SimulateFirestoreRulesHandler();
+  const simulate: FirestoreSimulate = (cases, lookups) => simulator.simulate(rules, cases, lookups);
+  const divergences: VerifyDivergence[] = [];
+  let checkedEvents = 0;
+  for (const event of fixture.events.filter(isLiveFirestoreCall)) {
+    const method = observedMethod('firestore', event.method);
+    const verdict = productionVerdict(event.production!.outcome);
+    if (method === null || verdict === 'failed') continue;
+    const evaluation = evaluateFirestoreCall(simulate, observedCallOf(event, fixture.observedCalls?.[event.id]), method);
+    const isDecided = evaluation !== undefined && evaluation.needs.length === 0;
+    if (!isDecided) continue;
+    const allowed = evaluation.allowed;
+    checkedEvents += 1;
+    const productionAllowed = verdict === 'ok';
+    if (allowed === productionAllowed) continue;
+    divergences.push({
+      service: 'firestore',
+      kind: productionAllowed ? 'now-denied' : 'now-allowed',
+      path: event.path,
+      method,
+      reason: productionAllowed ? 'production allowed this live call; the local rules deny it' : 'production denied this live call; the local rules allow it',
+    });
+  }
+  return { checkedEvents, divergences };
 }
 
 function reconstructInitialFirestoreDocuments(
@@ -735,14 +826,7 @@ async function verifyStorage(
     );
   }
 
-  const rulesSource = requireStorageRules(rules, fixture);
-  let compiled;
-  try {
-    compiled = compileStorageRules(rulesSource);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new VerifyInputError(`candidate Storage rules would not deploy. ${message}`);
-  }
+  const ruleset = storageCandidateRuleset(rules, fixture);
 
   const objectState = new Map<string, StoredMetadata>();
   const seededKeys = new Set<string>();
@@ -791,7 +875,9 @@ async function verifyStorage(
 
     if (event.kind !== 'operation' || event.service !== 'storage') continue;
     const opEvent = event as SandboxOperationEvent;
-    if (opEvent.origin === 'admin' || opEvent.result === 'not-applicable') continue;
+    // A call production served was decided by production's rules, not the captured ones.
+    const isUnchecked = opEvent.origin === 'admin' || opEvent.result === 'not-applicable' || isProductionServed(opEvent.rulesDisposition);
+    if (isUnchecked) continue;
     checkedEvents += 1;
 
     const objectPath = (opEvent.path ?? '').replace(/^\/+/, '');
@@ -857,6 +943,7 @@ async function verifyStorage(
     }
 
     // The rules saw the bucket under the name the live op recorded (ST-H2-4).
+    const bucketName = recordedBucketName(opEvent, bucket);
     const input = bindRulesBucket(
       {
         request: {
@@ -868,27 +955,16 @@ async function verifyStorage(
         resource: resourceFromStored(existing),
       },
       bucket,
-      recordedBucketName(opEvent, bucket),
+      bucketName,
     );
-    const evaluated = evaluateStorageRules(
-      compiled.rules,
-      input,
-      typeof opEvent.at === 'number' && Number.isFinite(opEvent.at)
-        ? new Date(opEvent.at)
-        : new Date(),
-      fixture.services.firestore?.state?.documents
-        ? {
-            get: (docPath) => fixture.services.firestore?.state?.documents?.[docPath] ?? null,
-            exists: (docPath) =>
-              (fixture.services.firestore?.state?.documents?.[docPath] ?? null) !== null,
-          }
-        : undefined,
-    );
+    const bucketRules = storageBucketRules(ruleset, bucket, bucketName);
+    const evaluated = evaluateReplayedStorageRequest(bucketRules, input, opEvent, fixture);
 
     if (opEvent.result === 'allow' && !evaluated.allowed) {
       divergences.push({
         service: 'storage',
         kind: 'now-denied',
+        bucket: bucketName,
         path: opEvent.path,
         method: opEvent.method,
         reason: evaluated.reasons.join('; ') || 'expected ALLOW, got DENY',
@@ -897,6 +973,7 @@ async function verifyStorage(
       divergences.push({
         service: 'storage',
         kind: 'now-allowed',
+        bucket: bucketName,
         path: opEvent.path,
         method: opEvent.method,
         reason: evaluated.reasons.join('; ') || 'expected DENY, got ALLOW',
@@ -920,6 +997,29 @@ async function verifyStorage(
   };
 }
 
+/** Evaluate one replayed request under its bucket's rules; a locked bucket denies it. */
+function evaluateReplayedStorageRequest(
+  bucketRules: StorageBucketRules,
+  input: Parameters<typeof evaluateStorageRules>[1],
+  opEvent: SandboxOperationEvent,
+  fixture: PyricVerifyFixture,
+): { allowed: boolean; reasons: string[] } {
+  if (bucketRules.kind === 'locked') return { allowed: false, reasons: [lockedBucketReason(bucketRules.bucket)] };
+  const hasRecordedTime = typeof opEvent.at === 'number' && Number.isFinite(opEvent.at);
+  const requestTime = hasRecordedTime ? new Date(opEvent.at) : new Date();
+  return evaluateStorageRules(bucketRules.rules, input, requestTime, fixtureFirestoreLookup(fixture));
+}
+
+/** The captured Firestore documents a Storage rule's `firestore.get()` reads, when the capture holds any. */
+function fixtureFirestoreLookup(fixture: PyricVerifyFixture): Parameters<typeof evaluateStorageRules>[3] {
+  const documents = fixture.services.firestore?.state?.documents;
+  if (!documents) return undefined;
+  return {
+    get: (docPath) => documents[docPath] ?? null,
+    exists: (docPath) => (documents[docPath] ?? null) !== null,
+  };
+}
+
 function isStorageWriteMethod(method: string | undefined): boolean {
   return method === 'create' || method === 'update' || method === 'delete' || method === 'write';
 }
@@ -930,12 +1030,6 @@ function storageOperationBucket(opEvent: SandboxOperationEvent): string | undefi
   const detailBucket = (opEvent.detail as { bucket?: unknown } | undefined)?.bucket;
   if (typeof detailBucket === 'string' && detailBucket.length > 0) return detailBucket;
   return undefined;
-}
-
-/** The bucket name the live op's rules saw, as its event recorded it; the store key for an event from before it was recorded. */
-function recordedBucketName(opEvent: SandboxOperationEvent, bucket: string): string {
-  const named = (opEvent.detail as { bucketName?: unknown } | undefined)?.bucketName;
-  return typeof named === 'string' && named !== '' ? named : bucket;
 }
 
 function resolveStorageOperationBucket(
@@ -1075,13 +1169,47 @@ function requireFirestoreRules(input: VerifyRulesInput): string {
   return source;
 }
 
-function requireStorageRules(input: VerifyRulesInput, fixture: PyricVerifyFixture): string {
-  const rules = input.storage;
+/** The default rules passed, else the rules the capture recorded. */
+function defaultStorageRulesSource(input: VerifyRulesInput, fixture: PyricVerifyFixture): string | undefined {
+  const passed = storageSourceText(input.storage);
+  if (passed !== undefined) return passed;
+  const captured = fixture.services.storage?.rules?.source;
+  const hasCaptured = typeof captured === 'string' && captured.length > 0;
+  return hasCaptured ? captured : undefined;
+}
+
+function storageSourceText(rules: StorageCandidateSource | undefined): string | undefined {
   if (typeof rules === 'string') return rules;
   if (rules && typeof rules.source === 'string') return rules.source;
-  const captured = fixture.services.storage?.rules?.source;
-  if (typeof captured === 'string' && captured.length > 0) return captured;
-  throw new VerifyInputError('missing candidate Storage rules. Pass rules.storage.');
+  return undefined;
+}
+
+/** Compile each bucket's candidate Storage rules; a source that would not deploy refuses the run. */
+function storageCandidateRuleset(input: VerifyRulesInput, fixture: PyricVerifyFixture): StorageCandidateRuleset {
+  const defaultSource = defaultStorageRulesSource(input, fixture);
+  const byBucket = input.storageBuckets;
+  if (defaultSource === undefined && byBucket === undefined) {
+    throw new VerifyInputError('missing candidate Storage rules. Pass rules.storage.');
+  }
+  const defaultRules = defaultSource === undefined ? undefined : compileCandidateStorageRules(defaultSource);
+  if (byBucket === undefined) return { ...(defaultRules === undefined ? {} : { defaultRules }) };
+  const buckets = new Map<string, CompiledStorageRules['rules']>();
+  for (const [bucket, rules] of Object.entries(byBucket)) {
+    const source = storageSourceText(rules);
+    if (source === undefined) throw new VerifyInputError(`missing candidate Storage rules for bucket "${bucket}".`);
+    buckets.set(bucket, compileCandidateStorageRules(source, bucket));
+  }
+  return { ...(defaultRules === undefined ? {} : { defaultRules }), buckets };
+}
+
+function compileCandidateStorageRules(source: string, bucket?: string): CompiledStorageRules['rules'] {
+  try {
+    return compileStorageRules(source).rules;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const scope = bucket === undefined ? '' : ` for bucket "${bucket}"`;
+    throw new VerifyInputError(`candidate Storage rules${scope} would not deploy. ${message}`);
+  }
 }
 
 function requireRtdbRules(

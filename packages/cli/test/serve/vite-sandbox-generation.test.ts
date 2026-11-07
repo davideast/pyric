@@ -6,7 +6,8 @@ import {
   type ViteSandboxGenerationDependencies,
   type ViteSandboxGenerationInput,
 } from '../../src/serve/vite-sandbox-generation.js';
-import type { BridgeMount } from '../../src/serve/bridge-mount.js';
+import type { BridgeMount, BridgeMountOptions } from '../../src/serve/bridge-mount.js';
+import type { ServedFirebaseSpecifier } from '../../src/serve/firebase-module-swap.js';
 import { SandboxSeedError, type SandboxSession, type SandboxSessionOptions } from '../../src/serve/sandbox-session.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -45,10 +46,10 @@ function harness(options: { functions?: boolean; rulesFile?: string | null; data
     handle: () => { handled += 1; return false; },
     reloadFirestoreRules: async () => ({ kind: 'not-configured' }),
     reloadDatabaseRules: async () => [],
-    reloadStorageRules: async () => ({ kind: 'not-configured' }),
+    reloadStorageRules: async () => [],
     firestoreRulesFiles: () => [options.rulesFile ?? '/project/firestore.rules'],
     databaseRulesFiles: () => [options.databaseRulesFile ?? '/project/database.rules.json'],
-    storageRulesFile: () => '/project/storage.rules',
+    storageRulesFiles: () => ['/project/storage.rules'],
     close: async () => { events.push('close:session'); },
   };
   const bridgeAttachment = { close: async () => { events.push('close:bridge-host'); } };
@@ -246,6 +247,56 @@ describe('active Vite sandbox generation', () => {
     const h = harness({ databaseRulesFile: '/project/database.rules.json' });
     const generation = await createViteSandboxGeneration(h.input, h.dependencies);
     expect(h.events).toContain('watch:/project/database.rules.json');
+    await generation.close();
+  });
+
+  it('hands a live host the imports the app resolved to live rows, read at each report', async () => {
+    const h = harness();
+    let liveHost: BridgeMountOptions['liveHost'];
+    const create = h.dependencies.createBridge!;
+    h.dependencies.createBridge = (bridgeOptions) => {
+      liveHost = bridgeOptions.liveHost;
+      return create(bridgeOptions);
+    };
+    const observed = new Set<ServedFirebaseSpecifier>();
+    h.input.options.liveHost = true;
+    h.input.options.liveObserved = observed;
+    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    expect(liveHost?.report()).not.toHaveProperty('observed');
+    observed.add('firebase/auth');
+    expect(liveHost?.report().observed).toEqual(['firebase/auth']);
+    await generation.close();
+  });
+
+  it('reports the Admin SDK as observed on a live host, apart from the passed-through client imports', async () => {
+    const h = harness();
+    let liveHost: BridgeMountOptions['liveHost'];
+    const create = h.dependencies.createBridge!;
+    h.dependencies.createBridge = (bridgeOptions) => {
+      liveHost = bridgeOptions.liveHost;
+      return create(bridgeOptions);
+    };
+    h.input.options.liveHost = true;
+    h.input.options.livePassThrough = ['firebase/ai'];
+    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    const report = liveHost?.report();
+    expect(report?.admin).toEqual({ mode: 'observed', observed: true, bypassesRules: true });
+    expect(report?.passThrough).toEqual(['firebase/ai']);
+    await generation.close();
+  });
+
+  it('reports the Admin SDK as observed when nothing passes through', async () => {
+    const h = harness();
+    let liveHost: BridgeMountOptions['liveHost'];
+    const create = h.dependencies.createBridge!;
+    h.dependencies.createBridge = (bridgeOptions) => {
+      liveHost = bridgeOptions.liveHost;
+      return create(bridgeOptions);
+    };
+    h.input.options.liveHost = true;
+    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    expect(liveHost?.report().admin).toEqual({ mode: 'observed', observed: true, bypassesRules: true });
+    expect(liveHost?.report()).not.toHaveProperty('passThrough');
     await generation.close();
   });
 });

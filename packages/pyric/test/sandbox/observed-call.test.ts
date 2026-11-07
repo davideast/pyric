@@ -3,12 +3,13 @@
  * `operation` event that says production served it.
  */
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox, toOperationRecord, type ObservedCall } from '../../src/sandbox/index.js';
+import { activeListeners, initializeSandbox, toOperationRecord, type ObservedCall } from '../../src/sandbox/index.js';
 import {
   emitSandboxEvent,
   isProductionServed,
   observedCallEvent,
   ObservedCallError,
+  observedListenerEvent,
   productionVerdict,
   readObservedCall,
 } from '../../src/sandbox/internal/index.js';
@@ -72,6 +73,37 @@ const GET_TOKEN: ObservedCall = {
     { api: 'installations', action: 'create', status: 200 },
     { api: 'registrations', action: 'create', status: 200 },
   ],
+};
+
+/** An Admin SDK call a backend made, as the live register records it: the class and method, and production's code. */
+const ADMIN_UPDATE: ObservedCall = {
+  service: 'firestore',
+  method: 'DocumentReference.update',
+  path: 'rooms/missing',
+  at: 1_700_000_000_000,
+  durationMs: 18,
+  outcome: { status: 'error', code: 'not-found' },
+  projectId: 'my-project',
+  sdk: 'admin',
+};
+
+/** A Firestore list as the page records it: the query's shape and a fingerprint of its values, never the values. */
+const LISTED_ROOMS: ObservedCall = {
+  service: 'firestore',
+  method: 'getDocs',
+  path: 'rooms',
+  at: 1_700_000_000_000,
+  outcome: { status: 'ok' },
+  query: {
+    scope: 'collection',
+    filters: [
+      { field: 'owner', op: '==' },
+      { field: 'tags', op: 'array-contains-any' },
+    ],
+    orderBy: [{ field: 'createdAt', direction: 'desc' }],
+    limit: true,
+    fingerprint: '0123456789abcdef',
+  },
 };
 
 /** Shapes a recorder must never pass on: a FIS auth token, an FCM registration token, a VAPID key. */
@@ -294,6 +326,127 @@ describe('readObservedCall', () => {
     }
   });
 
+  it('keeps claim values, write data and a returned document, for the host to evaluate in memory', () => {
+    const write: ObservedCall = {
+      service: 'firestore',
+      method: 'setDoc',
+      path: 'rooms/r1',
+      at: 1,
+      outcome: { status: 'ok' },
+      account: { uid: 'alice', claimNames: ['admin', 'tier'], claims: { admin: true, tier: { level: 2, tags: ['a', null] } } },
+      writeData: { owner: 'alice', count: 3 },
+    };
+    expect(readObservedCall(write)).toEqual(write);
+    const read: ObservedCall = { ...DENIED_READ, outcome: { status: 'ok' }, document: { owner: 'alice', public: false } };
+    expect(readObservedCall(read)).toEqual(read);
+  });
+
+  it('drops an oversized or malformed value and keeps the rest of the call', () => {
+    const big = { text: 'a'.repeat(300_000) };
+    let deep: Record<string, unknown> = { leaf: 1 };
+    for (let level = 0; level < 30; level += 1) deep = { next: deep };
+    const values: unknown[] = [big, deep, 'not an object', [1, 2], null, { at: Number.NaN }, { fn: () => 1 }, { when: new Date(0) }];
+    for (const value of values) {
+      const record = { ...DENIED_READ, account: { uid: 'alice', claims: value }, writeData: value, document: value };
+      expect(readObservedCall(record)).toEqual({ ...DENIED_READ, account: { uid: 'alice' } });
+    }
+  });
+
+  it('keeps write data and a document off every call but Firestore, and claim values off Messaging', () => {
+    const rtdb = { ...NAMED_RTDB_READ, writeData: { a: 1 }, document: { a: 1 } };
+    expect(readObservedCall(rtdb)).toEqual(NAMED_RTDB_READ);
+    const firebase = { identities: { 'google.com': ['1234'] }, sign_in_provider: 'google.com' };
+    const messaging = { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, account: { uid: 'alice', claims: { firebase } } };
+    expect(readObservedCall(messaging)).toEqual({ ...messaging, account: { uid: 'alice' } } as ObservedCall);
+  });
+
+  it('leaves claim values, write data and the document off the event', () => {
+    const call = readObservedCall({
+      ...DENIED_READ,
+      account: { uid: 'alice', claimNames: ['admin'], claims: { admin: true } },
+      writeData: { owner: 'alice' },
+      document: { owner: 'alice' },
+    });
+    const event = observedCallEvent(call);
+    expect(event.production).toEqual({ outcome: DENIED_READ.outcome, claimNames: ['admin'] });
+    expect(event).not.toHaveProperty('writeData');
+    expect(event).not.toHaveProperty('document');
+    expect(event.auth).toEqual({ uid: 'alice' });
+  });
+
+  it('keeps an Admin call on Firestore, RTDB, Storage, Auth and Messaging', () => {
+    expect(readObservedCall(ADMIN_UPDATE)).toEqual(ADMIN_UPDATE);
+    const admin = [
+      { ...NAMED_RTDB_READ, method: 'Reference.set', sdk: 'admin' },
+      { ...UPLOAD, method: 'File.save', sdk: 'admin' },
+      { service: 'auth', method: 'Auth.verifyIdToken', at: 1, outcome: { status: 'ok' }, account: { uid: 'alice', claimNames: ['admin'] }, sdk: 'admin' },
+      { service: 'messaging', method: 'Messaging.sendEachForMulticast', at: 1, outcome: { status: 'ok' }, projectId: 'demo', sdk: 'admin' },
+    ];
+    for (const call of admin) expect(readObservedCall(call)).toEqual(call as ObservedCall);
+    expect(readObservedCall(DENIED_READ)).not.toHaveProperty('sdk');
+  });
+
+  it('refuses sdk on an AI call, and any value but admin', () => {
+    const cases: unknown[] = [
+      { ...GENERATE, sdk: 'admin' },
+      { ...ADMIN_UPDATE, sdk: 'client' },
+      { ...ADMIN_UPDATE, sdk: true },
+      { ...ADMIN_UPDATE, sdk: null },
+    ];
+    for (const record of cases) {
+      const read = () => readObservedCall(record);
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow('Invalid observed call field: sdk.');
+    }
+  });
+
+  it("keeps a Firestore call's query shape: scope, filters, order, limit and fingerprint", () => {
+    expect(readObservedCall(LISTED_ROOMS)).toEqual(LISTED_ROOMS);
+    const group = { ...LISTED_ROOMS, query: { scope: 'collection-group' } };
+    expect(readObservedCall(group)).toEqual(group as ObservedCall);
+    const operators = ['<', '<=', '==', '!=', '>=', '>', 'array-contains', 'in', 'not-in', 'array-contains-any'];
+    const filters = operators.map((op) => ({ field: 'a.b', op }));
+    expect(readObservedCall({ ...LISTED_ROOMS, query: { scope: 'collection', filters } }).query?.filters).toEqual(filters as never);
+  });
+
+  it('refuses a query with a value, an unknown key, a bad operator or fingerprint, or a value-shaped field', () => {
+    const shape = LISTED_ROOMS.query;
+    const filter = { field: 'owner', op: '==' };
+    const cases: Array<[unknown, string]> = [
+      [{ ...shape, value: 'alice' }, 'query.value'],
+      [{ ...shape, values: ['alice'] }, 'query.values'],
+      [{ ...shape, filters: [{ ...filter, value: 'alice' }] }, 'query.filters.value'],
+      [{ ...shape, orderBy: [{ field: 'createdAt', direction: 'desc', startAt: 3 }] }, 'query.orderBy.startAt'],
+      [{ ...shape, scope: 'document' }, 'query.scope'],
+      [{ ...shape, filters: [{ ...filter, op: '===' }] }, 'query.filters.op'],
+      [{ ...shape, filters: [{ ...filter, op: 'like' }] }, 'query.filters.op'],
+      [{ ...shape, filters: [{ ...filter, field: '' }] }, 'query.filters.field'],
+      [{ ...shape, filters: [{ ...filter, field: 'a'.repeat(1501) }] }, 'query.filters.field'],
+      [{ ...shape, filters: [{ ...filter, field: FIS_AUTH_TOKEN }] }, 'query.filters.field'],
+      [{ ...shape, filters: [{ ...filter, field: VAPID_KEY }] }, 'query.filters.field'],
+      [{ ...shape, orderBy: [{ field: FCM_TOKEN, direction: 'asc' }] }, 'query.orderBy.field'],
+      [{ ...shape, filters: [{ ...filter, field: 'members.alice@example.com' }] }, 'query.filters.field'],
+      [{ ...shape, orderBy: [{ field: 'scores.`bob@corp.io`', direction: 'asc' }] }, 'query.orderBy.field'],
+      [{ ...shape, orderBy: [{ field: 'createdAt', direction: 'up' }] }, 'query.orderBy.direction'],
+      [{ ...shape, filters: filter }, 'query.filters'],
+      [{ ...shape, filters: Array.from({ length: 65 }, () => filter) }, 'query.filters'],
+      [{ ...shape, limit: 10 }, 'query.limit'],
+      [{ ...shape, limit: false }, 'query.limit'],
+      [{ ...shape, fingerprint: '0123456789ABCDEF' }, 'query.fingerprint'],
+      [{ ...shape, fingerprint: '0123456789abcdeg' }, 'query.fingerprint'],
+      [{ ...shape, fingerprint: '0123456789abcde' }, 'query.fingerprint'],
+      [{ ...shape, fingerprint: '0123456789abcdef0' }, 'query.fingerprint'],
+      ['owner == alice', 'query'],
+    ];
+    for (const [query, field] of cases) {
+      const read = () => readObservedCall({ ...LISTED_ROOMS, query });
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow(`Invalid observed call field: ${field}.`);
+    }
+    const onRtdb = () => readObservedCall({ ...NAMED_RTDB_READ, query: shape });
+    expect(onRtdb).toThrow('Invalid observed call field: query.');
+  });
+
   it('refuses a malformed record and names the field', () => {
     const cases: Array<[unknown, string]> = [
       [null, 'call'],
@@ -353,13 +506,61 @@ describe('observedCallEvent', () => {
       at: DENIED_READ.at,
       durationMs: 42,
       auth: { uid: 'alice' },
-      result: 'error',
+      result: 'deny',
       caller: { kind: 'node' },
       production: { outcome: { status: 'error', code: 'permission-denied' }, claimNames: ['admin', 'email'] },
     });
     const record = toOperationRecord(event!);
+    expect(record?.result).toBe('deny');
     expect(record?.rules).toEqual({ kind: 'not-evaluated', reason: 'external-execution' });
+    expect(record?.production).toEqual({ outcome: { status: 'error', code: 'permission-denied' }, claimNames: ['admin', 'email'] });
     expect(isProductionServed(record?.rules)).toBe(true);
+  });
+
+  it('lands an Admin call in the event stream as production-served, bypassing rules under the Admin lens', () => {
+    const sandbox = initializeSandbox();
+    const hostProvenance = { actor: { kind: 'app' }, authLens: { mode: 'app-session' }, caller: { kind: 'node' } } as const;
+    emitSandboxEvent(sandbox, observedCallEvent(readObservedCall(ADMIN_UPDATE)), hostProvenance);
+    const [event] = sandbox.history();
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      auth: null,
+      result: 'error',
+      origin: 'user',
+      caller: { kind: 'node' },
+      authLens: { mode: 'admin' },
+      detail: { sdk: 'admin' },
+      rulesDisposition: { kind: 'bypassed', reason: 'admin' },
+      production: { outcome: { status: 'error', code: 'not-found' } },
+    });
+    const record = toOperationRecord(event!);
+    expect(record?.rules).toEqual({ kind: 'bypassed', reason: 'admin' });
+    expect(isProductionServed(record?.rules)).toBe(true);
+  });
+
+  it("keeps a Storage Admin call's bucket beside its sdk, and leaves a client call without either Admin mark", () => {
+    const event = observedCallEvent(readObservedCall({ ...UPLOAD, method: 'File.save', sdk: 'admin' }));
+    expect(event.detail).toEqual({ bucket: 'my-project.firebasestorage.app', sdk: 'admin' });
+    expect(observedCallEvent(UPLOAD).detail).toEqual({ bucket: 'my-project.firebasestorage.app' });
+    expect(observedCallEvent(UPLOAD)).not.toHaveProperty('authLens');
+  });
+
+  it("reads production's answer as allow, deny or error, the way sandbox events read", () => {
+    const answers: Array<[ObservedCall['outcome'], string]> = [
+      [{ status: 'ok' }, 'allow'],
+      [{ status: 'error', code: 'permission-denied' }, 'deny'],
+      [{ status: 'error', code: 'PERMISSION_DENIED' }, 'deny'],
+      [{ status: 'error', code: 'storage/unauthorized' }, 'deny'],
+      [{ status: 'error', code: 'unavailable' }, 'error'],
+    ];
+    for (const [outcome, result] of answers) {
+      const event = observedCallEvent({ ...DENIED_READ, outcome });
+      expect(event.result).toBe(result);
+      expect(event.rulesDisposition).toEqual({ kind: 'not-evaluated', reason: 'external-execution' });
+    }
   });
 
   it("copies production's usage and billed documents onto the event's production side", () => {
@@ -374,9 +575,9 @@ describe('observedCallEvent', () => {
     expect(observedCallEvent(DENIED_READ).production).not.toHaveProperty('billedDocuments');
   });
 
-  it('records a success with no local verdict and a signed-out call with no account', () => {
+  it('records a success as allowed and a signed-out call with no account', () => {
     const event = observedCallEvent({ service: 'auth', method: 'signInAnonymously', at: 5, outcome: { status: 'ok' } });
-    expect(event.result).toBe('not-applicable');
+    expect(event.result).toBe('allow');
     expect(event.auth).toBeNull();
     expect(event.production).toEqual({ outcome: { status: 'ok' } });
   });
@@ -400,7 +601,7 @@ describe('observedCallEvent', () => {
       service: 'ai',
       method: 'generateContent',
       path: 'models/gemini-flash-lite-latest',
-      result: 'not-applicable',
+      result: 'allow',
       durationMs: 120,
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'ok' } },
@@ -444,7 +645,7 @@ describe('observedCallEvent', () => {
       path: 'avatars/alice.png',
       detail: { bucket: 'my-project.firebasestorage.app' },
       auth: { uid: 'alice' },
-      result: 'not-applicable',
+      result: 'allow',
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'ok' } },
     });
@@ -459,7 +660,7 @@ describe('observedCallEvent', () => {
       service: 'messaging',
       method: 'getToken',
       auth: { uid: 'alice' },
-      result: 'not-applicable',
+      result: 'allow',
       durationMs: 210,
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'ok' } },
@@ -469,6 +670,13 @@ describe('observedCallEvent', () => {
     expect(event).not.toHaveProperty('path');
     const { requests: _requests, ...unobserved } = GET_TOKEN;
     expect(observedCallEvent(unobserved)).not.toHaveProperty('detail');
+  });
+
+  it("carries a Firestore call's query shape as request.query, copied", () => {
+    const event = observedCallEvent(readObservedCall(LISTED_ROOMS));
+    expect(event.request).toEqual({ query: LISTED_ROOMS.query });
+    expect(event.request?.query).not.toBe(LISTED_ROOMS.query);
+    expect(observedCallEvent(DENIED_READ)).not.toHaveProperty('request');
   });
 
   it('gives a non-AI call no observation', () => {
@@ -505,5 +713,122 @@ describe('observedCallEvent', () => {
     expect(isProductionServed({ kind: 'evaluated', verdict: 'allow' })).toBe(false);
     expect(isProductionServed({ kind: 'not-evaluated', reason: 'not-a-rules-operation' })).toBe(false);
     expect(isProductionServed(undefined)).toBe(false);
+  });
+});
+
+/** A page's `onSnapshot` on a query, as the live row records its attach: no value, no production answer. */
+const ROOMS_ATTACH: ObservedCall = {
+  service: 'firestore',
+  method: 'onSnapshot',
+  path: 'rooms',
+  at: 1_700_000_000_000,
+  outcome: { status: 'ok' },
+  account: { uid: 'alice' },
+  query: { scope: 'collection', filters: [{ field: 'owner', op: '==' }], fingerprint: '0123456789abcdef' },
+  listener: { phase: 'attach', id: 'l-1', target: 'rooms', key: 'fedcba9876543210' },
+};
+
+const ITEM_VALUE_ATTACH: ObservedCall = {
+  service: 'rtdb',
+  method: 'onValue',
+  path: '/items/a',
+  instance: 'my-project-named',
+  projectId: 'my-project',
+  at: 1_700_000_000_000,
+  outcome: { status: 'ok' },
+  listener: { phase: 'attach', id: 'l-2', target: '/items/a' },
+};
+
+describe('observed listener lifecycle', () => {
+  it('keeps an attach and a detach on Firestore and RTDB', () => {
+    expect(readObservedCall(ROOMS_ATTACH)).toEqual(ROOMS_ATTACH);
+    expect(readObservedCall(ITEM_VALUE_ATTACH)).toEqual(ITEM_VALUE_ATTACH);
+    const detach = { ...ROOMS_ATTACH, listener: { ...ROOMS_ATTACH.listener!, phase: 'detach' } };
+    expect(readObservedCall(detach)).toEqual(detach as ObservedCall);
+  });
+
+  it("takes any target the call's path would take: a pair-of-uids chat, its messages, a content-hash id", () => {
+    const pair = `chats/${'a1B2c3D4e5F6g7H8i9J0k1L2m3N4'}_${'z9Y8x7W6v5U4t3S2r1Q0p9O8n7M6'}`;
+    const hash = `blobs/${'0123456789abcdef'.repeat(4)}`;
+    for (const target of [pair, `${pair}/messages`, hash]) {
+      const call = { ...ROOMS_ATTACH, path: target, listener: { ...ROOMS_ATTACH.listener!, target } };
+      expect(readObservedCall(call).path).toBe(target);
+      expect(readObservedCall(call).listener?.target).toBe(target);
+    }
+  });
+
+  it('refuses a listener target past the path bounds, an id or key that could carry a value, and a listener on any other service', () => {
+    const listener = ROOMS_ATTACH.listener!;
+    const cases: Array<[unknown, string]> = [
+      [{ ...listener, phase: 'delivery' }, 'listener.phase'],
+      [{ ...listener, value: 'alice' }, 'listener.value'],
+      [{ ...listener, target: '' }, 'listener.target'],
+      [{ ...listener, target: 'a'.repeat(1501) }, 'listener.target'],
+      [{ ...listener, target: 7 }, 'listener.target'],
+      [{ ...listener, target: ['rooms'] }, 'listener.target'],
+      [{ ...listener, id: '' }, 'listener.id'],
+      [{ ...listener, id: 'a'.repeat(65) }, 'listener.id'],
+      [{ ...listener, id: 'l 1' }, 'listener.id'],
+      [{ ...listener, id: 'eyJhbGciOiJFUzI1NiJ9abc' }, 'listener.id'],
+      [{ ...listener, id: undefined }, 'listener.id'],
+      [{ ...listener, key: JSON.stringify(['query', 'rooms', [{ field: 'owner', value: 'alice' }]]) }, 'listener.key'],
+      [{ ...listener, key: '0123456789ABCDEF' }, 'listener.key'],
+      ['attach', 'listener'],
+    ];
+    for (const [value, field] of cases) {
+      const read = () => readObservedCall({ ...ROOMS_ATTACH, listener: value });
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow(`Invalid observed call field: ${field}.`);
+    }
+    for (const call of [UPLOAD, GENERATE, GET_TOKEN, { ...DENIED_READ, service: 'auth' }]) {
+      expect(() => readObservedCall({ ...call, listener })).toThrow('Invalid observed call field: listener.');
+    }
+    const failed = { ...ROOMS_ATTACH, outcome: { status: 'error', code: 'permission-denied' } };
+    expect(() => readObservedCall(failed)).toThrow('Invalid observed call field: listener.');
+  });
+
+  it("becomes a listener event with the page's id, its target and no production answer", () => {
+    const event = observedListenerEvent(ROOMS_ATTACH);
+    expect(event).toEqual({
+      kind: 'listener',
+      id: expect.any(String),
+      at: ROOMS_ATTACH.at,
+      service: 'firestore',
+      phase: 'attach',
+      listenerId: 'l-1',
+      target: { kind: 'query', path: 'rooms', query: ROOMS_ATTACH.query },
+      auth: { uid: 'alice' },
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      detail: { key: 'fedcba9876543210' },
+    });
+    expect(event).not.toHaveProperty('production');
+    expect(event.target.query).not.toBe(ROOMS_ATTACH.query);
+    const doc = observedListenerEvent({
+      ...ROOMS_ATTACH,
+      path: 'rooms/r1',
+      query: undefined,
+      listener: { phase: 'detach', id: 'l-3', target: 'rooms/r1' },
+    });
+    expect(doc).toMatchObject({ phase: 'detach', target: { kind: 'doc', path: 'rooms/r1' } });
+    expect(doc.target).not.toHaveProperty('query');
+    expect(observedListenerEvent(ITEM_VALUE_ATTACH)).toMatchObject({
+      service: 'rtdb',
+      instance: 'my-project-named',
+      target: { kind: 'value', path: '/items/a' },
+      auth: null,
+    });
+  });
+
+  it('folds into the active listeners every listener view reads', () => {
+    const sandbox = initializeSandbox();
+    const detach = { ...ITEM_VALUE_ATTACH, listener: { ...ITEM_VALUE_ATTACH.listener!, phase: 'detach' as const } };
+    for (const call of [ROOMS_ATTACH, ITEM_VALUE_ATTACH, detach]) emitSandboxEvent(sandbox, observedListenerEvent(call));
+    expect(activeListeners(sandbox.history())).toEqual([
+      expect.objectContaining({ id: 'l-1', service: 'firestore', target: 'rooms', query: ROOMS_ATTACH.query }),
+    ]);
+  });
+
+  it('refuses a call that is not a listener record', () => {
+    expect(() => observedListenerEvent(DENIED_READ)).toThrow('Invalid observed call field: listener.');
   });
 });

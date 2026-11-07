@@ -1,11 +1,11 @@
 import { validateAuthState } from 'pyric/sandbox';
-import { readObservedCall } from 'pyric/sandbox/internal';
+import { readNodeUnobservedLists, readObservedCall } from 'pyric/sandbox/internal';
 import type { PortLike } from './host-context.js';
 import type { OutboundMessage } from './protocol.js';
 import { assertOperationArguments } from './inbound-validation/operation-arguments.js';
 import { assertSubscription } from './inbound-validation/subscription.js';
 import { isMessageRecord, requireRecord, requireShape, requireString, requireOptionalString,
-  requireOptionalBoolean } from './inbound-validation/fields.js';
+  requireOptionalBoolean, requireOptionalLabel } from './inbound-validation/fields.js';
 
 function assertInboundFields(message: Record<string, unknown>): void {
   requireOptionalString(message.clientSessionId, 'clientSessionId');
@@ -58,6 +58,11 @@ function assertInboundFields(message: Record<string, unknown>): void {
     case 'observe':
       requireString(message.id, 'id');
       readObservedCall(message.call);
+      requireOptionalLabel(message.nodeClient, 'nodeClient');
+      return;
+    case 'unobserved':
+      requireString(message.id, 'id');
+      requireShape(readNodeUnobservedLists(message) !== null, 'unobserved');
       return;
     default:
       requireShape(false, 't');

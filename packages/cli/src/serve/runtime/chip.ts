@@ -1,8 +1,9 @@
-import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyric/sandbox/internal';
+import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel, rulesOperation } from 'pyric/sandbox/internal';
 import { createLiveStatusPoller, liveLabel, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { healthLiveStatus } from './chip-live-status.js';
 import { LIVE_TAB_LABEL, LIVE_VIEW_STYLES, liveViewHtml } from './chip-live-view.js';
 import { workerAiRates } from './worker-ai-rates.js';
+import { liveRates } from './live-rates.js';
 import { aiModelHtml, aiModelRoute } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
 import type { CaptureEntry } from '../rate-capture-store.js';
@@ -64,6 +65,7 @@ import {
   RECENT_FAILURE_MS,
   requestsInScope,
   sandboxAiRequests,
+  hostAiRequests,
   type ChipRequest,
   type TrafficFeed,
   type TrafficScope,
@@ -299,14 +301,10 @@ const styles = `
   .source-row { display:grid; grid-template-columns:minmax(0,1fr) 32px var(--space-3); align-items:center; }
   .source-row + .source-row { border-top:1px solid var(--pyric-border-soft); }
   .source-row .row { min-width:0; }
-  .source-highlight { width:32px; height:32px; display:flex; align-items:center; justify-content:center; color:var(--pyric-muted); border:1px solid transparent; border-radius:4px; cursor:pointer; }
-  .source-highlight .icon { width:16px; height:16px; }
-  .source-highlight:hover,.source-highlight[aria-pressed="true"] { color:var(--pyric-accent); background:var(--pyric-content); border-color:var(--pyric-border); }
-  .source-highlight:disabled { opacity:.4; cursor:not-allowed; color:var(--pyric-muted); background:none; border-color:transparent; }
+  .source-row .switch { justify-self: center; }
   .unplaced-reason { display:block; color:var(--pyric-muted); }
-  .source-highlight:focus-visible { outline:2px solid var(--pyric-accent); outline-offset:2px; }
   .listener-mark { width: 10px; height: 10px; border: 2px solid var(--listener-color); border-radius: 3px; }
-  .source-row:has(.source-highlight[aria-pressed="true"]) .listener-mark { background: var(--listener-color); }
+  .source-row:has(.switch[aria-checked="true"]) .listener-mark { background: var(--listener-color); }
   .listener-row .row-content { grid-template-columns: 12px minmax(0, 1fr) 88px; }
   .listener-row .c1.wide, .listener-row .s1.wide { grid-column: 2; }
   .listener-row .s2 { grid-column: 2; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
@@ -360,10 +358,16 @@ const styles = `
   .history-row .listener-fact { font-size: 11px; }
   .history-row .s2 { grid-column: 1 / -1; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
   .listener-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: var(--space-2); width: 100%; min-width: 0; }
-  .paint-switch { display: grid; grid-template-columns: repeat(2, 64px); gap: 4px; }
-  .paint-switch .btn { width: 64px; min-width: 0; font-size: 11px; }
+  .segmented { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 64px; gap: 2px; height: 32px; padding: 2px; border: 1px solid #454b59; border-radius: 6px; background: var(--pyric-content); flex: none; }
+  .segment { display: grid; place-items: center; border-radius: 4px; color: var(--pyric-muted); cursor: pointer; font-size: 11px; font-weight: 550; }
+  .segment:hover:not([aria-selected="true"]):not(:disabled) { background: #282d37; color: var(--pyric-text); }
+  .segment[aria-selected="true"] { background: #35435e; color: #dce6ff; box-shadow: inset 0 0 0 1px #829ac9; }
+  .segment:disabled { cursor: not-allowed; opacity: .45; }
+  .bar-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; min-width: 0; }
+  .bar-row .actions { gap: var(--space-2); }
   .listener-toolbar select, .request-controls select { font: inherit; font-size: 11px; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 32px; min-width: 0; text-overflow: ellipsis; }
   .listener-toolbar select:focus-visible, .request-controls select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
+  .request-controls.single { grid-template-columns: minmax(0, 1fr); }
   .request-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding-inline-end: var(--record-inset); }
   .request-controls select { appearance: none; padding-inline: var(--space-3) 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23a4acbb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right var(--space-2) center; background-size: 16px; }
   .request-pagination .btn { width: auto; padding-inline: var(--space-3); justify-self: start; }
@@ -376,11 +380,20 @@ const styles = `
   .listener-toolbar .icon-button { grid-column: 3; }
   .listener-toolbar-notice { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2); }
 
-  .listener-toggle { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; font-size: 11px; color: var(--pyric-muted); height: 32px; }
-  .toggle-track { width: 28px; height: 16px; display: grid; grid-template-columns: 0 1fr 0; gap: 2px; align-items: center; background: #3a3e49; border: 1px solid #697488; border-radius: 8px; }
-  .toggle-track::after { content: ''; grid-column: 2; width: 10px; height: 10px; background: #dce1eb; border-radius: 50%; justify-self: start; }
-  .listener-toggle[aria-pressed="true"] .toggle-track { background: #536b9d; border-color: var(--pyric-accent); }
-  .listener-toggle[aria-pressed="true"] .toggle-track::after { justify-self: end; }
+  .switch { display: inline-grid; grid-template-columns: 32px; align-items: center; min-height: 32px; cursor: pointer; }
+  .switch-track { display: grid; grid-template-columns: 0 1fr 0; column-gap: 2px; align-items: center; width: 32px; height: 18px; border: 1px solid #697488; border-radius: 9px; background: var(--pyric-content); }
+  .switch-track::after { content: ''; grid-column: 2; justify-self: start; width: 12px; height: 12px; border-radius: 50%; background: var(--pyric-muted); }
+  .switch[aria-checked="true"] .switch-track, .switch-row[aria-checked="true"] .switch-track { background: #536b9d; border-color: var(--pyric-accent); }
+  .switch[aria-checked="true"] .switch-track::after, .switch-row[aria-checked="true"] .switch-track::after { justify-self: end; background: #f4f7ff; }
+  .switch:hover:not(:disabled) .switch-track { border-color: #76839b; }
+  .switch:hover:not(:disabled)[aria-checked="true"] .switch-track { border-color: #dce6ff; }
+  .switch:disabled, .switch-row:disabled { cursor: not-allowed; }
+  .switch:disabled .switch-track, .switch-row:disabled .switch-track { opacity: .45; }
+  .switch-row:disabled .c1 { color: var(--pyric-muted); }
+  button.switch-row:disabled:hover { background: none; }
+  .switch-row .slot { justify-content: flex-end; }
+  .switch-row:not(.sub) .slot { grid-row: 1; }
+  .switch-row:not(.sub) .row-content { grid-template-rows: 20px; }
   .verdict { --verdict-border: #705b62; display: grid; grid-template-columns: 24px minmax(0, 1fr) 8px; align-items: center; box-sizing: border-box; width: 80px; min-width: 80px; height: 24px; border: 1px solid var(--verdict-border); border-radius: 4px; background: #2c282e; color: #d2c6ca; font-size: 11px; font-weight: 500; line-height: 16px; white-space: nowrap; }
   .verdict-icon { display: grid; place-items: center; height: 100%; border-right: 1px solid var(--verdict-border); color: #d6a7ae; }
   .verdict-label { text-align: right; }
@@ -391,6 +404,8 @@ const styles = `
   .verdict.bypassed .verdict-icon { color: #aab4cc; }
   .traffic-source { color: var(--pyric-text); }
   .traffic-production { color: var(--pyric-accent); font-weight: 600; }
+  .traffic-drift { display: inline-grid; place-items: center; margin-right: 4px; vertical-align: -2px; color: var(--pyric-warning); }
+  .traffic-drift .icon { width: 12px; height: 12px; }
   .traffic-row.problem .c1 { color: #d6a7ae; }
   .traffic-row.pending .c1 { color: #d6c096; }
   .empty { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--space-4); border: 1px dashed #454b59; border-radius: 8px; }
@@ -418,6 +433,19 @@ function avatarHtml(photoUrl: string | null | undefined, label: string): string 
   // Profile images may be relative served assets or remote HTTP images.
   const safePhoto = photoUrl && /^(https?:\/\/|\/(?!\/))/.test(photoUrl) ? photoUrl : null;
   return `<span class="avatar" aria-hidden="true"><span>${escapeAttribute(initials || '?')}</span>${safePhoto ? `<img data-avatar src="${escapeAttribute(safePhoto)}" alt="" referrerpolicy="no-referrer">` : ''}</span>`;
+}
+
+/** A switch row: the label on the record inset, the track at the row's end. */
+function switchRowHtml(attributes: string, label: string, checked: boolean, description = ''): string {
+  const sub = description ? ' sub' : '';
+  const detail = description ? `<span class="s1 wide">${escapeAttribute(description)}</span>` : '';
+  return `<button type="button" role="switch" class="row switch-row${sub}" aria-checked="${checked}" ${attributes}><span class="row-content"><span class="c1 wide">${escapeAttribute(label)}</span><span class="slot"><span class="switch-track" aria-hidden="true"></span></span>${detail}</span></button>`;
+}
+
+/** A segmented control: picks one view of two or more. */
+function segmentedHtml(label: string, segments: readonly { attributes: string; label: string; selected: boolean }[]): string {
+  const buttons = segments.map(segment => `<button type="button" role="tab" class="segment" aria-selected="${segment.selected}" ${segment.attributes}>${escapeAttribute(segment.label)}</button>`);
+  return `<div class="segmented" role="tablist" aria-label="${escapeAttribute(label)}">${buttons.join('')}</div>`;
 }
 
 function introHtml(title: string, hint: string, detail = ''): string {
@@ -480,6 +508,39 @@ function aiTokenFacts(request: AiRequestObservation, fact: (label: string, value
 }
 
 const PRODUCTION_REASON = 'Production answered this request. Pyric observed it and did not check it against local rules.';
+
+const DRIFT_TITLE = 'Local rules disagree with production';
+const DRIFT_REASON = "The local rules file differs from the deployed rules, or pyric's rules engine differs from production's.";
+
+/** The one mark on a row whose local rules disagree with production's answer; empty on every other row. */
+/**
+ * A row's details name its call as its rules view does: a live row's SDK
+ * method reads as the rules operation, as a sandbox row's does. The row
+ * itself keeps the SDK name.
+ */
+function detailsMethod(request: ChipRequest): string {
+  if (request.method === null) return 'Request';
+  if (request.production === undefined) return request.method;
+  return rulesOperation(request.service ?? undefined, request.method);
+}
+
+function driftMarkerHtml(request: ChipRequest): string {
+  if (request.localDrift === undefined) return '';
+  return `<span class="traffic-drift" data-traffic-row-drift title="${DRIFT_TITLE}" aria-hidden="true">${iconHtml('warning')}</span>`;
+}
+
+/**
+ * A production row's reason and rules view. With the local rules' trace it
+ * reads as a sandbox row does, from that trace, under production's outcome;
+ * a disagreement adds one sentence. Without a trace it keeps the
+ * observed-only reason.
+ */
+function productionReasonHtml(request: ChipRequest, fact: (label: string, value: string, cell: string) => string): { reason: string; evidence: string } {
+  const drift = request.localDrift === undefined ? '' : fact('Reason', DRIFT_REASON, '');
+  if (request.rulesEvidence === undefined) return { reason: drift || fact('Reason', PRODUCTION_REASON, ''), evidence: '' };
+  const evidence = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
+  return { reason: fact('Local rules', rulesSummary(request), '') + drift, evidence };
+}
 
 /** A shared icon and label track keeps request statuses aligned across rows. */
 function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false, production = false): string {
@@ -645,7 +706,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let pinnedRequestIds: Set<string> | null = null;
   let requestListScroll = 0;
   let projectAiRates: ReturnType<typeof workerAiRates> | undefined;
+  let projectLiveRates: ReturnType<typeof liveRates> | undefined;
   let ratesDirty = true;
+  let ratesLive = false;
   let observesHostAi = false;
   let trafficDisplay: 'requests' | 'rates' = 'requests';
   let selectedRateService: string | null = null;
@@ -656,14 +719,25 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const rates = { snapshot: () => {
     const snapshot = localRates.snapshot();
     if (!options.sandboxEvents) return snapshot;
-    if (ratesDirty) {
-      const ai = sandboxAiRequests(trafficFeed?.requests() ?? []);
-      observesHostAi ||= ai.length > 0;
-      projectAiRates = observesHostAi ? workerAiRates(ai) : undefined;
+    // On a live host, Rates count every client's calls from the host's stream,
+    // not this page's journal: Node processes and other tabs count too.
+    const isLiveHost = liveStatusPoller.current() !== null;
+    const needsRebuild = ratesDirty || ratesLive !== isLiveHost;
+    if (needsRebuild) {
+      const rows = trafficFeed?.requests() ?? [];
+      const sandboxAi = sandboxAiRequests(rows);
+      observesHostAi ||= sandboxAi.length > 0;
+      const countsHostAi = observesHostAi || isLiveHost;
+      const countedAi = isLiveHost ? hostAiRequests(rows) : sandboxAi;
+      projectAiRates = countsHostAi ? workerAiRates(countedAi) : undefined;
+      projectLiveRates = isLiveHost ? liveRates(captureEvents) : undefined;
+      ratesLive = isLiveHost;
       ratesDirty = false;
     }
-    return projectAiRates?.(snapshot) ?? snapshot;
+    const hosted = projectLiveRates?.(snapshot) ?? snapshot;
+    return projectAiRates?.(hosted) ?? hosted;
   } };
+  const ratesScope = () => liveStatusPoller.current() === null ? 'This page' : 'All clients';
   let captureError = '';
   let savedCaptureList: CaptureEntry[] | null = null;
   let capturesLoading = false;
@@ -917,7 +991,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (query !== '' && matches.length === 0 && !usersLoading && !usersFailed) {
       buttons.push(buttonHtml('data-create-user', 'Create user', `Create a user for ${query}`));
     }
-    buttons.push(buttonHtml(`data-toggle-bypass aria-pressed="${isAdmin}"`, 'Bypass rules', isAdmin ? 'Rules are bypassed' : 'Evaluate rules as the session'));
+    const rules = sectionHtml('Rules', `<div class="rows">${switchRowHtml('data-toggle-bypass', 'Bypass rules', isAdmin, 'Act as admin and skip rules.')}</div>`);
     const search = `<div class="field">${iconHtml('search')}<input type="text" data-identity-query placeholder="Search name, email, or provider" autocomplete="off" aria-label="Search users" value="${escapeAttribute(identityQuery)}"></div>`;
     const empty = !usersRequested || usersLoading ? emptyHtml('Loading users', 'Reading the sandbox user directory.')
       : usersFailed ? emptyHtml('Could not load users', 'Reopen Identity to try reading the sandbox directory again.')
@@ -927,32 +1001,29 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const pagination = available.length > USER_PAGE_SIZE ? `<div class="pagination"><div class="pagination-line"><span class="section-meta" data-user-range>${range}</span><span class="actions"><button class="btn icon-button" type="button" data-user-previous aria-label="Previous users"${identityPage === 0 ? ' disabled' : ''}>${iconHtml('chevron')}</button><button class="btn icon-button" type="button" data-user-next aria-label="Next users"${offset + USER_PAGE_SIZE >= available.length ? ' disabled' : ''}>${iconHtml('chevron')}</button></span></div></div>` : '';
     const update = updateRowHtml();
     return {
-      body: `${update ? `<div class="rows">${update}</div>` : ''}${sectionHtml('Current identity', `<div class="rows">${identityRecordHtml(current, record)}</div>`, isAdmin ? 'Rules bypassed' : getLensFn()?.mode === 'as' ? 'Impersonating' : '')}${sectionHtml('Switch user', `${identityError ? `<div data-identity-error>${emptyHtml(identityError.title, identityError.detail)}</div>` : ''}${search}${pagination}<div class="rows" data-user-rows>${matched.join('')}</div>${matched.length ? '' : empty}`, pluralize(available.length, 'user'))}`,
-      bar: barHtml(buttons, isAdmin ? 'Rules bypassed' : 'Rules enforced'),
+      body: `${update ? `<div class="rows">${update}</div>` : ''}${sectionHtml('Current identity', `<div class="rows">${identityRecordHtml(current, record)}</div>`, getLensFn()?.mode === 'as' ? 'Impersonating' : '')}${rules}${sectionHtml('Switch user', `${identityError ? `<div data-identity-error>${emptyHtml(identityError.title, identityError.detail)}</div>` : ''}${search}${pagination}<div class="rows" data-user-rows>${matched.join('')}</div>${matched.length ? '' : empty}`, pluralize(available.length, 'user'))}`,
+      bar: buttons.length ? barHtml(buttons) : '',
     };
   };
 
   let selectedRequest: ChipRequest | null = null;
   const trafficToolbar = (): string => {
-    const modes = `<div class="paint-switch" role="group" aria-label="Traffic view">${buttonHtml(`data-traffic-display="requests" aria-pressed="${trafficDisplay === 'requests'}"`, 'Requests')}${buttonHtml(`data-traffic-display="rates" aria-pressed="${trafficDisplay === 'rates'}"`, 'Rates')}</div>`;
-    let filter = '';
-    if (trafficDisplay === 'requests') {
-      const scopes = trafficFeed ? `<div class="paint-switch" role="group" aria-label="Traffic source">${buttonHtml(`data-traffic-scope="page" aria-pressed="${trafficScope === 'page'}"`, 'This page')}${buttonHtml(`data-traffic-scope="all" aria-pressed="${trafficScope === 'all'}"`, 'All sandbox traffic')}</div>` : '';
-      filter = scopes + buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only');
-    }
+    const modes = segmentedHtml('Traffic view', [
+      { attributes: 'data-traffic-display="requests"', label: 'Requests', selected: trafficDisplay === 'requests' },
+      { attributes: 'data-traffic-display="rates"', label: 'Rates', selected: trafficDisplay === 'rates' },
+    ]);
+    const barRow = (actions = '') => barHtml([`<div class="bar-row">${modes}<span class="actions">${actions}</span></div>`]);
     if (trafficDisplay === 'rates' && isThresholdService(selectedRateService)) {
       if (rateSection === 'capture-rename' || rateSection === 'capture-delete') return barHtml([`<div class="traffic-toolbar"><div class="traffic-view-switch">${buttonHtml('data-capture-edit-cancel', 'Cancel')}</div><div class="traffic-actions">${buttonHtml(`data-capture-edit-save ${captureEditBusy ? 'disabled' : ''}`, rateSection === 'capture-delete' ? 'Delete' : 'Save')}</div></div>`]);
       const frame = currentRateHistory().view(rates.snapshot());
-      const label = frame?.imported ? 'Return to live' : frame?.paused ? 'Resume live' : 'Pause';
-      const primary = rateSection === 'chart' ? buttonHtml(`data-history-toggle data-history-mode="${frame?.paused ? 'live' : 'pause'}"`, label) : buttonHtml('data-rate-chart', 'Back to activity');
       const captureActions = `<button type="button" data-capture-open>Open capture…</button>${frame?.imported ? '<button type="button" data-capture-download>Download JSON</button>' : ''}`;
       const menuActions = rateSection === 'captures' ? '<button type="button" data-capture-import>Open file…</button>'
         : frame?.imported && selectedSavedCapture ? `<button type="button" data-capture-rename>Rename…</button><button type="button" data-capture-delete>Delete…</button>${captureActions}`
         : `<button type="button" data-capture-export>Save capture…</button>${captureActions}${frame?.imported ? '' : `<button type="button" data-open-thresholds>Thresholds…</button><button type="button" data-rate-incidents="${selectedRateService}">Incidents</button><button type="button" data-rate-measurements>Measurements</button>`}`;
       const menu = `<details class="rate-menu"><summary class="btn" role="button" aria-label="More actions" title="More actions"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="3" cy="8" r="1" fill="currentColor"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="13" cy="8" r="1" fill="currentColor"/></svg></summary><div class="rate-menu-items">${menuActions}</div></details>`;
-      return barHtml([`<div class="traffic-toolbar">${primary}${menu}</div>`]);
+      return barRow(menu);
     }
-    return barHtml([`<div class="traffic-toolbar">${modes}${filter}</div>`]);
+    return barRow();
   };
   const trafficViewHtml = (): ChipView => {
     if (trafficDisplay === 'rates') {
@@ -966,18 +1037,19 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const alertHtml = alerts.length ? sectionHtml('Recorded incidents', `<div class="rows">${alerts.map(incident => `<button type="button" class="rate-alert" data-rate-incident="${escapeAttribute(incident.id)}"><span>${escapeAttribute(incident.label)}<small>${escapeAttribute(serviceLabel(incident.service))} · ${new Date(incident.at).toLocaleTimeString()}</small><small>Peak ${incident.peak}/s · limit ${incident.limit}/s</small><small>${incident.aboveSeconds}s above limit / ${incident.to - incident.from + 1}s elapsed</small></span><span class="rate-alert-status">${iconHtml('warning')}<span>Exceeded</span></span></button>`).join('')}</div>`) : '';
       const incidentCounts = new Map(['firestore', 'rtdb', 'storage', 'ai'].map(service => [service, thresholdMonitor.incidents().filter(incident => incident.service === service).length]));
       const frame = isThresholdService(selectedRateService) ? currentRateHistory().view(rates.snapshot()) : undefined;
-      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart');
+      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart', ratesScope());
       if (!selectedRateService) return { body: sectionHtml(measured.title, measured.body), bar: trafficToolbar() };
       const secondary = rateSection === 'capture-rename' ? 'Rename capture' : rateSection === 'capture-delete' ? 'Delete capture' : rateSection === 'chart' ? '' : rateSection === 'incidents' ? 'Incidents' : rateSection === 'captures' ? 'Captures' : 'Measurements';
       const breadcrumb = frame?.imported && selectedSavedCapture && rateSection === 'chart'
         ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}<button type="button" data-capture-open>Captures</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(selectedSavedCapture.name || serviceLabel(selectedRateService))}</span></nav></div>`
         : secondary ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}${rateSection === 'captures' ? '' : rateSection === 'capture-rename' || rateSection === 'capture-delete' ? `<button type="button" data-capture-open>Captures</button>${iconHtml('chevron')}` : `<button type="button" data-rate-chart>${escapeAttribute(serviceLabel(selectedRateService))}</button>${iconHtml('chevron')}`}<span aria-current="page">${secondary}</span></nav></div>` : crumbs(selectedRateService);
       const body = selectedSavedCapture && (rateSection === 'capture-rename' || rateSection === 'capture-delete') ? captureEditor(rateSection === 'capture-rename' ? { ...selectedSavedCapture, name: captureNameDraft } : selectedSavedCapture, rateSection === 'capture-delete', escapeAttribute) : rateSection === 'captures' ? `<section class="section">${captureList(savedCaptureList, capturesLoading, escapeAttribute)}</section>` : rateSection === 'incidents' ? alertHtml || emptyHtml('No incidents', 'No thresholds have been exceeded.') : `<section class="section">${measured.body}</section>`;
-      return { body: breadcrumb + `<input type="file" data-capture-file accept="application/json,.json" hidden><p class="threshold-error" data-capture-error role="alert" ${captureError ? '' : 'hidden'}>${escapeAttribute(captureError)}</p>` + body, bar: trafficToolbar() };
+      const autoUpdate = rateSection === 'chart' ? `<div class="rows">${switchRowHtml(`data-history-toggle data-history-mode="${frame?.paused ? 'live' : 'pause'}"`, 'Auto-update', frame?.paused !== true)}</div>` : '';
+      return { body: breadcrumb + autoUpdate + `<input type="file" data-capture-file accept="application/json,.json" hidden><p class="threshold-error" data-capture-error role="alert" ${captureError ? '' : 'hidden'}>${escapeAttribute(captureError)}</p>` + body, bar: trafficToolbar() };
     }
     if (selectedRequest) {
       const request = trafficRows().find(row => row.id === selectedRequest!.id) ?? selectedRequest;
-      const method = request.method ?? 'Request';
+      const method = detailsMethod(request);
       const target = request.path ?? request.label ?? 'Request';
       const service = serviceLabel(request.service);
       const verdictOutcome = bypassesRules(request) ? 'Rules bypassed' : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
@@ -1002,7 +1074,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       let evidenceDetails = '';
       let reasonFact = request.indexFailure ? fact('Reason', 'The required index was missing.', '') : '';
       if (request.production) {
-        reasonFact = fact('Reason', PRODUCTION_REASON, '');
+        const production = productionReasonHtml(request, fact);
+        reasonFact = production.reason;
+        evidenceDetails = production.evidence;
       } else if (request.service === 'firestore') {
         reasonFact = fact('Reason', rulesSummary(request), '');
         evidenceDetails = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
@@ -1046,7 +1120,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const servedBy = request.production ? 'data-traffic-row-production' : 'data-traffic-row-sandbox';
       const production = productionLabel ? `<span class="traffic-production" ${servedBy}>${productionLabel}</span> · ` : '';
       return buttonRowHtml({
-        c1: production + source + escapeAttribute(call),
+        c1: driftMarkerHtml(request) + production + source + escapeAttribute(call),
         c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined, request.production ? 'production' : 'sandbox') : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
@@ -1054,15 +1128,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' || bypassed ? '' : ' problem'}`,
         title: [productionLabel, sourceLabel, call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
-        label: `Inspect ${productionLabel ? `${productionLabel.toLowerCase()} ` : ''}${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}`,
+        label: `Inspect ${productionLabel ? `${productionLabel.toLowerCase()} ` : ''}${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}${request.localDrift ? `. ${DRIFT_TITLE}` : ''}`,
       });
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
     const bar = trafficToolbar();
     const updatesPaused = pinnedRequestIds !== null;
-    const updateLabel = updatesPaused ? `Resume live${newCount ? ` · ${newCount} new` : ''}` : 'Pause updates';
-    const updateIcon = updatesPaused ? 'play' : 'pause';
-    const controls = `<div class="request-controls"><select data-request-service aria-label="Request service">${['', 'ai', 'firestore', 'rtdb', 'storage', 'auth'].map(service => `<option value="${service}" ${service === requestService ? 'selected' : ''}>${service ? serviceLabel(service) : 'All services'}</option>`).join('')}</select><button type="button" class="btn icon-button" data-request-pause aria-label="${updateLabel}" title="${updateLabel}">${iconHtml(updateIcon)}</button></div>`;
+    const scopeSwitch = trafficFeed ? switchRowHtml('data-traffic-scope="all"', 'All traffic', trafficScope === 'all') : '';
+    const switches = `<div class="rows">${scopeSwitch}${switchRowHtml('data-traffic-denied', 'Denied or failed', trafficFilter === 'denied')}${switchRowHtml('data-request-pause', 'Auto-update', !updatesPaused)}</div>`;
+    const controls = `<div class="request-controls single"><select data-request-service aria-label="Request service">${['', 'ai', 'firestore', 'rtdb', 'storage', 'auth'].map(service => `<option value="${service}" ${service === requestService ? 'selected' : ''}>${service ? serviceLabel(service) : 'All services'}</option>`).join('')}</select></div>${switches}`;
     const older = browsing.length > shown.length ? '<div class="history-context request-pagination"><button type="button" class="btn" data-request-older>Load older</button></div>' : '';
     const omitted = trafficFeed?.omittedCount() ?? 0;
     const retention = omitted ? `<div class="history-context"><p class="hint request-retention">Older history discarded (${omitted} events). Retention is limited by age and memory.</p></div>` : '';
@@ -1070,7 +1144,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const missesServerTraffic = trafficScope === 'all' && snapshot.mode === 'shared-worker';
     const hostedNote = missesServerTraffic ? '<div class="history-context"><p class="hint" data-traffic-hosted-note>Server code that uses the client SDK reaches this sandbox only when it runs with <span class="mono">pyric sandbox --hosted</span>.</p></div>' : '';
     const emptyDetail = trafficScope === 'all' ? 'Requests from this page, other tabs, server code and MCP calls appear here.' : 'Use your app to see its data activity here.';
-    return { body: `${controls}${hostedNote}${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', emptyDetail)}`, `${rows.length} of ${retained.length} retained`, copy)}${older}${retention}`, bar };
+    return { body: `${controls}${hostedNote}${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied or failed' : 'Requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', emptyDetail)}`, `${rows.length} of ${retained.length}${updatesPaused && newCount ? ` · ${newCount} new` : ''}`, copy)}${older}${retention}`, bar };
   };
 
   const sandboxViewHtml = (): ChipView => {
@@ -1599,11 +1673,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       trafficFilter = trafficFilter === 'denied' ? 'all' : 'denied';
       render();
     });
-    root.querySelectorAll<HTMLButtonElement>('[data-traffic-scope]').forEach(button => button.addEventListener('click', () => {
-      trafficScope = button.dataset.trafficScope === 'all' ? 'all' : 'page';
+    root.querySelector('[data-traffic-scope]')?.addEventListener('click', () => {
+      trafficScope = trafficScope === 'all' ? 'page' : 'all';
       pinnedRequestIds = null;
       render();
-    }));
+    });
     root.querySelector('[data-copy-response]')?.addEventListener('click', async (event) => {
       if (!clipboard) return;
       const button = event.currentTarget as HTMLButtonElement;

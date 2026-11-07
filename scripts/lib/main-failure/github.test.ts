@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { Gh } from '../../ci/github-issues.ts';
 import { ATTEMPT_WAIT_MINUTES, collectAttempt, handleAttempt, waitForNextAttempt, type Context } from './github.ts';
 import { FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX } from './issue-text.ts';
-import { HOOK_TIMEOUT_LOG, RUN, SHA, SPARSE, TESTS_JOB, hookTimeout } from './test-fixtures.ts';
+import { APP_STEP_LOG, HOOK_TIMEOUT_LOG, RUN, SHA, SPARSE, TESTS_JOB, hookTimeout } from './test-fixtures.ts';
 
 const BUILD_PATH = '.github/workflows/build.yml';
 
@@ -25,6 +25,8 @@ interface FakeRepo {
   pollFailures: number;
   /** Thrown for a log read that passes --allow-escape-sequences. */
   escapeFlagError?: string;
+  /** What every failed job's log reads. */
+  log: string;
 }
 
 function fakeRepo(overrides: Partial<FakeRepo> = {}): FakeRepo {
@@ -37,6 +39,7 @@ function fakeRepo(overrides: Partial<FakeRepo> = {}): FakeRepo {
     event: 'push',
     path: BUILD_PATH,
     pollFailures: 0,
+    log: HOOK_TIMEOUT_LOG,
     ...overrides,
   };
 }
@@ -106,7 +109,7 @@ function fakeGh(repo: FakeRepo, calls: string[][]): Gh {
     const path = args.at(-1) ?? '';
     const readsLog = command === 'api' && path.endsWith('/logs');
     if (readsLog && args.includes('--allow-escape-sequences') && repo.escapeFlagError) throw new Error(repo.escapeFlagError);
-    if (readsLog) return HOOK_TIMEOUT_LOG;
+    if (readsLog) return repo.log;
     if (command === 'api') return JSON.stringify(fakeApi(repo, calls, path.replace(/^repos\/o\/r\//, '')));
     if (command === 'issue' && sub === 'list') return JSON.stringify(repo.issues);
     if (command === 'issue' && sub === 'create') return 'https://github.com/o/r/issues/900\n';
@@ -233,6 +236,16 @@ describe('handling a completed attempt', () => {
     await handleAttempt(fake.context, 7, 1);
     const writes = fake.calls.filter((call) => call[0] === 'issue' && call[1] !== 'list').map((call) => call.slice(0, 3));
     expect(writes).toEqual([['issue', 'comment', '1593']]);
+  });
+
+  test('a flaky app scenario searches for issues whose titles name the app, and comments on the one that does', async () => {
+    const issues = [{ number: 2154, title: 'Flaky: ai-app-check-stays-local misses the SharedWorker request' }];
+    const fake = fakeGitHub(fakeRepo({ issues, log: APP_STEP_LOG }));
+    await handleAttempt(fake.context, 7, 1);
+    const searches = fake.calls.filter((call) => call[0] === 'issue' && call[1] === 'list').map((call) => call.at(-1));
+    expect(searches).toContain('"ai-app-check-stays-local" in:title');
+    const writes = fake.calls.filter((call) => call[0] === 'issue' && call[1] !== 'list').map((call) => call.slice(0, 3));
+    expect(writes).toEqual([['issue', 'comment', '2154']]);
   });
 
   test('a push that lands while the attempt is read: the check right before the rerun files it unconfirmed', async () => {

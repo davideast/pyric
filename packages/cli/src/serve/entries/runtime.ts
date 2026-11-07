@@ -23,7 +23,7 @@ import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firest
 import { rulesSourceRejection } from 'pyric/rules/internal';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
-import { replaceStorageRules } from 'pyric/storage/internal';
+import { applyStorageRulesUpdate, installServedStorageRules, storageRulesUpdateNotice, type StorageRulesUpdate } from '../storage-rules-install.js';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
   callTool as workerCallTool,
@@ -182,12 +182,16 @@ if (!useWorker) try {
   // rules AND the project-scoped IDB name (`pyric-storage:<projectKey>`,
   // issue #359) — a lazy first open from app code would land on the legacy
   // shared database. `projectKey` is absent on older servers → legacy name.
-  getStorageSandbox(sandbox, {
-    ...(payload.storageRules ? { rules: payload.storageRules } : {}),
-    ...(payload.projectKey ? { projectId: payload.projectKey } : {}),
-  });
-  if (payload.storageRules) {
+  // Each bucket firebase.json names gets its own rules, and a bucket nothing
+  // deploys to is locked (#1313), or open in permissive mode.
+  for (const notice of installServedStorageRules(sandbox, payload)) console.info(`[pyric sandbox] ${notice}`);
+  // Rules deployed only by bucket name count as deployed, as the worker
+  // plane counts them (serve-init.ts).
+  const deploysBucketRules = Object.keys(payload.storageBucketRules ?? {}).length > 0;
+  if (payload.storageRules || deploysBucketRules) {
     diagnostics.storageRulesDeployed = true;
+  }
+  if (payload.storageRules) {
     diagnostics.storageRulesHash = payload.storageRulesHash;
   }
   // Auth users land first in either mode (persist restore or state-file
@@ -466,7 +470,7 @@ console.info(
       ? ' on the dev server (one backend for all tabs and server processes; rules/seed/persist owned by the dev server)'
       : useWorker
         ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
-        : diagnostics.rulesHash || diagnostics.databaseRulesHash || diagnostics.storageRulesHash
+        : diagnostics.rulesDeployed || diagnostics.databaseRulesDeployed || diagnostics.storageRulesDeployed
           ? ' (project rules loaded)'
           : ' (no project rules)') +
     ` — diagnostics: globalThis.__pyricServe`,
@@ -676,19 +680,15 @@ if (!useWorker && typeof EventSource !== 'undefined') {
     // Null rules mean the rules file was deleted: Storage then denies every
     // client operation, as it does when the page starts without rules.
     void (async () => {
-      const { rules, rulesHash } = JSON.parse((e as MessageEvent).data as string) as {
-        rules: string | null;
-        rulesHash: string | null;
-      };
-      await replaceStorageRules(sandbox, rules);
-      const isRemoved = rules === null;
-      diagnostics.storageRulesDeployed = !isRemoved;
-      diagnostics.storageRulesHash = rulesHash ?? null;
-      if (isRemoved) {
-        console.info('[pyric sandbox] storage.rules removed; client Storage operations default to deny');
-      } else {
-        console.info(`[pyric sandbox] storage.rules hot-reloaded (hash ${rulesHash})`);
+      const update = JSON.parse((e as MessageEvent).data as string) as StorageRulesUpdate;
+      await applyStorageRulesUpdate(sandbox, update);
+      const isDefaultBucket = update.bucket === undefined;
+      if (isDefaultBucket) {
+        diagnostics.storageRulesDeployed = update.rules !== null;
+        diagnostics.storageRulesHash = update.rulesHash ?? null;
       }
+      const hash = update.rules === null ? '' : ` (hash ${update.rulesHash})`;
+      console.info(`[pyric sandbox] ${storageRulesUpdateNotice(update)}${hash}`);
     })().catch((err: unknown) => {
       runtimeStatus.reportError(err, 'runtime');
       console.error('[pyric sandbox] storage rules hot-reload failed:', err instanceof Error ? err.message : String(err));

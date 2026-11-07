@@ -9,6 +9,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getAuth, sandbox as authOps } from 'pyric/auth';
 
 import { createSandboxSession } from '../../src/serve/sandbox-session.js';
+import { formatStorageRulesRemoved } from '../../src/serve/rules.js';
 import { avatarMintForPayload } from '../../src/serve/assets/avatar-url.js';
 import { saveManifest } from '../../src/serve/assets/manifest.js';
 
@@ -395,7 +396,7 @@ service firebase.storage {
       firebaseConfig: null,
       sdk: { dir: join(root, 'sdk') },
     });
-    expect(session.storageRulesFile()).toBe(join(root, 'storage.rules'));
+    expect(session.storageRulesFiles()).toEqual([join(root, 'storage.rules')]);
     await session.close();
   });
 
@@ -404,10 +405,10 @@ service firebase.storage {
     writeFileSync(join(root, 'bucket.rules'), storageRules('configured'));
     const session = await createSandboxSession({
       projectDir: root,
-      firebaseConfig: { storage: [{ rules: 'bucket.rules' }] },
+      firebaseConfig: { storage: [{ bucket: 'media-bucket', rules: 'bucket.rules' }] },
       sdk: { dir: join(root, 'sdk') },
     });
-    expect(session.storageRulesFile()).toBe(join(root, 'bucket.rules'));
+    expect(session.storageRulesFiles()).toEqual([join(root, 'bucket.rules')]);
     await session.close();
   });
 
@@ -420,8 +421,9 @@ service firebase.storage {
     });
     expect(session.payload().storageRules).toBeNull();
     writeFileSync(join(root, 'storage.rules'), storageRules('created'));
-    const reloaded = await session.reloadStorageRules();
-    expect(reloaded.kind).toBe('reloaded');
+    const [reloaded] = await session.reloadStorageRules(join(root, 'storage.rules'));
+    expect(reloaded?.bucket).toBeNull();
+    expect(reloaded?.result.kind).toBe('reloaded');
     expect(session.payload().storageRules).toContain('/created/{file}');
     expect(session.payload().storageRulesHash).not.toBeNull();
     await session.close();
@@ -438,8 +440,8 @@ service firebase.storage {
     });
     const firstHash = session.payload().storageRulesHash;
     writeFileSync(rulesPath, storageRules('second'));
-    const reloaded = await session.reloadStorageRules();
-    expect(reloaded.kind).toBe('reloaded');
+    const [reloaded] = await session.reloadStorageRules(rulesPath);
+    expect(reloaded?.result.kind).toBe('reloaded');
     expect(session.payload().storageRules).toContain('/second/{file}');
     expect(session.payload().storageRulesHash).not.toBe(firstHash);
     await session.close();
@@ -455,9 +457,9 @@ service firebase.storage {
       sdk: { dir: join(root, 'sdk') },
     });
     writeFileSync(rulesPath, 'service firebase.storage { match /b/{bucket}/o {');
-    const rejected = await session.reloadStorageRules();
-    expect(rejected.kind).toBe('rejected');
-    expect(rejected.kind === 'rejected' ? rejected.error.message : '').toContain('failed to parse');
+    const rejected = (await session.reloadStorageRules(rulesPath))[0]?.result;
+    expect(rejected?.kind).toBe('rejected');
+    expect(rejected?.kind === 'rejected' ? rejected.error.message : '').toContain('failed to parse');
     expect(session.payload().storageRules).toContain('/kept/{file}');
     await session.close();
   });
@@ -472,13 +474,29 @@ service firebase.storage {
       sdk: { dir: join(root, 'sdk') },
     });
     rmSync(rulesPath);
-    const removed = await session.reloadStorageRules();
-    expect(removed).toEqual({ kind: 'removed', policy: 'deny', clients: 0 });
+    const removed = await session.reloadStorageRules(rulesPath);
+    expect(removed).toEqual([{ bucket: null, file: rulesPath, result: { kind: 'removed', policy: 'deny', clients: 0 } }]);
     expect(session.payload().storageRules).toBeNull();
     expect(session.payload().storageRulesHash).toBeNull();
 
-    const again = await session.reloadStorageRules();
-    expect(again.kind).toBe('not-configured');
+    const again = (await session.reloadStorageRules(rulesPath))[0]?.result;
+    expect(again?.kind).toBe('not-configured');
+    await session.close();
+  });
+
+  it('reports an open bucket when the Storage rules file is deleted in permissive mode', async () => {
+    const root = project();
+    const rulesPath = join(root, 'storage.rules');
+    writeFileSync(rulesPath, storageRules('removed'));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      permissive: true,
+    });
+    rmSync(rulesPath);
+    const removed = await session.reloadStorageRules(rulesPath);
+    expect(removed).toEqual([{ bucket: null, file: rulesPath, result: { kind: 'removed', policy: 'allow', clients: 0 } }]);
     await session.close();
   });
 
@@ -495,13 +513,157 @@ service firebase.storage {
       },
     });
     writeFileSync(rulesPath, storageRules('hosted'));
-    await session.reloadStorageRules();
+    await session.reloadStorageRules(rulesPath);
     rmSync(rulesPath);
-    await session.reloadStorageRules();
+    await session.reloadStorageRules(rulesPath);
     expect(deployed.map(([service]) => service)).toEqual(['storage', 'storage']);
     expect(deployed[0]?.[1]).toContain('/hosted/{file}');
     expect(deployed[1]?.[1]).toBeNull();
     await session.close();
+  });
+
+  it('serves each bucket firebase.json names its own Storage rules, not the first entry\'s (#1313)', async () => {
+    const root = project();
+    writeFileSync(join(root, 'media.rules'), storageRules('media'));
+    writeFileSync(join(root, 'storage.rules'), storageRules('default'));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: {
+        storage: [
+          { bucket: 'media-bucket', rules: 'media.rules' },
+          { bucket: 'demo-app.appspot.com', rules: 'storage.rules' },
+        ],
+      },
+      sdk: { dir: join(root, 'sdk') },
+    });
+    const payload = session.payload();
+    expect(payload.storageRules).toBeNull();
+    expect(Object.keys(payload.storageBucketRules ?? {})).toEqual(['media-bucket', 'demo-app.appspot.com']);
+    expect(payload.storageBucketRules?.['media-bucket']?.rules).toContain('/media/{file}');
+    expect(payload.storageBucketRules?.['demo-app.appspot.com']?.rules).toContain('/default/{file}');
+    expect(session.summary.rules.storageBuckets.map((loaded) => loaded.bucket)).toEqual(['media-bucket', 'demo-app.appspot.com']);
+    expect(session.storageRulesFiles()).toEqual([join(root, 'media.rules'), join(root, 'storage.rules')]);
+    await session.close();
+  });
+
+  it('reloads only the buckets that deploy the changed Storage rules file, and deploys each to its bucket on the Node sandbox', async () => {
+    const root = project();
+    const mediaPath = join(root, 'media.rules');
+    writeFileSync(mediaPath, storageRules('media'));
+    writeFileSync(join(root, 'storage.rules'), storageRules('default'));
+    const deployed: unknown[] = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: {
+        storage: [
+          { bucket: 'media-bucket', rules: 'media.rules' },
+          { bucket: 'demo-app.appspot.com', rules: 'storage.rules' },
+        ],
+      },
+      sdk: { dir: join(root, 'sdk') },
+      deployHostedRules: async (service, source, destination) => {
+        deployed.push([service, source === null ? null : 'source', destination]);
+      },
+    });
+    const defaultRules = session.payload().storageBucketRules?.['demo-app.appspot.com'];
+    writeFileSync(mediaPath, storageRules('media-two'));
+    const reloaded = await session.reloadStorageRules(mediaPath);
+    expect(reloaded.map(({ bucket, result }) => [bucket, result.kind])).toEqual([['media-bucket', 'reloaded']]);
+    expect(session.payload().storageBucketRules?.['media-bucket']?.rules).toContain('/media-two/{file}');
+    expect(session.payload().storageBucketRules?.['demo-app.appspot.com']).toEqual(defaultRules);
+    rmSync(mediaPath);
+    const removed = await session.reloadStorageRules(mediaPath);
+    expect(removed.map(({ bucket, result }) => [bucket, result.kind])).toEqual([['media-bucket', 'removed']]);
+    expect(session.payload().storageBucketRules?.['media-bucket']).toBeUndefined();
+    expect(deployed).toEqual([
+      ['storage', 'source', { bucket: 'media-bucket' }],
+      ['storage', null, { bucket: 'media-bucket' }],
+    ]);
+    await session.close();
+  });
+
+  it('keeps the last-good rules live on every bucket that deploys a file whose reload is refused', async () => {
+    const root = project();
+    const sharedPath = join(root, 'shared.rules');
+    writeFileSync(sharedPath, storageRules('kept'));
+    const deployed: unknown[] = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: {
+        storage: [
+          { bucket: 'media-bucket', rules: 'shared.rules' },
+          { bucket: 'demo-app.appspot.com', rules: 'shared.rules' },
+        ],
+      },
+      sdk: { dir: join(root, 'sdk') },
+      deployHostedRules: async (...args) => {
+        deployed.push(args);
+      },
+    });
+    const before = session.payload().storageBucketRules;
+    writeFileSync(sharedPath, 'service firebase.storage { match /b/{bucket}/o {');
+    const results = await session.reloadStorageRules(sharedPath);
+    expect(results.map(({ bucket, result }) => [bucket, result.kind])).toEqual([
+      ['media-bucket', 'rejected'],
+      ['demo-app.appspot.com', 'rejected'],
+    ]);
+    expect(session.payload().storageBucketRules).toEqual(before);
+    expect(session.payload().storageBucketRules?.['media-bucket']?.rules).toContain('/kept/{file}');
+    expect(deployed).toEqual([]);
+    await session.close();
+  });
+
+  it('carries a Storage deploy target no project resolved, with the buckets .firebaserc maps it to per project', async () => {
+    const root = project();
+    const mediaPath = join(root, 'media.rules');
+    writeFileSync(mediaPath, storageRules('media'));
+    writeFileSync(join(root, '.firebaserc'), JSON.stringify({ targets: { 'demo-app': { storage: { media: ['media-bucket'] } } } }));
+    const deployed: unknown[] = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: { storage: [{ target: 'media', rules: 'media.rules' }] },
+      sdk: { dir: join(root, 'sdk') },
+      deployHostedRules: async (service, source, destination) => {
+        deployed.push([service, source === null ? null : 'source', destination]);
+      },
+    });
+    const [pending] = session.payload().storagePendingTargets ?? [];
+    expect(pending?.target).toBe('media');
+    expect(pending?.rules).toContain('/media/{file}');
+    expect(pending?.bucketsByProject).toEqual({ 'demo-app': ['media-bucket'] });
+    expect(session.storageRulesFiles()).toEqual([mediaPath]);
+    writeFileSync(mediaPath, storageRules('media-two'));
+    const reloaded = await session.reloadStorageRules(mediaPath);
+    expect(reloaded.map(({ target, result }) => [target, result.kind])).toEqual([['media', 'reloaded']]);
+    expect(session.payload().storagePendingTargets?.[0]?.rules).toContain('/media-two/{file}');
+    expect(deployed).toEqual([['storage', 'source', { target: 'media' }]]);
+    await session.close();
+  });
+
+  for (const [permissive, opens] of [[false, false], [true, true]] as const) {
+    it(`says an unresolved Storage deploy target's buckets are open only in permissive mode (permissive: ${permissive})`, async () => {
+      const root = project();
+      writeFileSync(join(root, 'media.rules'), storageRules('media'));
+      const notes: string[] = [];
+      const session = await createSandboxSession({
+        projectDir: root,
+        firebaseConfig: { storage: [{ target: 'media', rules: 'media.rules' }] },
+        sdk: { dir: join(root, 'sdk') },
+        permissive,
+        logger: { info: () => {}, note: (message) => { notes.push(message); } },
+      });
+      const warnings = notes.filter((note) => note.includes('Storage deploy target "media"'));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.includes('permissive mode')).toBe(opens);
+      await session.close();
+    });
+  }
+
+  it('says a removed Storage rules file leaves its bucket open only under the allow policy', () => {
+    const open = formatStorageRulesRemoved('storage.rules', 'allow');
+    const locked = formatStorageRulesRemoved('storage.rules', 'deny');
+    expect(open.includes('permissive mode')).toBe(true);
+    expect(locked.includes('permissive mode')).toBe(false);
   });
 
   it('deploys each reloaded database instance\'s rules to that instance on the Node sandbox', async () => {

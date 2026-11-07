@@ -26,6 +26,7 @@ import {
   OBSERVER_SPECIFIER,
   ROW_MODULE_IDS,
   suppliedRows,
+  suppliedRowsResolution,
   type SuppliedRowsPlane,
 } from '../../src/serve/vite-supplied-rows.js';
 import { SSR_SWAP_PREFIX } from '../../src/serve/vite-ssr-routing.js';
@@ -111,6 +112,16 @@ describe('live rows, once opened', () => {
     expect(swap.resolveId('firebase/app', rowId('firebase/firestore'))).toBe(rowId('firebase/app'));
     expect(swap.resolveId('firebase/functions', rowId('firebase/firestore'))).toStartWith(STOP_PREFIX);
     expect(swap.resolveId('firebase/app', userFirebaseFile)).toBe(rowId('firebase/app'));
+  });
+
+  it('record each specifier resolved to a row module once, in first-import order, and nothing it refused or passed on', () => {
+    const recording = openSwap();
+    recording.resolveId('firebase/auth', userImporter);
+    recording.resolveId('firebase/firestore', userImporter);
+    recording.resolveId('firebase/auth', '/app/node_modules/a-library/index.js');
+    recording.resolveId('firebase/firestore', rowId('firebase/firestore'));
+    recording.resolveId('firebase/functions', userImporter);
+    expect([...recording.observed]).toEqual(['firebase/auth', 'firebase/firestore']);
   });
 
   it('give the row modules their one observer, and no other importer', () => {
@@ -304,9 +315,17 @@ describe('live rows with imports that pass through', () => {
     expect(await unlisted.resolveTo(installationsPackage, '@firebase/installations', functionsEntry)).toEqual({ id: installationsPackage });
   });
 
-  it('take no import a row serves, nor firebase/firestore/lite or firebase-admin', () => {
-    for (const entry of ['firebase/firestore', 'firebase/firestore/lite', 'firebase-admin', '@firebase/database']) {
+  it('take no import a row serves, nor firebase/firestore/lite or an Admin SDK subpath', () => {
+    for (const entry of ['firebase/firestore', 'firebase/firestore/lite', 'firebase-admin/app', '@firebase/database']) {
       expect(() => suppliedRows(refusal, { passThrough: [entry] })).toThrow(`pyric: ${entry} cannot pass through`);
+    }
+  });
+
+  it('take firebase-admin for Node processes, and still refuse it on the page', () => {
+    const { rows } = passingSwap(['firebase-admin']);
+    expect([...rows.passThrough]).toEqual(['firebase-admin']);
+    for (const specifier of ['firebase-admin', 'firebase-admin/app']) {
+      expect(suppliedRowsResolution(rows, specifier, userImporter).kind, specifier).toBe('refused');
     }
   });
 });
