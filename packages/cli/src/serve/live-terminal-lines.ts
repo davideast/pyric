@@ -17,7 +17,7 @@
  */
 import path from 'node:path';
 import { isBlockingFinishReason, redactUrl } from 'pyric/ai/internal';
-import { productionVerdict } from 'pyric/sandbox/internal';
+import { productionVerdict, redactEmails } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';
 import { formatAiBlockedBlock, formatAiRejectionBlock } from './ai-terminal-blocks.js';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
@@ -69,7 +69,6 @@ const AI_HTTP_STATUS: Readonly<Record<string, number>> = {
 };
 
 const HTTP_CODE = /^http_(\d{3})$/;
-const EMAIL_ANYWHERE = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
 
 function text(value: string): string {
   return sanitizeForTerminal(value);
@@ -79,7 +78,7 @@ function text(value: string): string {
 function messageOf(call: ObservedCall): string | undefined {
   const outcome = call.outcome;
   const message = outcome.status === 'error' ? outcome.message : undefined;
-  return message === undefined ? undefined : redactUrl(message).replace(EMAIL_ANYWHERE, '[email]');
+  return message === undefined ? undefined : redactEmails(redactUrl(message));
 }
 
 /** The `from:` value: the client kind, then its label when it has one. */
@@ -113,7 +112,7 @@ function isRulesDenial(call: ObservedCall): boolean {
 
 /** The block for a call production's Security Rules denied. */
 export function formatProductionDenial(call: ObservedCall, source: LiveCallSource | undefined, rulesFiles: LiveRulesFiles): string {
-  const target = call.path === undefined ? '' : ` ${text(call.path.replace(EMAIL_ANYWHERE, '[email]'))}`;
+  const target = call.path === undefined ? '' : ` ${text(redactEmails(call.path))}`;
   const lines = [`  ⚠ [pyric] production denied: ${call.service} ${text(call.method)}${target}`];
   if (call.outcome.status === 'error') {
     const message = messageOf(call);

@@ -423,7 +423,12 @@ export interface ObservedSite extends ObservedHooks {
 
 /** The longest message a record carries, as long as a host takes. */
 export const MAX_MESSAGE_LENGTH = 500;
-/** Each email address in a message, which may sit between the segments of a path. */
+/**
+ * Each email address in a message, which may sit between the segments of a
+ * path. The host's reader applies the same pattern (`redactEmails` in
+ * `pyric/sandbox/internal`); this file runs in the page, which imports no
+ * runtime code from `pyric` or `@pyric/cli`, so it keeps its own copy.
+ */
 const EMAIL_ANYWHERE = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
 
 const FAILURE_OUTCOMES: ReadonlySet<LiveCallOutcome> = new Set(['threw', 'rejected', 'listener-error']);

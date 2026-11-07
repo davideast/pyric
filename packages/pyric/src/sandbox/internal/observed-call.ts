@@ -69,8 +69,17 @@ export const OBSERVED_ADMIN_DISPOSITION: RulesDisposition = Object.freeze({
 
 /** An email address anywhere in a text: another person's from a document or a field path, or the account's own. */
 export const EMAIL_SHAPE = /[^\s@"']+@[^\s@"']+\.[^\s@"']+/;
-/** Each email address in a message, which may sit between the segments of a path. */
-const MESSAGE_EMAIL = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
+/** Each email address in a text, which may sit between the segments of a path. */
+const EMAIL_ANYWHERE = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
+
+/**
+ * A text with each email address written `[email]`, one between the segments
+ * of a path (`users/ada@example.com/a.png`) included. The reader applies it to
+ * production's message, and a live host's terminal to a path it prints.
+ */
+export function redactEmails(text: string): string {
+  return text.replace(EMAIL_ANYWHERE, '[email]');
+}
 
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
 /** The services the Admin SDK rows observe. AI Logic and Messaging calls come only from a client SDK. */
@@ -228,13 +237,13 @@ function isTime(value: unknown): value is number {
 
 /**
  * Production's message as a record may carry it: an email address in it reads
- * `[email]`, and a message shaped like a token is dropped, so neither reaches
- * the host's terminal.
+ * `[email]`. A message that is not a string of 1 to 500 characters, or that is
+ * shaped like a token, is dropped and the call kept, so a bad message never
+ * costs the call its event, its billed count or its terminal block.
  */
 function readOutcomeMessage(value: unknown): { message?: string } {
-  if (value === undefined) return {};
-  requireField(isBoundedString(value, MAX_OUTCOME_MESSAGE_LENGTH), 'outcome.message');
-  const message = value.replace(MESSAGE_EMAIL, '[email]');
+  if (!isBoundedString(value, MAX_OUTCOME_MESSAGE_LENGTH)) return {};
+  const message = redactEmails(value);
   return isTokenShaped(message) ? {} : { message };
 }
 
@@ -348,6 +357,10 @@ function withoutOutcomeMessage(value: Fields): Fields {
   return { ...value, outcome: rest };
 }
 
+function isReason(value: unknown): value is string {
+  return typeof value === 'string' && REASON_PATTERN.test(value);
+}
+
 function isModelName(value: unknown): value is string {
   return typeof value === 'string' && MODEL_PATTERN.test(value);
 }
@@ -379,7 +392,7 @@ function readUsage(value: unknown): ObservedUsage {
   return usage;
 }
 
-/** An `ai` call's model, token counts and block reasons; any other key (text, a response) is refused. */
+/** An `ai` call's model, token counts and block reasons; any other key (text, a response) is refused, and a bad reason dropped. */
 function readAi(value: unknown): ObservedAi {
   requireField(isFields(value), 'ai');
   requireOnly(value, AI_FIELDS, 'ai.');
@@ -395,15 +408,11 @@ function readAi(value: unknown): ObservedAi {
     requireField(isTime(value.firstChunkMs), 'ai.firstChunkMs');
     ai.firstChunkMs = value.firstChunkMs;
   }
-  if (value.finishReason !== undefined) {
-    const isBlock = typeof value.finishReason === 'string' && REASON_PATTERN.test(value.finishReason) && !UNBLOCKED_FINISH_REASONS.has(value.finishReason);
-    requireField(isBlock, 'ai.finishReason');
-    ai.finishReason = value.finishReason as string;
-  }
-  if (value.blockReason !== undefined) {
-    requireField(typeof value.blockReason === 'string' && REASON_PATTERN.test(value.blockReason), 'ai.blockReason');
-    ai.blockReason = value.blockReason;
-  }
+  // A reason that is no block, or not a wire enum, is dropped and the call kept.
+  const finishReason = value.finishReason;
+  const isBlock = isReason(finishReason) && !UNBLOCKED_FINISH_REASONS.has(finishReason);
+  if (isBlock) ai.finishReason = finishReason;
+  if (isReason(value.blockReason)) ai.blockReason = value.blockReason;
   return ai;
 }
 

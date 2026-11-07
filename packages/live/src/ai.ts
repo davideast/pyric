@@ -266,7 +266,11 @@ function reportedOf(response: unknown): Pick<LiveAiRecord, 'reportedModel'> {
   return reportedModel !== undefined && MODEL_NAME.test(reportedModel) ? { reportedModel } : {};
 }
 
-/** The finish reasons of an answer with content, which no block names. */
+/**
+ * The finish reasons of an answer with content, which no block names. The
+ * host's reader keeps the same set (`readObservedCall`); this file runs in
+ * the page, which imports no runtime code from `pyric`, so it keeps a copy.
+ */
 const UNBLOCKED_FINISH_REASONS: ReadonlySet<string> = new Set(['STOP', 'MAX_TOKENS', 'FINISH_REASON_UNSPECIFIED']);
 /** The reason enums a host takes. */
 const REASON = /^[A-Z][A-Z0-9_]{0,63}$/;

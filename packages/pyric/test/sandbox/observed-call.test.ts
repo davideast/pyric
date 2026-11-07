@@ -496,16 +496,14 @@ describe('readObservedCall', () => {
 describe("production's message and an AI block", () => {
   const MESSAGE = 'Missing or insufficient permissions.';
 
-  it("keeps production's message on an error outcome, and refuses one too long or on a success", () => {
+  it("keeps production's message on an error outcome, drops a bad one and keeps the call, and refuses one on a success", () => {
     const denied = { ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: MESSAGE } };
     expect(readObservedCall(denied).outcome).toEqual({ status: 'error', code: 'permission-denied', message: MESSAGE });
-    const cases: Array<[unknown, string]> = [
-      [{ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: 'a'.repeat(501) } }, 'outcome.message'],
-      [{ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: '' } }, 'outcome.message'],
-      [{ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: 7 } }, 'outcome.message'],
-      [{ ...DENIED_READ, outcome: { status: 'ok', message: MESSAGE } }, 'outcome.message'],
-    ];
-    for (const [record, field] of cases) expect(() => readObservedCall(record)).toThrow(`Invalid observed call field: ${field}.`);
+    for (const message of ['a'.repeat(501), '', 7, null, { text: MESSAGE }]) {
+      const read = readObservedCall({ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message } });
+      expect(read).toEqual({ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied' } });
+    }
+    expect(() => readObservedCall({ ...DENIED_READ, outcome: { status: 'ok', message: MESSAGE } })).toThrow('Invalid observed call field: outcome.message.');
   });
 
   it('leaves an email out of the message and drops a message shaped like a token', () => {
@@ -532,14 +530,19 @@ describe("production's message and an AI block", () => {
     expect(JSON.stringify(observedCallEvent(rejected))).not.toContain('invalid argument.');
   });
 
-  it("keeps an AI call's block reasons, refuses an answer's own finish reason, and puts neither on the event", () => {
+  it("keeps an AI call's block reasons, drops an answer's own finish reason or a bad one, and puts neither on the event", () => {
     const blocked = { ...GENERATE, ai: { model: 'models/gemini-flash-lite-latest', finishReason: 'SAFETY' } };
     expect(readObservedCall(blocked).ai).toEqual({ model: 'models/gemini-flash-lite-latest', finishReason: 'SAFETY' });
     const refusedPrompt = { ...GENERATE, ai: { model: 'models/gemini-flash-lite-latest', blockReason: 'PROHIBITED_CONTENT' } };
     expect(readObservedCall(refusedPrompt).ai).toEqual({ model: 'models/gemini-flash-lite-latest', blockReason: 'PROHIBITED_CONTENT' });
-    for (const finishReason of ['STOP', 'MAX_TOKENS', 'safety', 'SAFETY because', 7]) {
-      const record = { ...GENERATE, ai: { model: 'models/gemini-flash-lite-latest', finishReason } };
-      expect(() => readObservedCall(record)).toThrow('Invalid observed call field: ai.finishReason.');
+    const model = 'models/gemini-flash-lite-latest';
+    for (const finishReason of ['STOP', 'MAX_TOKENS', 'safety', 'SAFETY because', 7, 'A'.repeat(65)]) {
+      const read = readObservedCall({ ...GENERATE, ai: { model, finishReason } });
+      expect(read.ai).toEqual({ model });
+      expect(read.outcome).toEqual({ status: 'ok' });
+    }
+    for (const blockReason of ['safety', '', 7, 'A'.repeat(65)]) {
+      expect(readObservedCall({ ...GENERATE, ai: { model, blockReason } }).ai).toEqual({ model });
     }
     expect(JSON.stringify(observedCallEvent(readObservedCall(blocked)))).not.toContain('SAFETY');
   });
