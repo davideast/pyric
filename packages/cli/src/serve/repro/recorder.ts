@@ -17,6 +17,7 @@
  * returned document: the host holds those in memory for its local rules, and
  * a repro file is made to share.
  */
+import type { ObservedCall } from 'pyric/sandbox';
 import type { InboundMessage, OutboundMessage } from '../worker/protocol.js';
 import type { ReproBase, ReproEntry } from './format.js';
 
@@ -70,10 +71,22 @@ function isRecordedInbound(frame: InboundMessage): boolean {
   return !isEventStream;
 }
 
-/** An observe frame without the values the host keeps in memory only; any other frame as it came. */
+/**
+ * An observe frame's outcome without production's message, which only the
+ * host's terminal prints: a message can quote document data, such as the
+ * value Firestore's invalid-data error names.
+ */
+function recordedOutcome(outcome: ObservedCall['outcome']): ObservedCall['outcome'] {
+  if (outcome.status !== 'error') return outcome;
+  const { message: _message, ...answer } = outcome;
+  return answer;
+}
+
+/** An observe frame without the values the host keeps in memory only, or the terminal prints only; any other frame as it came. */
 function recordedFrame(frame: InboundMessage): InboundMessage {
   if (frame.t !== 'observe') return frame;
-  const { writeData: _writeData, document: _document, account, ...call } = frame.call;
+  const { writeData: _writeData, document: _document, account, outcome, ...rest } = frame.call;
+  const call = { ...rest, outcome: recordedOutcome(outcome) };
   if (account === undefined) return { ...frame, call };
   const { claims: _claims, ...named } = account;
   return { ...frame, call: { ...call, account: named } };

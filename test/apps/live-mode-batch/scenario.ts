@@ -48,6 +48,20 @@ const UNSERVED_MODEL = 'gemini-not-served';
 /** The AI Logic observation the replay answers an unserved model from. */
 const UNKNOWN_MODEL_OBSERVATION = fileURLToPath(new URL('../../../packages/conformance/observations/ai/ai-error-unknown-model.json', import.meta.url));
 
+/** Where the scenario writes the host's repro file. */
+const REPRO_FILE = 'live-repro.json';
+
+/** The outcome of each observe frame a repro file recorded. */
+function observedOutcomes(repro: unknown): Array<Record<string, unknown>> {
+  const entries = (repro as { entries?: unknown[] }).entries ?? [];
+  const outcomes: Array<Record<string, unknown>> = [];
+  for (const entry of entries as Array<{ kind?: string; frame?: { t?: string; call?: { outcome?: Record<string, unknown> } } }>) {
+    const outcome = entry.kind === 'in' && entry.frame?.t === 'observe' ? entry.frame.call?.outcome : undefined;
+    if (outcome !== undefined) outcomes.push(outcome);
+  }
+  return outcomes;
+}
+
 /** Each message the traffic fixture's Firestore denials carry (`cause` with gRPC code 7). */
 function fixtureDenialMessages(): string[] {
   const found: string[] = [];
@@ -264,6 +278,17 @@ export default scenario(async (app) => {
     const ai = aiBlock().join('\n');
     assert.match(ai, /not_found|NOT_FOUND|404/i);
     assert.ok(aiBlock()[0]!.includes(unservedModelMessage()), `the AI block's headline carries production's message:\n${ai}`);
+  });
+
+  await app.step('pyric serve repro capture records the failed calls without production\'s message', async () => {
+    const { bin } = JSON.parse(app.readFile('node_modules/@pyric/cli/package.json')) as { bin: { pyric: string } };
+    const run = await app.command('node', [`node_modules/@pyric/cli/${bin.pyric}`, 'serve', 'repro', 'capture', '--out', REPRO_FILE], { timeoutMs: 60_000 });
+    assert.equal(run.code, 0, run.output);
+    const text = app.readFile(REPRO_FILE);
+    const failed = observedOutcomes(JSON.parse(text)).filter((outcome) => outcome.status === 'error');
+    assert.ok(failed.length >= 2, `the repro records the denied read and the rejected AI call: ${JSON.stringify(failed)}`);
+    assert.deepEqual(failed.filter((outcome) => 'message' in outcome), []);
+    for (const message of [...fixtureDenialMessages(), unservedModelMessage()]) assert.ok(!text.includes(message), `the repro carries production's message ${JSON.stringify(message)}`);
   });
 
   await app.step('nothing reached any host but loopback', async () => {
