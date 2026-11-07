@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Notes</title>
+  </head>
+  <body>
+    <h1>Notes</h1>
+    <output id="status">Starting</output>
+    <script>
+      // A module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+    </script>
+    <script type="module">
+      // The notes app's page. It signs in, reads its own note, and saves a
+      // note through its API, `POST /api/notes`, sending its ID token as a
+      // bearer token. Its backend is the project below, or the local backend
+      // a `?backend=<origin>` query names, through the SDK's own emulator
+      // connectors.
+      import { initializeApp } from "firebase/app";
+      import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
+      import { connectFirestoreEmulator, doc, getDoc, getFirestore } from "firebase/firestore";
+
+      const PROJECT = "demo-live-full-stack";
+      const app = initializeApp({
+        projectId: PROJECT,
+        apiKey: "demo-live-full-stack-key",
+        appId: "1:1:web:live-full-stack",
+        authDomain: `${PROJECT}.firebaseapp.com`,
+      });
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const backend = new URLSearchParams(location.search).get("backend");
+      if (backend) {
+        const url = new URL(backend);
+        connectAuthEmulator(auth, url.origin, { disableWarnings: true });
+        connectFirestoreEmulator(db, url.hostname, Number(url.port));
+      }
+      const failure = (error) => error.code ?? String(error);
+
+      window.signIn = () => signInWithEmailAndPassword(auth, "admin-capture@example.com", "notes-password")
+        .then((credential) => credential.user.uid, failure);
+
+      window.readOwnNote = () => getDoc(doc(db, "owners", auth.currentUser.uid))
+        .then((snapshot) => snapshot.data() ?? null, failure);
+
+      window.saveNote = async () => {
+        const token = await auth.currentUser.getIdToken();
+        const response = await fetch("/api/notes", {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          body: JSON.stringify({ n: 1 }),
+        });
+        return { status: response.status, body: await response.json() };
+      };
+
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>

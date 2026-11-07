@@ -10,12 +10,18 @@
  * With those Admin exchanges loaded, a Firestore Commit or RunQuery shaped as
  * a client SDK sends it (a bearer that is not `owner`) is still refused: an
  * Admin exchange answers only the Admin SDK.
+ *
+ * An ID token the replay mints `unsigned`, as the Auth emulator issues one,
+ * passes the SDK's emulator-mode token check and reaches the user lookup;
+ * the signed one it mints by default does not, so a page whose backend
+ * checks its token under the emulator variable signs in with an unsigned one.
  * Run it with the network off: `unshare -rn sh -c 'ip link set lo up && bun test test/apps/replay/admin-auth.test.ts'`.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { startReplayProcess, unmatchedBy, type ReplayProcess } from './process.ts';
+import { ReplayTokens } from './values.ts';
 
 const ROOT = resolve(import.meta.dir, '../../..');
 const FIXTURE = join(import.meta.dir, 'fixtures', 'admin-minimal.json');
@@ -52,6 +58,17 @@ out.deletedMany = (await auth.deleteUsers(['user-b', 'user-c'])).successCount;
 await auth.deleteUser('user-a');
 out.afterDelete = await codeOf(auth.getUser('user-a'));
 out.unrecorded = await codeOf(auth.getUser('user-unrecorded'));
+console.log('RESULT ' + JSON.stringify(out));
+process.exit(0);
+`;
+
+/** Each token in argv through `verifyIdToken`: the uid, or the error's code. */
+const VERIFY_TOKENS = `
+import { initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+const auth = getAuth(initializeApp({ projectId: 'pyric-replay-admin' }));
+const out = [];
+for (const token of process.argv.slice(1)) out.push(await auth.verifyIdToken(token).then((decoded) => decoded.uid, (error) => error.code));
 console.log('RESULT ' + JSON.stringify(out));
 process.exit(0);
 `;
@@ -140,4 +157,21 @@ test('with Admin exchanges loaded, a client-shaped Commit and RunQuery are refus
     { rpc: 'grpc', as: null, request: { method: 'Commit' } },
     { rpc: 'grpc', as: null, request: { method: 'RunQuery' } },
   ]);
+}, 90_000);
+
+test('an unsigned replay ID token passes the Admin SDK\'s emulator check and reaches the user lookup, and a signed one stops at the check', async () => {
+  const before = (await unmatchedBy(server.origin)).length;
+  const tokens = new ReplayTokens();
+  const unsigned = tokens.mintIdToken('pyric-replay-admin', { uid: 'user-minted', provider: 'password', unsigned: true });
+  const signed = tokens.mintIdToken('pyric-replay-admin', { uid: 'user-minted', provider: 'password' });
+  const authHost = new URL(server.origin).host;
+  const result = await runNode(VERIFY_TOKENS, [unsigned, signed], { ...bareEnv(), FIREBASE_AUTH_EMULATOR_HOST: authHost });
+  // The unsigned token's lookup has no recording, so it fails there; the signed one never sends one.
+  expect(result).toEqual(['auth/internal-error', 'auth/argument-error']);
+  const unmatched = (await unmatchedBy(server.origin)).slice(before);
+  expect(unmatched).toEqual([{
+    rpc: 'auth',
+    as: null,
+    request: { method: 'POST', path: '/v1/projects/pyric-replay-admin/accounts:lookup', body: { localId: ['user-minted'] } },
+  }]);
 }, 90_000);
