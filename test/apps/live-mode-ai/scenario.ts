@@ -178,9 +178,8 @@ interface Row {
 /** Every AI row Traffic lists in `scope`, picking the AI filter afresh so the list follows new rows. */
 async function aiRows(chip: Locator, scope: 'page' | 'all'): Promise<Row[]> {
   await chip.locator('[data-chip-tab=traffic]').click();
-  // The scope is a switch, on for All traffic: flip it only when it differs from `scope`.
-  const scopeSwitch = chip.locator('[data-traffic-scope]');
-  if (await scopeSwitch.getAttribute('aria-checked') !== String(scope === 'all')) await scopeSwitch.click();
+  // On a live host the scope is the From select: this page's requests, or every client's.
+  await chip.locator('[data-traffic-from]').selectOption(scope);
   const service = chip.locator('[data-request-service]');
   await service.selectOption('');
   await service.selectOption('ai');

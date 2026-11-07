@@ -154,7 +154,7 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
     expect(reports.some((line) => line.includes('@pyric/live/vite: live mode for the Firebase project live-page-plane.'))).toBe(true);
 
     await page.locator('[data-chip-tab=traffic]').click();
-    await page.locator('[data-traffic-scope=all]').click();
+    await page.locator('[data-traffic-from]').selectOption('all');
     const rows = page.locator('[data-traffic-rows] [data-request-row]');
     const firestoreRow = rows.filter({ hasText: 'firestore.getDocFromCache' });
     const authRow = rows.filter({ hasText: 'auth.signInAnonymously' });

@@ -139,9 +139,8 @@ async function openChip(page: Page): Promise<Locator> {
  */
 async function rows(chip: Locator, service: string): Promise<string[]> {
   await chip.locator('[data-chip-tab=traffic]').click();
-  // The scope is a switch: flip it only when it is not already on All traffic.
-  const scope = chip.locator('[data-traffic-scope]');
-  if (await scope.getAttribute('aria-checked') !== 'true') await scope.click();
+  // On a live host the scope is the From select: every client's requests.
+  await chip.locator('[data-traffic-from]').selectOption('all');
   const filter = chip.locator('[data-request-service]');
   await filter.selectOption(service === '' ? 'rtdb' : '');
   await filter.selectOption(service);
