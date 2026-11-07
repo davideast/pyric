@@ -61,7 +61,7 @@ import {
   opProvenance,
 } from './core.js';
 import { bindCaller, callerFor, markPortConnection, setPortClientId, setPortTabId } from './caller.js';
-import { handleObserve, sweepObservedListeners } from './observe.js';
+import { endObservedPort, handleObserve } from './observe.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './rules.js';
@@ -439,7 +439,7 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
 
   // A live page or process that closed ends its production listeners without
   // unsubscribing: detach the ones it reported attached (`observe.ts`).
-  attempt(() => { sweepObservedListeners(ctx, port); });
+  attempt(() => { endObservedPort(ctx, port); });
 
   const portSubs = ctx.subs.get(port);
   const hasPortSubscriptions = portSubs !== undefined;

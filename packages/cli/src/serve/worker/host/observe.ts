@@ -18,6 +18,7 @@ import type { VerifyObservedCallValues } from '../../../verify/fixture.js';
 import type { ObserveMessage } from '../protocol.js';
 import { activityJourneyId, ok, fail, type HostCtx, type PortLike } from '../host-context.js';
 import { callerOf } from './caller.js';
+import { claimNodeClient, closeNodeClient, forgetNodeClient, resumeNodeClient } from './node-client-restarts.js';
 import { localVerdict } from './observe-local-verdict.js';
 
 /** A listener's attach or detach, as the reader returns it. */
@@ -171,10 +172,43 @@ export function sweepObservedListeners(ctx: HostCtx, port: PortLike, now: () => 
   ATTACHED_BY_PORT.delete(port);
 }
 
+/** Sweep the ports of earlier runs of a Node process (`node-client-restarts.ts`). */
+function sweepEarlierRuns(ctx: HostCtx, earlier: readonly PortLike[]): void {
+  for (const port of earlier) sweepObservedListeners(ctx, port);
+}
+
+/**
+ * The host retains `port`'s closed connection for a while. When it is a Node
+ * process whose next run has already connected, its listeners end now.
+ */
+export function observedPortInterrupted(ctx: HostCtx, port: PortLike): void {
+  sweepEarlierRuns(ctx, closeNodeClient(ctx, port));
+}
+
+/** `port`'s connection resumed its retained session, so it is no earlier run. */
+export function observedPortResumed(ctx: HostCtx, port: PortLike): void {
+  resumeNodeClient(ctx, port);
+}
+
+/** The host ended `port`: sweep what it left attached and forget it. */
+export function endObservedPort(ctx: HostCtx, port: PortLike): void {
+  sweepObservedListeners(ctx, port);
+  forgetNodeClient(ctx, port);
+}
+
+/** A Node process's first labelled frame: an earlier run of it that closed ends its listeners. */
+function claimNodeRun(ctx: HostCtx, port: PortLike, msg: ObserveMessage): void {
+  const label = msg.nodeClient;
+  const isNodeProcess = callerOf(msg)?.kind === 'node';
+  if (label === undefined || !isNodeProcess) return;
+  sweepEarlierRuns(ctx, claimNodeClient(ctx, port, label));
+}
+
 /** Write one observed call to the event stream with its caller, then answer the frame. */
 export function handleObserve(ctx: HostCtx, port: PortLike, msg: ObserveMessage): void {
   try {
     const call = readObservedCall(msg.call);
+    claimNodeRun(ctx, port, msg);
     const listener = call.listener;
     if (listener !== undefined) {
       emitListener(ctx, port, { call, listener, caller: callerOf(msg) });

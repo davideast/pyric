@@ -24,6 +24,15 @@ export function requireOptionalString(value: unknown, field: string): void {
   requireShape(hasValidShape, field);
 }
 
+/** The longest label a client may name itself by. */
+const MAX_LABEL_LENGTH = 64;
+
+/** Absent, or a non-empty string no longer than a label may be. */
+export function requireOptionalLabel(value: unknown, field: string): void {
+  const isLabel = typeof value === 'string' && value !== '' && value.length <= MAX_LABEL_LENGTH;
+  requireShape(value === undefined || isLabel, field);
+}
+
 export function requireOptionalBoolean(value: unknown, field: string): void {
   const hasValidShape = value === undefined || typeof value === 'boolean';
   requireShape(hasValidShape, field);

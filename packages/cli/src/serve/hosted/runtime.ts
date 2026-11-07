@@ -51,6 +51,7 @@ import { ensureAuth, setPortSession } from '../worker/host-auth.js';
 import { callerFor, markPortConnection, SERVICE_WORKER_TAB_ID, setPortTabId, type PortConnection } from '../worker/host/caller.js';
 import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
+import { observedPortInterrupted, observedPortResumed } from '../worker/host/observe.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
 import { rtdbInstance } from '../worker/host/rtdb-instances.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
@@ -481,7 +482,10 @@ export async function createHostedRuntime(
       : { ...incoming, clientSessionId: undefined, resumeSession: undefined };
     owned.pending = owned.pending.then(async () => {
       owned.transport = transport;
-      if (message.resumeSession === true) ctx.disconnectedPorts?.delete(owned.port);
+      if (message.resumeSession === true) {
+        ctx.disconnectedPorts?.delete(owned.port);
+        observedPortResumed(ctx, owned.port);
+      }
       await recorder?.inbound(clientSessionId, message);
       refusePortWrite(owned.port, message);
       const changesDurableState = message.t === 'op' && requiresHealthyPersistence(message);
@@ -522,6 +526,8 @@ export async function createHostedRuntime(
     const owned = ports.get(clientSessionId);
     const isMissingPort = owned === undefined;
     if (isMissingPort) return;
+    // A Node process whose next run already connected ends its listeners now.
+    observedPortInterrupted(ctx, owned.port);
     owned.pending = owned.pending.then(() => {
       recorder?.note({ kind: 'client', at: Date.now(), session: clientSessionId, event: 'interrupted' });
       return drainPortRtdbDisconnects(ctx, owned.port);
