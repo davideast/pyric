@@ -380,7 +380,7 @@ jobs:
           retention-days: 1
 
   build-and-test:
-    name: Build all packages + run tests (${{ matrix.shard }}/2)
+    name: Build all packages + run tests (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: [plan, build-packages]
@@ -388,7 +388,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
 
@@ -419,17 +419,18 @@ jobs:
           flavor: packages
 
       - name: Run CLI tests
-        # Sharded across 2 runners by scripts/ci/test-shard.ts (bun test has no
-        # shard option, so files are split by index modulo 2). The CLI suite is
+        # Sharded across 3 runners by scripts/ci/test-shard.ts (bun test has no
+        # shard option, so it splits the files into shards of about equal
+        # time from the slow-file times it records). The CLI suite is
         # load-sensitive under CPU contention (verify replays flip verdicts when
-        # sharing a 2-core VM).
-        # Sharding gives each half of the suite its own dedicated 2-core VM
-        # without CPU starvation, cutting job wall-clock time in half (~48s).
+        # sharing a 2-core VM), so each shard gets a runner of its own. Two
+        # modulo shards took 224 s and 295 s on PR run 42329320713; three timed
+        # shards plan about 175 s each.
         # --quarantine applies quarantine only in these CI test steps; every
         # other caller of the runners, publish included, keeps its exit code.
         env:
           PYRIC_QUARANTINE_BASE_ENTRIES: ${{ needs.plan.outputs.quarantine-base }}
-        run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/2 --quarantine
+        run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/3 --quarantine
 
       - name: Upload the quarantine report
         # Each quarantined test's result in this run, which the release check
@@ -444,7 +445,7 @@ jobs:
           retention-days: 30
 
   library-tests:
-    name: Run library + UI tests (${{ matrix.shard }}/2)
+    name: Run library + UI tests (${{ matrix.part }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [plan, build-packages]
@@ -452,7 +453,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        # pyric-1 to pyric-3 are the timed shards of packages/pyric; rest is
+        # test:ci:libraries:rest.
+        part: [pyric-1, pyric-2, pyric-3, rest]
     steps:
       - uses: actions/checkout@v4
 
@@ -487,9 +490,11 @@ jobs:
         # its own conformance-suite job. In-job concurrency was measured first
         # and rejected: on a 2-core runner two CPU-bound streams saved 16s and
         # starved the conformance model's 60s beforeAll budget into a timeout.
-        # packages/pyric, about 240s of the 290s serial step, is split across
-        # the two shards by scripts/ci/test-shard.ts; shard 2 also runs the
-        # remaining suites (test:ci:libraries:rest, about 45s).
+        # packages/pyric, about 430 s serial, is split into three shards of
+        # about equal time by scripts/ci/test-shard.ts, and the remaining
+        # suites (test:ci:libraries:rest, about 90 s) run in a leg of their
+        # own. Two modulo shards, the second carrying the rest, took 154 s and
+        # 379 s on PR run 42329320713.
         # test:ci:libraries stays the canonical serial form for local runs and
         # the release gates; scripts/ci/library-split.test.ts pins
         # core = libraries minus conformance and rest = core minus
@@ -498,9 +503,13 @@ jobs:
         # other caller of the runners, publish included, keeps its exit code.
         env:
           PYRIC_QUARANTINE_BASE_ENTRIES: ${{ needs.plan.outputs.quarantine-base }}
+          PART: ${{ matrix.part }}
         run: |
-          bun scripts/ci/test-shard.ts --package=pyric --shard=${{ matrix.shard }}/2 --quarantine
-          if [ "${{ matrix.shard }}" = "2" ]; then bun run test:ci:libraries:rest; fi
+          if [ "$PART" = "rest" ]; then
+            bun run test:ci:libraries:rest
+          else
+            bun scripts/ci/test-shard.ts --package=pyric --shard="${PART#pyric-}/3" --quarantine
+          fi
 
       - name: Upload the quarantine report
         # Each quarantined test's result in this run, which the release check
@@ -509,7 +518,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quarantine-report-pyric-${{ matrix.shard }}-a${{ github.run_attempt }}
+          name: quarantine-report-${{ matrix.part }}-a${{ github.run_attempt }}
           path: test-results/quarantine/
           if-no-files-found: ignore
           retention-days: 30
@@ -792,11 +801,21 @@ jobs:
           retention-days: 30
 
   browser-conformance:
-    name: Served app + SharedWorker conformance
+    name: Served app + SharedWorker conformance (${{ matrix.part }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: [plan, build-packages]
+    # Not after build-packages: this job builds the site flavor, a superset of
+    # the packages build, so waiting for that job only delayed it (about
+    # 110 s on PR run 42329320713, where this job finished last).
+    needs: plan
     if: needs.plan.outputs.check-set == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        # e2e-1 and e2e-2 are the two Playwright shards of the root e2e config
+        # (269 s whole on PR run 42329320713); studio runs the configs with a
+        # server of their own.
+        part: [e2e-1, e2e-2, studio]
     steps:
       - uses: actions/checkout@v4
 
@@ -856,23 +875,31 @@ jobs:
         # deletion teardown, the worker-owned AI boundary), runtime identity,
         # Flow treatments, the listener contract, and every other served-page
         # proof. Running the whole config means a new file cannot be left out
-        # of CI. The folders with their own config run in the steps below.
-        run: bun run --cwd packages/cli test:e2e --output=test-results/e2e --trace=retain-on-failure
+        # of CI; Playwright's --shard splits it, and the two shards together
+        # run every file. The folders with their own config run in the studio
+        # part below.
+        if: matrix.part != 'studio'
+        env:
+          PART: ${{ matrix.part }}
+        run: bun run --cwd packages/cli test:e2e --shard="${PART#e2e-}/2" --output=test-results/e2e --trace=retain-on-failure
 
       - name: CLI-hosted Studio
+        if: matrix.part == 'studio'
         run: bun run --cwd packages/cli test:site-cli --output=test-results/site-cli --trace=retain-on-failure
 
       - name: Public Studio
+        if: matrix.part == 'studio'
         run: bun run --cwd packages/cli test:site-static --output=test-results/site-static --trace=retain-on-failure
 
       - name: Node host smoke set
+        if: matrix.part == 'studio'
         run: bun run --cwd packages/cli test:hosted-smoke --output=test-results/hosted-smoke --trace=retain-on-failure
 
       - name: Upload browser conformance results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-conformance-results-${{ github.run_attempt }}
+          name: browser-conformance-results-${{ matrix.part }}-${{ github.run_attempt }}
           path: packages/cli/test-results/
           if-no-files-found: warn
           retention-days: 7
