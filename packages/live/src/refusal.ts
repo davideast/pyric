@@ -363,6 +363,26 @@ export function liveAdminInstanceRefusal(mismatch: AdminInstanceMismatch): Error
   return Object.assign(error, mismatch);
 }
 
+/** The live host's project, and the firebase-admin version whose Realtime Database instance live mode can't read. */
+export interface AdminInstanceUnread {
+  readonly hostProjectId: string;
+  readonly adminVersion: string | undefined;
+}
+
+/**
+ * The refusal of an Admin Realtime Database call whose instance live mode
+ * can't read, as after a firebase-admin upgrade that moves where the SDK
+ * keeps it. Live mode can't tell the instance is the live project's, so it
+ * refuses rather than let the call through unchecked.
+ */
+export function liveAdminInstanceUnreadable(unread: AdminInstanceUnread): Error & AdminInstanceUnread {
+  const version = unread.adminVersion === undefined ? 'this firebase-admin version' : `firebase-admin ${unread.adminVersion}`;
+  const error = refused(`@pyric/live: firebase-admin is refused in live mode, from a Node process: ` +
+    `live mode can't read which Realtime Database instance the app's databaseURL names in ${version}, so it can't tell the instance belongs to '${unread.hostProjectId}', the project this live host serves. ` +
+    `No Admin request left. Use a firebase-admin version this @pyric/live supports, or report ${version} to pyric.`);
+  return Object.assign(error, unread);
+}
+
 /** pyric's own code for an ID token from the other mode, beside firebase-admin's `auth/argument-error`. */
 export const MODE_MISMATCH = 'PYRIC_MODE_MISMATCH' as const;
 
