@@ -183,7 +183,7 @@ comes after a call has already reached it. Check before starting:
    <project>`, that its Admin calls bypass Security Rules, which services are observed, and that
    App Check calls are checked but not observed. On Node 22 the line says `firebase-admin is
    refused in this process` and names Node 23: stop and report it, since the backend's Admin
-   calls will fail.
+   calls will fail. A child process on Node 22 that a Node 23 backend starts prints the same line.
 
 Report the project, the URL, the source (the npm version, or the branch and commit of `<pyric>`),
 and these results before going
