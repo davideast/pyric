@@ -134,9 +134,8 @@ async function openChip(page: Page): Promise<Locator> {
 
 async function trafficRows(chip: Locator): Promise<Locator> {
   await chip.locator('[data-chip-tab=traffic]').click();
-  // The scope is a switch: flip it only when it is not already on All traffic.
-  const scope = chip.locator('[data-traffic-scope]');
-  if (await scope.getAttribute('aria-checked') !== 'true') await scope.click();
+  // On a live host the scope is the From select: every client's requests.
+  await chip.locator('[data-traffic-from]').selectOption('all');
   return chip.locator('[data-traffic-rows] [data-request-row]');
 }
 
@@ -166,7 +165,7 @@ async function readRows(rows: Locator): Promise<TrafficRow[]> {
     source: element.querySelector('[data-traffic-row-source]')?.getAttribute('data-traffic-row-source') ?? null,
     text: element.textContent ?? '',
     answer: element.querySelector('[data-verdict-production]')?.getAttribute('data-verdict-production') ?? null,
-    identity: element.querySelector('.s2')?.textContent ?? null,
+    identity: element.getAttribute('data-traffic-row-identity'),
   })));
 }
 

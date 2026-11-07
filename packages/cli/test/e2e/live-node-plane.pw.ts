@@ -128,6 +128,7 @@ test('a Node process under @pyric/live/register reports its Firestore and Auth c
     const expand = chip.locator('[data-expand]');
     if (await expand.isVisible()) await expand.click();
     await chip.locator('[data-chip-tab=traffic]').click();
+    // A hosted sandbox host keeps the All traffic switch: only a live host has the From select.
     await chip.locator('[data-traffic-scope=all]').click();
     const rows = chip.locator('[data-traffic-rows] [data-request-row]');
     const firestoreRow = rows.filter({ hasText: 'firestore.getDocFromCache' });
