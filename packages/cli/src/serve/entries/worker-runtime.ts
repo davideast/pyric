@@ -24,6 +24,7 @@ import {
   PYRIC_WORKER_URL,
 } from '../runtime/manifest.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
+import { pageBootHostInstanceId } from '../runtime/host-restart.js';
 import { pageLiveIdentity } from '../runtime/live-identity.js';
 import { connectRuntimeWorker } from '../runtime/worker-connection.js';
 import { createWorkerReplacement } from '../runtime/worker-replacement.js';
@@ -69,6 +70,7 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
       // A Node process finds the host again: it may have come back on another port.
       node?.origin.forgetHost?.();
     },
+    onHostRestarted: restart => runtimeStatus.reportHostRestarted(restart),
     onError: error => runtimeStatus.reportError(error, 'worker'),
     // The worker selection stamped into the page carries no session token; init.json does.
     sessionToken: currentSessionToken,
@@ -76,7 +78,7 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
     // A Node process presents the boot whose init.json it just read, so the host
     // holds its config as verified and a page with another config cannot evict it.
     initialHostInstanceId: node === undefined
-      ? (globalThis.__PYRIC_HOST_INSTANCE_ID__ ?? globalThis.__PYRIC_WORKER_INIT__?.instanceId)
+      ? pageBootHostInstanceId(globalThis)
       : payload?.instanceId,
     // After a host restart, a Node process reads the new boot's id before it reattaches.
     currentHostInstanceId: node === undefined ? undefined : currentHostInstanceId,

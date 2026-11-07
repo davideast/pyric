@@ -27,6 +27,8 @@ export interface LiveViewContext {
   readonly now: number;
   /** Whether this page can show listener overlays, so the Theme editor applies. */
   readonly supportsListeners: boolean;
+  /** True when the host restarted since this page loaded and the tab should reload. */
+  readonly hostBundleStale?: boolean;
 }
 
 /** The tab strip's label for the sandbox tab on a live host. */
@@ -208,6 +210,20 @@ function overlaysSectionHtml(supportsListeners: boolean): string {
   return keyed(sectionHtml('Page overlays', `<div class="rows">${theme}</div>`), 'overlays');
 }
 
+/** The row a tab shows once its host restarted: this page still runs the old bundle and rules. */
+export function staleBundleRowHtml(): string {
+  return rowHtml({
+    c1: 'Host restarted',
+    s1: 'Reload this page to load the updated bundle and rules.',
+    slot: buttonHtml('data-reload-page', 'Reload page', 'Reload this page from the restarted host'),
+    attributes: 'data-host-bundle-stale',
+  });
+}
+
+function staleBundleSectionHtml(): string {
+  return keyed(sectionHtml('Reload needed', `<div class="rows">${staleBundleRowHtml()}</div>`), 'stale');
+}
+
 /** The Live tab: project, clients, coverage, billed calls and overlays, with the Hide bar. */
 export function liveViewHtml(live: LiveHostStatus, context: LiveViewContext): ChipView {
   const sections = [
@@ -217,6 +233,7 @@ export function liveViewHtml(live: LiveHostStatus, context: LiveViewContext): Ch
     billedSectionHtml(live),
     overlaysSectionHtml(context.supportsListeners),
   ];
+  if (context.hostBundleStale) sections.unshift(staleBundleSectionHtml());
   return {
     body: `<div class="live-view" data-live-view>${sections.join('')}</div>`,
     bar: barHtml([buttonHtml('data-dismiss-chip', 'Hide', 'Hide pyric on this page')], 'Hide until reload'),

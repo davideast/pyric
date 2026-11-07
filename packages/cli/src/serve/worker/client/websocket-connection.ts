@@ -1,5 +1,6 @@
 import type { DiagnosticEvent } from '../../runtime/diagnostics-report.js';
 import { recordDiagnostic } from '../../runtime/diagnostics-client.js';
+import { hostRestartedSincePageLoad, type HostRestart } from '../../runtime/host-restart.js';
 import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
 import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
@@ -68,6 +69,8 @@ export function getHostedFirestore(target: {
   retryInitialConnection?: boolean;
   onConnection?: (state: HostedConnectionState) => void;
   onError?: (error: FirebaseError) => void;
+  /** Called once, in a page only, when attach-ack names a later host boot than `initialHostInstanceId`. */
+  onHostRestarted?: (restart: HostRestart) => void;
   /** The page's session token, which authorizes its own reads on the host's byte route. */
   sessionToken?: () => Promise<string | null>;
   /** Present outside a page; see {@link HostedSocketRealm}. */
@@ -100,6 +103,7 @@ export function getHostedFirestore(target: {
   let resumeToken: string | undefined;
   let hostInstanceId: string | undefined = target.initialHostInstanceId;
   let fromPriorHost = false;
+  let reportedHostRestart = false;
   let appConfig: Extract<InboundMessage, { t: 'appConfig' }> | undefined;
   let needsSessionRestore = false;
   let hasEverAttached = false;
@@ -110,8 +114,9 @@ export function getHostedFirestore(target: {
   let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   let hostSilence = watchHostSilence(0);
   const realm = target.realm;
+  const isPageRealm = realm === undefined && !isServiceWorkerRealm();
   /** A page tab announces the live reads it answers (`tab-reads.ts`); a Node process or service worker does not. */
-  const answersReads = realm === undefined && !isServiceWorkerRealm();
+  const answersReads = isPageRealm;
   let stopAnnouncingReads: (() => void) | undefined;
   // Settles once the first attachment says whether the host has a byte route,
   // or the connection ends without one; Storage waits on it before choosing.
@@ -494,6 +499,12 @@ export function getHostedFirestore(target: {
           const changedHost = isResume && hostInstanceId !== undefined && hasHostIdentity && message.hostInstanceId !== hostInstanceId;
           const presentedThisHost = hasHostIdentity && message.hostInstanceId === presentedHostInstanceId;
           if (changedHost && !presentedThisHost) fromPriorHost = true;
+          // Only a page runs a bundle its host served; a Node process or service worker has no stale tab to reload.
+          const bootIds = { initialHostInstanceId: target.initialHostInstanceId, currentHostInstanceId: message.hostInstanceId };
+          if (isPageRealm && !reportedHostRestart && hostRestartedSincePageLoad(bootIds)) {
+            reportedHostRestart = true;
+            target.onHostRestarted?.(bootIds);
+          }
           const attemptsResume = isResume && !requestsFreshSession;
           const receivedDifferentGrant = message.resumeToken !== resumeToken;
           const changedSessionUnexpectedly = attemptsResume && receivedDifferentGrant && !changedHost;

@@ -3,7 +3,7 @@ import { createLiveStatusPoller, liveLabel, type LiveHostStatus, type LiveStatus
 import { healthLiveStatus } from './chip-live-status.js';
 import { LIVE_IDENTITY_STYLES, liveIdentityViewHtml } from './chip-live-identity-view.js';
 import { pageLiveIdentity, type LiveIdentityStore } from './live-identity.js';
-import { LIVE_TAB_LABEL, LIVE_VIEW_STYLES, liveViewHtml } from './chip-live-view.js';
+import { LIVE_TAB_LABEL, LIVE_VIEW_STYLES, liveViewHtml, staleBundleRowHtml } from './chip-live-view.js';
 import { profileClientId } from '../worker/client/client-id.js';
 import { workerAiRates } from './worker-ai-rates.js';
 import { liveRates } from './live-rates.js';
@@ -52,6 +52,8 @@ import { filterUsers, getUserProviders, userDisplayLabel } from './chip-user-sea
 import {
   CHIP_TABS,
   CHIP_TAB_LABELS,
+  chipTitleFor,
+  chipToneFor,
   openingChipTab,
   pageChipTabStorage,
   problemTab,
@@ -106,6 +108,8 @@ export interface PyricRuntimeChipOptions {
   document?: Document;
   /** Where Traffic's Copy writes. Defaults to the page's own clipboard. */
   clipboard?: Pick<Clipboard, 'writeText'>;
+  /** What Reload page does once the host restarted. Defaults to the page's `location.reload()`. */
+  reloadPage?: () => void;
   initiallyOpen?: boolean;
   /** Override Studio availability. Omitted uses the runtime manifest URL. */
   studioUrl?: string | null;
@@ -616,7 +620,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   // Live mode: the host's live status, read once the page is on a hosted
   // runtime and again while the host is live.
   const liveStatusPoller = createLiveStatusPoller(
-    options.liveStatus ?? healthLiveStatus(documentLike),
+    options.liveStatus ?? healthLiveStatus(documentLike, restart => options.runtime.reportHostRestarted(restart)),
     () => render(),
     options.liveStatusTimers,
   );
@@ -903,6 +907,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       rateThreshold: thresholdMonitor.pending(),
       missingIndex: (trafficFeed?.requests() ?? []).some(requestMissingIndex) || (dataView?.outlines() ?? []).some(outline => missingIndex(outline.activity?.indexQuery)),
       duplicateListener: (dataView?.outlines() ?? []).some((outline) => outline.incident?.pattern === 'duplicate-listener'),
+      hostBundleStale: snapshot.hostBundleStale === true,
       updatePending: snapshot.updateAvailable,
     };
   };
@@ -1251,6 +1256,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       return `<div class="row" data-ai-row><dl class="sandbox-ai-facts">${facts}</dl></div>`;
     });
     const rows = [...modelRows, workerRow];
+    const showsStaleBundle = isHosted && snapshot.hostBundleStale === true;
+    if (showsStaleBundle) rows.unshift(staleBundleRowHtml());
     const supportsListeners = options.listeners !== undefined;
     const listenerHint = supportsListeners ? "Edit the overlay's custom properties" : 'Listener overlays are unavailable on this page';
     const theme = rowHtml({ c1: 'Theme', s1: 'Colors and outlines for listeners', slot: buttonHtml(`data-open-overlay-theme${supportsListeners ? '' : ' disabled'}`, 'Edit', listenerHint), attributes: 'data-theme-row' });
@@ -1268,7 +1275,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (tab === 'listeners') return options.listeners && dataView ? dataView.view() : { body: emptyHtml('Data unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
     const live = liveStatusPoller.current();
-    if (live !== null) return liveViewHtml(live, { selfClientId: profileClientId(), now: Date.now(), supportsListeners: options.listeners !== undefined });
+    if (live !== null) return liveViewHtml(live, { selfClientId: profileClientId(), now: Date.now(), supportsListeners: options.listeners !== undefined, hostBundleStale: snapshot.hostBundleStale === true });
     return sandboxViewHtml();
   };
 
@@ -1357,6 +1364,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-copy-response',
       'data-open-overlay-theme',
       'data-update-worker',
+      'data-reload-page',
       'data-dismiss-chip',
     ].find((attribute) => active?.hasAttribute(attribute));
     const focusToken = focusAttribute === undefined
@@ -1376,12 +1384,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
     const current = signals();
     const problem = problemTab(current);
-    // The pill's border is the page's state: the error colour outranks the
-    // warning colour because a failure is about the page as it is running.
-    const chipTone = current.failedRecently || current.duplicateListener ? ' error' : (current.missingIndex || current.rateThreshold || current.updatePending) ? ' warning' : '';
-    const chipTitle = current.failedRecently
-      ? 'A request failed in the last minute'
-      : current.duplicateListener ? 'A listener is attached twice' : current.missingIndex ? 'A query is missing an index in local configuration' : current.rateThreshold ? 'Activity exceeded a threshold. Open Traffic to review.' : current.updatePending ? 'New worker available' : '';
+    const chipTone = chipToneFor(current);
+    const chipTitle = chipTitleFor(current);
     // On a live host the sandbox tab is the Live tab: the host's facts, not the sandbox's.
     const tabLabel = (candidate: ChipTab): string => (liveStatus !== null && candidate === 'sandbox' ? LIVE_TAB_LABEL : CHIP_TAB_LABELS[candidate]);
     const tabsHtml = CHIP_TABS.map((candidate) => {
@@ -1420,7 +1424,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       </div></section>`
       : `<button class="chip${chipTone}${liveStatus === null ? '' : ' live'}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric${liveLabelHtml(liveStatus, escapeAttribute)}</button>`;
 
-    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${tabLabel(tab)}.` : ''}${identityNotice === '' ? '' : ` ${identityNotice}`}`;
+    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${current.hostBundleStale ? ' Host restarted. Reload this page to load the updated bundle and rules.' : ''}${open ? ` ${tabLabel(tab)}.` : ''}${identityNotice === '' ? '' : ` ${identityNotice}`}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
     // A view edited outside render (a refreshed rate cell, a copied-response
     // icon) is rebuilt from state even when the markup matches.
@@ -1806,6 +1810,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     root.querySelector('[data-update-worker]')?.addEventListener('click', () => {
       if (!snapshot.updateAvailable || snapshot.updatingWorker) return;
       void options.runtime.updateWorker().catch(() => { /* status records and renders the failure */ });
+    });
+    root.querySelector('[data-reload-page]')?.addEventListener('click', () => {
+      if (options.reloadPage !== undefined) options.reloadPage();
+      else documentLike.defaultView?.location.reload();
     });
     root.querySelector('[data-dismiss-chip]')?.addEventListener('click', () => {
       host.style.display = 'none';

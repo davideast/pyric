@@ -2,6 +2,7 @@ import type { HostedConnectionState } from '../worker/client/websocket-connectio
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { PyricRuntimeManifest } from './manifest.js';
 import { readPyricRuntimeManifest } from './manifest.js';
+import { hostRestartWarning, type HostRestart } from './host-restart.js';
 
 export type PyricRuntimeMode = 'starting' | 'shared-worker' | 'in-page' | 'hosted';
 export type PyricRuntimeErrorSource = 'sandbox' | 'worker' | 'runtime';
@@ -28,6 +29,8 @@ export interface PyricRuntimeSnapshot {
   errors: readonly PyricRuntimeError[];
   hostedConnection?: HostedConnectionState;
   persistenceUnhealthy?: boolean;
+  /** The host restarted since this page loaded, so the tab runs a stale bundle. */
+  hostBundleStale?: boolean;
 }
 
 export interface PyricRuntimeStatus {
@@ -35,6 +38,8 @@ export interface PyricRuntimeStatus {
   subscribe(listener: (snapshot: PyricRuntimeSnapshot) => void): () => void;
   setWorker(input: { mode: Exclude<PyricRuntimeMode, 'starting'>; runningEpoch?: string | null }): void;
   setHostedConnection(state: HostedConnectionState): void;
+  /** Marks the tab stale and warns in the console, once per page. */
+  reportHostRestarted(restart: HostRestart): void;
   setWorkerUpdater(update: (() => Promise<void>) | null): void;
   updateWorker(): Promise<void>;
   reportError(error: unknown, source: PyricRuntimeErrorSource): void;
@@ -280,6 +285,12 @@ export function createPyricRuntimeStatus(
     },
     setHostedConnection(hostedConnection) {
       publish({ ...snapshot, hostedConnection });
+    },
+    reportHostRestarted(restart) {
+      // The socket and the health poll can both see the restart; the page warns once.
+      if (snapshot.hostBundleStale === true) return;
+      console.warn(hostRestartWarning(restart));
+      publish({ ...snapshot, hostBundleStale: true });
     },
     setWorkerUpdater(update) {
       workerUpdater = update;

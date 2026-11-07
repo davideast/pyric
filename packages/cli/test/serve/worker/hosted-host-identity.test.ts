@@ -1,5 +1,10 @@
 import { afterEach, expect, test } from 'bun:test';
-import { getHostedFirestore, type HostedConnectionState } from '../../../src/serve/worker/client/websocket-connection.js';
+import {
+  getHostedFirestore,
+  type HostedConnectionState,
+  type HostedSocketRealm,
+} from '../../../src/serve/worker/client/websocket-connection.js';
+import type { HostRestart } from '../../../src/serve/runtime/host-restart.js';
 import type { BridgeMessage } from '../../../src/bridge/protocol.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 
@@ -69,7 +74,9 @@ const appConfigs = (received: BridgeMessage[]): Array<Record<string, unknown>> =
   .map(message => (message as { message: { t: string } }).message as unknown as Record<string, unknown>)
   .filter(message => message.t === 'appConfig');
 
-async function restartAcross(currentHostInstanceId?: () => Promise<string | undefined>) {
+type ClientOptions = Pick<Parameters<typeof getHostedFirestore>[0], 'currentHostInstanceId' | 'onHostRestarted' | 'realm'>;
+
+async function restartAcross(client: ClientOptions = {}) {
   const received: BridgeMessage[] = [];
   const host = startHost(received);
   const states: HostedConnectionState[] = [];
@@ -77,7 +84,7 @@ async function restartAcross(currentHostInstanceId?: () => Promise<string | unde
     url: `ws://127.0.0.1:${host.port}/__pyric/sandbox`,
     projectKey: 'orbit',
     initialHostInstanceId: 'boot-1',
-    currentHostInstanceId,
+    ...client,
     onConnection: state => states.push(state),
   });
   cleanups.push(() => db.port.close());
@@ -94,7 +101,7 @@ async function restartAcross(currentHostInstanceId?: () => Promise<string | unde
 }
 
 test('a Node client presents the restarted host boot it read, and its config is not marked from an earlier host', async () => {
-  const received = await restartAcross(async () => 'boot-2');
+  const received = await restartAcross({ currentHostInstanceId: async () => 'boot-2' });
   const [initial, reattach] = attaches(received);
   expect(initial?.hostInstanceId).toBe('boot-1');
   expect(reattach?.hostInstanceId).toBe('boot-2');
@@ -104,7 +111,7 @@ test('a Node client presents the restarted host boot it read, and its config is 
 }, 20_000);
 
 test('a client that cannot read the current boot presents the one it attached to, and is marked from an earlier host', async () => {
-  const received = await restartAcross(async () => { throw new Error('init.json is not served yet'); });
+  const received = await restartAcross({ currentHostInstanceId: async () => { throw new Error('init.json is not served yet'); } });
   expect(attaches(received)[1]?.hostInstanceId).toBe('boot-1');
   expect(appConfigs(received)[1]).toEqual({ t: 'appConfig', options: { projectId: 'orbit' }, fromPriorHost: true });
 }, 20_000);
@@ -115,4 +122,46 @@ test('a page presents the boot it was served by after a host restart, and is mar
   expect(reattach?.hostInstanceId).toBe('boot-1');
   expect(reattach?.resumeToken).toBe('token-boot-1');
   expect(appConfigs(received)[1]).toEqual({ t: 'appConfig', options: { projectId: 'orbit' }, fromPriorHost: true });
+}, 20_000);
+
+// A page runs the bundle and rules its host served, so it reports a later
+// boot to the page runtime, which warns. A Node process or service worker
+// has no stale tab to reload and reports nothing.
+
+const nodeRealm: HostedSocketRealm = {
+  platform: 'node',
+  createSocket: url => new WebSocket(url),
+  releaseTimer: () => {},
+  traffic: () => {},
+};
+
+test('a page reports a host that restarted since it loaded, once, and does not warn itself', async () => {
+  const restarts: HostRestart[] = [];
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args); };
+  cleanups.push(() => { console.warn = originalWarn; });
+  await restartAcross({ onHostRestarted: restart => restarts.push(restart) });
+  expect(restarts).toEqual([{ initialHostInstanceId: 'boot-1', currentHostInstanceId: 'boot-2' }]);
+  expect(warnings).toEqual([]);
+}, 20_000);
+
+test('a Node process does not report a host restart', async () => {
+  const restarts: HostRestart[] = [];
+  await restartAcross({
+    realm: nodeRealm,
+    currentHostInstanceId: async () => 'boot-2',
+    onHostRestarted: restart => restarts.push(restart),
+  });
+  expect(restarts).toEqual([]);
+}, 20_000);
+
+test('a service worker does not report a host restart', async () => {
+  const scope = globalThis as { registration?: unknown; clients?: unknown };
+  scope.registration = {};
+  scope.clients = {};
+  cleanups.push(() => { delete scope.registration; delete scope.clients; });
+  const restarts: HostRestart[] = [];
+  await restartAcross({ onHostRestarted: restart => restarts.push(restart) });
+  expect(restarts).toEqual([]);
 }, 20_000);

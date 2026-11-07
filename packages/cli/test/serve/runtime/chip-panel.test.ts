@@ -9,6 +9,8 @@ import { createListenerMode } from '../../../src/serve/runtime/listener-mode.js'
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import {
   CHIP_TAB_KEY,
+  chipTitleFor,
+  chipToneFor,
   isChipTab,
   openingChipTab,
   problemTab,
@@ -124,6 +126,22 @@ describe('the opening rule', () => {
     expect(problemTab({ ...clean, duplicateListener: true })).toBe('listeners');
     expect(problemTab({ ...clean, updatePending: true })).toBe('identity');
     expect(problemTab(clean)).toBeNull();
+  });
+
+  it('ranks a host restart under traffic problems and over a pending update, on the Sandbox view', () => {
+    expect(openingChipTab({ ...clean, hostBundleStale: true, updatePending: true }, 'listeners')).toBe('sandbox');
+    expect(openingChipTab({ ...clean, hostBundleStale: true, missingIndex: true }, 'listeners')).toBe('traffic');
+    expect(problemTab({ ...clean, hostBundleStale: true, updatePending: true })).toBe('sandbox');
+    expect(problemTab({ ...clean, hostBundleStale: true, duplicateListener: true })).toBe('listeners');
+  });
+
+  it('titles and colours the collapsed pill for its strongest signal', () => {
+    expect(chipTitleFor({ ...clean, hostBundleStale: true, updatePending: true })).toBe('Host restarted — reload page');
+    expect(chipTitleFor({ ...clean, hostBundleStale: true, rateThreshold: true })).toBe('Activity exceeded a threshold. Open Traffic to review.');
+    expect(chipTitleFor(clean)).toBe('');
+    expect(chipToneFor({ ...clean, hostBundleStale: true })).toBe(' warning');
+    expect(chipToneFor({ ...clean, hostBundleStale: true, failedRecently: true })).toBe(' error');
+    expect(chipToneFor(clean)).toBe('');
   });
 
   it('opens on Identity the first time a page is opened', () => {
