@@ -578,8 +578,10 @@ jobs:
     # request labeled `ci-full` or `ci-slow-scenarios`, every app that is not
     # slow runs. Any other pull request runs the scenarios whose files under
     # test/apps/<name>/ it changes and the test/apps/<name> scenarios its body
-    # names; a change to the runner's shared files under test/apps or to this
-    # workflow runs every app. With no app selected, this job, node-24-stop
+    # names, plus a fixed smoke set (SMOKE_SCENARIOS) when it changes code
+    # the scenarios run. A change to the runner's shared files under
+    # test/apps, to the build, pack and install path, or to this workflow
+    # runs every app. With no app selected, this job, node-24-stop
     # and (unless packaging needs it) the pack job are skipped, and
     # CI / required passes without them. The apps run in the shards the plan
     # job made; CI / required checks that the shards together ran each planned
@@ -1318,9 +1320,10 @@ jobs:
       - name: Check the shards ran every planned app exactly once
         # The shard completeness rule for the app scenarios (#1571). Each
         # shard's runner already checked that the plan covers every app that
-        # is not slow, or only such apps for a pull request's selection; this checks that the shards together ran each planned
-        # app exactly once, in its own shard, so no shard can drop an app or
-        # come back empty and still count.
+        # is not slow, or only such apps for a pull request's selection;
+        # this checks that the shards together ran each planned app exactly
+        # once, in its own shard, so no shard can drop an app or come back
+        # empty and still count.
         if: always() && needs.plan.outputs.app-scenarios == 'true'
         env:
           APP_PLAN: ${{ needs.plan.outputs.app-plan }}

@@ -101,8 +101,52 @@ export function determineRtdbDifferential(input: {
 /** The labels that run every app scenario on a pull request. */
 const EVERY_APP_LABELS = ['ci-full', 'ci-slow-scenarios'];
 
-/** The workflow that runs the app scenario jobs: a change to it runs every app. */
-const APP_WORKFLOW = '.github/workflows/build.yml';
+/**
+ * The paths that build, pack and install what every scenario runs, and the
+ * workflow that runs them: a change to any of them runs every app, whatever
+ * the body says.
+ */
+const EVERY_APP_INPUTS = [
+  /^\.github\/workflows\/build\.yml$/,
+  /^\.github\/actions\/restore-dist\//,
+  /^scripts\/ci\/build-input-key\.sh$/,
+  /^scripts\/pack-packages\.sh$/,
+  /^scripts\/lib\/rewrite-workspace-deps\.mjs$/,
+  /^scripts\/build\.sh$/,
+  /^bun\.lock$/,
+  /^packages\/[^/]+\/package\.json$/,
+];
+
+/**
+ * The code the scenarios run as an installed user project: the Vite plugin
+ * and served hosts, the register hook and remote sandbox client, the `pyric`
+ * bin and its commands, `@pyric/live`, pyric-admin and the AI broker. A
+ * change to it runs SMOKE_SCENARIOS, plus the scenarios the pull request
+ * changes or names.
+ */
+const SMOKE_INPUTS = [
+  /^packages\/cli\/src\/(serve|register|remote|cli)\//,
+  /^packages\/live\/src\//,
+  /^packages\/pyric-admin\/src\//,
+  /^packages\/pyric\/src\/ai\//,
+];
+
+/**
+ * A fixed, fast set of scenarios that together drive each real entry point,
+ * picked from main's recorded times (run 42331694591):
+ * - live-pass-through (29 s): the Vite dev server with `pyricLive()`, a
+ *   `node --import @pyric/live/register` process using firebase-admin, and
+ *   the page in Chromium.
+ * - served-page-imports-pyric-auth (17 s): a sandbox app on the Vite dev
+ *   server with `pyric()`, signing in and reading data in Chromium.
+ * - functions-http-hosted (9 s): the `pyric sandbox --hosted` command, the
+ *   Node host, with a registered Node process.
+ */
+export const SMOKE_SCENARIOS: readonly string[] = [
+  'live-pass-through',
+  'served-page-imports-pyric-auth',
+  'functions-http-hosted',
+];
 
 /** What the app scenario jobs run: every app that is not slow, some of them, or none. */
 export type AppScenarioSelection =
@@ -141,9 +185,10 @@ function appOfPath(path: string, scenarios: ReadonlySet<string>): string | undef
  * nightly schedule, a merge group, a manual run) and on a pull request with
  * the `ci-full` or `ci-slow-scenarios` label: every app. On any other pull
  * request: the scenarios whose files it changes and the ones its body names,
- * less the slow ones, which the Slow app scenarios workflow runs. A change to
- * the runner or its shared files under test/apps, or to the workflow that runs
- * the scenarios, changes every scenario's run, so it runs every app.
+ * plus SMOKE_SCENARIOS when it changes code the scenarios run, less the slow
+ * ones, which the Slow app scenarios workflow runs. A change to the runner or
+ * its shared files under test/apps, or to EVERY_APP_INPUTS, changes every
+ * scenario's run, so it runs every app.
  */
 export function selectAppScenarios(input: {
   event: CheckSetInput['event'];
@@ -158,11 +203,13 @@ export function selectAppScenarios(input: {
   const names = new Set(input.scenarios.map((scenario) => scenario.name));
   const slow = new Set(input.scenarios.filter((scenario) => scenario.slow).map((scenario) => scenario.name));
   const touched = input.paths.flatMap(({ path, previousPath }) => (previousPath === undefined ? [path] : [path, previousPath]));
-  if (touched.includes(APP_WORKFLOW)) return { kind: 'all' };
+  const matchesAny = (patterns: readonly RegExp[]) => touched.some((path) => patterns.some((pattern) => pattern.test(path)));
+  if (matchesAny(EVERY_APP_INPUTS)) return { kind: 'all' };
   const owners = touched.map((path) => appOfPath(path, names)).filter((owner) => owner !== undefined);
   if (owners.includes(SHARED)) return { kind: 'all' };
   const named = scenariosNamedIn(input.body).filter((name) => names.has(name));
-  const apps = [...new Set([...owners, ...named])].filter((name) => !slow.has(name)).sort();
+  const smoke = matchesAny(SMOKE_INPUTS) ? SMOKE_SCENARIOS : [];
+  const apps = [...new Set([...smoke, ...owners, ...named])].filter((name) => !slow.has(name)).sort();
   return apps.length === 0 ? { kind: 'none' } : { kind: 'some', apps };
 }
 

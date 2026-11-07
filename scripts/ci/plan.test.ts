@@ -10,6 +10,7 @@ import {
   parseNameStatus,
   scenariosNamedIn,
   selectAppScenarios,
+  SMOKE_SCENARIOS,
   type AppScenarioSelection,
 } from './plan.ts';
 
@@ -67,9 +68,50 @@ describe('app scenario selection', () => {
     expect(pullRequest({ body: 'test/apps/run.ts, test/apps/README.md, test/apps/unknown, test/apps/' })).toEqual({ kind: 'none' });
   });
 
-  test('a pull request that changes and names no scenario selects none, so the jobs skip', () => {
-    expect(pullRequest({ paths: ['packages/cli/src/serve/vite-plugin.ts', 'packages/pyric/src/index.ts'] })).toEqual({ kind: 'none' });
+  test('a pull request that changes and names no scenario, and no code the scenarios run, selects none, so the jobs skip', () => {
+    expect(pullRequest({ paths: ['packages/pyric/src/index.ts', 'packages/cli/src/rules/eval.ts', 'docs/x.md'] })).toEqual({ kind: 'none' });
     expect(pullRequest({ paths: [] })).toEqual({ kind: 'none' });
+  });
+
+  test('a change to the packing and install path selects every app, whatever the body says', () => {
+    for (const path of [
+      'scripts/pack-packages.sh',
+      'scripts/lib/rewrite-workspace-deps.mjs',
+      'scripts/build.sh',
+      'bun.lock',
+      'packages/cli/package.json',
+      'packages/pyric/package.json',
+      '.github/actions/restore-dist/action.yml',
+      'scripts/ci/build-input-key.sh',
+    ]) {
+      expect(pullRequest({ paths: [path], body: 'No runtime path.' })).toEqual({ kind: 'all' });
+    }
+  });
+
+  test('a change to code the scenarios run selects the smoke set, plus changed and named scenarios', () => {
+    const smoke = [...SMOKE_SCENARIOS].sort();
+    for (const path of [
+      'packages/cli/src/serve/vite-plugin.ts',
+      'packages/cli/src/register/index.ts',
+      'packages/cli/src/remote/index.ts',
+      'packages/cli/src/cli/serve.ts',
+      'packages/live/src/vite.ts',
+      'packages/pyric-admin/src/database/index.ts',
+      'packages/pyric/src/ai/broker/gemini-engine.ts',
+    ]) {
+      expect(pullRequest({ paths: [path], body: 'No runtime path.' })).toEqual({ kind: 'some', apps: smoke });
+    }
+    expect(pullRequest({ paths: ['packages/live/src/vite.ts', 'test/apps/foo/scenario.ts'], body: 'test/apps/bar' }))
+      .toEqual({ kind: 'some', apps: [...smoke, 'bar', 'foo'].sort() });
+  });
+
+  test('the smoke set is 3 to 4 scenarios of this repository that are not slow', () => {
+    const real = discoverScenarios(resolve(import.meta.dir, '../..'));
+    expect(SMOKE_SCENARIOS.length).toBeGreaterThanOrEqual(3);
+    expect(SMOKE_SCENARIOS.length).toBeLessThanOrEqual(4);
+    for (const name of SMOKE_SCENARIOS) {
+      expect(real.find((scenario) => scenario.name === name)).toEqual({ name, slow: false });
+    }
   });
 
   test('a slow scenario is left to the Slow app scenarios workflow', () => {
