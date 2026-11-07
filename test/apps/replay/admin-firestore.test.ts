@@ -148,3 +148,50 @@ test('an Admin exchange whose transaction is a recorded value, not the placehold
   };
   expect(() => assertShapesOnly(recording)).toThrow('transaction must be one of the placeholders');
 });
+
+/** A recording where `add` creates a document whose id the SDK picks, read back by `getAll`. */
+function autoIdReplay(): { state: ReplayState; admin: AdminFirestore } {
+  const parent = `${DATABASE}/documents/notes`;
+  const added = { $: 'autoId', name: 'add-1', parent };
+  const recording: Recording = {
+    format: 'pyric-replay/1',
+    project: 'pyric-replay-admin',
+    source: 'hand-written',
+    exchanges: [
+      { kind: 'admin-firestore', id: 'add', rpc: 'Commit', request: { database: DATABASE, writes: [{ update: { name: added, fields: {} }, currentDocument: { exists: false } }] }, responses: [{ writeResults: [{}], commitTime: { $: 'commitTime' } }] },
+      { kind: 'admin-firestore', id: 'read', rpc: 'BatchGetDocuments', request: { database: DATABASE, documents: [added] }, responses: [{ found: { name: added, fields: {} }, readTime: { $: 'readTime' } }] },
+    ],
+  };
+  const state = new ReplayState([recording]);
+  return { state, admin: new AdminFirestore(state) };
+}
+
+function addCommit(id: string): JsonObject {
+  return { database: DATABASE, writes: [{ update: { name: `${DATABASE}/documents/notes/${id}`, fields: {} }, currentDocument: { exists: false } }] };
+}
+
+test('the id the SDK picks for add is kept, so a later read names it and another id is unmatched', () => {
+  const { state, admin } = autoIdReplay();
+  const id = 'Ab3dEf6hIj9lMn2pQr5t';
+  expect(admin.answer('Commit', addCommit(id))).not.toBeNull();
+  const read = admin.answer('BatchGetDocuments', { database: DATABASE, documents: [`${DATABASE}/documents/notes/${id}`] });
+  expect((read?.responses[0]?.found as JsonObject | undefined)?.name).toBe(`${DATABASE}/documents/notes/${id}`);
+  expect(admin.answer('BatchGetDocuments', { database: DATABASE, documents: [`${DATABASE}/documents/notes/Zz3dEf6hIj9lMn2pQr5t`] })).toBeNull();
+  expect(state.unmatched.map((entry) => entry.request)).toEqual([{ method: 'BatchGetDocuments' }]);
+});
+
+test('an add whose id is not one the SDK could pick is unmatched, and keeps nothing', () => {
+  const { state, admin } = autoIdReplay();
+  expect(admin.answer('Commit', addCommit('short'))).toBeNull();
+  expect(state.autoIds.size).toBe(0);
+});
+
+test('an autoId placeholder whose parent is outside the project is refused', () => {
+  const recording: Recording = {
+    format: 'pyric-replay/1',
+    project: 'pyric-replay-admin',
+    source: 'hand-written',
+    exchanges: [{ kind: 'admin-firestore', id: 'add', rpc: 'Commit', request: { database: DATABASE, writes: [{ update: { name: { $: 'autoId', name: 'add-1', parent: 'projects/other/databases/(default)/documents/notes' } } }] }, responses: [{}] }],
+  };
+  expect(() => assertShapesOnly(recording)).toThrow('outside project pyric-replay-admin');
+});

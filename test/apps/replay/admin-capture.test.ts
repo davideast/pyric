@@ -10,7 +10,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ADMIN_CAPTURE_EMAIL, ADMIN_CAPTURE_RUN, CAPTURE_ADMIN, captureAddId, loadCaptureAdmin } from './admin-capture.ts';
+import { ADMIN_CAPTURE_EMAIL, ADMIN_CAPTURE_RUN, CAPTURE_ADMIN, loadCaptureAdmin } from './admin-capture.ts';
 import { assertShapesOnly } from './format.ts';
 import { startReplayProcess, unmatchedBy, type ReplayProcess } from './process.ts';
 
@@ -29,12 +29,11 @@ afterAll(async () => {
 
 /**
  * The capture's own run spec and driver, with the capture's clients built
- * against the replay. Two things stand in for production: the client sign-in
- * (not recorded) becomes an unsigned token for the created user, and the
- * document id `add` picks is the one the capture's SDK picked.
+ * against the replay. The client sign-in (not recorded) becomes an unsigned
+ * token for the created user. The document id `add` picks is the app's own,
+ * which the replay keeps for the calls that name that document later.
  */
 const APP = `
-import { createRequire } from 'node:module';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
@@ -42,11 +41,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 const { runSpec, drive } = await import(${JSON.stringify(`${CAPTURE_DIR}/capture-admin-wire.ts`)});
 const { newStamp } = await import(${JSON.stringify(`${CAPTURE_DIR}/live-capture.ts`)});
-const [project, runPath, email, addId] = process.argv.slice(1);
-
-const fromRoot = createRequire(process.cwd() + '/package.json');
-const fromAdmin = createRequire(fromRoot.resolve('firebase-admin/firestore'));
-fromAdmin('@google-cloud/firestore/build/src/util').autoId = () => addId;
+const [project, runPath, email] = process.argv.slice(1);
 
 const app = initializeApp({ projectId: project, databaseURL: 'https://' + project + '-default-rtdb.firebaseio.com', storageBucket: project + '.firebasestorage.app' });
 const clients = { app, auth: getAuth(app), firestore: getFirestore(app), database: getDatabase(app), bucket: getStorage(app).bucket() };
@@ -96,7 +91,7 @@ function recordedAnswers(): Record<string, string> {
 }
 
 test('every case in capture A (Admin)\'s run spec gets the answer production gave, and nothing is unmatched', async () => {
-  const results = await runNode([PROJECT, `pyric_oracle/${ADMIN_CAPTURE_RUN}`, ADMIN_CAPTURE_EMAIL, captureAddId()], replayEnv());
+  const results = await runNode([PROJECT, `pyric_oracle/${ADMIN_CAPTURE_RUN}`, ADMIN_CAPTURE_EMAIL], replayEnv());
   expect(results).toEqual(recordedAnswers());
   expect(await unmatchedBy(server.origin)).toEqual([]);
 }, 300_000);
