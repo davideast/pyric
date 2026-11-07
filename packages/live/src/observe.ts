@@ -93,6 +93,13 @@ export interface LiveCallRecord {
   /** On `threw`, `rejected` and `listener-error`: the error's `code`, such as `permission-denied`, or its name. */
   readonly code?: string;
   /**
+   * On `threw`, `rejected` and `listener-error`: production's own message, as
+   * the SDK's error held it (`Missing or insufficient permissions.`), at most
+   * {@link MAX_MESSAGE_LENGTH} characters, with each email address written
+   * `[email]`. Absent when the error had none.
+   */
+  readonly message?: string;
+  /**
    * The project the call went to: `app.options.projectId` of the app its
    * first argument belongs to. Absent when the argument names no app.
    */
@@ -206,6 +213,10 @@ export interface LiveAiRecord {
   readonly usage?: LiveAiUsage;
   /** On a stream: ms from the call until the method resolved with its first chunk. */
   readonly firstChunkMs?: number;
+  /** On an answer with no usable content: the first candidate's finish reason, never `STOP` or `MAX_TOKENS`. */
+  readonly finishReason?: string;
+  /** On a prompt production refused before generation: `promptFeedback.blockReason`. */
+  readonly blockReason?: string;
 }
 
 /** What production billed or moved for one call: counts only, never a document, a value or a payload. */
@@ -302,6 +313,8 @@ export interface ObservedHooks {
   readonly context?: CallContextOf;
   /** Replaces reading a failure's code from the error's `code` or name. */
   readonly codeOf?: (error: unknown) => string;
+  /** Replaces reading production's message from the error's `message`. */
+  readonly messageOf?: (error: unknown) => string | undefined;
   /** Puts a listener's arguments where the recording callbacks expect them: callback, then error callback. */
   readonly listenerArguments?: (args: unknown[]) => unknown[];
   /**
@@ -408,6 +421,16 @@ export interface ObservedSite extends ObservedHooks {
   readonly swallowsRejection?: boolean;
 }
 
+/** The longest message a record carries, as long as a host takes. */
+export const MAX_MESSAGE_LENGTH = 500;
+/**
+ * Each email address in a message, which may sit between the segments of a
+ * path. The host's reader applies the same pattern (`redactEmails` in
+ * `pyric/sandbox/internal`); this file runs in the page, which imports no
+ * runtime code from `pyric` or `@pyric/cli`, so it keeps its own copy.
+ */
+const EMAIL_ANYWHERE = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
+
 const FAILURE_OUTCOMES: ReadonlySet<LiveCallOutcome> = new Set(['threw', 'rejected', 'listener-error']);
 const LIFECYCLE_OUTCOMES: ReadonlySet<LiveCallOutcome> = new Set(['attached', 'detached']);
 
@@ -420,6 +443,37 @@ function errorCode(error: unknown): string {
   const name: unknown = Reflect.get(error, 'name');
   if (typeof name === 'string') return name;
   return 'unknown';
+}
+
+/** The error's own string `message`, or undefined. Reading it can throw; the caller catches it. */
+function errorMessage(error: unknown): string | undefined {
+  const isObject = typeof error === 'object' && error !== null;
+  if (!isObject) return undefined;
+  const message: unknown = Reflect.get(error, 'message');
+  return typeof message === 'string' ? message : undefined;
+}
+
+/**
+ * The `messageOf` of a module whose errors may quote a credential, as
+ * Messaging's quote an FCM token: its records carry no message.
+ */
+export function noMessage(): undefined {
+  return undefined;
+}
+
+/**
+ * The record's `message` field: what `messageOf` read, each email address
+ * written `[email]`, cut to {@link MAX_MESSAGE_LENGTH}. Nothing when there is
+ * no message or reading it threw.
+ */
+function messageField(site: ObservedSite, error: unknown): { message?: string } {
+  try {
+    const read = (site.messageOf ?? errorMessage)(error)?.trim();
+    if (read === undefined || read === '') return {};
+    return { message: read.replace(EMAIL_ANYWHERE, '[email]').slice(0, MAX_MESSAGE_LENGTH) };
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -459,7 +513,7 @@ function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, value: unknow
   const account = site.accountOf?.(site.subject);
   const context = { ...(account === undefined ? project : { ...project, account }), ...placeOf(site) };
   const codeOf = site.codeOf ?? errorCode;
-  if (isFailure) return { module: site.module, name: site.name, outcome, code: codeOf(value), ...context };
+  if (isFailure) return { module: site.module, name: site.name, outcome, code: codeOf(value), ...messageField(site, value), ...context };
   const billedDocuments = billedOf(site, outcome, value);
   const billed = billedDocuments === undefined ? {} : { billedDocuments };
   const usage = outcome === 'resolved' && site.usage !== undefined ? { usage: site.usage } : {};

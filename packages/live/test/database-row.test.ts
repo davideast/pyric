@@ -218,8 +218,9 @@ async function drive(one: Database, two: Database): Promise<Drive> {
 }
 
 /** A record as the assertions read it: what was called, how it ended, and where. */
+/** A record without its module, listener and production's message (asserted on its own), and its account as the uid. */
 function shape(record: LiveCallRecord): Record<string, unknown> {
-  const { module: _module, account, listener: _listener, ...rest } = record;
+  const { module: _module, account, listener: _listener, message: _message, ...rest } = record;
   return { ...rest, account: account?.uid ?? null };
 }
 
@@ -295,7 +296,7 @@ describe('the live-database row over capture A', () => {
       service: 'rtdb',
       method: 'get',
       at: 7,
-      outcome: { status: 'error', code: 'permission_denied' },
+      outcome: { status: 'error', code: 'permission_denied', message: denied.message },
       projectId: PROJECT,
       account: { uid: 'user-3', claimNames: expect.any(Array), claims: expect.any(Object) },
       instance: `${PROJECT}-named`,

@@ -138,6 +138,22 @@ describe('repro recorder', () => {
     } as InboundMessage);
     expect(call.account.claims).toEqual({ admin: true });
   });
+
+  test("an observed call is recorded without production's message, which can quote document data", async () => {
+    const recorder = createReproRecorder({ capture: async () => base() });
+    const message = 'Function setDoc() called with invalid data. Data must be an object, but it was: "Patient Jane Q Doe"';
+    const outcome = { status: 'error', code: 'invalid-argument', message };
+    const call = { service: 'firestore', method: 'setDoc', at: 1, outcome, path: 'notes/n1' };
+    await recorder.inbound('tab', { t: 'observe', id: 'o1', call } as InboundMessage);
+    const [entry] = (await recorder.log()).entries;
+    const frame = entry?.kind === 'in' ? entry.frame : undefined;
+    expect(frame).toEqual({
+      t: 'observe', id: 'o1',
+      call: { service: 'firestore', method: 'setDoc', at: 1, outcome: { status: 'error', code: 'invalid-argument' }, path: 'notes/n1' },
+    } as InboundMessage);
+    expect(JSON.stringify(await recorder.log())).not.toContain('Jane');
+    expect(outcome.message).toBe(message);
+  });
 });
 
 describe('pyric serve repro', () => {

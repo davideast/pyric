@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'bun:test';
 import { firestoreListener } from '../src/firestore.js';
-import { observedCall, observedListener, type LiveCallRecord, type LiveListenerJournal, type LiveObserver } from '../src/observe.js';
+import { MAX_MESSAGE_LENGTH, noMessage, observedCall, observedListener, type LiveCallRecord, type LiveListenerJournal, type LiveObserver, type ObservedSite } from '../src/observe.js';
 
 const OBSERVE_URL = new URL('../src/observe.ts', import.meta.url).href;
 
@@ -113,7 +113,7 @@ describe('a one-shot wrapper', () => {
     const wrapped = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer }, () => Promise.reject(error));
     const returned = wrapped() as Promise<unknown>;
     expect(await returned.catch((reason: unknown) => reason)).toBe(error);
-    expect(records).toEqual([{ module: 'firebase/firestore', name: 'getDoc', outcome: 'rejected', code: 'permission-denied' }]);
+    expect(records).toEqual([{ module: 'firebase/firestore', name: 'getDoc', outcome: 'rejected', code: 'permission-denied', message: 'permission-denied' }]);
   });
 
   test('a rejection the app never handles still reaches Node\'s unhandledRejection event', () => {
@@ -135,7 +135,7 @@ describe('a one-shot wrapper', () => {
       throw error;
     });
     expect(() => wrapped()).toThrow(error);
-    expect(records).toEqual([{ module: 'firebase/firestore', name: 'doc', outcome: 'threw', code: 'TypeError' }]);
+    expect(records).toEqual([{ module: 'firebase/firestore', name: 'doc', outcome: 'threw', code: 'TypeError', message: 'bad path' }]);
   });
 
   test('records no argument and no result', async () => {
@@ -201,7 +201,37 @@ describe('a one-shot wrapper whose observer measures', () => {
     expect(await read()).toEqual({ docs: [] });
     expect(await (denied() as Promise<unknown>).catch((error: CodedError) => error.code)).toBe('permission-denied');
     expect(thrown.records).toEqual([{ module: 'firebase/firestore', name: 'getDocs', outcome: 'resolved' }]);
-    expect(rejected.records).toEqual([{ module: 'firebase/firestore', name: 'getDocs', outcome: 'rejected', code: 'permission-denied' }]);
+    expect(rejected.records).toEqual([{ module: 'firebase/firestore', name: 'getDocs', outcome: 'rejected', code: 'permission-denied', message: 'permission-denied' }]);
+  });
+});
+
+describe("a failure's record carries production's message", () => {
+  async function rejectedWith(error: unknown, hooks: Partial<ObservedSite> = {}): Promise<LiveCallRecord> {
+    const { records, observer } = collector();
+    const wrapped = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer, ...hooks }, () => Promise.reject(error));
+    await (wrapped() as Promise<unknown>).catch(() => undefined);
+    return records[0]!;
+  }
+
+  test("the SDK error's message, trimmed", async () => {
+    const error = Object.assign(new Error(' Missing or insufficient permissions. '), { code: 'permission-denied' });
+    expect((await rejectedWith(error)).message).toBe('Missing or insufficient permissions.');
+  });
+
+  test('an email address in it reads [email], and a long one is cut to the length a host takes', async () => {
+    const withEmail = Object.assign(new Error("User does not have permission to access 'users/ada@example.com/a.png'."), { code: 'storage/unauthorized' });
+    expect((await rejectedWith(withEmail)).message).toBe("User does not have permission to access 'users/[email]/a.png'.");
+    const long = Object.assign(new Error('x'.repeat(MAX_MESSAGE_LENGTH + 50)), { code: 'internal' });
+    expect((await rejectedWith(long)).message).toHaveLength(MAX_MESSAGE_LENGTH);
+  });
+
+  test('none for an error with no message, one that throws on read, or a module that keeps none', async () => {
+    expect(await rejectedWith({ code: 'internal' })).not.toHaveProperty('message');
+    const throwing = { code: 'internal', get message(): string { throw new Error('unreadable'); } };
+    expect(await rejectedWith(throwing)).toMatchObject({ outcome: 'rejected', code: 'internal' });
+    expect(await rejectedWith(throwing)).not.toHaveProperty('message');
+    const quoted = Object.assign(new Error('Messaging: token-subscribe-failed dGVzdA:APA91b'), { code: 'messaging/token-subscribe-failed' });
+    expect(await rejectedWith(quoted, { messageOf: noMessage })).not.toHaveProperty('message');
   });
 });
 

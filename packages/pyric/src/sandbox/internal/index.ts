@@ -95,7 +95,7 @@ export { storageGsPath } from './storage-gs-path.js';
 export { messagingRequestsLine } from './messaging-requests-line.js';
 export {
   EMAIL_SHAPE, OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, observedListenerEvent, productionVerdict,
-  readObservedCall, type ObservedListenerEvent, type ProductionVerdict,
+  readObservedCall, redactEmails, type ObservedListenerEvent, type ProductionVerdict,
 } from './observed-call.js';
 export { observedMethod, rulesOperation, type ObservedMethod } from './observed-method.js';
 export {

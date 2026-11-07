@@ -50,6 +50,8 @@ const MODEL_RESOURCE = `models/${MODEL}`;
 /** The captured `generateContent` envelope's answer, which no record may carry. */
 const ENVELOPE_TEXT = 'pyric';
 const PROMPT = 'Reply with the single word pyric.';
+/** Production's message on the 401 captured on a project that enforces App Check. */
+const APP_CHECK_MESSAGE = 'Firebase App Check token is invalid.';
 
 type FirebaseAi = typeof import('firebase/ai');
 
@@ -238,8 +240,8 @@ describe('the live-ai row records each call with production\'s answer and token 
     const made = await recordsOf(1, async () => {
       await expect(model(withoutToken).generateContent(PROMPT)).rejects.toMatchObject({ customErrorData: { status: 401 } });
     });
-    expect(made).toEqual([{ module: 'firebase/ai', name: 'generateContent', outcome: 'rejected', code: 'unauthenticated', projectId: PROJECT, ai: { model: MODEL_RESOURCE } }]);
-    expect(observedCallOf(made[0]!, 0)?.outcome).toEqual({ status: 'error', code: 'unauthenticated' });
+    expect(made).toEqual([{ module: 'firebase/ai', name: 'generateContent', outcome: 'rejected', code: 'unauthenticated', message: APP_CHECK_MESSAGE, projectId: PROJECT, ai: { model: MODEL_RESOURCE } }]);
+    expect(observedCallOf(made[0]!, 0)?.outcome).toEqual({ status: 'error', code: 'unauthenticated', message: APP_CHECK_MESSAGE });
     hostRead(made[0]!);
   });
 
@@ -247,7 +249,7 @@ describe('the live-ai row records each call with production\'s answer and token 
     const made = await recordsOf(1, async () => {
       await expect(model(withoutToken).generateContentStream('x')).rejects.toMatchObject({ customErrorData: { status: 401 } });
     });
-    expect(made).toEqual([{ module: 'firebase/ai', name: 'generateContentStream', outcome: 'rejected', code: 'unauthenticated', projectId: PROJECT, ai: { model: MODEL_RESOURCE } }]);
+    expect(made).toEqual([{ module: 'firebase/ai', name: 'generateContentStream', outcome: 'rejected', code: 'unauthenticated', message: APP_CHECK_MESSAGE, projectId: PROJECT, ai: { model: MODEL_RESOURCE } }]);
   });
 
   test('an unknown model: failed not_found', async () => {
@@ -255,6 +257,12 @@ describe('the live-ai row records each call with production\'s answer and token 
       await expect(model(withToken, 'not-served-model').generateContent('x')).rejects.toMatchObject({ customErrorData: { status: 404 } });
     });
     expect(made[0]).toMatchObject({ outcome: 'rejected', code: 'not_found', ai: { model: 'models/not-served-model' } });
+    // Production's own message, without the SDK's wrapper or the request's URL.
+    expect(made[0]!.message).toContain('models/not-served-model');
+    expect(made[0]!.message).not.toContain('Error fetching from');
+    expect(made[0]!.message).not.toContain(server.origin);
+    expect(made[0]!.message).not.toContain('(AI/');
+    hostRead(made[0]!);
   });
 
   test('no record, and no observed call, carries the prompt or the response text', () => {
@@ -438,6 +446,66 @@ describe('a stream whose response fails', () => {
       expect(made).toEqual([{ module: 'firebase/ai', name: 'generateContentStream', outcome: 'rejected', code: 'parse-failed', projectId: PROJECT, ai: { model: MODEL_RESOURCE } }]);
     } finally {
       broken.stop();
+    }
+  });
+});
+
+describe('an answer production withheld', () => {
+  /** A stand-in AI Logic host that answers every request with HTTP 200 and `body`, as JSON or as one SSE frame. */
+  function answering(body: unknown): { origin: string; stop(): void } {
+    const json = JSON.stringify(body);
+    const served = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: (request) => {
+        const isStream = new URL(request.url).searchParams.get('alt') === 'sse';
+        if (isStream) return new Response(`data: ${json}\r\n\r\n`, { headers: { 'content-type': 'text/event-stream' } });
+        return Response.json(body);
+      },
+    });
+    return { origin: `http://127.0.0.1:${served.port}`, stop: () => served.stop(true) };
+  }
+
+  async function generated(body: unknown, stream = false): Promise<LiveCallRecord> {
+    const host = answering(body);
+    try {
+      const made = await recordsOf(1, async () => {
+        const withheld = live.getGenerativeModel(aiOf(withToken), { model: MODEL }, { baseUrl: host.origin });
+        if (!stream) return withheld.generateContent(PROMPT);
+        const result = await withheld.generateContentStream(PROMPT);
+        for await (const _chunk of result.stream) {
+          // Read to the end, as an app would.
+        }
+        return result.response;
+      });
+      return made[0]!;
+    } finally {
+      host.stop();
+    }
+  }
+
+  test("a candidate production withheld: resolved, with its finish reason, which the host's reader keeps", async () => {
+    const record = await generated({ candidates: [{ index: 0, finishReason: 'SAFETY' }] });
+    expect(record).toMatchObject({ name: 'generateContent', outcome: 'resolved', ai: { model: MODEL_RESOURCE, finishReason: 'SAFETY' } });
+    expect(hostRead(record)).toMatchObject({ outcome: { status: 'ok' }, ai: { finishReason: 'SAFETY' } });
+  });
+
+  test('a stream whose candidate production withheld: the finish reason of the aggregated response', async () => {
+    const record = await generated({ candidates: [{ index: 0, finishReason: 'RECITATION' }] }, true);
+    expect(record).toMatchObject({ name: 'generateContentStream', outcome: 'resolved', ai: { finishReason: 'RECITATION' } });
+    hostRead(record);
+  });
+
+  test('a prompt production refused: no candidate, and the block reason', async () => {
+    const record = await generated({ promptFeedback: { blockReason: 'PROHIBITED_CONTENT', safetyRatings: [] } });
+    expect(record.ai).toEqual({ model: MODEL_RESOURCE, blockReason: 'PROHIBITED_CONTENT' });
+    hostRead(record);
+  });
+
+  test("an answer's own finish reasons name no block", async () => {
+    for (const finishReason of ['STOP', 'MAX_TOKENS']) {
+      const record = await generated({ candidates: [{ index: 0, finishReason, content: { role: 'model', parts: [{ text: 'ok' }] } }] });
+      expect(record.ai).toEqual({ model: MODEL_RESOURCE });
     }
   });
 });

@@ -1,22 +1,25 @@
 /**
  * The terminal lines a live host prints for the observed calls it accepts:
- * one block for each call production denied, and the AI block for each AI
- * Logic request production rejected (`ai-terminal-blocks.ts`).
+ * one block for each call production denied, the AI rejection block for each
+ * AI Logic request production rejected, and the AI block for each answer
+ * production withheld (`ai-terminal-blocks.ts`).
  *
- * A denial block names the call, production's code, the client that made it
- * (as the Live tab names it), the uid it ran as, and the local rules file
- * production did not read. Each field is dropped when the call did not carry
+ * A denial block names the call, production's code and message, the client
+ * that made it (as the Live tab names it), the uid it ran as, and the local
+ * rules file production did not read. An AI rejection's headline ends with
+ * production's message. Each field is dropped when the call did not carry
  * it, never filled with a placeholder. Every field comes from a page or a
  * process, so each one is flattened with `sanitizeForTerminal`, and an email
- * address in a path is left out.
+ * address in a path or a message is left out.
  *
  * Both throttle like the sandbox's denial relay (`createDenialThrottle`): an
  * app retrying one denied call prints one block per window.
  */
 import path from 'node:path';
-import { productionVerdict } from 'pyric/sandbox/internal';
+import { isBlockingFinishReason, redactUrl } from 'pyric/ai/internal';
+import { productionVerdict, redactEmails } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';
-import { formatAiRejectionBlock } from './ai-terminal-blocks.js';
+import { formatAiBlockedBlock, formatAiRejectionBlock } from './ai-terminal-blocks.js';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 import { createDenialThrottle } from './namespace.js';
 
@@ -66,10 +69,16 @@ const AI_HTTP_STATUS: Readonly<Record<string, number>> = {
 };
 
 const HTTP_CODE = /^http_(\d{3})$/;
-const EMAIL_ANYWHERE = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
 
 function text(value: string): string {
   return sanitizeForTerminal(value);
+}
+
+/** Production's message on an error outcome, with each URL's credentials masked and each email address left out. Unsanitized. */
+function messageOf(call: ObservedCall): string | undefined {
+  const outcome = call.outcome;
+  const message = outcome.status === 'error' ? outcome.message : undefined;
+  return message === undefined ? undefined : redactEmails(redactUrl(message));
 }
 
 /** The `from:` value: the client kind, then its label when it has one. */
@@ -103,9 +112,13 @@ function isRulesDenial(call: ObservedCall): boolean {
 
 /** The block for a call production's Security Rules denied. */
 export function formatProductionDenial(call: ObservedCall, source: LiveCallSource | undefined, rulesFiles: LiveRulesFiles): string {
-  const target = call.path === undefined ? '' : ` ${text(call.path.replace(EMAIL_ANYWHERE, '[email]'))}`;
+  const target = call.path === undefined ? '' : ` ${text(redactEmails(call.path))}`;
   const lines = [`  ⚠ [pyric] production denied: ${call.service} ${text(call.method)}${target}`];
-  if (call.outcome.status === 'error') lines.push(`      ${text(call.outcome.code)}`);
+  if (call.outcome.status === 'error') {
+    const message = messageOf(call);
+    const said = message === undefined ? '' : `: ${text(message)}`;
+    lines.push(`      ${text(call.outcome.code)}${said}`);
+  }
   const from = fromText(source);
   if (from !== undefined) lines.push(`      from: ${from}`);
   if (call.account !== undefined) lines.push(`      auth: ${text(call.account.uid)}`);
@@ -128,7 +141,28 @@ export function formatObservedAiRejection(call: ObservedCall, source: LiveCallSo
   if (!isAiError) return null;
   const answer = aiProductionStatus((call.outcome as { code: string }).code);
   if (answer === null) return null;
-  return formatAiRejectionBlock({ model: call.ai?.model, ...answer }, { from: fromText(source) });
+  return formatAiRejectionBlock({ model: call.ai?.model, message: messageOf(call), ...answer }, { from: fromText(source) });
+}
+
+/**
+ * The reason production withheld an AI answer it served with HTTP 200: the
+ * first candidate's finish reason, when the SDK's own `text()` throws for it
+ * (`isBlockingFinishReason`, the set the sandbox's `response_blocked` reads),
+ * or the prompt's block reason. Null for an answer with content.
+ */
+function aiBlock(call: ObservedCall): { finishReason?: string; blockReason?: string } | null {
+  const ai = call.ai;
+  const isAnswered = call.service === 'ai' && call.outcome.status === 'ok' && ai !== undefined;
+  if (!isAnswered) return null;
+  if (isBlockingFinishReason(ai.finishReason)) return { finishReason: ai.finishReason };
+  return ai.blockReason === undefined ? null : { blockReason: ai.blockReason };
+}
+
+/** The block for an AI Logic answer production withheld, or null for any other call. */
+export function formatObservedAiBlock(call: ObservedCall, source: LiveCallSource | undefined): string | null {
+  const block = aiBlock(call);
+  if (block === null) return null;
+  return formatAiBlockedBlock({ model: call.ai?.model, ...block }, { from: fromText(source) });
 }
 
 /** The block one accepted call prints, with the key its throttle counts it by, or null when it prints none. */
@@ -141,6 +175,11 @@ export function liveTerminalBlock(
   if (isRulesDenial(call)) {
     const place = call.instance ?? call.bucket ?? '';
     return { key: `live-denial ${call.service} ${place} ${call.method} ${call.path ?? ''} ${code}`, block: formatProductionDenial(call, source, rulesFiles) };
+  }
+  const blocked = formatObservedAiBlock(call, source);
+  if (blocked !== null) {
+    const reason = call.ai?.finishReason ?? call.ai?.blockReason ?? '';
+    return { key: `live-ai-blocked ${call.ai?.model ?? ''} ${reason}`, block: blocked };
   }
   const ai = formatObservedAiRejection(call, source);
   if (ai === null) return null;

@@ -493,6 +493,61 @@ describe('readObservedCall', () => {
   });
 });
 
+describe("production's message and an AI block", () => {
+  const MESSAGE = 'Missing or insufficient permissions.';
+
+  it("keeps production's message on an error outcome, drops a bad one and keeps the call, and refuses one on a success", () => {
+    const denied = { ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: MESSAGE } };
+    expect(readObservedCall(denied).outcome).toEqual({ status: 'error', code: 'permission-denied', message: MESSAGE });
+    for (const message of ['a'.repeat(501), '', 7, null, { text: MESSAGE }]) {
+      const read = readObservedCall({ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message } });
+      expect(read).toEqual({ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied' } });
+    }
+    expect(() => readObservedCall({ ...DENIED_READ, outcome: { status: 'ok', message: MESSAGE } })).toThrow('Invalid observed call field: outcome.message.');
+  });
+
+  it('leaves an email out of the message and drops a message shaped like a token', () => {
+    const message = "User does not have permission to access 'users/ada@example.com/a.png'.";
+    const withEmail = { ...UPLOAD, outcome: { status: 'error', code: 'storage/unauthorized', message } };
+    expect(readObservedCall(withEmail).outcome).toEqual({
+      status: 'error',
+      code: 'storage/unauthorized',
+      message: "User does not have permission to access 'users/[email]/a.png'.",
+    });
+    const withToken = { ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: `bad token ${FIS_AUTH_TOKEN}` } };
+    expect(readObservedCall(withToken).outcome).toEqual({ status: 'error', code: 'permission-denied' });
+  });
+
+  it("keeps a Messaging call whose message quotes a token, and drops the message", () => {
+    const failed = { ...GET_TOKEN, outcome: { status: 'error', code: 'messaging/token-subscribe-failed', message: `subscribe failed for ${FCM_TOKEN}` } };
+    expect(readObservedCall(failed).outcome).toEqual({ status: 'error', code: 'messaging/token-subscribe-failed' });
+  });
+
+  it("never puts production's message on the event", () => {
+    const denied = readObservedCall({ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: MESSAGE } });
+    expect(observedCallEvent(denied).production?.outcome).toEqual({ status: 'error', code: 'permission-denied' });
+    const rejected = readObservedCall({ ...GENERATE, outcome: { status: 'error', code: 'invalid_argument', message: 'Request contains an invalid argument.' } });
+    expect(JSON.stringify(observedCallEvent(rejected))).not.toContain('invalid argument.');
+  });
+
+  it("keeps an AI call's block reasons, drops an answer's own finish reason or a bad one, and puts neither on the event", () => {
+    const blocked = { ...GENERATE, ai: { model: 'models/gemini-flash-lite-latest', finishReason: 'SAFETY' } };
+    expect(readObservedCall(blocked).ai).toEqual({ model: 'models/gemini-flash-lite-latest', finishReason: 'SAFETY' });
+    const refusedPrompt = { ...GENERATE, ai: { model: 'models/gemini-flash-lite-latest', blockReason: 'PROHIBITED_CONTENT' } };
+    expect(readObservedCall(refusedPrompt).ai).toEqual({ model: 'models/gemini-flash-lite-latest', blockReason: 'PROHIBITED_CONTENT' });
+    const model = 'models/gemini-flash-lite-latest';
+    for (const finishReason of ['STOP', 'MAX_TOKENS', 'safety', 'SAFETY because', 7, 'A'.repeat(65)]) {
+      const read = readObservedCall({ ...GENERATE, ai: { model, finishReason } });
+      expect(read.ai).toEqual({ model });
+      expect(read.outcome).toEqual({ status: 'ok' });
+    }
+    for (const blockReason of ['safety', '', 7, 'A'.repeat(65)]) {
+      expect(readObservedCall({ ...GENERATE, ai: { model, blockReason } }).ai).toEqual({ model });
+    }
+    expect(JSON.stringify(observedCallEvent(readObservedCall(blocked)))).not.toContain('SAFETY');
+  });
+});
+
 describe('observedCallEvent', () => {
   it('lands in the event stream as production-served, with the caller the host names', () => {
     const sandbox = initializeSandbox();

@@ -7,6 +7,9 @@ import { appCheckAttachmentFor } from './app-check-gate.js';
 import type { AI, AIOptions, TransportTarget } from './types.js';
 
 export { aiErrorFromEnvelope } from './errors.js';
+/** The one set of finish reasons that withhold a response's content, which a
+ *  live host's terminal reads as the sandbox's `response_blocked` does. */
+export { isBlockingFinishReason } from './blocked.js';
 /** The App Check claim a transport forwards with each request. */
 export type { AppCheckClaim } from './broker/types.js';
 /** Host-only seam for the dev server's terminal diagnostics: the credential

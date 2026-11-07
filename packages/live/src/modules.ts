@@ -74,7 +74,7 @@ import {
   observeOnDisconnect,
   offByCallback,
 } from './database.js';
-import { AI_REFUSED_CALLS, aiCode, aiContext, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
+import { AI_REFUSED_CALLS, aiCode, aiContext, aiMessage, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
 import { firestoreContext, firestoreListener, firestoreResult, observedWriteBatch } from './firestore.js';
 import { observedGetStream, STORAGE_CALLS, storageContext } from './storage.js';
 import {
@@ -86,7 +86,7 @@ import {
   messagingRejection,
   messagingResult,
 } from './messaging.js';
-import { observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite, type UncaughtListenerError } from './observe.js';
+import { noMessage, observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite, type UncaughtListenerError } from './observe.js';
 import { liveCallRefusal, type LiveClient, type RefusedCall } from './refusal.js';
 import { noteReadModule, readFactoryNames } from './tab-reads.js';
 
@@ -274,7 +274,7 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
   'live-ai': {
     calls: [],
     listeners: [],
-    hooks: { context: aiContext, codeOf: aiCode, resultOf: aiResult },
+    hooks: { context: aiContext, codeOf: aiCode, messageOf: aiMessage, resultOf: aiResult },
     refused: AI_REFUSED_CALLS,
     replaced: {
       getGenerativeModel: observedGetGenerativeModel,
@@ -293,13 +293,13 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
   'live-messaging': {
     calls: MESSAGING_CALLS,
     listeners: ['onMessage'],
-    hooks: { context: messagingContext, codeOf: messagingCode, resultOf: messagingResult, rejectionOf: messagingRejection },
+    hooks: { context: messagingContext, codeOf: messagingCode, messageOf: noMessage, resultOf: messagingResult, rejectionOf: messagingRejection },
     refused: MESSAGING_REFUSED_CALLS,
   },
   'live-messaging-sw': {
     calls: [],
     listeners: ['onBackgroundMessage'],
-    hooks: { context: messagingContext },
+    hooks: { context: messagingContext, messageOf: noMessage },
     refused: MESSAGING_SW_REFUSED_CALLS,
   },
 };

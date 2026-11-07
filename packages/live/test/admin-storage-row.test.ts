@@ -146,7 +146,8 @@ test('a download of a missing object records storage/object-not-found, and the a
   expect(error.code).toBe(404);
   const made = await recordsSince(from);
   expect(summary(made)).toEqual([{ name: 'File.download', outcome: 'rejected', code: 'storage/object-not-found', bucket: BUCKET, path: 'notes/missing.txt' }]);
-  expect(observedCallOf(made[0]!, 1)?.outcome).toEqual({ status: 'error', code: 'storage/object-not-found' });
+  expect(observedCallOf(made[0]!, 1)?.outcome).toMatchObject({ status: 'error', code: 'storage/object-not-found' });
+  expect(made[0]!.message).toContain('No such object');
 }, 30_000);
 
 /** Runs `run` with `GOOGLE_CLOUD_PROJECT` set to `projectId`, the project google-auth works out for an app with none of its own. */

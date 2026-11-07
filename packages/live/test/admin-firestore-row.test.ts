@@ -126,7 +126,7 @@ test('an update of a missing document records not-found, and a create of an exis
     { name: 'DocumentReference.update', outcome: 'rejected', code: 'not-found', path: 'notes/missing' },
     { name: 'DocumentReference.create', outcome: 'rejected', code: 'already-exists', path: 'notes/a' },
   ]);
-  expect(observedCallOf(made[0]!, 1)?.outcome).toEqual({ status: 'error', code: 'not-found' });
+  expect(observedCallOf(made[0]!, 1)?.outcome).toEqual({ status: 'error', code: 'not-found', message: '5 NOT_FOUND: No document to update: projects/pyric-replay-admin/databases/(default)/documents/notes/missing' });
 });
 
 test('Query.onSnapshot makes one record per delivery, each with its billed documents', async () => {

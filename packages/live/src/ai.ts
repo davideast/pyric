@@ -24,8 +24,10 @@
  * `this._apiSettings.project` and records no account.
  *
  * A record carries the model, production's token counts and, when the SDK
- * kept it, the `modelVersion` production reported. Never a prompt, a part,
- * response text, a function call or a header.
+ * kept it, the `modelVersion` production reported. An answer production
+ * withheld adds its finish or block reason, and an error production answered
+ * adds production's own message, without the SDK's wrapper and the URL.
+ * Never a prompt, a part, response text, a function call or a header.
  *
  * Reading never calls the app's code and never throws. This file imports no
  * Firebase SDK.
@@ -218,6 +220,31 @@ export function aiCode(error: unknown): string {
   }
 }
 
+/**
+ * Production's message in the SDK's fetch error, which wraps it as
+ * `AI: Error fetching from <url>: [<status> <text>] <message> (AI/<code>)`.
+ */
+const FETCH_ERROR_MESSAGE = /^AI: Error fetching from \S+: \[[^\]]*\] ([\s\S]*) \(AI\/[A-Za-z0-9_-]+\)$/;
+
+/**
+ * Production's own message for an AI Logic error it answered, without the
+ * SDK's wrapper and the request's URL: `Request contains an invalid
+ * argument.` Undefined for an error production never answered, such as a
+ * network failure, and when the SDK's message has another shape.
+ */
+export function aiMessage(error: unknown): string | undefined {
+  try {
+    if (!isObject(error)) return undefined;
+    const data = error.customErrorData;
+    const hasStatus = isObject(data) && typeof data.status === 'number';
+    if (!hasStatus) return undefined;
+    const message = stringAt(error, ['message']);
+    return message === undefined ? undefined : FETCH_ERROR_MESSAGE.exec(message)?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
 function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
@@ -239,6 +266,36 @@ function reportedOf(response: unknown): Pick<LiveAiRecord, 'reportedModel'> {
   return reportedModel !== undefined && MODEL_NAME.test(reportedModel) ? { reportedModel } : {};
 }
 
+/**
+ * The finish reasons of an answer with content, which no block names. The
+ * host's reader keeps the same set (`readObservedCall`); this file runs in
+ * the page, which imports no runtime code from `pyric`, so it keeps a copy.
+ */
+const UNBLOCKED_FINISH_REASONS: ReadonlySet<string> = new Set(['STOP', 'MAX_TOKENS', 'FINISH_REASON_UNSPECIFIED']);
+/** The reason enums a host takes. */
+const REASON = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+/**
+ * Why production returned no usable content, in the wire's own words: the
+ * first candidate's `finishReason` when it is not an answer's own (`STOP`,
+ * `MAX_TOKENS`), or, with no candidate at all, the prompt's
+ * `promptFeedback.blockReason`, which the SDK keeps as `prompt.blockReason`
+ * on the Gemini Developer API backend. Production answers both with HTTP
+ * 200, so the call resolved. Nothing for an answer with content.
+ */
+function blockOf(response: unknown): Pick<LiveAiRecord, 'finishReason' | 'blockReason'> {
+  if (!isObject(response)) return {};
+  const candidates = response.candidates;
+  const first = Array.isArray(candidates) ? candidates[0] : undefined;
+  if (first !== undefined) {
+    const finishReason = stringAt(first, ['finishReason']);
+    const isBlock = finishReason !== undefined && REASON.test(finishReason) && !UNBLOCKED_FINISH_REASONS.has(finishReason);
+    return isBlock ? { finishReason } : {};
+  }
+  const blockReason = stringAt(response, ['promptFeedback', 'blockReason']) ?? stringAt(response, ['prompt', 'blockReason']);
+  return blockReason !== undefined && REASON.test(blockReason) ? { blockReason } : {};
+}
+
 function isOnDevice(response: unknown): boolean {
   return stringAt(response, ['inferenceSource']) === ON_DEVICE;
 }
@@ -246,7 +303,7 @@ function isOnDevice(response: unknown): boolean {
 /** The record of a `generateContent` or `chat.sendMessage` result, or none for an answer made on device. */
 function responseReading(model: string, response: unknown): ResultReading {
   if (isOnDevice(response)) return UNOBSERVED;
-  return { ai: { model, ...reportedOf(response), ...usageOf(isObject(response) ? response.usageMetadata : undefined) } };
+  return { ai: { model, ...reportedOf(response), ...usageOf(isObject(response) ? response.usageMetadata : undefined), ...blockOf(response) } };
 }
 
 /** The record of a `countTokens` result: its `totalTokens` only. */
@@ -358,7 +415,7 @@ function streamReading(site: ObservedSite, model: string, value: unknown): Resul
     const last = lastWithUsage(drained.chunks);
     const usage = usageOf(isObject(last) ? last.usageMetadata : undefined);
     const reported = { ...reportedOf(aggregated), ...reportedOf(last) };
-    return { ai: { model, ...reported, ...usage, ...timing } };
+    return { ai: { model, ...reported, ...usage, ...timing, ...blockOf(aggregated) } };
   }) as Promise<ResultReading>;
 }
 

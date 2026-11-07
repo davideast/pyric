@@ -60,6 +60,7 @@ export type {
   ObservedAccount,
   ObservedCall,
   ObservedCallService,
+  ObservedOutcome,
   ObservedProduction,
   ObservedUsage,
   ProductionOutcome,

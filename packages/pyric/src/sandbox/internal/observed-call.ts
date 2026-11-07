@@ -18,6 +18,7 @@ import type {
   ObservedCall,
   ObservedCallService,
   ObservedListener,
+  ObservedOutcome,
   ObservedQuery,
   ObservedQueryFilter,
   ObservedQueryOperator,
@@ -68,6 +69,17 @@ export const OBSERVED_ADMIN_DISPOSITION: RulesDisposition = Object.freeze({
 
 /** An email address anywhere in a text: another person's from a document or a field path, or the account's own. */
 export const EMAIL_SHAPE = /[^\s@"']+@[^\s@"']+\.[^\s@"']+/;
+/** Each email address in a text, which may sit between the segments of a path. */
+const EMAIL_ANYWHERE = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
+
+/**
+ * A text with each email address written `[email]`, one between the segments
+ * of a path (`users/ada@example.com/a.png`) included. The reader applies it to
+ * production's message, and a live host's terminal to a path it prints.
+ */
+export function redactEmails(text: string): string {
+  return text.replace(EMAIL_ANYWHERE, '[email]');
+}
 
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
 /** The services the Admin SDK rows observe. AI Logic and Messaging calls come only from a client SDK. */
@@ -100,7 +112,13 @@ const MAX_CLAIMS_SIZE = 8 * 1024;
 const MAX_FIELDS_SIZE = 64 * 1024;
 /** Firestore nests maps and arrays at most 20 levels deep. */
 const MAX_VALUE_DEPTH = 20;
-const AI_FIELDS = new Set(['model', 'reportedModel', 'usage', 'firstChunkMs']);
+const AI_FIELDS = new Set(['model', 'reportedModel', 'usage', 'firstChunkMs', 'finishReason', 'blockReason']);
+/** A wire reason enum: `SAFETY`, `PROHIBITED_CONTENT`, `IMAGE_SAFETY`. */
+const REASON_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+/** The finish reasons of an answer with content, which no block names. */
+const UNBLOCKED_FINISH_REASONS: ReadonlySet<string> = new Set(['STOP', 'MAX_TOKENS', 'FINISH_REASON_UNSPECIFIED']);
+/** The longest production message a record carries; a recorder cuts a longer one. */
+export const MAX_OUTCOME_MESSAGE_LENGTH = 500;
 /** Production's sizes: counts only, so a value, a document or a payload has no key to ride in. */
 const USAGE_FIELDS: ReadonlySet<keyof ObservedUsage> = new Set([
   'documentReads',
@@ -217,17 +235,29 @@ function isTime(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
-function readOutcome(value: unknown): ProductionOutcome {
+/**
+ * Production's message as a record may carry it: an email address in it reads
+ * `[email]`. A message that is not a string of 1 to 500 characters, or that is
+ * shaped like a token, is dropped and the call kept, so a bad message never
+ * costs the call its event, its billed count or its terminal block.
+ */
+function readOutcomeMessage(value: unknown): { message?: string } {
+  if (!isBoundedString(value, MAX_OUTCOME_MESSAGE_LENGTH)) return {};
+  const message = redactEmails(value);
+  return isTokenShaped(message) ? {} : { message };
+}
+
+function readOutcome(value: unknown): ObservedOutcome {
   requireField(isFields(value), 'outcome');
   if (value.status === 'ok') {
     requireOnly(value, new Set(['status']), 'outcome.');
     return { status: 'ok' };
   }
   requireField(value.status === 'error', 'outcome.status');
-  requireOnly(value, new Set(['status', 'code']), 'outcome.');
+  requireOnly(value, new Set(['status', 'code', 'message']), 'outcome.');
   const code = value.code;
   requireField(typeof code === 'string' && CODE_PATTERN.test(code), 'outcome.code');
-  return { status: 'error', code };
+  return { status: 'error', code, ...readOutcomeMessage(value.message) };
 }
 
 function readClaimNames(value: unknown): string[] {
@@ -316,6 +346,21 @@ function withoutClaimValues(value: Fields): Fields {
   return { ...value, account: rest };
 }
 
+/**
+ * A Messaging call's record without production's message. No terminal line
+ * prints one, and a message that quoted a token would trip the same walk.
+ */
+function withoutOutcomeMessage(value: Fields): Fields {
+  const outcome = value.outcome;
+  if (!isFields(outcome) || outcome.message === undefined) return value;
+  const { message: _message, ...rest } = outcome;
+  return { ...value, outcome: rest };
+}
+
+function isReason(value: unknown): value is string {
+  return typeof value === 'string' && REASON_PATTERN.test(value);
+}
+
 function isModelName(value: unknown): value is string {
   return typeof value === 'string' && MODEL_PATTERN.test(value);
 }
@@ -347,7 +392,7 @@ function readUsage(value: unknown): ObservedUsage {
   return usage;
 }
 
-/** An `ai` call's model and token counts; any other key (text, a response) is refused. */
+/** An `ai` call's model, token counts and block reasons; any other key (text, a response) is refused, and a bad reason dropped. */
 function readAi(value: unknown): ObservedAi {
   requireField(isFields(value), 'ai');
   requireOnly(value, AI_FIELDS, 'ai.');
@@ -363,6 +408,11 @@ function readAi(value: unknown): ObservedAi {
     requireField(isTime(value.firstChunkMs), 'ai.firstChunkMs');
     ai.firstChunkMs = value.firstChunkMs;
   }
+  // A reason that is no block, or not a wire enum, is dropped and the call kept.
+  const finishReason = value.finishReason;
+  const isBlock = isReason(finishReason) && !UNBLOCKED_FINISH_REASONS.has(finishReason);
+  if (isBlock) ai.finishReason = finishReason;
+  if (isReason(value.blockReason)) ai.blockReason = value.blockReason;
   return ai;
 }
 
@@ -544,7 +594,7 @@ export function readObservedCall(input: unknown): ObservedCall {
   // A Messaging call handles an installation's tokens and the FCM token, so
   // nothing in its record may look like one, a field the reader drops included.
   const isMessaging = input.service === 'messaging';
-  const value = isMessaging ? withoutClaimValues(input) : input;
+  const value = isMessaging ? withoutOutcomeMessage(withoutClaimValues(input)) : input;
   if (isMessaging) requireNoTokens(value, '');
   requireOnly(value, CALL_FIELDS, '');
   const service = value.service;
@@ -807,6 +857,11 @@ function observedResult(outcome: ProductionOutcome): SandboxOperationEvent['resu
   return RESULT_BY_VERDICT[productionVerdict(outcome)];
 }
 
+/** Production's answer as the event holds it: the status and code, never production's message. */
+function eventOutcome(outcome: ObservedOutcome): ProductionOutcome {
+  return outcome.status === 'ok' ? { status: 'ok' } : { status: 'error', code: outcome.code };
+}
+
 function observedOperationEvent(call: ObservedCall): ObservedOperationEvent {
   const { rulesDisposition, authLens } = eventLens(call);
   const event = productionOperationEvent(call, rulesDisposition);
@@ -831,7 +886,7 @@ function productionOperationEvent(call: ObservedCall, rulesDisposition: RulesDis
     ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
     rulesDisposition,
     production: {
-      outcome: { ...call.outcome },
+      outcome: eventOutcome(call.outcome),
       ...(claimNames === undefined ? {} : { claimNames: [...claimNames] }),
       ...productionSizes(call),
     },
