@@ -26,6 +26,7 @@ import { projectEvaluatedRule, type TestCase, type TestResult } from 'pyric/rule
 import { getActiveRules } from 'pyric/sandbox/database';
 import {
   captureRulesEvidence,
+  EMAIL_SHAPE,
   getInternalEnv,
   LOCKED_DATABASE_RULES,
   observedMethod,
@@ -147,9 +148,6 @@ function emailsOf(call: ObservedCall): string[] {
   const listed = Array.isArray(identityEmails) ? identityEmails : [];
   return [claims.email, ...listed].filter((value): value is string => typeof value === 'string' && value !== '');
 }
-
-/** An email address anywhere in a text: another person's from a document, or the account's own. */
-const EMAIL_SHAPE = /[^\s@"']+@[^\s@"']+\.[^\s@"']+/;
 
 /** A value the trace capture records as `unavailable`, as it does any non-scalar. */
 const WITHHELD = Object.freeze({});
