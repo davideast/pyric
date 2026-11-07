@@ -32,20 +32,38 @@ describe('evaluateStorageRules — matches()', () => {
     expect(evalMatch("resource.metadata.kind.matches('a')", { kind: 'abc' }).allowed).toBe(false);
   });
 
-  it('denies (with reason) on an invalid regex pattern', () => {
-    const r = evalMatch("resource.metadata.kind.matches('[')", { kind: 'abc' });
+  it('denies (with reason) on an invalid dynamic regex pattern and rejects literal ones at parse time', () => {
+    const r = evalMatch('resource.metadata.kind.matches(resource.metadata.pattern)', {
+      kind: 'abc',
+      pattern: '[',
+    });
     expect(r.allowed).toBe(false);
     expect(r.reasons.join(' ')).toContain('matches');
+    expect(() => evalMatch("resource.metadata.kind.matches('[')", { kind: 'abc' })).toThrow(
+      /Storage rules do not compile:/,
+    );
   });
 
-  it('denies a backreference pattern (RE2-unsupported, would fail in production)', () => {
-    const r = evalMatch("resource.metadata.kind.matches('(a)\\\\1')", { kind: 'aa' });
+  it('denies a dynamic backreference pattern (RE2-unsupported) and rejects literal ones at parse time', () => {
+    const r = evalMatch('resource.metadata.kind.matches(resource.metadata.pattern)', {
+      kind: 'aa',
+      pattern: '(a)\\1',
+    });
     expect(r.allowed).toBe(false);
+    expect(() => evalMatch("resource.metadata.kind.matches('(a)\\\\1')", { kind: 'aa' })).toThrow(
+      /Storage rules do not compile:/,
+    );
   });
 
-  it('denies a lookahead pattern (RE2-unsupported, would fail in production)', () => {
-    const r = evalMatch("resource.metadata.kind.matches('a(?=b)')", { kind: 'ab' });
+  it('denies a dynamic lookahead pattern (RE2-unsupported) and rejects literal ones at parse time', () => {
+    const r = evalMatch('resource.metadata.kind.matches(resource.metadata.pattern)', {
+      kind: 'ab',
+      pattern: 'a(?=b)',
+    });
     expect(r.allowed).toBe(false);
+    expect(() => evalMatch("resource.metadata.kind.matches('a(?=b)')", { kind: 'ab' })).toThrow(
+      /Storage rules do not compile:/,
+    );
   });
 
   it('denies matches() against a non-string target', () => {

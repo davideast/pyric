@@ -178,6 +178,20 @@ service firebase.storage { match /b/{bucket}/o { match /u/{f} { allow read: if f
       'pyric sandbox: storage.rules does not compile: Invalid regular expression pattern. Pattern: (. Fix the rules before serving.',
     );
   });
+
+  it('refuses duplicate Storage service blocks and accepts multi-service files (#2441)', () => {
+    const duplicate = `rules_version = '2';
+service firebase.storage { match /b/{bucket}/o { match /a/{f} { allow read: if true; } } }
+service firebase.storage { match /b/{bucket}/o { match /b/{f} { allow read: if true; } } }`;
+    expect(() => prepareStorageRulesSource(duplicate, 'storage.rules')).toThrow(
+      'pyric sandbox: storage.rules does not compile: Duplicate service name declaration. Fix the rules before serving.',
+    );
+
+    const multi = `rules_version = '2';
+service cloud.firestore { match /databases/{database}/documents { match /d/{id} { allow read: if false; } } }
+service firebase.storage { match /b/{bucket}/o { match /u/{f} { allow read: if true; } } }`;
+    expect(prepareStorageRulesSource(multi, 'storage.rules')).toBe(multi);
+  });
 });
 
 describe('loadProjectRules', () => {
