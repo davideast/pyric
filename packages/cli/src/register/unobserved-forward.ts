@@ -9,7 +9,9 @@
  * deduplicated (`boundNodeUnobservedList`): hosts and subpath names only. A
  * frame that would repeat the last one sent is not sent; one that fails is
  * sent again at the next change. While a send is in flight, a change waits
- * for it and then sends the lists as they are.
+ * for it and then sends the lists as they are. When the connection drops
+ * and attaches again (`onReattach`), as after the live host restarts, the
+ * host it reaches may hold no lists, so the forwarder sends them again.
  */
 import {
   NODE_UNOBSERVED_LIST_NAMES,
@@ -21,6 +23,31 @@ import {
 export interface UnobservedForwarder {
   /** One of the lists gained an entry. */
   changed(): void;
+  /** The connection attached again after a drop: send the lists even if they did not change. */
+  reconnected(): void;
+}
+
+/** A connection's `observeConnection`: reports each attach and drop to `listener`, and returns its stop. */
+type ObserveConnection = (listener: (connected: boolean) => void) => () => void;
+
+/**
+ * Calls `reattached` each time the connection attaches after it dropped
+ * from an attach: not at the first attach, and once per drop. Returns the
+ * stop.
+ */
+export function onReattach(observe: ObserveConnection, reattached: () => void): () => void {
+  let wasAttached = false;
+  let dropped = false;
+  return observe((connected) => {
+    if (!connected) {
+      dropped = wasAttached;
+      return;
+    }
+    const isReattach = dropped;
+    wasAttached = true;
+    dropped = false;
+    if (isReattach) reattached();
+  });
 }
 
 export interface UnobservedForwarderInput {
@@ -51,7 +78,8 @@ export function createUnobservedForwarder(input: UnobservedForwarderInput): Unob
   let scheduled = false;
   let sending = false;
   let changedWhileSending = false;
-  let lastSent = JSON.stringify({});
+  const nothingSent = JSON.stringify({});
+  let lastSent = nothingSent;
 
   const flush = (): void => {
     scheduled = false;
@@ -82,5 +110,10 @@ export function createUnobservedForwarder(input: UnobservedForwarderInput): Unob
     schedule(flush);
   };
 
-  return { changed };
+  const reconnected = (): void => {
+    lastSent = nothingSent;
+    changed();
+  };
+
+  return { changed, reconnected };
 }

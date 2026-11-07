@@ -44,7 +44,7 @@ import {
 } from './supplied-rows.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { installProcessHealth } from './process-health.js';
-import { createUnobservedForwarder, type UnobservedForwarder } from './unobserved-forward.js';
+import { createUnobservedForwarder, onReattach, type UnobservedForwarder } from './unobserved-forward.js';
 import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
 
 export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
@@ -297,11 +297,20 @@ function unobservedFields(
 /**
  * Sends the lists to the live host on the connection observed calls use
  * (`observed-call-sender.ts`), which loads at the first send, so a process
- * that leaves nothing unobserved never loads it for this.
+ * that leaves nothing unobserved never loads it for this. From the first
+ * send, each re-attach of that connection, as after the live host restarts,
+ * calls `reattached`.
  */
-async function sendToLiveHost(lists: NodeUnobservedLists): Promise<void> {
-  const { sendUnobservedLists } = await import('./observed-call-sender.js');
-  await sendUnobservedLists(lists);
+function liveHostSender(reattached: () => void): (lists: NodeUnobservedLists) => Promise<void> {
+  let watching = false;
+  return async (lists) => {
+    const sender = await import('./observed-call-sender.js');
+    if (!watching) {
+      watching = true;
+      onReattach(sender.observeLiveHostConnection, reattached);
+    }
+    await sender.sendUnobservedLists(lists);
+  };
 }
 
 /** What the register entry gives the seam. */
@@ -369,7 +378,8 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   // Stays empty unless `firebase-admin` passes through: only an app's own import of it starts the tree.
   const adminTree = new Set<string>();
   const adminUnobserved = createAdminUnobserved((line) => void process.stderr.write(line), changed);
-  forwarder = createUnobservedForwarder({ read: () => unobservedFields(network.unobserved(), adminUnobserved), send: sendToLiveHost });
+  const send = liveHostSender(() => forwarder?.reconnected());
+  forwarder = createUnobservedForwarder({ read: () => unobservedFields(network.unobserved(), adminUnobserved), send });
   const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
   const rows = registerRows(passThrough, adminRows);
   rows.open(installed.rows);

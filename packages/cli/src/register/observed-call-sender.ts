@@ -72,3 +72,13 @@ export async function sendUnobservedLists(lists: NodeUnobservedLists): Promise<v
   connection ??= openConnection();
   await rpc(connection.port, { t: 'unobserved', id: nextId(), ...lists });
 }
+
+/**
+ * Reports each attach and drop of the open connection to `listener`,
+ * opening it if none is open; a connection opened later after an end is
+ * not watched. Returns the stop.
+ */
+export function observeLiveHostConnection(listener: (connected: boolean) => void): () => void {
+  connection ??= openConnection();
+  return connection.port.observeConnection?.(listener) ?? (() => undefined);
+}

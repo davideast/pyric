@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
-import { createUnobservedForwarder } from '../../src/register/unobserved-forward.js';
+import { createUnobservedForwarder, onReattach } from '../../src/register/unobserved-forward.js';
 
 /** A forwarder whose turns run when the test says, over lists the test sets. */
 function forwarder(options: { fail?: () => boolean } = {}) {
@@ -104,5 +104,42 @@ describe('the unobserved lists forwarder', () => {
     await turn();
     await turn();
     expect(sent[1]).toEqual({ unobserved: ['cloudtrace.googleapis.com', 'www.googleapis.com'] });
+  });
+
+  it('sends the lists again when the connection re-attaches, as after a live host restart', async () => {
+    const { lists, sent, forward, turn } = forwarder();
+    let report: (connected: boolean) => void = () => undefined;
+    onReattach((listener) => {
+      report = listener;
+      return () => undefined;
+    }, () => forward.reconnected());
+    report(false);
+    report(true);
+    lists.unobserved.push('cloudtrace.googleapis.com');
+    forward.changed();
+    await turn();
+    expect(sent).toHaveLength(1);
+    // The host restarts: the socket drops, then attaches to the new host, which has no lists.
+    report(false);
+    report(true);
+    await turn();
+    expect(sent).toEqual([{ unobserved: ['cloudtrace.googleapis.com'] }, { unobserved: ['cloudtrace.googleapis.com'] }]);
+  });
+
+  it('counts only an attach that follows a drop as a re-attach', () => {
+    let report: (connected: boolean) => void = () => undefined;
+    let reattached = 0;
+    onReattach((listener) => {
+      report = listener;
+      return () => undefined;
+    }, () => void reattached++);
+    report(false);
+    report(true);
+    report(true);
+    expect(reattached).toBe(0);
+    report(false);
+    report(false);
+    report(true);
+    expect(reattached).toBe(1);
   });
 });
