@@ -345,7 +345,7 @@ export default scenario(async (app) => {
     assert.deepEqual(await replay.unmatched(), []);
   });
 
-  await app.step('the chip shows each server job call as production\'s, from Server (client SDK)', async () => {
+  await app.step('the chip shows each server job call as production\'s, from a Node process', async () => {
     await expectRows(chip, 'node');
     const sources = await chip.locator('[data-traffic-rows] [data-traffic-row-source]').evaluateAll((elements) => elements.map((element) => element.getAttribute('data-traffic-row-source')));
     assert.deepEqual([...new Set(sources)].sort(), ['node', 'page'], 'the All view marks the page\'s rows and the server job\'s');

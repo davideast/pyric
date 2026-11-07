@@ -325,7 +325,7 @@ export default scenario(async (app) => {
     assert.deepEqual(await nodeReplay.unmatched(), []);
   });
 
-  await app.step('the chip shows each server job call as production\'s, from Server (client SDK)', async () => {
+  await app.step('the chip shows each server job call as production\'s, from a Node process', async () => {
     await expectRows(chip, 'node');
     assert.ok(await chip.locator('[data-traffic-row-source=node]').count() > 0, 'the server job\'s rows carry the node source');
     assert.deepEqual(await billed(host.url), BILLED_NONE);

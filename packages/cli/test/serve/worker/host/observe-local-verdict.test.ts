@@ -271,3 +271,128 @@ describe('host: local verdict of an observed call', () => {
     expect(event).not.toHaveProperty('production.local');
   });
 });
+
+const EMAIL_OWNER = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+      allow read: if request.auth.token.email == 'owner@example.com';
+    }
+  }
+}`;
+
+const INVITEE_ONLY = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+      allow read: if resource.data.inviteeEmail == request.auth.token.email;
+    }
+  }
+}`;
+
+/** A create rule that compares `fields` long written strings, so its trace passes the size cap. */
+function longChecks(fields: number): string {
+  const checks = Array.from({ length: fields }, (_, index) => `request.resource.data.f${index} == request.resource.data.f${index}`);
+  return `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+      allow create: if ${checks.join(' && ')};
+    }
+  }
+}`;
+}
+
+interface TracedEvent { production: { local: { trace: { version: unknown; rules: Array<{ checks: unknown[] }> } } } }
+
+describe('host: the local evaluation trace of an observed call', () => {
+  it('keeps the trace a sandbox request carries on an allow', async () => {
+    const ctx = ctxWithFirestoreRules(SIGNED_IN);
+    const event = await observedEvent(ctx, getDoc(OK));
+    expect(event).toMatchObject({
+      production: {
+        local: {
+          result: 'allow',
+          trace: {
+            scope: 'request',
+            decision: 'ALLOW',
+            truncated: false,
+            rules: [{ expression: 'request.auth != null', verdict: 'ALLOW', line: 5 }],
+            paths: expect.arrayContaining([expect.objectContaining({ matched: true })]),
+          },
+        },
+      },
+    });
+    const trace = (event as unknown as TracedEvent).production.local.trace;
+    expect(typeof trace.version).toBe('string');
+    expect(trace.rules[0]!.checks.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the checks and their values on a deny', async () => {
+    const ctx = ctxWithFirestoreRules(ADMIN_ONLY);
+    const event = await observedEvent(ctx, getDoc(DENIED));
+    expect(event).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          trace: {
+            decision: 'DENY',
+            rules: [{
+              expression: "request.auth.uid == 'admin'",
+              verdict: 'DENY',
+              checks: expect.arrayContaining([expect.objectContaining({ expression: 'request.auth.uid', state: 'value', value: 'alice' })]),
+            }],
+          },
+        },
+      },
+    });
+  });
+
+  it('keeps the account email out of the trace', async () => {
+    const ctx = ctxWithFirestoreRules(EMAIL_OWNER);
+    const call = { ...getDoc(DENIED), account: { uid: 'alice', claims: { email: 'alice@example.com' } } };
+    const event = await observedEvent(ctx, call);
+    expect(event).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          trace: { rules: [{ checks: expect.arrayContaining([expect.objectContaining({ expression: 'request.auth.token.email', state: 'unavailable' })]) }] },
+        },
+      },
+    });
+    expect(JSON.stringify(event)).not.toContain('alice@example.com');
+  });
+
+  it('keeps an address from a returned document out of the trace', async () => {
+    const ctx = ctxWithFirestoreRules(INVITEE_ONLY);
+    const call = { ...getDoc(DENIED), account: { uid: 'alice', claims: { email: 'alice@example.com' } }, document: { inviteeEmail: 'bob@example.com' } };
+    const event = await observedEvent(ctx, call);
+    expect(event).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          trace: { rules: [{ checks: expect.arrayContaining([expect.objectContaining({ expression: 'resource.data.inviteeEmail', state: 'unavailable' })]) }] },
+        },
+      },
+    });
+    expect(JSON.stringify(event)).not.toContain('bob@example.com');
+    expect(JSON.stringify(event)).not.toContain('alice@example.com');
+  });
+
+  it('drops a trace past the size cap and keeps the verdict', async () => {
+    const fields = 40;
+    const ctx = ctxWithFirestoreRules(longChecks(fields));
+    const writeData = Object.fromEntries(Array.from({ length: fields }, (_, index) => [`f${index}`, 'x'.repeat(250)]));
+    const add: ObservedCall = { service: 'firestore', method: 'addDoc', path: 'rooms/r9', at: 1, outcome: OK, account: { uid: 'alice' }, writeData };
+    const event = await observedEvent(ctx, add);
+    expect(event).toMatchObject({ production: { local: { result: 'allow', rule: { line: 5 } } } });
+    expect(event).not.toHaveProperty('production.local.trace');
+  });
+
+  it('keeps no trace on an unevaluated verdict', async () => {
+    const ctx = ctxWithFirestoreRules(PUBLIC_DOCS);
+    const event = await observedEvent(ctx, getDoc(DENIED));
+    expect(event).toMatchObject({ production: { local: { result: 'unevaluated' } } });
+    expect(event).not.toHaveProperty('production.local.trace');
+  });
+});

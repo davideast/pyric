@@ -30,6 +30,10 @@
  * own object, with its `response` replaced by a promise that follows the
  * SDK's and its `stream` by one that yields the SDK's own chunks.
  *
+ * The Firestore and Database rows also hand their wrapped module to the
+ * reads a live page answers for its host (`tab-reads.ts`), which notes each
+ * instance their factories return.
+ *
  * The Firestore row reads each call's path, the document or collection its
  * reference or query names, and a write's data through its context hook,
  * and a `getDoc`'s returned document through its result hook (`firestore.ts`).
@@ -79,6 +83,7 @@ import {
 } from './messaging.js';
 import { observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite, type UncaughtListenerError } from './observe.js';
 import { liveCallRefusal, type LiveClient, type RefusedCall } from './refusal.js';
+import { noteReadModule } from './tab-reads.js';
 
 export type LiveModuleKey =
   | 'live-app'
@@ -395,6 +400,7 @@ export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: 
   noteExports(wrapped, spec.noted ?? []);
   decorateExports(wrapped, spec.decorated ?? {}, observedSite);
   replaceExports(wrapped, spec.replaced ?? {}, observedSite);
+  noteReadModule(key, wrapped);
   return wrapped as T;
 }
 
