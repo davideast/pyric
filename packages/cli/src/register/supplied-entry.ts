@@ -50,7 +50,7 @@ export { ADMIN_ROW_LOADS, ADMIN_ROW_URLS, adminRowOfUrl, type AdminRowName } fro
 export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
 export { liveProjectId } from '../serve/live-project.js';
 export { LIVE_PROJECT_ROOT_VARIABLE, liveAppDirs, liveProjectRoot } from './live-package.js';
-export { livePassThroughLine } from 'pyric/sandbox/internal';
+export { idTokenIssuer, livePassThroughLine } from 'pyric/sandbox/internal';
 export { swappedFirebaseEntries } from '../serve/firebase-module-swap.js';
 export type { FirebaseRowSet, ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 export type { SuppliedRowsPlane, SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';

@@ -21,7 +21,10 @@
  * names another project is refused there, and an app whose credential works
  * out its project stays offline until the gate passes, or longer if it went
  * offline itself meanwhile. No frame reaches another project's instance,
- * `setPriority` and `onDisconnect()` included.
+ * `setPriority` and `onDisconnect()` included. firebase-admin's own
+ * `getRules`, `getRulesJSON` and `setRules` wait for the gate too, and make
+ * no record. A call the gate refuses hands the refusal to the app's
+ * `onComplete` or `once` failure callback, as the SDK hands it a failure.
  *
  * A record never carries a data value: no write data and no returned value.
  */
@@ -90,8 +93,32 @@ function contextOf(_name: string, _args: readonly unknown[], self: unknown): Cal
 
 const HOOKS = { context: contextOf, codeOf: databaseCode, throwsLocally: true } as const;
 
-function calls(...names: string[]): AdminMethod[] {
-  return names.map((name) => ({ name, ...HOOKS }));
+type RefusalCallback = AdminMethod['refusalCallback'];
+
+function calls(names: readonly string[], refusalCallback?: RefusalCallback): AdminMethod[] {
+  return names.map((name) => ({ name, ...HOOKS, ...(refusalCallback === undefined ? {} : { refusalCallback }) }));
+}
+
+/** A write's `onComplete`, its first function argument, called with the error as the SDK calls it with a failure. */
+function writeCompletion(args: readonly unknown[]): ((error: unknown) => void) | undefined {
+  const onComplete = args.find((arg) => typeof arg === 'function');
+  if (typeof onComplete !== 'function') return undefined;
+  return (error) => Reflect.apply(onComplete, undefined, [error]);
+}
+
+/** `transaction`'s `onComplete`, after its update function, called as the SDK calls it with a failure: `(error, false, null)`. */
+function transactionCompletion(args: readonly unknown[]): ((error: unknown) => void) | undefined {
+  const onComplete = args[1];
+  if (typeof onComplete !== 'function') return undefined;
+  return (error) => Reflect.apply(onComplete, undefined, [error, false, null]);
+}
+
+/** `once`'s failure callback, bound to the app's context, as the SDK calls it when the read is cancelled. */
+function onceFailure(args: readonly unknown[]): ((error: unknown) => void) | undefined {
+  const [, , failure, context] = args;
+  if (typeof failure !== 'function') return undefined;
+  const self = isObject(context) ? context : undefined;
+  return (error) => Reflect.apply(failure, self, [error]);
 }
 
 /** The site a custom wrapper records under, as `patch.ts` builds one. */
@@ -326,6 +353,37 @@ function replace(prototype: Record<string, unknown>, name: string, wrap: (real: 
   Object.defineProperty(prototype, name, { ...descriptor, value: wrap(descriptor.value as Method) });
 }
 
+/** The rules calls firebase-admin adds to each Database: each an HTTP request to the instance's `.settings/rules.json`. */
+const RULES_CALLS = ['getRules', 'getRulesJSON', 'setRules'] as const;
+
+/**
+ * Gates the rules calls firebase-admin gives each Database. It sets them as
+ * the Database's own properties right after `initStandalone`
+ * (`lib/database/database.js`), so the row can't patch them in place: an
+ * accessor on the prototype takes that assignment and keeps a copy that
+ * waits for the project gate. An app on another project is refused before
+ * any request, as every other Admin RTDB call is. They make no record: they
+ * read and write rules, not data.
+ */
+function gateRulesCalls(prototype: object, gate: AdminProjectGate): void {
+  for (const name of RULES_CALLS) {
+    const gated = new WeakMap<object, Method>();
+    Object.defineProperty(prototype, name, {
+      configurable: true,
+      get(this: unknown): Method | undefined {
+        return isObject(this) ? gated.get(this) : undefined;
+      },
+      set(this: unknown, real: unknown): void {
+        if (!isObject(this) || typeof real !== 'function') return;
+        const db = this;
+        gated.set(db, keepShape(function rulesCall(this: unknown, ...args: unknown[]): unknown {
+          return gate(adminAppOf(fieldOf(db, 'app')), () => Reflect.apply(real, this, args));
+        }, real as Method));
+      },
+    });
+  }
+}
+
 /**
  * Patches the real `@firebase/database-compat/standalone` module `sdk` once.
  * Later calls change nothing.
@@ -342,15 +400,18 @@ export function observeAdminDatabase(sdk: unknown, row: AdminDatabaseRow): void 
     replace(database, 'refFromURL', (real) => gatedRef(connectionRow, real));
     replace(database, 'goOnline', () => gatedGoOnline(connectionRow));
     replace(database, 'goOffline', () => trackedGoOffline(connectionRow));
+    gateRulesCalls(database, row.gate);
   }
   const query = prototypeOf(sdk, 'Query');
-  if (query !== undefined && patchAdminClass(query, 'Query', calls('get', 'once'), adminRow)) {
+  const queryMethods = [...calls(['get']), ...calls(['once'], onceFailure)];
+  if (query !== undefined && patchAdminClass(query, 'Query', queryMethods, adminRow)) {
     replace(query, 'on', (real) => gatedOn(adminRow, real));
     replace(query, 'off', patchedOff);
   }
   const reference = prototypeOf(sdk, 'Reference');
   const realSet = reference?.set;
-  if (reference !== undefined && patchAdminClass(reference, 'Reference', calls('set', 'update', 'remove', 'transaction', 'setWithPriority'), adminRow)) {
+  const referenceMethods = [...calls(['set', 'update', 'remove', 'setWithPriority'], writeCompletion), ...calls(['transaction'], transactionCompletion)];
+  if (reference !== undefined && patchAdminClass(reference, 'Reference', referenceMethods, adminRow)) {
     replace(reference, 'push', (real) => gatedPush(adminRow, real, realSet as Method));
   }
 }

@@ -48,6 +48,20 @@ export interface AdminRow {
 export interface AdminMethod extends ObservedHooks, Pick<ObservedSite, 'accountOf'> {
   readonly name: string;
   readonly listener?: boolean;
+  /**
+   * The SDK takes a callback `(error, ...results)` as the last argument it is
+   * given, and then answers only through it (`@google-cloud/storage`'s
+   * callback form). The row calls the method in its promise form, so the
+   * record follows the promise, and hands the settlement to the callback.
+   */
+  readonly nodeCallback?: boolean;
+  /**
+   * For a method that returns a promise and also calls a completion callback,
+   * as `Reference.set(value, onComplete)` does: how a call that never reaches
+   * the SDK, such as one the gate refuses, reports its error to the callback
+   * the app passed, as the SDK reports a failure. Undefined when it passed none.
+   */
+  readonly refusalCallback?: (args: readonly unknown[]) => ((error: unknown) => void) | undefined;
 }
 
 const PATCHED = Symbol.for('pyric.live.admin.patched');
@@ -63,18 +77,80 @@ export function keepShape(wrapper: Method, real: Method): Method {
 }
 
 function siteOf(row: AdminRow, className: string, method: AdminMethod) {
-  const { name, listener: _listener, ...hooks } = method;
+  const { name, listener: _listener, nodeCallback: _nodeCallback, refusalCallback: _refusalCallback, ...hooks } = method;
   return { ...hooks, module: row.module, name: `${className}.${name}`, observer: row.observer, sdk: 'admin' as const };
 }
 
-/** A one-shot call: gated, observed, and the only record for the SDK calls it makes. */
+/** Runs `observed` once the gate passes for the call's app, as the only record for the SDK calls it makes. */
+function runGated(row: AdminRow, observed: Method, self: unknown, args: readonly unknown[]): Promise<unknown> {
+  const appArgs = outsideScope(args);
+  return observing.run(true, () => row.gate(row.appOf(self), () => Reflect.apply(observed, self, appArgs)));
+}
+
+/**
+ * The callback in `args` as `@google-cloud/promisify` finds one: the last
+ * argument that is not undefined, when it is a function. Returns it with the
+ * arguments before it, or undefined when the call has none.
+ */
+export function nodeCallbackOf(args: readonly unknown[]): { readonly callback: Method; readonly before: readonly unknown[] } | undefined {
+  let last = args.length - 1;
+  while (last >= 0 && args[last] === undefined) last -= 1;
+  const callback = args[last];
+  if (typeof callback !== 'function') return undefined;
+  return { callback: callback as Method, before: args.slice(0, last) };
+}
+
+/** A resolved value as callback arguments: `@google-cloud/promisify` resolves with the callback's results as an array. */
+function callbackResults(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  return value === undefined ? [] : [value];
+}
+
+/** Hands a promise's settlement to a node-style callback on a later tick, outside the promise, as the SDK calls it. */
+function settleToCallback(pending: Promise<unknown>, callback: Method): void {
+  const later = (values: unknown[]) => process.nextTick(() => Reflect.apply(callback, undefined, values));
+  pending.then(
+    (value: unknown) => later([null, ...callbackResults(value)]),
+    (error: unknown) => later([error]),
+  );
+}
+
+/**
+ * A call that also takes a completion callback: when it never reaches the
+ * SDK, as when the gate refuses it, the callback gets the error. The
+ * returned promise is marked handled, as the SDK marks its own once a
+ * callback is given.
+ */
+function withRefusalCallback(row: AdminRow, site: ReturnType<typeof siteOf>, real: Method, self: unknown, args: unknown[], onRefusal: (error: unknown) => void): Promise<unknown> {
+  let hasReached = false;
+  const reaching = observedCall(site, function reach(this: unknown, ...values: unknown[]): unknown {
+    hasReached = true;
+    return Reflect.apply(real, this, values);
+  });
+  const pending = runGated(row, reaching, self, args);
+  pending.catch((error: unknown) => {
+    if (!hasReached) onRefusal(error);
+  });
+  return pending;
+}
+
+/**
+ * A one-shot call: gated, observed, and the only record for the SDK calls it
+ * makes. A call in a node-style callback form runs in its promise form, so
+ * it is recorded when it settles rather than as `returned` before any
+ * request, and the callback gets the settlement, a refusal included.
+ */
 function gatedCall(row: AdminRow, className: string, method: AdminMethod, real: Method): Method {
-  const observed = observedCall(siteOf(row, className, method), real);
+  const site = siteOf(row, className, method);
+  const observed = observedCall(site, real);
   return keepShape(function adminCall(this: unknown, ...args: unknown[]): unknown {
     const isNested = observing.getStore() === true;
     if (isNested) return Reflect.apply(real, this, args);
-    const appArgs = outsideScope(args);
-    return observing.run(true, () => row.gate(row.appOf(this), () => Reflect.apply(observed, this, appArgs)));
+    const nodeCallback = method.nodeCallback === true ? nodeCallbackOf(args) : undefined;
+    if (nodeCallback !== undefined) return settleToCallback(runGated(row, observed, this, nodeCallback.before), nodeCallback.callback);
+    const onRefusal = method.refusalCallback?.(args);
+    if (onRefusal !== undefined) return withRefusalCallback(row, site, real, this, args, onRefusal);
+    return runGated(row, observed, this, args);
   }, real);
 }
 
