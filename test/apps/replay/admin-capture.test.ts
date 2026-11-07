@@ -10,7 +10,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ADMIN_CAPTURE_EMAIL, ADMIN_CAPTURE_RUN, CAPTURE_ADMIN, loadCaptureAdmin } from './admin-capture.ts';
+import { ADMIN_CAPTURE_EMAIL, ADMIN_CAPTURE_RUN, adminCaptureFromText, CAPTURE_ADMIN, loadCaptureAdmin } from './admin-capture.ts';
 import { assertShapesOnly } from './format.ts';
 import { startReplayProcess, unmatchedBy, type ReplayProcess } from './process.ts';
 
@@ -95,6 +95,25 @@ test('every case in capture A (Admin)\'s run spec gets the answer production gav
   expect(results).toEqual(recordedAnswers());
   expect(await unmatchedBy(server.origin)).toEqual([]);
 }, 300_000);
+
+test('a hash placeholder no recorded upload hashes is refused, not filled with an empty hash', () => {
+  const answer = (json: Record<string, string>) => ({ status: 200, headers: {}, body: { kind: 'json', json } });
+  const upload = {
+    seq: 1,
+    service: 'storage',
+    method: 'POST',
+    path: '/upload/storage/v1/b/<bucket>/o',
+    query: { uploadType: 'multipart', name: 'a.txt' },
+    request: { contentType: 'multipart/related; boundary=<boundary>', body: { kind: 'text', text: '<boundary>\r\nContent-Type: application/json\r\n\r\n{}\r\n<boundary>\r\nContent-Type: text/plain\r\n\r\nhello\r\n<boundary>' } },
+    response: answer({ md5Hash: '<md5-1>', crc32c: '<crc32c-1>' }),
+  };
+  const read = { ...upload, seq: 2, method: 'GET', path: '/storage/v1/b/<bucket>/o/a.txt', query: {}, request: { contentType: null, body: null } };
+  const capture = (http: unknown[]) => JSON.stringify({ observedAt: 'test', adminVersion: 'test', grpc: [], http, rtdb: [] });
+  const filled = adminCaptureFromText(PROJECT, capture([upload, read]));
+  expect(filled.http[1]!.response.body).toEqual({ kind: 'json', json: { md5Hash: 'XUFAKrxLKna5cZ2REBfFkg==', crc32c: 'mnG7TA==' } });
+  const unhashed = { ...read, response: answer({ md5Hash: '<md5-2>', crc32c: '<crc32c-1>' }) };
+  expect(() => adminCaptureFromText(PROJECT, capture([upload, unhashed]))).toThrow('<md5-2>');
+});
 
 test('an Admin Storage exchange naming a bucket outside the project is refused, as every recording\'s are', () => {
   const recording = loadCaptureAdmin(PROJECT);
