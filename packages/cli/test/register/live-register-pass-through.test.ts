@@ -633,26 +633,45 @@ async function adminSeams(passThrough: string[], adminProjectId: string | null =
 }
 
 /** An APM's pass-through wrappers on https.request, fetch and tls.connect, in an app file, installed after the guard. */
-function wrapLikeAnApm(seams: { https: { request: (request: unknown) => unknown }; fetchScope: { fetch: typeof fetch }; tls: { connect: (...args: unknown[]) => unknown } }) {
+/**
+ * How an instrumentation library puts its wrapper in place: a plain
+ * assignment, `Object.defineProperty` with a data descriptor (shimmer, which
+ * OpenTelemetry uses), or `Reflect.defineProperty`.
+ */
+type WrapInstall = 'assignment' | 'Object.defineProperty' | 'Reflect.defineProperty';
+
+const WRAP_INSTALLS: readonly WrapInstall[] = ['assignment', 'Object.defineProperty', 'Reflect.defineProperty'];
+
+function installWrapper(object: object, key: string, wrapper: unknown, install: WrapInstall): void {
+  const descriptor = { configurable: true, enumerable: true, writable: true, value: wrapper };
+  if (install === 'Object.defineProperty') Object.defineProperty(object, key, descriptor);
+  if (install === 'Reflect.defineProperty') Reflect.defineProperty(object, key, descriptor);
+  if (install === 'assignment') Reflect.set(object, key, wrapper);
+}
+
+function wrapLikeAnApm(
+  seams: { https: { request: (request: unknown) => unknown }; fetchScope: { fetch: typeof fetch }; tls: { connect: (...args: unknown[]) => unknown } },
+  install: WrapInstall = 'assignment',
+) {
   const wrap = { calls: 0 };
   const request = seams.https.request;
-  seams.https.request = function wrappedRequest(this: unknown, ...args: unknown[]) {
+  installWrapper(seams.https, 'request', function wrappedRequest(this: unknown, ...args: unknown[]) {
     wrap.calls += 1;
     const results = [Reflect.apply(request, this, args)];
     return results[0];
-  };
+  }, install);
   const fetchFn = seams.fetchScope.fetch;
-  seams.fetchScope.fetch = function wrappedFetch(this: unknown, ...args: unknown[]) {
+  installWrapper(seams.fetchScope, 'fetch', function wrappedFetch(this: unknown, ...args: unknown[]) {
     wrap.calls += 1;
     const results = [Reflect.apply(fetchFn, this, args) as ReturnType<typeof fetch>];
     return results[0]!;
-  } as typeof fetch;
+  }, install);
   const connect = seams.tls.connect;
-  seams.tls.connect = function wrappedConnect(this: unknown, ...args: unknown[]) {
+  installWrapper(seams.tls, 'connect', function wrappedConnect(this: unknown, ...args: unknown[]) {
     wrap.calls += 1;
     const results = [Reflect.apply(connect, this, args)];
     return results[0];
-  };
+  }, install);
   return wrap;
 }
 
@@ -736,11 +755,11 @@ describe('the network guard for firebase-admin, listed', () => {
     }
   });
 
-  test("lets its calls out through an app's pass-through wrapper on https.request, fetch and tls.connect, and refuses the app's own through it", async () => {
+  test.each(WRAP_INSTALLS)("lets its calls out through an app's pass-through wrapper on https.request, fetch and tls.connect installed by %s, and refuses the app's own through it", async (install) => {
     const seams = await adminSeams(['firebase-admin']);
     try {
       const { admin } = seams;
-      const wrap = wrapLikeAnApm(seams);
+      const wrap = wrapLikeAnApm(seams, install);
       const tokenRequest = () => Object.assign(seams.request(TOKEN_HOST), { path: '/token' });
       admin.adminVia(seams.https.request, tokenRequest());
       admin.adminVia(seams.https.request, seams.request(ADMIN_AUTH_HOST));
@@ -757,6 +776,36 @@ describe('the network guard for firebase-admin, listed', () => {
         fromApp: ['https.request refused', 'https.request refused'],
         fetched: 'fetch failed',
         connected: 'PYRIC_GUARD_BLOCKED',
+      });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test("refuses a wrapper's own request sent before it forwards the Admin SDK's call, and that call too", async () => {
+    const seams = await adminSeams(['firebase-admin']);
+    try {
+      const { admin } = seams;
+      const forward = seams.https.request;
+      const ownRequest = Object.assign(seams.request('iamcredentials.googleapis.com'), { path: '/v1/projects/-/serviceAccounts/x:generateAccessToken' });
+      seams.https.request = function wrappedRequest(this: unknown, ...args: unknown[]) {
+        forward(ownRequest);
+        const results = [Reflect.apply(forward, this, args)];
+        return results[0];
+      };
+      admin.adminVia(seams.https.request, Object.assign(seams.request(TOKEN_HOST), { path: '/token' }));
+      const fetchForward = seams.fetchScope.fetch;
+      const ownFetches: Array<Promise<string>> = [];
+      seams.fetchScope.fetch = function wrappedFetch(this: unknown, ...args: unknown[]) {
+        ownFetches.push(fetchForward('https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/x:generateAccessToken').then(() => 'sent', (error: Error) => error.message));
+        const results = [Reflect.apply(fetchForward, this, args) as ReturnType<typeof fetch>];
+        return results[0]!;
+      } as typeof fetch;
+      const adminFetched = await admin.adminVia(seams.fetchScope.fetch, TOKEN_URL).then(() => 'sent', (error: Error) => error.message);
+      expect({ sent: seams.sent, ownFetched: await Promise.all(ownFetches), adminFetched }).toEqual({
+        sent: ['https.request refused', 'https.request refused'],
+        ownFetched: ['fetch failed'],
+        adminFetched: 'fetch failed',
       });
     } finally {
       seams.stop();
