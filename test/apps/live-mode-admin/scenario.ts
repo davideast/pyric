@@ -12,7 +12,8 @@
  * bucket, and no token, email or password. The health report bills the
  * Firestore calls by the documents each read or wrote. An ID token a pyric
  * sandbox issued is refused by name, and `firebase-admin/security-rules`,
- * which live mode does not serve, is refused at import.
+ * which no row serves, loads unobserved, with its line (ADR 0022, amendment
+ * 2026-11-07).
  *
  * Live mode refuses Admin calls to another project before any request: a
  * job whose `GOOGLE_CLOUD_PROJECT` names one stops at start, and a job whose
@@ -264,7 +265,8 @@ export default scenario(async (app) => {
     assert.deepEqual(adminResults, recordedAnswers());
     assert.equal(counted, 2, 'the count query counts the two notes');
     assert.equal(sandboxRefusal, 'PYRIC_MODE_MISMATCH', 'a sandbox ID token is refused by name');
-    assert.equal(securityRules, LIVE_REFUSED, 'firebase-admin/security-rules is refused at import');
+    assert.equal(securityRules, 'ok', 'firebase-admin/security-rules loads unobserved');
+    assert.match(run.output, /@pyric\/live\/register: firebase-admin\/security-rules loads unobserved\./);
     assert.deepEqual(await replay.unmatched(), []);
     assert.doesNotMatch(run.output, /PYRIC_GUARD_BLOCKED/);
     return run;

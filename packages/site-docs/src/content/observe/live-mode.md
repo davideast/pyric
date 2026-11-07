@@ -115,7 +115,6 @@ Each refusal throws an error with the code `PYRIC_LIVE_REFUSED` before any reque
 - **Other services.** Importing Cloud Functions, Cloud Messaging, Analytics, Remote Config, Performance Monitoring or Firestore Lite. The sandbox doesn't serve them either, so one app never mixes production and sandbox services.
 - **Named Firestore databases**, such as `getFirestore(app, 'reports')`.
 - **AI Logic's Live API, server prompt templates and Imagen.** See [AI Logic calls](#ai-logic-calls).
-- **`firebase-admin`** in a Node process under `@pyric/live/register`.
 - **Pyric's own writes.** Studio edits, MCP tools that write, `pyric` commands that write, and seed files.
 - **Identity switches.** Pyric impersonating a user or switching the account it acts as. Your app signs in and out through its own Auth calls.
 - **Calls that act on production for pyric**, such as provisioning Storage or testing rules against a hosted project.
@@ -152,13 +151,26 @@ A list that names an import live mode serves stops the dev server at start. Live
 
 ## Calls that skip your Firebase SDK
 
-Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore`, `firebase/database`, `firebase/storage`, `firebase/ai` or `firebase/app-check`. Live mode refuses these other routes to production, so none of them reaches your project unseen:
+Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore`, `firebase/database`, `firebase/storage`, `firebase/ai` or `firebase/app-check`, or through the parts of `firebase-admin` live mode observes. Live mode never blocks a request at the network: your app behaves as it does without pyric.
 
-- **`@google-cloud/firestore`** in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` instead.
-- **Your own requests to Firestore, Auth or App Check** from a Node process, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`, and the terminal names the host.
-- **Your own requests to Realtime Database** from a Node process, to a `firebaseio.com` or `firebasedatabase.app` host, with the global `fetch`, `https.request` or a socket your code opens. Each fails with `PYRIC_GUARD_BLOCKED`. Only your installed `firebase/database` reaches those hosts.
-- **Your own requests to Cloud Storage** from a Node process, such as a `fetch` of a download URL, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`. A server that downloads files by URL stops under live mode; read them with `getBytes` or `getStream` instead.
-- **Your own requests to AI Logic** from a Node process, to `firebasevertexai.googleapis.com`, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`.
+A Node process under `@pyric/live/register`, or the dev server, names each Google or Firebase host it calls that pyric doesn't observe, once, in the terminal:
+
+```text
+@pyric/live/register: unobserved call to cloudtrace.googleapis.com (Google APIs). Live mode lets it through, and no row records it. Later calls to this host are not listed.
+```
+
+The health report lists the same hosts. These are calls such as a token request, Vertex AI, Cloud Trace or a public key fetch.
+
+`firebase-admin` services live mode doesn't observe, such as `firebase-admin/messaging`, load from your installed SDK. The terminal names each one when it loads:
+
+```text
+@pyric/live/register: firebase-admin/messaging loads unobserved. Live mode lets it reach Google with your credential, and no row records its calls.
+```
+
+Live mode still refuses these:
+
+- **`@google-cloud/firestore`** imported by your own code in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` or `firebase-admin/firestore` instead.
+- **An Admin call to another project.** An Admin app that names another project is refused before any request. So is a Realtime Database instance that isn't your project's: live mode accepts `<project>` and `<project>-*` instances, and the instances your firebase.json names.
 - **A second copy of the SDK on a page.** Importing an SDK file the page already loaded under another URL that reaches the dev server, such as the same URL with an extra query, fails with `PYRIC_LIVE_REFUSED`.
 
 ## What live mode can't see
@@ -172,10 +184,7 @@ Some requests from a page never reach the dev server, so live mode can't refuse 
 - **The page's own `fetch` or `WebSocket` to `firebasevertexai.googleapis.com`**, the AI Logic host. The browser sends it straight to Google.
 - **The page's own `WebSocket` or `fetch` to a Realtime Database host**, such as `my-project-default-rtdb.firebaseio.com`. The browser sends it straight to Google.
 
-In a Node process, live mode lets these through without showing them, because each looks the same as your Firebase SDK's own traffic:
-
-- A connection your code opens itself to `firestore.googleapis.com`, `firebasestorage.googleapis.com` or `firebasevertexai.googleapis.com` with `http2`, `tls`, `@grpc/grpc-js`, the `undici` package or Node's own `WebSocket`. Only the global `fetch`, `http.request` and `https.request` are checked.
-- An `http.request` that opens a `CONNECT` tunnel through a proxy. The Firebase SDK's gRPC connection uses one when a proxy is set.
+In a Node process, your own request to a host your Firebase SDK reaches, such as `firestore.googleapis.com`, looks the same as the SDK's traffic. Live mode lets it through without naming it.
 
 None of these calls shows in traffic, and production still bills them.
 

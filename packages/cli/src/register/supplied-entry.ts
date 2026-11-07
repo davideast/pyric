@@ -8,13 +8,12 @@
  * `@pyric/live` (`live-package.ts`). The gate is that installed package:
  * without it the register refuses to start. `@pyric/cli/register` never
  * reads this module, and no option, flag or environment variable turns live
- * mode on. It installs live mode's network guard first (`live-net-guard.ts`),
- * so only the live rows' SDK, and the SDK of each passed-through import,
- * reaches Google from the process. When `firebase-admin` passes through, the
+ * mode on. It installs live mode's network report first (`live-net-guard.ts`),
+ * which never refuses a call and names each Google host no live row observes
+ * (ADR 0022, amendment 2026-11-07). When `firebase-admin` passes through, the
  * real Admin SDK loads with the app's own credential, which pyric never
  * reads, its class-defining loads go to the Admin rows when they are open,
- * and the guard admits its Google traffic only from the files its import
- * reached.
+ * and a service no row serves loads unobserved.
  */
 import Module from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -145,13 +144,41 @@ function resolveAdminRowOwn(
 }
 
 /**
- * What a load of the Admin SDK gets from the Admin rows (`adminTreeResolution`):
- * its row module, with the real file it stands for recorded, a thrown
- * refusal, or null to load as Node resolved it.
+ * The Admin subpaths no row serves that this process loaded, each once, in
+ * load order: the first load prints one line, and the process health lists
+ * them.
  */
-function adminRowResult(rows: RegisterRows, realFiles: AdminRowFiles, specifier: string, url: string): ResolveResult | null {
+interface AdminUnobserved {
+  note(subpath: string): void;
+  list(): readonly string[];
+}
+
+/** The line for the first load of an Admin subpath no row serves. */
+export function adminUnobservedLine(subpath: string): string {
+  return `${LOG_PREFIX}: ${subpath} loads unobserved. Live mode lets it reach Google with your credential, and no row records its calls.`;
+}
+
+function createAdminUnobserved(write: (line: string) => void): AdminUnobserved {
+  const loaded: string[] = [];
+  return {
+    note(subpath) {
+      if (loaded.includes(subpath)) return;
+      loaded.push(subpath);
+      write(`${adminUnobservedLine(subpath)}\n`);
+    },
+    list: () => [...loaded],
+  };
+}
+
+/**
+ * What a load of the Admin SDK gets from the Admin rows (`adminTreeResolution`):
+ * its row module, with the real file it stands for recorded, or null to load
+ * as Node resolved it, noting a subpath no row serves as unobserved.
+ */
+function adminRowResult(rows: RegisterRows, realFiles: AdminRowFiles, unobserved: AdminUnobserved, specifier: string, url: string): ResolveResult | null {
   const served = adminTreeResolution(rows, { specifier, url });
   if (served.kind === 'refused') throw served.error;
+  if (served.kind === 'admin-unobserved') unobserved.note(served.subpath);
   if (served.kind !== 'admin-row') return null;
   if (!realFiles.has(served.url)) realFiles.set(served.url, url);
   return { url: served.url, format: 'commonjs', shortCircuit: true };
@@ -164,7 +191,7 @@ function adminRowResult(rows: RegisterRows, realFiles: AdminRowFiles, specifier:
  * files it let load, and `adminTree` the passed-through Admin SDK's files;
  * the network guard reads both.
  */
-function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>, adminTree: AdminTree): Resolve {
+function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>, adminTree: AdminTree, unobserved: AdminUnobserved): Resolve {
   const report = createStopReporter((line) => void process.stderr.write(line));
   const passThroughPackages = passThroughSdkPackages(rows.passThrough);
   const realFiles: AdminRowFiles = new Map();
@@ -173,10 +200,10 @@ function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>, adminTree
     const rowOwn = resolveAdminRowOwn(realFiles, adminTree, specifier, context, nextResolve);
     if (rowOwn !== null) return rowOwn;
     // The Admin SDK's own files load whatever it needs, as Node resolves it, and the stop lets it (`isFromAdminTree`),
-    // except where the Admin rows, when on, serve a row or refuse a service.
+    // except where the Admin rows, when on, serve a row or note a service no row serves.
     if (isAdminTreeImporter(adminTree, importer)) {
       const fromTree = nextResolve(specifier, context);
-      const rowResult = adminRowResult(rows, realFiles, specifier, fromTree.url);
+      const rowResult = adminRowResult(rows, realFiles, unobserved, specifier, fromTree.url);
       if (rowResult !== null) return rowResult;
       const stop = suppliedRowsStopFor({ specifier, importer, url: fromTree.url }, allowedUrls, { isRowImport: false, isEsmImport: false, isFromAdminTree: true });
       if (stop !== null) throw stop;
@@ -206,8 +233,8 @@ function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>, adminTree
     // Only the real firebase-admin starts the tree, never an alias that lands elsewhere.
     const isAdminEntry = isAdminImport && packageNameOf(result.url) === 'firebase-admin';
     if (!isAdminEntry) return result;
-    // An entry of a service the Admin rows do not serve, when on, is refused (the row loads are never entries).
-    adminRowResult(rows, realFiles, specifier, result.url);
+    // An entry of a service the Admin rows do not serve, when on, loads unobserved (the row loads are never entries).
+    adminRowResult(rows, realFiles, unobserved, specifier, result.url);
     return joinAdminTree(adminTree, result);
   };
 }
@@ -233,6 +260,11 @@ function projectIdOrNull(projectRoot: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** The process health's unobserved lists, each absent when empty. */
+function unobservedFields(hosts: readonly string[], admin: readonly string[]): { unobserved?: readonly string[]; unobservedAdmin?: readonly string[] } {
+  return { ...(hosts.length === 0 ? {} : { unobserved: hosts }), ...(admin.length === 0 ? {} : { unobservedAdmin: admin }) };
 }
 
 /** What the register entry gives the seam. */
@@ -288,22 +320,17 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
     );
   }
   const passThrough = passThroughSet(input.passThrough ?? recordedPassThrough(process.env));
-  // First, before any hook: the network guard (`live-net-guard.ts`). A fetch
-  // to Google passes only from a file of the installed SDK the stop let load.
+  const adminRows = input.adminRows === true;
+  // First, before any hook: the network report (`live-net-guard.ts`). It never
+  // refuses a call, and names each Google host no live row observes.
+  const network = installLiveNetGuard({ adminRows });
+  // The installed SDK files the stop let load.
   const allowedUrls = new Set<string>();
   // Stays empty unless `firebase-admin` passes through: only an app's own import of it starts the tree.
   const adminTree = new Set<string>();
-  // The project whose own Realtime Database the Admin SDK's tree may reach, once the rows find the project root.
-  let adminProjectId: string | null = null;
-  installLiveNetGuard({
-    isLiveSdkFile: (url) => allowedUrls.has(url),
-    isAdminSdkFile: (url) => adminTree.has(url),
-    adminProjectId: () => adminProjectId,
-    passThrough,
-  });
+  const adminUnobserved = createAdminUnobserved((line) => void process.stderr.write(line));
   const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
-  adminProjectId = projectIdOrNull(installed.projectRoot);
-  const rows = registerRows(passThrough, input.adminRows === true);
+  const rows = registerRows(passThrough, adminRows);
   rows.open(installed.rows);
   // Children and workers open the rows for this process's project and its checked firebase, wherever they start.
   process.env[LIVE_PROJECT_ROOT_VARIABLE] = installed.projectRoot;
@@ -311,9 +338,10 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   process.env[LIVE_PASS_THROUGH_VARIABLE] = [...passThrough].join(',');
   installWorkerGuard(installed.entryUrl);
   installChildProcessGuard(installed.entryUrl);
-  registerHooks({ resolve: resolveWithRows(rows, allowedUrls, adminTree), load: loadWithRows(rows) });
-  // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it.
-  const projectId = adminProjectId ?? undefined;
-  installProcessHealth(() => ({ mode: 'live', projectId }));
+  registerHooks({ resolve: resolveWithRows(rows, allowedUrls, adminTree, adminUnobserved), load: loadWithRows(rows) });
+  // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it,
+  // and list what no row observed.
+  const projectId = projectIdOrNull(installed.projectRoot) ?? undefined;
+  installProcessHealth(() => ({ mode: 'live', projectId, ...unobservedFields(network.unobserved(), adminUnobserved.list()) }));
   markLiveRegisterActive();
 }

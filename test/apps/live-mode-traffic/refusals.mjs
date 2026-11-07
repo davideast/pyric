@@ -1,9 +1,8 @@
 // Calls a server job might make that live mode does not serve: another
-// Firebase service, a named Firestore database, the Admin SDK, Google's
-// server Firestore client, and a raw https.request to Firestore's REST API.
+// Firebase service, a named Firestore database, the Admin SDK, and Google's
+// server Firestore client.
 // Each outcome is printed: the error it threw, or what it returned.
 import { readFileSync } from "node:fs";
-import https from "node:https";
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
@@ -20,11 +19,5 @@ try {
 } catch (error) {
   result.namedDatabase = outcome(error);
 }
-const lobby = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/(default)/documents/rooms/lobby`;
-result.httpsRequest = await new Promise((resolve) => {
-  const request = https.request(lobby, { method: "PATCH", headers: { "content-type": "application/json" } }, () => resolve("sent"));
-  request.on("error", (error) => resolve(outcome(error)));
-  request.end(JSON.stringify({ fields: { open: { booleanValue: false } } }));
-});
 console.log(`RESULT ${JSON.stringify(result)}`);
 process.exit(0);

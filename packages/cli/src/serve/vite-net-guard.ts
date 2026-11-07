@@ -11,14 +11,17 @@
  *
  * It installs the register's guard (`../register/net-guard.ts`) rather than a
  * copy. The activator is the plugin running under `vite dev`, not
- * `PYRIC_SANDBOX`; `PYRIC_GUARD` selects the mode as it does there, except
- * under live rows (`fixedMode`): there `PYRIC_GUARD` is not read, so nothing
- * in the environment turns the guard off or weakens it.
+ * `PYRIC_SANDBOX`; `PYRIC_GUARD` selects the mode as it does there.
+ *
+ * A live dev server (`pyricLive()`) installs live mode's network report
+ * instead ({@link installViteLiveReport}): in live mode pyric observes and
+ * never blocks at the network (ADR 0022, amendment 2026-11-07).
  *
  * A process launched under `pyric sandbox` already has the register's guard;
  * that one is kept as it is.
  */
 import { NET_GUARD_GLOBAL, installNetGuard, type NetGuard, type NetGuardHooks } from '../register/net-guard.js';
+import { installLiveNetGuard, type LiveNetReport } from '../register/live-net-guard.js';
 
 export const VITE_SSR_ISSUE_URL = 'https://github.com/davideast/pyric/issues/1123';
 
@@ -37,21 +40,6 @@ export interface ViteNetGuardInput {
   slot?: GuardSlot;
   /** Stand-ins for the hooked Node seams, for tests. */
   hooks?: Omit<NetGuardHooks, 'env' | 'write'>;
-  /**
-   * The dev server serves live rows: `PYRIC_GUARD` is not read, so the guard
-   * always refuses, and it installs even where an earlier attempt read
-   * `PYRIC_GUARD=off`.
-   */
-  fixedMode?: boolean;
-}
-
-/** Under live rows `PYRIC_GUARD=off` is not read, so the refusal names the one way out. */
-const LIVE_REMEDY = 'Live mode keeps this refusal on, whatever PYRIC_GUARD says; make this request from a process that is not the live dev server';
-
-/** The env with no `PYRIC_GUARD`, so the guard takes its default mode, `block`. */
-function withoutGuardMode(env: Record<string, string | undefined>): Record<string, string | undefined> {
-  const { PYRIC_GUARD: _ignored, ...rest } = env;
-  return rest;
 }
 
 /** The env the guard installs under: activated by the plugin when no `PYRIC_SANDBOX` is set. */
@@ -63,23 +51,32 @@ export function viteGuardEnv(env: Record<string, string | undefined>): Record<st
 /**
  * Install the guard in this process once, and publish it so the plugin's AI
  * upstreams can be permitted (`permitGuardHost`). Returns the guard in force,
- * or `null` when `PYRIC_GUARD=off` without `fixedMode`.
+ * or `null` under `PYRIC_GUARD=off`.
  */
 export function installViteNetGuard(input: ViteNetGuardInput = {}): NetGuard | null {
   const slot = input.slot ?? (globalThis as unknown as GuardSlot);
   const existing = slot[NET_GUARD_GLOBAL] as NetGuard | undefined;
   if (existing !== undefined) return existing;
-  const fixedMode = input.fixedMode === true;
-  const alreadyAttempted = slot[VITE_GUARD_ATTEMPTED] === true;
-  if (alreadyAttempted && !fixedMode) return null;
+  if (slot[VITE_GUARD_ATTEMPTED] === true) return null;
   slot[VITE_GUARD_ATTEMPTED] = true;
-  const env = input.env ?? process.env;
-  const guard = installNetGuard({
-    ...input.hooks,
-    env: viteGuardEnv(fixedMode ? withoutGuardMode(env) : env),
-    ...(fixedMode ? { remedy: LIVE_REMEDY } : {}),
-    write: input.write,
-  });
+  const guard = installNetGuard({ ...input.hooks, env: viteGuardEnv(input.env ?? process.env), write: input.write });
   if (guard !== null) slot[NET_GUARD_GLOBAL] = guard;
   return guard;
+}
+
+/** Marks a process where the live report is installed, so a Vite restart does not install it twice. */
+const VITE_LIVE_REPORT = Symbol.for('pyric.viteLiveReport');
+
+/**
+ * Installs live mode's network report in the live dev server once: it
+ * refuses nothing, and names each Google host no live row observes, with the
+ * `@pyric/live/vite` prefix. The health report reads the hosts it lists.
+ */
+export function installViteLiveReport(input: Pick<ViteNetGuardInput, 'env' | 'write' | 'slot' | 'hooks'> = {}): LiveNetReport {
+  const slot = input.slot ?? (globalThis as unknown as GuardSlot);
+  const existing = slot[VITE_LIVE_REPORT] as LiveNetReport | undefined;
+  if (existing !== undefined) return existing;
+  const report = installLiveNetGuard({ ...input.hooks, env: input.env, write: input.write, logPrefix: '@pyric/live/vite' });
+  slot[VITE_LIVE_REPORT] = report;
+  return report;
 }

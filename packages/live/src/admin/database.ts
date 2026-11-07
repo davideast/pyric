@@ -31,7 +31,7 @@
 import { databaseCode, databaseContext, databaseListenerArguments, databaseListenerCallback, offByCallback } from '../database.js';
 import { observedCall, observedListener, UNOBSERVED, type CallContext, type LiveObserver } from '../observe.js';
 import { keepShape, outsideScope, patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
-import { liveAdminProjectRefusal, type AdminProjectSource } from '../refusal.js';
+import { liveAdminInstanceRefusal, liveAdminProjectRefusal, type AdminProjectSource } from '../refusal.js';
 import type { AdminApp, AdminProjectGate } from './project-gate.js';
 
 /** The module an Admin RTDB record names: the load the row patches. */
@@ -242,6 +242,8 @@ export interface AdminDatabaseRow {
   readonly observer: LiveObserver;
   readonly gate: AdminProjectGate;
   readonly hostProjectId: string;
+  /** Instances of the host's project firebase.json names, whose names need not start with the project's. */
+  readonly hostInstances?: readonly string[];
 }
 
 /** The row with the real, unpatched `goOnline` and `goOffline`, which the connection gate calls itself. */
@@ -282,10 +284,30 @@ function holdConnection(row: ConnectionRow, db: object, app: AdminApp): void {
   });
 }
 
+/** The instance a compat Database reaches, as its repo names it, lowercase; undefined when the SDK keeps it elsewhere. */
+function instanceOf(db: object): string | undefined {
+  const repo = fieldOf(fieldOf(db, '_delegate'), '_repoInternal');
+  const namespace = fieldOf(fieldOf(repo, 'repoInfo_'), 'namespace');
+  return typeof namespace === 'string' && namespace !== '' ? namespace.toLowerCase() : undefined;
+}
+
+/**
+ * Whether `instance` belongs to the host's project: `<project>` and
+ * `<project>-*`, on firebaseio.com or firebasedatabase.app, or one
+ * firebase.json names. Another project whose id starts with the host's and a
+ * dash passes too: the name alone can't tell them apart.
+ */
+function isHostInstance(instance: string, row: AdminDatabaseRow): boolean {
+  const project = row.hostProjectId.toLowerCase();
+  const isProjectNamed = instance === project || instance.startsWith(`${project}-`);
+  return isProjectNamed || (row.hostInstances ?? []).some((named) => named.toLowerCase() === instance);
+}
+
 /**
  * The connection gate, run by `ref()`, `refFromURL()` and `goOnline()`
- * before the SDK opens the connection there and sends the credential. An
- * app that names another project is refused at once, and the gate writes
+ * before the SDK opens the connection there and sends the credential. A
+ * Database whose instance is not the host project's ({@link isHostInstance})
+ * is refused at once, and so is an app that names another project, and the gate writes
  * its one line; an app whose project its credential works out stays offline
  * until the gate passes, and its later calls here are refused once it refuses.
  */
@@ -293,6 +315,12 @@ function gateConnection(row: ConnectionRow, db: object): void {
   const known = connections.get(db);
   if (known instanceof Error) throw known;
   if (known !== undefined) return;
+  const instance = instanceOf(db);
+  if (instance !== undefined && !isHostInstance(instance, row)) {
+    const refusal = liveAdminInstanceRefusal({ instance, hostProjectId: row.hostProjectId });
+    connections.set(db, refusal);
+    throw refusal;
+  }
   const app = adminAppOf(fieldOf(db, 'app'));
   const named = namedProject(app);
   if (named === undefined) {

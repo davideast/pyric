@@ -83,6 +83,7 @@ export type RegisterRowsResolution =
   | { readonly kind: 'pass-through' }
   | { readonly kind: 'admin-pass-through' }
   | { readonly kind: 'admin-row'; readonly url: string }
+  | { readonly kind: 'admin-unobserved'; readonly subpath: string }
   | { readonly kind: 'refused'; readonly error: Error }
   | { readonly kind: 'unserved' };
 
@@ -158,10 +159,11 @@ export interface AdminTreeRequest {
 
 /**
  * What a load of the passed-through Admin SDK gets while the Admin rows are
- * on: the Admin row module at its four class-defining loads, the refusal for
- * a file of a `lib/<service>/` folder the rows do not serve, or `unserved`
- * for anything else, which loads as Node resolved it. Always `unserved`
- * while the Admin rows are shut.
+ * on: the Admin row module at its four class-defining loads, the subpath of
+ * a `lib/<service>/` folder the rows do not serve, which loads the real
+ * module unobserved (ADR 0022, amendment 2026-11-07), or `unserved` for
+ * anything else, which loads as Node resolved it. Always `unserved` while the
+ * Admin rows are shut.
  */
 export function adminTreeResolution(rows: RegisterRows, request: AdminTreeRequest): RegisterRowsResolution {
   const found = rows.package();
@@ -173,7 +175,7 @@ export function adminTreeResolution(rows: RegisterRows, request: AdminTreeReques
   if (row !== null) return { kind: 'admin-row', url: ADMIN_ROW_URLS.get(row)! };
   const service = unservedAdminService(packageName, pathInPackage);
   if (service === null) return { kind: 'unserved' };
-  return { kind: 'refused', error: found.refusal(`firebase-admin/${service}`, 'node') };
+  return { kind: 'admin-unobserved', subpath: `firebase-admin/${service}` };
 }
 
 /** The source the load hook serves for a fixed live module. Throws while the rows are shut. */

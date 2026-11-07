@@ -12,9 +12,11 @@
  * SDK under `node --import @pyric/live/register`. Live mode serves and
  * observes firebase-admin by default: the real firebase-admin loads with the
  * app's own credential through the Admin rows, the start line says its calls
- * bypass Security Rules, and the job's lookup gets its answer, while the
- * job's own fetch and https.request to Google's hosts stay refused. The job's
- * Agent sends every Admin SDK request to a local stand-in for Google, so no
+ * bypass Security Rules, and the job's lookup gets its answer. The job's own
+ * fetch and https.request to Google's hosts go out as they would without
+ * pyric (ADR 0022, amendment 2026-11-07), and the fetch to a host no row
+ * observes gets its unobserved line. The job's Agent sends every https
+ * request to a local stand-in for Google, and the run is offline, so no
  * request reaches a real host.
  *
  * Without the list, the same page is refused: the dev server names every
@@ -37,6 +39,7 @@ import { scenario, sleep, type App, type ExpectedCrash } from '../driver.ts';
 const ENTRY = '@pyric/live/vite';
 const PASSED = ['firebase/functions', 'firebase/remote-config'];
 const GUARD_BLOCKED = 'PYRIC_GUARD_BLOCKED';
+const UNOBSERVED_TOKEN_LINE = '@pyric/live/register: unobserved call to oauth2.googleapis.com (';
 /**
  * Whether the `node` the app's processes run serves the Admin rows: Node 23
  * or later. Node 22's CommonJS require() never reaches the register's hooks,
@@ -130,7 +133,7 @@ export default scenario(async (app) => {
     assert.deepEqual(live.passThrough, PASSED);
   });
 
-  await app.step('the server job under @pyric/live/register loads the observed firebase-admin, gets its lookup answered, and its own calls to Google are refused', async () => {
+  await app.step('the server job under @pyric/live/register loads the observed firebase-admin, gets its lookup answered, and its own calls to Google go out', async () => {
     const run = await runServerJob(app);
     if (!ADMIN_ROWS_ON) {
       assert.notEqual(run.code, 0, run.output);
@@ -143,12 +146,12 @@ export default scenario(async (app) => {
     assert.match(run.output, /@pyric\/live\/register: live mode for the Firebase project demo-live-pass-through\./);
     assert.match(run.output, new RegExp(escaped(ADMIN_LINE)));
     assert.doesNotMatch(run.output, /firebase-admin passes through/);
-    assert.deepEqual(jobOutcome(run.output), {
-      firestore: 'loaded',
-      adminLookup: 'scenario-user',
-      ownFetch: GUARD_BLOCKED,
-      ownRequest: GUARD_BLOCKED,
-    });
+    const { ownFetch, ...outcome } = jobOutcome(run.output);
+    assert.deepEqual(outcome, { firestore: 'loaded', adminLookup: 'scenario-user', ownRequest: 'sent' });
+    // Offline, the fetch fails at the network, never at pyric.
+    assert.notEqual(ownFetch, GUARD_BLOCKED);
+    assert.ok(run.output.includes(UNOBSERVED_TOKEN_LINE), run.output);
+    assert.doesNotMatch(run.output, new RegExp(GUARD_BLOCKED));
   });
 
   const page = await app.step('the page loads: Auth, Cloud Functions and Remote Config share the app it made', async () => {

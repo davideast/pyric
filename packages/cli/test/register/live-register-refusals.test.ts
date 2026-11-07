@@ -1,15 +1,16 @@
 /**
- * Live mode's refusals in a Node process under `@pyric/live/register`: a
- * named Firestore database, and the network guard, which lets only the live
- * rows' SDK reach Google. Each case runs a real `node --import
+ * Live mode's refusals in a Node process under `@pyric/live/register`, a
+ * named Firestore database, and its network report, which refuses nothing and
+ * names each Google host no live row observes (ADR 0022, amendment
+ * 2026-11-07). Each case runs a real `node --import
  * @pyric/live/register` process in a project with `@pyric/cli`,
  * `@pyric/live` and `firebase` installed, and proves no refused request left:
  *
  * - Firestore is pointed at a local server that counts its connections;
  * - every TLS connection the process opens passes a preload, loaded before
- *   the register and so beneath its guard, that records the host and sends
+ *   the register and so beneath its report, that records the host and sends
  *   the connection to a closed loopback port. What the preload records left
- *   the guard; nothing reaches Google.
+ *   the process's own code; nothing reaches Google.
  *
  * The import refusals and `firebase-admin` are covered by
  * `live-register-stop.test.ts`. Run the file under Node 22.15 and Node 24.
@@ -38,8 +39,8 @@ const realCloudFirestoreDir = (() => {
 })();
 
 /**
- * Loaded before the register: records the host of every TLS connection that
- * gets past the guard, and sends it to a closed loopback port instead. It
+ * Loaded before the register: records the host of every TLS connection the
+ * process opens, and sends it to a closed loopback port instead. It
  * answers every `googleapis.com` lookup with the loopback address too, so no
  * name leaves the machine and gRPC gets as far as its connection.
  */
@@ -183,8 +184,8 @@ process.exit(0);
   }, 60_000);
 });
 
-describe('the network guard under @pyric/live/register', () => {
-  it("refuses the app's own requests to Google and lets the live rows' Auth and Firestore through", async () => {
+describe('the network report under @pyric/live/register', () => {
+  it("lets the app's own requests to Google out, names each host no row observes once, and lets the live rows' Auth and Firestore through", async () => {
     const script = `import https from 'node:https';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
@@ -218,21 +219,28 @@ process.exit(0);
     const res = await runLive('guard.mjs', script);
     expect(res.status, res.stderr).toBe(0);
     for (const name of ['fetchFirestore', 'fetchStorage', 'fetchToken', 'fetchRequest', 'httpsRequest']) {
-      expect(res.outcome[name], name).toBe('PYRIC_GUARD_BLOCKED');
+      expect(res.outcome[name], name).not.toBe('PYRIC_GUARD_BLOCKED');
     }
-    // Nothing the app asked for got past the guard.
-    expect(res.outcome.reachedByApp).toEqual([]);
-    // The live rows' own requests did, and went no further than the closed port.
+    // Every request the app made left its own code, and went no further than the closed port.
+    expect([...new Set(res.outcome.reachedByApp as string[])].sort()).toEqual([
+      'firestore.googleapis.com',
+      'identitytoolkit.googleapis.com',
+      'oauth2.googleapis.com',
+      'storage.googleapis.com',
+      'www.googleapis.com',
+    ]);
+    // So did the live rows' own.
     expect(res.outcome.signIn).toBe('auth/network-request-failed');
-    expect(res.outcome.reached).toEqual(['firestore.googleapis.com', 'identitytoolkit.googleapis.com']);
-    expect(res.stderr).toContain('@pyric/live/register: net-guard BLOCK firestore.googleapis.com (Cloud Firestore) via fetch');
-    expect(res.stderr).toContain("in live mode a fetch to Google is made only by the installed SDK that @pyric/live's rows load");
-    expect(res.stderr).toContain('net-guard BLOCK storage.googleapis.com (Cloud Storage)');
-    expect(res.stderr).toContain(
-      'in live mode only the imports @pyric/live serves (firebase/auth, firebase/firestore, firebase/app-check, firebase/database, firebase/ai, ' +
-        'firebase/storage, firebase/messaging and firebase/messaging/sw) reach Google',
-    );
-    expect(res.stderr).not.toContain('BLOCK identitytoolkit.googleapis.com (Firebase Authentication) via socket');
+    expect(res.outcome.reached).toEqual(expect.arrayContaining(['firestore.googleapis.com', 'identitytoolkit.googleapis.com']));
+    // A token exchange and an https.request to Cloud Storage's JSON API are calls no row observes: one line each.
+    const unobserved = (host: string) => res.stderr.split(`@pyric/live/register: unobserved call to ${host} (`).length - 1;
+    expect(unobserved('oauth2.googleapis.com')).toBe(1);
+    expect(unobserved('www.googleapis.com')).toBe(1);
+    // The live rows' hosts read as observed.
+    expect(unobserved('firestore.googleapis.com')).toBe(0);
+    expect(unobserved('identitytoolkit.googleapis.com')).toBe(0);
+    expect(res.stderr).not.toContain('PYRIC_GUARD_BLOCKED');
+    expect(res.stderr).not.toContain('net-guard BLOCK');
   }, 60_000);
 
   it('lets a request to a host that is not Google through', async () => {
@@ -248,7 +256,7 @@ console.log('OUTCOME ' + JSON.stringify(outcome));
 });
 
 describe("app code that skips the live rows' SDK, under @pyric/live/register", () => {
-  it('refuses a raw https.request to a live row host, naming live mode and the wrapped SDK', async () => {
+  it('lets a raw https.request to a live row host out, and names the host no row observes', async () => {
     const script = `import https from 'node:https';
 const reached = globalThis[Symbol.for('live.refusals.reached')];
 const send = (url, method) => new Promise((resolve) => {
@@ -270,14 +278,15 @@ process.exit(0);
 `;
     const res = await runLive('raw-https.mjs', script);
     expect(res.status, res.stderr).toBe(0);
-    expect(res.outcome.firestore).toBe('PYRIC_GUARD_BLOCKED');
-    expect(res.outcome.auth).toBe('PYRIC_GUARD_BLOCKED');
-    expect(res.outcome.appCheck).toBe('PYRIC_GUARD_BLOCKED');
-    expect(res.outcome.reachedByApp).toEqual([]);
-    expect(res.stderr).toContain('@pyric/live/register: net-guard BLOCK firestore.googleapis.com (Cloud Firestore) via socket');
-    expect(res.stderr).toContain("in live mode only the installed Firebase SDK, wrapped by @pyric/live's rows, reaches this host");
-    expect(res.stderr).toContain('Make the call through firebase/auth, firebase/firestore or firebase/app-check, so pyric observes it');
-    expect(res.stderr).not.toContain('firebase/database, so pyric observes it');
+    for (const name of ['firestore', 'auth', 'appCheck']) expect(res.outcome[name], name).not.toBe('PYRIC_GUARD_BLOCKED');
+    expect([...new Set(res.outcome.reachedByApp as string[])].sort()).toEqual([
+      'content-firebaseappcheck.googleapis.com',
+      'firestore.googleapis.com',
+      'identitytoolkit.googleapis.com',
+    ]);
+    // No row's SDK sends App Check an https.request, so it reads as unobserved, with or without the Admin rows.
+    expect(res.stderr).toContain('@pyric/live/register: unobserved call to content-firebaseappcheck.googleapis.com (');
+    expect(res.stderr).not.toContain('PYRIC_GUARD_BLOCKED');
   }, 60_000);
 
   it('refuses @google-cloud/firestore at import, before it loads', async () => {

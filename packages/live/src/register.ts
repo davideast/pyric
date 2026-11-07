@@ -51,6 +51,7 @@ import { ADMIN_PASS_THROUGH, adminRowsNodeProblem, passThroughOption } from './r
 import { hostReachLine, liveStartLine, passThroughLines } from './start-line.js';
 import { adminStartRefusal, installedAdminVersion, liveStartRefusal } from './start-checks.js';
 import { adminEnvRefusal } from './admin/project-gate.js';
+import { configuredDatabaseInstances } from './admin/database-instances.js';
 
 const ENTRY = '@pyric/live/register';
 
@@ -79,7 +80,9 @@ function adminLines(projectId: string, env: NodeJS.ProcessEnv): string[] {
   if (adminNodeProblem !== null) return [`${ENTRY}: firebase-admin is refused in this process. ${adminNodeProblem}`];
   const observed =
     `${ENTRY}: firebase-admin is observed for the Firebase project ${projectId}. ` +
-    'This process uses its own credential, and its Admin calls bypass Security Rules.';
+    'This process uses its own credential, and its Admin calls bypass Security Rules. ' +
+    'Its Firestore, Auth, Realtime Database and Storage calls are observed; any other firebase-admin service loads unobserved, ' +
+    'and a line names it when it loads.';
   const redirected = ADMIN_EMULATOR_VARIABLES.filter(([variable]) => (env[variable] ?? '') !== '').map(
     ([variable, service]) => `${ENTRY}: ${variable} is set, so firebase-admin's ${service} calls go to ${env[variable]}, not to production.`,
   );
@@ -113,7 +116,7 @@ const projectRoot = process.env[LIVE_PROJECT_ROOT_VARIABLE];
 const startsLive = reach !== null && projectRoot !== undefined;
 const isChild = !isFirstProcess && projectRoot !== undefined;
 const servedChildProject = isChild ? childProject(projectRoot) : undefined;
-if (servedChildProject !== undefined) serveHostProject(servedChildProject);
+if (servedChildProject !== undefined) serveHostProject(servedChildProject, configuredDatabaseInstances(projectRoot!, servedChildProject));
 // A child whose first process recorded a root with no project: no Admin call could be gated, so the rows refuse firebase-admin.
 const isChildWithoutProject = isChild && servedChildProject === undefined;
 if (isChildWithoutProject) refuseAdminWithoutHostProject(projectRoot);
@@ -130,7 +133,7 @@ if (startsLive) {
   if (envRefusal !== null) throw envRefusal;
   // firebase-admin and @google-cloud/storage read the project from here when the app names none, as a functions child does.
   if ((process.env.GOOGLE_CLOUD_PROJECT ?? '') === '') process.env.GOOGLE_CLOUD_PROJECT = projectId;
-  serveHostProject(projectId);
+  serveHostProject(projectId, configuredDatabaseInstances(projectRoot, projectId));
   const passing = passThroughLines(ENTRY, passThrough ?? [], livePassThroughLine);
   const admin = hasAdmin ? adminLines(projectId, process.env) : [];
   const lines = [liveStartLine(ENTRY, projectId), ...passing, ...admin, hostReachLine(ENTRY, reach, projectId, projectRoot)];

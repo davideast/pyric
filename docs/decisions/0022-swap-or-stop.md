@@ -10,6 +10,11 @@ or the Admin rows serve it, and the choke point lets its own files reach their
 token sources. See
 [the amendment](#amendment-2026-11-06-the-admin-sdk-in-live-mode).
 
+Amended: 2026-11-07. In live mode pyric observes and never blocks at the
+network. Live processes get no network blocking, the 2026-11-06 caller rule is
+removed, and the sandbox is unchanged. See
+[the second amendment](#amendment-2026-11-07-live-mode-never-blocks-at-the-network).
+
 David approved the direction on 2026-10-28, and later that day accepted the
 recommendation for each of the seven decisions this record raised. The
 answers are in [Rulings](#rulings). This record states the design, checks it
@@ -231,6 +236,11 @@ Some destinations are deliberately left off the list:
     hoisted copy, such as google-auth-library or gaxios, is in the load closure
     either way. So the app's own token request through that shared copy passes.
     Using the token at a Google host outside the list above is still refused.
+- Amended 2026-11-07 ([#2445](https://github.com/davideast/pyric/issues/2445)):
+  the 2026-11-06 token rule above, and the caller rule it rests on, are
+  removed. A live process blocks nothing at the network; see
+  [the second amendment](#amendment-2026-11-07-live-mode-never-blocks-at-the-network).
+  The sandbox rule above it is unchanged.
 - The rules-viewer credential the live-mode research gives pyric gets its
   token in the `pyric` launcher process. That process never installs the
   guard. A guarded process gets no exemption.
@@ -434,6 +444,52 @@ changes the `firebase-admin` row of the table in decision 1, and decision 4
 gains the token rule, the `@google-cloud/*` rule and the credential-scrub
 exception. The sandbox is unchanged: a registered sandbox process still stops
 every real `firebase-admin` load and refuses every token source.
+
+### Amendment 2026-11-07: live mode never blocks at the network
+
+The owner decided this on 2026-11-07, for
+[#2445](https://github.com/davideast/pyric/issues/2445). The rule: in live
+mode pyric observes and never blocks at the network. The test is that live
+mode is never riskier than running the same app without pyric, and never
+surprises the developer about which project it touches.
+
+The 2026-11-06 caller rule failed that test. It read the stack to decide
+whether a call came from the Admin SDK's files, so an APM wrapper installed by
+assignment or with `defineProperty`, a custom credential that makes its own
+requests, and a backend's own calls to Vertex AI, Cloud Trace or a JWKS
+endpoint were refused. The same app runs without pyric, so the refusals made
+live mode riskier to adopt and protected nothing the developer's own
+credential could not already reach.
+
+- **Live processes get no network blocking.** This covers a process under
+  `@pyric/live/register`, client-only or with the Admin rows on, and the live
+  Vite dev server. The guard there only reports: a Google or Firebase call no
+  served row observes prints one "unobserved" line per host, and the host
+  joins a list in the health report (the process health of a register
+  process, the live host report of the dev server).
+- **The stack-based caller rule of the 2026-11-06 amendment is removed**,
+  with the Admin token-host rules and the entry-point attribution it needed.
+  Whether a row observes a call is read from the call itself, by host and
+  transport.
+- **Admin subpaths no row serves load the real module**, unobserved, instead
+  of being refused. The process prints one line for each when it loads, and
+  the process health lists them. Served rows stay observed, and the project
+  gate stays on every served row.
+- **The project gate still refuses another project.** The Admin rows refuse a
+  call whose app names another project before any request. The Admin
+  Realtime Database row also refuses an instance that is not the live
+  project's: it accepts `<project>` and `<project>-*` on firebaseio.com and
+  firebasedatabase.app, and the instances firebase.json names. A project
+  whose id starts with the live project's and a dash passes that check: the
+  instance name alone can't tell them apart.
+- **The module swap is unchanged.** Live mode still refuses Firebase imports
+  it does not serve or pass through, and `@google-cloud/firestore` and
+  `@google-cloud/storage` still load only from `firebase-admin`'s own files.
+- **The sandbox is unchanged.** A sandbox process keeps the guard of
+  decision 4 as it is. Whether the sandbox guard should change is to be
+  revisited separately.
+- **Residual.** The report reads the host, so an app's own raw call to a host
+  a row's SDK reaches reads as observed, though no row records it.
 
 ## Consequences
 

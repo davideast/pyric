@@ -28,6 +28,7 @@ import type { BridgeMessage } from '../bridge/protocol.js';
 import type { FirebaseProjectSource } from '../cli/firebase-project.js';
 import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import { createLiveClients } from './live-clients.js';
+import { liveUnobservedHosts } from '../register/live-net-guard.js';
 
 /** Observed calls waiting on the host's answer; a bound, since a client could send replies it never gets. */
 const MAX_PENDING_CALLS = 4096;
@@ -60,6 +61,11 @@ export interface LiveHostStateInput {
    * reads this each time: a live set, or a function that returns the list.
    */
   observed?: ObservedImportsSource;
+  /**
+   * The Google and Firebase hosts this process called that no live row
+   * observed. Defaults to the process's own list (`liveUnobservedHosts`).
+   */
+  unobserved?: () => readonly string[];
   /** The host clock, in epoch milliseconds, for each client's last frame. `Date.now` by default. */
   now?: () => number;
 }
@@ -130,6 +136,16 @@ function observedField(source: ObservedImportsSource | undefined): { observed?: 
   return observed.length === 0 ? {} : { observed };
 }
 
+/** The unobserved field of a report: each host once, and absent when there are none, so the health report always answers. */
+function unobservedField(source: () => readonly string[]): { unobserved?: string[] } {
+  try {
+    const unobserved = [...new Set(source())];
+    return unobserved.length === 0 ? {} : { unobserved };
+  } catch {
+    return {};
+  }
+}
+
 export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const configSource = projectSourceName(input.configSource, input.optionName);
   const appProjectIds: string[] = [];
@@ -151,6 +167,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     billed: billed.count(),
     ...passThroughField,
     ...observedField(input.observed),
+    ...unobservedField(input.unobserved ?? liveUnobservedHosts),
     admin,
     ...clients.field(),
   });

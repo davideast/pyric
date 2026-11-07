@@ -557,8 +557,8 @@ export interface EgressHooks {
 /**
  * Install the guard's hooks with `reporterOptions`: the socket backstop, the
  * request check and the undici dispatcher wrapper, in that order. The
- * register's guard and live mode's (`./live-net-guard.ts`) both install
- * through this, each with its own verdict.
+ * register's guard and live mode's network report (`./live-net-guard.ts`)
+ * both install through this, each with its own verdict.
  */
 export function installEgressHooks(hooks: NetGuardHooks, reporterOptions: ReporterOptions): EgressHooks {
   const scope = hooks.scope ?? (globalThis as unknown as Record<symbol, unknown>);

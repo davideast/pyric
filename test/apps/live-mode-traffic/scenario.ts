@@ -23,8 +23,9 @@
  * command on the `pyric-live` host) throws pyric's refusal, and the replay
  * server receives nothing for it. So does app code that would skip the live
  * rows: the page importing the SDK file the rows loaded under a cache-busting
- * query, and the server job loading `@google-cloud/firestore` or sending its
- * own `https.request` to Firestore. Like every app scenario this runs offline,
+ * query, and the server job loading `@google-cloud/firestore`. A raw request of
+ * the job's own goes out as it would without pyric (ADR 0022, amendment
+ * 2026-11-07), so `live-instrumented-backend` covers it. Like every app scenario this runs offline,
  * and the browser blocks every host but loopback.
  */
 import assert from 'node:assert/strict';
@@ -361,11 +362,10 @@ export default scenario(async (app) => {
     assert.match(outcomes.functions!, new RegExp(`^${REFUSED}: @pyric/live: firebase/functions \\(Cloud Functions\\) is refused in live mode`));
     assert.match(outcomes.admin!, new RegExp(`^${REFUSED}: @pyric/live: firebase-admin/firestore \\(the Admin SDK\\) is refused in live mode`));
     assert.match(outcomes.namedDatabase!, new RegExp(`^${REFUSED}: @pyric/live: getFirestore with the database "reports" is refused in live mode, from a Node process`));
-    // Google's server Firestore client stops at import, and a raw request to a live row host never opens a socket.
+    // Google's server Firestore client stops at import.
     assert.match(outcomes.cloudFirestore!, /^PYRIC_REAL_SDK_STOPPED: @pyric\/live\/register: stopped loading @google-cloud\/firestore/);
     assert.match(outcomes.cloudFirestore!, /only the installed Firebase SDK reaches production, through @pyric\/live's rows/);
-    assert.match(outcomes.httpsRequest!, /^PYRIC_GUARD_BLOCKED: pyric net-guard blocked socket egress to firestore\.googleapis\.com \(Cloud Firestore\): in live mode only the installed Firebase SDK, wrapped by @pyric\/live's rows, reaches this host/);
-    assert.match(run.output, /@pyric\/live\/register: net-guard BLOCK firestore\.googleapis\.com \(Cloud Firestore\) via socket/);
+    assert.doesNotMatch(run.output, /PYRIC_GUARD_BLOCKED|net-guard BLOCK/);
   });
 
   await app.step('stop the dev server', async () => {

@@ -158,7 +158,7 @@ await step("storage.setMetadata", () => note.setMetadata({ metadata: { capture: 
 await step("storage.download-missing", () => bucket.file(`${RUN}/missing.txt`).download());
 await step("storage.delete", () => note.delete());
 
-// A service live mode does not serve.
+// A service no row serves: it loads unobserved.
 await step("securityRules.import", () => import("firebase-admin/security-rules"));
 
 await database.goOffline();
