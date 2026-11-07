@@ -547,6 +547,14 @@ export interface ObserveMessage {
   t: 'observe';
   id: string;
   call: ObservedCall;
+  /**
+   * A live Node process's label for its project root and entry script, a
+   * hash that carries no path. When a connection with a label sends its
+   * first frame, the host detaches the listeners an earlier connection with
+   * the same label reported if that one has closed: a restarted process. A
+   * label, never an authority.
+   */
+  nodeClient?: string;
 }
 
 export type InboundMessage = (

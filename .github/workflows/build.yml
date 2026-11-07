@@ -110,12 +110,18 @@ jobs:
       - name: Test fail-closed selection policy
         run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts test/apps/shard-plan.test.ts
       - name: Select proof
+        # On a pull request, the app scenarios are the ones under
+        # test/apps/<name>/ the diff changes and the test/apps/<name> paths
+        # the body names, as the body read when this run started; an edit to
+        # the body later does not start a run. plan.ts writes the selection to
+        # test-results/app-selection.json for the shard planner below.
         id: plan
         env:
           CI_EVENT_NAME: ${{ github.event_name }}
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CI_PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          CI_PR_BODY: ${{ github.event.pull_request.body }}
         run: bun scripts/ci/plan.ts
       - name: Restore the app scenario times main recorded
         # Only main saves app-durations-main-* (in CI / required), so a pull
@@ -133,10 +139,11 @@ jobs:
       - name: Plan the app scenario shards
         # test/apps/shard-plan.ts groups the apps by dependency set and packs
         # them into shards whose App scenarios step should take about 90 s, at most 7 (#1571).
+        # It plans the apps plan.ts selected, or every app that is not slow.
         # It always plans, so the App scenarios matrix is never empty, and
         # prints the plan's id, which names each shard's report artifact.
         id: app-plan
-        run: bun test/apps/shard-plan.ts plan --durations test-results/app-durations.json
+        run: bun test/apps/shard-plan.ts plan --durations test-results/app-durations.json --apps test-results/app-selection.json
 
   deletion-guard:
     # A removed test cannot fail, so a pull request that deletes test files or
@@ -341,13 +348,16 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
       - name: Build packages and the embedded Studio site
-        # Pull requests may restore this build from its exact-key cache. A
-        # push to main and the nightly run always build it fresh, as the
-        # packaging gate did before it took the tarballs from this job.
+        # Pull requests and pushes to main restore this build from its
+        # exact-key cache, keyed on every build input and the pinned
+        # toolchain, and build it as before on a miss. A push to main reads
+        # only caches main saved, never a pull request's. The nightly run
+        # always builds it fresh, so main's inputs still build from source
+        # every day.
         uses: ./.github/actions/restore-dist
         with:
           flavor: studio
-          fresh: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
+          fresh: ${{ github.event_name == 'schedule' }}
       - name: Pack the published packages
         run: bash scripts/pack-packages.sh --skip-build
       - name: Upload the packed tarballs and their manifest
@@ -564,12 +574,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [plan, pack-packages]
-    # Selected by scripts/ci/plan.ts for changes to the Vite plugin and served
-    # hosts, the register hook, pyric-admin, the AI broker, the published
-    # manifests, packaging, or test/apps, and always outside pull requests.
-    # Every selected run drives every app that is not slow, split into the
-    # shards the plan job made; CI / required checks that the shards together
-    # ran each planned app exactly once.
+    # Selected by scripts/ci/plan.ts. Outside pull requests, and on a pull
+    # request labeled `ci-full` or `ci-slow-scenarios`, every app that is not
+    # slow runs. Any other pull request runs the scenarios whose files under
+    # test/apps/<name>/ it changes and the test/apps/<name> scenarios its body
+    # names, plus a fixed smoke set (SMOKE_SCENARIOS) when it changes code
+    # the scenarios run. A change to the runner's shared files under
+    # test/apps, to the build, pack and install path, or to this workflow
+    # runs every app. With no app selected, this job, node-24-stop
+    # and (unless packaging needs it) the pack job are skipped, and
+    # CI / required passes without them. The apps run in the shards the plan
+    # job made; CI / required checks that the shards together ran each planned
+    # app exactly once.
     if: needs.plan.outputs.app-scenarios == 'true'
     strategy:
       # A failing shard does not cancel the others, so one run reports every failing app.
@@ -645,8 +661,9 @@ jobs:
         # wait on real timeouts (`export const slow = true`) are skipped here,
         # on pull requests and main alike; slow-scenarios.yml runs them. The
         # runner fails before installing anything unless the plan's apps are
-        # exactly the apps an unsharded run would select, then runs this
-        # shard's apps, longest first.
+        # exactly the apps an unsharded run would select (for a pull
+        # request's selected apps: only such apps), then runs this shard's
+        # apps, longest first.
         # --quarantine applies quarantine only in these CI test steps; every
         # other caller of the runners, publish included, keeps its exit code.
         env:
@@ -749,6 +766,10 @@ jobs:
       # observed Admin calls and their events run (#2304).
       - name: The live-mode Admin SDK app on Node 24.16
         run: bun test/apps/run.ts --packages dist/packages live-mode-admin
+      # The page and its API server under the live register, with the
+      # server's Admin calls observed (#2304).
+      - name: The live-mode full-stack app on Node 24.16
+        run: bun test/apps/run.ts --packages dist/packages live-mode-full-stack
       - name: Upload app scenario logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -1303,9 +1324,10 @@ jobs:
       - name: Check the shards ran every planned app exactly once
         # The shard completeness rule for the app scenarios (#1571). Each
         # shard's runner already checked that the plan covers every app that
-        # is not slow; this checks that the shards together ran each planned
-        # app exactly once, in its own shard, so no shard can drop an app or
-        # come back empty and still count.
+        # is not slow, or only such apps for a pull request's selection;
+        # this checks that the shards together ran each planned app exactly
+        # once, in its own shard, so no shard can drop an app or come back
+        # empty and still count.
         if: always() && needs.plan.outputs.app-scenarios == 'true'
         env:
           APP_PLAN: ${{ needs.plan.outputs.app-plan }}

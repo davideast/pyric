@@ -14,11 +14,12 @@ import * as realAuth from 'firebase/auth';
 import * as realFirestore from 'firebase/firestore';
 import { SDK_MODULES, swappedFirebaseEntries } from '@pyric/cli/vite/internal/supplied-rows';
 import { LIVE_MODULES, LIVE_ROWS, liveFirebaseEntries, liveModuleFor, replacedExports, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
+import { realmHash } from '../src/keyed-hash.js';
 import { observedCallOf } from '../src/page-observer.js';
 
 /** The host's own reader, loaded at run time so this package's typecheck stays out of it. */
 interface HostReader {
-  readObservedCall(value: unknown): { query?: unknown };
+  readObservedCall(value: unknown): { query?: unknown; listener?: unknown };
 }
 const host = (await import(new URL('../../pyric/src/sandbox/internal/observed-call.ts', import.meta.url).href)) as HostReader;
 
@@ -183,7 +184,7 @@ describe('results are the real SDK classes, recorded as they settle', () => {
     });
     expect(snapshot).toBeInstanceOf(realFirestore.DocumentSnapshot);
     expect(snapshot.metadata.fromCache).toBe(true);
-    expect(outcomesOf('onSnapshot')).toEqual(['returned', 'delivered']);
+    expect(outcomesOf('onSnapshot')).toEqual(['attached', 'delivered', 'detached']);
   });
 
   test('an auth listener and a sign-out are recorded', async () => {
@@ -421,18 +422,19 @@ describe('a Firestore list or listener names its query shape, never its values',
     expect(delivered[0]!.query).toEqual({ scope: 'collection', filters: [{ field: 'open', op: '==' }], fingerprint: expect.stringMatching(FINGERPRINT) });
   });
 
-  test('a realm without crypto still salts and hashes the values', async () => {
+  test('a realm without crypto still draws its own key and hashes the values with it', async () => {
     const ours = (await listed(ownersQuery('owner-value-1'))).query?.fingerprint;
+    expect(ours).toMatch(FINGERPRINT);
+    const values = JSON.stringify(['owner-value-1']);
     const crypto = Reflect.getOwnPropertyDescriptor(globalThis, 'crypto');
     Reflect.deleteProperty(globalThis, 'crypto');
     try {
       expect(Reflect.get(globalThis, 'crypto')).toBeUndefined();
-      const fresh = (await import(`../src/firestore.js?no-crypto=${Date.now()}`)) as typeof import('../src/firestore.js');
-      const shape = fresh.queryShape('getDocs', ownersQuery('owner-value-1'));
-      expect(shape?.fingerprint).toMatch(FINGERPRINT);
-      // A fresh module drew its own salt, so one value hashes apart from this realm's.
-      expect(shape?.fingerprint).not.toBe(ours!);
-      expect(fresh.queryShape('getDocs', ownersQuery('owner-value-2'))?.fingerprint).not.toBe(shape?.fingerprint!);
+      const fresh = (await import(`../src/keyed-hash.js?no-crypto=${Date.now()}`)) as typeof import('../src/keyed-hash.js');
+      expect(fresh.realmHash(values)).toMatch(FINGERPRINT);
+      // A fresh module drew its own key, so one value hashes apart from this realm's.
+      expect(fresh.realmHash(values)).not.toBe(realmHash(values));
+      expect(fresh.realmHash(JSON.stringify(['owner-value-2']))).not.toBe(fresh.realmHash(values));
     } finally {
       if (crypto !== undefined) Object.defineProperty(globalThis, 'crypto', crypto);
     }
@@ -469,5 +471,36 @@ describe('a Firestore list or listener names its query shape, never its values',
     expect(record.query?.orderBy).toEqual([{ field: 'keyJson', direction: 'asc' }]);
     const read = host.readObservedCall(JSON.parse(JSON.stringify(observedCallOf(record, Date.now()))));
     expect(read.query).toEqual(record.query!);
+  });
+});
+
+describe("a real SDK listener's attach and detach", () => {
+  /** Listens to one document until its first delivery, and resolves with the wrapped unsubscribe. */
+  function listen(path: string): Promise<() => void> {
+    return new Promise((resolve, reject) => {
+      const unsubscribe = firestore.onSnapshot(firestore.doc(db, path), () => resolve(unsubscribe), reject);
+    });
+  }
+
+  test('two listeners on one document own their ids and share a hashed key, and the host reads each attach and detach', async () => {
+    const start = records.length;
+    const first = await listen('rooms/lobby');
+    const second = await listen('rooms/lobby');
+    first();
+    second();
+    first();
+    const lifecycle = records.slice(start).filter((record) => record.listener !== undefined);
+    expect(lifecycle.map((record) => record.outcome)).toEqual(['attached', 'attached', 'detached', 'detached']);
+    const [attachedFirst, attachedSecond, detachedFirst, detachedSecond] = lifecycle;
+    expect(attachedFirst!.listener!.id).not.toBe(attachedSecond!.listener!.id);
+    expect(attachedFirst!.listener!.key).toBe(attachedSecond!.listener!.key);
+    expect(detachedFirst!.listener).toEqual(attachedFirst!.listener!);
+    expect(detachedSecond!.listener).toEqual(attachedSecond!.listener!);
+    for (const record of lifecycle) {
+      const call = observedCallOf(record, Date.now());
+      const read = host.readObservedCall(JSON.parse(JSON.stringify(call)));
+      const phase = record.outcome === 'attached' ? 'attach' : 'detach';
+      expect(read.listener).toEqual({ phase, id: record.listener!.id, target: 'rooms/lobby', key: record.listener!.key });
+    }
   });
 });

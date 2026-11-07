@@ -19,11 +19,18 @@
  * `set`, `runTransaction` calls `onValue`), so those calls never reach a
  * wrapper here.
  *
+ * A listener names its path and the SDK's journal key (instance, path, query
+ * identifier) so its attach and detach reach the host. `off()` ends the SDK's
+ * registrations without calling an unsubscribe, so the row holds each
+ * attached listener by instance and path and detaches the ones `off()` ends,
+ * matching the SDK's rule: a callback ends the first match in each view, and
+ * the default query reaches every view at its path.
+ *
  * Reading never calls the app's code and never throws: an object without
  * these shapes gives a record without its project, account, instance or path.
  * This file imports no Firebase SDK.
  */
-import { observedCall, refusedFactory, UNOBSERVED, type CallContext, type ObservedSite } from './observe.js';
+import { observedCall, refusedFactory, UNOBSERVED, type CallContext, type ListenerIdentity, type ObservedSite } from './observe.js';
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
 type Fields = Record<string, unknown>;
@@ -361,10 +368,137 @@ function handedForOff(args: readonly unknown[]): Callback | undefined {
 }
 
 /**
+ * A query's identifier as the SDK keys its views: `default` for a whole
+ * location, else a key of its parameters, which may hold values. Read through
+ * the SDK's own `_queryIdentifier` getter, which runs no code of the app's;
+ * `default` when it can't be read.
+ */
+function queryIdOf(query: unknown): string {
+  try {
+    const id = isObject(query) ? query._queryIdentifier : undefined;
+    return typeof id === 'string' ? id : 'default';
+  } catch {
+    return 'default';
+  }
+}
+
+/**
+ * What one RTDB listener listens to: its reference's path, and the key the
+ * sandbox's own RTDB listeners use, its instance, path and query identifier,
+ * which may hold the query's values and never leaves the realm. A reference
+ * whose path can't be read gets no lifecycle.
+ */
+export function databaseListener(_name: string, args: readonly unknown[]): ListenerIdentity | undefined {
+  const query = args[0];
+  const path = pathOf(query);
+  if (path === undefined) return undefined;
+  return { target: path, key: JSON.stringify([instanceOf(repoOf(query)), path, queryIdOf(query)]) };
+}
+
+/** Where a database listener sits in the page's activity journal (`listener-journal.ts`). */
+export interface DatabaseJournalPlace {
+  readonly database: object;
+  readonly target: string;
+  readonly isQuery: boolean;
+  readonly key: string;
+}
+
+/**
+ * A database listener's place in the page journal: its repo, which names the
+ * app and instance, its path, whether it runs a query, and the key the
+ * sandbox's own RTDB listeners use. Undefined for a subject without a repo or
+ * path, or under `/.info`.
+ */
+export function databaseJournalPlace(subject: unknown): DatabaseJournalPlace | undefined {
+  const repo = repoOf(subject);
+  const path = pathOf(subject);
+  if (repo === undefined || path === undefined || isInfoPath(path)) return undefined;
+  const queryId = queryIdOf(subject);
+  return { database: repo, target: path, isQuery: queryId !== 'default', key: JSON.stringify([instanceOf(repo), path, queryId]) };
+}
+
+/** One attached listener, as `off()` finds it: its export, the app's callback, its query and what detaches it. */
+interface AttachedListener {
+  readonly listener: string;
+  readonly callback: unknown;
+  readonly queryId: string;
+  readonly detach: () => void;
+}
+
+/** The attached listeners at each instance and path, until each ends. */
+const ATTACHED = new Map<string, Set<AttachedListener>>();
+
+function locationOf(query: unknown): string {
+  return JSON.stringify([instanceOf(repoOf(query)), pathOf(query) ?? null]);
+}
+
+/**
+ * Notes a listener that attached, so `off()` can detach it, and returns what
+ * forgets it once it has ended.
+ */
+export function databaseListenerAttached(name: string, args: readonly unknown[], detach: () => void): () => void {
+  const location = locationOf(args[0]);
+  const attached: AttachedListener = { listener: name, callback: args[1], queryId: queryIdOf(args[0]), detach };
+  let atLocation = ATTACHED.get(location);
+  if (atLocation === undefined) {
+    atLocation = new Set();
+    ATTACHED.set(location, atLocation);
+  }
+  const listeners = atLocation;
+  listeners.add(attached);
+  return () => {
+    listeners.delete(attached);
+    if (listeners.size === 0 && ATTACHED.get(location) === listeners) ATTACHED.delete(location);
+  };
+}
+
+/** Whether an attached listener is one `off(query, eventType, callback)` names, ignoring the SDK's one-per-view rule. */
+function namedByOff(attached: AttachedListener, off: { queryId: string; listener?: string; callback: unknown }): boolean {
+  const isView = off.queryId === 'default' || attached.queryId === off.queryId;
+  const isListener = off.listener === undefined || attached.listener === off.listener;
+  const isCallback = typeof off.callback !== 'function' || attached.callback === off.callback;
+  return isView && isListener && isCallback;
+}
+
+/**
+ * The attached listeners `off(query, eventType, callback)` ends, as the SDK
+ * removes registrations: every one at the location for a `default` query,
+ * else those of the query's own view; of one export when `eventType` names
+ * it; and, given a callback, the first registration of it in each view,
+ * else all of them.
+ */
+function endedByOff(args: readonly unknown[]): AttachedListener[] {
+  const [query, eventType, callback] = args;
+  const atLocation = ATTACHED.get(locationOf(query));
+  if (atLocation === undefined) return [];
+  const listener = typeof eventType === 'string' ? LISTENER_OF_EVENT[eventType] : undefined;
+  const namesUnknownEvent = typeof eventType === 'string' && listener === undefined;
+  if (namesUnknownEvent) return [];
+  const off = { queryId: queryIdOf(query), callback, ...(listener === undefined ? {} : { listener }) };
+  const named = [...atLocation].filter((attached) => namedByOff(attached, off));
+  if (typeof callback !== 'function') return named;
+  const firstPerView = new Map<string, AttachedListener>();
+  for (const attached of named) {
+    if (!firstPerView.has(attached.queryId)) firstPerView.set(attached.queryId, attached);
+  }
+  return [...firstPerView.values()];
+}
+
+/** What `off(...args)` ends, or nothing when the arguments can't be read. */
+function readEndedByOff(args: readonly unknown[]): AttachedListener[] {
+  try {
+    return endedByOff(args);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * The row's `off`: `off(query, eventType, callback)` removes the recording
  * callback the row handed the SDK for that app callback. With no callback, or
  * one the row never wrapped (a `/.info` listener runs unwrapped), `off` runs
- * as the app called it. `off` makes no record.
+ * as the app called it. Once the SDK's `off` returns, each listener it ended
+ * records `detached`.
  */
 export function offByCallback(real: Callback): Callback {
   return function off(this: unknown, ...args: unknown[]): unknown {
@@ -374,8 +508,11 @@ export function offByCallback(real: Callback): Callback {
     } catch {
       handed = undefined;
     }
-    if (handed === undefined) return Reflect.apply(real, this, args);
-    return Reflect.apply(real, this, [args[0], args[1], handed]);
+    const ended = readEndedByOff(args);
+    const offArgs = handed === undefined ? args : [args[0], args[1], handed];
+    const returned = Reflect.apply(real, this, offArgs);
+    for (const attached of ended) attached.detach();
+    return returned;
   };
 }
 

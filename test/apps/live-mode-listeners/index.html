@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Rooms</title></head>
+  <body>
+    <h1>Rooms</h1>
+    <output id="status">Starting</output>
+    <p id="lobby"></p>
+    <p id="scores"></p>
+    <script>
+      // A module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+    </script>
+    <script type="module">
+      // A rooms app's page with the listener mistakes a real app makes: three
+      // components each listen to the lobby, a component that re-renders
+      // subscribes to the patio and unsubscribes on every render, and a
+      // scoreboard listens to the Realtime Database. Its backend is the
+      // project below, or the local backend a `?backend=<origin>` query names,
+      // through the SDK's own emulator connectors.
+      import { initializeApp } from "firebase/app";
+      import { connectAuthEmulator, getAuth, signInWithCustomToken } from "firebase/auth";
+      import { connectFirestoreEmulator, doc, getFirestore, onSnapshot } from "firebase/firestore";
+      import { connectDatabaseEmulator, getDatabase, onValue, ref } from "firebase/database";
+
+      const PROJECT = "demo-live-listeners";
+      const app = initializeApp({
+        projectId: PROJECT,
+        apiKey: "demo-live-listeners-key",
+        appId: "1:1:web:live-listeners",
+        authDomain: `${PROJECT}.firebaseapp.com`,
+        databaseURL: `https://${PROJECT}-default-rtdb.firebaseio.com`,
+      });
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const database = getDatabase(app);
+      const backend = new URLSearchParams(location.search).get("backend");
+      if (backend) {
+        const url = new URL(backend);
+        connectAuthEmulator(auth, url.origin, { disableWarnings: true });
+        connectFirestoreEmulator(db, url.hostname, Number(url.port));
+        connectDatabaseEmulator(database, url.hostname, Number(url.port));
+      }
+      const failure = (error) => error.code ?? String(error);
+
+      window.signIn = () => signInWithCustomToken(auth, "client-1").then(({ user }) => user.uid, failure);
+
+      // Three components that each listen to the lobby. Resolves with each one's first answer from the backend.
+      window.listenToLobbyThrice = () => Promise.all([1, 2, 3].map(() => new Promise((resolve, reject) => {
+        onSnapshot(doc(db, "rooms/lobby"), (snapshot) => {
+          document.querySelector("#lobby").textContent = snapshot.get("name") ?? "";
+          if (!snapshot.metadata.fromCache) resolve(snapshot.data());
+        }, (error) => reject(failure(error)));
+      })));
+
+      // A component that subscribes to the patio on each of five renders and unsubscribes before the next.
+      window.rerenderPatio = () => {
+        for (let render = 0; render < 5; render++) {
+          const unsubscribe = onSnapshot(doc(db, "rooms/patio"), () => undefined, () => undefined);
+          unsubscribe();
+        }
+        return 5;
+      };
+
+      // The scoreboard. Resolves with its first value.
+      window.listenToScores = () => new Promise((resolve, reject) => {
+        onValue(ref(database, "scores"), (snapshot) => {
+          document.querySelector("#scores").textContent = JSON.stringify(snapshot.val());
+          resolve(snapshot.val());
+        }, (error) => reject(failure(error)));
+      });
+
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>

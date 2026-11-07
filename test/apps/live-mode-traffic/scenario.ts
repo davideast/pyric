@@ -29,6 +29,7 @@
  * and the browser blocks every host but loopback.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from 'playwright';
@@ -36,6 +37,13 @@ import { scenario, sleep, type App } from '../driver.ts';
 
 const FIXTURE = fileURLToPath(new URL('../replay/fixtures/live-mode-traffic.json', import.meta.url));
 const REFUSED = 'PYRIC_LIVE_REFUSED';
+/**
+ * Whether the `node` the server job runs serves the Admin rows: Node 23 or
+ * later. On Node 22, CommonJS require() never reaches the register's hooks,
+ * so firebase-admin stays refused, with the reason.
+ */
+const NODE_VERSION = spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' }).stdout.trim();
+const ADMIN_ROWS_ON = Number(NODE_VERSION.split('.')[0]) >= 23;
 
 interface Received {
   rpc: 'Listen' | 'Write' | 'auth';
@@ -360,7 +368,9 @@ export default scenario(async (app) => {
     assert.equal(run.code, 0, run.output);
     const outcomes = resultOf(run.output) as Record<string, string>;
     assert.match(outcomes.functions!, new RegExp(`^${REFUSED}: @pyric/live: firebase/functions \\(Cloud Functions\\) is refused in live mode`));
-    assert.match(outcomes.admin!, new RegExp(`^${REFUSED}: @pyric/live: firebase-admin/firestore \\(the Admin SDK\\) is refused in live mode`));
+    // A live Node process observes firebase-admin where it can, so there its import loads.
+    if (ADMIN_ROWS_ON) assert.equal(outcomes.admin, 'loaded');
+    else assert.match(outcomes.admin!, new RegExp(`^${REFUSED}: @pyric/live: firebase-admin/firestore \\(the Admin SDK\\) is refused in live mode\\. @pyric/live observes firebase-admin on Node 23 or later`));
     assert.match(outcomes.namedDatabase!, new RegExp(`^${REFUSED}: @pyric/live: getFirestore with the database "reports" is refused in live mode, from a Node process`));
     // Google's server Firestore client stops at import.
     assert.match(outcomes.cloudFirestore!, /^PYRIC_REAL_SDK_STOPPED: @pyric\/live\/register: stopped loading @google-cloud\/firestore/);

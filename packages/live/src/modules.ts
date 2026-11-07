@@ -66,14 +66,16 @@ import { accountOf, noteAuth } from './account.js';
 import {
   databaseCode,
   databaseContext,
+  databaseListener,
   databaseListenerArguments,
+  databaseListenerAttached,
   databaseListenerCallback,
   guardedGetDatabase,
   observeOnDisconnect,
   offByCallback,
 } from './database.js';
 import { AI_REFUSED_CALLS, aiCode, aiContext, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
-import { firestoreContext, firestoreResult, observedWriteBatch } from './firestore.js';
+import { firestoreContext, firestoreListener, firestoreResult, observedWriteBatch } from './firestore.js';
 import { observedGetStream, STORAGE_CALLS, storageContext } from './storage.js';
 import {
   MESSAGING_CALLS,
@@ -243,7 +245,7 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     ],
     listeners: ['onSnapshot', 'onSnapshotResume'],
     uncaughtListenerError: firestoreUncaughtListenerError,
-    hooks: { context: firestoreContext, resultOf: firestoreResult },
+    hooks: { context: firestoreContext, resultOf: firestoreResult, listenerOf: firestoreListener },
     replaced: { writeBatch: observedWriteBatch },
     refused: {
       getFirestore: getFirestoreDatabase,
@@ -263,6 +265,8 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
       codeOf: databaseCode,
       listenerArguments: databaseListenerArguments,
       listenerCallback: databaseListenerCallback,
+      listenerOf: databaseListener,
+      listenerAttached: databaseListenerAttached,
     },
     decorated: { onDisconnect: observeOnDisconnect },
     replaced: { getDatabase: guardedGetDatabase, off: offByCallback },

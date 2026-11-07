@@ -20,7 +20,7 @@
  *
  * A list or listener whose first argument is a query or collection also
  * carries the query's shape (`queryShape` below): never a filter or cursor
- * value, only a salted hash of them.
+ * value, only the realm's keyed hash of them (`keyed-hash.ts`).
  *
  * A `writeBatch` is observed at its `commit`: the batch counts each `set`,
  * `update` and `delete` the SDK accepted, and the commit is one observed
@@ -42,8 +42,10 @@ import {
   type LiveQueryOrder,
   type LiveUsage,
   type ObservedSite,
+  type ListenerIdentity,
   type ResultReading,
 } from './observe.js';
+import { realmHash } from './keyed-hash.js';
 
 /** Where a reference or query sits: its path or group id, and the key its listeners share. */
 export interface FirestorePath {
@@ -169,38 +171,15 @@ function cursorOf(bound: unknown): unknown {
   return [Reflect.get(bound, 'position'), Reflect.get(bound, 'inclusive')];
 }
 
-/** Random hex for this realm: fingerprints match within one page or process, and a hash can't be looked up elsewhere. */
-function realmSalt(): string {
-  const words = new Uint32Array(4);
-  const crypto: unknown = Reflect.get(globalThis, 'crypto');
-  const getRandomValues: unknown = isObject(crypto) ? Reflect.get(crypto, 'getRandomValues') : undefined;
-  if (typeof getRandomValues === 'function') {
-    Reflect.apply(getRandomValues, crypto, [words]);
-  } else {
-    for (let index = 0; index < words.length; index += 1) words[index] = Math.floor(Math.random() * 0x1_0000_0000);
-  }
-  return Array.from(words, (word) => word.toString(16)).join('');
-}
-
-const SALT = realmSalt();
-const FNV_OFFSET = 0xcbf29ce484222325n;
-const FNV_PRIME = 0x100000001b3n;
-const MASK_64 = 0xffffffffffffffffn;
-
-/** 64-bit FNV-1a over the text's UTF-16 code units, as 16 lowercase hex characters. */
-function fingerprintOf(text: string): string {
-  let hash = FNV_OFFSET;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= BigInt(text.charCodeAt(index));
-    hash = (hash * FNV_PRIME) & MASK_64;
-  }
-  return hash.toString(16).padStart(16, '0');
-}
-
-/** The salted hash of a query's filter and cursor values, or nothing when they don't serialize. */
+/**
+ * The realm's keyed hash of a query's filter and cursor values
+ * (`keyed-hash.ts`), or nothing when they don't serialize: fingerprints
+ * match within one page or process, and no value can be checked against one
+ * elsewhere.
+ */
 function valuesFingerprint(values: unknown): Pick<LiveQuery, 'fingerprint'> {
   try {
-    return { fingerprint: fingerprintOf(SALT + JSON.stringify(values)) };
+    return { fingerprint: realmHash(JSON.stringify(values)) };
   } catch {
     // Values that do not serialize leave the shape without a fingerprint.
     return {};
@@ -239,7 +218,7 @@ const QUERY_TYPES: ReadonlySet<unknown> = new Set(['query', 'collection']);
 /**
  * The shape of the query a list or listener ran: its scope, its filters'
  * fields and operators (an `or` flattened into its parts), its orders,
- * whether it set a limit, and a salted hash of its filter and cursor values,
+ * whether it set a limit, and the realm's keyed hash of its filter and cursor values,
  * so no value leaves the page. Undefined for a write or a document call, and
  * for a query with a field path the host would refuse as value-shaped, whose
  * row is still recorded without it.
@@ -263,6 +242,28 @@ export function firestorePath(subject: object, type: unknown): FirestorePath | u
   if (!isReference) return type === 'query' ? queryPath(subject) : undefined;
   const path: unknown = Reflect.get(subject, 'path');
   return typeof path === 'string' ? { target: path, key: JSON.stringify([type, path]) } : undefined;
+}
+
+/** The document a resumed snapshot names: a `DocumentSnapshot`'s `toJSON()` keeps its path as `bundleName`. */
+function resumedDocument(snapshotJson: unknown): ListenerIdentity | undefined {
+  if (!isObject(snapshotJson)) return undefined;
+  const source: unknown = Reflect.get(snapshotJson, 'bundleSource');
+  const path: unknown = Reflect.get(snapshotJson, 'bundleName');
+  const isDocument = source === 'DocumentSnapshot' && typeof path === 'string' && path !== '';
+  return isDocument ? { target: path, key: JSON.stringify(['document', path]) } : undefined;
+}
+
+/**
+ * What one `onSnapshot` listens to: the reference's or query's path and the
+ * key the page's journal gives it. An `onSnapshotResume` of a document
+ * snapshot listens to that document; a resumed query snapshot names only a
+ * random bundle id, so it gets no lifecycle.
+ */
+export function firestoreListener(name: string, args: readonly unknown[]): ListenerIdentity | undefined {
+  if (name === 'onSnapshotResume') return resumedDocument(args[1]);
+  const subject = args[0];
+  if (!isObject(subject)) return undefined;
+  return firestorePath(subject, Reflect.get(subject, 'type'));
 }
 
 /** The path the first argument names, when it is a reference or query. */

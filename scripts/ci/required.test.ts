@@ -174,7 +174,7 @@ describe('required CI result', () => {
     expect(install).toBeGreaterThan(checkAt('install-matrix'));
   });
 
-  test('the packed build is keyed on the pinned toolchain and built fresh on main and nightly', () => {
+  test('the packed build is keyed on the pinned toolchain, restored on pull requests and main, and built fresh nightly', () => {
     const workflow = parsedWorkflow();
     const action = readFileSync(resolve(import.meta.dir, '../../.github/actions/restore-dist/action.yml'), 'utf8');
     expect(workflow.env?.BUN_VERSION).toBeTruthy();
@@ -190,7 +190,7 @@ describe('required CI result', () => {
     expect(action).toContain("if: inputs.flavor == 'studio' && inputs.fresh != 'true'");
     const build = (workflow.jobs['pack-packages']?.steps ?? []).find((step) => step.uses === './.github/actions/restore-dist');
     expect(build?.with?.flavor).toBe('studio');
-    expect(build?.with?.fresh).toBe("${{ github.event_name == 'push' || github.event_name == 'schedule' }}");
+    expect(build?.with?.fresh).toBe("${{ github.event_name == 'schedule' }}");
   });
 
   test('the aggregate job receives the app scenario result and the plan\'s selection', () => {

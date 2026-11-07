@@ -16,7 +16,7 @@ export type JsonObject = { [key: string]: Json };
 /**
  * A value the replay server fills in when it answers, written as
  * `{ "$": "<name>" }`. `any` matches every request value. `idToken` is minted
- * from its `uid`, `email` and `provider` fields; in an Auth request it matches
+ * from its `uid`, `email`, `provider` and `unsigned` fields (`values.ts`); in an Auth request it matches
  * a token this server minted for its `uid`. `host`, `session` and
  * `serverTime` fill an RTDB handshake: the host the client connected to, a
  * fresh session id, and the server's clock in milliseconds. `pushId` stands
