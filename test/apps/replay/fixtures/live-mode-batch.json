@@ -1,0 +1,65 @@
+{
+  "format": "pyric-replay/1",
+  "project": "demo-live-traffic",
+  "source": "hand-written from the firebase 12.12.0 SDK wire format: one Firestore Write of a batch that sets the patio, updates the garden and deletes the attic, as a page sends it over WebChannel, for any account. Played beside live-mode-traffic.json and live-mode-rates.json by the live-mode-batch scenario. Not captured from production yet.",
+  "exchanges": [
+    {
+      "kind": "write",
+      "id": "commit-room-batch",
+      "writes": [
+        {
+          "update": {
+            "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/patio",
+            "fields": {
+              "name": {
+                "stringValue": "Patio"
+              },
+              "open": {
+                "booleanValue": true
+              }
+            }
+          }
+        },
+        {
+          "update": {
+            "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/garden",
+            "fields": {
+              "open": {
+                "booleanValue": false
+              }
+            }
+          },
+          "updateMask": {
+            "fieldPaths": [
+              "open"
+            ]
+          },
+          "currentDocument": {
+            "exists": true
+          }
+        },
+        {
+          "delete": "projects/demo-live-traffic/databases/(default)/documents/rooms/attic"
+        }
+      ],
+      "response": {
+        "writeResults": [
+          {
+            "updateTime": {
+              "$": "commitTime"
+            }
+          },
+          {
+            "updateTime": {
+              "$": "commitTime"
+            }
+          },
+          {}
+        ],
+        "commitTime": {
+          "$": "commitTime"
+        }
+      }
+    }
+  ]
+}

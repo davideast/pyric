@@ -157,13 +157,14 @@ function adminAccountOf(record: LiveCallRecord): Pick<ObservedCall, 'account'> {
   return { account: { uid: account.uid, ...names } };
 }
 
-/** The observed call for an Admin record: its service, `sdk: 'admin'`, and no document values. */
+/** The observed call for an Admin record: its service, `sdk: 'admin'`, its usage, and no document values. */
 function adminCallOf(service: ObservedCallService, record: LiveCallRecord, at: number): ObservedCall | null {
   const outcome = productionOutcome(record);
   if (outcome === null) return null;
   const project = record.projectId === undefined ? {} : { projectId: record.projectId };
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
-  return { service, sdk: 'admin', method: record.name, at, outcome, ...project, ...adminAccountOf(record), ...billed, ...placeOf(service, record) };
+  const usage = record.usage === undefined ? {} : { usage: { ...record.usage } };
+  return { service, sdk: 'admin', method: record.name, at, outcome, ...project, ...adminAccountOf(record), ...billed, ...usage, ...placeOf(service, record) };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */
