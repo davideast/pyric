@@ -13,6 +13,7 @@ export function assertSubscription(message: Record<string, unknown>): void {
     switch (target) {
       case 'events':
         requireOptionalString(message.tabId, 'tabId');
+        requireOptionalString(message.clientId, 'clientId');
         return;
       case 'authState': case 'idToken':
       case 'presence':

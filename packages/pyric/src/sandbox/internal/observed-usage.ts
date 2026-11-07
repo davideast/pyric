@@ -9,6 +9,7 @@
  */
 import type { ObservedUsage } from '../types/observed-call.js';
 import { databaseReadUsage, firestoreReadUsage, firestoreWriteUsage, type UsageEvidence } from './usage-evidence.js';
+import { coverageMethodOf } from './admin-methods.js';
 
 /** Production bills one read per 1000 index entries a count scans, at least one. */
 const COUNT_ENTRIES_PER_READ = 1000;
@@ -26,6 +27,9 @@ const MEASURES: ReadonlyMap<string, Measure> = new Map<string, Measure>([
   ['firebase/firestore', firestoreUsage],
   ['firebase/database', databaseUsage],
   ['firebase/storage', storageUsage],
+  ['@google-cloud/firestore', adminFirestoreUsage],
+  ['@firebase/database-compat/standalone', (method, value) => databaseUsage(coverageMethodOf('rtdb', method), value)],
+  ['@google-cloud/storage', (method, value) => storageUsage(coverageMethodOf('storage', method), value)],
 ]);
 
 /** The usage of a call to `method` of `module` (the specifier the app imported) that resolved with `value`, or undefined when there is none to record. */
@@ -41,6 +45,18 @@ function firestoreUsage(method: string, value: unknown): ObservedUsage | undefin
   if (method === 'runTransaction') return { documentWrites: 1, unmeasured: 1 };
   const written = firestoreWriteUsage(method);
   return written === undefined ? undefined : usageOf(written);
+}
+
+/**
+ * An Admin Firestore call, measured as the client method it counts as. Two
+ * resolve with an array the client methods don't: `Firestore.getAll`, one
+ * snapshot per document read, and `WriteBatch.commit`, one result per write.
+ */
+function adminFirestoreUsage(method: string, value: unknown): ObservedUsage | undefined {
+  const isArray = Array.isArray(value);
+  if (isArray && method === 'Firestore.getAll') return { documentReads: Math.max(1, value.length) };
+  if (isArray && method === 'WriteBatch.commit') return { documentWrites: value.length };
+  return firestoreUsage(coverageMethodOf('firestore', method), value);
 }
 
 function databaseUsage(method: string, value: unknown): ObservedUsage | undefined {

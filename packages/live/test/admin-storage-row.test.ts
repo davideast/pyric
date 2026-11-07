@@ -180,6 +180,41 @@ test('a client on another project is refused by the gate before any request, wit
   expect(lines).toHaveLength(1);
 }, 30_000);
 
+/** Calls `method` on `on` in the SDK's callback form, and resolves with the values its callback got. */
+function viaCallback(on: Instance, method: string, ...args: unknown[]): Promise<unknown[]> {
+  return new Promise((done) => {
+    const returned = (on[method] as AnyFunction).call(on, ...args, (...values: unknown[]) => done(values));
+    expect(returned).toBeUndefined();
+  });
+}
+
+test('a call in the callback form is recorded when it settles, and its callback gets the SDK answer', async () => {
+  const from = records.length;
+  const notes = file('notes/a.txt');
+  expect(await viaCallback(notes, 'save', 'hello replay', { resumable: false, contentType: 'text/plain' })).toEqual([null]);
+  const [error, bytes] = await viaCallback(notes, 'download');
+  expect(error).toBeNull();
+  expect(String(bytes)).toBe('hello replay');
+  const [missing] = (await viaCallback(file('notes/missing.txt'), 'download')) as [{ code?: unknown }];
+  expect(missing.code).toBe(404);
+  const made = await recordsSince(from);
+  expect(summary(made)).toEqual([
+    { name: 'File.save', outcome: 'resolved', code: undefined, bucket: BUCKET, path: 'notes/a.txt' },
+    { name: 'File.download', outcome: 'resolved', code: undefined, bucket: BUCKET, path: 'notes/a.txt' },
+    { name: 'File.download', outcome: 'rejected', code: 'storage/object-not-found', bucket: BUCKET, path: 'notes/missing.txt' },
+  ]);
+}, 30_000);
+
+test('a refused call in the callback form gets the refusal in its callback, with no record or request', async () => {
+  const from = records.length;
+  const received = (await replay.receivedBy(server.origin)).length;
+  const explicit = (new sdk.Storage({ projectId: 'other-project' }).bucket as AnyFunction)(BUCKET) as Instance;
+  const [refusal] = (await viaCallback(file('notes/elsewhere.txt', explicit), 'download')) as [{ code?: unknown }];
+  expect(refusal.code).toBe('PYRIC_LIVE_REFUSED');
+  expect(await recordsSince(from)).toEqual([]);
+  expect((await replay.receivedBy(server.origin)).length).toBe(received);
+}, 30_000);
+
 test('no record carries a token, password, email, object bytes or metadata value', () => {
   const text = JSON.stringify(records);
   for (const secret of ['hello replay', 'capture', 'owner', 'Bearer', 'token', 'password', 'text/plain']) expect(text).not.toContain(secret);
