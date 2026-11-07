@@ -274,6 +274,26 @@ export function assertShapesOnly(recording: Recording): void {
     if (exchange.kind === 'messaging') checkMessaging(recording.project, `exchanges[${index}]`, exchange);
     if (exchange.kind === 'admin-auth') checkAdminAuth(recording.project, `exchanges[${index}]`, exchange);
     if (exchange.kind === 'admin-storage') checkAdminStorage(recording.project, `exchanges[${index}]`, exchange);
+    if (exchange.kind === 'write' && exchange.response) checkDeleteResults(`exchanges[${index}].response`, exchange.writes, exchange.response);
+    if (exchange.kind === 'admin-firestore' && exchange.rpc === 'Commit') {
+      const writes = Array.isArray(exchange.request.writes) ? exchange.request.writes : [];
+      (exchange.responses ?? []).forEach((response, at) => checkDeleteResults(`exchanges[${index}].responses[${at}]`, writes, response));
+    }
+  });
+}
+
+/**
+ * Throws when the result of a delete write carries an `updateTime`:
+ * production leaves it unset after a delete (`WriteResult` in
+ * `google.firestore.v1`), so an answer that sets it is not one production gave.
+ */
+function checkDeleteResults(path: string, writes: Json[], response: JsonObject): void {
+  const results = Array.isArray(response.writeResults) ? response.writeResults : [];
+  writes.forEach((write, index) => {
+    const isDelete = typeof write === 'object' && write !== null && !Array.isArray(write) && 'delete' in write;
+    const result = results[index];
+    const setsUpdateTime = typeof result === 'object' && result !== null && !Array.isArray(result) && 'updateTime' in result;
+    if (isDelete && setsUpdateTime) throw new Error(`replay: ${path}.writeResults[${index}] answers a delete with an updateTime, which production leaves unset`);
   });
 }
 

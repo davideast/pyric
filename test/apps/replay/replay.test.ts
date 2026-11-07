@@ -182,6 +182,16 @@ describe('recorded files hold shapes and test-project values only', () => {
     const listen = { kind: 'listen', id: 'l', target: {}, batches: [{ messages: [{ targetChange: { readTime: '2026-11-01T00:00:00Z' } }] }] };
     expect(() => assertShapesOnly(recording([listen]))).toThrow('readTime must be one of the placeholders');
   });
+
+  test('a delete write whose result carries an updateTime is refused, as production leaves it unset', () => {
+    const name = 'projects/demo-replay/databases/(default)/documents/rooms/attic';
+    const commitTime = { $: 'commitTime' };
+    const write = { kind: 'write', id: 'w', writes: [{ delete: name }], response: { writeResults: [{ updateTime: commitTime }], commitTime } };
+    const commit = { kind: 'admin-firestore', id: 'c', rpc: 'Commit', request: { database: 'projects/demo-replay/databases/(default)', writes: [{ delete: name }] }, responses: [{ writeResults: [{ updateTime: commitTime }], commitTime }] };
+    expect(() => assertShapesOnly(recording([write]))).toThrow('exchanges[0].response.writeResults[0] answers a delete');
+    expect(() => assertShapesOnly(recording([commit]))).toThrow('exchanges[0].responses[0].writeResults[0] answers a delete');
+    expect(() => assertShapesOnly(recording([{ ...write, response: { writeResults: [{}], commitTime } }]))).not.toThrow();
+  });
 });
 
 async function waitFor(condition: () => boolean, timeoutMs = 4000): Promise<void> {
