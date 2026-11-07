@@ -27,8 +27,10 @@
  *   app holds never goes out unobserved;
  * - when `firebase-admin` passes through, the hosts the Admin SDK needs
  *   besides the live row hosts ({@link ADMIN_TOKEN_HOSTS},
- *   {@link ADMIN_HOSTS}) pass only when the nearest caller is a file of the
- *   Admin SDK's tree ({@link PassedThrough.isAdminSdkFile}): the files the
+ *   {@link ADMIN_HOSTS}) pass only when a file of the Admin SDK's tree
+ *   ({@link PassedThrough.isAdminSdkFile}) is on the stack, so an app's
+ *   pass-through wrapper on `https.request` or `fetch` between them and the
+ *   runtime does not hide them ({@link isAdminCaller}): the files the
  *   app's own `firebase-admin` import reached, directly or not,
  *   `google-auth-library` and `@google-cloud/firestore` among them. They are
  *   its token sources (OAuth 2.0, IAM credentials and the metadata server),
@@ -332,13 +334,21 @@ function isAdminHost(host: string, path: string | undefined): boolean {
 const adminFetches = new AsyncLocalStorage<true>();
 
 /**
- * Whether `firebase-admin` passes through and this is its call: the nearest
- * caller is a file of its tree, or a `fetch` such a file made is running.
+ * Whether `firebase-admin` passes through and this is its call: a file of its
+ * tree is on the stack, or a `fetch` such a file made is running.
+ *
+ * Any frame counts, not only the nearest caller. An app that wraps
+ * `https.request`, `fetch` or `tls.connect` (OpenTelemetry's HTTP
+ * instrumentation, an APM agent, a request logger) puts its wrapper's file
+ * between the Admin SDK's call and the runtime, and the Admin SDK's own token
+ * and host requests must still read as its own (#2445). The app's own call,
+ * through the same wrapper or not, has no frame of the tree, and stays
+ * refused.
  */
 function isAdminCaller(passed: PassedThrough): boolean {
   const isAdminSdkFile = passed.isAdminSdkFile;
   if (isAdminSdkFile === undefined) return false;
-  return adminFetches.getStore() === true || isLiveSdkCaller(isAdminSdkFile);
+  return adminFetches.getStore() === true || stackFiles().some(isAdminSdkFile);
 }
 
 /**
