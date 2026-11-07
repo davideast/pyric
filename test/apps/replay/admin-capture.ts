@@ -82,7 +82,11 @@ interface AdminCapture {
 
 /** The capture with its project, run, bucket, user and fixed-value placeholders as test values. */
 export function readAdminCapture(project: string, path: string = CAPTURE_ADMIN): AdminCapture {
-  const raw = readFileSync(path, 'utf8');
+  return adminCaptureFromText(project, readFileSync(path, 'utf8'));
+}
+
+/** A capture's text with its placeholders as test values for `project`. */
+export function adminCaptureFromText(project: string, raw: string): AdminCapture {
   const hashes = objectHashes(JSON.parse(raw) as AdminCapture);
   const text = raw
     .replaceAll('<project>', project)
@@ -93,7 +97,7 @@ export function readAdminCapture(project: string, path: string = CAPTURE_ADMIN):
     .replace(/<(update|create)-time-(\d+)>/g, (_, kind: string, n: string) => fixedTime(kind === 'create' ? 2 * Number(n) - 1 : 2 * Number(n)))
     .replace(/<time-(\d+)>/g, (_, n: string) => fixedTime(Number(n)).replace(/\.\d+Z$/, '.000Z'))
     .replace(/<generation-(\d+)>/g, (_, n: string) => `179352000000000${n}`)
-    .replace(/<(md5|crc32c)-\d+>/g, (placeholder: string) => hashes.get(placeholder) ?? '')
+    .replace(/<(md5|crc32c)-\d+>/g, (placeholder: string) => hashOf(hashes, placeholder))
     .replace(/<password-hash-(\d+)>/g, (_, n: string) => Buffer.from(`replay-password-hash-${n}`).toString('base64'))
     .replace(/<etag-(\d+)>/g, (_, n: string) => `replay-etag-${n}`);
   return JSON.parse(text) as AdminCapture;
@@ -340,6 +344,17 @@ function objectHashes(capture: AdminCapture): Map<string, string> {
     hashes.set(String(answer.crc32c), crc32c(parts.content));
   }
   return hashes;
+}
+
+/**
+ * The hash a placeholder stands for. One no recorded upload hashes would
+ * otherwise become an empty hash the SDK checks a download against, so it
+ * throws instead.
+ */
+function hashOf(hashes: Map<string, string>, placeholder: string): string {
+  const hash = hashes.get(placeholder);
+  if (hash === undefined) throw new Error(`replay: capture A (Admin) names ${placeholder}, which no recorded multipart upload hashes`);
+  return hash;
 }
 
 /** CRC32C (Castagnoli), big-endian and base64, as Cloud Storage reports it. */

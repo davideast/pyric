@@ -15,8 +15,9 @@
 // live mode passes through unchanged.
 //
 // The Admin SDK (`firebase-admin/firestore`) reaches it through its own
-// `FIRESTORE_EMULATOR_HOST`, and then sends `Authorization: Bearer owner` on
-// every call. Those calls are answered from `admin-firestore` exchanges
+// `FIRESTORE_EMULATOR_HOST`, and then sends `Authorization: Bearer owner` and
+// names its library (`gccl/`) on every call. Those calls, and no client SDK
+// call that sends the same bearer, are answered from `admin-firestore` exchanges
 // (`admin-firestore.ts`): BatchGetDocuments, RunQuery, RunAggregationQuery,
 // Commit, BeginTransaction, Rollback and Listen. Any other call, and any
 // Admin call no exchange holds, is refused and listed in `unmatched`.
@@ -245,14 +246,27 @@ function uidOf(state: ReplayState, call: DuplexCall): string | null {
 }
 
 /**
+ * Whether a call names `@google-cloud/firestore`, the library firebase-admin
+ * wraps: it sends `gccl/<version>` in `x-goog-api-client` on every call. The
+ * client SDK's Node build sends `gl-node/<version> fire/<version>
+ * grpc/<version>` there (`createMetadata` in `@firebase/firestore`), with no
+ * `gccl/`.
+ */
+function namesAdminLibrary(call: DuplexCall): boolean {
+  const header = call.metadata.get('x-goog-api-client')[0];
+  return typeof header === 'string' && /(^| )gccl\//.test(header);
+}
+
+/**
  * Whether a call came from the Admin SDK in emulator mode, which always sends
- * `Bearer owner`. The header is all this reads, so a client SDK call that
- * sends the same bearer (`connectFirestoreEmulator` with
- * `mockUserToken: 'owner'`) also gets Admin answers. Any other bearer is
- * refused before an Admin exchange is tried (`admin-auth.test.ts`).
+ * `Bearer owner`. A client SDK call can send the same bearer
+ * (`connectFirestoreEmulator` with `mockUserToken: 'owner'`), so the call
+ * must also name the Admin SDK's library, or it gets no Admin answer
+ * (`admin-firestore.test.ts`). Any other bearer is refused before an Admin
+ * exchange is tried (`admin-auth.test.ts`).
  */
 function isAdminCall(call: DuplexCall): boolean {
-  return call.metadata.get('authorization')[0] === 'Bearer owner';
+  return call.metadata.get('authorization')[0] === 'Bearer owner' && namesAdminLibrary(call);
 }
 
 /** The handler for one Listen or Write stream: an Admin Listen, or a client stream as its bearer's uid. */
@@ -305,7 +319,16 @@ const OTHER_RPCS: Readonly<Record<string, boolean>> = {
 };
 
 const UNIMPLEMENTED = 12;
-/** An Admin call no exchange holds fails with FAILED_PRECONDITION, as an unrecorded client stream message does (`firestore.ts`). */
+/**
+ * An Admin call no exchange holds fails with FAILED_PRECONDITION, as an
+ * unrecorded client stream message does (`firestore.ts`). A unary Commit
+ * fails at once. A server-streaming read (BatchGetDocuments, RunQuery,
+ * RunAggregationQuery) that fails before its first message is sent three
+ * times: firebase-admin 13.10 makes one request, and the gRPC stream layer
+ * under it retries twice. Timed offline against this server, an unrecorded
+ * get, query or count failed after 6.4 to 7.2 s and was listed three times in
+ * `unmatched`, so a test that probes fail-closed uses a write.
+ */
 const FAILED_PRECONDITION = 9;
 const asBytes = (value: unknown): Buffer => (Buffer.isBuffer(value) ? value : Buffer.alloc(0));
 
