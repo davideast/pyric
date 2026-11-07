@@ -75,7 +75,21 @@ describe('rulesOperation', () => {
     expect(rulesOperation('firestore', 'setDoc')).toBe('create');
     expect(rulesOperation('firestore', 'updateDoc')).toBe('update');
     expect(rulesOperation('firestore', 'deleteDoc')).toBe('delete');
-    expect(rulesOperation('rtdb', 'set')).toBe('create');
+  });
+
+  it("reads an RTDB call as the sandbox's write plane names it", () => {
+    expect(rulesOperation('rtdb', 'get')).toBe('get');
+    expect(rulesOperation('rtdb', 'set')).toBe('set');
+    expect(rulesOperation('rtdb', 'setWithPriority')).toBe('set');
+    expect(rulesOperation('rtdb', 'push')).toBe('set');
+    expect(rulesOperation('rtdb', 'update')).toBe('update');
+    expect(rulesOperation('rtdb', 'remove')).toBe('remove');
+    expect(rulesOperation('rtdb', 'toString')).toBe('toString');
+  });
+
+  it('reads a Storage call as observedMethod does', () => {
+    expect(rulesOperation('storage', 'uploadBytes')).toBe('create');
+    expect(rulesOperation('storage', 'deleteObject')).toBe('delete');
   });
 
   it('leaves a method with no rules operation as it is', () => {
