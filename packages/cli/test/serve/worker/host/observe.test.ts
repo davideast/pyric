@@ -478,6 +478,39 @@ describe('host: listeners a port leaves behind', () => {
     expect(ctx.sandbox.history()).toHaveLength(before + 1);
   });
 
+  it('detaches the oldest listener when a port holds more than it keeps, so it stops counting as active', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const held = 1024;
+    for (let index = 0; index <= held; index++) await observe(ctx, page, { call: roomListener('attach', `l-${index}`) });
+    const active = activeListeners(ctx.sandbox.history());
+    expect(active).toHaveLength(held);
+    expect(active.map((listener) => listener.clientListenerId)).not.toContain('l-0');
+    const oldest = ctx.sandbox.history().filter((event) => event.kind === 'listener' && event.activity?.listenerId === 'l-0');
+    expect(oldest.map((event) => (event as { phase: string }).phase)).toEqual(['attach', 'detach']);
+    const before = ctx.sandbox.history().length;
+    cleanupPort(ctx, page);
+    expect(ctx.sandbox.history()).toHaveLength(before + held);
+    expect(activeListeners(ctx.sandbox.history())).toEqual([]);
+  });
+
+  it('counts duplicate listeners per connection: a page and a Node process with two each raise none', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const server = nodePort(ctx);
+    for (const id of ['l-1', 'l-2']) {
+      await observe(ctx, page, { call: roomListener('attach', id) });
+      await observe(ctx, server, { call: roomListener('attach', id) });
+    }
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(4);
+    expect(incidentsFromEvents(ctx.sandbox.history()).map((incident) => incident.pattern)).not.toContain('duplicate-listener');
+    await observe(ctx, page, { call: roomListener('attach', 'l-3') });
+    const duplicates = incidentsFromEvents(ctx.sandbox.history()).filter((incident) => incident.pattern === 'duplicate-listener');
+    expect(duplicates.map((incident) => incident.count)).toEqual([3]);
+  });
+
   it('raises no duplicate-listener incident when a reloaded page attaches its listeners again', async () => {
     const ctx = makeCtx();
     for (let load = 0; load < 3; load++) {

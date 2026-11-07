@@ -119,36 +119,52 @@ interface ListenerRecord {
   readonly caller: EventCaller | undefined;
 }
 
-/** The most listeners one port is held to; past it the oldest is no longer swept. */
+/** The most listeners one port is held to; past it the oldest is detached. */
 const MAX_ATTACHED_PER_PORT = 1024;
 
 /** Each port's attached listeners by scoped id, until they detach or the port closes. */
 const ATTACHED_BY_PORT = new WeakMap<PortLike, Map<string, ListenerRecord>>();
 
-/** Hold an attach until its detach, or drop the listener a detach ends. */
-function trackListener(port: PortLike, scopedId: string, record: ListenerRecord): void {
+/**
+ * Hold an attach until its detach, or drop the listener a detach ends. An
+ * attach past the port's bound returns the oldest listener it let go, which
+ * the caller detaches so it stops counting as active.
+ */
+function trackListener(port: PortLike, scopedId: string, record: ListenerRecord): ListenerRecord | undefined {
   const held = ATTACHED_BY_PORT.get(port) ?? new Map<string, ListenerRecord>();
   ATTACHED_BY_PORT.set(port, held);
   if (record.listener.phase === 'detach') {
     held.delete(scopedId);
-    return;
+    return undefined;
   }
-  const oldest = held.keys().next().value;
-  if (held.size >= MAX_ATTACHED_PER_PORT && oldest !== undefined) held.delete(oldest);
+  const isFull = held.size >= MAX_ATTACHED_PER_PORT && !held.has(scopedId);
+  const oldest = isFull ? held.entries().next().value : undefined;
+  if (oldest !== undefined) held.delete(oldest[0]);
   held.set(scopedId, record);
+  return oldest?.[1];
+}
+
+/** The detach that ends `record`'s listener at `at`, as the client would have sent it. */
+function detachOf(record: ListenerRecord, at: number): ListenerRecord {
+  const detach: ObservedListener = { ...record.listener, phase: 'detach' };
+  return { call: { ...record.call, at, listener: detach }, listener: detach, caller: record.caller };
 }
 
 /**
  * Write a listener's attach or detach with its caller. It runs no local
- * rules and holds no values: the record carries none.
+ * rules and holds no values: the record carries none. The actor names the
+ * port's activity journey, as a sandbox listener's does, so the activity
+ * monitor counts duplicate listeners per connection: a page's and a Node
+ * process's listeners on one target are never one count.
  */
 function emitListener(ctx: HostCtx, port: PortLike, record: ListenerRecord): void {
   const { call, listener, caller } = record;
   const listenerId = scopedListenerId(ctx, port, caller, listener.id);
   const event = { ...observedListenerEvent(call), listenerId };
-  trackListener(port, listenerId, record);
+  const evicted = trackListener(port, listenerId, record);
+  if (evicted !== undefined) emitListener(ctx, port, detachOf(evicted, call.at));
   emitSandboxEvent(ctx.sandbox, event, {
-    actor: { kind: 'app' },
+    actor: { kind: 'app', journeyId: activityJourneyId(ctx, port) },
     authLens: { mode: 'app-session' },
     activity: { listenerId: listener.id },
     ...(caller === undefined ? {} : { caller }),
@@ -165,10 +181,7 @@ export function sweepObservedListeners(ctx: HostCtx, port: PortLike, now: () => 
   const held = ATTACHED_BY_PORT.get(port);
   if (held === undefined) return;
   const at = now();
-  for (const { call, listener, caller } of [...held.values()]) {
-    const detach: ObservedListener = { ...listener, phase: 'detach' };
-    emitListener(ctx, port, { call: { ...call, at, listener: detach }, listener: detach, caller });
-  }
+  for (const record of [...held.values()]) emitListener(ctx, port, detachOf(record, at));
   ATTACHED_BY_PORT.delete(port);
 }
 
