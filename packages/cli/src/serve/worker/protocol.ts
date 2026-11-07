@@ -38,6 +38,7 @@ import type {
   ObservedCall,
 } from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
+import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
 import type {
   BrokerMessage,
   ClientVisibilityState,
@@ -557,6 +558,21 @@ export interface ObserveMessage {
   nodeClient?: string;
 }
 
+/**
+ * What a Node process under the live register left unobserved: the Google
+ * hosts it called that no live row observed, and the firebase-admin
+ * subpaths it loaded that no row serves or whose row records no call
+ * (`NodeUnobservedLists` in `pyric/sandbox/internal`). Names only, each list
+ * bounded and absent when empty. The process sends the whole lists when one
+ * first gains an entry and again on each change; the live host lists them
+ * under the process's client (`live-clients.ts`) and the sandbox answers
+ * `res`. A frame whose lists are malformed is refused with `invalid-argument`.
+ */
+export interface UnobservedMessage extends NodeUnobservedLists {
+  t: 'unobserved';
+  id: string;
+}
+
 export type InboundMessage = (
   | OpMessage
   | SubMessage
@@ -566,6 +582,7 @@ export type InboundMessage = (
   | ClockSubscribeMessage
   | ToolMessage
   | ObserveMessage
+  | UnobservedMessage
 ) & {
   clientSessionId?: string;
   resumeSession?: boolean;

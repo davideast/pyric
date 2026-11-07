@@ -80,7 +80,7 @@ Two health reports list what pyric didn't observe:
 - **The live host.** `GET <url>/__pyric/health` on the dev server or `pyric-live` has a `live` field. Its `unobserved` list names the hosts the host process called that no row observed.
 - **A Node process under `@pyric/live/register`.** Its own servers answer a process health request. The answer lists `unobserved` hosts, `unobservedAdmin` for the `firebase-admin` services no row serves, and `gatedAdmin` for the services checked against your project but not recorded. See [Process health on registered processes](../reference/cli.md#process-health-on-registered-processes).
 
-Each list is absent when it is empty. A Node process's lists don't reach the live host's report yet, so read them from the process.
+Each list is absent when it is empty. A Node process also sends its lists to the live host. While it is connected, the host's `live.clients` entry for it (`kind: "node"`) carries the same `unobserved`, `unobservedAdmin` and `gatedAdmin` lists, named by the client id its events carry. The lists hold host and service names only, and they go when the host drops the client.
 
 ## What it forwards
 

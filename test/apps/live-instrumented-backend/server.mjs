@@ -148,6 +148,36 @@ async function processHealth() {
   return JSON.parse(body).pyricProcess;
 }
 
+/** The lists a health entry carries, in one spelling, to compare this process's with the host's. */
+function listsOf(entry) {
+  return JSON.stringify({ unobserved: [...(entry.unobserved ?? [])].sort(), unobservedAdmin: entry.unobservedAdmin ?? [], gatedAdmin: entry.gatedAdmin ?? [] });
+}
+
+/** The Node clients the live host's health lists. */
+async function readHostNodeClients() {
+  const health = await fetch(`${process.env.LIVE_HOST_URL}/__pyric/health`).then((response) => response.json());
+  return (health.live?.clients ?? []).filter((client) => client.kind === "node");
+}
+
+/**
+ * The Node clients the live host's health lists that it did not list when
+ * this job started, read until one lists what this process's own health
+ * lists: the process sends its lists to the host as they change, so they
+ * arrive a moment after the calls. After 10 s, the last ones read. An
+ * earlier run's client stays listed until the host's session retention
+ * ends, so it is left out.
+ */
+async function hostNodeClients(own, earlier) {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const nodes = (await readHostNodeClients()).filter((client) => !earlier.has(client.clientId));
+    const listed = nodes.some((client) => listsOf(client) === listsOf(own));
+    if (listed || Date.now() > deadline) return nodes;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+const earlierClients = new Set((await readHostNodeClients()).map((client) => client.clientId));
 const outcome = { instrument: instrumented.mode };
 const adcApp = initializeApp({ projectId: PROJECT, credential: applicationDefault(agent), httpAgent: agent }, "adc");
 const certApp = initializeApp({ projectId: PROJECT, credential: cert(serviceAccount, agent), httpAgent: agent }, "cert");
@@ -199,6 +229,7 @@ outcome.otherProjectSent = answered.length - answeredBefore;
 
 outcome.trapped = [...new Set(trapped)].sort();
 outcome.health = await processHealth();
+outcome.hostNodeClients = await hostNodeClients(outcome.health, earlierClients);
 google.close();
 console.log(`OUTCOME ${JSON.stringify(outcome)}`);
 process.exit(0);

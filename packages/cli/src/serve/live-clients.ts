@@ -21,6 +21,13 @@
  * The page path comes from the page's presence frames; the client lists the
  * last one any of its pages reported. Each id is a label, never an authority.
  *
+ * A Node process under the live register sends what it left unobserved, the
+ * whole lists each time one changes (the `unobserved` frame). Its client
+ * lists the last ones it sent, each absent when empty, and they go with the
+ * client when it disconnects. Lists that are not names in their shape and
+ * bounds (`readNodeUnobservedLists`) are not kept, and the Node sandbox
+ * refuses that frame.
+ *
  * A page sends its signed-in user's email with its presence register frame,
  * and again with an update when the user changes. The host keeps it in this
  * module's memory only: it deletes the field from the frame before the frame
@@ -28,7 +35,7 @@
  * stream or a capture. A page's presence disconnect (a closed or reloaded
  * tab) drops its connection at once, as the bridge's own disconnect does.
  */
-import { readObservedCall, type LiveHostStatus } from 'pyric/sandbox/internal';
+import { readNodeUnobservedLists, readObservedCall, type LiveHostStatus, type NodeUnobservedLists } from 'pyric/sandbox/internal';
 import type { BridgeMessage } from '../bridge/protocol.js';
 
 type LiveClient = NonNullable<LiveHostStatus['clients']>[number];
@@ -54,6 +61,8 @@ interface ClientRecord {
   lastSeen: number;
   /** The connections this client has open. */
   sessions: Set<string>;
+  /** What a Node process last reported it left unobserved. */
+  unobserved?: NodeUnobservedLists;
 }
 
 /** The client id the Node sandbox stamps on one connection's events, or undefined when it names none. */
@@ -134,6 +143,13 @@ function observedUser(inner: Record<string, unknown>): string | null | undefined
   }
 }
 
+/** The lists an `unobserved` frame from a Node process carries, or undefined for another frame or malformed lists. */
+function unobservedLists(kind: LiveClientKind, inner: Record<string, unknown>): NodeUnobservedLists | undefined {
+  const isNodeLists = kind === 'node' && inner.t === 'unobserved';
+  if (!isNodeLists) return undefined;
+  return readNodeUnobservedLists(inner) ?? undefined;
+}
+
 /** A Node process's id as its events carry it: the one the Node sandbox stamps, once it names one. */
 function reportedClientId(record: ClientRecord, sandboxIds: SandboxClientIds): string {
   if (record.kind !== 'node') return record.clientId;
@@ -146,7 +162,7 @@ function entryOf(record: ClientRecord, sandboxIds: SandboxClientIds): LiveClient
   const label = record.label === undefined ? {} : { label: record.label };
   const email = record.email === undefined ? {} : { email: record.email };
   const clientId = reportedClientId(record, sandboxIds);
-  return { kind: record.kind, clientId, ...label, user: record.user, ...email, lastSeen: record.lastSeen };
+  return { kind: record.kind, clientId, ...label, user: record.user, ...email, lastSeen: record.lastSeen, ...record.unobserved };
 }
 
 export function createLiveClients(now: () => number): LiveClients {
@@ -197,6 +213,8 @@ export function createLiveClients(now: () => number): LiveClients {
     if (isPage) record.label = pagePath(route);
     const user = observedUser(inner);
     if (user !== undefined) record.user = user;
+    const lists = unobservedLists(kind, inner);
+    if (lists !== undefined) record.unobserved = lists;
     const isBrowser = kind === 'browser';
     if (isBrowser && email === null) delete record.email;
     if (isBrowser && typeof email === 'string') record.email = email;

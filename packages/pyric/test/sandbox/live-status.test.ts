@@ -197,6 +197,18 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, clients: [page] } })?.clients).toEqual([page]);
     expect(readLiveHostStatus({ live: { ...LIVE, clients: [{ ...page, email: 7 }] } })).toEqual(LIVE);
   });
+
+  it("reads a Node client's unobserved lists, and drops malformed lists but keeps the client", () => {
+    const lists = {
+      unobserved: ['cloudtrace.googleapis.com'],
+      unobservedAdmin: ['firebase-admin/remote-config'],
+      gatedAdmin: ['firebase-admin/app-check'],
+    };
+    const node = { kind: 'node', clientId: 'page-2', user: null, lastSeen: 1000 };
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [{ ...node, ...lists }] } })?.clients).toEqual([{ ...node, ...lists }]);
+    const malformed = { ...node, ...lists, unobserved: ['https://cloudtrace.googleapis.com/v2?key=k'] };
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [malformed] } })?.clients).toEqual([node]);
+  });
 });
 
 describe('createLiveStatusPoller', () => {

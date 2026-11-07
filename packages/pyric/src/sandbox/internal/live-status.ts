@@ -23,6 +23,7 @@
  */
 import type { ObservedCall } from '../types/observed-call.js';
 import { coverageMethodOf } from './admin-methods.js';
+import { readNodeUnobservedLists, type NodeUnobservedLists } from './node-unobserved.js';
 
 export type BilledCallKind = 'read' | 'write' | 'delivery';
 
@@ -95,9 +96,11 @@ export type LiveClientKind = 'browser' | 'service-worker' | 'node';
 
 /**
  * One client connected to a live host, keyed by kind and client id, so a
- * service worker is never grouped with the pages of its profile.
+ * service worker is never grouped with the pages of its profile. A Node
+ * process under the live register also carries what it reports it left
+ * unobserved (`NodeUnobservedLists`), each list absent when empty.
  */
-export interface LiveClient {
+export interface LiveClient extends NodeUnobservedLists {
   readonly kind: LiveClientKind;
   /** The browser profile's or service worker realm's client id, or the connection's own for a Node process. */
   readonly clientId: string;
@@ -215,7 +218,9 @@ function readClient(value: unknown): LiveClient | null {
   if (!isValid) return null;
   const labelField = label === undefined ? {} : { label: label as string };
   const emailField = email === undefined ? {} : { email: email as string };
-  return { kind, clientId, ...labelField, user, ...emailField, lastSeen };
+  // Malformed lists drop, and the client stays.
+  const lists = readNodeUnobservedLists(value as Record<string, unknown>) ?? {};
+  return { kind, clientId, ...labelField, user, ...emailField, lastSeen, ...lists };
 }
 
 /** The clients field: its well-formed entries, at most {@link MAX_LIVE_CLIENTS}; a malformed entry or list never loses the status. */

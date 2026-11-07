@@ -60,9 +60,12 @@ export interface ReproRecorder {
   log(): Promise<ReproLog>;
 }
 
-/** Event-stream and clock frames are Studio telemetry, not application operations. */
+/**
+ * Event-stream and clock frames are Studio telemetry, and a live Node
+ * process's unobserved lists are host status, not application operations.
+ */
 function isRecordedInbound(frame: InboundMessage): boolean {
-  if (frame.t === 'clock-subscribe') return false;
+  if (frame.t === 'clock-subscribe' || frame.t === 'unobserved') return false;
   const isEventStream = frame.t === 'sub' && frame.target === 'events';
   return !isEventStream;
 }
