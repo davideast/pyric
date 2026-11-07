@@ -38,9 +38,9 @@ export const TARGET_SHARD_SECONDS = 90;
 /**
  * The most app shards one run starts. #1571 decision 3 gives the planner a
  * budget of about 30 jobs per pull request run (the account runs 40 at once).
- * A pull request with the `ci-packaging` label starts 23 jobs besides the
- * app shards, so 7 shards make 30. Past this, shards get longer instead of
- * more numerous.
+ * An unlabeled pull request starts 23 jobs besides the app shards, so 7
+ * shards make 30; the `ci-packaging` label adds 6 more. Past this, shards get
+ * longer instead of more numerous.
  */
 export const MOST_SHARDS = 7;
 
