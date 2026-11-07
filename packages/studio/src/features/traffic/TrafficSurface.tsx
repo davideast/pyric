@@ -46,7 +46,6 @@ import {
   filterStudioTraffic,
   liveRuleEvaluation,
   localDrift,
-  withRulesOperation,
   opensRulesInspector,
   productionLabel,
   subjectTarget,
@@ -375,8 +374,7 @@ export function TrafficSurface() {
   // Newest-first stream; verdict filter first, then grouping (the volume
   // reducer: storms → one row).
   const ordered = useMemo(
-    // A live op lists under its rules operation, as a sandbox op does.
-    () => filterByVerdict(tableEvents, verdictFilter).map(withRulesOperation).sort((a, b) => b.at - a.at),
+    () => filterByVerdict(tableEvents, verdictFilter).sort((a, b) => b.at - a.at),
     [tableEvents, verdictFilter],
   );
   const { items } = useTrafficGroups({ events: ordered });

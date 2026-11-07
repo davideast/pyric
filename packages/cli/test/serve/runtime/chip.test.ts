@@ -671,7 +671,7 @@ describe('the Traffic view', () => {
     expect(served.querySelector('.slot')!.textContent).toBe('Allowed');
     const row = root.querySelector(`[data-request-row="${observed.id}"]`)!;
     expect(row.querySelector('[data-traffic-row-production]')!.textContent).toBe('Production');
-    expect(row.querySelector('.c1')!.textContent).toBe('Production · firestore.get');
+    expect(row.querySelector('.c1')!.textContent).toBe('Production · firestore.getDoc');
     expect(row.querySelector('.s2')!.textContent).toBe('alice');
     expect(row.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production denied');
     expect(row.querySelector('.slot')!.textContent).toBe('Denied');
@@ -681,6 +681,9 @@ describe('the Traffic view', () => {
     expect(facts).toContain('Served byProduction');
     expect(facts).toContain('Denied in production (permission-denied)');
     expect(facts).toContain('Pyric observed it and did not check it against local rules.');
+    // The details name the call by its rules operation; the row keeps the SDK name.
+    const methodFact = root.querySelector('[data-traffic-detail] .request-fact');
+    expect(methodFact?.querySelector('dd')?.textContent).toBe('get');
   });
 
   it('marks only the production row whose local rules disagree, and opens the rules view from the local trace', () => {

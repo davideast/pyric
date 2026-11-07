@@ -1,4 +1,4 @@
-import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyric/sandbox/internal';
+import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel, rulesOperation } from 'pyric/sandbox/internal';
 import { createLiveStatusPoller, liveLabel, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { healthLiveStatus } from './chip-live-status.js';
 import { workerAiRates } from './worker-ai-rates.js';
@@ -487,6 +487,17 @@ const DRIFT_TITLE = 'Local rules disagree with production';
 const DRIFT_REASON = "The local rules file differs from the deployed rules, or pyric's rules engine differs from production's.";
 
 /** The one mark on a row whose local rules disagree with production's answer; empty on every other row. */
+/**
+ * A row's details name its call as its rules view does: a live row's SDK
+ * method reads as the rules operation, as a sandbox row's does. The row
+ * itself keeps the SDK name.
+ */
+function detailsMethod(request: ChipRequest): string {
+  if (request.method === null) return 'Request';
+  if (request.production === undefined) return request.method;
+  return rulesOperation(request.service ?? undefined, request.method);
+}
+
 function driftMarkerHtml(request: ChipRequest): string {
   if (request.localDrift === undefined) return '';
   return `<span class="traffic-drift" data-traffic-row-drift title="${DRIFT_TITLE}" aria-hidden="true">${iconHtml('warning')}</span>`;
@@ -1014,7 +1025,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     if (selectedRequest) {
       const request = trafficRows().find(row => row.id === selectedRequest!.id) ?? selectedRequest;
-      const method = request.method ?? 'Request';
+      const method = detailsMethod(request);
       const target = request.path ?? request.label ?? 'Request';
       const service = serviceLabel(request.service);
       const verdictOutcome = bypassesRules(request) ? 'Rules bypassed' : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];

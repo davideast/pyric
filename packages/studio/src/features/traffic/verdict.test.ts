@@ -12,7 +12,6 @@ import {
   isStudioTraffic,
   declaredOperations,
   liveRuleEvaluation,
-  withRulesOperation,
   localDrift,
   opensRulesInspector,
   productionLabel,
@@ -285,15 +284,6 @@ describe('liveRuleEvaluation', () => {
     expect(liveRuleEvaluation(live({ result: 'allow', drift: true }))).toBeUndefined();
     expect(liveRuleEvaluation(live({ result: 'unevaluated', needs: ['stored-document'] }))).toBeUndefined();
     expect(liveRuleEvaluation(live(undefined))).toBeUndefined();
-  });
-});
-
-describe('withRulesOperation', () => {
-  it('lists only a live op under its rules operation', () => {
-    const op = { id: 'o', method: 'getDoc', service: 'firestore' } as unknown as StudioTrafficEvent;
-    const liveOp = { ...op, production: { outcome: { status: 'ok' } } } as unknown as StudioTrafficEvent;
-    expect(withRulesOperation(liveOp).method).toBe('get');
-    expect(withRulesOperation(op)).toBe(op);
   });
 });
 

@@ -1,5 +1,5 @@
 import {
-  callerSource, EventHistory, isProductionServed, messagingRequestsLine, OBSERVATION_HISTORY_LIMITS, productionVerdict, rulesOperation, storageGsPath,
+  callerSource, EventHistory, isProductionServed, messagingRequestsLine, OBSERVATION_HISTORY_LIMITS, productionVerdict, storageGsPath,
 } from 'pyric/sandbox/internal';
 import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal';
 /**
@@ -173,9 +173,8 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
   const outcome = production.outcome;
   const verdict = OBSERVED_VERDICTS[productionVerdict(outcome)];
   const localDrift = localDriftOf(production);
-  // A live row names its call by the rules operation, as a sandbox row does.
   const request: ChipRequest = {
-    id: event.id, at: event.at, service: event.service, method: rulesOperation(event.service, event.method),
+    id: event.id, at: event.at, service: event.service, method: event.method,
     path: rowPath(event, event.path), verdict,
     identity: event.auth === null ? 'signed out' : event.auth.uid,
     production: { ...outcome },

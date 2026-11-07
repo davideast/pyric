@@ -266,13 +266,6 @@ function decidingRule(trace: RulesEvidence): { rule: EvidenceRule; index: number
   return rule === undefined ? undefined : { rule, index };
 }
 
-/** A live op as Traffic lists it: its method is the rules operation, as a sandbox op's is. */
-export function withRulesOperation(event: StudioTrafficEvent): StudioTrafficEvent {
-  if (event.production === undefined) return event;
-  const method = rulesOperation(event.service, event.method) as StudioTrafficEvent['method'];
-  return method === event.method ? event : { ...event, method };
-}
-
 /** The `allow` statement's operations: `allow read, write: if` gives read and write. */
 const ALLOW_OPERATIONS = /\ballow\s+([a-z]+(?:\s*,\s*[a-z]+)*)\s*[:;]/;
 
