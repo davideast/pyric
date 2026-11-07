@@ -12,6 +12,7 @@ import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.j
 import type { AuthLens, EventCaller, SandboxEvent } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
 import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
+import type { LiveIdentity } from '../../../src/serve/runtime/live-identity.js';
 import type { RuntimeIdentityBindings } from '../../../src/serve/runtime/identity.js';
 import type { ChipTab } from '../../../src/serve/runtime/chip-tab.js';
 
@@ -49,6 +50,7 @@ function setup(options: {
   manifest?: PyricRuntimeManifest;
   liveStatus?: PyricRuntimeChipOptions['liveStatus'];
   liveStatusTimers?: PyricRuntimeChipOptions['liveStatusTimers'];
+  liveIdentity?: PyricRuntimeChipOptions['liveIdentity'];
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
   const runtime = createPyricRuntimeStatus(options.manifest ?? manifest);
@@ -104,6 +106,7 @@ function setup(options: {
   }
   if (options.liveStatus) chipOptions.liveStatus = options.liveStatus;
   if (options.liveStatusTimers) chipOptions.liveStatusTimers = options.liveStatusTimers;
+  if (options.liveIdentity) chipOptions.liveIdentity = options.liveIdentity;
   if (options.clipboard) {
     chipOptions.clipboard = options.clipboard;
   }
@@ -947,6 +950,92 @@ describe('the Traffic view', () => {
     expect(root.querySelector('.panel-header .actions [data-open-studio]')).not.toBeNull();
     root.querySelector<HTMLButtonElement>('.panel-header .actions [data-collapse]')!.click();
     expect(collapsedParts(root)).toEqual(['live-label']);
+  });
+
+  /** A live identity store the test drives: the app's Auth signs in and out through `set`. */
+  function fakeLiveIdentity(initial: LiveIdentity | null, recent: LiveIdentity[]) {
+    let current = initial;
+    const listeners = new Set<(user: LiveIdentity | null) => void>();
+    const signOut = mock(async () => { store.set(null); });
+    const store = {
+      current: () => current,
+      recent: () => [...recent],
+      subscribe(listener: (user: LiveIdentity | null) => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      signOut,
+      set(user: LiveIdentity | null) {
+        current = user;
+        for (const listener of listeners) listener(user);
+      },
+    };
+    return store;
+  }
+
+  const ADA: LiveIdentity = { uid: 'prod-ada', email: 'ada@example.com', displayName: 'Ada Lovelace', providerId: 'google.com' };
+  const GRACE: LiveIdentity = { uid: 'prod-grace', email: 'grace@example.com', displayName: null, providerId: 'password' };
+
+  it('shows the production user on a live host, with Sign out and the recent users, and none of the sandbox controls', async () => {
+    const clock = manualTimers();
+    const liveIdentity = fakeLiveIdentity(ADA, [ADA, GRACE]);
+    const { root, runtime, showTab } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      listUsers: () => [user('sandbox-user', 'sandbox@example.com')],
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => liveStatus({ reads: 0, writes: 0, deliveries: 0 }),
+      liveIdentity,
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    showTab('identity');
+    await settle();
+    expect(root.querySelector('[data-live-identity-view]')).not.toBeNull();
+    expect(root.querySelector('[data-live-identity]')!.getAttribute('data-live-identity')).toBe('signed-in');
+    // The current user is not listed again among the recent ones.
+    const recent = [...root.querySelectorAll<HTMLElement>('[data-live-recent-user]')].map((row) => row.dataset.liveRecentUser);
+    expect(recent).toEqual(['prod-grace']);
+    // The sandbox directory, search, Create user and Bypass rules stay out.
+    for (const selector of ['[data-identity-query]', '[data-switch-user]', '[data-create-user]', '[data-toggle-bypass]', '[data-sign-out]']) {
+      expect(root.querySelector(selector)).toBeNull();
+    }
+
+    root.querySelector<HTMLButtonElement>('[data-live-sign-out]')!.click();
+    await settle();
+    expect(liveIdentity.signOut).toHaveBeenCalledTimes(1);
+    expect(root.querySelector('[data-live-identity]')!.getAttribute('data-live-identity')).toBe('signed-out');
+    expect(root.querySelector('[data-live-sign-out]')).toBeNull();
+    expect([...root.querySelectorAll<HTMLElement>('[data-live-recent-user]')].map((row) => row.dataset.liveRecentUser)).toEqual(['prod-ada', 'prod-grace']);
+
+    // The app's own sign-in reaches the tab through the store.
+    liveIdentity.set(GRACE);
+    await settle();
+    expect(root.querySelector('[data-live-identity]')!.getAttribute('data-live-identity')).toBe('signed-in');
+  });
+
+  it('shows signed out with no recent users when the app has signed no one in', async () => {
+    const clock = manualTimers();
+    const { root, runtime, showTab } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => liveStatus({ reads: 0, writes: 0, deliveries: 0 }),
+      liveIdentity: fakeLiveIdentity(null, []),
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    showTab('identity');
+    expect(root.querySelector('[data-live-identity]')!.getAttribute('data-live-identity')).toBe('signed-out');
+    expect(root.querySelectorAll('[data-live-recent-user]').length).toBe(0);
+    expect(root.querySelector('[data-live-identity-view] .empty')).not.toBeNull();
+  });
+
+  it('keeps the sandbox Identity tab on a sandbox host', async () => {
+    const { root, showTab } = setup({ initiallyOpen: true, withSandboxEvents: true, liveIdentity: fakeLiveIdentity(ADA, [ADA]) });
+    showTab('identity');
+    expect(root.querySelector('[data-live-identity-view]')).toBeNull();
+    expect(root.querySelector('[data-identity-query]')).not.toBeNull();
   });
 
   it('reads the live status again after a failed read, until one succeeds', async () => {

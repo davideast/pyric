@@ -30,6 +30,7 @@ const REFUSED = 'PYRIC_LIVE_REFUSED';
 const CLOSED_RULES = "rules_version = '2';\nservice cloud.firestore { match /databases/{db}/documents { match /{p=**} { allow read, write: if false; } } }";
 
 declare function signIn(): Promise<string>;
+declare function currentUid(): string | null;
 
 interface Received {
   rpc: string;
@@ -197,6 +198,24 @@ export default scenario(async (app) => {
     await tab.click();
     assert.equal(await tab.getAttribute('aria-selected'), 'true');
     await chip.locator('#pyric-view').waitFor({ state: 'visible', timeout: 15_000 });
+  });
+
+  await app.step("the Identity tab shows the production user the page signed in, with none of the sandbox's user controls", async () => {
+    const chip = await openChip(page);
+    await chip.locator('[data-live-identity="signed-in"]').waitFor({ timeout: 15_000 });
+    assert.equal(await chip.locator('[data-live-identity-view] .identity-facts dd').first().textContent(), 'user-reader');
+    for (const selector of ['[data-identity-query]', '[data-switch-user]', '[data-create-user]', '[data-toggle-bypass]']) {
+      assert.equal(await chip.locator(selector).count(), 0, selector);
+    }
+  });
+
+  await app.step("Sign out signs the page's own Auth out, and the user stays among the recent users", async () => {
+    const chip = await openChip(page);
+    assert.equal(await page.evaluate(() => currentUid()), 'user-reader');
+    await chip.locator('[data-live-sign-out]').click();
+    await chip.locator('[data-live-identity="signed-out"]').waitFor({ timeout: 15_000 });
+    assert.equal(await page.evaluate(() => currentUid()), null);
+    await chip.locator('[data-live-recent-user="user-reader"]').waitFor({ timeout: 15_000 });
   });
 
   await app.step('production received only the page\'s sign-in, by the replay server\'s own log', async () => {

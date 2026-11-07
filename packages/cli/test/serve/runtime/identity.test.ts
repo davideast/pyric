@@ -108,6 +108,16 @@ describe("live identity, read from the app's own Auth", async () => {
     early.dispose();
   });
 
+  it("signs out through the app's own Auth, and keeps the user among the recent ones", async () => {
+    expect(store.current()?.uid).toBe('alice');
+    await store.signOut();
+    await settle();
+    expect(appAuth.currentUser).toBeNull();
+    expect(store.current()).toBeNull();
+    expect(store.recent().map((user) => user.uid)).toEqual(['alice', 'bob']);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('keeps the profile off the page hub', () => {
     expect(hub.auths).toEqual([appAuth]);
     expect(Object.keys(hub).sort()).toEqual(['auths', 'listeners']);

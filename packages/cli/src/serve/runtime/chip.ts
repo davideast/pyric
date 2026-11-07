@@ -1,6 +1,8 @@
 import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel, rulesOperation } from 'pyric/sandbox/internal';
 import { createLiveStatusPoller, liveLabel, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { healthLiveStatus } from './chip-live-status.js';
+import { LIVE_IDENTITY_STYLES, liveIdentityViewHtml } from './chip-live-identity-view.js';
+import { pageLiveIdentity, type LiveIdentityStore } from './live-identity.js';
 import { workerAiRates } from './worker-ai-rates.js';
 import { liveRates } from './live-rates.js';
 import { aiModelHtml, aiModelRoute } from './ai-model-label.js';
@@ -138,6 +140,11 @@ export interface PyricRuntimeChipOptions {
   liveStatus?: ReadLiveStatus;
   /** Timers for those reads; tests pass their own. */
   liveStatusTimers?: LiveStatusTimers;
+  /**
+   * The production user the app's own Auth holds, which the Identity tab
+   * shows on a live host. Defaults to the page's store (`live-identity.ts`).
+   */
+  liveIdentity?: Pick<LiveIdentityStore, 'current' | 'recent' | 'subscribe' | 'signOut'>;
 }
 
 export interface PyricRuntimeChip {
@@ -424,6 +431,7 @@ const styles = `
     @keyframes pyric-enter { from { opacity: 0; transform: translateY(4px) scale(.98); } }
   }
   ${THEME_DIALOG_STYLES}
+  ${LIVE_IDENTITY_STYLES}
 `;
 
 function avatarHtml(photoUrl: string | null | undefined, label: string): string {
@@ -609,6 +617,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     () => render(),
     options.liveStatusTimers,
   );
+
+  const liveIdentity = options.liveIdentity ?? pageLiveIdentity();
 
   const getLensFn = options.getLens ?? defaultGetLens;
   const setLensFn = options.setLens ?? defaultSetLens;
@@ -1193,6 +1203,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   const viewHtml = (activeUid: string | null, isAdmin: boolean): ChipView => {
+    // On a live host Identity is the production user the app's Auth holds, not the sandbox's.
+    const isLiveIdentity = tab === 'identity' && liveStatusPoller.current() !== null;
+    if (isLiveIdentity) return liveIdentityViewHtml(liveIdentity);
     if (tab === 'identity') return identityViewHtml(activeUid, isAdmin);
     if (tab === 'listeners') return options.listeners && dataView ? dataView.view() : { body: emptyHtml('Data unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
@@ -1250,6 +1263,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-open-studio',
       'data-chip-tab',
       'data-sign-out',
+      'data-live-sign-out',
       'data-toggle-bypass',
       'data-switch-user',
       'data-create-user',
@@ -1616,6 +1630,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     root.querySelector('[data-sign-out]')?.addEventListener('click', () => {
       void identity.signOut();
     });
+    root.querySelector('[data-live-sign-out]')?.addEventListener('click', () => {
+      liveIdentity.signOut().then(() => {
+        identityNotice = 'Signed out.';
+        render();
+      }, (error: unknown) => failIdentityChange('Could not sign out', error));
+    });
     root.querySelector('[data-toggle-bypass]')?.addEventListener('click', () => {
       setLensFn(getLensFn()?.mode === 'admin' ? undefined : { mode: 'admin' });
       render();
@@ -1759,6 +1779,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     clientUser = next;
     render();
   });
+  const unsubLiveIdentity = liveIdentity.subscribe(() => render());
 
   mounted = true;
   render();
@@ -1798,6 +1819,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       unsubscribeAiConfiguration?.();
       unsubLens();
       unsubAuth();
+      unsubLiveIdentity();
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
       themeDialogController?.dispose();
       trafficFeed?.dispose();

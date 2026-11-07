@@ -4,7 +4,9 @@
  * page hub (`Symbol.for('pyric.live.auths')`, `packages/live/src/account.ts`);
  * this store listens to each one with the instance's own
  * `onAuthStateChanged`, so pyric never calls production Auth on its own
- * behalf. Outside live mode the hub stays empty and the store signed out.
+ * behalf. The one exception is the chip's Sign out, which the developer
+ * presses: it calls each instance's own `signOut`, as the app would.
+ * Outside live mode the hub stays empty and the store signed out.
  *
  * The uid, email, display name and provider stay in this module's memory:
  * they never reach call records, the event stream, capture files, browser
@@ -33,6 +35,12 @@ export interface LiveIdentityStore {
   /** The users signed in during this page session, newest first, each once. */
   recent(): LiveIdentity[];
   subscribe(listener: (user: LiveIdentity | null) => void): () => void;
+  /**
+   * Signs the user out of every Auth the app made, with each instance's own
+   * `signOut`, as the app's own sign-out would. Rejects with the first
+   * failure, after every instance was asked.
+   */
+  signOut(): Promise<void>;
   dispose(): void;
 }
 
@@ -64,6 +72,13 @@ export function liveIdentityOf(user: unknown): LiveIdentity | null {
   const hasUid = typeof uid === 'string' && uid.length > 0;
   if (!hasUid) return null;
   return { uid, email: textOrNull(user.email), displayName: textOrNull(user.displayName), providerId: providerOf(user) };
+}
+
+/** One Auth's own sign-out; an instance without one has nothing to sign out. */
+async function signOutOf(auth: object): Promise<void> {
+  const signOut = (auth as Fields).signOut;
+  if (typeof signOut !== 'function') return;
+  await Reflect.apply(signOut, auth, []);
 }
 
 /** A store that follows every Auth on `hub`, those listed now and those listed later. */
@@ -102,6 +117,11 @@ export function createLiveIdentity(hub: LiveAuthHub): LiveIdentityStore {
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    async signOut() {
+      const signOuts = [...watched.keys()].map(signOutOf);
+      const failed = (await Promise.allSettled(signOuts)).find((result) => result.status === 'rejected');
+      if (failed !== undefined) throw (failed as PromiseRejectedResult).reason;
     },
     dispose() {
       hub.listeners.delete(watch);
