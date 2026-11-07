@@ -447,7 +447,8 @@ describe('a Firestore list or listener names its query shape, never its values',
     const { query, collection, where, orderBy } = firestore;
     const emailField = await listed(query(collection(db, 'rooms'), where('alice@example.com', '==', true)));
     const tokenField = await listed(query(collection(db, 'rooms'), orderBy(`k${'0123456789'.repeat(5)}`)));
-    for (const record of [emailField, tokenField]) {
+    const jwtField = await listed(query(collection(db, 'rooms'), where('eyJhbGciOiJIUzI1NiJ9', '==', true)));
+    for (const record of [emailField, tokenField, jwtField]) {
       expect(record.outcome).toBe('resolved');
       expect(record.path).toBe('rooms');
       expect(record.query).toBeUndefined();
@@ -457,5 +458,16 @@ describe('a Firestore list or listener names its query shape, never its values',
     // The host refuses that field, which is why the page never sends it.
     const sent = { ...observedCallOf(emailField, Date.now()), query: { scope: 'collection', filters: [{ field: 'alice@example.com', op: '==' }] } };
     expect(() => host.readObservedCall(sent)).toThrow('query.filters.field');
+    const sentJwt = { ...observedCallOf(jwtField, Date.now()), query: { scope: 'collection', filters: [{ field: 'eyJhbGciOiJIUzI1NiJ9', op: '==' }] } };
+    expect(() => host.readObservedCall(sentJwt)).toThrow('query.filters.field');
+  });
+
+  test('a field that only contains eyJ, as the host takes it, keeps the shape', async () => {
+    const { query, collection, where, orderBy } = firestore;
+    const record = await listed(query(collection(db, 'surveys'), where('surveyJson', '==', 'v'), orderBy('keyJson')));
+    expect(record.query?.filters).toEqual([{ field: 'surveyJson', op: '==' }]);
+    expect(record.query?.orderBy).toEqual([{ field: 'keyJson', direction: 'asc' }]);
+    const read = host.readObservedCall(JSON.parse(JSON.stringify(observedCallOf(record, Date.now()))));
+    expect(read.query).toEqual(record.query!);
   });
 });
