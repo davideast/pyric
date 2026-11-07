@@ -64,6 +64,10 @@
       window.askAssistant = () => model.generateContent("Name one booking rule.")
         .then(({ response }) => ({ text: response.text(), totalTokenCount: response.usageMetadata?.totalTokenCount }), failure);
 
+      // A model the project does not serve: production rejects the request.
+      const unserved = getGenerativeModel(getAI(assistant, { backend: new GoogleAIBackend() }), { model: "gemini-not-served" }, url ? { baseUrl: url.origin } : undefined);
+      window.askUnservedModel = () => unserved.generateContent("Name one booking rule.").then(() => "answered", failure);
+
 
       document.querySelector("#status").textContent = "Ready";
     </script>

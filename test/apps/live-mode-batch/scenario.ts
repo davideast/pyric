@@ -14,7 +14,10 @@
  * resumed listener's deliveries with the documents production billed each
  * for, the denied read with production's `permission-denied`, and the AI call
  * with its model and tokens. The host's health report (`/__pyric/health`)
- * bills the commit as three writes: a delete is a write there.
+ * bills the commit as three writes: a delete is a write there. The page then
+ * asks a model the project does not serve, and the `vite dev` output holds a
+ * block naming the denied read's path, code and uid, and one naming the
+ * rejected AI call's model (fields only, not wording).
  *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * `live-mode-traffic.json` for the sign-in and the denial,
@@ -32,11 +35,14 @@ const BOOKINGS = ['b1', 'b2', 'b3'];
 /** The tokens the AI Logic observation reports for generateContent. */
 const AI_TOTAL_TOKENS = 11;
 const MODEL = 'gemini-flash-lite-latest';
+/** A model no observation served: production answers it 404. */
+const UNSERVED_MODEL = 'gemini-not-served';
 
 declare function signIn(): Promise<string>;
 declare function commitRooms(): Promise<string>;
 declare function readSecret(): Promise<string>;
 declare function askAssistant(): Promise<unknown>;
+declare function askUnservedModel(): Promise<unknown>;
 
 interface Replay {
   origin: string;
@@ -115,6 +121,22 @@ function resultOf(output: string): Record<string, unknown> {
   return JSON.parse(line.slice('RESULT '.length)) as Record<string, unknown>;
 }
 
+/** A process's output as lines, with terminal colors taken out. */
+function terminalLines(output: string): string[] {
+  return output.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
+}
+
+/** The `[pyric]` warning block a line of which names `field`: its headline and indented lines; empty when none does. */
+function blockNaming(lines: string[], field: string): string[] {
+  const at = lines.findIndex((line) => line.includes(field) && (line.includes('[pyric]') || /^ {6}\S/.test(line)));
+  if (at === -1) return [];
+  let start = at;
+  while (start > 0 && !lines[start]!.includes('[pyric]')) start -= 1;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => !/^ {6}\S/.test(line));
+  return [lines[start]!, ...(end === -1 ? rest : rest.slice(0, end))];
+}
+
 function blockedLines(app: App): string[] {
   return app.browserLog.filter((line) => line.includes('[blocked external'));
 }
@@ -185,6 +207,25 @@ export default scenario(async (app) => {
     assert.equal(ai.length, 1, JSON.stringify(ai));
     assert.match(ai[0]!.observation?.ai?.requestedModel ?? '', new RegExp(MODEL));
     assert.equal(ai[0]!.observation?.ai?.totalTokens, AI_TOTAL_TOKENS);
+  });
+
+  await app.step('the vite dev output names the denied read and the rejected AI call\'s model', async () => {
+    assert.equal(typeof await page.evaluate(() => askUnservedModel()), 'string');
+    assert.deepEqual(await replay.unmatched(), []);
+    const events = await eventually(() => liveEvents(host.url), (all) => all.some((event) => event.service === 'ai' && event.production?.outcome?.status === 'error'), 'the rejected AI call');
+    const rejected = events.find((event) => event.service === 'ai' && event.production?.outcome?.status === 'error');
+    assert.equal(rejected?.production?.outcome?.code, 'not_found');
+    // Fields only: the call's path, production's code and the uid in one block, and the model in another.
+    const lines = () => terminalLines(host.process.output);
+    const deniedBlock = () => blockNaming(lines(), 'rooms/secret');
+    const aiBlock = () => blockNaming(lines(), UNSERVED_MODEL);
+    await eventually(async () => [deniedBlock(), aiBlock()], ([denial, ai]) => denial.length > 0 && ai.length > 0, 'the terminal blocks', 10_000)
+      .catch((error: Error) => assert.fail(`${error.message}\nvite dev output:\n${host.process.output}`));
+    const denial = deniedBlock().join('\n');
+    assert.match(denial, /getDoc/);
+    assert.match(denial, /permission-denied/);
+    assert.match(denial, /user-reader/);
+    assert.match(aiBlock().join('\n'), /not_found|NOT_FOUND|404/i);
   });
 
   await app.step('nothing reached any host but loopback', async () => {
