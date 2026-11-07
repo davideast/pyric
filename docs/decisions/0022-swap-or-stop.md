@@ -486,10 +486,14 @@ credential could not already reach.
   acme-prod's default instance. The refusal tells the developer to name
   the instance in firebase.json. An app's own `databaseURL` can't add an
   instance: the row reads it only at the call, where it is the thing being
-  checked, so firebase.json is the one place to list one. When the row can't
-  read the instance at all, as after a firebase-admin upgrade that moves the
-  field it reads, it refuses the call and names the firebase-admin version,
-  so a change in the SDK never turns the check off.
+  checked, so firebase.json is the one place to list one. The rules calls
+  (`getRules`, `getRulesJSON`, `setRules`) get the same instance check before
+  the project gate. When the row can't read the instance at all, because
+  `_delegate._repoInternal.repoInfo_.namespace` is missing, as after a
+  firebase-admin upgrade that moves it, the row refuses the call and names
+  the firebase-admin version instead of skipping the check. A test pins that
+  field on the installed firebase-admin. An upgrade that keeps the field but
+  changes what it holds is not caught there.
 - **Messaging and App Check are served rows.** The Messaging row observes
   `send`, `sendEach`, `sendEachForMulticast`, `subscribeToTopic` and
   `unsubscribeFromTopic`, behind the project gate, and its records name no
@@ -497,6 +501,8 @@ credential could not already reach.
   `createToken` for another project are refused, and its calls make no record
   until the host has an App Check service for observed calls. The start line
   says so, and the process health lists `firebase-admin/app-check` as gated.
+  Both rows read the app from the class's public `app` getter, and refuse a
+  call when it holds no app.
 - **The module swap is unchanged.** Live mode still refuses Firebase imports
   it does not serve or pass through, and `@google-cloud/firestore` and
   `@google-cloud/storage` still load only from `firebase-admin`'s own files.
@@ -505,6 +511,10 @@ credential could not already reach.
   revisited separately.
 - **Residual.** The report reads the host, so an app's own raw call to a host
   a row's SDK reaches reads as observed, though no row records it.
+- **Residual.** `subscribeToTopic` and `unsubscribeFromTopic` go to
+  `iid.googleapis.com` with no project in the URL. The gate checks the app's
+  project, but which project the call reaches comes from the credential and
+  the registration tokens, as with a Cloud Storage bucket.
 
 ## Consequences
 
