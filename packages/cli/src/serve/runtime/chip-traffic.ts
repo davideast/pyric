@@ -17,7 +17,7 @@ import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal'
  * which line went wrong; the full disposition, the rule that matched, and the
  * payload are Studio's job, which is where a row's click goes.
  */
-import type { EventProvenance, ObservedCall, ObservedProduction, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
+import type { EventCaller, EventProvenance, ObservedCall, ObservedProduction, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import { captureIndexQuery, captureDatabaseIndexQuery, type ServiceIndexQuery } from 'pyric/sandbox/internal';
 
@@ -54,6 +54,10 @@ export interface ChipRequest {
    * or from the page's own error feed.
    */
   source?: CallerSource;
+  /** The connection the host stamped on the request's event, which a live scope reads. */
+  caller?: EventCaller;
+  /** The uid the request ran as, `null` signed out; absent when the event names neither. */
+  auth?: { uid: string } | null;
   /**
    * What production answered, on a row production served and pyric only
    * observed. Absent on every row the sandbox served. On such a row
@@ -106,9 +110,25 @@ function requestSource(event: SandboxEvent, viewerPageId: string | undefined): C
   return callerSource(caller, viewerPageId);
 }
 
+/** The uid an event ran as: `null` signed out, undefined when it names no auth. */
+function eventAuth(event: SandboxEvent): { uid: string } | null | undefined {
+  const auth = (event as { auth?: unknown }).auth;
+  if (auth === null) return null;
+  const uid = (auth as { uid?: unknown } | undefined)?.uid;
+  return typeof uid === 'string' ? { uid } : undefined;
+}
+
+/** The fields a scope reads off the request's event: its source, caller and uid. */
 function withSource(request: ChipRequest, event: SandboxEvent, viewerPageId: string | undefined): ChipRequest {
   const source = requestSource(event, viewerPageId);
-  return source === undefined ? request : { ...request, source };
+  const caller = (event as EventProvenance).caller;
+  const auth = eventAuth(event);
+  return {
+    ...request,
+    ...(source === undefined ? {} : { source }),
+    ...(caller === undefined ? {} : { caller: { ...caller } }),
+    ...(auth === undefined ? {} : { auth }),
+  };
 }
 
 /** Identity context for a denied request. */

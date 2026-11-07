@@ -7,6 +7,7 @@ import { LIVE_TAB_LABEL, LIVE_VIEW_STYLES, liveViewHtml } from './chip-live-view
 import { profileClientId } from '../worker/client/client-id.js';
 import { workerAiRates } from './worker-ai-rates.js';
 import { liveRates } from './live-rates.js';
+import { EVERY_CLIENT_SCOPE, inChipScope, liveSourceLabel, PAGE_SCOPE, scopeFromValue, scopeOptions, scopeSelectHtml, scopeValue, type ChipScope, type ChipScopeFields, type ScopeOption } from './chip-scope.js';
 import { aiModelHtml, aiModelRoute } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
 import type { CaptureEntry } from '../rate-capture-store.js';
@@ -66,12 +67,10 @@ import {
   isPermissionDeniedCode,
   orderChipRequests,
   RECENT_FAILURE_MS,
-  requestsInScope,
   sandboxAiRequests,
   hostAiRequests,
   type ChipRequest,
   type TrafficFeed,
-  type TrafficScope,
 } from './chip-traffic.js';
 import { createChipDataView, type ChipDataView } from './chip-data-view.js';
 import {
@@ -376,6 +375,7 @@ const styles = `
   .listener-toolbar select, .request-controls select { font: inherit; font-size: 11px; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 32px; min-width: 0; text-overflow: ellipsis; }
   .listener-toolbar select:focus-visible, .request-controls select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
   .request-controls.single { grid-template-columns: minmax(0, 1fr); }
+  .request-controls.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .request-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding-inline-end: var(--record-inset); }
   .request-controls select { appearance: none; padding-inline: var(--space-3) 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23a4acbb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right var(--space-2) center; background-size: 16px; }
   .request-pagination .btn { width: auto; padding-inline: var(--space-3); justify-self: start; }
@@ -710,14 +710,19 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   /** Which requests Traffic lists. A page session remembers nothing here: the
    * filter is a way of reading the last minute, not a preference. */
   let trafficFilter: 'all' | 'denied' = 'all';
-  /** Whose requests Traffic lists: this page's own, unless the developer asks for all. */
-  let trafficScope: TrafficScope = 'page';
+  /** Whose requests Traffic lists: this page's own, unless the developer asks for more. */
+  let trafficScope: ChipScope = PAGE_SCOPE;
+  /** The option Traffic's scope was chosen from, kept while its client is gone. */
+  let trafficScopeChoice: ScopeOption | null = null;
+  /** Whose calls Rates count on a live host: every client's, as before the select. */
+  let ratesScope: ChipScope = EVERY_CLIENT_SCOPE;
+  let ratesScopeChoice: ScopeOption | null = null;
   let requestPageSize = REQUEST_PAGE_SIZE;
   let requestService = '';
   let pinnedRequestIds: Set<string> | null = null;
   let requestListScroll = 0;
-  let projectAiRates: ReturnType<typeof workerAiRates> | undefined;
-  let projectLiveRates: ReturnType<typeof liveRates> | undefined;
+  /** Each scope's rate overlays, rebuilt when the rows change. */
+  const rateOverlays = new Map<string, { ai?: ReturnType<typeof workerAiRates>; live?: ReturnType<typeof liveRates> }>();
   let ratesDirty = true;
   let ratesLive = false;
   let observesHostAi = false;
@@ -727,28 +732,41 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const serviceHistories = { ai: createRateHistory('ai'), firestore: createRateHistory('firestore'), rtdb: createRateHistory('rtdb'), storage: createRateHistory('storage') };
   const currentRateHistory = () => serviceHistories[isThresholdService(selectedRateService) ? selectedRateService : 'rtdb'];
   const localRates = options.rates ?? sdkRates;
-  const rates = { snapshot: () => {
+  /** The overlays a live host's `scope` counts: its rows' AI calls and its events' Firestore, RTDB and Storage calls. */
+  const buildRateOverlays = (scope: ChipScope, isLiveHost: boolean) => {
+    const rows = trafficFeed?.requests() ?? [];
+    const sandboxAi = sandboxAiRequests(rows);
+    observesHostAi ||= sandboxAi.length > 0;
+    const countsHostAi = observesHostAi || isLiveHost;
+    const pageId = trafficFeed?.pageId();
+    const isScoped = isLiveHost && scope.kind !== 'all';
+    const scopedRows = isScoped ? rows.filter(row => inChipScope(row, scope, pageId)) : rows;
+    const scopedEvents = isScoped ? captureEvents.filter(event => inChipScope(event as ChipScopeFields, scope, pageId)) : captureEvents;
+    const countedAi = isLiveHost ? hostAiRequests(scopedRows) : sandboxAi;
+    return {
+      ...(countsHostAi ? { ai: workerAiRates(countedAi) } : {}),
+      ...(isLiveHost ? { live: liveRates(scopedEvents) } : {}),
+    };
+  };
+  const rates = { snapshot: (scope: ChipScope = ratesScope) => {
     const snapshot = localRates.snapshot();
     if (!options.sandboxEvents) return snapshot;
-    // On a live host, Rates count every client's calls from the host's stream,
-    // not this page's journal: Node processes and other tabs count too.
+    // On a live host, Rates count the chosen clients' calls from the host's
+    // stream, not this page's journal: Node processes and other tabs count too.
     const isLiveHost = liveStatusPoller.current() !== null;
     const needsRebuild = ratesDirty || ratesLive !== isLiveHost;
     if (needsRebuild) {
-      const rows = trafficFeed?.requests() ?? [];
-      const sandboxAi = sandboxAiRequests(rows);
-      observesHostAi ||= sandboxAi.length > 0;
-      const countsHostAi = observesHostAi || isLiveHost;
-      const countedAi = isLiveHost ? hostAiRequests(rows) : sandboxAi;
-      projectAiRates = countsHostAi ? workerAiRates(countedAi) : undefined;
-      projectLiveRates = isLiveHost ? liveRates(captureEvents) : undefined;
+      rateOverlays.clear();
       ratesLive = isLiveHost;
       ratesDirty = false;
     }
-    const hosted = projectLiveRates?.(snapshot) ?? snapshot;
-    return projectAiRates?.(hosted) ?? hosted;
+    const key = scopeValue(scope);
+    const overlays = rateOverlays.get(key) ?? buildRateOverlays(scope, isLiveHost);
+    rateOverlays.set(key, overlays);
+    const hosted = overlays.live?.(snapshot) ?? snapshot;
+    return overlays.ai?.(hosted) ?? hosted;
   } };
-  const ratesScope = () => liveStatusPoller.current() === null ? 'This page' : 'All clients';
+  const ratesScopeLabel = () => liveStatusPoller.current() === null ? 'This page' : 'All clients';
   let captureError = '';
   let savedCaptureList: CaptureEntry[] | null = null;
   let capturesLoading = false;
@@ -839,10 +857,25 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         identity: null,
       });
     }
-    const ordered = orderChipRequests(requestsInScope([...byId.values()], trafficScope), Date.now());
+    const pageId = trafficFeed?.pageId();
+    const scoped = [...byId.values()].filter(request => trafficScope.kind === 'page' ? isPageRequest(request) : inChipScope(request, trafficScope, pageId));
+    const ordered = orderChipRequests(scoped, Date.now());
     const kept = trafficFilter === 'denied' ? ordered.filter((request) => request.verdict !== 'ok' && !bypassesRules(request)) : ordered;
     const matching = kept.filter(request => !trafficSource || ((request.service === trafficSource.service || (request.service === 'rtdb' && trafficSource.service === 'database')) && activityDisplayTarget(request.path ?? '').replace(/^\//, '') === trafficSource.target.replace(/^\//, '')));
     return matching.filter(request => !requestService || request.service === requestService);
+  };
+
+  /** The select's client and user options: the host's clients, and every uid Traffic's rows ran as. */
+  const liveScopeOptions = () => {
+    const seen = (trafficFeed?.requests() ?? []).flatMap(request => request.auth ? [request.auth.uid] : []);
+    return scopeOptions(liveStatusPoller.current()?.clients ?? [], profileClientId(), seen);
+  };
+  /** The scope a "From" select names, with the option it was chosen from. */
+  const chosenScope = (select: HTMLSelectElement): [ChipScope, ScopeOption] | null => {
+    const scope = scopeFromValue(select.value);
+    const option = select.selectedOptions[0];
+    if (scope === null || option === undefined) return null;
+    return [scope, { value: select.value, label: option.textContent ?? '' }];
   };
 
   // ── Which view is showing ──────────────────────────────────────────────────
@@ -1048,14 +1081,17 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const alertHtml = alerts.length ? sectionHtml('Recorded incidents', `<div class="rows">${alerts.map(incident => `<button type="button" class="rate-alert" data-rate-incident="${escapeAttribute(incident.id)}"><span>${escapeAttribute(incident.label)}<small>${escapeAttribute(serviceLabel(incident.service))} · ${new Date(incident.at).toLocaleTimeString()}</small><small>Peak ${incident.peak}/s · limit ${incident.limit}/s</small><small>${incident.aboveSeconds}s above limit / ${incident.to - incident.from + 1}s elapsed</small></span><span class="rate-alert-status">${iconHtml('warning')}<span>Exceeded</span></span></button>`).join('')}</div>`) : '';
       const incidentCounts = new Map(['firestore', 'rtdb', 'storage', 'ai'].map(service => [service, thresholdMonitor.incidents().filter(incident => incident.service === service).length]));
       const frame = isThresholdService(selectedRateService) ? currentRateHistory().view(rates.snapshot()) : undefined;
-      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart', ratesScope());
+      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart', ratesScopeLabel());
       if (!selectedRateService) return { body: sectionHtml(measured.title, measured.body), bar: trafficToolbar() };
       const secondary = rateSection === 'capture-rename' ? 'Rename capture' : rateSection === 'capture-delete' ? 'Delete capture' : rateSection === 'chart' ? '' : rateSection === 'incidents' ? 'Incidents' : rateSection === 'captures' ? 'Captures' : 'Measurements';
       const breadcrumb = frame?.imported && selectedSavedCapture && rateSection === 'chart'
         ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}<button type="button" data-capture-open>Captures</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(selectedSavedCapture.name || serviceLabel(selectedRateService))}</span></nav></div>`
         : secondary ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}${rateSection === 'captures' ? '' : rateSection === 'capture-rename' || rateSection === 'capture-delete' ? `<button type="button" data-capture-open>Captures</button>${iconHtml('chevron')}` : `<button type="button" data-rate-chart>${escapeAttribute(serviceLabel(selectedRateService))}</button>${iconHtml('chevron')}`}<span aria-current="page">${secondary}</span></nav></div>` : crumbs(selectedRateService);
       const body = selectedSavedCapture && (rateSection === 'capture-rename' || rateSection === 'capture-delete') ? captureEditor(rateSection === 'capture-rename' ? { ...selectedSavedCapture, name: captureNameDraft } : selectedSavedCapture, rateSection === 'capture-delete', escapeAttribute) : rateSection === 'captures' ? `<section class="section">${captureList(savedCaptureList, capturesLoading, escapeAttribute)}</section>` : rateSection === 'incidents' ? alertHtml || emptyHtml('No incidents', 'No thresholds have been exceeded.') : `<section class="section">${measured.body}</section>`;
-      const autoUpdate = rateSection === 'chart' ? `<div class="rows">${switchRowHtml(`data-history-toggle data-history-mode="${frame?.paused ? 'live' : 'pause'}"`, 'Auto-update', frame?.paused !== true)}</div>` : '';
+      const ratesFrom = rateSection === 'chart' && liveStatusPoller.current() !== null
+        ? `<div class="request-controls single">${scopeSelectHtml('data-rates-from', ratesScope, liveScopeOptions(), ratesScopeChoice, escapeAttribute)}</div>`
+        : '';
+      const autoUpdate = rateSection === 'chart' ? `${ratesFrom}<div class="rows">${switchRowHtml(`data-history-toggle data-history-mode="${frame?.paused ? 'live' : 'pause'}"`, 'Auto-update', frame?.paused !== true)}</div>` : '';
       return { body: breadcrumb + autoUpdate + `<input type="file" data-capture-file accept="application/json,.json" hidden><p class="threshold-error" data-capture-error role="alert" ${captureError ? '' : 'hidden'}>${escapeAttribute(captureError)}</p>` + body, bar: trafficToolbar() };
     }
     if (selectedRequest) {
@@ -1115,6 +1151,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }) : retained;
     const newCount = retained.length - browsing.length;
     const shown = browsing.slice(0, requestPageSize);
+    const live = liveStatusPoller.current();
+    const liveClients = live?.clients ?? [];
+    const selfClientId = live === null ? '' : profileClientId();
+    const rowSourceLabel = (request: ChipRequest, source: NonNullable<ChipRequest['source']>): string => {
+      if (trafficScope.kind === 'page') return '';
+      return live === null ? CALLER_SOURCE_LABELS[source] : liveSourceLabel(request, source, liveClients, selfClientId);
+    };
     const rows = shown.map((request) => {
       // Keep named cells stable for copying while the path owns the main line.
       const indexMissing = requestMissingIndex(request);
@@ -1123,7 +1166,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
       const bypassed = bypassesRules(request);
       const rowSource = request.source ?? 'page';
-      const sourceLabel = trafficScope === 'all' ? CALLER_SOURCE_LABELS[rowSource] : '';
+      const sourceLabel = rowSourceLabel(request, rowSource);
       const source = sourceLabel ? `<span class="traffic-source" data-traffic-row-source="${rowSource}">${sourceLabel}</span> · ` : '';
       const isSandboxRowOnLiveHost = !request.production && liveStatusPoller.current() !== null;
       const servedLabel = isSandboxRowOnLiveHost ? 'Sandbox' : '';
@@ -1145,16 +1188,20 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
     const bar = trafficToolbar();
     const updatesPaused = pinnedRequestIds !== null;
-    const scopeSwitch = trafficFeed ? switchRowHtml('data-traffic-scope="all"', 'All traffic', trafficScope === 'all') : '';
+    // On a live host the scope is a select beside the service; a sandbox host keeps its switch.
+    const hasScopeSelect = trafficFeed !== null && live !== null;
+    const scopeSwitch = trafficFeed && !hasScopeSelect ? switchRowHtml('data-traffic-scope="all"', 'All traffic', trafficScope.kind === 'all') : '';
     const switches = `<div class="rows">${scopeSwitch}${switchRowHtml('data-traffic-denied', 'Denied or failed', trafficFilter === 'denied')}${switchRowHtml('data-request-pause', 'Auto-update', !updatesPaused)}</div>`;
-    const controls = `<div class="request-controls single"><select data-request-service aria-label="Request service">${['', 'ai', 'firestore', 'rtdb', 'storage', 'auth'].map(service => `<option value="${service}" ${service === requestService ? 'selected' : ''}>${service ? serviceLabel(service) : 'All services'}</option>`).join('')}</select></div>${switches}`;
+    const serviceSelect = `<select data-request-service aria-label="Request service">${['', 'ai', 'firestore', 'rtdb', 'storage', 'auth'].map(service => `<option value="${service}" ${service === requestService ? 'selected' : ''}>${service ? serviceLabel(service) : 'All services'}</option>`).join('')}</select>`;
+    const scopeSelect = hasScopeSelect ? scopeSelectHtml('data-traffic-from', trafficScope, liveScopeOptions(), trafficScopeChoice, escapeAttribute) : '';
+    const controls = `<div class="request-controls ${hasScopeSelect ? 'two' : 'single'}">${serviceSelect}${scopeSelect}</div>${switches}`;
     const older = browsing.length > shown.length ? '<div class="history-context request-pagination"><button type="button" class="btn" data-request-older>Load older</button></div>' : '';
     const omitted = trafficFeed?.omittedCount() ?? 0;
     const retention = omitted ? `<div class="history-context"><p class="hint request-retention">Older history discarded (${omitted} events). Retention is limited by age and memory.</p></div>` : '';
     // A SharedWorker sandbox lives in the browser, where no server process can reach it.
-    const missesServerTraffic = trafficScope === 'all' && snapshot.mode === 'shared-worker';
+    const missesServerTraffic = trafficScope.kind === 'all' && snapshot.mode === 'shared-worker';
     const hostedNote = missesServerTraffic ? '<div class="history-context"><p class="hint" data-traffic-hosted-note>Server code that uses the client SDK reaches this sandbox only when it runs with <span class="mono">pyric sandbox --hosted</span>.</p></div>' : '';
-    const emptyDetail = trafficScope === 'all' ? 'Requests from this page, other tabs, server code and MCP calls appear here.' : 'Use your app to see its data activity here.';
+    const emptyDetail = trafficScope.kind === 'all' ? 'Requests from this page, other tabs, server code and MCP calls appear here.' : 'Use your app to see its data activity here.';
     return { body: `${controls}${hostedNote}${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied or failed' : 'Requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', emptyDetail)}`, `${rows.length} of ${retained.length}${updatesPaused && newCount ? ` · ${newCount} new` : ''}`, copy)}${older}${retention}`, bar };
   };
 
@@ -1695,8 +1742,24 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       render();
     });
     root.querySelector('[data-traffic-scope]')?.addEventListener('click', () => {
-      trafficScope = trafficScope === 'all' ? 'page' : 'all';
+      trafficScope = trafficScope.kind === 'all' ? PAGE_SCOPE : EVERY_CLIENT_SCOPE;
       pinnedRequestIds = null;
+      render();
+    });
+    root.querySelector<HTMLSelectElement>('[data-traffic-from]')?.addEventListener('change', event => {
+      const choice = chosenScope(event.currentTarget as HTMLSelectElement);
+      if (choice === null) return;
+      [trafficScope, trafficScopeChoice] = choice;
+      pinnedRequestIds = null;
+      render();
+    });
+    root.querySelector<HTMLSelectElement>('[data-rates-from]')?.addEventListener('change', event => {
+      const choice = chosenScope(event.currentTarget as HTMLSelectElement);
+      if (choice === null) return;
+      [ratesScope, ratesScopeChoice] = choice;
+      // A history recorded under the last scope would keep that scope's seconds.
+      for (const service of ['ai', 'firestore', 'rtdb', 'storage'] as const) serviceHistories[service] = createRateHistory(service);
+      if (isThresholdService(selectedRateService)) currentRateHistory().open(rates.snapshot());
       render();
     });
     root.querySelector('[data-copy-response]')?.addEventListener('click', async (event) => {
@@ -1796,7 +1859,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const retainedSnapshot = rates.snapshot();
     for (const history of Object.values(serviceHistories)) history.record(retainedSnapshot);
     if (thresholdSettings.ready()) {
-      thresholdMonitor.sample(rates.snapshot(), thresholdSettings.config());
+      // Thresholds watch the project's limits, so they count every client whatever Rates show.
+      thresholdMonitor.sample(rates.snapshot(EVERY_CLIENT_SCOPE), thresholdSettings.config());
       for (const service of ['firestore', 'rtdb', 'storage', 'ai'] as const) serviceHistories[service].markWarnings(thresholdMonitor.incidents().filter(incident => incident.service === service).flatMap(incident => incident.aboveRanges));
       const nextSignature = JSON.stringify(thresholdMonitor.incidents().map(incident => [incident.id, incident.recovered, incident.reviewed]));
       if (thresholdSignature !== nextSignature) { thresholdSignature = nextSignature; render(); }

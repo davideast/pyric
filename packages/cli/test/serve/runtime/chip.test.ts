@@ -111,12 +111,13 @@ function setup(options: {
   if (options.clipboard) {
     chipOptions.clipboard = options.clipboard;
   }
-  let pushEvents: ((events: readonly SandboxEvent[], batch: { history: boolean; pageId?: string }) => void) | null = null;
+  // Every subscriber gets each batch, as the page's event source delivers it: Traffic and the capture both read it.
+  const subscribers = new Set<(events: readonly SandboxEvent[], batch: { history: boolean; pageId?: string }) => void>();
   if (options.withSandboxEvents) {
     chipOptions.sandboxEvents = (callback) => {
-      pushEvents = callback;
+      subscribers.add(callback);
       return () => {
-        pushEvents = null;
+        subscribers.delete(callback);
       };
     };
   }
@@ -130,7 +131,7 @@ function setup(options: {
     chip,
     root,
     setLensMock,
-    push: (events: readonly SandboxEvent[], batch: { history: boolean; pageId?: string } = { history: false }) => pushEvents?.(events, batch),
+    push: (events: readonly SandboxEvent[], batch: { history: boolean; pageId?: string } = { history: false }) => { for (const subscriber of [...subscribers]) subscriber(events, batch); },
     showTab(tab: ChipTab) {
       root.querySelector<HTMLButtonElement>(`[data-chip-tab="${tab}"]`)!.click();
     },
@@ -913,6 +914,91 @@ describe('the Traffic view', () => {
 
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
     expect(collapsedParts(root)).toEqual(['live-label']);
+  });
+
+  it('scopes Traffic and Rates with a select on a live host in place of the All traffic switch', async () => {
+    const clock = manualTimers();
+    const now = Date.now();
+    const clients = [
+      { kind: 'browser' as const, clientId: profileClientId(), label: '/', user: 'u1', lastSeen: now },
+      { kind: 'browser' as const, clientId: 'profile-b', label: '/dashboard', user: 'u2', email: 'b@example.com', lastSeen: now },
+      { kind: 'node' as const, clientId: 'journey-1', label: 'server.mjs', user: 'u1', lastSeen: now },
+    ];
+    const { root, push, runtime, showTab } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => ({ ...liveStatus({ reads: 0, writes: 0, deliveries: 0 }), clients }),
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    // A read from this page, profile B, the Node process and Studio, each billed a different number of documents.
+    const read = (caller: EventCaller, uid: string | null, documentReads: number, ago: number): SandboxEvent => ({
+      ...observedCallEvent({
+        service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: now - ago, outcome: { status: 'ok' },
+        ...(uid === null ? {} : { account: { uid } }), usage: { documentReads },
+      }),
+      caller,
+    } as SandboxEvent);
+    const events = {
+      mine: read({ kind: 'page', pageId: 'tab-1', clientId: profileClientId() }, 'u1', 1, 4000),
+      b: read({ kind: 'page', pageId: 'tab-b', clientId: 'profile-b' }, 'u2', 2, 3000),
+      node: read({ kind: 'node', clientId: 'journey-1' }, 'u1', 4, 2000),
+      studio: read({ kind: 'studio' }, null, 8, 1000),
+    };
+    push(Object.values(events), { history: true, pageId: 'tab-1' });
+    await clock.advance(150);
+    showTab('traffic');
+    const from = () => root.querySelector<HTMLSelectElement>('[data-traffic-from]')!;
+    const choose = (select: HTMLSelectElement, value: string) => {
+      select.value = value;
+      select.dispatchEvent(new root.ownerDocument.defaultView!.Event('change'));
+    };
+    const rowIds = () => [...root.querySelectorAll<HTMLElement>('[data-request-row]')].map((row) => row.dataset.requestRow).sort();
+    const idsOf = (...names: Array<keyof typeof events>) => names.map((name) => events[name].id).sort();
+    expect(root.querySelector('[data-traffic-scope]')).toBeNull();
+    expect(from().closest('.request-controls')!.querySelector('[data-request-service]')).not.toBeNull();
+    expect(from().value).toBe('page');
+    expect(rowIds()).toEqual(idsOf('mine'));
+    expect(root.querySelector('[data-traffic-row-source]')).toBeNull();
+
+    choose(from(), 'all');
+    expect(rowIds()).toEqual(idsOf('mine', 'b', 'node', 'studio'));
+    expect(root.querySelectorAll('[data-traffic-row-source]').length).toBe(4);
+    choose(from(), 'client:page:profile-b');
+    expect(rowIds()).toEqual(idsOf('b'));
+    choose(from(), 'client:node:journey-1');
+    expect(rowIds()).toEqual(idsOf('node'));
+    choose(from(), 'agents');
+    expect(rowIds()).toEqual(idsOf('studio'));
+    choose(from(), 'user:u1');
+    expect(rowIds()).toEqual(idsOf('mine', 'node'));
+    choose(from(), 'signed-out');
+    expect(rowIds()).toEqual(idsOf('studio'));
+    // The select's values name uids, never the email the host listed.
+    expect([...from().options].map((option) => option.value).join(' ')).not.toContain('@');
+
+    root.querySelector<HTMLButtonElement>('[data-traffic-display="rates"]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-inspect-rates="firestore"]')!.click();
+    const reads = (value: string) => {
+      choose(root.querySelector<HTMLSelectElement>('[data-rates-from]')!, value);
+      return Number(root.querySelector('[data-history-total="reads"]')!.textContent);
+    };
+    // Rates count every client until the select narrows them.
+    expect(root.querySelector<HTMLSelectElement>('[data-rates-from]')!.value).toBe('all');
+    expect(reads('all')).toBe(15);
+    expect(reads('page')).toBe(1);
+    expect(reads('client:page:profile-b')).toBe(2);
+    expect(reads('user:u1')).toBe(5);
+    expect(reads('agents')).toBe(8);
+  });
+
+  it('keeps the All traffic switch and no From select on a sandbox host', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    push([request('mine', Date.now(), 'notes/mine', 'allow')], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    expect(root.querySelector('[data-traffic-scope]')).not.toBeNull();
+    expect(root.querySelector('[data-traffic-from]')).toBeNull();
   });
 
   it("adds nothing to the header or the collapsed chip when the app's Firebase config names another project", async () => {
