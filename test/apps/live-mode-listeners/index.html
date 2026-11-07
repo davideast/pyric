@@ -15,13 +15,14 @@
     <script type="module">
       // A rooms app's page with the listener mistakes a real app makes: three
       // components each listen to the lobby, a component that re-renders
-      // subscribes to the patio and unsubscribes on every render, and a
-      // scoreboard listens to the Realtime Database. Its backend is the
+      // subscribes to the patio and unsubscribes on every render, the halls
+      // list resumes from the snapshot the server rendered, and a scoreboard listens to the
+      // Realtime Database. Its backend is the
       // project below, or the local backend a `?backend=<origin>` query names,
       // through the SDK's own emulator connectors.
       import { initializeApp } from "firebase/app";
       import { connectAuthEmulator, getAuth, signInWithCustomToken } from "firebase/auth";
-      import { connectFirestoreEmulator, doc, getFirestore, onSnapshot } from "firebase/firestore";
+      import { connectFirestoreEmulator, doc, getFirestore, onSnapshot, onSnapshotResume } from "firebase/firestore";
       import { connectDatabaseEmulator, getDatabase, onValue, ref } from "firebase/database";
 
       const PROJECT = "demo-live-listeners";
@@ -62,6 +63,12 @@
         }
         return 5;
       };
+
+      // The halls list, resumed from the snapshot JSON the server rendered, as a server-rendered
+      // page hydrates. Resolves with the hall count the resumed listener first delivers.
+      window.resumeHalls = (rendered) => new Promise((resolve, reject) => {
+        onSnapshotResume(db, rendered, (snapshot) => resolve(snapshot.size), (error) => reject(failure(error)));
+      });
 
       // The scoreboard. Resolves with its first value.
       window.listenToScores = () => new Promise((resolve, reject) => {
