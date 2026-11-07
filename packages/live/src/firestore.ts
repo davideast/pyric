@@ -18,6 +18,10 @@
  * neither: its data is the app's model, not the stored fields, and reading
  * it would run the app's `fromFirestore`.
  *
+ * A list or listener whose first argument is a query or collection also
+ * carries the query's shape (`queryShape` below): never a filter or cursor
+ * value, only a salted hash of them.
+ *
  * A `writeBatch` is observed at its `commit`: the batch counts each `set`,
  * `update` and `delete` the SDK accepted, and the commit is one observed
  * `writeBatch` call whose usage names those writes and deletes, with the
@@ -29,13 +33,25 @@
  * it takes types and `projectOf`, a function declaration that runs only when
  * a call is read, so the cycle resolves at load.
  */
-import { observedCall, projectOf, type CallContext, type LiveUsage, type ObservedSite, type ResultReading } from './observe.js';
+import {
+  observedCall,
+  projectOf,
+  type CallContext,
+  type LiveQuery,
+  type LiveQueryFilter,
+  type LiveQueryOrder,
+  type LiveUsage,
+  type ObservedSite,
+  type ResultReading,
+} from './observe.js';
 
 /** Where a reference or query sits: its path or group id, and the key its listeners share. */
 export interface FirestorePath {
   readonly target: string;
   readonly key: string;
 }
+
+const WRITES: ReadonlySet<string> = new Set(['setDoc', 'updateDoc', 'addDoc']);
 
 /** The constraints of a query, as the SDK keeps them in its `_query`. */
 const QUERY_CONSTRAINTS = ['filters', 'explicitOrderBy', 'limit', 'limitType', 'startAt', 'endAt'] as const;
@@ -64,6 +80,180 @@ function queryPath(subject: object): FirestorePath | undefined {
   } catch {
     // Constraints that do not serialize key the query by its collection alone.
     return { target, key: JSON.stringify(['query', target]) };
+  }
+}
+
+/** The operators a host takes on a filter. */
+const QUERY_OPERATORS: ReadonlySet<string> = new Set(['<', '<=', '==', '!=', '>=', '>', 'array-contains', 'in', 'not-in', 'array-contains-any']);
+/** The most filters or orders a host takes on one query. */
+const MAX_QUERY_CLAUSES = 64;
+/** The longest field path a host takes. */
+const MAX_FIELD_LENGTH = 1500;
+/*
+ * The host's token test, mirrored from `isTokenShaped` in pyric's
+ * `sandbox/internal/observed-call.ts`, which the page cannot import: runs of
+ * URL-safe characters and colons, refused when a colon-free segment is a
+ * JWT's start (`eyJ` and 10 more characters) or a 40-character run with a
+ * digit, or two segments make an FCM token. Keep the two in step.
+ */
+const NON_TOKEN_CHARACTERS = /[^A-Za-z0-9_:-]+/;
+const DIGIT = /[0-9]/;
+const MIN_JWT_TAIL = 10;
+const MIN_FCM_ID = 8;
+const MIN_FCM_TAIL = 20;
+const MIN_OPAQUE_RUN = 40;
+
+function isTokenSegment(segment: string): boolean {
+  const jwtStart = segment.indexOf('eyJ');
+  const isJwt = jwtStart >= 0 && segment.length - jwtStart - 3 >= MIN_JWT_TAIL;
+  const isOpaque = segment.length >= MIN_OPAQUE_RUN && DIGIT.test(segment);
+  return isJwt || isOpaque;
+}
+
+function isTokenRun(run: string): boolean {
+  const segments = run.split(':');
+  return segments.some((segment, index) => {
+    const next = segments[index + 1];
+    const isFcmToken = next !== undefined && segment.length >= MIN_FCM_ID && next.length >= MIN_FCM_TAIL;
+    return isFcmToken || isTokenSegment(segment);
+  });
+}
+
+function isTokenShaped(value: string): boolean {
+  return value.split(NON_TOKEN_CHARACTERS).some(isTokenRun);
+}
+
+/** Thrown inside the shape reader for a part the host would refuse: the shape is dropped, the row kept. */
+const UNSENDABLE: unique symbol = Symbol('unsendable');
+
+/**
+ * A field path as the SDK keeps it, when the host would take it. Any `@`
+ * drops it, wider than the host's email test, so a field the host refuses
+ * never reaches it.
+ */
+function sendableField(field: unknown): string {
+  const path = canonicalPath(field);
+  const isBounded = typeof path === 'string' && path.length > 0 && path.length <= MAX_FIELD_LENGTH;
+  if (!isBounded) throw UNSENDABLE;
+  const isValueShaped = path.includes('@') || isTokenShaped(path);
+  if (isValueShaped) throw UNSENDABLE;
+  return path;
+}
+
+/** One SDK filter as field filters, its values pushed onto `values`. An `or` or `and` composite flattens into its parts. */
+function flattenFilter(filter: unknown, filters: LiveQueryFilter[], values: unknown[]): void {
+  if (!isObject(filter)) throw UNSENDABLE;
+  const parts: unknown = Reflect.get(filter, 'filters');
+  if (Array.isArray(parts)) {
+    for (const part of parts) flattenFilter(part, filters, values);
+    return;
+  }
+  const op: unknown = Reflect.get(filter, 'op');
+  const isOperator = typeof op === 'string' && QUERY_OPERATORS.has(op);
+  if (!isOperator) throw UNSENDABLE;
+  filters.push({ field: sendableField(Reflect.get(filter, 'field')), op: op as LiveQueryFilter['op'] });
+  values.push(Reflect.get(filter, 'value'));
+}
+
+function readOrder(order: unknown): LiveQueryOrder {
+  if (!isObject(order)) throw UNSENDABLE;
+  const direction: unknown = Reflect.get(order, 'dir');
+  const isDirection = direction === 'asc' || direction === 'desc';
+  if (!isDirection) throw UNSENDABLE;
+  return { field: sendableField(Reflect.get(order, 'field')), direction };
+}
+
+/** A cursor's position and whether it includes it, or null for no cursor. */
+function cursorOf(bound: unknown): unknown {
+  if (!isObject(bound)) return null;
+  return [Reflect.get(bound, 'position'), Reflect.get(bound, 'inclusive')];
+}
+
+/** Random hex for this realm: fingerprints match within one page or process, and a hash can't be looked up elsewhere. */
+function realmSalt(): string {
+  const words = new Uint32Array(4);
+  const crypto: unknown = Reflect.get(globalThis, 'crypto');
+  const getRandomValues: unknown = isObject(crypto) ? Reflect.get(crypto, 'getRandomValues') : undefined;
+  if (typeof getRandomValues === 'function') {
+    Reflect.apply(getRandomValues, crypto, [words]);
+  } else {
+    for (let index = 0; index < words.length; index += 1) words[index] = Math.floor(Math.random() * 0x1_0000_0000);
+  }
+  return Array.from(words, (word) => word.toString(16)).join('');
+}
+
+const SALT = realmSalt();
+const FNV_OFFSET = 0xcbf29ce484222325n;
+const FNV_PRIME = 0x100000001b3n;
+const MASK_64 = 0xffffffffffffffffn;
+
+/** 64-bit FNV-1a over the text's UTF-16 code units, as 16 lowercase hex characters. */
+function fingerprintOf(text: string): string {
+  let hash = FNV_OFFSET;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= BigInt(text.charCodeAt(index));
+    hash = (hash * FNV_PRIME) & MASK_64;
+  }
+  return hash.toString(16).padStart(16, '0');
+}
+
+/** The salted hash of a query's filter and cursor values, or nothing when they don't serialize. */
+function valuesFingerprint(values: unknown): Pick<LiveQuery, 'fingerprint'> {
+  try {
+    return { fingerprint: fingerprintOf(SALT + JSON.stringify(values)) };
+  } catch {
+    // Values that do not serialize leave the shape without a fingerprint.
+    return {};
+  }
+}
+
+/** The shape of a query the SDK keeps in its `_query`; throws `UNSENDABLE` for one the host would refuse. */
+function readShape(query: object): LiveQuery {
+  const sdkFilters: unknown = Reflect.get(query, 'filters');
+  const sdkOrders: unknown = Reflect.get(query, 'explicitOrderBy');
+  const isReadable = Array.isArray(sdkFilters) && Array.isArray(sdkOrders);
+  if (!isReadable) throw UNSENDABLE;
+  const filters: LiveQueryFilter[] = [];
+  const values: unknown[] = [];
+  for (const filter of sdkFilters) flattenFilter(filter, filters, values);
+  const orderBy = sdkOrders.map(readOrder);
+  const isBounded = filters.length <= MAX_QUERY_CLAUSES && orderBy.length <= MAX_QUERY_CLAUSES;
+  if (!isBounded) throw UNSENDABLE;
+  const startAt = cursorOf(Reflect.get(query, 'startAt'));
+  const endAt = cursorOf(Reflect.get(query, 'endAt'));
+  const hasValues = values.length > 0 || startAt !== null || endAt !== null;
+  const isGroup = typeof Reflect.get(query, 'collectionGroup') === 'string';
+  const hasLimit = typeof Reflect.get(query, 'limit') === 'number';
+  return {
+    scope: isGroup ? 'collection-group' : 'collection',
+    ...(filters.length === 0 ? {} : { filters }),
+    ...(orderBy.length === 0 ? {} : { orderBy }),
+    ...(hasLimit ? { limit: true as const } : {}),
+    ...(hasValues ? valuesFingerprint([values, startAt, endAt]) : {}),
+  };
+}
+
+/** The SDK `type` of a first argument that runs as a query: a `Query` or a `CollectionReference`. */
+const QUERY_TYPES: ReadonlySet<unknown> = new Set(['query', 'collection']);
+
+/**
+ * The shape of the query a list or listener ran: its scope, its filters'
+ * fields and operators (an `or` flattened into its parts), its orders,
+ * whether it set a limit, and a salted hash of its filter and cursor values,
+ * so no value leaves the page. Undefined for a write or a document call, and
+ * for a query with a field path the host would refuse as value-shaped, whose
+ * row is still recorded without it.
+ */
+export function queryShape(name: string, subject: unknown): LiveQuery | undefined {
+  const isQuery = isObject(subject) && !WRITES.has(name) && QUERY_TYPES.has(Reflect.get(subject, 'type'));
+  if (!isQuery) return undefined;
+  const query: unknown = Reflect.get(subject, '_query');
+  if (!isObject(query)) return undefined;
+  try {
+    return readShape(query);
+  } catch {
+    // A part the host would refuse, or an SDK that renamed one, drops the shape, never the row.
+    return undefined;
   }
 }
 
@@ -150,8 +340,6 @@ function hasConverter(subject: unknown): boolean {
   return converter !== null && converter !== undefined;
 }
 
-const WRITES: ReadonlySet<string> = new Set(['setDoc', 'updateDoc', 'addDoc']);
-
 /** Whether `setDoc`'s options merge into the stored document, so the written fields are not the document's. */
 function isMerge(options: unknown): boolean {
   if (!isObject(options)) return false;
@@ -172,7 +360,7 @@ function writeDataOf(name: string, args: readonly unknown[]): Record<string, unk
  * The record context of one call: the first argument, whose app names the
  * account; the project its app names, through a reference or query's
  * `firestore.app` or the Firestore's own `app`; the path it touched; and,
- * on a write, the fields it wrote.
+ * on a write, the fields it wrote; on a list or listener, its query's shape.
  */
 export function firestoreContext(name: string, args: readonly unknown[]): CallContext {
   const projectId = projectOf(args);
@@ -181,11 +369,13 @@ export function firestoreContext(name: string, args: readonly unknown[]): CallCo
     const subject = args[0];
     const path = pathOf(subject);
     const writeData = writeDataOf(name, args);
+    const query = queryShape(name, subject);
     return {
       subject,
       ...project,
       ...(path === undefined ? {} : { path }),
       ...(writeData === undefined ? {} : { writeData }),
+      ...(query === undefined ? {} : { query }),
     };
   } catch {
     // An argument that throws on read is still recorded, with its project but without its path.

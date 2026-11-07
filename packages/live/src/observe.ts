@@ -123,6 +123,33 @@ export interface LiveCallRecord {
    * returned, as JSON values. Sent to the host for its local rules only.
    */
   readonly document?: Readonly<Record<string, unknown>>;
+  /** On a Firestore list or listener: the shape of its query. Never a value. */
+  readonly query?: LiveQuery;
+}
+
+/** One `where` filter of a query: its field path and operator. Never its value. */
+export interface LiveQueryFilter {
+  readonly field: string;
+  readonly op: '<' | '<=' | '==' | '!=' | '>=' | '>' | 'array-contains' | 'in' | 'not-in' | 'array-contains-any';
+}
+
+/** One `orderBy` of a query: its field path and direction. */
+export interface LiveQueryOrder {
+  readonly field: string;
+  readonly direction: 'asc' | 'desc';
+}
+
+/**
+ * The shape of a Firestore query: its scope, filters and orders, whether it
+ * set a limit, and `fingerprint`, 16 lowercase hex characters of a hash of
+ * its filter and cursor values salted per realm. Never a value.
+ */
+export interface LiveQuery {
+  readonly scope: 'collection' | 'collection-group';
+  readonly filters?: readonly LiveQueryFilter[];
+  readonly orderBy?: readonly LiveQueryOrder[];
+  readonly limit?: true;
+  readonly fingerprint?: string;
 }
 
 /** One request a Cloud Messaging call made: the API, what the request did, and production's HTTP status. Never its URL. */
@@ -216,6 +243,8 @@ export interface CallContext {
   readonly writeData?: Readonly<Record<string, unknown>>;
   /** On a Firestore read: the document it returned, once a hook has read it. */
   readonly document?: Readonly<Record<string, unknown>>;
+  /** On a Firestore list or listener: the shape of its query. */
+  readonly query?: LiveQuery;
   /** On a resolved read: the documents production billed it for, once a hook has counted them. */
   readonly billedDocuments?: number;
 }
@@ -319,6 +348,8 @@ export interface ObservedSite extends ObservedHooks {
   readonly writeData?: Readonly<Record<string, unknown>>;
   /** The document the Firestore read this site records returned. */
   readonly document?: Readonly<Record<string, unknown>>;
+  /** The shape of the query the Firestore list or listener this site records ran. */
+  readonly query?: LiveQuery;
   /**
    * Whether the export returns a thenable that is not a promise, whose
    * settlement is production's answer, as `push` returns its reference.
@@ -363,15 +394,16 @@ function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown):
   }
 }
 
-/** The site's instance, bucket, path, AI Logic model and Messaging requests, as a record carries them. */
-function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket' | 'path' | 'ai' | 'requests' | 'writeData' | 'document'> {
+/** The site's instance, bucket, path, AI Logic model, Messaging requests and Firestore values and query shape, as a record carries them. */
+function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket' | 'path' | 'ai' | 'requests' | 'writeData' | 'document' | 'query'> {
   const instance = site.instance === undefined ? {} : { instance: site.instance };
   const bucket = site.bucket === undefined ? instance : { ...instance, bucket: site.bucket };
   const place = site.path === undefined ? bucket : { ...bucket, path: site.path };
   const ai = site.ai === undefined ? place : { ...place, ai: site.ai };
   const requests = site.requests === undefined ? ai : { ...ai, requests: site.requests };
   const written = site.writeData === undefined ? requests : { ...requests, writeData: site.writeData };
-  return site.document === undefined ? written : { ...written, document: site.document };
+  const returned = site.document === undefined ? written : { ...written, document: site.document };
+  return site.query === undefined ? returned : { ...returned, query: site.query };
 }
 
 /** `value` is the delivered value or the error, by outcome. */
