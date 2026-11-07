@@ -314,8 +314,8 @@ function liveHostSender(reattached: () => void): (lists: NodeUnobservedLists) =>
 }
 
 /**
- * The pass-through list without `firebase-admin` while the Admin rows are
- * shut. A child process inherits its first process's list, so a Node 22
+ * The pass-through list a child process inherits, without `firebase-admin`
+ * while its own Admin rows are shut. The first process recorded it, so a Node 22
  * child of a Node 23 or later process would otherwise load the real Admin SDK
  * with no row and no project check; without it, each `firebase-admin` import
  * is refused, as in a Node 22 first process.
@@ -379,7 +379,7 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
     );
   }
   const adminRows = input.adminRows === true;
-  const passThrough = passThroughSet(adminPassesWithRows(input.passThrough ?? recordedPassThrough(process.env), adminRows));
+  const passThrough = passThroughSet(input.passThrough ?? adminPassesWithRows(recordedPassThrough(process.env), adminRows));
   // First, before any hook: the network report (`live-net-guard.ts`). It never
   // refuses a call, and names each Google host no live row observes.
   // Each list sent to the live host when it first gains an entry and on each change, so the host's health lists them.
