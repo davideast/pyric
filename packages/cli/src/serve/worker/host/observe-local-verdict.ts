@@ -12,7 +12,9 @@
  * A call may carry its token's claim values (`request.auth.token`), the data
  * a Firestore write sent (`request.resource.data`) and the document a
  * Firestore read returned (`resource.data`); the host feeds them to the
- * simulator from memory and keeps them off the event. It never carries a
+ * simulator from memory and keeps them off the event, except as the scalar
+ * check values a Firestore verdict's trace holds, as a sandbox request's
+ * `rulesEvidence` does, with every email address left out. It never carries a
  * `get()` or `exists()` document, an RTDB write's value or a query. A
  * verdict that rests on data the call did not carry is `unevaluated`,
  * naming what it needed, rather than a guess the local rules would not make
@@ -23,6 +25,7 @@ import { rtdbRules, type RtdbRulesJson } from 'pyric/rules';
 import { projectEvaluatedRule, type TestCase, type TestResult } from 'pyric/rules/internal';
 import { getActiveRules } from 'pyric/sandbox/database';
 import {
+  captureRulesEvidence,
   getInternalEnv,
   LOCKED_DATABASE_RULES,
   observedMethod,
@@ -37,13 +40,21 @@ type LocalVerdict = NonNullable<ObservedProduction['local']>;
 type Gap = Extract<LocalVerdict, { result: 'unevaluated' }>['needs'][number];
 type Decided = Extract<LocalVerdict, { result: 'allow' | 'deny' }>;
 type Rule = Decided['rule'];
+type Trace = NonNullable<Decided['trace']>;
 
-/** One method's local answer: allowed or not, the deciding rule, and the data it needed. */
+/** One method's local answer: allowed or not, the deciding rule, the data it needed, and its evaluation trace. */
 export interface Evaluation {
   allowed: boolean;
   rule: Rule;
   needs: Gap[];
+  trace?: Trace;
 }
+
+/** The largest trace, in bytes of JSON, a verdict keeps; a larger one is dropped and the verdict kept. */
+const TRACE_LIMIT = 16 * 1024;
+
+/** The trace's rules version: the host's loaded rules, which a sandbox request's random id does not name. */
+const LOCAL_TRACE_VERSION = 'local-rules';
 
 /** The order a verdict lists its gaps in. */
 const GAP_ORDER: readonly Gap[] = ['stored-document', 'write-data', 'claim-values', 'query'];
@@ -127,16 +138,78 @@ function definedOnly<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
 }
 
+/** The email values the call's claims carry, top level or among its sign-in identities. */
+function emailsOf(call: ObservedCall): string[] {
+  const claims = call.account?.claims;
+  if (claims === undefined) return [];
+  const firebase = claims.firebase as { identities?: { email?: unknown } } | undefined;
+  const identityEmails = firebase?.identities?.email;
+  const listed = Array.isArray(identityEmails) ? identityEmails : [];
+  return [claims.email, ...listed].filter((value): value is string => typeof value === 'string' && value !== '');
+}
+
+/** An email address anywhere in a text: another person's from a document, or the account's own. */
+const EMAIL_SHAPE = /[^\s@"']+@[^\s@"']+\.[^\s@"']+/;
+
+/** A value the trace capture records as `unavailable`, as it does any non-scalar. */
+const WITHHELD = Object.freeze({});
+
+type TraceRule = TestResult['trace'][number];
+type TraceEntry = NonNullable<TraceRule['expressionTrace']>[number];
+
+/** Whether `text` holds an email address or one of the account's `emails`. */
+function holdsEmail(text: string | undefined, emails: string[]): boolean {
+  if (text === undefined) return false;
+  return EMAIL_SHAPE.test(text) || emails.some((email) => text.includes(email));
+}
+
+/** One evaluated expression with its value or error withheld when it holds an email. */
+function entryWithoutEmail(entry: TraceEntry, emails: string[]): TraceEntry {
+  const text = typeof entry.value === 'string' ? entry.value : entry.error;
+  if (!holdsEmail(text, emails)) return entry;
+  const { error: _error, ...withoutError } = entry;
+  return { ...withoutError, value: WITHHELD };
+}
+
+/** One evaluated rule with its email-holding values and message left out. */
+function ruleWithoutEmail(rule: TraceRule, emails: string[]): TraceRule {
+  const { message, ...rest } = rule;
+  const kept = holdsEmail(message, emails) ? rest : rule;
+  const entries = rule.expressionTrace;
+  if (entries === undefined) return kept;
+  return { ...kept, expressionTrace: entries.map((entry) => entryWithoutEmail(entry, emails)) };
+}
+
+/**
+ * A simulator result's trace as the event may hold it: every value, error
+ * or message that holds an email address withheld before the capture
+ * truncates its text, so a cut-off address cannot pass.
+ */
+function traceOf(result: TestResult, call: ObservedCall): Trace {
+  const emails = emailsOf(call);
+  const trace = result.trace.map((rule) => ruleWithoutEmail(rule, emails));
+  return captureRulesEvidence({ ...result, trace }, LOCAL_TRACE_VERSION);
+}
+
+/** The trace a verdict keeps, or `undefined` when its JSON is larger than the cap in bytes. */
+function keptTrace(trace: Trace | undefined): Trace | undefined {
+  if (trace === undefined) return undefined;
+  const tooLarge = new TextEncoder().encode(JSON.stringify(trace)).byteLength > TRACE_LIMIT;
+  return tooLarge ? undefined : trace;
+}
+
 /** An evaluation as a verdict: unevaluated when it needed data, else flagged as drift when it disagrees with production. */
 function verdictOf(call: ObservedCall, evaluation: Evaluation): LocalVerdict {
   if (evaluation.needs.length > 0) return { result: 'unevaluated', needs: evaluation.needs };
   const { allowed, rule } = evaluation;
   const production = productionVerdict(call.outcome);
   const disagrees = (production === 'ok' && !allowed) || (production === 'denied' && allowed);
+  const trace = keptTrace(evaluation.trace);
   return {
     result: allowed ? 'allow' : 'deny',
     ...(rule === undefined ? {} : { rule }),
     ...(disagrees ? { drift: true as const } : {}),
+    ...(trace === undefined ? {} : { trace }),
   };
 }
 
@@ -208,7 +281,7 @@ function evaluateFirestore(simulate: FirestoreSimulate, call: ObservedCall, path
   const needs = looked ? unionOf(['stored-document'], gaps) : gaps;
   const deciding = projectEvaluatedRule(result);
   const rule = deciding === undefined ? undefined : definedOnly({ line: deciding.line, expression: deciding.expression });
-  return { allowed, rule, needs };
+  return { allowed, rule, needs, trace: traceOf(result, call) };
 }
 
 /**

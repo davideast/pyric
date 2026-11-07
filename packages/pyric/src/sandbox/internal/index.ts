@@ -154,6 +154,7 @@ export {
   type DeleteResult,
 } from '../../firestore/sandbox/local-state.js';
 export * from '../../firestore/sandbox/event-log.js';
+export { captureRulesEvidence } from '../../firestore/sandbox/rules-evidence.js';
 export * from '../../firestore/sandbox/auto-id.js';
 export * from '../../firestore/sandbox/transaction.js';
 export * from '../../firestore/sandbox/transaction-merge.js';
