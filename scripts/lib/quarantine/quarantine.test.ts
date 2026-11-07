@@ -275,8 +275,8 @@ describe('quarantine is off unless the runner is given --quarantine', () => {
     const build = readFileSync(resolve(import.meta.dir, '../../../.github/workflows/build.yml'), 'utf8');
     const commands = build.split('\n').map((line) => line.trim()).filter((line) => line.includes('bun ') && line.includes('--quarantine'));
     expect(commands).toEqual([
-      'run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/2 --quarantine',
-      'bun scripts/ci/test-shard.ts --package=pyric --shard=${{ matrix.shard }}/2 --quarantine',
+      'run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/3 --quarantine',
+      'bun scripts/ci/test-shard.ts --package=pyric --shard="${PART#pyric-}/3" --quarantine',
       'run: bun test/apps/run.ts --packages dist/packages --skip-slow --shard-plan test-results/app-plan.json --shard ${{ matrix.shard.index }} --quarantine',
       'run: bun scripts/ci/quarantine-test.ts --cwd packages/conformance --suite conformance --quarantine',
     ]);

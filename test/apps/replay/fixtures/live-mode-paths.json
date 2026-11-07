@@ -1,0 +1,163 @@
+{
+  "format": "pyric-replay/1",
+  "project": "demo-live-traffic",
+  "source": "hand-written from the firebase 12.12.0 SDK wire format: a Firestore Listen for the open rooms ordered by seats, which production refuses with FAILED_PRECONDITION while its composite index is missing, and a Listen for the messages collection group, answered with two messages, as a page sends them over WebChannel, for any account. Played beside live-mode-traffic.json by the live-mode-paths scenario. Not captured from production yet.",
+  "exchanges": [
+    {
+      "kind": "listen",
+      "id": "list-open-rooms-by-seats",
+      "target": {
+        "query": {
+          "structuredQuery": {
+            "from": [
+              {
+                "collectionId": "rooms"
+              }
+            ],
+            "where": {
+              "fieldFilter": {
+                "field": {
+                  "fieldPath": "open"
+                },
+                "op": "EQUAL",
+                "value": {
+                  "booleanValue": true
+                }
+              }
+            },
+            "orderBy": [
+              {
+                "field": {
+                  "fieldPath": "seats"
+                },
+                "direction": "DESCENDING"
+              },
+              {
+                "field": {
+                  "fieldPath": "__name__"
+                },
+                "direction": "DESCENDING"
+              }
+            ]
+          },
+          "parent": "projects/demo-live-traffic/databases/(default)/documents"
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            {
+              "targetChange": {
+                "targetChangeType": "REMOVE",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "cause": {
+                  "code": 9,
+                  "message": "The query requires an index. You can create it here: https://console.firebase.google.com/v1/r/project/demo-live-traffic/firestore/indexes?create_composite=replay"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "listen",
+      "id": "listen-messages-group",
+      "target": {
+        "query": {
+          "structuredQuery": {
+            "from": [
+              {
+                "collectionId": "messages",
+                "allDescendants": true
+              }
+            ],
+            "orderBy": [
+              {
+                "field": {
+                  "fieldPath": "__name__"
+                },
+                "direction": "ASCENDING"
+              }
+            ]
+          },
+          "parent": "projects/demo-live-traffic/databases/(default)/documents"
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            {
+              "targetChange": {
+                "targetChangeType": "ADD",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/garden/messages/m2",
+                  "fields": {
+                    "text": {
+                      "stringValue": "Doors open at nine"
+                    }
+                  },
+                  "createTime": "2026-11-01T08:00:00.000000Z",
+                  "updateTime": "2026-11-01T08:00:00.000000Z"
+                },
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/lobby/messages/m1",
+                  "fields": {
+                    "text": {
+                      "stringValue": "Welcome"
+                    }
+                  },
+                  "createTime": "2026-11-01T08:00:00.000000Z",
+                  "updateTime": "2026-11-01T08:00:00.000000Z"
+                },
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "targetChange": {
+                "targetChangeType": "CURRENT",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "resumeToken": {
+                  "$": "resumeToken"
+                },
+                "readTime": {
+                  "$": "readTime"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

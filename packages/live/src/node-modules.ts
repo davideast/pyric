@@ -124,7 +124,7 @@ export function observeAdminRow(name: AdminRowName, real: unknown, entryFile: st
   if (name === 'firestore') observeAdminFirestore(real, entryFile, row);
   if (name === 'storage') observeAdminStorage(real, entryFile, row);
   if (name === 'database') observeAdminDatabase(real, { ...row, hostProjectId: projectId });
-  if (name === 'auth') observeAdminAuth(real, row);
+  if (name === 'auth') observeAdminAuth(real, { ...row, hostProjectId: projectId });
 }
 
 /** This file, which each Admin row module requires for {@link observeAdminRow}: the same module instance the register loaded. */

@@ -7,20 +7,21 @@
  * does the refusal. The real-SDK stop opens only for one of those modules'
  * own ESM import of its specifier.
  * Every other Firebase import, served or not, and every `firebase-admin`
- * import is refused, never sent to a sandbox mirror, so one app object never
- * mixes the installed SDK with sandbox services.
+ * import the register does not pass through, is refused, never sent to a
+ * sandbox mirror, so one app object never mixes the installed SDK with
+ * sandbox services.
  *
  * The register may also pass served specifiers through (`passThrough`), as
  * the page plane does: each loads the app's installed SDK unwrapped, with no
  * row and no observer. Only a specifier with no live row can pass through
- * (`passThroughSet`). `firebase-admin` passes through when it is listed:
- * every `firebase-admin` and `firebase-admin/*` import then loads the real
- * Admin SDK, with the app's own credential, unobserved
+ * (`passThroughSet`). `@pyric/live/register` lists `firebase-admin` itself
+ * on Node 23 or later: every `firebase-admin` and `firebase-admin/*` import
+ * then loads the real Admin SDK, with the app's own credential
  * (`supplied-entry.ts` records the files it loads).
  *
- * The Admin rows (`admin-row.ts`) stay shut until the register opens them
- * (`adminRows`): then the passed-through Admin SDK's four class-defining
- * loads resolve to the Admin row modules, and its other services are refused.
+ * The register opens the Admin rows (`admin-row.ts`) with it (`adminRows`):
+ * the Admin SDK's four class-defining loads resolve to the Admin row modules,
+ * which observe them, and its other services are refused.
  *
  * Imports node built-ins and side-effect-free modules only.
  */
@@ -62,7 +63,7 @@ function shutRefusal(specifier: string): Error {
 
 /**
  * Shut live rows, with the specifiers that pass through once they open.
- * `adminRows` opens the Admin rows; nothing in a released register passes it yet.
+ * `adminRows` opens the Admin rows, as `@pyric/live/register` does on Node 23 or later.
  */
 export function registerRows(passThrough: ReadonlySet<PassThroughSpecifier> = new Set(), adminRows = false): RegisterRows {
   let found: RegisterRowPackage | null = null;

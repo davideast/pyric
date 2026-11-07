@@ -54,6 +54,8 @@ export class ReplayState {
   readonly received: Received[] = [];
   /** Emits `answered` with a write exchange id and its commit time. */
   readonly writes = new EventEmitter();
+  /** The document ids the Admin SDK picked for `add`, by `autoId` placeholder name (`admin-firestore.ts`). */
+  readonly autoIds = new Map<string, string>();
   private readonly used = new Set<string>();
 
   constructor(readonly recordings: Recording[]) {
@@ -65,7 +67,7 @@ export class ReplayState {
   }
 
   context(extra: Partial<FillContext> = {}): FillContext {
-    return { clock: this.clock, tokens: this.tokens, project: this.project, ...extra };
+    return { clock: this.clock, tokens: this.tokens, project: this.project, autoIds: this.autoIds, ...extra };
   }
 
   /** The first matching exchange not yet used, or the last matching one when all are used. */

@@ -3,8 +3,9 @@
 # When a Build & Test run started by a push to main completes, this lane
 # classifies it (scripts/ci/main-failure.ts):
 #   - attempt 1 failed: rerun only its failed jobs, once, and wait for
-#     attempt 2 in the same job, since a rerun started with the workflow
-#     token does not start this workflow again. Build & Test on main cancels
+#     attempt 2 in the same job. A rerun started with the workflow token does
+#     start this workflow again when it completes; the jobs below skip that
+#     event, since the job that reran classifies it. Build & Test on main cancels
 #     an in-progress run when another starts, and a rerun joins that group,
 #     so it reruns only while the commit is still the head of main and no
 #     newer push run is pending. Otherwise the failures go to the one

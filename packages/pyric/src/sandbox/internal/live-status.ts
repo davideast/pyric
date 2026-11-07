@@ -22,6 +22,7 @@
  * commit counts each write and delete its batch held.
  */
 import type { ObservedCall } from '../types/observed-call.js';
+import { coverageMethodOf } from './admin-methods.js';
 
 export type BilledCallKind = 'read' | 'write' | 'delivery';
 
@@ -263,17 +264,22 @@ const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, Bil
   ['deleteDoc', 'write'],
   ['addDoc', 'write'],
   ['runTransaction', 'write'],
-  ['writeBatch', 'write'],
+  ['writeBatch.commit', 'write'],
   ['onSnapshot', 'delivery'],
   ['onSnapshotResume', 'delivery'],
 ]);
 
-/** The billed kind of an observed call, or null for one production did not bill. */
+/**
+ * The billed kind of an observed call, or null for one production did not
+ * bill. An Admin call counts as the client method it reads as
+ * (`coverageMethodOf`), so `DocumentReference.get` is a read and
+ * `WriteBatch.commit` a write.
+ */
 export function billedCallKind(call: Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments'>): BilledCallKind | null {
   const succeeded = call.outcome.status === 'ok';
   const isFirestore = call.service === 'firestore';
   if (!succeeded || !isFirestore) return null;
-  const kind = FIRESTORE_KINDS.get(call.method) ?? null;
+  const kind = FIRESTORE_KINDS.get(coverageMethodOf('firestore', call.method)) ?? null;
   const isMetadataOnly = kind === 'delivery' && call.billedDocuments === 0;
   return isMetadataOnly ? null : kind;
 }

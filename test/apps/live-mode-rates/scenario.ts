@@ -228,9 +228,16 @@ export default scenario(async (app) => {
   });
 
   await app.step('the capture holds each page call with production\'s usage, and the AI call with its tokens', async () => {
-    const events = await eventually(() => liveEvents(host.url), (all) => usageLines(all, 'page').length >= PAGE_USAGE.length, 'the page\'s measured calls');
+    const pageAi = (all: CapturedEvent[]): CapturedEvent[] => all.filter((event) => event.caller?.kind === 'page' && event.service === 'ai');
+    // The AI call is the page's last and carries no usage, so wait for its
+    // event as well as the usage lines; it can reach the capture after them.
+    const events = await eventually(
+      () => liveEvents(host.url),
+      (all) => usageLines(all, 'page').length >= PAGE_USAGE.length && pageAi(all).length >= 1,
+      'the page\'s measured calls and its AI call',
+    );
     assert.deepEqual(usageLines(events, 'page'), PAGE_USAGE);
-    const ai = events.filter((event) => event.caller?.kind === 'page' && event.service === 'ai');
+    const ai = pageAi(events);
     assert.equal(ai.length, 1, `one AI event:\n${JSON.stringify(ai)}`);
     assert.equal(ai[0]!.observation?.ai?.usageSource, 'backend');
     assert.equal(ai[0]!.observation?.ai?.totalTokens, AI_TOTAL_TOKENS);

@@ -12,8 +12,9 @@
  * so only the live rows' SDK, and the SDK of each passed-through import,
  * reaches Google from the process. When `firebase-admin` passes through, the
  * real Admin SDK loads with the app's own credential, which pyric never
- * reads, and the guard admits its Google traffic only from the files its
- * import reached.
+ * reads, its class-defining loads go to the Admin rows when they are open,
+ * and the guard admits its Google traffic only from the files its import
+ * reached.
  */
 import Module from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -50,7 +51,7 @@ export { ADMIN_ROW_LOADS, ADMIN_ROW_URLS, adminRowOfUrl, type AdminRowName } fro
 export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
 export { liveProjectId } from '../serve/live-project.js';
 export { LIVE_PROJECT_ROOT_VARIABLE, liveAppDirs, liveProjectRoot } from './live-package.js';
-export { livePassThroughLine } from 'pyric/sandbox/internal';
+export { idTokenIssuer, livePassThroughLine } from 'pyric/sandbox/internal';
 export { swappedFirebaseEntries } from '../serve/firebase-module-swap.js';
 export type { FirebaseRowSet, ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 export type { SuppliedRowsPlane, SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
@@ -252,7 +253,8 @@ export interface SuppliedRowsActivation {
   readonly passThrough?: readonly string[];
   /**
    * Whether a passed-through Admin SDK's class-defining loads go to the Admin
-   * rows (`admin-row.ts`). Nothing passes it yet; the Admin rows' tests do.
+   * rows (`admin-row.ts`). `@pyric/live/register` passes it on Node 23 or
+   * later, with `firebase-admin` in `passThrough`.
    */
   readonly adminRows?: boolean;
 }
