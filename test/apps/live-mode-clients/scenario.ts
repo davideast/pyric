@@ -162,6 +162,17 @@ export default scenario(async (app) => {
     return [a1, a2, b1];
   });
 
+  await app.step("profile A's chip lists this page once and profile B as another client on its Live tab", async () => {
+    const chip = tabs[0]!.locator('[data-pyric-runtime-chip-host]');
+    await chip.waitFor({ state: 'attached', timeout: 30_000 });
+    if (await chip.locator('.panel-header').count() === 0) await chip.locator('[data-expand]').click();
+    await chip.locator('[data-chip-tab="sandbox"]').click();
+    await chip.locator('[data-live-view]').waitFor({ timeout: 20_000 });
+    // Profile A's second tab is the same client as this page; profile B is the one other client.
+    const listed = () => chip.locator('[data-live-client]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-live-client')));
+    await eventually(listed, (clients) => JSON.stringify(clients) === JSON.stringify(['self', 'browser']), "the Live tab's clients");
+  });
+
   await app.step('the server job under @pyric/live/register reads the room twice, as two processes', async () => {
     for (let run = 0; run < 2; run += 1) {
       const result = await app.command('node', ['--import', '@pyric/live/register', 'server.mjs'], {
