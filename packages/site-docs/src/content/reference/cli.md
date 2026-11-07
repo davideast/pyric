@@ -138,7 +138,7 @@ Command-line values override `pyric.json`. `--project` overrides `PYRIC_PROJECT`
 
 ## Environment variables
 
-`PYRIC_GUARD` selects what the network guard does in a process Pyric launches or registers. The guard refuses only requests for a server-side Google access token: Google's OAuth 2.0 token endpoint (`oauth2.googleapis.com`, and the `/oauth2/*/token` paths on `www.googleapis.com`), the Security Token Service (`sts.googleapis.com`), the IAM Service Account Credentials API (`iamcredentials.googleapis.com`), the GCE metadata server however its address is written, the hosts in `GCE_METADATA_HOST` and `GCE_METADATA_IP`, and the token hosts named in the file `GOOGLE_APPLICATION_CREDENTIALS` points to. Without a token, a Google client library in the sandboxed process can't act with your machine's credentials. Every other host, Firebase endpoints included, gets through with no report. A refused request fails with the error code `PYRIC_GUARD_BLOCKED`, and stderr names the host the first time. An unset, empty, unrecognized, or `block` value refuses token requests. `warn` does the same, and prints one notice saying it no longer lets them through. `off` installs no hooks and prints one notice saying so; the stops described next still apply. To use real Google credentials, run that command outside `pyric sandbox`, or set `PYRIC_GUARD=off` for it.
+`PYRIC_GUARD` selects what the network guard does in a process Pyric launches or registers. The guard refuses only requests for a server-side Google access token: Google's OAuth 2.0 token endpoint (`oauth2.googleapis.com`, and the `/oauth2/*/token` paths on `www.googleapis.com`), the Security Token Service (`sts.googleapis.com`), the IAM Service Account Credentials API (`iamcredentials.googleapis.com`), the GCE metadata server however its address is written, the hosts in `GCE_METADATA_HOST` and `GCE_METADATA_IP`, and the token hosts named in the file `GOOGLE_APPLICATION_CREDENTIALS` points to. Without a token, a Google client library in the sandboxed process can't act with your machine's credentials. Every other host, Firebase endpoints included, gets through with no report. A refused request fails with the error code `PYRIC_GUARD_BLOCKED`, and stderr names the host the first time. An unset, empty, unrecognized, or `block` value refuses token requests. `warn` does the same, and prints one notice saying it no longer lets them through. `off` installs no hooks and prints one notice saying so; the stops described next still apply. To use real Google credentials, run that command outside `pyric sandbox`, or set `PYRIC_GUARD=off` for it. A process under `@pyric/live/register` and a dev server with `pyricLive()` refuse nothing at the network, whatever `PYRIC_GUARD` says: they report each Google call no live row observes. See [Live mode observes, it doesn't block](../observe/live-mode.md#live-mode-observes-it-doesnt-block).
 
 In any process the register activates, an import that resolves into the real `firebase-admin` fails before the file loads, with the error code `PYRIC_REAL_SDK_STOPPED`. The register routes every `firebase-admin` import it recognizes to the sandbox, so a real `firebase-admin` there is an import it missed, such as an absolute path, an npm alias, or a link under another name, and it would run with your machine's credentials. The same holds for the real `firebase` and `@firebase/*` packages, except where pyric uses the real SDK on purpose: `firebase/ai` in production AI mode, and the `firebase/app` and `firebase/app-check` it attaches to. Only the import that asked fails, and the log names the import, the file that imported it, the file it resolved to, and the import to write instead. The register finds the package from the `package.json` it ships, not from its folder name. `PYRIC_GUARD` doesn't change this, `off` included, and it applies in every worker thread the process starts. It also applies in every Node child process the process starts: the register adds itself to the child's `NODE_OPTIONS` and copies in the `PYRIC_*` variables the child's environment lacks, whatever `env` or `execArgv` the child is given. A shell command that sets its own `NODE_OPTIONS`, as in `NODE_OPTIONS=--max-old-space-size=4096 node server.js`, replaces it. Append to the inherited value instead: `NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096"`. To run the real SDK, start that process outside a registered process, without `@pyric/cli/register`. On Node versions older than 22.15, which `@pyric/cli` doesn't support, this applies to `import` only, not to `require`.
 
@@ -150,6 +150,8 @@ In any process the register activates, an import that resolves into the real `fi
 
 `PYRIC_BEACON_TOKEN` is set by `pyric sandbox` on every child it starts. A child that has loaded `@pyric/cli/register` presents it when it reports that interception is installed, and the server rejects a report without it. A process you start yourself has no token, so the server does not count its report.
 
+`PYRIC_PROCESS_HEALTH=off` stops a registered process from answering the process health request on its own servers. See [Process health on registered processes](#process-health-on-registered-processes).
+
 `PYRIC_AVATARS` selects the profile-photo source for provider-created auth users. Unset, provider sign-ins get a deterministic generated avatar. `0` and `false` disable avatars, matching Firebase's own behaviour for a provider that supplies no photo. Any other value names a pre-built avatar set directory, resolved from the project root. There is no `--avatars` flag; `pyric sandbox` reads this variable only, one tier short of the Vite plugin's `avatars` option, which also accepts a custom generation source. See [Assign default avatars to sandbox users](../build/default-avatars.md).
 
 ## Output and readiness
@@ -157,6 +159,36 @@ In any process the register activates, an import that resolves into the real `fi
 With `--json`, stdout contains one JSON object with the URL, port, MCP URL, rules hash, persistence state, and restored item counts. The normal banner is written to stderr.
 
 Check `GET <url>/__pyric/init.json`. A `200` response means the server is ready and includes the current rules hash.
+
+## Process health on registered processes
+
+A Node process under `@pyric/cli/register` or `@pyric/live/register` answers `GET /__pyric/health` on each HTTP and HTTPS server it runs, when the request carries the `x-pyric-process-health` header and comes from this machine. Every other request reaches your app, the same path without the header included. So a `withPyric` app still forwards `/__pyric/health` to the sandbox host.
+
+The answer says what the process is:
+
+```json
+{ "pyricProcess": { "mode": "live", "projectId": "my-project", "unobserved": ["cloudtrace.googleapis.com"] } }
+```
+
+- **A sandbox process** answers `mode: "sandbox"`, with `instanceId` from `PYRIC_SANDBOX_INSTANCE` and `host`, the sandbox URL in `PYRIC_SANDBOX=remote:<url>`, when they are set.
+- **A live process** answers `mode: "live"` and `projectId`. It adds `unobserved`, the Google and Firebase hosts it called that no live row observed, `unobservedAdmin`, the `firebase-admin` services it loaded that no row serves, and `gatedAdmin`, the `firebase-admin` services checked against the project but not recorded, such as `firebase-admin/app-check`. Each list is absent when it is empty.
+
+To leave the path to your app for every request, set `PYRIC_PROCESS_HEALTH=off`. A dev server's proxy check then reads that process as not under pyric.
+
+## Check a dev server's proxy targets
+
+When a Vite dev server with `pyric()` or `pyricLive()` starts listening, it asks each `server.proxy` target on this machine for its process health. A target that doesn't answer is asked again after its first proxied response. The check prints a warning in the dev server's terminal, at most once per target and verdict, and never refuses a request. Targets on other machines are not checked.
+
+The host's `GET <url>/__pyric/health` lists each verdict in `proxyTargets`, as `{ "context": "/api", "verdict": "same" }`:
+
+| Verdict | Meaning | Warning |
+|---|---|---|
+| `same` | The target is in the same mode, on the same sandbox or the same project. | None |
+| `pyric-host` | The target is a pyric host itself, such as `pyric sandbox`. | None |
+| `not-pyric` | The target gave no process health: it runs without a register, sets `PYRIC_PROCESS_HEALTH=off`, or didn't answer. | On a sandbox page, its calls may reach production. None on a live page. |
+| `other-mode` | A sandbox page in front of a live backend, or a live page in front of a sandbox backend. | Names the mode and how to start the backend |
+| `other-instance` | A sandbox page in front of a backend on another pyric sandbox. | Names the instance and `pyric run --sandbox <url>` |
+| `other-project` | A live page in front of a backend in live mode for another project. | Names both projects |
 
 ## Exit codes
 
