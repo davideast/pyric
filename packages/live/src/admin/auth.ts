@@ -16,10 +16,17 @@
  * number and for `createUser`); none on `listUsers`, `getUsers` and
  * `deleteUsers`. A record never carries a token, password, email, phone
  * number, claim value or any other profile field.
+ *
+ * `verifyIdToken` and `verifySessionCookie` refuse a token a pyric sandbox
+ * issued, by name, before any request and with no record: the error keeps
+ * firebase-admin's `auth/argument-error` and adds `pyricCode:
+ * 'PYRIC_MODE_MISMATCH'` (G-3 in the #2304 plan).
  */
+import { idTokenIssuer } from '@pyric/cli/register/internal/supplied-rows';
 import { claimNamesOf } from '../account.js';
 import type { CallContext, LiveAccount, LiveObserver, ResultReading } from '../observe.js';
-import { patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
+import { liveModeMismatch } from '../refusal.js';
+import { keepShape, patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import type { AdminApp, AdminProjectGate } from './project-gate.js';
 
 /** The module an Admin Auth record names, which the page observer maps to the `auth` service. */
@@ -106,10 +113,42 @@ const METHODS: readonly AdminMethod[] = [
   ...calls(['verifyIdToken', 'getUserByEmail', 'getUserByPhoneNumber', 'createUser'], { resultOf: resultUid }),
 ];
 
-/** Where the records go and which gate the calls pass. */
+/** Where the records go, which gate the calls pass, and the live host's project a mode mismatch names. */
 export interface AdminAuthRow {
   readonly observer: LiveObserver;
   readonly gate: AdminProjectGate;
+  readonly hostProjectId: string;
+}
+
+/** The calls that take a token a page sends: a sandbox-issued one is refused before them. */
+const TOKEN_CALLS = ['verifyIdToken', 'verifySessionCookie'] as const;
+
+type Method = (this: unknown, ...args: unknown[]) => unknown;
+
+/**
+ * Refuses a token a pyric sandbox issued before `real` runs: the page signed
+ * in on a sandbox while this backend runs live. The refusal makes no request
+ * and no record, as every live refusal. A sandbox mints no session cookie,
+ * so a sandbox token at `verifySessionCookie` is a sandbox ID token sent as
+ * one, which `idTokenIssuer` reads as it reads any ID token.
+ */
+function refusingSandboxTokens(real: Method, hostProjectId: string): Method {
+  const refusing = function verifyToken(this: unknown, ...args: unknown[]): unknown {
+    const [token] = args;
+    const isSandboxToken = typeof token === 'string' && idTokenIssuer(token) === 'sandbox';
+    if (isSandboxToken) return Promise.reject(liveModeMismatch(hostProjectId));
+    return Reflect.apply(real, this, args);
+  };
+  return keepShape(refusing, real);
+}
+
+/** Wraps each token call on `prototype` with the sandbox-token refusal, over the row's own wrapper where it has one. */
+function refuseSandboxTokens(prototype: object, hostProjectId: string): void {
+  for (const name of TOKEN_CALLS) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+    if (typeof descriptor?.value !== 'function') continue;
+    Object.defineProperty(prototype, name, { ...descriptor, value: refusingSandboxTokens(descriptor.value as Method, hostProjectId) });
+  }
 }
 
 /**
@@ -120,5 +159,7 @@ export function observeAdminAuth(baseAuth: unknown, row: AdminAuthRow): void {
   const defined: unknown = isObject(baseAuth) ? Reflect.get(baseAuth, 'BaseAuth') : undefined;
   const prototype: unknown = typeof defined === 'function' ? Reflect.get(defined, 'prototype') : undefined;
   const adminRow: AdminRow = { module: ADMIN_AUTH_MODULE, observer: row.observer, gate: row.gate, appOf };
-  patchAdminClass(isObject(prototype) ? prototype : undefined, 'Auth', METHODS, adminRow);
+  const target = isObject(prototype) ? prototype : undefined;
+  const isFirstPatch = patchAdminClass(target, 'Auth', METHODS, adminRow);
+  if (isFirstPatch && target !== undefined) refuseSandboxTokens(target, row.hostProjectId);
 }
