@@ -296,7 +296,8 @@ describe('the panel shell', () => {
         // The slot may hold the row's one button; nothing else in the row may.
         expect(row.querySelectorAll('button, a, input').length).toBeLessThanOrEqual(row.querySelectorAll('.slot > .btn').length);
       }
-      expect(root.querySelector('[data-action-bar]')).not.toBeNull();
+      // Identity holds its one switch in the view, so it has no bar until it offers Create user.
+      if (tab !== 'identity') expect(root.querySelector('[data-action-bar]')).not.toBeNull();
       expect(root.querySelector('.view [data-action-bar]')).toBeNull();
     }
   });
@@ -317,7 +318,8 @@ describe('the Identity view', () => {
     const { root } = setup({ initiallyOpen: true });
     expect(root.querySelector('[data-identity-row] .c1')!.textContent).toBe('Signed out');
     expect(root.querySelector('[data-identity-row] .btn')).toBeNull();
-    expect(root.querySelector('[data-action-bar] [data-toggle-bypass]')).not.toBeNull();
+    expect(root.querySelector('.view [data-toggle-bypass][role="switch"]')).not.toBeNull();
+    expect(root.querySelector('[data-action-bar]')).toBeNull();
   });
 
   it('names the session, keeps the email and providers in the sub-row, and signs out from the slot', () => {
@@ -428,13 +430,17 @@ describe('the Identity view', () => {
     expect(listUsers).toHaveBeenCalledTimes(1);
   });
 
-  it('turns the rules bypass on and off from the bar', () => {
+  it('turns the rules bypass on and off from its switch', () => {
     const { root, setLensMock } = setup({ initiallyOpen: true, initialUser: { uid: 'u1' } });
     const bypass = root.querySelector<HTMLButtonElement>('[data-toggle-bypass]')!;
-    expect(bypass.getAttribute('aria-pressed')).toBe('false');
+    expect(bypass.getAttribute('role')).toBe('switch');
+    expect(bypass.getAttribute('aria-checked')).toBe('false');
     bypass.click();
     expect(setLensMock).toHaveBeenCalledWith({ mode: 'admin' });
-    expect(root.querySelector('[data-toggle-bypass]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(root.querySelector('[data-toggle-bypass]')!.getAttribute('aria-checked')).toBe('true');
+    root.querySelector<HTMLButtonElement>('[data-toggle-bypass]')!.click();
+    expect(setLensMock).toHaveBeenLastCalledWith(undefined);
+    expect(root.querySelector('[data-toggle-bypass]')!.getAttribute('aria-checked')).toBe('false');
   });
 
   it('offers to create the user nobody in the sandbox answers to', async () => {
@@ -599,7 +605,55 @@ describe('the Traffic view', () => {
     expect(root.querySelector('[data-traffic-detail]')!.getAttribute('data-request-row')).toBe('original');
   });
 
-  it('narrows to the denials from the bar, and copies the rows it is showing', async () => {
+  it('flips the scope, denied and auto-update switches and their effects, and keeps only the view picker in the footer', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    const from = (event: SandboxEvent, caller: EventCaller): SandboxEvent => ({ ...event, caller } as SandboxEvent);
+    push([
+      from(request('mine', now - 3000, 'notes/mine', 'allow'), { kind: 'page', pageId: 'tab-1' }),
+      from(request('tab', now - 2000, 'notes/tab', 'deny'), { kind: 'page', pageId: 'tab-2' }),
+    ], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const control = (selector: string) => root.querySelector<HTMLButtonElement>(selector)!;
+    const checked = (selector: string) => control(selector).getAttribute('aria-checked');
+    const rowIds = () => [...root.querySelectorAll<HTMLElement>('[data-request-row]')].map((row) => row.dataset.requestRow).sort();
+    for (const selector of ['[data-traffic-scope]', '[data-traffic-denied]', '[data-request-pause]']) {
+      expect(control(selector).getAttribute('role')).toBe('switch');
+      expect(control(selector).closest('[data-action-bar]')).toBeNull();
+    }
+    const footer = [...root.querySelectorAll<HTMLElement>('[data-action-bar] button')];
+    expect(footer.map(button => button.getAttribute('role'))).toEqual(['tab', 'tab']);
+    expect(footer.map(button => button.dataset.trafficDisplay)).toEqual(['requests', 'rates']);
+    expect(footer.map(button => button.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+
+    expect(checked('[data-traffic-scope]')).toBe('false');
+    expect(rowIds()).toEqual(['mine']);
+    control('[data-traffic-scope]').click();
+    expect(checked('[data-traffic-scope]')).toBe('true');
+    expect(rowIds()).toEqual(['mine', 'tab']);
+
+    expect(checked('[data-traffic-denied]')).toBe('false');
+    control('[data-traffic-denied]').click();
+    expect(checked('[data-traffic-denied]')).toBe('true');
+    expect(rowIds()).toEqual(['tab']);
+    control('[data-traffic-denied]').click();
+    expect(checked('[data-traffic-denied]')).toBe('false');
+
+    expect(checked('[data-request-pause]')).toBe('true');
+    control('[data-request-pause]').click();
+    expect(checked('[data-request-pause]')).toBe('false');
+    push([request('later', Date.now(), 'notes/later', 'allow')]);
+    expect(rowIds()).toEqual(['mine', 'tab']);
+    control('[data-request-pause]').click();
+    expect(checked('[data-request-pause]')).toBe('true');
+    expect(rowIds()).toEqual(['later', 'mine', 'tab']);
+
+    control('[data-traffic-scope]').click();
+    expect(checked('[data-traffic-scope]')).toBe('false');
+    expect(rowIds()).toEqual(['later', 'mine']);
+  });
+
+  it('narrows to the denials from its switch, and copies the rows it is showing', async () => {
     const written: string[] = [];
     const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true, clipboard: { writeText: async (text) => { written.push(text); } } });
     const now = Date.now();
@@ -607,7 +661,7 @@ describe('the Traffic view', () => {
     showTab('traffic');
     root.querySelector<HTMLButtonElement>('[data-traffic-denied]')!.click();
     expect(root.querySelectorAll('[data-request-row]').length).toBe(1);
-    expect(root.querySelector('[data-traffic-denied]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(root.querySelector('[data-traffic-denied]')!.getAttribute('aria-checked')).toBe('true');
     root.querySelector<HTMLButtonElement>('[data-copy-traffic]')!.click();
     await Promise.resolve();
     expect(written[0]).toContain('firestore.set  conversations/c1  Denied');
@@ -627,17 +681,15 @@ describe('the Traffic view', () => {
       from(request('agent', now - 1000, 'notes/agent', 'allow'), { kind: 'mcp' }),
     ], { history: true, pageId: 'tab-1' });
     showTab('traffic');
-    const scope = (value: string) => root.querySelector<HTMLButtonElement>(`[data-traffic-scope="${value}"]`)!;
-    expect(scope('page').getAttribute('aria-pressed')).toBe('true');
-    expect(scope('page').textContent).toBe('This page');
-    expect(scope('all').textContent).toBe('All sandbox traffic');
+    const scope = () => root.querySelector<HTMLButtonElement>('[data-traffic-scope]')!;
+    expect(scope().getAttribute('aria-checked')).toBe('false');
     const rowIds = () => [...root.querySelectorAll<HTMLElement>('[data-request-row]')].map((row) => row.dataset.requestRow);
     expect(rowIds()).toEqual(['mine']);
     expect(root.querySelector('[data-traffic-row-source]')).toBeNull();
     expect(root.querySelector('[data-traffic-hosted-note]')).toBeNull();
 
-    scope('all').click();
-    expect(scope('all').getAttribute('aria-pressed')).toBe('true');
+    scope().click();
+    expect(scope().getAttribute('aria-checked')).toBe('true');
     expect(rowIds().sort()).toEqual(['admin', 'agent', 'mine', 'server', 'tab']);
     const labelOf = (id: string) => root.querySelector(`[data-request-row="${id}"] [data-traffic-row-source]`)?.textContent;
     expect(labelOf('mine')).toBe('This page');
@@ -892,7 +944,7 @@ describe('the Traffic view', () => {
     runtime.setWorker({ mode: 'hosted' });
     push([request('mine', Date.now(), 'notes/mine', 'allow')], { history: true, pageId: 'tab-1' });
     showTab('traffic');
-    root.querySelector<HTMLButtonElement>('[data-traffic-scope="all"]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-traffic-scope]')!.click();
     expect(root.querySelector('[data-traffic-hosted-note]')).toBeNull();
   });
 

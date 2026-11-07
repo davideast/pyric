@@ -131,7 +131,10 @@ export function createChipDataView(host: ChipDataViewHost): ChipDataView {
 
   /** The listener a row click singled out on the page, if any. */
   let selectedSourceKey: string | undefined;
-  let highlightedSourceKey: string | undefined;
+  /** The outlines a source paints: its calls, by source id or listener id. */
+  const ofSource = (sourceId: string) => (outline: ListenerOutline): boolean => (outline.activity?.sourceId ?? outline.listenerId) === sourceId;
+  /** A source is on when the outlines are on and one of its outlines is visible. */
+  const sourceOutlined = (mode: ListenerMode | null, sourceId: string): boolean => mode !== null && mode.enabled() && mode.outlines().some(outline => ofSource(sourceId)(outline) && mode.isListenerVisible(outline.listenerId));
   const queryForSource = (id: string): ServiceIndexQuery | undefined =>
     listenerOutlines.find(outline => outline.activity?.sourceId === id)?.activity?.indexQuery
     ?? listenerMode?.history?.snapshot().entries.find(entry => entry.sourceId === id && entry.indexQuery)?.indexQuery;
@@ -226,7 +229,7 @@ export function createChipDataView(host: ChipDataViewHost): ChipDataView {
         indexMissing ? '<span class="index-status">Index missing from config</span>' : '',
         unplaced ? `<span class="unplaced-reason" data-listener-unplaced>${escapeAttribute(unplaced)}</span>` : '',
       ].filter(Boolean);
-      const highlightTitle = unplaced ?? `Highlight ${group.target}`;
+      const outlineLabel = `Outline ${group.target}`;
       return '<div class="source-row">' + buttonRowHtml({
         c1: modelIdentity ? aiModelHtml(modelIdentity, escapeAttribute, modelActivity?.method) : dataPathHtml(group.target),
         s2: facts.join(''),
@@ -236,22 +239,22 @@ export function createChipDataView(host: ChipDataViewHost): ChipDataView {
         className: group.members.some(member => member.incident) ? 'listener-row problem' : indexMissing ? 'listener-row pending' : 'listener-row', title: `Inspect ${group.target}`,
         attributes: `${group.members.some(member => member.incident) ? 'data-listener-incident="true" ' : ''}data-listener-row="${escapeAttribute(group.activityId)}" data-activate-listener="${escapeAttribute(group.activityId)}"`,
         label: `Inspect ${group.target}`, expanded: false,
-      }) + `<button type="button" class="source-highlight" data-highlight-source="${escapeAttribute(group.id)}" aria-label="Highlight ${escapeAttribute(group.target)}" title="${escapeAttribute(highlightTitle)}" aria-pressed="${outlinesOn && highlightedSourceKey === group.id}"${unplaced ? ' disabled' : ''}>${iconHtml('eye')}</button></div>`;
+      }) + `<button type="button" role="switch" class="switch bare" data-highlight-source="${escapeAttribute(group.id)}" aria-label="${escapeAttribute(outlineLabel)}" title="${escapeAttribute(unplaced ?? outlineLabel)}" aria-checked="${sourceOutlined(listenerMode, group.id)}"${unplaced ? ' disabled' : ''}><span class="switch-track" aria-hidden="true"></span></button></div>`;
     });
     const blocked = outlinesRefused;
-    const allOn = outlinesOn && paintMode === 'overview' && highlightedSourceKey === undefined && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
-    const toggle = `<button type="button" class="listener-toggle" data-listener-all aria-pressed="${allOn}"><span class="toggle-track" aria-hidden="true"></span>Show all</button>`;
+    const allOn = outlinesOn && paintMode === 'overview' && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
+    const outlineAll = `<div class="rows"><button type="button" role="switch" class="row switch-row" aria-checked="${allOn}" data-listener-all><span class="row-content"><span class="c1 wide">Outline all</span><span class="slot"><span class="switch-track" aria-hidden="true"></span></span></span></button></div>`;
     const treatment = listenerMode?.treatmentState?.();
     const description = treatment?.choices.find(entry => entry.id === treatment.selected)?.description ?? '';
     const picker = treatment ? `<select id="pyric-flow-treatment" data-flow-treatment aria-label="Flow treatment" title="${escapeAttribute(description)}">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}" title="${escapeAttribute(entry.description)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>` : '<span></span>';
     const notice = treatment?.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span>${buttonHtml(`data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}"`, 'Retry')}` : treatment?.loading ? '<span class="hint" role="status">Loading treatment…</span>' : '';
-    const toolbar = `<div class="listener-toolbar"><div class="paint-switch" role="group" aria-label="Highlight mode">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')}</div>${picker}<button type="button" class="btn icon-button" data-open-overlay-theme aria-label="Highlight settings" title="Highlight settings">${iconHtml('settings')}</button>${notice ? `<span class="listener-toolbar-notice">${notice}</span>` : ''}</div>`;
+    const toolbar = `<div class="listener-toolbar"><div class="segmented" role="tablist" aria-label="Highlight mode"><button type="button" role="tab" class="segment" data-listener-mode="overview" aria-selected="${pressed('overview')}">Overview</button><button type="button" role="tab" class="segment" data-listener-mode="flow" aria-selected="${pressed('flow')}" title="${escapeAttribute(flowReason ?? 'Show what rendered after each delivery')}"${flowReason === null ? '' : ' disabled'}>Flow</button></div>${picker}<button type="button" class="btn icon-button" data-open-overlay-theme aria-label="Highlight settings" title="Highlight settings">${iconHtml('settings')}</button>${notice ? `<span class="listener-toolbar-notice">${notice}</span>` : ''}</div>`;
     let bar = barHtml([toolbar]);
     const overviewReason = listenerMode?.overviewUnavailableReason();
     const regionGuidance = [overviewReason, flowReason].filter(Boolean).join(' ');
     const guidance = blocked ?? regionGuidance;
-    const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
-    let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : '', toggle);
+    const list = `${outlineAll}<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
+    let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : '');
     if (selected) {
       body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(selected.service)}</span>${iconHtml('chevron')}<span class="breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${selected.service === 'ai' ? 'Model requests' : escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
     }
@@ -284,8 +287,8 @@ export function createChipDataView(host: ChipDataViewHost): ChipDataView {
       root.querySelector('[data-listener-all]')?.addEventListener('click', () => {
         const mode = ensureListenerMode();
         if (!mode) return;
-        const allOn = mode.enabled() && mode.mode() === 'overview' && highlightedSourceKey === undefined && mode.outlines().every((outline) => mode.isListenerVisible(outline.listenerId));
-        activeListenerId = null; selectedSourceKey = undefined; highlightedSourceKey = undefined;
+        const allOn = mode.enabled() && mode.mode() === 'overview' && mode.outlines().every((outline) => mode.isListenerVisible(outline.listenerId));
+        activeListenerId = null; selectedSourceKey = undefined;
         for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
         if (!allOn) mode.setMode('overview');
         mode.setEnabled(!allOn);
@@ -302,7 +305,7 @@ export function createChipDataView(host: ChipDataViewHost): ChipDataView {
           // else is that mode going on.
           if (mode.enabled() && mode.mode() === paint) {
             mode.setEnabled(false);
-            activeListenerId = null; selectedSourceKey = undefined; highlightedSourceKey = undefined;
+            activeListenerId = null; selectedSourceKey = undefined;
             for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
             outlinesRefused = null;
           } else {
@@ -354,15 +357,26 @@ export function createChipDataView(host: ChipDataViewHost): ChipDataView {
         button.addEventListener('click', () => {
           const mode = ensureListenerMode();
           if (!mode) return;
-          const sourceId = button.dataset.highlightSource;
-          const turnOff = mode.enabled() && highlightedSourceKey === sourceId;
-          highlightedSourceKey = turnOff ? undefined : sourceId;
+          const sourceId = button.dataset.highlightSource ?? '';
+          const mine = ofSource(sourceId);
+          const outlines = mode.outlines();
           mode.inspectHistory?.(null);
-          for (const outline of mode.outlines()) {
-            mode.setListenerVisible(outline.listenerId, turnOff || (outline.activity?.sourceId ?? outline.listenerId) === sourceId);
+          if (sourceOutlined(mode, sourceId)) {
+            // Off: hide just this source; the last one off turns the outlines off.
+            for (const outline of outlines.filter(mine)) mode.setListenerVisible(outline.listenerId, false);
+            if (!outlines.some(outline => mode.isListenerVisible(outline.listenerId))) {
+              for (const outline of outlines) mode.setListenerVisible(outline.listenerId, true);
+              mode.setEnabled(false);
+            }
+          } else if (mode.enabled()) {
+            for (const outline of outlines.filter(mine)) mode.setListenerVisible(outline.listenerId, true);
+          } else {
+            // On from off: this source alone.
+            for (const outline of outlines) mode.setListenerVisible(outline.listenerId, mine(outline));
+            mode.setMode('overview');
+            mode.setEnabled(true);
           }
-          mode.setMode('overview');
-          mode.setEnabled(!turnOff);
+          listenerOutlines = mode.outlines();
           host.render();
           root.querySelectorAll<HTMLButtonElement>('[data-highlight-source]').forEach(next => {
             if (next.dataset.highlightSource === sourceId) next.focus({ preventScroll: true });
