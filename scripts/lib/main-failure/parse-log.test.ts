@@ -1,7 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import { resolve } from 'node:path';
 import { checkoutResolver, namedFailedJobs, parseFailures } from './parse-log.ts';
-import { ASSERTION_LOG, HOOK_TIMEOUT_LOG, PACKAGING_LOG, SPARSE, TESTS_JOB, hookTimeout } from './test-fixtures.ts';
+import {
+  APP_INSTALL_LOG,
+  APP_ROLES_LOG,
+  APP_STEP_LOG,
+  APP_TIMEOUT_LOG,
+  ASSERTION_LOG,
+  HOOK_TIMEOUT_LOG,
+  PACKAGING_LOG,
+  SPARSE,
+  TESTS_JOB,
+  hookTimeout,
+} from './test-fixtures.ts';
 
 const ROOT = resolve(import.meta.dir, '../../..');
 
@@ -84,5 +95,53 @@ describe('reading the failures from a job log', () => {
   test('the summary job drops out when another job failed, and stays when it is the only one', () => {
     expect(namedFailedJobs([TESTS_JOB, 'CI / required'])).toEqual([TESTS_JOB]);
     expect(namedFailedJobs(['CI / required'])).toEqual(['CI / required']);
+  });
+});
+
+describe('reading the failing apps from an App scenarios job log', () => {
+  const SHARD = 'App scenarios (2/7)';
+
+  test('a failed step names the app, and the assertion names the step, its error and where it was thrown', () => {
+    expect(parseFailures(SHARD, APP_STEP_LOG)).toEqual([{
+      job: SHARD,
+      test: 'test/apps/ai-app-check-stays-local',
+      assertion: 'step "the watch sees a SharedWorker request to an outside host, and it stays on the machine" failed: '
+        + 'AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: '
+        + '(at test/apps/ai-app-check-stays-local/scenario.ts:196:14)',
+    }]);
+  });
+
+  test('a timeout names the app, even when the runner crashed before its summary', () => {
+    expect(parseFailures(SHARD, APP_TIMEOUT_LOG)).toEqual([{
+      job: SHARD,
+      test: 'test/apps/nextjs16-firebase-imports',
+      assertion: 'step "pyric sandbox -- next dev: the page listens to the sandbox" failed: '
+        + 'launch: Timeout 180000ms exceeded. (at test/apps/run.ts:355:37)',
+    }]);
+  });
+
+  test('an app that failed before its scenario started names the runner step it failed in', () => {
+    expect(parseFailures('App scenarios (1/7)', APP_INSTALL_LOG)).toEqual([{
+      job: 'App scenarios (1/7)',
+      test: 'test/apps/rtdb-legacy-default-url',
+      assertion: 'step "npm install" failed: Error: npm install exited with code 1 (at test/apps/run.ts:170:70)',
+    }]);
+  });
+
+  test('every app that failed in one shard is named, in the order the log reports them', () => {
+    // Two real failure blocks from run 41174493690, joined as one shard's log.
+    const log = [APP_INSTALL_LOG, APP_ROLES_LOG].join('\n');
+    expect(parseFailures('App scenarios', log).map((failure) => failure.test)).toEqual([
+      'test/apps/rtdb-legacy-default-url',
+      'test/apps/ai-sandbox-contents-roles',
+    ]);
+  });
+
+  test('an app that failed and a bun test that failed in the same log are both named', () => {
+    const log = [ASSERTION_LOG, APP_STEP_LOG].join('\n');
+    expect(parseFailures('App scenarios', log).map((failure) => failure.test)).toEqual([
+      'test/apps/unreaped-exit.test.ts > reading an unreaped exit from /proc > a running process has no exit, and a zombie has its own',
+      'test/apps/ai-app-check-stays-local',
+    ]);
   });
 });

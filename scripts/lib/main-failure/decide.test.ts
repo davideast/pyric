@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { MAX_FLAKE_ISSUES, decide, type IssueAction } from './decide.ts';
+import { MAX_FLAKE_ISSUES, decide, type IssueAction, type OpenIssue } from './decide.ts';
 import { FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX, describePlan, flakePrefix, namesPath, testFilePath } from './issue-text.ts';
-import { RUN, SHA, SPARSE, TESTS_JOB, attempt, hookTimeout, packaging } from './test-fixtures.ts';
+import { parseFailures, type Failure } from './parse-log.ts';
+import { APP_STEP_LOG, RUN, SHA, SPARSE, TESTS_JOB, attempt, hookTimeout, packaging } from './test-fixtures.ts';
 
 const SPARSE_FILE = 'test/serve/worker/client/rtdb-sparse-array-holes.test.ts';
 
@@ -261,5 +262,58 @@ describe('deciding what a completed main run needs', () => {
       'attempt 1 failed: rerun its failed jobs once',
       '- Rerun the failed jobs of run 7',
     ].join('\n'));
+  });
+});
+
+describe('matching a flaky app scenario to its issue', () => {
+  const SHARD = 'App scenarios (2/7)';
+  const [stepFailure] = parseFailures(SHARD, APP_STEP_LOG);
+  const appFlake: Failure = stepFailure ?? { job: SHARD };
+  const replayFlake = { job: SHARD, test: 'test/apps/replay', assertion: 'step "x" failed: Error: y' };
+  // The open shard issue and the open scenario issue, as they read on GitHub.
+  const shardIssue = { number: 1746, title: `${FLAKE_PREFIX}\`${SHARD}\``, body: `\`${SHARD}\` failed on main and passed when its job was rerun.` };
+  const scenarioIssue = {
+    number: 2154,
+    title: 'Flaky: ai-app-check-stays-local misses the SharedWorker request',
+    body: 'Step "the watch sees a SharedWorker request to an outside host, and it stays on the machine" '
+      + '(`test/apps/ai-app-check-stays-local/scenario.ts:196`) saw no requests. Run 42117422847, App scenarios (7/7), '
+      + 'on #2151, which changes only `test/apps/replay/`.',
+  };
+
+  function flakeFor(failure: Failure, openIssues: OpenIssue[]): IssueAction | undefined {
+    const plan = decide({ current: attempt(2, 'success'), previous: attempt(1, 'failure', [failure]), openIssues });
+    return issueActions(plan.actions)[0];
+  }
+
+  test('a flaky app comments on the open issue whose title names the app, not on its shard\'s issue', () => {
+    expect(flakeFor(appFlake, [shardIssue, scenarioIssue])?.existing).toBe(2154);
+  });
+
+  test('a flaky app with no issue of its own opens one titled by its directory, never the shard issue', () => {
+    const flake = flakeFor(appFlake, [shardIssue]);
+    expect(flake?.existing).toBeUndefined();
+    expect(flake?.title).toBe(`${FLAKE_PREFIX}\`test/apps/ai-app-check-stays-local\``);
+    expect(flake?.body).toContain('the watch sees a SharedWorker request to an outside host');
+    expect(flake?.body).toContain("--test 'test/apps/ai-app-check-stays-local'");
+  });
+
+  test('an app that flakes again comments on the issue this lane opened for it', () => {
+    const own = { number: 2500, title: flakePrefix(appFlake) };
+    expect(flakeFor({ ...appFlake, assertion: 'step "another step" failed: Error: z' }, [scenarioIssue, own])?.existing).toBe(2500);
+  });
+
+  test('an issue whose title names the app\'s directory matches', () => {
+    expect(flakeFor(replayFlake, [{ number: 2600, title: 'Flaky: test/apps/replay times out on CI' }])?.existing).toBe(2600);
+  });
+
+  test('an app named only in an issue\'s body, a one-word app name, or a longer name does not match', () => {
+    expect(flakeFor(replayFlake, [scenarioIssue, { number: 2601, title: 'Replay drops a frame' }])?.existing).toBeUndefined();
+    expect(flakeFor(appFlake, [{ number: 2602, title: 'Flaky: ai-app-check-stays-local-v2 times out' }])?.existing).toBeUndefined();
+    expect(flakeFor(appFlake, [{ number: 2603, title: 'Flaky', body: 'ai-app-check-stays-local' }])?.existing).toBeUndefined();
+  });
+
+  test('the main is red and unconfirmed issues never take an app\'s flake', () => {
+    const red = { number: 50, title: `${RED_PREFIX}abc fails test/apps/ai-app-check-stays-local` };
+    expect(flakeFor(appFlake, [red])?.existing).toBeUndefined();
   });
 });
