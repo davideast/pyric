@@ -69,3 +69,19 @@ export function observedMethod(service: ObservedCallService, method: string): Ob
   if (!known) return null;
   return table[method] ?? null;
 }
+
+function isObservedService(service: string | undefined): service is ObservedCallService {
+  return service !== undefined && Object.hasOwn(TABLES, service);
+}
+
+/**
+ * The rules operation the host's local evaluation ran for a live call's SDK
+ * method: `getDoc` is `get`, `getDocs` is `list`, and `setDoc` is `create`,
+ * the case whose trace the host keeps. A method with no rules operation, or
+ * one already named by its operation, reads as it is.
+ */
+export function rulesOperation(service: string | undefined, method: string): string {
+  const observed = isObservedService(service) ? observedMethod(service, method) : null;
+  if (observed === null) return method;
+  return observed === 'set' ? 'create' : observed;
+}

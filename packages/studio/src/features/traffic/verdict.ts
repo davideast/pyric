@@ -15,7 +15,7 @@
 import { isQueryProofUnsupported } from '../rules-debug/query-proof.js';
 import type { EventCaller, ObservedProduction, RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
-import { observedMethod, productionVerdict } from 'pyric/sandbox/internal';
+import { productionVerdict, rulesOperation } from 'pyric/sandbox/internal';
 import type { ExprTraceEntry } from 'pyric/rules/internal';
 import type { Denial } from '../rules-debug/index.js';
 import type { CommandTarget } from '../home/command.js';
@@ -264,19 +264,6 @@ function decidingRule(trace: RulesEvidence): { rule: EvidenceRule; index: number
   const index = wanted === -1 ? rules.length - 1 : wanted;
   const rule = rules[index];
   return rule === undefined ? undefined : { rule, index };
-}
-
-/**
- * The rules operation the host's local evaluation ran for a live op's SDK
- * method: `getDoc` is `get`, `getDocs` is `list`, and `setDoc` is `create`,
- * the case whose trace the host keeps. A method with no rules operation, or
- * one already named by its operation, reads as it is.
- */
-export function rulesOperation(service: string | undefined, method: string): string {
-  const isObservedService = service === 'firestore' || service === 'rtdb' || service === 'storage';
-  const observed = isObservedService ? observedMethod(service, method) : null;
-  if (observed === null) return method;
-  return observed === 'set' ? 'create' : observed;
 }
 
 /** A live op as Traffic lists it: its method is the rules operation, as a sandbox op's is. */

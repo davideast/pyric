@@ -671,7 +671,7 @@ describe('the Traffic view', () => {
     expect(served.querySelector('.slot')!.textContent).toBe('Allowed');
     const row = root.querySelector(`[data-request-row="${observed.id}"]`)!;
     expect(row.querySelector('[data-traffic-row-production]')!.textContent).toBe('Production');
-    expect(row.querySelector('.c1')!.textContent).toBe('Production · firestore.getDoc');
+    expect(row.querySelector('.c1')!.textContent).toBe('Production · firestore.get');
     expect(row.querySelector('.s2')!.textContent).toBe('alice');
     expect(row.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production denied');
     expect(row.querySelector('.slot')!.textContent).toBe('Denied');

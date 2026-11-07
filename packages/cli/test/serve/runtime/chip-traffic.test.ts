@@ -399,7 +399,7 @@ describe('a call production served', () => {
       id: expect.any(String),
       at: 1000,
       service: 'firestore',
-      method: 'getDoc',
+      method: 'get',
       path: 'rooms/r1',
       verdict: 'ok',
       identity: 'alice',
@@ -485,7 +485,7 @@ describe('a call production served', () => {
     }, { kind: 'page', pageId: 'tab-1' });
     expect(chipRequestFromEvent(denied, 'tab-1')).toMatchObject({
       service: 'storage',
-      method: 'uploadBytes',
+      method: 'create',
       path: 'gs://demo-project.firebasestorage.app/pyric_oracle_denied_storage/a.bin',
       verdict: 'denied',
       production: { status: 'error', code: 'storage/unauthorized' },
@@ -565,6 +565,16 @@ describe('a call production served', () => {
     const traced = chipRequestFromEvent(withLocal(denied, { result: 'allow', rule, drift: true, trace }));
     expect(traced?.rulesEvidence).toEqual(trace);
     expect(traced?.localDrift).toEqual({ result: 'allow', rule, drift: true });
+  });
+
+  it('names a live call by the rules operation, as a sandbox row does', () => {
+    const method = (service: string, sdkMethod: string) => chipRequestFromEvent(observed({ service, method: sdkMethod }))?.method;
+    expect(method('firestore', 'getDoc')).toBe('get');
+    expect(method('firestore', 'getDocs')).toBe('list');
+    expect(method('firestore', 'setDoc')).toBe('create');
+    expect(method('firestore', 'updateDoc')).toBe('update');
+    expect(method('firestore', 'deleteDoc')).toBe('delete');
+    expect(method('firestore', 'onSnapshot')).toBe('onSnapshot');
   });
 
   it("reads an Admin call production answered not-found as failed, as production's row", () => {

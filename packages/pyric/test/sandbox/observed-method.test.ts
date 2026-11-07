@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import type { ObservedCallService } from '../../src/sandbox/index.js';
-import { observedMethod, type ObservedMethod } from '../../src/sandbox/internal/index.js';
+import { observedMethod, rulesOperation, type ObservedMethod } from '../../src/sandbox/internal/index.js';
 
 type Row = readonly [ObservedCallService, string, ObservedMethod];
 
@@ -65,5 +65,23 @@ describe('observedMethod', () => {
   it('reads an inherited object key as no export', () => {
     expect(observedMethod('firestore', 'toString')).toBeNull();
     expect(observedMethod('rtdb', 'constructor')).toBeNull();
+  });
+});
+
+describe('rulesOperation', () => {
+  it("reads a live call's SDK method as the rules operation the local evaluation ran", () => {
+    expect(rulesOperation('firestore', 'getDoc')).toBe('get');
+    expect(rulesOperation('firestore', 'getDocs')).toBe('list');
+    expect(rulesOperation('firestore', 'setDoc')).toBe('create');
+    expect(rulesOperation('firestore', 'updateDoc')).toBe('update');
+    expect(rulesOperation('firestore', 'deleteDoc')).toBe('delete');
+    expect(rulesOperation('rtdb', 'set')).toBe('create');
+  });
+
+  it('leaves a method with no rules operation as it is', () => {
+    expect(rulesOperation('firestore', 'get')).toBe('get');
+    expect(rulesOperation('auth', 'signInAnonymously')).toBe('signInAnonymously');
+    expect(rulesOperation(undefined, 'getDoc')).toBe('getDoc');
+    expect(rulesOperation('constructor', 'getDoc')).toBe('getDoc');
   });
 });

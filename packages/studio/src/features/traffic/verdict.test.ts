@@ -12,7 +12,6 @@ import {
   isStudioTraffic,
   declaredOperations,
   liveRuleEvaluation,
-  rulesOperation,
   withRulesOperation,
   localDrift,
   opensRulesInspector,
@@ -289,17 +288,7 @@ describe('liveRuleEvaluation', () => {
   });
 });
 
-describe('rulesOperation', () => {
-  it("reads a live op's SDK method as the rules operation the local evaluation ran", () => {
-    expect(rulesOperation('firestore', 'getDoc')).toBe('get');
-    expect(rulesOperation('firestore', 'getDocs')).toBe('list');
-    expect(rulesOperation('firestore', 'setDoc')).toBe('create');
-    expect(rulesOperation('firestore', 'updateDoc')).toBe('update');
-    expect(rulesOperation('firestore', 'deleteDoc')).toBe('delete');
-    expect(rulesOperation('firestore', 'get')).toBe('get');
-    expect(rulesOperation('auth', 'signInAnonymously')).toBe('signInAnonymously');
-  });
-
+describe('withRulesOperation', () => {
   it('lists only a live op under its rules operation', () => {
     const op = { id: 'o', method: 'getDoc', service: 'firestore' } as unknown as StudioTrafficEvent;
     const liveOp = { ...op, production: { outcome: { status: 'ok' } } } as unknown as StudioTrafficEvent;
