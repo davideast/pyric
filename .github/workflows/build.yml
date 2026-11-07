@@ -735,6 +735,11 @@ jobs:
         run: bun test --cwd packages/cli ./test/serve/vite-real-sdk-stop-node.test.ts
       - name: The Vite SSR client SDK app on Node 24.16
         run: bun test/apps/run.ts --packages dist/packages vite-ssr-client-sdk
+      # The Admin rows serve firebase-admin only on Node 23 or later, so the
+      # app scenarios on NODE_VERSION see its import refused. Here the
+      # observed Admin calls and their events run (#2304).
+      - name: The live-mode Admin SDK app on Node 24.16
+        run: bun test/apps/run.ts --packages dist/packages live-mode-admin
       - name: Upload app scenario logs
         if: failure()
         uses: actions/upload-artifact@v4
