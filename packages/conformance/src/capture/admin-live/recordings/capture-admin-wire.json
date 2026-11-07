@@ -1,0 +1,2802 @@
+{
+  "name": "admin-live-capture-admin-wire",
+  "description": "Every exchange firebase-admin made against production for the #2304 run spec: Auth user management and ID token checks, Firestore over gRPC, RTDB data messages, and the Storage JSON API. t is milliseconds since the capture started; op is the case running when the request was sent. Token exchanges, the gauth frame and its answer, and cert bodies are never recorded.",
+  "observedAt": "2026-11-07T00:05:08.066Z",
+  "adminVersion": "13.10.0",
+  "runPath": "pyric_oracle/<run>",
+  "results": {
+    "auth.createUser": "ok",
+    "auth.clientSignIn": "ok",
+    "auth.verifyIdToken": "ok",
+    "auth.verifyIdToken-checkRevoked": "ok",
+    "auth.getUser": "ok",
+    "auth.getUserByEmail": "ok",
+    "auth.setCustomUserClaims": "ok",
+    "auth.updateUser": "ok",
+    "auth.revokeRefreshTokens": "ok",
+    "auth.verifyIdToken-revoked": "auth/id-token-revoked",
+    "auth.verifyIdToken-sandbox-token": "auth/argument-error",
+    "auth.deleteUser": "ok",
+    "auth.getUser-deleted": "auth/user-not-found",
+    "firestore.set": "ok",
+    "firestore.get": "ok",
+    "firestore.get-missing": "ok",
+    "firestore.update": "ok",
+    "firestore.update-missing": "5",
+    "firestore.create-existing": "6",
+    "firestore.add": "ok",
+    "firestore.query": "ok",
+    "firestore.count": "ok",
+    "firestore.getAll": "ok",
+    "firestore.batch": "ok",
+    "firestore.runTransaction": "ok",
+    "firestore.onSnapshot": "ok",
+    "firestore.delete": "ok",
+    "rtdb.set": "ok",
+    "rtdb.get": "ok",
+    "rtdb.update": "ok",
+    "rtdb.push": "ok",
+    "rtdb.transaction": "ok",
+    "rtdb.on-value": "ok",
+    "rtdb.once-missing": "ok",
+    "rtdb.remove": "ok",
+    "storage.save": "ok",
+    "storage.getMetadata": "ok",
+    "storage.exists": "ok",
+    "storage.download": "ok",
+    "storage.getFiles": "ok",
+    "storage.setMetadata": "ok",
+    "storage.download-missing": "404",
+    "storage.delete": "ok"
+  },
+  "invariants": {
+    "userDeleted": true,
+    "documentsRemoved": true,
+    "rtdbRemoved": true,
+    "objectsRemoved": true,
+    "stepsSettled": true
+  },
+  "grpc": [
+    {
+      "seq": 1,
+      "t": 5376.4,
+      "op": "firestore.set",
+      "kind": "unary",
+      "method": "google.firestore.v1.Firestore/Commit",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "writes": [
+            {
+              "update": {
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+                "fields": {
+                  "n": {
+                    "integerValue": 1
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "t": 5522,
+          "message": {
+            "writeResults": [
+              {
+                "transformResults": [],
+                "updateTime": "<update-time-1>"
+              }
+            ],
+            "commitTime": "<commit-time-1>"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 2,
+      "t": 5526,
+      "op": "firestore.get",
+      "kind": "server-stream",
+      "method": "google.firestore.v1.Firestore/BatchGetDocuments",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "documents": [
+            "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a"
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "t": 6468.6,
+          "message": {
+            "transaction": "<transaction-1>",
+            "readTime": "<read-time-1>",
+            "found": {
+              "fields": {
+                "n": {
+                  "integerValue": "1",
+                  "valueType": "integerValue"
+                }
+              },
+              "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+              "createTime": "<create-time-1>",
+              "updateTime": "<update-time-1>"
+            },
+            "result": "found"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 3,
+      "t": 6471.3,
+      "op": "firestore.get-missing",
+      "kind": "server-stream",
+      "method": "google.firestore.v1.Firestore/BatchGetDocuments",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "documents": [
+            "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/missing"
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "t": 6563.1,
+          "message": {
+            "transaction": "<transaction-1>",
+            "readTime": "<read-time-2>",
+            "missing": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/missing",
+            "result": "missing"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 4,
+      "t": 6565.2,
+      "op": "firestore.update",
+      "kind": "unary",
+      "method": "google.firestore.v1.Firestore/Commit",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "writes": [
+            {
+              "update": {
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+                "fields": {
+                  "n": {
+                    "integerValue": 2
+                  }
+                }
+              },
+              "updateMask": {
+                "fieldPaths": [
+                  "n"
+                ]
+              },
+              "currentDocument": {
+                "exists": true
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "t": 6732.2,
+          "message": {
+            "writeResults": [
+              {
+                "transformResults": [],
+                "updateTime": "<update-time-2>"
+              }
+            ],
+            "commitTime": "<commit-time-2>"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 5,
+      "t": 6733,
+      "op": "firestore.update-missing",
+      "kind": "unary",
+      "method": "google.firestore.v1.Firestore/Commit",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "writes": [
+            {
+              "update": {
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/missing",
+                "fields": {
+                  "n": {
+                    "integerValue": 2
+                  }
+                }
+              },
+              "updateMask": {
+                "fieldPaths": [
+                  "n"
+                ]
+              },
+              "currentDocument": {
+                "exists": true
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [],
+      "status": {
+        "code": 5,
+        "details": "No document to update: projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/missing",
+        "trailers": [
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 6,
+      "t": 6867.3,
+      "op": "firestore.create-existing",
+      "kind": "unary",
+      "method": "google.firestore.v1.Firestore/Commit",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "writes": [
+            {
+              "update": {
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+                "fields": {
+                  "n": {
+                    "integerValue": 1
+                  }
+                }
+              },
+              "currentDocument": {
+                "exists": false
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [],
+      "status": {
+        "code": 6,
+        "details": "Document already exists: projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+        "trailers": [
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 7,
+      "t": 6983.5,
+      "op": "firestore.add",
+      "kind": "unary",
+      "method": "google.firestore.v1.Firestore/Commit",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "writes": [
+            {
+              "update": {
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/nwtkU6ZQvR3fHV2jtFra",
+                "fields": {
+                  "n": {
+                    "integerValue": 3
+                  }
+                }
+              },
+              "currentDocument": {
+                "exists": false
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "t": 7188.8,
+          "message": {
+            "writeResults": [
+              {
+                "transformResults": [],
+                "updateTime": "<update-time-3>"
+              }
+            ],
+            "commitTime": "<commit-time-3>"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 8,
+      "t": 7191.8,
+      "op": "firestore.query",
+      "kind": "server-stream",
+      "method": "google.firestore.v1.Firestore/RunQuery",
+      "requests": [
+        {
+          "parent": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>",
+          "structuredQuery": {
+            "from": [
+              {
+                "collectionId": "notes"
+              }
+            ],
+            "where": {
+              "fieldFilter": {
+                "field": {
+                  "fieldPath": "n"
+                },
+                "op": "GREATER_THAN_OR_EQUAL",
+                "value": {
+                  "integerValue": 1
+                }
+              }
+            }
+          }
+        }
+      ],
+      "responses": [
+        {
+          "t": 7295.5,
+          "message": {
+            "document": {
+              "fields": {
+                "n": {
+                  "integerValue": "2",
+                  "valueType": "integerValue"
+                }
+              },
+              "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+              "createTime": "<create-time-1>",
+              "updateTime": "<update-time-2>"
+            },
+            "transaction": "<transaction-1>",
+            "readTime": "<read-time-3>",
+            "skippedResults": 0,
+            "explainMetrics": null
+          }
+        },
+        {
+          "t": 7296.2,
+          "message": {
+            "document": {
+              "fields": {
+                "n": {
+                  "integerValue": "3",
+                  "valueType": "integerValue"
+                }
+              },
+              "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/nwtkU6ZQvR3fHV2jtFra",
+              "createTime": "<create-time-2>",
+              "updateTime": "<update-time-3>"
+            },
+            "transaction": "<transaction-1>",
+            "readTime": "<read-time-3>",
+            "skippedResults": 0,
+            "explainMetrics": null
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 9,
+      "t": 7299.3,
+      "op": "firestore.count",
+      "kind": "server-stream",
+      "method": "google.firestore.v1.Firestore/RunAggregationQuery",
+      "requests": [
+        {
+          "parent": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>",
+          "structuredAggregationQuery": {
+            "structuredQuery": {
+              "from": [
+                {
+                  "collectionId": "notes"
+                }
+              ]
+            },
+            "aggregations": [
+              {
+                "count": {},
+                "alias": "aggregate_0"
+              }
+            ]
+          }
+        }
+      ],
+      "responses": [
+        {
+          "t": 7415.8,
+          "message": {
+            "result": {
+              "aggregateFields": {
+                "aggregate_0": {
+                  "integerValue": "2",
+                  "valueType": "integerValue"
+                }
+              }
+            },
+            "transaction": "<transaction-1>",
+            "readTime": "<read-time-4>",
+            "explainMetrics": null
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 10,
+      "t": 7418.7,
+      "op": "firestore.getAll",
+      "kind": "server-stream",
+      "method": "google.firestore.v1.Firestore/BatchGetDocuments",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "documents": [
+            "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+            "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/nwtkU6ZQvR3fHV2jtFra"
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "t": 7512.6,
+          "message": {
+            "transaction": "<transaction-1>",
+            "readTime": "<read-time-5>",
+            "found": {
+              "fields": {
+                "n": {
+                  "integerValue": "2",
+                  "valueType": "integerValue"
+                }
+              },
+              "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+              "createTime": "<create-time-1>",
+              "updateTime": "<update-time-2>"
+            },
+            "result": "found"
+          }
+        },
+        {
+          "t": 7513,
+          "message": {
+            "transaction": "<transaction-1>",
+            "readTime": "<read-time-5>",
+            "found": {
+              "fields": {
+                "n": {
+                  "integerValue": "3",
+                  "valueType": "integerValue"
+                }
+              },
+              "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/nwtkU6ZQvR3fHV2jtFra",
+              "createTime": "<create-time-2>",
+              "updateTime": "<update-time-3>"
+            },
+            "result": "found"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 11,
+      "t": 7514,
+      "op": "firestore.batch",
+      "kind": "unary",
+      "method": "google.firestore.v1.Firestore/Commit",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "writes": [
+            {
+              "update": {
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/c",
+                "fields": {
+                  "n": {
+                    "integerValue": 5
+                  }
+                }
+              }
+            },
+            {
+              "update": {
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+                "fields": {
+                  "batched": {
+                    "booleanValue": true
+                  }
+                }
+              },
+              "updateMask": {
+                "fieldPaths": [
+                  "batched"
+                ]
+              },
+              "currentDocument": {
+                "exists": true
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "t": 7652.5,
+          "message": {
+            "writeResults": [
+              {
+                "transformResults": [],
+                "updateTime": "<update-time-4>"
+              },
+              {
+                "transformResults": [],
+                "updateTime": "<update-time-4>"
+              }
+            ],
+            "commitTime": "<commit-time-4>"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 12,
+      "t": 7655.9,
+      "op": "firestore.runTransaction",
+      "kind": "server-stream",
+      "method": "google.firestore.v1.Firestore/BatchGetDocuments",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "documents": [
+            "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a"
+          ],
+          "newTransaction": {
+            "readWrite": {}
+          }
+        }
+      ],
+      "responses": [
+        {
+          "t": 7757.2,
+          "message": {
+            "transaction": "<transaction-2>",
+            "readTime": null
+          }
+        },
+        {
+          "t": 7757.6,
+          "message": {
+            "transaction": "<transaction-1>",
+            "readTime": "<read-time-6>",
+            "found": {
+              "fields": {
+                "n": {
+                  "integerValue": "2",
+                  "valueType": "integerValue"
+                },
+                "batched": {
+                  "booleanValue": true,
+                  "valueType": "booleanValue"
+                }
+              },
+              "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+              "createTime": "<create-time-1>",
+              "updateTime": "<update-time-4>"
+            },
+            "result": "found"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 13,
+      "t": 7758.7,
+      "op": "firestore.runTransaction",
+      "kind": "unary",
+      "method": "google.firestore.v1.Firestore/Commit",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "writes": [
+            {
+              "update": {
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+                "fields": {
+                  "n": {
+                    "integerValue": 3
+                  }
+                }
+              },
+              "updateMask": {
+                "fieldPaths": [
+                  "n"
+                ]
+              },
+              "currentDocument": {
+                "exists": true
+              }
+            }
+          ],
+          "transaction": "<transaction-2>"
+        }
+      ],
+      "responses": [
+        {
+          "t": 7884.4,
+          "message": {
+            "writeResults": [
+              {
+                "transformResults": [],
+                "updateTime": "<update-time-5>"
+              }
+            ],
+            "commitTime": "<commit-time-5>"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 14,
+      "t": 7891,
+      "op": "firestore.onSnapshot",
+      "kind": "bidi",
+      "method": "google.firestore.v1.Firestore/Listen",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "addTarget": {
+            "query": {
+              "parent": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>",
+              "structuredQuery": {
+                "from": [
+                  {
+                    "collectionId": "notes"
+                  }
+                ]
+              }
+            },
+            "targetId": 1
+          }
+        }
+      ],
+      "responses": [
+        {
+          "t": 8402.3,
+          "message": {
+            "targetChange": {
+              "targetIds": [
+                1
+              ],
+              "targetChangeType": "ADD",
+              "cause": null,
+              "resumeToken": "<resume-token-1>",
+              "readTime": null
+            },
+            "responseType": "targetChange"
+          }
+        },
+        {
+          "t": 8484.4,
+          "message": {
+            "documentChange": {
+              "targetIds": [
+                1
+              ],
+              "removedTargetIds": [],
+              "document": {
+                "fields": {
+                  "n": {
+                    "integerValue": "3",
+                    "valueType": "integerValue"
+                  },
+                  "batched": {
+                    "booleanValue": true,
+                    "valueType": "booleanValue"
+                  }
+                },
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a",
+                "createTime": "<create-time-1>",
+                "updateTime": "<update-time-5>"
+              }
+            },
+            "responseType": "documentChange"
+          }
+        },
+        {
+          "t": 8484.9,
+          "message": {
+            "documentChange": {
+              "targetIds": [
+                1
+              ],
+              "removedTargetIds": [],
+              "document": {
+                "fields": {
+                  "n": {
+                    "integerValue": "5",
+                    "valueType": "integerValue"
+                  }
+                },
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/c",
+                "createTime": "<create-time-3>",
+                "updateTime": "<update-time-4>"
+              }
+            },
+            "responseType": "documentChange"
+          }
+        },
+        {
+          "t": 8485.1,
+          "message": {
+            "documentChange": {
+              "targetIds": [
+                1
+              ],
+              "removedTargetIds": [],
+              "document": {
+                "fields": {
+                  "n": {
+                    "integerValue": "3",
+                    "valueType": "integerValue"
+                  }
+                },
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/nwtkU6ZQvR3fHV2jtFra",
+                "createTime": "<create-time-2>",
+                "updateTime": "<update-time-3>"
+              }
+            },
+            "responseType": "documentChange"
+          }
+        },
+        {
+          "t": 8485.3,
+          "message": {
+            "targetChange": {
+              "targetIds": [
+                1
+              ],
+              "targetChangeType": "CURRENT",
+              "cause": null,
+              "resumeToken": "<resume-token-2>",
+              "readTime": "<read-time-7>"
+            },
+            "responseType": "targetChange"
+          }
+        },
+        {
+          "t": 8485.5,
+          "message": {
+            "targetChange": {
+              "targetIds": [],
+              "targetChangeType": "NO_CHANGE",
+              "cause": null,
+              "resumeToken": "<resume-token-2>",
+              "readTime": "<read-time-7>"
+            },
+            "responseType": "targetChange"
+          }
+        },
+        {
+          "t": 8520.9,
+          "message": {
+            "filter": {
+              "targetId": 1,
+              "count": 3,
+              "unchangedNames": {
+                "bits": {
+                  "bitmap": "sVvdoE5XuQY=",
+                  "padding": 5
+                },
+                "hashCount": 14
+              }
+            },
+            "responseType": "filter"
+          }
+        },
+        {
+          "t": 8521.1,
+          "message": {
+            "targetChange": {
+              "targetIds": [],
+              "targetChangeType": "NO_CHANGE",
+              "cause": null,
+              "resumeToken": "<resume-token-3>",
+              "readTime": "<read-time-8>"
+            },
+            "responseType": "targetChange"
+          }
+        },
+        {
+          "t": 8632.6,
+          "message": {
+            "documentChange": {
+              "targetIds": [
+                1
+              ],
+              "removedTargetIds": [],
+              "document": {
+                "fields": {
+                  "n": {
+                    "integerValue": "4",
+                    "valueType": "integerValue"
+                  }
+                },
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/d",
+                "createTime": "<create-time-4>",
+                "updateTime": "<update-time-6>"
+              }
+            },
+            "responseType": "documentChange"
+          }
+        },
+        {
+          "t": 8632.9,
+          "message": {
+            "targetChange": {
+              "targetIds": [],
+              "targetChangeType": "NO_CHANGE",
+              "cause": null,
+              "resumeToken": "<resume-token-4>",
+              "readTime": "<read-time-9>"
+            },
+            "responseType": "targetChange"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 15,
+      "t": 8486.6,
+      "op": "firestore.onSnapshot",
+      "kind": "unary",
+      "method": "google.firestore.v1.Firestore/Commit",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "writes": [
+            {
+              "update": {
+                "name": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/d",
+                "fields": {
+                  "n": {
+                    "integerValue": 4
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "t": 8592.1,
+          "message": {
+            "writeResults": [
+              {
+                "transformResults": [],
+                "updateTime": "<update-time-6>"
+              }
+            ],
+            "commitTime": "<commit-time-6>"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    },
+    {
+      "seq": 16,
+      "t": 8637.4,
+      "op": "firestore.delete",
+      "kind": "unary",
+      "method": "google.firestore.v1.Firestore/Commit",
+      "requests": [
+        {
+          "database": "projects/<project>/databases/(default)",
+          "writes": [
+            {
+              "delete": "projects/<project>/databases/(default)/documents/pyric_oracle/<run>/notes/a"
+            }
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "t": 9001.2,
+          "message": {
+            "writeResults": [
+              {
+                "transformResults": [],
+                "updateTime": null
+              }
+            ],
+            "commitTime": "<commit-time-7>"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "details": "",
+        "trailers": [
+          "content-disposition",
+          "x-debug-tracking-id"
+        ]
+      }
+    }
+  ],
+  "http": [
+    {
+      "seq": 1,
+      "t": 1589.8,
+      "op": "auth.createUser",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "email": "<email>",
+            "password": "<password>"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#SignupNewUserResponse",
+            "email": "<email>",
+            "localId": "<uid-1>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 2,
+      "t": 1980.5,
+      "op": "auth.createUser",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:lookup",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "localId": [
+              "<uid-1>"
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#GetAccountInfoResponse",
+            "users": [
+              {
+                "localId": "<uid-1>",
+                "email": "<email>",
+                "passwordHash": "<password-hash-1>",
+                "emailVerified": false,
+                "passwordUpdatedAt": "<auth-time-1>",
+                "providerUserInfo": [
+                  {
+                    "providerId": "password",
+                    "federatedId": "<email>",
+                    "email": "<email>",
+                    "rawId": "<email>"
+                  }
+                ],
+                "validSince": "<auth-time-2>",
+                "disabled": false,
+                "createdAt": "<auth-time-3>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 3,
+      "t": 2347.2,
+      "op": "auth.verifyIdToken",
+      "service": "certs",
+      "method": "GET",
+      "host": "www.googleapis.com",
+      "path": "/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "host"
+        ],
+        "contentType": null,
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "age",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "public, max-age=18465, must-revalidate, no-transform"
+        },
+        "body": {
+          "kind": "certs",
+          "keyCount": 2
+        }
+      }
+    },
+    {
+      "seq": 4,
+      "t": 2457,
+      "op": "auth.verifyIdToken-checkRevoked",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:lookup",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "localId": [
+              "<uid-1>"
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#GetAccountInfoResponse",
+            "users": [
+              {
+                "localId": "<uid-1>",
+                "email": "<email>",
+                "passwordHash": "<password-hash-1>",
+                "emailVerified": false,
+                "passwordUpdatedAt": "<auth-time-1>",
+                "providerUserInfo": [
+                  {
+                    "providerId": "password",
+                    "federatedId": "<email>",
+                    "email": "<email>",
+                    "rawId": "<email>"
+                  }
+                ],
+                "validSince": "<auth-time-2>",
+                "disabled": false,
+                "lastLoginAt": "<auth-time-4>",
+                "createdAt": "<auth-time-3>",
+                "lastRefreshAt": "<auth-time-5>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 5,
+      "t": 2570.9,
+      "op": "auth.getUser",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:lookup",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "localId": [
+              "<uid-1>"
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#GetAccountInfoResponse",
+            "users": [
+              {
+                "localId": "<uid-1>",
+                "email": "<email>",
+                "passwordHash": "<password-hash-1>",
+                "emailVerified": false,
+                "passwordUpdatedAt": "<auth-time-1>",
+                "providerUserInfo": [
+                  {
+                    "providerId": "password",
+                    "federatedId": "<email>",
+                    "email": "<email>",
+                    "rawId": "<email>"
+                  }
+                ],
+                "validSince": "<auth-time-2>",
+                "disabled": false,
+                "lastLoginAt": "<auth-time-4>",
+                "createdAt": "<auth-time-3>",
+                "lastRefreshAt": "<auth-time-5>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 6,
+      "t": 2695.8,
+      "op": "auth.getUserByEmail",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:lookup",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "email": [
+              "<email>"
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#GetAccountInfoResponse",
+            "users": [
+              {
+                "localId": "<uid-1>",
+                "email": "<email>",
+                "passwordHash": "<password-hash-1>",
+                "emailVerified": false,
+                "passwordUpdatedAt": "<auth-time-1>",
+                "providerUserInfo": [
+                  {
+                    "providerId": "password",
+                    "federatedId": "<email>",
+                    "email": "<email>",
+                    "rawId": "<email>"
+                  }
+                ],
+                "validSince": "<auth-time-2>",
+                "disabled": false,
+                "lastLoginAt": "<auth-time-4>",
+                "createdAt": "<auth-time-3>",
+                "lastRefreshAt": "<auth-time-5>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 7,
+      "t": 2816.4,
+      "op": "auth.setCustomUserClaims",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:update",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "localId": "<uid-1>",
+            "customAttributes": "{\"role\":\"capture\"}"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#SetAccountInfoResponse",
+            "localId": "<uid-1>",
+            "email": "<email>",
+            "providerUserInfo": [
+              {
+                "providerId": "password",
+                "federatedId": "<email>",
+                "email": "<email>",
+                "rawId": "<email>"
+              }
+            ],
+            "passwordHash": "<password-hash-1>",
+            "emailVerified": false
+          }
+        }
+      }
+    },
+    {
+      "seq": 8,
+      "t": 2974.5,
+      "op": "auth.updateUser",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:update",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "displayName": "Capture",
+            "localId": "<uid-1>"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#SetAccountInfoResponse",
+            "localId": "<uid-1>",
+            "email": "<email>",
+            "displayName": "Capture",
+            "providerUserInfo": [
+              {
+                "providerId": "password",
+                "displayName": "Capture",
+                "federatedId": "<email>",
+                "email": "<email>",
+                "rawId": "<email>"
+              }
+            ],
+            "passwordHash": "<password-hash-1>",
+            "emailVerified": false
+          }
+        }
+      }
+    },
+    {
+      "seq": 9,
+      "t": 3136.5,
+      "op": "auth.updateUser",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:lookup",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "localId": [
+              "<uid-1>"
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#GetAccountInfoResponse",
+            "users": [
+              {
+                "localId": "<uid-1>",
+                "email": "<email>",
+                "displayName": "Capture",
+                "passwordHash": "<password-hash-1>",
+                "emailVerified": false,
+                "passwordUpdatedAt": "<auth-time-1>",
+                "providerUserInfo": [
+                  {
+                    "providerId": "password",
+                    "displayName": "Capture",
+                    "federatedId": "<email>",
+                    "email": "<email>",
+                    "rawId": "<email>"
+                  }
+                ],
+                "validSince": "<auth-time-2>",
+                "disabled": false,
+                "lastLoginAt": "<auth-time-4>",
+                "createdAt": "<auth-time-3>",
+                "customAttributes": "{\"role\":\"capture\"}",
+                "lastRefreshAt": "<auth-time-5>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 10,
+      "t": 4759.6,
+      "op": "auth.revokeRefreshTokens",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:update",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "localId": "<uid-1>",
+            "validSince": "<auth-time-6>"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#SetAccountInfoResponse",
+            "localId": "<uid-1>",
+            "email": "<email>",
+            "displayName": "Capture",
+            "providerUserInfo": [
+              {
+                "providerId": "password",
+                "displayName": "Capture",
+                "federatedId": "<email>",
+                "email": "<email>",
+                "rawId": "<email>"
+              }
+            ],
+            "passwordHash": "<password-hash-1>",
+            "emailVerified": false
+          }
+        }
+      }
+    },
+    {
+      "seq": 11,
+      "t": 4907.8,
+      "op": "auth.verifyIdToken-revoked",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:lookup",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "localId": [
+              "<uid-1>"
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#GetAccountInfoResponse",
+            "users": [
+              {
+                "localId": "<uid-1>",
+                "email": "<email>",
+                "displayName": "Capture",
+                "passwordHash": "<password-hash-1>",
+                "emailVerified": false,
+                "passwordUpdatedAt": "<auth-time-1>",
+                "providerUserInfo": [
+                  {
+                    "providerId": "password",
+                    "displayName": "Capture",
+                    "federatedId": "<email>",
+                    "email": "<email>",
+                    "rawId": "<email>"
+                  }
+                ],
+                "validSince": "<auth-time-7>",
+                "disabled": false,
+                "lastLoginAt": "<auth-time-4>",
+                "createdAt": "<auth-time-3>",
+                "customAttributes": "{\"role\":\"capture\"}",
+                "lastRefreshAt": "<auth-time-5>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 12,
+      "t": 5040.5,
+      "op": "auth.deleteUser",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:delete",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "localId": "<uid-1>"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#DeleteAccountResponse"
+          }
+        }
+      }
+    },
+    {
+      "seq": 13,
+      "t": 5234.2,
+      "op": "auth.getUser-deleted",
+      "service": "auth",
+      "method": "POST",
+      "host": "identitytoolkit.googleapis.com",
+      "path": "/v1/projects/<project>/accounts:lookup",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "x-client-version",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json;charset=utf-8",
+        "body": {
+          "kind": "json",
+          "json": {
+            "localId": [
+              "<uid-1>"
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "accept-ranges",
+          "alt-svc",
+          "cache-control",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "transfer-encoding",
+          "vary",
+          "x-content-type-options",
+          "x-frame-options",
+          "x-xss-protection"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "identitytoolkit#GetAccountInfoResponse"
+          }
+        }
+      }
+    },
+    {
+      "seq": 14,
+      "t": 9392.8,
+      "op": "storage.save",
+      "service": "storage",
+      "method": "POST",
+      "host": "storage.googleapis.com",
+      "path": "/upload/storage/v1/b/<bucket>/o",
+      "query": {
+        "uploadType": "multipart",
+        "name": "pyric_oracle/<run>/note.txt"
+      },
+      "request": {
+        "headerNames": [
+          "accept",
+          "accept-encoding",
+          "authorization",
+          "content-type",
+          "host",
+          "user-agent",
+          "x-goog-api-client"
+        ],
+        "contentType": "multipart/related; boundary=0ec55725-e13f-4b94-ab76-4fcadcf214be",
+        "body": {
+          "kind": "text",
+          "text": "<boundary>\r\nContent-Type: application/json\r\n\r\n{\"contentType\":\"text/plain\"}\r\n<boundary>\r\nContent-Type: text/plain\r\n\r\ncapture text\r\n<boundary>"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "alt-svc",
+          "cache-control",
+          "content-length",
+          "content-type",
+          "date",
+          "etag",
+          "expires",
+          "pragma",
+          "server",
+          "vary",
+          "x-goog-gcs-base-ts",
+          "x-guploader-uploadid"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "storage#object",
+            "id": "<bucket>/pyric_oracle/<run>/note.txt/<generation-1>",
+            "selfLink": "https://www.googleapis.com/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+            "mediaLink": "https://storage.googleapis.com/download/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt?generation=<generation-1>&alt=media",
+            "name": "pyric_oracle/<run>/note.txt",
+            "bucket": "<bucket>",
+            "generation": "<generation-1>",
+            "metageneration": "1",
+            "contentType": "text/plain",
+            "storageClass": "STANDARD",
+            "size": "12",
+            "md5Hash": "<md5-1>",
+            "crc32c": "<crc32c-1>",
+            "etag": "<etag-1>",
+            "timeCreated": "<time-1>",
+            "updated": "<time-1>",
+            "timeStorageClassUpdated": "<time-1>",
+            "timeFinalized": "<time-1>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 15,
+      "t": 9680.8,
+      "op": "storage.getMetadata",
+      "service": "storage",
+      "method": "GET",
+      "host": "storage.googleapis.com",
+      "path": "/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "accept",
+          "accept-encoding",
+          "authorization",
+          "host",
+          "user-agent",
+          "x-goog-api-client"
+        ],
+        "contentType": null,
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "alt-svc",
+          "cache-control",
+          "content-length",
+          "content-type",
+          "date",
+          "etag",
+          "expires",
+          "server",
+          "vary",
+          "x-goog-gcs-base-ts",
+          "x-guploader-uploadid"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "private, max-age=0, must-revalidate, no-transform"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "storage#object",
+            "id": "<bucket>/pyric_oracle/<run>/note.txt/<generation-1>",
+            "selfLink": "https://www.googleapis.com/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+            "mediaLink": "https://storage.googleapis.com/download/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt?generation=<generation-1>&alt=media",
+            "name": "pyric_oracle/<run>/note.txt",
+            "bucket": "<bucket>",
+            "generation": "<generation-1>",
+            "metageneration": "1",
+            "contentType": "text/plain",
+            "storageClass": "STANDARD",
+            "size": "12",
+            "md5Hash": "<md5-1>",
+            "crc32c": "<crc32c-1>",
+            "etag": "<etag-1>",
+            "timeCreated": "<time-1>",
+            "updated": "<time-1>",
+            "timeStorageClassUpdated": "<time-1>",
+            "timeFinalized": "<time-1>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 16,
+      "t": 9739,
+      "op": "storage.exists",
+      "service": "storage",
+      "method": "GET",
+      "host": "storage.googleapis.com",
+      "path": "/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "accept",
+          "accept-encoding",
+          "authorization",
+          "host",
+          "user-agent",
+          "x-goog-api-client"
+        ],
+        "contentType": null,
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "alt-svc",
+          "cache-control",
+          "content-length",
+          "content-type",
+          "date",
+          "etag",
+          "expires",
+          "server",
+          "vary",
+          "x-goog-gcs-base-ts",
+          "x-guploader-uploadid"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "private, max-age=0, must-revalidate, no-transform"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "storage#object",
+            "id": "<bucket>/pyric_oracle/<run>/note.txt/<generation-1>",
+            "selfLink": "https://www.googleapis.com/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+            "mediaLink": "https://storage.googleapis.com/download/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt?generation=<generation-1>&alt=media",
+            "name": "pyric_oracle/<run>/note.txt",
+            "bucket": "<bucket>",
+            "generation": "<generation-1>",
+            "metageneration": "1",
+            "contentType": "text/plain",
+            "storageClass": "STANDARD",
+            "size": "12",
+            "md5Hash": "<md5-1>",
+            "crc32c": "<crc32c-1>",
+            "etag": "<etag-1>",
+            "timeCreated": "<time-1>",
+            "updated": "<time-1>",
+            "timeStorageClassUpdated": "<time-1>",
+            "timeFinalized": "<time-1>"
+          }
+        }
+      }
+    },
+    {
+      "seq": 17,
+      "t": 9806.1,
+      "op": "storage.download",
+      "service": "storage",
+      "method": "GET",
+      "host": "storage.googleapis.com",
+      "path": "/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+      "query": {
+        "alt": "media"
+      },
+      "request": {
+        "headerNames": [
+          "accept",
+          "accept-encoding",
+          "authorization",
+          "cache-control",
+          "host",
+          "user-agent",
+          "x-goog-api-client"
+        ],
+        "contentType": null,
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "alt-svc",
+          "cache-control",
+          "content-disposition",
+          "content-length",
+          "content-type",
+          "date",
+          "etag",
+          "expires",
+          "last-modified",
+          "pragma",
+          "server",
+          "vary",
+          "x-goog-gcs-base-ts",
+          "x-goog-generation",
+          "x-goog-hash",
+          "x-goog-metageneration",
+          "x-goog-storage-class",
+          "x-goog-stored-content-encoding",
+          "x-goog-stored-content-length",
+          "x-guploader-uploadid"
+        ],
+        "headers": {
+          "content-type": "text/plain",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "text",
+          "text": "capture text"
+        }
+      }
+    },
+    {
+      "seq": 18,
+      "t": 9876.9,
+      "op": "storage.getFiles",
+      "service": "storage",
+      "method": "GET",
+      "host": "storage.googleapis.com",
+      "path": "/storage/v1/b/<bucket>/o",
+      "query": {
+        "prefix": "pyric_oracle/<run>/"
+      },
+      "request": {
+        "headerNames": [
+          "accept",
+          "accept-encoding",
+          "authorization",
+          "host",
+          "user-agent",
+          "x-goog-api-client"
+        ],
+        "contentType": null,
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "alt-svc",
+          "cache-control",
+          "content-length",
+          "content-type",
+          "date",
+          "expires",
+          "server",
+          "vary",
+          "x-goog-gcs-base-ts",
+          "x-guploader-uploadid"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "private, max-age=0, must-revalidate, no-transform"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "storage#objects",
+            "items": [
+              {
+                "kind": "storage#object",
+                "id": "<bucket>/pyric_oracle/<run>/note.txt/<generation-1>",
+                "selfLink": "https://www.googleapis.com/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+                "mediaLink": "https://storage.googleapis.com/download/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt?generation=<generation-1>&alt=media",
+                "name": "pyric_oracle/<run>/note.txt",
+                "bucket": "<bucket>",
+                "generation": "<generation-1>",
+                "metageneration": "1",
+                "contentType": "text/plain",
+                "storageClass": "STANDARD",
+                "size": "12",
+                "md5Hash": "<md5-1>",
+                "crc32c": "<crc32c-1>",
+                "etag": "<etag-1>",
+                "timeCreated": "<time-1>",
+                "updated": "<time-1>",
+                "timeStorageClassUpdated": "<time-1>",
+                "timeFinalized": "<time-1>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "seq": 19,
+      "t": 9934.8,
+      "op": "storage.setMetadata",
+      "service": "storage",
+      "method": "PATCH",
+      "host": "storage.googleapis.com",
+      "path": "/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "accept",
+          "accept-encoding",
+          "authorization",
+          "content-length",
+          "content-type",
+          "host",
+          "user-agent",
+          "x-goog-api-client"
+        ],
+        "contentType": "application/json",
+        "body": {
+          "kind": "json",
+          "json": {
+            "metadata": {
+              "capture": "admin"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headerNames": [
+          "alt-svc",
+          "cache-control",
+          "content-length",
+          "content-type",
+          "date",
+          "etag",
+          "expires",
+          "pragma",
+          "server",
+          "vary",
+          "x-goog-gcs-base-ts",
+          "x-guploader-uploadid"
+        ],
+        "headers": {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": {
+          "kind": "json",
+          "json": {
+            "kind": "storage#object",
+            "id": "<bucket>/pyric_oracle/<run>/note.txt/<generation-1>",
+            "selfLink": "https://www.googleapis.com/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+            "mediaLink": "https://storage.googleapis.com/download/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt?generation=<generation-1>&alt=media",
+            "name": "pyric_oracle/<run>/note.txt",
+            "bucket": "<bucket>",
+            "generation": "<generation-1>",
+            "metageneration": "2",
+            "contentType": "text/plain",
+            "storageClass": "STANDARD",
+            "size": "12",
+            "md5Hash": "<md5-1>",
+            "crc32c": "<crc32c-1>",
+            "etag": "<etag-2>",
+            "timeCreated": "<time-1>",
+            "updated": "<time-2>",
+            "timeStorageClassUpdated": "<time-1>",
+            "timeFinalized": "<time-1>",
+            "metadata": {
+              "capture": "admin"
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 20,
+      "t": 10231.5,
+      "op": "storage.download-missing",
+      "service": "storage",
+      "method": "GET",
+      "host": "storage.googleapis.com",
+      "path": "/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fmissing.txt",
+      "query": {
+        "alt": "media"
+      },
+      "request": {
+        "headerNames": [
+          "accept",
+          "accept-encoding",
+          "authorization",
+          "cache-control",
+          "host",
+          "user-agent",
+          "x-goog-api-client"
+        ],
+        "contentType": null,
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headerNames": [
+          "alt-svc",
+          "cache-control",
+          "content-length",
+          "content-type",
+          "date",
+          "expires",
+          "server",
+          "vary",
+          "x-goog-gcs-base-ts",
+          "x-guploader-uploadid"
+        ],
+        "headers": {
+          "content-type": "text/html; charset=UTF-8",
+          "cache-control": "private, max-age=0"
+        },
+        "body": {
+          "kind": "text",
+          "text": "No such object: <bucket>/pyric_oracle/<run>/missing.txt"
+        }
+      }
+    },
+    {
+      "seq": 21,
+      "t": 10300.8,
+      "op": "storage.delete",
+      "service": "storage",
+      "method": "DELETE",
+      "host": "storage.googleapis.com",
+      "path": "/storage/v1/b/<bucket>/o/pyric_oracle%2F<run>%2Fnote.txt",
+      "query": {},
+      "request": {
+        "headerNames": [
+          "accept",
+          "accept-encoding",
+          "authorization",
+          "host",
+          "user-agent",
+          "x-goog-api-client"
+        ],
+        "contentType": null,
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headerNames": [
+          "alt-svc",
+          "cache-control",
+          "content-length",
+          "content-type",
+          "date",
+          "expires",
+          "pragma",
+          "server",
+          "vary",
+          "x-goog-gcs-base-ts",
+          "x-guploader-uploadid"
+        ],
+        "headers": {
+          "content-type": "application/json",
+          "cache-control": "no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "body": null
+      }
+    }
+  ],
+  "rtdb": [
+    {
+      "t": 9003.8,
+      "op": "rtdb.set",
+      "dir": "sent",
+      "message": {
+        "r": 4,
+        "a": "p",
+        "b": {
+          "p": "/pyric_oracle/<run>",
+          "d": {
+            "a": 1
+          }
+        }
+      }
+    },
+    {
+      "t": 9051.1,
+      "op": "rtdb.set",
+      "dir": "received",
+      "message": {
+        "r": 4,
+        "b": {
+          "s": "ok",
+          "d": ""
+        }
+      }
+    },
+    {
+      "t": 9051.8,
+      "op": "rtdb.get",
+      "dir": "sent",
+      "message": {
+        "r": 5,
+        "a": "g",
+        "b": {
+          "p": "/pyric_oracle/<run>",
+          "q": {}
+        }
+      }
+    },
+    {
+      "t": 9097.4,
+      "op": "rtdb.get",
+      "dir": "received",
+      "message": {
+        "r": 5,
+        "b": {
+          "s": "ok",
+          "d": {
+            "a": 1
+          }
+        }
+      }
+    },
+    {
+      "t": 9098.5,
+      "op": "rtdb.update",
+      "dir": "sent",
+      "message": {
+        "r": 6,
+        "a": "m",
+        "b": {
+          "p": "/pyric_oracle/<run>",
+          "d": {
+            "b": 2
+          }
+        }
+      }
+    },
+    {
+      "t": 9148,
+      "op": "rtdb.update",
+      "dir": "received",
+      "message": {
+        "r": 6,
+        "b": {
+          "s": "ok",
+          "d": ""
+        }
+      }
+    },
+    {
+      "t": 9148.7,
+      "op": "rtdb.push",
+      "dir": "sent",
+      "message": {
+        "r": 7,
+        "a": "p",
+        "b": {
+          "p": "/pyric_oracle/<run>/list/<push-id-1>",
+          "d": {
+            "c": 3
+          }
+        }
+      }
+    },
+    {
+      "t": 9195.8,
+      "op": "rtdb.push",
+      "dir": "received",
+      "message": {
+        "r": 7,
+        "b": {
+          "s": "ok",
+          "d": ""
+        }
+      }
+    },
+    {
+      "t": 9196.6,
+      "op": "rtdb.transaction",
+      "dir": "sent",
+      "message": {
+        "r": 8,
+        "a": "q",
+        "b": {
+          "p": "/pyric_oracle/<run>/counter",
+          "h": ""
+        }
+      }
+    },
+    {
+      "t": 9197.4,
+      "op": "rtdb.transaction",
+      "dir": "sent",
+      "message": {
+        "r": 9,
+        "a": "p",
+        "b": {
+          "p": "/pyric_oracle/<run>/counter",
+          "d": 1,
+          "h": ""
+        }
+      }
+    },
+    {
+      "t": 9238.9,
+      "op": "rtdb.transaction",
+      "dir": "received",
+      "message": {
+        "r": 8,
+        "b": {
+          "s": "ok",
+          "d": {}
+        }
+      }
+    },
+    {
+      "t": 9249.3,
+      "op": "rtdb.transaction",
+      "dir": "received",
+      "message": {
+        "b": {
+          "p": "pyric_oracle/<run>/counter",
+          "d": 1
+        },
+        "a": "d"
+      }
+    },
+    {
+      "t": 9249.9,
+      "op": "rtdb.transaction",
+      "dir": "received",
+      "message": {
+        "r": 9,
+        "b": {
+          "s": "ok",
+          "d": 1
+        }
+      }
+    },
+    {
+      "t": 9250.3,
+      "op": "rtdb.transaction",
+      "dir": "sent",
+      "message": {
+        "r": 10,
+        "a": "n",
+        "b": {
+          "p": "/pyric_oracle/<run>/counter"
+        }
+      }
+    },
+    {
+      "t": 9250.8,
+      "op": "rtdb.on-value",
+      "dir": "sent",
+      "message": {
+        "r": 11,
+        "a": "q",
+        "b": {
+          "p": "/pyric_oracle/<run>/watch",
+          "h": ""
+        }
+      }
+    },
+    {
+      "t": 9294.2,
+      "op": "rtdb.on-value",
+      "dir": "received",
+      "message": {
+        "r": 10,
+        "b": {
+          "s": "ok",
+          "d": ""
+        }
+      }
+    },
+    {
+      "t": 9296.5,
+      "op": "rtdb.on-value",
+      "dir": "received",
+      "message": {
+        "r": 11,
+        "b": {
+          "s": "ok",
+          "d": {}
+        }
+      }
+    },
+    {
+      "t": 9297.2,
+      "op": "rtdb.on-value",
+      "dir": "sent",
+      "message": {
+        "r": 12,
+        "a": "p",
+        "b": {
+          "p": "/pyric_oracle/<run>/watch",
+          "d": 1
+        }
+      }
+    },
+    {
+      "t": 9297.6,
+      "op": "rtdb.on-value",
+      "dir": "sent",
+      "message": {
+        "r": 13,
+        "a": "n",
+        "b": {
+          "p": "/pyric_oracle/<run>/watch"
+        }
+      }
+    },
+    {
+      "t": 9298,
+      "op": "rtdb.once-missing",
+      "dir": "sent",
+      "message": {
+        "r": 14,
+        "a": "q",
+        "b": {
+          "p": "/pyric_oracle/<run>/missing",
+          "h": ""
+        }
+      }
+    },
+    {
+      "t": 9344,
+      "op": "rtdb.once-missing",
+      "dir": "received",
+      "message": {
+        "b": {
+          "p": "pyric_oracle/<run>/watch",
+          "d": 1
+        },
+        "a": "d"
+      }
+    },
+    {
+      "t": 9344.1,
+      "op": "rtdb.once-missing",
+      "dir": "received",
+      "message": {
+        "r": 12,
+        "b": {
+          "s": "ok",
+          "d": ""
+        }
+      }
+    },
+    {
+      "t": 9344.3,
+      "op": "rtdb.once-missing",
+      "dir": "received",
+      "message": {
+        "r": 13,
+        "b": {
+          "s": "ok",
+          "d": ""
+        }
+      }
+    },
+    {
+      "t": 9344.3,
+      "op": "rtdb.once-missing",
+      "dir": "received",
+      "message": {
+        "r": 14,
+        "b": {
+          "s": "ok",
+          "d": {}
+        }
+      }
+    },
+    {
+      "t": 9344.5,
+      "op": "rtdb.once-missing",
+      "dir": "sent",
+      "message": {
+        "r": 15,
+        "a": "n",
+        "b": {
+          "p": "/pyric_oracle/<run>/missing"
+        }
+      }
+    },
+    {
+      "t": 9345.1,
+      "op": "rtdb.remove",
+      "dir": "sent",
+      "message": {
+        "r": 16,
+        "a": "p",
+        "b": {
+          "p": "/pyric_oracle/<run>",
+          "d": null
+        }
+      }
+    },
+    {
+      "t": 9388.8,
+      "op": "rtdb.remove",
+      "dir": "received",
+      "message": {
+        "r": 15,
+        "b": {
+          "s": "ok",
+          "d": ""
+        }
+      }
+    },
+    {
+      "t": 9390.3,
+      "op": "rtdb.remove",
+      "dir": "received",
+      "message": {
+        "r": 16,
+        "b": {
+          "s": "ok",
+          "d": ""
+        }
+      }
+    }
+  ]
+}
