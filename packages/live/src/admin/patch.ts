@@ -52,7 +52,7 @@ const PATCHED = Symbol.for('pyric.live.admin.patched');
 const observing = new AsyncLocalStorage<true>();
 
 /** Gives `wrapper` the real method's `name` and `length`. */
-function keepShape(wrapper: Method, real: Method): Method {
+export function keepShape(wrapper: Method, real: Method): Method {
   Object.defineProperty(wrapper, 'name', { value: real.name, configurable: true });
   Object.defineProperty(wrapper, 'length', { value: real.length, configurable: true });
   return wrapper;
@@ -87,7 +87,7 @@ function errorCallbackOf(args: readonly unknown[]): Method | undefined {
  * delivery would otherwise look nested and the app's calls from it would
  * make no record.
  */
-function outsideScope(args: readonly unknown[]): unknown[] {
+export function outsideScope(args: readonly unknown[]): unknown[] {
   return args.map((arg) => {
     if (typeof arg !== 'function') return arg;
     return function appCallback(this: unknown, ...values: unknown[]): unknown {
