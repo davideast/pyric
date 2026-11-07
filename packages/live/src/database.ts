@@ -395,6 +395,28 @@ export function databaseListener(_name: string, args: readonly unknown[]): Liste
   return { target: path, key: JSON.stringify([instanceOf(repoOf(query)), path, queryIdOf(query)]) };
 }
 
+/** Where a database listener sits in the page's activity journal (`listener-journal.ts`). */
+export interface DatabaseJournalPlace {
+  readonly database: object;
+  readonly target: string;
+  readonly isQuery: boolean;
+  readonly key: string;
+}
+
+/**
+ * A database listener's place in the page journal: its repo, which names the
+ * app and instance, its path, whether it runs a query, and the key the
+ * sandbox's own RTDB listeners use. Undefined for a subject without a repo or
+ * path, or under `/.info`.
+ */
+export function databaseJournalPlace(subject: unknown): DatabaseJournalPlace | undefined {
+  const repo = repoOf(subject);
+  const path = pathOf(subject);
+  if (repo === undefined || path === undefined || isInfoPath(path)) return undefined;
+  const queryId = queryIdOf(subject);
+  return { database: repo, target: path, isQuery: queryId !== 'default', key: JSON.stringify([instanceOf(repo), path, queryId]) };
+}
+
 /** One attached listener, as `off()` finds it: its export, the app's callback, its query and what detaches it. */
 interface AttachedListener {
   readonly listener: string;

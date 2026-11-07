@@ -34,12 +34,13 @@
  * observer and a rejection from an async observer are each caught, so an
  * observer that fails never changes what the app sees.
  *
- * An observer may also journal Firestore listeners (`journal`), as the page's
- * does, so the runtime chip's Listeners view and Flow see them. The listener
- * wrapper then opens the listener's activity at the subscribe call, reports
- * each delivery immediately before the app's callback runs, and closes the
- * activity when the app unsubscribes: the app gets a function that closes it
- * and calls the SDK's own unsubscribe (`listener-journal.ts`).
+ * An observer may also journal Firestore and Realtime Database listeners
+ * (`journal`), as the page's does, so the runtime chip's Listeners view and
+ * Flow see them. The listener wrapper then opens the listener's activity at
+ * the subscribe call, reports each delivery immediately before the app's
+ * callback runs, and closes the activity when the app unsubscribes, or when
+ * RTDB `off()` ends the listener: the app gets a function that closes it and
+ * calls the SDK's own unsubscribe (`listener-journal.ts`).
  */
 import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
 import { randomKey, realmHash } from './keyed-hash.js';
@@ -994,6 +995,15 @@ function endListener(site: ObservedSite): void {
   }
 }
 
+/** Tells the journal the listener closed. A journal failure never reaches the app. */
+function closeActivity(site: ObservedSite): void {
+  try {
+    site.activity?.close();
+  } catch {
+    // The journal is a diagnostic; the SDK still ended the listener.
+  }
+}
+
 /** Tells the journal the listener failed. A journal failure never reaches the app. */
 function journalFailure(site: ObservedSite): void {
   try {
@@ -1198,8 +1208,13 @@ function lifecycleOf(site: ObservedSite, args: readonly unknown[]): Lifecycle | 
     fields,
     attached(attachedSite, appArgs) {
       report(attachedSite, 'attached');
+      // A listener the module ends without its unsubscribe (RTDB `off()`) closes its journal activity too.
+      const endedElsewhere = (): void => {
+        fields.endListener();
+        closeActivity(attachedSite);
+      };
       try {
-        forget = site.listenerAttached?.(site.name, appArgs, fields.endListener);
+        forget = site.listenerAttached?.(site.name, appArgs, endedElsewhere);
       } catch {
         // A module that cannot note the subscription still has its unsubscribe and errors.
       }

@@ -484,6 +484,42 @@ describe('the instance every RTDB record names', () => {
   });
 });
 
+describe("the database row's listeners in the page journal", () => {
+  test('opens each listener by path and query, reports its deliveries, and closes it on unsubscribe or off()', () => {
+    const steps: unknown[][] = [];
+    const journal: NonNullable<LiveObserver['journal']> = (listener) => {
+      steps.push(['open', listener.service, listener.method, listener.target, listener.isQuery, listener.key]);
+      return {
+        deliver(_value, _billed, run) { steps.push(['deliver', listener.target]); return run(); },
+        fail: () => steps.push(['fail', listener.target]),
+        close: () => steps.push(['close', listener.target]),
+      };
+    };
+    const deliveries: Array<(value: unknown) => void> = [];
+    const standIn = {
+      onValue: (_query: unknown, next: unknown) => { deliveries.push(next as (value: unknown) => void); return () => undefined; },
+      off: (..._args: unknown[]) => undefined,
+    };
+    const observer: LiveObserver = Object.assign(() => undefined, { journal });
+    const row = wrapLiveModule('live-database', 'firebase/database', standIn, { observer, sdkVersion: '12.0.0', client: 'node' });
+    const items = standInRef('demo-journal', '/items');
+    const ranked = Object.assign(standInRef('demo-journal', '/ranked'), { _queryIdentifier: '{"l":3}' });
+    const unsubscribe = row.onValue(items, () => undefined) as () => void;
+    row.onValue(ranked, () => undefined);
+    deliveries[0]!({ val: () => 1 });
+    unsubscribe();
+    row.off(ranked);
+    row.onValue(standInRef('demo-journal', '/.info/connected'), () => undefined);
+    expect(steps).toEqual([
+      ['open', 'database', 'onValue', '/items', false, JSON.stringify(['demo-journal', '/items', 'default'])],
+      ['open', 'database', 'onValue', '/ranked', true, JSON.stringify(['demo-journal', '/ranked', '{"l":3}'])],
+      ['deliver', '/items'],
+      ['close', '/items'],
+      ['close', '/ranked'],
+    ]);
+  });
+});
+
 describe("the database row's error codes", () => {
   const reject = (error: unknown) => {
     const ownRecords: LiveCallRecord[] = [];
