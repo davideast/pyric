@@ -16,13 +16,18 @@
  * call's firebase-admin app through the app's own options and credential.
  * `on` returns the app's callback at once and listens once the gate passes;
  * `push` returns its reference with the new key at once and writes once the
- * gate passes. The connection itself opens at `db.ref()`, before any call.
+ * gate passes. The connection itself opens at `db.ref()`, before any call,
+ * so `Database.ref` and `refFromURL` gate it too: an app that names another
+ * project is refused there, and an app whose credential works out its
+ * project stays offline until the gate passes. No frame reaches another
+ * project's instance, `setPriority` and `onDisconnect()` included.
  *
  * A record never carries a data value: no write data and no returned value.
  */
 import { databaseCode, databaseContext, databaseListenerArguments, databaseListenerCallback, offByCallback } from '../database.js';
 import { observedCall, observedListener, UNOBSERVED, type CallContext, type LiveObserver } from '../observe.js';
 import { keepShape, outsideScope, patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
+import { liveAdminProjectRefusal, type AdminProjectSource } from '../refusal.js';
 import type { AdminApp, AdminProjectGate } from './project-gate.js';
 
 /** The module an Admin RTDB record names: the load the row patches. */
@@ -56,7 +61,11 @@ const NO_APP: AdminApp = { options: {} };
  * `getProjectId()`.
  */
 function appOf(self: unknown): AdminApp {
-  const app = fieldOf(fieldOf(self, 'database'), 'app');
+  return adminAppOf(fieldOf(fieldOf(self, 'database'), 'app'));
+}
+
+/** The gate's stand-in for one firebase-admin app, made once. */
+function adminAppOf(app: unknown): AdminApp {
   if (!isObject(app)) return NO_APP;
   const known = apps.get(app);
   if (known !== undefined) return known;
@@ -200,10 +209,73 @@ function gatedPush(row: AdminRow, realPush: Method, realSet: Method): Method {
   }, realPush);
 }
 
-/** Where the records go and which gate the calls pass. */
+/** Where the records go, which gate the calls pass, and the live host's project the connection gate compares. */
 export interface AdminDatabaseRow {
   readonly observer: LiveObserver;
   readonly gate: AdminProjectGate;
+  readonly hostProjectId: string;
+}
+
+/** What the connection gate knows of each compat Database: passed, waiting for the gate, or its refusal. */
+const connections = new WeakMap<object, 'passed' | 'waiting' | Error>();
+
+/** The project an app names without waiting, as the gate reads it first: `options.projectId`, then a `cert()` credential's. */
+function namedProject(app: AdminApp): { source: AdminProjectSource; projectId: string } | undefined {
+  const { projectId, credential } = app.options;
+  if (typeof projectId === 'string' && projectId !== '') return { source: 'options.projectId', projectId };
+  const certProject = fieldOf(credential, 'projectId');
+  return typeof certProject === 'string' && certProject !== '' ? { source: 'credential', projectId: certProject } : undefined;
+}
+
+/**
+ * Holds the connection of a Database whose project is not named until its
+ * credential's `getProjectId()` answers: it goes offline before the SDK's
+ * connect timer runs, and online once the gate passes.
+ */
+function holdConnection(row: AdminDatabaseRow, db: object, app: AdminApp): void {
+  connections.set(db, 'waiting');
+  Reflect.apply(fieldOf(db, 'goOffline') as Method, db, []);
+  const goOnline = () => {
+    connections.set(db, 'passed');
+    Reflect.apply(fieldOf(db, 'goOnline') as Method, db, []);
+  };
+  row.gate(app, goOnline).catch((error: unknown) => {
+    connections.set(db, error instanceof Error ? error : new Error(String(error)));
+  });
+}
+
+/**
+ * The connection gate, run by `ref()` and `refFromURL()` before the SDK
+ * opens the connection there and sends the credential. An app that names
+ * another project is refused at once, and the gate writes its one line; an
+ * app whose project its credential works out stays offline until the gate
+ * passes, and its later `ref()` calls are refused once it refuses.
+ */
+function gateConnection(row: AdminDatabaseRow, db: object): void {
+  const known = connections.get(db);
+  if (known instanceof Error) throw known;
+  if (known !== undefined) return;
+  const app = adminAppOf(fieldOf(db, 'app'));
+  const named = namedProject(app);
+  if (named === undefined) {
+    holdConnection(row, db, app);
+    return;
+  }
+  if (named.projectId === row.hostProjectId) {
+    connections.set(db, 'passed');
+    return;
+  }
+  const refusal = liveAdminProjectRefusal({ source: named.source, appProjectId: named.projectId, hostProjectId: row.hostProjectId });
+  connections.set(db, refusal);
+  row.gate(app, () => undefined).catch(() => undefined);
+  throw refusal;
+}
+
+function gatedRef(row: AdminDatabaseRow, real: Method): Method {
+  return keepShape(function ref(this: unknown, ...args: unknown[]): unknown {
+    if (isObject(this)) gateConnection(row, this);
+    return Reflect.apply(real, this, args);
+  }, real);
 }
 
 function prototypeOf(sdk: unknown, className: string): Record<string, unknown> | undefined {
@@ -224,6 +296,11 @@ function replace(prototype: Record<string, unknown>, name: string, wrap: (real: 
  */
 export function observeAdminDatabase(sdk: unknown, row: AdminDatabaseRow): void {
   const adminRow: AdminRow = { module: ADMIN_DATABASE_MODULE, observer: row.observer, gate: row.gate, appOf };
+  const database = prototypeOf(sdk, 'Database');
+  if (database !== undefined && patchAdminClass(database, 'Database', [], adminRow)) {
+    replace(database, 'ref', (real) => gatedRef(row, real));
+    replace(database, 'refFromURL', (real) => gatedRef(row, real));
+  }
   const query = prototypeOf(sdk, 'Query');
   if (query !== undefined && patchAdminClass(query, 'Query', calls('get', 'once'), adminRow)) {
     replace(query, 'on', (real) => gatedOn(adminRow, real));

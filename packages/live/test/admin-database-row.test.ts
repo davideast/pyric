@@ -116,7 +116,7 @@ beforeAll(async () => {
   const replay = await loadReplay();
   server = await replay.startReplayServer([replay.readRecording(FIXTURE), EXTRA]);
   process.env.FIREBASE_DATABASE_EMULATOR_HOST = new URL(server.origin).host;
-  observeAdminDatabase(sdk, { observer, gate: adminProjectGate(PROJECT, (line) => lines.push(line), {}) });
+  observeAdminDatabase(sdk, { observer, gate: adminProjectGate(PROJECT, (line) => lines.push(line), {}), hostProjectId: PROJECT });
   app = admin.initializeApp({ projectId: PROJECT, databaseURL: DATABASE_URL }, 'admin-database-row');
   db = getDatabase(app);
 });
@@ -164,7 +164,7 @@ test('the patched method keeps its name and length, and patching twice changes n
   expect(patched).not.toBe(realSet);
   expect(patched.name).toBe(realSet.name);
   expect(patched.length).toBe(realSet.length);
-  observeAdminDatabase(sdk, { observer, gate: adminProjectGate(PROJECT, () => undefined, {}) });
+  observeAdminDatabase(sdk, { observer, gate: adminProjectGate(PROJECT, () => undefined, {}), hostProjectId: PROJECT });
   expect(sdk.Reference.prototype.set).toBe(patched);
 });
 
@@ -251,34 +251,55 @@ test('on records each delivery and returns the app callback, and off by that cal
   expect(server.unmatched).toEqual([]);
 });
 
-test('an app on another project is refused by the gate before any request, with no record', async () => {
+/** The code a call's promise settles with, or the code it throws at once, as `ref()` does on a refused app. */
+function refusedCode(call: () => unknown): Promise<unknown> {
+  try {
+    return codeOf(call());
+  } catch (error) {
+    return Promise.resolve((error as { code?: unknown }).code);
+  }
+}
+
+/** Every RTDB frame clients sent since `from`, authentication and stats included, once a connection could have opened. */
+async function framesSince(from: number): Promise<Received[]> {
+  await new Promise((done) => setTimeout(done, 100));
+  return (await received()).slice(from);
+}
+
+test('an app on another project is refused at ref() and its connection never opens, with no record', async () => {
   const other = admin.initializeApp({ projectId: 'other-project', databaseURL: DATABASE_URL }, 'admin-database-other');
   others.push(other);
   const otherDb = getDatabase(other);
   const from = records.length;
   const sent = (await received()).length;
-  expect(await codeOf(ref('notes/a', otherDb).get!())).toBe('PYRIC_LIVE_REFUSED');
-  expect(await codeOf(ref('notes/a', otherDb).set!({ n: 1 }))).toBe('PYRIC_LIVE_REFUSED');
-  expect(await codeOf(ref('notes/a', otherDb).once!('value'))).toBe('PYRIC_LIVE_REFUSED');
-  const pushed = ref('notes', otherDb).push!({ n: 1 });
-  expect(await codeOf(pushed)).toBe('PYRIC_LIVE_REFUSED');
-  const cancelled = await new Promise((done) => ref('notes/a', otherDb).on!('value', () => done('delivered'), (error: { code?: unknown }) => done(error.code)));
-  expect(cancelled).toBe('PYRIC_LIVE_REFUSED');
+  expect(await refusedCode(() => ref('notes/a', otherDb))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await refusedCode(() => (otherDb.refFromURL as AnyFunction).call(otherDb, `${DATABASE_URL}/notes/a`))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await refusedCode(() => ref('notes/a', otherDb).setPriority!(1))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await refusedCode(() => (ref('notes/a', otherDb).onDisconnect!() as Instance).set!({ n: 1 }))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await refusedCode(() => ref('notes/a', otherDb).get!())).toBe('PYRIC_LIVE_REFUSED');
+  expect(await refusedCode(() => ref('notes', otherDb).push!({ n: 1 }))).toBe('PYRIC_LIVE_REFUSED');
   expect(await recordsSince(from)).toEqual([]);
-  expect(await requestsSince(sent)).toEqual([]);
+  expect(await framesSince(sent)).toEqual([]);
   expect(server.unmatched).toEqual([]);
   expect(lines).toHaveLength(1);
 });
 
-test('an app with no project is gated on the project its own credential works out', async () => {
+test('an app with no project stays offline until its own credential works out the project, and is refused', async () => {
   const credential = { getAccessToken: async () => ({ access_token: 'not-a-token', expires_in: 3600 }), getProjectId: async () => 'other-prod' };
   const other = admin.initializeApp({ credential, databaseURL: DATABASE_URL }, 'admin-database-adc');
   others.push(other);
+  const otherDb = getDatabase(other);
   const from = records.length;
   const sent = (await received()).length;
-  expect(await codeOf(ref('notes/a', getDatabase(other)).get!())).toBe('PYRIC_LIVE_REFUSED');
+  const first = ref('notes/a', otherDb);
+  void codeOf(first.setPriority!(1));
+  void codeOf((first.onDisconnect!() as Instance).set!({ n: 1 }));
+  expect(await codeOf(first.get!())).toBe('PYRIC_LIVE_REFUSED');
+  const cancelled = await new Promise((done) => first.on!('value', () => done('delivered'), (error: { code?: unknown }) => done(error.code)));
+  expect(cancelled).toBe('PYRIC_LIVE_REFUSED');
+  expect(await refusedCode(() => ref('notes/a', otherDb))).toBe('PYRIC_LIVE_REFUSED');
   expect(await recordsSince(from)).toEqual([]);
-  expect(await requestsSince(sent)).toEqual([]);
+  expect(await framesSince(sent)).toEqual([]);
 });
 
 test('no record carries a data value, a token, a password or an email', () => {
