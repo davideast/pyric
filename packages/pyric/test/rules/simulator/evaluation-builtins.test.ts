@@ -267,4 +267,14 @@ describe('evaluation built-ins', () => {
     expect(decisionOf(rules(`match /a/{id} { allow write: if getAfter(/databases/$(database)/documents/b/{id}).data != null; }`), { method: 'create', path: 'a/1', data: {} })).toBe('DENY');
     expect(decisionOf(rules(`match /a/{id} { allow read: if exists(/databases/$(database)/documents/b/{id}) || true; }`), { method: 'get', path: 'a/1' })).toBe('ALLOW');
   });
+
+  test('map.get(keyList, default) requires every list element to be a string (#2440)', () => {
+    expect(decisionOf(rules(`match /u/{id} { allow read: if {'1': 'ok'}.get([1], 'd') == 'ok'; }`), { method: 'get', path: 'u/1' })).toBe('DENY');
+    expect(decisionOf(rules(`match /u/{id} { allow read: if {'a': 1}.get([null], 'd') == 'd'; }`), { method: 'get', path: 'u/1' })).toBe('DENY');
+    expect(decisionOf(rules(`match /u/{id} { allow read: if {'a': {'true': 'ok'}}.get(['a', true], 'd') == 'ok'; }`), { method: 'get', path: 'u/1' })).toBe('DENY');
+    expect(decisionOf(rules(`match /u/{id} { allow read: if {'a': 1}.get(['missing', 2], 'd') == 'd'; }`), { method: 'get', path: 'u/1' })).toBe('DENY');
+    expect(decisionOf(rules(`match /u/{id} { allow read: if !({'1': 'ok'}.get([1], 'd') == 'ok'); }`), { method: 'get', path: 'u/1' })).toBe('DENY');
+    expect(decisionOf(rules(`match /u/{id} { allow read: if {'1': 'ok'}.get([1], 'd') == 'ok' || true; }`), { method: 'get', path: 'u/1' })).toBe('ALLOW');
+    expect(decisionOf(rules(`match /u/{id} { allow read: if !({'1': 'ok'}.get([1], 'd') == 'ok' && false); }`), { method: 'get', path: 'u/1' })).toBe('ALLOW');
+  });
 });
