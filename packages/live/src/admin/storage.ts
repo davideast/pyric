@@ -10,6 +10,10 @@
  * `deleteFiles`. A call the SDK makes inside another, as `exists` reads the
  * metadata and `move` copies then deletes, is part of the outer record.
  *
+ * A call in the SDK's callback form (`file.download((error, bytes) => ...)`)
+ * is recorded when it settles, and its callback gets the SDK's answer or the
+ * gate's refusal.
+ *
  * A record never carries an object's bytes or a metadata value.
  */
 import { basename } from 'node:path';
@@ -97,7 +101,7 @@ function contextOf(name: string, args: readonly unknown[], self: unknown): CallC
 }
 
 function calls(...names: string[]): AdminMethod[] {
-  return names.map((name) => ({ name, context: (_name, args, self) => contextOf(name, args, self), codeOf: adminCodeOf, throwsLocally: true }));
+  return names.map((name) => ({ name, context: (_name, args, self) => contextOf(name, args, self), codeOf: adminCodeOf, throwsLocally: true, nodeCallback: true }));
 }
 
 /** The classes the row patches and the methods of each. */

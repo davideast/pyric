@@ -344,6 +344,25 @@ export function liveAdminProjectRefusal(projects: AdminProjectMismatch): LiveAdm
   return Object.assign(error, { source, appProjectId, hostProjectId });
 }
 
+/** pyric's own code for an ID token from the other mode, beside firebase-admin's `auth/argument-error`. */
+export const MODE_MISMATCH = 'PYRIC_MODE_MISMATCH' as const;
+
+/** The mode-mismatch error, shaped as firebase-admin's own Auth errors: a `code`, and an `errorInfo` holding it. */
+export type LiveModeMismatch = Error & { readonly code: string; readonly pyricCode: typeof MODE_MISMATCH; readonly errorInfo: { code: string; message: string } };
+
+/**
+ * The error a live backend's `verifyIdToken` or `verifySessionCookie` rejects
+ * with for a token a pyric sandbox issued (G-3 in the #2304 plan). It keeps
+ * firebase-admin's code for a token it can't verify, so an app's error
+ * handling behaves as it would, and adds `pyricCode`.
+ */
+export function liveModeMismatch(hostProjectId: string): LiveModeMismatch {
+  const message = `This backend runs in live mode for ${hostProjectId}, and the request carries an ID token a pyric sandbox issued. ` +
+    'Start this backend under pyric run --sandbox, or sign in on the live page.';
+  const code = 'auth/argument-error';
+  return Object.assign(new Error(message), { code, pyricCode: MODE_MISMATCH, errorInfo: { code, message } });
+}
+
 const WRITER_NAMES: Readonly<Record<PyricWriter, string>> = {
   studio: 'Studio',
   mcp: 'an MCP tool',

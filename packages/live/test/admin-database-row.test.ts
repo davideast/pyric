@@ -379,3 +379,49 @@ test('no record carries a data value, a token, a password or an email', () => {
   const fields = new Set(records.flatMap((record) => Object.keys(record)));
   for (const field of ['writeData', 'document', 'account', 'requests']) expect(fields.has(field)).toBe(false);
 });
+
+test('a refused write, transaction or once hands the refusal to the app callback, as the SDK hands it a failure', async () => {
+  const otherDb = credentialApp('admin-database-callbacks', 'other-prod');
+  const from = records.length;
+  const target = ref('notes/a', otherDb);
+  const written = await new Promise((done) => void codeOf(target.set!({ n: 1 }, (error: { code?: unknown } | null) => done(error?.code))));
+  expect(written).toBe('PYRIC_LIVE_REFUSED');
+  const removed = await new Promise((done) => void codeOf(target.remove!((error: { code?: unknown } | null) => done(error?.code))));
+  expect(removed).toBe('PYRIC_LIVE_REFUSED');
+  const transaction = await new Promise((done) => {
+    const onComplete = (error: { code?: unknown } | null, committed: unknown, snapshot: unknown) => done([error?.code, committed, snapshot]);
+    void codeOf(target.transaction!((value: unknown) => value, onComplete));
+  });
+  expect(transaction).toEqual(['PYRIC_LIVE_REFUSED', false, null]);
+  const context = { name: 'context' };
+  const cancelled = await new Promise((done) => {
+    const failure = function (this: unknown, error: { code?: unknown }) {
+      done([error.code, this]);
+    };
+    void codeOf(target.once!('value', () => done('delivered'), failure, context));
+  });
+  expect(cancelled).toEqual(['PYRIC_LIVE_REFUSED', context]);
+  expect(await recordsSince(from)).toEqual([]);
+});
+
+test('getRules, getRulesJSON and setRules wait for the gate: another project is refused before any request', async () => {
+  const named = admin.initializeApp({ projectId: 'other-project-rules', databaseURL: DATABASE_URL }, 'admin-database-rules-other');
+  others.push(named);
+  const namedDb = getDatabase(named);
+  const workedOut = credentialApp('admin-database-rules-adc', 'other-prod');
+  const unmatched = server.unmatched.length;
+  for (const database of [namedDb, workedOut]) {
+    expect(await refusedCode(() => database.getRules!())).toBe('PYRIC_LIVE_REFUSED');
+    expect(await refusedCode(() => database.getRulesJSON!())).toBe('PYRIC_LIVE_REFUSED');
+    expect(await refusedCode(() => database.setRules!('{"rules": {".read": true}}'))).toBe('PYRIC_LIVE_REFUSED');
+  }
+  await new Promise((done) => setTimeout(done, 100));
+  expect(server.unmatched.length).toBe(unmatched);
+});
+
+test('getRules on the host project goes to the instance', async () => {
+  const hostDb = credentialApp('admin-database-rules-host', PROJECT);
+  const unmatched = server.unmatched.length;
+  expect(await refusedCode(() => hostDb.getRules!())).not.toBe('PYRIC_LIVE_REFUSED');
+  expect(server.unmatched.length).toBeGreaterThan(unmatched);
+});
