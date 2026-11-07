@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pyric Security Evidence — Data Plane</title>
+  <style>
+    @font-face {
+      font-family: "PyricSans";
+      src:
+        url("/__pyric_stage_assets/fonts/inter-latin-opsz-normal.woff2") format("woff2-variations"),
+        url("../fonts/inter-latin-opsz-normal.woff2") format("woff2-variations");
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: block;
+    }
+
+    @font-face {
+      font-family: "PyricMono";
+      src:
+        url("/__pyric_stage_assets/fonts/NotoSansMono-Regular.ttf") format("truetype"),
+        url("../fonts/NotoSansMono-Regular.ttf") format("truetype");
+      font-weight: 400 500;
+      font-style: normal;
+      font-display: block;
+    }
+
+    @font-face {
+      font-family: "PyricMono";
+      src:
+        url("/__pyric_stage_assets/fonts/NotoSansMono-Bold.ttf") format("truetype"),
+        url("../fonts/NotoSansMono-Bold.ttf") format("truetype");
+      font-weight: 600 800;
+      font-style: normal;
+      font-display: block;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --surface: #212121;
+      --panel: #2a2a2a;
+      --ink: #f5f5f5;
+      --muted: #b3b3b3;
+      --accent: #f5f5f5;
+      --danger: #d4d4d4;
+      --success: #a3a3a3;
+      --border: rgba(255, 255, 255, 0.12);
+      --radius: 12px;
+      --font-sans: "PyricSans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "PyricMono", "Noto Sans Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--surface);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .stage-shell {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 22px 28px 16px;
+      gap: 18px;
+      background: var(--surface);
+    }
+
+    /* Header */
+    .stage-header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 20px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .severity-pill {
+      flex: 0 0 auto;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 5px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.16);
+      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+    }
+
+    .stage-title {
+      font-size: 20px;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .finding-meta {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .beat-caption {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--ink);
+      max-width: 680px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    [data-caption-style="pill"] .beat-caption {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 7px 16px;
+    }
+
+    [data-caption-style="bar"] .beat-caption {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 6px;
+      padding: 7px 14px;
+    }
+
+    [data-caption-style="minimal"] .beat-caption {
+      color: var(--muted);
+    }
+
+    [data-caption-style="none"] .beat-caption {
+      display: none;
+    }
+
+    .time-readout {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      color: var(--muted);
+      flex: 0 0 auto;
+    }
+
+    /* 3-Column Data Plane Grid */
+    .dataplane-grid {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr) minmax(0, 1.15fr);
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .plane-panel {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .panel-title {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+
+    .panel-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .panel-tag.tag-danger {
+      background: rgba(255, 255, 255, 0.18);
+      border-color: var(--danger);
+      color: var(--muted);
+    }
+
+    .panel-tag.tag-success {
+      background: rgba(255, 255, 255, 0.18);
+      border-color: var(--success);
+      color: var(--muted);
+    }
+
+    .panel-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow: hidden;
+    }
+
+    /* JSON Tree Rendering */
+    .json-tree {
+      flex: 1 1 auto;
+      min-height: 0;
+      background: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 10px;
+      padding: 14px;
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      line-height: 1.6;
+      overflow: hidden;
+    }
+
+    .tree-line {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      white-space: pre;
+      transition: background-color 140ms ease;
+    }
+
+    .tree-key {
+      color: var(--muted);
+    }
+
+    .tree-val {
+      color: var(--ink);
+    }
+
+    .tree-punct {
+      color: var(--muted);
+    }
+
+    .tree-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    [data-highlights="true"] .tree-line.state-danger {
+      background: rgba(255, 255, 255, 0.10);
+    }
+
+    [data-highlights="true"] .tree-line.state-danger .tree-val {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    [data-highlights="true"] .tree-line.state-danger .tree-badge {
+      background: var(--ink);
+      color: var(--surface);
+    }
+
+    [data-highlights="true"] .tree-line.state-success {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    [data-highlights="true"] .tree-line.state-success .tree-val {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    [data-highlights="true"] .tree-line.state-success .tree-badge {
+      background: rgba(255, 255, 255, 0.16);
+      color: var(--ink);
+    }
+
+    /* Center Panel: Verdict Transition + Peer SDK Request */
+    .verdict-stage-card {
+      background: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      text-align: center;
+    }
+
+    .verdict-hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 10px 20px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--ink);
+    }
+
+    .verdict-hero-badge.tone-danger {
+      background: rgba(255, 255, 255, 0.20);
+      border-color: var(--danger);
+      color: var(--muted);
+      box-shadow: 0 0 28px rgba(255, 255, 255, 0.22);
+    }
+
+    .verdict-hero-badge.tone-success {
+      background: rgba(255, 255, 255, 0.20);
+      border-color: var(--success);
+      color: var(--muted);
+      box-shadow: 0 0 28px rgba(255, 255, 255, 0.22);
+    }
+
+    .transition-track {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .track-step {
+      padding: 3px 8px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      opacity: 0.5;
+    }
+
+    .track-step.active {
+      opacity: 1;
+      color: var(--ink);
+      border-color: var(--accent);
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .track-step.active-danger {
+      opacity: 1;
+      color: var(--muted);
+      border-color: var(--danger);
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .track-step.active-success {
+      opacity: 1;
+      color: var(--muted);
+      border-color: var(--success);
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .sdk-card {
+      flex: 1 1 auto;
+      min-height: 0;
+      background: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sdk-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .sdk-code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--ink);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .why-callout {
+      flex: 0 0 auto;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    /* Right Panel: Vulnerable vs Fixed Security Rules Diff */
+    .rules-diff-box {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .rule-section {
+      flex: 1 1 0;
+      min-height: 0;
+      background: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+
+    [data-highlights="true"] .rule-section.active-vuln {
+      border-color: var(--danger);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4);
+    }
+
+    [data-highlights="true"] .rule-section.active-fixed {
+      border-color: var(--success);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4);
+    }
+
+    .rule-section-title {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .rule-section-title.vuln {
+      color: var(--muted);
+    }
+
+    .rule-section-title.fixed {
+      color: var(--muted);
+    }
+
+    .rule-code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--ink);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .matched-rule-bar {
+      flex: 0 0 auto;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    [data-show-request-card="false"] [data-pyric-slot="request-card"] {
+      display: none !important;
+    }
+
+    [data-show-rule-diff="false"] [data-pyric-slot="rule-diff"] {
+      display: none !important;
+    }
+
+    [data-show-outro-card="false"] [data-pyric-slot="outro-card"] {
+      display: none !important;
+    }
+
+    /* Locked Provenance Footer */
+    .pyric-provenance {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 16px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .provenance-dot {
+      flex: 0 0 auto;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    [data-pyric-provenance] {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--ink);
+      opacity: 0.88;
+    }
+
+    /* Square 1:1 (1080x1080) adaptations */
+    @media (max-aspect-ratio: 11/10) {
+      .stage-shell {
+        padding: 16px 18px 12px;
+        gap: 12px;
+      }
+
+      .stage-header {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .dataplane-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 12px;
+      }
+
+      .center-column {
+        grid-column: 1 / -1;
+      }
+    }
+
+    /* Portrait 9:16 (1080x1920) adaptations */
+    @media (max-aspect-ratio: 3/4) {
+      .dataplane-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+        gap: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage-shell">
+    <header class="stage-header">
+      <div class="header-left">
+        <span class="severity-pill" data-pyric-severity>HIGH</span>
+        <div style="min-width: 0;">
+          <h1 class="stage-title" data-pyric-title>Security Audit Finding</h1>
+          <div class="finding-meta" data-pyric-finding>campaign / probe</div>
+        </div>
+      </div>
+      <div class="beat-caption" data-pyric-caption>Initializing data-plane evidence...</div>
+      <span class="time-readout" data-pyric-time>0.0s</span>
+    </header>
+
+    <main class="dataplane-grid">
+      <!-- Left: Owner RTDB/Firestore JSON Tree -->
+      <section class="plane-panel">
+        <div class="panel-header">
+          <span class="panel-title" data-pyric-service-label>Owner Data Tree</span>
+          <span class="panel-tag" data-pyric-tree-status>BASELINE</span>
+        </div>
+        <div class="panel-body">
+          <div class="json-tree" data-pyric-json-tree></div>
+        </div>
+      </section>
+
+      <!-- Center: Peer SDK Request + Live ALLOW -> DENY Verdict -->
+      <section class="plane-panel center-column">
+        <div class="panel-header">
+          <span class="panel-title">Authorization Decision</span>
+          <span class="panel-tag" data-pyric-peer-tag>peer</span>
+        </div>
+        <div class="panel-body">
+          <div class="verdict-stage-card">
+            <span class="verdict-hero-badge" data-pyric-badge>BASELINE ALLOW</span>
+            <div class="transition-track">
+              <span class="track-step" data-track-step="hook">ALLOW (Baseline)</span>
+              <span>→</span>
+              <span class="track-step" data-track-step="repro">ALLOW (Reproduce)</span>
+              <span>→</span>
+              <span class="track-step" data-track-step="fix">DENY (Fix)</span>
+            </div>
+          </div>
+
+          <div class="sdk-card" data-pyric-slot="request-card">
+            <div class="sdk-card-header">
+              <span>Peer SDK Call</span>
+              <span data-pyric-op-label>database.set</span>
+            </div>
+            <pre class="sdk-code" data-pyric-sdk>—</pre>
+          </div>
+
+          <div class="why-callout" data-pyric-slot="outro-card" data-pyric-why>—</div>
+        </div>
+      </section>
+
+      <!-- Right: Vulnerable vs Fixed Security Rules Diff -->
+      <section class="plane-panel" data-pyric-slot="rule-diff">
+        <div class="panel-header">
+          <span class="panel-title">Security Rules Diff</span>
+          <span class="panel-tag">RULESET</span>
+        </div>
+        <div class="panel-body">
+          <div class="rules-diff-box">
+            <div class="rule-section" data-rule-box="vuln">
+              <div class="rule-section-title vuln">− Vulnerable Rule</div>
+              <pre class="rule-code" data-pyric-vuln-rule>—</pre>
+            </div>
+            <div class="rule-section" data-rule-box="fixed">
+              <div class="rule-section-title fixed">+ Fixed Rule</div>
+              <pre class="rule-code" data-pyric-fixed-rule>—</pre>
+            </div>
+          </div>
+          <div class="matched-rule-bar">
+            Matched: <code data-pyric-rule>—</code>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="pyric-provenance">
+      <span class="provenance-dot" aria-hidden="true"></span>
+      <span data-pyric-provenance></span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      let currentPayload = null;
+
+      function applyTheme(theme) {
+        const t = theme || {};
+        const style = document.documentElement.style;
+        const vars = {
+          '--surface': t.surface || 'var(--muted)',
+          '--panel': t.panel || 'var(--muted)',
+          '--ink': t.ink || 'var(--muted)',
+          '--muted': t.muted || 'var(--muted)',
+          '--accent': t.accent || 'var(--muted)',
+          '--danger': t.danger || 'var(--danger)',
+          '--success': t.success || 'var(--muted)',
+          '--border': t.border || 'rgba(255, 255, 255, 0.10)',
+          '--radius': t.radius || '14px',
+          '--font-sans': t.fontSans || 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          '--font-mono': t.fontMono || 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        };
+        for (const [k, v] of Object.entries(vars)) {
+          style.setProperty(k, v);
+        }
+      }
+
+      function applySlots(slots) {
+        const s = slots || {};
+        const ds = document.documentElement.dataset;
+        ds.captionStyle = s.captionStyle || 'pill';
+        ds.highlights = String(s.highlights !== false);
+        ds.showRuleDiff = String(s.showRuleDiff !== false);
+        ds.showRequestCard = String(s.showRequestCard !== false);
+        ds.showTitleCard = String(s.showTitleCard !== false);
+        ds.showOutroCard = String(s.showOutroCard !== false);
+      }
+
+      function findActiveBeat(beats, tSec) {
+        if (!Array.isArray(beats) || beats.length === 0) {
+          return {
+            id: 'repro',
+            phase: 'repro',
+            startMs: 0,
+            endMs: 3000,
+            caption: currentPayload?.copy?.repro || '',
+            badgeText: 'REPRO ALLOWED',
+            badgeTone: 'danger',
+            sdkCall: '—',
+            matchedRule: '—',
+          };
+        }
+        const tMs = Math.max(0, Number(tSec) * 1000);
+        for (let i = 0; i < beats.length; i++) {
+          const b = beats[i];
+          const sMs = typeof b.startMs === 'number' ? b.startMs : b.startSec * 1000;
+          const eMs = typeof b.endMs === 'number' ? b.endMs : b.endSec * 1000;
+          if (tMs >= sMs && tMs < eMs - 1e-6) {
+            return b;
+          }
+        }
+        return beats[beats.length - 1];
+      }
+
+      function buildNestedTree(leafData, targetPath) {
+        if (!leafData || typeof leafData !== 'object') {
+          return { root: String(leafData ?? '') };
+        }
+        const segments = String(targetPath || '')
+          .split('/')
+          .filter(Boolean);
+        if (segments.length === 0) {
+          return leafData;
+        }
+        const firstSeg = segments[0];
+        if (Object.prototype.hasOwnProperty.call(leafData, firstSeg)) {
+          return leafData;
+        }
+        let wrapped = leafData;
+        for (let i = segments.length - 1; i >= 0; i--) {
+          wrapped = { [segments[i]]: wrapped };
+        }
+        return wrapped;
+      }
+
+      function collectChangedKeys(beforeObj, afterObj, changedPaths) {
+        const keys = new Set();
+        if (Array.isArray(changedPaths)) {
+          for (const p of changedPaths) {
+            const parts = String(p).split('/').filter(Boolean);
+            if (parts.length > 0) {
+              keys.add(parts[parts.length - 1]);
+              keys.add(parts.join('.'));
+            }
+          }
+        }
+        if (beforeObj && afterObj && typeof beforeObj === 'object' && typeof afterObj === 'object') {
+          const allKeys = new Set([...Object.keys(beforeObj), ...Object.keys(afterObj)]);
+          for (const k of allKeys) {
+            if (JSON.stringify(beforeObj[k]) !== JSON.stringify(afterObj[k])) {
+              keys.add(k);
+            }
+          }
+        }
+        return keys;
+      }
+
+      function appendTreeNode(container, key, value, depth, pathParts, changedKeys, phase) {
+        const indent = '  '.repeat(depth);
+        const currentDotPath = pathParts.join('.');
+        const isPrimitive = value === null || typeof value !== 'object';
+
+        if (isPrimitive) {
+          const line = document.createElement('div');
+          line.className = 'tree-line';
+          const isTarget = changedKeys.has(key) || changedKeys.has(currentDotPath);
+          if (isTarget && phase === 'repro') {
+            line.classList.add('state-danger');
+          } else if (isTarget && phase === 'fix') {
+            line.classList.add('state-success');
+          }
+
+          const leftSpan = document.createElement('span');
+          const keyPart = key !== null ? `<span class="tree-key">${indent}"${escapeHtml(key)}"</span><span class="tree-punct">: </span>` : indent;
+          leftSpan.innerHTML = `${keyPart}<span class="tree-val">${escapeHtml(JSON.stringify(value))}</span>`;
+          line.appendChild(leftSpan);
+
+          if (isTarget && (phase === 'repro' || phase === 'fix')) {
+            const badge = document.createElement('span');
+            badge.className = 'tree-badge';
+            badge.textContent = phase === 'repro' ? 'TAMPERED' : 'PROTECTED';
+            line.appendChild(badge);
+          }
+
+          container.appendChild(line);
+          return;
+        }
+
+        const isArr = Array.isArray(value);
+        const openBrace = isArr ? '[' : '{';
+        const closeBrace = isArr ? ']' : '}';
+
+        const openLine = document.createElement('div');
+        openLine.className = 'tree-line';
+        if (key !== null) {
+          openLine.innerHTML = `<span><span class="tree-key">${indent}"${escapeHtml(key)}"</span><span class="tree-punct">: ${openBrace}</span></span>`;
+        } else {
+          openLine.innerHTML = `<span><span class="tree-punct">${indent}${openBrace}</span></span>`;
+        }
+        container.appendChild(openLine);
+
+        const entries = isArr ? value.map((v, idx) => [String(idx), v]) : Object.entries(value);
+        for (const [childKey, childVal] of entries) {
+          appendTreeNode(
+            container,
+            childKey,
+            childVal,
+            depth + 1,
+            [...pathParts, childKey],
+            changedKeys,
+            phase,
+          );
+        }
+
+        const closeLine = document.createElement('div');
+        closeLine.className = 'tree-line';
+        closeLine.innerHTML = `<span><span class="tree-punct">${indent}${closeBrace}</span></span>`;
+        container.appendChild(closeLine);
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function renderJsonTree(payload, phase) {
+        const treeEl = document.querySelector('[data-pyric-json-tree]');
+        const statusEl = document.querySelector('[data-pyric-tree-status]');
+        if (!treeEl) return;
+
+        const ev = payload?.evidence || {};
+        const targetPath = ev.path || '/channels/general/messages/msg_alice_1';
+        const beforeRaw = ev.before ?? { authorUid: payload?.actors?.owner?.uid || 'alice', text: 'Verified baseline value' };
+        const afterRaw = ev.after ?? { authorUid: payload?.actors?.owner?.uid || 'alice', text: 'Unauthorized overwrite' };
+
+        const changedKeys = collectChangedKeys(beforeRaw, afterRaw, ev.changedPaths);
+        const activeData = phase === 'repro' ? afterRaw : beforeRaw;
+        const treeObj = buildNestedTree(activeData, targetPath);
+
+        if (statusEl) {
+          statusEl.classList.remove('tag-danger', 'tag-success');
+          if (phase === 'repro') {
+            statusEl.textContent = 'TAMPERED';
+            statusEl.classList.add('tag-danger');
+          } else if (phase === 'fix') {
+            statusEl.textContent = 'PROTECTED';
+            statusEl.classList.add('tag-success');
+          } else {
+            statusEl.textContent = 'BASELINE';
+          }
+        }
+
+        treeEl.innerHTML = '';
+        appendTreeNode(treeEl, null, treeObj, 0, [], changedKeys, phase);
+      }
+
+      function renderRules(payload, beat) {
+        const vulnEl = document.querySelector('[data-pyric-vuln-rule]');
+        const fixedEl = document.querySelector('[data-pyric-fixed-rule]');
+        const vulnBox = document.querySelector('[data-rule-box="vuln"]');
+        const fixedBox = document.querySelector('[data-rule-box="fixed"]');
+        const matchedEl = document.querySelector('[data-pyric-rule]');
+
+        const fixRules = payload?.fixRules || payload?.stage?.fixRules || payload?.evidence?.fixRules || {};
+        const vulnRule =
+          fixRules.before ||
+          payload?.evidence?.matchedRule ||
+          '".write": "auth != null"';
+        const fixedRule =
+          fixRules.after ||
+          fixRules.rule ||
+          fixRules.matchedRule ||
+          '".write": "auth != null && auth.uid == data.child(\'authorUid\').val()"';
+
+        if (vulnEl) vulnEl.textContent = vulnRule;
+        if (fixedEl) fixedEl.textContent = fixedRule;
+        if (matchedEl) matchedEl.textContent = beat.matchedRule || (beat.phase === 'fix' ? fixedRule : vulnRule);
+
+        if (vulnBox && fixedBox) {
+          vulnBox.classList.remove('active-vuln');
+          fixedBox.classList.remove('active-fixed');
+          if (beat.phase === 'repro') {
+            vulnBox.classList.add('active-vuln');
+          } else if (beat.phase === 'fix') {
+            fixedBox.classList.add('active-fixed');
+          }
+        }
+      }
+
+      window.__initPyricStage = function initPyricStage(payload) {
+        currentPayload = payload;
+        if (!payload) return;
+
+        applyTheme(payload.stage?.theme);
+        applySlots(payload.stage?.slots);
+
+        const sevEl = document.querySelector('[data-pyric-severity]');
+        if (sevEl) sevEl.textContent = payload.copy?.severity || 'HIGH';
+
+        const titleEl = document.querySelector('[data-pyric-title]');
+        if (titleEl) titleEl.textContent = payload.copy?.title || 'Security Audit Finding';
+
+        const findingEl = document.querySelector('[data-pyric-finding]');
+        if (findingEl && payload.finding) {
+          findingEl.textContent = `${payload.finding.campaign} / ${payload.finding.probe}`;
+        }
+
+        const serviceLabel = document.querySelector('[data-pyric-service-label]');
+        if (serviceLabel) {
+          const svc = String(payload.evidence?.service || 'database').toLowerCase();
+          serviceLabel.textContent = svc === 'firestore' ? 'Owner Firestore Document' : 'Owner RTDB JSON Tree';
+        }
+
+        const peerTag = document.querySelector('[data-pyric-peer-tag]');
+        if (peerTag) {
+          const peer = payload.actors?.peer;
+          peerTag.textContent = peer ? `${peer.name} (${peer.uid || 'peer'})` : 'peer';
+        }
+
+        const opLabel = document.querySelector('[data-pyric-op-label]');
+        if (opLabel) {
+          const svc = payload.evidence?.service || 'database';
+          const method = payload.evidence?.method || 'set';
+          opLabel.textContent = `${svc}.${method}`;
+        }
+
+        const whyEl = document.querySelector('[data-pyric-why]');
+        if (whyEl) whyEl.textContent = payload.copy?.why || '';
+
+        const provEl = document.querySelector('[data-pyric-provenance]');
+        if (provEl) {
+          provEl.textContent = payload.provenanceText || '';
+        }
+      };
+
+      window.setFrame = async function setFrame(tSec, frameIndex = 0, totalFrames = 1) {
+        if (!currentPayload && window.__PYRIC_EVIDENCE__) {
+          window.__initPyricStage(window.__PYRIC_EVIDENCE__);
+        }
+        const payload = currentPayload;
+        if (!payload) return;
+
+        const beat = findActiveBeat(payload.beats, tSec);
+        const phase = beat.phase || 'repro';
+        document.documentElement.dataset.phase = phase;
+        document.documentElement.dataset.beat = beat.id || 'repro';
+
+        const captionEl = document.querySelector('[data-pyric-caption]');
+        if (captionEl) captionEl.textContent = beat.caption || '';
+
+        const badgeEl = document.querySelector('[data-pyric-badge]');
+        if (badgeEl) {
+          badgeEl.textContent = beat.badgeText || 'REPRO ALLOWED';
+          badgeEl.classList.remove('tone-neutral', 'tone-danger', 'tone-success');
+          badgeEl.classList.add(`tone-${beat.badgeTone || 'danger'}`);
+        }
+
+        const timeEl = document.querySelector('[data-pyric-time]');
+        if (timeEl) timeEl.textContent = `${Number(tSec).toFixed(1)}s`;
+
+        const sdkEl = document.querySelector('[data-pyric-sdk]');
+        if (sdkEl) sdkEl.textContent = beat.sdkCall || '—';
+
+        for (const stepEl of document.querySelectorAll('[data-track-step]')) {
+          const stepPhase = stepEl.getAttribute('data-track-step');
+          stepEl.classList.remove('active', 'active-danger', 'active-success');
+          if (stepPhase === phase) {
+            if (phase === 'repro') stepEl.classList.add('active-danger');
+            else if (phase === 'fix') stepEl.classList.add('active-success');
+            else stepEl.classList.add('active');
+          }
+        }
+
+        renderJsonTree(payload, phase);
+        renderRules(payload, beat);
+      };
+
+      if (window.__PYRIC_EVIDENCE__) {
+        window.__initPyricStage(window.__PYRIC_EVIDENCE__);
+      }
+    })();
+  </script>
+</body>
+</html>

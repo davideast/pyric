@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Rooms</title></head>
+  <body>
+    <h1>Rooms</h1>
+    <output id="status">Starting</output>
+    <ul id="rooms"></ul>
+    <script>
+      // A module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+    </script>
+    <script type="module">
+      // A rooms app's page. It signs in as the account `?user=` names
+      // (`reader` or `writer`), reads a room and listens to the open rooms.
+      // Its backend is the project below, or the local backend a
+      // `?backend=<origin>` query names, through the SDK's own emulator
+      // connectors.
+      import { initializeApp } from "firebase/app";
+      import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
+      import { collection, connectFirestoreEmulator, doc, getDoc, getFirestore, onSnapshot, query, where } from "firebase/firestore";
+
+      const PROJECT = "demo-live-traffic";
+      const app = initializeApp({
+        projectId: PROJECT,
+        apiKey: "demo-live-traffic-key",
+        appId: "1:1:web:live-clients",
+        authDomain: `${PROJECT}.firebaseapp.com`,
+      });
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const params = new URLSearchParams(location.search);
+      const backend = params.get("backend");
+      if (backend) {
+        const url = new URL(backend);
+        connectAuthEmulator(auth, url.origin, { disableWarnings: true });
+        connectFirestoreEmulator(db, url.hostname, Number(url.port));
+      }
+      const user = params.get("user") ?? "reader";
+      const failure = (error) => error.code ?? String(error);
+
+      window.signIn = () => signInWithEmailAndPassword(auth, `${user}@example.com`, `${user}-password`).then((signedIn) => signedIn.user.uid, failure);
+
+      window.readLobby = () => getDoc(doc(db, "rooms/lobby")).then((snapshot) => snapshot.data(), failure);
+
+      window.listenToOpenRooms = () => new Promise((resolve, reject) => {
+        // Resolves with production's first answer, not a snapshot from the cache.
+        onSnapshot(query(collection(db, "rooms"), where("open", "==", true)), { includeMetadataChanges: true }, (snapshot) => {
+          const rooms = snapshot.docs.map((room) => room.id);
+          document.querySelector("#rooms").innerHTML = rooms.map((room) => `<li>${room}</li>`).join("");
+          if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) resolve(rooms);
+        }, (error) => reject(failure(error)));
+      });
+
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>

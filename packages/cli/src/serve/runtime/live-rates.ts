@@ -9,7 +9,7 @@
  */
 import type { SandboxEvent, SandboxOperationEvent } from 'pyric/sandbox';
 import {
-  createSdkRates, eventScope, isProductionServed, sdkMethodCoverage,
+  coverageMethodOf, createSdkRates, eventScope, isProductionServed, sdkMethodCoverage,
   type EventScope, type SdkObservation, type SdkRateSnapshot, type SdkServiceRate, type UsageEvidence,
 } from 'pyric/sandbox/internal';
 
@@ -50,14 +50,13 @@ function isObservedLiveCall(event: SandboxEvent): event is SandboxOperationEvent
 }
 
 /**
- * The coverage method an observed call counts as. The live row records a
- * batch commit as `writeBatch` (its export); Rates count it on the sandbox's
- * `writeBatch.commit` write entry.
+ * The coverage method an observed call counts as (`coverageMethodOf`). The
+ * live row records a batch commit as `writeBatch` (its export), and an Admin
+ * row names its class and method, such as `DocumentReference.get`; Rates
+ * count each on the client method that bills the same way.
  */
-const COVERAGE_ALIASES: ReadonlyMap<string, string> = new Map([['firestore/writeBatch', 'writeBatch.commit']]);
-
 function coverageMethod(service: LiveService, method: string): string {
-  return COVERAGE_ALIASES.get(`${service}/${method}`) ?? method;
+  return coverageMethodOf(service, method);
 }
 
 function categoryOf(service: LiveService, method: string): Category | undefined {

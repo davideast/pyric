@@ -85,6 +85,28 @@ describe('live Rates read observed calls from the host', () => {
     expect((firestore.usageBuckets ?? []).reduce((sum, bucket) => sum + bucket.documentDeletes, 0)).toBe(1);
   });
 
+  test('an Admin call counts as the client method it bills as, with its usage', () => {
+    const clock = clockAt(base + 2000);
+    const admin = { sdk: 'admin' as const };
+    const events = [
+      observed({ ...admin, service: 'firestore', method: 'Query.get', path: 'notes', at: base, durationMs: 10, usage: { documentReads: 3 } }),
+      observed({ ...admin, service: 'firestore', method: 'WriteBatch.commit', at: base + 100, usage: { documentWrites: 2 } }),
+      observed({ ...admin, service: 'firestore', method: 'DocumentReference.onSnapshot', path: 'notes/a', at: base + 150, billedDocuments: 1 }),
+      observed({ ...admin, service: 'rtdb', method: 'Reference.set', path: '/notes/a', instance: 'p-default-rtdb', at: base + 200 }),
+      observed({ ...admin, service: 'storage', method: 'File.download', path: 'notes/a.txt', bucket: 'p.firebasestorage.app', at: base + 300 }),
+    ];
+    expect(events.every(event => event.kind === 'operation' && event.rulesDisposition?.kind === 'bypassed')).toBe(true);
+    const snapshot = liveRates(events, clock)(pageSnapshot(clock));
+    const firestore = service(snapshot, 'firestore');
+    expect(calls(firestore, 'getDocs')).toBe(1);
+    expect(calls(firestore, 'writeBatch.commit')).toBe(1);
+    expect(deliveries(firestore, 'onSnapshot')).toBe(1);
+    expect(usageTotal(firestore, 'documentReads')).toBe(4);
+    expect(usageTotal(firestore, 'documentWrites')).toBe(2);
+    expect(calls(service(snapshot, 'rtdb'), 'set')).toBe(1);
+    expect(calls(service(snapshot, 'storage'), 'getBytes')).toBe(1);
+  });
+
   test('an observed one-shot replaces the page journal for Firestore, RTDB and Storage', () => {
     const clock = clockAt(base + 1000);
     const page = createSdkRates({ monotonicNow: clock.monotonicNow });

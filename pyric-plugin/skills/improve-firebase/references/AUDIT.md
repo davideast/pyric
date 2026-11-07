@@ -203,3 +203,9 @@ Discovery samples structure and field presence. It does not authorize data acces
 ### Captured journeys as a regression corpus
 
 The default `pyric sandbox` capture is valuable because it binds actual application requests, identities, Rules, and resulting state into one replayable fixture. Rank a missing capture for a primary security or revenue journey higher than additional static style findings. A small corpus covering owner, non-owner, signed-out, privileged, and failure paths often produces more release confidence than a large ungrounded rules-test inventory.
+
+### Verified videos and before/after checks
+
+Record only E2+ findings, through `scripts/record.mjs`; [RECORD.md](RECORD.md) covers preflight, the two variants, gates, and keyframe QA.
+To check a PR, branch, or plan's claimed fix, build before and after into temp dirs and follow [VERIFY.md](VERIFY.md).
+A failed gate (`status: "not-reproduced"`) means the defect or fix did not reproduce; report it and never edit video output by hand.

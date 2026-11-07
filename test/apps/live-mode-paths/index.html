@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Rooms</title></head>
+  <body>
+    <h1>Rooms</h1>
+    <output id="status">Starting</output>
+    <ul id="messages"></ul>
+    <script>
+      // A module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+    </script>
+    <script type="module">
+      // A rooms app's page. The reader reads a room, lists the open rooms
+      // with the most seats first (a query this project's
+      // firestore.indexes.json has no index for), and listens to every
+      // room's messages through a collection group. Its backend is the
+      // project below, or the local backend a `?backend=<origin>` query
+      // names, through the SDK's own emulator connectors.
+      import { initializeApp } from "firebase/app";
+      import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
+      import {
+        collection, collectionGroup, connectFirestoreEmulator, doc, getDoc, getDocs, getFirestore, onSnapshot, orderBy, query, where,
+      } from "firebase/firestore";
+
+      const PROJECT = "demo-live-traffic";
+      const app = initializeApp({
+        projectId: PROJECT,
+        apiKey: "demo-live-traffic-key",
+        appId: "1:1:web:live-paths",
+        authDomain: `${PROJECT}.firebaseapp.com`,
+      });
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const backend = new URLSearchParams(location.search).get("backend");
+      if (backend) {
+        const url = new URL(backend);
+        connectAuthEmulator(auth, url.origin, { disableWarnings: true });
+        connectFirestoreEmulator(db, url.hostname, Number(url.port));
+      }
+      const failure = (error) => error.code ?? String(error);
+
+      let messages = [];
+      // The documents production billed the listener for: each document a
+      // snapshot changed, at least one for the first.
+      let billedDocuments = 0;
+      let snapshots = 0;
+
+      window.signIn = () => signInWithEmailAndPassword(auth, "reader@example.com", "reader-password").then((signedIn) => signedIn.user.uid);
+
+      window.readLobby = () => getDoc(doc(db, "rooms/lobby")).then((snapshot) => snapshot.data(), failure);
+
+      window.listBiggestOpenRooms = () => getDocs(query(collection(db, "rooms"), where("open", "==", true), orderBy("seats", "desc")))
+        .then((snapshot) => snapshot.docs.map((room) => room.id), failure);
+
+      window.listenToMessages = () => new Promise((resolve, reject) => {
+        // Resolves with production's first answer, not a snapshot from the cache.
+        onSnapshot(collectionGroup(db, "messages"), { includeMetadataChanges: true }, (snapshot) => {
+          const changed = snapshot.docChanges().length;
+          billedDocuments += snapshots === 0 ? Math.max(changed, 1) : changed;
+          snapshots += 1;
+          messages = snapshot.docs.map((message) => message.ref.path);
+          document.querySelector("#messages").innerHTML = messages.map((path) => `<li>${path}</li>`).join("");
+          if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) resolve(messages);
+        }, (error) => reject(failure(error)));
+      });
+
+      window.billedDocumentCount = () => billedDocuments;
+
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>

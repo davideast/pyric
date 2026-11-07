@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { observedMethod } from 'pyric/sandbox/internal';
 import type { TimeWindow } from './useTrafficBuckets.js';
 import type { TrafficEvent } from '../types.js';
 
@@ -49,6 +50,16 @@ import type { TrafficEvent } from '../types.js';
  * (`authLens.mode === 'admin'`, as `verdict.ts#verdictFor` already
  * checks) should pass their own `isAdmin` predicate to close that gap.
  */
+/*
+ * ── A call production served ──
+ * A live row (`production` present) names the SDK export the app called
+ * (`getDocs`, `setDoc`, `writeBatch`), and production billed it per
+ * document. It counts the documents its recorder measured: a delivery's
+ * `billedDocuments` or the usage's reads, and the usage's writes and
+ * deletes. A call measured with no document counts once, under the request
+ * its export makes (`observedMethod`). Production's allow is `result:
+ * 'allow'`; a denied or failed call bills nothing here.
+ */
 
 const READ_METHODS = new Set(['get', 'list']);
 const WRITE_METHODS = new Set(['create', 'update', 'set']);
@@ -75,17 +86,67 @@ export function isAdminEvent(event: Pick<TrafficEvent, 'origin'>): boolean {
   return event.origin === 'admin';
 }
 
+/** What production billed for a call it served: document counts only, never a value. */
+export interface BillableProduction {
+  billedDocuments?: number;
+  usage?: { documentReads?: number; documentWrites?: number; documentDeletes?: number };
+}
+
+/** A traffic event, with production's bill when production served it. */
+export type BillableEvent = TrafficEvent & { production?: BillableProduction };
+
+/** The billable units one event adds to each series. */
+export type BillableUnits = Partial<Record<BillableSeriesKey, number>>;
+
+type ClassifiedEvent = Pick<BillableEvent, 'method' | 'result' | 'origin' | 'service' | 'production'>;
+
+/** The request a method names: the sandbox's own, or the one an observed SDK export makes. */
+function requestMethod(event: ClassifiedEvent): string | null {
+  if (event.production === undefined) return event.method;
+  const service = (event.service ?? 'firestore') as Parameters<typeof observedMethod>[0];
+  return observedMethod(service, event.method);
+}
+
 /** Classify a billable op, or `null` if it isn't one / never ran. */
 export function classifyBillable(
-  event: Pick<TrafficEvent, 'method' | 'result' | 'origin'>,
+  event: ClassifiedEvent,
   isAdmin: (event: Pick<TrafficEvent, 'origin'>) => boolean = isAdminEvent,
 ): BillableSeriesKey | null {
   const executed = event.result === 'allow' || isAdmin(event);
   if (!executed) return null;
-  if (READ_METHODS.has(event.method)) return 'reads';
-  if (WRITE_METHODS.has(event.method)) return 'writes';
-  if (DELETE_METHODS.has(event.method)) return 'deletes';
+  const method = requestMethod(event);
+  if (method === null) return null;
+  if (READ_METHODS.has(method)) return 'reads';
+  if (WRITE_METHODS.has(method)) return 'writes';
+  if (DELETE_METHODS.has(method)) return 'deletes';
   return null;
+}
+
+/** The documents production billed a served call for, or `null` when the recorder measured none. */
+function measuredUnits(production: BillableProduction): BillableUnits | null {
+  const usage = production.usage;
+  const measured: BillableUnits = {};
+  const reads = production.billedDocuments ?? usage?.documentReads;
+  if (reads !== undefined) measured.reads = reads;
+  if (usage?.documentWrites !== undefined) measured.writes = usage.documentWrites;
+  if (usage?.documentDeletes !== undefined) measured.deletes = usage.documentDeletes;
+  return Object.keys(measured).length === 0 ? null : measured;
+}
+
+/**
+ * What one event adds to each billable series: one op for a sandbox event,
+ * and production's measured documents for a call production served.
+ */
+export function billableUnits(
+  event: ClassifiedEvent,
+  isAdmin: (event: Pick<TrafficEvent, 'origin'>) => boolean = isAdminEvent,
+): BillableUnits {
+  const key = classifyBillable(event, isAdmin);
+  const production = event.production;
+  const servedAndAllowed = production !== undefined && event.result === 'allow';
+  const measured = servedAndAllowed ? measuredUnits(production) : null;
+  if (measured !== null) return measured;
+  return key === null ? {} : { [key]: 1 };
 }
 
 /** Classify a rules-engine verdict, or `null` if it isn't one (bypassed,
@@ -135,12 +196,12 @@ const EMPTY = (
 });
 
 /** The shared bucketing kernel behind both metric hooks below. */
-function bucketMetrics<K extends string>(
-  events: readonly TrafficEvent[],
+function bucketMetrics<K extends string, E extends TrafficEvent>(
+  events: readonly E[],
   window: TimeWindow,
   bucketCount: number,
   seriesDefs: ReadonlyArray<{ key: K; label: string }>,
-  classify: (event: TrafficEvent) => K | null,
+  classify: (event: E) => Partial<Record<K, number>>,
 ): TrafficMetricsResult {
   const span = window.end - window.start;
   if (bucketCount <= 0 || span <= 0) return EMPTY(seriesDefs);
@@ -154,13 +215,12 @@ function bucketMetrics<K extends string>(
   for (const event of events) {
     const at = event.at;
     if (at < window.start || at >= window.end) continue;
-    const key = classify(event);
-    if (key == null) continue;
     let i = Math.floor((at - window.start) / width);
     if (i >= bucketCount) i = bucketCount - 1;
-    const bucketValues = valuesByKey.get(key)!;
-    bucketValues[i]++;
-    totals.set(key, (totals.get(key) ?? 0) + 1);
+    for (const [key, units] of Object.entries(classify(event)) as Array<[K, number]>) {
+      valuesByKey.get(key)![i] += units;
+      totals.set(key, (totals.get(key) ?? 0) + units);
+    }
   }
 
   let maxValue = 0;
@@ -185,13 +245,13 @@ function bucketMetrics<K extends string>(
 
 /** Pure kernel behind {@link useBillableMetrics} — usable outside React. */
 export function bucketBillableMetrics(
-  events: readonly TrafficEvent[],
+  events: readonly BillableEvent[],
   window: TimeWindow,
   bucketCount = 24,
   isAdmin: (event: Pick<TrafficEvent, 'origin'>) => boolean = isAdminEvent,
 ): TrafficMetricsResult {
   return bucketMetrics(events, window, bucketCount, BILLABLE_SERIES_DEFS, (e) =>
-    classifyBillable(e, isAdmin),
+    billableUnits(e, isAdmin),
   );
 }
 
@@ -202,13 +262,14 @@ export function bucketRulesMetrics(
   bucketCount = 24,
   isAdmin: (event: Pick<TrafficEvent, 'origin'>) => boolean = isAdminEvent,
 ): TrafficMetricsResult {
-  return bucketMetrics(events, window, bucketCount, RULES_SERIES_DEFS, (e) =>
-    classifyRules(e, isAdmin),
-  );
+  return bucketMetrics(events, window, bucketCount, RULES_SERIES_DEFS, (e) => {
+    const key = classifyRules(e, isAdmin);
+    return key === null ? {} : { [key]: 1 };
+  });
 }
 
 export interface UseTrafficMetricsOptions {
-  events: TrafficEvent[];
+  events: BillableEvent[];
   window: TimeWindow;
   /** Number of buckets to divide the window into. The window itself
    *  should already be sized to the session (sandbox sessions run

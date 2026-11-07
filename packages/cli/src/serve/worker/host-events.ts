@@ -9,7 +9,7 @@
  */
 
 import { type HostCtx, type PortLike, post } from './host-context.js';
-import { pageIdFor, setPortTabId } from './host/caller.js';
+import { pageIdFor, setPortClientId, setPortTabId } from './host/caller.js';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { EventSubMessage } from './protocol.js';
 
@@ -85,6 +85,7 @@ export function handleEventSub(ctx: HostCtx, port: PortLike, msg: EventSubMessag
   // Initial fire: the full history snapshot (a defensive copy from the sandbox),
   // with the id this page's own events carry.
   if (msg.tabId !== undefined) setPortTabId(ctx, port, msg.tabId);
+  if (msg.clientId !== undefined) setPortClientId(port, msg.clientId);
   const pageId = pageIdFor(ctx, port);
   post(port, { t: 'event', subId: msg.subId, events: ctx.sandbox.history(), ...(pageId === undefined ? {} : { pageId }) });
 }
