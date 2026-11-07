@@ -15,8 +15,8 @@ export type CallerSource = 'page' | 'tab' | 'node' | 'admin' | 'mcp' | 'studio' 
 export const CALLER_SOURCE_LABELS: Readonly<Record<CallerSource, string>> = Object.freeze({
   page: 'This page',
   tab: 'Other tab',
-  node: 'Server (client SDK)',
-  admin: 'Server (admin)',
+  node: 'Node process',
+  admin: 'Node process, Admin SDK',
   mcp: 'MCP',
   studio: 'Studio',
   'service-worker': 'Service worker',

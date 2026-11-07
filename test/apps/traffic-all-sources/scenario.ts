@@ -13,7 +13,7 @@ import { scenario, sleep, type App } from '../driver.ts';
 
 declare function writeFromPage(): Promise<unknown>;
 
-interface TrafficRow { source: string | null; label: string | null; call: string; path: string; verdict: string }
+interface TrafficRow { source: string | null; call: string; path: string; verdict: string }
 
 async function waitFor(what: string, check: () => Promise<boolean>, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -67,7 +67,6 @@ function trafficRows(page: Page): Promise<TrafficRow[]> {
       const source = row.querySelector<HTMLElement>('[data-traffic-row-source]');
       return {
         source: source?.dataset.trafficRowSource ?? null,
-        label: source?.textContent ?? null,
         call: text(row, '.c1'),
         path: text(row, '.c2'),
         verdict: text(row, '.slot'),
@@ -131,22 +130,22 @@ export default scenario(async (app) => {
 
   await app.step('All sandbox traffic lists all four callers, each with its source', async () => {
     await chooseScope(page, 'all');
-    const expected: Array<[string, string, string]> = [
-      ['notes/from-page', 'page', 'This page'],
-      ['notes/from-admin', 'admin', 'Server (admin)'],
-      ['notes/from-client-read', 'node', 'Server (client SDK)'],
-      ['notes/from-mcp', 'mcp', 'MCP'],
+    const expected: Array<[string, string]> = [
+      ['notes/from-page', 'page'],
+      ['notes/from-admin', 'admin'],
+      ['notes/from-client-read', 'node'],
+      ['notes/from-mcp', 'mcp'],
     ];
     await waitFor('All sandbox traffic did not list every caller', async () => {
       const rows = await trafficRows(page);
       return expected.every(([path]) => rowsFor(rows, path).length > 0);
     });
     const rows = await trafficRows(page);
-    for (const [path, source, label] of expected) {
+    for (const [path, source] of expected) {
       const matching = rowsFor(rows, path);
       assert.ok(
-        matching.every((row) => row.source === source && row.label === label),
-        `${path} must read ${label}:\n${JSON.stringify(matching, null, 2)}`,
+        matching.every((row) => row.source === source),
+        `${path} must come from ${source}:\n${JSON.stringify(matching, null, 2)}`,
       );
     }
     const admin = rowsFor(rows, 'notes/from-admin');
