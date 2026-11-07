@@ -16,8 +16,15 @@
  * with its model and tokens. The host's health report (`/__pyric/health`)
  * bills the commit as three writes: a delete is a write there. The page then
  * asks a model the project does not serve, and the `vite dev` output holds a
- * block naming the denied read's path, code and uid, and one naming the
- * rejected AI call's model (fields only, not wording).
+ * block naming the denied read's path, code, production's message and uid,
+ * and one naming the rejected AI call's model and production's message
+ * (fields only, not wording). Production's messages are the ones the replay
+ * plays, read from its fixture and observation; neither reaches the capture.
+ *
+ * A filter block (HTTP 200 with a withheld candidate) is not covered here:
+ * no committed AI Logic observation captured one, so the replay cannot play
+ * it. The live-ai row's unit test (`packages/live/test/ai-row.test.ts`)
+ * records one through the real SDK, and `live-terminal-lines.test.ts` prints it.
  *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * `live-mode-traffic.json` for the sign-in and the denial,
@@ -26,6 +33,7 @@
  * offline, and the browser blocks every host but loopback.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { scenario, sleep, type App } from '../driver.ts';
 
@@ -37,6 +45,28 @@ const AI_TOTAL_TOKENS = 11;
 const MODEL = 'gemini-flash-lite-latest';
 /** A model no observation served: production answers it 404. */
 const UNSERVED_MODEL = 'gemini-not-served';
+/** The AI Logic observation the replay answers an unserved model from. */
+const UNKNOWN_MODEL_OBSERVATION = fileURLToPath(new URL('../../../packages/conformance/observations/ai/ai-error-unknown-model.json', import.meta.url));
+
+/** Each message the traffic fixture's Firestore denials carry (`cause` with gRPC code 7). */
+function fixtureDenialMessages(): string[] {
+  const found: string[] = [];
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) return value.forEach(walk);
+    if (value === null || typeof value !== 'object') return;
+    const fields = value as Record<string, unknown>;
+    if (fields.code === 7 && typeof fields.message === 'string') found.push(fields.message);
+    Object.values(fields).forEach(walk);
+  };
+  walk(JSON.parse(readFileSync(FIXTURES[0]!, 'utf8')));
+  return [...new Set(found)];
+}
+
+/** Production's message for the unserved model, as the replay answers it: the observation's, naming the model asked for. */
+function unservedModelMessage(): string {
+  const observation = JSON.parse(readFileSync(UNKNOWN_MODEL_OBSERVATION, 'utf8')) as { behavior: { raw: { error: { message: string } } } };
+  return observation.behavior.raw.error.message.replace(/^models\/\S+/, `models/${UNSERVED_MODEL}`);
+}
 
 declare function signIn(): Promise<string>;
 declare function commitRooms(): Promise<string>;
@@ -58,7 +88,7 @@ interface CapturedEvent {
   path?: string;
   result?: string;
   caller?: { kind?: string };
-  production?: { outcome?: { status?: string; code?: string }; usage?: Record<string, number>; billedDocuments?: number };
+  production?: { outcome?: { status?: string; code?: string; message?: string }; usage?: Record<string, number>; billedDocuments?: number };
   observation?: { ai?: { requestedModel?: string; totalTokens?: number } };
 }
 
@@ -209,13 +239,15 @@ export default scenario(async (app) => {
     assert.equal(ai[0]!.observation?.ai?.totalTokens, AI_TOTAL_TOKENS);
   });
 
-  await app.step('the vite dev output names the denied read and the rejected AI call\'s model', async () => {
+  await app.step('the vite dev output names the denied read with production\'s message, and the rejected AI call\'s model and message', async () => {
     assert.equal(typeof await page.evaluate(() => askUnservedModel()), 'string');
     assert.deepEqual(await replay.unmatched(), []);
     const events = await eventually(() => liveEvents(host.url), (all) => all.some((event) => event.service === 'ai' && event.production?.outcome?.status === 'error'), 'the rejected AI call');
     const rejected = events.find((event) => event.service === 'ai' && event.production?.outcome?.status === 'error');
     assert.equal(rejected?.production?.outcome?.code, 'not_found');
-    // Fields only: the call's path, production's code and the uid in one block, and the model in another.
+    // Production's message is for the terminal only: no captured event carries it.
+    assert.deepEqual(events.filter((event) => event.production?.outcome?.message !== undefined), []);
+    // Fields only: the call's path, production's code and message and the uid in one block, and the model and message in another.
     const lines = () => terminalLines(host.process.output);
     const deniedBlock = () => blockNaming(lines(), 'rooms/secret');
     const aiBlock = () => blockNaming(lines(), UNSERVED_MODEL);
@@ -225,7 +257,13 @@ export default scenario(async (app) => {
     assert.match(denial, /getDoc/);
     assert.match(denial, /permission-denied/);
     assert.match(denial, /user-reader/);
-    assert.match(aiBlock().join('\n'), /not_found|NOT_FOUND|404/i);
+    const messages = fixtureDenialMessages();
+    assert.ok(messages.length > 0, 'the traffic fixture carries a denial message');
+    const codeLine = deniedBlock().find((line) => line.includes('permission-denied')) ?? '';
+    assert.ok(messages.some((message) => codeLine.includes(message)), `the denial's code line carries production's message ${JSON.stringify(messages)}:\n${denial}`);
+    const ai = aiBlock().join('\n');
+    assert.match(ai, /not_found|NOT_FOUND|404/i);
+    assert.ok(aiBlock()[0]!.includes(unservedModelMessage()), `the AI block's headline carries production's message:\n${ai}`);
   });
 
   await app.step('nothing reached any host but loopback', async () => {
