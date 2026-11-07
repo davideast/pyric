@@ -74,6 +74,17 @@ describe('live Rates read observed calls from the host', () => {
     expect(usageTotal(storage, 'downloadedBytes')).toBe(500);
   });
 
+  test("a live writeBatch call counts as the batch commit's writes", () => {
+    const clock = clockAt(base + 2000);
+    const events = [
+      observed({ service: 'firestore', method: 'writeBatch', at: base, durationMs: 15, usage: { documentWrites: 2, documentDeletes: 1 } }),
+    ];
+    const firestore = service(liveRates(events, clock)(pageSnapshot(clock)), 'firestore');
+    expect(calls(firestore, 'writeBatch.commit')).toBe(1);
+    expect(usageTotal(firestore, 'documentWrites')).toBe(2);
+    expect((firestore.usageBuckets ?? []).reduce((sum, bucket) => sum + bucket.documentDeletes, 0)).toBe(1);
+  });
+
   test('an observed one-shot replaces the page journal for Firestore, RTDB and Storage', () => {
     const clock = clockAt(base + 1000);
     const page = createSdkRates({ monotonicNow: clock.monotonicNow });

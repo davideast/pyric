@@ -49,8 +49,20 @@ function isObservedLiveCall(event: SandboxEvent): event is SandboxOperationEvent
   return servedByProduction && isLiveService(event.service);
 }
 
+/**
+ * The coverage method an observed call counts as. The live row records a
+ * batch commit as `writeBatch` (its export); Rates count it on the sandbox's
+ * `writeBatch.commit` write entry.
+ */
+const COVERAGE_ALIASES: ReadonlyMap<string, string> = new Map([['firestore/writeBatch', 'writeBatch.commit']]);
+
+function coverageMethod(service: LiveService, method: string): string {
+  return COVERAGE_ALIASES.get(`${service}/${method}`) ?? method;
+}
+
 function categoryOf(service: LiveService, method: string): Category | undefined {
-  return sdkMethodCoverage(service).find(entry => entry.method === method)?.category;
+  const covered = coverageMethod(service, method);
+  return sdkMethodCoverage(service).find(entry => entry.method === covered)?.category;
 }
 
 /** `usage: {}` names nothing, so it reads as missing. */
@@ -121,7 +133,7 @@ function observationOf(entry: ObservedPhase, sequence: number, offset: number): 
   const usage = entry.usage === undefined ? {} : { usage: entry.usage };
   return {
     ...usage, sequence, id: `${event.id}/${phase}`, activityId: event.id, appId: 'host', sourceId: event.id,
-    service: event.service, method: event.method,
+    service: event.service, method: coverageMethod(event.service, event.method),
     kind: entry.category === 'listener' ? 'subscription' : 'operation',
     phase, status: statusOf(entry), at, monotonicAt: at - offset,
     deliveryNumber: phase === 'delivery' ? 1 : 0,
