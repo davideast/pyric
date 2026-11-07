@@ -273,6 +273,77 @@ service cloud.firestore {
     expect(issues.some((i) => i.code === 'INVALID_REGEX_PATTERN' && i.origin === 'parse')).toBe(true);
     expect(issues.some((i) => i.code === 'FUNCTION_REDEFINED' && i.origin === 'parse')).toBe(true);
   });
+
+  test('reports DOUBLE_MINUS, INVALID_NUMBER_LITERAL, DUPLICATE_SERVICE, and SOURCE_SIZE with origin: parse (#2448)', () => {
+    const decrementAndRange = lint(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow get: if --1 < 0 && request.resource.data.n < 9223372036854775808;
+      allow list: if - -1 < 0 && request.resource.data.n > -(9223372036854775808);
+    }
+  }
+}`);
+    const doubleMinus = decrementAndRange.filter(
+      (i) => i.code === 'DOUBLE_MINUS' && i.severity === 'error' && i.origin === 'parse',
+    );
+    expect(doubleMinus).toHaveLength(2);
+    expect(doubleMinus[0]?.line).toBe(5);
+    expect(doubleMinus[1]?.line).toBe(6);
+
+    const invalidNum = decrementAndRange.filter(
+      (i) => i.code === 'INVALID_NUMBER_LITERAL' && i.severity === 'error' && i.origin === 'parse',
+    );
+    expect(invalidNum).toHaveLength(2);
+    expect(invalidNum[0]?.line).toBe(5);
+    expect(invalidNum[1]?.line).toBe(6);
+
+    const duplicateService = lint(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /a/{id} { allow get: if request.auth != null; }
+  }
+}
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /b/{id} { allow get: if request.auth != null; }
+  }
+}`);
+    expect(duplicateService).toContainEqual({
+      code: 'DUPLICATE_SERVICE',
+      severity: 'error',
+      message: 'Duplicate service name declaration.',
+      line: 7,
+      origin: 'parse',
+      fix: 'Declare each service block at most once per rules file and place every match block for that service inside it.',
+    });
+
+    const oversizedBody = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /a/{id} { allow get: if request.auth != null; }\n  }\n}\n// ${'x'.repeat(262_144)}`;
+    const oversizedIssues = lint(oversizedBody);
+    expect(
+      oversizedIssues.some(
+        (i) => i.code === 'SOURCE_SIZE' && i.severity === 'error' && i.origin === 'parse',
+      ),
+    ).toBe(true);
+
+    const oversizedUnparseable = lint(`service cloud.firestore { broken // ${'x'.repeat(262_144)}`);
+    expect(
+      oversizedUnparseable.some(
+        (i) => i.code === 'SOURCE_SIZE' && i.severity === 'error' && i.origin === 'parse',
+      ),
+    ).toBe(true);
+
+    // Storage rulesets remain lintable through the tolerant front door without a wrong-service blocker.
+    const storageIssues = lint(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{uid}/{file} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`);
+    expect(storageIssues.every((i) => i.origin !== 'parse')).toBe(true);
+  });
 });
 
 describe('assertion adapter (assertCase / explainCase)', () => {
