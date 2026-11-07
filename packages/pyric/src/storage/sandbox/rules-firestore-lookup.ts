@@ -1,5 +1,5 @@
 import type { Expr } from './rules.js';
-import { evalExpr, evalOperands, type EvalCtx } from './rules-evaluator.js';
+import { evalExpr, evalOperand, type EvalCtx } from './rules-evaluator.js';
 import {
   RuleEvalError,
   RuleResourceLimitError,
@@ -97,17 +97,21 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   const arg = expr.args[0];
   let docSegments: string[];
   if (arg.kind === 'path') {
-    // An authored path literal is an evaluated node plus one unit per literal
-    // segment; its interpolations charge themselves as they evaluate.
+    // An authored path literal charges one unit per literal segment in segment
+    // order alongside its interpolations, then one node when the path completes.
+    try {
+      docSegments = buildFirestoreDocPath(arg, ctx, true);
+    } catch (e) {
+      if (!(e instanceof RuleResourceLimitError)) ctx.expressionBudget?.node(arg);
+      throw e;
+    }
     ctx.expressionBudget?.node(arg);
-    for (const seg of arg.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment(arg);
-    docSegments = buildFirestoreDocPath(arg, ctx);
   } else {
     const val = evalExpr(arg, ctx);
     if (isErr(val)) return val;
     if (isPathValue(val)) {
       const segments = pathValueSegments(val).map((value) => ({ kind: 'literal' as const, value }));
-      docSegments = buildFirestoreDocPath({ kind: 'path', segments }, ctx);
+      docSegments = buildFirestoreDocPath({ kind: 'path', segments }, ctx, false);
     } else {
       return new RuleError(
         `Function not found error: Name: [${expr.method}].`,
@@ -146,15 +150,6 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   return { data: wrapFirestoreValue(fields) as Record<string, unknown> };
 }
 
-/** The segments one interpolation contributes ({@link interpolationSegments}), or an error that denies. */
-function interpolatedSegments(value: unknown): string[] {
-  const segments = interpolationSegments(value);
-  if (segments !== undefined) return segments;
-  throw new RuleEvalError(
-    `Firestore path interpolation resolved to ${describeType(value)} (expected a string or a path)`,
-  );
-}
-
 /**
  * Assemble a {@link PathArgSegment} list into the document path segments the
  * {@link FirestoreLookup} expects, then validate and strip the required
@@ -165,16 +160,32 @@ function interpolatedSegments(value: unknown): string[] {
 function buildFirestoreDocPath(
   pathExpr: Extract<Expr, { kind: 'path' }>,
   ctx: EvalCtx,
+  chargeLiteralSegments: boolean,
 ): string[] {
-  // Every interpolation evaluates when an earlier one errors; the first
+  // Literal segments and interpolations evaluate in segment order; every
+  // interpolation still evaluates when an earlier one errors, and the first
   // error denies.
-  const interpolated = evalOperands(pathExpr.segments.flatMap((seg) => (seg.kind === 'literal' ? [] : [seg.expr])), ctx);
-  if (isErr(interpolated)) throw new RuleEvalError(interpolated.message);
-  let next = 0;
-  const parts = pathExpr.segments.flatMap((seg) => {
-    if (seg.kind === 'literal') return [seg.value];
-    return interpolatedSegments(interpolated[next++]);
-  });
+  const parts: string[] = [];
+  let errorMessage: string | undefined;
+  for (const seg of pathExpr.segments) {
+    if (seg.kind === 'literal') {
+      if (chargeLiteralSegments) ctx.expressionBudget?.pathSegment(pathExpr);
+      parts.push(seg.value);
+      continue;
+    }
+    const v = evalOperand(seg.expr, ctx);
+    if (isErr(v)) {
+      errorMessage ??= v.message;
+      continue;
+    }
+    const segments = interpolationSegments(v);
+    if (segments === undefined) {
+      errorMessage ??= `Firestore path interpolation resolved to ${describeType(v)} (expected a string or a path)`;
+      continue;
+    }
+    parts.push(...segments);
+  }
+  if (errorMessage !== undefined) throw new RuleEvalError(errorMessage);
   // Required production shape: databases / <db> / documents / <doc path…>.
   if (parts.length < 4 || parts[0] !== 'databases' || parts[2] !== 'documents') {
     throw new RuleEvalError(
