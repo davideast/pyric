@@ -1,3 +1,4 @@
+import os from "node:os";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -199,7 +200,14 @@ test('runtime helpers locate monorepo Playwright, Chromium binary, and system to
   const chrome = resolveChromiumExecutable(null);
   assert.ok(chrome && fs.existsSync(chrome), `expected Chromium executable, got ${chrome}`);
 
-  const tools = probeSystemTools();
+  const tmpPath = fs.mkdtempSync(path.join(os.tmpdir(), 'mock-tools-'));
+  for (const bin of ['ffmpeg', 'ffprobe', 'Xvfb']) {
+    const binPath = path.join(tmpPath, bin);
+    fs.writeFileSync(binPath, '#!/bin/sh\n');
+    fs.chmodSync(binPath, 0o755);
+  }
+  const tools = probeSystemTools({ env: { ...process.env, PATH: `${tmpPath}${path.delimiter}${process.env.PATH}` } });
+  fs.rmSync(tmpPath, { recursive: true, force: true });
   assert.ok(tools.ffmpegPath, 'expected ffmpeg on PATH');
   assert.ok(tools.ffprobePath, 'expected ffprobe on PATH');
   if (process.platform === 'linux') {
