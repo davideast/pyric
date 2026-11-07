@@ -177,7 +177,7 @@ test('each record maps to an Admin auth call, with the uid and claim names only'
   expect(verified).toMatchObject({ module: ADMIN_AUTH_MODULE, sdk: 'admin', projectId: PROJECT });
   expect(observedCallOf(verified, 1)).toMatchObject({ service: 'auth', sdk: 'admin', method: 'Auth.verifyIdToken', outcome: { status: 'ok' }, account: { uid: 'user-a' } });
   const missing = records.at(-1)!;
-  expect(observedCallOf(missing, 1)?.outcome).toEqual({ status: 'error', code: 'auth/user-not-found' });
+  expect(observedCallOf(missing, 1)?.outcome).toEqual({ status: 'error', code: 'auth/user-not-found', message: 'There is no user record corresponding to the provided identifier.' });
 });
 
 test('no record carries a token, password, email or claim value, and nested SDK calls make no record', () => {

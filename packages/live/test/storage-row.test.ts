@@ -257,8 +257,9 @@ async function drive(bucket: string): Promise<Drive> {
 }
 
 /** A record as the assertions read it: what was called, how it ended, and where. */
+/** A record without its module and production's message (asserted on its own), and its account as the uid. */
 function shape(record: LiveCallRecord): Record<string, unknown> {
-  const { module: _module, account, ...rest } = record;
+  const { module: _module, account, message: _message, ...rest } = record;
   return { ...rest, account: account?.uid ?? null };
 }
 
@@ -370,6 +371,8 @@ describe('upload tasks and streams the app does not await', () => {
     expect(records.slice(before).map(shape)).toEqual([
       { name: 'uploadBytesResumable', outcome: 'rejected', code: 'storage/unauthorized', projectId: PROJECT, bucket: BUCKETS.default, path: `${DENIED_PATH}/forbidden.bin`, account: 'user-2' },
     ]);
+    // Production's message, as the SDK's error held it.
+    expect(records[before]!.message).toBe(`Firebase Storage: User does not have permission to access '${DENIED_PATH}/forbidden.bin'. (storage/unauthorized)`);
     expect(server.unmatched).toEqual([]);
   });
 

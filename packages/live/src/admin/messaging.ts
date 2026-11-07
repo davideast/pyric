@@ -9,7 +9,7 @@
  * makes one record. A record names no account and never carries a
  * registration token, a topic, a condition or any part of a message.
  */
-import type { CallContext, LiveObserver } from '../observe.js';
+import { noMessage, type CallContext, type LiveObserver } from '../observe.js';
 import { patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import { failClosedGate, readAdminApp, type AdminApp, type AdminProjectGate } from './project-gate.js';
 
@@ -32,7 +32,7 @@ function contextOf(_name: string, _args: readonly unknown[], self: unknown): Cal
 }
 
 const METHODS: readonly AdminMethod[] = ['send', 'sendEach', 'sendEachForMulticast', 'subscribeToTopic', 'unsubscribeFromTopic'].map(
-  (name) => ({ name, context: contextOf, throwsLocally: true }),
+  (name) => ({ name, context: contextOf, messageOf: noMessage, throwsLocally: true }),
 );
 
 /** Where the records go, and which gate the calls pass. */

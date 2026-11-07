@@ -14,8 +14,10 @@
  * calls (#2305), nowhere else: no event, chip view or repro log holds
  * them. A Firestore list or listener names its query's shape: fields,
  * operators and directions, never a value, only the page's keyed hash of
- * them. An RTDB call also names its instance and path, an AI Logic call its
- * model and production's token counts, a Storage call its bucket and, below
+ * them. A failed call carries production's message, which only the host's
+ * terminal prints. An RTDB call also names its instance and path, an AI Logic
+ * call its model, production's token counts and the reason it withheld an
+ * answer, a Storage call its bucket and, below
  * the root, its path, and a Messaging `getToken` or `deleteToken` the
  * Installations and FCM registration requests it made, as API and action
  * names. `firebase/messaging/sw` records come from a service worker, whose
@@ -24,7 +26,7 @@
  *
  * Loaded in the page, so it imports only types from `@pyric/cli`.
  */
-import type { ObservedCall, ObservedCallService, ProductionOutcome } from '@pyric/cli/vite/internal/supplied-rows';
+import type { ObservedCall, ObservedCallService } from '@pyric/cli/vite/internal/supplied-rows';
 
 type ListenerPhase = NonNullable<ObservedCall['listener']>['phase'];
 import { UNREAD_MODEL } from './ai.js';
@@ -61,12 +63,13 @@ const MAX_REQUESTS = 4;
 const ANSWERED: ReadonlySet<LiveCallOutcome> = new Set(['resolved', 'delivered']);
 const FAILED: ReadonlySet<LiveCallOutcome> = new Set(['threw', 'rejected', 'listener-error']);
 
-/** Production's answer in a record, or null for an outcome production did not give. */
-function productionOutcome(record: LiveCallRecord): ProductionOutcome | null {
+/** Production's answer in a record, with its message on an error, or null for an outcome production did not give. */
+function productionOutcome(record: LiveCallRecord): ObservedCall['outcome'] | null {
   if (ANSWERED.has(record.outcome)) return { status: 'ok' };
   const isFailure = FAILED.has(record.outcome);
   if (!isFailure) return null;
-  return { status: 'error', code: record.code ?? 'unknown' };
+  const message = record.message === undefined ? {} : { message: record.message };
+  return { status: 'error', code: record.code ?? 'unknown', ...message };
 }
 
 /** The record's account as the host takes it: a fresh copy, or nothing for a call that ran signed out. */
@@ -123,7 +126,9 @@ function aiOf(service: ObservedCallService, record: LiveCallRecord): Pick<Observ
   const reported = ai.reportedModel === undefined ? {} : { reportedModel: ai.reportedModel };
   const usage = ai.usage === undefined ? {} : { usage: { ...ai.usage } };
   const timing = ai.firstChunkMs === undefined ? {} : { firstChunkMs: ai.firstChunkMs };
-  return { ai: { model: ai.model, ...reported, ...usage, ...timing } };
+  const finish = ai.finishReason === undefined ? {} : { finishReason: ai.finishReason };
+  const blocked = ai.blockReason === undefined ? {} : { blockReason: ai.blockReason };
+  return { ai: { model: ai.model, ...reported, ...usage, ...timing, ...finish, ...blocked } };
 }
 
 /**

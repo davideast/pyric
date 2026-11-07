@@ -227,7 +227,7 @@ test('an unrecorded write records production status as its code', async () => {
   expect(await codeOf(ref('unrecorded').set!(1))).toBeDefined();
   const made = (await recordsSince(from)).map(shown);
   expect(made).toEqual([{ module: ADMIN_DATABASE_MODULE, name: 'Reference.set', outcome: 'rejected', sdk: 'admin', projectId: PROJECT, instance: INSTANCE, path: '/unrecorded', code: 'pyric_replay_no_recording' }]);
-  expect(observedCallOf(records[from]!, 1)?.outcome).toEqual({ status: 'error', code: 'pyric_replay_no_recording' });
+  expect(observedCallOf(records[from]!, 1)?.outcome).toMatchObject({ status: 'error', code: 'pyric_replay_no_recording' });
   expect(server.unmatched.slice(unmatched)).toEqual([{ rpc: 'rtdb', as: 'owner', request: { instance: INSTANCE, a: 'p', b: { p: '/unrecorded', d: 1 } } }]);
   server.unmatched.splice(unmatched);
 });
