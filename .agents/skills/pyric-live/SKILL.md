@@ -289,8 +289,10 @@ which reads as observed with no line. A host also names at most eight projects i
   service no row serves, such as Remote Config. Its calls go to production with the backend's
   credential and make no row.
 - The live host's `GET <url>/__pyric/health` lists its own process's hosts in `live.unobserved`.
-  A Node backend's lists don't reach the host. Ask the backend itself, from this machine, with
-  the process health header:
+  Each connected Node backend's entry in `live.clients` (`kind: "node"`) carries the backend's
+  own `unobserved`, `unobservedAdmin` and `gatedAdmin` lists, each absent when empty. The backend
+  sends them as they change, so they arrive a moment after its calls. You can also ask the
+  backend itself, from this machine, with the process health header:
 
   ```sh
   curl -s -H 'x-pyric-process-health: 1' http://localhost:<backend port>/__pyric/health
