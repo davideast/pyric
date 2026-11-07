@@ -174,6 +174,10 @@ test('a Firestore on another project is refused by the gate before any request, 
   const other = new sdk.Firestore({ projectId: 'other-project' });
   const error = (await (doc('notes/a', other).get!() as Promise<unknown>).catch((reason: unknown) => reason)) as { code?: string };
   expect(error.code).toBe('PYRIC_LIVE_REFUSED');
+  // A count query reaches its Firestore through its query, and is gated on it too.
+  const counted = ((other.collection as AnyFunction).call(other, 'notes') as Instance).count!() as Instance;
+  const countError = (await (counted.get!() as Promise<unknown>).catch((reason: unknown) => reason)) as { code?: string };
+  expect(countError.code).toBe('PYRIC_LIVE_REFUSED');
   expect(await recordsSince(from)).toEqual([]);
   expect(state.unmatched).toEqual([]);
   expect(lines).toHaveLength(1);
@@ -254,6 +258,22 @@ test('admin.firestore() and getFirestore() reach the same patched classes and ma
     { name: 'DocumentReference.get', sdk: 'admin', path: 'notes/a' },
     { name: 'DocumentReference.get', sdk: 'admin', path: 'notes/a' },
   ]);
+});
+
+test('an observer that measures gets each resolved call\'s usage as the client method it counts as, and the host gets it', async () => {
+  type Measure = (module: string, method: string, value: unknown) => Record<string, number> | undefined;
+  const { measureObservedUsage } = (await import(new URL('../../pyric/src/sandbox/internal/observed-usage.ts', import.meta.url).href)) as { measureObservedUsage: Measure };
+  const measuring = observer as LiveObserver & { measure?: Measure };
+  measuring.measure = measureObservedUsage;
+  try {
+    const from = records.length;
+    await doc('notes/a').get!();
+    const made = await recordsSince(from);
+    expect(made.map(({ name, usage }) => ({ name, usage }))).toEqual([{ name: 'DocumentReference.get', usage: { documentReads: 1 } }]);
+    expect(observedCallOf(made[0]!, 1)?.usage).toEqual({ documentReads: 1 });
+  } finally {
+    delete measuring.measure;
+  }
 });
 
 test('no record carries document data, and nested SDK calls make no record of their own', () => {

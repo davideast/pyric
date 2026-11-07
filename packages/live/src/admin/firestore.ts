@@ -49,11 +49,16 @@ function adminCodeOf(error: unknown): string {
   return stringAt(error, 'name') ?? 'unknown';
 }
 
-/** The Firestore a reference, query, batch or the Firestore itself belongs to. */
+/**
+ * The Firestore a reference, query, batch or the Firestore itself belongs
+ * to. An aggregate query holds none of its own: it reaches it through its query.
+ */
 function firestoreOf(self: unknown): unknown {
   if (!isObject(self)) return undefined;
   const owner: unknown = Reflect.get(self, '_firestore');
-  return owner ?? self;
+  if (owner !== undefined) return owner;
+  const aggregated: unknown = Reflect.get(self, '_query');
+  return isObject(aggregated) ? firestoreOf(aggregated) : self;
 }
 
 /** The project the Firestore was given, or resolved, without asking it to resolve one. */
