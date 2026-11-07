@@ -23,13 +23,16 @@
  * accepts only an unsigned ID token, as the Auth emulator issues one, so the
  * replay mints the page's token unsigned.
  *
- * The Admin rows need Node 23 or later; CI runs this app on Node 24. Like
+ * Node 22's require() never reaches the register's hooks, so there the API
+ * server's firebase-admin import is refused, naming Node 23, and the
+ * scenario stops after that step. CI runs this app on Node 24 as well. Like
  * every app scenario this runs offline, and the browser blocks every host
  * but loopback.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sleep, type App, type ExpectedCrash } from '../driver.ts';
 
 const PROJECT = 'demo-live-full-stack';
 /** The account capture A's Admin calls name `<uid-1>`, and the one the page signs in as. */
@@ -40,6 +43,16 @@ const CLIENT_RECORDING = 'page-recording.json';
 const RUN = 'pyric_oracle/replay';
 const OWN_NOTE = { title: 'First note' };
 const DOCUMENTS = `projects/${PROJECT}/databases/(default)/documents`;
+
+/** Whether the `node` the app's processes run serves the Admin rows: Node 23 or later. */
+const NODE_VERSION = spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' }).stdout.trim();
+const ADMIN_ROWS_ON = Number(NODE_VERSION.split('.')[0]) >= 23;
+
+export const expectedCrashes: ExpectedCrash[] = ADMIN_ROWS_ON ? [] : [{
+  message: /^Error: @pyric\/live: firebase-admin\/app \(the Admin SDK\) is refused in live mode\. @pyric\/live observes firebase-admin on Node 23 or later/,
+  source: /^process \d+ \(node --import @pyric\/live\/register server\.mjs\)$/,
+  reason: 'on Node 22, whose require() skips the hooks, the Admin rows stay shut and the API server is refused its import',
+}];
 
 declare function signIn(): Promise<string>;
 declare function readOwnNote(): Promise<unknown>;
@@ -210,6 +223,17 @@ export default scenario(async (app) => {
     await started.process.waitForLog(new RegExp(`@pyric/live/vite: live mode for the Firebase project ${PROJECT}\\.`));
     return started;
   });
+
+  if (!ADMIN_ROWS_ON) {
+    await app.step(`on Node ${NODE_VERSION}, the API server's firebase-admin import is refused, naming Node 23`, async () => {
+      const refused = app.commandProcess('node', ['--import', '@pyric/live/register', 'server.mjs'], { env: serverEnv(replay, apiPort) });
+      assert.notEqual(await refused.exited, 0, refused.output);
+      assert.match(refused.output, /@pyric\/live\/register: firebase-admin is refused in this process\. @pyric\/live observes firebase-admin on Node 23 or later/);
+      assert.equal(await replay.received(), 0);
+      await host.process.stop();
+    });
+    return;
+  }
 
   const api = await app.step('start the API server under @pyric/live/register: firebase-admin is observed', async () => {
     const started = app.commandProcess('node', ['--import', '@pyric/live/register', 'server.mjs'], { env: serverEnv(replay, apiPort) });

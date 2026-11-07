@@ -740,6 +740,10 @@ jobs:
       # observed Admin calls and their events run (#2304).
       - name: The live-mode Admin SDK app on Node 24.16
         run: bun test/apps/run.ts --packages dist/packages live-mode-admin
+      # The page and its API server under the live register, with the
+      # server's Admin calls observed (#2304).
+      - name: The live-mode full-stack app on Node 24.16
+        run: bun test/apps/run.ts --packages dist/packages live-mode-full-stack
       - name: Upload app scenario logs
         if: failure()
         uses: actions/upload-artifact@v4
