@@ -144,10 +144,10 @@ async function readRows(chip: Locator): Promise<string[]> {
   return chip.locator('[data-traffic-rows] [data-request-row]').evaluateAll((elements) => elements.map((element) => [
     element.querySelector('[data-traffic-row-production]') ? 'production' : 'sandbox',
     element.querySelector('[data-traffic-row-source]')?.getAttribute('data-traffic-row-source') ?? '-',
-    (element.querySelector('.c1')?.textContent ?? '').split(' · ').at(-1),
+    element.getAttribute('data-traffic-row-call') ?? '',
     element.querySelector('.c2')?.textContent ?? '',
     element.querySelector('[data-verdict-production]')?.getAttribute('title') ?? '-',
-    element.querySelector('.s2')?.textContent ?? '',
+    element.getAttribute('data-traffic-row-identity') ?? '',
   ].join(' ')));
 }
 
@@ -158,9 +158,8 @@ async function readRows(chip: Locator): Promise<string[]> {
  */
 async function rtdbRows(chip: Locator): Promise<string[]> {
   await chip.locator('[data-chip-tab=traffic]').click();
-  // The scope is a switch: flip it only when it is not already on All traffic.
-  const scope = chip.locator('[data-traffic-scope]');
-  if (await scope.getAttribute('aria-checked') !== 'true') await scope.click();
+  // On a live host the scope is the From select: every client's requests.
+  await chip.locator('[data-traffic-from]').selectOption('all');
   const service = chip.locator('[data-request-service]');
   await service.selectOption('');
   await service.selectOption('rtdb');

@@ -59,6 +59,7 @@ describe('the request a sandbox event stands for', () => {
       path: 'conversations/c1',
       verdict: 'ok',
       identity: null,
+      auth: null,
     });
   });
 
@@ -91,6 +92,7 @@ describe('the request a sandbox event stands for', () => {
       path: 'conversations',
       verdict: 'ok',
       identity: null,
+      auth: null,
     });
 
     const canonical = chipRequestFromEvent({
@@ -405,6 +407,8 @@ describe('a call production served', () => {
       identity: 'alice',
       production: { status: 'ok' },
       source: 'node',
+      caller: { kind: 'node' },
+      auth: { uid: 'alice' },
     });
   });
 
@@ -602,6 +606,8 @@ describe('a call production served', () => {
       identity: 'signed out',
       production: { status: 'error', code: 'not-found' },
       source: 'node',
+      caller: { kind: 'node' },
+      auth: null,
     });
   });
 

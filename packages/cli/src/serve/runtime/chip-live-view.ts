@@ -92,7 +92,7 @@ export function clientActiveText(lastSeen: number, now: number): string {
 }
 
 /** Each kind as its row names it. A browser client other than this page's is another profile. */
-const CLIENT_KIND_LABELS: Readonly<Record<LiveClient['kind'], string>> = {
+export const CLIENT_KIND_LABELS: Readonly<Record<LiveClient['kind'], string>> = {
   browser: 'Browser tab, other profile',
   'service-worker': 'Service worker',
   node: 'Node process',

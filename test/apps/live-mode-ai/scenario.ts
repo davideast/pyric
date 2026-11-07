@@ -178,9 +178,8 @@ interface Row {
 /** Every AI row Traffic lists in `scope`, picking the AI filter afresh so the list follows new rows. */
 async function aiRows(chip: Locator, scope: 'page' | 'all'): Promise<Row[]> {
   await chip.locator('[data-chip-tab=traffic]').click();
-  // The scope is a switch, on for All traffic: flip it only when it differs from `scope`.
-  const scopeSwitch = chip.locator('[data-traffic-scope]');
-  if (await scopeSwitch.getAttribute('aria-checked') !== String(scope === 'all')) await scopeSwitch.click();
+  // On a live host the scope is the From select: this page's requests, or every client's.
+  await chip.locator('[data-traffic-from]').selectOption(scope);
   const service = chip.locator('[data-request-service]');
   await service.selectOption('');
   await service.selectOption('ai');
@@ -191,10 +190,10 @@ async function aiRows(chip: Locator, scope: 'page' | 'all'): Promise<Row[]> {
     text: [
       element.querySelector('[data-traffic-row-production]') ? 'production' : 'sandbox',
       element.querySelector('[data-traffic-row-source]')?.getAttribute('data-traffic-row-source') ?? '-',
-      (element.querySelector('.c1')?.textContent ?? '').split(' · ').at(-1),
+      element.getAttribute('data-traffic-row-call') ?? '',
       [...element.querySelectorAll('.c2 .ai-model-pair span')].map((span) => span.textContent).join(' '),
       element.querySelector('[data-verdict-production]')?.getAttribute('title') ?? '-',
-      element.querySelector('.s2')?.textContent ?? '',
+      element.getAttribute('data-traffic-row-identity') ?? '',
     ].join(' '),
   })));
 }
@@ -202,12 +201,11 @@ async function aiRows(chip: Locator, scope: 'page' | 'all'): Promise<Row[]> {
 const PRODUCTION_ROUTE = 'Routed to Not reported';
 
 /**
- * The rows one plane's run makes, one per call, sorted. This page's own rows
- * carry no source label in its scope (`-`); the server job's read `node`.
+ * The rows one plane's run makes, one per call, sorted. On a live host each
+ * row names its source: this page's read `page`, the server job's `node`.
  */
 function expectedRows(source: 'page' | 'node'): string[] {
-  const shown = source === 'page' ? '-' : 'node';
-  const row = (call: string, answer: 'succeeded' | 'failed', model = MODEL) => `production ${shown} ai.${call} Requested ${model} ${PRODUCTION_ROUTE} Production ${answer} user-1`;
+  const row = (call: string, answer: 'succeeded' | 'failed', model = MODEL) => `production ${source} ai.${call} Requested ${model} ${PRODUCTION_ROUTE} Production ${answer} user-1`;
   return [
     row('generateContent', 'failed'),
     row('generateContent', 'succeeded'),

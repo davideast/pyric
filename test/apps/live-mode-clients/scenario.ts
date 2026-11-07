@@ -14,6 +14,12 @@
  * two distinct client ids. `eventScope`, the one rule the chip and Studio
  * scope by, keeps exactly each client's calls and each user's calls.
  *
+ * Profile A's chip scopes Traffic with its "From" select: choosing profile
+ * B's client lists only rows with profile B's client id, choosing the reader
+ * lists only the reader's rows (both tabs and both server runs), and Rates'
+ * Firestore reads follow the select (`[data-rates-from]`): the writer's are
+ * fewer than every client's, and signed-out calls have none.
+ *
  * The host's health report (`/__pyric/health`) names each client by its
  * script: a server job still running by its entry script relative to its
  * working directory (`server.mjs`), and the app's service worker, which
@@ -28,7 +34,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { Page } from 'playwright';
+import type { Locator, Page } from 'playwright';
 import { guardContext, scenario, sleep, type App } from '../driver.ts';
 
 const FIXTURE = fileURLToPath(new URL('../replay/fixtures/live-mode-traffic.json', import.meta.url));
@@ -106,14 +112,27 @@ async function hostJson<T>(url: string): Promise<T> {
   return await response.json() as T;
 }
 
-/** The host's live Firestore call events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
-async function liveEvents(base: string): Promise<CapturedEvent[]> {
+/** Every event in the host's capture (`/__pyric/capture`), with the session token `/__pyric/init.json` hands a loopback client. */
+async function allEvents(base: string): Promise<CapturedEvent[]> {
   const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
   const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
   if (response.status === 404) return [];
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
   const capture = await response.json() as { events?: CapturedEvent[] };
-  return (capture.events ?? []).filter((event) => event.kind === 'operation' && event.service === 'firestore' && event.production !== undefined);
+  return capture.events ?? [];
+}
+
+/** The host's live Firestore call events. */
+async function liveEvents(base: string): Promise<CapturedEvent[]> {
+  const events = await allEvents(base);
+  return events.filter((event) => event.kind === 'operation' && event.service === 'firestore' && event.production !== undefined);
+}
+
+/** The ids of every row Traffic lists in the chosen scope, loading older rows until there are none. */
+async function scopedRows(chip: Locator): Promise<string[]> {
+  const older = chip.locator('[data-request-older]');
+  while (await older.count() > 0) await older.click();
+  return chip.locator('[data-traffic-rows] [data-request-row]').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-request-row') ?? ''));
 }
 
 function resultOf(output: string): Record<string, unknown> {
@@ -261,6 +280,44 @@ export default scenario(async (app) => {
     const profileA = events.find((event) => event.caller?.kind === 'page' && event.auth?.uid === READER)!.caller!;
     assert.deepEqual(events.filter((event) => eventScope(event, { client: { kind: 'page', clientId: profileA.clientId! }, user: WRITER })), []);
     assert.equal(events.filter((event) => eventScope(event, 'all')).length, events.length);
+  });
+
+  await app.step("profile A's chip scopes Traffic to profile B's client and to the reader, and its Rates follow the scope", async () => {
+    const chip = tabs[0]!.locator('[data-pyric-runtime-chip-host]');
+    const profileB = events.find((event) => event.caller?.kind === 'page' && event.auth?.uid === WRITER)!.caller!.clientId!;
+    const captured = await allEvents(host.url);
+    const fromProfileB = new Set(ids(captured.filter((event) => event.caller?.kind === 'page' && event.caller.clientId === profileB)));
+    const asReader = new Set(ids(captured.filter((event) => event.auth?.uid === READER)));
+
+    await chip.locator('[data-chip-tab=traffic]').click();
+    const from = chip.locator('[data-traffic-from]');
+    await from.selectOption(`client:page:${profileB}`);
+    const profileBRows = await scopedRows(chip);
+    assert.ok(profileBRows.length > 0, "profile B's rows");
+    for (const id of profileBRows) assert.ok(fromProfileB.has(id), `row ${id} is not profile B's`);
+    for (const event of events.filter((entry) => entry.caller?.clientId === profileB)) assert.ok(profileBRows.includes(event.id), `profile B's ${event.method} ${event.id} is not listed`);
+
+    await from.selectOption(`user:${READER}`);
+    const readerRows = await scopedRows(chip);
+    for (const id of readerRows) assert.ok(asReader.has(id), `row ${id} did not run as the reader`);
+    // The reader's calls come from profile A's two tabs and both server runs.
+    for (const event of events.filter((entry) => entry.auth?.uid === READER)) assert.ok(readerRows.includes(event.id), `the reader's ${event.method} ${event.id} is not listed`);
+
+    // A fresh read from each profile, so both fall in the Rates window.
+    assert.deepEqual(await tabs[0]!.evaluate(() => readLobby()), LOBBY);
+    assert.deepEqual(await tabs[2]!.evaluate(() => readLobby()), LOBBY);
+    await eventually(() => liveEvents(host.url), (latest) => latest.length >= events.length + 2, 'the two fresh reads');
+    await chip.locator('[data-traffic-display=rates]').click();
+    await chip.locator('[data-inspect-rates=firestore]').first().click();
+    const reads = async (scope: string): Promise<number> => {
+      await chip.locator('[data-rates-from]').selectOption(scope);
+      return Number(await chip.locator('[data-history-total=reads]').textContent());
+    };
+    const every = await eventually(() => reads('all'), (count) => count >= 2, 'every client\'s reads');
+    const writer = await reads(`user:${WRITER}`);
+    assert.ok(writer > 0 && writer < every, `the writer's reads ${writer} of ${every}`);
+    assert.equal(await reads('signed-out'), 0);
+    await chip.locator('[data-traffic-display=requests]').click();
   });
 
   await app.step('the health report names a running server job and the service worker by their scripts', async () => {

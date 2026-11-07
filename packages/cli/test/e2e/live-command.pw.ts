@@ -237,7 +237,7 @@ test.describe('pyric-live', () => {
     // The host's count: the listener's delivery; the failed read and the Auth call are not billed.
     expect((await healthOf(url))?.live).toMatchObject({ appProjectIds: [PROJECT_ID], billed: { reads: 0, writes: 0, deliveries: 1 } });
     await chip.locator('[data-chip-tab=traffic]').click();
-    await chip.locator('[data-traffic-scope=all]').click();
+    await chip.locator('[data-traffic-from]').selectOption('all');
     const rows = chip.locator('[data-traffic-rows] [data-request-row]');
     for (const method of ['firestore.getDocFromCache', 'auth.signInAnonymously', 'firestore.onSnapshot']) {
       const row = rows.filter({ hasText: method });
