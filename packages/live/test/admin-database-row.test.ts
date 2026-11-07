@@ -428,23 +428,36 @@ test('getRules on the host project goes to the instance', async () => {
   expect(server.unmatched.length).toBeGreaterThan(unmatched);
 });
 
-test("an app on the host project is refused at ref() for another project's instance, before any frame", async () => {
-  const urls = ['https://other-project-default-rtdb.firebaseio.com', 'https://someone-elses-ledger.europe-west1.firebasedatabase.app'];
-  const codes: unknown[] = [];
+test("an app on the host project is refused at ref() for another project's instance, before any frame, and told to name it in firebase.json", async () => {
+  const urls = [
+    // Project <host>-prod's default instance: a dev and prod pair named this way is common.
+    `https://${PROJECT}-prod-default-rtdb.firebaseio.com`,
+    `https://${PROJECT}-reports.firebaseio.com`,
+    `https://${PROJECT}-eu.europe-west1.firebasedatabase.app`,
+    'https://other-project-default-rtdb.firebaseio.com',
+    'https://someone-elses-ledger.europe-west1.firebasedatabase.app',
+  ];
+  const outcomes: unknown[] = [];
   const sent = (await received()).length;
   for (const [index, databaseURL] of urls.entries()) {
     const other = admin.initializeApp({ projectId: PROJECT, databaseURL }, `admin-database-other-instance-${index}`);
     others.push(other);
-    codes.push(await refusedCode(() => ref('notes/a', getDatabase(other))));
+    try {
+      ref('notes/a', getDatabase(other));
+      outcomes.push('ok');
+    } catch (error) {
+      const { code, message } = error as { code?: unknown; message?: string };
+      outcomes.push(message?.includes('firebase.json') === true ? code : `${String(code)} without firebase.json`);
+    }
   }
-  expect(codes).toEqual(['PYRIC_LIVE_REFUSED', 'PYRIC_LIVE_REFUSED']);
+  expect(outcomes).toEqual(urls.map(() => 'PYRIC_LIVE_REFUSED'));
   expect(await framesSince(sent)).toEqual([]);
 });
 
-test("the host project's named instances pass the instance check: <project>-* on either domain, and one firebase.json names", async () => {
+test("the host project's own instances pass the instance check: <project>-default-rtdb on either domain, <project>, and one firebase.json names", async () => {
   const urls = [
-    `https://${PROJECT}-reports.firebaseio.com`,
-    `https://${PROJECT}-eu.europe-west1.firebasedatabase.app`,
+    `https://${PROJECT}-default-rtdb.europe-west1.firebasedatabase.app`,
+    `https://${PROJECT}.firebaseio.com`,
     `https://${CONFIGURED_INSTANCE}.firebaseio.com`,
   ];
   const outcomes: unknown[] = [];
