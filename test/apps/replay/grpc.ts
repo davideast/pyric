@@ -319,7 +319,16 @@ const OTHER_RPCS: Readonly<Record<string, boolean>> = {
 };
 
 const UNIMPLEMENTED = 12;
-/** An Admin call no exchange holds fails with FAILED_PRECONDITION, as an unrecorded client stream message does (`firestore.ts`). */
+/**
+ * An Admin call no exchange holds fails with FAILED_PRECONDITION, as an
+ * unrecorded client stream message does (`firestore.ts`). A unary Commit
+ * fails at once. A server-streaming read (BatchGetDocuments, RunQuery,
+ * RunAggregationQuery) that fails before its first message is sent three
+ * times: firebase-admin 13.10 makes one request, and the gRPC stream layer
+ * under it retries twice. Timed offline against this server, an unrecorded
+ * get, query or count failed after 6.4 to 7.2 s and was listed three times in
+ * `unmatched`, so a test that probes fail-closed uses a write.
+ */
 const FAILED_PRECONDITION = 9;
 const asBytes = (value: unknown): Buffer => (Buffer.isBuffer(value) ? value : Buffer.alloc(0));
 
