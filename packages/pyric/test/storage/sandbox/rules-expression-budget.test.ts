@@ -82,6 +82,73 @@ service firebase.storage {
     expect(r.evaluatedExpressions).toBe(10);
   });
 
+  it('counts standalone path literals as 1 plus 1 per literal segment in segment order, matching Firestore (#2446)', () => {
+    for (const condition of [
+      '/a/b/c == /a/b/c',
+      "/a/$(request.auth.uid)/c == /a/alice/c",
+    ]) {
+      const r = storage(`match /docs/{docId} { allow read: if ${condition}; }`);
+      expect(r.allowed).toBe(true);
+      expect(r.evaluatedExpressions).toBe(firestoreCount(condition));
+    }
+
+    // Passing a path value through a helper function charges the same 1 + N on
+    // the literal, plus 1 for reading parameter `p` inside firestore.exists(p).
+    const helperRules = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function userExists(p) { return firestore.exists(p); }
+    match /docs/{docId} {
+      allow read: if userExists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+  }
+}`);
+    const viaHelper = evaluateStorageRules(helperRules, {
+      request: { auth: { uid: 'alice' }, method: 'read', path },
+      resource: { size: 10, name: 'docs/d1.json', metadata: {} },
+    }, new Date(), { get: () => null, exists: () => true });
+    expect(viaHelper.allowed).toBe(true);
+    // userExists call(1) + path(1) + 4 literal segments(4) + request.auth.uid(3)
+    // + firestore.exists call(1) + firestore(1) + p(1) = 12
+    expect(viaHelper.evaluatedExpressions).toBe(12);
+
+    // Near the 1000-expression cap, repeated path literals stay under the cap in both engines.
+    // p10() = 10 * 9 + 9 * 2 + 1 (call) = 109; 9 * 109 + 8 * 2 + 2 (&&) + 1 (true) = 1000.
+    const fn = `function p10() { return ${Array.from({ length: 10 }, () => '/a/b/c == /a/b/c').join(' && ')}; }`;
+    const nearCap = `${Array.from({ length: 9 }, () => 'p10()').join(' && ')} && true`;
+    const stNearCap = storage(`match /docs/{docId} { allow read: if ${nearCap}; }`, fn);
+    expect(stNearCap.allowed).toBe(true);
+    expect(stNearCap.evaluatedExpressions).toBe(firestoreCount(nearCap, fn));
+    expect(stNearCap.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
+
+    // Left-to-right segment charging: trailing literal segments after an interpolation
+    // are not charged before the interpolation itself evaluates.
+    const f = `function f() { return ${trues(90)}; }`;
+    const exhaustedInInterp = `f() && f() && f() && ${trues(61)} && /x/$(f() ? 'a' : 'b')/t1/t2/t3 == /x/a/t1/t2/t3`;
+    const stExhausted = storage(`match /docs/{docId} { allow read: if ${exhaustedInInterp}; }`, f);
+    expect(stExhausted.allowed).toBe(false);
+    // f() is on line 4 (`function f() { ... }`); if trailing segments t1/t2/t3 were
+    // pre-charged before $(f() ? ...), the budget would run out on line 5 before entering f().
+    expect(stExhausted.resourceLimit?.line).toBe(4);
+
+    // Direct firestore.exists(...) path arguments also charge literal segments in segment order.
+    const lookupRules = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    ${f}
+    match /docs/{docId} {
+      allow read: if f() && f() && f() && ${trues(60)} && firestore.exists(/databases/(default)/documents/users/$(f() ? 'a' : 'b')/items/1);
+    }
+  }
+}`);
+    const lookupExhausted = evaluateStorageRules(lookupRules, {
+      request: { auth: { uid: 'alice' }, method: 'read', path },
+      resource: { size: 10, name: 'docs/d1.json', metadata: {} },
+    }, new Date(), { get: () => null, exists: () => true });
+    expect(lookupExhausted.allowed).toBe(false);
+    expect(lookupExhausted.resourceLimit?.line).toBe(4);
+  });
+
   it('spans every allow rule the request evaluates', () => {
     const r = storage(`match /docs/{docId} {
       allow read: if false;
