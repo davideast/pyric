@@ -17,6 +17,10 @@ import type {
   ObservedAiUsage,
   ObservedCall,
   ObservedCallService,
+  ObservedQuery,
+  ObservedQueryFilter,
+  ObservedQueryOperator,
+  ObservedQueryOrder,
   ObservedRequest,
   ObservedRequestApi,
   ObservedUsage,
@@ -76,6 +80,7 @@ const CALL_FIELDS = new Set([
   'requests',
   'writeData',
   'document',
+  'query',
 ]);
 const ACCOUNT_FIELDS = new Set(['uid', 'claimNames', 'claims']);
 /** A token's claims fit in a few kilobytes; production caps custom claims at 1000 bytes. */
@@ -138,6 +143,27 @@ const MIN_FCM_TAIL = 20;
 /** An opaque key or token, such as a VAPID key or a refresh token: a run this long that holds a digit. */
 const MIN_OPAQUE_RUN = 40;
 const MAX_UID_LENGTH = 128;
+const QUERY_FIELDS = new Set(['scope', 'filters', 'orderBy', 'limit', 'fingerprint']);
+const QUERY_FILTER_FIELDS = new Set(['field', 'op']);
+const QUERY_ORDER_FIELDS = new Set(['field', 'direction']);
+const QUERY_SCOPES: ReadonlySet<string> = new Set<ObservedQuery['scope']>(['collection', 'collection-group']);
+const QUERY_OPERATORS: ReadonlySet<string> = new Set<ObservedQueryOperator>([
+  '<',
+  '<=',
+  '==',
+  '!=',
+  '>=',
+  '>',
+  'array-contains',
+  'in',
+  'not-in',
+  'array-contains-any',
+]);
+const QUERY_DIRECTIONS: ReadonlySet<string> = new Set<ObservedQueryOrder['direction']>(['asc', 'desc']);
+/** A query's filters or orders: Firestore takes at most 100 filters, and no real query comes near 64. */
+const MAX_QUERY_CLAUSES = 64;
+/** The page's hash of the filter and cursor values: 64 bits as lowercase hex. */
+const FINGERPRINT_PATTERN = /^[0-9a-f]{16}$/;
 const MAX_CLAIM_NAMES = 64;
 const MAX_CLAIM_NAME_LENGTH = 128;
 
@@ -406,6 +432,60 @@ function readRequests(value: unknown): ObservedRequest[] {
   return value.map(readRequest);
 }
 
+/** A field path a query names: bounded, and never shaped like a token or key a value could be. */
+function readQueryField(value: unknown, field: string): string {
+  requireField(isBoundedString(value, MAX_PATH_LENGTH) && !isTokenShaped(value), field);
+  return value;
+}
+
+function readQueryFilter(value: unknown): ObservedQueryFilter {
+  requireField(isFields(value), 'query.filters');
+  requireOnly(value, QUERY_FILTER_FIELDS, 'query.filters.');
+  const field = readQueryField(value.field, 'query.filters.field');
+  const op = value.op;
+  requireField(typeof op === 'string' && QUERY_OPERATORS.has(op), 'query.filters.op');
+  return { field, op: op as ObservedQueryOperator };
+}
+
+function readQueryOrder(value: unknown): ObservedQueryOrder {
+  requireField(isFields(value), 'query.orderBy');
+  requireOnly(value, QUERY_ORDER_FIELDS, 'query.orderBy.');
+  const field = readQueryField(value.field, 'query.orderBy.field');
+  const direction = value.direction;
+  requireField(typeof direction === 'string' && QUERY_DIRECTIONS.has(direction), 'query.orderBy.direction');
+  return { field, direction: direction as ObservedQueryOrder['direction'] };
+}
+
+function readQueryClauses<T>(value: unknown, field: string, readClause: (clause: unknown) => T): T[] {
+  requireField(Array.isArray(value) && value.length <= MAX_QUERY_CLAUSES, field);
+  return value.map(readClause);
+}
+
+/**
+ * A Firestore query's shape: its scope, its filters' fields and operators,
+ * its orders, whether it set a limit, and the page's fingerprint of its
+ * values. Any other key, a filter value among them, is refused.
+ */
+function readQuery(value: unknown): ObservedQuery {
+  requireField(isFields(value), 'query');
+  requireOnly(value, QUERY_FIELDS, 'query.');
+  const scope = value.scope;
+  requireField(typeof scope === 'string' && QUERY_SCOPES.has(scope), 'query.scope');
+  const query: ObservedQuery = { scope: scope as ObservedQuery['scope'] };
+  if (value.filters !== undefined) query.filters = readQueryClauses(value.filters, 'query.filters', readQueryFilter);
+  if (value.orderBy !== undefined) query.orderBy = readQueryClauses(value.orderBy, 'query.orderBy', readQueryOrder);
+  if (value.limit !== undefined) {
+    requireField(value.limit === true, 'query.limit');
+    query.limit = true;
+  }
+  if (value.fingerprint !== undefined) {
+    const fingerprint = value.fingerprint;
+    requireField(typeof fingerprint === 'string' && FINGERPRINT_PATTERN.test(fingerprint), 'query.fingerprint');
+    query.fingerprint = fingerprint;
+  }
+  return query;
+}
+
 /**
  * Read one observed call from untrusted input. Returns a fresh record that
  * holds only the known fields; throws {@link ObservedCallError} otherwise.
@@ -482,6 +562,11 @@ export function readObservedCall(input: unknown): ObservedCall {
   }
   // Only a Firestore call's rules read written data or a stored document.
   const isFirestore = call.service === 'firestore';
+  // Only a Firestore list or listener names a query's shape.
+  if (value.query !== undefined) {
+    requireField(isFirestore, 'query');
+    call.query = readQuery(value.query);
+  }
   const writeData = isFirestore ? readJsonFields(value.writeData, MAX_FIELDS_SIZE) : undefined;
   if (writeData !== undefined) call.writeData = writeData;
   const returned = isFirestore ? readJsonFields(value.document, MAX_FIELDS_SIZE) : undefined;
@@ -588,6 +673,18 @@ function eventLens(call: ObservedCall): { rulesDisposition: RulesDisposition; au
   return { rulesDisposition: OBSERVED_ADMIN_DISPOSITION, authLens: { mode: 'admin' } };
 }
 
+/** A Firestore call's query shape as the event's `request.query`, each clause copied. */
+function eventRequest(call: ObservedCall): { request?: { query: ObservedQuery } } {
+  const query = call.query;
+  if (query === undefined) return {};
+  const copy: ObservedQuery = definedOnly({
+    ...query,
+    filters: query.filters?.map((filter) => ({ ...filter })),
+    orderBy: query.orderBy?.map((order) => ({ ...order })),
+  });
+  return { request: { query: copy } };
+}
+
 /** Production's sizes, copied onto the event's production side when the call carried them. */
 function productionSizes(call: ObservedCall): { usage?: ObservedUsage; billedDocuments?: number } {
   const usage = call.usage;
@@ -627,6 +724,7 @@ function productionOperationEvent(call: ObservedCall, rulesDisposition: RulesDis
     ...(path === undefined ? {} : { path }),
     ...eventInstance(call),
     ...eventDetail(call),
+    ...eventRequest(call),
     auth: account === undefined ? null : { uid: account.uid },
     result: observedResult(call.outcome),
     origin: 'user',
