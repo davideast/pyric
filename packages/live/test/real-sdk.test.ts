@@ -14,6 +14,13 @@ import * as realAuth from 'firebase/auth';
 import * as realFirestore from 'firebase/firestore';
 import { SDK_MODULES, swappedFirebaseEntries } from '@pyric/cli/vite/internal/supplied-rows';
 import { LIVE_MODULES, LIVE_ROWS, liveFirebaseEntries, liveModuleFor, replacedExports, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
+import { observedCallOf } from '../src/page-observer.js';
+
+/** The host's own reader, loaded at run time so this package's typecheck stays out of it. */
+interface HostReader {
+  readObservedCall(value: unknown): { query?: unknown };
+}
+const host = (await import(new URL('../../pyric/src/sandbox/internal/observed-call.ts', import.meta.url).href)) as HostReader;
 
 /** A loopback port nothing listens on: the system hands one out, and the server is closed again. */
 async function closedLoopbackPort(): Promise<number> {
@@ -317,5 +324,138 @@ describe('records name where the call went', () => {
     const named = records.filter((record) => record.name === 'getDocsFromCache' || record.name === 'signOut');
     expect(named.length).toBeGreaterThan(1);
     for (const record of named) expect(record.projectId, record.name).toBe(OPTIONS.projectId);
+  });
+});
+
+describe('a Firestore list or listener names its query shape, never its values', () => {
+  const FINGERPRINT = /^[0-9a-f]{16}$/;
+
+  /** The records one call made, from where the records stood before it. */
+  async function recordsOf(act: () => Promise<unknown>): Promise<LiveCallRecord[]> {
+    const start = records.length;
+    await act();
+    return records.slice(start);
+  }
+
+  /** The one record a cached list of `target` makes. */
+  async function listed(target: unknown): Promise<LiveCallRecord> {
+    const made = await recordsOf(() => firestore.getDocsFromCache(target as never));
+    expect(made).toHaveLength(1);
+    return made[0]!;
+  }
+
+  function ownersQuery(owner: string): unknown {
+    const { query, collection, where, orderBy, limit } = firestore;
+    return query(collection(db, 'rooms'), where('owner', '==', owner), orderBy('createdAt', 'desc'), limit(5));
+  }
+
+  test('a where, orderBy and limit query: scope, fields, operators, direction, a limit and a fingerprint', async () => {
+    const record = await listed(ownersQuery('owner-value-1'));
+    expect(record.path).toBe('rooms');
+    expect(record.query).toEqual({
+      scope: 'collection',
+      filters: [{ field: 'owner', op: '==' }],
+      orderBy: [{ field: 'createdAt', direction: 'desc' }],
+      limit: true,
+      fingerprint: expect.stringMatching(FINGERPRINT),
+    });
+    expect(JSON.stringify(record)).not.toContain('owner-value-1');
+  });
+
+  test('the host reads the page\'s call with the same shape, as request.query names it', async () => {
+    const record = await listed(ownersQuery('owner-value-1'));
+    const call = observedCallOf(record, Date.now());
+    expect(call?.query as unknown).toEqual(record.query);
+    const read = host.readObservedCall(JSON.parse(JSON.stringify(call)));
+    expect(read.query).toEqual(record.query!);
+  });
+
+  test('one query with one value keeps its fingerprint; another value changes it', async () => {
+    const first = await listed(ownersQuery('owner-value-1'));
+    const again = await listed(ownersQuery('owner-value-1'));
+    const other = await listed(ownersQuery('owner-value-2'));
+    expect(again.query?.fingerprint).toBe(first.query?.fingerprint!);
+    expect(other.query?.fingerprint).not.toBe(first.query?.fingerprint!);
+  });
+
+  test('a cursor value changes the fingerprint and never leaves the page', async () => {
+    const { query, collection, orderBy, startAfter } = firestore;
+    const one = await listed(query(collection(db, 'rooms'), orderBy('createdAt'), startAfter('cursor-value-1')));
+    const two = await listed(query(collection(db, 'rooms'), orderBy('createdAt'), startAfter('cursor-value-2')));
+    expect(one.query?.orderBy).toEqual([{ field: 'createdAt', direction: 'asc' }]);
+    expect(one.query?.fingerprint).not.toBe(two.query?.fingerprint!);
+    expect(JSON.stringify(one)).not.toContain('cursor-value-1');
+  });
+
+  test('a collection-group query names its scope', async () => {
+    const { query, collectionGroup, where } = firestore;
+    const record = await listed(query(collectionGroup(db, 'messages'), where('score', '>=', 3)));
+    expect(record.query).toEqual({ scope: 'collection-group', filters: [{ field: 'score', op: '>=' }], fingerprint: expect.stringMatching(FINGERPRINT) });
+  });
+
+  test('a bare collection names its scope and nothing else', async () => {
+    const record = await listed(firestore.collection(db, 'rooms'));
+    expect(record.query).toEqual({ scope: 'collection' });
+  });
+
+  test('an or() composite flattens into its filters', async () => {
+    const { query, collection, where, or, and } = firestore;
+    const record = await listed(query(collection(db, 'rooms'), or(where('a', '==', 1), and(where('b', 'in', [1, 2]), where('c', '!=', 'x')))));
+    expect(record.query?.filters).toEqual([
+      { field: 'a', op: '==' },
+      { field: 'b', op: 'in' },
+      { field: 'c', op: '!=' },
+    ]);
+  });
+
+  test('a listener on a query names its shape on each delivery', async () => {
+    const { query, collection, where } = firestore;
+    const made = await recordsOf(() => new Promise<void>((resolve, reject) => {
+      const unsubscribe = firestore.onSnapshot(query(collection(db, 'rooms'), where('open', '==', true)), () => {
+        unsubscribe();
+        resolve();
+      }, reject);
+    }));
+    const delivered = made.filter((record) => record.outcome === 'delivered');
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.query).toEqual({ scope: 'collection', filters: [{ field: 'open', op: '==' }], fingerprint: expect.stringMatching(FINGERPRINT) });
+  });
+
+  test('a realm without crypto still salts and hashes the values', async () => {
+    const ours = (await listed(ownersQuery('owner-value-1'))).query?.fingerprint;
+    const crypto = Reflect.getOwnPropertyDescriptor(globalThis, 'crypto');
+    Reflect.deleteProperty(globalThis, 'crypto');
+    try {
+      expect(Reflect.get(globalThis, 'crypto')).toBeUndefined();
+      const fresh = (await import(`../src/firestore.js?no-crypto=${Date.now()}`)) as typeof import('../src/firestore.js');
+      const shape = fresh.queryShape('getDocs', ownersQuery('owner-value-1'));
+      expect(shape?.fingerprint).toMatch(FINGERPRINT);
+      // A fresh module drew its own salt, so one value hashes apart from this realm's.
+      expect(shape?.fingerprint).not.toBe(ours!);
+      expect(fresh.queryShape('getDocs', ownersQuery('owner-value-2'))?.fingerprint).not.toBe(shape?.fingerprint!);
+    } finally {
+      if (crypto !== undefined) Object.defineProperty(globalThis, 'crypto', crypto);
+    }
+  });
+
+  test('a document read names no query', async () => {
+    const read = await recordsOf(() => firestore.getDocFromCache(firestore.doc(db, 'rooms/missing')).catch(() => undefined));
+    expect(read[0]?.query).toBeUndefined();
+  });
+
+  test('a field the host would refuse drops the shape and keeps the row', async () => {
+    const { query, collection, where, orderBy } = firestore;
+    const emailField = await listed(query(collection(db, 'rooms'), where('alice@example.com', '==', true)));
+    const tokenField = await listed(query(collection(db, 'rooms'), orderBy(`k${'0123456789'.repeat(5)}`)));
+    for (const record of [emailField, tokenField]) {
+      expect(record.outcome).toBe('resolved');
+      expect(record.path).toBe('rooms');
+      expect(record.query).toBeUndefined();
+      const read = host.readObservedCall(JSON.parse(JSON.stringify(observedCallOf(record, Date.now()))));
+      expect(read.query).toBeUndefined();
+    }
+    // The host refuses that field, which is why the page never sends it.
+    const sent = { ...observedCallOf(emailField, Date.now()), query: { scope: 'collection', filters: [{ field: 'alice@example.com', op: '==' }] } };
+    expect(() => host.readObservedCall(sent)).toThrow('query.filters.field');
   });
 });

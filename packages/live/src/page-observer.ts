@@ -12,6 +12,8 @@
  * a write sent and the document a `getDoc` returned. Those values go to the
  * host's memory, and to the live capture file once capture writes live
  * calls (#2305), nowhere else: no event, chip view or repro log holds
+ * them. A Firestore list or listener names its query's shape: fields,
+ * operators and directions, never a value, only the page's salted hash of
  * them. An RTDB call also names its instance and path, an AI Logic call its
  * model and production's token counts, a Storage call its bucket and, below
  * the root, its path, and a Messaging `getToken` or `deleteToken` the
@@ -68,6 +70,18 @@ function valuesOf(service: ObservedCallService, record: LiveCallRecord): Pick<Ob
   return record.document === undefined ? written : { ...written, document: { ...record.document } };
 }
 
+/** The record's query shape, as the host takes it: Firestore only, each clause copied. */
+function queryOf(service: ObservedCallService, record: LiveCallRecord): Pick<ObservedCall, 'query'> {
+  const query = record.query;
+  const hasQuery = service === 'firestore' && query !== undefined;
+  if (!hasQuery) return {};
+  const filters = query.filters === undefined ? {} : { filters: query.filters.map((filter) => ({ ...filter })) };
+  const orderBy = query.orderBy === undefined ? {} : { orderBy: query.orderBy.map((order) => ({ ...order })) };
+  const limit = query.limit === undefined ? {} : { limit: query.limit };
+  const fingerprint = query.fingerprint === undefined ? {} : { fingerprint: query.fingerprint };
+  return { query: { scope: query.scope, ...filters, ...orderBy, ...limit, ...fingerprint } };
+}
+
 /**
  * The record's instance, bucket and path, as the host takes them. The host
  * requires an instance on every RTDB call and a bucket on every Storage call,
@@ -118,7 +132,7 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const account = accountOf(record);
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
   const usage = record.usage === undefined ? {} : { usage: { ...record.usage } };
-  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...usage, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record), ...valuesOf(service, record) };
+  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...usage, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record), ...valuesOf(service, record), ...queryOf(service, record) };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */
