@@ -18,6 +18,7 @@ import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serv
 import { markPortConnection, SERVICE_WORKER_TAB_ID } from '../../../../src/serve/worker/host/caller.js';
 import { pageTabId } from '../../../../src/serve/worker/client/tab-id.js';
 import { profileClientId } from '../../../../src/serve/worker/client/client-id.js';
+import { eventSubscription } from '../../../../src/serve/worker/client/studio.js';
 import { messagingAppConfig } from '../../../../src/serve/entries/messaging-sw-client.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../../src/serve/worker/protocol.js';
@@ -220,6 +221,16 @@ describe('host: each event names the connection that sent its operation', () => 
     for (const caller of first) expect(caller).toEqual({ kind: 'page', pageId: 'tab-a1', clientId: 'profile-a' });
     for (const caller of second) expect(caller).toEqual({ kind: 'page', pageId: 'tab-a2', clientId: 'profile-a' });
     for (const caller of other) expect(caller).toEqual({ kind: 'page', pageId: 'tab-b1', clientId: 'profile-b' });
+  });
+
+  it("stamps a page that sends no appConfig, as a live page, by the ids its event subscription declares", async () => {
+    const { ctx, events } = makeCtx();
+    const controlPort = fakePort();
+    // The subscription a page's control connection opens (`client/studio.ts`).
+    await handleMessage(ctx, controlPort, eventSubscription('events-live'));
+    const callers = await callersOf(events, () => send(ctx, controlPort, { t: 'op', method: 'rtdb.set', path: '/live/page', value: 1 }));
+    expect(callers.length).toBeGreaterThan(0);
+    for (const caller of callers) expect(caller).toEqual({ kind: 'page', pageId: pageTabId(), clientId: profileClientId() });
   });
 
   it("stamps a service worker's declared client id", async () => {

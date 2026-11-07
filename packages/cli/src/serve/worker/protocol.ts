@@ -378,6 +378,8 @@ export interface EventSubMessage {
   target: 'events';
   /** The subscribing page's tab id (`AppConfigMessage.tabId`); the history batch answers with `pageId`. */
   tabId?: string;
+  /** The subscribing page's browser profile id (`AppConfigMessage.clientId`), for a port that sends no `appConfig`. */
+  clientId?: string;
 }
 
 export interface RtdbValueSubMessage {
