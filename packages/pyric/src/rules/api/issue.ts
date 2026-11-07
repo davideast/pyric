@@ -75,6 +75,7 @@ export function compileLimitViolationToIssue(violation: CompileLimitViolation): 
 }
 
 const COMPILE_LIMIT_LINT_CODES: ReadonlySet<string> = new Set([
+  'SOURCE_SIZE',
   'LET_LIMIT',
   'NESTING_DEPTH',
   'SLASH_STARTS_PATH',
@@ -83,7 +84,10 @@ const COMPILE_LIMIT_LINT_CODES: ReadonlySet<string> = new Set([
   'UNSUPPORTED_RULES_VERSION',
   'UNRESOLVED_MODULES',
   'INVALID_REGEX_PATTERN',
+  'INVALID_NUMBER_LITERAL',
+  'DOUBLE_MINUS',
   'FUNCTION_REDEFINED',
+  'DUPLICATE_SERVICE',
 ]);
 
 export function lintWarningToIssue(warning: LintWarning): RuleIssue {
@@ -96,6 +100,7 @@ export function lintWarningToIssue(warning: LintWarning): RuleIssue {
     origin: isCompileLimit ? 'parse' : 'lint',
   };
   if (warning.location?.matchPath) issue.path = warning.location.matchPath;
+  if (warning.location?.line !== undefined) issue.line = warning.location.line;
   if (warning.fix) issue.fix = warning.fix;
   return issue;
 }
