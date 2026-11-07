@@ -272,8 +272,9 @@ function plansRerun(plan: Plan): boolean {
 }
 
 /** Classifies one attempt and acts on it. A rerun waits for the next attempt
- *  and acts on that too, because a rerun started with the workflow token does
- *  not start this workflow again when it completes. */
+ *  and acts on that too. Its completion does start the workflow again, but
+ *  the workflow skips an attempt the workflow token reran, so it is
+ *  classified here. */
 export async function handleAttempt(context: Context, runId: number, attempt: number): Promise<void> {
   const run = getRun(context, runId);
   assertMainPushRun(run);
