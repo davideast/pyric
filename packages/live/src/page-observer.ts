@@ -13,7 +13,7 @@
  * host's memory, and to the live capture file once capture writes live
  * calls (#2305), nowhere else: no event, chip view or repro log holds
  * them. A Firestore list or listener names its query's shape: fields,
- * operators and directions, never a value, only the page's salted hash of
+ * operators and directions, never a value, only the page's keyed hash of
  * them. An RTDB call also names its instance and path, an AI Logic call its
  * model and production's token counts, a Storage call its bucket and, below
  * the root, its path, and a Messaging `getToken` or `deleteToken` the
@@ -25,6 +25,8 @@
  * Loaded in the page, so it imports only types from `@pyric/cli`.
  */
 import type { ObservedCall, ObservedCallService, ProductionOutcome } from '@pyric/cli/vite/internal/supplied-rows';
+
+type ListenerPhase = NonNullable<ObservedCall['listener']>['phase'];
 import { UNREAD_MODEL } from './ai.js';
 import { UNREAD_INSTANCE } from './database.js';
 import { UNREAD_BUCKET } from './storage.js';
@@ -134,12 +136,40 @@ function requestsOf(service: ObservedCallService, record: LiveCallRecord): Pick<
   return { requests: requests.slice(-MAX_REQUESTS).map((request) => ({ ...request })) };
 }
 
+/** The listener phase each lifecycle outcome becomes. */
+const LISTENER_PHASES: ReadonlyMap<LiveCallOutcome, ListenerPhase> = new Map<LiveCallOutcome, ListenerPhase>([
+  ['attached', 'attach'],
+  ['detached', 'detach'],
+]);
+
+/** The services whose listeners the host takes attach and detach for. */
+const LISTENER_SERVICES: ReadonlySet<ObservedCallService> = new Set<ObservedCallService>(['firestore', 'rtdb']);
+
+/**
+ * The observed call for a listener's `attached` or `detached` record: its
+ * phase, id, target and hashed key, the account's uid and claim names, and,
+ * on Firestore, the query's shape. Production answered nothing for it, so its
+ * outcome is `ok`. Null for a record without a lifecycle or a path, and for
+ * any other service.
+ */
+function listenerCallOf(service: ObservedCallService, record: LiveCallRecord, phase: ListenerPhase, at: number): ObservedCall | null {
+  const listener = record.listener;
+  const target = record.path;
+  const isSendable = LISTENER_SERVICES.has(service) && listener !== undefined && target !== undefined;
+  if (!isSendable) return null;
+  const project = record.projectId === undefined ? {} : { projectId: record.projectId };
+  const lifecycle = { phase, id: listener.id, target, key: listener.key };
+  return { service, method: record.name, at, outcome: { status: 'ok' }, ...project, ...adminAccountOf(record), ...placeOf(service, record), ...queryOf(service, record), listener: lifecycle };
+}
+
 /** The observed call for a record made at `at`, or null when the host takes no row for it. */
 export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall | null {
   const adminService = ADMIN_SERVICES.get(record.module);
   if (adminService !== undefined) return adminCallOf(adminService, record, at);
   const service = SERVICES.get(record.module);
   if (service === undefined) return null;
+  const phase = LISTENER_PHASES.get(record.outcome);
+  if (phase !== undefined) return listenerCallOf(service, record, phase, at);
   const outcome = productionOutcome(record);
   if (outcome === null) return null;
   const project = record.projectId === undefined ? {} : { projectId: record.projectId };
@@ -149,7 +179,7 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...usage, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record), ...valuesOf(service, record), ...queryOf(service, record) };
 }
 
-/** An Admin record's account: the uid and claim names only, never claim values. */
+/** An Admin record's or a listener record's account: the uid and claim names only, never claim values. */
 function adminAccountOf(record: LiveCallRecord): Pick<ObservedCall, 'account'> {
   const account = record.account;
   if (account === undefined) return {};

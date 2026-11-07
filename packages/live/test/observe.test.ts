@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'bun:test';
+import { firestoreListener } from '../src/firestore.js';
 import { observedCall, observedListener, type LiveCallRecord, type LiveListenerJournal, type LiveObserver } from '../src/observe.js';
 
 const OBSERVE_URL = new URL('../src/observe.ts', import.meta.url).href;
@@ -543,5 +544,132 @@ describe('a listener wrapper whose observer journals listeners', () => {
     });
     expect(caught).toBe(thrown);
     expect(calls).toBe(1);
+  });
+});
+
+/** A listener id this realm mints. */
+const LISTENER_ID = /^l-[0-9a-f]{8}-[0-9]+$/;
+/** A key's keyed hash. */
+const KEY_HASH = /^[0-9a-f]{16}$/;
+
+/** A stand-in listener export: it hands the test its callbacks and returns an unsubscribe that counts its calls. */
+function standInListener(): { real: (...args: unknown[]) => unknown; next: () => (value: unknown) => void; error: () => (reason: unknown) => void; unsubscribes: () => number } {
+  let handed: unknown[] = [];
+  let unsubscribes = 0;
+  return {
+    real: (...args: unknown[]) => {
+      handed = args;
+      return () => {
+        unsubscribes += 1;
+      };
+    },
+    next: () => handed.find((arg) => typeof arg === 'function') as (value: unknown) => void,
+    error: () => handed.filter((arg) => typeof arg === 'function')[1] as (reason: unknown) => void,
+    unsubscribes: () => unsubscribes,
+  };
+}
+
+/** The lifecycle records, as `[outcome, id, key]`. */
+function lifecycleOf(records: readonly LiveCallRecord[]): unknown[][] {
+  return records.filter((record) => record.listener !== undefined).map((record) => [record.outcome, record.listener?.id, record.listener?.key]);
+}
+
+describe('a listener whose module names what it watches', () => {
+  const lobby = { type: 'document', firestore, path: 'rooms/lobby' };
+
+  test('records attached at subscribe, in place of returned, and detached once at unsubscribe, sharing one id', () => {
+    const { records, observer } = collector();
+    const sdk = standInListener();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, sdk.real);
+    const unsubscribe = subscribe(lobby, () => undefined) as () => void;
+    sdk.next()('snapshot');
+    unsubscribe();
+    unsubscribe();
+    expect(records.map((record) => record.outcome)).toEqual(['attached', 'delivered', 'detached']);
+    const [attached, , detached] = records;
+    expect(attached?.listener?.id).toMatch(LISTENER_ID);
+    expect(attached?.listener?.key).toMatch(KEY_HASH);
+    expect(detached?.listener).toEqual(attached?.listener);
+    expect(records[1]).not.toHaveProperty('listener');
+    expect(attached).toMatchObject({ path: 'rooms/lobby', projectId: 'demo' });
+    expect(sdk.unsubscribes()).toBe(2);
+  });
+
+  test('gives each subscription its own id, and two on one document one hashed key that holds no path', () => {
+    const { records, observer } = collector();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, standInListener().real);
+    subscribe(lobby, () => undefined);
+    subscribe({ ...lobby }, () => undefined);
+    subscribe({ type: 'document', firestore, path: 'rooms/hall' }, () => undefined);
+    const [first, second, hall] = lifecycleOf(records);
+    expect(new Set([first![1], second![1], hall![1]]).size).toBe(3);
+    expect(second![2]).toBe(first![2]);
+    expect(hall![2]).not.toBe(first![2]);
+    expect(JSON.stringify(records.map((record) => record.listener))).not.toContain('rooms');
+  });
+
+  test("an error ends the listener: the error, then detached, and the app's later unsubscribe records nothing", () => {
+    for (const appError of [(_reason: unknown) => undefined, undefined]) {
+      const { records, observer } = collector();
+      const sdk = standInListener();
+      const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, sdk.real);
+      const unsubscribe = subscribe(lobby, () => undefined, appError) as () => void;
+      sdk.error()(new CodedError('permission-denied'));
+      unsubscribe();
+      expect(records.map((record) => [record.outcome, record.code])).toEqual([
+        ['attached', undefined],
+        ['listener-error', 'permission-denied'],
+        ['detached', undefined],
+      ]);
+    }
+  });
+
+  test('a subscribe the SDK throws on records the throw and no lifecycle', () => {
+    const { records, observer } = collector();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, () => {
+      throw new CodedError('invalid-argument');
+    });
+    expect(() => subscribe(lobby, () => undefined)).toThrow('invalid-argument');
+    expect(records.map((record) => record.outcome)).toEqual(['threw']);
+  });
+
+  test('a target the hook cannot name, or a hook that throws, keeps the plain returned record', () => {
+    const { records, observer } = collector();
+    const named = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener }, standInListener().real);
+    named({ type: 'unknown' }, () => undefined);
+    const throwing = observedListener({ module: 'm', name: 'onSnapshot', observer, listenerOf: () => { throw new Error('hook down'); } }, standInListener().real);
+    throwing(lobby, () => undefined);
+    expect(records.map((record) => [record.outcome, record.listener])).toEqual([['returned', undefined], ['returned', undefined]]);
+  });
+
+  test("hands the module a detach for the subscription, which records detached once and forgets it", () => {
+    const { records, observer } = collector();
+    const detaches: Array<() => void> = [];
+    let forgotten = 0;
+    const listenerAttached = (_name: string, _args: readonly unknown[], detach: () => void) => {
+      detaches.push(detach);
+      return () => { forgotten += 1; };
+    };
+    const subscribe = observedListener({ module: 'firebase/database', name: 'onValue', observer, listenerOf: () => ({ target: '/items', key: 'items' }), listenerAttached }, standInListener().real);
+    const unsubscribe = subscribe({}, () => undefined) as () => void;
+    detaches[0]!();
+    detaches[0]!();
+    unsubscribe();
+    expect(records.map((record) => record.outcome)).toEqual(['attached', 'detached']);
+    expect(forgotten).toBe(1);
+  });
+
+  test('an onSnapshotResume of a document snapshot listens to that document; of a query snapshot, to nothing it can name', () => {
+    const { records, observer } = collector();
+    const resume = observedListener({ module: 'firebase/firestore', name: 'onSnapshotResume', observer, listenerOf: firestoreListener }, standInListener().real);
+    const unsubscribe = resume(firestore, { bundleSource: 'DocumentSnapshot', bundleName: 'rooms/lobby', bundle: '' }, () => undefined) as () => void;
+    unsubscribe();
+    resume(firestore, { bundleSource: 'QuerySnapshot', bundleName: 'AbC123', bundle: '' }, () => undefined);
+    expect(records.map((record) => record.outcome)).toEqual(['attached', 'detached', 'returned']);
+    const resumed = lifecycleOf(records)[0]!;
+    const direct = collector();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer: direct.observer, listenerOf: firestoreListener }, standInListener().real);
+    subscribe(lobby, () => undefined);
+    expect(lifecycleOf(direct.records)[0]![2]).toBe(resumed[2]);
   });
 });

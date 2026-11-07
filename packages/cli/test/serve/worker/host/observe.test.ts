@@ -13,7 +13,7 @@ import { describe, expect, it } from 'bun:test';
 import { activeListeners, initializeSandbox, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
 import { incidentsFromEvents } from '../../../../src/serve/runtime/listener-incidents.js';
 import { getFirestore } from 'pyric/firestore';
-import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
+import { cleanupPort, handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { markPortConnection } from '../../../../src/serve/worker/host/caller.js';
 import { heldLiveCallValueCount, liveCallValues } from '../../../../src/serve/worker/host/observe.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
@@ -446,5 +446,49 @@ describe('host: observed listener lifecycle', () => {
       expect(await observe(ctx, page, { call })).toMatchObject({ ok: false, error: { code: 'invalid-argument' } });
     }
     expect(ctx.sandbox.history()).toEqual([]);
+  });
+});
+
+describe('host: listeners a port leaves behind', () => {
+  it('scopes the same page-minted id apart on two ports that name no page or client', async () => {
+    const ctx = makeCtx();
+    const first = fakePort();
+    const second = fakePort();
+    await observe(ctx, first, { call: roomListener('attach', 'l-1') });
+    await observe(ctx, second, { call: roomListener('attach', 'l-1') });
+    const [one, two] = ctx.sandbox.history() as Array<{ listenerId: string }>;
+    expect(one?.listenerId).not.toBe(two?.listenerId);
+    await observe(ctx, second, { call: roomListener('detach', 'l-1') });
+    expect(activeListeners(ctx.sandbox.history()).map((listener) => listener.id)).toEqual([one!.listenerId]);
+  });
+
+  it('detaches, when the port closes, only the listeners it never detached', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    await observe(ctx, page, { call: roomListener('attach', 'l-1') });
+    await observe(ctx, page, { call: roomListener('attach', 'l-2') });
+    await observe(ctx, page, { call: roomListener('detach', 'l-2') });
+    const before = ctx.sandbox.history().length;
+    cleanupPort(ctx, page);
+    const swept = ctx.sandbox.history().slice(before) as Array<{ kind: string; phase: string; activity?: { listenerId?: string } }>;
+    expect(swept.map((event) => [event.kind, event.phase, event.activity?.listenerId])).toEqual([['listener', 'detach', 'l-1']]);
+    expect(activeListeners(ctx.sandbox.history())).toEqual([]);
+    cleanupPort(ctx, page);
+    expect(ctx.sandbox.history()).toHaveLength(before + 1);
+  });
+
+  it('raises no duplicate-listener incident when a reloaded page attaches its listeners again', async () => {
+    const ctx = makeCtx();
+    for (let load = 0; load < 3; load++) {
+      const page = fakePort();
+      for (const id of ['l-1', 'l-2']) {
+        await observe(ctx, page, { call: roomListener('attach', id, 1_700_000_000_000 + load * 10_000) });
+      }
+      cleanupPort(ctx, page);
+    }
+    expect(activeListeners(ctx.sandbox.history())).toEqual([]);
+    const patterns = incidentsFromEvents(ctx.sandbox.history()).map((incident) => incident.pattern);
+    expect(patterns).not.toContain('duplicate-listener');
   });
 });
