@@ -14,6 +14,7 @@ import * as realAuth from 'firebase/auth';
 import * as realFirestore from 'firebase/firestore';
 import { SDK_MODULES, swappedFirebaseEntries } from '@pyric/cli/vite/internal/supplied-rows';
 import { LIVE_MODULES, LIVE_ROWS, liveFirebaseEntries, liveModuleFor, replacedExports, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
+import { firestoreContext } from '../src/firestore.js';
 import { realmHash } from '../src/keyed-hash.js';
 import { observedCallOf } from '../src/page-observer.js';
 
@@ -501,6 +502,79 @@ describe("a real SDK listener's attach and detach", () => {
       const read = host.readObservedCall(JSON.parse(JSON.stringify(call)));
       const phase = record.outcome === 'attached' ? 'attach' : 'detach';
       expect(read.listener).toEqual({ phase, id: record.listener!.id, target: 'rooms/lobby', key: record.listener!.key });
+    }
+  });
+});
+
+describe('an onSnapshotResume names the path of the snapshot it resumes', () => {
+  /** A bundle as the SDK writes one: each element's UTF-8 byte length, then its JSON. */
+  function bundleOf(elements: readonly object[]): string {
+    return elements.map((element) => {
+      const json = JSON.stringify(element);
+      return `${new TextEncoder().encode(json).byteLength}${json}`;
+    }).join('');
+  }
+
+  /** Loads one document into the cache from a bundle, so a real `DocumentSnapshot` of it has no pending writes. */
+  async function cachedDocument(path: string, fields: Record<string, unknown>): Promise<realFirestore.DocumentSnapshot> {
+    const name = `projects/${OPTIONS.projectId}/databases/(default)/documents/${path}`;
+    const time = '2026-11-01T08:00:00.000000Z';
+    const body = [{ documentMetadata: { name, readTime: time, exists: true } }, { document: { name, fields, createTime: time, updateTime: time } }];
+    const totalBytes = new TextEncoder().encode(bundleOf(body)).byteLength;
+    await realFirestore.loadBundle(db, bundleOf([{ metadata: { id: `cached-${path}`, createTime: time, version: 1, totalDocuments: 1, totalBytes } }, ...body]));
+    return firestore.getDocFromCache(firestore.doc(db, path));
+  }
+
+  /** Resumes `json` until its first delivery and unsubscribes; the records the resume made. */
+  async function resumed(json: object): Promise<LiveCallRecord[]> {
+    const start = records.length;
+    await new Promise<void>((resolve, reject) => {
+      const unsubscribe = firestore.onSnapshotResume(db, json, () => {
+        unsubscribe();
+        resolve();
+      }, reject);
+    });
+    return records.slice(start).filter((record) => record.name === 'onSnapshotResume');
+  }
+
+  /** `<outcome> <path>` for each record, and the path the host reads from each one it takes. */
+  function pathsOf(resumes: readonly LiveCallRecord[]): { recorded: string[]; read: unknown[] } {
+    const calls = resumes.map((record) => observedCallOf(record, Date.now())).filter((call) => call !== null);
+    return {
+      recorded: resumes.map((record) => `${record.outcome} ${record.path}`),
+      read: calls.map((call) => (host.readObservedCall(JSON.parse(JSON.stringify(call))) as { path?: unknown }).path),
+    };
+  }
+
+  test('a document snapshot: its attach, delivery and detach name the document', async () => {
+    const snapshot = await cachedDocument('rooms/resumed', { name: { stringValue: 'Resumed' } });
+    const resumes = await resumed(snapshot.toJSON());
+    expect(pathsOf(resumes)).toEqual({
+      recorded: ['attached rooms/resumed', 'delivered rooms/resumed', 'detached rooms/resumed'],
+      read: ['rooms/resumed', 'rooms/resumed', 'rooms/resumed'],
+    });
+  });
+
+  test("a query snapshot: its delivery names the collection the bundle's query reads", async () => {
+    const snapshot = await firestore.getDocsFromCache(firestore.collection(db, 'halls'));
+    expect(pathsOf(await resumed(snapshot.toJSON()))).toEqual({ recorded: ['returned halls', 'delivered halls'], read: ['halls'] });
+  });
+
+  test("a subcollection query snapshot: the SDK bundles its query under the database root, so the resume names the collection there, as it listens", async () => {
+    const snapshot = await firestore.getDocsFromCache(firestore.collection(db, 'rooms/lobby/seats'));
+    expect(pathsOf(await resumed(snapshot.toJSON()))).toEqual({ recorded: ['returned seats', 'delivered seats'], read: ['seats'] });
+  });
+
+  test('a collection-group query snapshot: its delivery names the group id, as a live query does', async () => {
+    const snapshot = await firestore.getDocsFromCache(firestore.collectionGroup(db, 'seats'));
+    expect(pathsOf(await resumed(snapshot.toJSON()))).toEqual({ recorded: ['returned seats', 'delivered seats'], read: ['seats'] });
+  });
+
+  test('a query snapshot whose bundle holds no readable query names no path, as any unread call does', async () => {
+    const json = (await firestore.getDocsFromCache(firestore.collection(db, 'rooms'))).toJSON() as Record<string, unknown>;
+    expect(firestoreContext('onSnapshotResume', [db, json])).toHaveProperty('path', 'rooms');
+    for (const bundle of ['12{"broken":', '99{}', 'x', 7]) {
+      expect(firestoreContext('onSnapshotResume', [db, { ...json, bundle }])).not.toHaveProperty('path');
     }
   });
 });
