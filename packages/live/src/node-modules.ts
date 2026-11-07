@@ -60,11 +60,17 @@ let hostProjectId: string | undefined;
 /**
  * Hands every row this plane serves from now on the project the host serves
  * (the register calls it once it has resolved the project), so each row refuses a
- * call whose app names another project.
+ * call whose app names another project. `databaseInstances` are the
+ * Realtime Database instances firebase.json names for it, which the Admin
+ * Realtime Database row lets through beside `<project>-default-rtdb` and `<project>`.
  */
-export function serveHostProject(projectId: string): void {
+export function serveHostProject(projectId: string, databaseInstances: readonly string[] = []): void {
   hostProjectId = projectId;
+  hostDatabaseInstances = databaseInstances;
 }
+
+/** The Realtime Database instances firebase.json names for the host's project. */
+let hostDatabaseInstances: readonly string[] = [];
 
 /** The project root a child process's first process recorded with no project, once the register says so. */
 let rootWithoutProject: string | undefined;
@@ -123,7 +129,7 @@ export function observeAdminRow(name: AdminRowName, real: unknown, entryFile: st
   const row = { observer: adminObserver(observer, projectId), gate: adminGateFor(projectId) };
   if (name === 'firestore') observeAdminFirestore(real, entryFile, row);
   if (name === 'storage') observeAdminStorage(real, entryFile, row);
-  if (name === 'database') observeAdminDatabase(real, { ...row, hostProjectId: projectId });
+  if (name === 'database') observeAdminDatabase(real, { ...row, hostProjectId: projectId, hostInstances: hostDatabaseInstances });
   if (name === 'auth') observeAdminAuth(real, { ...row, hostProjectId: projectId });
 }
 

@@ -162,6 +162,14 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, admin: 'observed' } })).toEqual(LIVE);
   });
 
+  it('reads the hosts the host process called that no live row observed, and drops a malformed list without losing the status', () => {
+    const unobserved = ['oauth2.googleapis.com', 'cloudtrace.googleapis.com'];
+    expect(readLiveHostStatus({ live: { ...LIVE, unobserved } })).toEqual({ ...LIVE, unobserved });
+    expect(readLiveHostStatus({ live: { ...LIVE, unobserved: [] } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, unobserved: ['oauth2.googleapis.com', 7] } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, unobserved: 'oauth2.googleapis.com' } })).toEqual(LIVE);
+  });
+
   it('reads only firebase/* imports as passed through, now that firebase-admin is observed', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, passThrough: ['firebase/functions'] } })).toEqual({ ...LIVE, passThrough: ['firebase/functions'] });
     expect(readLiveHostStatus({ live: { ...LIVE, passThrough: ['firebase/functions', 'firebase-admin'] } })).toBeNull();

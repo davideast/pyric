@@ -3,7 +3,8 @@
  * passed through and the Admin rows open, the four class-defining loads of
  * the real Admin SDK resolve to the fixed Admin row modules, whose source
  * comes from the installed `@pyric/live`, and each row loads the real module.
- * Every other `lib/<service>/` load of the Admin SDK is refused. The rows stay
+ * Every other `lib/<service>/` load of the Admin SDK loads the real module,
+ * unobserved (ADR 0022, amendment 2026-11-07). The rows stay
  * shut unless the register opens them, so a passed-through Admin SDK loads
  * the real modules directly.
  *
@@ -132,7 +133,26 @@ describe('Admin rows on the live register', () => {
     expect(adminTreeResolution(rows, request)).toEqual({ kind: 'unserved' });
   });
 
-  it('serve the row module at each of the four loads, through the modular entries and the namespace, and refuse other services', () => {
+  it('let a lib/<service>/ load the rows do not serve through as an unobserved Admin subpath', () => {
+    const rows = registerRows(new Set(['firebase-admin']), true);
+    rows.open({
+      projectUrl: 'file:///app/package.json',
+      refusal: (specifier) => Object.assign(new Error(`refused ${specifier}`), { code: 'PYRIC_LIVE_REFUSED' }),
+      moduleSource: () => null,
+    });
+    const load = (folder: string) => adminTreeResolution(rows, {
+      specifier: `../${folder}/index.js`,
+      url: `file:///app/node_modules/firebase-admin/lib/${folder}/index.js`,
+      nameOf: () => 'firebase-admin',
+      pathInPackage: () => `lib/${folder}/index.js`,
+    });
+    expect([load('messaging'), load('security-rules')]).toEqual([
+      { kind: 'admin-unobserved', subpath: 'firebase-admin/messaging' },
+      { kind: 'admin-unobserved', subpath: 'firebase-admin/security-rules' },
+    ]);
+  });
+
+  it('serve the row module at each of the four loads, through the modular entries and the namespace, and load other services unobserved', () => {
     const res = run(true);
     if (isNode22(res)) {
       // Node 22 runs firebase-admin's own require() outside the hooks: no row is reached.
@@ -150,8 +170,8 @@ describe('Admin rows on the live register', () => {
       getDatabase: 'ok',
       getAuth: 'ok',
       'admin.firestore': 'ok',
-      'admin.securityRules': 'PYRIC_LIVE_REFUSED',
-      getMessaging: 'PYRIC_LIVE_REFUSED',
+      'admin.securityRules': 'ok',
+      getMessaging: 'ok',
     });
   });
 

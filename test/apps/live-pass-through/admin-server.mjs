@@ -4,8 +4,8 @@
 //
 // The Admin SDK gets the app's own credential and an Agent that sends every
 // request it makes to a local stand-in for Google, so the run reaches no real
-// host. The job then tries the same Google hosts itself, which live mode
-// refuses, and prints what each call got.
+// host. The job then calls Google hosts itself, which live mode lets through,
+// and prints what each call got.
 import { createServer } from "node:http";
 import https from "node:https";
 import net from "node:net";

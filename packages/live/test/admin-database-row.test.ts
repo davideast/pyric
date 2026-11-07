@@ -54,6 +54,8 @@ async function loadReplay(): Promise<Replay> {
 const PROJECT = 'pyric-replay-admin';
 const INSTANCE = 'pyric-replay-admin-default-rtdb';
 const DATABASE_URL = `https://${INSTANCE}.firebaseio.com`;
+/** A named instance whose name doesn't start with the project's, as firebase.json's database targets can name one. */
+const CONFIGURED_INSTANCE = 'team-ledger';
 const FIXTURE = new URL('../../../test/apps/replay/fixtures/admin-minimal.json', import.meta.url).pathname;
 
 /** An exchange answered `ok` with no data, as production answers a write. */
@@ -116,7 +118,7 @@ beforeAll(async () => {
   const replay = await loadReplay();
   server = await replay.startReplayServer([replay.readRecording(FIXTURE), EXTRA]);
   process.env.FIREBASE_DATABASE_EMULATOR_HOST = new URL(server.origin).host;
-  observeAdminDatabase(sdk, { observer, gate: adminProjectGate(PROJECT, (line) => lines.push(line), {}), hostProjectId: PROJECT });
+  observeAdminDatabase(sdk, { observer, gate: adminProjectGate(PROJECT, (line) => lines.push(line), {}), hostProjectId: PROJECT, hostInstances: [CONFIGURED_INSTANCE] });
   app = admin.initializeApp({ projectId: PROJECT, databaseURL: DATABASE_URL }, 'admin-database-row');
   db = getDatabase(app);
 });
@@ -424,4 +426,50 @@ test('getRules on the host project goes to the instance', async () => {
   const unmatched = server.unmatched.length;
   expect(await refusedCode(() => hostDb.getRules!())).not.toBe('PYRIC_LIVE_REFUSED');
   expect(server.unmatched.length).toBeGreaterThan(unmatched);
+});
+
+test("an app on the host project is refused at ref() for another project's instance, before any frame, and told to name it in firebase.json", async () => {
+  const urls = [
+    // Project <host>-prod's default instance: a dev and prod pair named this way is common.
+    `https://${PROJECT}-prod-default-rtdb.firebaseio.com`,
+    `https://${PROJECT}-reports.firebaseio.com`,
+    `https://${PROJECT}-eu.europe-west1.firebasedatabase.app`,
+    'https://other-project-default-rtdb.firebaseio.com',
+    'https://someone-elses-ledger.europe-west1.firebasedatabase.app',
+  ];
+  const outcomes: unknown[] = [];
+  const sent = (await received()).length;
+  for (const [index, databaseURL] of urls.entries()) {
+    const other = admin.initializeApp({ projectId: PROJECT, databaseURL }, `admin-database-other-instance-${index}`);
+    others.push(other);
+    try {
+      ref('notes/a', getDatabase(other));
+      outcomes.push('ok');
+    } catch (error) {
+      const { code, message } = error as { code?: unknown; message?: string };
+      outcomes.push(message?.includes('firebase.json') === true ? code : `${String(code)} without firebase.json`);
+    }
+  }
+  expect(outcomes).toEqual(urls.map(() => 'PYRIC_LIVE_REFUSED'));
+  expect(await framesSince(sent)).toEqual([]);
+});
+
+test("the host project's own instances pass the instance check: <project>-default-rtdb on either domain, <project>, and one firebase.json names", async () => {
+  const urls = [
+    `https://${PROJECT}-default-rtdb.europe-west1.firebasedatabase.app`,
+    `https://${PROJECT}.firebaseio.com`,
+    `https://${CONFIGURED_INSTANCE}.firebaseio.com`,
+  ];
+  const outcomes: unknown[] = [];
+  for (const [index, databaseURL] of urls.entries()) {
+    const named = admin.initializeApp({ projectId: PROJECT, databaseURL }, `admin-database-named-instance-${index}`);
+    others.push(named);
+    const database = getDatabase(named);
+    outcomes.push(await refusedCode(() => {
+      ref('notes/a', database);
+      (database.goOffline as AnyFunction).call(database);
+      return Promise.resolve();
+    }));
+  }
+  expect(outcomes).toEqual(['ok', 'ok', 'ok']);
 });

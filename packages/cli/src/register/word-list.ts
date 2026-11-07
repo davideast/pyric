@@ -1,7 +1,6 @@
 /**
  * Joins the names a register message lists: `a, b and c`, or `a, b or c`.
- * The stop's fix (`./swap-or-stop.ts`) and the live guard's reasons
- * (`./live-net-guard.ts`) both name the live rows' imports this way.
+ * The stop's fix (`./swap-or-stop.ts`) names the live rows' imports this way.
  * `@pyric/live`'s refusal keeps its own joiner, since the page plane can't
  * import CLI code.
  *
