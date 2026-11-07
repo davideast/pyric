@@ -3,12 +3,13 @@
  * `operation` event that says production served it.
  */
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox, toOperationRecord, type ObservedCall } from '../../src/sandbox/index.js';
+import { activeListeners, initializeSandbox, toOperationRecord, type ObservedCall } from '../../src/sandbox/index.js';
 import {
   emitSandboxEvent,
   isProductionServed,
   observedCallEvent,
   ObservedCallError,
+  observedListenerEvent,
   productionVerdict,
   readObservedCall,
 } from '../../src/sandbox/internal/index.js';
@@ -712,5 +713,115 @@ describe('observedCallEvent', () => {
     expect(isProductionServed({ kind: 'evaluated', verdict: 'allow' })).toBe(false);
     expect(isProductionServed({ kind: 'not-evaluated', reason: 'not-a-rules-operation' })).toBe(false);
     expect(isProductionServed(undefined)).toBe(false);
+  });
+});
+
+/** A page's `onSnapshot` on a query, as the live row records its attach: no value, no production answer. */
+const ROOMS_ATTACH: ObservedCall = {
+  service: 'firestore',
+  method: 'onSnapshot',
+  path: 'rooms',
+  at: 1_700_000_000_000,
+  outcome: { status: 'ok' },
+  account: { uid: 'alice' },
+  query: { scope: 'collection', filters: [{ field: 'owner', op: '==' }], fingerprint: '0123456789abcdef' },
+  listener: { phase: 'attach', id: 'l-1', target: 'rooms', key: 'fedcba9876543210' },
+};
+
+const ITEM_VALUE_ATTACH: ObservedCall = {
+  service: 'rtdb',
+  method: 'onValue',
+  path: '/items/a',
+  instance: 'my-project-named',
+  projectId: 'my-project',
+  at: 1_700_000_000_000,
+  outcome: { status: 'ok' },
+  listener: { phase: 'attach', id: 'l-2', target: '/items/a' },
+};
+
+describe('observed listener lifecycle', () => {
+  it('keeps an attach and a detach on Firestore and RTDB', () => {
+    expect(readObservedCall(ROOMS_ATTACH)).toEqual(ROOMS_ATTACH);
+    expect(readObservedCall(ITEM_VALUE_ATTACH)).toEqual(ITEM_VALUE_ATTACH);
+    const detach = { ...ROOMS_ATTACH, listener: { ...ROOMS_ATTACH.listener!, phase: 'detach' } };
+    expect(readObservedCall(detach)).toEqual(detach as ObservedCall);
+  });
+
+  it('refuses a listener target, id or key that could carry a value, and a listener on any other service', () => {
+    const listener = ROOMS_ATTACH.listener!;
+    const cases: Array<[unknown, string]> = [
+      [{ ...listener, phase: 'delivery' }, 'listener.phase'],
+      [{ ...listener, value: 'alice' }, 'listener.value'],
+      [{ ...listener, target: '' }, 'listener.target'],
+      [{ ...listener, target: 'a'.repeat(1501) }, 'listener.target'],
+      [{ ...listener, target: 'users/alice@example.com' }, 'listener.target'],
+      [{ ...listener, target: `tokens/${FIS_AUTH_TOKEN}` }, 'listener.target'],
+      [{ ...listener, target: `devices/${FCM_TOKEN}` }, 'listener.target'],
+      [{ ...listener, target: VAPID_KEY }, 'listener.target'],
+      [{ ...listener, target: 7 }, 'listener.target'],
+      [{ ...listener, id: '' }, 'listener.id'],
+      [{ ...listener, id: 'a'.repeat(65) }, 'listener.id'],
+      [{ ...listener, id: 'l 1' }, 'listener.id'],
+      [{ ...listener, id: 'eyJhbGciOiJFUzI1NiJ9abc' }, 'listener.id'],
+      [{ ...listener, id: undefined }, 'listener.id'],
+      [{ ...listener, key: JSON.stringify(['query', 'rooms', [{ field: 'owner', value: 'alice' }]]) }, 'listener.key'],
+      [{ ...listener, key: '0123456789ABCDEF' }, 'listener.key'],
+      ['attach', 'listener'],
+    ];
+    for (const [value, field] of cases) {
+      const read = () => readObservedCall({ ...ROOMS_ATTACH, listener: value });
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow(`Invalid observed call field: ${field}.`);
+    }
+    for (const call of [UPLOAD, GENERATE, GET_TOKEN, { ...DENIED_READ, service: 'auth' }]) {
+      expect(() => readObservedCall({ ...call, listener })).toThrow('Invalid observed call field: listener.');
+    }
+    const failed = { ...ROOMS_ATTACH, outcome: { status: 'error', code: 'permission-denied' } };
+    expect(() => readObservedCall(failed)).toThrow('Invalid observed call field: listener.');
+  });
+
+  it("becomes a listener event with the page's id, its target and no production answer", () => {
+    const event = observedListenerEvent(ROOMS_ATTACH);
+    expect(event).toEqual({
+      kind: 'listener',
+      id: expect.any(String),
+      at: ROOMS_ATTACH.at,
+      service: 'firestore',
+      phase: 'attach',
+      listenerId: 'l-1',
+      target: { kind: 'query', path: 'rooms', query: ROOMS_ATTACH.query },
+      auth: { uid: 'alice' },
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      detail: { key: 'fedcba9876543210' },
+    });
+    expect(event).not.toHaveProperty('production');
+    expect(event.target.query).not.toBe(ROOMS_ATTACH.query);
+    const doc = observedListenerEvent({
+      ...ROOMS_ATTACH,
+      path: 'rooms/r1',
+      query: undefined,
+      listener: { phase: 'detach', id: 'l-3', target: 'rooms/r1' },
+    });
+    expect(doc).toMatchObject({ phase: 'detach', target: { kind: 'doc', path: 'rooms/r1' } });
+    expect(doc.target).not.toHaveProperty('query');
+    expect(observedListenerEvent(ITEM_VALUE_ATTACH)).toMatchObject({
+      service: 'rtdb',
+      instance: 'my-project-named',
+      target: { kind: 'value', path: '/items/a' },
+      auth: null,
+    });
+  });
+
+  it('folds into the active listeners every listener view reads', () => {
+    const sandbox = initializeSandbox();
+    const detach = { ...ITEM_VALUE_ATTACH, listener: { ...ITEM_VALUE_ATTACH.listener!, phase: 'detach' as const } };
+    for (const call of [ROOMS_ATTACH, ITEM_VALUE_ATTACH, detach]) emitSandboxEvent(sandbox, observedListenerEvent(call));
+    expect(activeListeners(sandbox.history())).toEqual([
+      expect.objectContaining({ id: 'l-1', service: 'firestore', target: 'rooms', query: ROOMS_ATTACH.query }),
+    ]);
+  });
+
+  it('refuses a call that is not a listener record', () => {
+    expect(() => observedListenerEvent(DENIED_READ)).toThrow('Invalid observed call field: listener.');
   });
 });

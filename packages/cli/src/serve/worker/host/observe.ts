@@ -9,15 +9,19 @@
  * frame itself. Pyric serves nothing and changes no sandbox state. For a
  * Firestore or RTDB call it evaluates the same request against the local
  * rules files and records that verdict as `production.local`; production's
- * answer stays the event's result (`observe-local-verdict.ts`).
+ * answer stays the event's result (`observe-local-verdict.ts`). A listener's
+ * attach or detach becomes a `listener` event instead, with no verdict.
  */
-import { emitSandboxEvent, observedCallEvent, readObservedCall } from 'pyric/sandbox/internal';
-import type { ObservedCall, Sandbox } from 'pyric/sandbox';
+import { emitSandboxEvent, observedCallEvent, observedListenerEvent, readObservedCall } from 'pyric/sandbox/internal';
+import type { EventCaller, ObservedCall, Sandbox } from 'pyric/sandbox';
 import type { VerifyObservedCallValues } from '../../../verify/fixture.js';
 import type { ObserveMessage } from '../protocol.js';
 import { ok, fail, type HostCtx, type PortLike } from '../host-context.js';
 import { callerOf } from './caller.js';
 import { localVerdict } from './observe-local-verdict.js';
+
+/** A listener's attach or detach, as the reader returns it. */
+type ObservedListener = NonNullable<ObservedCall['listener']>;
 
 /** One sandbox's live call values by event id, and the size at which they are next pruned. */
 interface ValueStore {
@@ -95,10 +99,41 @@ function rememberValues(sandbox: Sandbox, eventId: string, call: ObservedCall): 
   store.byEvent.set(eventId, values);
 }
 
+/**
+ * The listener id the event names: the page's own id scoped to the
+ * connection that minted it, so a page's and a Node process's `l-1` stay two
+ * listeners. The page's id stays the event's `activity.listenerId`.
+ */
+function scopedListenerId(caller: EventCaller | undefined, id: string): string {
+  if (caller === undefined) return id;
+  return `${caller.kind}:${caller.pageId ?? caller.clientId ?? ''}:${id}`;
+}
+
+/**
+ * Write a listener's attach or detach with its caller. It runs no local
+ * rules and holds no values: the record carries none.
+ */
+function emitListener(ctx: HostCtx, call: ObservedCall, listener: ObservedListener, caller: EventCaller | undefined): void {
+  const observed = observedListenerEvent(call);
+  const event = { ...observed, listenerId: scopedListenerId(caller, listener.id) };
+  emitSandboxEvent(ctx.sandbox, event, {
+    actor: { kind: 'app' },
+    authLens: { mode: 'app-session' },
+    activity: { listenerId: listener.id },
+    ...(caller === undefined ? {} : { caller }),
+  });
+}
+
 /** Write one observed call to the event stream with its caller, then answer the frame. */
 export function handleObserve(ctx: HostCtx, port: PortLike, msg: ObserveMessage): void {
   try {
     const call = readObservedCall(msg.call);
+    const listener = call.listener;
+    if (listener !== undefined) {
+      emitListener(ctx, call, listener, callerOf(msg));
+      ok(port, msg.id, undefined);
+      return;
+    }
     const observed = observedCallEvent(call);
     const local = localVerdict(ctx, call);
     const production = observed.production;
