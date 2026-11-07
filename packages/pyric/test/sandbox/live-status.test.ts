@@ -152,6 +152,16 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, admin: 'observed' } })).toEqual(LIVE);
   });
 
+  it('reads the Admin SDK subpaths that pass through, and drops a malformed list without losing the Admin status', () => {
+    const admin = { mode: 'observed', observed: true, bypassesRules: true };
+    const passThrough = ['firebase-admin/app-check', 'firebase-admin/messaging'];
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: { ...admin, passThrough } } })).toEqual({ ...LIVE, admin: { ...admin, passThrough } });
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: { ...admin, passThrough: [] } } })).toEqual({ ...LIVE, admin });
+    for (const malformed of [['firebase/functions'], ['firebase-admin'], ['firebase-admin/app-check', 7], 'firebase-admin/messaging']) {
+      expect(readLiveHostStatus({ live: { ...LIVE, admin: { ...admin, passThrough: malformed } } })).toEqual({ ...LIVE, admin });
+    }
+  });
+
   it('reads only firebase/* imports as passed through, now that firebase-admin is observed', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, passThrough: ['firebase/functions'] } })).toEqual({ ...LIVE, passThrough: ['firebase/functions'] });
     expect(readLiveHostStatus({ live: { ...LIVE, passThrough: ['firebase/functions', 'firebase-admin'] } })).toBeNull();

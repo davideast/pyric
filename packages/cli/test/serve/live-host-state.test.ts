@@ -140,6 +140,16 @@ describe('the live host state', () => {
     expect(readLiveHostStatus({ live: live.report() })?.admin).toEqual(admin);
   });
 
+  it('reports the passed-through Admin SDK subpaths in the Admin field, and only firebase/* imports in passThrough', () => {
+    const input = { configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined } as const;
+    const live = createLiveHostState({ ...input, passThrough: ['firebase/functions', 'firebase-admin/app-check', 'firebase-admin/messaging'] });
+    const admin = { mode: 'observed', observed: true, bypassesRules: true, passThrough: ['firebase-admin/app-check', 'firebase-admin/messaging'] };
+    expect(live.report().passThrough).toEqual(['firebase/functions']);
+    expect(live.report().admin).toEqual(admin);
+    expect(readLiveHostStatus({ live: live.report() })?.admin).toEqual(admin);
+    expect(readLiveHostStatus({ live: live.report() })?.passThrough).toEqual(['firebase/functions']);
+  });
+
   it('names each project source as the developer set it', () => {
     expect(projectSourceName('firebaserc', '--project')).toBe('.firebaserc');
     expect(projectSourceName('firebase-use', '--project')).toBe('`firebase use`');

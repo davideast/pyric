@@ -132,6 +132,27 @@ describe('Admin rows on the live register', () => {
     expect(adminTreeResolution(rows, request)).toEqual({ kind: 'unserved' });
   });
 
+  it('let a lib/<service>/ load through when the app lists that unserved Admin subpath in passThrough, and keep refusing the rest', () => {
+    const rows = registerRows(new Set(['firebase-admin', 'firebase-admin/messaging', 'firebase-admin/app-check']), true);
+    rows.open({
+      projectUrl: 'file:///app/package.json',
+      refusal: (specifier) => Object.assign(new Error(`refused ${specifier}`), { code: 'PYRIC_LIVE_REFUSED' }),
+      moduleSource: () => null,
+    });
+    const load = (folder: string) => adminTreeResolution(rows, {
+      specifier: `../${folder}/index.js`,
+      url: `file:///app/node_modules/firebase-admin/lib/${folder}/index.js`,
+      nameOf: () => 'firebase-admin',
+      pathInPackage: () => `lib/${folder}/index.js`,
+    }).kind;
+    expect({
+      messaging: load('messaging'),
+      appCheck: load('app-check'),
+      remoteConfig: load('remote-config'),
+      securityRules: load('security-rules'),
+    }).toEqual({ messaging: 'unserved', appCheck: 'unserved', remoteConfig: 'refused', securityRules: 'refused' });
+  });
+
   it('serve the row module at each of the four loads, through the modular entries and the namespace, and refuse other services', () => {
     const res = run(true);
     if (isNode22(res)) {

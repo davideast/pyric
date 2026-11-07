@@ -88,10 +88,28 @@ describe('the passThrough option', () => {
     expect(startError(['firebase-admin/firestore'])).not.toContain('list firebase-admin');
   });
 
-  test('no Admin refusal suggests passThrough any more', () => {
-    const refusal = liveRefusal('firebase-admin/security-rules', 'node');
+  test('takes an Admin SDK subpath live mode does not serve, such as firebase-admin/app-check and firebase-admin/messaging', () => {
+    const admin = ['firebase-admin/app-check', 'firebase-admin/messaging', 'firebase-admin/remote-config'];
+    expect(passThroughOption(ENTRY, ['firebase/functions', ...admin])).toEqual(['firebase/functions', ...admin]);
+    expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: admin })).not.toThrow();
+    for (const served of ['firebase-admin/app', 'firebase-admin/auth', 'firebase-admin/firestore', 'firebase-admin/database', 'firebase-admin/storage']) {
+      expect(startError([served])).toContain(`passThrough lists ${served}, an Admin SDK subpath`);
+    }
+    expect(startError(['firebase-admin/lib/messaging'])).toContain('passThrough lists firebase-admin/lib/messaging, which is not');
+  });
+
+  test('gives each passed-through Admin SDK subpath a start line naming it, unobserved and billed', () => {
+    const [line] = passThroughLines(ENTRY, ['firebase-admin/app-check'], livePassThroughLine);
+    expect(line).toStartWith(`${ENTRY}: firebase-admin/app-check passes through`);
+    expect(line).toContain('unobserved');
+  });
+
+  test("an unserved Admin subpath's refusal names the passThrough entry that loads it, and a served one's or a page's does not", () => {
+    const refusal = liveRefusal('firebase-admin/messaging', 'node');
     expect((refusal as Error & { code?: string }).code).toBe(LIVE_REFUSED);
-    expect(refusal.message).not.toContain('passThrough');
+    expect(refusal.message).toContain("pyricLive({ passThrough: ['firebase-admin/messaging'] })");
+    expect(liveRefusal('firebase-admin/auth', 'node').message).not.toContain('passThrough');
+    expect(liveRefusal('firebase-admin/messaging', 'page').message).not.toContain('passThrough');
     expect(startError(['firebase'])).not.toContain('firebase-admin');
   });
 

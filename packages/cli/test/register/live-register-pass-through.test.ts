@@ -768,6 +768,28 @@ describe('the network guard for firebase-admin, listed', () => {
     expect({ verdict: refusal?.verdict, namesMessaging: refusal?.reason?.includes('firebase-admin/messaging') }).toEqual({ verdict: 'block', namesMessaging: true });
   });
 
+  test('passes FCM and App Check to its tree only when the app lists firebase-admin/messaging and firebase-admin/app-check, and never for the app', async () => {
+    const hosts = ['fcm.googleapis.com', 'firebaseappcheck.googleapis.com'];
+    const listed = await adminSeams(['firebase-admin', 'firebase-admin/messaging', 'firebase-admin/app-check']);
+    const fromTree = hosts.map((host) => connectOutcome(() => listed.admin.adminConnect(listed.tls, host)));
+    const fromApp = hosts.map((host) => connectOutcome(() => listed.tls.connect({ host, port: 443 })));
+    const appFetch = await listed.fetchScope.fetch('https://fcm.googleapis.com/v1/projects/demo/messages:send').then(() => 'sent', (error: Error) => error.message);
+    listed.stop();
+    const unlisted = await adminSeams(['firebase-admin']);
+    const notListed = hosts.map((host) => connectOutcome(() => unlisted.admin.adminConnect(unlisted.tls, host)));
+    unlisted.stop();
+    const onlyMessaging = await adminSeams(['firebase-admin', 'firebase-admin/messaging']);
+    const appCheckWithoutIt = connectOutcome(() => onlyMessaging.admin.adminConnect(onlyMessaging.tls, 'firebaseappcheck.googleapis.com'));
+    onlyMessaging.stop();
+    expect({ fromTree, fromApp, appFetch, notListed, appCheckWithoutIt }).toEqual({
+      fromTree: ['connected', 'connected'],
+      fromApp: ['PYRIC_GUARD_BLOCKED', 'PYRIC_GUARD_BLOCKED'],
+      appFetch: 'fetch failed',
+      notListed: ['PYRIC_GUARD_BLOCKED', 'PYRIC_GUARD_BLOCKED'],
+      appCheckWithoutIt: 'PYRIC_GUARD_BLOCKED',
+    });
+  });
+
   test('passes nothing from those files when firebase-admin is not listed', async () => {
     const seams = await adminSeams(['firebase/functions']);
     try {
