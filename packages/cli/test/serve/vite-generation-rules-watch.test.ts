@@ -292,6 +292,39 @@ describe('Vite Storage rules watching', () => {
   });
 });
 
+describe('Vite rules watching on a live host', () => {
+  async function reloadAll(live: boolean): Promise<string[]> {
+    const f = missingFilesFakes([{ kind: 'reloaded', rulesHash: 'dh', clients: 1 }]);
+    Object.assign(f.session, {
+      reloadStorageRules: async (file: string) => [{ bucket: null, file, result: { kind: 'reloaded', rulesHash: 'sh', clients: 1 } }],
+    });
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session, live });
+    f.watcher.emit('change', FIRESTORE);
+    f.watcher.emit('change', DATABASE);
+    f.watcher.emit('change', STORAGE);
+    await settle();
+    f.watcher.emit('change', FIRESTORE);
+    await settle();
+    stop();
+    return f.logs.filter((line) => line.includes('reloaded'));
+  }
+
+  test('says each reload changed only the sandbox, with no verify hint', async () => {
+    expect((await reloadAll(true)).sort()).toEqual([
+      '  ↻ [pyric] rtdb rules reloaded for demo-default-rtdb (dh) for the sandbox. Production keeps its deployed rules.',
+      '  ↻ [pyric] rules reloaded (fh) for the sandbox. Production keeps its deployed rules.',
+      '  ↻ [pyric] rules reloaded (fh) for the sandbox. Production keeps its deployed rules.',
+      '  ↻ [pyric] storage rules reloaded (sh) for the sandbox. Production keeps its deployed rules.',
+    ].sort());
+  });
+
+  test('a sandbox host keeps its verify hint, once', async () => {
+    const lines = await reloadAll(false);
+    expect(lines.filter((line) => line.includes('pyric verify'))).toHaveLength(1);
+    expect(lines.some((line) => line.includes('Production keeps'))).toBe(false);
+  });
+});
+
 describe('Vite rules watching with two database instances', () => {
   const A = '/project/a.rules.json';
   const B = '/project/b.rules.json';

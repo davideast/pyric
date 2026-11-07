@@ -99,17 +99,49 @@ function formatModelLine(model: unknown, engine: unknown): string | null {
 }
 
 /**
+ * What an AI call production answered adds to its block: the headline says
+ * production, the model line names no engine (pyric's broker resolved none),
+ * and a `from:` line names the client that made the call, as the Live tab
+ * names it. The live host passes it for the calls its clients observed
+ * (`live-terminal-lines.ts`).
+ */
+export interface ObservedAiBlock {
+  /** The client kind and label; the line is dropped when absent. */
+  from?: string;
+}
+
+/** The headline's lead: `production ai` for an observed call, `ai` for a sandbox one. */
+function aiLead(observed: ObservedAiBlock | undefined): string {
+  return observed === undefined ? 'ai' : 'production ai';
+}
+
+/** The model line: an observed call's names no engine. */
+function modelLineFor(payload: { model?: unknown; engine?: unknown }, observed: ObservedAiBlock | undefined): string | null {
+  return formatModelLine(payload.model, observed === undefined ? payload.engine : undefined);
+}
+
+/** The `from:` line an observed call ends with, or nothing for a sandbox call or an unnamed client. */
+function fromLines(observed: ObservedAiBlock | undefined): string[] {
+  const from = readText(observed?.from);
+  return from === null ? [] : [`      from: ${from}`];
+}
+
+/**
  * Format a relayed AI broker rejection into the compact terminal block, the
  * same `  [pyric] ...` idiom the denial relay and the ai-proxy warning print.
  * The reason production itself gives, then the model (with the resolved
  * engine, since a rejection reads very differently for `scripted` than for a
  * real upstream), then the wire status, then pyric's guidance when the broker
- * gave one (the App Check gate does). Exported for unit tests.
+ * gave one (the App Check gate does). An observed call
+ * ({@link ObservedAiBlock}) without production's reason ends its headline at
+ * `rejected`. Exported for unit tests.
  */
-export function formatAiRejectionBlock(payload: AiRejectionPayload): string {
-  const message = readText(payload.message) ?? 'request rejected';
-  const lines = [`  ⚠ [pyric] ai request rejected: ${message}`];
-  const modelLine = formatModelLine(payload.model, payload.engine);
+export function formatAiRejectionBlock(payload: AiRejectionPayload, observed?: ObservedAiBlock): string {
+  const fallback = observed === undefined ? 'request rejected' : null;
+  const message = readText(payload.message) ?? fallback;
+  const reason = message === null ? '' : `: ${message}`;
+  const lines = [`  ⚠ [pyric] ${aiLead(observed)} request rejected${reason}`];
+  const modelLine = modelLineFor(payload, observed);
   if (modelLine !== null) lines.push(modelLine);
   const status = readText(payload.status);
   const code = typeof payload.code === 'number' ? payload.code : null;
@@ -121,6 +153,7 @@ export function formatAiRejectionBlock(payload: AiRejectionPayload): string {
   }
   const hint = readText(payload.hint);
   if (hint !== null) lines.push(`      ${hint}`);
+  lines.push(...fromLines(observed));
   return lines.join('\n');
 }
 
@@ -130,14 +163,15 @@ export function formatAiRejectionBlock(payload: AiRejectionPayload): string {
  * engine, then WHY there is no content. That third line matters more here
  * than for a rejection: a block throws nothing, so the only symptom a
  * developer sees is an empty answer, and production's `finishMessage` (when
- * it sent one) is the whole explanation. Exported for unit tests.
+ * it sent one) is the whole explanation. An observed call
+ * ({@link ObservedAiBlock}) adds its `from:` line. Exported for unit tests.
  */
-export function formatAiBlockedBlock(payload: AiBlockedPayload): string {
+export function formatAiBlockedBlock(payload: AiBlockedPayload, observed?: ObservedAiBlock): string {
   const finishReason = readText(payload.finishReason);
   const blockReason = readText(payload.blockReason);
   const reason = finishReason ?? blockReason ?? 'unknown';
-  const lines = [`  ⚠ [pyric] ai response blocked: ${reason}`];
-  const modelLine = formatModelLine(payload.model, payload.engine);
+  const lines = [`  ⚠ [pyric] ${aiLead(observed)} response blocked: ${reason}`];
+  const modelLine = modelLineFor(payload, observed);
   if (modelLine !== null) lines.push(modelLine);
   const finishMessage = readText(payload.finishMessage);
   if (finishMessage !== null) {
@@ -147,6 +181,7 @@ export function formatAiBlockedBlock(payload: AiBlockedPayload): string {
   } else {
     lines.push('      no content was returned; text() and functionCalls() throw for this finish reason');
   }
+  lines.push(...fromLines(observed));
   return lines.join('\n');
 }
 

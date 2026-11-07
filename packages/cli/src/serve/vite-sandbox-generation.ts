@@ -5,6 +5,7 @@ import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/fire
 import { resolveFirebaseProject } from '../cli/firebase-project.js';
 import { requireLiveProject } from './live-project.js';
 import { createLiveHostState, type ObservedImportsSource } from './live-host-state.js';
+import { rulesFilesOf } from './live-terminal-lines.js';
 import { registerModuleUrl } from '../cli/sandbox-runner.js';
 import {
   discoverFunctionsProject,
@@ -239,6 +240,7 @@ export async function createViteSandboxGeneration(
         configSource: firebaseProject.source,
         optionName: 'the `project` option of pyricLive()',
         warn: (line) => server.config.logger.warn(line, { timestamp: true }),
+        print: (block) => server.config.logger.warn(block),
         passThrough: options.livePassThrough,
         observed: options.liveObserved,
       })
@@ -393,7 +395,9 @@ export async function createViteSandboxGeneration(
     };
     functionsAttachment = attachViteGenerationFunctions(functionsAttachmentInput);
 
-    const rulesWatchInput = { server, session };
+    const runningSession = session;
+    liveHost?.readRulesFiles(() => rulesFilesOf(runningSession, cwd));
+    const rulesWatchInput = { server, session, live: liveHost !== undefined };
     listenerDisposers.push(watchViteGenerationRules(rulesWatchInput));
 
     const httpServer = server.httpServer;

@@ -12,13 +12,16 @@ import { createVerifyHint } from './verify-hint.js';
  * module file the Firestore rules import reloads, and so does creating one.
  * Files a reload newly imports are watched from then on, whether the reload
  * succeeds or fails. A change to one database instance's rules file reloads
- * only the instances that deploy that file.
+ * only the instances that deploy that file. On a live host each reload line
+ * says it changed the sandbox only, and gives no `pyric verify` hint.
  */
 export function watchViteGenerationRules(input: {
   server: ViteDevServer;
   session: SandboxSession;
+  /** The dev server is a live host (`pyricLive()`). */
+  live?: boolean;
 }): () => void {
-  const getVerifyHint = createVerifyHint();
+  const getVerifyHint = createVerifyHint({ live: input.live });
 
   const { server, session } = input;
   const databaseFiles = session.databaseRulesFiles();
