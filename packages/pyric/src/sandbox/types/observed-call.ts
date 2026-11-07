@@ -135,6 +135,33 @@ export interface ObservedQuery {
   fingerprint?: string;
 }
 
+/**
+ * A listener's lifecycle, as the page saw it: the app subscribed (`attach`)
+ * or unsubscribed (`detach`). Deliveries are calls of their own; this record
+ * carries none, and production answered nothing for it.
+ */
+export interface ObservedListener {
+  phase: 'attach' | 'detach';
+  /**
+   * The id the page or process minted for this subscription, shared by its
+   * attach and detach: at most 64 letters, digits, `_` and `-`. The host
+   * scopes it to the connection, so two callers may mint the same id.
+   */
+  id: string;
+  /**
+   * What the listener watches: a Firestore document or collection path, a
+   * collection group's id, or an RTDB path. Bounded as the call's `path`
+   * is, so any target a call's path may name is taken.
+   */
+  target: string;
+  /**
+   * A hash of the key the page's listener journal gives this listener,
+   * equal for two listeners on one document or query: exactly 16 lowercase
+   * hex characters. Never the key itself, which holds the query's values.
+   */
+  key?: string;
+}
+
 /** One observed call, as a client sends it to a host. */
 export interface ObservedCall {
   service: ObservedCallService;
@@ -220,6 +247,12 @@ export interface ObservedCall {
    * on any other call; the event carries it as `request.query`.
    */
   query?: ObservedQuery;
+  /**
+   * `firestore` and `rtdb` only: a listener's attach or detach. Refused on
+   * any other call and on an error outcome. Such a record becomes a
+   * `listener` event, not an `operation` event.
+   */
+  listener?: ObservedListener;
 }
 
 /**
