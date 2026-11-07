@@ -115,6 +115,17 @@ export function callerFor(ctx: HostCtx, port: PortLike, msg: InboundMessage): Ev
 }
 
 /**
+ * The client id the events of `port`'s own frames carry, as `callerFor`
+ * stamps it: a Node process's activity journey id, or the client id a page
+ * or service worker declared. Undefined for a page or service worker that
+ * declared none.
+ */
+export function portClientId(ctx: HostCtx, port: PortLike): string | undefined {
+  const isProcess = !isServiceWorkerPort(ctx, port) && pageIdFor(ctx, port) === undefined;
+  return isProcess ? activityJourneyId(ctx, port) : portClientIds.get(port);
+}
+
+/**
  * Bind `caller` to `msg`, the host's own copy of the frame. A frame cannot
  * carry its own: the key is a symbol, which no wire format keeps, and a copy
  * of the frame keeps it.

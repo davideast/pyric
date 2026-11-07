@@ -328,6 +328,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         };
         hostedRuntime = await createHostedRuntime(payload, baseUrl, fromSandbox, opts.projectKey ?? process.cwd(), ai);
         if (closed) throw new Error('The hosted sandbox closed during startup.');
+        liveHost?.readClientIds(hostedRuntime.clientIdOf);
         const receive = hostedRuntime.receive;
         const toSandbox = liveHost === undefined ? receive : (message: BridgeMessage): void => {
           liveHost.inbound(message);

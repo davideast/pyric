@@ -129,6 +129,28 @@ describe('the live host clients', () => {
     ]);
   });
 
+  it('takes the client id a page declares on its event subscription when it sends no appConfig, one client for its tabs', () => {
+    const { live } = host();
+    for (const session of ['s-tab-1', 's-tab-2']) {
+      live.inbound(frame(session, 'browser', { t: 'sub', subId: `events-${session}`, target: 'events', tabId: session, clientId: 'profile-1' }));
+    }
+    expect(live.report().clients).toEqual([
+      { kind: 'browser', clientId: 'profile-1', user: null, lastSeen: 1000 },
+    ]);
+  });
+
+  it('lists a Node process by the client id the host stamps on its events, once the host names it', () => {
+    const { live } = host();
+    live.inbound(appConfig('s-node', 'node'));
+    live.inbound(observe('s-node', 'node', 'user-1'));
+    live.inbound(appConfig('s-page', 'browser', 'profile-1'));
+    live.readClientIds((session) => (session === 's-node' ? 'page-2' : undefined));
+    expect(live.report().clients).toEqual([
+      { kind: 'node', clientId: 'page-2', user: 'user-1', lastSeen: 1000 },
+      { kind: 'browser', clientId: 'profile-1', user: null, lastSeen: 1000 },
+    ]);
+  });
+
   it('keeps the email in host memory: the frame the Node sandbox records and streams from carries none', async () => {
     const { live } = host();
     const message = register('s-page', '/', 'ada@example.com');
