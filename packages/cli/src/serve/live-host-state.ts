@@ -10,8 +10,10 @@
  * sandbox (`bridge-mount.ts`); an observed call counts once the host has
  * accepted it, so a refused frame never reaches the count. The same frames
  * name the clients connected to the host (`live-clients.ts`). Each accepted
- * call that production denied, or an AI request it rejected, prints a block
- * to the host's terminal (`live-terminal-lines.ts`).
+ * call that production denied, an AI request it rejected, or an AI answer it
+ * withheld prints a block to the host's terminal, with production's message
+ * where the call carried one (`live-terminal-lines.ts`). The message stays
+ * in the host: the event the Node sandbox writes holds the code alone.
  *
  * Only a host a live seam started holds one: `serve/live-host.ts` for the
  * `pyric-live` command, and the Vite generation `@pyric/live/vite` starts.
