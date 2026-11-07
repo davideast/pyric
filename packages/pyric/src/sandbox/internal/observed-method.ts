@@ -69,3 +69,39 @@ export function observedMethod(service: ObservedCallService, method: string): Ob
   if (!known) return null;
   return table[method] ?? null;
 }
+
+function isObservedService(service: string | undefined): service is ObservedCallService {
+  return service !== undefined && Object.hasOwn(TABLES, service);
+}
+
+/**
+ * RTDB calls as the sandbox's write plane names them: `push` and
+ * `setWithPriority` write as `set`, and a removal reads `remove`.
+ */
+const RTDB_ROWS: Readonly<Record<string, string>> = {
+  get: 'get',
+  set: 'set',
+  setWithPriority: 'set',
+  push: 'set',
+  update: 'update',
+  remove: 'remove',
+};
+
+function rtdbRowMethod(method: string): string {
+  return Object.hasOwn(RTDB_ROWS, method) ? RTDB_ROWS[method] ?? method : method;
+}
+
+/**
+ * The name a sandbox row gives a live call's SDK method. Firestore reads as
+ * the rules operation the host's local evaluation ran: `getDoc` is `get`,
+ * `getDocs` is `list`, and `setDoc` is `create`, the case whose trace the
+ * host keeps. RTDB reads as the sandbox's write plane names it, and Storage
+ * as `observedMethod` does. A method with no such name reads as it is.
+ */
+export function rulesOperation(service: string | undefined, method: string): string {
+  if (service === 'rtdb') return rtdbRowMethod(method);
+  const observed = isObservedService(service) ? observedMethod(service, method) : null;
+  if (observed === null) return method;
+  const isFirestoreSet = service === 'firestore' && observed === 'set';
+  return isFirestoreSet ? 'create' : observed;
+}

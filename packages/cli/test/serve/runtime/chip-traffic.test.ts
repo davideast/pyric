@@ -546,6 +546,35 @@ describe('a call production served', () => {
     expect(chipRequestFromEvent(borrowed)?.path).toBe('items/a');
   });
 
+  it('carries the local verdict only when it disagrees with production', () => {
+    const withLocal = (event: SandboxEvent, local: unknown): SandboxEvent => {
+      const production = (event as { production: object }).production;
+      return { ...event, production: { ...production, local } } as SandboxEvent;
+    };
+    const rule = { line: 7, expression: 'request.auth != null', path: '/rooms/{room}' };
+    const denied = observed({ outcome: { status: 'error', code: 'permission-denied' }, account: { uid: 'alice' } });
+    const drift = chipRequestFromEvent(withLocal(denied, { result: 'allow', rule, drift: true }));
+    expect(drift?.localDrift).toEqual({ result: 'allow', rule, drift: true });
+    expect(drift?.verdict).toBe('denied');
+    const agrees = chipRequestFromEvent(withLocal(denied, { result: 'deny', rule }));
+    expect(agrees?.localDrift).toBeUndefined();
+    const gap = chipRequestFromEvent(withLocal(denied, { result: 'unevaluated', needs: ['stored-document'] }));
+    expect(gap?.localDrift).toBeUndefined();
+    expect(chipRequestFromEvent(denied)?.localDrift).toBeUndefined();
+    const trace = { version: 'local-rules', scope: 'request', decision: 'ALLOW', truncated: false, rules: [], paths: [] };
+    const traced = chipRequestFromEvent(withLocal(denied, { result: 'allow', rule, drift: true, trace }));
+    expect(traced?.rulesEvidence).toEqual(trace);
+    expect(traced?.localDrift).toEqual({ result: 'allow', rule, drift: true });
+  });
+
+  it("keeps a live call's SDK method on its row", () => {
+    const method = (service: string, sdkMethod: string) => chipRequestFromEvent(observed({ service, method: sdkMethod }))?.method;
+    expect(method('firestore', 'getDoc')).toBe('getDoc');
+    expect(method('firestore', 'setDoc')).toBe('setDoc');
+    expect(method('rtdb', 'push')).toBe('push');
+    expect(method('storage', 'uploadBytes')).toBe('uploadBytes');
+  });
+
   it("reads an Admin call production answered not-found as failed, as production's row", () => {
     const call = readObservedCall({ service: 'firestore', method: 'DocumentReference.update', path: 'rooms/missing', at: 1000, outcome: { status: 'error', code: 'not-found' }, sdk: 'admin' });
     const missing = { ...observedCallEvent(call), caller: { kind: 'node' } } as SandboxEvent;

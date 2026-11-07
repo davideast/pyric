@@ -733,6 +733,55 @@ describe('the Traffic view', () => {
     expect(facts).toContain('Served byProduction');
     expect(facts).toContain('Denied in production (permission-denied)');
     expect(facts).toContain('Pyric observed it and did not check it against local rules.');
+    // The details name the call by its rules operation; the row keeps the SDK name.
+    const methodFact = root.querySelector('[data-traffic-detail] .request-fact');
+    expect(methodFact?.querySelector('dd')?.textContent).toBe('get');
+  });
+
+  it('marks only the production row whose local rules disagree, and opens the rules view from the local trace', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    const trace = (decision: 'ALLOW' | 'DENY') => ({
+      version: 'local-rules', scope: 'request', decision, truncated: false,
+      rules: [{ expression: 'request.auth != null', verdict: decision, line: 5, path: '/rooms/{room}', checks: [
+        { expression: 'request.auth != null', parent: null, operator: '!=', state: 'value', value: decision === 'ALLOW' },
+      ] }],
+      paths: [{ path: '/rooms/{room}', matched: true, line: 4 }],
+    });
+    const observedWith = (path: string, at: number, code: string | null, local: unknown): SandboxEvent => {
+      const event = observedCallEvent({
+        service: 'firestore', method: 'getDoc', path, at,
+        outcome: code === null ? { status: 'ok' } : { status: 'error', code }, account: { uid: 'alice' },
+      });
+      return { ...event, production: { ...event.production, local }, caller: { kind: 'page', pageId: 'tab-1' } } as SandboxEvent;
+    };
+    const rule = { line: 5, expression: 'request.auth != null' };
+    const agreeing = observedWith('rooms/r1', now - 3000, null, { result: 'allow', rule, trace: trace('ALLOW') });
+    const drifting = observedWith('rooms/r2', now - 2000, 'permission-denied', { result: 'allow', rule, drift: true, trace: trace('ALLOW') });
+    const untraced = observedWith('rooms/r3', now - 1000, null, { result: 'unevaluated', needs: ['stored-document'] });
+    push([agreeing, drifting, untraced], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const rowOf = (event: SandboxEvent) => root.querySelector<HTMLButtonElement>(`[data-request-row="${event.id}"]`)!;
+    expect(rowOf(agreeing).querySelector('[data-traffic-row-drift]')).toBeNull();
+    expect(rowOf(untraced).querySelector('[data-traffic-row-drift]')).toBeNull();
+    expect(rowOf(drifting).querySelector('[data-traffic-row-drift]')).not.toBeNull();
+    expect(rowOf(drifting).querySelector('[data-verdict-production="denied"]')).not.toBeNull();
+
+    const openDetail = (event: SandboxEvent) => {
+      root.querySelector<HTMLButtonElement>('[data-request-back]')?.click();
+      rowOf(event).click();
+      const detail = root.querySelector<HTMLElement>('[data-traffic-detail]')!;
+      expect(detail.getAttribute('data-request-row')).toBe(event.id);
+      return detail;
+    };
+    for (const traced of [agreeing, drifting]) {
+      const detail = openDetail(traced);
+      const disclosure = detail.querySelector<HTMLElement>(`[data-rule-details="${traced.id}"]`)!;
+      expect(disclosure).not.toBeNull();
+      disclosure.querySelector<HTMLElement>('summary')!.click();
+      expect(disclosure.querySelector('.rule-expression')!.textContent).toBe('request.auth != null');
+    }
+    expect(openDetail(untraced).querySelector('[data-rule-details]')).toBeNull();
   });
 
   it("shows an AI call production served with production's answer and its tokens", () => {
