@@ -7,7 +7,7 @@ import { decide, isRevert, quarantinedFailures, revertBody, revertCommands, type
 const SHA = 'b'.repeat(40);
 const PARENT = 'a'.repeat(40);
 const BRANCH_TIP = 'c'.repeat(40);
-const RUN_URL = 'https://github.com/davideast/pyric/actions/runs/9';
+const RUN_URL = 'https://github.com/owner/repo/actions/runs/9';
 const TEST = 'packages/cli/test/serve/host.test.ts > host > answers';
 
 function run(overrides: Partial<FailedRun> = {}): FailedRun {
@@ -18,7 +18,7 @@ function run(overrides: Partial<FailedRun> = {}): FailedRun {
     url: RUN_URL,
     headSha: SHA,
     parents: [PARENT, BRANCH_TIP],
-    message: 'Merge pull request #12 from davideast/feat/host\n\nfeat(cli): host answers',
+    message: 'Merge pull request #12 from owner/feat/host\n\nfeat(cli): host answers',
     pull: { number: 12, title: 'feat(cli): host answers', headRef: 'feat/host' },
     failures: [{ job: 'Slow app scenarios (real apps on the packed packages)', test: TEST }],
     ...overrides,
@@ -136,7 +136,7 @@ describe('quarantine', () => {
 
 describe('the revert pull request body', () => {
   test('it names the original pull request, the failing run, jobs and tests, and the passing parent run', () => {
-    const body = revertBody({ run: run(), failedJobs: ['Slow app scenarios (real apps on the packed packages)'], parentRunUrl: 'https://github.com/davideast/pyric/actions/runs/8' });
+    const body = revertBody({ run: run(), failedJobs: ['Slow app scenarios (real apps on the packed packages)'], parentRunUrl: 'https://github.com/owner/repo/actions/runs/8' });
     expect(body).toContain(`Reverts #12 (${SHA})`);
     expect(body).toContain(`${RUN_URL} (attempt 2)`);
     expect(body).toContain('`Slow app scenarios (real apps on the packed packages)`');
@@ -158,22 +158,22 @@ describe('carrying out the verdict', () => {
       [`commits/${SHA}`]: { sha: SHA, parents: [{ sha: PARENT }, { sha: BRANCH_TIP }], commit: { message: run().message } },
       [`commits/${SHA}/pulls`]: [{ number: 12, title: 'feat(cli): host answers', merge_commit_sha: SHA, head: { ref: 'feat/host' } }],
       [`actions/workflows/5/runs?branch=main&event=push&head_sha=${PARENT}&per_page=5`]: {
-        workflow_runs: [{ status: 'completed', conclusion: options.parentConclusion ?? 'success', html_url: 'https://github.com/davideast/pyric/actions/runs/8' }],
+        workflow_runs: [{ status: 'completed', conclusion: options.parentConclusion ?? 'success', html_url: 'https://github.com/owner/repo/actions/runs/8' }],
       },
       'branches/main': { commit: { sha: SHA } },
       'actions/workflows/5/runs?branch=main&event=push&per_page=10': { workflow_runs: [{ id: 9, status: 'completed' }] },
     };
     calls.io = {
-      repo: 'davideast/pyric',
+      repo: 'owner/repo',
       gh: (args) => {
         calls.gh.push(args);
         if (args[0] === 'api') {
-          const path = (args[1] ?? '').replace('repos/davideast/pyric/', '');
+          const path = (args[1] ?? '').replace('repos/owner/repo/', '');
           if (!(path in responses)) throw new Error(`unexpected api ${path}`);
           return JSON.stringify(responses[path]);
         }
         if (args[0] === 'pr' && args[1] === 'list') return '[]';
-        if (args[0] === 'pr' && args[1] === 'create') return options.prCreate?.() ?? 'https://github.com/davideast/pyric/pull/50\n';
+        if (args[0] === 'pr' && args[1] === 'create') return options.prCreate?.() ?? 'https://github.com/owner/repo/pull/50\n';
         return '';
       },
       git: (args) => {
@@ -189,7 +189,7 @@ describe('carrying out the verdict', () => {
   test('attempt 1 of a slow scenario run reruns its failed jobs and nothing else', () => {
     const calls = fake({ attempt: 1 });
     expect(handle(calls.io, 9, 1, false, [], '2026-11-06')).toEqual({ kind: 'rerun' });
-    expect(calls.gh).toContainEqual(['run', 'rerun', '9', '--failed', '--repo', 'davideast/pyric']);
+    expect(calls.gh).toContainEqual(['run', 'rerun', '9', '--failed', '--repo', 'owner/repo']);
     expect(calls.git).toEqual([]);
   });
 
@@ -200,8 +200,8 @@ describe('carrying out the verdict', () => {
     expect(calls.git).toContainEqual(['push', 'origin', `HEAD:refs/heads/auto-revert/${SHA}`]);
     expect(calls.git.some((args) => args.some((arg) => arg.endsWith(':refs/heads/main') || arg === 'main'))).toBe(false);
     const create = calls.gh.find((args) => args[0] === 'pr' && args[1] === 'create');
-    expect(create).toEqual(['pr', 'create', '--repo', 'davideast/pyric', '--base', 'main', '--head', `auto-revert/${SHA}`, '--title', 'revert: feat(cli): host answers', '--body-file', '/tmp/revert-body.md']);
-    expect(calls.gh).toContainEqual(['pr', 'merge', 'https://github.com/davideast/pyric/pull/50', '--repo', 'davideast/pyric', '--auto', '--merge']);
+    expect(create).toEqual(['pr', 'create', '--repo', 'owner/repo', '--base', 'main', '--head', `auto-revert/${SHA}`, '--title', 'revert: feat(cli): host answers', '--body-file', '/tmp/revert-body.md']);
+    expect(calls.gh).toContainEqual(['pr', 'merge', 'https://github.com/owner/repo/pull/50', '--repo', 'owner/repo', '--auto', '--merge']);
   });
 
   test('a dry run decides and changes nothing', () => {
