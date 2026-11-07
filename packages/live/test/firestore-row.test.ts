@@ -105,3 +105,54 @@ describe('a Firestore record names the path its call touched', () => {
     expect(JSON.stringify(call)).not.toContain(VALUE);
   });
 });
+
+/**
+ * A stand-in for the SDK's `writeBatch` whose batch commits at once: offline,
+ * the real batch's commit waits for a backend that never answers. The batch
+ * it returns keeps the real one's shape: `set`, `update` and `delete` return
+ * the batch, and a call after `commit` throws, as the SDK's does.
+ */
+const standInWriteBatch: typeof realFirestore.writeBatch = () => {
+  let committed = false;
+  const operation = function (this: unknown): unknown {
+    if (committed) throw new Error('A write batch can no longer be used after commit() has been called.');
+    return this;
+  };
+  const batch = { set: operation, update: operation, delete: operation, commit: async () => void (committed = true) };
+  return batch as unknown as realFirestore.WriteBatch;
+};
+
+describe('a writeBatch commit is one observed call with its usage', () => {
+  const standIn = liveModuleFor('firebase/firestore', { ...realFirestore, writeBatch: standInWriteBatch }, site);
+
+  test('a three-operation batch records one writeBatch call with 2 writes and 1 delete', async () => {
+    records.length = 0;
+    const batch = standIn.writeBatch(db);
+    const chained = batch.set(firestore.doc(db, 'rooms/a'), { name: VALUE }).update(firestore.doc(db, 'rooms/b'), { name: VALUE });
+    expect(chained).toBe(batch);
+    batch.delete(firestore.doc(db, 'rooms/c'));
+    expect(records).toHaveLength(0);
+    await batch.commit();
+    expect(records).toEqual([expect.objectContaining({ module: 'firebase/firestore', name: 'writeBatch', outcome: 'resolved', projectId: PROJECT })]);
+    expect(records[0]?.usage).toEqual({ documentWrites: 2, documentDeletes: 1 });
+    expect(JSON.stringify(records)).not.toContain(VALUE);
+    const call = observedCallOf(records[0]!, 1);
+    expect(call).toMatchObject({ service: 'firestore', method: 'writeBatch', usage: { documentWrites: 2, documentDeletes: 1 } });
+  });
+
+  test('an operation that throws is not counted', async () => {
+    records.length = 0;
+    const batch = standIn.writeBatch(db);
+    batch.set(firestore.doc(db, 'rooms/a'), { name: VALUE });
+    await batch.commit();
+    expect(() => batch.delete(firestore.doc(db, 'rooms/a'))).toThrow();
+    expect(records.map((record) => record.usage)).toEqual([{ documentWrites: 1, documentDeletes: 0 }]);
+  });
+
+  test('the real SDK batch stays its own and chains through the wrapped operations', () => {
+    const batch = firestore.writeBatch(db);
+    expect(batch).toBeInstanceOf(realFirestore.WriteBatch);
+    expect(batch.set(firestore.doc(db, 'rooms/a'), { name: VALUE })).toBe(batch);
+    expect(batch.delete(firestore.doc(db, 'rooms/b'))).toBe(batch);
+  });
+});

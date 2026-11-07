@@ -25,7 +25,7 @@
  * Node only: the Admin SDK runs in a Node process.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { observedCall, observedListener, type LiveObserver, type ObservedHooks } from '../observe.js';
+import { observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite } from '../observe.js';
 import type { AdminApp, AdminProjectGate } from './project-gate.js';
 
 type Method = (this: unknown, ...args: unknown[]) => unknown;
@@ -40,8 +40,12 @@ export interface AdminRow {
   readonly appOf: (self: unknown) => AdminApp;
 }
 
-/** One method a row observes: its name on the prototype, whether it is a listener, and the hooks its records need. */
-export interface AdminMethod extends ObservedHooks {
+/**
+ * One method a row observes: its name on the prototype, whether it is a
+ * listener, the hooks its records need, and how a record reads its account
+ * from the `subject` its context hook names.
+ */
+export interface AdminMethod extends ObservedHooks, Pick<ObservedSite, 'accountOf'> {
   readonly name: string;
   readonly listener?: boolean;
 }
