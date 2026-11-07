@@ -39,8 +39,11 @@
  *   file's call to any other Google host. A tree file's socket to the live
  *   host's project's own Realtime Database hosts, and to the shard hosts a
  *   connection moves to, passes too, so `firebase-admin/database` works;
- *   another project's named hosts stay refused. FCM
- *   stays refused, with a reason that names `firebase-admin/messaging`.
+ *   another project's named hosts stay refused. FCM and App Check's
+ *   server host pass for the tree only when the app lists
+ *   `firebase-admin/messaging` or `firebase-admin/app-check` in
+ *   `passThrough` ({@link adminPassThroughHosts}); otherwise FCM is refused
+ *   with a reason that names `firebase-admin/messaging`.
  *   Firestore's gRPC sockets pass by host, as the live rows' do;
  * - every other Google endpoint, a host in `../google-endpoints.ts` or under
  *   `googleapis.com`, is refused.
@@ -162,6 +165,25 @@ const PASS_THROUGH_HOSTS: Readonly<Record<string, readonly string[]>> = {
   'firebase/remote-config': ['firebaseremoteconfig.googleapis.com'],
 };
 
+/**
+ * The production host each unserved Admin SDK subpath reaches, for the ones
+ * whose host live mode knows. When the app lists the subpath in
+ * `passThrough`, a file of the Admin SDK's tree may reach it: App Check's
+ * token verification keys and exchange, and FCM's send API. The app's own
+ * call to it stays refused, and so does the tree's while the subpath is not
+ * listed.
+ */
+const ADMIN_PASS_THROUGH_HOSTS: Readonly<Record<string, readonly string[]>> = {
+  'firebase-admin/app-check': ['firebaseappcheck.googleapis.com'],
+  'firebase-admin/messaging': ['fcm.googleapis.com'],
+};
+
+/** The hosts the passed-through Admin SDK subpaths reach, each once. */
+export function adminPassThroughHosts(passThrough: Iterable<string>): string[] {
+  const hosts = [...passThrough].flatMap((specifier) => ADMIN_PASS_THROUGH_HOSTS[specifier] ?? []);
+  return [...new Set(hosts)];
+}
+
 /** The host suffixes the passed-through imports reach, each once. */
 export function passThroughHosts(passThrough: Iterable<string>): string[] {
   const hosts = [...passThrough].flatMap((specifier) => PASS_THROUGH_HOSTS[specifier] ?? []);
@@ -221,6 +243,8 @@ export interface PassedThrough {
    * register knows it.
    */
   readonly adminProjectId?: () => string | null;
+  /** The hosts of the Admin SDK subpaths the app passes through ({@link adminPassThroughHosts}). */
+  readonly adminHosts?: readonly string[];
 }
 
 const NOTHING_PASSED: PassedThrough = { hosts: [], isLiveSdkFile: () => false };
@@ -379,6 +403,8 @@ export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), pass
     if (service === null) return null;
     const isAdminCall = isAdminHost(host, path) && isAdminCaller(passed);
     if (isAdminCall) return null;
+    const isPassedAdminCall = (passed.adminHosts?.includes(host) ?? false) && isAdminCaller(passed);
+    if (isPassedAdminCall) return null;
     if (host === FCM_HOST) return { ...liveVerdict(host, service, FCM_REASON), remedy: FCM_REMEDY };
     return liveVerdict(host, service, LIVE_REASON);
   };
@@ -410,9 +436,10 @@ function pathOfUrl(url: string, authority: string): string {
 
 /** FCM's send API, which `firebase-admin/messaging` reaches. */
 const FCM_HOST = 'fcm.googleapis.com';
-const FCM_REASON = 'in live mode firebase-admin/messaging does not work yet: sending real pushes from this process ' +
-  'needs its own live rows, which live mode does not have';
-const FCM_REMEDY = 'Send messages from a process without @pyric/live/register';
+const FCM_REASON = 'in live mode firebase-admin/messaging is not observed, so only its own files reach FCM, ' +
+  'and only when the app lists it in passThrough';
+const FCM_REMEDY = "List firebase-admin/messaging in pyricLive({ passThrough: ['firebase-admin/messaging'] }) to send unobserved, " +
+  'or send messages from a process without @pyric/live/register';
 
 /**
  * Whether `host` is a Realtime Database shard, which a connection moves to
@@ -751,6 +778,7 @@ export function installLiveNetGuard(options: LiveNetGuardOptions): EgressHooks {
     isLiveSdkFile: options.isLiveSdkFile,
     ...adminSdkFileCheck(passThrough, options.isAdminSdkFile),
     ...(options.adminProjectId === undefined ? {} : { adminProjectId: options.adminProjectId }),
+    adminHosts: adminPassThroughHosts(passThrough),
   };
   const reporterOptions: ReporterOptions = {
     mode: 'block',

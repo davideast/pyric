@@ -115,14 +115,35 @@ const ROW_SERVICE_SPECIFIERS: ReadonlySet<ServedFirebaseSpecifier> = new Set<Ser
  */
 export const ADMIN_PASS_THROUGH = 'firebase-admin';
 
-/** A specifier a supplier may pass through: a served one with no live row, or `firebase-admin`. */
-export type PassThroughSpecifier = ServedFirebaseSpecifier | typeof ADMIN_PASS_THROUGH;
+/**
+ * The `firebase-admin` subpaths the Admin rows do not serve
+ * (`../register/admin-row.ts` serves app, auth, firestore, database and
+ * storage), as firebase-admin 13 exports them. A supplier may list each for
+ * its Node processes: it loads there unobserved, and pages still refuse it.
+ * `@pyric/live`'s `passThrough` option takes the same list.
+ */
+export const ADMIN_SUBPATH_PASS_THROUGH: ReadonlySet<string> = new Set([
+  'app-check', 'data-connect', 'eventarc', 'extensions', 'functions', 'installations', 'instance-id',
+  'machine-learning', 'messaging', 'phone-number-verification', 'project-management', 'remote-config', 'security-rules',
+].map((subpath) => `${ADMIN_PASS_THROUGH}/${subpath}`));
 
-/** The specifiers a supplier may pass through: every served one with no live row, no row's service, and `firebase-admin`. */
+/** A passed-through Admin SDK subpath, `firebase-admin/<service>`. */
+export type AdminSubpathPassThrough = `${typeof ADMIN_PASS_THROUGH}/${string}`;
+
+/** A specifier a supplier may pass through: a served one with no live row, `firebase-admin`, or an unserved Admin SDK subpath. */
+export type PassThroughSpecifier = ServedFirebaseSpecifier | typeof ADMIN_PASS_THROUGH | AdminSubpathPassThrough;
+
+/** The specifiers a supplier may pass through: every served one with no live row, no row's service, `firebase-admin`, and the unserved Admin SDK subpaths. */
 const PASS_THROUGH_SPECIFIERS: ReadonlySet<string> = new Set([
   ...SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier) && !ROW_SERVICE_SPECIFIERS.has(specifier)),
   ADMIN_PASS_THROUGH,
+  ...ADMIN_SUBPATH_PASS_THROUGH,
 ]);
+
+/** Whether a pass-through specifier is `firebase-admin` or one of its subpaths, which only Node processes load. */
+export function isAdminPassThroughSpecifier(specifier: string): boolean {
+  return specifier === ADMIN_PASS_THROUGH || ADMIN_SUBPATH_PASS_THROUGH.has(specifier);
+}
 
 /**
  * The pass-through set, or a throw naming each entry that cannot pass
@@ -155,7 +176,7 @@ export function passThroughSdkPackages(passThrough: ReadonlySet<PassThroughSpeci
   const packages = new Set<string>();
   for (const specifier of passThrough) {
     // The Admin SDK's own tree is recorded as it loads, on the Node plane only.
-    if (specifier === ADMIN_PASS_THROUGH) continue;
+    if (isAdminPassThroughSpecifier(specifier)) continue;
     const service = specifier.slice('firebase/'.length).split('/')[0]!;
     packages.add(`@firebase/${service}`);
     if (INSTALLATIONS_USERS.has(service)) packages.add('@firebase/installations');
@@ -244,8 +265,8 @@ export function suppliedRowsResolution(rows: SuppliedRows, source: string, impor
     const isSdkOwnImport = isOpen && isLoadedSdkFile(rows, importer);
     return isSdkOwnImport ? { kind: 'unserved' } : { kind: 'refused', error: rows.refusal(source, 'page') };
   }
-  // `firebase-admin` passes through to Node processes only: a page still refuses it.
-  const isPageSpecifier = source !== ADMIN_PASS_THROUGH;
+  // `firebase-admin` and its subpaths pass through to Node processes only: a page still refuses them.
+  const isPageSpecifier = !isAdminPassThroughSpecifier(source);
   const isPassThrough = isOpen && isPageSpecifier && rows.passThrough.has(source as PassThroughSpecifier);
   if (isPassThrough) return { kind: 'pass-through' };
   const id = ROW_MODULE_IDS.get(source as ServedFirebaseSpecifier);

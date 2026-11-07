@@ -4,7 +4,7 @@
  * when none would show them.
  */
 import type { LiveHostReach } from '@pyric/cli/register/internal/supplied-rows';
-import { ADMIN_PASS_THROUGH } from './refusal.js';
+import { ADMIN_PASS_THROUGH, isAdminPassThrough } from './refusal.js';
 
 const REGISTER_ENTRY = '@pyric/live/register';
 
@@ -23,15 +23,30 @@ export function adminPassThroughLine(entry: string): string {
 }
 
 /**
+ * The line of `entry` for an Admin SDK subpath the app lists in `passThrough`
+ * (`firebase-admin/app-check`, `firebase-admin/messaging`, ...): it loads in
+ * the Node processes under the live register, unobserved, with their own
+ * credential, and its calls still bill.
+ */
+export function adminSubpathPassThroughLine(entry: string, specifier: string): string {
+  return (
+    `${entry}: ${specifier} passes through for Node processes under ${REGISTER_ENTRY}. ` +
+    "Its calls use the process's own credential, go to production unobserved, and still bill."
+  );
+}
+
+/**
  * One start line for each passed-through import: the Admin line for
- * `firebase-admin`, and `passThroughLine` for the rest. Each entry hands in
+ * `firebase-admin`, one line naming each passed-through Admin SDK subpath,
+ * and `passThroughLine` for the rest. Each entry hands in
  * the line from its own `@pyric/cli` seam, so the Vite plugin never loads
  * the register's.
  */
 export function passThroughLines(entry: string, passThrough: readonly string[], passThroughLine: (specifier: string) => string): string[] {
   return passThrough.map((specifier) => {
-    const isAdmin = specifier === ADMIN_PASS_THROUGH;
-    return isAdmin ? adminPassThroughLine(entry) : `${entry}: ${passThroughLine(specifier)}`;
+    if (specifier === ADMIN_PASS_THROUGH) return adminPassThroughLine(entry);
+    if (isAdminPassThrough(specifier)) return adminSubpathPassThroughLine(entry, specifier);
+    return `${entry}: ${passThroughLine(specifier)}`;
   });
 }
 

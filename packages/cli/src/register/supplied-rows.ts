@@ -24,7 +24,7 @@
  *
  * Imports node built-ins and side-effect-free modules only.
  */
-import { passesAdminThrough, type PassThroughSpecifier, type SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
+import { passesAdminThrough, type AdminSubpathPassThrough, type PassThroughSpecifier, type SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
 import type { ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 import { REGISTER_ROW_URLS, isRegisterLiveModule } from './live-row.js';
 import { ADMIN_ROW_URLS, adminRowOf, unservedAdminService } from './admin-row.js';
@@ -158,8 +158,9 @@ export interface AdminTreeRequest {
 /**
  * What a load of the passed-through Admin SDK gets while the Admin rows are
  * on: the Admin row module at its four class-defining loads, the refusal for
- * a file of a `lib/<service>/` folder the rows do not serve, or `unserved`
- * for anything else, which loads as Node resolved it. Always `unserved`
+ * a file of a `lib/<service>/` folder the rows do not serve unless the app
+ * lists `firebase-admin/<service>` in `passThrough`, or `unserved` for
+ * anything else, which loads as Node resolved it. Always `unserved`
  * while the Admin rows are shut.
  */
 export function adminTreeResolution(rows: RegisterRows, request: AdminTreeRequest): RegisterRowsResolution {
@@ -172,7 +173,10 @@ export function adminTreeResolution(rows: RegisterRows, request: AdminTreeReques
   if (row !== null) return { kind: 'admin-row', url: ADMIN_ROW_URLS.get(row)! };
   const service = unservedAdminService(packageName, pathInPackage);
   if (service === null) return { kind: 'unserved' };
-  return { kind: 'refused', error: found.refusal(`firebase-admin/${service}`, 'node') };
+  const subpath: AdminSubpathPassThrough = `firebase-admin/${service}`;
+  // The app listed this service in `passThrough`: it loads as Node resolved it, unobserved.
+  if (rows.passThrough.has(subpath)) return { kind: 'unserved' };
+  return { kind: 'refused', error: found.refusal(subpath, 'node') };
 }
 
 /** The source the load hook serves for a fixed live module. Throws while the rows are shut. */

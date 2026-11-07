@@ -52,7 +52,12 @@ export interface LiveHostStateInput {
   optionName: string;
   /** Writes a warning to the host's terminal. */
   warn(line: string): void;
-  /** The `firebase/*` imports the app's installed SDK serves unwrapped and unobserved (`pyricLive({ passThrough })`). */
+  /**
+   * The imports the app's installed SDK serves unwrapped and unobserved
+   * (`pyricLive({ passThrough })`): `firebase/*` imports for its pages, and
+   * Admin SDK subpaths for its Node processes, which the report carries in
+   * its Admin field.
+   */
   passThrough?: readonly string[];
   /**
    * The `firebase/*` imports the app resolved to live rows, in the order it
@@ -136,11 +141,16 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const warned = new Set<string>();
   const billed = createBilledCallCounter();
   const pending = new Map<string, ObservedCall>();
-  const passThrough = [...(input.passThrough ?? [])];
+  // The Admin SDK subpaths the list names go in the Admin field: the page list holds firebase/* imports only.
+  const listed = [...(input.passThrough ?? [])];
+  const isAdminSubpath = (specifier: string): boolean => specifier.startsWith('firebase-admin/');
+  const passThrough = listed.filter((specifier) => !isAdminSubpath(specifier));
+  const adminPassThrough = listed.filter(isAdminSubpath);
   const passThroughField = passThrough.length === 0 ? {} : { passThrough };
+  const adminPassThroughField = adminPassThrough.length === 0 ? {} : { passThrough: adminPassThrough };
   // A Node process under the live register observes firebase-admin, so every live host reports it. The host
   // sees only its own Node; a backend on Node 22 says in its own start line that its Admin rows stay shut.
-  const admin: NonNullable<LiveHostStatus['admin']> = { mode: 'observed', observed: true, bypassesRules: true };
+  const admin: NonNullable<LiveHostStatus['admin']> = { mode: 'observed', observed: true, bypassesRules: true, ...adminPassThroughField };
   const clients = createLiveClients(input.now ?? Date.now);
 
   const report = (): LiveHostStatus => ({

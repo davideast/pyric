@@ -115,7 +115,7 @@ Each refusal throws an error with the code `PYRIC_LIVE_REFUSED` before any reque
 - **Other services.** Importing Cloud Functions, Cloud Messaging, Analytics, Remote Config, Performance Monitoring or Firestore Lite. The sandbox doesn't serve them either, so one app never mixes production and sandbox services.
 - **Named Firestore databases**, such as `getFirestore(app, 'reports')`.
 - **AI Logic's Live API, server prompt templates and Imagen.** See [AI Logic calls](#ai-logic-calls).
-- **`firebase-admin`** in a Node process under `@pyric/live/register`.
+- **`firebase-admin` services live mode doesn't observe**, such as `firebase-admin/messaging`, in a Node process under `@pyric/live/register`, unless the app lists them. See [Admin SDK services live mode doesn't observe](#admin-sdk-services-live-mode-doesnt-observe).
 - **Pyric's own writes.** Studio edits, MCP tools that write, `pyric` commands that write, and seed files.
 - **Identity switches.** Pyric impersonating a user or switching the account it acts as. Your app signs in and out through its own Auth calls.
 - **Calls that act on production for pyric**, such as provisioning Storage or testing rules against a hosted project.
@@ -149,6 +149,18 @@ A list that names an import live mode serves stops the dev server at start. Live
 ```text
 @pyric/live/vite: passThrough lists firebase/database, which live mode already serves and observes; remove it.
 ```
+
+### Admin SDK services live mode doesn't observe
+
+A Node process under `@pyric/live/register` observes `firebase-admin/app`, `/auth`, `/firestore`, `/database` and `/storage`. It refuses the other Admin SDK subpaths, such as `firebase-admin/app-check` and `firebase-admin/messaging`, unless the app lists them in `passThrough`:
+
+```ts
+pyricLive({ passThrough: ['firebase-admin/app-check', 'firebase-admin/messaging'] })
+```
+
+Each listed subpath loads in the Node process with the process's own credential. Its calls don't show in Traffic, and production still bills them. The start lines of the dev server and the Node process name each one, and the health report lists them under `live.admin.passThrough`. App Check's server host (`firebaseappcheck.googleapis.com`) and FCM (`fcm.googleapis.com`) accept requests only from the Admin SDK's own files, and only when their subpath is listed. Your own requests to those hosts still fail with `PYRIC_GUARD_BLOCKED`. Pages still refuse every `firebase-admin` import.
+
+A list that names a subpath live mode observes, such as `firebase-admin/auth`, stops the dev server at start.
 
 ## Calls that skip your Firebase SDK
 

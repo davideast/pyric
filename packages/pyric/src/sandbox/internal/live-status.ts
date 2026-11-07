@@ -79,6 +79,12 @@ export interface LiveAdminStatus {
   readonly mode: 'observed';
   readonly observed: true;
   readonly bypassesRules: true;
+  /**
+   * The Admin SDK subpaths the Admin rows do not serve that the app lists in
+   * `pyricLive({ passThrough })`, such as `firebase-admin/messaging`: they
+   * load in a backend unobserved. Absent when it lists none.
+   */
+  readonly passThrough?: readonly string[];
 }
 
 /** The one Admin status a live host reports. */
@@ -219,6 +225,19 @@ function readClients(value: unknown): { clients?: LiveClient[] } {
   return clients.length === 0 ? {} : { clients };
 }
 
+const ADMIN_SUBPATH = /^firebase-admin\/[a-z-]+$/;
+
+/** A passed-through Admin SDK subpath, `firebase-admin/<service>`. */
+function isAdminSubpath(value: unknown): value is string {
+  return typeof value === 'string' && ADMIN_SUBPATH.test(value);
+}
+
+/** The Admin field's passed-through subpaths: absent when empty or malformed, so they never lose the Admin status. */
+function readAdminPassThrough(value: unknown): { passThrough?: string[] } {
+  const isList = Array.isArray(value) && value.length > 0 && value.every(isAdminSubpath);
+  return isList ? { passThrough: [...(value as string[])] } : {};
+}
+
 /** The admin field: the observed Admin SDK, else absent; a malformed one never loses the status. */
 function readAdmin(value: unknown): { admin?: LiveAdminStatus } {
   const isObject = typeof value === 'object' && value !== null;
@@ -227,7 +246,8 @@ function readAdmin(value: unknown): { admin?: LiveAdminStatus } {
   const isObserved = Reflect.get(value, 'observed') === true;
   const bypassesRules = Reflect.get(value, 'bypassesRules') === true;
   const isValid = isObservedMode && isObserved && bypassesRules;
-  return isValid ? { admin: { ...LIVE_ADMIN_STATUS } } : {};
+  const passThrough = readAdminPassThrough(Reflect.get(value, 'passThrough'));
+  return isValid ? { admin: { ...LIVE_ADMIN_STATUS, ...passThrough } } : {};
 }
 
 /** The live status in a `/__pyric/health` report, or null for a sandbox host. */

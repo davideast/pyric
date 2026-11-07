@@ -147,10 +147,28 @@ export function canPassThrough(specifier: string): boolean {
  */
 export const ADMIN_PASS_THROUGH = 'firebase-admin';
 
+/**
+ * The `firebase-admin` subpaths the Admin rows do not serve, as firebase-admin
+ * 13 exports them: App Check, Cloud Messaging and the rest. An app lists each
+ * one it imports in `passThrough`; it then loads in a Node process under
+ * `@pyric/live/register` unobserved, with the process's own credential, and
+ * the guard lets it reach its own production host. Pages still refuse them.
+ * The Admin rows serve `app`, `auth`, `firestore`, `database` and `storage`.
+ */
+export const ADMIN_PASS_THROUGH_CANDIDATES: readonly string[] = [
+  'app-check', 'data-connect', 'eventarc', 'extensions', 'functions', 'installations', 'instance-id',
+  'machine-learning', 'messaging', 'phone-number-verification', 'project-management', 'remote-config', 'security-rules',
+].map((subpath) => `${ADMIN_PASS_THROUGH}/${subpath}`);
+
+/** Whether `specifier` is an Admin SDK subpath `passThrough` can list ({@link ADMIN_PASS_THROUGH_CANDIDATES}). */
+export function isAdminPassThrough(specifier: string): boolean {
+  return ADMIN_PASS_THROUGH_CANDIDATES.includes(specifier);
+}
+
 /** What is wrong with one `passThrough` entry, or null when it can pass through. */
 function passThroughProblem(entry: unknown): string | null {
   if (typeof entry !== 'string') return `passThrough lists ${JSON.stringify(entry)}, which is not an import name.`;
-  if (canPassThrough(entry)) return null;
+  if (canPassThrough(entry) || isAdminPassThrough(entry)) return null;
   const isServed = SERVED_IMPORTS.has(entry) || entry === ADMIN_PASS_THROUGH;
   if (isServed) return `passThrough lists ${entry}, which live mode already serves and observes; remove it.`;
   const servedAs = SERVED_SERVICE_IMPORTS[entry];
@@ -158,7 +176,8 @@ function passThroughProblem(entry: unknown): string | null {
     return `passThrough lists ${entry}, which cannot pass through: live mode serves this service as ${servedAs}, ` +
       `and its calls would reach it unobserved and uncounted. Import ${servedAs} instead.`;
   }
-  if (serviceOf(entry) === 'the Admin SDK') {
+  const isAdminSubpath = /^firebase-admin\/[a-z-]+$/.test(entry);
+  if (isAdminSubpath) {
     return `passThrough lists ${entry}, an Admin SDK subpath; live mode already serves and observes ${ADMIN_PASS_THROUGH} in a Node process under @pyric/live/register; remove it.`;
   }
   const packageImport = packageImportOf(entry);
@@ -170,8 +189,10 @@ function passThroughProblem(entry: unknown): string | null {
  * The `passThrough` option as a list, each import once. Throws a start-time
  * configuration error naming every entry that cannot pass through: one live
  * mode serves, `firebase-admin` ({@link ADMIN_PASS_THROUGH}) or a
- * `firebase-admin/*` subpath, an `@firebase/*` package name, or anything
- * else that is not a Firebase import live mode has no row for.
+ * `firebase-admin/*` subpath its Admin rows serve, an `@firebase/*` package
+ * name, or anything else that is not a Firebase import live mode has no row
+ * for. An Admin SDK subpath the rows do not serve
+ * ({@link ADMIN_PASS_THROUGH_CANDIDATES}) passes.
  */
 export function passThroughOption(entry: string, value: unknown): readonly string[] {
   if (value === undefined) return [];
@@ -219,10 +240,14 @@ export function withPassThroughHint(error: Error, specifier: string): Error {
 export function liveRefusal(specifier: string, plane: SuppliedRowsPlane): Error {
   const service = serviceOf(specifier);
   const isNodeAdmin = plane === 'node' && service === 'the Admin SDK';
-  const where = isNodeAdmin ? (adminRowsNodeProblem() ?? ADMIN_SERVED) : SERVED_ON[plane];
+  const nodeProblem = isNodeAdmin ? adminRowsNodeProblem() : null;
+  const where = isNodeAdmin ? (nodeProblem ?? ADMIN_SERVED) : SERVED_ON[plane];
+  const canListAdmin = isNodeAdmin && nodeProblem === null && isAdminPassThrough(specifier);
+  const remedy = canListAdmin
+    ? `Remove the import, or list it in ${passThroughOptionFor([specifier])} to load it unobserved: its calls then use this process's own credential, go to production and still bill.`
+    : 'Remove the import, or run the app without @pyric/live to use the sandbox.';
   return refused(`@pyric/live: ${specifier} (${service}) is refused in live mode. ${where} ` +
-    `It is not served from the Pyric sandbox either, so production and sandbox services never share one app. ` +
-    'Remove the import, or run the app without @pyric/live to use the sandbox.');
+    `It is not served from the Pyric sandbox either, so production and sandbox services never share one app. ${remedy}`);
 }
 
 /** A client a live row runs in: a page, or a Node process under `@pyric/live/register`. */
