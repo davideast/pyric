@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Bookings</title></head>
+  <body>
+    <h1>Bookings</h1>
+    <output id="status">Starting</output>
+    <ul id="rooms"></ul>
+    <script>
+      // A module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+    </script>
+    <script type="module">
+      // A bookings app's page. The reader lists the bookings, reads a room,
+      // listens to the open rooms and opens one. A second account reads an
+      // item from the Realtime Database and uploads and downloads a file, and
+      // an app with an App Check token asks AI Logic for content. Its backend
+      // is the project below, or the local backend a `?backend=<origin>` query
+      // names, through the SDK's own emulator connectors and the model's
+      // `baseUrl`.
+      import { initializeApp } from "firebase/app";
+      import { connectAuthEmulator, getAuth, signInWithCustomToken, signInWithEmailAndPassword } from "firebase/auth";
+      import {
+        collection, connectFirestoreEmulator, doc, getDoc, getDocs, getFirestore, onSnapshot, query, setDoc, where,
+      } from "firebase/firestore";
+      import { connectDatabaseEmulator, get, getDatabase, ref as databaseRef } from "firebase/database";
+      import { connectStorageEmulator, getBytes, getStorage, ref as storageRef, uploadBytes } from "firebase/storage";
+      import { CustomProvider, initializeAppCheck } from "firebase/app-check";
+      import { getAI, getGenerativeModel, GoogleAIBackend } from "firebase/ai";
+
+      const PROJECT = "demo-live-traffic";
+      const config = {
+        projectId: PROJECT,
+        apiKey: "demo-live-traffic-key",
+        appId: "1:1:web:live-traffic",
+        authDomain: `${PROJECT}.firebaseapp.com`,
+        databaseURL: `https://${PROJECT}-default-rtdb.firebaseio.com`,
+        storageBucket: `${PROJECT}.firebasestorage.app`,
+      };
+      const backend = new URLSearchParams(location.search).get("backend");
+      const url = backend ? new URL(backend) : null;
+      const failure = (error) => error.code ?? String(error);
+
+      // The reader's app: Firestore.
+      const app = initializeApp(config);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      // The second account's app: the Realtime Database and Storage.
+      const files = initializeApp(config, "files");
+      const filesAuth = getAuth(files);
+      const database = getDatabase(files);
+      const storage = getStorage(files);
+      // The app with an App Check token: AI Logic.
+      const assistant = initializeApp(config, "assistant");
+      initializeAppCheck(assistant, {
+        provider: new CustomProvider({ getToken: async () => ({ token: "page-app-check-token", expireTimeMillis: Date.now() + 3_600_000 }) }),
+        isTokenAutoRefreshEnabled: false,
+      });
+      if (url) {
+        connectAuthEmulator(auth, url.origin, { disableWarnings: true });
+        connectAuthEmulator(filesAuth, url.origin, { disableWarnings: true });
+        connectFirestoreEmulator(db, url.hostname, Number(url.port));
+        connectDatabaseEmulator(database, url.hostname, Number(url.port));
+        connectStorageEmulator(storage, url.hostname, Number(url.port));
+      }
+      const model = getGenerativeModel(getAI(assistant, { backend: new GoogleAIBackend() }), { model: "gemini-flash-lite-latest" }, url ? { baseUrl: url.origin } : undefined);
+
+      const snapshots = [];
+      // The documents production billed the listener for: each document a
+      // snapshot changed, at least one for the first.
+      let billedDocuments = 0;
+
+      window.signIn = async () => {
+        const reader = await signInWithEmailAndPassword(auth, "reader@example.com", "reader-password");
+        const second = await signInWithCustomToken(filesAuth, "client-1");
+        return [reader.user.uid, second.user.uid];
+      };
+
+      window.listBookings = () => getDocs(collection(db, "bookings")).then((snapshot) => snapshot.docs.map((booking) => booking.id), failure);
+
+      window.readLobby = () => getDoc(doc(db, "rooms/lobby")).then((snapshot) => snapshot.data(), failure);
+
+      window.listenToOpenRooms = () => new Promise((resolve, reject) => {
+        // Resolves with production's first answer, not a snapshot from the cache.
+        onSnapshot(query(collection(db, "rooms"), where("open", "==", true)), { includeMetadataChanges: true }, (snapshot) => {
+          const rooms = snapshot.docs.map((room) => room.id);
+          const changed = snapshot.docChanges().length;
+          billedDocuments += snapshots.length === 0 ? Math.max(changed, 1) : changed;
+          snapshots.push(rooms);
+          document.querySelector("#rooms").innerHTML = rooms.map((room) => `<li>${room}</li>`).join("");
+          if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) resolve(rooms);
+        }, (error) => reject(failure(error)));
+      });
+
+      window.openGarden = () => setDoc(doc(db, "rooms/garden"), { name: "Garden", open: true }).then(() => "written", failure);
+
+      window.readItem = () => get(databaseRef(database, "pyric-live-capture/replay/items/a")).then((snapshot) => snapshot.val(), failure);
+
+      window.uploadFile = () => uploadBytes(storageRef(storage, "pyric_oracle/replay/a.bin"), new Uint8Array([1, 2, 3, 4, 5, 6]))
+        .then((uploaded) => uploaded.metadata.size, failure);
+
+      window.downloadFile = () => getBytes(storageRef(storage, "pyric_oracle/replay/a.bin")).then((bytes) => bytes.byteLength, failure);
+
+      window.askAssistant = () => model.generateContent("Name one booking rule.")
+        .then(({ response }) => ({ text: response.text(), totalTokenCount: response.usageMetadata?.totalTokenCount }), failure);
+
+      window.openRooms = () => snapshots.at(-1) ?? [];
+      window.billedDocumentCount = () => billedDocuments;
+
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>
