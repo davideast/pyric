@@ -43,7 +43,7 @@ function expectAllow(condition: string, data: Record<string, unknown>) {
   expect(r.success).toBe(true);
   if (r.success) {
     if (r.data.results[0].state !== 'PASSED') {
-      throw new Error(`Expected ALLOW for \`${condition}\`, got ${r.data.results[0].state}: ${r.data.results[0].debugMessages.join(' | ')}`);
+      throw new Error(`Expected ALLOW for \`${condition}\`, got ${r.data.results[0].state}: ${r.data.results[0].notes.join(' | ')}`);
     }
   }
 }
@@ -60,7 +60,7 @@ function expectDeny(condition: string, data: Record<string, unknown>) {
   expect(r.success).toBe(true);
   if (r.success) {
     if (r.data.results[0].state !== 'PASSED') {
-      throw new Error(`Expected DENY for \`${condition}\`, got ${r.data.results[0].state}: ${r.data.results[0].debugMessages.join(' | ')}`);
+      throw new Error(`Expected DENY for \`${condition}\`, got ${r.data.results[0].state}: ${r.data.results[0].notes.join(' | ')}`);
     }
   }
 }
@@ -171,6 +171,25 @@ describe('Map.get — list-form (nested traversal)', () => {
     expectAllow(
       "request.resource.data.m.get(['a','b'], 'DEF') == 'X'",
       { m: { a: { b: 'X' } } },
+    );
+  });
+
+  test('non-string list elements error rather than coercing or returning default (#2440)', () => {
+    expectDeny(
+      "request.resource.data.m.get([1], 'DEF') == 'X'",
+      { m: { '1': 'X' } },
+    );
+    expectDeny(
+      "request.resource.data.m.get([null], 'DEF') == 'DEF'",
+      { m: { a: 'X' } },
+    );
+    expectDeny(
+      "request.resource.data.m.get(['missing', 2], 'DEF') == 'DEF'",
+      { m: { a: 'X' } },
+    );
+    expectAllow(
+      "request.resource.data.m.get([1], 'DEF') == 'X' || true",
+      { m: { '1': 'X' } },
     );
   });
 });
