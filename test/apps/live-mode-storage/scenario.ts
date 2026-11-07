@@ -162,9 +162,12 @@ async function storageRows(chip: Locator): Promise<string[]> {
   return readRows(chip);
 }
 
+const distinct = (rows: string[]) => [...new Set(rows)].sort();
+
 /**
  * The rows capture S's sequence makes from `source` on both buckets, each
- * once however many times it ran.
+ * once however many times it ran. A row names its call as a sandbox row
+ * does: every upload is `create`, every read `get`, and both listings `list`.
  *
  * The second bucket's rows are answered from the default bucket's recording
  * with the bucket renamed (`../replay/storage-capture.ts`). No capture shows
@@ -172,38 +175,26 @@ async function storageRows(chip: Locator): Promise<string[]> {
  * from the reference, which is what these rows check.
  */
 function expectedRows(source: 'page' | 'node'): string[] {
-  return Object.values(BUCKETS).flatMap((bucket) => {
+  return distinct(Object.values(BUCKETS).flatMap((bucket) => {
     const row = (call: string, path: string, answer: 'succeeded' | 'denied' | 'failed', account: string) => `production ${source} storage.${call} gs://${bucket}/${path} Production ${answer} ${account}`;
     const one = (call: string, path: string, answer: 'succeeded' | 'failed' = 'succeeded') => row(call, `${RUN}/${path}`, answer, 'user-1');
     return [
-      row('listAll', RUN, 'succeeded', 'user-1'),
-      one('uploadBytes', 'a.bin'),
-      one('uploadString', 'raw.txt'),
-      one('uploadString', 'b64.bin'),
-      one('uploadBytesResumable', 'big.bin'),
-      one('uploadBytesResumable', 'paused.bin'),
-      one('getMetadata', 'a.bin'),
-      one('getDownloadURL', 'a.bin'),
-      one('getBytes', 'a.bin'),
-      ...(source === 'node' ? [one('getStream', 'a.bin')] : []),
-      one('updateMetadata', 'a.bin'),
-      one('uploadString', 'nested/x/one.txt'),
-      one('uploadString', 'nested/two.txt'),
       row('list', RUN, 'succeeded', 'user-1'),
-      one('listAll', 'nested'),
-      row('getMetadata', `${RUN}/a.bin`, 'succeeded', 'user-2'),
-      ...['a.bin', 'raw.txt', 'b64.bin', 'big.bin', 'paused.bin', 'nested/x/one.txt', 'nested/two.txt'].map((path) => one('deleteObject', path)),
-      one('getMetadata', 'missing.bin', 'failed'),
-      one('deleteObject', 'missing.bin', 'failed'),
-      row('uploadBytes', `${DENIED}/forbidden.bin`, 'denied', 'user-2'),
-      row('getBytes', `${DENIED}/forbidden.bin`, 'denied', 'user-2'),
+      ...['a.bin', 'raw.txt', 'b64.bin', 'big.bin', 'paused.bin', 'nested/x/one.txt', 'nested/two.txt'].map((path) => one('create', path)),
+      one('get', 'a.bin'),
+      one('update', 'a.bin'),
+      one('list', 'nested'),
+      row('get', `${RUN}/a.bin`, 'succeeded', 'user-2'),
+      ...['a.bin', 'raw.txt', 'b64.bin', 'big.bin', 'paused.bin', 'nested/x/one.txt', 'nested/two.txt'].map((path) => one('delete', path)),
+      one('get', 'missing.bin', 'failed'),
+      one('delete', 'missing.bin', 'failed'),
+      row('create', `${DENIED}/forbidden.bin`, 'denied', 'user-2'),
+      row('get', `${DENIED}/forbidden.bin`, 'denied', 'user-2'),
       row('list', DENIED, 'denied', 'user-2'),
-      row('uploadBytes', `${RUN}/signed-out.bin`, 'denied', 'signed out'),
+      row('create', `${RUN}/signed-out.bin`, 'denied', 'signed out'),
     ];
-  }).sort();
+  }));
 }
-
-const distinct = (rows: string[]) => [...new Set(rows)].sort();
 
 /** The chip shows each of capture S's calls from `source` once or more, as production's, and nothing else from it. */
 async function expectRows(chip: Locator, source: 'page' | 'node'): Promise<void> {
@@ -211,7 +202,8 @@ async function expectRows(chip: Locator, source: 'page' | 'node'): Promise<void>
   const fromSource = (rows: string[]) => distinct(rows.filter((row) => row.split(' ')[1] === source));
   const rows = await eventually(() => storageRows(chip), (all) => JSON.stringify(fromSource(all)) === JSON.stringify(expected), `the Storage rows from ${source}`);
   // One row per upload task, however many chunks it sent.
-  const resumable = rows.filter((row) => row.split(' ')[1] === source && row.includes(' storage.uploadBytesResumable '));
+  const isResumable = (row: string) => row.includes('/big.bin ') || row.includes('/paused.bin ');
+  const resumable = rows.filter((row) => row.split(' ')[1] === source && row.includes(' storage.create ') && isResumable(row));
   assert.equal(resumable.length, 4, `one row per resumable upload on each bucket from ${source}:\n${resumable.join('\n')}`);
 }
 

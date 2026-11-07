@@ -167,8 +167,8 @@ const EXPECTED_ROWS: Record<string, string[]> = {
     row('rtdb.set', '/pyric-live-capture/replay/items/a', 'succeeded'),
   ],
   storage: [
-    row('storage.getMetadata', `gs://${BUCKET}/pyric_oracle/replay/a.bin`, 'succeeded'),
-    row('storage.uploadBytes', `gs://${BUCKET}/pyric_oracle/replay/a.bin`, 'succeeded'),
+    row('storage.create', `gs://${BUCKET}/pyric_oracle/replay/a.bin`, 'succeeded'),
+    row('storage.get', `gs://${BUCKET}/pyric_oracle/replay/a.bin`, 'succeeded'),
   ],
   ai: [row('ai.generateContent', `Requested ${MODEL} Routed to Not reported`, 'failed')],
 };
