@@ -207,6 +207,8 @@ test.describe('pyric-live', () => {
       configSource: '.firebaserc',
       appProjectIds: [],
       billed: { reads: 0, writes: 0, deliveries: 0 },
+      // Live mode serves and observes firebase-admin, which bypasses Security Rules.
+      admin: { mode: 'observed', observed: true, bypassesRules: true },
     });
     expect(host.output()).toContain(`pyric-live: live mode for the Firebase project ${PROJECT_ID}.`);
     expect(host.output()).toContain(

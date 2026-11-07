@@ -11,6 +11,16 @@ import { DOC_VALUE_ENCODING, rehydrateEncodedDocValue } from 'pyric/firestore/in
 import { closeSubscription, nextId, nextSubId, openEventSubscription, rpc } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
 import { pageTabId } from './tab-id.js';
+import { profileClientId } from './client-id.js';
+
+/**
+ * The event subscription a port opens. It declares the tab's id and the
+ * browser profile's client id, as an `appConfig` does: a live page's control
+ * connection sends no `appConfig`, and reports its observed calls on this port.
+ */
+export function eventSubscription(subId: string): Extract<InboundMessage, { t: 'sub'; target: 'events' }> {
+  return { t: 'sub', subId, target: 'events', tabId: pageTabId(), clientId: profileClientId() };
+}
 
 const RulesPathCtor = (
   rehydrateEncodedDocValue({ __type: 'path', segments: [] }, DOC_VALUE_ENCODING) as {
@@ -78,7 +88,7 @@ class SharedEventStream {
   open(first: EventSubscriber): void {
     this.subscribers.add(first);
     sharedStreams.set(this.port, this);
-    const message = { t: 'sub', subId: this.subId, target: 'events', tabId: pageTabId() } satisfies InboundMessage;
+    const message = eventSubscription(this.subId);
     // A closed port reports to `first` through `fail` and leaves no stream behind.
     openEventSubscription(
       this.port,

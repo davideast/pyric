@@ -45,9 +45,8 @@ export interface LiveHostStatus {
   readonly billed: BilledCallCount;
   /**
    * The `firebase/*` imports the app's installed SDK serves unwrapped, with no
-   * row and no observer, and `firebase-admin` when a Node process under the
-   * live register loads the real Admin SDK (`pyricLive({ passThrough })`).
-   * Absent when there are none.
+   * row and no observer (`pyricLive({ passThrough })`). Absent when there are
+   * none.
    */
   readonly passThrough?: readonly string[];
   /**
@@ -57,9 +56,9 @@ export interface LiveHostStatus {
    */
   readonly observed?: readonly string[];
   /**
-   * The Admin SDK a Node process under the live register loads unwrapped: its
-   * calls reach production unobserved and bypass security rules. Kept apart
-   * from `passThrough`. Absent when the host does not pass it through.
+   * The Admin SDK a Node process under the live register loads: its calls
+   * are observed and bypass Security Rules. A live host always reports it;
+   * absent only in a report a reader could not read it from.
    */
   readonly admin?: LiveAdminStatus;
   /**
@@ -69,12 +68,21 @@ export interface LiveHostStatus {
   readonly clients?: readonly LiveClient[];
 }
 
-/** The Admin SDK's pass-through, as a live host's health report carries it. */
+/**
+ * The Admin SDK, as a live host's health report carries it: observed, and
+ * bypassing Security Rules. The host does not judge Node: it sees only its
+ * own Node, not a backend's. A backend on Node 22, where the Admin rows stay
+ * shut, says so in that process's own start line, and each of its
+ * firebase-admin imports is refused there.
+ */
 export interface LiveAdminStatus {
-  readonly mode: 'pass-through';
-  readonly observed: false;
+  readonly mode: 'observed';
+  readonly observed: true;
   readonly bypassesRules: true;
 }
+
+/** The one Admin status a live host reports. */
+const LIVE_ADMIN_STATUS: LiveAdminStatus = { mode: 'observed', observed: true, bypassesRules: true };
 
 /** What connected to a live host: a page of a browser profile, its service worker, or a Node process. */
 export type LiveClientKind = 'browser' | 'service-worker' | 'node';
@@ -121,17 +129,11 @@ export function liveMismatchLine(status: Pick<LiveHostStatus, 'appProjectIds' | 
   return `Your Firebase config says ${status.appProjectIds.join(', ')}; ${status.configSource} says ${status.configProjectId}.`;
 }
 
-/** The Admin SDK, which passes through only to a Node process under the live register. */
-const ADMIN_SDK = 'firebase-admin';
-
 /**
  * The start line for one passed-through import: `firebase/functions passes
  * through to production: its calls are not observed and still bill.`
  */
 export function livePassThroughLine(specifier: string): string {
-  if (specifier === ADMIN_SDK) {
-    return `${specifier} passes through to production: its calls are not observed, bypass security rules and still bill.`;
-  }
   return `${specifier} passes through to production: its calls are not observed and still bill.`;
 }
 
@@ -168,12 +170,6 @@ const FIREBASE_IMPORT = /^firebase\/[a-z-]+(?:\/[a-z-]+)*$/;
 /** An observed import: a `firebase/*` import the app resolved to a live row. */
 function isFirebaseImport(value: unknown): value is string {
   return typeof value === 'string' && FIREBASE_IMPORT.test(value);
-}
-
-/** A passed-through import: a `firebase/*` import, or `firebase-admin` itself. */
-function isPassThroughImport(value: unknown): value is string {
-  const isAdmin = value === ADMIN_SDK;
-  return isAdmin || isFirebaseImport(value);
 }
 
 /** A list of imports: absent stays absent, and anything but a list `isImport` accepts is malformed. */
@@ -223,15 +219,15 @@ function readClients(value: unknown): { clients?: LiveClient[] } {
   return clients.length === 0 ? {} : { clients };
 }
 
-/** The admin field: the pass-through, else absent; a malformed one never loses the status. */
+/** The admin field: the observed Admin SDK, else absent; a malformed one never loses the status. */
 function readAdmin(value: unknown): { admin?: LiveAdminStatus } {
   const isObject = typeof value === 'object' && value !== null;
   if (!isObject) return {};
-  const isPassThrough = Reflect.get(value, 'mode') === 'pass-through';
-  const isUnobserved = Reflect.get(value, 'observed') === false;
+  const isObservedMode = Reflect.get(value, 'mode') === 'observed';
+  const isObserved = Reflect.get(value, 'observed') === true;
   const bypassesRules = Reflect.get(value, 'bypassesRules') === true;
-  const isValid = isPassThrough && isUnobserved && bypassesRules;
-  return isValid ? { admin: { mode: 'pass-through', observed: false, bypassesRules: true } } : {};
+  const isValid = isObservedMode && isObserved && bypassesRules;
+  return isValid ? { admin: { ...LIVE_ADMIN_STATUS } } : {};
 }
 
 /** The live status in a `/__pyric/health` report, or null for a sandbox host. */
@@ -246,7 +242,7 @@ export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const configSource: unknown = Reflect.get(live, 'configSource');
   const appProjectIds = readProjects(Reflect.get(live, 'appProjectIds'));
   const billed = readCount(Reflect.get(live, 'billed'));
-  const passThrough = readImports('passThrough', Reflect.get(live, 'passThrough'), isPassThroughImport);
+  const passThrough = readImports('passThrough', Reflect.get(live, 'passThrough'), isFirebaseImport);
   const observed = readImports('observed', Reflect.get(live, 'observed'), isFirebaseImport);
   const hasFields = isProjectName(projectId) && isProjectName(configProjectId) && isProjectName(configSource);
   const hasLists = appProjectIds !== null && billed !== null && passThrough !== null && observed !== null;

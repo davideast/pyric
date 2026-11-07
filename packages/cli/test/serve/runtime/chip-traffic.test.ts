@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox, type EventCaller, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
-import { observedCallEvent, readObservedCall } from 'pyric/sandbox/internal';
+import { analyzeIndexQuery, observedCallEvent, readObservedCall } from 'pyric/sandbox/internal';
 import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
 import {
   chipRequestFromEvent,
@@ -590,6 +590,31 @@ describe('a call production served', () => {
       production: { status: 'error', code: 'not-found' },
       source: 'node',
     });
+  });
+
+  it("checks an observed query's shape against the index file, never a value", () => {
+    const query = { scope: 'collection' as const, filters: [{ field: 'status', op: '==' as const }], orderBy: [{ field: 'createdAt', direction: 'desc' as const }], limit: true as const };
+    const row = chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms', query }));
+    expect(row?.indexQuery).toEqual({
+      collectionGroup: 'rooms', queryScope: 'COLLECTION',
+      filters: [{ field: 'status', op: '==' }], orders: [{ field: 'createdAt', direction: 'desc' }],
+    });
+    expect(analyzeIndexQuery(row!.indexQuery!, { indexes: [] })).toMatchObject({ status: 'missing', index: { collectionGroup: 'rooms' } });
+    const group = chipRequestFromEvent(observed({ method: 'getDocsFromServer', path: 'messages', query: { ...query, scope: 'collection-group' } }));
+    expect(group?.indexQuery).toMatchObject({ collectionGroup: 'messages', queryScope: 'COLLECTION_GROUP' });
+  });
+
+  it("marks production's failed-precondition on a query as an index failure", () => {
+    const query = { scope: 'collection' as const, filters: [{ field: 'status', op: '==' as const }], orderBy: [{ field: 'createdAt', direction: 'desc' as const }] };
+    const failed = chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms', query, outcome: { status: 'error', code: 'failed-precondition' } }));
+    expect(failed).toMatchObject({ verdict: 'error', indexFailure: true, indexQuery: { collectionGroup: 'rooms' } });
+    const other = chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms', query, outcome: { status: 'error', code: 'unavailable' } }));
+    expect(other?.indexFailure).toBeUndefined();
+  });
+
+  it('gives a document read and an unshaped query no index query', () => {
+    expect(chipRequestFromEvent(observed({}))?.indexQuery).toBeUndefined();
+    expect(chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms' }))?.indexQuery).toBeUndefined();
   });
 
   it('leaves a sandbox-served operation without a production answer', () => {
