@@ -156,7 +156,7 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
     await page.locator('[data-chip-tab=traffic]').click();
     await page.locator('[data-traffic-scope=all]').click();
     const rows = page.locator('[data-traffic-rows] [data-request-row]');
-    const firestoreRow = rows.filter({ has: page.locator('.c1', { hasText: /firestore\.get$/ }) });
+    const firestoreRow = rows.filter({ hasText: 'firestore.getDocFromCache' });
     const authRow = rows.filter({ hasText: 'auth.signInAnonymously' });
     for (const row of [firestoreRow, authRow]) {
       await expect(row).toHaveCount(1);

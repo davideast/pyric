@@ -130,7 +130,7 @@ test('a Node process under @pyric/live/register reports its Firestore and Auth c
     await chip.locator('[data-chip-tab=traffic]').click();
     await chip.locator('[data-traffic-scope=all]').click();
     const rows = chip.locator('[data-traffic-rows] [data-request-row]');
-    const firestoreRow = rows.filter({ has: page.locator('.c1', { hasText: /firestore\.get$/ }) });
+    const firestoreRow = rows.filter({ hasText: 'firestore.getDocFromCache' });
     const authRow = rows.filter({ hasText: 'auth.signInAnonymously' });
     for (const row of [firestoreRow, authRow]) {
       await expect(row).toHaveCount(1);

@@ -292,10 +292,10 @@ export default scenario(async (app) => {
     for (const source of ['page', 'node'] as const) {
       const account = accounts[source];
       await expectRow(rows, 'auth.signInWithEmailAndPassword', source, 'succeeded', account);
-      await expectRow(rows, 'firestore.get', source, 'succeeded', account);
-      await expectRow(rows, 'firestore.get', source, 'denied', account);
+      await expectRow(rows, 'firestore.getDoc', source, 'succeeded', account);
+      await expectRow(rows, 'firestore.getDoc', source, 'denied', account);
       await expectRow(rows, 'firestore.onSnapshot', source, 'succeeded', account);
-      await expectRow(rows, 'firestore.create', source, 'succeeded', account);
+      await expectRow(rows, 'firestore.setDoc', source, 'succeeded', account);
     }
   });
 
@@ -415,9 +415,9 @@ export default scenario(async (app) => {
     const expected = { reads: 1, writes: 1, deliveries: result.billedDocuments };
     await eventually(() => billed(live.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
     const rows = await trafficRows(chip);
-    await expectRow(rows, 'firestore.get', 'node', 'succeeded', writer);
-    await expectRow(rows, 'firestore.get', 'node', 'denied', writer);
-    await expectRow(rows, 'firestore.create', 'node', 'succeeded', writer);
+    await expectRow(rows, 'firestore.getDoc', 'node', 'succeeded', writer);
+    await expectRow(rows, 'firestore.getDoc', 'node', 'denied', writer);
+    await expectRow(rows, 'firestore.setDoc', 'node', 'succeeded', writer);
     await hosting.close();
   });
 

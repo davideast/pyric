@@ -83,7 +83,7 @@ test('a module service worker under live mode reports its Firestore read to the 
     await expect(page.locator('.panel-header [data-chip-live]')).toHaveCount(1);
     await page.locator('[data-chip-tab=traffic]').click();
     await page.locator('[data-traffic-scope=all]').click();
-    const row = page.locator('[data-traffic-rows] [data-request-row]').filter({ has: page.locator('.c1', { hasText: /firestore\.get$/ }) });
+    const row = page.locator('[data-traffic-rows] [data-request-row]').filter({ hasText: 'firestore.getDocFromCache' });
     await expect(row, reports.join('\n')).toHaveCount(1);
     await expect(row.locator('[data-traffic-row-production]')).toHaveCount(1);
     await expect(row.locator('[data-traffic-row-source]')).toHaveAttribute('data-traffic-row-source', 'service-worker');

@@ -237,8 +237,8 @@ test.describe('pyric-live', () => {
     await chip.locator('[data-chip-tab=traffic]').click();
     await chip.locator('[data-traffic-scope=all]').click();
     const rows = chip.locator('[data-traffic-rows] [data-request-row]');
-    for (const method of [/firestore\.get$/, 'auth.signInAnonymously', 'firestore.onSnapshot']) {
-      const row = rows.filter({ has: page.locator('.c1', { hasText: method }) });
+    for (const method of ['firestore.getDocFromCache', 'auth.signInAnonymously', 'firestore.onSnapshot']) {
+      const row = rows.filter({ hasText: method });
       await expect(row).toHaveCount(1);
       await expect(row.locator('[data-traffic-row-production]')).toHaveCount(1);
       await expect(row.locator('[data-traffic-row-source]')).toHaveAttribute('data-traffic-row-source', 'node');
