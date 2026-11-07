@@ -27,10 +27,11 @@
  *   app holds never goes out unobserved;
  * - when `firebase-admin` passes through, the hosts the Admin SDK needs
  *   besides the live row hosts ({@link ADMIN_TOKEN_HOSTS},
- *   {@link ADMIN_HOSTS}) pass only when a file of the Admin SDK's tree
- *   ({@link PassedThrough.isAdminSdkFile}) is on the stack, so an app's
- *   pass-through wrapper on `https.request` or `fetch` between them and the
- *   runtime does not hide them ({@link isAdminCaller}): the files the
+ *   {@link ADMIN_HOSTS}) pass only when the nearest caller is a file of the
+ *   Admin SDK's tree ({@link PassedThrough.isAdminSdkFile}), or when such a
+ *   file called `https.request`, `http.request`, `fetch` or `tls.connect`
+ *   and an app's wrapper on that function sits between it and the runtime
+ *   ({@link guardAdminEntryPoints}): the files the
  *   app's own `firebase-admin` import reached, directly or not,
  *   `google-auth-library` and `@google-cloud/firestore` among them. They are
  *   its token sources (OAuth 2.0, IAM credentials and the metadata server),
@@ -83,7 +84,7 @@
  * side-effect-free modules only.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { isBuiltin } from 'node:module';
+import { createRequire, isBuiltin } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import {
   FIREBASE_AI_LOGIC_HOST,
@@ -107,6 +108,8 @@ import {
 import { nodeAgentPrototypes, nodeClientRequestPrototypes } from './connect-prototypes.js';
 import { ADMIN_PASS_THROUGH, INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
 import { joinedList } from './word-list.js';
+
+const nodeRequire = createRequire(import.meta.url);
 
 /** Cloud Storage's host, which the Storage row's SDK reaches. */
 const STORAGE_HOST = 'firebasestorage.googleapis.com';
@@ -334,21 +337,100 @@ function isAdminHost(host: string, path: string | undefined): boolean {
 const adminFetches = new AsyncLocalStorage<true>();
 
 /**
- * Whether `firebase-admin` passes through and this is its call: a file of its
- * tree is on the stack, or a `fetch` such a file made is running.
- *
- * Any frame counts, not only the nearest caller. An app that wraps
- * `https.request`, `fetch` or `tls.connect` (OpenTelemetry's HTTP
- * instrumentation, an APM agent, a request logger) puts its wrapper's file
- * between the Admin SDK's call and the runtime, and the Admin SDK's own token
- * and host requests must still read as its own (#2445). The app's own call,
- * through the same wrapper or not, has no frame of the tree, and stays
- * refused.
+ * How many entry points ({@link guardAdminEntryPoints}) a file of the Admin
+ * SDK's tree entered and that have not returned yet. Each entry point's call
+ * is synchronous, and so is every check the request it starts gets, so a
+ * count that drops on return marks exactly the calls made inside it.
+ */
+let adminEntries = 0;
+
+/**
+ * Whether `firebase-admin` passes through and this is its call: the nearest
+ * caller is a file of its tree, a `fetch` such a file made is running, or
+ * such a file entered `https.request`, `http.request`, `fetch` or
+ * `tls.connect` and the call has not returned yet. The last covers an app's
+ * pass-through wrapper on one of them (OpenTelemetry's HTTP instrumentation,
+ * an APM agent, a request logger), whose file is the nearest caller of the
+ * real function (#2445). An app callback the Admin SDK runs, such as a custom
+ * credential's `getAccessToken` or a transaction's update function, is its
+ * own nearest caller and enters those functions itself, so it never borrows
+ * the Admin SDK's frame (#2139).
  */
 function isAdminCaller(passed: PassedThrough): boolean {
   const isAdminSdkFile = passed.isAdminSdkFile;
   if (isAdminSdkFile === undefined) return false;
-  return adminFetches.getStore() === true || stackFiles().some(isAdminSdkFile);
+  return adminFetches.getStore() === true || adminEntries > 0 || isLiveSdkCaller(isAdminSdkFile);
+}
+
+/** One property holding a network entry point: `https.request`, `http.request`, `tls.connect` or `globalThis.fetch`. */
+export interface AdminEntryPoint {
+  readonly object: object;
+  readonly key: string;
+}
+
+const ENTRY_MARKED = Symbol('pyric.live.adminEntry');
+
+type AnyFunction = (this: unknown, ...args: unknown[]) => unknown;
+
+/**
+ * `entry`, decided where it is called: when the nearest caller is a file of
+ * the Admin SDK's tree, everything the call runs before it returns is the
+ * Admin SDK's call, the app's wrapper and the real function beneath it
+ * included. Any other caller runs `entry` as it is.
+ */
+function markAdminEntry(entry: unknown, passed: PassedThrough): unknown {
+  const isFunction = typeof entry === 'function';
+  if (!isFunction || Reflect.get(entry, ENTRY_MARKED) === true) return entry;
+  const isAdminSdkFile = passed.isAdminSdkFile!;
+  const fn = entry as AnyFunction;
+  const marked = function (this: unknown, ...args: unknown[]): unknown {
+    const isAdminEntry = adminEntries === 0 && isLiveSdkCaller(isAdminSdkFile);
+    if (!isAdminEntry) return Reflect.apply(fn, this, args);
+    adminEntries += 1;
+    try {
+      return Reflect.apply(fn, this, args);
+    } finally {
+      adminEntries -= 1;
+    }
+  };
+  // `fetch.preconnect`, and any other property a caller reads off the function, stay reachable.
+  Object.setPrototypeOf(marked, fn);
+  Object.defineProperty(marked, 'name', { value: fn.name });
+  Object.defineProperty(marked, 'length', { value: fn.length });
+  Object.defineProperty(marked, ENTRY_MARKED, { value: true });
+  return marked;
+}
+
+/**
+ * Marks each entry point now, and again each time the app replaces it: the
+ * property becomes an accessor whose setter keeps the app's function and
+ * whose getter hands out that function marked ({@link markAdminEntry}). So
+ * a wrapper installed before or after the guard is entered through the
+ * mark, and the Admin SDK's call through it reads as the Admin SDK's.
+ * Returns a function that puts each property back as a plain value.
+ */
+function guardAdminEntryPoints(entryPoints: readonly AdminEntryPoint[], passed: PassedThrough): () => void {
+  const restores: Array<() => void> = [];
+  for (const { object, key } of entryPoints) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    const isPlainValue = descriptor !== undefined && 'value' in descriptor && descriptor.configurable === true;
+    if (!isPlainValue) continue;
+    let current: unknown = descriptor.value;
+    let marked = markAdminEntry(current, passed);
+    Object.defineProperty(object, key, {
+      configurable: true,
+      enumerable: descriptor.enumerable ?? true,
+      get: () => marked,
+      set: (next: unknown) => {
+        current = next;
+        marked = markAdminEntry(next, passed);
+      },
+    });
+    restores.push(() => Object.defineProperty(object, key, { ...descriptor, value: current }));
+  }
+  return () => {
+    for (const restore of restores) restore();
+  };
 }
 
 /**
@@ -743,6 +825,13 @@ export interface LiveNetGuardOptions extends NetGuardHooks {
   readonly isAdminSdkFile?: (url: string) => boolean;
   /** The live host's project, once the register knows it; its own Realtime Database hosts pass for the Admin SDK's tree. */
   readonly adminProjectId?: () => string | null;
+  /**
+   * The network entry points the Admin SDK's tree calls, marked where it
+   * calls them ({@link guardAdminEntryPoints}). Defaults to `http.request`,
+   * `https.request`, `tls.connect` and the `fetch` of `fetchScope`. Read
+   * only when `firebase-admin` passes through.
+   */
+  readonly adminEntryPoints?: readonly AdminEntryPoint[];
 }
 
 /** The Admin SDK's file check, when `firebase-admin` passes through. */
@@ -777,5 +866,27 @@ export function installLiveNetGuard(options: LiveNetGuardOptions): EgressHooks {
   const fetchScope = options.fetchScope ?? (globalThis as { fetch?: Fetch });
   const real = fetchScope.fetch;
   if (typeof real === 'function') fetchScope.fetch = guardedFetch(real, passed, reporterOptions);
-  return installed;
+  if (passed.isAdminSdkFile === undefined) return installed;
+  const entryPoints = options.adminEntryPoints ?? nodeAdminEntryPoints(fetchScope);
+  const restoreEntryPoints = guardAdminEntryPoints(entryPoints, passed);
+  return {
+    ...installed,
+    stop() {
+      restoreEntryPoints();
+      installed.stop();
+    },
+  };
+}
+
+/** Node's network entry points: `http.request`, `https.request`, `tls.connect`, and `fetch` on `fetchScope`. */
+function nodeAdminEntryPoints(fetchScope: object): AdminEntryPoint[] {
+  const http = nodeRequire('node:http') as object;
+  const https = nodeRequire('node:https') as object;
+  const tls = nodeRequire('node:tls') as object;
+  return [
+    { object: http, key: 'request' },
+    { object: https, key: 'request' },
+    { object: tls, key: 'connect' },
+    { object: fetchScope, key: 'fetch' },
+  ];
 }
