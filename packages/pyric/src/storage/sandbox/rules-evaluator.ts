@@ -414,28 +414,32 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
     case 'path': {
       // A path literal outside a `firestore.get()/exists()` call is a path
       // value, such as an argument to a function that passes it on to
-      // `firestore.get()`. It charges what the literal charges as a direct
-      // argument there: one node and one unit per literal segment.
-      ctx.expressionBudget?.node(expr);
-      for (const seg of expr.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment(expr);
-      const interpolated = evalOperands(expr.segments.flatMap((seg) => (seg.kind === 'literal' ? [] : [seg.expr])), ctx);
-      if (isErr(interpolated)) return interpolated;
-      // Each interpolation contributes segments by its rules type, as in a
-      // direct `firestore.get()` argument (#1403).
-      let next = 0;
+      // `firestore.get()`, or an operand of `==`. `evalExpr` charges the path
+      // node itself as it completes; literal segments and `$(...)`
+      // interpolations evaluate in segment order so trailing literal segments
+      // are not charged before an earlier interpolation runs, and every
+      // interpolation still evaluates when an earlier one errors (#2446).
       const parts: string[] = [];
+      let error: RuleError | undefined;
       for (const seg of expr.segments) {
         if (seg.kind === 'literal') {
+          ctx.expressionBudget?.pathSegment(expr);
           parts.push(seg.value);
           continue;
         }
-        const v = interpolated[next++];
+        const v = evalOperand(seg.expr, ctx);
+        if (isErr(v)) {
+          error ??= v;
+          continue;
+        }
         const segments = interpolationSegments(v);
         if (segments === undefined) {
-          return new RuleError(`Path interpolation resolved to ${describeType(v)} (expected a string or a path)`);
+          error ??= new RuleError(`Path interpolation resolved to ${describeType(v)} (expected a string or a path)`);
+          continue;
         }
         parts.push(...segments);
       }
+      if (error !== undefined) return error;
       return StoragePath.fromSegments(parts);
     }
     case 'unary': {
