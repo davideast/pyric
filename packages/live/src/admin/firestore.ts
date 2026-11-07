@@ -120,11 +120,32 @@ export interface AdminFirestoreRow {
 /** Each Firestore's stand-in Admin app, as the gate reads it: the project firebase-admin gave it. */
 const apps = new WeakMap<object, AdminApp>();
 
+/** The tag the Firestore's own project lookup logs under. */
+const GATE_REQUEST_TAG = 'pyric-admin-gate';
+
+/**
+ * A credential whose `getProjectId` runs the Firestore's own project
+ * resolution (`initializeIfNeeded`, which no row patches) and returns the
+ * project it worked out. It sends no Firestore request: it asks the
+ * Firestore's auth client, as the SDK does before its first request.
+ */
+function resolvingCredential(firestore: object): { getProjectId(): Promise<unknown> } {
+  return {
+    async getProjectId() {
+      const initialize: unknown = Reflect.get(firestore, 'initializeIfNeeded');
+      if (typeof initialize === 'function') await Reflect.apply(initialize, firestore, [GATE_REQUEST_TAG]);
+      return Reflect.get(firestore, '_projectId');
+    },
+  };
+}
+
 /**
  * The Admin app a call belongs to, for the gate. firebase-admin hands
  * `@google-cloud/firestore` its app's explicit project (`options.projectId`,
  * a `cert()` credential's, or the project variables), so the Firestore's
- * settings carry the project the gate checks.
+ * settings carry the project the gate checks. An app with none, such as one
+ * on application default credentials with no project set, gets a credential
+ * that resolves the project the Firestore would use, before any request.
  */
 function appOf(self: unknown): AdminApp {
   const firestore = firestoreOf(self);
@@ -132,7 +153,7 @@ function appOf(self: unknown): AdminApp {
   const known = apps.get(firestore);
   if (known !== undefined) return known;
   const projectId = stringAt(Reflect.get(firestore, '_settings'), 'projectId');
-  const app: AdminApp = { options: projectId === undefined ? {} : { projectId } };
+  const app: AdminApp = { options: projectId === undefined ? { credential: resolvingCredential(firestore) } : { projectId } };
   apps.set(firestore, app);
   return app;
 }

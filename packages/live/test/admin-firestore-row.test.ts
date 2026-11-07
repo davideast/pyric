@@ -180,6 +180,68 @@ test('a Firestore on another project is refused by the gate before any request, 
   await (other.terminate as AnyFunction).call(other);
 });
 
+/** Runs `run` with `GOOGLE_CLOUD_PROJECT` set to `projectId`, the project google-auth works out for an app with none of its own. */
+async function withDetectedProject<T>(projectId: string, run: () => Promise<T>): Promise<T> {
+  const before = process.env.GOOGLE_CLOUD_PROJECT;
+  process.env.GOOGLE_CLOUD_PROJECT = projectId;
+  try {
+    return await run();
+  } finally {
+    if (before === undefined) delete process.env.GOOGLE_CLOUD_PROJECT;
+    else process.env.GOOGLE_CLOUD_PROJECT = before;
+  }
+}
+
+test('a Firestore with no project is gated on the project it works out: refused for another, allowed for the host', async () => {
+  const from = records.length;
+  const elsewhere = new sdk.Firestore({});
+  const error = await withDetectedProject('other-prod', () => (doc('notes/a', elsewhere).get!() as Promise<unknown>).catch((reason: unknown) => reason));
+  expect((error as { code?: string }).code).toBe('PYRIC_LIVE_REFUSED');
+  expect(state.unmatched).toEqual([]);
+  expect(await recordsSince(from)).toEqual([]);
+  await (elsewhere.terminate as AnyFunction).call(elsewhere);
+
+  const here = new sdk.Firestore({});
+  const snapshot = await withDetectedProject(PROJECT, () => doc('notes/a', here).get!() as Promise<{ exists: boolean }>);
+  expect(snapshot.exists).toBe(true);
+  expect((await recordsSince(from)).map(({ name, path }) => ({ name, path }))).toEqual([{ name: 'DocumentReference.get', path: 'notes/a' }]);
+  await (here.terminate as AnyFunction).call(here);
+});
+
+test('inside a runTransaction callback, a plain get makes its own record, and another project is refused before any request', async () => {
+  const from = records.length;
+  const other = new sdk.Firestore({ projectId: 'other-project' });
+  const inside = await (db.runTransaction as AnyFunction).call(db, async () => {
+    await doc('notes/a').get!();
+    return codeOf(doc('notes/a', other).get!());
+  });
+  expect(inside).toBe('PYRIC_LIVE_REFUSED');
+  const made = await recordsSince(from);
+  expect(made.map(({ name, outcome }) => ({ name, outcome }))).toEqual([
+    { name: 'DocumentReference.get', outcome: 'resolved' },
+    { name: 'Firestore.runTransaction', outcome: 'resolved' },
+  ]);
+  expect(state.unmatched).toEqual([]);
+  await (other.terminate as AnyFunction).call(other);
+});
+
+test('a refused listener with no error callback logs the refusal with console.error, as the SDK logs a listener error', async () => {
+  const other = new sdk.Firestore({ projectId: 'other-project' });
+  const logged: unknown[] = [];
+  const real = console.error;
+  console.error = (...values: unknown[]) => void logged.push(values[0]);
+  try {
+    const stop = doc('notes/a', other).onSnapshot!(() => undefined) as () => void;
+    await new Promise((done) => setTimeout(done, 20));
+    stop();
+  } finally {
+    console.error = real;
+  }
+  expect(logged.map((value) => (value as { code?: string }).code)).toEqual(['PYRIC_LIVE_REFUSED']);
+  expect(state.unmatched).toEqual([]);
+  await (other.terminate as AnyFunction).call(other);
+});
+
 test('admin.firestore() and getFirestore() reach the same patched classes and make the same records', async () => {
   const admin = createRequire(import.meta.url)('firebase-admin') as { initializeApp(options: object, name: string): object; firestore(app: object): Instance };
   const { getFirestore } = createRequire(import.meta.url)('firebase-admin/firestore') as { getFirestore(app: object): Instance };

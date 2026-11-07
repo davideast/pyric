@@ -15,10 +15,12 @@
  *
  * A wrapped method that calls another wrapped method, as
  * `DocumentReference.get` calls `Firestore.getAll`, makes one record: calls
- * made while an observed call runs go to the real method. A listener's
- * deliveries run outside that scope, so the app's calls from its callbacks
- * are recorded. A listener returns its unsubscribe at once and subscribes
- * once the gate passes; a refusal goes to the app's error callback.
+ * made while an observed call runs go to the real method. The app's own
+ * callbacks run outside that scope: a listener's deliveries, and the update
+ * function `runTransaction` calls. So the app's calls from them are gated and
+ * recorded, while the SDK's internal calls stay nested. A listener returns
+ * its unsubscribe at once and subscribes once the gate passes; a refusal goes
+ * to the app's error callback, or to `console.error` as the SDK does without one.
  *
  * Node only: the Admin SDK runs in a Node process.
  */
@@ -67,7 +69,8 @@ function gatedCall(row: AdminRow, className: string, method: AdminMethod, real: 
   return keepShape(function adminCall(this: unknown, ...args: unknown[]): unknown {
     const isNested = observing.getStore() === true;
     if (isNested) return Reflect.apply(real, this, args);
-    return observing.run(true, () => row.gate(row.appOf(this), () => Reflect.apply(observed, this, args)));
+    const appArgs = outsideScope(args);
+    return observing.run(true, () => row.gate(row.appOf(this), () => Reflect.apply(observed, this, appArgs)));
   }, real);
 }
 
@@ -105,7 +108,8 @@ function gatedListener(row: AdminRow, className: string, method: AdminMethod, re
       if (!stopped) unsubscribe = Reflect.apply(observed, this, outsideScope(args));
     };
     row.gate(row.appOf(this), subscribe).catch((error: unknown) => {
-      if (!stopped) errorCallbackOf(args)?.(error);
+      // With no error callback, the SDK itself logs a listener error with console.error.
+      if (!stopped) (errorCallbackOf(args) ?? console.error)(error);
     });
     return () => {
       stopped = true;
