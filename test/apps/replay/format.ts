@@ -39,9 +39,13 @@ export type JsonObject = { [key: string]: Json };
  * `fisAuthToken` matches `FIS <token>` for a token this server issued.
  * `transaction` stands for an Admin Firestore transaction id
  * (`admin-firestore.ts`): in a request it matches an open transaction this
- * server issued, and in an answer it issues a new one.
+ * server issued, and in an answer it issues a new one. `autoId` stands for
+ * a document id the Admin SDK picks for `add`: `{ "$": "autoId", "name":
+ * "<name>", "parent": "<collection name>" }` matches `<parent>/<id>` in a
+ * request, for any id the SDK could pick until one is kept under its name,
+ * then only that id; in an answer it is filled with the kept document name.
  */
-export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId', 'uploadSession', 'downloadToken', 'generation', 'timeCreated', 'fid', 'fisAuthToken', 'fcmToken', 'transaction'] as const;
+export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId', 'uploadSession', 'downloadToken', 'generation', 'timeCreated', 'fid', 'fisAuthToken', 'fcmToken', 'transaction', 'autoId'] as const;
 export type PlaceholderName = (typeof PLACEHOLDERS)[number];
 
 /** A batch of Listen responses for one target. `after` names the write exchange whose answer releases it. */
@@ -368,6 +372,7 @@ function checkRtdb(project: string, path: string, exchange: RtdbExchange, ids: S
 }
 
 function checkValue(project: string, path: string, key: string, value: Json): void {
+  if (placeholderName(value) === 'autoId') checkValue(project, `${path}.parent`, 'parent', (value as JsonObject).parent ?? null);
   if (typeof value === 'string') {
     for (const { name, pattern } of SECRET_PATTERNS) {
       if (pattern.test(value)) throw new Error(`replay: ${path} holds ${name}`);
