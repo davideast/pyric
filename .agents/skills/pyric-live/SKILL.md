@@ -1,6 +1,6 @@
 ---
 name: pyric-live
-description: Install @pyric/live from npm or from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore, Realtime Database, Cloud Storage, AI Logic and Auth call with production's answer. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
+description: Install @pyric/live from npm or from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore, Realtime Database, Cloud Storage, AI Logic and Auth call, and a Node backend's firebase-admin calls, with production's answer. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
 ---
 
 # Test Pyric's live mode
@@ -31,19 +31,25 @@ Live mode is not a sandbox. Every call reaches a real Firebase project.
 - Never use real people's email addresses or phone numbers. Use addresses and numbers the owner
   controls or gives you.
 - Never paste document contents, ID tokens, refresh tokens or API keys into a report.
+- A backend's `firebase-admin` calls use the backend's own credential and bypass Security Rules.
+  A test write from the backend changes production data whatever the rules say. Keep it under
+  the test prefix like any other write.
 
 ## What is different in this mode
 
 - The app keeps its own Firebase SDK, and that SDK talks to the real project, with its real data
   and real billing.
-- Pyric only observes. It doesn't change what the app sees, and it holds no production credential.
+- Pyric only observes. It doesn't change what the app sees, it holds no production credential,
+  and it never blocks a request at the network. A Google call no row observes goes out, and the
+  terminal and the health report name its host.
 - The chip's Traffic panel, Studio and the terminal show each call with production's answer.
 - Nothing in `pyric` or `@pyric/cli` turns live mode on. Without `@pyric/live` installed in the
   project, the app gets the sandbox.
 
 ## Requirements
 
-- Node 22.15 or later.
+- Node 22.15 or later. A backend that uses `firebase-admin` needs Node 23 or later, and
+  `firebase-admin` 13.
 - npm on the PATH. Installing from a checkout also needs Bun, and a cloned Pyric repository.
 - An app whose installed `firebase` is in `^12.12.0`, with exactly one copy of `@firebase/app`.
   Live mode refuses to start otherwise, with `Live mode did not start.` and the version it found,
@@ -167,8 +173,16 @@ comes after a call has already reached it. Check before starting:
 2. The chip and Studio show `Live: <project>` before the app makes its first call. Until a call
    is made, that label is also the settings project.
 3. `GET <url>/__pyric/health` has a `live` field: `projectId`, `configProjectId`, `configSource`,
-   `appProjectIds`, the `billed` counts (`reads`, `writes`, `deliveries`), and `passThrough`
-   when the host passes imports through. A sandbox host has no `live` field.
+   `appProjectIds`, the `billed` counts (`reads`, `writes`, `deliveries`), `admin`, `passThrough`
+   when the host passes imports through, and `unobserved` when the host process called a Google
+   host no row observed. A sandbox host has no `live` field. When the dev server has
+   `server.proxy` targets on this machine, `proxyTargets` lists a verdict for each.
+4. A Node backend that uses `firebase-admin` prints its own start lines. On Node 23 or later with
+   `firebase-admin` 13, one line says `firebase-admin is observed for the Firebase project
+   <project>`, that its Admin calls bypass Security Rules, which services are observed, and that
+   App Check calls are checked but not observed. On Node 22 the line says `firebase-admin is
+   refused in this process` and names Node 23: stop and report it, since the backend's Admin
+   calls will fail.
 
 Report the project, the URL, the source (the npm version, or the branch and commit of `<pyric>`),
 and these results before going
@@ -214,7 +228,16 @@ Work through these and record the observed result for each. Each line states wha
    setting), unless the owner agrees.
 7. **Node process.** A process under `@pyric/live/register` prints
    `reporting calls to the live host at <url>`, and its calls appear as rows from a Node process.
-8. **Refusals.** Each throws an error with the code `PYRIC_LIVE_REFUSED` before any request
+8. **Admin SDK backend.** A backend's `firebase-admin` Firestore write and read, Auth
+   `verifyIdToken` of the test account's token, Realtime Database write, Storage `save` and
+   Messaging send (only to a registration token the owner gives you) each appear as a row named
+   `<Class>.<method>`, such as `DocumentReference.set` or `Auth.verifyIdToken`, marked as an Admin
+   call that bypassed Security Rules, with the test account's uid on the `verifyIdToken` row. App
+   Check calls make no row; the process health lists `firebase-admin/app-check` in `gatedAdmin`,
+   and that is not a finding. `Query.stream`, `BulkWriter`, `recursiveDelete`,
+   `createReadStream` and `createWriteStream` make no row either. They are a gap in what pyric
+   shows, not a finding, and not a sign the calls were checked.
+9. **Refusals.** Each throws an error with the code `PYRIC_LIVE_REFUSED` before any request
    leaves, and says what was refused:
    - importing `firebase/functions` (Cloud Functions);
    - a named Firestore database, such as `getFirestore(app, 'reports')`;
@@ -223,7 +246,9 @@ Work through these and record the observed result for each. Each line states wha
      (`getImagenModel`) on firebase below 12.19; nothing reaches production for them. The full
      list is in the live mode guide's "AI Logic calls" section
      (`packages/site-docs/src/content/observe/live-mode.md`);
-   - `firebase-admin` in a Node process under the register;
+   - a `firebase-admin` app initialized with another project's `projectId`, on its first call;
+   - a `firebase-admin` Realtime Database `ref()` on an instance that is neither
+     `<project>-default-rtdb`, `<project>`, nor one firebase.json names;
    - a Studio edit or an MCP tool that writes.
 
    Live mode refuses each Firebase import it doesn't serve. An app that lists one, as in
@@ -235,21 +260,68 @@ Work through these and record the observed result for each. Each line states wha
    the list from its live host's `/__pyric/health`, prints a line for each import, and passes the
    same ones to its children and workers. Start the process after the host; a process started
    with no live host, or under `pyric-live`, which takes no list, still refuses them.
-9. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
+10. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
    `PYRIC_REAL_SDK_STOPPED`.
-10. **Own requests blocked.** A Node process's global `fetch` to Firestore or
-    `firebasevertexai.googleapis.com`, or of a Storage download URL, rejects with
-    `TypeError('fetch failed')`, whose `cause.code` is `PYRIC_GUARD_BLOCKED`. That process's own
-    stderr names the host.
-11. **Billed-call count.** The chip and Studio count goes up as calls production answers with
+11. **Unobserved calls go out.** A Node process's own `fetch` to a Google host no row observes,
+    such as `cloudtrace.googleapis.com`, goes through. Its stderr prints one `unobserved call to
+    <host>` line for that host, and the process health lists the host in `unobserved`. Nothing
+    is refused.
+12. **Mode mismatch.** A request to the live backend that carries an ID token from a pyric
+    sandbox makes `verifyIdToken` reject with `code: 'auth/argument-error'` and
+    `pyricCode: 'PYRIC_MODE_MISMATCH'`, with no row.
+13. **Billed-call count.** The chip and Studio count goes up as calls production answers with
     success. Reads and writes count once per call, not per document; listener deliveries count the
     documents delivered. A denied call is not counted.
 
 Live mode can't see some calls, so a missing row for one of these is not a finding: an `import()`
 of the exact URL of an SDK file the page already loaded, or that URL with a fragment; the page's
 own `fetch` to the Firestore REST API, Auth, App Check, AI Logic or a Storage download URL; and, in a Node
-process, a connection opened with `http2`, `tls`, `@grpc/grpc-js`, `undici` or Node's own
-`WebSocket`, or an `http.request` through a `CONNECT` proxy tunnel. A host also names at most eight projects in its label and warning.
+process, the process's own request to a host a row's SDK reaches, such as `firestore.googleapis.com`,
+which reads as observed with no line. A host also names at most eight projects in its label and warning.
+
+## Read the unobserved lines and health
+
+- `@pyric/live/register: unobserved call to <host> (<service>).` or the same line from
+  `@pyric/live/vite`: the process called a Google or Firebase host no row observes. The call went
+  to production. Only the first call to each host prints a line. Report the hosts, since each is
+  a call pyric can't show.
+- `@pyric/live/register: firebase-admin/<service> loads unobserved.`: the backend loaded an Admin
+  service no row serves, such as Remote Config. Its calls go to production with the backend's
+  credential and make no row.
+- The live host's `GET <url>/__pyric/health` lists its own process's hosts in `live.unobserved`.
+  A Node backend's lists don't reach the host. Ask the backend itself, from this machine, with
+  the process health header:
+
+  ```sh
+  curl -s -H 'x-pyric-process-health: 1' http://localhost:<backend port>/__pyric/health
+  ```
+
+  The answer is `{ "pyricProcess": { "mode": "live", "projectId": ..., "unobserved": [...],
+  "unobservedAdmin": [...], "gatedAdmin": [...] } }`, each list absent when empty. A backend with
+  `PYRIC_PROCESS_HEALTH=off` doesn't answer, and the request reaches the app.
+
+## What a refusal means
+
+A refusal stopped a call before it left, so nothing reached production for it. Tell the developer
+what was refused and what to change:
+
+- **`PYRIC_LIVE_REFUSED` naming another project.** The backend's `firebase-admin` app, or one of
+  `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT` or `FIREBASE_CONFIG`, names a project other than the
+  live host's. Point the app at the live project, or start live mode for the other project. Never
+  change the project yourself.
+- **`PYRIC_LIVE_REFUSED` naming a Realtime Database instance.** The instance isn't one live mode
+  can tell is the project's. If it is the project's, the owner adds it to firebase.json's
+  `database` list and starts again.
+- **`PYRIC_LIVE_REFUSED` naming Node 23.** The backend runs on Node 22. Restart it on Node 23 or
+  later.
+- **`PYRIC_LIVE_REFUSED` on an import.** Live mode doesn't serve that Firebase import. The app can
+  list it in `passThrough`, unobserved, or run without `@pyric/live`.
+- **`PYRIC_MODE_MISMATCH`.** The page and the backend are in different modes: a sandbox token
+  reached a live backend, or a production token reached a sandbox backend. Start both in the same
+  mode.
+- **A proxy check warning at dev server start.** A `server.proxy` target is in another mode, on
+  another project, or not under pyric. It is a warning, not a refusal. Report the verdict from
+  `proxyTargets`.
 
 ## When something breaks
 
