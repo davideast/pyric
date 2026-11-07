@@ -167,9 +167,26 @@ export class DataSnapshot {
 
     let current: unknown = this._value;
     for (const part of parts) {
-      if (current !== null && current !== undefined && typeof current === 'object') {
-        current = Object.hasOwn(current as object, part)
-          ? ((current as Record<string, unknown>)[part] ?? null)
+      if (part === '.value') {
+        current = null;
+        break;
+      }
+      if (part === '.priority') {
+        current = priorityOf(current);
+        continue;
+      }
+      while (isObjectNode(current) && Object.hasOwn(current, '.value')) {
+        current = current['.value'];
+      }
+      if (Array.isArray(current)) {
+        const idx = Number(part);
+        current =
+          Number.isInteger(idx) && idx >= 0 && idx < current.length && String(idx) === part && idx in current
+            ? (current[idx] ?? null)
+            : null;
+      } else if (isObjectNode(current)) {
+        current = Object.hasOwn(current, part)
+          ? (current[part] ?? null)
           : null;
       } else {
         current = null;

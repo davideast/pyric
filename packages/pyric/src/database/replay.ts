@@ -470,6 +470,9 @@ async function rewindRtdbCommits(
     const overwritten = overwrittenAncestorDetail(commit);
     if (overwritten !== null) {
       await set(ref(adminDb, overwritten.path), overwritten.state);
+      for (const ancestor of ancestorPrioritiesDetail(commit)) {
+        await setPriority(ref(adminDb, ancestor.path), ancestor.priority);
+      }
       continue;
     }
     const dbRef = ref(adminDb, commit.path);
@@ -479,11 +482,14 @@ async function rewindRtdbCommits(
     }
     if (hasPriorExportDetail(commit)) {
       await set(dbRef, commit.detail?.priorExport ?? null);
-      continue;
+    } else {
+      await set(dbRef, commit.priorState ?? null);
+      if (hasPriorPriorityDetail(commit)) {
+        await setPriority(dbRef, priorityDetail(commit, 'priorPriority'));
+      }
     }
-    await set(dbRef, commit.priorState ?? null);
-    if (hasPriorPriorityDetail(commit)) {
-      await setPriority(dbRef, priorityDetail(commit, 'priorPriority'));
+    for (const ancestor of ancestorPrioritiesDetail(commit)) {
+      await setPriority(ref(adminDb, ancestor.path), ancestor.priority);
     }
   }
 }
@@ -563,6 +569,22 @@ function overwrittenAncestorDetail(
     return null;
   }
   return { path: raw.path, state: raw.state };
+}
+
+function ancestorPrioritiesDetail(
+  commit: SandboxCommitEvent,
+): Array<{ path: string; priority: string | number | null }> {
+  const raw = commit.detail?.ancestorPriorities;
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ path: string; priority: string | number | null }> = [];
+  for (const entry of raw) {
+    if (!isJsonObject(entry) || typeof entry.path !== 'string') continue;
+    const p = entry.priority;
+    if (p === null || typeof p === 'string' || (typeof p === 'number' && Number.isFinite(p))) {
+      out.push({ path: entry.path, priority: p });
+    }
+  }
+  return out;
 }
 
 function priorityDetail(

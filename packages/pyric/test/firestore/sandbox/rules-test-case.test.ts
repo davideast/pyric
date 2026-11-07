@@ -73,4 +73,34 @@ describe('buildRulesTestCase', () => {
 
     expect(state.get('games/g1')).toEqual({ board: { c0r0: '', c1r1: '' } });
   });
+
+  test('normalizes direct auth.tenant into token.firebase.tenant while preserving explicit nested tenant claims', () => {
+    const state = new LocalState({ 'orgs/org-1': { name: 'Org One' } });
+
+    const projected = buildRulesTestCase(state, {
+      method: 'get',
+      path: 'orgs/org-1',
+      auth: { uid: 'alice', tenant: 'org-1', token: { role: 'member' } },
+    });
+    expect(projected.auth).toEqual({
+      uid: 'alice',
+      tenant: 'org-1',
+      token: { role: 'member', firebase: { tenant: 'org-1' } },
+    });
+
+    const explicitNested = buildRulesTestCase(state, {
+      method: 'get',
+      path: 'orgs/org-1',
+      auth: {
+        uid: 'alice',
+        tenant: 'org-1',
+        token: { firebase: { tenant: 'org-2', sign_in_provider: 'password' } },
+      },
+    });
+    expect(explicitNested.auth).toEqual({
+      uid: 'alice',
+      tenant: 'org-1',
+      token: { firebase: { tenant: 'org-2', sign_in_provider: 'password' } },
+    });
+  });
 });

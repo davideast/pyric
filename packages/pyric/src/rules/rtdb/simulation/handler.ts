@@ -158,10 +158,15 @@ function findFailingValidate(
   const writePathStrings = new Set<string>();
   if (updates && updates.length > 0) {
     for (const u of updates) {
-      writePathStrings.add(u.path.split('/').filter(Boolean).join('/'));
+      const segs = u.path.split('/').filter(Boolean);
+      const effective = segs[segs.length - 1] === '.priority' ? segs.slice(0, -1) : segs;
+      writePathStrings.add(effective.join('/'));
     }
   } else {
-    writePathStrings.add(pathToWrite.filter(Boolean).join('/'));
+    const effective = pathToWrite[pathToWrite.length - 1] === '.priority'
+      ? pathToWrite.slice(0, -1)
+      : pathToWrite;
+    writePathStrings.add(effective.filter(Boolean).join('/'));
   }
   const allWritePaths = Array.from(writePathStrings).map((p) => p.split('/').filter(Boolean));
 
@@ -350,7 +355,10 @@ export class SimulateHandler {
     const trace: RtdbRuleEvaluation[] = [];
 
     try {
-      const pathSegments = path.split('/').filter(Boolean);
+      const rawPathSegments = path.split('/').filter(Boolean);
+      const pathSegments = rawPathSegments[rawPathSegments.length - 1] === '.priority'
+        ? rawPathSegments.slice(0, -1)
+        : rawPathSegments;
       const rootNode = compiled;
 
       const ancestors = collectAncestors(rootNode, pathSegments, {});
@@ -373,7 +381,7 @@ export class SimulateHandler {
       // its sibling paths in the same update.
       let mergedRoot: unknown = mockData;
       if (operation !== 'read') {
-        mergedRoot = projectPostWriteTree(mockData, path, pathSegments, newData, updates, evaluationNow);
+        mergedRoot = projectPostWriteTree(mockData, path, rawPathSegments, newData, updates, evaluationNow);
       }
       const mergedRootData = new DataSnapshot(mergedRoot, '/');
 

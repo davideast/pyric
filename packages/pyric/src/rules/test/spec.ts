@@ -5,6 +5,7 @@ import { documentRelativePath } from '../simulator/request-path.js';
 import { resolveServerTimestamps } from '../simulator/firestore-values.js';
 import { projectAfterState } from '../simulator/project-after-state.js';
 import { Timestamp } from '../simulator/wrappers/timestamp.js';
+import { normalizeAuthState } from '../auth/auth-state.js';
 import { createResourceRefusal, isIsoInstant, ISO_INSTANT_FORM, requestTimeRefusal } from './case-refusals.js';
 import { encodeWireDocument } from './wire-values.js';
 
@@ -32,6 +33,7 @@ export type FirestoreMethod = (typeof FIRESTORE_METHODS)[number];
  */
 export const TestIdentitySchema = z.object({
   uid: z.string(),
+  tenant: z.string().optional(),
   token: z.record(z.unknown()).optional(),
 });
 export type TestIdentity = z.infer<typeof TestIdentitySchema>;
@@ -617,10 +619,11 @@ function containsServerTimestamp(value: unknown): boolean {
 export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {}): ApiTestCase {
   const refusal = createResourceRefusal(tc) ?? requestTimeRefusal(tc.requestTime);
   if (refusal) throw new TypeError(refusal);
+  const normalizedAuth = tc.auth ? normalizeAuthState(tc.auth) : null;
   const request: ApiTestCase['request'] = {
-    auth: tc.auth === null || tc.auth === undefined
+    auth: normalizedAuth === null
       ? undefined
-      : { uid: tc.auth.uid, token: tc.auth.token ?? {} },
+      : { uid: normalizedAuth.uid, token: normalizedAuth.token ?? {} },
     // Firestore rules engine expects request.method as a short verb
     // ('get' | 'list' | 'create' | 'update' | 'delete'). Sending the full
     // gRPC method string (firestore.googleapis.com/.../GetDocument) makes
@@ -827,10 +830,11 @@ export function normalizeStoragePath(objectPath: string, bucket: string = DEFAUL
 /** Convert a {@link StorageTestCase} into the production Rules Test API wire
  *  shape. Symmetric with {@link buildApiTestCase} for Firestore. */
 export function buildStorageApiTestCase(tc: StorageTestCase): StorageApiTestCase {
+  const normalizedAuth = tc.auth ? normalizeAuthState(tc.auth) : null;
   const request: StorageApiTestCase['request'] = {
-    auth: tc.auth === null || tc.auth === undefined
+    auth: normalizedAuth === null
       ? undefined
-      : { uid: tc.auth.uid, token: tc.auth.token ?? {} },
+      : { uid: normalizedAuth.uid, token: normalizedAuth.token ?? {} },
     // Short verb — same class of bug as Firestore's request.method: sending
     // anything but get/list/create/update/delete makes the engine map the
     // request to no allow rule, silently denying every ALLOW case.

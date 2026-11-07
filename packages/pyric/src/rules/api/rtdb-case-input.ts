@@ -49,7 +49,9 @@ function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateRe
   }));
 
   let allowed: Extract<SimulateResult, { success: true }> | undefined;
-  let validateFailure: { result: Extract<SimulateResult, { success: true }>; validates: RtdbRuleEvaluation[] } | undefined;
+  let validateDeny: { result: Extract<SimulateResult, { success: true }>; validates: RtdbRuleEvaluation[] } | undefined;
+  let writeUnsupported: Extract<SimulateResult, { success: true }> | undefined;
+  let validateUnsupported: { result: Extract<SimulateResult, { success: true }>; validates: RtdbRuleEvaluation[] } | undefined;
   const writeTrace: RtdbRuleEvaluation[] = [];
   let validateTrace: RtdbRuleEvaluation[] = [];
   for (const update of updates) {
@@ -64,18 +66,38 @@ function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateRe
     writeTrace.push(...writes);
     if (!result.data.allowed || result.data.unsupported === true) {
       if (validates.length === 0) {
-        return { success: true, data: { ...result.data, trace: writeTrace } };
+        if (result.data.unsupported !== true) {
+          return { success: true, data: { ...result.data, trace: writeTrace } };
+        }
+        writeUnsupported ??= result;
+        continue;
       }
-      validateFailure ??= { result, validates };
+      if (result.data.unsupported !== true) {
+        validateDeny ??= { result, validates };
+      } else {
+        validateUnsupported ??= { result, validates };
+      }
       continue;
     }
     validateTrace = validates;
     allowed ??= result;
   }
-  if (validateFailure) {
+  if (validateDeny) {
     return {
       success: true,
-      data: { ...validateFailure.result.data, trace: [...writeTrace, ...validateFailure.validates] },
+      data: { ...validateDeny.result.data, trace: [...writeTrace, ...validateDeny.validates] },
+    };
+  }
+  if (writeUnsupported) {
+    return {
+      success: true,
+      data: { ...writeUnsupported.data, trace: writeTrace },
+    };
+  }
+  if (validateUnsupported) {
+    return {
+      success: true,
+      data: { ...validateUnsupported.result.data, trace: [...writeTrace, ...validateUnsupported.validates] },
     };
   }
   const firstAllowed = allowed as Extract<SimulateResult, { success: true }>;
