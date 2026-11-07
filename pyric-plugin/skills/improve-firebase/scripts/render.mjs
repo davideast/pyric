@@ -573,8 +573,7 @@ export async function renderEvidenceBundle({
     durationMs: captureArtifact?.durationMs,
     evidence,
   });
-  const activePresentation =
-    scenario.stage.layout === 'split-actors' && timeline.presentation ? timeline.presentation : null;
+  const activePresentation = (scenario.stage.layout === 'split-actors' || !scenario.app) && timeline.presentation ? timeline.presentation : null;
   const renderTotalSec = activePresentation ? activePresentation.totalSec : timeline.totalSec;
   const totalFrames = Math.max(1, Math.round(renderTotalSec * fps));
   const { reproPass, externalFilesMap } = await buildReproducePass({
@@ -597,7 +596,8 @@ export async function renderEvidenceBundle({
     provenanceText,
   });
 
-  const stageHtmlPath = resolveStageHtmlPath(scenario.stage.layout, stagePath);
+  const layout = (!scenario.app && scenario.stage.layout !== 'split-actors') ? 'split-actors' : scenario.stage.layout;
+  const stageHtmlPath = resolveStageHtmlPath(layout, stagePath);
   const { server, origin } = await startStageHttpServer({ evidenceDir, stageHtmlPath, externalFilesMap });
 
   const wantMp4 = formats.includes('mp4');
@@ -892,7 +892,7 @@ export async function renderEvidenceBundle({
           totalSec: renderTotalSec,
           totalFrames,
           dimensions,
-          layout: stagePath ? 'custom' : scenario.stage.layout,
+          layout: stagePath ? 'custom' : layout,
           beats: timeline.beats,
           ...(activePresentation ? { slides: activePresentation.slides } : {}),
         },

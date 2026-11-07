@@ -1377,6 +1377,7 @@ export async function recordEvidence(options = {}) {
       service: controlOperation.service,
       method: controlOperation.method,
       path: controlOperation.path,
+      data: controlOperation.data,
       decision: controlResult.decision,
       status: controlResult.status,
       error: controlResult.error ?? null,
@@ -1552,6 +1553,8 @@ export async function recordEvidence(options = {}) {
       .readState(reproOperation.service, reproOperation.path, ownerToken)
       .catch(() => reproResult.data ?? null);
     const stateDiff = computeStateDiff(baselineSnapshot, afterReproduceState, reproOperation.path);
+    const _reproEv = recordedEvents.find(e => e.phase === 'repro');
+    if (_reproEv) { _reproEv.stateBefore = stateDiff.before; _reproEv.stateAfter = stateDiff.after; }
     const enrichedReproduceResult = {
       ...reproResult,
       changedPaths: stateDiff.changedPaths,
@@ -1778,6 +1781,8 @@ export async function recordEvidence(options = {}) {
         method: reproOperation.method,
         path: reproOperation.path,
         data: reproOperation.data,
+        stateBefore: fixStateDiff ? fixStateDiff.before : null,
+        stateAfter: fixStateDiff ? fixStateDiff.after : null,
         decision: fixReproduceResult.decision,
         status: fixReproduceResult.status,
         error: fixReproduceResult.error ?? 'permission-denied',

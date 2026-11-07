@@ -232,7 +232,7 @@
       margin-top: 40px;
       width: 100%;
       max-width: 1120px;
-      background: var(--surface-subtle);
+      background: transparent;
       border: 1px solid var(--hairline);
       border-radius: var(--radius);
       padding: 30px 36px;
@@ -265,7 +265,7 @@
       padding: 1px 7px;
       margin: 0 2px;
       border-radius: 5px;
-      background: var(--surface-elevated);
+      background: transparent;
       border: 1px solid rgba(255, 255, 255, 0.22);
       color: var(--ink);
       font-weight: 600;
@@ -314,7 +314,7 @@
       margin-top: 38px;
       width: 100%;
       max-width: 1180px;
-      background: var(--surface-subtle);
+      background: transparent;
       border: 1px solid var(--hairline);
       border-radius: var(--radius);
       padding: 30px 36px;
@@ -361,7 +361,7 @@
       margin-top: 4px;
       padding: 8px 14px;
       border-radius: 7px;
-      background: var(--surface-elevated);
+      background: transparent;
       border: 1px solid rgba(255, 255, 255, 0.22);
     }
 
@@ -378,7 +378,7 @@
     .tree-node-row.is-fix-highlight {
       padding: 6px 12px;
       border-radius: 7px;
-      background: var(--surface-elevated);
+      background: transparent;
       border: 1px solid rgba(255, 255, 255, 0.22);
     }
 
@@ -438,8 +438,8 @@
       display: inline-block;
       padding: 8px 14px;
       border-radius: 7px;
-      background: var(--surface-elevated);
-      border: 1px solid rgba(255, 255, 255, 0.20);
+      background: transparent;
+      border: 1px dashed rgba(255, 255, 255, 0.20);
       font-family: var(--font-mono);
       font-size: 16px;
       font-weight: 600;
@@ -474,7 +474,7 @@
 
     .seq-row.is-flagged {
       border-color: var(--border-strong);
-      background: var(--surface-subtle);
+      background: transparent;
     }
 
     .seq-row.is-muted {
@@ -580,7 +580,7 @@
 
     .diff-surface {
       flex: 1 1 auto;
-      background: var(--surface-subtle);
+      background: transparent;
       border: 1px solid var(--hairline);
       border-radius: var(--radius);
       padding: 26px 28px;
@@ -615,7 +615,7 @@
       margin-top: 4px;
       margin-left: 10px;
       padding: 6px 12px;
-      background: var(--surface-elevated);
+      background: transparent;
       border-radius: 6px;
       color: var(--ink);
       font-weight: 600;
@@ -840,7 +840,7 @@
       flex: 0 0 auto;
       padding: 2px 6px;
       border-radius: 4px;
-      background: var(--surface-elevated);
+      background: transparent;
       border: 1px solid var(--hairline);
       color: var(--ink-soft);
       font-weight: 600;
@@ -873,7 +873,7 @@
     }
 
     .actor-wire-hud .wire-outcome.is-armed {
-      background: var(--surface-elevated);
+      background: transparent;
       border: 1px solid var(--hairline);
       color: var(--muted);
     }
@@ -946,7 +946,67 @@
         gap: 18px;
       }
     }
-  </style>
+  
+    .state-panel-container {
+      width: 100%;
+      display: flex;
+      gap: 20px;
+      margin-top: 24px;
+    }
+    .state-pane {
+      flex: 1;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .state-pane-title {
+      font-family: var(--font-sans);
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .state-pane-decision {
+      font-family: var(--font-sans);
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+    .state-pane-decision.is-allow {
+      background: rgba(255, 255, 255, 0.1);
+      color: #f5f5f5;
+    }
+    .state-pane-decision.is-deny {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+    .state-prop {
+      display: flex;
+      padding: 4px 8px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+    }
+    .state-prop.is-changed {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--border-strong);
+      font-weight: 600;
+      color: #fff;
+    }
+    .state-key {
+      color: var(--ink-secondary);
+      margin-right: 8px;
+    }
+    .state-val {
+      color: var(--ink);
+    }
+</style>
 </head>
 <body>
   <div class="deck-stage" id="deckStage">
@@ -966,6 +1026,21 @@
         <!-- Slide 3: Direct Write Code Surface -->
         <div class="code-surface" id="slideCodeSurface" hidden>
           <pre class="code-pre" id="slideCodePre"></pre>
+        </div>
+
+        
+        <!-- State Panel -->
+        <div class="state-panel-container" id="slideStatePanel" hidden>
+          <div class="state-pane" id="statePaneBefore">
+            <div class="state-pane-title" id="stateTitleBefore">Before</div>
+            <div class="state-pane-decision" id="stateDecisionBefore" hidden></div>
+            <div id="stateContentBefore"></div>
+          </div>
+          <div class="state-pane" id="statePaneAfter" hidden>
+            <div class="state-pane-title" id="stateTitleAfter">After</div>
+            <div class="state-pane-decision" id="stateDecisionAfter" hidden></div>
+            <div id="stateContentAfter"></div>
+          </div>
         </div>
 
         <!-- Slide 3: Open-Space Key-Value Metadata -->
@@ -1839,6 +1914,70 @@
             seqListEl.hidden = true;
             seqGridEl.hidden = true;
 
+            
+            const statePanelEl = document.getElementById('slideStatePanel');
+            statePanelEl.hidden = true;
+
+            if (slide.variant === 'state') {
+              statePanelEl.hidden = false;
+              
+              const paneBefore = document.getElementById('statePaneBefore');
+              const paneAfter = document.getElementById('statePaneAfter');
+              const contentBefore = document.getElementById('stateContentBefore');
+              const contentAfter = document.getElementById('stateContentAfter');
+              const decBefore = document.getElementById('stateDecisionBefore');
+              const decAfter = document.getElementById('stateDecisionAfter');
+              
+              const renderData = (container, data, highlightKeys = []) => {
+                container.innerHTML = '';
+                if (!data) return;
+                const obj = typeof data === 'string' ? JSON.parse(data) : data;
+                for (const [k, v] of Object.entries(obj)) {
+                  const div = document.createElement('div');
+                  div.className = 'state-prop';
+                  if (highlightKeys.includes(k)) div.classList.add('is-changed');
+                  
+                  const keySpan = document.createElement('span');
+                  keySpan.className = 'state-key';
+                  keySpan.textContent = '"' + k + '":';
+                  
+                  const valSpan = document.createElement('span');
+                  valSpan.className = 'state-val';
+                  valSpan.textContent = JSON.stringify(v);
+                  
+                  div.appendChild(keySpan);
+                  div.appendChild(valSpan);
+                  container.appendChild(div);
+                }
+              };
+
+              if (slide.stateBefore) {
+                renderData(contentBefore, slide.stateBefore, slide.highlightKeys || []);
+                document.getElementById('stateTitleBefore').textContent = slide.titleBefore || 'Before';
+                if (slide.decisionBefore) {
+                  decBefore.hidden = false;
+                  decBefore.textContent = slide.decisionBefore;
+                  decBefore.className = 'state-pane-decision is-' + slide.decisionBefore.toLowerCase();
+                } else {
+                  decBefore.hidden = true;
+                }
+              }
+
+              if (slide.stateAfter) {
+                paneAfter.hidden = false;
+                renderData(contentAfter, slide.stateAfter, slide.highlightKeys || []);
+                document.getElementById('stateTitleAfter').textContent = slide.titleAfter || 'After';
+                if (slide.decisionAfter) {
+                  decAfter.hidden = false;
+                  decAfter.textContent = slide.decisionAfter;
+                  decAfter.className = 'state-pane-decision is-' + slide.decisionAfter.toLowerCase();
+                } else {
+                  decAfter.hidden = true;
+                }
+              } else {
+                paneAfter.hidden = true;
+              }
+            }
             if (slide.variant === 'sequence') {
               if (slide.beforeSequence || slide.afterSequence) {
                 seqGridEl.hidden = false;

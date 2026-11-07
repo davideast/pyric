@@ -855,6 +855,7 @@ function buildRuleTreeStructure({
   beforeLines,
   afterLines,
   addedCompactSet,
+  checkNoun = 'ownership check',
 }) {
   const beforeTokens = String(parsedBefore.nodePath || beforeRuleAnchored || '')
     .split('/')
@@ -900,7 +901,7 @@ function buildRuleTreeStructure({
     node: beforeAttachNode,
     ruleKey: '.write',
     ruleLines: beforeLines,
-    note: ruleMovesDeeper ? 'Rule attached here' : 'Rule evaluated here (no author check)',
+    note: ruleMovesDeeper ? 'Rule attached here' : `Rule evaluated here (no ${checkNoun})`,
     isAttachPoint: true,
     isFlawHighlight: !ruleMovesDeeper,
   });
@@ -911,7 +912,7 @@ function buildRuleTreeStructure({
       node: afterAttachNode,
       ruleKey: '',
       ruleLines: [],
-      note: 'no rule — inherits parent .write without author check',
+      note: `no rule, inherits parent .write without ${checkNoun}`,
       isInheritedGap: true,
       isFlawHighlight: true,
     });
@@ -947,7 +948,7 @@ function buildRuleTreeStructure({
           {
             indent: 1,
             node: afterAttachNode,
-            note: 'no author check — inherits parent .write',
+            note: `no ${checkNoun}, inherits parent .write`,
             isFlawHighlight: true,
           },
         ]
@@ -967,7 +968,7 @@ function buildRuleTreeStructure({
     indent: ruleMovesDeeper ? 1 : 0,
     node: afterAttachNode || beforeAttachNode,
     ruleKey: '.write',
-    note: ruleMovesDeeper ? 'Moved here + author check added' : 'Author check added',
+    note: ruleMovesDeeper ? `Moved here + ${checkNoun} added` : `${checkNoun.charAt(0).toUpperCase() + checkNoun.slice(1)} added`,
     isFixNodeHighlight: true,
     ruleLines: compactAfterForDiff.map((text) => {
       const bare = text.replace(/^&&\s*/, '').trim();
@@ -1387,6 +1388,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     beforeRuleShortPath: parsedBefore.nodePath,
   });
 
+  const checkNoun = scenario?.copy?.checkNoun || 'ownership check';
   const {
     beforeLines,
     afterLines,
@@ -1415,6 +1417,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     beforeLines,
     afterLines,
     addedCompactSet,
+    checkNoun,
   });
 
   const nounPlural = inferCollectionNoun(targetPath, parsedBefore.nodePath);
@@ -1423,6 +1426,12 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
   const leafSegmentId = rawTargetSegs[rawTargetSegs.length - 1] || 'record';
   const sdkMethod = reproEvent?.method || (service === 'firestore' ? 'setDoc' : 'set');
   const uiFocus = evidence?.uiFocus || {};
+
+
+  const stateMode = !scenario.app;
+  const dataBefore = reproEvent?.stateBefore || controlEvent?.data || scenario?.controlOperation?.data || {};
+  const dataAfter = reproEvent?.stateAfter || reproEvent?.data || scenario?.operation?.data || {};
+  const highlightKeys = Object.keys(dataAfter).filter(k => JSON.stringify(dataAfter[k]) !== JSON.stringify(dataBefore[k]));
 
   const slideDefs = [
     {
@@ -1439,7 +1448,21 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       sourceEndMs: attachStartMs,
       playDurationMs: 0,
     },
-    {
+    (stateMode ? {
+      id: 'attach-demo',
+      kind: 'slide',
+      variant: 'state',
+      phase: 'hook',
+      durationMs: attachTotalMs,
+      title: scenario?.copy?.attachTitle || `${ownerName}'s ${nounSingular} exists`,
+      subtitle: scenario?.copy?.setupSubtitle || `${ownerName}'s own write is allowed`,
+      stateBefore: dataBefore,
+      titleBefore: 'Owner record',
+      decisionBefore: 'ALLOW',
+      sourceStartMs: attachStartMs,
+      sourceEndMs: attachEndMs,
+      playDurationMs: 0,
+    } : {
       id: 'attach-demo',
       kind: 'video',
       variant: 'video',
@@ -1484,7 +1507,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       sourceStartMs: attachStartMs,
       sourceEndMs: attachEndMs,
       playDurationMs: attachPlayMs,
-    },
+    }),
     {
       id: 'path-slide',
       kind: 'slide',
@@ -1524,7 +1547,24 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       sourceEndMs: reproVideoStartMs,
       playDurationMs: 0,
     },
-    {
+    (stateMode ? {
+      id: 'problem-video',
+      kind: 'slide',
+      variant: 'state',
+      phase: 'repro',
+      durationMs: reproTotalMs,
+      title: `${peerName} overwrites ${ownerName}'s ${nounSingular}`,
+      subtitle: `Allowed by ${beforeAttachNode}`,
+      stateBefore: dataBefore,
+      titleBefore: 'Before',
+      stateAfter: dataAfter,
+      titleAfter: 'After',
+      decisionAfter: 'ALLOW',
+      highlightKeys,
+      sourceStartMs: reproVideoStartMs,
+      sourceEndMs: reproSettledMs,
+      playDurationMs: 0,
+    } : {
       id: 'problem-video',
       kind: 'video',
       variant: 'video',
@@ -1561,14 +1601,14 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
             pathTokens,
             ruleNode: beforeAttachNode,
             decision: 'ALLOW',
-            caption: `Allowed by ${beforeAttachNode} (no author check)`,
+            caption: `Allowed by ${beforeAttachNode} (no ${checkNoun})`,
           },
         },
       },
       sourceStartMs: reproVideoStartMs,
       sourceEndMs: reproSettledMs,
       playDurationMs: reproPlayMs,
-    },
+    }),
     {
       id: 'why-slide',
       kind: 'slide',
@@ -1593,7 +1633,6 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     },
   ];
 
-  // When assurance could not confirm the fix, the fix slides say so in one quiet line.
   const fixAssurance = evidence?.fixAssurance;
   const assuranceNote =
     fixAssurance && fixAssurance.verified === false && typeof fixAssurance.note === 'string'
@@ -1627,7 +1666,24 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         sourceEndMs: fixVideoStartMs,
         playDurationMs: 0,
       },
-      {
+      (stateMode ? {
+        id: 'fix-video',
+        kind: 'slide',
+        variant: 'state',
+        phase: 'fix',
+        durationMs: fixTotalMs,
+        title: 'Unauthorized write blocked',
+        subtitle: `Blocked at ${afterAttachNode || beforeAttachNode}`,
+        stateBefore: dataBefore,
+        titleBefore: 'Owner record',
+        decisionBefore: 'ALLOW',
+        stateAfter: dataAfter,
+        titleAfter: 'Peer write',
+        decisionAfter: 'DENY',
+        sourceStartMs: fixVideoStartMs,
+        sourceEndMs: fixSettledMs,
+        playDurationMs: 0,
+      } : {
         id: 'fix-video',
         kind: 'video',
         variant: 'video',
@@ -1671,7 +1727,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         sourceStartMs: fixVideoStartMs,
         sourceEndMs: fixSettledMs,
         playDurationMs: fixPlayMs,
-      },
+      })
     );
   }
 

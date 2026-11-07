@@ -54,7 +54,8 @@ test('Stage structural snapshot', async (t) => {
           { id: 'problem-video', kind: 'video', startSec: 1, endSec: 2, uiOverlays: { focusAfter: { owner: { w: 100, h: 100, x: 0, y: 0, vw: 1000, vh: 750 } } } },
           { id: 'fix-slide', kind: 'slide', startSec: 2, endSec: 3, assuranceNote: 'engine gap' },
           { id: 'fix-video', kind: 'video', startSec: 3, endSec: 4, assuranceNote: 'engine gap' },
-          { id: 'no-gap', kind: 'slide', startSec: 4, endSec: 5 } // no gap
+          { id: 'no-gap', kind: 'slide', startSec: 4, endSec: 5 },
+          { id: 'state-slide', kind: 'slide', variant: 'state', startSec: 5, endSec: 6, stateBefore: { "foo": "bar" }, stateAfter: { "foo": "baz" }, highlightKeys: ["foo"] }
         ],
         passes: { repro: { fps: 30, frames: [] } },
         provenanceText: 'DENY / database.set /test / anonymous / Local Pyric sandbox',
@@ -65,13 +66,14 @@ test('Stage structural snapshot', async (t) => {
       if (window.initializeStage) window.initializeStage(window.__PYRIC_EVIDENCE__);
     });
 
-    const totalFrames = 150; // 5 seconds at 30 fps
+    const totalFrames = 180; // 6 seconds at 30 fps
     const testCases = [
       { tSec: 0.5, slideId: 'title', focusOwner: false, hasGap: false },
       { tSec: 1.5, slideId: 'problem-video', focusOwner: true, hasGap: false },
       { tSec: 2.5, slideId: 'fix-slide', focusOwner: false, hasGap: true },
       { tSec: 3.5, slideId: 'fix-video', focusOwner: false, hasGap: true },
-      { tSec: 4.5, slideId: 'no-gap', focusOwner: false, hasGap: false }
+      { tSec: 4.5, slideId: 'no-gap', focusOwner: false, hasGap: false },
+      { tSec: 5.5, slideId: 'state-slide', focusOwner: false, hasGap: false }
     ];
 
     for (const tc of testCases) {
