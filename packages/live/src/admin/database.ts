@@ -17,10 +17,11 @@
  * `on` returns the app's callback at once and listens once the gate passes;
  * `push` returns its reference with the new key at once and writes once the
  * gate passes. The connection itself opens at `db.ref()`, before any call,
- * so `Database.ref` and `refFromURL` gate it too: an app that names another
- * project is refused there, and an app whose credential works out its
- * project stays offline until the gate passes. No frame reaches another
- * project's instance, `setPriority` and `onDisconnect()` included.
+ * so `Database.ref`, `refFromURL` and `goOnline` gate it too: an app that
+ * names another project is refused there, and an app whose credential works
+ * out its project stays offline until the gate passes, or longer if it went
+ * offline itself meanwhile. No frame reaches another project's instance,
+ * `setPriority` and `onDisconnect()` included.
  *
  * A record never carries a data value: no write data and no returned value.
  */
@@ -216,8 +217,17 @@ export interface AdminDatabaseRow {
   readonly hostProjectId: string;
 }
 
+/** The row with the real, unpatched `goOnline` and `goOffline`, which the connection gate calls itself. */
+interface ConnectionRow extends AdminDatabaseRow {
+  readonly goOnline: Method;
+  readonly goOffline: Method;
+}
+
 /** What the connection gate knows of each compat Database: passed, waiting for the gate, or its refusal. */
 const connections = new WeakMap<object, 'passed' | 'waiting' | Error>();
+
+/** Databases the app took offline itself before the gate passed: the gate leaves them offline. */
+const offlineByApp = new WeakSet<object>();
 
 /** The project an app names without waiting, as the gate reads it first: `options.projectId`, then a `cert()` credential's. */
 function namedProject(app: AdminApp): { source: AdminProjectSource; projectId: string } | undefined {
@@ -230,14 +240,15 @@ function namedProject(app: AdminApp): { source: AdminProjectSource; projectId: s
 /**
  * Holds the connection of a Database whose project is not named until its
  * credential's `getProjectId()` answers: it goes offline before the SDK's
- * connect timer runs, and online once the gate passes.
+ * connect timer runs, and online once the gate passes, unless the app took
+ * it offline itself meanwhile.
  */
-function holdConnection(row: AdminDatabaseRow, db: object, app: AdminApp): void {
+function holdConnection(row: ConnectionRow, db: object, app: AdminApp): void {
   connections.set(db, 'waiting');
-  Reflect.apply(fieldOf(db, 'goOffline') as Method, db, []);
+  Reflect.apply(row.goOffline, db, []);
   const goOnline = () => {
     connections.set(db, 'passed');
-    Reflect.apply(fieldOf(db, 'goOnline') as Method, db, []);
+    if (!offlineByApp.has(db)) Reflect.apply(row.goOnline, db, []);
   };
   row.gate(app, goOnline).catch((error: unknown) => {
     connections.set(db, error instanceof Error ? error : new Error(String(error)));
@@ -245,13 +256,13 @@ function holdConnection(row: AdminDatabaseRow, db: object, app: AdminApp): void 
 }
 
 /**
- * The connection gate, run by `ref()` and `refFromURL()` before the SDK
- * opens the connection there and sends the credential. An app that names
- * another project is refused at once, and the gate writes its one line; an
- * app whose project its credential works out stays offline until the gate
- * passes, and its later `ref()` calls are refused once it refuses.
+ * The connection gate, run by `ref()`, `refFromURL()` and `goOnline()`
+ * before the SDK opens the connection there and sends the credential. An
+ * app that names another project is refused at once, and the gate writes
+ * its one line; an app whose project its credential works out stays offline
+ * until the gate passes, and its later calls here are refused once it refuses.
  */
-function gateConnection(row: AdminDatabaseRow, db: object): void {
+function gateConnection(row: ConnectionRow, db: object): void {
   const known = connections.get(db);
   if (known instanceof Error) throw known;
   if (known !== undefined) return;
@@ -271,11 +282,36 @@ function gateConnection(row: AdminDatabaseRow, db: object): void {
   throw refusal;
 }
 
-function gatedRef(row: AdminDatabaseRow, real: Method): Method {
+function gatedRef(row: ConnectionRow, real: Method): Method {
   return keepShape(function ref(this: unknown, ...args: unknown[]): unknown {
     if (isObject(this)) gateConnection(row, this);
     return Reflect.apply(real, this, args);
   }, real);
+}
+
+/**
+ * `Database.goOnline`, which starts the repo and resumes the connection
+ * without `ref()`: it passes the connection gate first, and while the gate
+ * is still working out the project it only undoes the app's own `goOffline`,
+ * so the hold resumes the connection when the gate passes.
+ */
+function gatedGoOnline(row: ConnectionRow): Method {
+  return keepShape(function goOnline(this: unknown, ...args: unknown[]): unknown {
+    if (!isObject(this)) return Reflect.apply(row.goOnline, this, args);
+    offlineByApp.delete(this);
+    gateConnection(row, this);
+    const hasPassed = connections.get(this) === 'passed';
+    return hasPassed ? Reflect.apply(row.goOnline, this, args) : undefined;
+  }, row.goOnline);
+}
+
+/** `Database.goOffline`: before the gate passes, it marks the Database so the gate leaves it offline. */
+function trackedGoOffline(row: ConnectionRow): Method {
+  return keepShape(function goOffline(this: unknown, ...args: unknown[]): unknown {
+    const isGateOpen = isObject(this) && connections.get(this) === 'passed';
+    if (isObject(this) && !isGateOpen) offlineByApp.add(this);
+    return Reflect.apply(row.goOffline, this, args);
+  }, row.goOffline);
 }
 
 function prototypeOf(sdk: unknown, className: string): Record<string, unknown> | undefined {
@@ -297,9 +333,15 @@ function replace(prototype: Record<string, unknown>, name: string, wrap: (real: 
 export function observeAdminDatabase(sdk: unknown, row: AdminDatabaseRow): void {
   const adminRow: AdminRow = { module: ADMIN_DATABASE_MODULE, observer: row.observer, gate: row.gate, appOf };
   const database = prototypeOf(sdk, 'Database');
-  if (database !== undefined && patchAdminClass(database, 'Database', [], adminRow)) {
-    replace(database, 'ref', (real) => gatedRef(row, real));
-    replace(database, 'refFromURL', (real) => gatedRef(row, real));
+  const goOnline = database?.goOnline;
+  const goOffline = database?.goOffline;
+  const hasConnection = typeof goOnline === 'function' && typeof goOffline === 'function';
+  if (database !== undefined && hasConnection && patchAdminClass(database, 'Database', [], adminRow)) {
+    const connectionRow: ConnectionRow = { ...row, goOnline: goOnline as Method, goOffline: goOffline as Method };
+    replace(database, 'ref', (real) => gatedRef(connectionRow, real));
+    replace(database, 'refFromURL', (real) => gatedRef(connectionRow, real));
+    replace(database, 'goOnline', () => gatedGoOnline(connectionRow));
+    replace(database, 'goOffline', () => trackedGoOffline(connectionRow));
   }
   const query = prototypeOf(sdk, 'Query');
   if (query !== undefined && patchAdminClass(query, 'Query', calls('get', 'once'), adminRow)) {

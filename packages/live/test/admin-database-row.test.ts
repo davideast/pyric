@@ -302,6 +302,76 @@ test('an app with no project stays offline until its own credential works out th
   expect(await framesSince(sent)).toEqual([]);
 });
 
+/** A new Admin app whose credential works out `project`, as application default credentials do. */
+function credentialApp(name: string, project: string): Instance {
+  const credential = { getAccessToken: async () => ({ access_token: 'not-a-token', expires_in: 3600 }), getProjectId: async () => project };
+  const made = admin.initializeApp({ credential, databaseURL: DATABASE_URL }, name);
+  others.push(made);
+  return getDatabase(made);
+}
+
+function goOnline(database: Instance): unknown {
+  return (database.goOnline as AnyFunction).call(database);
+}
+
+function goOffline(database: Instance): unknown {
+  return (database.goOffline as AnyFunction).call(database);
+}
+
+test('goOnline on an app that names another project is refused and opens no connection', async () => {
+  const other = admin.initializeApp({ projectId: 'other-project-3', databaseURL: DATABASE_URL }, 'admin-database-online-other');
+  others.push(other);
+  const otherDb = getDatabase(other);
+  const sent = (await received()).length;
+  expect(await refusedCode(() => goOnline(otherDb))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await framesSince(sent)).toEqual([]);
+});
+
+test('goOnline while the gate is still working out the project does not resume the connection', async () => {
+  const otherDb = credentialApp('admin-database-online-hold', 'other-prod');
+  const sent = (await received()).length;
+  const first = ref('notes/a', otherDb);
+  const child = (first.child as AnyFunction).call(first, 'x') as Instance;
+  void codeOf(child.setPriority!(1));
+  goOnline(otherDb);
+  expect(await codeOf(first.get!())).toBe('PYRIC_LIVE_REFUSED');
+  expect(await framesSince(sent)).toEqual([]);
+});
+
+test('goOnline after the gate refused is refused and opens no connection', async () => {
+  const otherDb = credentialApp('admin-database-online-refused', 'other-prod');
+  const sent = (await received()).length;
+  const first = ref('notes/a', otherDb);
+  expect(await codeOf(first.get!())).toBe('PYRIC_LIVE_REFUSED');
+  void codeOf((first.onDisconnect!() as Instance).set!(1));
+  expect(await refusedCode(() => goOnline(otherDb))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await framesSince(sent)).toEqual([]);
+});
+
+test('an app whose credential works out the host project comes online once the gate passes', async () => {
+  const hostDb = credentialApp('admin-database-adc-host', PROJECT);
+  const from = records.length;
+  await ref('notes/a', hostDb).set!({ n: 1, title: 'first' });
+  const snapshot = (await ref('notes/a', hostDb).get!()) as { val(): unknown };
+  expect(snapshot.val()).toEqual({ n: 1, title: 'first' });
+  const made = (await recordsSince(from)).map(({ name, outcome, path, instance }) => ({ name, outcome, path, instance }));
+  expect(made).toEqual([
+    { name: 'Reference.set', outcome: 'resolved', path: '/notes/a', instance: INSTANCE },
+    { name: 'Query.get', outcome: 'resolved', path: '/notes/a', instance: INSTANCE },
+  ]);
+});
+
+test('an app that goes offline itself while the gate works out the project stays offline until it goes online', async () => {
+  const hostDb = credentialApp('admin-database-adc-offline', PROJECT);
+  const sent = (await received()).length;
+  const target = ref('notes/a', hostDb);
+  goOffline(hostDb);
+  expect(await framesSince(sent)).toEqual([]);
+  goOnline(hostDb);
+  await target.set!({ n: 1, title: 'first' });
+  expect((await framesSince(sent)).length).toBeGreaterThan(0);
+});
+
 test('no record carries a data value, a token, a password or an email', () => {
   const text = JSON.stringify(records);
   for (const value of ['first', 'second', 'third', 'title', 'owner', 'not-a-token', 'password']) expect(text).not.toContain(value);
