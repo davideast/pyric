@@ -15,7 +15,7 @@ import { incidentsFromEvents } from '../../../../src/serve/runtime/listener-inci
 import { getFirestore } from 'pyric/firestore';
 import { cleanupPort, handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { markPortConnection } from '../../../../src/serve/worker/host/caller.js';
-import { heldLiveCallValueCount, liveCallValues } from '../../../../src/serve/worker/host/observe.js';
+import { heldLiveCallValueCount, liveCallValues, observedPortInterrupted, observedPortResumed } from '../../../../src/serve/worker/host/observe.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { requestEnvelopeError } from '../../../../src/bridge/server/request-envelope.js';
 import type { BridgeMessage } from '../../../../src/bridge/protocol.js';
@@ -490,5 +490,79 @@ describe('host: listeners a port leaves behind', () => {
     expect(activeListeners(ctx.sandbox.history())).toEqual([]);
     const patterns = incidentsFromEvents(ctx.sandbox.history()).map((incident) => incident.pattern);
     expect(patterns).not.toContain('duplicate-listener');
+  });
+});
+
+/** A Node host socket, as the hosted runtime admits a server process's connection. */
+function nodePort(ctx: HostCtx): FakePort {
+  const port = fakePort();
+  markPortConnection(ctx, port, 'node');
+  return port;
+}
+
+/** The label the live rows' sender sends for one project root and entry script. */
+const ENTRY = '5f1d2c3b4a5968778695a4b3c2d1e0f1';
+
+describe('host: listeners a restarted Node process leaves behind', () => {
+  it('detaches the old connection\'s listeners when the same entry script connects again', async () => {
+    const ctx = makeCtx();
+    for (let run = 0; run < 3; run++) {
+      const job = nodePort(ctx);
+      await observe(ctx, job, { call: roomListener('attach', 'l-1', 1_700_000_000_000 + run * 1_000), nodeClient: ENTRY });
+      observedPortInterrupted(ctx, job);
+    }
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(1);
+    const patterns = incidentsFromEvents(ctx.sandbox.history()).map((incident) => incident.pattern);
+    expect(patterns).not.toContain('duplicate-listener');
+  });
+
+  it('detaches them when the old connection closes after the new one attached', async () => {
+    const ctx = makeCtx();
+    const before = nodePort(ctx);
+    const after = nodePort(ctx);
+    await observe(ctx, before, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    await observe(ctx, after, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(2);
+    observedPortInterrupted(ctx, before);
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(1);
+  });
+
+  it('leaves two running processes of one entry script their own listeners', async () => {
+    const ctx = makeCtx();
+    for (const worker of [nodePort(ctx), nodePort(ctx)]) {
+      await observe(ctx, worker, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    }
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(2);
+  });
+
+  it('keeps the listeners of a connection that resumed before the next one attached', async () => {
+    const ctx = makeCtx();
+    const job = nodePort(ctx);
+    await observe(ctx, job, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    observedPortInterrupted(ctx, job);
+    observedPortResumed(ctx, job);
+    await observe(ctx, nodePort(ctx), { call: roomListener('attach', 'l-2'), nodeClient: ENTRY });
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(2);
+  });
+
+  it('leaves another entry script\'s listeners and a page\'s alone', async () => {
+    const ctx = makeCtx();
+    const other = nodePort(ctx);
+    const page = fakePort();
+    await observe(ctx, other, { call: roomListener('attach', 'l-1'), nodeClient: 'another-entry' });
+    await observe(ctx, page, { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    observedPortInterrupted(ctx, other);
+    observedPortInterrupted(ctx, page);
+    await observe(ctx, nodePort(ctx), { call: roomListener('attach', 'l-1'), nodeClient: ENTRY });
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(3);
+  });
+
+  it('refuses a node client label that is not a short string, and writes nothing', async () => {
+    const ctx = makeCtx();
+    for (const nodeClient of [7, '', 'x'.repeat(65)]) {
+      const reply = await observe(ctx, nodePort(ctx), { call: roomListener('attach', 'l-1'), nodeClient });
+      expect(reply).toMatchObject({ t: 'res', ok: false, error: { code: 'invalid-argument' } });
+    }
+    expect(ctx.sandbox.history()).toEqual([]);
   });
 });

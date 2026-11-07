@@ -12,7 +12,8 @@
  * listeners, and `pyric sandbox activity` reports the lobby's duplicate
  * listeners and the patio's churn. The chip's Data view lists the scores listener as a source
  * the developer can open. A reload ends the page's listeners, so a reloaded
- * page leaves none behind.
+ * page leaves none behind. The server job restarted as `node --watch` restarts
+ * it, or killed and started again, leaves one listener, not one per run.
  *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * a recording this scenario writes: the custom-token sign-in, the lobby and
@@ -23,7 +24,7 @@
  */
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sleep, type App, type AppProcess } from '../driver.ts';
 
 const PROJECT = 'demo-live-listeners';
 const RECORDING = 'listeners-recording.json';
@@ -230,6 +231,20 @@ async function openScoresSource(page: Page): Promise<void> {
   await chip.locator('[data-sources-back]').waitFor({ state: 'visible', timeout: 20_000 });
 }
 
+/** Starts the server job under the live register and waits for its lobby listener. */
+async function startServerJob(app: App, replay: Replay): Promise<AppProcess> {
+  const job = app.commandProcess('node', ['--import', '@pyric/live/register', 'server.mjs'], { env: { ROOMS_FIRESTORE_HOST: replay.grpc } });
+  await job.waitForLog(/^LISTENING /m, { timeoutMs: 60_000 });
+  return job;
+}
+
+const SERVER_ONLY = ['node firestore rooms/lobby'];
+
+/** Waits until `sandbox.listeners` lists exactly `expected`. */
+async function listenersAre(app: App, expected: readonly string[], what: string): Promise<void> {
+  await eventually(() => activeListeners(app), (listed) => JSON.stringify(listed) === JSON.stringify(expected), what);
+}
+
 /** Opens the page and waits for its module. */
 async function openPage(app: App, url: string): Promise<Page> {
   const page = await app.page(url);
@@ -259,8 +274,7 @@ export default scenario(async (app) => {
   });
 
   const server = await app.step('the server job under @pyric/live/register listens to the lobby, reporting to the dev server', async () => {
-    const job = app.commandProcess('node', ['--import', '@pyric/live/register', 'server.mjs'], { env: { ROOMS_FIRESTORE_HOST: replay.grpc } });
-    await job.waitForLog(/^LISTENING /m, { timeoutMs: 60_000 });
+    const job = await startServerJob(app, replay);
     assert.match(job.output, /@pyric\/live\/register: reporting calls to the live host at /);
     assert.match(job.output, new RegExp(`LISTENING ${JSON.stringify(LOBBY).replace(/[{}]/g, '\\$&')}`));
     return job;
@@ -286,15 +300,32 @@ export default scenario(async (app) => {
   await app.step('a reload ends the page\'s listeners, leaving the server job\'s', async () => {
     await page.reload();
     await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Ready', undefined, { timeout: 30_000 });
-    await eventually(() => activeListeners(app), (listed) => JSON.stringify(listed) === JSON.stringify(['node firestore rooms/lobby']), 'the listeners after the reload');
+    await listenersAre(app, SERVER_ONLY, 'the listeners after the reload');
+  });
+
+  const restarted = await app.step('the server job stopped with SIGTERM, as node --watch restarts it, ends its listener, and its next run leaves one', async () => {
+    await server.stop();
+    assert.match(server.output, /\[driver\] exited on SIGTERM/);
+    await listenersAre(app, [], 'the listeners after the job stopped');
+    const next = await startServerJob(app, replay);
+    await listenersAre(app, SERVER_ONLY, 'the listeners after the restart');
+    return next;
+  });
+
+  const lastRun = await app.step('a killed server job\'s listener ends when its next run connects', async () => {
+    const pid = restarted.pid;
+    assert.ok(pid !== undefined, 'the restarted job has no pid');
+    process.kill(pid, 'SIGKILL');
+    await eventually(async () => restarted.running, (running) => !running, 'the killed job');
+    const next = await startServerJob(app, replay);
+    await listenersAre(app, SERVER_ONLY, 'the listeners after the killed job ran again');
+    return next;
   });
 
   await app.step('production received only what the recording holds, and nothing reached any host but loopback', async () => {
     assert.deepEqual(await replay.unmatched(), []);
     assert.deepEqual(blockedLines(app), []);
-    // A process that exits keeps its session, and so its listener, for the
-    // host's retention window; the host's unit tests cover the sweep then.
-    await server.stop();
+    await lastRun.stop();
     await page.close();
     await host.process.stop();
   });
