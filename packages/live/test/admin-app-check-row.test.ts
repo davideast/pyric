@@ -54,6 +54,13 @@ test('an app on another project is refused at verifyToken and createToken before
   expect(lines).toHaveLength(1);
 });
 
+test('an AppCheck whose app the row cannot read is refused', async () => {
+  // Stands in for a firebase-admin whose AppCheck no longer keeps its app as app.
+  const unread = Object.create(appCheckModule.AppCheck.prototype) as AppCheck;
+  expect(await codeOf(() => unread.verifyToken!('not-a-token'))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf(() => unread.createToken!('1:123:web:abc'))).toBe('PYRIC_LIVE_REFUSED');
+});
+
 test('an app on the live project reaches the real method, which answers with its own code', async () => {
   const own = getAppCheck(initializeApp({ projectId: PROJECT }, 'admin-app-check-own'));
   // The real verifyToken refuses a malformed token itself, before any request.

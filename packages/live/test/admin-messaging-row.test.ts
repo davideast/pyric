@@ -137,6 +137,16 @@ test('each send and topic call makes one record, with the project and production
   for (const secret of [TOKEN_A, TOKEN_B, TOPIC, 'Order shipped', 'stand-in-access-token']) expect(text).not.toContain(secret);
 });
 
+test('a Messaging whose app the row cannot read is refused before any request', async () => {
+  // Stands in for a firebase-admin whose Messaging no longer answers its public app getter.
+  const unread = Object.create(messagingModule.Messaging.prototype) as Messaging;
+  Object.defineProperty(unread, 'app', { value: undefined });
+  const sent = received.length;
+  expect(await codeOf(unread.send!({ token: TOKEN_A }))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf(unread.subscribeToTopic!(TOKEN_A, TOPIC))).toBe('PYRIC_LIVE_REFUSED');
+  expect(received.length).toBe(sent);
+});
+
 test('each record maps to an Admin messaging call', async () => {
   const from = records.length;
   await codeOf(messaging.send!({ token: TOKEN_A }));
