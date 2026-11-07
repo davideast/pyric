@@ -171,6 +171,11 @@ const ownInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${
 const otherInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${PROJECT}-prod-default-rtdb.firebaseio.com` }, "other-instance");
 outcome.ownInstance = openDatabase(ownInstance);
 outcome.otherInstance = openDatabase(otherInstance);
+// An instance firebase.json names for the live project opens; one it doesn't name is refused.
+const listedInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${PROJECT}-shard-01.firebaseio.com` }, "listed-instance");
+const unlistedInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${PROJECT}-shard-02.firebaseio.com` }, "unlisted-instance");
+outcome.listedInstance = openDatabase(listedInstance);
+outcome.unlistedInstance = openDatabase(unlistedInstance);
 
 // An Admin app that names another project is still refused before any request.
 const answeredBefore = answered.length;

@@ -16,9 +16,10 @@
  *
  * Each Google host no row observes gets one "unobserved" line, and the
  * process health lists it, with the Admin subpath. The project gate still
- * holds: the live project's regional Realtime Database instance opens, and
- * `<project>-prod-default-rtdb`, another project's instance, and another
- * project's Admin call are refused before any request.
+ * holds: the live project's regional Realtime Database instance and the
+ * instance firebase.json names open, and `<project>-prod-default-rtdb`,
+ * another project's instance, an instance firebase.json doesn't name, and
+ * another project's Admin call are refused before any request.
  *
  * The Admin SDK's Agent sends its requests to a local stand-in for Google.
  * Every other connection reaches the scenario's trap (`trap.mjs`), which
@@ -80,6 +81,8 @@ async function checkBackend(app: App, instrument: 'assign' | 'define'): Promise<
     messaging: 'loaded',
     ownInstance: 'ok',
     otherInstance: 'PYRIC_LIVE_REFUSED',
+    listedInstance: 'ok',
+    unlistedInstance: 'PYRIC_LIVE_REFUSED',
     otherProjectLookup: 'PYRIC_LIVE_REFUSED',
     otherProjectSent: 0,
   });
@@ -90,7 +93,9 @@ async function checkBackend(app: App, instrument: 'assign' | 'define'): Promise<
   for (const host of ['www.googleapis.com', 'us-central1-aiplatform.googleapis.com', 'cloudtrace.googleapis.com', 'firebaseappcheck.googleapis.com']) {
     assert.ok(trappedHosts.includes(host), `${host} went out: ${trappedHosts.join(', ')}`);
   }
-  assert.ok(!trappedHosts.includes(`${PROJECT}-prod-default-rtdb.firebaseio.com`), 'the refused instance opened no connection');
+  for (const refused of [`${PROJECT}-prod-default-rtdb.firebaseio.com`, `${PROJECT}-shard-02.firebaseio.com`]) {
+    assert.ok(!trappedHosts.includes(refused), `the refused instance ${refused} opened no connection`);
+  }
   for (const host of UNOBSERVED) assert.equal(unobservedLines(run.output, host), 1, `one line for ${host}:\n${run.output}`);
   assert.equal(unobservedLines(run.output, 'identitytoolkit.googleapis.com'), 0, 'the Auth row observes its lookups');
   assert.match(run.output, new RegExp(`${ENTRY}: firebase-admin/messaging loads unobserved\\.`));
@@ -102,6 +107,9 @@ async function checkBackend(app: App, instrument: 'assign' | 'define'): Promise<
 
 export default scenario(async (app) => {
   app.writeFile('.firebaserc', `${JSON.stringify({ projects: { default: PROJECT } })}\n`);
+  // The live project's second Realtime Database instance, which live mode lets through because firebase.json names it.
+  app.writeFile('firebase.json', `${JSON.stringify({ database: [{ instance: `${PROJECT}-shard-01`, rules: 'database.rules.json' }] })}\n`);
+  app.writeFile('database.rules.json', `${JSON.stringify({ rules: { '.read': false, '.write': false } })}\n`);
   const host = await app.step('start vite dev with pyricLive()', () => app.devServer());
 
   if (!ADMIN_ROWS_ON) {
