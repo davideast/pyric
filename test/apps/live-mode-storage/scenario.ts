@@ -153,8 +153,12 @@ async function readRows(chip: Locator): Promise<string[]> {
  */
 async function storageRows(chip: Locator): Promise<string[]> {
   await chip.locator('[data-chip-tab=traffic]').click();
-  // On a live host the scope is the From select: every client's requests.
-  await chip.locator('[data-traffic-from]').selectOption('all');
+  // Every client's requests: the From select on a live host, the All traffic switch on a sandbox host.
+  const from = chip.locator('[data-traffic-from]');
+  const scope = chip.locator('[data-traffic-scope]');
+  await from.or(scope).first().waitFor();
+  if (await from.count() > 0) await from.selectOption('all');
+  else if (await scope.getAttribute('aria-checked') !== 'true') await scope.click();
   const service = chip.locator('[data-request-service]');
   await service.selectOption('');
   await service.selectOption('storage');
