@@ -109,7 +109,6 @@ interface HostNodeClient {
   gatedAdmin?: string[];
 }
 
-
 /**
  * One run's checks: everything goes out, each unobserved host is named once,
  * the project gate holds, and the host captures the run's Messaging send.

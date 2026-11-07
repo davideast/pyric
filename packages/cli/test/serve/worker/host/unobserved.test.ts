@@ -14,6 +14,7 @@ import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serv
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { requestEnvelopeError } from '../../../../src/bridge/server/request-envelope.js';
 import type { BridgeMessage } from '../../../../src/bridge/protocol.js';
+import { createReproRecorder } from '../../../../src/serve/repro/recorder.js';
 
 interface FakePort extends PortLike { messages: OutboundMessage[] }
 
@@ -68,5 +69,11 @@ describe('host: unobserved lists', () => {
     const envelope = (message: Record<string, unknown>) => ({ type: 'worker-message', message }) as unknown as BridgeMessage;
     expect(requestEnvelopeError(envelope({ t: 'unobserved', id: 'u1', unobserved: ['cloudtrace.googleapis.com'] }))).toBeUndefined();
     expect(requestEnvelopeError(envelope({ t: 'unobserved', unobserved: ['cloudtrace.googleapis.com'] }))).toBe('Invalid worker message envelope.');
+  });
+
+  it('leaves the frame out of a repro log: it is host status, not an operation', async () => {
+    const recorder = createReproRecorder({ capture: async () => ({ at: 0, firestore: {}, rtdb: {}, auth: {} }) as never });
+    await recorder.inbound('s-node', { t: 'unobserved', id: 'u1', unobserved: ['cloudtrace.googleapis.com'] } as InboundMessage);
+    expect(JSON.stringify(await recorder.log())).not.toContain('cloudtrace.googleapis.com');
   });
 });
