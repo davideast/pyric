@@ -8,12 +8,13 @@
  *   - `signals` — per-collection over-shoot hints the agent layer can
  *     act on (Layer 2: add `@firestore-mutex` annotations).
  *   - `warnings` — per-file diagnostics (partial-base, unknown-callee,
- *     dynamic-arg, dynamic-collection-id).
+ *     dynamic-arg, dynamic-collection-id, unresolved-query).
  */
 import ts from 'typescript';
 import { iterFunctionBodies, parseSource } from './ast.js';
 import { collectAnnotations } from './annotation-collect.js';
-import { scanFunctionBody, type CallResolver, type ResolvedCall } from './dataflow.js';
+import { scanFunctionBody, scanStandaloneQuery, type CallResolver, type ResolvedCall } from './dataflow.js';
+import { getCalleeName } from './ast.js';
 import { enumerateShapes, pruneByAnnotations } from './enumerate.js';
 import { needsCompositeIndex, shapeToIndexEntry, indexEntryKey } from './composite.js';
 import { hasDynamicCollectionId } from './classify.js';
@@ -83,8 +84,11 @@ export function extractIndexes(options: ExtractOptions): ExtractResult {
     interface ScanRecord { fnName: string; decl: QueryBaseDecl }
     const records: ScanRecord[] = [];
     const inlinedAcrossFile = new Set<string>();
+    // Every `query(...)` call a chain scan records. The rest are
+    // standalone queries, handled after the chains.
+    const consumed = new Set<ts.CallExpression>();
     for (const fn of iterFunctionBodies(sf)) {
-      const decl = scanFunctionBody(fn.body, queryVarName, resolver);
+      const decl = scanFunctionBody(fn.body, queryVarName, resolver, consumed);
       records.push({ fnName: fn.name, decl });
       if (decl.inlinedFunctions) {
         for (const f of decl.inlinedFunctions) inlinedAcrossFile.add(f);
@@ -120,13 +124,37 @@ export function extractIndexes(options: ExtractOptions): ExtractResult {
         });
         continue;
       }
-      if (hasDynamicCollectionId(decl.collectionPath)) {
+      emitShapes(fnName, decl.collectionPath, decl);
+    }
+
+    // Third pass: every `query(...)` call no chain recorded, such as one
+    // passed straight into `getDocs` or `onSnapshot`, is a query of its
+    // own. One the extractor can't resolve is named by file and line.
+    for (const call of standaloneQueryCalls(sf, consumed)) {
+      const decl = scanStandaloneQuery(call);
+      const fnName = enclosingFunctionName(call);
+      if (decl.collectionPath === null) {
+        const line = sf.getLineAndCharacterOfPosition(call.getStart(sf)).line + 1;
+        warnings.push({
+          file: file.name,
+          line,
+          code: 'unresolved-query',
+          message: `Function '${fnName}' calls query(...) at line ${line} on something other than collection(db, '<name>') or collectionGroup(db, '<name>') with a literal name, so no index was generated for it.`,
+        });
+        continue;
+      }
+      emitShapes(fnName, decl.collectionPath, decl);
+    }
+
+    /** Enumerate one query with a resolved base, apply its annotations, and collect its shapes. */
+    function emitShapes(fnName: string, collectionPath: string, decl: QueryBaseDecl): void {
+      if (hasDynamicCollectionId(collectionPath)) {
         warnings.push({
           file: file.name,
           code: 'dynamic-collection-id',
-          message: `Function '${fnName}' queries '${decl.collectionPath}': index for a wildcard collection id skipped: name the collection.`,
+          message: `Function '${fnName}' queries '${collectionPath}': index for a wildcard collection id skipped: name the collection.`,
         });
-        continue;
+        return;
       }
       // Surface any unknown fragments as warnings before enumerating.
       surfaceFragmentWarnings(file.name, fnName, decl.fragments, warnings);
@@ -239,6 +267,45 @@ function surfaceFragmentWarnings(
       message: `Function '${fnName}' contained ${unknownCount} unrecognized constraint call(s) — these were skipped. Custom helpers wrapping where/orderBy aren't followed in v1.`,
     });
   }
+}
+
+/**
+ * Every `query(...)` call in `sf` that no chain scan recorded, in source
+ * order. A standalone call's own arguments aren't searched, so the inner
+ * call of `query(query(...), ...)` is reported with the outer one, not
+ * on its own.
+ */
+function standaloneQueryCalls(sf: ts.SourceFile, consumed: Set<ts.CallExpression>): ts.CallExpression[] {
+  const calls: ts.CallExpression[] = [];
+  function visit(n: ts.Node): void {
+    if (ts.isCallExpression(n) && getCalleeName(n) === 'query' && !consumed.has(n)) {
+      calls.push(n);
+      return;
+    }
+    ts.forEachChild(n, visit);
+  }
+  visit(sf);
+  return calls;
+}
+
+/**
+ * The name annotations are keyed by for the function a call sits in: the
+ * nearest enclosing function declaration, method, or function assigned to
+ * a variable. An anonymous callback reads through to the function around
+ * it. `'<module>'` for a call outside any named function.
+ */
+function enclosingFunctionName(node: ts.Node): string {
+  for (let cur: ts.Node | undefined = node.parent; cur; cur = cur.parent) {
+    if ((ts.isFunctionDeclaration(cur) || ts.isMethodDeclaration(cur)) && cur.name && ts.isIdentifier(cur.name)) {
+      return cur.name.text;
+    }
+    const isFunctionValue = ts.isArrowFunction(cur) || ts.isFunctionExpression(cur);
+    const declaration = cur.parent;
+    if (isFunctionValue && ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name)) {
+      return declaration.name.text;
+    }
+  }
+  return '<module>';
 }
 
 /**

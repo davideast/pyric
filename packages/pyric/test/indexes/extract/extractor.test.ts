@@ -576,3 +576,113 @@ describe('extractIndexes — dynamic collection id', () => {
     expect(data.warnings.filter(w => w.code === 'dynamic-collection-id')).toEqual([]);
   });
 });
+
+describe('extractIndexes: a query passed inline to a reader (#2427)', () => {
+  const RECENT_PROJECTS_INDEX = {
+    collectionGroup: 'projects',
+    queryScope: 'COLLECTION_GROUP',
+    fields: [
+      { fieldPath: 'ownerId', order: 'ASCENDING' },
+      { fieldPath: 'updatedAt', order: 'DESCENDING' },
+    ],
+  };
+  const RECENT_PROJECTS = `query(collectionGroup(db, 'projects'), where('ownerId', '==', ownerId), orderBy('updatedAt', 'desc'))`;
+
+  test('a query assigned to q first yields the index', () => {
+    const data = extract(`
+      export async function recentProjects(ownerId) {
+        const q = ${RECENT_PROJECTS};
+        return getDocs(q);
+      }
+    `);
+    expect(data.config.indexes).toEqual([RECENT_PROJECTS_INDEX]);
+    expect(data.warnings).toEqual([]);
+  });
+
+  test('a query passed straight into getDocs yields the same index', () => {
+    const data = extract(`
+      export async function recentProjects(ownerId) {
+        return getDocs(${RECENT_PROJECTS});
+      }
+    `);
+    expect(data.config.indexes).toEqual([RECENT_PROJECTS_INDEX]);
+    expect(data.warnings).toEqual([]);
+  });
+
+  for (const reader of ['onSnapshot', 'getCountFromServer', 'getAggregateFromServer', 'getDocsFromServer']) {
+    test(`a query passed straight into ${reader} yields the index`, () => {
+      const data = extract(`
+        export function watch(ownerId, cb) {
+          return ${reader}(${RECENT_PROJECTS}, cb);
+        }
+      `);
+      expect(data.config.indexes).toEqual([RECENT_PROJECTS_INDEX]);
+      expect(data.warnings).toEqual([]);
+    });
+  }
+
+  test('an inline query in an arrow function with an expression body yields the index', () => {
+    const data = extract(`
+      export const recentProjects = (ownerId) => getDocs(${RECENT_PROJECTS});
+    `);
+    expect(data.config.indexes).toEqual([RECENT_PROJECTS_INDEX]);
+  });
+
+  test('a query assigned to a variable not named q yields the index', () => {
+    const data = extract(`
+      export async function recentProjects(ownerId) {
+        const recent = ${RECENT_PROJECTS};
+        return getDocs(recent);
+      }
+    `);
+    expect(data.config.indexes).toEqual([RECENT_PROJECTS_INDEX]);
+    expect(data.warnings).toEqual([]);
+  });
+
+  test('an inline query that narrows the q chain adds to the chain', () => {
+    const data = extract(`
+      export async function recentProjects(ownerId) {
+        const q = query(collectionGroup(db, 'projects'), where('ownerId', '==', ownerId));
+        return getDocs(query(q, orderBy('updatedAt', 'desc')));
+      }
+    `);
+    expect(data.config.indexes).toEqual([RECENT_PROJECTS_INDEX]);
+    expect(data.warnings).toEqual([]);
+  });
+
+  test('a query built on a helper the analysis cannot resolve warns with its file and line', () => {
+    const data = extract(`export async function recentProjects(ownerId) {
+  return getDocs(query(projectsOf(db), where('ownerId', '==', ownerId), orderBy('updatedAt', 'desc')));
+}
+`);
+    expect(data.config.indexes).toEqual([]);
+    expect(data.warnings).toHaveLength(1);
+    expect(data.warnings[0]).toMatchObject({ file: 'test.js', line: 2, code: 'unresolved-query' });
+  });
+
+  test('a query on a variable not named q warns with its file and line', () => {
+    const data = extract(`export async function recentProjects(base) {
+  const recent = query(base, orderBy('updatedAt', 'desc'));
+  return getDocs(recent);
+}
+`);
+    expect(data.warnings).toHaveLength(1);
+    expect(data.warnings[0]).toMatchObject({ file: 'test.js', line: 2, code: 'unresolved-query' });
+  });
+
+  test('a query at module scope yields the index', () => {
+    const data = extract(`
+      const snapshot = await getDocs(query(collectionGroup(db, 'projects'), where('ownerId', '==', 'a'), orderBy('updatedAt', 'desc')));
+    `);
+    expect(data.config.indexes).toEqual([RECENT_PROJECTS_INDEX]);
+  });
+
+  test('an inline query inside a nested callback is counted once', () => {
+    const data = extract(`
+      export function useProjects(ownerId) {
+        useEffect(() => onSnapshot(query(collectionGroup(db, 'projects'), where('ownerId', '==', ownerId), orderBy(field)), cb), []);
+      }
+    `);
+    expect(data.warnings.filter((w) => w.code === 'unknown-callee')).toHaveLength(1);
+  });
+});

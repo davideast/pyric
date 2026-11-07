@@ -156,6 +156,8 @@ export interface ExtractionSignal {
 export interface ExtractionWarning {
   /** Source file the warning is about. */
   file: string;
+  /** 1-based line of the call the warning is about, when it names one call. */
+  line?: number;
   /**
    * - `'partial-base'` — the function body uses a `q` parameter; the
    *   INIT site lives in a caller (inter-procedural following NYI).
@@ -166,8 +168,12 @@ export interface ExtractionWarning {
    *   "asc"/"desc"; the extractor emitted both.
    * - `'dynamic-collection-id'` — the query's collection id (the last
    *   path segment) was non-literal; the extractor emitted no index for it.
+   * - `'unresolved-query'` — a `query(...)` call outside any chain on the
+   *   chain variable starts from something other than a literal
+   *   `collection(...)` or `collectionGroup(...)`; `line` names it.
    */
   code:
+    | 'unresolved-query'
     | 'partial-base'
     | 'dynamic-collection-id'
     | 'unknown-callee'
