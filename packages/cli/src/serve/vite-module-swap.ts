@@ -40,6 +40,7 @@ import {
 import { loadServerTarget } from './vite-ssr-loader.js';
 import { LIVE_ROW_SDK_PACKAGES, isFirebaseSdkName, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
 import { packageNameOf, pathInPackageOf } from '../register/package-identity.js';
+import { installedFirebaseSdkNames } from '../bundler/externals.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 const SDK_PACKAGE_SPECIFIER = /^@firebase\//;
@@ -112,6 +113,8 @@ export interface SwapResolveContext {
 export interface SwapConfigOptions {
   /** `vite dev`: route server-rendered imports too (`vite-ssr-routing.ts`). */
   devServer?: boolean;
+  /** The app's own Vite config: its `root` and `ssr.external`. */
+  userConfig?: UserConfig;
 }
 
 export interface ViteModuleSwap {
@@ -200,6 +203,8 @@ export function createViteModuleSwap(
   const aiMode = (): AiMode => options?.getAiMode?.() ?? 'sandbox';
   /** Set by `config()`: whether this server routes server-rendered imports. */
   let routesServerImports = false;
+  /** Set by `config()`: what every server environment keeps external. */
+  let serverExternal: string[] = SSR_EXTERNAL;
   /** Vite's root, set by `configResolved`: where an import with no file importer resolves from. */
   let root = process.cwd();
   /** The stop behind each stop module id, and the id each import got. */
@@ -549,6 +554,25 @@ export function createViteModuleSwap(
     },
   };
 
+  /**
+   * Every name a Firebase SDK is installed under, kept external in server
+   * environments, as `pyricViteExternals` keeps them in an SSR build (#2345).
+   * Vite ranks `ssr.external` above `ssr.noExternal`, so Node loads a direct
+   * `@firebase/*` import or an npm alias of firebase-admin, and the stop hook
+   * (`vite-process-stop.ts`) decides it as the register does after a build.
+   * The SSR alias still routes the served `firebase/*` subpaths and
+   * `firebase-admin` before Vite checks this list. Live rows refuse server
+   * imports their own way and are left as they are, and a config with
+   * `ssr.external: true` already externalizes every dependency.
+   */
+  function installedSdkExternals(userConfig: UserConfig | undefined): string[] {
+    const hasLiveRows = options?.supplied !== undefined;
+    const externalizesEveryDependency = userConfig?.ssr?.external === true;
+    if (hasLiveRows || externalizesEveryDependency) return [];
+    const projectDir = path.resolve(userConfig?.root ?? process.cwd());
+    return installedFirebaseSdkNames({ projectDir });
+  }
+
   return {
     config(configOptions) {
       const excludedModules = [
@@ -579,8 +603,11 @@ export function createViteModuleSwap(
         ? { rolldownOptions: { plugins: [rolldownMirror] } }
         : { esbuildOptions: { plugins: [optimizerMirror] } };
       routesServerImports = configOptions?.devServer === true;
+      serverExternal = routesServerImports
+        ? [...SSR_EXTERNAL, ...installedSdkExternals(configOptions?.userConfig)]
+        : SSR_EXTERNAL;
       const ssrRouting: UserConfig = routesServerImports
-        ? { resolve: { alias: [ssrSwapAlias()] }, ssr: { external: SSR_EXTERNAL } }
+        ? { resolve: { alias: [ssrSwapAlias()] }, ssr: { external: serverExternal } }
         : {};
       return {
         ...ssrRouting,
@@ -594,7 +621,7 @@ export function createViteModuleSwap(
       // The `ssr` environment takes the top-level `ssr.external` above.
       const isOtherServerEnvironment = routesServerImports && name !== 'ssr' &&
         isServerEnvironment(name, environmentConfig.consumer);
-      return isOtherServerEnvironment ? { resolve: { external: [...SSR_EXTERNAL] } } : null;
+      return isOtherServerEnvironment ? { resolve: { external: [...serverExternal] } } : null;
     },
     configResolved(config) {
       root = config.root ?? root;

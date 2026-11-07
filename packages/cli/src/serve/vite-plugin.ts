@@ -340,7 +340,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         installViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
       }
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
-      const moduleConfig = moduleSwap.config({ devServer: isDevServer });
+      const moduleConfig = moduleSwap.config({ devServer: isDevServer, userConfig: config });
       const pageConfig = pageRuntime.config(config, env);
       const serverConfig: UserConfig = {
         server: {
