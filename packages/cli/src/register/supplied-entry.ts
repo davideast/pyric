@@ -29,7 +29,7 @@ import {
   loadInstalledLiveRegister,
   recordedPassThrough,
 } from './live-package.js';
-import { passThroughSdkPackages, passThroughSet } from '../serve/vite-supplied-rows.js';
+import { ADMIN_PASS_THROUGH, passThroughSdkPackages, passThroughSet } from '../serve/vite-supplied-rows.js';
 import { createStopReporter, suppliedRowsStopFor } from './swap-or-stop.js';
 import { installLiveNetGuard } from './live-net-guard.js';
 import { isRegisterLiveModule } from './live-row.js';
@@ -51,7 +51,7 @@ export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
 export { ADMIN_ROW_LOADS, ADMIN_ROW_URLS, adminRowOfUrl, type AdminRowName } from './admin-row.js';
 export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
 export { liveProjectId } from '../serve/live-project.js';
-export { LIVE_PROJECT_ROOT_VARIABLE, liveAppDirs, liveProjectRoot } from './live-package.js';
+export { LIVE_PROJECT_ROOT_VARIABLE, liveAppDirs, liveProjectRoot, recordedPassThrough } from './live-package.js';
 export { idTokenIssuer, livePassThroughLine } from 'pyric/sandbox/internal';
 export { swappedFirebaseEntries } from '../serve/firebase-module-swap.js';
 export type { FirebaseRowSet, ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
@@ -313,6 +313,18 @@ function liveHostSender(reattached: () => void): (lists: NodeUnobservedLists) =>
   };
 }
 
+/**
+ * The pass-through list a child process inherits, without `firebase-admin`
+ * while its own Admin rows are shut. The first process recorded it, so a Node 22
+ * child of a Node 23 or later process would otherwise load the real Admin SDK
+ * with no row and no project check; without it, each `firebase-admin` import
+ * is refused, as in a Node 22 first process.
+ */
+function adminPassesWithRows(listed: readonly string[], adminRows: boolean): readonly string[] {
+  if (adminRows) return listed;
+  return listed.filter((specifier) => specifier !== ADMIN_PASS_THROUGH);
+}
+
 /** What the register entry gives the seam. */
 export interface SuppliedRowsActivation {
   /**
@@ -326,7 +338,8 @@ export interface SuppliedRowsActivation {
    * Served specifiers with no live row that load the app's installed SDK
    * unwrapped and unobserved, as `pyricLive({ passThrough })` lists them
    * (`passThroughSet`). Any other entry throws. Undefined in a child process
-   * or worker, which passes through what its first process recorded.
+   * or worker, which passes through what its first process recorded,
+   * except `firebase-admin` while its own Admin rows are shut.
    */
   readonly passThrough?: readonly string[];
   /**
@@ -365,8 +378,8 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
         'Start the process with one of the two.',
     );
   }
-  const passThrough = passThroughSet(input.passThrough ?? recordedPassThrough(process.env));
   const adminRows = input.adminRows === true;
+  const passThrough = passThroughSet(input.passThrough ?? adminPassesWithRows(recordedPassThrough(process.env), adminRows));
   // First, before any hook: the network report (`live-net-guard.ts`). It never
   // refuses a call, and names each Google host no live row observes.
   // Each list sent to the live host when it first gains an entry and on each change, so the host's health lists them.

@@ -31,7 +31,9 @@
  * The first process runs the start checks (`start-checks.ts`), prints the
  * start line, and says which host its calls reach, or how to start one. A
  * child process or worker it starts opens the same rows, with the same
- * pass-through imports, quietly. Every process hands its rows the project it
+ * pass-through imports, quietly. One exception: a child on Node 22 of a
+ * Node 23 or later process refuses the `firebase-admin` it inherited, as a
+ * Node 22 first process does, and prints the line that says so. Every process hands its rows the project it
  * resolved (`serveHostProject`), so a call whose app names another project
  * is refused.
  */
@@ -45,6 +47,7 @@ import {
   liveProjectId,
   liveProjectRoot,
   reachLiveHost,
+  recordedPassThrough,
 } from '@pyric/cli/register/internal/supplied-rows';
 import { refuseAdminWithoutHostProject, serveHostProject } from './node-modules.js';
 import { ADMIN_PASS_THROUGH, adminRowsNodeProblem, passThroughOption } from './refusal.js';
@@ -71,13 +74,18 @@ function childProject(projectRoot: string): string | undefined {
 /** This package's folder: the one above `dist/` in the installed files, or above `src/` in the workspace. */
 const LIVE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
+/** The line for a process on Node 22, where firebase-admin is refused, with the reason. */
+function adminRefusedLine(problem: string): string {
+  return `${ENTRY}: firebase-admin is refused in this process. ${problem}`;
+}
+
 /**
  * The Admin start line: firebase-admin is observed, with its own credential,
  * and its calls bypass Security Rules. Then one line per Admin emulator
  * variable that is set, naming where those calls go instead.
  */
 function adminLines(projectId: string, env: NodeJS.ProcessEnv): string[] {
-  if (adminNodeProblem !== null) return [`${ENTRY}: firebase-admin is refused in this process. ${adminNodeProblem}`];
+  if (adminNodeProblem !== null) return [adminRefusedLine(adminNodeProblem)];
   const observed =
     `${ENTRY}: firebase-admin is observed for the Firebase project ${projectId}. ` +
     'This process uses its own credential, and its Admin calls bypass Security Rules. ' +
@@ -104,6 +112,8 @@ const isFirstProcess = process.env[LIVE_PROJECT_ROOT_VARIABLE] === undefined;
 // a child or worker passes through what its first process recorded.
 const reach = isFirstProcess ? await reachLiveHost(liveProjectRoot(process.env, process.cwd())) : null;
 const hostPassThrough = reach?.kind === 'live' ? reach.passThrough : [];
+// A child of a Node 23 or later process inherits firebase-admin in its list. On Node 22 the seam drops it, and the child says so.
+const inheritsAdmin = !isFirstProcess && recordedPassThrough(process.env).includes(ADMIN_PASS_THROUGH);
 const passThrough = isFirstProcess ? passThroughOption(ENTRY, hostPassThrough) : undefined;
 // The Admin rows are on from Node 23: firebase-admin loads through the seam's Admin tree, and its four
 // class-defining loads get the rows. On Node 22 they stay shut, and every firebase-admin import is refused.
@@ -121,6 +131,8 @@ if (servedChildProject !== undefined) serveHostProject(servedChildProject, confi
 // A child whose first process recorded a root with no project: no Admin call could be gated, so the rows refuse firebase-admin.
 const isChildWithoutProject = isChild && servedChildProject === undefined;
 if (isChildWithoutProject) refuseAdminWithoutHostProject(projectRoot);
+const refusesInheritedAdmin = isChild && inheritsAdmin && adminNodeProblem !== null;
+if (refusesInheritedAdmin) process.stderr.write(`${adminRefusedLine(adminNodeProblem)}\n`);
 if (startsLive) {
   // The app's firebase as its rows read it: from the entry script's folder, then the working directory.
   const appDirs = liveAppDirs(process.argv[1], process.cwd());

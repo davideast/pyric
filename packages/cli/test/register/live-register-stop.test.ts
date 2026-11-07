@@ -389,6 +389,41 @@ describe('@pyric/live/register and the Admin project', () => {
   }, 60_000);
 });
 
+describe('@pyric/live/register in a child of a Node 23 or later process', () => {
+  // What a Node 23 or later first process hands its children: its project root, its SDK root, and firebase-admin
+  // in the pass-through list. A child started with a Node 22 binary reads the same variables.
+  const handedByNode24Parent = (dir: string) => ({
+    PYRIC_LIVE_PROJECT_ROOT: dir,
+    PYRIC_LIVE_SDK_ROOT: dir,
+    PYRIC_LIVE_PASS_THROUGH: 'firebase-admin',
+  });
+
+  it('refuses the firebase-admin it inherits on Node 22, loads none of its files, and says so; loads it from Node 23', () => {
+    const res = run([LIVE_REGISTER], ['firebase-admin/app', 'firebase-admin/firestore'], { env: handedByNode24Parent(projectDir) });
+    expect(res.status, res.stderr).toBe(0);
+    const adminFiles = res.sdkFiles.filter((url) => url.includes('/node_modules/firebase-admin/'));
+    if (adminRowsOn) {
+      expect(res.outcome['firebase-admin/app'], res.stderr).toBe('loaded');
+      expect(res.outcome['firebase-admin/firestore'], res.stderr).toBe('loaded');
+      expect(res.stderr).not.toContain('firebase-admin is refused in this process');
+      return;
+    }
+    expect(res.outcome['firebase-admin/app'], res.stderr).toBe('PYRIC_LIVE_REFUSED');
+    expect(res.outcome['firebase-admin/firestore'], res.stderr).toBe('PYRIC_LIVE_REFUSED');
+    expect(adminFiles).toEqual([]);
+    expect(res.stderr).toContain('@pyric/live/register: firebase-admin is refused in this process.');
+    expect(res.stderr).toContain('Node 23 or later');
+  }, 60_000);
+
+  it('stays quiet about firebase-admin in a Node 22 child whose parent passed none through', () => {
+    const env = { ...handedByNode24Parent(projectDir), PYRIC_LIVE_PASS_THROUGH: '' };
+    const res = run([LIVE_REGISTER], ['firebase/firestore'], { env });
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.outcome['firebase/firestore'], res.stderr).toBe('loaded');
+    expect(res.stderr).not.toContain('firebase-admin');
+  }, 60_000);
+});
+
 describe('@pyric/cli/register alone, with @pyric/live installed', () => {
   it('keeps the stop for every real firebase/* and firebase-admin load, the live row ids included, and loads no SDK file', async () => {
     const rowIds = await Promise.all(LIVE_ROWS.map(rowUrl));

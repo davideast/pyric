@@ -184,7 +184,7 @@ Admin calls bypass Security Rules. A write from your backend changes production 
 
 The backend needs:
 
-- **Node 23 or later.** On Node 22, the register can't see `firebase-admin`'s `require()` calls. The start line says `firebase-admin` is refused in this process and names Node 23, and each `firebase-admin` import throws `PYRIC_LIVE_REFUSED`. The rest of the process runs in live mode as usual.
+- **Node 23 or later.** On Node 22, the register can't see `firebase-admin`'s `require()` calls. The start line says `firebase-admin` is refused in this process and names Node 23, and each `firebase-admin` import throws `PYRIC_LIVE_REFUSED`. A child process on Node 22, started by a backend on Node 23 or later, refuses `firebase-admin` the same way and prints the same line. The rest of the process runs in live mode as usual.
 - **`firebase-admin` 13.** With another major version installed, the register stops at start and prints the install command.
 
 The start line says what is observed:
