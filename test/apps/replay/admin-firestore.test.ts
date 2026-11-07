@@ -112,6 +112,77 @@ test('the Admin SDK reads, queries, counts, writes, transacts and listens over g
   expect(await unmatchedBy(server.origin)).toEqual([{ rpc: 'grpc', as: null, request: { method: 'Commit' } }]);
 }, 90_000);
 
+/**
+ * A client SDK app that sends the Admin SDK's bearer: the Node build of
+ * `firebase/firestore` with `mockUserToken: 'owner'`. Its transaction
+ * commits the write the fixture's `set-a` Commit holds. The client SDK sends
+ * no RunQuery over gRPC, so the query is a RunQuery with the client SDK's
+ * own headers and the request the fixture's `query-n` holds, sent with the
+ * grpc-js and protos that SDK carries.
+ */
+const CLIENT_AS_OWNER = `
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { initializeApp } from 'firebase/app';
+import { connectFirestoreEmulator, doc, getFirestore, runTransaction } from 'firebase/firestore';
+const { firestoreProtos } = await import(${JSON.stringify(join(import.meta.dir, 'grpc.ts'))});
+const [grpcHost] = process.argv.slice(1);
+const [host, port] = grpcHost.split(':');
+const db = getFirestore(initializeApp({ projectId: 'pyric-replay-admin', apiKey: 'test-api-key', appId: '1:1:web:replay' }));
+connectFirestoreEmulator(db, host, Number(port), { mockUserToken: 'owner' });
+const out = {};
+out.committed = await runTransaction(db, async (transaction) => {
+  transaction.set(doc(db, 'notes/a'), { n: 1, title: 'first' });
+}).then(() => 'ok', (error) => error.code);
+
+const fromFirebase = createRequire(createRequire(join(process.cwd(), 'package.json')).resolve('firebase/firestore'));
+const firestoreEntry = fromFirebase.resolve('@firebase/firestore');
+const fromFirestore = createRequire(firestoreEntry);
+const grpc = fromFirestore('@grpc/grpc-js');
+const protobuf = createRequire(fromFirestore.resolve('@grpc/proto-loader'))('protobufjs');
+const root = protobuf.Root.fromJSON(firestoreProtos(dirname(firestoreEntry)));
+const Request = root.lookupType('google.firestore.v1.RunQueryRequest');
+const Response = root.lookupType('google.firestore.v1.RunQueryResponse');
+const metadata = new grpc.Metadata();
+metadata.set('authorization', 'Bearer owner');
+metadata.set('x-goog-api-client', 'gl-node/' + process.versions.node + ' fire/12.19.0 grpc/1.9.16');
+const request = Request.fromObject({
+  parent: 'projects/pyric-replay-admin/databases/(default)/documents',
+  structuredQuery: { from: [{ collectionId: 'notes' }], where: { fieldFilter: { field: { fieldPath: 'n' }, op: 'GREATER_THAN_OR_EQUAL', value: { integerValue: 5 } } } },
+});
+const client = new grpc.Client(grpcHost, grpc.credentials.createInsecure());
+out.queried = await new Promise((done) => {
+  const names = [];
+  const stream = client.makeServerStreamRequest('/google.firestore.v1.Firestore/RunQuery', (message) => Buffer.from(Request.encode(message).finish()), (bytes) => Response.decode(bytes), request, metadata);
+  stream.on('data', (response) => { if (response.document) names.push(response.document.name.split('/').pop()); });
+  stream.on('error', (error) => done(error.code));
+  stream.on('end', () => done(names));
+});
+client.close();
+console.log('RESULT ' + JSON.stringify(out));
+process.exit(0);
+`;
+
+test('a client SDK call that sends the Admin bearer is refused, not answered from an Admin exchange', async () => {
+  const replay = await startReplayProcess([FIXTURE], ROOT);
+  try {
+    const run = await new Promise<{ stdout: string; stderr: string }>((done) => {
+      const child = spawn('node', ['--experimental-transform-types', '--no-warnings', '--input-type=module', '-e', CLIENT_AS_OWNER, replay.grpc!], { cwd: ROOT, timeout: 60_000 });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (part: Buffer) => { stdout += part.toString(); });
+      child.stderr.on('data', (part: Buffer) => { stderr += part.toString(); });
+      child.on('close', () => done({ stdout, stderr }));
+    });
+    const line = run.stdout.split('\n').find((entry) => entry.startsWith('RESULT '));
+    expect(line, `${run.stdout}\n${run.stderr}`).toBeDefined();
+    expect(JSON.parse(line!.slice('RESULT '.length))).toEqual({ committed: 'unimplemented', queried: 12 });
+    expect((await unmatchedBy(replay.origin)).map((entry) => entry.request)).toEqual([{ method: 'Commit' }, { method: 'RunQuery' }]);
+  } finally {
+    await replay.stop();
+  }
+}, 90_000);
+
 /** A fresh replay state for the fixture, with its Admin answerer. */
 function adminReplay(): { state: ReplayState; admin: AdminFirestore } {
   const state = new ReplayState([readRecording(FIXTURE)]);

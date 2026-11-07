@@ -15,8 +15,9 @@
 // live mode passes through unchanged.
 //
 // The Admin SDK (`firebase-admin/firestore`) reaches it through its own
-// `FIRESTORE_EMULATOR_HOST`, and then sends `Authorization: Bearer owner` on
-// every call. Those calls are answered from `admin-firestore` exchanges
+// `FIRESTORE_EMULATOR_HOST`, and then sends `Authorization: Bearer owner` and
+// names its library (`gccl/`) on every call. Those calls, and no client SDK
+// call that sends the same bearer, are answered from `admin-firestore` exchanges
 // (`admin-firestore.ts`): BatchGetDocuments, RunQuery, RunAggregationQuery,
 // Commit, BeginTransaction, Rollback and Listen. Any other call, and any
 // Admin call no exchange holds, is refused and listed in `unmatched`.
@@ -245,14 +246,27 @@ function uidOf(state: ReplayState, call: DuplexCall): string | null {
 }
 
 /**
+ * Whether a call names `@google-cloud/firestore`, the library firebase-admin
+ * wraps: it sends `gccl/<version>` in `x-goog-api-client` on every call. The
+ * client SDK's Node build sends `gl-node/<version> fire/<version>
+ * grpc/<version>` there (`createMetadata` in `@firebase/firestore`), with no
+ * `gccl/`.
+ */
+function namesAdminLibrary(call: DuplexCall): boolean {
+  const header = call.metadata.get('x-goog-api-client')[0];
+  return typeof header === 'string' && /(^| )gccl\//.test(header);
+}
+
+/**
  * Whether a call came from the Admin SDK in emulator mode, which always sends
- * `Bearer owner`. The header is all this reads, so a client SDK call that
- * sends the same bearer (`connectFirestoreEmulator` with
- * `mockUserToken: 'owner'`) also gets Admin answers. Any other bearer is
- * refused before an Admin exchange is tried (`admin-auth.test.ts`).
+ * `Bearer owner`. A client SDK call can send the same bearer
+ * (`connectFirestoreEmulator` with `mockUserToken: 'owner'`), so the call
+ * must also name the Admin SDK's library, or it gets no Admin answer
+ * (`admin-firestore.test.ts`). Any other bearer is refused before an Admin
+ * exchange is tried (`admin-auth.test.ts`).
  */
 function isAdminCall(call: DuplexCall): boolean {
-  return call.metadata.get('authorization')[0] === 'Bearer owner';
+  return call.metadata.get('authorization')[0] === 'Bearer owner' && namesAdminLibrary(call);
 }
 
 /** The handler for one Listen or Write stream: an Admin Listen, or a client stream as its bearer's uid. */
