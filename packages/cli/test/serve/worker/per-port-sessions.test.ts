@@ -290,9 +290,32 @@ describe('per-port sessions drive data ops (#754)', () => {
     const lastSnap = (subId: string) => port.snaps.filter((snap) => snap.subId === subId).at(-1)?.value as { __error?: unknown };
     const denied = { __error: { code: expect.stringMatching(/permission|denied/i) } };
 
+    await listen('initial-denied');
+    expect(lastSnap('initial-denied')).toMatchObject(denied);
+
     expect((await signIn()).ok).toBe(true);
     await listen('signed-in');
     expect(lastSnap('signed-in').__error).toBeUndefined();
+    await listen('rules-revoked');
+    expect(lastSnap('rules-revoked').__error).toBeUndefined();
+    setHostDatabaseRules(ctx, 'second', {
+      rules: {
+        admins: {
+          '.read': false,
+          '.write': "auth != null && auth.token.role == 'admin'",
+        },
+      },
+    });
+    await tick();
+    expect(lastSnap('rules-revoked')).toMatchObject(denied);
+    setHostDatabaseRules(ctx, 'second', {
+      rules: {
+        admins: {
+          '.read': "auth != null && auth.token.role == 'admin'",
+          '.write': "auth != null && auth.token.role == 'admin'",
+        },
+      },
+    });
     expect((await op(ctx, port, { t: 'op', method: 'auth.signOut' })).ok).toBe(true);
     await tick();
     expect(lastSnap('signed-in')).toMatchObject(denied);
@@ -306,6 +329,20 @@ describe('per-port sessions drive data ops (#754)', () => {
     expect((await op(ctx, port, { t: 'op', method: 'auth.getIdTokenResult', forceRefresh: true })).ok).toBe(true);
     await tick();
     expect(lastSnap('refreshed')).toMatchObject(denied);
+
+    // Restoring admin claims and refreshing again must not resurrect any permanently cancelled listener (#2450).
+    const cancelledIds = new Set(['initial-denied', 'signed-in', 'rules-revoked', 'refreshed']);
+    const snapsBeforeReadmin = port.snaps.filter((snap) => cancelledIds.has(snap.subId)).length;
+    expect((await op(ctx, port, {
+      t: 'op', method: 'auth.adminUpdateUser', uid: 'instance-user', request: { customClaims: { role: 'admin' } },
+    })).ok).toBe(true);
+    expect((await op(ctx, port, { t: 'op', method: 'auth.getIdTokenResult', forceRefresh: true })).ok).toBe(true);
+    await tick();
+    expect((await op(ctx, port, {
+      t: 'op', method: 'rtdb.set', instance: 'second', path: 'admins', value: { afterReadmin: true },
+    })).ok).toBe(true);
+    await tick();
+    expect(port.snaps.filter((snap) => cancelledIds.has(snap.subId))).toHaveLength(snapsBeforeReadmin);
   });
 
   it('an explicit Studio lens still overrides the port session', async () => {

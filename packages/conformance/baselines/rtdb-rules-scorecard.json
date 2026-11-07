@@ -183,6 +183,7 @@
         "r52-prototype-named-keys",
         "r54-regex-alternation-runtime",
         "r56-regex-classes-runtime",
+        "r63-ancestor-write-data-newdata",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -208,6 +209,7 @@
         "r34-stdlib-auth-membership-quota",
         "r42-custom-token-standard-claims",
         "r49-value-edges",
+        "r63-ancestor-write-data-newdata",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -262,9 +264,12 @@
         "r41-error-and-false-short-circuit",
         "r48-object-equality",
         "r49-value-edges",
+        "r63-ancestor-write-data-newdata",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#8"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.newData": {
@@ -304,10 +309,13 @@
         "r52-prototype-named-keys",
         "r54-regex-alternation-runtime",
         "r56-regex-classes-runtime",
+        "r63-ancestor-write-data-newdata",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#8"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.root": {
@@ -389,6 +397,7 @@
         "r50-regex-unsupported-semantics",
         "r54-regex-alternation-runtime",
         "r56-regex-classes-runtime",
+        "r63-ancestor-write-data-newdata",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -418,6 +427,7 @@
         "r40-auth-token-dynamic-index",
         "r41-error-and-false-short-circuit",
         "r49-value-edges",
+        "r63-ancestor-write-data-newdata",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -439,6 +449,7 @@
         "r28-stdlib-presence-timing",
         "r34-stdlib-auth-membership-quota",
         "r39-root-parent-runtime",
+        "r63-ancestor-write-data-newdata",
         "r43-deploy-expression-and-structure-probes",
         "r62-deploy-ternary-snapshot-member"
       ],
@@ -499,7 +510,8 @@
         "r32-method-argument-types",
         "r34-stdlib-auth-membership-quota",
         "r39-root-parent-runtime",
-        "r49-value-edges"
+        "r49-value-edges",
+        "r63-ancestor-write-data-newdata"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -765,6 +777,7 @@
         "r45-not-operator-runtime",
         "r48-object-equality",
         "r49-value-edges",
+        "r63-ancestor-write-data-newdata",
         "r9-quota-arithmetic",
         "r44-deploy-string-and-regex-probes"
       ],
@@ -815,6 +828,7 @@
         "r52-prototype-named-keys",
         "r54-regex-alternation-runtime",
         "r56-regex-classes-runtime",
+        "r63-ancestor-write-data-newdata",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -1033,6 +1047,7 @@
         "r50-regex-unsupported-semantics",
         "r54-regex-alternation-runtime",
         "r56-regex-classes-runtime",
+        "r63-ancestor-write-data-newdata",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -1088,7 +1103,8 @@
         "r45-not-operator-runtime",
         "r48-object-equality",
         "r49-value-edges",
-        "r50-regex-unsupported-semantics"
+        "r50-regex-unsupported-semantics",
+        "r63-ancestor-write-data-newdata"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1121,6 +1137,7 @@
         "r35-operator-precedence",
         "r39-root-parent-runtime",
         "r41-error-and-false-short-circuit",
+        "r63-ancestor-write-data-newdata",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -1151,6 +1168,7 @@
         "r42-custom-token-standard-claims",
         "r45-not-operator-runtime",
         "r49-value-edges",
+        "r63-ancestor-write-data-newdata",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -1268,6 +1286,7 @@
         "r54-regex-alternation-runtime",
         "r56-regex-classes-runtime",
         "r6-deny-everything",
+        "r63-ancestor-write-data-newdata",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -1354,6 +1373,7 @@
         "r28-stdlib-presence-timing",
         "r34-stdlib-auth-membership-quota",
         "r52-prototype-named-keys",
+        "r63-ancestor-write-data-newdata",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
@@ -1387,7 +1407,8 @@
       "verifiedByRows": [
         "rtdb-rules#3",
         "rtdb-rules#4",
-        "rtdb-rules#5"
+        "rtdb-rules#5",
+        "rtdb-rules#8"
       ],
       "divergedByRows": []
     },

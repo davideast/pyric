@@ -74,12 +74,21 @@ function identityFor(
   return { uid: held.uid, token: held.token ?? {} };
 }
 
+const STORAGE_COMPILE_PREFIX = /^Storage rules do not compile: /;
+
 /**
  * Why `compileStorageRules` refused a source: production's compile rejections
  * when the source parses and breaks a compile limit, otherwise the failure it
  * threw.
  */
 function sourceProblem(source: string, error: unknown): RulesSourceProblem {
+  const message = error instanceof Error ? error.message : String(error);
+  if (STORAGE_COMPILE_PREFIX.test(message)) {
+    return {
+      body: asSentence(`rules did not compile: ${message.replace(STORAGE_COMPILE_PREFIX, '')}`),
+      fix: "Bring the ruleset within production's compile limits, then call rules.set with service 'storage'.",
+    };
+  }
   const violations = sourceCompileLimitViolations(source);
   if (violations.length > 0) {
     return {
@@ -87,7 +96,6 @@ function sourceProblem(source: string, error: unknown): RulesSourceProblem {
       fix: "Bring the ruleset within production's compile limits, then call rules.set with service 'storage'.",
     };
   }
-  const message = error instanceof Error ? error.message : String(error);
   return {
     body: asSentence(`rules did not parse: ${message}`),
     fix: "Fix the syntax, then call rules.set with service 'storage'.",

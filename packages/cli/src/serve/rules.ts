@@ -85,7 +85,12 @@ interface ProjectModulesResolution {
  * beside `sourcePath`. The resolver names nested imports relative to the
  * source, so every file it asks for is under `sourcePath`'s directory.
  */
-function resolveProjectModules(raw: string, sourcePath: string, sourceFile?: string): ProjectModulesResolution {
+function resolveProjectModules(
+  raw: string,
+  sourcePath: string,
+  sourceFile?: string,
+  targetService?: 'cloud.firestore' | 'firebase.storage',
+): ProjectModulesResolution {
   const basePath = dirname(sourcePath);
   const moduleFiles: string[] = [];
   const readProjectRulesFile = (base: string, moduleName: string): string | null => {
@@ -98,7 +103,11 @@ function resolveProjectModules(raw: string, sourcePath: string, sourceFile?: str
       return null;
     }
   };
-  const options = sourceFile === undefined ? { basePath } : { basePath, sourceFile };
+  const options = {
+    basePath,
+    ...(sourceFile === undefined ? {} : { sourceFile }),
+    ...(targetService === undefined ? {} : { targetService }),
+  };
   const result = resolveModulesWithFiles(raw, readProjectRulesFile, options);
   return { result, moduleFiles };
 }
@@ -295,7 +304,7 @@ const STORAGE_COMPILE_PREFIX = /^Storage rules do not compile: /;
 export function prepareStorageRulesSource(raw: string, sourcePath: string): string {
   let source = raw;
   if (MODULAR_SOURCE.test(raw)) {
-    const resolved = resolveProjectModules(raw, sourcePath, sourcePath).result;
+    const resolved = resolveProjectModules(raw, sourcePath, sourcePath, 'firebase.storage').result;
     if (!resolved.success) {
       throw new Error(
         `pyric sandbox: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
@@ -306,6 +315,11 @@ export function prepareStorageRulesSource(raw: string, sourcePath: string): stri
   try {
     parseStorageRules(source);
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (STORAGE_COMPILE_PREFIX.test(message)) {
+      const reason = message.replace(STORAGE_COMPILE_PREFIX, '');
+      throw new Error(`${asSentence(`pyric sandbox: ${sourcePath} does not compile: ${reason}`)} Fix the rules before serving.`);
+    }
     const violations = sourceCompileLimitViolations(source);
     if (violations.length > 0) {
       throw new Error(
@@ -313,7 +327,7 @@ export function prepareStorageRulesSource(raw: string, sourcePath: string): stri
       );
     }
     throw new Error(
-      `${asSentence(`pyric sandbox: ${sourcePath} failed to parse: ${e instanceof Error ? e.message : String(e)}`)} Fix the rules before serving.`,
+      `${asSentence(`pyric sandbox: ${sourcePath} failed to parse: ${message}`)} Fix the rules before serving.`,
     );
   }
   try {

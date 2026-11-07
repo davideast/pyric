@@ -10,6 +10,7 @@ import {
   duration,
   latlng,
   reference,
+  serverTimestamp,
   timestamp,
   vector,
 } from '../../../src/rules/index.js';
@@ -102,6 +103,57 @@ describe('value helpers in the form production reads (FS2-CON-5)', () => {
   test('bytes and vectors have no wire form and are refused, naming the field', () => {
     expect(() => wire({ method: 'create', data: { b: bytes('hi') } })).toThrow(/data\.b is a bytes value/);
     expect(() => wire({ method: 'create', data: { v: vector([1]) } })).toThrow(/data\.v is a vector value/);
+  });
+
+  test('serverTimestamp() resolves against requestTime across nested maps, lists, and writeMode (#2447)', () => {
+    const built = wire({
+      method: 'update',
+      requestTime: '2026-05-01T12:00:00.500Z',
+      resource: { keep: true, audit: { createdBy: 'alice' } },
+      data: {
+        updatedAt: serverTimestamp(),
+        'audit.touchedAt': { _methodName: 'FieldValue.serverTimestamp' },
+        stamps: [serverTimestamp(), { _methodName: 'serverTimestamp' }],
+      },
+      writeMode: { kind: 'update' },
+    });
+    const expectedIso = '2026-05-01T12:00:00.500000000Z';
+    expect(built.request.time).toBe('2026-05-01T12:00:00.500Z');
+    expect(built.request.resource).toEqual({
+      data: {
+        keep: true,
+        updatedAt: expectedIso,
+        audit: { createdBy: 'alice', touchedAt: expectedIso },
+        stamps: [expectedIso, expectedIso],
+      },
+    });
+  });
+
+  test('serverTimestamp() without requestTime pins request.time to the same instant, while sentinel-free cases omit request.time (#2447)', () => {
+    const withSentinel = wire({
+      method: 'create',
+      data: { createdAt: serverTimestamp() },
+    });
+    expect(typeof withSentinel.request.time).toBe('string');
+    expect(withSentinel.request.resource).toEqual({
+      data: { createdAt: withSentinel.request.time },
+    });
+
+    const withoutSentinel = wire({
+      method: 'create',
+      data: { title: 'plain' },
+    });
+    expect(withoutSentinel.request.time).toBeUndefined();
+  });
+
+  test('buildApiTestCase refuses a malformed requestTime before resolving timestamps (#2447)', () => {
+    expect(() =>
+      wire({
+        method: 'create',
+        requestTime: '2026-05-01T12:00:00',
+        data: { createdAt: serverTimestamp() },
+      }),
+    ).toThrow(/Case refused: requestTime is "2026-05-01T12:00:00"/);
   });
 });
 

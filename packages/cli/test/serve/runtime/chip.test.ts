@@ -8,6 +8,7 @@ import { createListenerMode, type ListenerMode } from '../../../src/serve/runtim
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
+import { profileClientId } from '../../../src/serve/worker/client/client-id.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
 import type { AuthLens, EventCaller, SandboxEvent } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
@@ -1036,6 +1037,104 @@ describe('the Traffic view', () => {
     showTab('identity');
     expect(root.querySelector('[data-live-identity-view]')).toBeNull();
     expect(root.querySelector('[data-identity-query]')).not.toBeNull();
+  });
+
+  /** The Live tab's sections, in order, by their data key. */
+  function liveSections(root: ShadowRoot): string[] {
+    return [...root.querySelectorAll<HTMLElement>('[data-live-section]')].map((section) => section.dataset.liveSection!);
+  }
+
+  it('replaces the Sandbox tab body with the Live tab on a live host', async () => {
+    const clock = manualTimers();
+    const projectId = 'live-tab-project';
+    const now = Date.now();
+    const clients = [
+      { kind: 'node' as const, clientId: 'journey-1', user: 'node-uid', lastSeen: now - 12_000 },
+      { kind: 'browser' as const, clientId: profileClientId(), label: '/dashboard', user: 'u1', email: 'ada@example.com', lastSeen: now },
+      { kind: 'service-worker' as const, clientId: 'sw-1', user: null, lastSeen: now - 120_000 },
+      { kind: 'browser' as const, clientId: 'profile-other', label: '/settings', user: 'u2', email: 'grace@example.com', lastSeen: now - 8_000 },
+    ];
+    const { root, runtime, showTab, chip } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => ({
+        ...liveStatus({ reads: 12, writes: 3, deliveries: 48 }, [projectId]),
+        passThrough: ['firebase/database', 'firebase/storage'],
+        observed: ['firebase/app', 'firebase/auth'],
+        clients,
+      }),
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    showTab('sandbox');
+    expect(root.querySelector('[data-live-view]')).not.toBeNull();
+    expect(root.querySelector('[data-worker-row]')).toBeNull();
+    expect(liveSections(root)).toEqual(['project', 'clients', 'coverage', 'billed', 'overlays']);
+
+    const project = root.querySelector<HTMLElement>('[data-live-project]')!;
+    expect(project.dataset.liveProject).toBe(projectId);
+    const consoleLink = root.querySelector<HTMLAnchorElement>('[data-open-console]')!;
+    expect(consoleLink.getAttribute('href')).toContain(`/project/${projectId}/`);
+    expect(consoleLink.getAttribute('target')).toBe('_blank');
+
+    // This page first, then each other client the host lists, by kind; this page's profile is not listed twice.
+    const listed = [...root.querySelectorAll<HTMLElement>('[data-live-client]')].map((row) => [row.dataset.liveClient, row.dataset.liveClientUser]);
+    expect(listed).toEqual([['self', 'ada@example.com'], ['browser', 'grace@example.com'], ['service-worker', ''], ['node', 'node-uid']]);
+
+    const coverage = [...root.querySelectorAll<HTMLElement>('[data-coverage-import]')].map((row) => [row.dataset.coverageImport, row.dataset.coverageState]);
+    expect(coverage).toEqual([
+      ['firebase/database', 'not-observed'],
+      ['firebase/storage', 'not-observed'],
+      ['firebase/app', 'observed'],
+      ['firebase/auth', 'observed'],
+    ]);
+
+    const billed = root.querySelector<HTMLElement>('[data-live-billed]')!;
+    expect([billed.dataset.billedReads, billed.dataset.billedWrites, billed.dataset.billedDeliveries]).toEqual(['12', '3', '48']);
+
+    const theme = root.querySelector<HTMLButtonElement>('[data-live-section="overlays"] [data-open-overlay-theme]')!;
+    // This page has no listener source, so the editor is disabled as on the Sandbox tab.
+    expect(theme.disabled).toBe(true);
+    const hide = root.querySelector<HTMLButtonElement>('[data-action-bar] [data-dismiss-chip]')!;
+    hide.click();
+    expect(chip.element.style.display).toBe('none');
+  });
+
+  it('labels the tab differently on a live host and keeps the Sandbox tab on a sandbox host', async () => {
+    const clock = manualTimers();
+    const live = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => liveStatus({ reads: 0, writes: 0, deliveries: 0 }),
+    });
+    const sandbox = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const sandboxLabel = sandbox.root.querySelector('[data-chip-tab="sandbox"]')!.textContent;
+    live.runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    expect(live.root.querySelector('[data-chip-tab="sandbox"]')!.textContent).not.toBe(sandboxLabel);
+
+    sandbox.showTab('sandbox');
+    expect(sandbox.root.querySelector('[data-live-view]')).toBeNull();
+    expect(sandbox.root.querySelector('[data-live-section]')).toBeNull();
+    expect(sandbox.root.querySelector('[data-worker-row]')).not.toBeNull();
+  });
+
+  it('lists only this page, signed out, and no imports when the host reports none', async () => {
+    const clock = manualTimers();
+    const { root, runtime, showTab } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => liveStatus({ reads: 0, writes: 0, deliveries: 0 }),
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    showTab('sandbox');
+    expect(root.querySelectorAll('[data-coverage-import]').length).toBe(0);
+    expect([...root.querySelectorAll<HTMLElement>('[data-live-client]')].map((row) => row.dataset.liveClient)).toEqual(['self']);
+    expect(root.querySelector<HTMLElement>('[data-live-client="self"]')!.dataset.liveClientUser).toBe('');
   });
 
   it('reads the live status again after a failed read, until one succeeds', async () => {

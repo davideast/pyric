@@ -65,6 +65,7 @@ export interface ResolveOptions {
   basePath?: string;
   modules?: Record<string, string>;
   sourceFile?: string;
+  targetService?: 'cloud.firestore' | 'firebase.storage';
 }
 
 /** An import declaration: the module specifier as written, and the names it requests. */
@@ -298,6 +299,10 @@ export function resolveModulesWith(
         message: `Source did not compile at line ${duplicate.line}, col ${duplicate.column}: ${DUPLICATE_SERVICE_REASON}`,
       },
     };
+  }
+  if (options?.targetService !== undefined) {
+    const selected = (ast.services ?? [ast.service]).find((block) => block.name === options.targetService);
+    if (selected !== undefined) ast.service = selected;
   }
   const isModular = ast.version === '2+modules';
   const isStorageService = ast.service.name === 'firebase.storage';

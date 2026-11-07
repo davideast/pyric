@@ -360,13 +360,19 @@ export function evaluateMethodCall(
         const keyArg = argValues[0];
         const def = argValues[1];
         if (Array.isArray(keyArg)) {
+          for (const seg of keyArg) {
+            if (typeof seg !== 'string') {
+              throw new EvalError(
+                `Unsupported operation error. Received: map.get(list, ${describeRulesType(def)}) with non-string key ${describeRulesType(seg)}. Expected: map.get(string, any), map.get(list, any).`,
+              );
+            }
+          }
           let cur: unknown = map;
           for (const seg of keyArg) {
             if (cur === null || cur === undefined) return def;
             if (typeof cur !== 'object' || Array.isArray(cur) || cur instanceof RulesValue) return def;
-            const k = String(seg);
-            if (!Object.hasOwn(cur as object, k)) return def;
-            cur = (cur as Record<string, unknown>)[k];
+            if (!Object.hasOwn(cur as object, seg)) return def;
+            cur = (cur as Record<string, unknown>)[seg];
           }
           return cur;
         }
