@@ -1,11 +1,11 @@
 /**
  * The reads a live page answers for its host. On a live host, an agent's
- * Firestore or Realtime Database read goes to a connected tab of the app
+ * Firestore, Realtime Database or Cloud Storage read goes to a connected tab of the app
  * (`bridge/server/tab-tools.ts` in `@pyric/cli`); the tab runs it here, on
  * the app's own instances, as the app's signed-in user, through the live
  * row's own exports, so each read shows in Traffic like the app's own.
  *
- * The live Firestore and Database rows hand this file their wrapped module
+ * The live Firestore, Database and Storage rows hand this file their wrapped module
  * (`noteReadModule`), and this file notes each instance their factories
  * hand the app. A service the app has not opened yet answers nothing, so
  * its tools are not announced and the host keeps refusing them.
@@ -54,12 +54,23 @@ interface Service {
 
 const firestore: Service = {};
 const database: Service = {};
+const storage: Service = {};
 
 /** The factories whose result is the service's instance. */
 const FACTORIES: Partial<Record<LiveModuleKey, { service: Service; names: readonly string[] }>> = {
   'live-firestore': { service: firestore, names: ['getFirestore', 'initializeFirestore'] },
   'live-database': { service: database, names: ['getDatabase'] },
+  'live-storage': { service: storage, names: ['getStorage'] },
 };
+
+/**
+ * The factories a row's module must export as its own wrapper so the app's
+ * call reaches `noteReadModule`'s note: a row module re-exports the SDK's own
+ * binding for any name its row does not replace (`row-source.ts`).
+ */
+export function readFactoryNames(key: LiveModuleKey): readonly string[] {
+  return FACTORIES[key]?.names ?? [];
+}
 
 function sdkFn(sdk: Fields, name: string): Fn {
   return sdk[name] as Fn;
@@ -167,8 +178,13 @@ function childPath(parent: string, key: string): string {
   return parent === '/' ? `/${key}` : `${parent}/${key}`;
 }
 
-/** One node of the sandbox crawl's shape, with no leaf values: its object children are named and counted, not expanded. */
-function shallowNode(value: unknown, path: string, expand: boolean, maxChildren: number): Fields {
+/**
+ * One node of the sandbox crawl's shape, with no leaf values, to `maxDepth`
+ * object levels below the crawl's root: the walk of `crawlSnapshot` in
+ * `@pyric/cli` (`rtdb/crawl-snapshot.ts`), copied since the page bundle
+ * imports no cli code.
+ */
+function crawlNode(value: unknown, path: string, depth: number, maxDepth: number, maxChildren: number): Fields {
   if (!isBranch(value)) return { path, childCount: 0, truncated: false, children: [], schema: {}, valueType: valueType(value) };
   const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
   const schema: Record<string, string> = {};
@@ -177,19 +193,43 @@ function shallowNode(value: unknown, path: string, expand: boolean, maxChildren:
     if (isBranch(child)) branches.push([key, child]);
     else schema[key] = valueType(child);
   }
-  const children = expand ? branches.slice(0, maxChildren).map(([key, child]) => shallowNode(child, childPath(path, key), false, maxChildren)) : [];
-  const truncated = (!expand && branches.length > 0) || entries.length > maxChildren;
+  const atDepth = depth >= maxDepth;
+  const children = atDepth ? [] : branches.slice(0, maxChildren).map(([key, child]) => crawlNode(child, childPath(path, key), depth + 1, maxDepth, maxChildren));
+  const truncated = (atDepth && branches.length > 0) || entries.length > maxChildren;
   return { path, childCount: entries.length, truncated, children, schema };
 }
 
-/** `rtdb_crawl_structure`: `{ path?, maxChildren? }`, described one level deep from one `get`. */
+/** The object paths below a crawled node, as the sandbox crawl counts them. */
+function descendantObjects(node: Fields): number {
+  return (node.children as Fields[]).reduce((total, child) => total + 1 + descendantObjects(child), 0);
+}
+
+/** `rtdb_crawl_structure`: `{ path?, maxDepth?, maxChildren? }`, described from one `get`. */
 async function crawlStructure(sdk: Fields, db: unknown, args: Fields): Promise<TabReadResult> {
   const segments = String(args.path ?? '/').split('/').filter(Boolean);
   const path = segments.length === 0 ? '/' : `/${segments.join('/')}`;
+  const maxDepth = typeof args.maxDepth === 'number' ? args.maxDepth : 10;
   const maxChildren = typeof args.maxChildren === 'number' ? args.maxChildren : 100;
-  const root = shallowNode(await valueAt(sdk, db, path), path, true, maxChildren);
-  const objects = (root.children as unknown[]).length;
-  return { ok: true, summary: `Crawled ${objects} object paths from ${path}`, data: root };
+  const root = crawlNode(await valueAt(sdk, db, path), path, 0, maxDepth, maxChildren);
+  return { ok: true, summary: `Crawled ${descendantObjects(root)} object paths from ${path}`, data: root };
+}
+
+// ─── Cloud Storage ───────────────────────────────────────────────────────
+
+/** `storage.listAll`: `{ prefix? }`, the objects and folders under it as full paths. */
+async function listObjects(sdk: Fields, storage: unknown, args: Fields): Promise<TabReadResult> {
+  const prefix = args.prefix === undefined ? undefined : String(args.prefix);
+  const listing = await call(sdk, 'listAll', call(sdk, 'ref', storage, prefix ?? '')) as { items: { fullPath: string }[]; prefixes: { fullPath: string }[] };
+  const items = listing.items.map((item) => item.fullPath);
+  const prefixes = listing.prefixes.map((item) => item.fullPath);
+  return { ok: true, summary: `${items.length} objects under ${prefix ?? '/'}`, data: { items, prefixes } };
+}
+
+/** `storage.getMetadata`: `{ path }`, the object's metadata without the SDK's reference to it. */
+async function objectMetadata(sdk: Fields, storage: unknown, args: Fields): Promise<TabReadResult> {
+  const path = String(args.path);
+  const { ref: _reference, ...metadata } = await call(sdk, 'getMetadata', call(sdk, 'ref', storage, path)) as Fields;
+  return { ok: true, summary: `Read metadata for ${path}`, data: { metadata } };
 }
 
 // ─── The reader ──────────────────────────────────────────────────────────
@@ -202,6 +242,8 @@ const READS: ReadonlyMap<string, { service: Service; read: Read }> = new Map([
   ['firestore_query_where', { service: firestore, read: forwardedCollection }],
   ['database.get', { service: database, read: getValue }],
   ['rtdb_crawl_structure', { service: database, read: crawlStructure }],
+  ['storage.listAll', { service: storage, read: listObjects }],
+  ['storage.getMetadata', { service: storage, read: objectMetadata }],
 ]);
 
 function isOpen(service: Service): boolean {
@@ -236,7 +278,7 @@ function noteInstance(service: Service, instance: unknown): void {
 }
 
 /**
- * Takes a live row's wrapped module: Firestore's and Database's are kept to
+ * Takes a live row's wrapped module: Firestore's, Database's and Storage's are kept to
  * answer reads with, and their factories note each instance they hand the
  * app. Any other row is left as it is.
  */
