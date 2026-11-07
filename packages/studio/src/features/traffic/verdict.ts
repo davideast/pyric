@@ -267,12 +267,52 @@ function decidingRule(trace: RulesEvidence): { rule: EvidenceRule; index: number
 }
 
 /**
+ * The rules operation the host's local evaluation ran for a live op's SDK
+ * method: `getDoc` is `get`, `getDocs` is `list`, and `setDoc` is `create`,
+ * the case whose trace the host keeps. A method with no rules operation, or
+ * one already named by its operation, reads as it is.
+ */
+export function rulesOperation(service: string | undefined, method: string): string {
+  const isObservedService = service === 'firestore' || service === 'rtdb' || service === 'storage';
+  const observed = isObservedService ? observedMethod(service, method) : null;
+  if (observed === null) return method;
+  return observed === 'set' ? 'create' : observed;
+}
+
+/** A live op as Traffic lists it: its method is the rules operation, as a sandbox op's is. */
+export function withRulesOperation(event: StudioTrafficEvent): StudioTrafficEvent {
+  if (event.production === undefined) return event;
+  const method = rulesOperation(event.service, event.method) as StudioTrafficEvent['method'];
+  return method === event.method ? event : { ...event, method };
+}
+
+/** The `allow` statement's operations: `allow read, write: if` gives read and write. */
+const ALLOW_OPERATIONS = /\ballow\s+([a-z]+(?:\s*,\s*[a-z]+)*)\s*[:;]/;
+
+/** Where a rules source's own source map starts; the lines after it are not rules. */
+const SOURCE_MAP_MARKER = '// @pyric-source-map:';
+
+/**
+ * The operations the rule at `line` (1-indexed) declares in the loaded rules
+ * source, as the sandbox's `Rule #N (ops)` names them. Undefined when there
+ * is no source, no such line, or no `allow` statement on it.
+ */
+export function declaredOperations(source: string | undefined, line: number | undefined): string[] | undefined {
+  if (source === undefined || line === undefined) return undefined;
+  const rules = source.split(SOURCE_MAP_MARKER)[0] ?? '';
+  const text = rules.split('\n')[line - 1];
+  const match = text === undefined ? null : ALLOW_OPERATIONS.exec(text);
+  if (match === null) return undefined;
+  return (match[1] ?? '').split(',').map((operation) => operation.trim());
+}
+
+/**
  * A live Firestore op's local rules evaluation in the shape the sandbox
  * rules view reads, from the trace the host recorded on
  * `production.local.trace`. Undefined for an op with no trace: a sandbox op,
  * an unevaluated or RTDB verdict, or a trace too large to keep.
  */
-export function liveRuleEvaluation(event: StudioTrafficEvent): Denial | undefined {
+export function liveRuleEvaluation(event: StudioTrafficEvent, rulesSource?: string): Denial | undefined {
   const local = event.production?.local;
   const trace = local === undefined || local.result === 'unevaluated' ? undefined : local.trace;
   if (trace === undefined) return undefined;
@@ -281,7 +321,7 @@ export function liveRuleEvaluation(event: StudioTrafficEvent): Denial | undefine
     id: event.id,
     at: event.at,
     result,
-    method: event.method,
+    method: rulesOperation(event.service, event.method),
     service: event.service ?? 'firestore',
     path: event.path,
     auth: event.auth as Denial['auth'],
@@ -301,7 +341,8 @@ export function liveRuleEvaluation(event: StudioTrafficEvent): Denial | undefine
       expressionTrace: rule.checks.map(traceEntryOf),
     };
   }
-  const operation = observedMethod('firestore', event.method);
-  if (operation !== null) denial.matchedRule = { ruleIndex: index, operations: [operation] };
+  // The rule's declared operations come from the loaded source, as a sandbox row's do; the evaluated one stands in without it.
+  const operations = declaredOperations(rulesSource, rule.line) ?? [denial.method];
+  denial.matchedRule = { ruleIndex: index, operations };
   return denial;
 }

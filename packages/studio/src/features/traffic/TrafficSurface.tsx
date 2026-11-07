@@ -46,6 +46,7 @@ import {
   filterStudioTraffic,
   liveRuleEvaluation,
   localDrift,
+  withRulesOperation,
   opensRulesInspector,
   productionLabel,
   subjectTarget,
@@ -57,7 +58,7 @@ import {
 } from './verdict.js';
 import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-selection.js';
 import { TrafficRulesInspector } from './TrafficRulesInspector.js';
-import { DenialDetail, type Denial } from '../rules-debug/index.js';
+import { DenialDetail } from '../rules-debug/index.js';
 import { useStudioRulesSource } from '../../shell/studio-rules-source.js';
 import { BillableMetricsView, RulesMetricsView } from './TrafficMetricsViews.js';
 import {
@@ -198,14 +199,14 @@ function DriftMarker() {
  */
 function LiveRulesDetail({
   event,
-  evaluation,
   onClose,
 }: {
   event: StudioTrafficEvent;
-  evaluation: Denial;
   onClose: () => void;
 }) {
   const rulesSource = useStudioRulesSource('firestore');
+  const evaluation = liveRuleEvaluation(event, rulesSource);
+  if (evaluation === undefined) return null;
   const production = event.production;
   const drifts = localDrift(event) !== undefined;
   return (
@@ -289,7 +290,7 @@ function InspectedDetail({
   const event = events.find((candidate) => candidate.id === eventId);
   const evaluation = event === undefined ? undefined : liveRuleEvaluation(event);
   if (event !== undefined && evaluation !== undefined) {
-    return <LiveRulesDetail event={event} evaluation={evaluation} onClose={onClose} />;
+    return <LiveRulesDetail event={event} onClose={onClose} />;
   }
   return <TrafficRulesInspector eventId={eventId} onClose={onClose} />;
 }
@@ -374,7 +375,8 @@ export function TrafficSurface() {
   // Newest-first stream; verdict filter first, then grouping (the volume
   // reducer: storms → one row).
   const ordered = useMemo(
-    () => filterByVerdict(tableEvents, verdictFilter).sort((a, b) => b.at - a.at),
+    // A live op lists under its rules operation, as a sandbox op does.
+    () => filterByVerdict(tableEvents, verdictFilter).map(withRulesOperation).sort((a, b) => b.at - a.at),
     [tableEvents, verdictFilter],
   );
   const { items } = useTrafficGroups({ events: ordered });

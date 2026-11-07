@@ -10,7 +10,10 @@ import {
   filterByVerdict,
   filterStudioTraffic,
   isStudioTraffic,
+  declaredOperations,
   liveRuleEvaluation,
+  rulesOperation,
+  withRulesOperation,
   localDrift,
   opensRulesInspector,
   productionLabel,
@@ -262,7 +265,7 @@ describe('liveRuleEvaluation', () => {
   it("projects the local trace into the sandbox view's shape, with the local verdict", () => {
     const evaluation = liveRuleEvaluation(live({ result: 'allow', drift: true, trace }));
     expect(evaluation).toMatchObject({
-      id: 'live-1', result: 'allow', service: 'firestore', method: 'getDoc', path: 'rooms/vip', auth: { uid: 'alice' },
+      id: 'live-1', result: 'allow', service: 'firestore', method: 'get', path: 'rooms/vip', auth: { uid: 'alice' },
       matchedRule: { ruleIndex: 0, operations: ['get'] },
       evaluatedRule: { verdict: 'allow', line: 5, expression: 'request.auth != null' },
     });
@@ -272,9 +275,50 @@ describe('liveRuleEvaluation', () => {
     ]);
   });
 
+  it("names the rule by the operations its line declares in the loaded rules source", () => {
+    const source = "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /rooms/{room} {\n      allow read: if request.auth != null;\n    }\n  }\n}\n";
+    const evaluation = liveRuleEvaluation(live({ result: 'allow', drift: true, trace }), source);
+    expect(evaluation?.matchedRule).toEqual({ ruleIndex: 0, operations: ['read'] });
+    expect(evaluation?.method).toBe('get');
+  });
+
   it('leaves an op with no trace to its current details', () => {
     expect(liveRuleEvaluation(live({ result: 'allow', drift: true }))).toBeUndefined();
     expect(liveRuleEvaluation(live({ result: 'unevaluated', needs: ['stored-document'] }))).toBeUndefined();
     expect(liveRuleEvaluation(live(undefined))).toBeUndefined();
+  });
+});
+
+describe('rulesOperation', () => {
+  it("reads a live op's SDK method as the rules operation the local evaluation ran", () => {
+    expect(rulesOperation('firestore', 'getDoc')).toBe('get');
+    expect(rulesOperation('firestore', 'getDocs')).toBe('list');
+    expect(rulesOperation('firestore', 'setDoc')).toBe('create');
+    expect(rulesOperation('firestore', 'updateDoc')).toBe('update');
+    expect(rulesOperation('firestore', 'deleteDoc')).toBe('delete');
+    expect(rulesOperation('firestore', 'get')).toBe('get');
+    expect(rulesOperation('auth', 'signInAnonymously')).toBe('signInAnonymously');
+  });
+
+  it('lists only a live op under its rules operation', () => {
+    const op = { id: 'o', method: 'getDoc', service: 'firestore' } as unknown as StudioTrafficEvent;
+    const liveOp = { ...op, production: { outcome: { status: 'ok' } } } as unknown as StudioTrafficEvent;
+    expect(withRulesOperation(liveOp).method).toBe('get');
+    expect(withRulesOperation(op)).toBe(op);
+  });
+});
+
+describe('declaredOperations', () => {
+  const source = "service cloud.firestore {\n  match /rooms/{room} {\n    allow read, write: if true;\n    allow get;\n  }\n}\n// @pyric-source-map: []";
+  it("reads the allow statement's operations on a line", () => {
+    expect(declaredOperations(source, 3)).toEqual(['read', 'write']);
+    expect(declaredOperations(source, 4)).toEqual(['get']);
+  });
+
+  it('gives none without a source, a line or an allow statement', () => {
+    expect(declaredOperations(undefined, 3)).toBeUndefined();
+    expect(declaredOperations(source, undefined)).toBeUndefined();
+    expect(declaredOperations(source, 2)).toBeUndefined();
+    expect(declaredOperations(source, 99)).toBeUndefined();
   });
 });
