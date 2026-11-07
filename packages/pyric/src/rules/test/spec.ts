@@ -2,8 +2,10 @@ import { z } from 'zod';
 import type { ExprTraceEntry } from '../simulator/evaluator.js';
 import type { ListQueryProofReport } from '../simulator/list-query-proof.js';
 import { documentRelativePath } from '../simulator/request-path.js';
+import { resolveServerTimestamps } from '../simulator/firestore-values.js';
 import { projectAfterState } from '../simulator/project-after-state.js';
-import { createResourceRefusal, isIsoInstant, ISO_INSTANT_FORM } from './case-refusals.js';
+import { Timestamp } from '../simulator/wrappers/timestamp.js';
+import { createResourceRefusal, isIsoInstant, ISO_INSTANT_FORM, requestTimeRefusal } from './case-refusals.js';
 import { encodeWireDocument } from './wire-values.js';
 
 // ---- Canonical shared primitives ----
@@ -588,15 +590,32 @@ function incomingDocument(tc: TestCase): Record<string, unknown> | undefined {
   return projectAfterState(tc.writeMode, tc.resource ?? null, tc.data ?? {}) ?? {};
 }
 
+function containsServerTimestamp(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(containsServerTimestamp);
+  const record = value as Record<string, unknown>;
+  if (
+    record.__type === 'serverTimestamp'
+    || record._methodName === 'serverTimestamp'
+    || record._methodName === 'FieldValue.serverTimestamp'
+  ) {
+    return true;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return false;
+  return Object.values(record).some(containsServerTimestamp);
+}
+
 /**
  * The Rules Test API request for one case.
  *
  * @throws {TypeError} for a case the simulator would read as a different
- *   request: a `create` case naming an existing `resource`, or a value with
- *   no form the Rules Test API reads as its type (bytes, vectors).
+ *   request: a `create` case naming an existing `resource`, a malformed
+ *   `requestTime`, or a value with no form the Rules Test API reads as its
+ *   type (bytes, vectors).
  */
 export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {}): ApiTestCase {
-  const refusal = createResourceRefusal(tc);
+  const refusal = createResourceRefusal(tc) ?? requestTimeRefusal(tc.requestTime);
   if (refusal) throw new TypeError(refusal);
   const request: ApiTestCase['request'] = {
     auth: tc.auth === null || tc.auth === undefined
@@ -613,12 +632,24 @@ export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {
   };
 
   const incoming = incomingDocument(tc);
+  let resolvedServerTime: Timestamp | undefined;
   if (incoming) {
-    request.resource = { data: encodeWireDocument(incoming, 'data') };
+    if (containsServerTimestamp(incoming)) {
+      resolvedServerTime = tc.requestTime
+        ? Timestamp.fromIsoString(tc.requestTime)
+        : Timestamp.fromMillis(Date.now());
+      request.resource = {
+        data: encodeWireDocument(resolveServerTimestamps(incoming, resolvedServerTime), 'data'),
+      };
+    } else {
+      request.resource = { data: encodeWireDocument(incoming, 'data') };
+    }
   }
 
   if (tc.requestTime) {
     request.time = tc.requestTime;
+  } else if (resolvedServerTime) {
+    request.time = resolvedServerTime.toString();
   }
 
   if (tc.query) {
