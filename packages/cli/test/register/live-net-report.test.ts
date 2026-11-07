@@ -99,11 +99,16 @@ describe('the live network report', () => {
     withAdmin.request('identitytoolkit.googleapis.com', '/v1/projects/demo/accounts:lookup');
     withAdmin.request('storage.googleapis.com', '/storage/v1/b/demo.appspot.com/o');
     withAdmin.request('content-firebaseappcheck.googleapis.com', '/v1/projects/demo/apps/1:1:web:1:exchangeDebugToken');
+    // The Messaging row's SDK: FCM sends and topic management.
+    withAdmin.request('fcm.googleapis.com', '/v1/projects/demo/messages:send');
+    withAdmin.request('iid.googleapis.com', '/iid/v1:batchAdd');
+    // The App Check row is gated, not observed: its token exchange stays named.
+    withAdmin.request('firebaseappcheck.googleapis.com', '/v1/projects/demo/apps/1:1:web:1:exchangeCustomToken');
     const fromAdmin = withAdmin.report.unobserved();
     withAdmin.stop();
     expect({ fromClientOnly, fromAdmin }).toEqual({
       fromClientOnly: ['firestore.googleapis.com', 'firebasestorage.googleapis.com'],
-      fromAdmin: ['content-firebaseappcheck.googleapis.com'],
+      fromAdmin: ['content-firebaseappcheck.googleapis.com', 'firebaseappcheck.googleapis.com'],
     });
   });
 

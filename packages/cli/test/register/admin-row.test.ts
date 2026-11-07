@@ -1,7 +1,8 @@
 /**
  * The Admin rows on the live register (`admin-row.ts`): with `firebase-admin`
  * passed through and the Admin rows open, the four class-defining loads of
- * the real Admin SDK resolve to the fixed Admin row modules, whose source
+ * the real Admin SDK, and the two that define the App Check and Messaging
+ * classes, resolve to the fixed Admin row modules, whose source
  * comes from the installed `@pyric/live`, and each row loads the real module.
  * Every other `lib/<service>/` load of the Admin SDK loads the real module,
  * unobserved (ADR 0022, amendment 2026-11-07). The rows stay
@@ -34,7 +35,7 @@ const { ADMIN_ROW_URLS } = (await import(pathToFileURL(adminRowDist).href)) as {
 /**
  * Opens the live rows in this process, with `firebase-admin` passed through
  * and the Admin rows as `ADMIN_ROWS` says, then records what the register
- * answers at the four loads, and calls each Admin service by its modular
+ * answers at the six loads, and calls each Admin service by its modular
  * entry and by the namespace.
  */
 const PROBE = `import Module from 'node:module';
@@ -42,7 +43,7 @@ import { writeSync } from 'node:fs';
 import { activateWithSuppliedRows } from '@pyric/cli/register/internal/supplied-rows';
 await activateWithSuppliedRows({ passThrough: ['firebase-admin'], adminRows: process.env.ADMIN_ROWS === '1' });
 const resolved = [];
-const ROW_SPECIFIERS = new Set(['@google-cloud/firestore', '@google-cloud/storage', '@firebase/database-compat/standalone', './base-auth']);
+const ROW_SPECIFIERS = new Set(['@google-cloud/firestore', '@google-cloud/storage', '@firebase/database-compat/standalone', './base-auth', './app-check', './messaging']);
 Module.registerHooks({ resolve(specifier, context, nextResolve) {
   const result = nextResolve(specifier, context);
   if (ROW_SPECIFIERS.has(specifier)) resolved.push({ specifier, from: context.parentURL, url: result.url });
@@ -62,6 +63,7 @@ const admin = (await import('firebase-admin')).default;
 await attempt('admin.firestore', () => admin.firestore());
 await attempt('admin.securityRules', () => admin.securityRules());
 await attempt('getMessaging', async () => { const { getMessaging } = await import('firebase-admin/messaging'); getMessaging(app); });
+await attempt('getAppCheck', async () => { const { getAppCheck } = await import('firebase-admin/app-check'); getAppCheck(app); });
 writeSync(1, 'OUTCOME ' + JSON.stringify({ node: process.versions.node, outcome, resolved }) + '\\n');
 process.exit(0);
 `;
@@ -124,6 +126,8 @@ const ROW_SPECIFIERS = {
   storage: '@google-cloud/storage',
   database: '@firebase/database-compat/standalone',
   auth: './base-auth',
+  'app-check': './app-check',
+  messaging: './messaging',
 } as const;
 
 describe('Admin rows on the live register', () => {
@@ -146,13 +150,33 @@ describe('Admin rows on the live register', () => {
       nameOf: () => 'firebase-admin',
       pathInPackage: () => `lib/${folder}/index.js`,
     });
-    expect([load('messaging'), load('security-rules')]).toEqual([
-      { kind: 'admin-unobserved', subpath: 'firebase-admin/messaging' },
+    expect([load('remote-config'), load('security-rules')]).toEqual([
+      { kind: 'admin-unobserved', subpath: 'firebase-admin/remote-config' },
       { kind: 'admin-unobserved', subpath: 'firebase-admin/security-rules' },
     ]);
   });
 
-  it('serve the row module at each of the four loads, through the modular entries and the namespace, and load other services unobserved', () => {
+  it('serve the App Check and Messaging rows at the loads that define their classes', () => {
+    const rows = registerRows(new Set(['firebase-admin']), true);
+    rows.open({
+      projectUrl: 'file:///app/package.json',
+      refusal: (specifier) => Object.assign(new Error(`refused ${specifier}`), { code: 'PYRIC_LIVE_REFUSED' }),
+      moduleSource: () => null,
+    });
+    const load = (folder: string, file: string) => adminTreeResolution(rows, {
+      specifier: `./${file}`,
+      url: `file:///app/node_modules/firebase-admin/lib/${folder}/${file}.js`,
+      nameOf: () => 'firebase-admin',
+      pathInPackage: () => `lib/${folder}/${file}.js`,
+    });
+    expect([load('app-check', 'app-check'), load('messaging', 'messaging'), load('messaging', 'messaging-internal')]).toEqual([
+      { kind: 'admin-row', url: ADMIN_ROW_URLS.get('app-check' as never) },
+      { kind: 'admin-row', url: ADMIN_ROW_URLS.get('messaging' as never) },
+      { kind: 'unserved' },
+    ]);
+  });
+
+  it('serve the row module at each of the six loads, through the modular entries and the namespace, and load other services unobserved', () => {
     const res = run(true);
     if (isNode22(res)) {
       // Node 22 runs firebase-admin's own require() outside the hooks: no row is reached.
@@ -172,6 +196,7 @@ describe('Admin rows on the live register', () => {
       'admin.firestore': 'ok',
       'admin.securityRules': 'ok',
       getMessaging: 'ok',
+      getAppCheck: 'ok',
     });
   });
 
