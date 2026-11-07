@@ -464,6 +464,31 @@ test('getRules, getRulesJSON and setRules wait for the gate: another project is 
   expect(server.unmatched.length).toBe(unmatched);
 });
 
+test("getRules, getRulesJSON and setRules on the host project are refused for another project's instance, or one the gate cannot read, before any request", async () => {
+  const otherInstance = admin.initializeApp({ projectId: PROJECT, databaseURL: `https://${PROJECT}-prod-default-rtdb.firebaseio.com` }, 'admin-database-rules-other-instance');
+  const unread = admin.initializeApp({ projectId: PROJECT, databaseURL: DATABASE_URL }, 'admin-database-rules-unread');
+  others.push(otherInstance, unread);
+  const unreadDb = getDatabase(unread);
+  // Stands in for a firebase-admin that keeps the repo somewhere else; it goes back at the end.
+  const delegate = (unreadDb as unknown as { _delegate: object })._delegate;
+  const repo: unknown = Reflect.get(delegate, '_repoInternal');
+  Object.defineProperty(delegate, '_repoInternal', { value: undefined });
+  const unmatched = server.unmatched.length;
+  const outcomes: unknown[] = [];
+  try {
+    for (const database of [getDatabase(otherInstance), unreadDb]) {
+      outcomes.push(await refusedCode(() => database.getRules!()));
+      outcomes.push(await refusedCode(() => database.getRulesJSON!()));
+      outcomes.push(await refusedCode(() => database.setRules!('{"rules": {".read": true}}')));
+    }
+  } finally {
+    Object.defineProperty(delegate, '_repoInternal', { value: repo });
+  }
+  expect(outcomes).toEqual(Array.from({ length: 6 }, () => 'PYRIC_LIVE_REFUSED'));
+  await new Promise((done) => setTimeout(done, 100));
+  expect(server.unmatched.length).toBe(unmatched);
+});
+
 test('getRules on the host project goes to the instance', async () => {
   const hostDb = credentialApp('admin-database-rules-host', PROJECT);
   const unmatched = server.unmatched.length;
