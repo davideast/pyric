@@ -9,7 +9,11 @@
  */
 import type { FirestoreRules, FunctionDef, Expression, AllowRule, MatchBlock, PathSegment } from '../grammar/FirestoreAST.js';
 import { parseToASTOrError, type ParseError } from '../grammar/FirestoreParser.js';
-import { sourceSizeViolation } from '../grammar/source-compile-limits.js';
+import {
+  DUPLICATE_SERVICE_REASON,
+  duplicateServiceRejection,
+  sourceSizeViolation,
+} from '../grammar/source-compile-limits.js';
 import type { TestCase } from '../test/spec.js';
 import {
   deepestChain,
@@ -58,6 +62,7 @@ export interface LintWarning {
     functionName?: string;
     ruleIndex?: number;
     matchPath?: string;
+    line?: number;
     /** Test-case description from `TestCase.description`. Set only by
      *  rules that operate on the optional test suite (e.g. REQUEST_TIME_NOT_PINNED). */
     testCaseDescription?: string;
@@ -264,6 +269,38 @@ function checkAdditionalCompileRejections(
               }
             : {}),
           fix: `Rename or remove the duplicate declaration of '${violation.functionName ?? 'function'}' in ${violation.scope ?? 'this scope'}.`,
+        });
+        break;
+      case 'DOUBLE_MINUS':
+        warnings.push({
+          rule: 'DOUBLE_MINUS',
+          severity: 'error',
+          message: violation.message,
+          ...(violation.functionName !== undefined || violation.line !== undefined
+            ? {
+                location: {
+                  ...(violation.functionName !== undefined ? { functionName: violation.functionName } : {}),
+                  ...(violation.line !== undefined ? { line: violation.line } : {}),
+                },
+              }
+            : {}),
+          fix: "Remove the duplicate unary '-' or rewrite using '0 - x'.",
+        });
+        break;
+      case 'INVALID_NUMBER_LITERAL':
+        warnings.push({
+          rule: 'INVALID_NUMBER_LITERAL',
+          severity: 'error',
+          message: violation.message,
+          ...(violation.functionName !== undefined || violation.line !== undefined
+            ? {
+                location: {
+                  ...(violation.functionName !== undefined ? { functionName: violation.functionName } : {}),
+                  ...(violation.line !== undefined ? { line: violation.line } : {}),
+                },
+              }
+            : {}),
+          fix: 'Keep integer literals within signed 64-bit bounds (-9223372036854775808 to 9223372036854775807), or write a float literal.',
         });
         break;
     }
@@ -958,6 +995,16 @@ function analyzeParsedRules(
   checkMemberChainLength(ast, allFunctions, warnings);
 
   // Rules 2 and 2b: Nesting depth, slash starts path, recursive glob count, and other compile rejections
+  const duplicateService = duplicateServiceRejection(ast);
+  if (duplicateService !== null) {
+    warnings.push({
+      rule: 'DUPLICATE_SERVICE',
+      severity: 'error',
+      message: DUPLICATE_SERVICE_REASON,
+      location: { line: duplicateService.line },
+      fix: 'Declare each service block at most once per rules file and place every match block for that service inside it.',
+    });
+  }
   const violations = compileLimitViolations(ast);
   checkNestingDepth(violations, warnings);
   checkSlashStartsPath(violations, warnings);
