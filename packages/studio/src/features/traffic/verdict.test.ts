@@ -12,9 +12,12 @@ import {
   isStudioTraffic,
   declaredOperations,
   liveRuleEvaluation,
+  liveUnevaluatedInspection,
   localDrift,
+  opensLiveRulesInspector,
   opensRulesInspector,
   productionLabel,
+  rowNavigationTarget,
   subjectTarget,
   verdictFor,
   verdictLabel,
@@ -299,5 +302,186 @@ describe('declaredOperations', () => {
     expect(declaredOperations(source, undefined)).toBeUndefined();
     expect(declaredOperations(source, 2)).toBeUndefined();
     expect(declaredOperations(source, 99)).toBeUndefined();
+  });
+});
+
+describe('live RTDB rules evaluation, unevaluated inspection, and Live mode navigation', () => {
+  const RTDB_RULES_JSON = [
+    '{',
+    '  "rules": {',
+    '    ".read": "false",',
+    '    "rooms": {',
+    '      "$roomId": {',
+    '        ".read": "auth != null",',
+    '        ".write": "auth.uid === $roomId && newData.exists()"',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+
+  const rtdbLive = (
+    method: string,
+    path: string,
+    local: unknown,
+    outcome: { status: 'ok' } | { status: 'error'; code: string } = { status: 'ok' },
+  ): StudioTrafficEvent =>
+    ({
+      id: `rtdb-${method}`,
+      kind: 'operation',
+      service: 'rtdb',
+      at: 2_000,
+      method,
+      path,
+      auth: { uid: 'alice' },
+      result: outcome.status === 'ok' ? 'allow' : 'deny',
+      reasons: [],
+      origin: 'user',
+      operationContext: { source: { kind: 'app' }, authLens: { mode: 'app-session' } },
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      production: { outcome, local },
+    }) as unknown as StudioTrafficEvent;
+
+  it('projects a decided live RTDB allow, listener read, and implicit deny into Denial.rules', () => {
+    const allowEval = liveRuleEvaluation(
+      rtdbLive('onValue', '/rooms/s1', {
+        result: 'allow',
+        rtdb: {
+          matchedPath: '/rooms/$roomId',
+          matchedRule: 'auth != null',
+          pathVariableBindings: { $roomId: 's1' },
+          reason: 'Rule expression evaluated to true',
+          rtdbTrace: [
+            { path: '/', kind: 'read', conditionText: 'false', verdict: 'DENY', pathVariableBindings: {} },
+            {
+              path: '/rooms/$roomId',
+              kind: 'read',
+              conditionText: 'auth != null',
+              verdict: 'ALLOW',
+              pathVariableBindings: { $roomId: 's1' },
+            },
+          ],
+        },
+      }),
+      RTDB_RULES_JSON,
+    );
+    expect(allowEval).toMatchObject({
+      id: 'rtdb-onValue',
+      result: 'allow',
+      service: 'rtdb',
+      method: 'listen',
+      path: '/rooms/s1',
+      rules: {
+        engine: 'rtdb',
+        matchedPath: '/rooms/$roomId',
+        matchedRule: 'auth != null',
+        pathVariableBindings: { $roomId: 's1' },
+      },
+    });
+    expect(allowEval?.rules?.rtdbTrace).toHaveLength(2);
+
+    const implicitDeny = liveRuleEvaluation(
+      rtdbLive(
+        'get',
+        '/private/node',
+        {
+          result: 'deny',
+          rtdb: {
+            matchedPath: '',
+            matchedRule: '',
+            errorCode: 'NO_MATCHING_RULE',
+            rtdbTrace: [],
+          },
+        },
+        { status: 'error', code: 'permission_denied' },
+      ),
+      RTDB_RULES_JSON,
+    );
+    expect(implicitDeny).toMatchObject({
+      result: 'deny',
+      service: 'rtdb',
+      method: 'get',
+      rules: { engine: 'rtdb', errorCode: 'NO_MATCHING_RULE' },
+    });
+  });
+
+  it('projects unevaluated RTDB and Firestore live rows with applicable rule line and honest gap details', () => {
+    const rtdbWrite = rtdbLive('set', '/rooms/alice', {
+      result: 'unevaluated',
+      needs: ['write-data'],
+      rule: { path: '/rooms/$roomId', expression: 'auth.uid === $roomId && newData.exists()' },
+      rtdb: {
+        matchedPath: '/rooms/$roomId',
+        matchedRule: 'auth.uid === $roomId && newData.exists()',
+        pathVariableBindings: { $roomId: 'alice' },
+      },
+    });
+    expect(liveRuleEvaluation(rtdbWrite, RTDB_RULES_JSON)).toBeUndefined();
+    expect(opensLiveRulesInspector(rtdbWrite)).toBe(true);
+    const rtdbInspection = liveUnevaluatedInspection(rtdbWrite, RTDB_RULES_JSON);
+    expect(rtdbInspection).toMatchObject({
+      service: 'rtdb',
+      method: 'set',
+      rawMethod: 'set',
+      path: '/rooms/alice',
+      gaps: [{ gap: 'write-data', label: 'write-data (newData)' }],
+      ruleContext: {
+        engine: 'rtdb',
+        nodeLabel: '/rooms/$roomId .write',
+        line: 7,
+        expression: 'auth.uid === $roomId && newData.exists()',
+        pathVariableBindings: { $roomId: 'alice' },
+      },
+    });
+
+    const firestoreSource = [
+      "rules_version = '2';",
+      'service cloud.firestore {',
+      '  match /databases/{db}/documents {',
+      '    match /rooms/{room} {',
+      '      allow read: if resource.data.public == true;',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+    const fsEvent = {
+      ...rtdbLive('getDoc', 'rooms/r1', {
+        result: 'unevaluated',
+        needs: ['stored-document'],
+        rule: { line: 5, expression: 'resource.data.public == true' },
+      }),
+      service: 'firestore',
+    } as StudioTrafficEvent;
+    const fsInspection = liveUnevaluatedInspection(fsEvent, firestoreSource);
+    expect(fsInspection).toMatchObject({
+      service: 'firestore',
+      method: 'get',
+      rawMethod: 'getDoc',
+      gaps: [{ gap: 'stored-document', label: 'stored-document (resource / get / exists)' }],
+      ruleContext: {
+        engine: 'firestore',
+        nodeLabel: 'allow read',
+        line: 5,
+        expression: 'resource.data.public == true',
+      },
+    });
+  });
+
+  it('keeps production-served RTDB rows in place and lets sandbox-served RTDB rows drill into /rtdb', () => {
+    const sandboxServed = { service: 'rtdb', method: 'set', path: '/rooms/s1' } as const;
+    expect(rowNavigationTarget(sandboxServed)).toEqual({ tab: 'rtdb' });
+    expect(rowNavigationTarget({ ...sandboxServed, production: { outcome: { status: 'ok' } } })).toBeNull();
+    expect(
+      rowNavigationTarget({ service: 'firestore', method: 'getDoc', path: 'rooms/r1', production: { outcome: { status: 'ok' } } }),
+    ).toEqual({ tab: 'firestore', rest: ['rooms', 'r1'] });
+  });
+
+  it('words each production outcome once in an unevaluated headline', () => {
+    const local = { result: 'unevaluated', needs: ['write-data'] } as const;
+    const headline = (outcome: { status: 'ok' } | { status: 'error'; code: string }) =>
+      liveUnevaluatedInspection(rtdbLive('set', '/rooms/r1', local, outcome))?.headline;
+    expect(headline({ status: 'ok' })).toMatch(/^Production allowed set on \/rooms\/r1\. /);
+    expect(headline({ status: 'error', code: 'permission-denied' })).toMatch(/^Production denied set on \/rooms\/r1\. /);
+    expect(headline({ status: 'error', code: 'unavailable' })).toMatch(/^Production failed set on \/rooms\/r1 \(unavailable\)\. /);
   });
 });

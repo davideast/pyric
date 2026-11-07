@@ -81,7 +81,7 @@ function localDriftOf(production: ObservedProduction): LocalDrift | undefined {
   const isDrift = local !== undefined && local.result !== 'unevaluated' && local.drift === true;
   if (!isDrift) return undefined;
   // The trace rides as the row's rulesEvidence; the drift keeps the verdict only.
-  const { trace: _trace, ...verdict } = local;
+  const { trace: _trace, rtdb: _rtdb, ...verdict } = local;
   return structuredClone(verdict);
 }
 

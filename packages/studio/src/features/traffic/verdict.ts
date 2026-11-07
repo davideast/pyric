@@ -15,8 +15,9 @@
 import { isQueryProofUnsupported } from '../rules-debug/query-proof.js';
 import type { EventCaller, ObservedProduction, RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
-import { productionVerdict, rulesOperation } from 'pyric/sandbox/internal';
+import { productionVerdict, rtdbRulesMethod, rulesOperation } from 'pyric/sandbox/internal';
 import type { ExprTraceEntry } from 'pyric/rules/internal';
+import { locateRtdbRule } from 'pyric/rules/internal/rtdb';
 import type { Denial } from '../rules-debug/index.js';
 import type { CommandTarget } from '../home/command.js';
 
@@ -30,6 +31,8 @@ export type StudioTrafficEvent = TrafficEvent & {
   rulesDisposition: RulesDisposition;
   /** The connection the host received the op from; absent when no host stamped one. */
   caller?: EventCaller;
+  /** The named Realtime Database instance on a non-default RTDB op. */
+  instance?: string;
   /** What production answered, when production served the op and pyric only observed it. */
   production?: ObservedProduction;
 };
@@ -185,6 +188,23 @@ export function subjectTarget(event: {
   }
 }
 
+/**
+ * The route a non-inspectable Traffic row navigates to on click. The `/rtdb`
+ * pane views the local sandbox database, so an RTDB call production served
+ * stays in place rather than opening a viewer that does not hold its data; an
+ * RTDB call the sandbox served, on a live host or not, keeps its drill-in.
+ */
+export function rowNavigationTarget(event: {
+  service?: StudioTrafficEvent['service'];
+  method: StudioTrafficEvent['method'];
+  path: string;
+  production?: ObservedProduction;
+}): CommandTarget | null {
+  const isProductionRtdbRow = event.service === 'rtdb' && event.production !== undefined;
+  if (isProductionRtdbRow) return null;
+  return subjectTarget(event);
+}
+
 /** Rules metrics exclude local proof limitations; operational metrics keep every event. */
 export function rulesDecisionEvents<E extends Parameters<typeof verdictFor>[0]>(events: readonly E[]): E[] {
   return events.filter(event => {
@@ -286,15 +306,45 @@ export function declaredOperations(source: string | undefined, line: number | un
   return (match[1] ?? '').split(',').map((operation) => operation.trim());
 }
 
+function liveRtdbEvaluation(event: StudioTrafficEvent, local: LocalDrift): Denial | undefined {
+  const rtdb = local.rtdb;
+  if (rtdb === undefined) return undefined;
+  const rules: NonNullable<Denial['rules']> = { engine: 'rtdb' };
+  if (rtdb.matchedPath !== undefined) rules.matchedPath = rtdb.matchedPath;
+  if (rtdb.matchedRule !== undefined) rules.matchedRule = rtdb.matchedRule;
+  if (rtdb.pathVariableBindings !== undefined) {
+    rules.pathVariableBindings = rtdb.pathVariableBindings;
+  }
+  if (rtdb.reason !== undefined) rules.reason = rtdb.reason;
+  if (rtdb.errorCode !== undefined) rules.errorCode = rtdb.errorCode;
+  if (rtdb.rtdbTrace !== undefined) rules.rtdbTrace = rtdb.rtdbTrace;
+  return {
+    id: event.id,
+    at: event.at,
+    result: local.result,
+    method: rulesOperation(event.service, event.method),
+    service: event.service ?? 'rtdb',
+    path: event.path,
+    auth: event.auth as Denial['auth'],
+    reasons: [],
+    rules,
+    origin: event.origin as Denial['origin'],
+    unsupported: false,
+  };
+}
+
 /**
- * A live Firestore op's local rules evaluation in the shape the sandbox
- * rules view reads, from the trace the host recorded on
- * `production.local.trace`. Undefined for an op with no trace: a sandbox op,
- * an unevaluated or RTDB verdict, or a trace too large to keep.
+ * A live Firestore or RTDB op's local rules evaluation in the shape the
+ * sandbox rules view reads, from `production.local.trace` (Firestore) or
+ * `production.local.rtdb` (Realtime Database). Undefined for an op without a
+ * decided trace/evaluation: a sandbox op, an unevaluated verdict, or a trace
+ * too large to keep.
  */
 export function liveRuleEvaluation(event: StudioTrafficEvent, rulesSource?: string): Denial | undefined {
   const local = event.production?.local;
-  const trace = local === undefined || local.result === 'unevaluated' ? undefined : local.trace;
+  if (local === undefined || local.result === 'unevaluated') return undefined;
+  if (local.rtdb !== undefined) return liveRtdbEvaluation(event, local);
+  const trace = local.trace;
   if (trace === undefined) return undefined;
   const result = LIVE_RESULTS[trace.decision];
   const denial: Denial = {
@@ -314,15 +364,199 @@ export function liveRuleEvaluation(event: StudioTrafficEvent, rulesSource?: stri
   const { rule, index } = deciding;
   const decided = result === 'unsupported' ? undefined : result;
   if (decided !== undefined) {
-    denial.evaluatedRule = {
+    const evaluatedRule: NonNullable<Denial['evaluatedRule']> = {
       verdict: decided,
-      ...(rule.line === undefined ? {} : { line: rule.line }),
       expression: rule.expression,
       expressionTrace: rule.checks.map(traceEntryOf),
     };
+    if (rule.line !== undefined) evaluatedRule.line = rule.line;
+    denial.evaluatedRule = evaluatedRule;
   }
   // The rule's declared operations come from the loaded source, as a sandbox row's do; the evaluated one stands in without it.
   const operations = declaredOperations(rulesSource, rule.line) ?? [denial.method];
   denial.matchedRule = { ruleIndex: index, operations };
   return denial;
+}
+
+type LiveUnevaluatedLocal = Extract<NonNullable<ObservedProduction['local']>, { result: 'unevaluated' }>;
+type LiveVerdictGap = LiveUnevaluatedLocal['needs'][number];
+
+interface LiveUnevaluatedGapDetail {
+  gap: LiveVerdictGap;
+  label: string;
+  detail: string;
+}
+
+export interface LiveUnevaluatedRuleContext {
+  engine: 'firestore' | 'rtdb';
+  nodeLabel?: string;
+  line?: number;
+  expression?: string;
+  pathVariableBindings?: Record<string, string>;
+}
+
+export interface LiveUnevaluatedInspection {
+  service: string;
+  method: string;
+  rawMethod: string;
+  path: string;
+  headline: string;
+  gaps: LiveUnevaluatedGapDetail[];
+  ruleContext?: LiveUnevaluatedRuleContext;
+}
+
+const RTDB_GAP_DETAILS: Readonly<Record<LiveVerdictGap, { label: string; detail: string }>> = {
+  'stored-document': {
+    label: 'stored-document (data / root)',
+    detail: 'The rule reads existing database state (`data` or `root`), which Live mode does not fetch from production.',
+  },
+  'write-data': {
+    label: 'write-data (newData)',
+    detail: 'Realtime Database write payloads (`newData`) are not captured on observed live calls, so `.write` and `.validate` conditions that depend on the written value cannot be proven locally.',
+  },
+  'claim-values': {
+    label: 'claim-values (auth.token)',
+    detail: 'The rule inspects ID token claim values (`auth.token`, including redacted email claims) that were not available to the local evaluator.',
+  },
+  query: {
+    label: 'query (query.*)',
+    detail: 'The rule inspects query parameters (`query.orderByChild`, `query.equalTo`, limits, or bounds) that were not captured on the observed RTDB call.',
+  },
+};
+
+const FIRESTORE_GAP_DETAILS: Readonly<Record<LiveVerdictGap, { label: string; detail: string }>> = {
+  'stored-document': {
+    label: 'stored-document (resource / get / exists)',
+    detail: 'The rule reads stored document state (`resource.data`, `get()`, or `exists()`) that was not captured with this observed call.',
+  },
+  'write-data': {
+    label: 'write-data (request.resource.data)',
+    detail: 'The rule inspects incoming write fields (`request.resource.data`) that were not captured with this observed call.',
+  },
+  'claim-values': {
+    label: 'claim-values (request.auth.token)',
+    detail: 'The rule inspects ID token claim values (`request.auth.token`, including redacted email claims) that were not available to the local evaluator.',
+  },
+  query: {
+    label: 'query (request.query)',
+    detail: 'The rule inspects query constraints (`request.query`) whose parameter values are not sent off the client in Live mode.',
+  },
+};
+
+/** Production's answer to `method` on `path` as a sentence. */
+function liveProductionSentence(outcome: ObservedProduction['outcome'], method: string, path: string): string {
+  if (outcome.status === 'ok') return `Production allowed ${method} on ${path}.`;
+  if (productionVerdict(outcome) === 'denied') return `Production denied ${method} on ${path}.`;
+  return `Production failed ${method} on ${path} (${outcome.code}).`;
+}
+
+function rtdbUnevaluatedRuleContext(
+  local: LiveUnevaluatedLocal,
+  rawMethod: string,
+  rulesSource: string | undefined,
+): LiveUnevaluatedRuleContext | undefined {
+  const request = rtdbRulesMethod(rawMethod);
+  const isRead = request === 'get' || request === 'list';
+  const phase = isRead ? 'read' : 'write';
+  let matchedPath = local.rtdb?.matchedPath;
+  if (matchedPath === undefined || matchedPath === '') {
+    matchedPath = local.rule?.path;
+  }
+  let expression = local.rtdb?.matchedRule;
+  if (expression === undefined || expression === '') {
+    expression = local.rule?.expression;
+  }
+  const bindings = local.rtdb?.pathVariableBindings;
+  const hasBindings = bindings !== undefined && Object.keys(bindings).length > 0;
+  const hasMatchedPath = matchedPath !== undefined && matchedPath !== '';
+  const hasExpression = expression !== undefined && expression !== '';
+  if (!hasMatchedPath && !hasExpression && !hasBindings) {
+    return undefined;
+  }
+  const context: LiveUnevaluatedRuleContext = { engine: 'rtdb' };
+  if (matchedPath !== undefined && matchedPath !== '') {
+    context.nodeLabel = `${matchedPath} .${phase}`;
+    if (rulesSource !== undefined && rulesSource.trim() !== '') {
+      const located = locateRtdbRule(rulesSource, matchedPath, `.${phase}`);
+      if (located !== null && located !== undefined) {
+        context.line = located.line;
+      }
+    }
+  }
+  if (expression !== undefined && expression !== '') context.expression = expression;
+  if (bindings !== undefined && Object.keys(bindings).length > 0) {
+    context.pathVariableBindings = bindings;
+  }
+  return context;
+}
+
+function firestoreUnevaluatedRuleContext(
+  local: LiveUnevaluatedLocal,
+  rulesSource: string | undefined,
+): LiveUnevaluatedRuleContext | undefined {
+  const rule = local.rule;
+  if (rule === undefined) return undefined;
+  const context: LiveUnevaluatedRuleContext = { engine: 'firestore' };
+  if (rule.line !== undefined) context.line = rule.line;
+  if (rule.expression !== undefined && rule.expression !== '') {
+    context.expression = rule.expression;
+  }
+  const operations = declaredOperations(rulesSource, rule.line);
+  if (operations !== undefined) {
+    context.nodeLabel = `allow ${operations.join(', ')}`;
+  } else if (rule.path !== undefined && rule.path !== '') {
+    context.nodeLabel = rule.path;
+  }
+  return context;
+}
+
+/**
+ * Projects a live `unevaluated` verdict (RTDB or Firestore) into an honest
+ * in-place Traffic inspection: production's verdict, the applicable local rule
+ * node and source line when determinable, and the exact runtime context gaps
+ * (`stored-document`, `write-data`, `claim-values`, `query`) that prevented a
+ * local proof.
+ */
+export function liveUnevaluatedInspection(
+  event: StudioTrafficEvent,
+  rulesSource?: string,
+): LiveUnevaluatedInspection | undefined {
+  const production = event.production;
+  const local = production?.local;
+  if (production === undefined || local === undefined || local.result !== 'unevaluated') {
+    return undefined;
+  }
+  const service = event.service ?? 'firestore';
+  const normalizedMethod = rulesOperation(service, event.method);
+  const gapTable = service === 'rtdb' ? RTDB_GAP_DETAILS : FIRESTORE_GAP_DETAILS;
+  const gaps: LiveUnevaluatedGapDetail[] = local.needs.map((gap) => ({
+    gap,
+    label: gapTable[gap].label,
+    detail: gapTable[gap].detail,
+  }));
+  const lead = liveProductionSentence(production.outcome, event.method, event.path);
+  const headline = `${lead} Local rules proof stopped because runtime inputs needed by the rule were not captured.`;
+  const inspection: LiveUnevaluatedInspection = {
+    service,
+    method: normalizedMethod,
+    rawMethod: event.method,
+    path: event.path,
+    headline,
+    gaps,
+  };
+  let ruleContext: LiveUnevaluatedRuleContext | undefined;
+  if (service === 'rtdb') {
+    ruleContext = rtdbUnevaluatedRuleContext(local, event.method, rulesSource);
+  } else {
+    ruleContext = firestoreUnevaluatedRuleContext(local, rulesSource);
+  }
+  if (ruleContext !== undefined) {
+    inspection.ruleContext = ruleContext;
+  }
+  return inspection;
+}
+
+/** Whether a live Traffic row has an in-place rules inspection (decided or unevaluated). */
+export function opensLiveRulesInspector(event: StudioTrafficEvent): boolean {
+  return liveRuleEvaluation(event) !== undefined || liveUnevaluatedInspection(event) !== undefined;
 }

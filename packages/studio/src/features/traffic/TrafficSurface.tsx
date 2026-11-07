@@ -44,11 +44,11 @@ import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.j
 import {
   filterByVerdict,
   filterStudioTraffic,
-  liveRuleEvaluation,
   localDrift,
+  opensLiveRulesInspector,
   opensRulesInspector,
   productionLabel,
-  subjectTarget,
+  rowNavigationTarget,
   verdictFor,
   verdictLabel,
   VERDICT_FILTERS,
@@ -56,9 +56,7 @@ import {
   type VerdictFilter,
 } from './verdict.js';
 import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-selection.js';
-import { TrafficRulesInspector } from './TrafficRulesInspector.js';
-import { DenialDetail } from '../rules-debug/index.js';
-import { useStudioRulesSource } from '../../shell/studio-rules-source.js';
+import { TrafficInspectedDetail } from './TrafficLiveRulesDetail.js';
 import { BillableMetricsView, RulesMetricsView } from './TrafficMetricsViews.js';
 import {
   ListenerPageSurface,
@@ -179,8 +177,6 @@ function ProductionCell({ production }: { production: NonNullable<StudioTrafficE
 }
 
 const DRIFT_TITLE = 'Local rules disagree with production';
-const DRIFT_REASON =
-  "The local rules file differs from the deployed rules, or pyric's rules engine differs from production's.";
 
 /** The one mark on a production row whose local rules disagree with production's answer. */
 function DriftMarker() {
@@ -191,50 +187,6 @@ function DriftMarker() {
         <path d="M12 9v5m0 3v1" />
       </svg>
     </span>
-  );
-}
-
-/**
- * A live Firestore op's details: the sandbox rules view, fed from the local
- * rules' trace, under production's verdict. A disagreement adds one sentence.
- */
-function LiveRulesDetail({
-  event,
-  onClose,
-}: {
-  event: StudioTrafficEvent;
-  onClose: () => void;
-}) {
-  const rulesSource = useStudioRulesSource('firestore');
-  const evaluation = liveRuleEvaluation(event, rulesSource);
-  if (evaluation === undefined) return null;
-  const production = event.production;
-  const drifts = localDrift(event) !== undefined;
-  return (
-    <div data-pyric-ui="traffic-live-rules-inspector" className="traffic__inspector">
-      <div className="traffic__inspector-bar">
-        <span className="traffic__inspector-title">rules inspector</span>
-        <button
-          type="button"
-          className="traffic__inspector-close"
-          onClick={onClose}
-          aria-label="Close rules inspector (Esc)"
-        >
-          close (esc)
-        </button>
-      </div>
-      {production === undefined ? null : (
-        <p className="traffic__live-production" data-production-verdict={production.outcome.status}>
-          {productionLabel(production)}
-        </p>
-      )}
-      {drifts ? (
-        <p className="traffic__drift-reason" data-drift-reason="">
-          {DRIFT_REASON}
-        </p>
-      ) : null}
-      <DenialDetail denial={evaluation} rulesSource={rulesSource} />
-    </div>
   );
 }
 
@@ -273,27 +225,13 @@ function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   );
 }
 
-/** Whether a row's click opens the rules view in place: a sandbox rules decision, or a live op with a local rules trace. */
+/** Whether a row's click opens the rules view in place: a sandbox rules decision, or a live op with a decided or unevaluated local verdict. */
 function opensDetail(event: StudioTrafficEvent): boolean {
-  return opensRulesInspector(event) || liveRuleEvaluation(event) !== undefined;
+  return opensRulesInspector(event) || opensLiveRulesInspector(event);
 }
 
-/** The detail an inspected id opens: a live op's rules view from its local trace, else the sandbox rules inspector. */
-function InspectedDetail({
-  eventId,
-  events,
-  onClose,
-}: {
-  eventId: string;
-  events: readonly StudioTrafficEvent[];
-  onClose: () => void;
-}) {
-  const event = events.find((candidate) => candidate.id === eventId);
-  const evaluation = event === undefined ? undefined : liveRuleEvaluation(event);
-  if (event !== undefined && evaluation !== undefined) {
-    return <LiveRulesDetail event={event} onClose={onClose} />;
-  }
-  return <TrafficRulesInspector eventId={eventId} onClose={onClose} />;
+function isRowInteractive(event: StudioTrafficEvent): boolean {
+  return opensDetail(event) || rowNavigationTarget(event) !== null;
 }
 
 /**
@@ -313,7 +251,7 @@ function StandaloneDetail({
 }) {
   const event = live === null ? undefined : events.find((candidate) => candidate.id === eventId);
   if (event !== undefined) return <LiveRowDetail event={event} live={live} onClose={onClose} />;
-  return <InspectedDetail eventId={eventId} events={events} onClose={onClose} />;
+  return <TrafficInspectedDetail eventId={eventId} events={events} onClose={onClose} />;
 }
 
 /** The URL-driven inspector focus (`?inspect=<id>`): the inspected op's id, or
@@ -430,8 +368,8 @@ export function TrafficSurface() {
       openInspect(e.id);
       return;
     }
-    const target = subjectTarget(e);
-    if (target) pushPath(target);
+    const target = rowNavigationTarget(e);
+    if (target !== null) pushPath(target);
   };
 
   // A deep-linked / filtered-out op has no visible row to expand under:
@@ -618,12 +556,7 @@ export function TrafficSurface() {
                         // their subject.
                         onSelect={(e) => {
                           const ev = e as StudioTrafficEvent;
-                          if (opensDetail(ev)) {
-                            openInspect(ev.id);
-                            return;
-                          }
-                          const target = subjectTarget(ev);
-                          if (target) pushPath(target);
+                          onRowSelect(ev);
                         }}
                         renderClassification={(event) =>
                           verdictBadge(event as StudioTrafficEvent)
@@ -653,6 +586,11 @@ export function TrafficSurface() {
                         <TrafficRow
                           event={item.event}
                           selected={item.event.id === expandedId}
+                          className={
+                            isRowInteractive(item.event as StudioTrafficEvent)
+                              ? undefined
+                              : 'traffic__row--inert'
+                          }
                           onSelect={(e) => onRowSelect(e as StudioTrafficEvent)}
                           renderClassification={(event) =>
                             verdictBadge(event as StudioTrafficEvent)
@@ -669,7 +607,7 @@ export function TrafficSurface() {
                         />
                       ) : item.event.id === expandedId &&
                       opensDetail(item.event as StudioTrafficEvent) ? (
-                        <InspectedDetail
+                        <TrafficInspectedDetail
                           key={expandedId}
                           eventId={expandedId}
                           events={events}

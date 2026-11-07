@@ -21,8 +21,16 @@
  * with the data in hand. A service whose rules file the app did not load
  * gets no verdict: the sandbox's stand-in rules are not the app's.
  */
-import { rtdbRules, type RtdbRulesJson } from 'pyric/rules';
+import type { RtdbRulesJson } from 'pyric/rules';
 import { projectEvaluatedRule, type TestCase, type TestResult } from 'pyric/rules/internal';
+import {
+  collectRtdbRuleAncestors,
+  compileRtdbRules,
+  rtdbWildcardChild,
+  simulateRtdbRules,
+  type CompiledRtdbRules,
+  type RtdbRuleEvaluation,
+} from 'pyric/rules/internal/rtdb';
 import { getActiveRules } from 'pyric/sandbox/database';
 import {
   captureRulesEvidence,
@@ -31,6 +39,8 @@ import {
   LOCKED_DATABASE_RULES,
   observedMethod,
   productionVerdict,
+  rtdbRulesMethod,
+  type LocalRtdbEvaluation,
   type ObservedMethod,
 } from 'pyric/sandbox/internal';
 import type { ObservedCall, ObservedProduction } from 'pyric/sandbox';
@@ -38,10 +48,12 @@ import type { HostCtx } from '../host-context.js';
 import { rtdbInstance } from './rtdb-instances.js';
 
 type LocalVerdict = NonNullable<ObservedProduction['local']>;
-type Gap = Extract<LocalVerdict, { result: 'unevaluated' }>['needs'][number];
+type Unevaluated = Extract<LocalVerdict, { result: 'unevaluated' }>;
+type Gap = Unevaluated['needs'][number];
 type Decided = Extract<LocalVerdict, { result: 'allow' | 'deny' }>;
 type Rule = Decided['rule'];
 type Trace = NonNullable<Decided['trace']>;
+type RtdbLocal = LocalRtdbEvaluation;
 
 /** One method's local answer: allowed or not, the deciding rule, the data it needed, and its evaluation trace. */
 export interface Evaluation {
@@ -49,6 +61,7 @@ export interface Evaluation {
   rule: Rule;
   needs: Gap[];
   trace?: Trace;
+  rtdb?: RtdbLocal;
 }
 
 /** The largest trace, in bytes of JSON, a verdict keeps; a larger one is dropped and the verdict kept. */
@@ -94,11 +107,14 @@ const FIRESTORE_GAPS: readonly GapPattern[] = [
   ['query', /\brequest\.query\b/, ALWAYS_OPEN],
 ];
 
+const RTDB_EMAIL_CLAIM = /\bauth\.token\.(?:email\b|firebase\.identities\b)/;
+
 /** What each gap looks like in an RTDB rule expression. */
 const RTDB_GAPS: readonly GapPattern[] = [
-  ['stored-document', /\b(?:data|root)\b/, ALWAYS_OPEN],
+  ['stored-document', /(?<![\w.])(?:data|root)\b/, ALWAYS_OPEN],
   ['claim-values', /\bauth\.token\b/, (given) => !given.claims],
-  ['query', /\bquery\./, ALWAYS_OPEN],
+  ['claim-values', RTDB_EMAIL_CLAIM, (given) => !given.emails],
+  ['query', /(?<![\w.])query\./, ALWAYS_OPEN],
 ];
 
 /** The RTDB rule kind each request method evaluates. */
@@ -189,26 +205,85 @@ function traceOf(result: TestResult, call: ObservedCall): Trace {
   return captureRulesEvidence({ ...result, trace }, LOCAL_TRACE_VERSION);
 }
 
+function bindingsWithoutEmail(bindings: Record<string, string>, emails: string[]): Record<string, string> {
+  const scrubbed: Record<string, string> = {};
+  for (const [key, value] of Object.entries(bindings)) {
+    if (!holdsEmail(value, emails)) scrubbed[key] = value;
+  }
+  return scrubbed;
+}
+
+/** One RTDB trace entry with any email-holding message or binding omitted. */
+function rtdbTraceEntryWithoutEmail(entry: RtdbRuleEvaluation, emails: string[]): RtdbRuleEvaluation {
+  const pathVariableBindings = bindingsWithoutEmail(entry.pathVariableBindings, emails);
+  if (!holdsEmail(entry.message, emails)) return { ...entry, pathVariableBindings };
+  const { message: _message, ...withoutMessage } = entry;
+  return { ...withoutMessage, pathVariableBindings };
+}
+
+function withinByteCap(value: unknown): boolean {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength <= TRACE_LIMIT;
+}
+
 /** The trace a verdict keeps, or `undefined` when its JSON is larger than the cap in bytes. */
 function keptTrace(trace: Trace | undefined): Trace | undefined {
   if (trace === undefined) return undefined;
-  const tooLarge = new TextEncoder().encode(JSON.stringify(trace)).byteLength > TRACE_LIMIT;
-  return tooLarge ? undefined : trace;
+  return withinByteCap(trace) ? trace : undefined;
 }
 
-/** An evaluation as a verdict: unevaluated when it needed data, else flagged as drift when it disagrees with production. */
+/** The RTDB local record a verdict keeps, dropping `rtdbTrace` first if it exceeds the byte cap. */
+function keptRtdb(rtdb: RtdbLocal | undefined): RtdbLocal | undefined {
+  if (rtdb === undefined) return undefined;
+  if (withinByteCap(rtdb)) return rtdb;
+  if (rtdb.rtdbTrace === undefined) return undefined;
+  const { rtdbTrace: _rtdbTrace, ...withoutTrace } = rtdb;
+  if (Object.keys(withoutTrace).length === 0) return undefined;
+  return withinByteCap(withoutTrace) ? withoutTrace : undefined;
+}
+
+/** Strips simulated verdicts/reasons from an unevaluated RTDB record, keeping only rule-node context. */
+function unevaluatedRtdbOf(rtdb: RtdbLocal): RtdbLocal | undefined {
+  const context: RtdbLocal = {};
+  if (rtdb.matchedPath !== undefined && rtdb.matchedPath !== '') {
+    context.matchedPath = rtdb.matchedPath;
+  }
+  if (rtdb.matchedRule !== undefined && rtdb.matchedRule !== '') {
+    context.matchedRule = rtdb.matchedRule;
+  }
+  const bindings = rtdb.pathVariableBindings;
+  if (bindings !== undefined && Object.keys(bindings).length > 0) {
+    context.pathVariableBindings = bindings;
+  }
+  return Object.keys(context).length === 0 ? undefined : context;
+}
+
+/**
+ * An evaluation as a verdict: unevaluated when it needed data, else flagged as
+ * drift when it disagrees with production. An unevaluated verdict keeps the
+ * rule the simulation evaluated with the data missing, which is context for
+ * the gap and not a deciding rule.
+ */
 function verdictOf(call: ObservedCall, evaluation: Evaluation): LocalVerdict {
-  if (evaluation.needs.length > 0) return { result: 'unevaluated', needs: evaluation.needs };
+  if (evaluation.needs.length > 0) {
+    const unevaluated: Unevaluated = { result: 'unevaluated', needs: evaluation.needs };
+    if (evaluation.rule !== undefined) unevaluated.rule = evaluation.rule;
+    if (evaluation.rtdb !== undefined) {
+      const context = keptRtdb(unevaluatedRtdbOf(evaluation.rtdb));
+      if (context !== undefined) unevaluated.rtdb = context;
+    }
+    return unevaluated;
+  }
   const { allowed, rule } = evaluation;
   const production = productionVerdict(call.outcome);
   const disagrees = (production === 'ok' && !allowed) || (production === 'denied' && allowed);
   const trace = keptTrace(evaluation.trace);
-  return {
-    result: allowed ? 'allow' : 'deny',
-    ...(rule === undefined ? {} : { rule }),
-    ...(disagrees ? { drift: true as const } : {}),
-    ...(trace === undefined ? {} : { trace }),
-  };
+  const rtdb = keptRtdb(evaluation.rtdb);
+  const verdict: Decided = { result: allowed ? 'allow' : 'deny' };
+  if (rule !== undefined) verdict.rule = rule;
+  if (disagrees) verdict.drift = true;
+  if (trace !== undefined) verdict.trace = trace;
+  if (rtdb !== undefined) verdict.rtdb = rtdb;
+  return verdict;
 }
 
 /** `request.auth` for the call: its uid, and its token's claims when the call carries their values. */
@@ -296,7 +371,8 @@ function evaluateSetDoc(simulate: FirestoreSimulate, call: ObservedCall, path: s
   const needs = unionOf(create.needs, update.needs);
   const agrees = create.allowed === update.allowed;
   if (agrees) return { ...create, needs };
-  return { ...create, needs: unionOf(['stored-document'], needs) };
+  // Which branch applies rests on the stored document, so neither branch's rule is the one that decides.
+  return { allowed: create.allowed, rule: undefined, needs: unionOf(['stored-document'], needs) };
 }
 
 /**
@@ -328,46 +404,126 @@ function appRtdbRules(ctx: HostCtx, instance: string | undefined): RtdbRulesJson
   return isAppRules ? getActiveRules(entry.live) : null;
 }
 
+/**
+ * An RTDB write other than `remove` carries no `newData`, so local rules cannot
+ * finish proof, yet the compiled rule tree still names the `.write` node and
+ * `$variable` bindings along `normalizedPath` (or the `$wildcard` child for `push`).
+ */
+function rtdbWriteUnevaluated(
+  compiled: CompiledRtdbRules,
+  call: ObservedCall,
+  normalizedPath: string,
+  method: ObservedMethod,
+): LocalVerdict {
+  const segments = normalizedPath.split('/').filter(Boolean);
+  const steps = collectRtdbRuleAncestors(compiled, segments);
+  const walkedTo = steps[steps.length - 1];
+  const matchedAllSegments = steps.length === segments.length + 1;
+  // A push writes a new key under the path, which only the `$wildcard` child rule can govern.
+  const pushed = call.method === 'push' && matchedAllSegments ? rtdbWildcardChild(walkedTo.node) : undefined;
+  if (pushed !== undefined) {
+    steps.push({ node: pushed.child, pathVariableBindings: walkedTo.pathVariableBindings, depth: walkedTo.depth + 1 });
+  }
+  const expressions = steps.flatMap((step) => [step.node.write?.raw, step.node.validate?.raw]);
+  const extraNeeds = gapsIn(expressions, RTDB_GAPS, givenBy(call, method));
+  const needs = unionOf(['write-data'], extraNeeds);
+  const decidingWrite = [...steps].reverse().find((step) => step.node.write !== undefined);
+  const deepestStep = steps[steps.length - 1];
+  const emails = emailsOf(call);
+  let rule: Rule;
+  let rtdb: RtdbLocal | undefined;
+  if (decidingWrite !== undefined && decidingWrite.node.write !== undefined) {
+    const raw = decidingWrite.node.write.raw;
+    rule = { path: decidingWrite.node.path, expression: raw };
+    rtdb = { matchedPath: decidingWrite.node.path, matchedRule: raw };
+    const cleanBindings = bindingsWithoutEmail(decidingWrite.pathVariableBindings, emails);
+    if (Object.keys(cleanBindings).length > 0) {
+      rtdb.pathVariableBindings = cleanBindings;
+    }
+  } else {
+    const cleanBindings = bindingsWithoutEmail(deepestStep.pathVariableBindings, emails);
+    if (Object.keys(cleanBindings).length > 0) {
+      rtdb = { pathVariableBindings: cleanBindings };
+    }
+  }
+  const verdict: Unevaluated = { result: 'unevaluated', needs };
+  if (rule !== undefined) verdict.rule = rule;
+  const boundedRtdb = keptRtdb(rtdb);
+  if (boundedRtdb !== undefined) verdict.rtdb = boundedRtdb;
+  return verdict;
+}
+
 function rtdbVerdict(ctx: HostCtx, call: ObservedCall, method: ObservedMethod): LocalVerdict | undefined {
   const ruleset = appRtdbRules(ctx, call.instance);
   const path = call.path;
   if (ruleset === null || path === undefined) return undefined;
+  const compiled = compileRtdbRules(ruleset);
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const operation = RTDB_OPERATION[method];
   const isDelete = method === 'delete';
   // A write other than a remove is checked against its value, which an observed call does not carry yet.
-  if (operation === 'write' && !isDelete) return { result: 'unevaluated', needs: ['write-data'] };
-  const [result] = rtdbRules(ruleset).simulate([{
-    expectation: 'ALLOW',
+  if (operation === 'write' && !isDelete) {
+    return rtdbWriteUnevaluated(compiled, call, normalizedPath, method);
+  }
+  const simInput: Parameters<typeof simulateRtdbRules>[1] = {
     operation,
-    path: path.startsWith('/') ? path : `/${path}`,
+    path: normalizedPath,
     auth: authOf(call),
-    data: {},
+    mockData: {},
     now: call.at,
-    // A remove writes null.
-    ...(isDelete ? { newData: null } : {}),
-  }]).cases;
-  if (result === undefined || result.unsupported) return undefined;
-  const allowed = result.decision === 'ALLOW';
-  const deciding = result.trace.find((entry) => entry.conditionText === result.matchedRule);
-  const expressions = allowed ? [result.matchedRule] : result.trace.map((entry) => entry.conditionText);
-  const hasRule = result.matchedRule !== '';
-  const rule = hasRule ? definedOnly({ path: deciding?.path ?? result.matchedPath, expression: result.matchedRule }) : undefined;
-  return verdictOf(call, { allowed, rule, needs: gapsIn(expressions, RTDB_GAPS, givenBy(call, method)) });
+  };
+  if (isDelete) simInput.newData = null;
+  const simulated = simulateRtdbRules(compiled, simInput);
+  if (!simulated.success || simulated.data.unsupported) return undefined;
+  const data = simulated.data;
+  const allowed = data.allowed;
+  const emails = emailsOf(call);
+  const scrubbedTrace = data.trace.map((entry) => rtdbTraceEntryWithoutEmail(entry, emails));
+  const expressions = allowed ? [data.matchedRule] : data.trace.map((entry) => entry.conditionText);
+  const hasRule = data.matchedRule !== '';
+  const rule = hasRule ? definedOnly({ path: data.matchedPath, expression: data.matchedRule }) : undefined;
+  const rtdb: RtdbLocal = {
+    matchedPath: data.matchedPath,
+    matchedRule: data.matchedRule,
+    rtdbTrace: scrubbedTrace,
+  };
+  const cleanBindings = bindingsWithoutEmail(data.pathVariableBindings, emails);
+  if (Object.keys(cleanBindings).length > 0) {
+    rtdb.pathVariableBindings = cleanBindings;
+  }
+  if (data.reason !== '' && !holdsEmail(data.reason, emails)) {
+    rtdb.reason = data.reason;
+  }
+  if (!allowed && data.matchedPath === '') {
+    rtdb.errorCode = 'NO_MATCHING_RULE';
+  }
+  return verdictOf(call, {
+    allowed,
+    rule,
+    needs: gapsIn(expressions, RTDB_GAPS, givenBy(call, method)),
+    rtdb,
+  });
 }
 
 /**
  * What the app's loaded rules say about an observed call, or `undefined`
- * for a call no loaded rules govern: an Auth, AI or Messaging call, a listener
- * or transaction, a service whose rules file the app did not load, or a
+ * for a call no loaded rules govern: an Admin SDK call, an Auth, AI or
+ * Messaging call, a Firestore listener or transaction, an RTDB transaction or
+ * `onDisconnect`, a service whose rules file the app did not load, or a
  * Storage call, which this host does not yet evaluate. Never throws: a local
  * evaluation that fails leaves the event as production answered it.
  */
 export function localVerdict(ctx: HostCtx, call: ObservedCall): LocalVerdict | undefined {
-  const method = observedMethod(call.service, call.method);
-  if (method === null) return undefined;
+  if (call.sdk === 'admin') return undefined;
   try {
-    if (call.service === 'firestore') return firestoreVerdict(ctx, call, method);
-    if (call.service === 'rtdb') return rtdbVerdict(ctx, call, method);
+    if (call.service === 'firestore') {
+      const method = observedMethod('firestore', call.method);
+      return method === null ? undefined : firestoreVerdict(ctx, call, method);
+    }
+    if (call.service === 'rtdb') {
+      const method = rtdbRulesMethod(call.method);
+      return method === null ? undefined : rtdbVerdict(ctx, call, method);
+    }
     return undefined;
   } catch {
     return undefined;

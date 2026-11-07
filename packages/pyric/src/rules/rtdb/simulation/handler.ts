@@ -7,7 +7,8 @@ import { withIdTokenClaims } from '../../auth/token-claims.js';
 import { projectPostWriteTree } from './post-write-tree.js';
 import type { RtdbRuleEvaluation, SimulateResult } from './spec.js';
 
-interface AncestorMatch {
+/** One rule node on the way from the root to a path, with the `$variable` bindings that reach it. */
+export interface AncestorMatch {
   node: RtdbNode;
   pathVariableBindings: Record<string, string>;
   /** Number of `path` segments consumed to reach this node from the root —
@@ -240,12 +241,13 @@ function findFailingValidate(
 /**
  * Walk from root toward the target path, collecting every ancestor node
  * along the way (including the deepest match). Firebase RTDB evaluates
- * rules from root down — a `true` at any ancestor grants access.
+ * rules from root down — a `true` at any ancestor grants access. The list
+ * stops early, one node per segment matched, where no child rule applies.
  */
-function collectAncestors(
+export function collectAncestors(
   node: RtdbNode,
-  pathSegments: string[],
-  bindings: Record<string, string>,
+  pathSegments: readonly string[],
+  bindings: Record<string, string> = {},
   depth = 0,
 ): AncestorMatch[] {
   const ancestors: AncestorMatch[] = [{ node, pathVariableBindings: { ...bindings }, depth }];
@@ -282,6 +284,15 @@ function childFor(node: RtdbNode, key: string): { child: RtdbNode; variable?: st
     if (isWildcard && wildcard === undefined) wildcard = { child, variable: childKey };
   }
   return wildcard;
+}
+
+/** The `$wildcard` child rule node, which applies to a key no literal sibling names (a `push` id), with its variable. */
+export function wildcardChildOf(node: RtdbNode): { child: RtdbNode; variable: string } | undefined {
+  for (const child of node.children) {
+    const childKey = keyOf(child);
+    if (childKey !== undefined && childKey.startsWith('$')) return { child, variable: childKey };
+  }
+  return undefined;
 }
 
 /** The denial result for a failing `.validate` rule. */

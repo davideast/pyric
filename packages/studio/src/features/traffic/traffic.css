@@ -863,6 +863,9 @@
   padding: 10px 14px 12px;
   background: color-mix(in srgb, var(--deny-tint) 60%, var(--panel));
 }
+.traffic__inspector[data-live-unevaluated] {
+  background: var(--panel);
+}
 /* Standalone form (deep link with no visible row): its own bordered block. */
 .traffic > .traffic__inspector {
   border: 1px solid var(--line);
@@ -926,6 +929,9 @@
 }
 .traffic__log [data-pyric-traffic-row]:hover {
   background: var(--panel);
+}
+.traffic__log [data-pyric-traffic-row].traffic__row--inert {
+  cursor: default;
 }
 .traffic__log [data-pyric-traffic-time] {
   color: var(--faint);

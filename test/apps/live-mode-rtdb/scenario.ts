@@ -10,6 +10,12 @@
  * denied read and write of `/secret`. `.info/connected` makes no row and
  * reaches no server. The host's event stream names the named instance and
  * leaves the default's out, and RTDB calls add nothing to the billed count.
+ * The project's `database.rules.json` governs the default instance, so the
+ * host runs each observed call there through the local rules too, and
+ * Studio's Traffic opens each one's rules inspector in place: a listener
+ * delivery the local rules would allow, a write whose `newData` the call did
+ * not carry, and the denied read of `/secret`, which the local rules would
+ * allow, worded as what the local rules would do under production's answer.
  *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * capture A for this project and custom-token sign-ins. Each plane gets a
@@ -63,11 +69,35 @@ function signIns(format: string): Record<string, unknown> {
   return { format, project: PROJECT, source: 'hand-written from the Auth REST v1 wire format', exchanges };
 }
 
-/** The project's files a user's checkout has: `.firebaserc` names it, and the sign-ins recording the replay plays. */
+/**
+ * The default instance's local rules: signed-in users read and write under the
+ * run folder, and may read `/secret`, which production denies, so that read
+ * is drift.
+ */
+const DATABASE_RULES = {
+  rules: {
+    '.read': false,
+    '.write': false,
+    'pyric-live-capture': {
+      replay: {
+        $node: {
+          '.read': 'auth != null',
+          '.write': 'auth != null',
+        },
+      },
+    },
+    secret: {
+      '.read': 'auth != null',
+    },
+  },
+};
+
+/** The project's files a user's checkout has: `.firebaserc` names it, its database rules, and the sign-ins recording the replay plays. */
 async function writeProject(app: App): Promise<void> {
   const { FORMAT } = await import('../replay/format.ts');
   app.writeFile('.firebaserc', `${JSON.stringify({ projects: { default: PROJECT } })}\n`);
-  app.writeFile('firebase.json', `${JSON.stringify({ hosting: { public: 'public' } })}\n`);
+  app.writeFile('database.rules.json', `${JSON.stringify(DATABASE_RULES, null, 2)}\n`);
+  app.writeFile('firebase.json', `${JSON.stringify({ hosting: { public: 'public' }, database: { rules: 'database.rules.json' } })}\n`);
   app.writeFile(SIGN_INS, `${JSON.stringify(signIns(FORMAT))}\n`);
 }
 
@@ -210,7 +240,16 @@ async function expectRows(chip: Locator, source: 'page' | 'node'): Promise<void>
   assert.equal(deliveries.length, 8, `two deliveries per listener per instance from ${source}:\n${deliveries.join('\n')}`);
 }
 
-interface CapturedEvent { kind?: string; service?: string; method?: string; path?: string; instance?: string; auth?: { uid?: string } | null }
+interface CapturedEvent {
+  id?: string;
+  kind?: string;
+  service?: string;
+  method?: string;
+  path?: string;
+  instance?: string;
+  auth?: { uid?: string } | null;
+  production?: { local?: { result?: string; drift?: boolean } };
+}
 
 /** The RTDB operations the host's event stream carried, as it wrote them to the session capture. */
 function rtdbEvents(app: App): CapturedEvent[] {
@@ -270,6 +309,29 @@ function blockedLines(app: App): string[] {
   return app.browserLog.filter((line) => line.includes('[blocked external'));
 }
 
+/** Studio's stylesheet names its web fonts, which the offline browser blocks; no app call goes to these hosts. */
+const STUDIO_FONT_HOSTS = /\bhttps:\/\/(?:use\.typekit\.net|fonts\.googleapis\.com)\//;
+
+/** The page user's first event for `method` on `path` on the default instance, with the local verdict `result`. */
+function defaultEvent(events: CapturedEvent[], method: string, path: string, result: string): CapturedEvent {
+  const event = events.find((candidate) => candidate.method === method
+    && candidate.path?.replace(/^\/?/, '/') === path
+    && candidate.instance === undefined
+    && candidate.production?.local?.result === result);
+  assert.ok(event?.id, `a default-instance ${method} ${path} with a local ${result}:\n${JSON.stringify(events.filter((candidate) => candidate.method === method), null, 1)}`);
+  return event;
+}
+
+/** Studio's Traffic, deep-linked to one event's rules inspector, and the inspector once it shows. */
+async function inspect(app: App, url: string, id: string): Promise<{ studio: Page; inspector: Locator }> {
+  const studio = await app.page(`${url}/__pyric/ui/traffic/?inspect=${encodeURIComponent(id)}`);
+  const inspector = studio.locator('[data-pyric-ui="traffic-live-rules-inspector"]');
+  await inspector.waitFor({ timeout: 30_000 }).catch((error: Error) => {
+    throw new Error(`${error.message}\nconsole:\n${app.browserLog.join('\n')}`);
+  });
+  return { studio, inspector };
+}
+
 interface BilledCount {
   reads: number;
   writes: number;
@@ -324,6 +386,40 @@ export default scenario(async (app) => {
     assert.deepEqual(await billed(host.url), { reads: 0, writes: 0, deliveries: 0 });
   });
 
+  const blockedBeforeStudio = blockedLines(app).length;
+  await app.step('Studio\'s Traffic opens the local rules inspector in place for live RTDB calls on the default instance', async () => {
+    const events = rtdbEvents(app);
+    const listener = defaultEvent(events, 'onValue', `${RUN}/items/a`, 'allow');
+    const write = defaultEvent(events, 'set', `${RUN}/items/a`, 'unevaluated');
+    const drift = defaultEvent(events, 'get', '/secret', 'allow');
+    assert.equal(drift.production?.local?.drift, true, 'the local rules allow the read production denied');
+
+    const delivery = await inspect(app, host.url, listener.id!);
+    const deliveryText = await delivery.inspector.textContent() ?? '';
+    assert.match(deliveryText, /production ok/);
+    assert.match(deliveryText, new RegExp(`Local rules would allow listen on ${RUN}/items/a`));
+    assert.match(deliveryText, /\$node/);
+    assert.equal(await delivery.inspector.locator('[data-pyric-badge-kind=allow]').textContent(), 'local rules would allow');
+    await delivery.studio.close();
+
+    const unevaluated = await inspect(app, host.url, write.id!);
+    assert.equal(await unevaluated.inspector.getAttribute('data-live-unevaluated'), '');
+    assert.equal(await unevaluated.inspector.locator('[data-live-need="write-data"]').count(), 1);
+    assert.match(await unevaluated.inspector.textContent() ?? '', /applicable rule — \/pyric-live-capture\/replay\/\$node \.write/);
+    await unevaluated.studio.close();
+
+    const denied = await inspect(app, host.url, drift.id!);
+    const deniedText = await denied.inspector.textContent() ?? '';
+    assert.match(deniedText, /production denied/);
+    // The row's detail carries the drift sentence beside the local rules view.
+    assert.equal(await denied.studio.locator('[data-pyric-ui="traffic-row-detail"] [data-drift-reason]').count(), 1);
+    assert.match(deniedText, /Local rules would allow get on \/secret; production's answer above is what happened\./);
+    await denied.studio.close();
+    const studioBlocked = blockedLines(app).slice(blockedBeforeStudio);
+    assert.deepEqual(studioBlocked.filter((line) => !STUDIO_FONT_HOSTS.test(line)), [], 'Studio requested nothing off loopback but its fonts');
+  });
+  const blockedAfterStudio = blockedLines(app).length;
+
   await pageReplay.stop();
   const nodeReplay = await app.step('start a fresh replay server for the server job', () => startReplay(app));
 
@@ -349,7 +445,8 @@ export default scenario(async (app) => {
   });
 
   await app.step('nothing reached any host but loopback', async () => {
-    assert.deepEqual(blockedLines(app), []);
+    const blocked = blockedLines(app);
+    assert.deepEqual([...blocked.slice(0, blockedBeforeStudio), ...blocked.slice(blockedAfterStudio)], []);
     assert.deepEqual(await nodeReplay.unmatched(), []);
     await page.close();
     await host.process.stop();

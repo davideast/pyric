@@ -56,8 +56,9 @@ export interface RulesCodeEditorProps {
    *  thread a line). */
   markLine?: number;
   /** Which verdict the marked line produced: `deny` renders ✗ with the
-   *  remove tint; `allow` renders ✓ with the add tint. Default `deny`. */
-  markKind?: 'allow' | 'deny';
+   *  remove tint; `allow` renders ✓ with the add tint; `context` renders →
+   *  with a neutral accent tint when local proof could not finish. Default `deny`. */
+  markKind?: 'allow' | 'deny' | 'context';
   /** Approximate visible height. Defaults to a comfortable multi-line box. */
   minHeightRem?: number;
   ariaLabel?: string;
@@ -101,9 +102,10 @@ const editorTheme = EditorView.theme({
   '.cm-activeLine': { backgroundColor: 'rgba(143,127,232,0.06)' },
   '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--ink)' },
   '.cm-cursor': { borderLeftColor: 'var(--ink)' },
-  // Deciding-line emphasis: deny (✗, remove tint) / allow (✓, add tint).
+  // Deciding-line emphasis: deny (✗, remove tint) / allow (✓, add tint) / context (→, accent tint).
   '.cm-denyLine': { backgroundColor: 'var(--diff-remove-bg)' },
   '.cm-allowLine': { backgroundColor: 'var(--diff-add-bg)' },
+  '.cm-contextLine': { backgroundColor: 'var(--accent-tint)' },
   '.cm-markGutter': { width: '1.1em' },
   '.cm-markGutter .cm-gutterElement': {
     display: 'flex',
@@ -113,32 +115,46 @@ const editorTheme = EditorView.theme({
   },
   '.cm-markGutter .cm-gutterElement.cm-mark-deny': { color: 'var(--diff-remove)' },
   '.cm-markGutter .cm-gutterElement.cm-mark-allow': { color: 'var(--diff-add)' },
+  '.cm-markGutter .cm-gutterElement.cm-mark-context': { color: 'var(--accent)' },
 });
+
+const MARKER_GLYPHS = {
+  allow: '✓',
+  deny: '✗',
+  context: '→',
+} as const;
+
+const LINE_CLASSES = {
+  allow: 'cm-allowLine',
+  deny: 'cm-denyLine',
+  context: 'cm-contextLine',
+} as const;
 
 class VerdictGutterMarker extends GutterMarker {
   override elementClass: string;
-  constructor(private readonly kind: 'allow' | 'deny') {
+  constructor(private readonly kind: 'allow' | 'deny' | 'context') {
     super();
     this.elementClass = `cm-mark-${kind}`;
   }
   toDOM(): Text {
-    return document.createTextNode(this.kind === 'allow' ? '✓' : '✗');
+    return document.createTextNode(MARKER_GLYPHS[this.kind]);
   }
 }
 const MARKERS = {
   allow: new VerdictGutterMarker('allow'),
   deny: new VerdictGutterMarker('deny'),
+  context: new VerdictGutterMarker('context'),
 } as const;
 
 /** Build the line-background + gutter-marker extensions for a fixed 1-indexed
  *  line. Both are driven off the line's start position (recomputed on doc
  *  changes) so the background tint and the ✓/✗ marker always land on the SAME
  *  line, and stay put as the buffer is edited. */
-function lineEmphasis(line: number, kind: 'allow' | 'deny'): Extension {
+function lineEmphasis(line: number, kind: 'allow' | 'deny' | 'context'): Extension {
   const marker = MARKERS[kind];
   const inRange = (state: EditorState) => line >= 1 && line <= state.doc.lines;
   const lineDeco = Decoration.line({
-    attributes: { class: kind === 'allow' ? 'cm-allowLine' : 'cm-denyLine' },
+    attributes: { class: LINE_CLASSES[kind] },
   });
   const decoFor = (state: EditorState): DecorationSet =>
     inRange(state) ? Decoration.set([lineDeco.range(state.doc.line(line).from)]) : Decoration.none;

@@ -210,7 +210,7 @@ function toTrafficEvent(
   if (e.reasons !== undefined) {
     reasonsVal = e.reasons;
   }
-  return {
+  const adapted: StudioTrafficEvent = {
     kind: 'operation',
     service: e.service,
     id: e.id,
@@ -231,9 +231,11 @@ function toTrafficEvent(
     operationContext: record.context,
     rulesDisposition: record.rules,
     queryProof: record.queryProof,
-    ...callerOf(e),
-    ...(e.kind === 'operation' && e.production !== undefined ? { production: e.production } : {}),
   };
+  if (e.caller !== undefined) adapted.caller = e.caller;
+  if (e.instance !== undefined) adapted.instance = e.instance;
+  if (e.production !== undefined) adapted.production = e.production;
+  return adapted;
 }
 
 /** The caller field to carry onto an adapted event, when the host stamped one. */

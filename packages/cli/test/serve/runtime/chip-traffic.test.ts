@@ -582,6 +582,19 @@ describe('a call production served', () => {
     const traced = chipRequestFromEvent(withLocal(denied, { result: 'allow', rule, drift: true, trace }));
     expect(traced?.rulesEvidence).toEqual(trace);
     expect(traced?.localDrift).toEqual({ result: 'allow', rule, drift: true });
+    const rtdbDrift = chipRequestFromEvent(
+      withLocal(denied, {
+        result: 'allow',
+        rule: { path: '/rooms/$roomId', expression: 'auth != null' },
+        drift: true,
+        rtdb: { matchedPath: '/rooms/$roomId', matchedRule: 'auth != null', rtdbTrace: [] },
+      }),
+    );
+    expect(rtdbDrift?.localDrift).toEqual({
+      result: 'allow',
+      rule: { path: '/rooms/$roomId', expression: 'auth != null' },
+      drift: true,
+    });
   });
 
   it("keeps a live call's SDK method on its row", () => {
