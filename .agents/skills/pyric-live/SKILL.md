@@ -174,8 +174,9 @@ comes after a call has already reached it. Check before starting:
    is made, that label is also the settings project.
 3. `GET <url>/__pyric/health` has a `live` field: `projectId`, `configProjectId`, `configSource`,
    `appProjectIds`, the `billed` counts (`reads`, `writes`, `deliveries`), `admin`, `passThrough`
-   when the host passes imports through, and `unobserved` when the host process called a Google
-   host no row observed. A sandbox host has no `live` field. When the dev server has
+   when the host passes imports through, `unobserved` when the host process called a Google
+   host no row observed, and `clients` while a page or Node process is connected. A sandbox host
+   has no `live` field. When the dev server has
    `server.proxy` targets on this machine, `proxyTargets` lists a verdict for each.
 4. A Node backend that uses `firebase-admin` prints its own start lines. On Node 23 or later with
    `firebase-admin` 13, one line says `firebase-admin is observed for the Firebase project
