@@ -27,7 +27,7 @@ import type { ObservedCall } from 'pyric/sandbox';
 import type { BridgeMessage } from '../bridge/protocol.js';
 import type { FirebaseProjectSource } from '../cli/firebase-project.js';
 import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
-import { createLiveClients } from './live-clients.js';
+import { createLiveClients, type SandboxClientIds } from './live-clients.js';
 import { liveUnobservedHosts } from '../register/live-net-guard.js';
 
 /** Observed calls waiting on the host's answer; a bound, since a client could send replies it never gets. */
@@ -42,6 +42,8 @@ export interface LiveHostState {
   inbound(message: BridgeMessage): void;
   /** One frame on its way from the Node sandbox to the bridge. */
   outbound(message: BridgeMessage): void;
+  /** Name each client by the id the Node sandbox stamps on its events, once the sandbox runs (`live-clients.ts`). */
+  readClientIds(lookup: SandboxClientIds): void;
 }
 
 export interface LiveHostStateInput {
@@ -204,6 +206,9 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
       if (call === undefined) return;
       pending.delete(reply.key);
       if (reply.ok) accept(call);
+    },
+    readClientIds(lookup) {
+      clients.readClientIds(lookup);
     },
   };
 }

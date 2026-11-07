@@ -11,7 +11,8 @@
  * which Security Rules judged in production, and the server's Admin calls,
  * marked as bypassing Security Rules, all as the one account the page signed
  * in as. The host's health report lists the Admin SDK as observed, names the
- * API server as a backend in the same mode and project, and bills the Admin
+ * API server as a backend in the same mode and project, lists the page and
+ * the API server by the client ids their calls carry, and bills the Admin
  * write. An ID token a pyric sandbox issued is refused by the server's token
  * check, by name, and sends nothing.
  *
@@ -152,7 +153,7 @@ interface CapturedEvent {
   service?: string;
   method?: string;
   path?: string;
-  caller?: { kind?: string };
+  caller?: { kind?: string; clientId?: string };
   auth?: { uid?: string };
   detail?: { sdk?: string };
   rulesDisposition?: { kind?: string; reason?: string };
@@ -189,8 +190,25 @@ const ADMIN_EVENTS = [
 ];
 
 interface Health {
-  live?: { admin?: { mode?: string; observed?: boolean; bypassesRules?: boolean }; billed?: { reads: number; writes: number; deliveries: number } };
+  live?: {
+    admin?: { mode?: string; observed?: boolean; bypassesRules?: boolean };
+    billed?: { reads: number; writes: number; deliveries: number };
+    clients?: Array<{ kind: string; clientId: string }>;
+  };
   proxyTargets?: Array<{ context: string; verdict: string }>;
+}
+
+/** `<kind> <client id>` for each client the events name, as the health report's clients list names its kind. */
+function eventClients(events: CapturedEvent[]): string[] {
+  const named = events.filter((event) => event.caller?.clientId !== undefined);
+  const lines = named.map((event) => `${event.caller!.kind === 'page' ? 'browser' : event.caller!.kind} ${event.caller!.clientId}`);
+  return [...new Set(lines)].sort();
+}
+
+/** `<kind> <client id>` for each client the health report lists. */
+async function healthClients(base: string): Promise<string[]> {
+  const health = await hostJson<Health>(`${base}/__pyric/health`);
+  return (health.live?.clients ?? []).map((client) => `${client.kind} ${client.clientId}`).sort();
 }
 
 /** An ID token a pyric sandbox issued: RS256 with the sandbox's key id. */
@@ -279,6 +297,13 @@ export default scenario(async (app) => {
     const health = await hostJson<Health>(`${host.url}/__pyric/health`);
     assert.deepEqual(health.live?.admin, { mode: 'observed', observed: true, bypassesRules: true });
     await eventually(async () => (await hostJson<Health>(`${host.url}/__pyric/health`)).proxyTargets, (targets) => JSON.stringify(targets) === JSON.stringify([{ context: '/api', verdict: 'same' }]), 'the proxy targets');
+  });
+
+  await app.step('the health report lists the page and the API server by the client ids their calls carry', async () => {
+    const named = eventClients(await liveEvents(host.url));
+    assert.ok(named.some((line) => line.startsWith('browser ')), JSON.stringify(named));
+    assert.ok(named.some((line) => line.startsWith('node ')), JSON.stringify(named));
+    await eventually(() => healthClients(host.url), (listed) => named.every((line) => listed.includes(line)), `the clients ${JSON.stringify(named)}`);
   });
 
   await app.step('an ID token a pyric sandbox issued is refused by the server\'s token check, by name, and sends nothing', async () => {

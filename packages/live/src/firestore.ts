@@ -5,8 +5,11 @@
  *
  * A `DocumentReference` or `CollectionReference` names its `path`. A `Query`
  * names its collection's path, or its group id for a collection-group query,
- * read from the SDK's `_query`. A call whose first argument is the Firestore
- * itself (`runTransaction`) names no path. A filter's value is never read.
+ * read from the SDK's `_query`. An `onSnapshotResume` names the path of the
+ * snapshot JSON it resumes: a document snapshot's document, or the
+ * collection of the query a query snapshot's bundle holds. Any other call
+ * whose first argument is the Firestore itself (`runTransaction`) names no
+ * path. A filter's value is never read.
  *
  * For the host's local rules only, a `setDoc`, `updateDoc` or `addDoc` also
  * carries the fields it wrote, and a resolved `getDoc` the fields of the
@@ -272,6 +275,84 @@ function pathOf(subject: unknown): string | undefined {
   return firestorePath(subject, Reflect.get(subject, 'type'))?.target;
 }
 
+/** The most of a resumed query's bundle read for its query: the bundle's metadata and named query come first. */
+const MAX_BUNDLE_PREFIX = 64 * 1024;
+/** The bundle elements read before giving up on a named query. */
+const MAX_BUNDLE_ELEMENTS = 3;
+const DIGITS = /^[0-9]+/;
+
+/**
+ * The first elements of a bundle (`<byte length><JSON>` each), read from at
+ * most its first 64 KiB. Stops at the first element it cannot read.
+ */
+function bundleElements(bundle: string): unknown[] {
+  const bytes = new TextEncoder().encode(bundle.slice(0, MAX_BUNDLE_PREFIX));
+  const decoder = new TextDecoder();
+  const elements: unknown[] = [];
+  let offset = 0;
+  while (elements.length < MAX_BUNDLE_ELEMENTS && offset < bytes.length) {
+    const length = DIGITS.exec(decoder.decode(bytes.subarray(offset, offset + 16)))?.[0];
+    if (length === undefined) break;
+    const start = offset + length.length;
+    const end = start + Number(length);
+    if (end > bytes.length) break;
+    const element = parsedJson(decoder.decode(bytes.subarray(start, end)));
+    if (element === undefined) break;
+    elements.push(element);
+    offset = end;
+  }
+  return elements;
+}
+
+function parsedJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    // A bundle the SDK will refuse names no query.
+    return undefined;
+  }
+}
+
+/**
+ * The collection a bundled query reads: its parent's document path and its
+ * collection id, or the bare id for a collection-group query, as `queryPath`
+ * names a live query.
+ */
+function bundledQueryPath(bundledQuery: unknown): string | undefined {
+  if (!isObject(bundledQuery)) return undefined;
+  const parent: unknown = Reflect.get(bundledQuery, 'parent');
+  const structured: unknown = Reflect.get(bundledQuery, 'structuredQuery');
+  const from: unknown = isObject(structured) ? Reflect.get(structured, 'from') : undefined;
+  const selector: unknown = Array.isArray(from) && from.length === 1 ? from[0] : undefined;
+  const collectionId: unknown = isObject(selector) ? Reflect.get(selector, 'collectionId') : undefined;
+  const isReadable = typeof parent === 'string' && typeof collectionId === 'string' && collectionId !== '';
+  if (!isReadable) return undefined;
+  if (Reflect.get(selector as object, 'allDescendants') === true) return collectionId;
+  const documents = /^projects\/[^/]+\/databases\/[^/]+\/documents(?:\/(.+))?$/.exec(parent);
+  if (documents === null) return undefined;
+  return documents[1] === undefined ? collectionId : `${documents[1]}/${collectionId}`;
+}
+
+/** The collection a resumed query snapshot's bundle names in its named query. */
+function resumedQueryPath(bundle: unknown): string | undefined {
+  if (typeof bundle !== 'string') return undefined;
+  const named = bundleElements(bundle).find((element) => isObject(element) && isObject(Reflect.get(element, 'namedQuery')));
+  return named === undefined ? undefined : bundledQueryPath(Reflect.get(Reflect.get(named as object, 'namedQuery') as object, 'bundledQuery'));
+}
+
+/**
+ * The path an `onSnapshotResume` listens to, from the snapshot JSON it
+ * resumes: a document snapshot's document, or a query snapshot's
+ * collection, read from the query its bundle holds. Undefined, as for any
+ * call whose path is not read, when the JSON names neither.
+ */
+function resumedPath(snapshotJson: unknown): string | undefined {
+  const document = resumedDocument(snapshotJson)?.target;
+  if (document !== undefined || !isObject(snapshotJson)) return document;
+  const isQuery = Reflect.get(snapshotJson, 'bundleSource') === 'QuerySnapshot';
+  return isQuery ? resumedQueryPath(Reflect.get(snapshotJson, 'bundle')) : undefined;
+}
+
 /** The deepest nesting a JSON copy keeps; the host refuses deeper. */
 const MAX_DEPTH = 20;
 /** The most a host keeps of written data or a returned document, as it measures it: a string's length plus 2, a key's plus 4, any other scalar 8. */
@@ -368,7 +449,7 @@ export function firestoreContext(name: string, args: readonly unknown[]): CallCo
   const project = projectId === undefined ? {} : { projectId };
   try {
     const subject = args[0];
-    const path = pathOf(subject);
+    const path = name === 'onSnapshotResume' ? resumedPath(args[1]) : pathOf(subject);
     const writeData = writeDataOf(name, args);
     const query = queryShape(name, subject);
     return {

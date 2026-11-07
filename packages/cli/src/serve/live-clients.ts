@@ -7,11 +7,16 @@
  * The host learns them from the frames the bridge hands it
  * (`live-host-state.ts`). The bridge stamps each frame with the platform the
  * connection attached as, and a page or service worker names its client in
- * its `appConfig`: the browser profile's id, or the service worker realm's.
- * A client is keyed by kind and client id, so a service worker is never
- * grouped with the pages of its profile, and the tabs of one profile are one
- * client. A Node process is one connection, so its connection id stands in.
- * Studio and any other platform is not a client of the app, and is left out.
+ * its `appConfig`, or a page that sends none on its event subscription: the
+ * browser profile's id, or the service worker realm's. A client is keyed by
+ * kind and client id, so a service worker is never grouped with the pages of
+ * its profile, and the tabs of one profile are one client. A Node process is
+ * one connection, and the Node sandbox names it by that connection's
+ * activity journey id (`worker/host/caller.ts`); the list names it by the
+ * same id, read from the sandbox once it runs (`readClientIds`), so a
+ * client's id is the `caller.clientId` its events carry. Until then its
+ * connection id stands in. Studio and any other platform is not a client of
+ * the app, and is left out.
  *
  * The page path comes from the page's presence frames; the client lists the
  * last one any of its pages reported. Each id is a label, never an authority.
@@ -51,9 +56,14 @@ interface ClientRecord {
   sessions: Set<string>;
 }
 
+/** The client id the Node sandbox stamps on one connection's events, or undefined when it names none. */
+export type SandboxClientIds = (clientSessionId: string) => string | undefined;
+
 export interface LiveClients {
   /** One frame on its way from the bridge to the Node sandbox. */
   inbound(message: BridgeMessage): void;
+  /** Name each Node process by the client id the Node sandbox stamps on its events. */
+  readClientIds(lookup: SandboxClientIds): void;
   /** The clients field of the host's report: absent when none is connected. */
   field(): { clients?: LiveClient[] };
 }
@@ -76,6 +86,16 @@ function declaredClientId(inner: Record<string, unknown>, clientSessionId: strin
   const declared = inner.clientId;
   const isDeclared = kind !== 'node' && typeof declared === 'string' && declared !== '';
   return bounded(isDeclared ? (declared as string) : clientSessionId);
+}
+
+/**
+ * Whether a frame declares its connection's client: an `appConfig`, or the
+ * event subscription of a page that sends no `appConfig`, which names its
+ * profile's id there (`worker/client/studio.ts`).
+ */
+function declaresClient(inner: Record<string, unknown>): boolean {
+  if (inner.t === 'appConfig') return true;
+  return inner.t === 'sub' && typeof inner.clientId === 'string' && inner.clientId !== '';
 }
 
 /** The route a presence register or update frame reports, if any. */
@@ -114,15 +134,25 @@ function observedUser(inner: Record<string, unknown>): string | null | undefined
   }
 }
 
-function entryOf(record: ClientRecord): LiveClient {
+/** A Node process's id as its events carry it: the one the Node sandbox stamps, once it names one. */
+function reportedClientId(record: ClientRecord, sandboxIds: SandboxClientIds): string {
+  if (record.kind !== 'node') return record.clientId;
+  const [session] = record.sessions;
+  const stamped = session === undefined ? undefined : sandboxIds(session);
+  return stamped === undefined ? record.clientId : bounded(stamped);
+}
+
+function entryOf(record: ClientRecord, sandboxIds: SandboxClientIds): LiveClient {
   const label = record.label === undefined ? {} : { label: record.label };
   const email = record.email === undefined ? {} : { email: record.email };
-  return { kind: record.kind, clientId: record.clientId, ...label, user: record.user, ...email, lastSeen: record.lastSeen };
+  const clientId = reportedClientId(record, sandboxIds);
+  return { kind: record.kind, clientId, ...label, user: record.user, ...email, lastSeen: record.lastSeen };
 }
 
 export function createLiveClients(now: () => number): LiveClients {
   const clients = new Map<string, ClientRecord>();
   const sessionKeys = new Map<string, string>();
+  let sandboxIds: SandboxClientIds = () => undefined;
 
   const forget = (clientSessionId: string): void => {
     const key = sessionKeys.get(clientSessionId);
@@ -133,12 +163,13 @@ export function createLiveClients(now: () => number): LiveClients {
     if (record?.sessions.size === 0) clients.delete(key);
   };
 
-  /** The client a connection belongs to: the one its `appConfig` named, else the one it first sent a frame as. */
+  /** The client a connection belongs to: the one it last declared, else the one it first sent a frame as. */
   const recordFor = (clientSessionId: string, kind: LiveClientKind, inner: Record<string, unknown>): ClientRecord | undefined => {
-    const isAppConfig = inner.t === 'appConfig';
-    if (isAppConfig) forget(clientSessionId);
+    const declares = declaresClient(inner);
+    const clientId = declaredClientId(declares ? inner : {}, clientSessionId, kind);
+    const isNewDeclaration = declares && sessionKeys.get(clientSessionId) !== clientKey(kind, clientId);
+    if (isNewDeclaration) forget(clientSessionId);
     const known = sessionKeys.get(clientSessionId);
-    const clientId = declaredClientId(isAppConfig ? inner : {}, clientSessionId, kind);
     const key = known ?? clientKey(kind, clientId);
     const existing = clients.get(key);
     if (existing !== undefined) {
@@ -178,8 +209,11 @@ export function createLiveClients(now: () => number): LiveClients {
       if (!isClientFrame) return;
       noteFrame(message.clientSessionId as string, message.platform, message.message as unknown as Record<string, unknown>);
     },
+    readClientIds(lookup) {
+      sandboxIds = lookup;
+    },
     field() {
-      const entries = [...clients.values()].map(entryOf);
+      const entries = [...clients.values()].map((record) => entryOf(record, sandboxIds));
       return entries.length === 0 ? {} : { clients: entries };
     },
   };

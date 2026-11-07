@@ -4,13 +4,17 @@
  * its server job under `node --import @pyric/live/register`. The page signs
  * in, listens to the lobby from three components, subscribes to the patio
  * and unsubscribes on each of five renders, and listens to the Realtime
- * Database's scores; the server job listens to the lobby until it stops.
+ * Database's scores; the server job renders the halls list as snapshot JSON
+ * (a browser SDK writes no query snapshot bundle) and listens to the lobby
+ * until it stops; the page resumes the halls from that JSON.
  *
  * Each subscribe and unsubscribe reaches the host as a listener attach or
- * detach with the caller that made it (`/__pyric/capture`). An agent's
+ * detach with the caller that made it (`/__pyric/capture`), and the resumed
+ * halls listener's rows name the halls collection. An agent's
  * `pyric sandbox listeners` lists the page's and the server job's active
- * listeners, and `pyric sandbox activity` reports the lobby's duplicate
- * listeners and the patio's churn. The chip's Data view lists the scores listener as a source
+ * listeners, and `pyric sandbox activity` reports the page's three duplicate
+ * lobby listeners, counted apart from the server job's, and the patio's
+ * churn. The chip's Data view lists the scores listener as a source
  * the developer can open. A reload ends the page's listeners, so a reloaded
  * page leaves none behind. The server job restarted as `node --watch` restarts
  * it, or killed and started again, leaves one listener, not one per run.
@@ -37,6 +41,7 @@ const RENDERS = 5;
 declare function signIn(): Promise<unknown>;
 declare function listenToLobbyThrice(): Promise<unknown[]>;
 declare function rerenderPatio(): number;
+declare function resumeHalls(rendered: unknown): Promise<number>;
 declare function listenToScores(): Promise<unknown>;
 
 interface Replay {
@@ -64,6 +69,26 @@ function documentListen(path: string, fields: Record<string, unknown>): Record<s
 }
 
 /**
+ * The halls collection's listen as production answers it: no halls yet, then
+ * the target's current marker. The server job renders it and the page
+ * resumes it.
+ */
+function hallsListen(): Record<string, unknown> {
+  const structuredQuery = { from: [{ collectionId: 'halls' }], orderBy: [{ field: { fieldPath: '__name__' }, direction: 'ASCENDING' }] };
+  return {
+    kind: 'listen',
+    id: 'listen-halls',
+    target: { query: { structuredQuery, parent: DOCUMENTS } },
+    batches: [{
+      messages: [
+        { targetChange: { targetChangeType: 'ADD', targetIds: [{ $: 'targetId' }] } },
+        { targetChange: { targetChangeType: 'CURRENT', targetIds: [{ $: 'targetId' }], resumeToken: { $: 'resumeToken' }, readTime: { $: 'readTime' } } },
+      ],
+    }],
+  };
+}
+
+/**
  * The recording the replay plays, hand-written from the Auth REST v1,
  * Firestore v1 Listen and Realtime Database wire formats: `client-1` signs
  * in as `user-1`, the lobby and patio documents, and the scores.
@@ -84,6 +109,7 @@ function recording(format: string): Record<string, unknown> {
   },
   documentListen('rooms/lobby', { name: { stringValue: LOBBY.name }, open: { booleanValue: LOBBY.open } }),
   documentListen('rooms/patio', { name: { stringValue: 'Patio' }, open: { booleanValue: false } }),
+  hallsListen(),
   { kind: 'rtdb', id: 'connect', instance, events: [{ t: 'c', d: { t: 'h', d: { ts: { $: 'serverTime' }, v: '5', h: { $: 'host' }, s: { $: 'session' } } } }] },
   {
     kind: 'rtdb',
@@ -167,6 +193,8 @@ const LIFECYCLE = [
   'page attach rooms/lobby 3',
   `page attach rooms/patio ${RENDERS}`,
   `page detach rooms/patio ${RENDERS}`,
+  'node attach halls 1',
+  'node detach halls 1',
   'page attach /scores 1',
   'node attach rooms/lobby 1',
 ].sort();
@@ -202,11 +230,29 @@ async function activeListeners(app: App): Promise<string[]> {
   }).sort();
 }
 
-/** The incident patterns `sandbox.activity` reports, sorted and unique. */
-async function incidentPatterns(app: App): Promise<string[]> {
+/** `<pattern> <count>` for each incident `sandbox.activity` reports, sorted and unique. */
+async function incidentCounts(app: App): Promise<string[]> {
   const answer = await sandboxMethod(app, 'activity');
-  const incidents = (answer.data?.incidents ?? []) as Array<{ pattern: string }>;
-  return [...new Set(incidents.map((incident) => incident.pattern))].sort();
+  const incidents = (answer.data?.incidents ?? []) as Array<{ pattern: string; count: number }>;
+  return [...new Set(incidents.map((incident) => `${incident.pattern} ${incident.count}`))].sort();
+}
+
+/** A live call's event, as the host's capture holds it. */
+interface CallEvent {
+  kind?: string;
+  method?: string;
+  path?: string;
+}
+
+/** `<path>` for each `onSnapshotResume` delivery in the host's capture. */
+async function resumedPaths(base: string): Promise<string[]> {
+  const init = await fetch(`${base}/__pyric/init.json`);
+  const { sessionToken } = await init.json() as { sessionToken: string };
+  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+  if (response.status === 404) return [];
+  const capture = await response.json() as { events?: CallEvent[] };
+  const resumes = (capture.events ?? []).filter((event) => event.kind === 'operation' && event.method === 'onSnapshotResume');
+  return resumes.map((event) => event.path ?? '(no path)');
 }
 
 function blockedLines(app: App): string[] {
@@ -231,11 +277,19 @@ async function openScoresSource(page: Page): Promise<void> {
   await chip.locator('[data-sources-back]').waitFor({ state: 'visible', timeout: 20_000 });
 }
 
-/** Starts the server job under the live register and waits for its lobby listener. */
+/** Starts the server job under the live register and waits for its rendered halls and its lobby listener. */
 async function startServerJob(app: App, replay: Replay): Promise<AppProcess> {
   const job = app.commandProcess('node', ['--import', '@pyric/live/register', 'server.mjs'], { env: { ROOMS_FIRESTORE_HOST: replay.grpc } });
+  await job.waitForLog(/^HALLS /m, { timeoutMs: 60_000 });
   await job.waitForLog(/^LISTENING /m, { timeoutMs: 60_000 });
   return job;
+}
+
+/** The halls snapshot JSON the server job rendered. */
+function renderedHalls(job: AppProcess): unknown {
+  const line = job.output.split('\n').find((entry) => entry.startsWith('HALLS '));
+  assert.ok(line, `no HALLS line:\n${job.output}`);
+  return JSON.parse(line.slice('HALLS '.length)) as unknown;
 }
 
 const SERVER_ONLY = ['node firestore rooms/lobby'];
@@ -273,7 +327,7 @@ export default scenario(async (app) => {
     return opened;
   });
 
-  const server = await app.step('the server job under @pyric/live/register listens to the lobby, reporting to the dev server', async () => {
+  const server = await app.step('the server job under @pyric/live/register renders the halls and listens to the lobby, reporting to the dev server', async () => {
     const job = await startServerJob(app, replay);
     assert.match(job.output, /@pyric\/live\/register: reporting calls to the live host at /);
     assert.match(job.output, new RegExp(`LISTENING ${JSON.stringify(LOBBY).replace(/[{}]/g, '\\$&')}`));
@@ -289,8 +343,15 @@ export default scenario(async (app) => {
     await eventually(() => activeListeners(app), (listed) => JSON.stringify(listed) === JSON.stringify(expected), 'the active listeners');
   });
 
-  await app.step('pyric sandbox activity reports the lobby\'s duplicate listeners and the patio\'s churn', async () => {
-    await eventually(() => incidentPatterns(app), (patterns) => patterns.includes('duplicate-listener') && patterns.includes('listener-churn'), 'the incidents');
+  await app.step('pyric sandbox activity reports the page\'s three duplicate lobby listeners, apart from the server job\'s, and the patio\'s churn', async () => {
+    const counts = await eventually(() => incidentCounts(app), (found) => found.some((line) => line.startsWith('duplicate-listener ')) && found.some((line) => line.startsWith('listener-churn ')), 'the incidents');
+    assert.deepEqual(counts.filter((line) => line.startsWith('duplicate-listener ')), ['duplicate-listener 3']);
+  });
+
+  await app.step('the page resumes the halls the server rendered, and the resumed listener\'s rows name the halls collection', async () => {
+    const rendered = renderedHalls(server);
+    assert.equal(await page.evaluate((json) => resumeHalls(json), rendered), 0);
+    await eventually(() => resumedPaths(host.url), (paths) => paths.length > 0 && paths.every((path) => path === 'halls'), 'the resumed rows');
   });
 
   await app.step('the chip\'s Data view lists the scores listener as a source, which opens', async () => {

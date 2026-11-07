@@ -48,7 +48,7 @@ import type { InitPayload, RulesDestination } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { ensureAuth, setPortSession } from '../worker/host-auth.js';
-import { callerFor, markPortConnection, SERVICE_WORKER_TAB_ID, setPortTabId, type PortConnection } from '../worker/host/caller.js';
+import { callerFor, markPortConnection, portClientId, SERVICE_WORKER_TAB_ID, setPortTabId, type PortConnection } from '../worker/host/caller.js';
 import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { observedPortInterrupted, observedPortResumed } from '../worker/host/observe.js';
@@ -680,6 +680,11 @@ export async function createHostedRuntime(
           }
         },
       );
+    },
+    /** The client id the events of a connection's frames carry (`caller.ts`), or undefined for one that names none or has closed. */
+    clientIdOf(clientSessionId: string): string | undefined {
+      const owned = ports.get(clientSessionId);
+      return owned === undefined ? undefined : portClientId(ctx, owned.port);
     },
     /** Clears tracked active Firestore rules metadata without changing enforced sandbox rules. */
     clearActiveFirestoreRules(): void {
