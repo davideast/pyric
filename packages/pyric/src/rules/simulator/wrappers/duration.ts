@@ -69,7 +69,7 @@ function normalize(seconds: number, nanos: number): { seconds: number; nanos: nu
     s += 1;
     n -= NANOS_PER_SECOND;
   }
-  return { seconds: s, nanos: n };
+  return { seconds: s === 0 ? 0 : s, nanos: n === 0 ? 0 : n };
 }
 
 /** True for whole seconds inside the protobuf bound; false for NaN and infinities. */

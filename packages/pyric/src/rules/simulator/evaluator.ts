@@ -303,11 +303,24 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
         } else {
           try {
             const val = evaluate(seg, ctx, scope);
+            if (val instanceof Path) {
+              parts.push(...val.segments);
+              continue;
+            }
+            if (val instanceof RulesValue && val.typeName === 'path') {
+              const segs = (val as { segments?: unknown }).segments;
+              parts.push(
+                ...(Array.isArray(segs)
+                  ? (segs as string[])
+                  : String(val).split('/').filter(Boolean)),
+              );
+              continue;
+            }
             if (typeof val !== 'string' && !isRulesInt(val)) {
               throw new EvalError(`Type error. Received: [${describeRulesType(val)}] Expected: [string].`, seg);
             }
             if (isMatchVariable(seg, ctx, scope)) {
-              parts.push(...String(val).split('/'));
+              parts.push(...String(val).split('/').filter(Boolean));
               continue;
             }
             parts.push(String(val));

@@ -40,11 +40,19 @@ export class Reference extends RulesValue {
   /** Relative document path, e.g. 'users/u1' or 'users/u1/posts/p1'. */
   readonly path: string;
 
+  readonly #databaseId: string;
+
   constructor(path: string) {
     super();
+    this.#databaseId = extractDatabaseId(path);
     // Normalize: strip any leading slash, trailing slash, or fully-qualified
     // `projects/.../documents/` prefix so internal compares are uniform.
     this.path = normalizeRelativePath(path);
+  }
+
+  /** Database identifier from a fully-qualified path, defaulting to `'(default)'`. */
+  get databaseId(): string {
+    return this.#databaseId;
   }
 
   /**
@@ -54,7 +62,7 @@ export class Reference extends RulesValue {
    * helper at the decode boundary keeps the relative-path invariant.
    */
   static fromResourceName(resourceName: string): Reference {
-    return new Reference(stripDocumentsPrefix(resourceName));
+    return new Reference(resourceName);
   }
 
   /** Last path segment; '' for an empty path. */
@@ -143,6 +151,12 @@ function stripDocumentsPrefix(s: string): string {
   const idx = s.indexOf(marker);
   if (idx === -1) return s;
   return s.slice(idx + marker.length);
+}
+
+function extractDatabaseId(s: string): string {
+  const trimmed = s.replace(/^\/+|\/+$/g, '');
+  const match = /^(?:projects\/[^/]+\/)?databases\/([^/]+)\/documents(?:\/|$)/.exec(trimmed);
+  return match ? match[1]! : '(default)';
 }
 
 /**

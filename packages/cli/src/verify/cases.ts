@@ -1,5 +1,5 @@
 import type { RequestEvent } from 'pyric/sandbox';
-import type { FirestoreMethod, FunctionMock, TestCase } from 'pyric/rules/internal';
+import { RulesValue, type FirestoreMethod, type FunctionMock, type TestCase } from 'pyric/rules/internal';
 import {
   parseVerifyFixture,
   type PyricVerifyFixture,
@@ -174,15 +174,42 @@ function buildTestCase(
     if (method !== 'delete') {
       const hasResolvedAfter =
         event.result === 'allow' && isFirestoreWriteData(event.resourceAfter?.data);
-      const data = hasResolvedAfter
-        ? event.resourceAfter?.data
-        : (event.request?.resourceData ?? event.resourceAfter?.data);
-      if (isFirestoreWriteData(data)) testCase.data = data;
-      if (!hasResolvedAfter || method !== 'update') {
-        testCase.writeMode = writeModeFor(method);
+      if (hasResolvedAfter) {
+        testCase.data = event.resourceAfter!.data!;
+        if (method !== 'update') {
+          testCase.writeMode = writeModeForEvent(event, method);
+        }
+      } else {
+        const rawData = event.request?.resourceData ?? event.resourceAfter?.data;
+        const reqObj = event.request as { updateMask?: unknown; merge?: unknown } | undefined;
+        const updateMask = reqObj?.updateMask;
+        const reqMerge = reqObj?.merge;
+        const mergeFields = extractMergeFields(reqMerge);
+        if (isFirestoreWriteData(rawData)) {
+          if (needsDeniedCandidateProjection(rawData, updateMask, mergeFields)) {
+            const prior = method === 'create' ? null : existing;
+            testCase.data = projectDeniedWriteCandidate(
+              rawData,
+              prior,
+              method,
+              event.method,
+              reqMerge,
+              mergeFields,
+              updateMask,
+            );
+            testCase.writeMode = method === 'create' ? { kind: 'create' } : { kind: 'set', merge: false };
+          } else {
+            testCase.data = Array.isArray(updateMask)
+              ? rebuildUpdateMaskPayload(rawData, updateMask)
+              : rawData;
+            testCase.writeMode = writeModeForEvent(event, method);
+          }
+        } else {
+          testCase.writeMode = writeModeForEvent(event, method);
+        }
       }
     } else {
-      testCase.writeMode = writeModeFor(method);
+      testCase.writeMode = writeModeForEvent(event, method);
     }
   }
 
@@ -198,11 +225,372 @@ function buildTestCase(
   return testCase;
 }
 
-function writeModeFor(method: FirestoreMethod): TestCase['writeMode'] | undefined {
+function writeModeForEvent(
+  event: RequestEvent,
+  method: FirestoreMethod,
+): TestCase['writeMode'] | undefined {
   if (method === 'create') return { kind: 'create' };
-  if (method === 'update') return { kind: 'update' };
   if (method === 'delete') return { kind: 'delete' };
+  if (method === 'update') {
+    const reqObj = event.request as { updateMask?: unknown; merge?: unknown } | undefined;
+    if (event.method === 'set' || reqObj?.merge === false) {
+      return { kind: 'set', merge: false };
+    }
+    if (!Array.isArray(reqObj?.updateMask)) return { kind: 'set', merge: true };
+    return { kind: 'update' };
+  }
   return undefined;
+}
+
+function defineOwnProperty(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
+function rebuildUpdateMaskPayload(
+  tree: Record<string, unknown>,
+  mask: readonly unknown[],
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const rawPath of mask) {
+    if (!Array.isArray(rawPath) || !rawPath.every((seg): seg is string => typeof seg === 'string')) {
+      continue;
+    }
+    let cursor: unknown = tree;
+    for (const seg of rawPath) {
+      cursor =
+        typeof cursor === 'object' && cursor !== null && Object.hasOwn(cursor, seg)
+          ? (cursor as Record<string, unknown>)[seg]
+          : undefined;
+    }
+    defineOwnProperty(out, rawPath.join('.'), cursor);
+  }
+  return out;
+}
+
+const DELETE_FIELD_SYM: unique symbol = Symbol('verify:deleteField');
+const ABSENT_SYM: unique symbol = Symbol('verify:absent');
+
+function extractMergeFields(merge: unknown): string[] | undefined {
+  if (typeof merge !== 'object' || merge === null || Array.isArray(merge)) return undefined;
+  const raw = (merge as { mergeFields?: unknown }).mergeFields;
+  if (!Array.isArray(raw)) return undefined;
+  return raw.filter((item): item is string => typeof item === 'string');
+}
+
+function maskHasLiteralDotSegment(mask: readonly unknown[]): boolean {
+  return mask.some(
+    (entry) =>
+      Array.isArray(entry) &&
+      entry.some((seg) => typeof seg === 'string' && seg.includes('.')),
+  );
+}
+
+function isPlainFirestoreMap(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (value instanceof RulesValue) return false;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return false;
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.__type === 'string') return false;
+  if (typeof obj._methodName === 'string') return false;
+  if (obj.__type__ === '__vector__') return false;
+  if (typeof obj.type === 'string' && obj.type.startsWith('firestore/')) return false;
+  return true;
+}
+
+function containsNonPassthroughSentinel(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(containsNonPassthroughSentinel);
+  const obj = value as Record<string, unknown>;
+  if (
+    obj.__type === 'deleteField' ||
+    obj.__type === 'increment' ||
+    obj.__type === 'arrayUnion' ||
+    obj.__type === 'arrayRemove' ||
+    typeof obj._methodName === 'string'
+  ) {
+    return true;
+  }
+  if (!isPlainFirestoreMap(value)) return false;
+  return Object.values(obj).some(containsNonPassthroughSentinel);
+}
+
+function needsDeniedCandidateProjection(
+  rawData: Record<string, unknown>,
+  updateMask: unknown,
+  mergeFields: string[] | undefined,
+): boolean {
+  if (mergeFields !== undefined) return true;
+  if (Array.isArray(updateMask) && maskHasLiteralDotSegment(updateMask)) return true;
+  return containsNonPassthroughSentinel(rawData);
+}
+
+function readBySegments(
+  root: Record<string, unknown> | null,
+  segments: readonly (string | number)[],
+): unknown {
+  if (root === null) return ABSENT_SYM;
+  let cursor: unknown = root;
+  for (const seg of segments) {
+    if (typeof seg === 'number') {
+      if (!Array.isArray(cursor) || seg < 0 || seg >= cursor.length) return ABSENT_SYM;
+      cursor = cursor[seg];
+      continue;
+    }
+    if (typeof cursor !== 'object' || cursor === null || Array.isArray(cursor)) return ABSENT_SYM;
+    if (!Object.hasOwn(cursor, seg)) return ABSENT_SYM;
+    cursor = (cursor as Record<string, unknown>)[seg];
+  }
+  return cursor;
+}
+
+function numericValueOf(val: unknown): number | undefined {
+  if (typeof val === 'number') return val;
+  if (typeof val === 'object' && val !== null && (val as { __type?: unknown }).__type === 'float') {
+    const inner = (val as { value?: unknown }).value;
+    if (typeof inner === 'number') return inner;
+  }
+  return undefined;
+}
+
+function deepFirestoreEqual(a: unknown, b: unknown): boolean {
+  if (typeof a === 'number' && typeof b === 'number') {
+    return (Number.isNaN(a) && Number.isNaN(b)) || a === b;
+  }
+  if (a === b) return true;
+  if (a instanceof RulesValue && b instanceof RulesValue) return a.equals(b);
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, idx) => deepFirestoreEqual(item, b[idx]));
+  }
+  if (
+    a !== null &&
+    b !== null &&
+    typeof a === 'object' &&
+    typeof b === 'object' &&
+    !Array.isArray(a) &&
+    !Array.isArray(b) &&
+    !(a instanceof RulesValue) &&
+    !(b instanceof RulesValue)
+  ) {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    const recA = a as Record<string, unknown>;
+    const recB = b as Record<string, unknown>;
+    return keysA.every((k) => Object.hasOwn(recB, k) && deepFirestoreEqual(recA[k], recB[k]));
+  }
+  return false;
+}
+
+function resolveFieldTree(
+  value: unknown,
+  priorRoot: Record<string, unknown> | null,
+  fieldSegments: readonly (string | number)[],
+): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item, idx) => resolveFieldTree(item, priorRoot, [...fieldSegments, idx]))
+      .filter((item) => item !== DELETE_FIELD_SYM);
+  }
+  const obj = value as Record<string, unknown>;
+  const methodName = typeof obj._methodName === 'string' ? obj._methodName : undefined;
+  if (
+    obj.__type === 'deleteField' ||
+    methodName === 'deleteField' ||
+    methodName === 'FieldValue.deleteField'
+  ) {
+    return DELETE_FIELD_SYM;
+  }
+  if (
+    obj.__type === 'serverTimestamp' ||
+    methodName === 'serverTimestamp' ||
+    methodName === 'FieldValue.serverTimestamp'
+  ) {
+    return { __type: 'serverTimestamp' };
+  }
+  if (
+    (obj.__type === 'increment' && typeof obj.value === 'number') ||
+    ((methodName === 'increment' || methodName === 'FieldValue.increment') &&
+      typeof obj._operand === 'number')
+  ) {
+    const delta = typeof obj.value === 'number' ? obj.value : (obj._operand as number);
+    const priorVal = readBySegments(priorRoot, fieldSegments);
+    const base = numericValueOf(priorVal) ?? 0;
+    return base + delta;
+  }
+  if (
+    (obj.__type === 'arrayUnion' && Array.isArray(obj.values)) ||
+    ((methodName === 'arrayUnion' || methodName === 'FieldValue.arrayUnion') &&
+      Array.isArray(obj._elements))
+  ) {
+    const rawItems = (Array.isArray(obj.values) ? obj.values : (obj._elements as unknown[])).map(
+      (item) => resolveFieldTree(item, priorRoot, fieldSegments),
+    );
+    const priorVal = readBySegments(priorRoot, fieldSegments);
+    const base = Array.isArray(priorVal) ? priorVal.slice() : [];
+    for (const item of rawItems) {
+      if (item === DELETE_FIELD_SYM) continue;
+      if (!base.some((existing) => deepFirestoreEqual(existing, item))) {
+        base.push(item);
+      }
+    }
+    return base;
+  }
+  if (
+    (obj.__type === 'arrayRemove' && Array.isArray(obj.values)) ||
+    ((methodName === 'arrayRemove' || methodName === 'FieldValue.arrayRemove') &&
+      Array.isArray(obj._elements))
+  ) {
+    const rawItems = (Array.isArray(obj.values) ? obj.values : (obj._elements as unknown[])).map(
+      (item) => resolveFieldTree(item, priorRoot, fieldSegments),
+    );
+    const priorVal = readBySegments(priorRoot, fieldSegments);
+    if (!Array.isArray(priorVal)) return [];
+    return priorVal.filter(
+      (existing) => !rawItems.some((item) => deepFirestoreEqual(existing, item)),
+    );
+  }
+  if (!isPlainFirestoreMap(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    defineOwnProperty(out, k, resolveFieldTree(v, priorRoot, [...fieldSegments, k]));
+  }
+  return out;
+}
+
+function stripDeleteSymbols(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.filter((item) => item !== DELETE_FIELD_SYM).map(stripDeleteSymbols);
+  }
+  if (!isPlainFirestoreMap(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (v === DELETE_FIELD_SYM) continue;
+    defineOwnProperty(out, k, stripDeleteSymbols(v));
+  }
+  return out;
+}
+
+function clonePlainMap(src: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(src)) {
+    defineOwnProperty(
+      out,
+      k,
+      isPlainFirestoreMap(v) ? clonePlainMap(v) : Array.isArray(v) ? v.slice() : v,
+    );
+  }
+  return out;
+}
+
+function applyPathLeaf(
+  root: Record<string, unknown>,
+  segments: readonly string[],
+  value: unknown,
+): void {
+  if (segments.length === 0) return;
+  let cursor = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i]!;
+    const existing = Object.hasOwn(cursor, seg) ? cursor[seg] : undefined;
+    if (!isPlainFirestoreMap(existing)) {
+      const fresh: Record<string, unknown> = {};
+      defineOwnProperty(cursor, seg, fresh);
+      cursor = fresh;
+    } else {
+      cursor = existing;
+    }
+  }
+  const leaf = segments[segments.length - 1]!;
+  if (value === DELETE_FIELD_SYM) {
+    if (Object.hasOwn(cursor, leaf)) delete cursor[leaf];
+  } else {
+    defineOwnProperty(cursor, leaf, stripDeleteSymbols(value));
+  }
+}
+
+function collectMergeLeaves(
+  data: Record<string, unknown>,
+  prefix: readonly string[],
+  out: Array<{ segments: readonly string[]; value: unknown }>,
+): void {
+  const keys = Object.keys(data);
+  if (keys.length === 0 && prefix.length > 0) {
+    out.push({ segments: prefix, value: {} });
+    return;
+  }
+  for (const key of keys) {
+    const value = data[key];
+    const segments = [...prefix, key];
+    if (isPlainFirestoreMap(value)) {
+      collectMergeLeaves(value, segments, out);
+    } else {
+      out.push({ segments, value });
+    }
+  }
+}
+
+function projectDeniedWriteCandidate(
+  rawData: Record<string, unknown>,
+  prior: Record<string, unknown> | null,
+  method: FirestoreMethod,
+  rawEventMethod: RequestEvent['method'],
+  reqMerge: unknown,
+  mergeFields: string[] | undefined,
+  updateMask: unknown,
+): Record<string, unknown> {
+  if (Array.isArray(updateMask)) {
+    const out = clonePlainMap(prior ?? {});
+    for (const rawPath of updateMask) {
+      if (
+        !Array.isArray(rawPath) ||
+        rawPath.length === 0 ||
+        !rawPath.every((seg): seg is string => typeof seg === 'string')
+      ) {
+        continue;
+      }
+      const rawLeaf = readBySegments(rawData, rawPath);
+      if (rawLeaf === ABSENT_SYM) continue;
+      const resolvedLeaf = resolveFieldTree(rawLeaf, prior, rawPath);
+      applyPathLeaf(out, rawPath, resolvedLeaf);
+    }
+    return out;
+  }
+
+  if (mergeFields !== undefined) {
+    const out = clonePlainMap(prior ?? {});
+    for (const field of mergeFields) {
+      const segments = field.split('.');
+      const rawLeaf = readBySegments(rawData, segments);
+      if (rawLeaf === ABSENT_SYM) continue;
+      const resolvedLeaf = resolveFieldTree(rawLeaf, prior, segments);
+      applyPathLeaf(out, segments, resolvedLeaf);
+    }
+    return out;
+  }
+
+  const isMergeTrue =
+    reqMerge === true ||
+    (method === 'update' && rawEventMethod === 'update' && reqMerge === undefined);
+  if (isMergeTrue) {
+    const out = clonePlainMap(prior ?? {});
+    const resolvedTree = resolveFieldTree(rawData, prior, []) as Record<string, unknown>;
+    const leaves: Array<{ segments: readonly string[]; value: unknown }> = [];
+    collectMergeLeaves(resolvedTree, [], leaves);
+    for (const leaf of leaves) {
+      applyPathLeaf(out, leaf.segments, leaf.value);
+    }
+    return out;
+  }
+
+  const resolved = resolveFieldTree(rawData, prior, []);
+  return stripDeleteSymbols(resolved) as Record<string, unknown>;
 }
 
 function isWriteMethod(method: FirestoreMethod): boolean {

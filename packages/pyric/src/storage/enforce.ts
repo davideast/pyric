@@ -193,6 +193,8 @@ function emitOperation(
           bucket: target.bucket,
           bucketName: rulesBucketName(target.bucket, target.bucketName),
           ...(defaultPolicy === undefined ? {} : { defaultPolicy }),
+          ...(input.request.resource === undefined ? {} : { requestResource: input.request.resource }),
+          ...(input.resource === null || input.resource === undefined ? {} : { resource: input.resource }),
         },
         rulesDisposition: origin === 'admin'
           ? { kind: 'bypassed', reason: 'admin' }

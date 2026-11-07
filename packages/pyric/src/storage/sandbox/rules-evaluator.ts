@@ -676,18 +676,14 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
       `function ${expr.name}() is imported from '${fn.unresolvedImport}', but import module resolution is not implemented`,
     );
   }
+  // Arguments evaluate in caller context before arity checking so expression
+  // and Firestore lookup budgets are charged even when arity mismatches.
+  const argVals = expr.args.map((a) => evalOperand(a, ctx));
   if (fn.params.length !== expr.args.length) {
     return new RuleError(
       `Incorrect number of arguments. Received: ${expr.args.length}. Expected: ${expr.name}(${fn.params.join(', ')}).`,
     );
   }
-  // No call depth guard: `parseStorageRules` rejects a chain over
-  // production's compile limit and any recursive call, so the depth of a
-  // call here is bounded (`rules/grammar/compile-limits.ts`).
-  // Arguments: caller context. Every argument evaluates; one that errors
-  // binds its error value, which decides the call only if the body reads
-  // that parameter.
-  const argVals = expr.args.map((a) => evalOperand(a, ctx));
   const locals: Record<string, unknown> = {};
   fn.params.forEach((p, i) => {
     locals[p] = argVals[i];
@@ -725,9 +721,13 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
 
 /** Evaluate a call to a global function: `path()` or a conversion. */
 function evalGlobalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown {
-  if (expr.name === 'path' && expr.args.length === 1) {
-    const inner = evalExpr(expr.args[0], ctx);
-    if (isErr(inner)) return inner;
+  const args = evalOperands(expr.args, ctx);
+  if (expr.name === 'path') {
+    if (isErr(args)) return args;
+    if (args.length !== 1) {
+      return new RuleError(`Incorrect number of arguments. Received: ${args.length}. Expected: path(string).`);
+    }
+    const inner = args[0];
     if (typeof inner === 'string') {
       if (inner.includes('//')) {
         return new RuleError(`Invalid argument error in path(): empty path segment.`);
@@ -738,7 +738,6 @@ function evalGlobalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): un
   }
   const conversion = conversionFor(expr.name);
   if (!conversion) return new RuleError(`Function not found error: Name: [${expr.name}].`);
-  const args = evalOperands(expr.args, ctx);
   if (isErr(args)) return args;
   const converted = applyConversion(conversion, args);
   return converted instanceof ConversionFailure ? new RuleError(converted.message) : converted;

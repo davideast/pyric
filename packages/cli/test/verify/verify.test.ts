@@ -19,25 +19,32 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, getFirestore } from 'pyric/sandbox/admin-firestore';
 import {
   Bytes as FsBytes,
+  FieldPath as FsFieldPath,
   GeoPoint as FsGeoPoint,
   Timestamp as FsTimestamp,
+  arrayRemove as fsArrayRemove,
+  arrayUnion as fsArrayUnion,
   collection as fsCollection,
+  deleteDoc as fsDeleteDoc,
   deleteField as fsDeleteField,
   doc as fsDoc,
   getDocs as fsGetDocs,
   getFirestore as getClientFirestore,
+  increment as fsIncrement,
   onSnapshot as fsOnSnapshot,
   query as fsQuery,
+  runTransaction as fsRunTransaction,
   serverTimestamp as fsServerTimestamp,
   setDoc as fsSetDoc,
   updateDoc as fsUpdateDoc,
   vector as fsVector,
   where as fsWhere,
+  writeBatch as fsWriteBatch,
 } from 'pyric/firestore';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import { setRules as setFirestoreRules, seedDocuments as seedFirestoreDocuments } from 'pyric/sandbox/firestore';
 import { runDerivedCases } from '../../src/bridge/surface/assurance-cases.js';
-import { getMetadata, getStorage, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { getMetadata, getStorage, getStorageSandbox, ref as storageRef, updateMetadata, uploadBytes } from 'pyric/storage';
 import { createAppForSandbox } from 'pyric/app/internal';
 import { emitSandboxEvent, observedCallEvent } from 'pyric/sandbox/internal';
 import {
@@ -1252,5 +1259,333 @@ service cloud.firestore {
 
     expect(verifyResult.ok).toBe(true);
     expect(verifyResult.services.firestore?.divergences).toEqual([]);
+  });
+
+  it('preserves denied Storage write metadata and evaluates Storage firestore.get against point-in-time Firestore state', async () => {
+    const firestoreRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`;
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{file} {
+      allow create: if request.auth != null
+        && request.resource.size <= 32
+        && request.resource.contentType == 'application/octet-stream'
+        && request.resource.metadata == null;
+      allow update: if request.auth != null
+        && request.resource.metadata != null
+        && request.resource.metadata.tier == 'standard';
+      allow get: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.expiresAt is timestamp
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.badge is bytes
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.orgRef
+           == /databases/(default)/documents/orgs/org1;
+    }
+  }
+}`;
+
+    const sandbox = initializeSandbox();
+    setFirestoreRules(sandbox, firestoreRules);
+    const authed = sandbox.withAuth({ uid: 'alice' });
+    const db = getClientFirestore(authed);
+    const storage = getStorageSandbox(authed, {
+      dbName: uniqueDbName('denied-and-pit-firestore'),
+      rules: storageRules,
+    });
+
+    await fsSetDoc(fsDoc(db, 'users/alice'), {
+      expiresAt: FsTimestamp.fromMillis(1700000000000),
+      badge: FsBytes.fromUint8Array(new Uint8Array([7, 8])),
+      orgRef: fsDoc(db, 'orgs/org1'),
+    });
+
+    await uploadBytes(storageRef(storage, 'files/ok.bin'), new Blob(['ok']));
+    await getMetadata(storageRef(storage, 'files/ok.bin'));
+
+    await expect(
+      uploadBytes(
+        storageRef(storage, 'files/oversized.txt'),
+        new Blob(['x'.repeat(128)], { type: 'text/plain' }),
+        { customMetadata: { note: 'blocked' } },
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      updateMetadata(storageRef(storage, 'files/ok.bin'), {
+        customMetadata: { tier: 'vip' },
+      }),
+    ).rejects.toThrow();
+
+    await fsDeleteDoc(fsDoc(db, 'users/alice'));
+
+    await expect(getMetadata(storageRef(storage, 'files/ok.bin'))).rejects.toThrow();
+
+    const rawFixture = buildVerifyFixture({
+      sandbox,
+      firestoreRules,
+      storageRules,
+    });
+    const persistedFixture = JSON.parse(JSON.stringify(rawFixture)) as PyricVerifyFixture;
+    const verifyResult = await verifyFixture(persistedFixture, {
+      rules: {
+        firestore: firestoreRules,
+        storage: storageRules,
+      },
+    });
+
+    expect(verifyResult.ok).toBe(true);
+    expect(verifyResult.services.storage?.checkedEvents).toBe(5);
+    expect(verifyResult.services.storage?.divergences).toEqual([]);
+  });
+
+  it('preserves writeMode and updateMask on denied replacing set, merge set, and dot-path update in deriveRulesTestCases and verifyFixture', async () => {
+    const firestoreRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow create: if request.auth != null && request.resource.data.owner == request.auth.uid;
+      allow update: if request.auth != null
+        && 'owner' in request.resource.data
+        && request.resource.data.owner == resource.data.owner
+        && !('keep' in request.resource.data.config);
+    }
+  }
+}`;
+
+    const sandbox = initializeSandbox();
+    setFirestoreRules(sandbox, firestoreRules);
+    const db = getClientFirestore(sandbox.withAuth({ uid: 'alice' }));
+
+    await fsSetDoc(fsDoc(db, 'items/item1'), {
+      owner: 'alice',
+      config: { keep: 1, theme: 'light' },
+    });
+
+    // Denied replacing set: omits owner, so request.resource.data.owner != resource.data.owner.
+    await expect(
+      fsSetDoc(fsDoc(db, 'items/item1'), { config: { theme: 'dark' } }),
+    ).rejects.toThrow(/denied/i);
+
+    // Denied merge set: deep-merges config, leaving config.keep present.
+    await expect(
+      fsSetDoc(fsDoc(db, 'items/item1'), { config: { theme: 'dark' } }, { merge: true }),
+    ).rejects.toThrow(/denied/i);
+
+    // Denied dot-path update: patches config.theme, leaving config.keep present.
+    await expect(
+      fsUpdateDoc(fsDoc(db, 'items/item1'), { 'config.theme': 'dark' }),
+    ).rejects.toThrow(/denied/i);
+
+    const rawFixture = buildVerifyFixture({ sandbox, firestoreRules });
+    const persistedFixture = JSON.parse(JSON.stringify(rawFixture)) as PyricVerifyFixture;
+
+    const derived = deriveRulesTestCases(persistedFixture);
+    expect(derived.unsupportedEvents).toEqual([]);
+    const deniedCases = derived.testCases.filter((tc) => tc.expectation === 'DENY');
+    expect(deniedCases).toHaveLength(3);
+    expect(deniedCases[0]?.writeMode).toEqual({ kind: 'set', merge: false });
+    expect(deniedCases[1]?.writeMode).toEqual({ kind: 'set', merge: true });
+    expect(deniedCases[2]?.writeMode).toEqual({ kind: 'update' });
+    expect(deniedCases[2]?.data).toEqual({ 'config.theme': 'dark' });
+
+    const verifyResult = await verifyFixture(persistedFixture, {
+      rules: { firestore: firestoreRules },
+    });
+    expect(verifyResult.ok).toBe(true);
+    expect(verifyResult.services.firestore?.divergences).toEqual([]);
+
+    // Candidate rules drop the !('keep' in config) requirement while still requiring owner.
+    // Replacing set omitted owner so it stays denied (no false now-allowed);
+    // merge set and dot-path update retained owner + config.keep, so both become now-allowed.
+    const candidateRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow create: if request.auth != null && request.resource.data.owner == request.auth.uid;
+      allow update: if request.auth != null
+        && 'owner' in request.resource.data
+        && request.resource.data.owner == resource.data.owner
+        && request.resource.data.config.keep == 1;
+    }
+  }
+}`;
+    const candidateVerify = await verifyFixture(persistedFixture, {
+      rules: { firestore: candidateRules },
+    });
+    const divergences = candidateVerify.services.firestore?.divergences ?? [];
+    expect(divergences).toHaveLength(2);
+    expect(divergences.every((d) => d.kind === 'now-allowed')).toBe(true);
+  });
+
+  it('projects denied batch/tx replacing set, mergeFields, literal-dot FieldPath, and FieldValue sentinels without prototype pollution', async () => {
+    const firestoreRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow read: if true;
+      allow create: if request.auth != null && request.resource.data.owner == request.auth.uid;
+      allow update: if request.auth != null
+        && 'owner' in request.resource.data
+        && request.resource.data.owner == resource.data.owner
+        && ('approved' in request.resource.data && request.resource.data.approved == true)
+        && (!('nested' in request.resource.data) || request.resource.data.nested.leaf != 'blocked')
+        && (!('count' in request.resource.data) || request.resource.data.count <= 5);
+    }
+  }
+}`;
+
+    const sandbox = initializeSandbox();
+    setFirestoreRules(sandbox, firestoreRules);
+    const db = getClientFirestore(sandbox.withAuth({ uid: 'alice' }));
+
+    await fsSetDoc(fsDoc(db, 'items/item1'), {
+      owner: 'alice',
+      approved: true,
+      count: 2,
+      tags: ['alpha', 'beta'],
+      nested: { leaf: 'ok' },
+    });
+
+    // (a) Denied batch replacing set on existing doc: omits owner -> must stay { kind: 'set', merge: false }, not merge: true.
+    const batch = fsWriteBatch(db);
+    batch.set(fsDoc(db, 'items/item1'), { approved: true, count: 1 });
+    await expect(batch.commit()).rejects.toThrow(/denied/i);
+
+    // (a2) Denied transaction replacing set on existing doc: omits owner -> must stay { kind: 'set', merge: false }.
+    await expect(
+      fsRunTransaction(db, async (tx) => {
+        tx.set(fsDoc(db, 'items/item1'), { approved: true, count: 1 });
+      }),
+    ).rejects.toThrow(/denied/i);
+
+    // (b) Denied setDoc with mergeFields: approved=false in existing doc would be overwritten to false?
+    // Wait: set approved=false via mergeFields while passing ignoredAllow=true outside mergeFields!
+    await expect(
+      fsSetDoc(
+        fsDoc(db, 'items/item1'),
+        { approved: false, unmaskedBypass: true },
+        { mergeFields: ['approved'] },
+      ),
+    ).rejects.toThrow(/denied/i);
+
+    // (c) Denied updateDoc with literal-dot FieldPath('nested.leaf'): sets top-level 'nested.leaf', NOT nested.leaf.
+    // Under a rule requiring nested.leaf == 'opened', top-level 'nested.leaf' must NOT split on '.'.
+    await expect(
+      fsUpdateDoc(
+        fsDoc(db, 'items/item1'),
+        new FsFieldPath('nested.leaf'),
+        'opened',
+        'approved',
+        false,
+      ),
+    ).rejects.toThrow(/denied/i);
+
+    // (d1) Denied updateDoc with deleteField() removing owner: 'owner' in request.resource.data must be false, not a sentinel map.
+    await expect(
+      fsUpdateDoc(fsDoc(db, 'items/item1'), { owner: fsDeleteField() }),
+    ).rejects.toThrow(/denied/i);
+
+    // (d2) Denied updateDoc with increment, arrayUnion, arrayRemove, and serverTimestamp.
+    await expect(
+      fsUpdateDoc(fsDoc(db, 'items/item1'), {
+        count: fsIncrement(10),
+        tags: fsArrayUnion('gamma'),
+        removedTags: fsArrayRemove('beta'),
+        stampedAt: fsServerTimestamp(),
+      }),
+    ).rejects.toThrow(/denied/i);
+
+    const rawFixture = buildVerifyFixture({ sandbox, firestoreRules });
+    const persistedFixture = JSON.parse(JSON.stringify(rawFixture)) as PyricVerifyFixture;
+
+    const derived = deriveRulesTestCases(persistedFixture);
+    expect(derived.unsupportedEvents).toEqual([]);
+    const deniedWriteCases = derived.testCases.filter(
+      (tc) => tc.expectation === 'DENY' && tc.method === 'update',
+    );
+    expect(deniedWriteCases).toHaveLength(6);
+    expect(deniedWriteCases[0]?.writeMode).toEqual({ kind: 'set', merge: false });
+    expect(deniedWriteCases[1]?.writeMode).toEqual({ kind: 'set', merge: false });
+
+    // Same-rules verification must pass with zero false now-allowed divergences.
+    const sameVerify = await verifyFixture(persistedFixture, {
+      rules: { firestore: firestoreRules },
+    });
+    expect(sameVerify.ok).toBe(true);
+    expect(sameVerify.services.firestore?.divergences).toEqual([]);
+
+    // Candidate rule checking the exact bug-catch invariants:
+    // - (a) batch/tx replacing set omitted 'owner' -> still denied under 'owner' in request.resource.data
+    // - (b) mergeFields excluded 'unmaskedBypass' -> still denied under request.resource.data.get('unmaskedBypass', false) == true
+    // - (c) literal-dot FieldPath('nested.leaf') wrote top-level 'nested.leaf', NOT nested.leaf == 'opened' -> still denied
+    // - (d1) deleteField() removed 'owner' -> still denied under 'owner' in request.resource.data
+    // - (d2) increment(10) on count=2 produced 12, arrayUnion added 'gamma', stampedAt == request.time -> ONLY (d2) becomes now-allowed!
+    const probeCandidateRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow read: if true;
+      allow create: if request.auth != null && request.resource.data.owner == request.auth.uid;
+      allow update: if request.auth != null
+        && (
+          ('owner' in request.resource.data && 'approved' in request.resource.data && request.resource.data.approved == true && 'count' in request.resource.data && request.resource.data.count == 1)
+          || ('unmaskedBypass' in request.resource.data && request.resource.data.unmaskedBypass == true)
+          || ('nested' in request.resource.data && request.resource.data.nested.leaf == 'opened')
+          || ('owner' in request.resource.data && !(request.resource.data.owner is string))
+          || (
+            request.resource.data.count == 12
+            && request.resource.data.tags.hasAll(['alpha', 'beta', 'gamma'])
+            && request.resource.data.stampedAt == request.time
+          )
+        );
+    }
+  }
+}`;
+    const probeVerify = await verifyFixture(persistedFixture, {
+      rules: { firestore: probeCandidateRules },
+    });
+    const probeDivergences = probeVerify.services.firestore?.divergences ?? [];
+    expect(probeDivergences).toHaveLength(1);
+    expect(probeDivergences[0]?.kind).toBe('now-allowed');
+
+    // Prototype-safety check on hand-crafted __proto__ mask in deriveRulesTestCases.
+    const protoFixture: PyricVerifyFixture = {
+      schema: 'pyric.verify.fixture.v1',
+      events: [
+        {
+          kind: 'request',
+          id: 'req-proto-check',
+          at: 1700000000000,
+          evalMs: 1,
+          method: 'update',
+          path: 'items/item1',
+          auth: { uid: 'alice' },
+          result: 'deny',
+          reasons: [],
+          origin: 'user',
+          request: {
+            resourceData: JSON.parse('{"__proto__":{"polluted":true}}') as Record<string, unknown>,
+            updateMask: [['__proto__']],
+          },
+          resourceBefore: { data: { owner: 'alice' }, exists: true },
+        },
+      ],
+      services: {
+        firestore: {
+          rules: { format: 'firestore.rules', source: firestoreRules },
+          state: { documents: {} },
+        },
+      },
+    };
+    const protoDerived = deriveRulesTestCases(protoFixture);
+    expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+    expect(Object.getPrototypeOf(protoDerived.testCases[0]?.data ?? {})).toBe(Object.prototype);
   });
 });

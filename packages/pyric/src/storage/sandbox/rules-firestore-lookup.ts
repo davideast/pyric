@@ -1,5 +1,5 @@
 import type { Expr } from './rules.js';
-import { evalExpr, evalOperand, type EvalCtx } from './rules-evaluator.js';
+import { evalExpr, evalOperand, evalOperands, type EvalCtx } from './rules-evaluator.js';
 import {
   RuleEvalError,
   RuleResourceLimitError,
@@ -11,9 +11,11 @@ import { describeRulesType as describeType } from '../../rules/simulator/rules-t
 import { lookupAccessKey, slashedSegment, slashedSegmentReason } from '../../rules/simulator/lookup-path.js';
 import { RulesValue } from '../../rules/simulator/wrappers/base.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
+import { reviveFirestoreNumbers } from '../../rules/simulator/firestore-values.js';
 import { hostNumber } from '../../rules/simulator/rules-int.js';
 import { LatLng } from '../../rules/simulator/wrappers/latlng.js';
 import { Path } from '../../rules/simulator/wrappers/path.js';
+import { Reference } from '../../rules/simulator/wrappers/reference.js';
 import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
 import {
   RuleError,
@@ -42,7 +44,14 @@ function wrapFirestoreValue(val: unknown): unknown {
     return new StorageLatLng(val.lat, val.lng);
   }
   if (val instanceof Path) {
-    return new StoragePath(val.toString());
+    return StoragePath.fromSegments(val.segments, val.bindings);
+  }
+  if (val instanceof Reference) {
+    return new StoragePath(
+      val.path.length > 0
+        ? `/databases/${val.databaseId}/documents/${val.path}`
+        : `/databases/${val.databaseId}/documents`,
+    );
   }
   if (val instanceof RulesValue) {
     return val;
@@ -53,27 +62,70 @@ function wrapFirestoreValue(val: unknown): unknown {
     }
     const obj = val as Record<string, unknown>;
     const keys = Object.keys(obj);
-    const lat = obj.latitude ?? obj._latitude;
-    const lng = obj.longitude ?? obj._longitude;
-    if (
-      obj.__type === 'latlng' ||
-      (keys.length === 2 && typeof lat === 'number' && typeof lng === 'number')
-    ) {
-      return new StorageLatLng(lat as number, lng as number);
+    if (obj.__type === 'path') {
+      if (Array.isArray(obj.segments)) {
+        const bindings =
+          typeof obj.bindings === 'object' && obj.bindings !== null && !Array.isArray(obj.bindings)
+            ? Object.fromEntries(
+                Object.entries(obj.bindings as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
+              )
+            : {};
+        return StoragePath.fromSegments(obj.segments.map(String), bindings);
+      }
+      if (typeof obj.path === 'string') {
+        return new StoragePath(obj.path.length > 1 ? obj.path.replace(/\/+$/, '') : obj.path);
+      }
+    }
+    if ((obj.__type === 'reference' || obj.__type === 'ref') && typeof obj.path === 'string') {
+      return storagePathFromReferenceString(obj.path);
     }
     if (
-      obj.__type === 'path' ||
-      (keys.length === 1 && typeof obj.path === 'string' && obj.path.startsWith('/databases/'))
+      typeof obj.__type === 'string' ||
+      (typeof obj.type === 'string' && obj.type.startsWith('firestore/')) ||
+      obj.__type__ === '__vector__'
     ) {
-      return new StoragePath(obj.path as string);
+      const revived = reviveFirestoreNumbers(obj);
+      if (revived instanceof RulesValue) {
+        return wrapFirestoreValue(revived);
+      }
+    }
+    const lat = obj.latitude ?? obj._latitude ?? (obj.__type === 'latlng' ? obj.lat : undefined);
+    const lng = obj.longitude ?? obj._longitude ?? (obj.__type === 'latlng' ? obj.lng : undefined);
+    if (
+      (obj.__type === 'latlng' && typeof lat === 'number' && typeof lng === 'number') ||
+      (keys.length === 2 && typeof lat === 'number' && typeof lng === 'number')
+    ) {
+      return new StorageLatLng(lat, lng);
+    }
+    if (keys.length === 1 && typeof obj.path === 'string' && obj.path.startsWith('/databases/')) {
+      return new StoragePath(obj.path.length > 1 ? obj.path.replace(/\/+$/, '') : obj.path);
     }
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj)) {
-      out[k] = wrapFirestoreValue(v);
+      Object.defineProperty(out, k, {
+        value: wrapFirestoreValue(v),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
     }
     return out;
   }
   return val;
+}
+
+function storagePathFromReferenceString(rawPath: string): StoragePath {
+  let trimmed = rawPath.replace(/^\/+|\/+$/g, '');
+  const projectsMatch = /^projects\/[^/]+\/(databases(?:\/.*)?)$/.exec(trimmed);
+  if (projectsMatch) trimmed = projectsMatch[1]!;
+  if (trimmed === 'databases' || trimmed.startsWith('databases/')) {
+    return new StoragePath(`/${trimmed}`);
+  }
+  return new StoragePath(
+    trimmed.length > 0
+      ? `/databases/(default)/documents/${trimmed}`
+      : '/databases/(default)/documents',
+  );
 }
 
 export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
@@ -84,15 +136,16 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     // Unknown namespace method, compile-reject class, never absorbed.
     throw new RuleUnsupportedError(`unsupported method firestore.${expr.method}()`);
   }
+  if (expr.args.length !== 1) {
+    evalOperands(expr.args, ctx);
+    throw new RuleEvalError(`firestore.${expr.method}() expects a single path argument`);
+  }
   if (!ctx.firestoreLookup) {
     // No sandbox-backed capability injected — keep the deny-with-reason
     // "unsupported" behavior; never a false allow.
     throw new RuleEvalError(
       `firestore.${expr.method}() is unsupported here — no Firestore lookup capability is configured`,
     );
-  }
-  if (expr.args.length !== 1) {
-    throw new RuleEvalError(`firestore.${expr.method}() expects a single path argument`);
   }
   const arg = expr.args[0];
   let docSegments: string[];

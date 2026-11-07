@@ -172,7 +172,11 @@ function serviceIncompatibility(
         return null;
       }
       case 'methodCall': {
-        if (e.object.type === 'identifier' && !ctx.aliases.has(e.object.name)) {
+        if (
+          e.object.type === 'identifier' &&
+          !ctx.aliases.has(e.object.name) &&
+          !ctx.receiverTypes.has(e.object.name)
+        ) {
           const namespaces = service === 'cloud.firestore' ? FIRESTORE_NAMESPACES : STORAGE_NAMESPACES;
           const methods = namespaces[e.object.name];
           if (methods) {
@@ -233,7 +237,12 @@ function serviceIncompatibility(
         return null;
       case 'literal': return null;
       case 'identifier':
-        if (e.name === 'request' || e.name === 'resource' || ctx.aliases.has(e.name)) {
+        if (
+          e.name === 'request' ||
+          e.name === 'resource' ||
+          ctx.aliases.has(e.name) ||
+          ctx.receiverTypes.has(e.name)
+        ) {
           return null;
         }
         return `identifier '${e.name}'`;
@@ -283,8 +292,8 @@ export function incompatibleFunction(
     receiverTypes: new Map(fn.parameters.map((parameter, index) => [
       parameter,
       arguments_[index]
-        ? sourceReceiverType(arguments_[index].expression, rootCtx) ??
-          arguments_[index].receiverType ?? null
+        ? arguments_[index].receiverType ??
+          sourceReceiverType(arguments_[index].expression, rootCtx) ?? null
         : null,
     ])),
     functions,

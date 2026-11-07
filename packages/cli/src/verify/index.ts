@@ -854,9 +854,20 @@ async function verifyStorage(
   const divergences: VerifyDivergence[] = [];
   let checkedEvents = 0;
   const consumedMutationIndices = new Set<number>();
+  const currentFirestoreDocs: Record<string, Record<string, unknown>> = {
+    ...reconstructInitialFirestoreDocuments(fixture),
+  };
 
   for (let i = 0; i < fixture.events.length; i++) {
     const event = fixture.events[i]!;
+    if (event.kind === 'write') {
+      if (event.nextState === null || event.method === 'delete') {
+        delete currentFirestoreDocs[event.path];
+      } else {
+        currentFirestoreDocs[event.path] = event.nextState;
+      }
+      continue;
+    }
     if (event.kind === 'service_mutation' && event.service === 'storage') {
       const mutation = event as ServiceMutationEvent;
       const bucket = storageMutationBucket(mutation);
@@ -907,13 +918,22 @@ async function verifyStorage(
       pairedMutation && pairedMutation.before !== undefined
         ? (pairedMutation.before as StoredMetadata | undefined)
         : objectState.get(key);
+    const detailRequestResource = (
+      opEvent.detail as
+        | { requestResource?: Parameters<typeof evaluateStorageRules>[1]['request']['resource'] }
+        | undefined
+    )?.requestResource;
+    const detailResource = (
+      opEvent.detail as { resource?: Parameters<typeof evaluateStorageRules>[1]['resource'] } | undefined
+    )?.resource;
 
     let requestResource;
     if (opEvent.method === 'create' || opEvent.method === 'write') {
       const after = pairedMutation?.after as StoredMetadata | undefined;
       requestResource = after
         ? requestResourceFor(after, 'upload')
-        : requestResourceFor(
+        : (detailRequestResource ??
+          requestResourceFor(
             {
               fullPath: objectPath,
               bucket,
@@ -921,7 +941,7 @@ async function verifyStorage(
               contentType: 'application/octet-stream',
             },
             'upload',
-          );
+          ));
     } else if (opEvent.method === 'update') {
       const after = pairedMutation?.after as StoredMetadata | undefined;
       requestResource = after
@@ -929,17 +949,24 @@ async function verifyStorage(
             { ...after, metageneration: existing?.metageneration ?? after.metageneration },
             'metadataUpdate',
           )
-        : requestResourceFor(
+        : (detailRequestResource ??
+          requestResourceFor(
             {
               fullPath: objectPath,
               bucket,
-              size: existing?.size ?? 0,
-              contentType: existing?.contentType ?? 'application/octet-stream',
-              generation: existing?.generation,
-              metageneration: existing?.metageneration,
+              size: existing?.size ?? detailResource?.size ?? 0,
+              contentType: existing?.contentType ?? detailResource?.contentType ?? 'application/octet-stream',
+              generation:
+                existing?.generation ??
+                (detailResource?.generation !== undefined ? String(detailResource.generation) : undefined),
+              metageneration:
+                existing?.metageneration ??
+                (detailResource?.metageneration !== undefined
+                  ? String(detailResource.metageneration)
+                  : undefined),
             },
             'metadataUpdate',
-          );
+          ));
     }
 
     // The rules saw the bucket under the name the live op recorded (ST-H2-4).
@@ -952,13 +979,19 @@ async function verifyStorage(
           path: objectPath,
           ...(requestResource !== undefined ? { resource: requestResource } : {}),
         },
-        resource: resourceFromStored(existing),
+        resource: existing ? resourceFromStored(existing) : (detailResource ?? null),
       },
       bucket,
       bucketName,
     );
     const bucketRules = storageBucketRules(ruleset, bucket, bucketName);
-    const evaluated = evaluateReplayedStorageRequest(bucketRules, input, opEvent, fixture);
+    const evaluated = evaluateReplayedStorageRequest(
+      bucketRules,
+      input,
+      opEvent,
+      fixture,
+      currentFirestoreDocs,
+    );
 
     if (opEvent.result === 'allow' && !evaluated.allowed) {
       divergences.push({
@@ -1003,20 +1036,30 @@ function evaluateReplayedStorageRequest(
   input: Parameters<typeof evaluateStorageRules>[1],
   opEvent: SandboxOperationEvent,
   fixture: PyricVerifyFixture,
+  pointInTimeFirestoreDocs: Record<string, Record<string, unknown>>,
 ): { allowed: boolean; reasons: string[] } {
   if (bucketRules.kind === 'locked') return { allowed: false, reasons: [lockedBucketReason(bucketRules.bucket)] };
   const hasRecordedTime = typeof opEvent.at === 'number' && Number.isFinite(opEvent.at);
   const requestTime = hasRecordedTime ? new Date(opEvent.at) : new Date();
-  return evaluateStorageRules(bucketRules.rules, input, requestTime, fixtureFirestoreLookup(fixture));
+  return evaluateStorageRules(
+    bucketRules.rules,
+    input,
+    requestTime,
+    fixtureFirestoreLookup(fixture, pointInTimeFirestoreDocs),
+  );
 }
 
 /** The captured Firestore documents a Storage rule's `firestore.get()` reads, when the capture holds any. */
-function fixtureFirestoreLookup(fixture: PyricVerifyFixture): Parameters<typeof evaluateStorageRules>[3] {
-  const documents = fixture.services.firestore?.state?.documents;
-  if (!documents) return undefined;
+function fixtureFirestoreLookup(
+  fixture: PyricVerifyFixture,
+  pointInTimeFirestoreDocs: Record<string, Record<string, unknown>>,
+): Parameters<typeof evaluateStorageRules>[3] {
+  if (!fixture.services.firestore && Object.keys(pointInTimeFirestoreDocs).length === 0) {
+    return undefined;
+  }
   return {
-    get: (docPath) => documents[docPath] ?? null,
-    exists: (docPath) => (documents[docPath] ?? null) !== null,
+    get: (docPath) => pointInTimeFirestoreDocs[docPath] ?? null,
+    exists: (docPath) => (pointInTimeFirestoreDocs[docPath] ?? null) !== null,
   };
 }
 
