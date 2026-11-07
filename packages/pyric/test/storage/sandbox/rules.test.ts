@@ -101,4 +101,72 @@ service firebase.storage {
   }
 }`)).not.toThrow();
   });
+
+  it('refuses invalid RE2 literal patterns in matches() while keeping replace() lenient (#1334)', () => {
+    for (const pattern of ['(', '(?=a)a', '(a)\\\\1', 'a{1001}']) {
+      expect(() => parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /c/{id} { allow read: if id.matches('${pattern}'); }
+  }
+}`)).toThrow('Storage rules do not compile: Invalid regular expression pattern.');
+    }
+    expect(() => parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /c/{id} { allow read: if id.replace('[', 'x') == id && id.matches('(?i)^[a-z]+$'); }
+  }
+}`)).not.toThrow();
+  });
+
+  it('refuses duplicate service declarations without doubling the compile prefix (#2441)', () => {
+    expect(() => parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o { match /a/{id} { allow read: if true; } }
+}
+service firebase.storage {
+  match /b/{bucket}/o { match /b/{id} { allow read: if false; } }
+}`)).toThrow('Storage rules do not compile: Duplicate service name declaration.');
+
+    let msg = '';
+    try {
+      parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o { match /a/{id} { allow read: if true; } }
+}
+service firebase.storage {
+  match /b/{bucket}/o { match /b/{id} { allow read: if false; } }
+}`);
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    expect(msg).toBe('Storage rules do not compile: Duplicate service name declaration.');
+  });
+
+  it('parses multi-service files declaring cloud.firestore and firebase.storage in either order (#2441)', () => {
+    const firestoreFirst = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} { allow read: if false; }
+  }
+}
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{id} { allow read: if request.auth != null; }
+  }
+}`;
+    const storageFirst = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{id} { allow read: if request.auth != null; }
+  }
+}
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} { allow read: if false; }
+  }
+}`;
+    expect(() => parseStorageRules(firestoreFirst)).not.toThrow();
+    expect(() => parseStorageRules(storageFirst)).not.toThrow();
+  });
 });

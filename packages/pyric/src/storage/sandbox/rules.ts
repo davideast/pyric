@@ -90,7 +90,9 @@
 import { parseToASTOrError } from '../../rules/grammar/FirestoreParser.js';
 import { parseErrorWording } from '../../rules/grammar/parse-error-wording.js';
 import { compileLimitViolations, describeCompileLimitViolations } from '../../rules/grammar/compile-limits.js';
+import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '../../rules/grammar/source-compile-limits.js';
 import { copyExpressionPosition } from '../../rules/grammar/expression-positions.js';
+import { re2PatternProblem } from '../../rules/simulator/re2-pattern-check.js';
 // RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
 // tagged with this wrapper while an INT is a bigint, or a bare integral JS
 // number from a host value (see `rules-int.ts`). The storage evaluator
@@ -531,12 +533,19 @@ export function parseStorageRules(source: string): StorageRules {
       `Storage rules parse error at line ${parsed.error.line}, column ${parsed.error.column}: ${parseErrorWording(parsed.error, source)}.`,
     );
   }
-  const ast: SharedRules = parsed.ast;
-  if (ast.service.name !== 'firebase.storage') {
+  const duplicate = duplicateServiceRejection(parsed.ast);
+  if (duplicate !== null) {
+    throw new SyntaxError(`Storage rules do not compile: ${DUPLICATE_SERVICE_REASON}`);
+  }
+  const storageService = (parsed.ast.services ?? [parsed.ast.service]).find(
+    (block) => block.name === 'firebase.storage',
+  );
+  if (!storageService) {
     throw new SyntaxError(
-      `Expected 'service firebase.storage', got 'service ${ast.service.name}'.`,
+      `Expected 'service firebase.storage', got 'service ${parsed.ast.service.name}'.`,
     );
   }
+  const ast: SharedRules = { ...parsed.ast, service: storageService };
   // Production rejects a ruleset past its compile limits (call depth, `let`
   // count, nesting) before evaluating any request.
   const violations = compileLimitViolations(ast);
@@ -593,7 +602,92 @@ export function parseStorageRules(source: string): StorageRules {
   for (const child of root.children) {
     resolveFunctions(child, serviceScope, new Set());
   }
+  validateMatchRegexes(root);
   return { _root: root, _version: ast.version };
+}
+
+function validateExpressionRegexes(expression: Expr): void {
+  if (
+    expression.kind === 'methodcall' &&
+    expression.method === 'matches' &&
+    expression.args.length === 1
+  ) {
+    const arg = expression.args[0];
+    const problem = arg?.kind === 'literal' && typeof arg.value === 'string' ? re2PatternProblem(arg.value) : null;
+    if (problem !== null) throw new SyntaxError(`Storage rules do not compile: ${problem}`);
+  }
+  switch (expression.kind) {
+    case 'member':
+      validateExpressionRegexes(expression.target);
+      return;
+    case 'index':
+      validateExpressionRegexes(expression.target);
+      validateExpressionRegexes(expression.index);
+      return;
+    case 'slice':
+      validateExpressionRegexes(expression.target);
+      validateExpressionRegexes(expression.start);
+      validateExpressionRegexes(expression.end);
+      return;
+    case 'unary':
+      validateExpressionRegexes(expression.arg);
+      return;
+    case 'ternary':
+      validateExpressionRegexes(expression.cond);
+      validateExpressionRegexes(expression.then);
+      validateExpressionRegexes(expression.else);
+      return;
+    case 'in':
+      validateExpressionRegexes(expression.element);
+      validateExpressionRegexes(expression.collection);
+      return;
+    case 'is':
+      validateExpressionRegexes(expression.value);
+      return;
+    case 'list':
+      for (const value of expression.elements) validateExpressionRegexes(value);
+      return;
+    case 'map':
+      for (const { key, value } of expression.entries) {
+        validateExpressionRegexes(key);
+        validateExpressionRegexes(value);
+      }
+      return;
+    case 'binary':
+      validateExpressionRegexes(expression.left);
+      validateExpressionRegexes(expression.right);
+      return;
+    case 'call':
+      for (const value of expression.args) validateExpressionRegexes(value);
+      return;
+    case 'methodcall':
+      validateExpressionRegexes(expression.target);
+      for (const value of expression.args) validateExpressionRegexes(value);
+      return;
+    case 'path':
+      for (const segment of expression.segments) {
+        if (segment.kind === 'interp') validateExpressionRegexes(segment.expr);
+      }
+      return;
+    case 'ident':
+    case 'literal':
+      return;
+  }
+}
+
+function validateMatchRegexes(match: MatchBlock): void {
+  for (const { condition } of match.allows) {
+    if (condition) validateExpressionRegexes(condition);
+  }
+  for (const fn of match.functions) {
+    for (const binding of fn.lets) {
+      validateExpressionRegexes(binding.value);
+    }
+    validateExpressionRegexes(fn.body);
+  }
+  for (const child of match.children) {
+    validateMatchRegexes(child);
+  }
 }
 
 /**
