@@ -18,6 +18,8 @@ export interface ReplayProcessOptions {
   storageCapture?: string;
   /** Also serve Messaging capture M for this project (`--messaging-capture`). */
   messagingCapture?: string;
+  /** Also serve capture A (Admin) for this project (`--admin-capture`); its Firestore calls need `grpcProjectDir`. */
+  adminCapture?: string;
   /** Also answer AI Logic from the committed observations (`--ai`). */
   ai?: boolean;
 }
@@ -25,16 +27,17 @@ export interface ReplayProcessOptions {
 /**
  * The `node` arguments that run a replay server for `recordings`, with gRPC
  * from the SDK installed in `grpcProjectDir`, capture A with `rtdbCapture`,
- * capture S with `storageCapture`, capture M with `messagingCapture`, and AI
- * Logic with `ai`.
+ * capture S with `storageCapture`, capture M with `messagingCapture`, capture
+ * A (Admin) with `adminCapture`, and AI Logic with `ai`.
  */
 export function replayServerArgs(recordings: string[], grpcProjectDir?: string, options: ReplayProcessOptions = {}): string[] {
   const grpc = grpcProjectDir ? ['--grpc', grpcProjectDir] : [];
   const capture = options.rtdbCapture ? ['--rtdb-capture', options.rtdbCapture] : [];
   const storage = options.storageCapture ? ['--storage-capture', options.storageCapture] : [];
   const messaging = options.messagingCapture ? ['--messaging-capture', options.messagingCapture] : [];
+  const admin = options.adminCapture ? ['--admin-capture', options.adminCapture] : [];
   const ai = options.ai ? ['--ai'] : [];
-  return ['--experimental-transform-types', '--no-warnings', SERVE_SCRIPT, ...grpc, ...capture, ...storage, ...messaging, ...ai, ...recordings];
+  return ['--experimental-transform-types', '--no-warnings', SERVE_SCRIPT, ...grpc, ...capture, ...storage, ...messaging, ...admin, ...ai, ...recordings];
 }
 
 /** A replay server in another process, by the origins it printed. */
