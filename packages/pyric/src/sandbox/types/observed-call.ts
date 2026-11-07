@@ -94,6 +94,47 @@ export interface ObservedUsage {
   unmeasured?: number;
 }
 
+/** The operators a Firestore `where` filter takes. */
+export type ObservedQueryOperator =
+  | '<'
+  | '<='
+  | '=='
+  | '!='
+  | '>='
+  | '>'
+  | 'array-contains'
+  | 'in'
+  | 'not-in'
+  | 'array-contains-any';
+
+/** One `where` filter: the field path and the operator. Never the value. */
+export interface ObservedQueryFilter {
+  field: string;
+  op: ObservedQueryOperator;
+}
+
+/** One `orderBy`: the field path and the direction. */
+export interface ObservedQueryOrder {
+  field: string;
+  direction: 'asc' | 'desc';
+}
+
+/**
+ * The shape of a Firestore query a call ran: its scope, the fields it
+ * filtered and ordered on, and whether it set a limit. Never a filter value,
+ * a cursor or the limit's number. `fingerprint` is a hash of the filter and
+ * cursor values the page computed, so two runs of one query with different
+ * values read as different targets without either value leaving the page.
+ */
+export interface ObservedQuery {
+  scope: 'collection' | 'collection-group';
+  filters?: ObservedQueryFilter[];
+  orderBy?: ObservedQueryOrder[];
+  limit?: true;
+  /** Exactly 16 lowercase hex characters. */
+  fingerprint?: string;
+}
+
 /** One observed call, as a client sends it to a host. */
 export interface ObservedCall {
   service: ObservedCallService;
@@ -174,6 +215,11 @@ export interface ObservedCall {
    * only, emails left out; no event holds them.
    */
   document?: Record<string, unknown>;
+  /**
+   * `firestore` only: the shape of the query a list or listener ran. Refused
+   * on any other call; the event carries it as `request.query`.
+   */
+  query?: ObservedQuery;
 }
 
 /**

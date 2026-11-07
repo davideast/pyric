@@ -86,6 +86,25 @@ const ADMIN_UPDATE: ObservedCall = {
   sdk: 'admin',
 };
 
+/** A Firestore list as the page records it: the query's shape and a fingerprint of its values, never the values. */
+const LISTED_ROOMS: ObservedCall = {
+  service: 'firestore',
+  method: 'getDocs',
+  path: 'rooms',
+  at: 1_700_000_000_000,
+  outcome: { status: 'ok' },
+  query: {
+    scope: 'collection',
+    filters: [
+      { field: 'owner', op: '==' },
+      { field: 'tags', op: 'array-contains-any' },
+    ],
+    orderBy: [{ field: 'createdAt', direction: 'desc' }],
+    limit: true,
+    fingerprint: '0123456789abcdef',
+  },
+};
+
 /** Shapes a recorder must never pass on: a FIS auth token, an FCM registration token, a VAPID key. */
 const FIS_AUTH_TOKEN = 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjE6MTIzNDU2Nzg5MDp3ZWI6YWJjIn0.c2ln';
 const FCM_TOKEN = 'dGVzdEZpZDAxMjM0NTY3:APA91bH7xVb0nU3sKq9Yw2Zr5tLp8mQe4cJd6fGh1iOa';
@@ -380,6 +399,53 @@ describe('readObservedCall', () => {
     }
   });
 
+  it("keeps a Firestore call's query shape: scope, filters, order, limit and fingerprint", () => {
+    expect(readObservedCall(LISTED_ROOMS)).toEqual(LISTED_ROOMS);
+    const group = { ...LISTED_ROOMS, query: { scope: 'collection-group' } };
+    expect(readObservedCall(group)).toEqual(group as ObservedCall);
+    const operators = ['<', '<=', '==', '!=', '>=', '>', 'array-contains', 'in', 'not-in', 'array-contains-any'];
+    const filters = operators.map((op) => ({ field: 'a.b', op }));
+    expect(readObservedCall({ ...LISTED_ROOMS, query: { scope: 'collection', filters } }).query?.filters).toEqual(filters as never);
+  });
+
+  it('refuses a query with a value, an unknown key, a bad operator or fingerprint, or a value-shaped field', () => {
+    const shape = LISTED_ROOMS.query;
+    const filter = { field: 'owner', op: '==' };
+    const cases: Array<[unknown, string]> = [
+      [{ ...shape, value: 'alice' }, 'query.value'],
+      [{ ...shape, values: ['alice'] }, 'query.values'],
+      [{ ...shape, filters: [{ ...filter, value: 'alice' }] }, 'query.filters.value'],
+      [{ ...shape, orderBy: [{ field: 'createdAt', direction: 'desc', startAt: 3 }] }, 'query.orderBy.startAt'],
+      [{ ...shape, scope: 'document' }, 'query.scope'],
+      [{ ...shape, filters: [{ ...filter, op: '===' }] }, 'query.filters.op'],
+      [{ ...shape, filters: [{ ...filter, op: 'like' }] }, 'query.filters.op'],
+      [{ ...shape, filters: [{ ...filter, field: '' }] }, 'query.filters.field'],
+      [{ ...shape, filters: [{ ...filter, field: 'a'.repeat(1501) }] }, 'query.filters.field'],
+      [{ ...shape, filters: [{ ...filter, field: FIS_AUTH_TOKEN }] }, 'query.filters.field'],
+      [{ ...shape, filters: [{ ...filter, field: VAPID_KEY }] }, 'query.filters.field'],
+      [{ ...shape, orderBy: [{ field: FCM_TOKEN, direction: 'asc' }] }, 'query.orderBy.field'],
+      [{ ...shape, filters: [{ ...filter, field: 'members.alice@example.com' }] }, 'query.filters.field'],
+      [{ ...shape, orderBy: [{ field: 'scores.`bob@corp.io`', direction: 'asc' }] }, 'query.orderBy.field'],
+      [{ ...shape, orderBy: [{ field: 'createdAt', direction: 'up' }] }, 'query.orderBy.direction'],
+      [{ ...shape, filters: filter }, 'query.filters'],
+      [{ ...shape, filters: Array.from({ length: 65 }, () => filter) }, 'query.filters'],
+      [{ ...shape, limit: 10 }, 'query.limit'],
+      [{ ...shape, limit: false }, 'query.limit'],
+      [{ ...shape, fingerprint: '0123456789ABCDEF' }, 'query.fingerprint'],
+      [{ ...shape, fingerprint: '0123456789abcdeg' }, 'query.fingerprint'],
+      [{ ...shape, fingerprint: '0123456789abcde' }, 'query.fingerprint'],
+      [{ ...shape, fingerprint: '0123456789abcdef0' }, 'query.fingerprint'],
+      ['owner == alice', 'query'],
+    ];
+    for (const [query, field] of cases) {
+      const read = () => readObservedCall({ ...LISTED_ROOMS, query });
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow(`Invalid observed call field: ${field}.`);
+    }
+    const onRtdb = () => readObservedCall({ ...NAMED_RTDB_READ, query: shape });
+    expect(onRtdb).toThrow('Invalid observed call field: query.');
+  });
+
   it('refuses a malformed record and names the field', () => {
     const cases: Array<[unknown, string]> = [
       [null, 'call'],
@@ -603,6 +669,13 @@ describe('observedCallEvent', () => {
     expect(event).not.toHaveProperty('path');
     const { requests: _requests, ...unobserved } = GET_TOKEN;
     expect(observedCallEvent(unobserved)).not.toHaveProperty('detail');
+  });
+
+  it("carries a Firestore call's query shape as request.query, copied", () => {
+    const event = observedCallEvent(readObservedCall(LISTED_ROOMS));
+    expect(event.request).toEqual({ query: LISTED_ROOMS.query });
+    expect(event.request?.query).not.toBe(LISTED_ROOMS.query);
+    expect(observedCallEvent(DENIED_READ)).not.toHaveProperty('request');
   });
 
   it('gives a non-AI call no observation', () => {

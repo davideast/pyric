@@ -94,10 +94,10 @@ export {
 export { storageGsPath } from './storage-gs-path.js';
 export { messagingRequestsLine } from './messaging-requests-line.js';
 export {
-  OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, productionVerdict, readObservedCall,
+  EMAIL_SHAPE, OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, productionVerdict, readObservedCall,
   type ProductionVerdict,
 } from './observed-call.js';
-export { observedMethod, type ObservedMethod } from './observed-method.js';
+export { observedMethod, rulesOperation, type ObservedMethod } from './observed-method.js';
 export {
   billedCallKind, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, liveProjectOf,
   readLiveHostStatus,

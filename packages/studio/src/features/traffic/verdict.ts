@@ -15,7 +15,9 @@
 import { isQueryProofUnsupported } from '../rules-debug/query-proof.js';
 import type { EventCaller, ObservedProduction, RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
-import { productionVerdict } from 'pyric/sandbox/internal';
+import { productionVerdict, rulesOperation } from 'pyric/sandbox/internal';
+import type { ExprTraceEntry } from 'pyric/rules/internal';
+import type { Denial } from '../rules-debug/index.js';
 import type { CommandTarget } from '../home/command.js';
 
 /** A traffic event as Studio's adapter emits it: the library shape plus the
@@ -213,4 +215,114 @@ export function productionLabel(production: ObservedProduction): string {
   const outcome = production.outcome;
   if (outcome.status === 'ok') return 'production ok';
   return productionVerdict(outcome) === 'denied' ? 'production denied' : `production failed: ${outcome.code}`;
+}
+
+/** A local verdict that disagrees with production's: the local answer and the rule that decided it. */
+export type LocalDrift = Extract<NonNullable<ObservedProduction['local']>, { result: 'allow' | 'deny' }>;
+
+/**
+ * The local rules' verdict on an op production served, only when it
+ * disagrees with production's allow or deny. Undefined on an agreeing op, on
+ * one the local rules could not decide, and on every op the sandbox served.
+ */
+export function localDrift(event: { production?: ObservedProduction }): LocalDrift | undefined {
+  const local = event.production?.local;
+  if (local === undefined || local.result === 'unevaluated') return undefined;
+  return local.drift === true ? local : undefined;
+}
+
+/** The bounded evaluation record the host keeps on a live op's local verdict, as a sandbox request's `rulesEvidence`. */
+type RulesEvidence = NonNullable<LocalDrift['trace']>;
+type EvidenceRule = RulesEvidence['rules'][number];
+type EvidenceCheck = EvidenceRule['checks'][number];
+
+const LIVE_RESULTS = { ALLOW: 'allow', DENY: 'deny', UNSUPPORTED: 'unsupported' } as const;
+
+/** One recorded check as the rules view's sub-expression trace entry. */
+function traceEntryOf(check: EvidenceCheck): ExprTraceEntry {
+  const entry: ExprTraceEntry = {
+    source: check.expression,
+    // The host records the simulator's own kind; a record without one reads as a plain name.
+    kind: (check.kind ?? 'identifier') as ExprTraceEntry['kind'],
+    parent: check.parent,
+  };
+  if (check.operator !== undefined) entry.operator = check.operator;
+  if (check.binding !== undefined) entry.letBinding = { name: check.binding };
+  if (check.helper !== undefined) entry.inlinedFrom = { name: check.helper };
+  if (check.state === 'value') entry.value = check.value;
+  if (check.state === 'skipped') entry.skipped = true;
+  if (check.state === 'error') entry.error = check.error;
+  return entry;
+}
+
+/** The rule that decided, as the sandbox picks it: the allowing rule, else the first that denied or failed, else the last. */
+function decidingRule(trace: RulesEvidence): { rule: EvidenceRule; index: number } | undefined {
+  const rules = trace.rules;
+  const wanted = trace.decision === 'ALLOW'
+    ? rules.findIndex((rule) => rule.verdict === 'ALLOW')
+    : rules.findIndex((rule) => rule.verdict === 'DENY' || rule.verdict === 'ERROR');
+  const index = wanted === -1 ? rules.length - 1 : wanted;
+  const rule = rules[index];
+  return rule === undefined ? undefined : { rule, index };
+}
+
+/** The `allow` statement's operations: `allow read, write: if` gives read and write. */
+const ALLOW_OPERATIONS = /\ballow\s+([a-z]+(?:\s*,\s*[a-z]+)*)\s*[:;]/;
+
+/** Where a rules source's own source map starts; the lines after it are not rules. */
+const SOURCE_MAP_MARKER = '// @pyric-source-map:';
+
+/**
+ * The operations the rule at `line` (1-indexed) declares in the loaded rules
+ * source, as the sandbox's `Rule #N (ops)` names them. Undefined when there
+ * is no source, no such line, or no `allow` statement on it.
+ */
+export function declaredOperations(source: string | undefined, line: number | undefined): string[] | undefined {
+  if (source === undefined || line === undefined) return undefined;
+  const rules = source.split(SOURCE_MAP_MARKER)[0] ?? '';
+  const text = rules.split('\n')[line - 1];
+  const match = text === undefined ? null : ALLOW_OPERATIONS.exec(text);
+  if (match === null) return undefined;
+  return (match[1] ?? '').split(',').map((operation) => operation.trim());
+}
+
+/**
+ * A live Firestore op's local rules evaluation in the shape the sandbox
+ * rules view reads, from the trace the host recorded on
+ * `production.local.trace`. Undefined for an op with no trace: a sandbox op,
+ * an unevaluated or RTDB verdict, or a trace too large to keep.
+ */
+export function liveRuleEvaluation(event: StudioTrafficEvent, rulesSource?: string): Denial | undefined {
+  const local = event.production?.local;
+  const trace = local === undefined || local.result === 'unevaluated' ? undefined : local.trace;
+  if (trace === undefined) return undefined;
+  const result = LIVE_RESULTS[trace.decision];
+  const denial: Denial = {
+    id: event.id,
+    at: event.at,
+    result,
+    method: rulesOperation(event.service, event.method),
+    service: event.service ?? 'firestore',
+    path: event.path,
+    auth: event.auth as Denial['auth'],
+    reasons: [],
+    origin: event.origin as Denial['origin'],
+    unsupported: result === 'unsupported',
+  };
+  const deciding = decidingRule(trace);
+  if (deciding === undefined) return denial;
+  const { rule, index } = deciding;
+  const decided = result === 'unsupported' ? undefined : result;
+  if (decided !== undefined) {
+    denial.evaluatedRule = {
+      verdict: decided,
+      ...(rule.line === undefined ? {} : { line: rule.line }),
+      expression: rule.expression,
+      expressionTrace: rule.checks.map(traceEntryOf),
+    };
+  }
+  // The rule's declared operations come from the loaded source, as a sandbox row's do; the evaluated one stands in without it.
+  const operations = declaredOperations(rulesSource, rule.line) ?? [denial.method];
+  denial.matchedRule = { ruleIndex: index, operations };
+  return denial;
 }
