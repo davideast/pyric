@@ -14,6 +14,12 @@
  * two distinct client ids. `eventScope`, the one rule the chip and Studio
  * scope by, keeps exactly each client's calls and each user's calls.
  *
+ * The host's health report (`/__pyric/health`) names each client by its
+ * script: a server job still running by its entry script relative to its
+ * working directory (`server.mjs`), and the app's service worker, which
+ * signs in when the page asks, by its script URL's path (`/sw.js`, with no
+ * origin and no query).
+ *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * `live-mode-traffic.json` over WebChannel for the pages and gRPC for the
  * server runs. Like every app scenario this runs offline, and the browser
@@ -34,6 +40,7 @@ const LOBBY = { name: 'Lobby', open: true, seats: 12 };
 declare function signIn(): Promise<string>;
 declare function readLobby(): Promise<unknown>;
 declare function listenToOpenRooms(): Promise<string[]>;
+declare function signInFromServiceWorker(): Promise<string>;
 
 interface Replay {
   origin: string;
@@ -56,6 +63,13 @@ interface CapturedEvent {
   caller?: Caller;
   auth?: { uid: string } | null;
   production?: unknown;
+}
+
+/** One client the host's health report lists. */
+interface HealthClient {
+  kind: string;
+  clientId: string;
+  label?: string;
 }
 
 type Scope = 'all' | { client?: { kind: string; clientId: string }; user?: string | null };
@@ -126,6 +140,17 @@ function distinct(events: CapturedEvent[], pick: (event: CapturedEvent) => strin
 /** The ids of `events`, sorted, to compare two selections. */
 function ids(events: CapturedEvent[]): string[] {
   return events.map((event) => event.id).sort();
+}
+
+/** The clients the host's health report lists. */
+async function healthClients(base: string): Promise<HealthClient[]> {
+  const health = await hostJson<{ live?: { clients?: HealthClient[] } }>(`${base}/__pyric/health`);
+  return health.live?.clients ?? [];
+}
+
+/** The labels of the listed clients of `kind`, sorted. */
+function labelsOf(clients: HealthClient[], kind: string): Array<string | undefined> {
+  return clients.filter((client) => client.kind === kind).map((client) => client.label).sort();
 }
 
 function blockedLines(app: App): string[] {
@@ -225,6 +250,22 @@ export default scenario(async (app) => {
     const profileA = events.find((event) => event.caller?.kind === 'page' && event.auth?.uid === READER)!.caller!;
     assert.deepEqual(events.filter((event) => eventScope(event, { client: { kind: 'page', clientId: profileA.clientId! }, user: WRITER })), []);
     assert.equal(events.filter((event) => eventScope(event, 'all')).length, events.length);
+  });
+
+  await app.step('the health report names a running server job and the service worker by their scripts', async () => {
+    // Profile B's tab has the app's service worker sign in as profile B's writer, so the worker reports a call of its own.
+    assert.equal(await tabs[2]!.evaluate(() => signInFromServiceWorker()), WRITER);
+    const job = app.commandProcess('node', ['--import', '@pyric/live/register', 'server.mjs'], {
+      env: { ROOMS_AUTH_URL: replay.origin, ROOMS_FIRESTORE_HOST: replay.grpc, ROOMS_HOLD: '1' },
+    });
+    await job.waitForLog(/^RESULT /m, { timeoutMs: 90_000 });
+    const named = (clients: HealthClient[]) => labelsOf(clients, 'node').includes('server.mjs') && labelsOf(clients, 'service-worker').includes('/sw.js');
+    const clients = await eventually(() => healthClients(host.url), named, 'the clients\' script labels');
+    // The worker's label is its script's path: no origin, and no `?backend=` query.
+    assert.deepEqual(labelsOf(clients, 'service-worker'), ['/sw.js']);
+    assert.deepEqual(labelsOf(clients, 'node'), ['server.mjs']);
+    assert.deepEqual(await replay.unmatched(), []);
+    await job.stop();
   });
 
   await app.step('nothing reached any host but loopback', async () => {

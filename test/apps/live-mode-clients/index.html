@@ -53,6 +53,17 @@
         }, (error) => reject(failure(error)));
       });
 
+      // Registers the app's module service worker and has it sign in as the reader; resolves with its uid.
+      window.signInFromServiceWorker = async () => {
+        const script = backend ? `/sw.js?backend=${encodeURIComponent(backend)}` : "/sw.js";
+        await navigator.serviceWorker.register(script, { type: "module", scope: "/" });
+        const registration = await navigator.serviceWorker.ready;
+        return new Promise((resolve) => {
+          navigator.serviceWorker.addEventListener("message", (event) => resolve(event.data.uid), { once: true });
+          registration.active.postMessage("sign-in");
+        });
+      };
+
       document.querySelector("#status").textContent = "Ready";
     </script>
   </body>

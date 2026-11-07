@@ -25,3 +25,7 @@ result.read = await getDoc(doc(db, "rooms/lobby")).then((snapshot) => snapshot.d
 await terminate(db);
 await deleteApp(app);
 console.log(`RESULT ${JSON.stringify(result)}`);
+
+// ROOMS_HOLD keeps the job running after its RESULT, until it is stopped, so
+// the live host still lists it as a client.
+if (process.env.ROOMS_HOLD) setInterval(() => {}, 60_000);
