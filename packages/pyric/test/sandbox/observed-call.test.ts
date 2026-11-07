@@ -520,6 +520,11 @@ describe("production's message and an AI block", () => {
     expect(readObservedCall(withToken).outcome).toEqual({ status: 'error', code: 'permission-denied' });
   });
 
+  it("keeps a Messaging call whose message quotes a token, and drops the message", () => {
+    const failed = { ...GET_TOKEN, outcome: { status: 'error', code: 'messaging/token-subscribe-failed', message: `subscribe failed for ${FCM_TOKEN}` } };
+    expect(readObservedCall(failed).outcome).toEqual({ status: 'error', code: 'messaging/token-subscribe-failed' });
+  });
+
   it("never puts production's message on the event", () => {
     const denied = readObservedCall({ ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: MESSAGE } });
     expect(observedCallEvent(denied).production?.outcome).toEqual({ status: 'error', code: 'permission-denied' });

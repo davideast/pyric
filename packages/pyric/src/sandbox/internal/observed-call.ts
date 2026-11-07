@@ -337,6 +337,17 @@ function withoutClaimValues(value: Fields): Fields {
   return { ...value, account: rest };
 }
 
+/**
+ * A Messaging call's record without production's message. No terminal line
+ * prints one, and a message that quoted a token would trip the same walk.
+ */
+function withoutOutcomeMessage(value: Fields): Fields {
+  const outcome = value.outcome;
+  if (!isFields(outcome) || outcome.message === undefined) return value;
+  const { message: _message, ...rest } = outcome;
+  return { ...value, outcome: rest };
+}
+
 function isModelName(value: unknown): value is string {
   return typeof value === 'string' && MODEL_PATTERN.test(value);
 }
@@ -574,7 +585,7 @@ export function readObservedCall(input: unknown): ObservedCall {
   // A Messaging call handles an installation's tokens and the FCM token, so
   // nothing in its record may look like one, a field the reader drops included.
   const isMessaging = input.service === 'messaging';
-  const value = isMessaging ? withoutClaimValues(input) : input;
+  const value = isMessaging ? withoutOutcomeMessage(withoutClaimValues(input)) : input;
   if (isMessaging) requireNoTokens(value, '');
   requireOnly(value, CALL_FIELDS, '');
   const service = value.service;
