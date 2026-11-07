@@ -434,6 +434,8 @@ function rtdbRequirements(
       );
     });
   });
+  const ancestorDataVerdict = verdictOf("rtdb-rules#8");
+  const ancestorDataSupported = !ancestorDataDependent || ancestorDataVerdict === "supported";
   const requirements = [
     requirement(
       "rtdb.rules-present",
@@ -457,10 +459,12 @@ function rtdbRequirements(
     ),
     requirement(
       "rtdb.rule-location-data",
-      !ancestorDataDependent,
-      ancestorDataDependent
-        ? "The current evaluator cannot prove ancestor rule-location data/newData merged-tree semantics."
-        : "The rules used by this probe do not depend on data/newData.",
+      ancestorDataSupported,
+      !ancestorDataDependent
+        ? "The rules used by this probe do not depend on data/newData."
+        : ancestorDataSupported
+          ? "Ancestor rule-location data/newData merged-tree semantics are derived 'supported' from 'rtdb-rules#8'."
+          : `The conformance row 'rtdb-rules#8' is derived '${ancestorDataVerdict ?? "unmodeled"}', not 'supported'; the engine abstains on ancestor rule-location data/newData.`,
     ),
   ];
 

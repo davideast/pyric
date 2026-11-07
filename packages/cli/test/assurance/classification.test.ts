@@ -135,7 +135,7 @@ describe("campaign classification integrity", () => {
     expect(result.classification).toBe("local-counterexample");
   });
 
-  it("reports an RTDB data/newData dependency as an engine gap without executing it", async () => {
+  it("evaluates an RTDB probe under an ancestor .write rule reading data/newData and abstains when query rules apply (#2451)", async () => {
     const campaign: AuthorizationCampaignSpec = {
       schema: "pyric.assurance.campaign.v1",
       id: "rtdb-fidelity-gate",
@@ -147,25 +147,63 @@ describe("campaign classification integrity", () => {
             rules: {
               profiles: {
                 $uid: {
+                  ".read": "auth != null",
                   ".write":
                     'auth != null && newData.child("owner").val() == data.child("owner").val()',
                 },
+              },
+              unguardedProfiles: {
+                $uid: {
+                  ".write":
+                    'auth != null && (data.exists() || newData.exists())',
+                },
+              },
+              queried: {
+                ".read": "auth != null && query.limitToFirst == 10",
               },
             },
           },
         },
         state: {
-          rtdb: { profiles: { alice: { owner: "alice", name: "Alice" } } },
+          auth: {
+            users: [
+              {
+                uid: "alice",
+                email: "alice@example.test",
+                password: "password-123",
+              },
+            ],
+          },
+          rtdb: {
+            profiles: { alice: { owner: "alice", name: "Alice" } },
+            unguardedProfiles: { alice: { owner: "alice", name: "Alice" } },
+            queried: { a: 1 },
+          },
         },
       },
       actors: [
-        { id: "alice", acquisition: { kind: "synthetic", uid: "alice" } },
+        {
+          id: "alice",
+          acquisition: {
+            kind: "password",
+            email: "alice@example.test",
+            password: "password-123",
+          },
+        },
       ],
       invariants: [
         {
           id: "owner-immutable",
           service: "rtdb",
           statement: "A profile owner field must not change.",
+          expected: "DENY",
+          source: "declared",
+          confidence: "authoritative",
+        },
+        {
+          id: "query-bounded-read",
+          service: "rtdb",
+          statement: "Unbounded reads must not bypass query.limitToFirst.",
           expected: "DENY",
           source: "declared",
           confidence: "authoritative",
@@ -193,20 +231,84 @@ describe("campaign classification integrity", () => {
             },
           },
         },
+        {
+          id: "owner-change-broken-rule",
+          actorId: "alice",
+          invariantId: "owner-immutable",
+          control: {
+            service: "rtdb",
+            method: "set",
+            path: "/unguardedProfiles/alice/name",
+            data: "Alicia",
+          },
+          mutation: {
+            dimension: "path",
+            description: "Change the owner field when the ancestor .write rule fails to guard it.",
+            operation: {
+              service: "rtdb",
+              method: "set",
+              path: "/unguardedProfiles/alice/owner",
+              data: "Alicia",
+            },
+          },
+        },
+        {
+          id: "query-rule-gap",
+          actorId: "alice",
+          invariantId: "query-bounded-read",
+          control: {
+            service: "rtdb",
+            method: "get",
+            path: "/profiles/alice/name",
+          },
+          mutation: {
+            dimension: "path",
+            description: "Read a path governed by query.limitToFirst.",
+            operation: {
+              service: "rtdb",
+              method: "get",
+              path: "/queried",
+            },
+          },
+        },
       ],
     };
 
     const report = await runAuthorizationCampaign(campaign);
 
     expect(report.results[0]).toMatchObject({
+      probeId: "owner-change",
+      classification: "no-counterexample",
+      control: { decision: "ALLOW" },
+      mutation: { decision: "DENY" },
+      qualification: { supported: true },
+    });
+    expect(report.results[0]?.qualification.requirements).toContainEqual(
+      expect.objectContaining({
+        id: "rtdb.rule-location-data",
+        supported: true,
+        reason: expect.stringContaining("rtdb-rules#8"),
+      }),
+    );
+
+    expect(report.results[1]).toMatchObject({
+      probeId: "owner-change-broken-rule",
+      classification: "local-counterexample",
+      control: { decision: "ALLOW" },
+      mutation: { decision: "ALLOW" },
+      qualification: { supported: true },
+    });
+
+    expect(report.results[2]).toMatchObject({
+      probeId: "query-rule-gap",
       classification: "engine-gap",
       control: { decision: "UNSUPPORTED", events: [] },
       mutation: { decision: "UNSUPPORTED", events: [] },
       qualification: { supported: false },
     });
-    expect(report.results[0]?.qualification.requirements).toContainEqual(
+    expect(report.results[2]?.qualification.requirements).toContainEqual(
       expect.objectContaining({
-        id: "rtdb.rule-location-data",
+        id: "rtdb.query-rules",
         supported: false,
       }),
     );
