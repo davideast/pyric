@@ -770,6 +770,11 @@ jobs:
       # server's Admin calls observed (#2304).
       - name: The live-mode full-stack app on Node 24.16
         run: bun test/apps/run.ts --packages dist/packages live-mode-full-stack
+      # A backend under the live register with request instrumentation and
+      # firebase-admin: its token exchanges, Admin rows and project gate, and
+      # its unobserved lists in the live host's health (#2445).
+      - name: The live-mode instrumented backend on Node 24.16
+        run: bun test/apps/run.ts --packages dist/packages live-instrumented-backend
       - name: Upload app scenario logs
         if: failure()
         uses: actions/upload-artifact@v4
