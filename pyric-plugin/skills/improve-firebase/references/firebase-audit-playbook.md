@@ -62,7 +62,7 @@ user asks.
 
 ## Severity anchors
 
-- Critical: unauthenticated write, root-level grant, or rule logic an attacker
+- Critical: unauthenticated write, root-level grant, or rule logic an peer
   controls (authorization read from `request.resource.data`).
 - High: user-controlled writes without validation; sensitive reads open to any
   signed-in user.

@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pyric Security Evidence — Single Hero</title>
+  <style>
+    @font-face {
+      font-family: "PyricSans";
+      src:
+        url("/__pyric_stage_assets/fonts/inter-latin-opsz-normal.woff2") format("woff2-variations"),
+        url("../fonts/inter-latin-opsz-normal.woff2") format("woff2-variations");
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: block;
+    }
+
+    @font-face {
+      font-family: "PyricMono";
+      src:
+        url("/__pyric_stage_assets/fonts/NotoSansMono-Regular.ttf") format("truetype"),
+        url("../fonts/NotoSansMono-Regular.ttf") format("truetype");
+      font-weight: 400 500;
+      font-style: normal;
+      font-display: block;
+    }
+
+    @font-face {
+      font-family: "PyricMono";
+      src:
+        url("/__pyric_stage_assets/fonts/NotoSansMono-Bold.ttf") format("truetype"),
+        url("../fonts/NotoSansMono-Bold.ttf") format("truetype");
+      font-weight: 600 800;
+      font-style: normal;
+      font-display: block;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --surface: #212121;
+      --panel: #2a2a2a;
+      --ink: #f5f5f5;
+      --muted: #b3b3b3;
+      --accent: #f5f5f5;
+      --danger: #d4d4d4;
+      --success: #a3a3a3;
+      --border: rgba(255, 255, 255, 0.12);
+      --radius: 12px;
+      --font-sans: "PyricSans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "PyricMono", "Noto Sans Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--surface);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .stage-shell {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 20px 26px 16px;
+      gap: 16px;
+      background: var(--surface);
+    }
+
+    /* Header */
+    .stage-header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 18px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .severity-pill {
+      flex: 0 0 auto;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.16);
+      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+    }
+
+    .stage-title {
+      font-size: 19px;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .finding-meta {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .beat-caption {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink);
+      max-width: 640px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    [data-caption-style="pill"] .beat-caption {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 14px;
+    }
+
+    [data-caption-style="bar"] .beat-caption {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 6px;
+      padding: 6px 12px;
+    }
+
+    [data-caption-style="minimal"] .beat-caption {
+      color: var(--muted);
+    }
+
+    [data-caption-style="none"] .beat-caption {
+      display: none;
+    }
+
+    .time-readout {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      color: var(--muted);
+      flex: 0 0 auto;
+    }
+
+    /* Main Split: ~62% Hero Viewport + ~38% Structured Evidence Drawer */
+    .hero-split {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 62fr) minmax(0, 38fr);
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .hero-card {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: box-shadow 150ms ease, border-color 150ms ease;
+    }
+
+    [data-highlights="true"] .hero-card.ring-accent {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+    }
+
+    [data-highlights="true"] .hero-card.ring-danger {
+      border-color: var(--danger);
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.45);
+    }
+
+    [data-highlights="true"] .hero-card.ring-success {
+      border-color: var(--success);
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.45);
+    }
+
+    .hero-bar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .actor-identity {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .role-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 3px 8px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.14);
+      color: var(--accent);
+      border: 1px solid rgba(255, 255, 255, 0.32);
+    }
+
+    .actor-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .actor-uid, .actor-view {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .viewport-stage {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      background: var(--muted);
+    }
+
+    .viewport-frame {
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      aspect-ratio: 4 / 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .viewport-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .viewport-empty {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--muted);
+      padding: 16px;
+      text-align: center;
+    }
+
+    /* Evidence Drawer (~38% width) */
+    .evidence-drawer {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .drawer-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .drawer-card.grow {
+      flex: 1 1 0;
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .card-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .verdict-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--ink);
+    }
+
+    .verdict-badge.tone-danger {
+      background: rgba(255, 255, 255, 0.18);
+      border-color: var(--danger);
+      color: var(--muted);
+    }
+
+    .verdict-badge.tone-success {
+      background: rgba(255, 255, 255, 0.18);
+      border-color: var(--success);
+      color: var(--muted);
+    }
+
+    .why-text {
+      font-size: 13px;
+      line-height: 1.42;
+      color: var(--muted);
+    }
+
+    .code-block {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--ink);
+      background: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 8px;
+      padding: 8px 10px;
+      overflow: hidden;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .diff-line {
+      display: block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .diff-line.removed {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--muted);
+    }
+
+    .diff-line.added {
+      background: rgba(255, 255, 255, 0.10);
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .diff-line.tampered {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--ink);
+    }
+
+    .diff-line.protected {
+      background: rgba(255, 255, 255, 0.10);
+      color: var(--ink);
+    }
+
+    [data-show-request-card="false"] [data-pyric-slot="request-card"] {
+      display: none !important;
+    }
+
+    [data-show-rule-diff="false"] [data-pyric-slot="rule-diff"] {
+      display: none !important;
+    }
+
+    [data-show-outro-card="false"] [data-pyric-slot="outro-card"] {
+      display: none !important;
+    }
+
+    /* Locked Provenance Footer */
+    .pyric-provenance {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 16px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .provenance-dot {
+      flex: 0 0 auto;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    [data-pyric-provenance] {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--ink);
+      opacity: 0.88;
+    }
+
+    /* Square 1:1 (1080x1080) & Portrait 9:16 (1080x1920) adaptations */
+    @media (max-aspect-ratio: 11/10) {
+      .stage-shell {
+        padding: 16px 18px 12px;
+        gap: 12px;
+      }
+
+      .stage-header {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .hero-split {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1.05fr) minmax(0, 1fr);
+        gap: 12px;
+      }
+
+      .evidence-drawer {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 10px;
+      }
+    }
+
+    @media (max-aspect-ratio: 3/4) {
+      .hero-split {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 0.95fr) minmax(0, 1.05fr);
+        gap: 14px;
+      }
+
+      .evidence-drawer {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+    }
+
+    .hero-action-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 14px;
+      background: rgba(255, 255, 255, 0.92);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .hero-action-strip.tone-danger {
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.96));
+      border-bottom-color: rgba(255, 255, 255, 0.55);
+    }
+    .hero-action-strip.tone-success {
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.96));
+      border-bottom-color: rgba(255, 255, 255, 0.5);
+    }
+    .hero-action-strip.tone-accent {
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.95));
+      border-bottom-color: rgba(255, 255, 255, 0.35);
+    }
+    .hero-action-kicker {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--ink);
+      flex: 0 0 auto;
+    }
+    .hero-action-code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="stage-shell">
+    <header class="stage-header">
+      <div class="header-left">
+        <span class="severity-pill" data-pyric-severity>HIGH</span>
+        <div style="min-width: 0;">
+          <h1 class="stage-title" data-pyric-title>Security Audit Finding</h1>
+          <div class="finding-meta" data-pyric-finding>campaign / probe</div>
+        </div>
+      </div>
+      <div class="beat-caption" data-pyric-caption>Initializing stage...</div>
+      <span class="time-readout" data-pyric-time>0.0s</span>
+    </header>
+
+    <main class="hero-split">
+      <section class="hero-card" data-actor-card="owner">
+        <div class="hero-bar">
+          <div class="actor-identity">
+            <span class="role-badge">Owner Hero</span>
+            <span class="actor-name" data-actor-name="owner">Alice</span>
+            <span class="actor-uid" data-actor-uid="owner"></span>
+          </div>
+          <span class="actor-view" data-actor-view="owner">/</span>
+        </div>
+        <div class="hero-action-strip tone-accent" data-hero-action>
+          <span class="hero-action-kicker" data-hero-kicker>1. BASELINE</span>
+          <code class="hero-action-code" data-hero-sdk>Owner session active</code>
+        </div>
+        <div class="viewport-stage">
+          <div class="viewport-frame">
+            <img data-actor-img="owner" alt="Owner hero viewport" />
+            <div class="viewport-empty" data-actor-empty="owner" hidden>No owner capture frame</div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="evidence-drawer">
+        <!-- 1. Severity / Verdict Card -->
+        <div class="drawer-card">
+          <div class="card-header">
+            <span class="card-label">Severity &amp; Verdict</span>
+            <span class="verdict-badge" data-pyric-badge>BASELINE ALLOW</span>
+          </div>
+          <p class="why-text" data-pyric-slot="outro-card" data-pyric-why>—</p>
+        </div>
+
+        <!-- 2. SDK Mutation Card -->
+        <div class="drawer-card" data-pyric-slot="request-card">
+          <div class="card-header">
+            <span class="card-label">SDK Mutation</span>
+            <span class="actor-uid" data-pyric-actor-label>peer</span>
+          </div>
+          <pre class="code-block" data-pyric-sdk>—</pre>
+        </div>
+
+        <!-- 3. Before / After JSON Diff -->
+        <div class="drawer-card grow">
+          <div class="card-header">
+            <span class="card-label">State Diff (Before / After)</span>
+            <span class="actor-uid" data-pyric-state-tag>JSON</span>
+          </div>
+          <div class="code-block" style="flex: 1 1 auto;" data-pyric-state-diff>—</div>
+        </div>
+
+        <!-- 4. Security Rule Diff -->
+        <div class="drawer-card grow" data-pyric-slot="rule-diff">
+          <div class="card-header">
+            <span class="card-label">Security Rule Diff</span>
+            <span class="actor-uid" data-pyric-rule-tag>RULES</span>
+          </div>
+          <div class="code-block" style="flex: 1 1 auto;" data-pyric-rule-diff>
+            <code data-pyric-rule>—</code>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="pyric-provenance">
+      <span class="provenance-dot" aria-hidden="true"></span>
+      <span data-pyric-provenance></span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      let currentPayload = null;
+      const decodedCache = new Map();
+
+      function applyTheme(theme) {
+        const t = theme || {};
+        const style = document.documentElement.style;
+        const vars = {
+          '--surface': t.surface || 'var(--muted)',
+          '--panel': t.panel || 'var(--muted)',
+          '--ink': t.ink || 'var(--muted)',
+          '--muted': t.muted || 'var(--muted)',
+          '--accent': t.accent || 'var(--muted)',
+          '--danger': t.danger || 'var(--danger)',
+          '--success': t.success || 'var(--muted)',
+          '--border': t.border || 'rgba(255, 255, 255, 0.10)',
+          '--radius': t.radius || '14px',
+          '--font-sans': t.fontSans || 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          '--font-mono': t.fontMono || 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        };
+        for (const [k, v] of Object.entries(vars)) {
+          style.setProperty(k, v);
+        }
+      }
+
+      function applySlots(slots) {
+        const s = slots || {};
+        const ds = document.documentElement.dataset;
+        ds.captionStyle = s.captionStyle || 'pill';
+        ds.highlights = String(s.highlights !== false);
+        ds.showRuleDiff = String(s.showRuleDiff !== false);
+        ds.showRequestCard = String(s.showRequestCard !== false);
+        ds.showTitleCard = String(s.showTitleCard !== false);
+        ds.showOutroCard = String(s.showOutroCard !== false);
+      }
+
+      function ensureDecoded(url) {
+        if (!url) return Promise.resolve();
+        if (decodedCache.has(url)) {
+          const existing = decodedCache.get(url);
+          decodedCache.delete(url);
+          decodedCache.set(url, existing);
+          return existing;
+        }
+        const p = new Promise((resolve) => {
+          const img = new Image();
+          img.decoding = 'sync';
+          img.src = url;
+          if (typeof img.decode === 'function') {
+            img.decode().then(resolve, resolve);
+          } else {
+            img.onload = resolve;
+            img.onerror = resolve;
+          }
+        });
+        if (decodedCache.size >= 24) {
+          const oldestKey = decodedCache.keys().next().value;
+          decodedCache.delete(oldestKey);
+        }
+        decodedCache.set(url, p);
+        return p;
+      }
+
+      async function swapOwnerImage(url) {
+        const imgEl = document.querySelector('[data-actor-img="owner"]');
+        const emptyEl = document.querySelector('[data-actor-empty="owner"]');
+        if (!imgEl) return;
+
+        if (!url) {
+          imgEl.removeAttribute('src');
+          imgEl.dataset.currentSrc = '';
+          imgEl.style.display = 'none';
+          if (emptyEl) emptyEl.hidden = false;
+          return;
+        }
+
+        if (emptyEl) emptyEl.hidden = true;
+        imgEl.style.display = 'block';
+
+        if (imgEl.dataset.currentSrc === url && imgEl.complete && imgEl.naturalWidth > 0) {
+          return;
+        }
+
+        await ensureDecoded(url);
+        imgEl.src = url;
+        imgEl.dataset.currentSrc = url;
+        if (typeof imgEl.decode === 'function') {
+          try {
+            await imgEl.decode();
+          } catch {
+            // Keep rendered image
+          }
+        }
+      }
+
+      function findActiveBeat(beats, tSec) {
+        if (!Array.isArray(beats) || beats.length === 0) {
+          return {
+            id: 'repro',
+            phase: 'repro',
+            startMs: 0,
+            endMs: 3000,
+            caption: currentPayload?.copy?.repro || '',
+            badgeText: 'REPRO ALLOWED',
+            badgeTone: 'danger',
+            sdkCall: '—',
+            matchedRule: '—',
+          };
+        }
+        const tMs = Math.max(0, Number(tSec) * 1000);
+        for (let i = 0; i < beats.length; i++) {
+          const b = beats[i];
+          const sMs = typeof b.startMs === 'number' ? b.startMs : b.startSec * 1000;
+          const eMs = typeof b.endMs === 'number' ? b.endMs : b.endSec * 1000;
+          if (tMs >= sMs && tMs < eMs - 1e-6) {
+            return b;
+          }
+        }
+        return beats[beats.length - 1];
+      }
+
+      function samplePassUrl(passObj, queryMs, frameIndex, totalFrames) {
+        if (!passObj) return '';
+        if (Array.isArray(passObj.frames) && passObj.frames.length > 0) {
+          const frames = passObj.frames;
+          let chosen = frames[0];
+          if (queryMs >= frames[frames.length - 1].tMs) {
+            chosen = frames[frames.length - 1];
+          } else if (queryMs > frames[0].tMs) {
+            let lo = 0;
+            let hi = frames.length - 1;
+            let best = 0;
+            while (lo <= hi) {
+              const mid = (lo + hi) >>> 1;
+              if (frames[mid].tMs <= queryMs) {
+                best = mid;
+                lo = mid + 1;
+              } else {
+                hi = mid - 1;
+              }
+            }
+            chosen = frames[best];
+          }
+          return chosen.files?.owner || '';
+        }
+
+        const list = passObj.owner;
+        if (Array.isArray(list) && list.length > 0) {
+          const ratio = totalFrames > 1 ? frameIndex / (totalFrames - 1) : 0;
+          const idx = Math.min(list.length - 1, Math.max(0, Math.round(ratio * (list.length - 1))));
+          return list[idx] || '';
+        }
+        return '';
+      }
+
+      function renderStateDiff(evidence, phase) {
+        const container = document.querySelector('[data-pyric-state-diff]');
+        const tagEl = document.querySelector('[data-pyric-state-tag]');
+        if (!container) return;
+
+        const beforeObj = evidence?.before ?? { authorUid: 'alice', text: 'Original state' };
+        const afterObj = evidence?.after ?? { authorUid: 'alice', text: 'Tampered by peer' };
+
+        if (tagEl) {
+          if (phase === 'hook') tagEl.textContent = 'BASELINE';
+          else if (phase === 'fix') tagEl.textContent = 'PROTECTED';
+          else tagEl.textContent = 'MUTATED';
+        }
+
+        container.innerHTML = '';
+        const beforeLines = JSON.stringify(beforeObj, null, 2).split('\n');
+        const afterLines = JSON.stringify(afterObj, null, 2).split('\n');
+
+        if (phase === 'hook') {
+          for (const line of beforeLines.slice(0, 7)) {
+            const span = document.createElement('span');
+            span.className = 'diff-line';
+            span.textContent = `  ${line}`;
+            container.appendChild(span);
+          }
+          return;
+        }
+
+        const beforeSet = new Set(beforeLines);
+        const afterSet = new Set(afterLines);
+        const highlightsEnabled = document.documentElement.dataset.highlights !== 'false';
+
+        for (const line of beforeLines.slice(0, 4)) {
+          if (!afterSet.has(line)) {
+            const span = document.createElement('span');
+            span.className = highlightsEnabled ? 'diff-line removed' : 'diff-line';
+            span.textContent = `- ${line}`;
+            container.appendChild(span);
+          }
+        }
+        for (const line of afterLines.slice(0, 5)) {
+          if (!beforeSet.has(line)) {
+            const span = document.createElement('span');
+            if (highlightsEnabled) {
+              span.className = phase === 'fix' ? 'diff-line protected' : 'diff-line tampered';
+            } else {
+              span.className = 'diff-line';
+            }
+            span.textContent = phase === 'fix' ? `✓ ${line} (blocked)` : `+ ${line}`;
+            container.appendChild(span);
+          }
+        }
+      }
+
+      function renderRuleDiff(payload, beat) {
+        const container = document.querySelector('[data-pyric-rule-diff]');
+        if (!container) return;
+
+        const fixRules = payload?.fixRules || payload?.stage?.fixRules || payload?.evidence?.fixRules || {};
+        const vulnRule = fixRules.before || payload?.evidence?.matchedRule || beat.matchedRule || '".write": "auth != null"';
+        const fixedRule = fixRules.after || fixRules.rule || fixRules.matchedRule || 'auth.uid == data.child("authorUid").val()';
+        const highlightsEnabled = document.documentElement.dataset.highlights !== 'false';
+
+        container.innerHTML = '';
+        const vulnLine = document.createElement('span');
+        vulnLine.className = highlightsEnabled && beat.phase === 'repro' ? 'diff-line tampered' : 'diff-line removed';
+        vulnLine.textContent = `- ${vulnRule}`;
+        container.appendChild(vulnLine);
+
+        const fixedLine = document.createElement('span');
+        fixedLine.className = highlightsEnabled && beat.phase === 'fix' ? 'diff-line protected' : 'diff-line added';
+        fixedLine.textContent = `+ ${fixedRule}`;
+        container.appendChild(fixedLine);
+
+        const activeCode = document.createElement('code');
+        activeCode.setAttribute('data-pyric-rule', '');
+        activeCode.style.display = 'none';
+        activeCode.textContent = beat.matchedRule || fixedRule;
+        container.appendChild(activeCode);
+      }
+
+      window.__initPyricStage = function initPyricStage(payload) {
+        currentPayload = payload;
+        if (!payload) return;
+
+        applyTheme(payload.stage?.theme);
+        applySlots(payload.stage?.slots);
+
+        const sevEl = document.querySelector('[data-pyric-severity]');
+        if (sevEl) sevEl.textContent = payload.copy?.severity || 'HIGH';
+
+        const titleEl = document.querySelector('[data-pyric-title]');
+        if (titleEl) titleEl.textContent = payload.copy?.title || 'Security Audit Finding';
+
+        const findingEl = document.querySelector('[data-pyric-finding]');
+        if (findingEl && payload.finding) {
+          findingEl.textContent = `${payload.finding.campaign} / ${payload.finding.probe}`;
+        }
+
+        const whyEl = document.querySelector('[data-pyric-why]');
+        if (whyEl) whyEl.textContent = payload.copy?.why || '';
+
+        const actorLabelEl = document.querySelector('[data-pyric-actor-label]');
+        if (actorLabelEl) {
+          const peer = payload.actors?.peer;
+          actorLabelEl.textContent = peer ? `${peer.name} (${peer.uid || 'peer'})` : 'peer';
+        }
+
+        const owner = payload.actors?.owner;
+        const nameEl = document.querySelector('[data-actor-name="owner"]');
+        const uidEl = document.querySelector('[data-actor-uid="owner"]');
+        const viewEl = document.querySelector('[data-actor-view="owner"]');
+        if (nameEl) nameEl.textContent = owner?.name || 'Owner';
+        if (uidEl) uidEl.textContent = owner?.uid ? `(${owner.uid})` : '';
+        if (viewEl) viewEl.textContent = owner?.view || '/';
+
+        const provEl = document.querySelector('[data-pyric-provenance]');
+        if (provEl) {
+          provEl.textContent = payload.provenanceText || '';
+        }
+
+        const seen = new Set();
+        const frames = payload.passes?.repro?.frames || [];
+        for (const f of frames) {
+          const u = f.files?.owner;
+          if (u && !seen.has(u) && seen.size < 48) {
+            seen.add(u);
+            ensureDecoded(u);
+          }
+        }
+      };
+
+      window.setFrame = async function setFrame(tSec, frameIndex = 0, totalFrames = 1) {
+        if (!currentPayload && window.__PYRIC_EVIDENCE__) {
+          window.__initPyricStage(window.__PYRIC_EVIDENCE__);
+        }
+        const payload = currentPayload;
+        if (!payload) return;
+
+        const beat = findActiveBeat(payload.beats, tSec);
+        document.documentElement.dataset.phase = beat.phase || 'repro';
+        document.documentElement.dataset.beat = beat.id || 'repro';
+
+        const captionEl = document.querySelector('[data-pyric-caption]');
+        if (captionEl) captionEl.textContent = beat.caption || '';
+
+        const badgeEl = document.querySelector('[data-pyric-badge]');
+        if (badgeEl) {
+          badgeEl.textContent = beat.badgeText || 'REPRO ALLOWED';
+          badgeEl.classList.remove('tone-neutral', 'tone-danger', 'tone-success');
+          badgeEl.classList.add(`tone-${beat.badgeTone || 'danger'}`);
+        }
+
+        const timeEl = document.querySelector('[data-pyric-time]');
+        if (timeEl) timeEl.textContent = `${Number(tSec).toFixed(1)}s`;
+
+        const sdkEl = document.querySelector('[data-pyric-sdk]');
+        if (sdkEl) sdkEl.textContent = beat.sdkCall || '—';
+
+        const heroAction = document.querySelector('[data-hero-action]');
+        const heroKicker = document.querySelector('[data-hero-kicker]');
+        const heroSdk = document.querySelector('[data-hero-sdk]');
+        if (heroAction) {
+          heroAction.classList.remove('tone-accent', 'tone-danger', 'tone-success');
+          if (beat.phase === 'hook') {
+            heroAction.classList.add('tone-accent');
+            if (heroKicker) heroKicker.textContent = '1. BASELINE';
+            if (heroSdk) heroSdk.textContent = beat.sdkCall && beat.sdkCall !== '—' ? beat.sdkCall : 'Authorized baseline state active';
+          } else if (beat.phase === 'fix') {
+            heroAction.classList.add('tone-success');
+            if (heroKicker) heroKicker.textContent = '3. FIX DENIED';
+            if (heroSdk) heroSdk.textContent = beat.sdkCall && beat.sdkCall !== '—' ? beat.sdkCall : 'Blocked by patched rules';
+          } else {
+            heroAction.classList.add('tone-danger');
+            if (heroKicker) heroKicker.textContent = '2. REPRO CALL';
+            if (heroSdk) heroSdk.textContent = beat.sdkCall && beat.sdkCall !== '—' ? beat.sdkCall : 'Unauthorized client SDK call';
+          }
+        }
+
+        const heroCard = document.querySelector('[data-actor-card="owner"]');
+        if (heroCard) {
+          heroCard.classList.remove('ring-accent', 'ring-danger', 'ring-success');
+          if (beat.phase === 'hook') heroCard.classList.add('ring-accent');
+          else if (beat.phase === 'fix') heroCard.classList.add('ring-success');
+          else heroCard.classList.add('ring-danger');
+        }
+
+        renderStateDiff(payload.evidence, beat.phase);
+        renderRuleDiff(payload, beat);
+
+        const passes = payload.passes || {};
+        let activePass = passes.repro;
+        let queryMs = Number(tSec) * 1000;
+        if (beat.phase === 'fix' && passes.fix) {
+          activePass = passes.fix;
+          const firstTs = activePass.frames?.[0]?.tMs ?? 0;
+          if (firstTs === 0 && typeof beat.startMs === 'number') {
+            queryMs = Math.max(0, queryMs - beat.startMs);
+          }
+        } else if (beat.phase === 'hook' && passes.baseline) {
+          activePass = passes.baseline;
+        }
+
+        const ownerUrl = samplePassUrl(activePass, queryMs, frameIndex, totalFrames);
+        await swapOwnerImage(ownerUrl);
+      };
+
+      if (window.__PYRIC_EVIDENCE__) {
+        window.__initPyricStage(window.__PYRIC_EVIDENCE__);
+      }
+    })();
+  </script>
+</body>
+</html>
