@@ -18,7 +18,8 @@
  * changed. A call or delivery with no measure counts once, as does one whose
  * usage names no documents. A cache read never reaches production, and Auth
  * calls are not billed per call, so neither is counted. An aggregate counts
- * one read and a transaction one write, as their usage says.
+ * one read and a transaction one write, as their usage says. A `writeBatch`
+ * commit counts each write and delete its batch held.
  */
 import type { ObservedCall } from '../types/observed-call.js';
 
@@ -266,6 +267,7 @@ const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, Bil
   ['deleteDoc', 'write'],
   ['addDoc', 'write'],
   ['runTransaction', 'write'],
+  ['writeBatch', 'write'],
   ['onSnapshot', 'delivery'],
   ['onSnapshotResume', 'delivery'],
 ]);

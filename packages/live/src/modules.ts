@@ -22,6 +22,9 @@
  * names its app. The OnDisconnect `onDisconnect` returns gets observed
  * methods. Its `off` takes the app's callback and removes the recording one.
  *
+ * The Firestore row replaces `writeBatch`: the batch it returns counts its
+ * operations, and its `commit` is one observed `writeBatch` call (`firestore.ts`).
+ *
  * The AI row (`ai.ts`) observes instances, not exports: the GenerativeModel
  * `getGenerativeModel` returns, and each one `new GenerativeModel(...)` or
  * `new ChatSession(...)` builds, gets own-property wrappers for the calls
@@ -70,7 +73,7 @@ import {
   offByCallback,
 } from './database.js';
 import { AI_REFUSED_CALLS, aiCode, aiContext, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
-import { firestoreContext, firestoreResult } from './firestore.js';
+import { firestoreContext, firestoreResult, observedWriteBatch } from './firestore.js';
 import { observedGetStream, STORAGE_CALLS, storageContext } from './storage.js';
 import {
   MESSAGING_CALLS,
@@ -241,6 +244,7 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     listeners: ['onSnapshot', 'onSnapshotResume'],
     uncaughtListenerError: firestoreUncaughtListenerError,
     hooks: { context: firestoreContext, resultOf: firestoreResult },
+    replaced: { writeBatch: observedWriteBatch },
     refused: {
       getFirestore: getFirestoreDatabase,
       initializeFirestore: initializeFirestoreDatabase,

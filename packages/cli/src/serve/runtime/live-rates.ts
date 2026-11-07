@@ -9,8 +9,8 @@
  */
 import type { SandboxEvent, SandboxOperationEvent } from 'pyric/sandbox';
 import {
-  createSdkRates, isProductionServed, sdkMethodCoverage,
-  type SdkObservation, type SdkRateSnapshot, type SdkServiceRate, type UsageEvidence,
+  createSdkRates, eventScope, isProductionServed, sdkMethodCoverage,
+  type EventScope, type SdkObservation, type SdkRateSnapshot, type SdkServiceRate, type UsageEvidence,
 } from 'pyric/sandbox/internal';
 
 const LIVE_SERVICES = ['firestore', 'rtdb', 'storage'] as const;
@@ -49,8 +49,20 @@ function isObservedLiveCall(event: SandboxEvent): event is SandboxOperationEvent
   return servedByProduction && isLiveService(event.service);
 }
 
+/**
+ * The coverage method an observed call counts as. The live row records a
+ * batch commit as `writeBatch` (its export); Rates count it on the sandbox's
+ * `writeBatch.commit` write entry.
+ */
+const COVERAGE_ALIASES: ReadonlyMap<string, string> = new Map([['firestore/writeBatch', 'writeBatch.commit']]);
+
+function coverageMethod(service: LiveService, method: string): string {
+  return COVERAGE_ALIASES.get(`${service}/${method}`) ?? method;
+}
+
 function categoryOf(service: LiveService, method: string): Category | undefined {
-  return sdkMethodCoverage(service).find(entry => entry.method === method)?.category;
+  const covered = coverageMethod(service, method);
+  return sdkMethodCoverage(service).find(entry => entry.method === covered)?.category;
 }
 
 /** `usage: {}` names nothing, so it reads as missing. */
@@ -97,12 +109,13 @@ function phasesOf(event: SandboxOperationEvent & { service: LiveService }): Obse
   return [start, { at: answeredAt, phase: 'end', event, category, ...measured }];
 }
 
-function observedPhases(events: readonly SandboxEvent[]): ObservedPhase[] {
+function observedPhases(events: readonly SandboxEvent[], scope: EventScope): ObservedPhase[] {
   const seen = new Set<string>();
   const phases: ObservedPhase[] = [];
   for (const event of events) {
     const isRepeat = seen.has(event.id);
     if (isRepeat || !isObservedLiveCall(event)) continue;
+    if (!eventScope(event, scope)) continue;
     seen.add(event.id);
     phases.push(...phasesOf(event));
   }
@@ -120,7 +133,7 @@ function observationOf(entry: ObservedPhase, sequence: number, offset: number): 
   const usage = entry.usage === undefined ? {} : { usage: entry.usage };
   return {
     ...usage, sequence, id: `${event.id}/${phase}`, activityId: event.id, appId: 'host', sourceId: event.id,
-    service: event.service, method: event.method,
+    service: event.service, method: coverageMethod(event.service, event.method),
     kind: entry.category === 'listener' ? 'subscription' : 'operation',
     phase, status: statusOf(entry), at, monotonicAt: at - offset,
     deliveryNumber: phase === 'delivery' ? 1 : 0,
@@ -131,11 +144,12 @@ function observationOf(entry: ObservedPhase, sequence: number, offset: number): 
  * Rebuilds Firestore, RTDB and Storage rates from the host's observed calls,
  * deduplicated by event id so a replayed batch cannot count twice. Returns
  * the overlay a page's snapshot passes through, in place of the journal's
- * counts for those services.
+ * counts for those services. `scope` keeps one client's or one user's calls
+ * (`eventScope`); the chip reads every client until a scope control ships.
  */
-export function liveRates(events: readonly SandboxEvent[], clock: LiveRatesClock = PAGE_CLOCK) {
+export function liveRates(events: readonly SandboxEvent[], clock: LiveRatesClock = PAGE_CLOCK, scope: EventScope = 'all') {
   const offset = clock.now() - clock.monotonicNow();
-  const phases = observedPhases(events);
+  const phases = observedPhases(events, scope);
   const rates = createSdkRates({ monotonicNow: () => clock.monotonicNow() });
   let sequence = 0;
   for (const entry of phases) rates.record(observationOf(entry, ++sequence, offset));

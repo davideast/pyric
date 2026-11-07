@@ -31,7 +31,7 @@ describe('billedCallKind', () => {
     for (const method of ['getDoc', 'getDocs', 'getDocFromServer', 'getDocsFromServer', 'getCountFromServer', 'getAggregateFromServer']) {
       expect(billedCallKind(call(method)), method).toBe('read');
     }
-    for (const method of ['setDoc', 'updateDoc', 'deleteDoc', 'addDoc', 'runTransaction']) {
+    for (const method of ['setDoc', 'updateDoc', 'deleteDoc', 'addDoc', 'runTransaction', 'writeBatch']) {
       expect(billedCallKind(call(method)), method).toBe('write');
     }
     for (const method of ['onSnapshot', 'onSnapshotResume']) expect(billedCallKind(call(method)), method).toBe('delivery');
@@ -74,6 +74,12 @@ describe('createBilledCallCounter', () => {
     ];
     for (const observed of calls) counter.addCall(observed);
     expect(counter.count()).toEqual({ reads: 6, writes: 3, deliveries: 0 });
+  });
+
+  it('counts a writeBatch commit by the writes and deletes its batch held', () => {
+    const counter = createBilledCallCounter();
+    counter.addCall({ ...call('writeBatch'), usage: { documentWrites: 2, documentDeletes: 1 } });
+    expect(counter.count()).toEqual({ reads: 0, writes: 3, deliveries: 0 });
   });
 
   it('counts a call once when its usage is missing or names no documents', () => {

@@ -22,12 +22,28 @@
  * carries the query's shape (`queryShape` below): never a filter or cursor
  * value, only a salted hash of them.
  *
+ * A `writeBatch` is observed at its `commit`: the batch counts each `set`,
+ * `update` and `delete` the SDK accepted, and the commit is one observed
+ * `writeBatch` call whose usage names those writes and deletes, with the
+ * project and account of the Firestore `writeBatch` was handed. The batch
+ * stays the SDK's own object, with own-property wrappers.
+ *
  * Reading never calls the app's code and never throws. Loaded in the page
  * too. From observe.ts, which imports this file through listener-journal.ts,
  * it takes types and `projectOf`, a function declaration that runs only when
  * a call is read, so the cycle resolves at load.
  */
-import { projectOf, type CallContext, type LiveQuery, type LiveQueryFilter, type LiveQueryOrder, type ObservedSite, type ResultReading } from './observe.js';
+import {
+  observedCall,
+  projectOf,
+  type CallContext,
+  type LiveQuery,
+  type LiveQueryFilter,
+  type LiveQueryOrder,
+  type LiveUsage,
+  type ObservedSite,
+  type ResultReading,
+} from './observe.js';
 
 /** Where a reference or query sits: its path or group id, and the key its listeners share. */
 export interface FirestorePath {
@@ -382,4 +398,75 @@ export function firestoreResult(site: ObservedSite, value: unknown): ResultReadi
   if (typeof data !== 'function') return {};
   const document = jsonFields(Reflect.apply(data, value, []));
   return document === undefined ? {} : { document };
+}
+
+type Callback = (this: unknown, ...args: unknown[]) => unknown;
+
+/** The batch operations production bills, each as a write or a delete. */
+const BATCH_OPERATIONS = [
+  ['set', 'documentWrites'],
+  ['update', 'documentWrites'],
+  ['delete', 'documentDeletes'],
+] as const;
+
+interface BatchUsage {
+  documentWrites: number;
+  documentDeletes: number;
+}
+
+/** Replaces one of the batch's methods with an own property that calls the SDK's. */
+function defineMethod(batch: object, name: string, method: Callback): void {
+  Object.defineProperty(batch, name, { value: method, writable: true, configurable: true, enumerable: false });
+}
+
+/** Counts each operation the SDK accepted: one that throws (a bad argument, a committed batch) counts nothing. */
+function countOperations(batch: object, usage: BatchUsage): void {
+  for (const [name, kind] of BATCH_OPERATIONS) {
+    const real: unknown = Reflect.get(batch, name);
+    if (typeof real !== 'function') continue;
+    defineMethod(batch, name, function counted(this: unknown, ...args: unknown[]): unknown {
+      const returned = Reflect.apply(real, this, args);
+      usage[kind] += 1;
+      return returned;
+    });
+  }
+}
+
+/**
+ * Makes the batch's `commit` one observed `writeBatch` call, with the usage
+ * counted so far and the context of `writeBatch`'s arguments. The name stays
+ * `writeBatch`: the senders' `measureObservedUsage` returns undefined for it,
+ * so the counted usage stands, while `writeBatch.commit` would measure as
+ * `unmeasured` and replace it.
+ */
+function observeCommit(batch: object, usage: BatchUsage, site: Omit<ObservedSite, 'name'>, args: readonly unknown[]): void {
+  const real: unknown = Reflect.get(batch, 'commit');
+  if (typeof real !== 'function') return;
+  const context = (): CallContext => firestoreContext('writeBatch', args);
+  defineMethod(batch, 'commit', function commit(this: unknown, ...commitArgs: unknown[]): unknown {
+    const committed: LiveUsage = { ...usage };
+    const observed = observedCall({ ...site, name: 'writeBatch', context, usage: committed }, real as Callback);
+    return Reflect.apply(observed, this, commitArgs);
+  });
+}
+
+/**
+ * `writeBatch(firestore)`: the SDK's own batch, whose `set`, `update` and
+ * `delete` count what the commit bills and whose `commit` is observed. A
+ * batch the row cannot observe is still the SDK's own.
+ */
+export function observedWriteBatch(real: Callback, site: Omit<ObservedSite, 'name'>): Callback {
+  return function writeBatch(this: unknown, ...args: unknown[]): unknown {
+    const batch = Reflect.apply(real, this, args);
+    try {
+      if (isObject(batch)) {
+        const usage: BatchUsage = { documentWrites: 0, documentDeletes: 0 };
+        countOperations(batch, usage);
+        observeCommit(batch, usage, site, args);
+      }
+    } catch {
+      // Observing the batch never changes what the app gets.
+    }
+    return batch;
+  };
 }
