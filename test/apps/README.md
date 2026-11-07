@@ -120,7 +120,7 @@ The dev server port comes from the command line, which overrides any `server.por
 | `app.browserLog` | Every page's console lines, page errors, and error responses so far, for asserting what a user would see in the console. It also holds a line for each blocked external request (`[blocked external request]`) and WebSocket (`[blocked external WebSocket]`). |
 | `app.expectHostError(pattern)` | Allows a page request to a `/__pyric/` route to answer with an error, matched against `"<status> <method> <path>?<query>"`. |
 | `app.expectLeftoverProcess(pattern)` | Allows a process an app process started to outlive it, matched against the leftover's command name. |
-| `app.noteErrorResponse(status, method, url)` | Counts an error response to a page the scenario opened in a browser it launched itself, as `app.page()` counts its own. |
+| `app.noteErrorResponse(status, method, url, body?)` | Counts an error response to a page the scenario opened in a browser it launched itself, as `app.page()` counts its own. Pass the response text as `body` and the failure quotes its first line. |
 
 `process.stop()` sends SIGTERM to the process group, then SIGKILL after 5 seconds. A process that still has not closed 5 seconds after that, such as one whose pipes another process holds open, is recorded as gone with a note in its log, so a step and the run's teardown never wait on it longer. When a spawn fails with `EBADF` before the process writes any output, which Bun's `spawn` does now and then under concurrency (#997), the driver starts it once more and says so in its log.
 

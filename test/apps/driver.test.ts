@@ -182,6 +182,12 @@ describe('allowances that match nothing', () => {
     expect(app.unexpectedHostErrors()).toEqual(['500 POST /__pyric/denials (during "setup")']);
   });
 
+  test('an error no pattern matched names its status, route, step, and the first line of its body', () => {
+    const app = run();
+    app.noteErrorResponse(500, 'GET', 'http://127.0.0.1:3000/__pyric/health', '\n  Internal Server Error\nsecond line');
+    expect(app.unexpectedHostErrors()).toEqual(['500 GET /__pyric/health (during "setup"): Internal Server Error']);
+  });
+
   test('a pattern whose error comes only in some runs says so, and passes a run without it', () => {
     const app = run();
     app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: 'a race decides whether the post lands before the routes mount (#2098)' });

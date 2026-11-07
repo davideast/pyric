@@ -188,7 +188,9 @@ async function runApp(name: string, context: {
     inScenario = false;
     const hostErrors = run.unexpectedHostErrors();
     if (hostErrors.length > 0) {
-      throw new StepFailure('every Pyric host route the page requested answered without an error', new Error(hostErrors.join('\n')));
+      // The report prints the stack, so it carries the list itself, as the crash verdict below does.
+      const report = hostErrors.join('\n');
+      throw new StepFailure('every Pyric host route the page requested answered without an error', Object.assign(new Error(report), { stack: report }));
     }
     const leftovers = run.unexpectedLeftoverProcesses();
     if (leftovers.length > 0) {

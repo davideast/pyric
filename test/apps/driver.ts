@@ -404,9 +404,10 @@ export interface App {
   /**
    * Counts an error response to a page the scenario opened in a browser it
    * launched itself, as `page()` counts its own: one from a `/__pyric/`
-   * route fails the app unless `expectHostError` allows it.
+   * route fails the app unless `expectHostError` allows it. `body`, when
+   * given, is the response text; its first line goes in the failure.
    */
-  noteErrorResponse(status: number, method: string, url: string): void;
+  noteErrorResponse(status: number, method: string, url: string, body?: string): void;
   /**
    * Declares that a process an app process starts may outlive it, holding its
    * output pipes, such as a daemon the scenario starts on purpose. `pattern`
@@ -421,6 +422,19 @@ export type Scenario = (app: App) => Promise<void>;
 /** Declares an app's scenario. The default export of `scenario.ts`. */
 export function scenario(run: Scenario): Scenario {
   return run;
+}
+
+/** An error response from a `/__pyric/` route, with the step it happened in and, once read, the first line of its body. */
+interface HostError {
+  step: string;
+  request: string;
+  body?: string;
+}
+
+/** The first line of a response body that has text, cut to 200 characters. */
+function firstLine(text: string): string {
+  const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? '';
+  return line.slice(0, 200);
 }
 
 export class StepFailure extends Error {
@@ -585,7 +599,7 @@ export class AppRun implements App {
   readonly browserLog: string[] = [];
   currentStep = 'setup';
   /** Error responses from `/__pyric/` routes to the app's pages, with the step each happened in. */
-  private readonly hostErrors: { step: string; request: string }[] = [];
+  private readonly hostErrors: HostError[] = [];
   private readonly expectedLeftovers: RegExp[] = [];
   private readonly expectedHostErrors: RegExp[] = [];
   /** The `expectHostError` patterns whose error comes only in some runs, which the stale check skips. */
@@ -854,7 +868,9 @@ export class AppRun implements App {
     page.on('response', (response) => {
       if (response.status() < 400) return;
       this.browserLog.push(`[page ${index} response ${response.status()}] ${response.request().method()} ${response.url()}`);
-      this.noteErrorResponse(response.status(), response.request().method(), response.url());
+      const hostError = this.recordHostError(response.status(), response.request().method(), response.url());
+      // The body says why the route failed, such as the dev server's own error page for a rewrite it could not proxy.
+      if (hostError) response.text().then((text) => { hostError.body = firstLine(text); }, () => undefined);
     });
     await page.goto(url);
     return page;
@@ -899,11 +915,18 @@ export class AppRun implements App {
   }
 
   /** Records an error response a page received; only `/__pyric/` routes count as host errors. */
-  noteErrorResponse(status: number, method: string, href: string): void {
+  noteErrorResponse(status: number, method: string, href: string, body?: string): void {
+    const hostError = this.recordHostError(status, method, href);
+    if (hostError && body !== undefined) hostError.body = firstLine(body);
+  }
+
+  private recordHostError(status: number, method: string, href: string): HostError | undefined {
     const url = new URL(href);
     const isHostRoute = url.pathname.startsWith('/__pyric/');
-    if (!isHostRoute) return;
-    this.hostErrors.push({ step: this.currentStep, request: `${status} ${method} ${url.pathname}${url.search}` });
+    if (!isHostRoute) return undefined;
+    const hostError: HostError = { step: this.currentStep, request: `${status} ${method} ${url.pathname}${url.search}` };
+    this.hostErrors.push(hostError);
+    return hostError;
   }
 
   /**
@@ -914,7 +937,7 @@ export class AppRun implements App {
   unexpectedHostErrors(): string[] {
     const unexpected = this.hostErrors
       .filter(({ request }) => !this.expectedHostErrors.some((pattern) => pattern.test(request)))
-      .map(({ step, request }) => `${request} (during "${step}")`);
+      .map(({ step, request, body }) => `${request} (during "${step}")${body ? `: ${body}` : ''}`);
     const stale = this.expectedHostErrors
       .filter((pattern) => !this.racyHostErrors.has(pattern))
       .filter((pattern) => !this.hostErrors.some(({ request }) => pattern.test(request)))
