@@ -3,6 +3,9 @@
 // only: every token, timestamp the server picks, and stream id is a
 // placeholder the replay server fills in when it answers.
 import { readFileSync } from 'node:fs';
+import type { AdminStorageExchange } from './admin-storage.ts';
+
+export type { AdminStorageExchange };
 
 export const FORMAT = 'pyric-replay/1';
 
@@ -197,7 +200,7 @@ export interface AdminAuthExchange {
   response: { status: number; body: JsonObject };
 }
 
-export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange | MessagingExchange | AdminFirestoreExchange | AdminAuthExchange;
+export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange | StorageExchange | MessagingExchange | AdminFirestoreExchange | AdminAuthExchange | AdminStorageExchange;
 
 export interface Recording {
   format: typeof FORMAT;
@@ -266,6 +269,7 @@ export function assertShapesOnly(recording: Recording): void {
     if (exchange.kind === 'storage') checkStorage(recording.project, `exchanges[${index}]`, exchange);
     if (exchange.kind === 'messaging') checkMessaging(recording.project, `exchanges[${index}]`, exchange);
     if (exchange.kind === 'admin-auth') checkAdminAuth(recording.project, `exchanges[${index}]`, exchange);
+    if (exchange.kind === 'admin-storage') checkAdminStorage(recording.project, `exchanges[${index}]`, exchange);
   });
 }
 
@@ -306,8 +310,7 @@ const STORAGE_RESOURCE_PLACEHOLDERS: Record<string, PlaceholderName> = { downloa
  */
 function checkStorage(project: string, path: string, exchange: StorageExchange): void {
   const { bucket } = exchange.request;
-  const isProjectBucket = bucket === project || bucket.startsWith(`${project}.`) || bucket.startsWith(`${project}-`);
-  if (!isProjectBucket) throw new Error(`replay: ${path}.request.bucket names ${bucket}, outside project ${project}`);
+  if (!isProjectBucket(project, bucket)) throw new Error(`replay: ${path}.request.bucket names ${bucket}, outside project ${project}`);
   const uploadId = exchange.request.query?.upload_id;
   if (uploadId !== undefined && placeholderName(uploadId) !== 'uploadSession') throw new Error(`replay: ${path}.request.query.upload_id must be the placeholder {"$":"uploadSession"}`);
   for (const header of ['x-goog-upload-url', 'x-goog-upload-control-url']) {
@@ -320,6 +323,17 @@ function checkStorage(project: string, path: string, exchange: StorageExchange):
       if (key in resource && placeholderName(resource[key]) !== name) throw new Error(`replay: ${path}.response.body resource ${index} ${key} must be the placeholder {"$":"${name}"}`);
     }
   });
+}
+
+/** Whether a bucket is one of the project's: its id, or its id then `.` or `-`. */
+function isProjectBucket(project: string, bucket: string): boolean {
+  return bucket === project || bucket.startsWith(`${project}.`) || bucket.startsWith(`${project}-`);
+}
+
+/** Throws unless an Admin Storage exchange's path names one of the project's buckets. */
+function checkAdminStorage(project: string, path: string, exchange: AdminStorageExchange): void {
+  const bucket = /\/b\/([^/]+)\/o(?:\/|$)/.exec(exchange.request.path)?.[1] ?? '';
+  if (!isProjectBucket(project, bucket)) throw new Error(`replay: ${path}.request.path names bucket ${bucket || 'none'}, outside project ${project}`);
 }
 
 /** The object resources a Storage answer holds: the body itself, or a list's `items`. */
