@@ -564,6 +564,8 @@ writeFileSync(adminFile, [
   'export function adminConnect(tls, host) { const sockets = [tls.connect({ host, port: 443, servername: host })]; return sockets[0]; }',
   'export function adminRequest(agent, request) { const requests = [agent.addRequest(request)]; return requests[0]; }',
   'export const adminAgent = { addRequest(request) { const sockets = [request.onSocket({})]; return sockets[0]; } };',
+  // The Admin SDK calling `https.request`, `fetch` or `tls.connect` after an app replaced it with a pass-through wrapper.
+  'export function adminVia(send, ...args) { const results = [send(...args)]; return results[0]; }',
 ].join('\n'));
 const adminUrl = pathToFileURL(adminFile).href;
 
@@ -572,6 +574,7 @@ interface StandInAdmin {
   adminConnect(tls: unknown, host: string): unknown;
   adminRequest(agent: unknown, request: unknown): unknown;
   adminAgent: { addRequest(request: unknown): unknown };
+  adminVia<T>(send: (...args: never[]) => T, ...args: unknown[]): T;
 }
 
 /** The guard with `firebase-admin` listed or not, on stand-ins whose Agent is the stand-in Admin SDK's. */
@@ -690,6 +693,46 @@ describe('the network guard for firebase-admin, listed', () => {
         fromApp: ['fetch failed', 'fetch failed'],
         connected: 'PYRIC_GUARD_BLOCKED',
         sent: ['https.request refused'],
+      });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test("lets its calls out through an app's pass-through wrapper on https.request, fetch and tls.connect, and refuses the app's own through it", async () => {
+    const seams = await adminSeams(['firebase-admin']);
+    try {
+      const { admin } = seams;
+      // The runtime's Agent, as the app's wrapper reaches it: no frame of the Admin SDK's tree.
+      const runtimeAgent = { addRequest(request: { onSocket(socket: unknown): unknown }) { const sockets = [request.onSocket({})]; return sockets[0]; } };
+      // An APM's wrappers, in an app file: each passes its call through unchanged.
+      const wrappedRequest = function wrappedRequest(request: unknown) {
+        const sent = [runtimeAgent.addRequest(request as { onSocket(socket: unknown): unknown })];
+        return sent[0];
+      };
+      const wrappedFetch = function wrappedFetch(url: string) {
+        const calls = [seams.fetchScope.fetch(url)];
+        return calls[0]!;
+      };
+      const wrappedConnect = function wrappedConnect(host: string) {
+        const sockets = [seams.tls.connect({ host, port: 443, servername: host })];
+        return sockets[0];
+      };
+      const tokenRequest = () => Object.assign(seams.request(TOKEN_HOST), { path: '/token' });
+      admin.adminVia(wrappedRequest, tokenRequest());
+      admin.adminVia(wrappedRequest, seams.request(ADMIN_AUTH_HOST));
+      await admin.adminVia(wrappedFetch, TOKEN_URL).catch(() => 'refused');
+      connectOutcome(() => admin.adminVia(wrappedConnect, TOKEN_HOST));
+      const fromAdmin = [...seams.sent];
+      wrappedRequest(tokenRequest());
+      wrappedRequest(seams.request(ADMIN_AUTH_HOST));
+      const fetched = await wrappedFetch(TOKEN_URL).then(() => 'sent', (error: Error) => error.message);
+      const connected = connectOutcome(() => wrappedConnect(TOKEN_HOST));
+      expect({ fromAdmin, fromApp: seams.sent.slice(fromAdmin.length), fetched, connected }).toEqual({
+        fromAdmin: ['https.request', 'https.request', 'fetch', 'tls.connect'],
+        fromApp: ['https.request refused', 'https.request refused'],
+        fetched: 'fetch failed',
+        connected: 'PYRIC_GUARD_BLOCKED',
       });
     } finally {
       seams.stop();
