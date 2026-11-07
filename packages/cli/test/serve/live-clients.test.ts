@@ -38,6 +38,11 @@ function observe(clientSessionId: string, platform: string, uid?: string): Bridg
   return frame(clientSessionId, platform, { t: 'observe', id: 'o1', call });
 }
 
+function observeFrom(clientSessionId: string, platform: string, script: unknown): BridgeMessage {
+  const call = { service: 'auth', method: 'signInWithEmailAndPassword', at: 1, outcome: { status: 'ok' } };
+  return frame(clientSessionId, platform, { t: 'observe', id: 'o2', call, script });
+}
+
 function unobserved(clientSessionId: string, platform: string, lists: Record<string, unknown>): BridgeMessage {
   return frame(clientSessionId, platform, { t: 'unobserved', id: 'u1', ...lists });
 }
@@ -203,5 +208,31 @@ describe('the live host clients', () => {
     expect(live.report().clients?.[0]?.unobserved).toEqual(['cloudtrace.googleapis.com']);
     live.inbound(unobserved('s-page', 'browser', { unobserved: ['cloudtrace.googleapis.com'] }));
     expect(live.report().clients?.[1]).not.toHaveProperty('unobserved');
+  });
+
+  it('labels a service worker and a Node process by the script their observed calls name', () => {
+    const { live } = host();
+    live.inbound(observeFrom('s-sw', 'service-worker', '/sw.js'));
+    live.inbound(observeFrom('s-node', 'node', 'jobs/nightly.mjs'));
+    live.inbound(observeFrom('s-page', 'browser', '/sw.js'));
+    expect(live.report().clients).toEqual([
+      { kind: 'service-worker', clientId: 's-sw', label: '/sw.js', user: null, lastSeen: 1000 },
+      { kind: 'node', clientId: 's-node', label: 'jobs/nightly.mjs', user: null, lastSeen: 1000 },
+      { kind: 'browser', clientId: 's-page', user: null, lastSeen: 1000 },
+    ]);
+  });
+
+  it('drops a script that is not a path of its kind\'s shape, and keeps the client and its last label', () => {
+    const { live } = host();
+    live.inbound(observeFrom('s-sw', 'service-worker', '/sw.js'));
+    live.inbound(observeFrom('s-node', 'node', 'server.mjs'));
+    const malformedWorker = ['https://app.example/sw.js', '//cdn.example/sw.js', '/sw.js?key=k', '/sw.js#top', 'sw.js', '', `/${'a'.repeat(256)}`, '/sw\njs', 7, null];
+    const malformedNode = ['/home/ada/rooms/server.mjs', 'C:\\rooms\\server.mjs', '\\\\share\\server.mjs', 'file:///rooms/server.mjs', '', 'a'.repeat(257), 'server\u0000.mjs', ['server.mjs'], {}];
+    for (const script of malformedWorker) live.inbound(observeFrom('s-sw', 'service-worker', script));
+    for (const script of malformedNode) live.inbound(observeFrom('s-node', 'node', script));
+    expect(live.report().clients?.map((client) => [client.kind, client.label])).toEqual([
+      ['service-worker', '/sw.js'],
+      ['node', 'server.mjs'],
+    ]);
   });
 });

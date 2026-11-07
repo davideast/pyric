@@ -556,6 +556,14 @@ export interface ObserveMessage {
    * label, never an authority.
    */
   nodeClient?: string;
+  /**
+   * The script the sender runs, which the live host lists as its client's
+   * label: a Node process's entry script relative to its working directory
+   * (`server.mjs`), or a service worker's script URL path (`/sw.js`). Never
+   * an absolute file path, an origin or a query. A label, never an
+   * authority; the host drops a malformed one and keeps the client.
+   */
+  script?: string;
 }
 
 /**

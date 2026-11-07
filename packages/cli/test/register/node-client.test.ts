@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { endWithProcess, nodeClientLabel, type ExitingProcess } from '../../src/register/node-client.js';
+import { endWithProcess, nodeClientLabel, nodeClientScript, type ExitingProcess } from '../../src/register/node-client.js';
 
 /** A process stand-in: its events, and the signals it sends itself. */
 function fakeProcess(): ExitingProcess & { emitter: EventEmitter; killed: string[] } {
@@ -118,5 +118,28 @@ describe('the label a live Node process names itself by', () => {
     const label = nodeClientLabel({ projectRoot: root, cwd: root, entry: 'server.mjs', execArgv: [] });
     expect(label).not.toContain('srv');
     expect(label).not.toContain('server');
+  });
+});
+
+describe('the script a live Node process names on the host', () => {
+  const cwd = '/srv/rooms';
+
+  it('is the entry script relative to the working directory', () => {
+    expect(nodeClientScript({ cwd, entry: `${cwd}/server.mjs`, execArgv: [] })).toBe('server.mjs');
+    expect(nodeClientScript({ cwd, entry: 'jobs/nightly.ts', execArgv: ['--watch'] })).toBe('jobs/nightly.ts');
+    expect(nodeClientScript({ cwd: `${cwd}/jobs`, entry: `${cwd}/server.mjs`, execArgv: [] })).toBe('../server.mjs');
+  });
+
+  it('is never an absolute path', () => {
+    const script = nodeClientScript({ cwd: '/home/ada/rooms', entry: '/home/ada/rooms/server.mjs', execArgv: [] });
+    expect(script).toBe('server.mjs');
+    expect(script).not.toContain('/home');
+  });
+
+  it('is absent with no entry script, or one too long to keep', () => {
+    expect(nodeClientScript({ cwd, entry: undefined, execArgv: [] })).toBeUndefined();
+    expect(nodeClientScript({ cwd, entry: 'server.mjs', execArgv: ['-e'] })).toBeUndefined();
+    expect(nodeClientScript({ cwd, entry: cwd, execArgv: [] })).toBeUndefined();
+    expect(nodeClientScript({ cwd, entry: `${'a'.repeat(257)}.mjs`, execArgv: [] })).toBeUndefined();
   });
 });

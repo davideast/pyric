@@ -104,7 +104,7 @@ export interface LiveClient extends NodeUnobservedLists {
   readonly kind: LiveClientKind;
   /** The browser profile's or service worker realm's client id, or the connection's own for a Node process. */
   readonly clientId: string;
-  /** The path of the page the client last reported. Absent for a service worker or a Node process. */
+  /** A browser client's last page path, a service worker's script URL path (`/sw.js`), or a Node process's entry script relative to its working directory (`server.mjs`). Absent when none was reported. */
   readonly label?: string;
   /** The uid its last observed call ran as, or null when signed out. */
   readonly user: string | null;
