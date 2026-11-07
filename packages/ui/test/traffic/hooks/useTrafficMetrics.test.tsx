@@ -7,7 +7,10 @@ import {
   isAdminEvent,
   useBillableMetrics,
   useRulesMetrics,
+  type BillableEvent,
+  type BillableProduction,
 } from '../../../src/traffic/hooks/useTrafficMetrics.js';
+import type { TrafficEvent } from '../../../src/traffic/types.js';
 import type { TimeWindow } from '../../../src/traffic/hooks/useTrafficBuckets.js';
 import { renderHook, waitFor } from '../../helpers/render-hook.js';
 import { evt } from '../helpers/fake-source.js';
@@ -121,6 +124,50 @@ describe('bucketBillableMetrics', () => {
     const events = [evt({ at: -5, method: 'get', result: 'allow' }), evt({ at: 5000, method: 'get', result: 'allow' })];
     const r = bucketBillableMetrics(events, WINDOW, 10);
     expect(r.series.every((s) => s.total === 0)).toBe(true);
+  });
+});
+
+describe('a call production served', () => {
+  const observed = (overrides: Partial<TrafficEvent>, production: BillableProduction): BillableEvent => ({
+    ...evt({ kind: 'operation', service: 'firestore', result: 'allow', ...overrides }),
+    production,
+  });
+  const totals = (events: BillableEvent[]) => Object.fromEntries(
+    bucketBillableMetrics(events, WINDOW, 10).series.map((s) => [s.key, s.total]),
+  );
+
+  it("adds the documents production billed, under the SDK export's request", () => {
+    const events = [
+      observed({ at: 10, method: 'getDocs' }, { usage: { documentReads: 3 } }),
+      observed({ at: 20, method: 'getDoc' }, { usage: { documentReads: 1 } }),
+      observed({ at: 30, method: 'setDoc' }, { usage: { documentWrites: 1 } }),
+      observed({ at: 40, method: 'writeBatch' }, { usage: { documentWrites: 2, documentDeletes: 1 } }),
+      observed({ at: 50, method: 'onSnapshot' }, { billedDocuments: 2 }),
+    ];
+    expect(totals(events)).toEqual({ reads: 6, writes: 3, deletes: 1 });
+  });
+
+  it('counts one of the mapped request when the recorder measured nothing', () => {
+    const events = [
+      observed({ at: 10, method: 'getDocs' }, {}),
+      observed({ at: 20, method: 'deleteDoc' }, { usage: {} }),
+      observed({ at: 30, method: 'runTransaction' }, {}),
+    ];
+    expect(totals(events)).toEqual({ reads: 1, writes: 0, deletes: 1 });
+  });
+
+  it('never bills a call production denied or failed', () => {
+    const events = [
+      observed({ at: 10, method: 'getDocs', result: 'deny' }, { usage: { documentReads: 3 } }),
+      observed({ at: 20, method: 'getDocs', result: 'error' }, {}),
+    ];
+    expect(totals(events)).toEqual({ reads: 0, writes: 0, deletes: 0 });
+  });
+
+  it('classifies an observed export by the request it makes', () => {
+    expect(classifyBillable(observed({ method: 'getDocsFromServer' }, {}))).toBe('reads');
+    expect(classifyBillable(observed({ method: 'addDoc' }, {}))).toBe('writes');
+    expect(classifyBillable(observed({ method: 'onSnapshot' }, {}))).toBeNull();
   });
 });
 

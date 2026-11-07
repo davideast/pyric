@@ -506,7 +506,7 @@ jobs:
           PART: ${{ matrix.part }}
         run: |
           if [ "$PART" = "rest" ]; then
-            bun run test:ci:libraries:rest
+            bun run test:ci:libraries:rest && bun run test:plugin:unit
           else
             bun scripts/ci/test-shard.ts --package=pyric --shard="${PART#pyric-}/3" --quarantine
           fi
