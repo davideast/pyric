@@ -11,7 +11,7 @@
  */
 import type { CallContext, LiveObserver } from '../observe.js';
 import { patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
-import type { AdminApp, AdminProjectGate } from './project-gate.js';
+import { failClosedGate, readAdminApp, type AdminApp, type AdminProjectGate } from './project-gate.js';
 
 /** The module an Admin Messaging record names, which the page observer maps to the `messaging` service. */
 export const ADMIN_MESSAGING_MODULE = 'firebase-admin/messaging';
@@ -20,14 +20,9 @@ function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
 }
 
-/** Stands in for a Messaging whose app cannot be read: it names no project, so the gate lets it run. */
-const NO_APP: AdminApp = { options: {} };
-
-/** The Admin app a Messaging belongs to, which it keeps as `appInternal`. */
+/** The Admin app a Messaging belongs to, from its public `app` getter; one it can't read is refused. */
 function appOf(self: unknown): AdminApp {
-  const app: unknown = isObject(self) ? Reflect.get(self, 'appInternal') : undefined;
-  const hasOptions = isObject(app) && isObject(Reflect.get(app, 'options'));
-  return hasOptions ? (app as AdminApp) : NO_APP;
+  return readAdminApp(self, 'app');
 }
 
 /** One call's context: the project the app was given, and nothing from its arguments. */
@@ -53,6 +48,7 @@ export interface AdminMessagingRow {
 export function observeAdminMessaging(messagingModule: unknown, row: AdminMessagingRow): void {
   const defined: unknown = isObject(messagingModule) ? Reflect.get(messagingModule, 'Messaging') : undefined;
   const prototype: unknown = typeof defined === 'function' ? Reflect.get(defined, 'prototype') : undefined;
-  const adminRow: AdminRow = { module: ADMIN_MESSAGING_MODULE, observer: row.observer, gate: row.gate, appOf };
+  const gate = failClosedGate(row.gate, 'Messaging');
+  const adminRow: AdminRow = { module: ADMIN_MESSAGING_MODULE, observer: row.observer, gate, appOf };
   patchAdminClass(isObject(prototype) ? prototype : undefined, 'Messaging', METHODS, adminRow);
 }

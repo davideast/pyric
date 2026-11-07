@@ -383,6 +383,18 @@ export function liveAdminInstanceUnreadable(unread: AdminInstanceUnread): Error 
   return Object.assign(error, unread);
 }
 
+/**
+ * The refusal of an Admin call whose app live mode can't read, as after a
+ * firebase-admin upgrade that moves where `className` keeps it. Live mode
+ * can't check the app's project, so it refuses rather than let the call
+ * through unchecked.
+ */
+export function liveAdminAppUnreadable(className: string): Error & { readonly code: string } {
+  return refused(`@pyric/live: firebase-admin is refused in live mode, from a Node process: ` +
+    `live mode can't read which app this ${className} call belongs to, so it can't check the app's project. ` +
+    'No Admin request left. Use a firebase-admin version this @pyric/live supports, or report this one to pyric.');
+}
+
 /** pyric's own code for an ID token from the other mode, beside firebase-admin's `auth/argument-error`. */
 export const MODE_MISMATCH = 'PYRIC_MODE_MISMATCH' as const;
 
