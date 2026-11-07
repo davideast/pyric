@@ -161,16 +161,18 @@ A Node process under `@pyric/live/register`, or the dev server, names each Googl
 
 The health report lists the same hosts. These are calls such as a token request, Vertex AI, Cloud Trace or a public key fetch.
 
-`firebase-admin` services live mode doesn't observe, such as `firebase-admin/messaging`, load from your installed SDK. The terminal names each one when it loads:
+Live mode observes the Admin SDK's Firestore, Auth, Realtime Database, Cloud Storage and Cloud Messaging calls. Its App Check calls are checked against your project but don't show in traffic yet, and the process health lists `firebase-admin/app-check` as gated.
+
+Other `firebase-admin` services, such as `firebase-admin/remote-config`, load from your installed SDK. The terminal names each one when it loads:
 
 ```text
-@pyric/live/register: firebase-admin/messaging loads unobserved. Live mode lets it reach Google with your credential, and no row records its calls.
+@pyric/live/register: firebase-admin/remote-config loads unobserved. Live mode lets it reach Google with your credential, and no row records its calls.
 ```
 
 Live mode still refuses these:
 
 - **`@google-cloud/firestore`** imported by your own code in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` or `firebase-admin/firestore` instead.
-- **An Admin call to another project.** An Admin app that names another project is refused before any request. So is a Realtime Database instance live mode can't tell is your project's: it accepts `<project>-default-rtdb` and `<project>`, and the instances your firebase.json names. To use another instance of your project, add it to firebase.json's `database` list.
+- **An Admin call to another project.** An Admin app that names another project is refused before any request, App Check calls included. So is a Realtime Database instance live mode can't tell is your project's: it accepts `<project>-default-rtdb` and `<project>`, and the instances your firebase.json names. To use another instance of your project, add it to firebase.json's `database` list.
 - **A second copy of the SDK on a page.** Importing an SDK file the page already loaded under another URL that reaches the dev server, such as the same URL with an extra query, fails with `PYRIC_LIVE_REFUSED`.
 
 ## What live mode can't see

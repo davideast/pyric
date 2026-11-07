@@ -37,6 +37,8 @@ import { observeAdminAuth } from './admin/auth.js';
 import { observeAdminDatabase } from './admin/database.js';
 import { observeAdminFirestore } from './admin/firestore.js';
 import { observeAdminStorage } from './admin/storage.js';
+import { observeAdminAppCheck } from './admin/app-check.js';
+import { observeAdminMessaging } from './admin/messaging.js';
 import { firebaseAdminVersion } from './admin/admin-version.js';
 
 /** The live row a module id serves, or undefined for any other id. */
@@ -135,6 +137,8 @@ export function observeAdminRow(name: AdminRowName, real: unknown, entryFile: st
     observeAdminDatabase(real, { ...row, hostProjectId: projectId, hostInstances: hostDatabaseInstances, ...(adminVersion === undefined ? {} : { adminVersion }) });
   }
   if (name === 'auth') observeAdminAuth(real, { ...row, hostProjectId: projectId });
+  if (name === 'app-check') observeAdminAppCheck(real, row);
+  if (name === 'messaging') observeAdminMessaging(real, row);
 }
 
 /** This file, which each Admin row module requires for {@link observeAdminRow}: the same module instance the register loaded. */

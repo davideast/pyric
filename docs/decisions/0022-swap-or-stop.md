@@ -486,7 +486,17 @@ credential could not already reach.
   acme-prod's default instance. The refusal tells the developer to name
   the instance in firebase.json. An app's own `databaseURL` can't add an
   instance: the row reads it only at the call, where it is the thing being
-  checked, so firebase.json is the one place to list one.
+  checked, so firebase.json is the one place to list one. When the row can't
+  read the instance at all, as after a firebase-admin upgrade that moves the
+  field it reads, it refuses the call and names the firebase-admin version,
+  so a change in the SDK never turns the check off.
+- **Messaging and App Check are served rows.** The Messaging row observes
+  `send`, `sendEach`, `sendEachForMulticast`, `subscribeToTopic` and
+  `unsubscribeFromTopic`, behind the project gate, and its records name no
+  token, topic or message. The App Check row only gates: `verifyToken` and
+  `createToken` for another project are refused, and its calls make no record
+  until the host has an App Check service for observed calls. The start line
+  says so, and the process health lists `firebase-admin/app-check` as gated.
 - **The module swap is unchanged.** Live mode still refuses Firebase imports
   it does not serve or pass through, and `@google-cloud/firestore` and
   `@google-cloud/storage` still load only from `firebase-admin`'s own files.

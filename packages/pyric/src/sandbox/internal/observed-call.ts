@@ -71,7 +71,7 @@ export const EMAIL_SHAPE = /[^\s@"']+@[^\s@"']+\.[^\s@"']+/;
 
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
 /** The services the Admin SDK rows observe. AI Logic and Messaging calls come only from a client SDK. */
-const ADMIN_SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'rtdb', 'storage', 'auth']);
+const ADMIN_SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'rtdb', 'storage', 'auth', 'messaging']);
 const CALL_FIELDS = new Set([
   'service',
   'method',
