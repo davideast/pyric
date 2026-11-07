@@ -71,6 +71,7 @@ export function matches(pattern: string): Expr {
     throw new Error('matches: pattern cannot contain a raw newline.');
   }
   let inClass = false;
+  let classStart = 0;
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]!;
     if (ch === '\\') {
@@ -79,11 +80,14 @@ export function matches(pattern: string): Expr {
       }
       i++;
     } else if (inClass) {
-      inClass = ch !== ']';
+      if (ch === ']' && i > classStart) {
+        inClass = false;
+      }
     } else if (ch === '/') {
       throw new Error(`matches: escape '/' in the pattern as '\\/': ${pattern}`);
     } else if (ch === '[') {
       inClass = true;
+      classStart = pattern[i + 1] === '^' ? i + 2 : i + 1;
     }
   }
   if (inClass) {

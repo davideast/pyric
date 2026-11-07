@@ -50,7 +50,7 @@ export const ASSIGNMENT_MESSAGE = 'Rule expressions may not contain assignments.
 /** Whether expression text holds a single `=` outside a string or regular expression literal. */
 function containsAssignment(raw: string): boolean {
   const withoutLiterals = raw.replace(
-    /'(?:\\.|[^'\\])*'?|"(?:\\.|[^"\\])*"?|\/(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n[])+\/[a-zA-Z]*/g,
+    /'(?:\\.|[^'\\])*'?|"(?:\\.|[^"\\])*"?|\/(?:\\.|\[(?:\^?\]?)?(?:\\.|[^\]\\\n])*\]|[^/\\\n[])+\/[a-zA-Z]*/g,
     '""',
   );
   return /(^|[^=!<>])=(?!=)/.test(withoutLiterals);

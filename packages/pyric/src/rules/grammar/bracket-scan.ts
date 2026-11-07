@@ -281,6 +281,7 @@ export function skipRegexLiteral(source: string, start: number): number {
   const n = source.length;
   let i = start + 1;
   let inClass = false;
+  let classStart = 0;
   while (i < n) {
     const c = source.charCodeAt(i);
     if (c === 92 /* \ */) {
@@ -289,12 +290,13 @@ export function skipRegexLiteral(source: string, start: number): number {
     }
     if (c === 10 || c === 13) return i;
     if (inClass) {
-      if (c === 93 /* ] */) inClass = false;
+      if (c === 93 /* ] */ && i > classStart) inClass = false;
       i++;
       continue;
     }
     if (c === 91 /* [ */) {
       inClass = true;
+      classStart = source.charCodeAt(i + 1) === 94 /* ^ */ ? i + 2 : i + 1;
       i++;
       continue;
     }

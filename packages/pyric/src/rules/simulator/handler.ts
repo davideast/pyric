@@ -38,6 +38,7 @@ import {
   reviveFirestoreNumbers,
 } from './firestore-values.js';
 import { typeClaimNumbers } from './rules-int.js';
+import { normalizeAuthState } from '../auth/auth-state.js';
 import { caseShapeRefusal } from '../test/case-shape.js';
 import { requestTimeRefusal } from '../test/case-refusals.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
@@ -418,8 +419,9 @@ function buildContext(
     reqResource = { data: revivedTcData };
   }
 
+  const normalizedAuth = tc.auth ? normalizeAuthState(tc.auth) : null;
   const request: SimulationContext['request'] = {
-    auth: tc.auth ? { uid: tc.auth.uid, token: typeClaimNumbers(tc.auth.token ?? {}) as Record<string, unknown> } : null,
+    auth: normalizedAuth ? { uid: normalizedAuth.uid, token: typeClaimNumbers(normalizedAuth.token ?? {}) as Record<string, unknown> } : null,
     method: tc.method,
     path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
     ...(requestQuery(tc) ? { query: requestQuery(tc) } : {}),
@@ -637,7 +639,13 @@ export class SimulateFirestoreRulesHandler {
           ? '__listPlaceholder__'
           : (isCollectionPath ? `${requestPath}/__listPlaceholder__` : requestPath);
         const constraints = listQueryToConstraints(tc.query);
-        const rawProof = proveListQuery(ast, proofPath, tc.auth ?? null, constraints, source);
+        const rawProof = proveListQuery(
+          ast,
+          proofPath,
+          tc.auth ? normalizeAuthState(tc.auth) : null,
+          constraints,
+          source,
+        );
         if (rawProof.kind === 'no-rule') {
           queryProof = {
             verdict: 'NO_RULE',

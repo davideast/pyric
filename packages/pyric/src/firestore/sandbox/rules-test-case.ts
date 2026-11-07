@@ -3,6 +3,7 @@ import type { Operation } from './writes.js';
 import { partitionDeletes } from './value-resolver.js';
 import { applyMerge, applyUpdate } from './field-merge.js';
 import type { TestCase, Timestamp } from 'pyric/rules/internal';
+import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
 import { isoFromTimestamp } from './rules-evaluation.js';
 
 /**
@@ -46,7 +47,7 @@ export function buildRulesTestCase(
     expectation: 'ALLOW',
     method: ruleMethod,
     path: operation.path,
-    auth: operation.auth ? { uid: operation.auth.uid, token: operation.auth.token } : null,
+    auth: operation.auth ? normalizeAuthState(operation.auth) : null,
     data: projectRequestData(operation, existingDoc),
     resource: existingDoc ?? undefined,
     ...(serverTime ? { requestTime: isoFromTimestamp(serverTime) } : {}),

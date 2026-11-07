@@ -1,11 +1,14 @@
 import { describe, test, expect } from 'bun:test';
 import {
+  TestIdentitySchema,
   normalizeDocPath,
   buildApiTestCase,
+  buildStorageApiTestCase,
   buildFunctionMock,
   renderLegacyDebugMessages,
 } from '../../../src/rules/test/spec.js';
-import type { TestCase, FunctionMock, TestResult } from '../../../src/rules/test/spec.js';
+import type { TestCase, StorageTestCase, FunctionMock, TestResult } from '../../../src/rules/test/spec.js';
+import { evaluateStorageRules, parseStorageRules } from '../../../src/storage/rules.js';
 
 describe('normalizeDocPath', () => {
   test('converts simple path to full database path', () => {
@@ -114,6 +117,72 @@ describe('buildApiTestCase', () => {
     };
     const api = buildApiTestCase(tc, { expressionReportLevel: 'VISITED' });
     expect(api.expressionReportLevel).toBe('VISITED');
+  });
+
+  test('projects top-level auth.tenant into wire request.auth.token.firebase.tenant while preserving explicit nested overrides', () => {
+    expect(TestIdentitySchema.parse({ uid: 'alice', tenant: 'org-1' })).toEqual({
+      uid: 'alice',
+      tenant: 'org-1',
+    });
+
+    const projected = buildApiTestCase({
+      description: 'tenant projection',
+      expectation: 'ALLOW',
+      method: 'get',
+      path: 'orgs/org-1',
+      auth: { uid: 'alice', tenant: 'org-1', token: { role: 'member' } },
+    });
+    expect(projected.request.auth).toEqual({
+      uid: 'alice',
+      token: { role: 'member', firebase: { tenant: 'org-1' } },
+    });
+
+    const explicitOverride = buildApiTestCase({
+      description: 'explicit nested tenant wins',
+      expectation: 'ALLOW',
+      method: 'get',
+      path: 'orgs/org-2',
+      auth: {
+        uid: 'alice',
+        tenant: 'org-1',
+        token: { firebase: { tenant: 'org-2', sign_in_provider: 'password' } },
+      },
+    });
+    expect(explicitOverride.request.auth).toEqual({
+      uid: 'alice',
+      token: { firebase: { tenant: 'org-2', sign_in_provider: 'password' } },
+    });
+
+    const storageProjected = buildStorageApiTestCase({
+      description: 'storage tenant projection',
+      expectation: 'ALLOW',
+      method: 'get',
+      path: 'orgs/org-1/logo.png',
+      auth: { uid: 'alice', tenant: 'org-1' },
+    });
+    expect(storageProjected.request.auth).toEqual({
+      uid: 'alice',
+      token: { firebase: { tenant: 'org-1' } },
+    });
+
+    const storageRulesAst = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /orgs/{orgId}/{fileName} {
+      allow get: if request.auth != null
+        && request.auth.token.firebase.tenant == orgId;
+    }
+  }
+}`);
+    const localStorageEval = evaluateStorageRules(storageRulesAst, {
+      request: {
+        method: 'get',
+        path: '/b/demo-bucket/o/orgs/org-1/logo.png',
+        auth: { uid: 'alice', tenant: 'org-1' },
+      },
+      resource: null,
+    });
+    expect(localStorageEval.allowed).toBe(true);
   });
 });
 

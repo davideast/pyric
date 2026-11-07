@@ -99,7 +99,11 @@ export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {
     | regexClass   -- class
     | ~("/" | "\\n" | "[") any  -- char
 
-  regexClass = "[" regexClassChar* "]"
+  regexClass = "[" regexClassBody "]"
+
+  regexClassBody
+    = "^"? "]" regexClassChar* &"]"  -- leadingClose
+    | regexClassChar*                -- normal
 
   regexClassChar
     = "\\\\" any     -- escape

@@ -53,6 +53,7 @@ function topLevel(text: string, operators: string[]): boolean {
   let quote: string | null = null;
   let regex = false;
   let regexClass = false;
+  let regexClassStart = 0;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]!;
     if (quote) {
@@ -63,9 +64,10 @@ function topLevel(text: string, operators: string[]): boolean {
     if (regex) {
       if (ch === '\\') i++;
       else if (regexClass) {
-        if (ch === ']') regexClass = false;
+        if (ch === ']' && i > regexClassStart) regexClass = false;
       } else if (ch === '[') {
         regexClass = true;
+        regexClassStart = text[i + 1] === '^' ? i + 2 : i + 1;
       } else if (ch === '/') {
         regex = false;
       }

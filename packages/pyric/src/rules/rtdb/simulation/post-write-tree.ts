@@ -15,12 +15,41 @@ function defineChild(target: Record<string, unknown>, key: string, value: unknow
   Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
+function arrayToRecord(arr: readonly unknown[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (let i = 0; i < arr.length; i++) {
+    if (i in arr && arr[i] !== null && arr[i] !== undefined) {
+      out[String(i)] = arr[i];
+    }
+  }
+  return out;
+}
+
 /** The value stored at `path` in a root tree, or undefined. */
 export function valueAtPath(root: unknown, path: string): unknown {
   let cursor: unknown = root;
-  for (const segment of path.split('/').filter(Boolean)) {
-    if (cursor === null || typeof cursor !== 'object' || !Object.hasOwn(cursor, segment)) return undefined;
-    cursor = (cursor as Record<string, unknown>)[segment];
+  const segments = path.split('/').filter(Boolean);
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i]!;
+    if (segment === '.priority' && i === segments.length - 1) {
+      return isRecord(cursor) && Object.hasOwn(cursor, '.priority') ? cursor['.priority'] : undefined;
+    }
+    if (segment === '.priority' || segment === '.value') return undefined;
+    while (isRecord(cursor) && Object.hasOwn(cursor, '.value')) {
+      cursor = cursor['.value'];
+    }
+    if (Array.isArray(cursor)) {
+      const idx = Number(segment);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= cursor.length || String(idx) !== segment || !(idx in cursor)) {
+        return undefined;
+      }
+      cursor = cursor[idx];
+    } else if (isRecord(cursor)) {
+      if (!Object.hasOwn(cursor, segment)) return undefined;
+      cursor = cursor[segment];
+    } else {
+      return undefined;
+    }
   }
   return cursor;
 }
@@ -86,10 +115,29 @@ export function projectPostWriteTree(
   if (!updates || updates.length === 0) {
     return withValueAt(base, targetSegments, resolveWriteValue(base, path, rawNewData, evaluationNow));
   }
-  let root = base;
+  const dataWrites: Array<{ segments: string[]; value: unknown }> = [];
+  const dataDeletions: Array<{ segments: string[] }> = [];
+  const priorityWrites: Array<{ segments: string[]; value: unknown }> = [];
   for (const update of updates) {
     const segments = update.path.split('/').filter(Boolean);
-    root = withValueAt(root, segments, resolveUpdateValue(base, update.path, update.value, evaluationNow));
+    const resolved = resolveUpdateValue(base, update.path, update.value, evaluationNow);
+    if (segments[segments.length - 1] === '.priority') {
+      priorityWrites.push({ segments, value: resolved });
+    } else if (resolved === null || resolved === undefined) {
+      dataDeletions.push({ segments });
+    } else {
+      dataWrites.push({ segments, value: resolved });
+    }
+  }
+  let root = base;
+  for (const { segments, value } of dataWrites) {
+    root = withValueAt(root, segments, value);
+  }
+  for (const { segments } of dataDeletions) {
+    root = withValueAt(root, segments, null);
+  }
+  for (const { segments, value } of priorityWrites) {
+    root = withValueAt(root, segments, value);
   }
   return root;
 }
@@ -112,8 +160,28 @@ export function withValueAt(root: unknown, segments: string[], value: unknown): 
   if (!head) return root ?? null;
 
   const isWrapper = isRecord(root) && Object.hasOwn(root, '.value');
-  const unwrapped = isWrapper ? root['.value'] : root;
+  const rawUnwrapped = isWrapper ? root['.value'] : root;
+  const unwrapped = Array.isArray(rawUnwrapped) ? arrayToRecord(rawUnwrapped) : rawUnwrapped;
   const isPlainObject = isRecord(unwrapped);
+
+  if (head === '.priority' && rest.length === 0) {
+    if (rawUnwrapped === null || rawUnwrapped === undefined) return null;
+    if (isPlainObject) {
+      const hasDataKey = Object.keys(unwrapped).some((key) => key !== '.priority');
+      if (!hasDataKey) return null;
+      const nextObj: Record<string, unknown> = { ...unwrapped };
+      if (value === null || value === undefined) {
+        delete nextObj['.priority'];
+      } else {
+        defineChild(nextObj, '.priority', value);
+      }
+      return nextObj;
+    }
+    if (value === null || value === undefined) {
+      return rawUnwrapped;
+    }
+    return { '.value': rawUnwrapped, '.priority': value };
+  }
 
   let existingChild: unknown = null;
   if (isPlainObject && Object.hasOwn(unwrapped, head)) {
