@@ -270,15 +270,36 @@ describe('host: observed calls', () => {
     expect(event?.kind === 'operation' ? event.production : undefined).toEqual({ outcome: { status: 'error', code: 'not-found' } });
   });
 
-  it('refuses sdk on an AI or Messaging call, and any value but admin, and writes nothing', async () => {
+  it("writes a server process's Admin Messaging call as an Admin operation, with production's answer", async () => {
+    const ctx = makeCtx();
+    const viewer = fakePort();
+    await subscribe(ctx, viewer);
+    const server = fakePort();
+    markPortConnection(ctx, server, 'node');
+    const before = ctx.sandbox.history().length;
+    const call = { service: 'messaging', method: 'Messaging.send', at: 1, outcome: { status: 'ok' }, projectId: 'demo-project', sdk: 'admin' };
+    expect(await observe(ctx, server, { call })).toMatchObject({ ok: true });
+    expect(ctx.sandbox.history().length).toBe(before + 1);
+    const [event] = streamed(viewer);
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'messaging',
+      method: 'Messaging.send',
+      caller: { kind: 'node', clientId: expect.any(String) },
+      detail: { sdk: 'admin' },
+      production: { outcome: { status: 'ok' } },
+    });
+  });
+
+  it('refuses sdk on an AI call, and any value but admin, and writes nothing', async () => {
     const ctx = makeCtx();
     const page = fakePort();
     await subscribe(ctx, page);
     const before = ctx.sandbox.history().length;
     const malformed: unknown[] = [
       { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m' }, sdk: 'admin' },
-      { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, sdk: 'admin' },
       { ...DENIED_READ, sdk: 'client' },
+      { service: 'messaging', method: 'Messaging.send', at: 1, outcome: { status: 'ok' }, sdk: 'client' },
     ];
     for (const call of malformed) {
       expect(await observe(ctx, page, { call })).toMatchObject({ t: 'res', ok: false, error: { code: 'invalid-argument' } });

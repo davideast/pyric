@@ -374,21 +374,21 @@ describe('readObservedCall', () => {
     expect(event.auth).toEqual({ uid: 'alice' });
   });
 
-  it('keeps an Admin call on Firestore, RTDB, Storage and Auth', () => {
+  it('keeps an Admin call on Firestore, RTDB, Storage, Auth and Messaging', () => {
     expect(readObservedCall(ADMIN_UPDATE)).toEqual(ADMIN_UPDATE);
     const admin = [
       { ...NAMED_RTDB_READ, method: 'Reference.set', sdk: 'admin' },
       { ...UPLOAD, method: 'File.save', sdk: 'admin' },
       { service: 'auth', method: 'Auth.verifyIdToken', at: 1, outcome: { status: 'ok' }, account: { uid: 'alice', claimNames: ['admin'] }, sdk: 'admin' },
+      { service: 'messaging', method: 'Messaging.sendEachForMulticast', at: 1, outcome: { status: 'ok' }, projectId: 'demo', sdk: 'admin' },
     ];
     for (const call of admin) expect(readObservedCall(call)).toEqual(call as ObservedCall);
     expect(readObservedCall(DENIED_READ)).not.toHaveProperty('sdk');
   });
 
-  it('refuses sdk on an AI or Messaging call, and any value but admin', () => {
+  it('refuses sdk on an AI call, and any value but admin', () => {
     const cases: unknown[] = [
       { ...GENERATE, sdk: 'admin' },
-      { ...GET_TOKEN, sdk: 'admin' },
       { ...ADMIN_UPDATE, sdk: 'client' },
       { ...ADMIN_UPDATE, sdk: true },
       { ...ADMIN_UPDATE, sdk: null },

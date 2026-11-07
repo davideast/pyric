@@ -52,6 +52,7 @@ const ADMIN_SERVICES: ReadonlyMap<string, ObservedCallService> = new Map<string,
   ['@google-cloud/storage', 'storage'],
   ['@firebase/database-compat/standalone', 'rtdb'],
   ['firebase-admin/auth', 'auth'],
+  ['firebase-admin/messaging', 'messaging'],
 ]);
 
 /** The most requests a host takes on one Messaging call. */

@@ -37,6 +37,9 @@ import { observeAdminAuth } from './admin/auth.js';
 import { observeAdminDatabase } from './admin/database.js';
 import { observeAdminFirestore } from './admin/firestore.js';
 import { observeAdminStorage } from './admin/storage.js';
+import { observeAdminAppCheck } from './admin/app-check.js';
+import { observeAdminMessaging } from './admin/messaging.js';
+import { firebaseAdminVersion } from './admin/admin-version.js';
 
 /** The live row a module id serves, or undefined for any other id. */
 function rowOf(url: string): ServedFirebaseSpecifier | undefined {
@@ -114,23 +117,28 @@ function adminObserver(observer: LiveObserver, projectId: string): LiveObserver 
 }
 
 /**
- * Patches the real module behind one Admin row, loaded from `entryFile`,
- * with that row's observer (A-4 to A-7 in the #2304 plan). Every row
+ * Patches the real module behind one Admin row, loaded from `entryFile` and
+ * required by firebase-admin's file `requiredBy`, with that row's observer (A-4 to A-7 in the #2304 plan). Every row
  * observes for the host's project and passes the process's one project gate.
  * A child process whose recorded project root names no project refuses the
  * load (`refuseAdminWithoutHostProject`). Only `@pyric/cli`'s seam run alone,
  * with no register, leaves the module as it is.
  * The Admin row module calls this; it is not for apps.
  */
-export function observeAdminRow(name: AdminRowName, real: unknown, entryFile: string, observer: LiveObserver): void {
+export function observeAdminRow(name: AdminRowName, real: unknown, entryFile: string, observer: LiveObserver, requiredBy?: string): void {
   const projectId = hostProjectId;
   if (projectId === undefined && rootWithoutProject !== undefined) throw noHostProjectRefusal(name, rootWithoutProject);
   if (projectId === undefined) return;
   const row = { observer: adminObserver(observer, projectId), gate: adminGateFor(projectId) };
   if (name === 'firestore') observeAdminFirestore(real, entryFile, row);
   if (name === 'storage') observeAdminStorage(real, entryFile, row);
-  if (name === 'database') observeAdminDatabase(real, { ...row, hostProjectId: projectId, hostInstances: hostDatabaseInstances });
+  if (name === 'database') {
+    const adminVersion = firebaseAdminVersion(requiredBy);
+    observeAdminDatabase(real, { ...row, hostProjectId: projectId, hostInstances: hostDatabaseInstances, ...(adminVersion === undefined ? {} : { adminVersion }) });
+  }
   if (name === 'auth') observeAdminAuth(real, { ...row, hostProjectId: projectId });
+  if (name === 'app-check') observeAdminAppCheck(real, row);
+  if (name === 'messaging') observeAdminMessaging(real, row);
 }
 
 /** This file, which each Admin row module requires for {@link observeAdminRow}: the same module instance the register loaded. */
@@ -148,7 +156,8 @@ function adminRowSource(name: AdminRowName, specifier: string): string {
     'const loaded = module.children.find((child) => child.exports === real);',
     `const { observeAdminRow } = require(${JSON.stringify(THIS_FILE)});`,
     `const { observer } = require(${JSON.stringify(REGISTER_OBSERVER_URL)});`,
-    `observeAdminRow(${JSON.stringify(name)}, real, loaded === undefined ? __filename : loaded.filename, observer);`,
+    'const requiredBy = module.parent ? module.parent.filename : undefined;',
+    `observeAdminRow(${JSON.stringify(name)}, real, loaded === undefined ? __filename : loaded.filename, observer, requiredBy);`,
     'module.exports = real;',
     '',
   ].join('\n');

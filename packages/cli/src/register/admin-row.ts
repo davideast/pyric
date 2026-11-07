@@ -1,7 +1,8 @@
 /**
- * The Admin rows on the live register (D5 in the #2304 plan): the four loads
+ * The Admin rows on the live register (D5 in the #2304 plan): the loads
  * through which every path of the real `firebase-admin` reaches the classes
- * its Firestore, Storage, Realtime Database and Auth calls run on. Each load,
+ * its Firestore, Storage, Realtime Database, Auth, App Check and Messaging
+ * calls run on. App Check's row gates its calls and records none. Each load,
  * made by a file of the passed-through Admin SDK's tree, resolves to a fixed
  * Admin row module instead. That module's source comes from the installed
  * `@pyric/live`: it loads the real module (its own require of the same
@@ -21,7 +22,7 @@
  */
 
 /** The Admin services the rows serve, one per class-defining load. */
-export type AdminRowName = 'firestore' | 'storage' | 'database' | 'auth';
+export type AdminRowName = 'firestore' | 'storage' | 'database' | 'auth' | 'app-check' | 'messaging';
 
 /** One class-defining load: the specifier a file of the Admin SDK requires, and the package its file belongs to. */
 export interface AdminRowLoad {
@@ -31,12 +32,14 @@ export interface AdminRowLoad {
   readonly pathInPackage?: string;
 }
 
-/** The four loads, as firebase-admin 13's own files require them. */
+/** The loads, as firebase-admin 13's own files require them. */
 export const ADMIN_ROW_LOADS: ReadonlyMap<AdminRowName, AdminRowLoad> = new Map<AdminRowName, AdminRowLoad>([
   ['firestore', { specifier: '@google-cloud/firestore', packageName: '@google-cloud/firestore' }],
   ['storage', { specifier: '@google-cloud/storage', packageName: '@google-cloud/storage' }],
   ['database', { specifier: '@firebase/database-compat/standalone', packageName: '@firebase/database-compat' }],
   ['auth', { specifier: './base-auth', packageName: 'firebase-admin', pathInPackage: 'lib/auth/base-auth.js' }],
+  ['app-check', { specifier: './app-check', packageName: 'firebase-admin', pathInPackage: 'lib/app-check/app-check.js' }],
+  ['messaging', { specifier: './messaging', packageName: 'firebase-admin', pathInPackage: 'lib/messaging/messaging.js' }],
 ]);
 
 const ADMIN_ROWS_DIR = new URL('./live-rows/admin/', import.meta.url).href;
@@ -78,17 +81,28 @@ export function adminRowOf(load: AdminTreeLoad): AdminRowName | null {
 
 /**
  * The folders of `firebase-admin/lib/` the Admin rows' services load: the
- * app, the four services, the shared code and credentials, and the ESM
+ * app, the six services, the shared code and credentials, and the ESM
  * wrappers. The top-level `lib/*.js` files (the namespace) load too.
  */
-const SERVED_ADMIN_FOLDERS: ReadonlySet<string> = new Set(['app', 'auth', 'firestore', 'database', 'storage', 'utils', 'credential', 'esm']);
+const SERVED_ADMIN_FOLDERS: ReadonlySet<string> = new Set([
+  'app',
+  'auth',
+  'firestore',
+  'database',
+  'storage',
+  'app-check',
+  'messaging',
+  'utils',
+  'credential',
+  'esm',
+]);
 
 /** `lib/<folder>/...`, the folder of a file of firebase-admin. */
 const LIB_FOLDER = /^lib\/([^/]+)\//;
 
 /**
  * The Admin service a load of a firebase-admin file would start that the
- * Admin rows do not serve (`security-rules`, `messaging`, ...), or null when
+ * Admin rows do not serve (`security-rules`, `remote-config`, ...), or null when
  * the file is served or is not under `lib/<service>/`.
  */
 export function unservedAdminService(packageName: string | null, pathInPackage: string | null): string | null {

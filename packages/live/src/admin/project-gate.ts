@@ -14,7 +14,7 @@
  * Pyric never opens a credentials file and never touches a key or a token:
  * it reads only the project id, through firebase-admin's own objects.
  */
-import { liveAdminProjectRefusal, type AdminProjectSource, type LiveAdminProjectRefusal } from '../refusal.js';
+import { liveAdminAppUnreadable, liveAdminProjectRefusal, type AdminProjectSource, type LiveAdminProjectRefusal } from '../refusal.js';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -110,6 +110,24 @@ export async function adminAppProjectId(app: AdminApp, env: Env = process.env): 
 
 /** Runs `call` for `app` once its project passes the gate; rejects with the refusal otherwise. */
 export type AdminProjectGate = <T>(app: AdminApp, call: () => T | Promise<T>) => Promise<T>;
+
+/** Stands in for an app a row can't read; {@link failClosedGate} refuses it. */
+export const UNREAD_APP: AdminApp = Object.freeze({ options: {} });
+
+/**
+ * The app `self` keeps at `field`, or {@link UNREAD_APP} when it keeps none
+ * there that has `options`, as after a firebase-admin upgrade that moves it.
+ */
+export function readAdminApp(self: unknown, field: string): AdminApp {
+  const app: unknown = typeof self === 'object' && self !== null ? Reflect.get(self, field) : undefined;
+  const hasOptions = typeof app === 'object' && app !== null && typeof Reflect.get(app, 'options') === 'object';
+  return hasOptions ? (app as AdminApp) : UNREAD_APP;
+}
+
+/** `gate`, except that a call on {@link UNREAD_APP} is refused with `liveAdminAppUnreadable(className)`. */
+export function failClosedGate(gate: AdminProjectGate, className: string): AdminProjectGate {
+  return (app, call) => (app === UNREAD_APP ? Promise.reject(liveAdminAppUnreadable(className)) : gate(app, call));
+}
 
 /**
  * The gate for the live host's `hostProjectId`. Each app's project is
