@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox, type EventCaller, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
-import { analyzeIndexQuery, observedCallEvent, readObservedCall } from 'pyric/sandbox/internal';
+import { analyzeIndexQuery, observedCallEvent, observedListenerEvent, readObservedCall } from 'pyric/sandbox/internal';
 import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
 import {
   chipRequestFromEvent,
@@ -406,6 +406,19 @@ describe('a call production served', () => {
       production: { status: 'ok' },
       source: 'node',
     });
+  });
+
+  it("makes no row for a live listener's attach or detach: its deliveries are the rows", () => {
+    for (const [service, method] of [['firestore', 'onSnapshot'], ['rtdb', 'onValue']] as const) {
+      for (const phase of ['attach', 'detach'] as const) {
+        const call: ObservedCall = {
+          service, method, path: 'rooms/r1', at: 1000, outcome: { status: 'ok' },
+          listener: { phase, id: 'l-1', target: 'rooms/r1', key: '0123456789abcdef' },
+        };
+        const event = { ...observedListenerEvent(call), caller: { kind: 'page', pageId: 'tab-1' } } as SandboxEvent;
+        expect(chipRequestFromEvent(event, 'tab-1'), `${service} ${phase}`).toBeNull();
+      }
+    }
   });
 
   it("reads production's permission-denied as denied and any other code as failed", () => {

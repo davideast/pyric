@@ -13,6 +13,7 @@ import type { HostedConnectionState } from '../worker/client/websocket-connectio
 import { getServiceWorkerFirestore } from '../worker/client/service-worker-connection.js';
 import { getDeferredFirestore } from '../worker/client/deferred-connection.js';
 import { getHostedFirestore } from '../worker/client/websocket-connection.js';
+import { ownClientUntilPagehide } from '../worker/client/pagehide.js';
 import { currentHostInstanceId, currentHostPayload, currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
@@ -176,6 +177,11 @@ function initialize(configuration: WorkerInitPayload | null): void {
 
   workerDb = createControlClient(workerRequested);
   useWorker = useHosted || (workerRequested && (!hasSharedWorker || workerDb !== null));
+  // A hosted page that leaves for good never resumes its session, so it ends
+  // it at once: the host then ends what the page held, such as the live
+  // listeners it reported, instead of keeping them for the retention window.
+  const hostedSession = useHosted ? workerDb : null;
+  if (hostedSession !== null) ownClientUntilPagehide(hostedSession);
 
   presenceSession = useWorker && workerDb
     ? startPresence({ db: workerDb, kind: 'app', ...presenceIdentity(useHosted) })

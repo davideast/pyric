@@ -291,18 +291,20 @@ const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, Bil
  * The billed kind of an observed call, or null for one production did not
  * bill. An Admin call counts as the client method it reads as
  * (`coverageMethodOf`), so `DocumentReference.get` is a read and
- * `WriteBatch.commit` a write.
+ * `WriteBatch.commit` a write. A listener's attach or detach (`listener`)
+ * bills nothing; its deliveries do.
  */
-export function billedCallKind(call: Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments'>): BilledCallKind | null {
+export function billedCallKind(call: Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments' | 'listener'>): BilledCallKind | null {
   const succeeded = call.outcome.status === 'ok';
   const isFirestore = call.service === 'firestore';
-  if (!succeeded || !isFirestore) return null;
+  const isLifecycle = call.listener !== undefined;
+  if (!succeeded || !isFirestore || isLifecycle) return null;
   const kind = FIRESTORE_KINDS.get(coverageMethodOf('firestore', call.method)) ?? null;
   const isMetadataOnly = kind === 'delivery' && call.billedDocuments === 0;
   return isMetadataOnly ? null : kind;
 }
 
-type BilledCall = Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments' | 'usage'>;
+type BilledCall = Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments' | 'usage' | 'listener'>;
 
 /** The documents a call's usage names for its kind: reads for a read or delivery, writes and deletes for a write. Undefined when it names none. */
 function usageUnits(kind: BilledCallKind, usage: ObservedCall['usage']): number | undefined {
