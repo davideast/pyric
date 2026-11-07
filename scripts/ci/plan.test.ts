@@ -1,45 +1,136 @@
 import { describe, expect, test } from 'bun:test';
-import { parseNameStatus, determineAppScenarios, determinePackaging, determineReleaseProof, determineRtdbDifferential } from './plan.ts';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { discoverScenarios, type Scenario } from '../../test/apps/shard-plan.ts';
+import {
+  appSelectionFile,
+  determinePackaging,
+  determineReleaseProof,
+  determineRtdbDifferential,
+  parseNameStatus,
+  scenariosNamedIn,
+  selectAppScenarios,
+  type AppScenarioSelection,
+} from './plan.ts';
+
+const scenarios: Scenario[] = [
+  { name: 'foo', slow: false },
+  { name: 'bar', slow: false },
+  { name: 'baz-2', slow: false },
+  { name: 'sleepy', slow: true },
+];
+
+function pullRequest(input: { paths?: string[]; body?: string; labels?: string[]; renames?: Array<[string, string]> }): AppScenarioSelection {
+  return selectAppScenarios({
+    event: 'pull_request',
+    labels: input.labels ?? [],
+    paths: [
+      ...(input.paths ?? []).map((path) => ({ path })),
+      ...(input.renames ?? []).map(([previousPath, path]) => ({ path, previousPath })),
+    ],
+    body: input.body ?? '',
+    scenarios,
+  });
+}
 
 describe('app scenario selection', () => {
-  test('runs for a pull request touching the pyric bin or any of its commands', () => {
-    for (const path of ['packages/cli/src/cli/index.ts', 'packages/cli/src/cli/run.ts']) {
-      expect(determineAppScenarios({ event: 'pull_request', paths: [{ path }] })).toBe(true);
+  test('a change to any file of a scenario selects that scenario', () => {
+    for (const path of ['test/apps/foo/scenario.ts', 'test/apps/foo/package.json', 'test/apps/foo/src/deep/main.js']) {
+      expect(pullRequest({ paths: [path] })).toEqual({ kind: 'some', apps: ['foo'] });
     }
   });
 
-  test('runs for a pull request touching the Vite plugin, register hook, pyric-admin, @pyric/live, AI broker, manifests, packaging, or apps', () => {
-    for (const path of [
-      'packages/cli/src/serve/vite-plugin.ts',
-      'packages/cli/src/register/index.ts',
-      'packages/cli/src/remote/index.ts',
-      'packages/cli/src/cli/firebase-project.ts',
-      'packages/pyric-admin/src/database/index.ts',
-      'packages/live/src/vite.ts',
-      'packages/pyric/src/ai/broker/gemini-engine.ts',
-      'packages/cli/package.json',
-      'scripts/pack-packages.sh',
-      'test/apps/hosted-dev-server-restart/vite.config.js',
-    ]) {
-      expect(determineAppScenarios({ event: 'pull_request', paths: [{ path }] })).toBe(true);
+  test('each repository scenario is selected by a change to its own files', () => {
+    const root = resolve(import.meta.dir, '../..');
+    const real = discoverScenarios(root);
+    expect(real.length).toBeGreaterThan(0);
+    for (const { name, slow } of real) {
+      const selection = selectAppScenarios({
+        event: 'pull_request', labels: [], body: '', scenarios: real,
+        paths: [{ path: `test/apps/${name}/scenario.ts` }],
+      });
+      expect(selection).toEqual(slow ? { kind: 'none' } : { kind: 'some', apps: [name] });
     }
   });
 
-  test('runs for a rename out of a selected directory', () => {
-    expect(determineAppScenarios({
-      event: 'pull_request',
-      paths: [{ path: 'test/other/scenario.ts', previousPath: 'test/apps/a/scenario.ts' }],
-    })).toBe(true);
+  test('a body naming test/apps/<name> selects that scenario', () => {
+    expect(pullRequest({ body: 'Integration test: `test/apps/foo` drives the dev server.' })).toEqual({ kind: 'some', apps: ['foo'] });
+    expect(pullRequest({ body: 'See test/apps/baz-2/scenario.ts and test/apps/bar.' })).toEqual({ kind: 'some', apps: ['bar', 'baz-2'] });
   });
 
-  test('skips a pull request that touches none of them', () => {
-    expect(determineAppScenarios({ event: 'pull_request', paths: [{ path: 'packages/pyric/src/storage/index.ts' }] })).toBe(false);
+  test('changed and named scenarios add up, each once', () => {
+    expect(pullRequest({ paths: ['test/apps/bar/scenario.ts'], body: 'test/apps/foo and test/apps/bar' }))
+      .toEqual({ kind: 'some', apps: ['bar', 'foo'] });
   });
 
-  test('always runs outside pull requests', () => {
-    expect(determineAppScenarios({ event: 'schedule', paths: [] })).toBe(true);
-    expect(determineAppScenarios({ event: 'push', paths: [] })).toBe(true);
-    expect(determineAppScenarios({ event: 'merge_group', paths: [] })).toBe(true);
+  test('a body naming a path under test/apps that is no scenario selects nothing for it', () => {
+    expect(pullRequest({ body: 'test/apps/run.ts, test/apps/README.md, test/apps/unknown, test/apps/' })).toEqual({ kind: 'none' });
+  });
+
+  test('a pull request that changes and names no scenario selects none, so the jobs skip', () => {
+    expect(pullRequest({ paths: ['packages/cli/src/serve/vite-plugin.ts', 'packages/pyric/src/index.ts'] })).toEqual({ kind: 'none' });
+    expect(pullRequest({ paths: [] })).toEqual({ kind: 'none' });
+  });
+
+  test('a slow scenario is left to the Slow app scenarios workflow', () => {
+    expect(pullRequest({ paths: ['test/apps/sleepy/scenario.ts'], body: 'test/apps/sleepy' })).toEqual({ kind: 'none' });
+    expect(pullRequest({ paths: ['test/apps/sleepy/scenario.ts', 'test/apps/foo/x.ts'] })).toEqual({ kind: 'some', apps: ['foo'] });
+  });
+
+  test('a rename selects the scenario on either side', () => {
+    expect(pullRequest({ renames: [['test/apps/foo/a.ts', 'test/other/a.ts']] })).toEqual({ kind: 'some', apps: ['foo'] });
+    expect(pullRequest({ renames: [['test/other/a.ts', 'test/apps/bar/a.ts']] })).toEqual({ kind: 'some', apps: ['bar'] });
+  });
+
+  test('a change to the runner or any other shared file under test/apps selects every app', () => {
+    for (const path of ['test/apps/run.ts', 'test/apps/driver.ts', 'test/apps/shard-plan.ts', 'test/apps/replay/replay.test.ts', 'test/apps/README.md']) {
+      expect(pullRequest({ paths: [path] })).toEqual({ kind: 'all' });
+    }
+  });
+
+  test('a scenario directory this checkout no longer has counts as shared, so every app runs', () => {
+    expect(pullRequest({ paths: ['test/apps/removed-app/scenario.ts'] })).toEqual({ kind: 'all' });
+  });
+
+  test('a change to the workflow that runs the scenarios selects every app', () => {
+    expect(pullRequest({ paths: ['.github/workflows/build.yml'] })).toEqual({ kind: 'all' });
+  });
+
+  test('the ci-full and ci-slow-scenarios labels select every app', () => {
+    for (const label of ['ci-full', 'ci-slow-scenarios']) {
+      expect(pullRequest({ labels: [label] })).toEqual({ kind: 'all' });
+    }
+    expect(pullRequest({ labels: ['ci-packaging'] })).toEqual({ kind: 'none' });
+  });
+
+  test('every app runs outside pull requests: main, the nightly run, a merge group, a manual run', () => {
+    for (const event of ['push', 'schedule', 'merge_group', 'workflow_dispatch'] as const) {
+      expect(selectAppScenarios({ event, labels: [], paths: [], body: '', scenarios })).toEqual({ kind: 'all' });
+    }
+  });
+
+  test('the planner file names the selected apps, or every app otherwise', () => {
+    expect(appSelectionFile({ kind: 'some', apps: ['bar', 'foo'] })).toBe('{"apps":["bar","foo"]}\n');
+    expect(appSelectionFile({ kind: 'all' })).toBe('{"apps":"all"}\n');
+    expect(appSelectionFile({ kind: 'none' })).toBe('{"apps":"all"}\n');
+  });
+
+  test('the plan job hands the body to plan.ts and its selection to the shard planner', () => {
+    type Step = { id?: string; run?: string; env?: Record<string, string> };
+    const workflow = Bun.YAML.parse(readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8')) as {
+      jobs: Record<string, { steps?: Step[] }>;
+    };
+    const steps = workflow.jobs.plan?.steps ?? [];
+    const select = steps.findIndex((step) => step.id === 'plan');
+    const shards = steps.findIndex((step) => step.id === 'app-plan');
+    expect(steps[select]?.env?.CI_PR_BODY).toBe('${{ github.event.pull_request.body }}');
+    expect(steps[select]?.run).toBe('bun scripts/ci/plan.ts');
+    expect(steps[shards]?.run).toContain('--apps test-results/app-selection.json');
+    expect(shards).toBeGreaterThan(select);
+  });
+
+  test('names come from every test/apps/<name> mention, punctuation left off', () => {
+    expect(scenariosNamedIn('`test/apps/foo`, test/apps/bar. (test/apps/baz-2)')).toEqual(['foo', 'bar', 'baz-2']);
   });
 });
 
