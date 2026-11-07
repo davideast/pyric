@@ -95,7 +95,7 @@ for (const hosted of [false, true]) {
         await page.waitForTimeout(1000);
         await page.getByRole('button', { name: 'Open pyric', exact: true }).click();
         await page.getByRole('tab', { name: 'Data', exact: true }).click();
-        await page.getByRole('button', { name: 'Overview', exact: true }).click();
+        await page.locator('[data-listener-mode=overview]').click();
         await expect(page.locator('[data-pyric-listener-box][data-listener-target="reads"]').first()).toBeVisible();
         await expect(page.locator('[data-pyric-listener-box][data-listener-target="subscriptions"]').first()).toBeVisible();
       }

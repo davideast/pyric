@@ -185,6 +185,11 @@ function bar(root: ShadowRoot, which: ListenerPaintMode): HTMLButtonElement {
   return root.querySelector<HTMLButtonElement>(which === 'overview' ? '[data-listener-all]' : `[data-listener-mode="${which}"]`)!;
 }
 
+/** Outline all is a switch (aria-checked); Flow is a segment (aria-selected). */
+function on(root: ShadowRoot, which: ListenerPaintMode): string | null {
+  return bar(root, which).getAttribute(which === 'overview' ? 'aria-checked' : 'aria-selected');
+}
+
 const owner = { kind: 'component', name: 'TodoList', element: '#todos' };
 
 describe('the Listeners view', () => {
@@ -237,11 +242,11 @@ describe('the Listeners view', () => {
 
   it('keeps display controls in the footer and the activity list first', () => {
     const page = setup({ rememberedPaintMode: 'flow', react: true });
-    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Overview', 'Flow', 'Highlight settings']);
+    expect([...page.root.querySelectorAll('[data-action-bar] .segment, [data-action-bar] .btn')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Overview', 'Flow', 'Highlight settings']);
     expect(page.root.querySelector('.view [data-listener-mode]')).toBeNull();
     expect(page.root.querySelector('.view [data-flow-treatment]')).toBeNull();
-    expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
-    expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('false');
+    expect(on(page.root, 'overview')).toBe('false');
+    expect(on(page.root, 'flow')).toBe('false');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
 
@@ -249,10 +254,10 @@ describe('the Listeners view', () => {
     const page = setup();
     page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner])]);
     bar(page.root, 'overview').click();
-    expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('true');
+    expect(on(page.root, 'overview')).toBe('true');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
     bar(page.root, 'overview').click();
-    expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
+    expect(on(page.root, 'overview')).toBe('false');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
 
@@ -282,6 +287,29 @@ describe('the Listeners view', () => {
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
 
+  it('turns every row switch on with Outline all, and a row switch hides just its source', () => {
+    const page = setup();
+    page.push([
+      attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner]),
+      attach('a2', 'L2', { kind: 'doc', path: 'profiles/p1' }, [{ kind: 'component', name: 'Profile', element: '#profile' }]),
+    ]);
+    const row = (id: string) => page.root.querySelector<HTMLButtonElement>(`[data-highlight-source="${id}"]`)!;
+    const states = () => [row('L1'), row('L2')].map(button => button.getAttribute('aria-checked'));
+    expect(row('L1').getAttribute('role')).toBe('switch');
+    expect(states()).toEqual(['false', 'false']);
+    bar(page.root, 'overview').click();
+    expect(on(page.root, 'overview')).toBe('true');
+    expect(states()).toEqual(['true', 'true']);
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
+    row('L1').click();
+    expect(states()).toEqual(['false', 'true']);
+    expect(on(page.root, 'overview')).toBe('false');
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
+    row('L1').click();
+    expect(on(page.root, 'overview')).toBe('true');
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
+  });
+
   it('restores all listeners from a selected row, including listeners beyond the old seven-row cap', () => {
     const page = setup();
     page.push(Array.from({ length: 12 }, (_, i) => attach(`a${i}`, `L${i}`, { kind: 'doc', path: `todos/${i}` }, [owner])));
@@ -300,7 +328,7 @@ describe('the Listeners view', () => {
     page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner])]);
     expect(bar(page.root, 'flow').disabled).toBe(false);
     bar(page.root, 'flow').click();
-    expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('true');
+    expect(on(page.root, 'flow')).toBe('true');
     expect(page.root.querySelector('.view [data-listener-row]')).not.toBeNull();
     page.flowDelivery('L1');
     expect(page.root.querySelector('.view')!.textContent).not.toContain('Waiting for the next delivery');
@@ -333,7 +361,7 @@ describe('the Listeners view', () => {
   it('says why nothing paints while listener attribution is off', () => {
     const page = setup({ attributionEnabled: false });
     bar(page.root, 'overview').click();
-    expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
+    expect(on(page.root, 'overview')).toBe('false');
     expect(page.root.querySelector('.view')!.textContent).toContain('attribution');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
