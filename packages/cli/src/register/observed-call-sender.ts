@@ -15,6 +15,8 @@
  * host detaches the listeners the process reported at once, and each frame
  * names the process's project root and entry script by a hashed label, so the
  * host can detach an earlier run's listeners when a restart connects again.
+ * Each observed call also names the entry script, relative to the working
+ * directory, which the host lists as the client's label.
  */
 import './client/bootstrap.js';
 import type { ObservedCall } from 'pyric/sandbox';
@@ -24,7 +26,7 @@ import { nextId, rpc } from '../serve/worker/client/core.js';
 import { disconnectClient } from '../serve/worker/client/disconnect.js';
 import type { ClientDb } from '../serve/worker/client/handles.js';
 import { liveProjectRoot } from './live-package.js';
-import { endWithProcess, nodeClientLabel } from './node-client.js';
+import { endWithProcess, nodeClientLabel, nodeClientScript } from './node-client.js';
 
 /** The rows' observer measures each resolved call with this, as the page's sender does. */
 export { measureObservedUsage } from 'pyric/sandbox/internal';
@@ -38,6 +40,7 @@ const END_ACK_TIMEOUT_MS = 1_000;
 let connection: ClientDb | undefined;
 let endsWithProcess = false;
 let label: string | undefined;
+let script: { script?: string } | undefined;
 
 /** End the open connection, if any; a later call opens a new one. */
 function endConnection(): Promise<void> {
@@ -61,10 +64,18 @@ function nodeClient(): string {
   return label;
 }
 
+/** The entry script field of each observe frame: absent when the process has none to name. */
+function scriptField(): { script?: string } {
+  if (script !== undefined) return script;
+  const named = nodeClientScript({ cwd: process.cwd(), entry: process.argv[1], execArgv: process.execArgv });
+  script = named === undefined ? {} : { script: named };
+  return script;
+}
+
 /** Sends one observed call. Rejects when the process cannot reach the Node host. */
 export async function sendObservedCall(call: ObservedCall): Promise<void> {
   connection ??= openConnection();
-  await rpc(connection.port, { t: 'observe', id: nextId(), call, nodeClient: nodeClient() });
+  await rpc(connection.port, { t: 'observe', id: nextId(), call, nodeClient: nodeClient(), ...scriptField() });
 }
 
 /** Sends the process's unobserved lists, bounded. Rejects when the process cannot reach the Node host. */

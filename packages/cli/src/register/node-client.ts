@@ -10,10 +10,12 @@
  * (`endWithProcess`), and names its project root and entry script with each
  * observed call (`nodeClientLabel`), which lets the host detach the listeners
  * of an earlier run of the same script that closed without ending, such as a
- * killed one.
+ * killed one. Each frame also names the entry script itself, relative to the
+ * process's working directory (`nodeClientScript`), so the host can tell two
+ * processes apart by the script they run.
  */
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 /** The process events the sender ends its connection on. */
 type ExitSignal = 'SIGTERM' | 'SIGINT';
@@ -78,4 +80,23 @@ export function nodeClientLabel(place: NodeClientPlace): string {
   const entry = runsEval(place.execArgv) ? '' : place.entry ?? '';
   const entryPath = entry === '' ? '' : resolve(place.cwd, entry);
   return createHash('sha256').update(`${place.projectRoot}\0${entryPath}`).digest('hex').slice(0, 32);
+}
+
+/** The longest script path a process names; the host keeps no longer one. */
+const MAX_SCRIPT_LENGTH = 256;
+
+/**
+ * The entry script a live Node process names itself by on the host: its path
+ * relative to the working directory, with `/` separators, such as
+ * `server.mjs` or `jobs/nightly.ts`. Never an absolute path, so it carries
+ * no home directory. Undefined for a process with no entry script (`-e`, a
+ * REPL), one the working directory cannot reach by a relative path, or a
+ * path too long to keep. A label, never an authority.
+ */
+export function nodeClientScript(place: Pick<NodeClientPlace, 'cwd' | 'entry' | 'execArgv'>): string | undefined {
+  const entry = runsEval(place.execArgv) ? '' : place.entry ?? '';
+  if (entry === '') return undefined;
+  const fromCwd = relative(place.cwd, resolve(place.cwd, entry));
+  const isUsable = fromCwd !== '' && !isAbsolute(fromCwd) && fromCwd.length <= MAX_SCRIPT_LENGTH;
+  return isUsable ? fromCwd.split(sep).join('/') : undefined;
 }

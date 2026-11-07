@@ -19,7 +19,12 @@
  * the app, and is left out.
  *
  * The page path comes from the page's presence frames; the client lists the
- * last one any of its pages reported. Each id is a label, never an authority.
+ * last one any of its pages reported. A service worker and a Node process
+ * name their script on each observed call (the `observe` frame's `script`),
+ * and that is their label: the worker's script URL path (`/sw.js`), or the
+ * process's entry script relative to its working directory (`server.mjs`).
+ * A script that is not a path of that shape, or is longer than the bound, is
+ * dropped, and the client stays. Each id is a label, never an authority.
  *
  * A Node process under the live register sends what it left unobserved, the
  * whole lists each time one changes (the `unobserved` frame). Its client
@@ -43,7 +48,7 @@ type LiveClientKind = LiveClient['kind'];
 
 /** The most clients a host lists; a bound on what connections can grow. */
 const MAX_CLIENTS = 64;
-/** The longest client id or page path kept; a longer one is cut. */
+/** The longest client id or page path kept; a longer one is cut, and a longer script is dropped. */
 const MAX_LABEL_LENGTH = 256;
 
 const KINDS: ReadonlyMap<string, LiveClientKind> = new Map<string, LiveClientKind>([
@@ -112,6 +117,35 @@ function presenceRoute(inner: Record<string, unknown>): string | undefined {
   const isPresence = inner.t === 'op' && (inner.method === 'presence.register' || inner.method === 'presence.update');
   const route = inner.route;
   return isPresence && typeof route === 'string' ? route : undefined;
+}
+
+/** Control characters, which no script path a label shows may hold. */
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
+
+/** A service worker's script URL path: rooted, with no origin, query or fragment. */
+function isServiceWorkerScript(script: string): boolean {
+  const isRooted = script.startsWith('/') && !script.startsWith('//');
+  return isRooted && !/[?#\\]/.test(script);
+}
+
+/** A Node process's entry script relative to its working directory: never a rooted, drive or URL path. */
+function isNodeScript(script: string): boolean {
+  const isRooted = /^([/\\]|[A-Za-z]:)/.test(script);
+  return !isRooted && !script.includes('://');
+}
+
+/**
+ * The script an `observe` frame from a service worker or a Node process
+ * names, or undefined for another frame or kind, or a malformed script.
+ */
+function scriptLabel(kind: LiveClientKind, inner: Record<string, unknown>): string | undefined {
+  const script = inner.script;
+  const isScriptFrame = kind !== 'browser' && inner.t === 'observe' && typeof script === 'string';
+  if (!isScriptFrame) return undefined;
+  const text = script as string;
+  const isBounded = text !== '' && text.length <= MAX_LABEL_LENGTH && !CONTROL_CHARACTER.test(text);
+  const hasKindShape = kind === 'service-worker' ? isServiceWorkerScript(text) : isNodeScript(text);
+  return isBounded && hasKindShape ? text : undefined;
 }
 
 /** Whether a frame is a page's presence disconnect. */
@@ -211,6 +245,8 @@ export function createLiveClients(now: () => number): LiveClients {
     const route = presenceRoute(inner);
     const isPage = kind === 'browser' && route !== undefined;
     if (isPage) record.label = pagePath(route);
+    const script = scriptLabel(kind, inner);
+    if (script !== undefined) record.label = script;
     const user = observedUser(inner);
     if (user !== undefined) record.user = user;
     const lists = unobservedLists(kind, inner);

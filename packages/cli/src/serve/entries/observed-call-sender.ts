@@ -12,6 +12,9 @@
  * connection. There the sender opens one hosted connection of its own, from
  * `init.json`, at the first observed call, and sends every call on it, as
  * the Node process's sender does (`../../register/observed-call-sender.ts`).
+ * Each of its calls names the worker's script by its URL's path, such as
+ * `/sw.js`, with no origin or query, which the host lists as the client's
+ * label.
  *
  * It also hands the rows' observer `journalLiveListener`, which journals
  * their Firestore listeners in the page's SDK activity
@@ -53,8 +56,19 @@ async function hostConnection(): Promise<ClientDb> {
   return db;
 }
 
+/** The longest script path a service worker names; the host keeps no longer one. */
+const MAX_SCRIPT_LENGTH = 256;
+
+/** A service worker's script path, as the field of its observe frames; nothing for a page or an unusable path. */
+function serviceWorkerScript(): { script?: string } {
+  if (!isServiceWorkerRealm()) return {};
+  const path = (globalThis as { location?: { pathname?: unknown } }).location?.pathname;
+  const isUsable = typeof path === 'string' && path.startsWith('/') && path.length <= MAX_SCRIPT_LENGTH;
+  return isUsable ? { script: path } : {};
+}
+
 /** Sends one observed call. Rejects when the page or service worker has no Node host connection. */
 export async function sendObservedCall(call: ObservedCall): Promise<void> {
   const db = await hostConnection();
-  await rpc(db.port, { t: 'observe', id: nextId(), call });
+  await rpc(db.port, { t: 'observe', id: nextId(), call, ...serviceWorkerScript() });
 }
