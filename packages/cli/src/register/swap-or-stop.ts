@@ -196,8 +196,10 @@ const LIVE_ROW_IMPORTS = joinedList([...INSTALLED_SDK_SPECIFIERS], 'or');
 
 function liveStopFix(family: SdkFamily, isUnservedRequire: boolean): string {
   if (family === 'admin') {
-    return "import firebase-admin by its package name, with pyricLive({ passThrough: ['firebase-admin'] }) on the live host, " +
-      'or move this code to a process without @pyric/live/register';
+    // Node 22's require() skips the hooks, so the Admin rows stay shut there and live mode refuses firebase-admin.
+    const servesAdmin = Number(process.versions.node.split('.')[0]) >= 23;
+    const where = servesAdmin ? 'by its package name, which live mode serves and observes' : 'from Node 23 or later, where live mode serves and observes it';
+    return `import firebase-admin ${where}, or move this code to a process without @pyric/live/register`;
   }
   if (isUnservedRequire) return `import ${LIVE_ROW_IMPORTS} from an ES module, or run Node 23 or later`;
   return `import ${LIVE_ROW_IMPORTS} by its package name, so its live row loads the installed SDK`;
@@ -278,7 +280,7 @@ export interface SuppliedRowsGrant {
    */
   readonly passThroughPackages?: ReadonlySet<string>;
   /**
-   * The app's own `firebase-admin` import, which the register passes through
+   * The app's own `firebase-admin` import, which the register serves through the Admin rows
    * (`passThrough: ['firebase-admin']`): it may load the real Admin SDK.
    */
   readonly isAdminImport?: boolean;
@@ -344,7 +346,7 @@ const LIVE_HOST_SERVER_SDKS: Readonly<Record<string, ServerSdkStop>> = {
   },
   '@google-cloud/storage': {
     reaches: "Cloud Storage's JSON API, which pyric neither observes nor can tell from the Admin SDK's own calls",
-    fix: "import firebase/storage, which live mode serves to a Node process, or firebase-admin/storage with pyricLive({ passThrough: ['firebase-admin'] })",
+    fix: "import firebase/storage, which live mode serves to a Node process, or firebase-admin/storage, which it observes",
   },
 };
 
