@@ -76,6 +76,31 @@ function trafficRows(page: Page): Promise<TrafficRow[]> {
   });
 }
 
+/** The chip's default panel width (a desktop viewport), and the narrowest it allows (the panel follows a phone's viewport). */
+const FOOTER_VIEWPORTS: Array<[number, number]> = [[1280, 860], [360, 740]];
+
+/**
+ * Each Traffic footer button holds its content (`scrollWidth <= clientWidth`),
+ * overlaps no other footer button, and passes Playwright's click checks:
+ * visible, enabled, and the topmost element at its centre.
+ */
+async function assertFooterButtonsFit(page: Page): Promise<void> {
+  const buttons = page.locator('[data-pyric-runtime-chip-host] [data-action-bar] .traffic-toolbar button');
+  const boxes = await buttons.evaluateAll((elements) => elements.map((element) => {
+    const rect = element.getBoundingClientRect();
+    return { attributes: element.getAttributeNames().filter((name) => name.startsWith('data-')).join(' '), scrollWidth: element.scrollWidth, clientWidth: element.clientWidth, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+  }));
+  assert.ok(boxes.length >= 5, `the footer has the view, scope and denied buttons:\n${JSON.stringify(boxes, null, 2)}`);
+  for (const box of boxes) assert.ok(box.scrollWidth <= box.clientWidth, `${box.attributes} cuts off its content:\n${JSON.stringify(box)}`);
+  for (const [index, box] of boxes.entries()) {
+    for (const other of boxes.slice(index + 1)) {
+      const overlaps = box.left < other.right && other.left < box.right && box.top < other.bottom && other.top < box.bottom;
+      assert.ok(!overlaps, `${box.attributes} overlaps ${other.attributes}:\n${JSON.stringify([box, other])}`);
+    }
+  }
+  for (const button of await buttons.all()) await button.click({ trial: true, timeout: 5_000 });
+}
+
 function rowsFor(rows: TrafficRow[], path: string): TrafficRow[] {
   return rows.filter((row) => row.path.includes(path));
 }
@@ -154,6 +179,15 @@ export default scenario(async (app) => {
     const note = page.locator('[data-pyric-runtime-chip-host] [data-traffic-hosted-note]');
     assert.equal(await note.count(), 0, 'the Node host shows the --hosted note');
   });
+
+  for (const [width, height] of FOOTER_VIEWPORTS) {
+    await app.step(`at a ${width}px viewport, every Traffic footer button shows its whole label and takes a click`, async () => {
+      await page.setViewportSize({ width, height });
+      await assertFooterButtonsFit(page);
+      await chooseScope(page, 'page');
+      await chooseScope(page, 'all');
+    });
+  }
 
   await app.step("after a reload, This page still lists the page's earlier requests as its own", async () => {
     await page.reload();

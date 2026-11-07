@@ -361,6 +361,11 @@ const styles = `
   .listener-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: var(--space-2); width: 100%; min-width: 0; }
   .paint-switch { display: grid; grid-template-columns: repeat(2, 64px); gap: 4px; }
   .paint-switch .btn { width: 64px; min-width: 0; font-size: 11px; }
+  /* The source scope takes its own row under the view switch, as one control split in two. */
+  .bar:has(.traffic-scopes) { padding-block: var(--space-4); }
+  .traffic-toolbar:has(.traffic-scopes) { flex-wrap: wrap; row-gap: var(--space-2); }
+  .paint-switch.traffic-scopes { order: 1; flex: 1 0 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .traffic-scopes .btn { width: auto; }
   .listener-toolbar select, .request-controls select { font: inherit; font-size: 11px; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 32px; min-width: 0; text-overflow: ellipsis; }
   .listener-toolbar select:focus-visible, .request-controls select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
   .request-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding-inline-end: var(--record-inset); }
@@ -935,7 +940,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const modes = `<div class="paint-switch" role="group" aria-label="Traffic view">${buttonHtml(`data-traffic-display="requests" aria-pressed="${trafficDisplay === 'requests'}"`, 'Requests')}${buttonHtml(`data-traffic-display="rates" aria-pressed="${trafficDisplay === 'rates'}"`, 'Rates')}</div>`;
     let filter = '';
     if (trafficDisplay === 'requests') {
-      const scopes = trafficFeed ? `<div class="paint-switch" role="group" aria-label="Traffic source">${buttonHtml(`data-traffic-scope="page" aria-pressed="${trafficScope === 'page'}"`, 'This page')}${buttonHtml(`data-traffic-scope="all" aria-pressed="${trafficScope === 'all'}"`, 'All sandbox traffic')}</div>` : '';
+      const scopes = trafficFeed ? `<div class="paint-switch traffic-scopes" role="group" aria-label="Traffic source">${buttonHtml(`data-traffic-scope="page" aria-pressed="${trafficScope === 'page'}"`, 'This page')}${buttonHtml(`data-traffic-scope="all" aria-pressed="${trafficScope === 'all'}"`, 'All sandbox traffic')}</div>` : '';
       filter = scopes + buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only');
     }
     if (trafficDisplay === 'rates' && isThresholdService(selectedRateService)) {
