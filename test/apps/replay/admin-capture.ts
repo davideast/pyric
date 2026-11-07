@@ -18,8 +18,9 @@
 // read outside a transaction carries) is dropped. Document times, Storage
 // object fields and Auth times become fixed test values; a `validSince` first
 // seen after a revoke lies past any token a test mints, so revocation answers
-// as recorded. A request's password and `validSince` match any value, and
-// each push key an RTDB client picked is a `pushId` placeholder.
+// as recorded. A request's password and `validSince` match any value, each
+// push key an RTDB client picked is a `pushId` placeholder, and the document
+// `add` created is an `autoId` placeholder, so an app's own id is kept.
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -116,14 +117,6 @@ export function loadCaptureAdmin(project: string, path: string = CAPTURE_ADMIN):
   return recording;
 }
 
-/** The document id the capture's SDK picked for `add`: an app replaying it picks the same one. */
-export function captureAddId(path: string = CAPTURE_ADMIN): string {
-  const add = readAdminCapture('project', path).grpc.find((call) => call.op === 'firestore.add');
-  const write = (add?.requests[0]?.writes as JsonObject[] | undefined)?.[0];
-  const name = String((write?.update as JsonObject | undefined)?.name ?? '');
-  return name.slice(name.lastIndexOf('/') + 1);
-}
-
 /** 2026-11-01T08:00:00Z plus `seconds`, as Firestore writes a time. */
 function fixedTime(seconds: number): string {
   return new Date(Date.UTC(2026, 10, 1, 8, 0, seconds)).toISOString().replace(/\.\d{3}Z$/, '.000001Z');
@@ -140,7 +133,28 @@ function firestoreExchanges(calls: GrpcCall[]): AdminFirestoreExchange[] {
   const commits = calls
     .filter((call) => rpcOf(call) === 'Commit' && call.responses.length > 0)
     .map((call) => ({ id: firestoreId(call), at: call.responses[0]!.t }));
-  return calls.map((call) => (call.kind === 'bidi' ? listenExchange(call, named, commits) : callExchange(call, named)));
+  const exchanges = calls.map((call) => (call.kind === 'bidi' ? listenExchange(call, named, commits) : callExchange(call, named)));
+  const added = addedDocument(calls);
+  return added === null ? exchanges : exchanges.map((exchange) => withAutoId(exchange, added));
+}
+
+/** The name of the document `add` created, or null when the capture has no `add`. */
+function addedDocument(calls: GrpcCall[]): string | null {
+  const add = calls.find((call) => call.op === 'firestore.add');
+  const write = (add?.requests[0]?.writes as JsonObject[] | undefined)?.[0];
+  const name = (write?.update as JsonObject | undefined)?.name;
+  return typeof name === 'string' ? name : null;
+}
+
+/** `exchange` with each mention of the added document as the `autoId` placeholder `add-1`. */
+function withAutoId(exchange: AdminFirestoreExchange, added: string): AdminFirestoreExchange {
+  const parent = added.slice(0, added.lastIndexOf('/'));
+  const placeholder: JsonObject = { $: 'autoId', name: 'add-1', parent };
+  const convert = (value: Json): Json => (value === added ? placeholder : mapJson(value, convert));
+  const converted = convert(exchange as unknown as Json) as unknown as AdminFirestoreExchange;
+  const id = added.slice(added.lastIndexOf('/') + 1);
+  if (JSON.stringify(converted).includes(id)) throw new Error(`replay: capture A names the added document ${id} outside a document name`);
+  return converted;
 }
 
 function rpcOf(call: GrpcCall): AdminFirestoreRpc {
