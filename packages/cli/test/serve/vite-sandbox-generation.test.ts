@@ -268,24 +268,7 @@ describe('active Vite sandbox generation', () => {
     await generation.close();
   });
 
-  it('reports a supplied firebase-admin pass-through as the admin field, not a client import', async () => {
-    const h = harness();
-    let liveHost: BridgeMountOptions['liveHost'];
-    const create = h.dependencies.createBridge!;
-    h.dependencies.createBridge = (bridgeOptions) => {
-      liveHost = bridgeOptions.liveHost;
-      return create(bridgeOptions);
-    };
-    h.input.options.liveHost = true;
-    h.input.options.livePassThrough = ['firebase/ai', 'firebase-admin'];
-    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
-    const report = liveHost?.report();
-    expect(report?.admin).toEqual({ mode: 'pass-through', observed: false, bypassesRules: true });
-    expect(report?.passThrough).toEqual(['firebase/ai']);
-    await generation.close();
-  });
-
-  it('leaves the admin field off when the supplied list has no firebase-admin', async () => {
+  it('reports the Admin SDK as observed on a live host, apart from the passed-through client imports', async () => {
     const h = harness();
     let liveHost: BridgeMountOptions['liveHost'];
     const create = h.dependencies.createBridge!;
@@ -296,7 +279,24 @@ describe('active Vite sandbox generation', () => {
     h.input.options.liveHost = true;
     h.input.options.livePassThrough = ['firebase/ai'];
     const generation = await createViteSandboxGeneration(h.input, h.dependencies);
-    expect(liveHost?.report()).not.toHaveProperty('admin');
+    const report = liveHost?.report();
+    expect(report?.admin).toEqual({ mode: 'observed', observed: true, bypassesRules: true });
+    expect(report?.passThrough).toEqual(['firebase/ai']);
+    await generation.close();
+  });
+
+  it('reports the Admin SDK as observed when nothing passes through', async () => {
+    const h = harness();
+    let liveHost: BridgeMountOptions['liveHost'];
+    const create = h.dependencies.createBridge!;
+    h.dependencies.createBridge = (bridgeOptions) => {
+      liveHost = bridgeOptions.liveHost;
+      return create(bridgeOptions);
+    };
+    h.input.options.liveHost = true;
+    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    expect(liveHost?.report().admin).toEqual({ mode: 'observed', observed: true, bypassesRules: true });
+    expect(liveHost?.report()).not.toHaveProperty('passThrough');
     await generation.close();
   });
 });

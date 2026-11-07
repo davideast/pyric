@@ -65,7 +65,7 @@ export interface ViteSandboxGenerationOptions {
   project?: string;
   /** Set only through `@pyric/live`'s seam: the host reports its status as live (`live-host-state.ts`). */
   liveHost?: boolean;
-  /** The live host's pass-through list: `firebase/*` imports its health report lists, and `firebase-admin` as its `admin` field (`live-host-state.ts`). */
+  /** The live host's pass-through list: the `firebase/*` imports its health report lists (`live-host-state.ts`). */
   livePassThrough?: readonly string[];
   /** The imports the page resolved to live rows, read at each report (`live-host-state.ts`). */
   liveObserved?: ObservedImportsSource;
@@ -126,20 +126,6 @@ export interface ViteSandboxGenerationDependencies {
   attachFunctions(options: ViteFunctionsDevelopmentOptions): ViteFunctionsDevelopmentAttachment;
   registerModuleUrl: typeof registerModuleUrl;
   fileExists(path: string): boolean;
-}
-
-const ADMIN_SDK = 'firebase-admin';
-
-/**
- * The supplied pass-through list split for the health report: `firebase/*`
- * imports stay in `passThrough`, and `firebase-admin` becomes the `admin` field.
- */
-function liveHostPassThrough(list: readonly string[] | undefined): { passThrough: string[]; adminPassThrough: boolean } {
-  const imports = list ?? [];
-  return {
-    passThrough: imports.filter((name) => name !== ADMIN_SDK),
-    adminPassThrough: imports.includes(ADMIN_SDK),
-  };
 }
 
 const DEFAULT_DEPENDENCIES: ViteSandboxGenerationDependencies = {
@@ -253,7 +239,7 @@ export async function createViteSandboxGeneration(
         configSource: firebaseProject.source,
         optionName: 'the `project` option of pyricLive()',
         warn: (line) => server.config.logger.warn(line, { timestamp: true }),
-        ...liveHostPassThrough(options.livePassThrough),
+        passThrough: options.livePassThrough,
         observed: options.liveObserved,
       })
       : undefined;

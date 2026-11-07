@@ -1,0 +1,1036 @@
+{
+  "schema": "pyric.assurance.export.v1",
+  "campaign": {
+    "schema": "pyric.assurance.campaign.v1",
+    "id": "spaces-chat-assurance",
+    "target": {
+      "schema": "pyric.assurance.target.v1",
+      "network": "forbid",
+      "rules": {
+        "rtdb": {
+          "rules": {
+            ".read": false,
+            ".write": false,
+            "spaces_app": {
+              "spaces": {
+                "$spaceid": {
+                  "metadata": {
+                    ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+                    "members": {
+                      "$uid": {
+                        ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && (root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('role').val() == 'admin' || (auth.uid == $uid && newData.child('role').val() != 'admin'))"
+                      }
+                    }
+                  },
+                  "chatHistory": {
+                    "$tabid": {
+                      ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && (!root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').exists() || root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').child(auth.uid).val() == true)",
+                      ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && (!root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').exists() || root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').child(auth.uid).val() == true)",
+                      ".indexOn": [
+                        "whenNeg"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "state": {
+        "rtdb": {
+          "spaces_app": {
+            "client_config": {
+              "appName": "Spaces"
+            },
+            "userinfo": {
+              "alice": {
+                "displayName": "Alice",
+                "settings": {
+                  "tos": {
+                    "acceptedVersion": 999999
+                  }
+                },
+                "spaces": {
+                  "s1": true
+                }
+              },
+              "bob": {
+                "displayName": "Bob",
+                "settings": {
+                  "tos": {
+                    "acceptedVersion": 999999
+                  }
+                },
+                "spaces": {
+                  "s1": true
+                }
+              }
+            },
+            "spaces": {
+              "s1": {
+                "metadata": {
+                  "title": "Prod Deploy Review",
+                  "modifiedAt": 1793992967191,
+                  "members": {
+                    "alice": {
+                      "uid": "alice",
+                      "role": "admin",
+                      "displayName": "Alice"
+                    },
+                    "bob": {
+                      "uid": "bob",
+                      "displayName": "Bob"
+                    }
+                  }
+                },
+                "data": {
+                  "tabs": {
+                    "pub": {
+                      "id": "pub",
+                      "type": "chat",
+                      "title": "Group chat",
+                      "createdAt": 1793992967191,
+                      "modifiedAt": 1793992967191,
+                      "order": 0,
+                      "metadata": {}
+                    }
+                  }
+                },
+                "chatHistory": {
+                  "pub": {
+                    "m1": {
+                      "type": "message",
+                      "when": 1793993037191,
+                      "whenNeg": -1793993037191,
+                      "speaker": {
+                        "type": "human",
+                        "uid": "alice",
+                        "displayName": "Alice"
+                      },
+                      "content": {
+                        "text": "Hello from Alice"
+                      }
+                    },
+                    "m2": {
+                      "type": "message",
+                      "when": 1793993097191,
+                      "whenNeg": -1793993097191,
+                      "speaker": {
+                        "type": "human",
+                        "uid": "bob",
+                        "displayName": "Bob"
+                      },
+                      "content": {
+                        "text": "Hi Alice, Bob here"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "auth": {
+          "users": [
+            {
+              "uid": "alice",
+              "customClaims": {
+                "hasAccess": "granted"
+              }
+            },
+            {
+              "uid": "bob",
+              "customClaims": {
+                "hasAccess": "granted"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "actors": [
+      {
+        "id": "alice",
+        "acquisition": {
+          "kind": "fixture-user",
+          "uid": "alice"
+        }
+      },
+      {
+        "id": "bob",
+        "acquisition": {
+          "kind": "fixture-user",
+          "uid": "bob"
+        }
+      }
+    ],
+    "invariants": [
+      {
+        "id": "chat-message-speaker-only-write",
+        "statement": "Only a chat message's speaker may write chatHistory/$tabid/$messageid (including its content); other space members may read it but not change it.",
+        "service": "rtdb",
+        "expected": "DENY",
+        "source": "declared",
+        "confidence": "strong"
+      }
+    ],
+    "probes": [
+      {
+        "id": "bob-overwrites-alice-message",
+        "actorId": "bob",
+        "invariantId": "chat-message-speaker-only-write",
+        "control": {
+          "service": "rtdb",
+          "method": "set",
+          "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+          "data": {
+            "text": "Approved. Ship it to prod.",
+            "edited": true
+          }
+        },
+        "mutation": {
+          "dimension": "path",
+          "description": "Same write, but aimed at Alice's message m1 instead of Bob's own m2",
+          "operation": {
+            "service": "rtdb",
+            "method": "set",
+            "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+            "data": {
+              "text": "Approved. Ship it to prod.",
+              "edited": true
+            }
+          }
+        }
+      },
+      {
+        "id": "alice-overwrites-bob-message",
+        "actorId": "alice",
+        "invariantId": "chat-message-speaker-only-write",
+        "control": {
+          "service": "rtdb",
+          "method": "set",
+          "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+          "data": {
+            "text": "Hello from Alice (edited)"
+          }
+        },
+        "mutation": {
+          "dimension": "path",
+          "description": "Same write, but aimed at Bob's message m2 instead of Alice's own m1",
+          "operation": {
+            "service": "rtdb",
+            "method": "set",
+            "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+            "data": {
+              "text": "Hello from Alice (edited)"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "observations": [
+    {
+      "id": "alice-edits-own-message",
+      "actorId": "alice",
+      "result": "ALLOW",
+      "source": "authored",
+      "description": "Alice edits the text of her own chat message m1",
+      "operation": {
+        "service": "rtdb",
+        "method": "set",
+        "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+        "data": {
+          "text": "Hello from Alice (edited)"
+        }
+      }
+    },
+    {
+      "id": "bob-edits-own-message",
+      "actorId": "bob",
+      "result": "ALLOW",
+      "source": "authored",
+      "description": "Bob edits the text of his own chat message m2",
+      "operation": {
+        "service": "rtdb",
+        "method": "set",
+        "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+        "data": {
+          "text": "Approved. Ship it to prod.",
+          "edited": true
+        }
+      }
+    }
+  ],
+  "report": {
+    "schema": "pyric.assurance.report.v1",
+    "campaignId": "spaces-chat-assurance",
+    "targetHash": "fnv1a32-9c249433",
+    "localOnly": {
+      "network": "forbid",
+      "engine": "pyric-local-sandboxes"
+    },
+    "results": [
+      {
+        "campaignId": "spaces-chat-assurance",
+        "probeId": "bob-overwrites-alice-message",
+        "targetHash": "fnv1a32-9c249433",
+        "actorEvidence": {
+          "actorId": "bob",
+          "acquisition": "fixture-user",
+          "reachability": "reachable",
+          "uid": "bob"
+        },
+        "invariant": {
+          "id": "chat-message-speaker-only-write",
+          "statement": "Only a chat message's speaker may write chatHistory/$tabid/$messageid (including its content); other space members may read it but not change it.",
+          "service": "rtdb",
+          "expected": "DENY",
+          "source": "declared",
+          "confidence": "strong"
+        },
+        "mutationSpec": {
+          "dimension": "path",
+          "description": "Same write, but aimed at Alice's message m1 instead of Bob's own m2",
+          "operation": {
+            "service": "rtdb",
+            "method": "set",
+            "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+            "data": {
+              "text": "Approved. Ship it to prod.",
+              "edited": true
+            }
+          }
+        },
+        "control": {
+          "operation": {
+            "service": "rtdb",
+            "method": "set",
+            "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+            "data": {
+              "text": "Approved. Ship it to prod.",
+              "edited": true
+            }
+          },
+          "decision": "ALLOW",
+          "output": null
+        },
+        "mutation": {
+          "operation": {
+            "service": "rtdb",
+            "method": "set",
+            "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+            "data": {
+              "text": "Approved. Ship it to prod.",
+              "edited": true
+            }
+          },
+          "decision": "ALLOW",
+          "output": null
+        },
+        "stateDiff": {
+          "changed": true,
+          "before": {
+            "text": "Hello from Alice"
+          },
+          "after": {
+            "edited": true,
+            "text": "Approved. Ship it to prod."
+          }
+        },
+        "qualification": {
+          "engine": "pyric-local-sandboxes",
+          "supported": true,
+          "requirements": [
+            {
+              "id": "rtdb.rules-present",
+              "supported": true,
+              "reason": "RTDB probes require an explicit rules JSON document."
+            },
+            {
+              "id": "rtdb.rules-load",
+              "supported": true,
+              "reason": "The RTDB rules source parses and is within production's compile limits."
+            },
+            {
+              "id": "rtdb.rules-parse",
+              "supported": true,
+              "reason": "All RTDB expressions relevant to the probed paths parsed successfully."
+            },
+            {
+              "id": "rtdb.query-rules",
+              "supported": true,
+              "reason": "The rules used by this probe do not authorize from query constraints."
+            },
+            {
+              "id": "rtdb.rule-location-data",
+              "supported": true,
+              "reason": "The rules used by this probe do not depend on data/newData."
+            }
+          ]
+        },
+        "classification": "local-counterexample"
+      },
+      {
+        "campaignId": "spaces-chat-assurance",
+        "probeId": "alice-overwrites-bob-message",
+        "targetHash": "fnv1a32-9c249433",
+        "actorEvidence": {
+          "actorId": "alice",
+          "acquisition": "fixture-user",
+          "reachability": "reachable",
+          "uid": "alice"
+        },
+        "invariant": {
+          "id": "chat-message-speaker-only-write",
+          "statement": "Only a chat message's speaker may write chatHistory/$tabid/$messageid (including its content); other space members may read it but not change it.",
+          "service": "rtdb",
+          "expected": "DENY",
+          "source": "declared",
+          "confidence": "strong"
+        },
+        "mutationSpec": {
+          "dimension": "path",
+          "description": "Same write, but aimed at Bob's message m2 instead of Alice's own m1",
+          "operation": {
+            "service": "rtdb",
+            "method": "set",
+            "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+            "data": {
+              "text": "Hello from Alice (edited)"
+            }
+          }
+        },
+        "control": {
+          "operation": {
+            "service": "rtdb",
+            "method": "set",
+            "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+            "data": {
+              "text": "Hello from Alice (edited)"
+            }
+          },
+          "decision": "ALLOW",
+          "output": null
+        },
+        "mutation": {
+          "operation": {
+            "service": "rtdb",
+            "method": "set",
+            "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+            "data": {
+              "text": "Hello from Alice (edited)"
+            }
+          },
+          "decision": "ALLOW",
+          "output": null
+        },
+        "stateDiff": {
+          "changed": true,
+          "before": {
+            "text": "Hi Alice, Bob here"
+          },
+          "after": {
+            "text": "Hello from Alice (edited)"
+          }
+        },
+        "qualification": {
+          "engine": "pyric-local-sandboxes",
+          "supported": true,
+          "requirements": [
+            {
+              "id": "rtdb.rules-present",
+              "supported": true,
+              "reason": "RTDB probes require an explicit rules JSON document."
+            },
+            {
+              "id": "rtdb.rules-load",
+              "supported": true,
+              "reason": "The RTDB rules source parses and is within production's compile limits."
+            },
+            {
+              "id": "rtdb.rules-parse",
+              "supported": true,
+              "reason": "All RTDB expressions relevant to the probed paths parsed successfully."
+            },
+            {
+              "id": "rtdb.query-rules",
+              "supported": true,
+              "reason": "The rules used by this probe do not authorize from query constraints."
+            },
+            {
+              "id": "rtdb.rule-location-data",
+              "supported": true,
+              "reason": "The rules used by this probe do not depend on data/newData."
+            }
+          ]
+        },
+        "classification": "local-counterexample"
+      }
+    ],
+    "summary": {
+      "probes": 2,
+      "controlsPassed": 2,
+      "localCounterexamples": 2,
+      "candidateSignals": 0,
+      "noCounterexamples": 0,
+      "engineGaps": 0,
+      "invalidProbes": 0
+    }
+  },
+  "cases": [
+    {
+      "schema": "pyric.assurance.case.v1",
+      "id": "bob-overwrites-alice-message",
+      "campaignId": "spaces-chat-assurance",
+      "actorId": "bob",
+      "invariant": {
+        "id": "chat-message-speaker-only-write",
+        "statement": "Only a chat message's speaker may write chatHistory/$tabid/$messageid (including its content); other space members may read it but not change it.",
+        "service": "rtdb",
+        "expected": "DENY",
+        "source": "declared",
+        "confidence": "strong"
+      },
+      "control": {
+        "service": "rtdb",
+        "method": "set",
+        "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+        "data": {
+          "text": "Approved. Ship it to prod.",
+          "edited": true
+        }
+      },
+      "mutation": {
+        "dimension": "path",
+        "description": "Same write, but aimed at Alice's message m1 instead of Bob's own m2",
+        "operation": {
+          "service": "rtdb",
+          "method": "set",
+          "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+          "data": {
+            "text": "Approved. Ship it to prod.",
+            "edited": true
+          }
+        }
+      },
+      "expect": "DENY",
+      "qualification": {
+        "engine": "pyric-local-sandboxes",
+        "supported": true,
+        "requirements": [
+          {
+            "id": "rtdb.rules-present",
+            "supported": true,
+            "reason": "RTDB probes require an explicit rules JSON document."
+          },
+          {
+            "id": "rtdb.rules-load",
+            "supported": true,
+            "reason": "The RTDB rules source parses and is within production's compile limits."
+          },
+          {
+            "id": "rtdb.rules-parse",
+            "supported": true,
+            "reason": "All RTDB expressions relevant to the probed paths parsed successfully."
+          },
+          {
+            "id": "rtdb.query-rules",
+            "supported": true,
+            "reason": "The rules used by this probe do not authorize from query constraints."
+          },
+          {
+            "id": "rtdb.rule-location-data",
+            "supported": true,
+            "reason": "The rules used by this probe do not depend on data/newData."
+          }
+        ]
+      }
+    },
+    {
+      "schema": "pyric.assurance.case.v1",
+      "id": "alice-overwrites-bob-message",
+      "campaignId": "spaces-chat-assurance",
+      "actorId": "alice",
+      "invariant": {
+        "id": "chat-message-speaker-only-write",
+        "statement": "Only a chat message's speaker may write chatHistory/$tabid/$messageid (including its content); other space members may read it but not change it.",
+        "service": "rtdb",
+        "expected": "DENY",
+        "source": "declared",
+        "confidence": "strong"
+      },
+      "control": {
+        "service": "rtdb",
+        "method": "set",
+        "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+        "data": {
+          "text": "Hello from Alice (edited)"
+        }
+      },
+      "mutation": {
+        "dimension": "path",
+        "description": "Same write, but aimed at Bob's message m2 instead of Alice's own m1",
+        "operation": {
+          "service": "rtdb",
+          "method": "set",
+          "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+          "data": {
+            "text": "Hello from Alice (edited)"
+          }
+        }
+      },
+      "expect": "DENY",
+      "qualification": {
+        "engine": "pyric-local-sandboxes",
+        "supported": true,
+        "requirements": [
+          {
+            "id": "rtdb.rules-present",
+            "supported": true,
+            "reason": "RTDB probes require an explicit rules JSON document."
+          },
+          {
+            "id": "rtdb.rules-load",
+            "supported": true,
+            "reason": "The RTDB rules source parses and is within production's compile limits."
+          },
+          {
+            "id": "rtdb.rules-parse",
+            "supported": true,
+            "reason": "All RTDB expressions relevant to the probed paths parsed successfully."
+          },
+          {
+            "id": "rtdb.query-rules",
+            "supported": true,
+            "reason": "The rules used by this probe do not authorize from query constraints."
+          },
+          {
+            "id": "rtdb.rule-location-data",
+            "supported": true,
+            "reason": "The rules used by this probe do not depend on data/newData."
+          }
+        ]
+      }
+    }
+  ],
+  "verifications": [
+    {
+      "schema": "pyric.assurance.report.v1",
+      "campaignId": "fixed-speaker-check",
+      "targetHash": "fnv1a32-26bf4305",
+      "localOnly": {
+        "network": "forbid",
+        "engine": "pyric-local-sandboxes"
+      },
+      "results": [
+        {
+          "campaignId": "fixed-speaker-check",
+          "probeId": "bob-overwrites-alice-message",
+          "targetHash": "fnv1a32-26bf4305",
+          "actorEvidence": {
+            "actorId": "bob",
+            "acquisition": "fixture-user",
+            "reachability": "unreachable"
+          },
+          "invariant": {
+            "id": "chat-message-speaker-only-write",
+            "statement": "Only a chat message's speaker may write chatHistory/$tabid/$messageid (including its content); other space members may read it but not change it.",
+            "service": "rtdb",
+            "expected": "DENY",
+            "source": "declared",
+            "confidence": "strong"
+          },
+          "mutationSpec": {
+            "dimension": "path",
+            "description": "Same write, but aimed at Alice's message m1 instead of Bob's own m2",
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+              "data": {
+                "text": "Approved. Ship it to prod.",
+                "edited": true
+              }
+            }
+          },
+          "control": {
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+              "data": {
+                "text": "Approved. Ship it to prod.",
+                "edited": true
+              }
+            },
+            "decision": "UNSUPPORTED"
+          },
+          "mutation": {
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+              "data": {
+                "text": "Approved. Ship it to prod.",
+                "edited": true
+              }
+            },
+            "decision": "UNSUPPORTED"
+          },
+          "qualification": {
+            "engine": "pyric-local-sandboxes",
+            "supported": false,
+            "requirements": [
+              {
+                "id": "rtdb.rules-present",
+                "supported": true,
+                "reason": "RTDB probes require an explicit rules JSON document."
+              },
+              {
+                "id": "rtdb.rules-load",
+                "supported": true,
+                "reason": "The RTDB rules source parses and is within production's compile limits."
+              },
+              {
+                "id": "rtdb.rules-parse",
+                "supported": true,
+                "reason": "All RTDB expressions relevant to the probed paths parsed successfully."
+              },
+              {
+                "id": "rtdb.query-rules",
+                "supported": true,
+                "reason": "The rules used by this probe do not authorize from query constraints."
+              },
+              {
+                "id": "rtdb.rule-location-data",
+                "supported": false,
+                "reason": "The current evaluator cannot prove ancestor rule-location data/newData merged-tree semantics."
+              }
+            ]
+          },
+          "classification": "engine-gap"
+        },
+        {
+          "campaignId": "fixed-speaker-check",
+          "probeId": "alice-overwrites-bob-message",
+          "targetHash": "fnv1a32-26bf4305",
+          "actorEvidence": {
+            "actorId": "alice",
+            "acquisition": "fixture-user",
+            "reachability": "unreachable"
+          },
+          "invariant": {
+            "id": "chat-message-speaker-only-write",
+            "statement": "Only a chat message's speaker may write chatHistory/$tabid/$messageid (including its content); other space members may read it but not change it.",
+            "service": "rtdb",
+            "expected": "DENY",
+            "source": "declared",
+            "confidence": "strong"
+          },
+          "mutationSpec": {
+            "dimension": "path",
+            "description": "Same write, but aimed at Bob's message m2 instead of Alice's own m1",
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+              "data": {
+                "text": "Hello from Alice (edited)"
+              }
+            }
+          },
+          "control": {
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+              "data": {
+                "text": "Hello from Alice (edited)"
+              }
+            },
+            "decision": "UNSUPPORTED"
+          },
+          "mutation": {
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+              "data": {
+                "text": "Hello from Alice (edited)"
+              }
+            },
+            "decision": "UNSUPPORTED"
+          },
+          "qualification": {
+            "engine": "pyric-local-sandboxes",
+            "supported": false,
+            "requirements": [
+              {
+                "id": "rtdb.rules-present",
+                "supported": true,
+                "reason": "RTDB probes require an explicit rules JSON document."
+              },
+              {
+                "id": "rtdb.rules-load",
+                "supported": true,
+                "reason": "The RTDB rules source parses and is within production's compile limits."
+              },
+              {
+                "id": "rtdb.rules-parse",
+                "supported": true,
+                "reason": "All RTDB expressions relevant to the probed paths parsed successfully."
+              },
+              {
+                "id": "rtdb.query-rules",
+                "supported": true,
+                "reason": "The rules used by this probe do not authorize from query constraints."
+              },
+              {
+                "id": "rtdb.rule-location-data",
+                "supported": false,
+                "reason": "The current evaluator cannot prove ancestor rule-location data/newData merged-tree semantics."
+              }
+            ]
+          },
+          "classification": "engine-gap"
+        }
+      ],
+      "summary": {
+        "probes": 2,
+        "controlsPassed": 0,
+        "localCounterexamples": 0,
+        "candidateSignals": 0,
+        "noCounterexamples": 0,
+        "engineGaps": 2,
+        "invalidProbes": 0
+      }
+    },
+    {
+      "schema": "pyric.assurance.report.v1",
+      "campaignId": "fixed-rootonly",
+      "targetHash": "fnv1a32-756fae95",
+      "localOnly": {
+        "network": "forbid",
+        "engine": "pyric-local-sandboxes"
+      },
+      "results": [
+        {
+          "campaignId": "fixed-rootonly",
+          "probeId": "bob-overwrites-alice-message",
+          "targetHash": "fnv1a32-756fae95",
+          "actorEvidence": {
+            "actorId": "bob",
+            "acquisition": "fixture-user",
+            "reachability": "reachable",
+            "uid": "bob"
+          },
+          "invariant": {
+            "id": "chat-message-speaker-only-write",
+            "statement": "Only a chat message's speaker may write chatHistory/$tabid/$messageid (including its content); other space members may read it but not change it.",
+            "service": "rtdb",
+            "expected": "DENY",
+            "source": "declared",
+            "confidence": "strong"
+          },
+          "mutationSpec": {
+            "dimension": "path",
+            "description": "Same write, but aimed at Alice's message m1 instead of Bob's own m2",
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+              "data": {
+                "text": "Approved. Ship it to prod.",
+                "edited": true
+              }
+            }
+          },
+          "control": {
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+              "data": {
+                "text": "Approved. Ship it to prod.",
+                "edited": true
+              }
+            },
+            "decision": "ALLOW",
+            "output": null
+          },
+          "mutation": {
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+              "data": {
+                "text": "Approved. Ship it to prod.",
+                "edited": true
+              }
+            },
+            "decision": "DENY",
+            "error": {
+              "code": "PERMISSION_DENIED",
+              "message": "PERMISSION_DENIED: Permission denied"
+            }
+          },
+          "stateDiff": {
+            "changed": false,
+            "before": {
+              "text": "Hello from Alice"
+            },
+            "after": {
+              "text": "Hello from Alice"
+            }
+          },
+          "qualification": {
+            "engine": "pyric-local-sandboxes",
+            "supported": true,
+            "requirements": [
+              {
+                "id": "rtdb.rules-present",
+                "supported": true,
+                "reason": "RTDB probes require an explicit rules JSON document."
+              },
+              {
+                "id": "rtdb.rules-load",
+                "supported": true,
+                "reason": "The RTDB rules source parses and is within production's compile limits."
+              },
+              {
+                "id": "rtdb.rules-parse",
+                "supported": true,
+                "reason": "All RTDB expressions relevant to the probed paths parsed successfully."
+              },
+              {
+                "id": "rtdb.query-rules",
+                "supported": true,
+                "reason": "The rules used by this probe do not authorize from query constraints."
+              },
+              {
+                "id": "rtdb.rule-location-data",
+                "supported": true,
+                "reason": "The rules used by this probe do not depend on data/newData."
+              }
+            ]
+          },
+          "classification": "no-counterexample"
+        },
+        {
+          "campaignId": "fixed-rootonly",
+          "probeId": "alice-overwrites-bob-message",
+          "targetHash": "fnv1a32-756fae95",
+          "actorEvidence": {
+            "actorId": "alice",
+            "acquisition": "fixture-user",
+            "reachability": "reachable",
+            "uid": "alice"
+          },
+          "invariant": {
+            "id": "chat-message-speaker-only-write",
+            "statement": "Only a chat message's speaker may write chatHistory/$tabid/$messageid (including its content); other space members may read it but not change it.",
+            "service": "rtdb",
+            "expected": "DENY",
+            "source": "declared",
+            "confidence": "strong"
+          },
+          "mutationSpec": {
+            "dimension": "path",
+            "description": "Same write, but aimed at Bob's message m2 instead of Alice's own m1",
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+              "data": {
+                "text": "Hello from Alice (edited)"
+              }
+            }
+          },
+          "control": {
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m1/content",
+              "data": {
+                "text": "Hello from Alice (edited)"
+              }
+            },
+            "decision": "ALLOW",
+            "output": null
+          },
+          "mutation": {
+            "operation": {
+              "service": "rtdb",
+              "method": "set",
+              "path": "/spaces_app/spaces/s1/chatHistory/pub/m2/content",
+              "data": {
+                "text": "Hello from Alice (edited)"
+              }
+            },
+            "decision": "DENY",
+            "error": {
+              "code": "PERMISSION_DENIED",
+              "message": "PERMISSION_DENIED: Permission denied"
+            }
+          },
+          "stateDiff": {
+            "changed": false,
+            "before": {
+              "text": "Hi Alice, Bob here"
+            },
+            "after": {
+              "text": "Hi Alice, Bob here"
+            }
+          },
+          "qualification": {
+            "engine": "pyric-local-sandboxes",
+            "supported": true,
+            "requirements": [
+              {
+                "id": "rtdb.rules-present",
+                "supported": true,
+                "reason": "RTDB probes require an explicit rules JSON document."
+              },
+              {
+                "id": "rtdb.rules-load",
+                "supported": true,
+                "reason": "The RTDB rules source parses and is within production's compile limits."
+              },
+              {
+                "id": "rtdb.rules-parse",
+                "supported": true,
+                "reason": "All RTDB expressions relevant to the probed paths parsed successfully."
+              },
+              {
+                "id": "rtdb.query-rules",
+                "supported": true,
+                "reason": "The rules used by this probe do not authorize from query constraints."
+              },
+              {
+                "id": "rtdb.rule-location-data",
+                "supported": true,
+                "reason": "The rules used by this probe do not depend on data/newData."
+              }
+            ]
+          },
+          "classification": "no-counterexample"
+        }
+      ],
+      "summary": {
+        "probes": 2,
+        "controlsPassed": 2,
+        "localCounterexamples": 0,
+        "candidateSignals": 0,
+        "noCounterexamples": 2,
+        "engineGaps": 0,
+        "invalidProbes": 0
+      }
+    }
+  ],
+  "redactions": [
+    "campaign.target.state.auth.users[].password",
+    "campaign.actors[].acquisition.password"
+  ]
+}

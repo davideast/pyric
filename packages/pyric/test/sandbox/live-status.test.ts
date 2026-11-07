@@ -10,6 +10,7 @@ import {
   createBilledCallCounter,
   createLiveStatusPoller,
   liveMismatchLine,
+  livePassThroughLine,
   liveProjectOf,
   readLiveHostStatus,
 } from '../../src/sandbox/internal/index.js';
@@ -35,6 +36,24 @@ describe('billedCallKind', () => {
       expect(billedCallKind(call(method)), method).toBe('write');
     }
     for (const method of ['onSnapshot', 'onSnapshotResume']) expect(billedCallKind(call(method)), method).toBe('delivery');
+  });
+
+  it('counts each Admin Firestore call as the client method it bills as', () => {
+    for (const method of ['DocumentReference.get', 'Query.get', 'AggregateQuery.get', 'Firestore.getAll']) {
+      expect(billedCallKind(call(method)), method).toBe('read');
+    }
+    const writes = ['DocumentReference.set', 'DocumentReference.update', 'DocumentReference.delete', 'DocumentReference.create', 'CollectionReference.add', 'WriteBatch.commit', 'Firestore.runTransaction'];
+    for (const method of writes) expect(billedCallKind(call(method)), method).toBe('write');
+    for (const method of ['DocumentReference.onSnapshot', 'Query.onSnapshot']) expect(billedCallKind(call(method)), method).toBe('delivery');
+    expect(billedCallKind(call('DocumentReference.listCollections'))).toBeNull();
+    expect(billedCallKind(call('Auth.getUser', { status: 'ok' }, 'auth'))).toBeNull();
+  });
+
+  it('counts an Admin Query.get by the documents it returned', () => {
+    const counter = createBilledCallCounter();
+    counter.addCall({ ...call('Query.get'), usage: { documentReads: 3 } });
+    counter.addCall({ ...call('WriteBatch.commit'), usage: { documentWrites: 2 } });
+    expect(counter.count()).toEqual({ reads: 3, writes: 2, deliveries: 0 });
   });
 
   it('leaves out failures, cache reads and Auth calls', () => {
@@ -133,12 +152,24 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, observed: ['firebase/firestore', 7] } })).toBeNull();
   });
 
-  it('reads the Admin pass-through, and drops a malformed one without losing the status', () => {
-    const admin = { mode: 'pass-through', observed: false, bypassesRules: true };
+  it('reads the observed Admin SDK, and drops a malformed or pass-through one without losing the status', () => {
+    const admin = { mode: 'observed', observed: true, bypassesRules: true };
     expect(readLiveHostStatus({ live: { ...LIVE, admin } })).toEqual({ ...LIVE, admin });
     expect(readLiveHostStatus({ live: LIVE })).not.toHaveProperty('admin');
-    expect(readLiveHostStatus({ live: { ...LIVE, admin: { ...admin, mode: 'observed' } } })).toEqual(LIVE);
-    expect(readLiveHostStatus({ live: { ...LIVE, admin: 'pass-through' } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: { mode: 'pass-through', observed: false, bypassesRules: true } } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: { ...admin, observed: false } } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: { ...admin, bypassesRules: false } } })).toEqual(LIVE);
+    expect(readLiveHostStatus({ live: { ...LIVE, admin: 'observed' } })).toEqual(LIVE);
+  });
+
+  it('reads only firebase/* imports as passed through, now that firebase-admin is observed', () => {
+    expect(readLiveHostStatus({ live: { ...LIVE, passThrough: ['firebase/functions'] } })).toEqual({ ...LIVE, passThrough: ['firebase/functions'] });
+    expect(readLiveHostStatus({ live: { ...LIVE, passThrough: ['firebase/functions', 'firebase-admin'] } })).toBeNull();
+  });
+
+  it('gives firebase-admin no pass-through line of its own', () => {
+    expect(livePassThroughLine('firebase/functions')).toBe('firebase/functions passes through to production: its calls are not observed and still bill.');
+    expect(livePassThroughLine('firebase-admin')).not.toContain('bypass');
   });
 
   it('reads the clients connected to the host, and drops a malformed entry without losing the status', () => {

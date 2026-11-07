@@ -80,7 +80,7 @@ beforeAll(async () => {
   const replay = await loadReplay();
   server = await replay.startReplayServer([replay.readRecording(FIXTURE)]);
   process.env.FIREBASE_AUTH_EMULATOR_HOST = new URL(server.origin).host;
-  observeAdminAuth(baseAuthModule, { observer, gate: adminProjectGate(PROJECT, (line) => lines.push(line), {}) });
+  observeAdminAuth(baseAuthModule, { observer, gate: adminProjectGate(PROJECT, (line) => lines.push(line), {}), hostProjectId: PROJECT });
   auth = getAuth(initializeApp({ projectId: PROJECT }, 'admin-auth-row'));
 });
 
@@ -108,7 +108,7 @@ test('the patched method keeps its name and length, and patching twice changes n
   expect(patched).not.toBe(realGetUser);
   expect(patched.name).toBe(realGetUser.name);
   expect(patched.length).toBe(realGetUser.length);
-  observeAdminAuth(baseAuthModule, { observer, gate: adminProjectGate(PROJECT, () => undefined, {}) });
+  observeAdminAuth(baseAuthModule, { observer, gate: adminProjectGate(PROJECT, () => undefined, {}), hostProjectId: PROJECT });
   expect(baseAuthModule.BaseAuth.prototype.getUser).toBe(patched);
 });
 
@@ -185,4 +185,24 @@ test('no record carries a token, password, email or claim value, and nested SDK 
   for (const secret of [EMAIL, PASSWORD, emulatorToken('user-a').split('.')[1]!, 'capture', 'Capture']) expect(text).not.toContain(secret);
   expect(records.some((record) => record.account?.claims !== undefined)).toBe(false);
   expect(records.filter((record) => record.name === 'Auth.getUser')).toHaveLength(2);
+});
+
+/** A token shaped as a pyric sandbox mints one: RS256 under the sandbox key id, with a securetoken issuer. Unsigned: only its issuer is read. */
+function sandboxToken(uid: string): string {
+  const segment = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { iss: `https://securetoken.google.com/${PROJECT}`, aud: PROJECT, auth_time: now, user_id: uid, sub: uid, iat: now, exp: now + 3600 };
+  return `${segment({ alg: 'RS256', kid: 'pyric-sandbox', typ: 'JWT' })}.${segment(claims)}.c2lnbmF0dXJl`;
+}
+
+test('a sandbox-issued token is refused by name at verifyIdToken and verifySessionCookie, with no request or record', async () => {
+  const from = records.length;
+  const sent = server.received.length;
+  for (const method of ['verifyIdToken', 'verifySessionCookie']) {
+    const error = (await (auth[method]!(sandboxToken('user-a')) as Promise<unknown>).catch((reason: unknown) => reason)) as { code?: unknown; pyricCode?: unknown; message?: unknown };
+    expect({ code: error.code, pyricCode: error.pyricCode }).toEqual({ code: 'auth/argument-error', pyricCode: 'PYRIC_MODE_MISMATCH' });
+    expect(String(error.message)).toContain(`live mode for ${PROJECT}`);
+  }
+  expect(await recordsSince(from)).toEqual([]);
+  expect(server.received.length).toBe(sent);
 });

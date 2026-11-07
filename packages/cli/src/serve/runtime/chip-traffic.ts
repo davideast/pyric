@@ -1,5 +1,5 @@
 import {
-  callerSource, EventHistory, isProductionServed, messagingRequestsLine, OBSERVATION_HISTORY_LIMITS, productionVerdict, storageGsPath,
+  callerSource, EventHistory, isProductionServed, messagingRequestsLine, OBSERVATION_HISTORY_LIMITS, observedMethod, productionVerdict, storageGsPath,
 } from 'pyric/sandbox/internal';
 import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal';
 /**
@@ -17,7 +17,7 @@ import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal'
  * which line went wrong; the full disposition, the rule that matched, and the
  * payload are Studio's job, which is where a row's click goes.
  */
-import type { EventProvenance, ObservedProduction, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
+import type { EventProvenance, ObservedCall, ObservedProduction, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import { captureIndexQuery, captureDatabaseIndexQuery, type ServiceIndexQuery } from 'pyric/sandbox/internal';
 
@@ -179,6 +179,7 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
     identity: event.auth === null ? 'signed out' : event.auth.uid,
     production: { ...outcome },
     ...(localDrift === undefined ? {} : { localDrift }),
+    ...observedIndexFields(event, outcome),
   };
   // The local rules' trace reads as a sandbox row's evidence; production still decided.
   const trace = production.local?.result === 'unevaluated' ? undefined : production.local?.trace;
@@ -193,6 +194,31 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
     method: event.method, status: observation.status, detail: { ...ai },
   };
   return { ...request, at: answeredAt, aiRequest };
+}
+
+/** Firestore's code for a query that needs an index production does not have. */
+function isFailedPrecondition(outcome: ProductionOutcome): boolean {
+  if (outcome.status === 'ok') return false;
+  const code = outcome.code.toLowerCase();
+  return code === 'failed-precondition' || code.endsWith('/failed-precondition');
+}
+
+/**
+ * An observed Firestore query's index check, from the shape the page sent
+ * (fields and operators, never a value), and production's
+ * `failed-precondition` as the index it lacked.
+ */
+function observedIndexFields(
+  event: Extract<SandboxEvent, { kind: 'operation' }>,
+  outcome: ProductionOutcome,
+): Pick<ChipRequest, 'indexQuery' | 'indexFailure'> {
+  const isFirestoreList = event.service === 'firestore' && observedMethod('firestore', event.method) === 'list';
+  const shape = event.request?.query as ObservedCall['query'];
+  const path = event.path;
+  if (!isFirestoreList || shape === undefined || path === undefined) return {};
+  const filters = (shape.filters ?? []).map(filter => ({ kind: 'where', ...filter }));
+  const indexQuery = captureIndexQuery(path, shape.scope === 'collection-group', filters, shape.orderBy ?? []);
+  return isFailedPrecondition(outcome) ? { indexQuery, indexFailure: true } : { indexQuery };
 }
 
 /** The AI rows the sandbox served, which Rates and the Sandbox tab count; production's rows are Traffic's only. */
