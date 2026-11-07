@@ -90,6 +90,19 @@ describe('guardChildEnv in a parent the sandbox register is active in (#2340)', 
     expect(env.PYRIC_SANDBOX_FORCE).toBe('0');
   });
 
+  it('forces the sandbox when the parent env holds a force value other than 1', () => {
+    for (const value of ['true', '']) {
+      const parent = { ...PARENT, PYRIC_SANDBOX_FORCE: value };
+      const env = guardChildEnv({ PATH: '/usr/bin', NODE_ENV: 'production' }, parent, REGISTER_URL, true);
+      expect(env.PYRIC_SANDBOX_FORCE).toBe('1');
+    }
+  });
+
+  it('forces the sandbox when the caller passes an empty PYRIC_SANDBOX_FORCE', () => {
+    const env = guardChildEnv({ NODE_ENV: 'production', PYRIC_SANDBOX_FORCE: '' }, PARENT, REGISTER_URL, true);
+    expect(env.PYRIC_SANDBOX_FORCE).toBe('1');
+  });
+
   it('adds no force when the parent is not an active sandbox', () => {
     const env = guardChildEnv({ NODE_ENV: 'production' }, PARENT, REGISTER_URL, false);
     expect(env.PYRIC_SANDBOX_FORCE).toBeUndefined();

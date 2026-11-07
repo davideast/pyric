@@ -16,12 +16,12 @@
  * in this process, and the live register is not, the child also gets
  * `PYRIC_SANDBOX_FORCE=1` unless the caller set it, so a child started with
  * `NODE_ENV=production` stays in the sandbox instead of refusing it (#2340).
- * A process that is not registered, or is in live mode, adds no force. A
- * shell the process starts passes
- * the environment on, so a Node process the shell starts is registered too,
- * unless the command line it runs sets `NODE_OPTIONS` itself
- * (`NODE_OPTIONS=--max-old-space-size=4096 node server.js`), which no code in
- * this process can see.
+ * A process that is not registered, or is in live mode, adds no force.
+ *
+ * A shell the process starts passes the environment on, so a Node process the
+ * shell starts is registered too, unless the command line it runs sets
+ * `NODE_OPTIONS` itself (`NODE_OPTIONS=--max-old-space-size=4096 node
+ * server.js`), which no code in this process can see.
  *
  * Every asynchronous child (`spawn`, `exec`, `execFile`, `fork`, and their
  * promisified forms) is built by `ChildProcess.prototype.spawn` from the env
@@ -83,15 +83,29 @@ export function isSandboxParent(): boolean {
 }
 
 /**
+ * Whether the caller chose `PYRIC_SANDBOX_FORCE` for the child or worker,
+ * read from the caller's `env` alone. An empty value is no choice, and a
+ * value equal to this process's own is inherited, as when the caller spread
+ * `process.env`, so neither counts.
+ */
+function callerSetForce(env: Env, parentEnv: Env): boolean {
+  const value = env.PYRIC_SANDBOX_FORCE;
+  const hasValue = value !== undefined && value !== '';
+  return hasValue && value !== parentEnv.PYRIC_SANDBOX_FORCE;
+}
+
+/**
  * `env` carrying the sandbox to a child process or a worker: the `PYRIC_*`
  * variables `parentEnv` has and `env` lacks (see {@link withSandboxVariables}),
- * and, when `parentActive`, `PYRIC_SANDBOX_FORCE=1` unless `env` sets it, so a
- * `NODE_ENV=production` there does not make the register refuse. Returns a new
- * object and never changes `env`.
+ * and, when `parentActive`, `PYRIC_SANDBOX_FORCE=1` unless the caller chose
+ * another value ({@link callerSetForce}), so a `NODE_ENV=production` there
+ * does not make the register refuse. Returns a new object and never changes
+ * `env`.
  */
 export function withInheritedSandbox(env: Env, parentEnv: Env, parentActive: boolean): Env {
   const guarded = withSandboxVariables(env, parentEnv);
-  if (parentActive && guarded.PYRIC_SANDBOX_FORCE === undefined) guarded.PYRIC_SANDBOX_FORCE = '1';
+  const forces = parentActive && !callerSetForce(env, parentEnv);
+  if (forces) guarded.PYRIC_SANDBOX_FORCE = '1';
   return guarded;
 }
 
