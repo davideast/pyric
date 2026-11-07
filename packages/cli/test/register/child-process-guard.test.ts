@@ -7,14 +7,25 @@
  * checks the same through real `spawn`, `fork`, `spawnSync`, `execFile` and
  * `execSync` children.
  */
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import {
   guardChildEnv,
   guardEnvPairs,
   guardSpawnOptions,
   guardSyncArguments,
   installChildProcessGuard,
+  isSandboxParent,
 } from '../../src/register/child-process-guard.js';
+
+/** The marks `activation.ts` sets when the sandbox register or the live register activates. */
+const SANDBOX_MARK = Symbol.for('pyric.register.active');
+const LIVE_MARK = Symbol.for('pyric.register.live.active');
+const marks = globalThis as unknown as Record<symbol, unknown>;
+
+function clearMarks(): void {
+  delete marks[SANDBOX_MARK];
+  delete marks[LIVE_MARK];
+}
 
 const REGISTER_URL = 'file:///app/node_modules/@pyric/cli/dist/register/index.js';
 const IMPORT = `--import ${REGISTER_URL}`;
@@ -58,6 +69,44 @@ describe('guardChildEnv', () => {
     const env = guardChildEnv(childEnv, PARENT, REGISTER_URL);
     expect(env.HOME).toBeUndefined();
     expect(childEnv).toEqual({ PATH: '/usr/bin' });
+  });
+});
+
+describe('guardChildEnv in a parent the sandbox register is active in (#2340)', () => {
+  it('forces the sandbox in a child whose env sets NODE_ENV=production', () => {
+    const env = guardChildEnv({ PATH: '/usr/bin', NODE_ENV: 'production' }, PARENT, REGISTER_URL, true);
+    expect(env).toEqual({
+      PATH: '/usr/bin',
+      NODE_ENV: 'production',
+      PYRIC_SANDBOX: 'remote:http://127.0.0.1:4000',
+      PYRIC_GUARD: 'block',
+      PYRIC_SANDBOX_FORCE: '1',
+      NODE_OPTIONS: IMPORT,
+    });
+  });
+
+  it('keeps a PYRIC_SANDBOX_FORCE the caller set for the child', () => {
+    const env = guardChildEnv({ NODE_ENV: 'production', PYRIC_SANDBOX_FORCE: '0' }, PARENT, REGISTER_URL, true);
+    expect(env.PYRIC_SANDBOX_FORCE).toBe('0');
+  });
+
+  it('adds no force when the parent is not an active sandbox', () => {
+    const env = guardChildEnv({ NODE_ENV: 'production' }, PARENT, REGISTER_URL, false);
+    expect(env.PYRIC_SANDBOX_FORCE).toBeUndefined();
+  });
+});
+
+describe('isSandboxParent', () => {
+  afterEach(clearMarks);
+
+  it('is true only when the sandbox register is active and the live register is not', () => {
+    expect(isSandboxParent()).toBe(false);
+    marks[SANDBOX_MARK] = true;
+    expect(isSandboxParent()).toBe(true);
+    marks[LIVE_MARK] = true;
+    expect(isSandboxParent()).toBe(false);
+    delete marks[SANDBOX_MARK];
+    expect(isSandboxParent()).toBe(false);
   });
 });
 
@@ -130,5 +179,33 @@ describe('installChildProcessGuard', () => {
     const [spawnCall, execCall] = calls as [[string, { envPairs: string[] }], [string, string, { env: Record<string, string> }]];
     expect(spawnCall[1].envPairs).toContain(`NODE_OPTIONS=${IMPORT}`);
     expect(execCall[2].env.NODE_OPTIONS).toContain(IMPORT);
+  });
+
+  describe('with the register marks set', () => {
+    afterEach(clearMarks);
+
+    /** The env an async spawn and an execSync got, from a child env with NODE_ENV=production. */
+    function childEnvs(): { spawned: string[]; executed: Record<string, string> } {
+      const { calls, module } = standIn();
+      installChildProcessGuard(REGISTER_URL, module);
+      new module.ChildProcess().spawn({ file: 'node', envPairs: ['PATH=/usr/bin', 'NODE_ENV=production'] });
+      (module.execSync as (command: string, options: unknown) => void)('node a.js', { env: { NODE_ENV: 'production' } });
+      const [spawnCall, execCall] = calls as [[string, { envPairs: string[] }], [string, string, { env: Record<string, string> }]];
+      return { spawned: spawnCall[1].envPairs, executed: execCall[2].env };
+    }
+
+    it('forces the sandbox in every child of an active sandbox parent (#2340)', () => {
+      marks[SANDBOX_MARK] = true;
+      const { spawned, executed } = childEnvs();
+      expect(spawned).toContain('PYRIC_SANDBOX_FORCE=1');
+      expect(executed.PYRIC_SANDBOX_FORCE).toBe('1');
+    });
+
+    it('adds no force in a live mode parent', () => {
+      marks[LIVE_MARK] = true;
+      const { spawned, executed } = childEnvs();
+      expect(spawned.some((pair) => pair.startsWith('PYRIC_SANDBOX_FORCE='))).toBe(false);
+      expect(executed.PYRIC_SANDBOX_FORCE).toBeUndefined();
+    });
   });
 });
