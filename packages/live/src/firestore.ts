@@ -258,15 +258,42 @@ function resumedDocument(snapshotJson: unknown): ListenerIdentity | undefined {
 
 /**
  * What one `onSnapshot` listens to: the reference's or query's path and the
- * key the page's journal gives it. An `onSnapshotResume` of a document
- * snapshot listens to that document; a resumed query snapshot names only a
- * random bundle id, so it gets no lifecycle.
+ * key the page's journal gives it. An `onSnapshotResume` listens to what its
+ * snapshot JSON names: a document snapshot's document, keyed as an
+ * `onSnapshot` of that document is, or the query a query snapshot's bundle
+ * holds (`resumedQuery`).
  */
 export function firestoreListener(name: string, args: readonly unknown[]): ListenerIdentity | undefined {
-  if (name === 'onSnapshotResume') return resumedDocument(args[1]);
+  if (name === 'onSnapshotResume') return resumedListener(args[1]);
   const subject = args[0];
   if (!isObject(subject)) return undefined;
   return firestorePath(subject, Reflect.get(subject, 'type'));
+}
+
+/** Where a Firestore listener sits in the page's activity journal (`listener-journal.ts`). */
+export interface FirestoreJournalPlace extends ListenerIdentity {
+  /** The Firestore the listener runs on. */
+  readonly firestore: object;
+  /** False for a document listener. */
+  readonly isQuery: boolean;
+}
+
+/**
+ * A Firestore listener's place in the page journal: the Firestore it runs
+ * on, which is a reference's or query's own `firestore` or the Firestore an
+ * `onSnapshotResume` is handed, and what `firestoreListener` says it listens
+ * to. Undefined for any other subject.
+ */
+export function firestoreJournalPlace(name: string, args: readonly unknown[]): FirestoreJournalPlace | undefined {
+  const subject = args[0];
+  if (!isObject(subject)) return undefined;
+  const isResume = name === 'onSnapshotResume';
+  const firestore: unknown = isResume ? subject : Reflect.get(subject, 'firestore');
+  if (!isObject(firestore)) return undefined;
+  const identity = firestoreListener(name, args);
+  if (identity === undefined) return undefined;
+  const isDocument = isResume ? resumedDocument(args[1]) !== undefined : Reflect.get(subject, 'type') === 'document';
+  return { firestore, isQuery: !isDocument, ...identity };
 }
 
 /** The path the first argument names, when it is a reference or query. */
@@ -333,24 +360,38 @@ function bundledQueryPath(bundledQuery: unknown): string | undefined {
   return documents[1] === undefined ? collectionId : `${documents[1]}/${collectionId}`;
 }
 
-/** The collection a resumed query snapshot's bundle names in its named query. */
-function resumedQueryPath(bundle: unknown): string | undefined {
+/** The bundled query a query snapshot's bundle holds in its named query, or undefined when it holds none. */
+function bundledQueryOf(snapshotJson: object): unknown {
+  const bundle: unknown = Reflect.get(snapshotJson, 'bundle');
   if (typeof bundle !== 'string') return undefined;
   const named = bundleElements(bundle).find((element) => isObject(element) && isObject(Reflect.get(element, 'namedQuery')));
-  return named === undefined ? undefined : bundledQueryPath(Reflect.get(Reflect.get(named as object, 'namedQuery') as object, 'bundledQuery'));
+  return named === undefined ? undefined : Reflect.get(Reflect.get(named as object, 'namedQuery') as object, 'bundledQuery');
 }
 
 /**
- * The path an `onSnapshotResume` listens to, from the snapshot JSON it
- * resumes: a document snapshot's document, or a query snapshot's
- * collection, read from the query its bundle holds. Undefined, as for any
- * call whose path is not read, when the JSON names neither.
+ * The query a resumed query snapshot listens to: the collection its bundled
+ * query reads, and a key from that bundled query (its parent, structured
+ * query and limit type), which two resumes of one snapshot share. The key
+ * has a live query's `['query', target, …]` shape, but holds the bundle's
+ * form of the query, not the SDK's `_query`, so it is not the key an
+ * `onSnapshot` of the same query has.
  */
-function resumedPath(snapshotJson: unknown): string | undefined {
-  const document = resumedDocument(snapshotJson)?.target;
-  if (document !== undefined || !isObject(snapshotJson)) return document;
-  const isQuery = Reflect.get(snapshotJson, 'bundleSource') === 'QuerySnapshot';
-  return isQuery ? resumedQueryPath(Reflect.get(snapshotJson, 'bundle')) : undefined;
+function resumedQuery(snapshotJson: unknown): ListenerIdentity | undefined {
+  const isQuery = isObject(snapshotJson) && Reflect.get(snapshotJson, 'bundleSource') === 'QuerySnapshot';
+  if (!isQuery) return undefined;
+  const bundledQuery = bundledQueryOf(snapshotJson);
+  const target = bundledQueryPath(bundledQuery);
+  return target === undefined ? undefined : { target, key: JSON.stringify(['query', target, bundledQuery]) };
+}
+
+/**
+ * What an `onSnapshotResume` listens to, from the snapshot JSON it resumes:
+ * a document snapshot's document, or the query a query snapshot's bundle
+ * holds. Undefined, as for any call whose path is not read, when the JSON
+ * names neither.
+ */
+function resumedListener(snapshotJson: unknown): ListenerIdentity | undefined {
+  return resumedDocument(snapshotJson) ?? resumedQuery(snapshotJson);
 }
 
 /** The deepest nesting a JSON copy keeps; the host refuses deeper. */
@@ -449,7 +490,7 @@ export function firestoreContext(name: string, args: readonly unknown[]): CallCo
   const project = projectId === undefined ? {} : { projectId };
   try {
     const subject = args[0];
-    const path = name === 'onSnapshotResume' ? resumedPath(args[1]) : pathOf(subject);
+    const path = name === 'onSnapshotResume' ? resumedListener(args[1])?.target : pathOf(subject);
     const writeData = writeDataOf(name, args);
     const query = queryShape(name, subject);
     return {

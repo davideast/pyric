@@ -11,7 +11,7 @@
  */
 import type { LiveListener, LiveListenerActivity } from '@pyric/cli/vite/internal/supplied-rows';
 import { databaseJournalPlace } from './database.js';
-import { firestorePath } from './firestore.js';
+import { firestoreJournalPlace } from './firestore.js';
 
 export type { LiveListener, LiveListenerActivity } from '@pyric/cli/vite/internal/supplied-rows';
 
@@ -20,44 +20,42 @@ export type LiveListenerJournal = (listener: LiveListener) => LiveListenerActivi
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
 
-/** The Firestore listener a reference or query names, or undefined for any other subject. */
-function firestoreListenerOf(method: string, subject: object): LiveListener | undefined {
-  const firestore: unknown = Reflect.get(subject, 'firestore');
-  const hasFirestore = typeof firestore === 'object' && firestore !== null;
-  if (!hasFirestore) return undefined;
-  const type: unknown = Reflect.get(subject, 'type');
-  const path = firestorePath(subject, type);
-  if (path === undefined) return undefined;
-  return { firestore, method, isQuery: type !== 'document', ...path };
+/**
+ * The Firestore listener an export's arguments name: a reference or query,
+ * or the snapshot JSON an `onSnapshotResume` resumes. Undefined for any
+ * other subject.
+ */
+function firestoreListenerOf(method: string, args: readonly unknown[]): LiveListener | undefined {
+  const place = firestoreJournalPlace(method, args);
+  return place === undefined ? undefined : { method, ...place };
 }
 
 /** The Realtime Database listener a reference or query names, or undefined for any other subject. */
-function databaseListenerOf(method: string, subject: object): LiveListener | undefined {
-  const place = databaseJournalPlace(subject);
+function databaseListenerOf(method: string, subject: unknown): LiveListener | undefined {
+  const isObject = typeof subject === 'object' && subject !== null;
+  const place = isObject ? databaseJournalPlace(subject) : undefined;
   return place === undefined ? undefined : { service: 'database', method, ...place };
 }
 
-/** The listener an export's first argument names, or undefined for any other subject. */
-function listenerOf(method: string, subject: unknown): LiveListener | undefined {
-  const isObject = typeof subject === 'object' && subject !== null;
-  if (!isObject) return undefined;
-  return firestoreListenerOf(method, subject) ?? databaseListenerOf(method, subject);
+/** The listener an export's arguments name, or undefined for any other subject. */
+function listenerOf(method: string, args: readonly unknown[]): LiveListener | undefined {
+  return firestoreListenerOf(method, args) ?? databaseListenerOf(method, args[0]);
 }
 
 /**
  * The listener's activity in the observer's journal, or undefined when the
- * observer has none, the subject is no Firestore or database reference or query, or
- * opening it failed.
+ * observer has none, the arguments name no Firestore or database listener,
+ * or opening it failed.
  */
 export function openActivity(
   observer: { readonly journal?: LiveListenerJournal },
   method: string,
-  subject: unknown,
+  args: readonly unknown[],
 ): LiveListenerActivity | undefined {
   try {
     const journal = observer.journal;
     if (typeof journal !== 'function') return undefined;
-    const listener = listenerOf(method, subject);
+    const listener = listenerOf(method, args);
     return listener === undefined ? undefined : journal(listener);
   } catch {
     // A listener the journal cannot open is still the SDK's own.

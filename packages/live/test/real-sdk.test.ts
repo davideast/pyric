@@ -15,6 +15,7 @@ import * as realFirestore from 'firebase/firestore';
 import { SDK_MODULES, swappedFirebaseEntries } from '@pyric/cli/vite/internal/supplied-rows';
 import { LIVE_MODULES, LIVE_ROWS, liveFirebaseEntries, liveModuleFor, replacedExports, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
 import { firestoreContext } from '../src/firestore.js';
+import type { LiveListener } from '../src/observe.js';
 import { realmHash } from '../src/keyed-hash.js';
 import { observedCallOf } from '../src/page-observer.js';
 
@@ -555,19 +556,123 @@ describe('an onSnapshotResume names the path of the snapshot it resumes', () => 
     });
   });
 
-  test("a query snapshot: its delivery names the collection the bundle's query reads", async () => {
+  test("a query snapshot: its attach, delivery and detach name the collection the bundle's query reads", async () => {
     const snapshot = await firestore.getDocsFromCache(firestore.collection(db, 'halls'));
-    expect(pathsOf(await resumed(snapshot.toJSON()))).toEqual({ recorded: ['returned halls', 'delivered halls'], read: ['halls'] });
+    expect(pathsOf(await resumed(snapshot.toJSON()))).toEqual({
+      recorded: ['attached halls', 'delivered halls', 'detached halls'],
+      read: ['halls', 'halls', 'halls'],
+    });
   });
 
   test("a subcollection query snapshot: the SDK bundles its query under the database root, so the resume names the collection there, as it listens", async () => {
     const snapshot = await firestore.getDocsFromCache(firestore.collection(db, 'rooms/lobby/seats'));
-    expect(pathsOf(await resumed(snapshot.toJSON()))).toEqual({ recorded: ['returned seats', 'delivered seats'], read: ['seats'] });
+    expect(pathsOf(await resumed(snapshot.toJSON()))).toEqual({
+      recorded: ['attached seats', 'delivered seats', 'detached seats'],
+      read: ['seats', 'seats', 'seats'],
+    });
   });
 
-  test('a collection-group query snapshot: its delivery names the group id, as a live query does', async () => {
+  test('a collection-group query snapshot: its attach, delivery and detach name the group id, as a live query does', async () => {
     const snapshot = await firestore.getDocsFromCache(firestore.collectionGroup(db, 'seats'));
-    expect(pathsOf(await resumed(snapshot.toJSON()))).toEqual({ recorded: ['returned seats', 'delivered seats'], read: ['seats'] });
+    expect(pathsOf(await resumed(snapshot.toJSON()))).toEqual({
+      recorded: ['attached seats', 'delivered seats', 'detached seats'],
+      read: ['seats', 'seats', 'seats'],
+    });
+  });
+
+  test("a query snapshot's attach and detach carry one listener id and a hashed key, which the host reads as it reads an onSnapshot's", async () => {
+    const json = (await firestore.getDocsFromCache(firestore.collection(db, 'halls'))).toJSON();
+    const lifecycle = (await resumed(json)).filter((record) => record.listener !== undefined);
+    expect(lifecycle.map((record) => record.outcome)).toEqual(['attached', 'detached']);
+    const [attached, detached] = lifecycle;
+    expect(detached!.listener).toEqual(attached!.listener!);
+    expect(attached!.listener!.key).toMatch(/^[0-9a-f]{16}$/);
+    for (const record of lifecycle) {
+      const read = host.readObservedCall(JSON.parse(JSON.stringify(observedCallOf(record, Date.now()))));
+      const phase = record.outcome === 'attached' ? 'attach' : 'detach';
+      expect(read.listener).toEqual({ phase, id: record.listener!.id, target: 'halls', key: record.listener!.key });
+    }
+  });
+
+  test('two resumes of one query snapshot own their ids and share a key', async () => {
+    const json = (await firestore.getDocsFromCache(firestore.collection(db, 'halls'))).toJSON();
+    const [first, second] = [await resumed(json), await resumed(json)].map((made) => made.find((record) => record.outcome === 'attached')!.listener!);
+    expect(first!.id).not.toBe(second!.id);
+    expect(first!.key).toBe(second!.key);
+  });
+
+  test("a document snapshot's resume shares the key an onSnapshot of its document has", async () => {
+    const snapshot = await cachedDocument('rooms/resumed', { name: { stringValue: 'Resumed' } });
+    const resumedKey = (await resumed(snapshot.toJSON())).find((record) => record.outcome === 'attached')!.listener!.key;
+    const start = records.length;
+    await new Promise<void>((resolve, reject) => {
+      const unsubscribe = firestore.onSnapshot(firestore.doc(db, 'rooms/resumed'), () => {
+        unsubscribe();
+        resolve();
+      }, reject);
+    });
+    const listened = records.slice(start).find((record) => record.name === 'onSnapshot' && record.outcome === 'attached');
+    expect(listened!.listener!.key).toBe(resumedKey);
+  });
+
+  describe("in the page's activity journal", () => {
+    /** Each journal step a second wrapped module makes: `open` with the listener, then `close`. */
+    const steps: Array<['open', LiveListener] | ['close', string]> = [];
+    const journaling: LiveObserver = Object.assign((record: LiveCallRecord) => {
+      records.push(record);
+    }, {
+      journal: (listener: LiveListener) => {
+        steps.push(['open', listener]);
+        return {
+          deliver: (_value: unknown, _billed: number | undefined, run: () => unknown) => run(),
+          fail: () => undefined,
+          close: () => steps.push(['close', listener.method]),
+        };
+      },
+    });
+    const journaled = liveModuleFor('firebase/firestore', realFirestore, { observer: journaling, sdkVersion: SDK_VERSION, client: 'node' });
+
+    /** Listens with `subscribe` until its first delivery and unsubscribes; the journal steps it made. */
+    async function journalOf(subscribe: (next: () => void, fail: (error: unknown) => void) => () => void): Promise<typeof steps> {
+      const start = steps.length;
+      await new Promise<void>((resolve, reject) => {
+        const unsubscribe = subscribe(() => {
+          unsubscribe();
+          resolve();
+        }, reject);
+      });
+      return steps.slice(start);
+    }
+
+    /** The Firestore listener the steps opened. */
+    function opened(made: typeof steps): Extract<LiveListener, { firestore: object }> {
+      const open = made.find((step) => step[0] === 'open');
+      const listener = open?.[1];
+      const isFirestore = typeof listener === 'object' && 'firestore' in listener;
+      if (!isFirestore) throw new Error(`no Firestore journal open in ${JSON.stringify(made.map((step) => step[0]))}`);
+      return listener;
+    }
+
+    test('a resumed document opens and closes as an onSnapshot of that document does, under the same Firestore and key', async () => {
+      const snapshot = await cachedDocument('rooms/journaled', { name: { stringValue: 'Journaled' } });
+      const resume = await journalOf((next, fail) => journaled.onSnapshotResume(db, snapshot.toJSON(), next, fail));
+      const listen = await journalOf((next, fail) => journaled.onSnapshot(journaled.doc(db, 'rooms/journaled'), next, fail));
+      expect(resume.map((step) => step[0])).toEqual(['open', 'close']);
+      const [resumedListener, listened] = [opened(resume), opened(listen)];
+      expect({ ...resumedListener, firestore: undefined }).toEqual({ ...listened, method: 'onSnapshotResume', firestore: undefined });
+      expect(resumedListener.firestore).toBe(listened.firestore);
+    });
+
+    test('a resumed query opens and closes as an onSnapshot of that query does, under the same Firestore', async () => {
+      const json = (await journaled.getDocsFromCache(journaled.collection(db, 'halls'))).toJSON();
+      const resume = await journalOf((next, fail) => journaled.onSnapshotResume(db, json, next, fail));
+      const listen = await journalOf((next, fail) => journaled.onSnapshot(journaled.collection(db, 'halls'), next, fail));
+      expect(resume.map((step) => step[0])).toEqual(['open', 'close']);
+      const [resumedListener, listened] = [opened(resume), opened(listen)];
+      expect({ method: resumedListener.method, target: resumedListener.target, isQuery: resumedListener.isQuery }).toEqual({ method: 'onSnapshotResume', target: 'halls', isQuery: true });
+      expect({ target: listened.target, isQuery: listened.isQuery }).toEqual({ target: 'halls', isQuery: true });
+      expect(resumedListener.firestore).toBe(listened.firestore);
+    });
   });
 
   test('a query snapshot whose bundle holds no readable query names no path, as any unread call does', async () => {
