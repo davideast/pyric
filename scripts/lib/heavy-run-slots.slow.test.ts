@@ -125,6 +125,34 @@ describe('two slots, three runs', () => {
     expect(performance.now() - freedAt).toBeLessThan(RECHECK_MS / 2);
     expect(slotFiles(dir).length).toBe(2);
   }, 30_000);
+
+  // Each waiter's watch must be live from its first scan (#1611): one waiter in
+  // eight used to lose it there, so twenty waiters make a lost watch near certain.
+  test('twenty waiters each start on a slot being freed, none on the 5 s re-check', async () => {
+    const { dir, script } = slotDir();
+    const holders = [start(script, dir, 2), start(script, dir, 2)];
+    expect(await until(() => holders.every(took), 10_000)).toBe(true);
+    const waiters = Array.from({ length: 20 }, () => start(script, dir, 2));
+    const isWaiting = (waiter: Holder) => waiter.output().includes('waiting for a heavy-run slot');
+    expect(await until(() => waiters.every(isWaiting), 20_000)).toBe(true);
+    await settle(500);
+    expect(waiters.some(took)).toBe(false);
+
+    const freedAt = performance.now();
+    const leaving = new Set<Holder>(holders);
+    for (const holder of holders) holder.child.stdin?.end();
+    // Each waiter leaves as soon as it starts, freeing its slot for the next.
+    const passOn = (): boolean => {
+      for (const waiter of waiters.filter(took)) {
+        if (leaving.has(waiter)) continue;
+        leaving.add(waiter);
+        waiter.child.stdin?.end();
+      }
+      return waiters.every(took);
+    };
+    expect(await until(passOn, 10_000)).toBe(true);
+    expect(performance.now() - freedAt).toBeLessThan(RECHECK_MS / 2);
+  }, 60_000);
 });
 
 describe('a stale slot', () => {

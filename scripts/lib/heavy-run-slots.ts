@@ -21,6 +21,14 @@
 // catches a holder killed with SIGKILL (that removes nothing). There is no
 // deadline: heavy runs start in the background, so a long wait costs nothing.
 //
+// The private records and the stale slots moved aside live in a `work`
+// subdirectory, so the watched directory only ever holds slots. Bun reads a
+// watched directory's entries while the watch starts, and when an entry is
+// gone before Bun opens it, the watch reports ENOENT and stops for good
+// (#1611). A waiter's first scan writes and removes its private record in
+// exactly that moment. A watch that reports an error anyway (a slot freed
+// while the watch starts) is replaced, and the waiter scans again.
+//
 // A process started under a run that holds a slot (the test-all jobs, a test
 // that spawns test-all) inherits PYRIC_HEAVY_RUN_SLOT and runs inside its
 // parent's slot instead of waiting for a second one.
@@ -31,7 +39,7 @@
 import { randomBytes } from 'node:crypto';
 import { linkSync, mkdirSync, readFileSync, renameSync, unlinkSync, watch, writeFileSync, type FSWatcher } from 'node:fs';
 import { homedir, hostname } from 'node:os';
-import { isAbsolute, join, relative } from 'node:path';
+import { basename, isAbsolute, join, relative } from 'node:path';
 
 export const DEFAULT_SLOTS = 2;
 export const RECHECK_MS = 5000;
@@ -175,9 +183,14 @@ function newHolder(command: string): SlotHolder {
   };
 }
 
+/** Where private records and stale slots moved aside live, outside the watched directory's entries. */
+function workDirectory(dir: string): string {
+  return join(dir, 'work');
+}
+
 /** Link a fully written record to the slot's name; the link fails if the slot is held. */
-function tryTake(dir: string, path: string, holder: SlotHolder): boolean {
-  const pending = join(dir, `.pending-${holder.token}`);
+function tryTake(work: string, path: string, holder: SlotHolder): boolean {
+  const pending = join(work, `.pending-${holder.token}`);
   writeFileSync(pending, JSON.stringify(holder));
   try {
     linkSync(pending, path);
@@ -194,8 +207,8 @@ function tryTake(dir: string, path: string, holder: SlotHolder): boolean {
  * Move a stale slot aside and remove it. If what was moved is not the record
  * judged stale (a waiter took the slot over in between), put it back.
  */
-function breakStale(path: string, judged: SlotHolder | null): boolean {
-  const aside = `${path}.stale-${randomBytes(4).toString('hex')}`;
+function breakStale(work: string, path: string, judged: SlotHolder | null): boolean {
+  const aside = join(work, `${basename(path)}.stale-${randomBytes(4).toString('hex')}`);
   try {
     renameSync(path, aside);
   } catch (error) {
@@ -223,21 +236,43 @@ const SLOT_FILE = /^slot-\d+\.lock$/;
 
 /**
  * Wakes a waiter when a slot file is created or removed, or after a timeout.
- * Changes to the private pending files waiters write are ignored, or every
- * waiter's own scan would wake it again.
+ * Changes to anything but a slot file are ignored, or every waiter's own scan
+ * would wake it again.
  */
 class Wakeup {
   private changed = false;
   private wake: (() => void) | undefined;
-  private readonly watcher: FSWatcher;
+  private watcher: FSWatcher | undefined;
 
-  constructor(dir: string) {
-    this.watcher = watch(dir, (_event, filename) => {
+  constructor(private readonly dir: string) {
+    this.watcher = this.watchSlots();
+  }
+
+  private watchSlots(): FSWatcher {
+    const watcher = watch(this.dir, (_event, filename) => {
       const isSlotChange = filename === null || SLOT_FILE.test(String(filename));
-      if (!isSlotChange) return;
-      this.changed = true;
-      this.wake?.();
+      if (isSlotChange) this.notice();
     });
+    watcher.on('error', () => this.replace(watcher));
+    return watcher;
+  }
+
+  /** A watch that reported an error has stopped; a slot may have been freed since, so scan again. */
+  private replace(failed: FSWatcher): void {
+    failed.close();
+    if (this.watcher !== failed) return;
+    try {
+      this.watcher = this.watchSlots();
+    } catch {
+      // The directory is gone or unwatchable; the re-check still finds a freed slot.
+      this.watcher = undefined;
+    }
+    this.notice();
+  }
+
+  private notice(): void {
+    this.changed = true;
+    this.wake?.();
   }
 
   /** Clears the change mark before a scan, so a change during the scan wakes the next wait at once. */
@@ -259,7 +294,8 @@ class Wakeup {
   }
 
   close(): void {
-    this.watcher.close();
+    this.watcher?.close();
+    this.watcher = undefined;
   }
 }
 
@@ -268,12 +304,12 @@ function slotPaths(dir: string, slots: number): string[] {
 }
 
 /** The live holders, after removing any stale slot. Returns null when a stale slot was removed. */
-function liveHolders(paths: readonly string[]): SlotHolder[] | null {
+function liveHolders(work: string, paths: readonly string[]): SlotHolder[] | null {
   const holders: SlotHolder[] = [];
   for (const path of paths) {
     const holder = readHolder(path);
     if (holder === 'missing') return null;
-    if (isStale(holder) && breakStale(path, holder)) return null;
+    if (isStale(holder) && breakStale(work, path, holder)) return null;
     if (holder !== null) holders.push(holder);
   }
   return holders;
@@ -324,7 +360,8 @@ export async function takeHeavyRunSlot(options: HeavyRunSlotOptions = {}): Promi
   const dir = slotDirectory(env);
   const slots = slotCount(env);
   const log = options.log ?? ((line: string) => console.log(line));
-  mkdirSync(dir, { recursive: true });
+  const work = workDirectory(dir);
+  mkdirSync(work, { recursive: true });
   const holder = newHolder(options.command ?? defaultCommand(env));
   const paths = slotPaths(dir, slots);
   const wakeup = new Wakeup(dir);
@@ -332,12 +369,12 @@ export async function takeHeavyRunSlot(options: HeavyRunSlotOptions = {}): Promi
   try {
     for (;;) {
       wakeup.beforeScan();
-      const taken = paths.find((path) => tryTake(dir, path, holder));
+      const taken = paths.find((path) => tryTake(work, path, holder));
       if (taken !== undefined) {
         env[HELD_SLOT_ENV] = taken;
         return { path: taken, release: releaseOnExit(taken, holder.token) };
       }
-      const holders = liveHolders(paths);
+      const holders = liveHolders(work, paths);
       if (holders === null) continue;
       const key = holdersKey(holders);
       if (key !== lastPrinted) log(waitingLine(holders, slots, Date.now()));
