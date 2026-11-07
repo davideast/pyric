@@ -2,6 +2,7 @@ import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel, rulesOpera
 import { createLiveStatusPoller, liveLabel, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { healthLiveStatus } from './chip-live-status.js';
 import { LIVE_TAB_LABEL, LIVE_VIEW_STYLES, liveViewHtml } from './chip-live-view.js';
+import { profileClientId } from '../worker/client/client-id.js';
 import { workerAiRates } from './worker-ai-rates.js';
 import { liveRates } from './live-rates.js';
 import { aiModelHtml, aiModelRoute } from './ai-model-label.js';
@@ -1199,7 +1200,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (tab === 'listeners') return options.listeners && dataView ? dataView.view() : { body: emptyHtml('Data unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
     const live = liveStatusPoller.current();
-    if (live !== null) return liveViewHtml(live, { user: readCurrentUser(), supportsListeners: options.listeners !== undefined });
+    if (live !== null) return liveViewHtml(live, { selfClientId: profileClientId(), now: Date.now(), supportsListeners: options.listeners !== undefined });
     return sandboxViewHtml();
   };
 

@@ -4,22 +4,27 @@
  * (`live` in `/__pyric/health`) or from the page itself:
  *
  * - Project: the projects the app's calls named, else the host's own.
- * - Clients: this page and its current identity. The host does not report
- *   other clients yet, so the rest of the list is an empty state.
+ * - Clients: this page first, then every other client the host lists
+ *   (`live.clients`): another browser profile, a service worker, a Node
+ *   process. The host keys a browser client by its profile id, so the tabs
+ *   of this page's profile are this page's row.
  * - Coverage: the imports that pass through to production unobserved
- *   (`pyricLive({ passThrough })`). The host does not report the observed
- *   imports, so only the pass-through rows are listed.
+ *   (`pyricLive({ passThrough })`), then the imports the host observes
+ *   (`live.observed`).
  * - Billed this session: the host's billed call count.
  * - Page overlays and the Hide bar: the same controls as the Sandbox tab.
  */
 import type { LiveHostStatus } from 'pyric/sandbox/internal';
-import type { RuntimeIdentity } from './identity.js';
-import { barHtml, buttonHtml, emptyHtml, escapeAttribute, iconHtml, rowHtml, sectionHtml, type ChipView } from './chip-markup.js';
+import { barHtml, buttonHtml, escapeAttribute, iconHtml, pluralize, rowHtml, sectionHtml, type ChipView } from './chip-markup.js';
+
+type LiveClient = NonNullable<LiveHostStatus['clients']>[number];
 
 /** What the Live tab reads from the page beside the host's status. */
 export interface LiveViewContext {
-  /** The page's current user, or null when signed out. */
-  readonly user: RuntimeIdentity | null;
+  /** This page's browser profile id: the client id the host lists it by. */
+  readonly selfClientId: string;
+  /** The page's clock, in epoch milliseconds, to say when each client was last heard from. */
+  readonly now: number;
   /** Whether this page can show listener overlays, so the Theme editor applies. */
   readonly supportsListeners: boolean;
 }
@@ -36,6 +41,7 @@ export const LIVE_VIEW_STYLES = `
   .row.project-row .s1 { overflow: visible; }
   .client-row .c1 { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
   .client-kind { flex: none; }
+  .client-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pyric-muted); font-size: 11px; font-weight: 400; }
   .live-tag { flex: none; padding: 0 var(--space-1); border: 1px solid #788fbd; border-radius: 4px; color: var(--pyric-accent); font-size: 10px; font-weight: 550; line-height: 16px; }
   .client-active { color: var(--pyric-muted); font-variant-numeric: tabular-nums; }
   .coverage-state { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--pyric-muted); white-space: nowrap; }
@@ -74,41 +80,107 @@ function projectSectionHtml(live: LiveHostStatus): string {
   return keyed(sectionHtml('Project', `<div class="rows">${rows}</div>`), 'project');
 }
 
-/** The user a row names: email, else display name, else nothing. */
-function userLabel(user: RuntimeIdentity | null): string {
-  return user?.email ?? user?.displayName ?? '';
+const NOW_SECONDS = 5;
+
+/** When a client was last heard from: `Now`, `8s ago`, `5 min ago`. */
+export function clientActiveText(lastSeen: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - lastSeen) / 1000));
+  const isNow = seconds < NOW_SECONDS;
+  if (isNow) return 'Now';
+  const isUnderAMinute = seconds < 60;
+  return isUnderAMinute ? `${seconds}s ago` : `${Math.floor(seconds / 60)} min ago`;
 }
 
-function clientsSectionHtml(user: RuntimeIdentity | null): string {
-  const label = userLabel(user);
-  const self = rowHtml({
-    c1: `<span class="client-kind">Browser tab</span><span class="live-tag">This page</span>`,
-    s1: label === '' ? 'Signed out' : escapeAttribute(label),
-    slot: '<span class="client-active">Now</span>',
-    className: 'sub client-row self',
-    attributes: `data-live-client="self" data-live-client-user="${escapeAttribute(label)}"`,
+/** Each kind as its row names it. A browser client other than this page's is another profile. */
+const CLIENT_KIND_LABELS: Readonly<Record<LiveClient['kind'], string>> = {
+  browser: 'Browser tab, other profile',
+  'service-worker': 'Service worker',
+  node: 'Node process',
+};
+
+/** The order clients list in: browser profiles, then service workers, then Node processes. */
+const KIND_ORDER: readonly LiveClient['kind'][] = ['browser', 'service-worker', 'node'];
+
+/** The user a client row names: the email its page reported, else the uid its calls ran as; empty when signed out. */
+function clientUser(client: LiveClient | undefined): string {
+  return client?.email ?? client?.user ?? '';
+}
+
+interface ClientRow {
+  readonly key: string;
+  readonly kind: string;
+  readonly where: string;
+  readonly user: string;
+  readonly active: string;
+  readonly isSelf: boolean;
+}
+
+function clientRowHtml(row: ClientRow): string {
+  const second = row.isSelf
+    ? '<span class="live-tag">This page</span>'
+    : `<span class="client-where mono">${escapeAttribute(row.where)}</span>`;
+  return rowHtml({
+    c1: `<span class="client-kind">${escapeAttribute(row.kind)}</span>${second}`,
+    s1: row.user === '' ? 'Signed out' : escapeAttribute(row.user),
+    slot: `<span class="client-active">${escapeAttribute(row.active)}</span>`,
+    className: `sub client-row${row.isSelf ? ' self' : ''}`,
+    title: `${row.kind} ${row.where}`,
+    attributes: `data-live-client="${escapeAttribute(row.key)}" data-live-client-user="${escapeAttribute(row.user)}"`,
   });
-  const others = emptyHtml('No other clients listed', 'Other tabs and server processes on this host are not listed yet.');
-  return keyed(sectionHtml('Clients', `<div class="rows">${self}</div>${others}`), 'clients');
 }
 
-function coverageRowHtml(specifier: string): string {
+function isSelfClient(client: LiveClient, selfClientId: string): boolean {
+  return client.kind === 'browser' && client.clientId === selfClientId;
+}
+
+/** The clients the host lists other than this page, in kind order. */
+function otherClients(clients: readonly LiveClient[], selfClientId: string): LiveClient[] {
+  const others = clients.filter((client) => !isSelfClient(client, selfClientId));
+  return KIND_ORDER.flatMap((kind) => others.filter((client) => client.kind === kind));
+}
+
+function otherClientRow(client: LiveClient, now: number): ClientRow {
+  return {
+    key: client.kind,
+    kind: CLIENT_KIND_LABELS[client.kind],
+    where: client.label ?? '',
+    user: clientUser(client),
+    active: clientActiveText(client.lastSeen, now),
+    isSelf: false,
+  };
+}
+
+function clientsSectionHtml(live: LiveHostStatus, context: LiveViewContext): string {
+  const clients = live.clients ?? [];
+  const selfEntry = clients.find((client) => isSelfClient(client, context.selfClientId));
+  const self: ClientRow = { key: 'self', kind: 'Browser tab', where: selfEntry?.label ?? '', user: clientUser(selfEntry), active: 'Now', isSelf: true };
+  const rows = [self, ...otherClients(clients, context.selfClientId).map((client) => otherClientRow(client, context.now))];
+  const meta = pluralize(rows.length, 'connected', 'connected');
+  return keyed(sectionHtml('Clients', `<div class="rows">${rows.map(clientRowHtml).join('')}</div>`, meta), 'clients');
+}
+
+function coverageRowHtml(specifier: string, isObserved: boolean): string {
+  const state = isObserved ? 'observed' : 'not-observed';
+  const stateLabel = isObserved ? 'Observed' : 'Not observed';
+  const consequence = isObserved ? {} : { s1: 'Goes to production. Still billed.' };
   return rowHtml({
     c1: `<span class="mono">${escapeAttribute(specifier)}</span>`,
-    s1: 'Goes to production. Still billed.',
-    slot: `<span class="coverage-state">${iconHtml('unavailable')}<span>Not observed</span></span>`,
-    className: 'coverage-row sub',
-    attributes: `data-coverage-import="${escapeAttribute(specifier)}" data-coverage-state="not-observed"`,
+    ...consequence,
+    slot: `<span class="coverage-state">${iconHtml(isObserved ? 'check' : 'unavailable')}<span>${stateLabel}</span></span>`,
+    className: `coverage-row${isObserved ? '' : ' sub'}`,
+    attributes: `data-coverage-import="${escapeAttribute(specifier)}" data-coverage-state="${state}"`,
   });
 }
 
 function coverageSectionHtml(live: LiveHostStatus): string {
   const passThrough = live.passThrough ?? [];
-  const hasPassThrough = passThrough.length > 0;
-  const body = hasPassThrough
-    ? `<div class="rows">${passThrough.map(coverageRowHtml).join('')}</div>`
-    : emptyHtml('No imports pass through', 'Every Firebase import this host serves is observed.');
-  return keyed(sectionHtml('Coverage', body), 'coverage');
+  const observed = live.observed ?? [];
+  const rows = [
+    ...passThrough.map((specifier) => coverageRowHtml(specifier, false)),
+    ...observed.map((specifier) => coverageRowHtml(specifier, true)),
+  ];
+  const meta = `${observed.length} of ${passThrough.length + observed.length} observed`;
+  return keyed(sectionHtml('Coverage', `<div class="rows">${rows.join('')}</div>`, meta), 'coverage');
 }
 
 function billedSectionHtml(live: LiveHostStatus): string {
@@ -140,7 +212,7 @@ function overlaysSectionHtml(supportsListeners: boolean): string {
 export function liveViewHtml(live: LiveHostStatus, context: LiveViewContext): ChipView {
   const sections = [
     projectSectionHtml(live),
-    clientsSectionHtml(context.user),
+    clientsSectionHtml(live, context),
     coverageSectionHtml(live),
     billedSectionHtml(live),
     overlaysSectionHtml(context.supportsListeners),
