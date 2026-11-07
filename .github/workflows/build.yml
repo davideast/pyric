@@ -348,13 +348,16 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
       - name: Build packages and the embedded Studio site
-        # Pull requests may restore this build from its exact-key cache. A
-        # push to main and the nightly run always build it fresh, as the
-        # packaging gate did before it took the tarballs from this job.
+        # Pull requests and pushes to main restore this build from its
+        # exact-key cache, keyed on every build input and the pinned
+        # toolchain, and build it as before on a miss. A push to main reads
+        # only caches main saved, never a pull request's. The nightly run
+        # always builds it fresh, so main's inputs still build from source
+        # every day.
         uses: ./.github/actions/restore-dist
         with:
           flavor: studio
-          fresh: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
+          fresh: ${{ github.event_name == 'schedule' }}
       - name: Pack the published packages
         run: bash scripts/pack-packages.sh --skip-build
       - name: Upload the packed tarballs and their manifest
