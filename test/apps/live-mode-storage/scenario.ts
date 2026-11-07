@@ -153,7 +153,9 @@ async function readRows(chip: Locator): Promise<string[]> {
  */
 async function storageRows(chip: Locator): Promise<string[]> {
   await chip.locator('[data-chip-tab=traffic]').click();
-  await chip.locator('[data-traffic-scope=all]').click();
+  // The scope is a switch: flip it only when it is not already on All traffic.
+  const scope = chip.locator('[data-traffic-scope]');
+  if (await scope.getAttribute('aria-checked') !== 'true') await scope.click();
   const service = chip.locator('[data-request-service]');
   await service.selectOption('');
   await service.selectOption('storage');

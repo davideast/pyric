@@ -56,9 +56,14 @@ export type LiveCallOutcome = 'returned' | 'threw' | 'resolved' | 'rejected' | '
 export interface LiveCallRecord {
   /** The specifier the app imported, such as `firebase/firestore`. */
   readonly module: string;
-  /** The export the app called, such as `getDoc`. */
+  /** The export the app called, such as `getDoc`. An Admin call names its class and method, such as `DocumentReference.get`. */
   readonly name: string;
   readonly outcome: LiveCallOutcome;
+  /**
+   * `'admin'` on a call a server process made through the Admin SDK, which
+   * bypasses Security Rules (`admin/patch.ts`). Absent for the client SDK.
+   */
+  readonly sdk?: 'admin';
   /** On `threw`, `rejected` and `listener-error`: the error's `code`, such as `permission-denied`, or its name. */
   readonly code?: string;
   /**
@@ -69,8 +74,9 @@ export interface LiveCallRecord {
   /**
    * On a delivered Firestore snapshot: the documents production billed it
    * for, zero for a snapshot only its metadata changed (`billedDocuments`
-   * below). Absent on any other record, and when the snapshot could not be
-   * read.
+   * below). On a resolved call whose result hook counts them, such as the
+   * Admin SDK's `Query.get`: the documents it read. Absent on any other
+   * record, and when the snapshot could not be read.
    */
   readonly billedDocuments?: number;
   /**
@@ -239,10 +245,12 @@ export interface CallContext {
   readonly document?: Readonly<Record<string, unknown>>;
   /** On a Firestore list or listener: the shape of its query. */
   readonly query?: LiveQuery;
+  /** On a resolved read: the documents production billed it for, once a hook has counted them. */
+  readonly billedDocuments?: number;
 }
 
 /** What a resolved call's value adds to its record, or `UNOBSERVED` when production never answered it. */
-export type ResultReading = Pick<CallContext, 'ai' | 'requests' | 'document'> | typeof UNOBSERVED;
+export type ResultReading = Pick<CallContext, 'ai' | 'requests' | 'document' | 'billedDocuments'> | typeof UNOBSERVED;
 
 /**
  * What a rejected call's error adds to its record: the requests it made and
@@ -300,6 +308,10 @@ export interface ObservedSite extends ObservedHooks {
   readonly module: string;
   readonly name: string;
   readonly observer: LiveObserver;
+  /** `'admin'` for a site the Admin rows patched; every record it makes carries it. */
+  readonly sdk?: 'admin';
+  /** For a resolved read: the documents its result hook counted. */
+  readonly billedDocuments?: number;
   /**
    * For a listener export: what the SDK does with an error when the app gave
    * no error callback, done after the error is recorded. Absent means
@@ -365,8 +377,13 @@ function errorCode(error: unknown): string {
   return 'unknown';
 }
 
-/** The billed documents of a delivered value, or undefined when it is no snapshot or reading it threw. */
+/**
+ * The billed documents of a delivered value, or undefined when it is no
+ * snapshot or reading it threw. On a resolved call, the count its result
+ * hook read, if any.
+ */
 function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown): number | undefined {
+  if (outcome === 'resolved') return site.billedDocuments;
   const isDelivery = outcome === 'delivered' && site.billing !== undefined;
   if (!isDelivery) return undefined;
   try {
@@ -392,7 +409,8 @@ function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket'
 /** `value` is the delivered value or the error, by outcome. */
 function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, value: unknown): LiveCallRecord {
   const isFailure = FAILURE_OUTCOMES.has(outcome);
-  const project = site.projectId === undefined ? {} : { projectId: site.projectId };
+  const named = site.sdk === undefined ? {} : { sdk: site.sdk };
+  const project = site.projectId === undefined ? named : { ...named, projectId: site.projectId };
   const account = site.accountOf?.(site.subject);
   const context = { ...(account === undefined ? project : { ...project, account }), ...placeOf(site) };
   const codeOf = site.codeOf ?? errorCode;
@@ -811,12 +829,25 @@ function queryChanges(value: unknown): number | undefined {
   return Array.isArray(changes) ? changes.length : undefined;
 }
 
+/**
+ * The state an Admin SDK document snapshot shows: its `exists` getter, and
+ * data that is never compared. Its `data()` can run the app's converter, and
+ * the Admin SDK raises no snapshot for a metadata change only, so every
+ * delivery counts as changed. Undefined for any other value.
+ */
+function adminDocumentState(value: unknown): DocumentState | undefined {
+  const isObject = typeof value === 'object' && value !== null;
+  const shown: unknown = isObject ? Reflect.get(value, 'exists') : undefined;
+  const isAdminDocument = typeof shown === 'boolean' && methodOf(value, 'data') !== undefined;
+  return isAdminDocument ? { exists: shown, data: UNCOMPARABLE } : undefined;
+}
+
 /** What a document snapshot shows, or undefined for any other value. */
 function documentState(value: unknown): DocumentState | undefined {
   const exists = methodOf(value, 'exists');
   const data = methodOf(value, 'data');
   const isDocument = exists !== undefined && data !== undefined;
-  if (!isDocument) return undefined;
+  if (!isDocument) return adminDocumentState(value);
   const converter: unknown = Reflect.get(value as object, '_converter');
   const hasConverter = converter !== undefined && converter !== null;
   const shown = Reflect.apply(exists, value, []) === true;

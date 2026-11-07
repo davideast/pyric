@@ -40,6 +40,18 @@ const SERVICES: ReadonlyMap<string, ObservedCallService> = new Map<string, Obser
   ['firebase/messaging/sw', 'messaging'],
 ]);
 
+/**
+ * The Admin rows' modules (`admin/patch.ts`): each maps to its service, and
+ * its calls carry `sdk: 'admin'`. They never carry write data or a returned
+ * document.
+ */
+const ADMIN_SERVICES: ReadonlyMap<string, ObservedCallService> = new Map<string, ObservedCallService>([
+  ['@google-cloud/firestore', 'firestore'],
+  ['@google-cloud/storage', 'storage'],
+  ['@firebase/database-compat/standalone', 'rtdb'],
+  ['firebase-admin/auth', 'auth'],
+]);
+
 /** The most requests a host takes on one Messaging call. */
 const MAX_REQUESTS = 4;
 
@@ -124,6 +136,8 @@ function requestsOf(service: ObservedCallService, record: LiveCallRecord): Pick<
 
 /** The observed call for a record made at `at`, or null when the host takes no row for it. */
 export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall | null {
+  const adminService = ADMIN_SERVICES.get(record.module);
+  if (adminService !== undefined) return adminCallOf(adminService, record, at);
   const service = SERVICES.get(record.module);
   if (service === undefined) return null;
   const outcome = productionOutcome(record);
@@ -133,6 +147,23 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
   const usage = record.usage === undefined ? {} : { usage: { ...record.usage } };
   return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...usage, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record), ...valuesOf(service, record), ...queryOf(service, record) };
+}
+
+/** An Admin record's account: the uid and claim names only, never claim values. */
+function adminAccountOf(record: LiveCallRecord): Pick<ObservedCall, 'account'> {
+  const account = record.account;
+  if (account === undefined) return {};
+  const names = account.claimNames === undefined ? {} : { claimNames: [...account.claimNames] };
+  return { account: { uid: account.uid, ...names } };
+}
+
+/** The observed call for an Admin record: its service, `sdk: 'admin'`, and no document values. */
+function adminCallOf(service: ObservedCallService, record: LiveCallRecord, at: number): ObservedCall | null {
+  const outcome = productionOutcome(record);
+  if (outcome === null) return null;
+  const project = record.projectId === undefined ? {} : { projectId: record.projectId };
+  const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
+  return { service, sdk: 'admin', method: record.name, at, outcome, ...project, ...adminAccountOf(record), ...billed, ...placeOf(service, record) };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */

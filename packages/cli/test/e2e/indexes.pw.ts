@@ -142,7 +142,7 @@ for (const runtime of ['inpage', 'worker']) {
     await expect(page.locator('[data-database-index-results]')).toContainText('large');
     await page.locator('[data-request-back]').click();
     // Inspecting a request pins the list; the new read arrives after resuming live updates.
-    await page.locator('[data-request-pause][aria-label^="Resume live"]').click();
+    await page.locator('[data-request-pause][aria-checked="false"]').click();
     await expect(page.locator('[data-request-row]').filter({ hasText: 'rtdb.get' }).filter({ hasText: '/projects' }).getByLabel('Succeeded', { exact: true }).first()).toBeVisible();
     await page.locator('[data-database-index-listen]').click();
     await expect(page.locator('[data-database-index-listen]')).toHaveText('Stop database query');
