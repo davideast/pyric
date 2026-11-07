@@ -99,8 +99,7 @@ const isFirstProcess = process.env[LIVE_PROJECT_ROOT_VARIABLE] === undefined;
 // The first process asks its host what passes through before any hook goes in;
 // a child or worker passes through what its first process recorded.
 const reach = isFirstProcess ? await reachLiveHost(liveProjectRoot(process.env, process.cwd())) : null;
-// Live mode serves firebase-admin itself (D2 in the #2304 plan), so a host's Admin field adds nothing to the list.
-const hostPassThrough = reach?.kind === 'live' ? reach.passThrough.filter((specifier) => specifier !== ADMIN_PASS_THROUGH) : [];
+const hostPassThrough = reach?.kind === 'live' ? reach.passThrough : [];
 const passThrough = isFirstProcess ? passThroughOption(ENTRY, hostPassThrough) : undefined;
 // The Admin rows are on from Node 23: firebase-admin loads through the seam's Admin tree, and its four
 // class-defining loads get the rows. On Node 22 they stay shut, and every firebase-admin import is refused.
