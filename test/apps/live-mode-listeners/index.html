@@ -65,10 +65,16 @@
       };
 
       // The halls list, resumed from the snapshot JSON the server rendered, as a server-rendered
-      // page hydrates. Resolves with the hall count the resumed listener first delivers.
+      // page hydrates. Resolves with the hall count the resumed listener first delivers;
+      // the listener stays subscribed until the halls list unmounts.
+      let unmountHalls = () => undefined;
       window.resumeHalls = (rendered) => new Promise((resolve, reject) => {
-        onSnapshotResume(db, rendered, (snapshot) => resolve(snapshot.size), (error) => reject(failure(error)));
+        unmountHalls = onSnapshotResume(db, rendered, (snapshot) => resolve(snapshot.size), (error) => reject(failure(error)));
       });
+      window.closeHalls = () => {
+        unmountHalls();
+        return true;
+      };
 
       // The scoreboard. Resolves with its first value.
       window.listenToScores = () => new Promise((resolve, reject) => {
