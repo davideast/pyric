@@ -359,7 +359,8 @@ export default scenario(async (app) => {
     assert.equal(run.code, 0, run.output);
     const outcomes = resultOf(run.output) as Record<string, string>;
     assert.match(outcomes.functions!, new RegExp(`^${REFUSED}: @pyric/live: firebase/functions \\(Cloud Functions\\) is refused in live mode`));
-    assert.match(outcomes.admin!, new RegExp(`^${REFUSED}: @pyric/live: firebase-admin/firestore \\(the Admin SDK\\) is refused in live mode`));
+    // A live Node process observes firebase-admin by default, so its import loads.
+    assert.equal(outcomes.admin, 'loaded');
     assert.match(outcomes.namedDatabase!, new RegExp(`^${REFUSED}: @pyric/live: getFirestore with the database "reports" is refused in live mode, from a Node process`));
     // Google's server Firestore client stops at import, and a raw request to a live row host never opens a socket.
     assert.match(outcomes.cloudFirestore!, /^PYRIC_REAL_SDK_STOPPED: @pyric\/live\/register: stopped loading @google-cloud\/firestore/);
