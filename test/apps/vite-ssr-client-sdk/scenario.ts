@@ -19,6 +19,10 @@
 // records no connection. A page that imports firebase/installations, which the
 // plugin doesn't serve, gets the stop error in Chromium.
 //
+// Under `vite dev` with `ssr.noExternal: true`, a server-rendered module that
+// imports `@firebase/*` directly or firebase-admin through an npm alias stops
+// with PYRIC_REAL_SDK_STOPPED too (#2345).
+//
 // A server built with `vite build --ssr` and `ssr.noExternal: true` keeps
 // every Firebase SDK external through pyricViteExternals, including a direct
 // `@firebase/*` import and an npm alias of firebase-admin, so under
@@ -126,6 +130,7 @@ async function externalizationShape(app: App, noExternal: 'firebase' | 'all', ru
     expectOk(outcomes, 'admin.database', { from: 'ssr' });
     expectOk(outcomes, 'admin.firestore', { from: 'ssr' });
   });
+  if (noExternal === 'all') await devSdkNamesStop(app, server, runner);
   await app.step(`ssr.noExternal ${noExternal}: nothing reached production`, () => assertNoProductionTraffic(server, since));
   await app.step(`stop the ssr.noExternal ${noExternal} dev server`, () => server.process.stop());
 }
@@ -135,13 +140,21 @@ const ADMIN_ALIAS = 'admin-alias';
 const SDK_NAMES_OUT_DIR = 'dist-ssr';
 const SDK_NAMES = ['@firebase/app', '@firebase/firestore', `${ADMIN_ALIAS}/app`];
 
+/**
+ * Under `vite dev` with `ssr.noExternal: true`, a server-rendered module that
+ * imports a Firebase SDK by another name stops at load, as the built server
+ * does (#2345). The dev server keeps each installed name external, so Node
+ * loads it and the stop hook refuses it before the real SDK runs.
+ */
+async function devSdkNamesStop(app: App, server: DevServer, runner: string): Promise<void> {
+  await app.step('ssr.noExternal all: each server-rendered import of a Firebase SDK name stops at load', async () => {
+    const { outcomes } = await get(`${server.url}/ssr/sdk-names?runner=${runner}`);
+    for (const name of SDK_NAMES) expectCode(outcomes, name, 'PYRIC_REAL_SDK_STOPPED');
+  });
+}
+
 /** `vite build --ssr` with `ssr.noExternal: true`, then the built entry under `pyric sandbox` (#1756). */
 async function builtServerStops(app: App): Promise<void> {
-  // What an alias install lays out: the package's files in the alias's
-  // folder, its manifest still naming firebase-admin, its dependencies
-  // hoisted beside it. Copied, so the app installs the same dependency set.
-  await app.step(`install firebase-admin under the npm alias ${ADMIN_ALIAS}`, () =>
-    cpSync(join(app.dir, 'node_modules', 'firebase-admin'), join(app.dir, 'node_modules', ADMIN_ALIAS), { recursive: true }));
   await app.step('vite build --ssr with ssr.noExternal: true keeps each Firebase SDK name external', async () => {
     const build = await app.command(
       'node',
@@ -169,6 +182,11 @@ async function builtServerStops(app: App): Promise<void> {
 export default scenario(async (app) => {
   await app.step("copy the app's own local-admin-lib package into node_modules", () =>
     cpSync(join(app.dir, 'local-admin-lib'), join(app.dir, 'node_modules', 'local-admin-lib'), { recursive: true }));
+  // What an alias install lays out: the package's files in the alias's
+  // folder, its manifest still naming firebase-admin, its dependencies
+  // hoisted beside it. Copied, so the app installs the same dependency set.
+  await app.step(`install firebase-admin under the npm alias ${ADMIN_ALIAS}`, () =>
+    cpSync(join(app.dir, 'node_modules', 'firebase-admin'), join(app.dir, 'node_modules', ADMIN_ALIAS), { recursive: true }));
   const closedPort = await app.freePort();
   const host = await app.step('start the hosted dev server, with trap.cjs preloaded', () => app.devServer({
     env: { NODE_OPTIONS: '--require ./trap.cjs', SCENARIO_CLOSED_PORT: String(closedPort) },
