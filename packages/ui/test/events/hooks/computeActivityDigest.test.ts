@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test';
+import { callerSourceLabelOutsidePage } from 'pyric/sandbox/internal';
 import {
   computeActivityDigest,
   type ActivityBandKey,
@@ -305,7 +306,8 @@ describe('computeActivityDigest — actor / lens / subject attribution', () => {
       ],
       { now: NOW },
     );
-    expect(d.bands[0].attribution).toBe('by Server (admin)');
+    expect(d.bands[0].rows.map((r) => r.source)).toEqual(['admin', 'admin']);
+    expect(d.bands[0].attribution).toBe(`by ${callerSourceLabelOutsidePage('admin')}`);
   });
 
   it('preserves planId on rows when present', () => {

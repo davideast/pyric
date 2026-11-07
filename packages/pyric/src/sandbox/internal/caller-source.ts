@@ -16,7 +16,7 @@ export const CALLER_SOURCE_LABELS: Readonly<Record<CallerSource, string>> = Obje
   page: 'This page',
   tab: 'Other tab',
   node: 'Node process',
-  admin: 'Server (admin)',
+  admin: 'Node process, Admin SDK',
   mcp: 'MCP',
   studio: 'Studio',
   'service-worker': 'Service worker',
