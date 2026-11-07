@@ -22,6 +22,8 @@ Passing a unit test or MRE oracle is necessary but not sufficient. Before openin
 
 File every issue in one of these shapes. The forms live in `.github/ISSUE_TEMPLATE/`. Agents and the builder verifier file in this shape, never paste long drafts, and keep each field to one or two lines.
 
+Generalize every issue and finding PR to pyric itself. State titles, prose, schemas, paths, and standalone repros with synthetic domain shapes (`users/$uid`, `items/{id}`) and public `pyric/*` or `@pyric/*` imports—never name or borrow identifiers from the codebase, example app, benchmark fixture, audit, or hunt that surfaced the finding, and never include local paths or session IDs.
+
 | Kind | Title | Label | Fields |
 |---|---|---|---|
 | Missing API | `Support <API> in <package>` | support | Missing, In production (with reference link), Workaround, Done when |
