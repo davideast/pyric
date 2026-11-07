@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import type { ObservedCall } from 'pyric/sandbox';
+import { readLiveHostStatus } from 'pyric/sandbox/internal';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
 import type { ServedFirebaseSpecifier } from '../../src/serve/firebase-module-swap.js';
 import { createLiveHostState, projectSourceName } from '../../src/serve/live-host-state.js';
@@ -38,6 +39,7 @@ describe('the live host state', () => {
       configSource: '.firebaserc',
       appProjectIds: [],
       billed: { reads: 0, writes: 0, deliveries: 0 },
+      admin: { mode: 'observed', observed: true, bypassesRules: true },
     });
   });
 
@@ -128,12 +130,14 @@ describe('the live host state', () => {
     expect(live.report().projectId).toBe('staging');
   });
 
-  it('reports the Admin pass-through apart from the passed-through imports', () => {
+  it('reports the Admin SDK as observed on every live host, apart from the passed-through imports', () => {
     const input = { configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined } as const;
-    expect(createLiveHostState(input).report()).not.toHaveProperty('admin');
-    const live = createLiveHostState({ ...input, adminPassThrough: true });
-    expect(live.report().admin).toEqual({ mode: 'pass-through', observed: false, bypassesRules: true });
-    expect(live.report()).not.toHaveProperty('passThrough');
+    const admin = { mode: 'observed', observed: true, bypassesRules: true };
+    expect(createLiveHostState(input).report().admin).toEqual(admin);
+    const live = createLiveHostState({ ...input, passThrough: ['firebase/functions'] });
+    expect(live.report().admin).toEqual(admin);
+    expect(live.report().passThrough).toEqual(['firebase/functions']);
+    expect(readLiveHostStatus({ live: live.report() })?.admin).toEqual(admin);
   });
 
   it('names each project source as the developer set it', () => {

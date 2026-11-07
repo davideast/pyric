@@ -54,8 +54,6 @@ export interface LiveHostStateInput {
   warn(line: string): void;
   /** The `firebase/*` imports the app's installed SDK serves unwrapped and unobserved (`pyricLive({ passThrough })`). */
   passThrough?: readonly string[];
-  /** Whether a Node process under the live register loads the real Admin SDK; the report's `admin` field. */
-  adminPassThrough?: boolean;
   /**
    * The `firebase/*` imports the app resolved to live rows, in the order it
    * first imported them. The app imports after the host starts, so the report
@@ -140,8 +138,9 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const pending = new Map<string, ObservedCall>();
   const passThrough = [...(input.passThrough ?? [])];
   const passThroughField = passThrough.length === 0 ? {} : { passThrough };
-  const admin: LiveHostStatus['admin'] = { mode: 'pass-through', observed: false, bypassesRules: true };
-  const adminField = input.adminPassThrough === true ? { admin } : {};
+  // A Node process under the live register observes firebase-admin, so every live host reports it. The host
+  // sees only its own Node; a backend on Node 22 says in its own start line that its Admin rows stay shut.
+  const admin: NonNullable<LiveHostStatus['admin']> = { mode: 'observed', observed: true, bypassesRules: true };
   const clients = createLiveClients(input.now ?? Date.now);
 
   const report = (): LiveHostStatus => ({
@@ -152,7 +151,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     billed: billed.count(),
     ...passThroughField,
     ...observedField(input.observed),
-    ...adminField,
+    admin,
     ...clients.field(),
   });
 
