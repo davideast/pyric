@@ -1,7 +1,8 @@
 /**
  * The terminal lines a live host prints for the observed calls it accepts: a
- * block for each call production denied, and the AI block for each AI Logic
- * request production rejected. These pin the terminal text, which is neither
+ * block for each call production denied, the AI block for each AI Logic
+ * request production rejected, and the AI block for each answer production
+ * withheld. These pin the terminal text, which is neither
  * chip nor Studio copy.
  */
 import { describe, expect, it } from 'bun:test';
@@ -11,6 +12,7 @@ import { formatAiBlockedBlock, formatAiRejectionBlock } from '../../src/serve/ai
 import { createLiveHostState } from '../../src/serve/live-host-state.js';
 import {
   createLiveTerminalLines,
+  formatObservedAiBlock,
   formatObservedAiRejection,
   formatProductionDenial,
   liveTerminalBlock,
@@ -40,6 +42,32 @@ describe('the production denial block', () => {
       '      auth: 8fK2qLx0aVb3',
       '      production decided this with its deployed rules, not your local firestore.rules',
     ].join('\n'));
+  });
+
+  it("adds production's message to the code line, as the SDK's error held it", () => {
+    const block = formatProductionDenial(
+      call({ method: 'getDoc', path: 'notes/n1', outcome: { ...denied, message: 'Missing or insufficient permissions.' }, account: { uid: '8fK2qLx0aVb3' } }),
+      { kind: 'browser', label: '/settings/billing' },
+      RULES,
+    );
+    expect(block).toBe([
+      '  ⚠ [pyric] production denied: firestore getDoc notes/n1',
+      '      permission-denied: Missing or insufficient permissions.',
+      '      from: browser tab /settings/billing',
+      '      auth: 8fK2qLx0aVb3',
+      '      production decided this with its deployed rules, not your local firestore.rules',
+    ].join('\n'));
+  });
+
+  it("flattens production's message, leaves an email in it out and masks a URL's key", () => {
+    const message = "User does not have permission to access 'users/ann@example.com/a.png'.\n\u001b[31m forged https://x.example/a?key=AIzaSecret";
+    const block = formatProductionDenial(call({ service: 'storage', method: 'getBytes', path: 'a.png', bucket: 'b', outcome: { status: 'error', code: 'storage/unauthorized', message } }), undefined, RULES);
+    const line = block.split('\n')[1]!;
+    expect(block.split('\n')).toHaveLength(3);
+    expect(line).not.toMatch(/[\u0000-\u001f\u007f]/);
+    expect(line).not.toContain('ann@example.com');
+    expect(line).not.toContain('AIzaSecret');
+    expect(line).toContain("users/[email]/a.png");
   });
 
   it('names each service\'s own rules file', () => {
@@ -110,6 +138,37 @@ describe('the observed AI blocks', () => {
     ].join('\n'));
   });
 
+  it("ends an observed rejection's headline with production's message", () => {
+    const block = formatObservedAiRejection(
+      call({ service: 'ai', method: 'generateContent', ai: { model: 'gemini-2.5-flash' }, outcome: { status: 'error', code: 'invalid_argument', message: 'Request contains an invalid argument.' } }),
+      { kind: 'node', label: 'server.ts' },
+    );
+    expect(block).toBe([
+      '  ⚠ [pyric] production ai request rejected: Request contains an invalid argument.',
+      '      model: gemini-2.5-flash',
+      '      INVALID_ARGUMENT (400)',
+      '      from: Node process server.ts',
+    ].join('\n'));
+  });
+
+  it('prints the blocked block for an answer production withheld, from its finish or block reason', () => {
+    const answered = (ai: NonNullable<ObservedCall['ai']>) => call({ service: 'ai', method: 'generateContent', ai });
+    expect(formatObservedAiBlock(answered({ model: 'gemini-2.5-flash', finishReason: 'SAFETY' }), { kind: 'browser', label: '/chat' })).toBe([
+      '  ⚠ [pyric] production ai response blocked: SAFETY',
+      '      model: gemini-2.5-flash',
+      '      no content was returned; text() and functionCalls() throw for this finish reason',
+      '      from: browser tab /chat',
+    ].join('\n'));
+    expect(formatObservedAiBlock(answered({ model: 'gemini-2.5-flash', blockReason: 'PROHIBITED_CONTENT' }), undefined)).toBe([
+      '  ⚠ [pyric] production ai response blocked: PROHIBITED_CONTENT',
+      '      model: gemini-2.5-flash',
+      '      the prompt was blocked before generation; no candidates were returned',
+    ].join('\n'));
+    // A finish reason the SDK still answers text() for is no block, and neither is an answer with content.
+    expect(formatObservedAiBlock(answered({ model: 'm', finishReason: 'OTHER' }), undefined)).toBeNull();
+    expect(formatObservedAiBlock(answered({ model: 'm' }), undefined)).toBeNull();
+  });
+
   it('keeps production\'s reason when it has one, and the blocked block takes the same additions', () => {
     const rejected = formatAiRejectionBlock(
       { message: 'Request contains an invalid argument.', model: 'gemini-2.5-flash', engine: 'gemini', status: 'INVALID_ARGUMENT', code: 400 },
@@ -163,6 +222,19 @@ describe('the throttle', () => {
     now = 5_000;
     lines.accepted(read, undefined);
     expect(printed).toHaveLength(3);
+  });
+
+  it('prints one blocked block per model and reason within the window', () => {
+    const printed: string[] = [];
+    const lines = createLiveTerminalLines({ print: (block) => printed.push(block), now: () => 0 });
+    const blocked = (finishReason: string) => call({ service: 'ai', method: 'generateContent', ai: { model: 'm', finishReason } });
+    lines.accepted(blocked('SAFETY'), undefined);
+    lines.accepted(blocked('SAFETY'), undefined);
+    lines.accepted(blocked('RECITATION'), undefined);
+    expect(printed.map((block) => block.split('\n')[0])).toEqual([
+      '  ⚠ [pyric] production ai response blocked: SAFETY',
+      '  ⚠ [pyric] production ai response blocked: RECITATION',
+    ]);
   });
 
   it('reads the rules files once the session runs, and drops the line while it cannot', () => {

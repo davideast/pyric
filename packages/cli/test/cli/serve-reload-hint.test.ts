@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { startServe } from '../../src/cli/serve.js';
 
 const VERIFY_HINT = '(run `pyric verify` to replay the captured session against these rules)';
-const RELOAD_LINE = /rules reloaded .*\(hash (\w+)\)/;
+/** What a live host's reload line ends with, as the Vite live host's does (`verify-hint.ts`). */
+const LIVE_RELOAD = 'for the sandbox. Production keeps its deployed rules.';
+const RELOAD_LINE =/rules reloaded .*\(hash (\w+)\)/;
 
 // startServe prepares the SDK bundles and the rules before it returns: 0.2 s
 // on an idle machine, 4 to 5.5 s with 48 busy loops sharing two cores, which
@@ -76,6 +78,30 @@ describe('pyric sandbox rules hot-reload hint', () => {
       writeFileSync(rulesFile, JSON.stringify({ rules: { '.read': false, '.write': true } }));
       const second = await log.nextReload(beforeSecond, first.hash);
       expect(second.line).not.toContain(VERIFY_HINT);
+    } finally {
+      await runtime.handle.stop();
+    }
+  }, testTimeoutMs);
+
+  it('on a pyric-live host, says on every reload that production keeps its deployed rules, with no verify hint', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-live-reload-hint-'));
+    const rulesFile = join(cwd, 'database.rules.json');
+    writeFileSync(rulesFile, JSON.stringify({ rules: { '.read': false } }));
+    const log = createReloadLog();
+    const liveHost = { project: { projectId: 'demo-live-reload', source: 'option' as const }, writeRefusal: () => new Error('live mode refuses this write') };
+
+    const runtime = await startServe({ cwd, port: 0, watch: true, logger: log.logger, liveHost });
+    try {
+      const beforeFirst = log.mark();
+      writeFileSync(rulesFile, JSON.stringify({ rules: { '.read': true } }));
+      const first = await log.nextReload(beforeFirst, null);
+      expect(first.line).toContain(LIVE_RELOAD);
+      expect(first.line).not.toContain('pyric verify');
+
+      const beforeSecond = log.mark();
+      writeFileSync(rulesFile, JSON.stringify({ rules: { '.read': false, '.write': true } }));
+      const second = await log.nextReload(beforeSecond, first.hash);
+      expect(second.line).toContain(LIVE_RELOAD);
     } finally {
       await runtime.handle.stop();
     }

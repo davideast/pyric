@@ -664,8 +664,9 @@ async function startServeRuntime(opts: {
   // and every module file it imports are watched, including the module files
   // a failed reload asked for, so fixing or creating one reloads. The source
   // is the path the rules load from, watched whether or not it exists at
-  // startup, so a rules file created later loads.
-  const getVerifyHint = createVerifyHint();
+  // startup, so a rules file created later loads. On a live host each reload
+  // line says it changed the sandbox only, with no `pyric verify` hint.
+  const getVerifyHint = createVerifyHint({ live: isLive });
 
   const isWatchEnabled = opts.watch ?? true;
   if (isWatchEnabled) {
