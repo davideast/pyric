@@ -129,14 +129,13 @@ function restartSubscription(ctx: HostCtx, port: PortLike, subId: string, msg: D
       handleSub(ctx, port, msg);
     }
   };
-  if (isRtdb) {
-    register();
-    return;
-  }
   // Restore the original listener's page attribution, including when another
-  // consumer initiated the checkpoint restore outside that page's dispatcher.
+  // consumer initiated the checkpoint restore or auth change outside that
+  // page's dispatcher. RTDB subscriptions do not track Firestore activity
+  // journeys.
+  const journeyId = !isRtdb && msg.relaySource !== 'remote' ? activityJourneyId(ctx, port) : undefined;
   const provenance = {
-    ...opProvenance(msg, activityJourneyId(ctx, port)),
+    ...opProvenance(msg, journeyId),
     activity: { listenerId: subId, listenerLifecycle: 'reauthorize' as const },
   };
   const runWithProvenance = ctx.sandbox.runWithProvenance;
@@ -205,7 +204,9 @@ function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessag
     // The page logs the unspecified-index warning a production listen
     // response carries; it rides on the listener's first snapshot.
     let warning = listenIndexWarning(ref as DatabaseReference | RtdbQuery);
-    const unsub = rtdbOnValue(
+    let cancelled = false;
+    let unsub: (() => void) | undefined;
+    unsub = rtdbOnValue(
       ref as DatabaseReference | RtdbQuery,
       (snap) => {
         const wire = rtdbSnapToWire(snap) as Record<string, unknown>;
@@ -213,10 +214,18 @@ function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessag
         warning = null;
         post(port, { t: 'snap', subId: msg.subId, value });
       },
-      (err) => post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } }),
+      (err) => {
+        cancelled = true;
+        if (unsub !== undefined && portSubs.get(msg.subId) === unsub) {
+          portSubs.delete(msg.subId);
+          _subscriptionIntents.get(ctx)?.get(port)?.delete(msg.subId);
+        }
+        post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } });
+      },
       // Same reason as the Firestore path: the owners belong to the page.
       options,
     );
+    if (cancelled) return;
 
     ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
     subscriptionIntentsFor(ctx, port).set(msg.subId, msg);
