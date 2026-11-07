@@ -424,6 +424,8 @@ describe('readObservedCall', () => {
       [{ ...shape, filters: [{ ...filter, field: FIS_AUTH_TOKEN }] }, 'query.filters.field'],
       [{ ...shape, filters: [{ ...filter, field: VAPID_KEY }] }, 'query.filters.field'],
       [{ ...shape, orderBy: [{ field: FCM_TOKEN, direction: 'asc' }] }, 'query.orderBy.field'],
+      [{ ...shape, filters: [{ ...filter, field: 'members.alice@example.com' }] }, 'query.filters.field'],
+      [{ ...shape, orderBy: [{ field: 'scores.`bob@corp.io`', direction: 'asc' }] }, 'query.orderBy.field'],
       [{ ...shape, orderBy: [{ field: 'createdAt', direction: 'up' }] }, 'query.orderBy.direction'],
       [{ ...shape, filters: filter }, 'query.filters'],
       [{ ...shape, filters: Array.from({ length: 65 }, () => filter) }, 'query.filters'],

@@ -59,6 +59,9 @@ export const OBSERVED_ADMIN_DISPOSITION: RulesDisposition = Object.freeze({
   reason: 'admin',
 });
 
+/** An email address anywhere in a text: another person's from a document or a field path, or the account's own. */
+export const EMAIL_SHAPE = /[^\s@"']+@[^\s@"']+\.[^\s@"']+/;
+
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
 /** The services the Admin SDK rows observe. AI Logic and Messaging calls come only from a client SDK. */
 const ADMIN_SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'rtdb', 'storage', 'auth']);
@@ -432,9 +435,10 @@ function readRequests(value: unknown): ObservedRequest[] {
   return value.map(readRequest);
 }
 
-/** A field path a query names: bounded, and never shaped like a token or key a value could be. */
+/** A field path a query names: bounded, and never shaped like a token, a key or an email address a value could be. */
 function readQueryField(value: unknown, field: string): string {
-  requireField(isBoundedString(value, MAX_PATH_LENGTH) && !isTokenShaped(value), field);
+  const bounded = isBoundedString(value, MAX_PATH_LENGTH);
+  requireField(bounded && !isTokenShaped(value) && !EMAIL_SHAPE.test(value), field);
   return value;
 }
 
