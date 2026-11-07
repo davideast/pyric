@@ -76,7 +76,7 @@ import {
 } from './database.js';
 import { AI_REFUSED_CALLS, aiCode, aiContext, aiMessage, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
 import { firestoreContext, firestoreListener, firestoreResult, observedWriteBatch } from './firestore.js';
-import { observedGetStream, STORAGE_CALLS, storageContext } from './storage.js';
+import { observedGetStream, STORAGE_CALLS, storageContext, storageResult } from './storage.js';
 import {
   MESSAGING_CALLS,
   MESSAGING_REFUSED_CALLS,
@@ -287,7 +287,7 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     listeners: [],
     thenables: ['uploadBytesResumable'],
     swallowsRejection: ['uploadBytesResumable'],
-    hooks: { context: storageContext, throwsLocally: true },
+    hooks: { context: storageContext, resultOf: storageResult, throwsLocally: true },
     replaced: { getStream: observedGetStream },
   },
   'live-messaging': {

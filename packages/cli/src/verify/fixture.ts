@@ -1,4 +1,4 @@
-import { assertCompleteHistory } from 'pyric/sandbox/internal';
+import { assertCompleteHistory, type ObservedWriteValue } from 'pyric/sandbox/internal';
 import type { EventService, Sandbox, SandboxEvent } from 'pyric/sandbox';
 import { getStorageSandbox } from 'pyric/storage';
 import { storageDeniedWrites, type RecordedStorageDeniedWrite } from 'pyric/storage/internal';
@@ -34,7 +34,7 @@ export interface VerifyStorageRulesBlock {
  */
 export interface VerifyObservedCallValues {
   claims?: Record<string, unknown>;
-  writeData?: Record<string, unknown>;
+  writeData?: ObservedWriteValue;
   document?: Record<string, unknown>;
 }
 

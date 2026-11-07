@@ -22,7 +22,7 @@ export type { PyricOptions } from './vite-plugin.js';
 export type { PyricWrite, PyricWriter, PyricWriteRefusal } from './hosted/own-writes.js';
 export type { LiveListener, LiveListenerActivity } from './entries/live-listener-journal.js';
 export type { ObservedCall, ObservedCallService, ProductionOutcome } from 'pyric/sandbox';
-export { livePassThroughLine } from 'pyric/sandbox/internal';
+export { livePassThroughLine, UNREAD_BUCKET } from 'pyric/sandbox/internal';
 
 /** What the supplier gives: the error for a refused import, where it is installed, and the served specifiers it passes through. */
 export interface SuppliedRowsInput {

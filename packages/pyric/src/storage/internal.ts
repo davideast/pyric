@@ -31,6 +31,7 @@ export {
   deployStorageBucketRules,
   lockUndeployedStorageBuckets,
   storageBucketsWithRules,
+  compiledStorageRulesForBucket,
 } from './service.js';
 export {
   enforceRules,
@@ -41,6 +42,11 @@ export {
   type RecordedStorageDeniedWrite,
 } from './enforce.js';
 export { storageRulesMayReadRedactedProps } from './sandbox/rules.js';
+export {
+  emptyStorageObservation,
+  evaluateStorageRules,
+  type StorageEvaluationObservation,
+} from './sandbox/rules-evaluator.js';
 export { requestResourceFor, resourceFromStored } from './sandbox/rules-resources.js';
 export { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
 export { clientContentEncoding, uploadContentDisposition } from './content-defaults.js';

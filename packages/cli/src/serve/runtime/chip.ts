@@ -24,7 +24,7 @@ import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
 import { INDEX_STYLES, indexDetailsHtml, indexActionHtml } from './chip-indexes.js';
 import { createIndexInspector, createIndexConfigClient, type IndexConfigClient } from './index-config-client.js';
 import type { AiRequestObservation, ServiceIndexQuery } from 'pyric/sandbox/internal';
-import { rulesEvidenceHtml, rulesSummary } from './chip-rules-evidence.js';
+import { localRulesEvidenceHtml, localRulesSummary, rulesEvidenceHtml, rulesSummary } from './chip-rules-evidence.js';
 import { createDenialMarkers } from './denial-markers.js';
 import { activityDisplayTarget } from './activity-history.js';
 /**
@@ -557,9 +557,16 @@ function driftMarkerHtml(request: ChipRequest): string {
  */
 function productionReasonHtml(request: ChipRequest, fact: (label: string, value: string, cell: string) => string): { reason: string; evidence: string } {
   const drift = request.localDrift === undefined ? '' : fact('Reason', DRIFT_REASON, '');
-  if (request.rulesEvidence === undefined) return { reason: drift || fact('Reason', PRODUCTION_REASON, ''), evidence: '' };
-  const evidence = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
-  return { reason: fact('Local rules', rulesSummary(request), '') + drift, evidence };
+  if (request.rulesEvidence !== undefined) {
+    const evidence = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
+    return { reason: fact('Local rules', rulesSummary(request), '') + drift, evidence };
+  }
+  if (request.local !== undefined) {
+    const summary = localRulesSummary(request);
+    const evidence = localRulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
+    return { reason: fact('Local rules', summary, '') + drift, evidence };
+  }
+  return { reason: drift || fact('Reason', PRODUCTION_REASON, ''), evidence: '' };
 }
 
 /** A shared icon and label track keeps request statuses aligned across rows. */

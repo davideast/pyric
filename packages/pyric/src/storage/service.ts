@@ -156,6 +156,8 @@ interface OpenStorageService {
   readonly service: Promise<StorageService>;
   /** The rules source it was opened with, `null` when opened without rules. */
   readonly rulesSource: string | null;
+  /** The parsed Storage rules installed synchronously without a bucket, `null` when absent. */
+  readonly compiledRules: StorageRules | null;
   /** The module-resolution record for that source, `null` without rules. */
   readonly rulesResolution: StorageRulesResolution | null;
   /** The cross-service IAM mode it was opened with. */
@@ -339,6 +341,7 @@ export async function replaceStorageRules(
   OPEN_SERVICES.set(sandbox, {
     service: open.service,
     rulesSource: source,
+    compiledRules: compiled.rules,
     rulesResolution: compiled.resolution,
     crossServiceIam: open.crossServiceIam,
   });
@@ -454,6 +457,33 @@ export function storageBucketsWithRules(sandbox: Sandbox): string[] {
 }
 
 /**
+ * The compiled Storage rules the app deployed to `bucket`, read
+ * synchronously: the rules deployed to that bucket by name, else the default
+ * rules for the default bucket (no bucket named, the pinned default store's
+ * name, or one of `defaultBuckets`). `null` for any other bucket, whose
+ * rules the app did not load, unless the host knows no default bucket name
+ * at all, when every bucket reads as the default one.
+ */
+export function compiledStorageRulesForBucket(
+  sandbox: Sandbox,
+  bucket?: string,
+  defaultBuckets: readonly string[] = [],
+): StorageRules | null {
+  const defaultRules = OPEN_SERVICES.get(sandbox)?.compiledRules ?? null;
+  if (bucket === undefined) return defaultRules;
+  const normalized = rulesBucketName(bucket, bucket);
+  const byBucket = BUCKET_RULES.get(sandbox);
+  const deployed = byBucket?.get(normalized);
+  if (deployed !== undefined) return deployed.rules;
+  const pinnedDefault = DEFAULT_STORE_NAMES.get(sandbox);
+  if (pinnedDefault === normalized) return defaultRules;
+  if (defaultBuckets.some((name) => rulesBucketName(name, name) === normalized)) return defaultRules;
+  const knowsNoBucketName = (byBucket?.size ?? 0) === 0 && defaultBuckets.length === 0 && pinnedDefault === undefined;
+  if (knowsNoBucketName) return defaultRules;
+  return null;
+}
+
+/**
  * The cross-service IAM posture a sandbox's storage service is running under.
  *
  * A sandbox whose storage service has never been opened reports the default a
@@ -490,6 +520,7 @@ export async function replaceCrossServiceIam(
   OPEN_SERVICES.set(sandbox, {
     service: open.service,
     rulesSource: open.rulesSource,
+    compiledRules: open.compiledRules,
     rulesResolution: open.rulesResolution,
     crossServiceIam: mode,
   });
@@ -560,6 +591,7 @@ function ensureService(
   OPEN_SERVICES.set(sandbox, {
     service: servicePromise,
     rulesSource: options.rules ?? null,
+    compiledRules: rules,
     rulesResolution: resolution,
     crossServiceIam,
   });

@@ -152,12 +152,151 @@ export function rulesEvidenceHtml(request: ChipRequest, escape: Escape, chevron 
   if (evidence.truncated) truncation = '<span class="hint">This request exceeded the recording limit. Some checks or text are missing.</span>';
   const path = request.path ?? 'this request';
   const rules = evidence.rules.map(rule => renderRule(rule, lineLabel, escape)).join('');
-  return `<section class="rules-evidence">${primary}${truncation}
-    <details class="rules-disclosure" data-rule-details="${escape(request.id)}">
+  const body = `${scope}${renderPaths(evidence, path, escape)}
+        <section class="rules-section"><strong class="section-title">Checks in execution order</strong>${rules}</section>`;
+  return ruleDetailsDisclosure({ id: request.id, lead: primary + truncation, body, privacy: FIRESTORE_PRIVACY }, escape, chevron);
+}
+
+const FIRESTORE_PRIVACY = 'Full documents and complete sign-in records are not included here. The values shown can still be private. Review them before copying or sharing.';
+const RTDB_PRIVACY = 'Full database records and email addresses are omitted from rule details.';
+const STORAGE_PRIVACY = 'Object bytes and email addresses are omitted from rule details.';
+
+/** The parts of one row's "Rule details" disclosure: what shows above it, what it holds, and its privacy note. */
+interface Disclosure {
+  id: string;
+  lead?: string;
+  body: string;
+  privacy?: string;
+}
+
+/** A row's collapsed "Rule details" section, shared by every service's evidence. */
+function ruleDetailsDisclosure(disclosure: Disclosure, escape: Escape, chevron: string): string {
+  let privacy = '';
+  if (disclosure.privacy !== undefined) privacy = `<dl class="rules-facts rules-privacy">${fact('Privacy', disclosure.privacy)}</dl>`;
+  return `<section class="rules-evidence">${disclosure.lead ?? ''}
+    <details class="rules-disclosure" data-rule-details="${escape(disclosure.id)}">
       <summary><span>Rule details</span><span class="rules-chevron">${chevron}</span></summary>
-      <div class="rules-detail-body">${scope}${renderPaths(evidence, path, escape)}
-        <section class="rules-section"><strong class="section-title">Checks in execution order</strong>${rules}</section>
-        <dl class="rules-facts rules-privacy">${fact('Privacy', 'Full documents and complete sign-in records are not included here. The values shown can still be private. Review them before copying or sharing.')}</dl>
+      <div class="rules-detail-body">${disclosure.body}
+        ${privacy}
       </div>
     </details></section>`;
+}
+
+const GAP_LABELS = {
+  'stored-document': 'the stored data in production',
+  'write-data': 'the written payload',
+  'claim-values': 'token claim values',
+  query: 'the query parameters',
+} as const;
+
+function formatGapList(needs: readonly (keyof typeof GAP_LABELS)[]): string {
+  const labels = needs.map(need => GAP_LABELS[need]);
+  if (labels.length === 0) return 'more request context';
+  if (labels.length === 1) return labels[0]!;
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
+}
+
+/** The "Local rules" line of a live row with no Firestore trace: the local verdict, or the data it needed. */
+export function localRulesSummary(request: ChipRequest): string {
+  const local = request.local;
+  if (!local) return rulesSummary(request);
+  if (local.result === 'unevaluated') {
+    return `Needs ${formatGapList(local.needs)} to evaluate against local rules.`;
+  }
+  if (local.result === 'allow') return 'Local rules allowed this request.';
+  if (local.rtdb?.errorCode === 'NO_MATCHING_RULE') {
+    return 'Local rules denied this request (no matching rule allowed it).';
+  }
+  return 'Local rules did not allow this request.';
+}
+
+type LocalVerdict = NonNullable<ChipRequest['local']>;
+type RtdbDetail = NonNullable<LocalVerdict['rtdb']>;
+type StorageDetail = NonNullable<LocalVerdict['storage']>;
+type RtdbTraceEntry = NonNullable<RtdbDetail['rtdbTrace']>[number];
+
+const RTDB_VERDICT_LABELS: Record<RtdbTraceEntry['verdict'], string> = {
+  ALLOW: 'Allowed',
+  DENY: 'Denied',
+  UNSUPPORTED: 'Unsupported',
+  ERROR: 'Error',
+};
+
+const RTDB_KIND_LABELS: Record<RtdbTraceEntry['kind'], string> = {
+  read: '.read',
+  write: '.write',
+  validate: '.validate',
+};
+
+function renderRtdbBindings(bindings: Record<string, string> | undefined, escape: Escape): string {
+  if (!bindings || Object.keys(bindings).length === 0) return '';
+  const pairs = Object.entries(bindings).map(([k, v]) => `${k} = ${v}`).join(', ');
+  return fact('Variables', `<code>${escape(pairs)}</code>`);
+}
+
+function renderRtdbTraceEntry(entry: RtdbTraceEntry, escape: Escape): string {
+  let facts = fact('Path', `<code>${escape(entry.path)}</code>`)
+    + condition(entry.conditionText, escape)
+    + fact('Result', escape(RTDB_VERDICT_LABELS[entry.verdict]))
+    + renderRtdbBindings(entry.pathVariableBindings, escape);
+  if (entry.message) facts += fact('Note', escape(entry.message));
+  return record(`<strong>${escape(RTDB_KIND_LABELS[entry.kind])}</strong><dl class="rules-facts">${facts}</dl>`);
+}
+
+/** A section of evaluated rules, or nothing for an empty list. */
+function evaluatedRulesSection(rows: readonly string[]): string {
+  if (rows.length === 0) return '';
+  return `<section class="rules-section"><strong class="section-title">Evaluated rules</strong><div class="rows">${rows.join('')}</div></section>`;
+}
+
+/** A card of summary facts, or nothing when there are none. */
+function factsCard(facts: string): string {
+  if (facts === '') return '';
+  return record(`<dl class="rules-facts">${facts}</dl>`);
+}
+
+function rtdbDetailBody(detail: RtdbDetail, escape: Escape): string {
+  let summaryFacts = '';
+  if (detail.matchedPath) summaryFacts += fact('Rule path', `<code>${escape(detail.matchedPath)}</code>`);
+  if (detail.matchedRule) summaryFacts += fact('Rule', `<code class="rule-expression" tabindex="0" aria-label="Condition">${escape(detail.matchedRule)}</code>`);
+  summaryFacts += renderRtdbBindings(detail.pathVariableBindings, escape);
+  if (detail.reason) summaryFacts += fact('Engine', escape(detail.reason));
+  else if (detail.errorCode) summaryFacts += fact('Code', escape(detail.errorCode));
+  const trace = (detail.rtdbTrace ?? []).map(entry => renderRtdbTraceEntry(entry, escape));
+  return factsCard(summaryFacts) + evaluatedRulesSection(trace);
+}
+
+function storageDetailBody(detail: StorageDetail, escape: Escape): string {
+  let summaryFacts = '';
+  if (detail.matchedPath) summaryFacts += fact('Match', `<code>${escape(detail.matchedPath)}</code>`);
+  if (detail.matchedLine !== undefined) summaryFacts += fact('Location', `Line ${detail.matchedLine}`);
+  const reasons = (detail.reasons ?? []).map(reason => factsCard(fact('Check', escape(reason))));
+  return factsCard(summaryFacts) + evaluatedRulesSection(reasons);
+}
+
+function ruleDetailBody(rule: LocalVerdict['rule'], escape: Escape): string {
+  if (!rule) return '';
+  let facts = '';
+  if (rule.path) facts += fact('Match', `<code>${escape(rule.path)}</code>`);
+  if (rule.line !== undefined) facts += fact('Location', `Line ${rule.line}`);
+  if (rule.expression) facts += condition(rule.expression, escape);
+  return factsCard(facts);
+}
+
+/** The "Rule details" of a live row's local verdict that carries no Firestore trace: its RTDB or Storage detail, else its rule. */
+export function localRulesEvidenceHtml(request: ChipRequest, escape: Escape, chevron = ''): string {
+  const local = request.local;
+  if (!local) return '';
+  let body = ruleDetailBody(local.rule, escape);
+  let privacy: string | undefined;
+  if (local.rtdb) {
+    body = rtdbDetailBody(local.rtdb, escape);
+    privacy = RTDB_PRIVACY;
+  } else if (local.storage) {
+    body = storageDetailBody(local.storage, escape);
+    privacy = STORAGE_PRIVACY;
+  }
+  if (body === '') return '';
+  return ruleDetailsDisclosure({ id: request.id, body, privacy }, escape, chevron);
 }

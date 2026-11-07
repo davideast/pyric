@@ -141,6 +141,7 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     throw new RuleEvalError(`firestore.${expr.method}() expects a single path argument`);
   }
   if (!ctx.firestoreLookup) {
+    if (ctx.observation) ctx.observation.readFirestore = true;
     // No sandbox-backed capability injected — keep the deny-with-reason
     // "unsupported" behavior; never a false allow.
     throw new RuleEvalError(
@@ -189,6 +190,7 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     return new RuleError(`Service call error. Function: [firestore.${expr.method}]: ${slashedSegmentReason(slashed)}`);
   }
   const docPath = docSegments.join('/');
+  if (ctx.observation) ctx.observation.readFirestore = true;
   if (expr.method === 'exists') {
     return ctx.firestoreLookup.exists(docPath);
   }

@@ -48,6 +48,7 @@ import {
   type ListenerIdentity,
   type ResultReading,
 } from './observe.js';
+import { jsonFields } from './json-copy.js';
 import { realmHash } from './keyed-hash.js';
 
 /** Where a reference or query sits: its path or group id, and the key its listeners share. */
@@ -392,68 +393,6 @@ function resumedQuery(snapshotJson: unknown): ListenerIdentity | undefined {
  */
 function resumedListener(snapshotJson: unknown): ListenerIdentity | undefined {
   return resumedDocument(snapshotJson) ?? resumedQuery(snapshotJson);
-}
-
-/** The deepest nesting a JSON copy keeps; the host refuses deeper. */
-const MAX_DEPTH = 20;
-/** The most a host keeps of written data or a returned document, as it measures it: a string's length plus 2, a key's plus 4, any other scalar 8. */
-const MAX_FIELDS_SIZE = 64 * 1024;
-
-interface Budget {
-  left: number;
-}
-
-const NOT_JSON: unique symbol = Symbol('not-json');
-
-function isPlainObject(value: object): boolean {
-  const prototype: unknown = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-/** A JSON copy of a value, or `NOT_JSON` when it holds anything else or runs past the budget. */
-function jsonCopy(value: unknown, depth: number, budget: Budget): unknown {
-  if (typeof value === 'string') {
-    budget.left -= value.length + 2;
-    return value;
-  }
-  const isScalar = value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
-  if (isScalar) {
-    budget.left -= 8;
-    return value;
-  }
-  const isNested = isObject(value) && depth < MAX_DEPTH;
-  if (!isNested) return NOT_JSON;
-  if (Array.isArray(value)) return jsonItems(value, depth, budget);
-  return isPlainObject(value) ? jsonEntries(value, depth, budget) : NOT_JSON;
-}
-
-function jsonItems(items: readonly unknown[], depth: number, budget: Budget): unknown {
-  const copy: unknown[] = [];
-  for (const item of items) {
-    const copied = jsonCopy(item, depth + 1, budget);
-    if (copied === NOT_JSON || budget.left < 0) return NOT_JSON;
-    copy.push(copied);
-  }
-  return copy;
-}
-
-function jsonEntries(fields: object, depth: number, budget: Budget): unknown {
-  const entries: [string, unknown][] = [];
-  for (const [key, field] of Object.entries(fields)) {
-    budget.left -= key.length + 4;
-    const copied = jsonCopy(field, depth + 1, budget);
-    if (copied === NOT_JSON || budget.left < 0) return NOT_JSON;
-    entries.push([key, copied]);
-  }
-  return Object.fromEntries(entries);
-}
-
-/** A JSON copy of a document's fields, or undefined when they are not plain JSON or larger than a host keeps. */
-function jsonFields(value: unknown): Record<string, unknown> | undefined {
-  const isFields = isObject(value) && !Array.isArray(value);
-  if (!isFields) return undefined;
-  const copy = jsonCopy(value, 0, { left: MAX_FIELDS_SIZE });
-  return copy === NOT_JSON ? undefined : (copy as Record<string, unknown>);
 }
 
 /** Whether a reference or query reads and writes through the app's converter (`withConverter`). */

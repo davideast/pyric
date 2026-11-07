@@ -13,9 +13,12 @@
  * The project's `database.rules.json` governs the default instance, so the
  * host runs each observed call there through the local rules too, and
  * Studio's Traffic opens each one's rules inspector in place: a listener
- * delivery the local rules would allow, a write whose `newData` the call did
- * not carry, and the denied read of `/secret`, which the local rules would
- * allow, worded as what the local rules would do under production's answer.
+ * delivery the local rules would allow, an update a rule above it checks
+ * against stored siblings the host does not hold, and the denied read of
+ * `/secret`, which the local rules would allow, worded as what the local
+ * rules would do under production's answer. The chip's rows show the same
+ * verdicts: the item set is allowed, the list push the rules have no write
+ * rule for is drift, and the denied `/secret` write agrees.
  *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * capture A for this project and custom-token sign-ins. Each plane gets a
@@ -71,8 +74,10 @@ function signIns(format: string): Record<string, unknown> {
 
 /**
  * The default instance's local rules: signed-in users read and write under the
- * run folder, and may read `/secret`, which production denies, so that read
- * is drift.
+ * run folder; an item must keep its `n`, which a partial update can only be
+ * checked against with the stored item; the list has no write rule, so the
+ * pushes production accepts are drift; and signed-in users may read
+ * `/secret`, which production denies, so that read is drift too.
  */
 const DATABASE_RULES = {
   rules: {
@@ -83,6 +88,16 @@ const DATABASE_RULES = {
         $node: {
           '.read': 'auth != null',
           '.write': 'auth != null',
+        },
+        items: {
+          $id: {
+            '.read': 'auth != null',
+            '.write': 'auth != null',
+            '.validate': "newData.hasChildren(['n'])",
+          },
+        },
+        list: {
+          '.read': 'auth != null',
         },
       },
     },
@@ -228,6 +243,47 @@ function expectedRows(source: 'page' | 'node'): string[] {
 }
 
 const distinct = (rows: string[]) => [...new Set(rows)].sort();
+
+/** What a row's detail says about the local rules, and whether the row carries the drift marker. */
+interface LocalReading {
+  detail: string;
+  drift: boolean;
+}
+
+function exactly(text: string): RegExp {
+  return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+}
+
+/** The first `source` row for `call` on `path` by `account`, its drift marker, and the text of its detail. */
+async function localReading(chip: Locator, source: 'page' | 'node', call: string, path: string, account: string): Promise<LocalReading> {
+  await rtdbRows(chip);
+  const row = chip.locator(`[data-traffic-rows] [data-request-row][data-traffic-row-call="rtdb.${call}"][data-traffic-row-identity="${account}"]`)
+    .filter({ has: chip.page().locator(`[data-traffic-row-source="${source}"]`) })
+    .filter({ has: chip.page().locator('.c2', { hasText: exactly(path) }) })
+    .first();
+  const drift = await row.locator('[data-traffic-row-drift]').count() > 0;
+  await row.click();
+  const detail = await chip.locator('[data-traffic-detail]').textContent() ?? '';
+  await chip.locator('[data-request-back]').click();
+  return { detail, drift };
+}
+
+/** Each default-instance row from `source` reads the local rules' verdict, and the push they refuse is drift. */
+async function expectLocalVerdicts(chip: Locator, source: 'page' | 'node'): Promise<void> {
+  const set = await localReading(chip, source, 'set', `${RUN}/items/a`, 'user-1');
+  assert.match(set.detail, /Local rules allowed this request\./, set.detail);
+  assert.equal(set.drift, false);
+  const update = await localReading(chip, source, 'update', `${RUN}/items/a`, 'user-1');
+  assert.match(update.detail, /Needs the stored data in production to evaluate against local rules\./, update.detail);
+  assert.equal(update.drift, false);
+  const push = await localReading(chip, source, 'push', `${RUN}/list`, 'user-1');
+  assert.match(push.detail, /Local rules did not allow this request\./, push.detail);
+  assert.match(push.detail, /The local rules file differs from the deployed rules/, push.detail);
+  assert.equal(push.drift, true, 'the push the local rules refuse is drift');
+  const secret = await localReading(chip, source, 'set', '/secret', 'user-1');
+  assert.match(secret.detail, /Local rules did not allow this request\./, secret.detail);
+  assert.equal(secret.drift, false, 'production denied it too');
+}
 
 /** The chip shows each of capture A's calls from `source` once or more, as production's, and nothing else from it. */
 async function expectRows(chip: Locator, source: 'page' | 'node'): Promise<void> {
@@ -378,6 +434,10 @@ export default scenario(async (app) => {
     return opened;
   });
 
+  await app.step('each default-instance page row reads the local rules\' verdict, and the push they refuse is drift', async () => {
+    await expectLocalVerdicts(chip, 'page');
+  });
+
   await app.step('the host\'s event stream names the named instance and leaves the default\'s out', async () => {
     await expectInstances(app, EVENTS_PER_PLANE);
   });
@@ -390,7 +450,7 @@ export default scenario(async (app) => {
   await app.step('Studio\'s Traffic opens the local rules inspector in place for live RTDB calls on the default instance', async () => {
     const events = rtdbEvents(app);
     const listener = defaultEvent(events, 'onValue', `${RUN}/items/a`, 'allow');
-    const write = defaultEvent(events, 'set', `${RUN}/items/a`, 'unevaluated');
+    const write = defaultEvent(events, 'update', `${RUN}/items/a`, 'unevaluated');
     const drift = defaultEvent(events, 'get', '/secret', 'allow');
     assert.equal(drift.production?.local?.drift, true, 'the local rules allow the read production denied');
 
@@ -398,14 +458,14 @@ export default scenario(async (app) => {
     const deliveryText = await delivery.inspector.textContent() ?? '';
     assert.match(deliveryText, /production ok/);
     assert.match(deliveryText, new RegExp(`Local rules would allow listen on ${RUN}/items/a`));
-    assert.match(deliveryText, /\$node/);
+    assert.match(deliveryText, /items\/\$id/);
     assert.equal(await delivery.inspector.locator('[data-pyric-badge-kind=allow]').textContent(), 'local rules would allow');
     await delivery.studio.close();
 
     const unevaluated = await inspect(app, host.url, write.id!);
     assert.equal(await unevaluated.inspector.getAttribute('data-live-unevaluated'), '');
-    assert.equal(await unevaluated.inspector.locator('[data-live-need="write-data"]').count(), 1);
-    assert.match(await unevaluated.inspector.textContent() ?? '', /applicable rule — \/pyric-live-capture\/replay\/\$node \.write/);
+    assert.equal(await unevaluated.inspector.locator('[data-live-need="stored-document"]').count(), 1);
+    assert.match(await unevaluated.inspector.textContent() ?? '', /applicable rule — \/pyric-live-capture\/replay\/items\/\$id \.write/);
     await unevaluated.studio.close();
 
     const denied = await inspect(app, host.url, drift.id!);

@@ -22,7 +22,7 @@ import * as realAuth from 'firebase/auth';
 import type { Database, DataSnapshot } from 'firebase/database';
 import { observedCallOf } from '../src/page-observer.js';
 import { wrapLiveModule, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
-import { UNREAD_INSTANCE } from '../src/database.js';
+import { databaseContext, UNREAD_INSTANCE } from '../src/database.js';
 
 /** A replay recording, as `test/apps/replay/format.ts` defines it. */
 interface Recording {
@@ -217,10 +217,9 @@ async function drive(one: Database, two: Database): Promise<Drive> {
   };
 }
 
-/** A record as the assertions read it: what was called, how it ended, and where. */
 /** A record without its module, listener and production's message (asserted on its own), and its account as the uid. */
 function shape(record: LiveCallRecord): Record<string, unknown> {
-  const { module: _module, account, listener: _listener, message: _message, ...rest } = record;
+  const { module: _module, account, listener: _listener, message: _message, writeData: _writeData, ...rest } = record;
   return { ...rest, account: account?.uid ?? null };
 }
 
@@ -535,5 +534,19 @@ describe("the database row's error codes", () => {
     expect(await reject(new Error('pyric_replay_no_recording: no recording answers this'))).toBe('pyric_replay_no_recording');
     expect(await reject(new Error('Something else went wrong'))).toBe('unknown');
     expect(await reject('a thrown string')).toBe('unknown');
+  });
+});
+
+describe('the value an RTDB write sent', () => {
+  test('is a bounded JSON copy for set, push and an update of locations, and nothing for onDisconnect', () => {
+    const fakeRef = { _repo: { repoInfo_: { namespace: 'demo-default-rtdb' } }, _path: '/items/a' };
+    expect(databaseContext('set', [fakeRef, 'hello'], undefined)).toMatchObject({ writeData: 'hello' });
+    expect(databaseContext('set', [fakeRef, null], undefined)).toMatchObject({ writeData: null });
+    expect(databaseContext('push', [fakeRef, { title: 'hi' }], undefined)).toMatchObject({ writeData: { title: 'hi' } });
+    expect(databaseContext('update', [fakeRef, { count: 2, 'b/c': 3 }], undefined)).toMatchObject({ writeData: { count: 2, 'b/c': 3 } });
+    expect((databaseContext('update', [fakeRef, 'not-object'], undefined) as { writeData?: unknown }).writeData).toBeUndefined();
+    expect((databaseContext('set', [fakeRef, 'x'.repeat(64 * 1024)], undefined) as { writeData?: unknown }).writeData).toBeUndefined();
+    expect((databaseContext('onDisconnect.set', [{}, 'x'], fakeRef) as { writeData?: unknown }).writeData).toBeUndefined();
+    expect(observedCallOf({ module: 'firebase/database', name: 'set', outcome: 'resolved', writeData: 'hello' }, 1)?.writeData).toBe('hello');
   });
 });

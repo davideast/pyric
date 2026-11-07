@@ -98,9 +98,13 @@ export {
 } from './client-scope.js';
 export { storageGsPath } from './storage-gs-path.js';
 export { messagingRequestsLine } from './messaging-requests-line.js';
-export type { LocalRtdbEvaluation } from '../types/observed-call.js';
+export type {
+  LocalRtdbEvaluation,
+  LocalStorageEvaluation,
+  ObservedWriteValue,
+} from '../types/observed-call.js';
 export {
-  DIAGNOSTIC_EMAIL_RE, EMAIL_SHAPE, OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent,
+  DIAGNOSTIC_EMAIL_RE, EMAIL_SHAPE, OBSERVED_DISPOSITION, ObservedCallError, UNREAD_BUCKET, isProductionServed, observedCallEvent,
   observedListenerEvent, productionVerdict, readObservedCall, redactDiagnosticEmails, redactEmails,
   type ObservedListenerEvent, type ProductionVerdict,
 } from './observed-call.js';

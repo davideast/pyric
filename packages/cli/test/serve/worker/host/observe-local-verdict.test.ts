@@ -10,6 +10,7 @@ import { initializeSandbox, type ObservedCall, type SandboxEvent } from 'pyric/s
 import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { deployFirestoreRulesToHost, setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
+import { installServedStorageRules } from '../../../../src/serve/storage-rules-install.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 
 interface FakePort extends PortLike { messages: OutboundMessage[] }
@@ -750,5 +751,337 @@ describe('host: RTDB local evaluation trace, listeners, and unevaluated context'
     });
     expect(JSON.stringify(event.production?.local)).not.toContain('alice@example.com');
     expect(JSON.stringify(event.production?.local)).not.toContain('bob@example.com');
+  });
+
+  it('evaluates RTDB set, push, and update writes when bounded writeData is supplied, and reports .validate gaps without writeData', async () => {
+    const ctx = ctxWithRtdbRules({
+      rules: {
+        messages: {
+          $msgId: {
+            '.write': 'auth != null',
+            '.validate': "newData.hasChildren(['text'])",
+            text: {
+              '.validate': 'newData.isString() && newData.val().length <= 10',
+            },
+          },
+        },
+        counts: {
+          '.write': 'auth != null',
+          '.validate': 'newData.isNumber()',
+        },
+        items: {
+          $id: {
+            '.write': 'auth != null',
+            text: {
+              '.validate': 'newData.isString() && newData.val().length <= 10',
+            },
+          },
+        },
+      },
+    });
+
+    const missingWriteValidate = await observedEvent(
+      ctx,
+      rtdbCall({ method: 'set', path: '/counts', outcome: DENIED }),
+    );
+    expect(missingWriteValidate).toMatchObject({
+      production: {
+        local: {
+          result: 'unevaluated',
+          needs: ['write-data'],
+        },
+      },
+    });
+
+    const validPush = await observedEvent(
+      ctx,
+      rtdbCall({ method: 'push', path: '/messages', writeData: { text: 'hello' } }),
+    );
+    expect(validPush).toMatchObject({
+      production: {
+        local: {
+          result: 'allow',
+          rtdb: {
+            matchedPath: '/messages/$msgId',
+            matchedRule: 'auth != null',
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(validPush?.production?.local)).not.toContain('-O_pyric_push');
+
+    const invalidValidate = await observedEvent(
+      ctx,
+      rtdbCall({
+        method: 'set',
+        path: '/messages/m1',
+        writeData: { text: 'way too long string' },
+        outcome: OK,
+      }),
+    );
+    expect(invalidValidate).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          drift: true,
+        },
+      },
+    });
+
+    const updateHitsAncestorValidate = await observedEvent(
+      ctx,
+      rtdbCall({
+        method: 'update',
+        path: '/messages/m1',
+        writeData: { text: 'short' },
+      }),
+    );
+    expect(updateHitsAncestorValidate).toMatchObject({
+      production: {
+        local: {
+          result: 'unevaluated',
+          needs: ['stored-document'],
+        },
+      },
+    });
+
+    const validLeafUpdate = await observedEvent(
+      ctx,
+      rtdbCall({
+        method: 'update',
+        path: '/items/i1',
+        writeData: { text: 'short' },
+      }),
+    );
+    expect(validLeafUpdate).toMatchObject({
+      production: {
+        local: {
+          result: 'allow',
+        },
+      },
+    });
+  });
+
+  it('checks a multi-location update at each location it names, as production does', async () => {
+    const ctx = ctxWithRtdbRules({
+      rules: {
+        items: { $id: { '.write': 'auth != null' } },
+        notes: { $id: { '.write': 'auth.uid === $id' } },
+      },
+    });
+
+    const nestedKey = await observedEvent(ctx, rtdbCall({ method: 'update', path: '/items', writeData: { 'a/b': 1 } }));
+    expect(nestedKey?.production?.local).toMatchObject({ result: 'allow', rtdb: { matchedPath: '/items/$id' } });
+    expect(nestedKey?.production?.local).not.toHaveProperty('drift');
+
+    const fanOut = await observedEvent(ctx, rtdbCall({
+      method: 'update',
+      path: '/',
+      writeData: { 'items/i1/title': 'hi', 'notes/alice/body': 'x' },
+    }));
+    expect(fanOut?.production?.local).toMatchObject({ result: 'allow' });
+    expect(fanOut?.production?.local).not.toHaveProperty('drift');
+
+    // One location the rules refuse denies the whole update.
+    const oneRefused = await observedEvent(ctx, rtdbCall({
+      method: 'update',
+      path: '/',
+      writeData: { 'items/i1/title': 'hi', 'notes/bob/body': 'x' },
+      outcome: DENIED,
+    }));
+    expect(oneRefused?.production?.local).toMatchObject({ result: 'deny', rtdb: { matchedPath: '/notes/$id', pathVariableBindings: { $id: 'bob' } } });
+    expect(oneRefused?.production?.local).not.toHaveProperty('drift');
+  });
+
+  it('leaves a set, push or remove unevaluated when a rule above the written location reads the stored siblings', async () => {
+    const ctx = ctxWithRtdbRules({
+      rules: {
+        messages: {
+          $m: {
+            '.write': 'auth != null',
+            '.validate': "newData.hasChildren(['text', 'author'])",
+            text: { '.validate': 'newData.isString()' },
+          },
+        },
+        lists: {
+          $l: {
+            '.write': 'auth != null',
+            entries: { $e: { '.validate': "newData.parent().hasChild('owner') || newData.isString()" } },
+          },
+        },
+      },
+    });
+
+    const childSet = await observedEvent(ctx, rtdbCall({ method: 'set', path: '/messages/m1/text', writeData: 'hi' }));
+    expect(childSet?.production?.local).toMatchObject({ result: 'unevaluated', needs: ['stored-document'] });
+
+    const childPush = await observedEvent(ctx, rtdbCall({ method: 'push', path: '/messages/m1/likes', writeData: 'x' }));
+    expect(childPush?.production?.local).toMatchObject({ result: 'unevaluated', needs: ['stored-document'] });
+
+    const childRemove = await observedEvent(ctx, rtdbCall({ method: 'remove', path: '/messages/m1/text' }));
+    expect(childRemove?.production?.local).toMatchObject({ result: 'unevaluated', needs: ['stored-document'] });
+
+    const parentRead = await observedEvent(ctx, rtdbCall({ method: 'push', path: '/lists/l1/entries', writeData: 'x' }));
+    expect(parentRead?.production?.local).toMatchObject({ result: 'unevaluated', needs: ['stored-document'] });
+
+    // The whole record is written, so the validate sees every child it reads.
+    const wholeRecord = await observedEvent(ctx, rtdbCall({
+      method: 'set',
+      path: '/messages/m2',
+      writeData: { text: 'hi' },
+      outcome: DENIED,
+    }));
+    expect(wholeRecord?.production?.local).toMatchObject({ result: 'deny' });
+    expect(wholeRecord?.production?.local).not.toHaveProperty('drift');
+  });
+});
+
+describe('Storage local verdict', () => {
+  function ctxWithStorageRules(storageRules: string, storageBucketRules?: Record<string, { rules: string }>): HostCtx {
+    const ctx = hostCtx();
+    installServedStorageRules(ctx.sandbox, {
+      storageRules,
+      storageBucketRules,
+      projectKey: 'demo-project',
+    });
+    return ctx;
+  }
+
+  function storageCall(overrides: Partial<ObservedCall> = {}): ObservedCall {
+    return {
+      service: 'storage',
+      method: 'getDownloadURL',
+      bucket: 'demo-project.appspot.com',
+      path: 'uploads/a.png',
+      projectId: 'demo-project',
+      at: 1_700_000_000_000,
+      outcome: OK,
+      account: { uid: 'alice' },
+      ...overrides,
+    };
+  }
+
+  it('evaluates Storage reads and metadata-checked uploads against local rules and flags drift', async () => {
+    const ctx = ctxWithStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.size < 100
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && resource != null;
+    }
+  }
+}`);
+
+    const readOk = await observedEvent(ctx, storageCall());
+    expect(readOk).toMatchObject({
+      production: {
+        local: {
+          result: 'allow',
+          rule: { path: 'match /uploads/{allPaths=**}', line: 5 },
+          storage: { matchedPath: 'match /uploads/{allPaths=**}', matchedLine: 5 },
+        },
+      },
+    });
+
+    const readDrift = await observedEvent(ctx, storageCall({ account: undefined, outcome: OK }));
+    expect(readDrift).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          drift: true,
+        },
+      },
+    });
+
+    const uploadOk = await observedEvent(
+      ctx,
+      storageCall({
+        method: 'uploadBytes',
+        writeData: { size: 50, contentType: 'image/png' },
+      }),
+    );
+    expect(uploadOk).toMatchObject({
+      production: {
+        local: {
+          result: 'allow',
+        },
+      },
+    });
+
+    const uploadTooBig = await observedEvent(
+      ctx,
+      storageCall({
+        method: 'uploadBytes',
+        writeData: { size: 500, contentType: 'image/png' },
+        outcome: DENIED,
+      }),
+    );
+    expect(uploadTooBig).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+        },
+      },
+    });
+
+    const deleteMissingResource = await observedEvent(ctx, storageCall({ method: 'deleteObject' }));
+    expect(deleteMissingResource).toMatchObject({
+      production: {
+        local: {
+          result: 'unevaluated',
+          needs: ['stored-document'],
+        },
+      },
+    });
+
+    const undeployedBucket = await observedEvent(ctx, storageCall({ bucket: 'other-bucket.appspot.com' }));
+    expect(undeployedBucket).not.toHaveProperty('production.local');
+  });
+
+  it('evaluates Storage getMetadata with document and reports token email / missing writeData gaps honestly', async () => {
+    const ctx = ctxWithStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /private/{file} {
+      allow get: if resource.metadata.owner == request.auth.uid;
+      allow update: if request.auth.token.email == 'alice@example.com' && request.resource.size < 100;
+    }
+  }
+}`);
+
+    const metaAllow = await observedEvent(
+      ctx,
+      storageCall({
+        method: 'getMetadata',
+        path: 'private/doc.txt',
+        document: { size: 20, customMetadata: { owner: 'alice' }, bucket: 'demo-project.appspot.com', fullPath: 'private/doc.txt' },
+      }),
+    );
+    expect(metaAllow).toMatchObject({
+      production: {
+        local: { result: 'allow' },
+      },
+    });
+
+    const updateGap = await observedEvent(
+      ctx,
+      storageCall({
+        method: 'updateMetadata',
+        path: 'private/doc.txt',
+        writeData: { contentType: 'text/plain' },
+        account: { uid: 'alice', claimNames: ['email'], claims: {} },
+      }),
+    );
+    expect(updateGap).toMatchObject({
+      production: {
+        local: {
+          result: 'unevaluated',
+          needs: expect.arrayContaining(['claim-values']),
+        },
+      },
+    });
   });
 });
