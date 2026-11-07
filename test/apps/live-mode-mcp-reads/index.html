@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Rooms</title></head>
+  <body>
+    <h1>Rooms</h1>
+    <output id="status">Starting</output>
+    <script>
+      // A client module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+      addEventListener("unhandledrejection", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.reason?.message ?? event.reason}`;
+      });
+    </script>
+    <script type="module">
+      // A rooms app that opens Firestore, the Realtime Database and Cloud
+      // Storage and signs its user in. It reads nothing itself: the reads in
+      // this scenario come from an agent, through the page. Its backend is the
+      // local one a `?backend=<origin>` query names, through the SDK's own
+      // emulator connectors.
+      import { initializeApp } from "firebase/app";
+      import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
+      import { connectDatabaseEmulator, getDatabase } from "firebase/database";
+      import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
+      import { connectStorageEmulator, getStorage } from "firebase/storage";
+
+      const app = initializeApp({
+        projectId: "demo-live-traffic",
+        apiKey: "demo-live-traffic-key",
+        appId: "1:1:web:live-mcp-reads",
+        authDomain: "demo-live-traffic.firebaseapp.com",
+        storageBucket: "demo-live-traffic.firebasestorage.app",
+      });
+      const backend = new URL(new URLSearchParams(location.search).get("backend"));
+      const auth = getAuth(app);
+      connectAuthEmulator(auth, backend.origin, { disableWarnings: true });
+      connectFirestoreEmulator(getFirestore(app), backend.hostname, Number(backend.port));
+      connectDatabaseEmulator(getDatabase(app), backend.hostname, Number(backend.port));
+      connectStorageEmulator(getStorage(app), backend.hostname, Number(backend.port));
+
+      window.signIn = () => signInWithEmailAndPassword(auth, "reader@example.com", "reader-password").then((credential) => credential.user.uid);
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>

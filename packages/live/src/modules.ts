@@ -30,7 +30,7 @@
  * own object, with its `response` replaced by a promise that follows the
  * SDK's and its `stream` by one that yields the SDK's own chunks.
  *
- * The Firestore and Database rows also hand their wrapped module to the
+ * The Firestore, Database and Storage rows also hand their wrapped module to the
  * reads a live page answers for its host (`tab-reads.ts`), which notes each
  * instance their factories return.
  *
@@ -83,7 +83,7 @@ import {
 } from './messaging.js';
 import { observedCall, observedListener, type LiveObserver, type ObservedHooks, type ObservedSite, type UncaughtListenerError } from './observe.js';
 import { liveCallRefusal, type LiveClient, type RefusedCall } from './refusal.js';
-import { noteReadModule } from './tab-reads.js';
+import { noteReadModule, readFactoryNames } from './tab-reads.js';
 
 export type LiveModuleKey =
   | 'live-app'
@@ -404,15 +404,20 @@ export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: 
   return wrapped as T;
 }
 
-/** Every export a live module replaces: the observed, the refused, the noted, the decorated and the rewired ones. */
+/**
+ * Every export a live module replaces: the observed, the refused, the noted,
+ * the decorated and the rewired ones, and the factories whose instances the
+ * page's reads use (`tab-reads.ts`), each once.
+ */
 export function replacedExports(key: LiveModuleKey): string[] {
   const spec = LIVE_MODULES[key];
-  return [
+  return [...new Set([
     ...spec.calls,
     ...spec.listeners,
     ...Object.keys(spec.refused ?? {}),
     ...(spec.noted ?? []),
     ...Object.keys(spec.decorated ?? {}),
     ...Object.keys(spec.replaced ?? {}),
-  ];
+    ...readFactoryNames(key),
+  ])];
 }
