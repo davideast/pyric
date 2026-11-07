@@ -87,7 +87,10 @@ export {
 } from '../attribution/element-selector.js';
 export { ClockReading, getClock } from '../clock.js';
 export { stampProvenance } from './provenance.js';
-export { CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, type CallerSource } from './caller-source.js';
+export {
+  CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, eventScope,
+  type CallerSource, type EventScope, type ScopeClient, type ScopedEventFields,
+} from './caller-source.js';
 export { storageGsPath } from './storage-gs-path.js';
 export { messagingRequestsLine } from './messaging-requests-line.js';
 export {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { SandboxEvent } from 'pyric/sandbox';
+import type { EventCaller, SandboxEvent } from 'pyric/sandbox';
 import { createSdkRates, observedCallEvent, type SdkRateSnapshot, type SdkServiceRate } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox/internal';
 import { liveRates } from '../../../src/serve/runtime/live-rates.js';
@@ -163,5 +163,55 @@ describe('live Rates read observed calls from the host', () => {
     const incidents = monitor.incidents();
     expect(incidents).toHaveLength(1);
     expect(incidents[0]).toMatchObject({ service: 'firestore', operation: 'documentReads', limit: 10, peak: 25 });
+  });
+});
+
+describe('live Rates read one scope', () => {
+  const profileA: EventCaller = { kind: 'page', pageId: 't1', clientId: 'profile-a' };
+  const profileATab2: EventCaller = { kind: 'page', pageId: 't2', clientId: 'profile-a' };
+  const profileB: EventCaller = { kind: 'page', pageId: 't3', clientId: 'profile-b' };
+  const nodeRun: EventCaller = { kind: 'node', clientId: 'profile-a' };
+  const from = (caller: EventCaller, uid: string | null, call: Parameters<typeof observed>[0]): SandboxEvent =>
+    ({ ...observed(call), caller, auth: uid === null ? null : { uid } }) as SandboxEvent;
+  const events = [
+    from(profileA, 'u1', { service: 'firestore', method: 'getDoc', path: 'rooms/a', at: base, usage: { documentReads: 1 } }),
+    from(profileATab2, 'u1', { service: 'firestore', method: 'getDocs', path: 'rooms', at: base + 10, usage: { documentReads: 4 } }),
+    from(profileATab2, null, { service: 'firestore', method: 'getDocs', path: 'public', at: base + 15, usage: { documentReads: 16 } }),
+    from(profileB, 'u2', { service: 'firestore', method: 'getDocs', path: 'rooms', at: base + 20, usage: { documentReads: 2 } }),
+    from(nodeRun, 'u2', { service: 'rtdb', method: 'get', path: '/items', instance: 'p-default-rtdb', at: base + 30, usage: { payloadBytes: 8 } }),
+  ];
+  const ratesFor = (scope: Parameters<typeof liveRates>[2]) => {
+    const clock = clockAt(base + 1000);
+    return liveRates(events, clock, scope)(pageSnapshot(clock));
+  };
+  const reads = (snapshot: SdkRateSnapshot) => usageTotal(service(snapshot, 'firestore'), 'documentReads');
+  const rtdbBytes = (snapshot: SdkRateSnapshot) => usageTotal(service(snapshot, 'rtdb'), 'payloadBytes');
+
+  test('without a scope every client counts', () => {
+    const clock = clockAt(base + 1000);
+    const snapshot = liveRates(events, clock)(pageSnapshot(clock));
+    expect(reads(snapshot)).toBe(23);
+    expect(rtdbBytes(snapshot)).toBe(8);
+  });
+
+  test('a client scope counts every tab of that profile and no Node process with its id', () => {
+    const snapshot = ratesFor({ client: { kind: 'page', clientId: 'profile-a' } });
+    expect(reads(snapshot)).toBe(21);
+    expect(rtdbBytes(snapshot)).toBe(0);
+    expect(rtdbBytes(ratesFor({ client: { kind: 'node', clientId: 'profile-a' } }))).toBe(8);
+  });
+
+  test('a user scope counts that user on every client', () => {
+    const snapshot = ratesFor({ user: 'u2' });
+    expect(reads(snapshot)).toBe(2);
+    expect(rtdbBytes(snapshot)).toBe(8);
+    expect(reads(ratesFor({ user: null }))).toBe(16);
+  });
+
+  test('a client and user scope counts only that user on that client', () => {
+    const snapshot = ratesFor({ client: { kind: 'page', clientId: 'profile-a' }, user: 'u1' });
+    expect(reads(snapshot)).toBe(5);
+    expect(calls(service(snapshot, 'firestore'), 'getDocs')).toBe(1);
+    expect(reads(ratesFor({ client: { kind: 'page', clientId: 'profile-b' }, user: 'u1' }))).toBe(0);
   });
 });

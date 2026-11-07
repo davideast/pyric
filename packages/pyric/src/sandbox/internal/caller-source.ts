@@ -41,3 +41,52 @@ export function callerSource(caller: EventCaller | undefined, viewerPageId?: str
   const isOtherPage = viewerPageId !== undefined && caller.pageId !== viewerPageId;
   return isOtherPage ? 'tab' : 'page';
 }
+
+/**
+ * One client: a browser profile (`page`), a service worker realm, or one Node
+ * process. Keyed by kind and id together, since a page may declare an id that
+ * reads like a Node journey id, and a service worker never shares its pages'
+ * id. This is the profile id a host stamps on `caller.clientId`, not the
+ * per-page id the worker's presence list keys by.
+ */
+export interface ScopeClient {
+  kind: EventCaller['kind'];
+  clientId: string;
+}
+
+/**
+ * Which events a view counts: every event, one client's, one user's (a uid,
+ * or `null` for signed-out calls), or one user's on one client.
+ */
+export type EventScope =
+  | 'all'
+  | { client: ScopeClient; user?: undefined }
+  | { client?: undefined; user: string | null }
+  | { client: ScopeClient; user: string | null };
+
+/** The fields of an event a scope reads. */
+export interface ScopedEventFields {
+  caller?: EventCaller;
+  auth?: { uid: string } | null;
+}
+
+function isFromClient(event: ScopedEventFields, client: ScopeClient): boolean {
+  const caller = event.caller;
+  if (caller?.clientId === undefined) return false;
+  return caller.kind === client.kind && caller.clientId === client.clientId;
+}
+
+/** `null` names a signed-out call; an event with no auth field is neither. */
+function isFromUser(event: ScopedEventFields, user: string | null): boolean {
+  if (event.auth === undefined) return false;
+  const uid = event.auth === null ? null : event.auth.uid;
+  return uid === user;
+}
+
+/** Whether `event` belongs to `scope`. The chip and Studio share this rule. */
+export function eventScope(event: ScopedEventFields, scope: EventScope): boolean {
+  if (scope === 'all') return true;
+  const clientMatches = scope.client === undefined || isFromClient(event, scope.client);
+  const userMatches = scope.user === undefined || isFromUser(event, scope.user);
+  return clientMatches && userMatches;
+}
