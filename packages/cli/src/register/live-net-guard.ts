@@ -68,8 +68,23 @@ export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
 /** Cloud Storage's JSON API, which the Admin Storage row's SDK reaches. */
 const ADMIN_STORAGE_HOST = 'storage.googleapis.com';
 
-/** The hosts an Admin row's SDK sends an `http.request` to: Firestore's REST fallback, Auth and Cloud Storage. */
-const ADMIN_REQUEST_HOSTS: ReadonlySet<string> = new Set(['firestore.googleapis.com', 'identitytoolkit.googleapis.com', ADMIN_STORAGE_HOST]);
+/** FCM's send API, which the Admin Messaging row's SDK reaches over HTTP/2 or an `http.request`. */
+const ADMIN_FCM_HOST = 'fcm.googleapis.com';
+
+/**
+ * The hosts an Admin row's SDK sends an `http.request` to: Firestore's REST
+ * fallback, Auth, Cloud Storage, and FCM sends and Instance ID topic calls.
+ */
+const ADMIN_REQUEST_HOSTS: ReadonlySet<string> = new Set([
+  'firestore.googleapis.com',
+  'identitytoolkit.googleapis.com',
+  ADMIN_STORAGE_HOST,
+  ADMIN_FCM_HOST,
+  'iid.googleapis.com',
+]);
+
+/** The hosts an Admin row's SDK opens a socket to itself: Cloud Storage, and FCM over HTTP/2. */
+const ADMIN_SOCKET_HOSTS: ReadonlySet<string> = new Set([ADMIN_STORAGE_HOST, ADMIN_FCM_HOST]);
 
 /** The catalog's Realtime Database host suffixes: `<name>.firebaseio.com` and `<name>.<region>.firebasedatabase.app`. */
 const DATABASE_HOSTS: readonly string[] = GOOGLE_ENDPOINT_CATALOG
@@ -89,7 +104,7 @@ export type LiveTransport = 'socket' | 'request';
 export function isLiveObservedHost(host: string, transport: LiveTransport, adminRows: boolean): boolean {
   if (transport === 'request') return adminRows && (ADMIN_REQUEST_HOSTS.has(host) || isDatabaseHost(host));
   if (LIVE_ROW_HOSTS.has(host) || isDatabaseHost(host)) return true;
-  return adminRows && host === ADMIN_STORAGE_HOST;
+  return adminRows && ADMIN_SOCKET_HOSTS.has(host);
 }
 
 /**

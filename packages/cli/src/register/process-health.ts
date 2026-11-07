@@ -33,6 +33,8 @@ export interface ProcessHealth {
   readonly unobserved?: readonly string[];
   /** Live mode: the firebase-admin subpaths no row serves that this process loaded. */
   readonly unobservedAdmin?: readonly string[];
+  /** Live mode: the firebase-admin subpaths this process loaded whose calls pass the project gate but no row records. */
+  readonly gatedAdmin?: readonly string[];
 }
 
 interface HealthRequest {

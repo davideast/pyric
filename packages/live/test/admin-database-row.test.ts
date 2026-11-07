@@ -13,10 +13,13 @@
  * Run it with the network off: `unshare -rn sh -c 'ip link set lo up && bun test packages/live/test/admin-database-row.test.ts'`.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { observedCallOf } from '../src/page-observer.js';
 import { adminProjectGate } from '../src/admin/project-gate.js';
 import { ADMIN_DATABASE_MODULE, observeAdminDatabase } from '../src/admin/database.js';
+import { firebaseAdminVersion } from '../src/admin/admin-version.js';
 import type { LiveCallRecord, LiveObserver } from '../src/observe.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -103,6 +106,8 @@ const sdk = fromAdmin('@firebase/database-compat/standalone') as { Reference: { 
 const admin = require('firebase-admin/app') as AdminSdk;
 const { getDatabase } = require('firebase-admin/database') as { getDatabase(app: AdminApp): Instance };
 const realSet = sdk.Reference.prototype.set!;
+/** The installed firebase-admin's version, read from its own package.json beside `lib/`. */
+const ADMIN_VERSION = (JSON.parse(readFileSync(join(dirname(require.resolve('firebase-admin')), '..', 'package.json'), 'utf8')) as { version: string }).version;
 
 const records: LiveCallRecord[] = [];
 const lines: string[] = [];
@@ -118,7 +123,7 @@ beforeAll(async () => {
   const replay = await loadReplay();
   server = await replay.startReplayServer([replay.readRecording(FIXTURE), EXTRA]);
   process.env.FIREBASE_DATABASE_EMULATOR_HOST = new URL(server.origin).host;
-  observeAdminDatabase(sdk, { observer, gate: adminProjectGate(PROJECT, (line) => lines.push(line), {}), hostProjectId: PROJECT, hostInstances: [CONFIGURED_INSTANCE] });
+  observeAdminDatabase(sdk, { observer, gate: adminProjectGate(PROJECT, (line) => lines.push(line), {}), hostProjectId: PROJECT, hostInstances: [CONFIGURED_INSTANCE], adminVersion: ADMIN_VERSION });
   app = admin.initializeApp({ projectId: PROJECT, databaseURL: DATABASE_URL }, 'admin-database-row');
   db = getDatabase(app);
 });
@@ -267,6 +272,44 @@ async function framesSince(from: number): Promise<Received[]> {
   await new Promise((done) => setTimeout(done, 100));
   return (await received()).slice(from);
 }
+
+test('the installed firebase-admin keeps the instance where the gate reads it', () => {
+  // The instance gate reads `_delegate._repoInternal.repoInfo_.namespace`. A
+  // firebase-admin upgrade that moves it fails here, naming the version.
+  const delegate = (db as unknown as { _delegate: { _repoInternal: { repoInfo_: { namespace: unknown } } } })._delegate;
+  expect({ version: ADMIN_VERSION, namespace: delegate._repoInternal.repoInfo_.namespace }).toEqual({ version: ADMIN_VERSION, namespace: INSTANCE });
+});
+
+test("the register reads firebase-admin's version from the file that loads the Realtime Database SDK", () => {
+  expect(firebaseAdminVersion(require.resolve('firebase-admin/database'))).toBe(ADMIN_VERSION);
+  expect(firebaseAdminVersion(undefined)).toBeUndefined();
+  expect(firebaseAdminVersion('/no/such/place/index.js')).toBeUndefined();
+});
+
+test('a Database whose instance the gate cannot read is refused, naming the firebase-admin version, and never connects', async () => {
+  const unread = admin.initializeApp({ projectId: PROJECT, databaseURL: DATABASE_URL }, 'admin-database-unread-instance');
+  others.push(unread);
+  const unreadDb = getDatabase(unread);
+  // Stands in for a firebase-admin that keeps the repo somewhere else; the
+  // repo goes back at the end, so the app's own delete can find it.
+  const delegate = (unreadDb as unknown as { _delegate: object })._delegate;
+  const repo: unknown = Reflect.get(delegate, '_repoInternal');
+  Object.defineProperty(delegate, '_repoInternal', { value: undefined });
+  const from = records.length;
+  const sent = (await received()).length;
+  let refusal: { code?: unknown; message?: unknown } = {};
+  try {
+    ref('notes/a', unreadDb);
+  } catch (error) {
+    refusal = error as typeof refusal;
+  }
+  expect(refusal.code).toBe('PYRIC_LIVE_REFUSED');
+  expect(String(refusal.message)).toContain(`firebase-admin ${ADMIN_VERSION}`);
+  expect(await refusedCode(() => ref('notes/a', unreadDb))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await recordsSince(from)).toEqual([]);
+  expect(await framesSince(sent)).toEqual([]);
+  Object.defineProperty(delegate, '_repoInternal', { value: repo });
+});
 
 test('an app on another project is refused at ref() and its connection never opens, with no record', async () => {
   const other = admin.initializeApp({ projectId: 'other-project', databaseURL: DATABASE_URL }, 'admin-database-other');
@@ -417,6 +460,31 @@ test('getRules, getRulesJSON and setRules wait for the gate: another project is 
     expect(await refusedCode(() => database.getRulesJSON!())).toBe('PYRIC_LIVE_REFUSED');
     expect(await refusedCode(() => database.setRules!('{"rules": {".read": true}}'))).toBe('PYRIC_LIVE_REFUSED');
   }
+  await new Promise((done) => setTimeout(done, 100));
+  expect(server.unmatched.length).toBe(unmatched);
+});
+
+test("getRules, getRulesJSON and setRules on the host project are refused for another project's instance, or one the gate cannot read, before any request", async () => {
+  const otherInstance = admin.initializeApp({ projectId: PROJECT, databaseURL: `https://${PROJECT}-prod-default-rtdb.firebaseio.com` }, 'admin-database-rules-other-instance');
+  const unread = admin.initializeApp({ projectId: PROJECT, databaseURL: DATABASE_URL }, 'admin-database-rules-unread');
+  others.push(otherInstance, unread);
+  const unreadDb = getDatabase(unread);
+  // Stands in for a firebase-admin that keeps the repo somewhere else; it goes back at the end.
+  const delegate = (unreadDb as unknown as { _delegate: object })._delegate;
+  const repo: unknown = Reflect.get(delegate, '_repoInternal');
+  Object.defineProperty(delegate, '_repoInternal', { value: undefined });
+  const unmatched = server.unmatched.length;
+  const outcomes: unknown[] = [];
+  try {
+    for (const database of [getDatabase(otherInstance), unreadDb]) {
+      outcomes.push(await refusedCode(() => database.getRules!()));
+      outcomes.push(await refusedCode(() => database.getRulesJSON!()));
+      outcomes.push(await refusedCode(() => database.setRules!('{"rules": {".read": true}}')));
+    }
+  } finally {
+    Object.defineProperty(delegate, '_repoInternal', { value: repo });
+  }
+  expect(outcomes).toEqual(Array.from({ length: 6 }, () => 'PYRIC_LIVE_REFUSED'));
   await new Promise((done) => setTimeout(done, 100));
   expect(server.unmatched.length).toBe(unmatched);
 });

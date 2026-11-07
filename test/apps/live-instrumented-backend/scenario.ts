@@ -12,13 +12,17 @@
  *   out;
  * - the backend's own calls to Vertex AI, Cloud Trace and App Check's public
  *   keys go out;
- * - a firebase-admin service no row serves loads.
+ * - a firebase-admin service no row serves loads;
+ * - a Messaging send on the live project goes out, observed by its row.
  *
  * Each Google host no row observes gets one "unobserved" line, and the
- * process health lists it, with the Admin subpath. The project gate still
- * holds: the live project's regional Realtime Database instance opens, and
- * `<project>-prod-default-rtdb`, another project's instance, and another
- * project's Admin call are refused before any request.
+ * process health lists it, with the Admin subpath no row serves and App
+ * Check, whose row gates its calls but records none. The project gate still
+ * holds: the live project's regional Realtime Database instance and the
+ * instance firebase.json names open, and `<project>-prod-default-rtdb`,
+ * another project's instance, an instance firebase.json doesn't name, and
+ * another project's Admin calls, App Check's among them, are refused before
+ * any request.
  *
  * The Admin SDK's Agent sends its requests to a local stand-in for Google.
  * Every other connection reaches the scenario's trap (`trap.mjs`), which
@@ -26,7 +30,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { scenario, type App } from '../driver.ts';
+import { scenario, sleep, type App } from '../driver.ts';
 
 const PROJECT = 'demo-instrumented-backend';
 const ENTRY = '@pyric/live/register';
@@ -43,6 +47,40 @@ const UNOBSERVED = [
   'us-central1-aiplatform.googleapis.com',
   'www.googleapis.com',
 ];
+
+/** A live call's event, as the host's capture holds it. */
+interface CapturedEvent {
+  kind?: string;
+  service?: string;
+  method?: string;
+  caller?: { kind?: string };
+  detail?: { sdk?: string };
+  production?: { outcome?: { status?: string } };
+}
+
+/** The host's Admin Messaging events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
+async function messagingEvents(base: string): Promise<CapturedEvent[]> {
+  const init = await fetch(`${base}/__pyric/init.json`);
+  assert.equal(init.status, 200, `/__pyric/init.json answered ${init.status}`);
+  const { sessionToken } = await init.json() as { sessionToken: string };
+  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+  if (response.status === 404) return [];
+  assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
+  const capture = await response.json() as { events?: CapturedEvent[] };
+  const isAdminMessaging = (event: CapturedEvent) => event.kind === 'operation' && event.detail?.sdk === 'admin' && event.service === 'messaging';
+  return (capture.events ?? []).filter(isAdminMessaging);
+}
+
+/** Reads `read` until `check` holds, or fails after `timeoutMs`. */
+async function eventually<T>(read: () => Promise<T>, check: (value: T) => boolean, what: string, timeoutMs = 20_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await read();
+    if (check(value)) return value;
+    if (Date.now() > deadline) throw new Error(`${what}: still ${JSON.stringify(value, null, 1)} after ${timeoutMs / 1000}s`);
+    await sleep(250);
+  }
+}
 
 /** What a backend job's calls got, from its `OUTCOME` line. */
 function jobOutcome(output: string): Record<string, unknown> {
@@ -61,8 +99,12 @@ function runBackend(app: App, instrument: 'assign' | 'define') {
   return app.command('node', ['--import', ENTRY, 'server.mjs'], { env: { INSTRUMENT: instrument }, timeoutMs: 90_000 });
 }
 
-/** One run's checks: everything goes out, each unobserved host is named once, and the project gate holds. */
-async function checkBackend(app: App, instrument: 'assign' | 'define'): Promise<void> {
+/**
+ * One run's checks: everything goes out, each unobserved host is named once,
+ * the project gate holds, and the host captures the run's Messaging send.
+ * `sendsBefore` is how many the host held before this run.
+ */
+async function checkBackend(app: App, hostUrl: string, instrument: 'assign' | 'define', sendsBefore: number): Promise<void> {
   const run = await runBackend(app, instrument);
   assert.equal(run.code, 0, run.output);
   assert.match(run.output, new RegExp(`${ENTRY}: live mode for the Firebase project ${PROJECT}\\.`));
@@ -77,10 +119,14 @@ async function checkBackend(app: App, instrument: 'assign' | 'define'): Promise<
     vertex: 'SCENARIO_TRAP',
     trace: 'SCENARIO_TRAP',
     jwks: 'SCENARIO_TRAP',
-    messaging: 'loaded',
+    remoteConfig: 'loaded',
+    messagingSend: 'ok',
     ownInstance: 'ok',
     otherInstance: 'PYRIC_LIVE_REFUSED',
+    listedInstance: 'ok',
+    unlistedInstance: 'PYRIC_LIVE_REFUSED',
     otherProjectLookup: 'PYRIC_LIVE_REFUSED',
+    otherProjectAppCheck: 'PYRIC_LIVE_REFUSED',
     otherProjectSent: 0,
   });
   // The custom credential's https.request reached the stand-in, and its fetch reached the trap: neither was refused.
@@ -90,18 +136,36 @@ async function checkBackend(app: App, instrument: 'assign' | 'define'): Promise<
   for (const host of ['www.googleapis.com', 'us-central1-aiplatform.googleapis.com', 'cloudtrace.googleapis.com', 'firebaseappcheck.googleapis.com']) {
     assert.ok(trappedHosts.includes(host), `${host} went out: ${trappedHosts.join(', ')}`);
   }
-  assert.ok(!trappedHosts.includes(`${PROJECT}-prod-default-rtdb.firebaseio.com`), 'the refused instance opened no connection');
+  for (const refused of [`${PROJECT}-prod-default-rtdb.firebaseio.com`, `${PROJECT}-shard-02.firebaseio.com`]) {
+    assert.ok(!trappedHosts.includes(refused), `the refused instance ${refused} opened no connection`);
+  }
   for (const host of UNOBSERVED) assert.equal(unobservedLines(run.output, host), 1, `one line for ${host}:\n${run.output}`);
   assert.equal(unobservedLines(run.output, 'identitytoolkit.googleapis.com'), 0, 'the Auth row observes its lookups');
-  assert.match(run.output, new RegExp(`${ENTRY}: firebase-admin/messaging loads unobserved\\.`));
-  const { unobserved, unobservedAdmin, ...process } = health as { unobserved: string[]; unobservedAdmin: string[] };
+  assert.equal(unobservedLines(run.output, 'fcm.googleapis.com'), 0, 'the Messaging row observes its sends');
+  assert.match(run.output, new RegExp(`${ENTRY}: firebase-admin/remote-config loads unobserved\\.`));
+  for (const served of ['messaging', 'app-check']) {
+    assert.doesNotMatch(run.output, new RegExp(`firebase-admin/${served} loads unobserved`), `a row serves firebase-admin/${served}`);
+  }
+  const { unobserved, unobservedAdmin, gatedAdmin, ...process } = health as { unobserved: string[]; unobservedAdmin: string[]; gatedAdmin: string[] };
   assert.deepEqual(process, { mode: 'live', projectId: PROJECT });
   assert.deepEqual([...unobserved].sort(), UNOBSERVED);
-  assert.deepEqual(unobservedAdmin, ['firebase-admin/messaging']);
+  assert.deepEqual(unobservedAdmin, ['firebase-admin/remote-config']);
+  assert.deepEqual(gatedAdmin, ['firebase-admin/app-check']);
+  // The Messaging row recorded the send, and the host captured it as an Admin call, as it does a Firestore or Auth call.
+  const sends = await eventually(() => messagingEvents(hostUrl), (events) => events.length > sendsBefore, 'the Messaging.send event');
+  assert.equal(sends.length, sendsBefore + 1, 'one event for the one send');
+  const [send] = sends.slice(sendsBefore);
+  assert.deepEqual(
+    { method: send!.method, sdk: send!.detail?.sdk, caller: send!.caller?.kind, outcome: send!.production?.outcome?.status },
+    { method: 'Messaging.send', sdk: 'admin', caller: 'node', outcome: 'ok' },
+  );
 }
 
 export default scenario(async (app) => {
   app.writeFile('.firebaserc', `${JSON.stringify({ projects: { default: PROJECT } })}\n`);
+  // The live project's second Realtime Database instance, which live mode lets through because firebase.json names it.
+  app.writeFile('firebase.json', `${JSON.stringify({ database: [{ instance: `${PROJECT}-shard-01`, rules: 'database.rules.json' }] })}\n`);
+  app.writeFile('database.rules.json', `${JSON.stringify({ rules: { '.read': false, '.write': false } })}\n`);
   const host = await app.step('start vite dev with pyricLive()', () => app.devServer());
 
   if (!ADMIN_ROWS_ON) {
@@ -110,9 +174,9 @@ export default scenario(async (app) => {
   }
 
   await app.step('under a wrapper installed by assignment, the backend runs as it would without pyric, and names what no row observes', () =>
-    checkBackend(app, 'assign'));
+    checkBackend(app, host.url, 'assign', 0));
 
-  await app.step('under a wrapper installed with defineProperty, as shimmer installs it, the same holds', () => checkBackend(app, 'define'));
+  await app.step('under a wrapper installed with defineProperty, as shimmer installs it, the same holds', () => checkBackend(app, host.url, 'define', 1));
 
   await app.step('stop the dev server', () => host.process.stop());
 });

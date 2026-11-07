@@ -26,7 +26,7 @@ const TOKEN = "stand-in-access-token";
 /** What the stand-in answered, by path. */
 const answered = [];
 
-/** Google, as the Admin SDK sees it: the token endpoints and Auth's user lookup. */
+/** Google, as the Admin SDK sees it: the token endpoints, Auth's user lookup and FCM's send. */
 const google = createServer((request, response) => {
   request.resume();
   request.on("end", () => {
@@ -34,8 +34,13 @@ const google = createServer((request, response) => {
     answered.push(path);
     const isToken = path.endsWith("/token") || path.endsWith(":generateAccessToken");
     const isLookup = path === `/v1/projects/${PROJECT}/accounts:lookup`;
-    const body = isToken ? { access_token: TOKEN, expires_in: 3600, token_type: "Bearer" } : { users: [{ localId: USER }] };
-    response.writeHead(isToken || isLookup ? 200 : 404, { "content-type": "application/json" });
+    const isSend = path === `/v1/projects/${PROJECT}/messages:send`;
+    const body = isToken
+      ? { access_token: TOKEN, expires_in: 3600, token_type: "Bearer" }
+      : isSend
+        ? { name: `projects/${PROJECT}/messages/1` }
+        : { users: [{ localId: USER }] };
+    response.writeHead(isToken || isLookup || isSend ? 200 : 404, { "content-type": "application/json" });
     response.end(JSON.stringify(body));
   });
 });
@@ -162,7 +167,13 @@ outcome.trace = await ownFetch(`https://cloudtrace.googleapis.com/v2/projects/${
 outcome.jwks = await fetch("https://firebaseappcheck.googleapis.com/v1/jwks").then(() => "sent", codeOf);
 
 // A firebase-admin service no row serves loads, unobserved.
-outcome.messaging = await import("firebase-admin/messaging").then(() => "loaded", codeOf);
+outcome.remoteConfig = await import("firebase-admin/remote-config").then(() => "loaded", codeOf);
+
+// Messaging is an observed row: a send on the live project goes out through the Agent and is recorded.
+const { getMessaging } = await import("firebase-admin/messaging");
+const messaging = getMessaging(adcApp);
+messaging.enableLegacyHttpTransport();
+outcome.messagingSend = await messaging.send({ topic: "orders", data: { order: "a" } }).then(() => "ok", codeOf);
 
 // Realtime Database: the live project's regional default instance, and another project's.
 const databaseOptions = { projectId: PROJECT, credential: callbackCredential, httpAgent: agent };
@@ -171,11 +182,19 @@ const ownInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${
 const otherInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${PROJECT}-prod-default-rtdb.firebaseio.com` }, "other-instance");
 outcome.ownInstance = openDatabase(ownInstance);
 outcome.otherInstance = openDatabase(otherInstance);
+// An instance firebase.json names for the live project opens; one it doesn't name is refused.
+const listedInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${PROJECT}-shard-01.firebaseio.com` }, "listed-instance");
+const unlistedInstance = initializeApp({ ...databaseOptions, databaseURL: `https://${PROJECT}-shard-02.firebaseio.com` }, "unlisted-instance");
+outcome.listedInstance = openDatabase(listedInstance);
+outcome.unlistedInstance = openDatabase(unlistedInstance);
 
 // An Admin app that names another project is still refused before any request.
 const answeredBefore = answered.length;
 const otherProject = initializeApp({ projectId: "another-project", credential: callbackCredential, httpAgent: agent }, "other-project");
 outcome.otherProjectLookup = await lookup(otherProject);
+// App Check is a gated row: another project's call is refused before any request, and nothing records it.
+const { getAppCheck } = await import("firebase-admin/app-check");
+outcome.otherProjectAppCheck = await getAppCheck(otherProject).verifyToken("not-a-token").then(() => "ok", codeOf);
 outcome.otherProjectSent = answered.length - answeredBefore;
 
 outcome.trapped = [...new Set(trapped)].sort();

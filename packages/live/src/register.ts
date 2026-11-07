@@ -81,8 +81,9 @@ function adminLines(projectId: string, env: NodeJS.ProcessEnv): string[] {
   const observed =
     `${ENTRY}: firebase-admin is observed for the Firebase project ${projectId}. ` +
     'This process uses its own credential, and its Admin calls bypass Security Rules. ' +
-    'Its Firestore, Auth, Realtime Database and Storage calls are observed; any other firebase-admin service loads unobserved, ' +
-    'and a line names it when it loads.';
+    'Its Firestore, Auth, Realtime Database, Storage and Messaging calls are observed. ' +
+    'Its App Check calls are checked against the project but not observed, so they do not show in traffic. ' +
+    'Any other firebase-admin service loads unobserved, and a line names it when it loads.';
   const redirected = ADMIN_EMULATOR_VARIABLES.filter(([variable]) => (env[variable] ?? '') !== '').map(
     ([variable, service]) => `${ENTRY}: ${variable} is set, so firebase-admin's ${service} calls go to ${env[variable]}, not to production.`,
   );

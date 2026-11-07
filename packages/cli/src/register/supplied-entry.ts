@@ -146,12 +146,18 @@ function resolveAdminRowOwn(
 /**
  * The Admin subpaths no row serves that this process loaded, each once, in
  * load order: the first load prints one line, and the process health lists
- * them.
+ * them. Beside them, the subpaths whose row gates their calls but records
+ * none (App Check), which the start line already names.
  */
 interface AdminUnobserved {
   note(subpath: string): void;
   list(): readonly string[];
+  noteGated(subpath: string): void;
+  gated(): readonly string[];
 }
+
+/** The Admin rows that gate their calls and record none, by the subpath the health names. */
+const GATED_ADMIN_ROWS: ReadonlyMap<string, string> = new Map([['app-check', 'firebase-admin/app-check']]);
 
 /** The line for the first load of an Admin subpath no row serves. */
 export function adminUnobservedLine(subpath: string): string {
@@ -160,6 +166,7 @@ export function adminUnobservedLine(subpath: string): string {
 
 function createAdminUnobserved(write: (line: string) => void): AdminUnobserved {
   const loaded: string[] = [];
+  const gated: string[] = [];
   return {
     note(subpath) {
       if (loaded.includes(subpath)) return;
@@ -167,6 +174,10 @@ function createAdminUnobserved(write: (line: string) => void): AdminUnobserved {
       write(`${adminUnobservedLine(subpath)}\n`);
     },
     list: () => [...loaded],
+    noteGated(subpath) {
+      if (!gated.includes(subpath)) gated.push(subpath);
+    },
+    gated: () => [...gated],
   };
 }
 
@@ -180,6 +191,8 @@ function adminRowResult(rows: RegisterRows, realFiles: AdminRowFiles, unobserved
   if (served.kind === 'refused') throw served.error;
   if (served.kind === 'admin-unobserved') unobserved.note(served.subpath);
   if (served.kind !== 'admin-row') return null;
+  const gatedSubpath = GATED_ADMIN_ROWS.get(adminRowOfUrl(served.url) ?? '');
+  if (gatedSubpath !== undefined) unobserved.noteGated(gatedSubpath);
   if (!realFiles.has(served.url)) realFiles.set(served.url, url);
   return { url: served.url, format: 'commonjs', shortCircuit: true };
 }
@@ -263,8 +276,17 @@ function projectIdOrNull(projectRoot: string): string | null {
 }
 
 /** The process health's unobserved lists, each absent when empty. */
-function unobservedFields(hosts: readonly string[], admin: readonly string[]): { unobserved?: readonly string[]; unobservedAdmin?: readonly string[] } {
-  return { ...(hosts.length === 0 ? {} : { unobserved: hosts }), ...(admin.length === 0 ? {} : { unobservedAdmin: admin }) };
+function unobservedFields(
+  hosts: readonly string[],
+  admin: AdminUnobserved,
+): { unobserved?: readonly string[]; unobservedAdmin?: readonly string[]; gatedAdmin?: readonly string[] } {
+  const unobservedAdmin = admin.list();
+  const gatedAdmin = admin.gated();
+  return {
+    ...(hosts.length === 0 ? {} : { unobserved: hosts }),
+    ...(unobservedAdmin.length === 0 ? {} : { unobservedAdmin }),
+    ...(gatedAdmin.length === 0 ? {} : { gatedAdmin }),
+  };
 }
 
 /** What the register entry gives the seam. */
@@ -342,6 +364,6 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it,
   // and list what no row observed.
   const projectId = projectIdOrNull(installed.projectRoot) ?? undefined;
-  installProcessHealth(() => ({ mode: 'live', projectId, ...unobservedFields(network.unobserved(), adminUnobserved.list()) }));
+  installProcessHealth(() => ({ mode: 'live', projectId, ...unobservedFields(network.unobserved(), adminUnobserved) }));
   markLiveRegisterActive();
 }
