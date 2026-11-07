@@ -46,7 +46,7 @@ import {
   liveProjectRoot,
   reachLiveHost,
 } from '@pyric/cli/register/internal/supplied-rows';
-import { serveHostProject } from './node-modules.js';
+import { refuseAdminWithoutHostProject, serveHostProject } from './node-modules.js';
 import { ADMIN_PASS_THROUGH, adminRowsNodeProblem, passThroughOption } from './refusal.js';
 import { hostReachLine, liveStartLine, passThroughLines } from './start-line.js';
 import { adminStartRefusal, installedAdminVersion, liveStartRefusal } from './start-checks.js';
@@ -115,19 +115,24 @@ const startsLive = reach !== null && projectRoot !== undefined;
 const isChild = !isFirstProcess && projectRoot !== undefined;
 const servedChildProject = isChild ? childProject(projectRoot) : undefined;
 if (servedChildProject !== undefined) serveHostProject(servedChildProject);
+// A child whose first process recorded a root with no project: no Admin call could be gated, so the rows refuse firebase-admin.
+const isChildWithoutProject = isChild && servedChildProject === undefined;
+if (isChildWithoutProject) refuseAdminWithoutHostProject(projectRoot);
 if (startsLive) {
   // The app's firebase as its rows read it: from the entry script's folder, then the working directory.
   const appDirs = liveAppDirs(process.argv[1], process.cwd());
   const refusal = liveStartRefusal(projectRoot, appDirs) ?? adminStartRefusal(appDirs, projectRoot);
   if (refusal !== null) throw new Error(`${ENTRY}: ${refusal}`);
   const projectId = liveProjectId(projectRoot);
-  const envRefusal = adminEnvRefusal(process.env, projectId);
+  const hasAdmin = installedAdminVersion(appDirs, projectRoot) !== null;
+  // Only a process whose Admin rows are on checks the Admin project variables; a client-only process starts as before.
+  const checksAdminEnv = hasAdmin && adminRows;
+  const envRefusal = checksAdminEnv ? adminEnvRefusal(process.env, projectId) : null;
   if (envRefusal !== null) throw envRefusal;
   // firebase-admin and @google-cloud/storage read the project from here when the app names none, as a functions child does.
   if ((process.env.GOOGLE_CLOUD_PROJECT ?? '') === '') process.env.GOOGLE_CLOUD_PROJECT = projectId;
   serveHostProject(projectId);
   const passing = passThroughLines(ENTRY, passThrough ?? [], livePassThroughLine);
-  const hasAdmin = installedAdminVersion(appDirs, projectRoot) !== null;
   const admin = hasAdmin ? adminLines(projectId, process.env) : [];
   const lines = [liveStartLine(ENTRY, projectId), ...passing, ...admin, hostReachLine(ENTRY, reach, projectId, projectRoot)];
   process.stderr.write(`${lines.join('\n')}\n`);

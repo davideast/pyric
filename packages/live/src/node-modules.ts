@@ -27,6 +27,7 @@ import {
 } from '@pyric/cli/register/internal/supplied-rows';
 import { fileURLToPath } from 'node:url';
 import { LIVE_ROWS } from './rows.js';
+import { LIVE_REFUSED } from './refusal.js';
 export { liveRefusal, liveWriteRefusal } from './refusal.js';
 export { appFirebaseRoot as liveRegisterSdkRoot } from './start-checks.js';
 import { observerModuleSource, rowModuleSource, type RowImports } from './row-source.js';
@@ -65,6 +66,26 @@ export function serveHostProject(projectId: string): void {
   hostProjectId = projectId;
 }
 
+/** The project root a child process's first process recorded with no project, once the register says so. */
+let rootWithoutProject: string | undefined;
+
+/**
+ * Marks this process as one whose recorded project root names no project, as
+ * the register finds in such a child process: every Admin row then refuses
+ * its firebase-admin load, since no Admin call could be gated.
+ */
+export function refuseAdminWithoutHostProject(projectRoot: string): void {
+  rootWithoutProject = projectRoot;
+}
+
+/** The refusal of an Admin row's load in a process with no host project. */
+function noHostProjectRefusal(name: AdminRowName, projectRoot: string): Error {
+  const message = `@pyric/live: firebase-admin/${name} is refused in live mode, from a Node process: this process has no live project, ` +
+    `because ${projectRoot} names no Firebase project, so no Admin call could be checked against one. ` +
+    'Set the project in .firebaserc or firebase.json, then start again.';
+  return Object.assign(new Error(message), { code: LIVE_REFUSED });
+}
+
 /** How the observer module imports, with the host's project once it is known. */
 function observerImports(): RowImports {
   if (hostProjectId === undefined) return NODE_IMPORTS;
@@ -90,13 +111,14 @@ function adminObserver(observer: LiveObserver, projectId: string): LiveObserver 
  * Patches the real module behind one Admin row, loaded from `entryFile`,
  * with that row's observer (A-4 to A-7 in the #2304 plan). Every row
  * observes for the host's project and passes the process's one project gate.
- * Before the register has resolved a host project, as when `@pyric/cli`'s
- * seam runs alone, the module is left as it is, as the client rows judge no
- * project without one; `@pyric/live/register` refuses to start without one.
+ * A child process whose recorded project root names no project refuses the
+ * load (`refuseAdminWithoutHostProject`). Only `@pyric/cli`'s seam run alone,
+ * with no register, leaves the module as it is.
  * The Admin row module calls this; it is not for apps.
  */
 export function observeAdminRow(name: AdminRowName, real: unknown, entryFile: string, observer: LiveObserver): void {
   const projectId = hostProjectId;
+  if (projectId === undefined && rootWithoutProject !== undefined) throw noHostProjectRefusal(name, rootWithoutProject);
   if (projectId === undefined) return;
   const row = { observer: adminObserver(observer, projectId), gate: adminGateFor(projectId) };
   if (name === 'firestore') observeAdminFirestore(real, entryFile, row);

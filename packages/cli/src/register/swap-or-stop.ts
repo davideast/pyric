@@ -196,8 +196,10 @@ const LIVE_ROW_IMPORTS = joinedList([...INSTALLED_SDK_SPECIFIERS], 'or');
 
 function liveStopFix(family: SdkFamily, isUnservedRequire: boolean): string {
   if (family === 'admin') {
-    return 'import firebase-admin by its package name, which live mode serves and observes, ' +
-      'or move this code to a process without @pyric/live/register';
+    // Node 22's require() skips the hooks, so the Admin rows stay shut there and live mode refuses firebase-admin.
+    const servesAdmin = Number(process.versions.node.split('.')[0]) >= 23;
+    const where = servesAdmin ? 'by its package name, which live mode serves and observes' : 'from Node 23 or later, where live mode serves and observes it';
+    return `import firebase-admin ${where}, or move this code to a process without @pyric/live/register`;
   }
   if (isUnservedRequire) return `import ${LIVE_ROW_IMPORTS} from an ES module, or run Node 23 or later`;
   return `import ${LIVE_ROW_IMPORTS} by its package name, so its live row loads the installed SDK`;

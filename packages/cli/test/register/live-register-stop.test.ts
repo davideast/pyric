@@ -328,6 +328,62 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { status: String(result.statu
   }, 60_000);
 });
 
+describe('@pyric/live/register and the Admin project', () => {
+  /** A project installing @pyric/live and firebase, with firebase-admin only when `withAdmin`, and a project only when `project` is set. */
+  function fixture(prefix: string, withAdmin: boolean, project: string | null): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+    const nm = join(dir, 'node_modules');
+    mkdirSync(join(nm, '@pyric'), { recursive: true });
+    symlinkSync(cliDir, join(nm, '@pyric/cli'));
+    symlinkSync(liveDir, join(nm, '@pyric/live'));
+    symlinkSync(realFirebaseDir, join(nm, 'firebase'));
+    if (withAdmin) symlinkSync(realAdminDir, join(nm, 'firebase-admin'));
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'live-admin-project-fixture', type: 'module' }));
+    if (project !== null) writeFileSync(join(dir, '.firebaserc'), JSON.stringify({ projects: { default: project } }));
+    writeFileSync(join(dir, 'probe.mjs'), PROBE);
+    return dir;
+  }
+
+  it('starts a client-only process whose GOOGLE_CLOUD_PROJECT or FIREBASE_CONFIG names another project', () => {
+    const clientDir = fixture('pyric-live-client-only-', false, 'live-client-only');
+    try {
+      for (const env of [{ GOOGLE_CLOUD_PROJECT: 'another-project' }, { FIREBASE_CONFIG: JSON.stringify({ projectId: 'another-project' }) }]) {
+        const res = run([LIVE_REGISTER], ['firebase/firestore'], { cwd: clientDir, entryDir: clientDir, env });
+        expect(res.status, res.stderr).toBe(0);
+        expect(res.outcome['firebase/firestore'], res.stderr).toBe('loaded');
+      }
+    } finally {
+      rmSync(clientDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('refuses a start with the Admin rows on whose GOOGLE_CLOUD_PROJECT names another project', () => {
+    const res = run([LIVE_REGISTER], ['firebase/firestore'], { env: { GOOGLE_CLOUD_PROJECT: 'another-project' } });
+    if (adminRowsOn) {
+      expect(res.status).not.toBe(0);
+      expect(res.stderr).toContain("names the project 'another-project'");
+    } else {
+      expect(res.status, res.stderr).toBe(0);
+    }
+  }, 60_000);
+
+  it('refuses firebase-admin in a child process whose recorded project root names no project', () => {
+    const noProjectDir = fixture('pyric-live-no-project-', true, null);
+    try {
+      const env = {
+        PYRIC_LIVE_PROJECT_ROOT: noProjectDir,
+        PYRIC_LIVE_SDK_ROOT: noProjectDir,
+        PYRIC_LIVE_PASS_THROUGH: adminRowsOn ? 'firebase-admin' : '',
+      };
+      const res = run([LIVE_REGISTER], ['firebase-admin/auth'], { cwd: noProjectDir, entryDir: noProjectDir, env });
+      expect(res.status, res.stderr).toBe(0);
+      expect(res.outcome['firebase-admin/auth'], res.stderr).toBe('PYRIC_LIVE_REFUSED');
+    } finally {
+      rmSync(noProjectDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
 describe('@pyric/cli/register alone, with @pyric/live installed', () => {
   it('keeps the stop for every real firebase/* and firebase-admin load, the live row ids included, and loads no SDK file', async () => {
     const rowIds = await Promise.all(LIVE_ROWS.map(rowUrl));
