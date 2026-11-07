@@ -108,7 +108,10 @@ rerun passes, it opens one `flake` issue per flaky test, titled like
 "Flaky on main: `<test>`", or comments on an open issue that already names the
 test file's repository path, such as `packages/cli/test/auth.test.ts`. So a
 second flaky test in a file that already has a flake issue is commented on that
-issue instead of getting its own. If the rerun fails, it opens or updates the
+issue instead of getting its own. An app scenario that failed is named by its
+directory, such as `test/apps/ai-app-check-stays-local`, with the step it
+failed in, and its flake is commented on an open issue whose title names the
+app's directory, or the app's name when the name has a hyphen. If the rerun fails, it opens or updates the
 one "Main is red: " issue. Failures it could not rerun, or whose rerun was
 cancelled, go to the one "Unconfirmed failures on main: " issue. The next green
 run on main closes both.

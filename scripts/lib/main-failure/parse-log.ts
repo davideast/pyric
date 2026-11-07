@@ -1,7 +1,9 @@
 // Reads the failing tests out of a Build & Test job log: the `bun test`
 // `##[group]<file>:` header, the `(fail)` line, and the last error line before
-// it with its stack location. A job whose log names no test is reported by
-// job name with its last error. Used by scripts/ci/main-failure.ts.
+// it with its stack location. An App scenarios job (test/apps/run.ts) names
+// each failing app, `test/apps/<app>`, with the step it failed in. A job whose
+// log names neither is reported by job name with its last error. Used by
+// scripts/ci/main-failure.ts.
 
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,7 +11,8 @@ import { join } from 'node:path';
 /** One failing test, or a failing job whose log names no test. */
 export interface Failure {
   job: string;
-  /** `<repo path of the file> > <test name>`, or undefined when the log names no test. */
+  /** `<repo path of the file> > <test name>`, `test/apps/<app>` for an app
+   *  scenario, or undefined when the log names no test. */
   test?: string;
   /** The error line the failure printed, with its source location. */
   assertion?: string;
@@ -28,6 +31,10 @@ const STACK_LOCATION = /^at .*?\(?(?:file:\/\/)?\/home\/runner\/work\/[^/]+\/[^/
 const FAILED_SUMMARY = /^\d+ tests? failed:$/;
 const HOOK_NOTE = /^\^ (.+)$/;
 const ACTIONS_ERROR = /^##\[error\](.+)$/;
+/** test/apps/run.ts heads each failing app's report with this line, then
+ *  prints the error, then each of the app's logs under `─── <app> › <log> ───`. */
+const APP_FAILED = /^━━━ ✗ (\S+): step "(.*)" failed ━━━$/;
+const APP_LOG_HEADER = /^─── .+ ───$/;
 /** `bun run` reports the script it ran exiting, which names no failure. */
 const SCRIPT_EXIT = /^error: script ".*" exited with code \d+$/;
 
@@ -110,9 +117,48 @@ function currentAssertion(state: ParseState): string | undefined {
   return withLocation(state.error, state.location);
 }
 
-/** The failing `bun test` tests a job log names, each with the last error line
- *  it printed, or the job itself with its last error when the log names none.
- *  A test that fails twice in one log keeps its first failure. */
+/** The lines of one app's report between its heading and its first log. */
+function appReport(lines: string[], heading: number): string[] {
+  const rest = lines.slice(heading + 1);
+  const end = rest.findIndex((line) => APP_LOG_HEADER.test(line) || APP_FAILED.test(line));
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+/** The app's error: the first line it printed and the first place in the
+ *  stack that names a file of the checkout. */
+function appError(report: string[]): string | undefined {
+  const first = report.find((line) => line.trim() !== '');
+  if (first === undefined) return undefined;
+  return withLocation(first, report.map(stackLocation).find((found) => found !== undefined));
+}
+
+function appAssertion(step: string, error: string | undefined): string {
+  const failed = `step "${step}" failed`;
+  if (error === undefined) return failed;
+  return `${failed}: ${error}`;
+}
+
+/** Each app test/apps/run.ts reports as failed, named by its directory, as
+ *  its quarantine entry names it, with the step it failed in and its error. */
+function appFailures(job: string, lines: string[]): Failure[] {
+  return lines.flatMap((line, index) => {
+    const failed = APP_FAILED.exec(line);
+    if (failed === null) return [];
+    const assertion = appAssertion(failed[2] ?? '', appError(appReport(lines, index)));
+    return [{ job, test: `test/apps/${failed[1] ?? ''}`, assertion }];
+  });
+}
+
+function addFailures(failures: Map<string, Failure>, found: Failure[]): void {
+  for (const failure of found) {
+    if (!failures.has(failure.test ?? '')) failures.set(failure.test ?? '', failure);
+  }
+}
+
+/** The failing `bun test` tests and app scenarios a job log names, each with
+ *  the last error line it printed, or the job itself with its last error when
+ *  the log names none. A test that fails twice in one log keeps its first
+ *  failure. */
 export function parseFailures(job: string, log: string, resolveFile: FileResolver = (file) => file): Failure[] {
   const lines = logLines(log);
   const failures = new Map<string, Failure>();
@@ -156,6 +202,7 @@ export function parseFailures(job: string, log: string, resolveFile: FileResolve
     if (state.error !== undefined && state.location === undefined) state.location = stackLocation(line);
   }
 
+  addFailures(failures, appFailures(job, lines));
   if (failures.size > 0) return [...failures.values()];
   return [withAssertion({ job }, lastError(lines))];
 }

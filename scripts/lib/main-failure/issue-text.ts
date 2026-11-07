@@ -45,6 +45,14 @@ export function testFilePath(failure: Failure): string | undefined {
   return file;
 }
 
+const APP_DIR = /^test\/apps\/([^/\s]+)$/;
+
+/** The app scenario a failure names by its directory, `test/apps/<app>`, or
+ *  undefined when it names a test file or nothing. */
+export function failingApp(failure: Failure): string | undefined {
+  return APP_DIR.exec(failure.test ?? '')?.[1];
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
