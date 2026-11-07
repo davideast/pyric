@@ -10,7 +10,8 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
+import { activeListeners, initializeSandbox, type ObservedCall, type SandboxEvent } from 'pyric/sandbox';
+import { incidentsFromEvents } from '../../../../src/serve/runtime/listener-incidents.js';
 import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { markPortConnection } from '../../../../src/serve/worker/host/caller.js';
@@ -355,5 +356,95 @@ describe('host: observed calls', () => {
     const envelope = (message: Record<string, unknown>) => ({ type: 'worker-message', message }) as unknown as BridgeMessage;
     expect(requestEnvelopeError(envelope({ t: 'observe', id: 'o1', call: DENIED_READ }))).toBeUndefined();
     expect(requestEnvelopeError(envelope({ t: 'observe', call: DENIED_READ }))).toBe('Invalid worker message envelope.');
+  });
+});
+
+/** A live `onSnapshot` on one document, as the row records its attach or detach. */
+function roomListener(phase: 'attach' | 'detach', id: string, at = 1_700_000_000_000): ObservedCall {
+  return {
+    service: 'firestore',
+    method: 'onSnapshot',
+    path: 'rooms/r1',
+    at,
+    outcome: { status: 'ok' },
+    account: { uid: 'alice' },
+    listener: { phase, id, target: 'rooms/r1', key: '0123456789abcdef' },
+  };
+}
+
+describe('host: observed listener lifecycle', () => {
+  it('writes attach and detach as listener events with the caller, and no production answer', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const pageId = await subscribe(ctx, page);
+    expect(await observe(ctx, page, { call: roomListener('attach', 'l-1') })).toMatchObject({ ok: true });
+    expect(await observe(ctx, page, { call: roomListener('detach', 'l-1', 1_700_000_000_500) })).toMatchObject({ ok: true });
+    const [attach, detach] = streamed(page);
+    const shared = {
+      kind: 'listener',
+      service: 'firestore',
+      target: { kind: 'doc', path: 'rooms/r1' },
+      auth: { uid: 'alice' },
+      caller: { kind: 'page', pageId },
+      activity: { listenerId: 'l-1' },
+      rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+      operationContext: { source: { kind: 'app' } },
+    };
+    expect(attach).toMatchObject({ ...shared, phase: 'attach' });
+    expect(detach).toMatchObject({ ...shared, phase: 'detach', listenerId: (attach as { listenerId: string }).listenerId });
+    expect(attach).not.toHaveProperty('production');
+    expect(ctx.sandbox.history().map((event) => event.kind)).toEqual(['listener', 'listener']);
+  });
+
+  it("keeps a page's and a Node process's listeners apart when both mint the same id", async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const server = fakePort();
+    markPortConnection(ctx, server, 'node');
+    await observe(ctx, page, { call: roomListener('attach', 'l-1') });
+    await observe(ctx, server, { call: roomListener('attach', 'l-1') });
+    expect(activeListeners(ctx.sandbox.history())).toEqual([
+      expect.objectContaining({ target: 'rooms/r1', clientListenerId: 'l-1' }),
+      expect.objectContaining({ target: 'rooms/r1', clientListenerId: 'l-1' }),
+    ]);
+    await observe(ctx, server, { call: roomListener('detach', 'l-1') });
+    const [left] = activeListeners(ctx.sandbox.history());
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(1);
+    expect(left?.attachedAt).toBe(1_700_000_000_000);
+    const pageAttach = ctx.sandbox.history()[0] as { listenerId: string; caller?: { kind: string } };
+    expect(pageAttach.caller?.kind).toBe('page');
+    expect(left?.id).toBe(pageAttach.listenerId);
+  });
+
+  it('raises the duplicate-listener and churn incidents the activity monitor reads', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    for (const id of ['d-1', 'd-2', 'd-3']) await observe(ctx, page, { call: roomListener('attach', id) });
+    for (let cycle = 0; cycle < 4; cycle++) {
+      const at = 1_700_000_001_000 + cycle * 100;
+      const churn = (phase: 'attach' | 'detach') => ({ ...roomListener(phase, `c-${cycle}`, at), path: 'rooms/r2', listener: { phase, id: `c-${cycle}`, target: 'rooms/r2' } });
+      await observe(ctx, page, { call: churn('attach') });
+      await observe(ctx, page, { call: churn('detach') });
+    }
+    const patterns = incidentsFromEvents(ctx.sandbox.history()).map((incident) => incident.pattern);
+    expect(patterns).toContain('duplicate-listener');
+    expect(patterns).toContain('listener-churn');
+  });
+
+  it('refuses a listener record that carries a value, and writes nothing', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const attach = roomListener('attach', 'l-1');
+    const malformed = [
+      { ...attach, listener: { ...attach.listener, target: 'a'.repeat(1501) } },
+      { ...attach, listener: { ...attach.listener, key: JSON.stringify(['doc', 'rooms/r1']) } },
+      { ...attach, listener: { ...attach.listener, phase: 'delivery' } },
+      { ...attach, service: 'storage', bucket: 'demo.firebasestorage.app' },
+    ];
+    for (const call of malformed) {
+      expect(await observe(ctx, page, { call })).toMatchObject({ ok: false, error: { code: 'invalid-argument' } });
+    }
+    expect(ctx.sandbox.history()).toEqual([]);
   });
 });
