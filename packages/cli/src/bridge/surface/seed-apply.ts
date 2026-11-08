@@ -17,6 +17,7 @@ import { parseRtdbRulesText } from '../../rtdb/rules-json.js';
 import { loadDatabaseRules } from './database-rules-load.js';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, doc, setDoc } from 'pyric/firestore';
+import { decodeDocValue } from 'pyric/firestore/internal/value-codec';
 import { getAdminDatabase, ref as databaseRef, set as databaseSet } from 'pyric/database';
 import { getAdminStorageSandbox, replaceStorageRules } from 'pyric/storage/internal';
 import { ref as storageRef, uploadBytes } from 'pyric/storage';
@@ -28,8 +29,16 @@ import { rememberUnloadedStorageRules } from './storage-rules.js';
 export interface SeedUserEntry {
   uid: string;
   email?: string;
+  emailVerified?: boolean;
+  displayName?: string;
+  photoUrl?: string;
+  phoneNumber?: string;
+  disabled?: boolean;
   customClaims?: Record<string, unknown>;
   tenantId?: string;
+  providerId?: string;
+  createdAt?: string;
+  lastLoginAt?: string | null;
   /**
    * The real password to seed, rather than the synthetic `seed-<uid>` one.
    * `exportFixture` carries it unless the call passed `excludePasswords`, so a
@@ -86,19 +95,26 @@ export function applyUsers(sandbox: LocalSandbox, users: readonly SeedUserEntry[
   authSandbox.seedUsers(
     auth,
     users.map((user) => {
-      const record: {
-        uid: string;
-        email: string;
-        password: string;
-        customClaims?: Record<string, unknown>;
-        tenantId?: string;
-      } = {
+      const record: Parameters<typeof authSandbox.seedUsers>[1][number] = {
         uid: user.uid,
-        email: seedEmail(user.uid, user.email),
-        password: user.password ?? seedPassword(user.uid),
       };
+      if (user.providerId === 'anonymous') {
+        if (user.email !== undefined) record.email = user.email;
+        if (user.password !== undefined) record.password = user.password;
+      } else {
+        record.email = seedEmail(user.uid, user.email);
+        record.password = user.password ?? seedPassword(user.uid);
+      }
+      if (user.emailVerified !== undefined) record.emailVerified = user.emailVerified;
+      if (user.displayName !== undefined) record.displayName = user.displayName;
+      if (user.photoUrl !== undefined) record.photoUrl = user.photoUrl;
+      if (user.phoneNumber !== undefined) record.phoneNumber = user.phoneNumber;
+      if (user.disabled !== undefined) record.disabled = user.disabled;
       if (user.customClaims !== undefined) record.customClaims = user.customClaims;
       if (user.tenantId !== undefined) record.tenantId = user.tenantId;
+      if (user.providerId !== undefined) record.providerId = user.providerId;
+      if (user.createdAt !== undefined) record.createdAt = user.createdAt;
+      if (user.lastLoginAt !== undefined) record.lastLoginAt = user.lastLoginAt;
       return record;
     }),
   );
@@ -145,8 +161,10 @@ export async function applyData(sandbox: LocalSandbox, seed: SandboxSeed): Promi
 
   const documents = seed.firestore ?? {};
   const db = getAdminFirestore(sandbox);
+  const references = { create: (refPath: string) => doc(db, refPath) };
   for (const [path, data] of Object.entries(documents)) {
-    await setDoc(doc(db, path), data);
+    const decoded = decodeDocValue(data, references) as Record<string, unknown>;
+    await setDoc(doc(db, path), decoded);
   }
 
   const tree = seed.database;

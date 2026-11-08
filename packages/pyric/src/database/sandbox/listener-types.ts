@@ -26,6 +26,8 @@ export interface ValueListener {
   admin?: boolean;
   /** Owners recorded on this listener's `attach` event. */
   owners?: ListenerOwner[];
+  /** Optional client event kind when proxied by the served worker host. */
+  event?: 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
 }
 
 /** One child event. A removed child carries the priorities it had, since the tree no longer holds them. */

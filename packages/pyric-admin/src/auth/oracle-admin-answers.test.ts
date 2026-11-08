@@ -45,22 +45,7 @@ async function outcome(run: () => unknown): Promise<string> {
 }
 
 /** Known differences, keyed by the observation's call name. */
-const PINS: Record<string, { pyric: string; production: string; finding: string }> = {
-  createUserTakenEmail: { pyric: 'resolved', production: 'rejects auth/email-already-exists', finding: 'auth-claims AU-6: admin user-management errors are missing or use client codes' },
-  createUserTakenUid: { pyric: 'rejects (no code)', production: 'rejects auth/uid-already-exists', finding: 'auth-claims AU-6' },
-  createUserShortPassword: { pyric: 'resolved', production: 'rejects auth/invalid-password', finding: 'auth-claims AU-6' },
-  createUserInvalidEmail: { pyric: 'resolved', production: 'rejects auth/invalid-email', finding: 'auth-claims AU-6' },
-  getUserMissing: { pyric: 'rejects (no code)', production: 'rejects auth/user-not-found', finding: 'auth-claims AU-6' },
-  getUserByEmailMissing: { pyric: 'rejects (no code)', production: 'rejects auth/user-not-found', finding: 'auth-claims AU-6' },
-  getUserByEmailOtherCase: { pyric: 'rejects (no code)', production: 'resolved', finding: 'auth-claims CO-4: getUserByEmail matches the stored email case-sensitively' },
-  deleteUserMissing: { pyric: 'rejects (no code)', production: 'rejects auth/user-not-found', finding: 'auth-claims AU-6' },
-  setCustomUserClaimsMissing: { pyric: 'rejects (no code)', production: 'rejects auth/user-not-found', finding: 'auth-claims AU-6' },
-  setCustomUserClaims1100: { pyric: 'resolved', production: 'rejects auth/claims-too-large', finding: 'auth-claims AU-5: no 1000-character custom-claims limit' },
-  createCustomTokenEmptyUid: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4: createCustomToken validates neither uid nor claims' },
-  createCustomToken129Uid: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4' },
-  createCustomTokenReservedAud: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4' },
-  createCustomTokenNullClaims: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4' },
-};
+const PINS: Record<string, { pyric: string; production: string; finding: string }> = {};
 
 describe('pyric-admin auth answers as the production Admin SDK does', () => {
   it('user management, custom tokens, custom claims and verifyIdToken', async () => {

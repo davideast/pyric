@@ -240,7 +240,7 @@ describe('App Check error shape', () => {
 
 describe('consume', () => {
   it('shares consumed token ids between two copies of the module', async () => {
-    const copy = (await import(`../../src/app-check/index.js?copy=${Date.now()}`)) as typeof import('../../src/app-check/index.js');
+    const copy = (await import(`../../src/app-check/app-check-service.js?copy=${Date.now()}`)) as typeof import('../../src/app-check/app-check-service.js');
     expect(copy.getAppCheck).not.toBe(getAppCheck);
     const config = { sandbox: initializeSandbox(), projectId: PROJECT_ID } as Parameters<typeof initializeApp>[0];
     const app = initializeApp(config, 'app-check-consume-copies');

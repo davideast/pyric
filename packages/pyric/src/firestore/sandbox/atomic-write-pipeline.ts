@@ -1,5 +1,5 @@
 import type { BatchOperation, DocumentData } from './local-state.js';
-import { resolveValueTree, type ResolveMethod } from './value-resolver.js';
+import { assertServerWriteLimits, resolveValueTree, type ResolveMethod } from './value-resolver.js';
 import { makeError, type FirestoreEvalRequest, type FirestoreSimError } from './errors.js';
 import { renderLegacyDebugMessages, Timestamp, projectEvaluatedRule } from 'pyric/rules/internal';
 import {
@@ -82,6 +82,7 @@ export class AtomicWritePipeline {
     const projection = new Map<string, DocumentData | null>();
     for (const [index, input] of inputs.entries()) {
       try {
+        assertServerWriteLimits(input.path, input.method, input.data);
         const updatesDeletedDocument = input.method === 'update' && projection.get(input.path) === null;
         if (updatesDeletedDocument) {
           throw new Error(`Cannot delete then update document '${input.path}' in the same atomic write.`);

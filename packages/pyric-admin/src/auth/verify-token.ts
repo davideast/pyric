@@ -8,8 +8,17 @@ import { PrefixedFirebaseError } from '../app/firebase-error.js';
 import type { DecodedIdToken } from './types.js';
 import { checkClientIdToken, type IdTokenFailureCode, type IdTokenVerdict } from './token-decoders.js';
 
-/** The codes `checkRevoked` and `revokeRefreshTokens` add to a token check's. */
-type AccountFailureCode = 'user-not-found' | 'user-disabled' | 'id-token-revoked' | 'invalid-uid';
+/** The codes `checkRevoked`, `revokeRefreshTokens`, and admin user-management add to a token check's. */
+type AccountFailureCode =
+  | 'user-not-found'
+  | 'user-disabled'
+  | 'id-token-revoked'
+  | 'invalid-uid'
+  | 'email-already-exists'
+  | 'uid-already-exists'
+  | 'invalid-password'
+  | 'invalid-email'
+  | 'claims-too-large';
 
 /**
  * firebase-admin's FirebaseAuthError: a PrefixedFirebaseError with prefix

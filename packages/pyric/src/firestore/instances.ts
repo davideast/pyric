@@ -20,7 +20,11 @@ import {
   defaultClientApp,
   resolveClientApp,
 } from '../sandbox/internal/client-app.js';
-import { getAuthLens, onAuthLensChanged } from '../auth/modular.js';
+import {
+  getAuthLens,
+  onAuthLensChanged,
+  resolveAuthLensState,
+} from '../sandbox/internal/auth-lens.js';
 
 import {
   TARGET_SYMBOL,
@@ -83,15 +87,12 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
       const authScope = appRuntime.authScope;
       if (authScope) {
         lifecycle.own(session.onCurrentUserChanged((user) => {
-          getInternalEnv(sandbox).reevaluateLiveListeners(user, authScope);
+          const next = resolveAuthLensState(getAuthLens(), user);
+          getInternalEnv(sandbox).reevaluateLiveListeners(next.auth, authScope, next.bypassRules);
         }));
         lifecycle.own(onAuthLensChanged((lens) => {
-          const effectiveUser = lens?.mode === 'anon'
-            ? null
-            : lens?.mode === 'as'
-              ? { uid: lens.uid, ...(lens.tenant ? { tenant: lens.tenant } : {}) }
-              : session.currentUser;
-          getInternalEnv(sandbox).reevaluateLiveListeners(effectiveUser, authScope);
+          const next = resolveAuthLensState(lens, session.currentUser);
+          getInternalEnv(sandbox).reevaluateLiveListeners(next.auth, authScope, next.bypassRules);
         }));
       }
       const t: SandboxLiveTarget = {
@@ -118,12 +119,27 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
     return { [TARGET_SYMBOL]: t };
   }
   if (isSandbox(target)) {
+    const lifecycle = createFirestoreTargetLifecycle();
+    const unsubLens = onAuthLensChanged((lens) => {
+      const next = resolveAuthLensState(lens, target.currentUser);
+      getInternalEnv(target).reevaluateLiveListeners(next.auth, undefined, next.bypassRules);
+    });
+    lifecycle.own(unsubLens);
+    if (typeof target.onEvent === 'function') {
+      const unsubEvents = target.onEvent((event) => {
+        if (event.kind === 'session_boundary' && event.phase === 'dispose') {
+          unsubLens();
+          unsubEvents();
+        }
+      });
+      lifecycle.own(unsubEvents);
+    }
     const t: SandboxLiveTarget = {
       kind: 'sandbox-live',
       activityApp: target,
       sandbox: target,
       getDb: makeGetDb(target),
-      ...createFirestoreTargetLifecycle(),
+      ...lifecycle,
     };
     return { [TARGET_SYMBOL]: t };
   }
@@ -299,15 +315,14 @@ function makeGetDb(
 ): () => SandboxFirestore {
   return () => {
     const lens = getAuthLens();
-    if (lens?.mode === 'admin') {
-      return getChainableAdminFirestore(sandbox);
+    const resolved = resolveAuthLensState(lens, currentUser());
+    if (resolved.bypassRules) {
+      return getChainableAdminFirestore(bindOperationContext(sandbox.withAuth(null), {
+        source: { kind: 'app' },
+        authLens: { mode: 'admin' },
+      }));
     }
-    const effectiveAuth: AuthState = lens?.mode === 'anon'
-      ? null
-      : lens?.mode === 'as'
-        ? { uid: lens.uid, ...(lens.tenant ? { tenant: lens.tenant } : {}) }
-        : currentUser();
-    const ctx = bindOperationContext(sandbox.withAuth(effectiveAuth), {
+    const ctx = bindOperationContext(sandbox.withAuth(resolved.auth), {
       source: { kind: 'app' },
       authLens: lens ?? { mode: 'app-session' },
     });

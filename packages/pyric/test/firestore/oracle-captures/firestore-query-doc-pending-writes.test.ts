@@ -12,7 +12,7 @@ it('firestore-query-doc-pending-writes', async () => {
     pins: [
       {
         key: 'events',
-        finding: `FL-20: only the written doc reports hasPendingWrites; ${CACHED_INITIAL_SNAPSHOT}`,
+        finding: CACHED_INITIAL_SNAPSHOT,
         production: [
           { pw: false, docs: [['a', false]] },
           { pw: false, docs: [['a', false]] },
@@ -21,7 +21,7 @@ it('firestore-query-doc-pending-writes', async () => {
         ],
         pyric: [
           { pw: false, docs: [['a', false]] },
-          { pw: true, docs: [['a', false], ['z', false]] },
+          { pw: true, docs: [['a', false], ['z', true]] },
           { pw: false, docs: [['a', false], ['z', false]] },
         ],
       },

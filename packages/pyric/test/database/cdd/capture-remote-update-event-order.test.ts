@@ -31,31 +31,24 @@ describe('SDK hunt captures: one remote update, then setPriority', () => {
     expectReplay({
       production: obs('rtdb-modular-remote-update-event-order'),
       pyric: await runInPage(scenario),
-      pins: [
-        {
-          key: 'log',
-          finding: 'RT-2: deeper paths and child events fire before value; RT-3: child events go removed, added, moved, changed; RT-4; RT-5',
-          production: PRODUCTION_LOG,
-          pyric: SANDBOX_LOG,
-        },
-      ],
+      pins: [],
     });
   });
 
   row('priority-change-child-changed', async () => {
-    // RT-4: production fires child_changed for a priority-only change; the sandbox does not.
+    // Production and sandbox both fire child_changed for a priority-only change.
     const production = afterPriority(obs('rtdb-modular-remote-update-event-order').log);
     const pyric = afterPriority((await runInPage(scenario)).log);
     expect(production).toContain('R changed a');
-    expect(pyric).not.toContain('R changed a');
+    expect(pyric).toContain('R changed a');
   });
 
   row('priority-change-child-moved', async () => {
-    // RT-5: a query with no orderBy fires child_moved for a priority change in production only.
+    // A query with no orderBy fires child_moved for a priority change in both production and sandbox.
     const production = afterPriority(obs('rtdb-modular-remote-update-event-order').log);
     const pyric = afterPriority((await runInPage(scenario)).log);
     expect(production).toContain('L moved a');
-    expect(pyric).not.toContain('L moved a');
+    expect(pyric).toContain('L moved a');
   });
 
   row('val-key-order', async () => {
@@ -63,11 +56,8 @@ describe('SDK hunt captures: one remote update, then setPriority', () => {
     expect((await runInPage(scenario)).valKeys).toEqual(obs('rtdb-modular-remote-update-event-order').valKeys);
   });
 
-  // RP-5 is a served-plane finding, pinned in
-  // packages/cli/test/serve/worker/oracle-captures/rtdb-remote-update-event-order.test.ts.
-  // The sandbox side is RT-2's order above.
   row('served-event-order', async () => {
     expect(obs('rtdb-modular-remote-update-event-order').log).toEqual(PRODUCTION_LOG);
-    expect((await runInPage(scenario)).log).toEqual(SANDBOX_LOG);
+    expect((await runInPage(scenario)).log).toEqual(PRODUCTION_LOG);
   });
 });

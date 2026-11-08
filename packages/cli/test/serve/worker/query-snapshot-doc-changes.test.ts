@@ -152,7 +152,9 @@ test('includeMetadataChanges: the pending echo, then a settled metadata-only sna
         { type: 'added', path: 'widgets/a', data: { n: 1 }, oldIndex: -1, newIndex: 0 },
       ]);
       expect(meta[2]!.docChanges()).toEqual([]);
-      expect(meta[2]!.docChanges({ includeMetadataChanges: true })).toEqual([]);
+      expect(summarize(meta[2]!.docChanges({ includeMetadataChanges: true }))).toEqual([
+        { type: 'modified', path: 'widgets/a', data: { n: 1 }, oldIndex: 0, newIndex: 0 },
+      ]);
       expect(() => plain[1]!.docChanges({ includeMetadataChanges: true })).toThrow(
         /you must also pass \{ includeMetadataChanges: true \} to onSnapshot/,
       );

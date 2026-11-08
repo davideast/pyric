@@ -1,7 +1,7 @@
 import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { JsonValue } from './sandbox/data-tree.js';
-import { authFor, targetOf } from './routing.js';
+import { authFor, isAdminFor, targetOf } from './routing.js';
 import type { DataSnapshot, DatabaseReference } from './types.js';
 import { buildSandboxSnapFromRaw } from './snapshots.js';
 import { validateWritablePath } from './writable-path.js';
@@ -91,7 +91,10 @@ export function runTransaction<T>(
   validateWritablePath('Reference.transaction', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), () => {
-    const txOptions = target.admin === true ? { ...options, admin: true } : options;
+    let txOptions: (TransactionOptions & { readonly admin?: boolean }) | undefined = options;
+    if (isAdminFor(target)) {
+      txOptions = { ...options, admin: true };
+    }
     const result = target.backend.runTransaction(
       authFor(target),
       r._path,

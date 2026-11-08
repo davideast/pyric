@@ -24,7 +24,7 @@ it('firestore-servertimestamp-pending-echo', async () => {
         ],
         pyric: [
           { pending: false, fromCache: false, ...old },
-          { pending: false, fromCache: false, ...resolved },
+          { pending: true, fromCache: false, ...resolved },
           { pending: false, fromCache: false, ...resolved },
         ],
       },
@@ -39,7 +39,7 @@ it('firestore-servertimestamp-pending-echo', async () => {
         ],
         pyric: [
           { pending: false, docPending: false, none: 'old', previous: 'old' },
-          { pending: true, docPending: false, none: 'Timestamp', previous: 'Timestamp' },
+          { pending: true, docPending: true, none: 'Timestamp', previous: 'Timestamp' },
           { pending: false, docPending: false, none: 'Timestamp', previous: 'Timestamp' },
         ],
       },

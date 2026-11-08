@@ -383,8 +383,8 @@ export class LocalEnvironment {
    * identity captured at registration. See
    * {@link ListenerDispatch#reevaluateLiveListeners} for the full contract.
    */
-  reevaluateLiveListeners(newAuth: ListenerAuth, authScope?: object): void {
-    this.listeners.reevaluateLiveListeners(newAuth, authScope);
+  reevaluateLiveListeners(newAuth: ListenerAuth, authScope?: object, bypassRules?: boolean): void {
+    this.listeners.reevaluateLiveListeners(newAuth, authScope, bypassRules);
   }
 
   /** Get current rules source. */

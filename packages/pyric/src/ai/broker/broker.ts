@@ -49,6 +49,7 @@ import {
   badRole,
   emptyContents,
   functionRoleRefused,
+  invalidSystemInstruction,
   missingThoughtSignature,
 } from './synthesizer.js';
 import { ScriptedEngine } from './scripted-engine.js';
@@ -395,6 +396,10 @@ export class AiBroker {
   // ── Production-shaped validation ──────────────────────────────────────────
 
   private validate(req: GenerateContentRequest, model: string): void {
+    const sys = (req as { systemInstruction?: unknown }).systemInstruction;
+    if (sys !== undefined && (typeof sys !== 'object' || sys === null || Array.isArray(sys))) {
+      this.reject(model, invalidSystemInstruction(sys));
+    }
     this.validateContents(req, model);
     // Model turns threading a functionCall back in MUST carry the
     // thoughtSignature production minted (`ai-error-fncall-missing-thought-signature`).
@@ -416,7 +421,8 @@ export class AiBroker {
       this.reject(model, emptyContents());
     }
     for (const content of contents as GenerateContentRequest['contents']) {
-      const role = content.role ?? '';
+      if (content.role === undefined) continue;
+      const role = content.role;
       if (!ACCEPTED_ROLES.has(role.toUpperCase())) {
         this.reject(model, roleRefusal(role));
       }

@@ -1,7 +1,7 @@
 import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
 import { generatePushId } from './sandbox/push-id.js';
 import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
-import { authFor, targetOf } from './routing.js';
+import { authFor, isAdminFor, targetOf } from './routing.js';
 import { isDefaultQuerySpec, isQuery } from './query-shape.js';
 import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
@@ -34,14 +34,20 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
     try {
       assertGettablePath(ref0._path);
       if (query) {
-        const rows = target.admin
-          ? target.backend.adminGetQuery(query.ref._path, query._spec)
-          : target.backend.getQuery(authFor(target), query.ref._path, query._spec);
+        let rows: ReturnType<typeof target.backend.adminGetQuery>;
+        if (isAdminFor(target)) {
+          rows = target.backend.adminGetQuery(query.ref._path, query._spec);
+        } else {
+          rows = target.backend.getQuery(authFor(target), query.ref._path, query._spec);
+        }
         return finishSdkRead(activity, buildSandboxQuerySnap(target, query.ref, rows));
       }
-      const val = target.admin
-        ? target.backend.adminGet(ref0._path)
-        : target.backend.get(authFor(target), ref0._path);
+      let val: JsonValue;
+      if (isAdminFor(target)) {
+        val = target.backend.adminGet(ref0._path);
+      } else {
+        val = target.backend.get(authFor(target), ref0._path);
+      }
       return finishSdkRead(activity, buildSandboxSnap(target, ref0, val));
     } catch (error) {
       activity.fail();
@@ -61,7 +67,7 @@ export function set(r: DatabaseReference, value: unknown): Promise<void> {
   validateWritablePath('set', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'set', 'operation'), () => {
-    if (target.admin) {
+    if (isAdminFor(target)) {
       target.backend.adminSet(r._path, value as JsonValue);
     } else {
       target.backend.set(authFor(target), r._path, value as JsonValue);
@@ -76,7 +82,7 @@ export function setPriority(
   validateWritablePath('setPriority', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'setPriority', 'operation'), () => {
-    if (target.admin) {
+    if (isAdminFor(target)) {
       target.backend.adminSetPriority(r._path, priority);
     } else {
       target.backend.setPriority(authFor(target), r._path, priority);
@@ -93,7 +99,7 @@ export function setWithPriority(
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'setWithPriority', 'operation'), () => {
     validateWrite(value, r._path, errorPrefix('setWithPriority', 'value'));
-    if (target.admin) {
+    if (isAdminFor(target)) {
       target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
     } else {
       target.backend.setWithPriority(authFor(target), r._path, value as JsonValue, priority);
@@ -128,7 +134,7 @@ export function update(
   validateUpdatePaths(values);
   validateUpdate(values, r._path, 'update');
   return runSdkWrite(beginDatabaseActivity(r, 'update', 'operation'), () => {
-    if (target.admin) {
+    if (isAdminFor(target)) {
       target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
     } else {
       target.backend.update(authFor(target), r._path, values as Record<string, JsonValue>);
@@ -147,7 +153,7 @@ export function remove(r: DatabaseReference): Promise<void> {
   validateWritablePath('remove', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'remove', 'operation'), () => {
-    if (target.admin) {
+    if (isAdminFor(target)) {
       target.backend.adminRemove(r._path);
     } else {
       target.backend.remove(authFor(target), r._path);
@@ -191,7 +197,7 @@ export function push(r: DatabaseReference, value?: unknown): ThenableReference {
     promise = runSdkWrite(beginDatabaseActivity(pushRef, 'push', 'operation'), () => {
       // The SDK names the parent's path, not the minted child's.
       validateWrite(value, r._path, errorPrefix('push', 'value'));
-      if (target.admin) target.backend.adminSet(childPath, value as JsonValue);
+      if (isAdminFor(target)) target.backend.adminSet(childPath, value as JsonValue);
       else target.backend.set(authFor(target), childPath, value as JsonValue);
       return pushRef;
     });

@@ -19,6 +19,7 @@
  * sign-in presented, which is what `IdTokenResult.signInProvider` reports.
  */
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { effectiveSessionClaimsFor } from 'pyric/auth/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { Auth, AuthUserRecord, User } from 'pyric/auth';
 import { tokenClaimAccount } from 'pyric/sandbox/internal';
@@ -77,7 +78,7 @@ export function readAppSession(sandbox: LocalSandbox): AppSession | null {
     isAnonymous: user.isAnonymous,
     providerId: providerOf(auth, user),
     tenantId: tenantOf(user, record),
-    customClaims: record?.customClaims ?? {},
+    customClaims: effectiveSessionClaimsFor(auth, user.uid),
   };
 }
 
@@ -92,8 +93,14 @@ export function accountLookupFor(sandbox: LocalSandbox): AccountLookup {
     const record = authSandbox.listUsers(auth).find((entry) => entry.uid === uid);
     if (record === undefined) return null;
     const user = auth.currentUser;
-    const signInProvider = user !== null && user.uid === uid ? providerOf(auth, user) : null;
-    return { account: tokenClaimAccount(record), customClaims: record.customClaims, signInProvider };
+    const isCurrentSession = user !== null && user.uid === uid;
+    let signInProvider: string | null = null;
+    let customClaims = record.customClaims;
+    if (isCurrentSession) {
+      signInProvider = providerOf(auth, user);
+      customClaims = effectiveSessionClaimsFor(auth, uid);
+    }
+    return { account: tokenClaimAccount(record), customClaims, signInProvider };
   };
 }
 

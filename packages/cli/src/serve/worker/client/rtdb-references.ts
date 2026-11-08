@@ -42,6 +42,101 @@ export function rtdbRpc(
   return dataRpc(ref.port, { ...msg, ...instanceField(ref) } as InboundMessage & { t: 'op' });
 }
 
+interface ActiveRtdbTransaction {
+  readonly path: string;
+  readonly done: Promise<void>;
+}
+
+let activeTransactionUpdateDepth = 0;
+const activeRtdbTransactions = new WeakMap<ClientPort, Map<string, Set<ActiveRtdbTransaction>>>();
+
+function rtdbPathsOverlap(a: string, b: string): boolean {
+  if (a === '/' || b === '/' || a === b) return true;
+  return a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+function transactionSetFor(
+  ref: { readonly port: ClientPort; readonly instance?: ClientRtdbInstance },
+): Set<ActiveRtdbTransaction> {
+  let byInstance = activeRtdbTransactions.get(ref.port);
+  if (!byInstance) {
+    byInstance = new Map();
+    activeRtdbTransactions.set(ref.port, byInstance);
+  }
+  const key = ref.instance?.name ?? '';
+  let set = byInstance.get(key);
+  if (!set) {
+    set = new Set();
+    byInstance.set(key, set);
+  }
+  return set;
+}
+
+function overlappingTransactionPromises(
+  set: ReadonlySet<ActiveRtdbTransaction>,
+  paths: readonly string[],
+): Promise<void>[] {
+  const promises: Promise<void>[] = [];
+  for (const active of set) {
+    if (paths.some((path) => rtdbPathsOverlap(active.path, path))) {
+      promises.push(active.done);
+    }
+  }
+  return promises;
+}
+
+/** Marks synchronous execution of a `runTransaction` update callback so re-entrant writes do not deadlock. */
+export function withRtdbTransactionUpdate<T>(fn: () => T): T {
+  activeTransactionUpdateDepth += 1;
+  try {
+    return fn();
+  } finally {
+    activeTransactionUpdateDepth -= 1;
+  }
+}
+
+/**
+ * Registers an active client transaction barrier for `ref.path` on `(port, instance)`
+ * so subsequent overlapping writes initiated while the transaction's read-modify-commit
+ * cycle is in flight wait for the transaction to settle before sending their RPC.
+ */
+export function withRtdbTransactionBarrier<T>(
+  ref: { readonly port: ClientPort; readonly instance?: ClientRtdbInstance; readonly path: string },
+  fn: () => Promise<T>,
+): Promise<T> {
+  const set = transactionSetFor(ref);
+  const prior = overlappingTransactionPromises(set, [ref.path]);
+  let release!: () => void;
+  const done = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const entry: ActiveRtdbTransaction = { path: ref.path, done };
+  set.add(entry);
+  const execute = (): Promise<T> =>
+    fn().finally(() => {
+      set.delete(entry);
+      release();
+    });
+  if (prior.length === 0) return execute();
+  return Promise.all(prior).then(execute);
+}
+
+/**
+ * Runs `fn` immediately when no overlapping transaction is active on `(port, instance)`,
+ * or waits for any already-started overlapping transaction to settle first.
+ */
+export function afterActiveRtdbTransactions<T>(
+  ref: { readonly port: ClientPort; readonly instance?: ClientRtdbInstance },
+  paths: readonly string[],
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (activeTransactionUpdateDepth > 0) return fn();
+  const set = transactionSetFor(ref);
+  const prior = overlappingTransactionPromises(set, paths);
+  if (prior.length === 0) return fn();
+  return Promise.all(prior).then(fn);
+}
+
 /** Whether two references belong to the same database instance. */
 export function sameRtdbInstance(left: { readonly instance?: ClientRtdbInstance }, right: { readonly instance?: ClientRtdbInstance }): boolean {
   return left.instance?.name === right.instance?.name;

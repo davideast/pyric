@@ -388,7 +388,13 @@ export interface EventSubMessage {
 export interface RtdbValueSubMessage {
   t: 'sub';
   subId: string;
-  target: { service: 'rtdb'; instance: string | undefined; path: string; query?: RtdbQuerySpec };
+  target: {
+    service: 'rtdb';
+    instance: string | undefined;
+    path: string;
+    query?: RtdbQuerySpec;
+    event?: 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
+  };
   actAs?: AuthLens;
   /** The listener's owners, derived on the page. See {@link FirestoreSubMessage}. */
   owners?: ListenerOwner[];

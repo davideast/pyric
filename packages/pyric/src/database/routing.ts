@@ -33,6 +33,7 @@
  */
 
 import type { AuthState, Sandbox } from 'pyric/sandbox';
+import { getAuthLens } from '../sandbox/internal/auth-lens.js';
 import type { RtdbBackend } from './sandbox/backend.js';
 import type { RtdbConnectionLifecycle } from './connection-lifecycle.js';
 import type { Unsubscribe } from './types.js';
@@ -70,10 +71,28 @@ export type SandboxLiveTarget = {
 };
 export type Target = SandboxTarget | SandboxLiveTarget;
 
+/** Whether the target currently operates on the rules-bypass admin plane. */
+export function isAdminFor(t: SandboxTarget | SandboxLiveTarget): boolean {
+  if (t.admin === true) return true;
+  if (t.kind === 'sandbox-live') {
+    return getAuthLens()?.mode === 'admin';
+  }
+  return false;
+}
+
 /** Resolve the active identity for a sandbox-flavored target. */
 export function authFor(t: SandboxTarget | SandboxLiveTarget): AuthState {
   if (t.admin) return null;
-  return t.kind === 'sandbox' ? t.auth : (t.currentUser?.() ?? t.sandbox.currentUser);
+  if (t.kind === 'sandbox') return t.auth;
+  const lens = getAuthLens();
+  if (lens?.mode === 'admin' || lens?.mode === 'anon') return null;
+  if (lens?.mode === 'as') {
+    const impersonated: NonNullable<AuthState> = { uid: lens.uid };
+    if (lens.tenant !== undefined) impersonated.tenant = lens.tenant;
+    if (lens.token !== undefined) impersonated.token = lens.token;
+    return impersonated;
+  }
+  return t.currentUser?.() ?? t.sandbox.currentUser;
 }
 
 const refToTarget = new WeakMap<object, Target>();

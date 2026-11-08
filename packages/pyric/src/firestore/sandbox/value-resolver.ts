@@ -149,6 +149,86 @@ export function listConverters(): string[] {
   return converters.map((c) => c.name);
 }
 
+const MAX_SERVER_MAP_DEPTH = 20;
+const MAX_FIELD_TRANSFORMS = 500;
+const MAX_NAME_BYTES = 1500;
+const MAX_VALUE_BYTES = 1_048_487;
+const utf8Encoder = new TextEncoder();
+
+function utf8ByteLength(value: string): number {
+  return utf8Encoder.encode(value).byteLength;
+}
+
+function isFieldTransformSentinel(v: Record<string, unknown>): boolean {
+  const t = v.__type;
+  return t === 'serverTimestamp' || t === 'increment' || t === 'arrayUnion' || t === 'arrayRemove';
+}
+
+export function assertServerWriteLimits(
+  path: string,
+  method: string,
+  rawData?: DocumentData,
+): void {
+  const pathSegs = path.replace(/^\/+|\/+$/g, '').split('/');
+  for (const seg of pathSegs) {
+    if (seg === '.' || seg === '..' || /^__.*__$/.test(seg)) {
+      throw new Error(`Resource id "${seg}" is invalid.`);
+    }
+    if (utf8ByteLength(seg) > MAX_NAME_BYTES) {
+      throw new Error('The key path element name is longer than 1500 bytes.');
+    }
+  }
+  if (!rawData) return;
+
+  let transformCount = 0;
+  const isUpdate = method === 'update';
+  const checkValue = (v: unknown, mapDepth: number): void => {
+    if (typeof v === 'string') {
+      if (utf8ByteLength(v) > MAX_VALUE_BYTES) {
+        throw new Error('The value of property is longer than 1048487 bytes.');
+      }
+      return;
+    }
+    if (v === null || v === undefined || typeof v !== 'object') return;
+    if (Array.isArray(v)) {
+      for (const el of v) checkValue(el, mapDepth);
+      return;
+    }
+    if (!isPlainObject(v)) return;
+    if (isFieldTransformSentinel(v)) {
+      transformCount += 1;
+      if (transformCount > MAX_FIELD_TRANSFORMS) {
+        throw new Error('cannot have more than 500 field transforms on a single document');
+      }
+      return;
+    }
+    if (v.__type === 'deleteField') return;
+    const nextDepth = mapDepth + 1;
+    if (nextDepth > MAX_SERVER_MAP_DEPTH) {
+      throw new Error('Property contains an invalid nested entity.');
+    }
+    for (const [k, child] of Object.entries(v)) {
+      if (utf8ByteLength(k) > MAX_NAME_BYTES) {
+        throw new Error('The property.name is longer than 1500 bytes.');
+      }
+      checkValue(child, nextDepth);
+    }
+  };
+
+  for (const [key, value] of Object.entries(rawData)) {
+    let segments: string[] = [key];
+    if (isUpdate) {
+      segments = fieldPathKeySegments(key);
+    }
+    for (const seg of segments) {
+      if (utf8ByteLength(seg) > MAX_NAME_BYTES) {
+        throw new Error('The property.name is longer than 1500 bytes.');
+      }
+    }
+    checkValue(value, Math.max(0, segments.length - 1));
+  }
+}
+
 /**
  * Resolve a full document tree. Walks each top-level field with the
  * resolver, returning a new object — never mutates input.

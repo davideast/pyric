@@ -83,7 +83,7 @@ function validateModel(modelResource: string): void {
   if (/^gemini-1\.5/.test(bare)) {
     throw new AiBrokerError(retiredModel());
   }
-  if (!/^gemini-/.test(bare)) {
+  if (!/^gemini-/.test(bare) || bare === 'gemini-pro' || bare === 'gemini-pro-vision' || /^gemini-1\.0/.test(bare)) {
     throw new AiBrokerError(unknownModel(bare));
   }
 }

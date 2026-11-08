@@ -235,6 +235,13 @@ export class SandboxBackend {
    *  test driver (`sandbox.setUser`), which has no prod analog. */
   private readonly signInProviderByUid = new Map<string, string | null>();
 
+  /** Per-uid custom-token developer claims for the active `'custom'`
+   *  sign-in session. Production merges custom-token claims over the
+   *  account's stored custom claims for the custom-token session only,
+   *  without writing them into the account's stored `customClaims` or
+   *  leaking them to a later non-custom sign-in. */
+  private readonly customTokenClaimsByUid = new Map<string, Record<string, unknown>>();
+
   /** Per-uid page origin a detached session's client signed in from. The
    *  stored photo URL stays relative; token `picture`, admin records, and
    *  `User.photoURL` resolve it against this origin, falling back to the
@@ -1467,6 +1474,7 @@ export class SandboxBackend {
       const hadUser = previousUser !== null;
       if (hadUser) {
         this.tokenCache.delete(previousUser.uid);
+        this.customTokenClaimsByUid.delete(previousUser.uid);
         this.notifyAuthListeners();
         this.notifySessionChanged();
         // Sign-out: the acting identity WAS the user that just left; no
@@ -1485,6 +1493,9 @@ export class SandboxBackend {
     // the freshly-minted token carries the right sign_in_provider.
     if (isSignIn) {
       this.signInProviderByUid.set(user.uid, signInProvider);
+      if (signInProvider !== 'custom') {
+        this.customTokenClaimsByUid.delete(user.uid);
+      }
     }
     // A sign-in authenticates; so does the first session the test driver
     // establishes for a uid. A same-uid update that is not a sign-in (an
@@ -1497,11 +1508,10 @@ export class SandboxBackend {
     else if (continuesSession) this.sessions.continue(user, previous);
     this.sessions.adopt(user);
 
-    // Look up custom claims for this uid (if we know them). Falls
-    // back to the empty claims map for anonymous / freshly-minted
-    // users.
+    // Look up effective custom claims for this uid (merges custom-token
+    // session claims over stored customClaims when signInProvider === 'custom').
     const stored = this.usersByUid.get(user.uid);
-    const claims = stored?.customClaims ?? {};
+    const claims = SandboxBackend.getEffectiveClaims(this, user.uid);
 
     // A `signInProvider` argument marks an actual sign-in (the test
     // driver omits it) — bump the record's lastLoginAt.
@@ -1929,6 +1939,7 @@ export class SandboxBackend {
     // The held ID token stays cached: production's client keeps answering
     // getIdToken() with it until its refresh point, and the refresh is refused.
     this.signInProviderByUid.delete(uid);
+    this.customTokenClaimsByUid.delete(uid);
     this.photoOriginByUid.delete(uid);
     this.authenticatedAtByUid.delete(uid);
     this.notifyUsersChanged();
@@ -1946,6 +1957,7 @@ export class SandboxBackend {
     for (const uid of this.usersByUid.keys()) recordDeletion(this.projectStore, uid, now);
     this.usersByUid.clear();
     this.usersByEmail.clear();
+    this.customTokenClaimsByUid.clear();
     this.notifyUsersChanged();
     this.emitAuthEvent('users_clear', { path: '*', auth: null, detail: { count } });
   }
@@ -2115,11 +2127,14 @@ export class SandboxBackend {
     origin?: string,
   ): MintedSession {
     this.signInProviderByUid.set(user.uid, signInProvider);
+    if (signInProvider !== 'custom') {
+      this.customTokenClaimsByUid.delete(user.uid);
+    }
     if (origin !== undefined) this.photoOriginByUid.set(user.uid, origin);
     if (authenticates) this.recordAuthentication(user.uid, user);
     this.sessions.adopt(user);
     const stored = this.usersByUid.get(user.uid);
-    const claims = stored?.customClaims ?? {};
+    const claims = SandboxBackend.getEffectiveClaims(this, user.uid);
     const hasStoredUser = stored !== undefined;
     if (hasStoredUser) (user as Mutable<User>).photoURL = readPhotoUrl(stored, this.photoOriginByUid);
     if (hasStoredUser && authenticates) {
@@ -2531,6 +2546,52 @@ export class SandboxBackend {
   }
 
   /**
+   * Record a re-authentication and update the session's `signInProvider`
+   * when re-authenticating with a concrete provider (`'password'`, OAuth, etc.).
+   * Production updates `sign_in_provider` on the resulting ID token.
+   * Static, so the frozen prototype surface stays as it is.
+   */
+  static recordReauthentication(backend: SandboxBackend, uid: string, signInProvider: string | null, session?: User): void {
+    if (signInProvider !== null) {
+      backend.signInProviderByUid.set(uid, signInProvider);
+      if (signInProvider !== 'custom') {
+        backend.customTokenClaimsByUid.delete(uid);
+      }
+    }
+    backend.recordAuthentication(uid, session);
+  }
+
+  /**
+   * Store (or clear) the custom-token developer claims for `uid`'s custom-token
+   * session without mutating the account's stored `customClaims`.
+   * Static, so the frozen prototype surface stays as it is.
+   */
+  static setCustomTokenClaims(backend: SandboxBackend, uid: string, claims: Record<string, unknown> | undefined): void {
+    if (claims !== undefined) {
+      assertNoReservedCustomClaims(claims);
+      backend.customTokenClaimsByUid.set(uid, { ...claims });
+    } else {
+      backend.customTokenClaimsByUid.delete(uid);
+    }
+  }
+
+  /**
+   * Effective custom claims for `uid` in the current session: merges custom-token
+   * claims over the account's stored `customClaims` when the session signed in
+   * via custom token (or re-authenticated from one), otherwise returns stored
+   * `customClaims` (falling back to `fallback` for untracked uids).
+   * Static, so the frozen prototype surface stays as it is.
+   */
+  static getEffectiveClaims(backend: SandboxBackend, uid: string, fallback: Record<string, unknown> = {}): Record<string, unknown> {
+    const base = backend.usersByUid.get(uid)?.customClaims ?? fallback;
+    const tokenClaims = backend.customTokenClaimsByUid.get(uid);
+    if (tokenClaims !== undefined) {
+      return { ...base, ...tokenClaims };
+    }
+    return base;
+  }
+
+  /**
    * The recent-login gate. Production refuses a sensitive account operation
    * when the session's last authentication is older than
    * {@link RECENT_LOGIN_WINDOW_MS}, and a re-authentication clears it. The age
@@ -2677,7 +2738,7 @@ export class SandboxBackend {
     uid: string,
     fallback: Record<string, unknown>,
   ): Record<string, unknown> {
-    return this.usersByUid.get(uid)?.customClaims ?? fallback;
+    return SandboxBackend.getEffectiveClaims(this, uid, fallback);
   }
 
   private assertUserEnabled(user: StoredUser): void {

@@ -81,6 +81,13 @@ function encodeSentinel(s: FieldValueSentinel): unknown {
  * worker STORE typed values (the spike's gap-4 semantics).
  */
 export function encodeValue(v: unknown): unknown {
+  if (typeof v === 'number') {
+    if (Number.isNaN(v)) return { __type: 'number', value: 'NaN' };
+    if (v === Infinity) return { __type: 'number', value: 'Infinity' };
+    if (v === -Infinity) return { __type: 'number', value: '-Infinity' };
+    if (Object.is(v, -0)) return { __type: 'number', value: '-0' };
+    return v;
+  }
   if (v === null || typeof v !== 'object') return v;
   if (isFieldValueSentinel(v)) return encodeSentinel(v);
   if (v instanceof CompatTimestamp) return v.toJSON();

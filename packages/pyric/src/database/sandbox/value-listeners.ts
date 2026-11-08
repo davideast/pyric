@@ -45,6 +45,7 @@ export class ValueListeners {
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
     attribution?: ListenerAttribution,
+    event?: ValueListener['event'],
   ): () => void {
     const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
@@ -82,14 +83,19 @@ export class ValueListeners {
     this.state.warnOnUnspecifiedIndex(path, query);
     return this.attach(auth, path, cb, query, {
       origin: 'listener', result: 'allow', evaluation, at,
-    }, cancelCallback, onCanceled, attribution);
+    }, cancelCallback, onCanceled, attribution, event);
   }
 
-  adminOnValue(path: string, cb: (snap: ValueListenerSnapshot) => void, query?: QuerySpec): () => void {
+  adminOnValue(
+    path: string,
+    cb: (snap: ValueListenerSnapshot) => void,
+    query?: QuerySpec,
+    event?: ValueListener['event'],
+  ): () => void {
     this.state.warnOnUnspecifiedIndex(path, query);
     return this.attach(null, path, cb, query, {
       origin: 'admin', result: 'not-applicable', evaluation: undefined, at: this.state.clock.now(),
-    });
+    }, undefined, undefined, undefined, event);
   }
 
   private attach(
@@ -106,6 +112,7 @@ export class ValueListeners {
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
     attribution?: ListenerAttribution,
+    event?: ValueListener['event'],
   ): () => void {
     const id = this.state.events.nextListenerId();
     const attachOwners = listenerAttachOwners(attribution?.owner, attribution?.owners);
@@ -114,7 +121,7 @@ export class ValueListeners {
       request: query ? { query } : undefined, origin: provenance.origin,
     });
     const listener: ValueListener = {
-      id, auth, cb, path, query, cancelCallback, onCanceled, admin: provenance.origin === 'admin', owners: attachOwners,
+      id, auth, cb, path, query, cancelCallback, onCanceled, admin: provenance.origin === 'admin', owners: attachOwners, event,
     };
     this.state.valueListeners.add(listener);
     this.state.events.listener('attach', listener, auth, {
@@ -125,6 +132,7 @@ export class ValueListeners {
     if (query) {
       const rows = executeQuery(this.state.tree.read(path), query, this.state.priorities.forChild(path));
       listener.lastWindow = rows;
+      listener.lastPriorityState = this.queryPriorityState(path, rows);
       this.deliverInitial(listener, { val: rowsToVal(rows), exists: rows.length > 0, key: this.key(path), rows }, {
         initial: true, query: true,
       });
@@ -142,8 +150,14 @@ export class ValueListeners {
 
   fanOut(touched: string[]): void {
     if (this.state.valueListeners.size === 0) return;
+    this.fanOutListeners([...this.state.valueListeners], touched);
+  }
+
+  fanOutListeners(listeners: readonly ValueListener[], touched: string[]): void {
+    if (listeners.length === 0) return;
     const touchedSet = touched.map((path) => joinPath(pathSegments(path)));
-    for (const listener of this.state.valueListeners) {
+    for (const listener of listeners) {
+      if (!this.state.valueListeners.has(listener)) continue;
       const listenerPath = joinPath(pathSegments(listener.path));
       if (!touchedSet.some((path) => pathsTouch(listenerPath, path))) continue;
       if (listener.query) {
@@ -151,13 +165,15 @@ export class ValueListeners {
           this.state.tree.read(listener.path), listener.query,
           this.state.priorities.forChild(listener.path),
         );
-        if (windowsEqual(listener.lastWindow ?? [], rows)) {
+        const priorityState = this.queryPriorityState(listener.path, rows);
+        if (windowsEqual(listener.lastWindow ?? [], rows) && listener.lastPriorityState === priorityState) {
           this.state.events.listener('suppressed', listener, listener.auth, {
             event: 'value', reason: 'no-op', detail: { query: true },
           });
           continue;
         }
         listener.lastWindow = rows;
+        listener.lastPriorityState = priorityState;
         this.deliver(listener, {
           val: rowsToVal(rows), exists: rows.length > 0,
           key: this.key(listener.path), rows,
@@ -196,6 +212,13 @@ export class ValueListeners {
   private snapshot(path: string): ValueListenerSnapshot {
     const val = this.state.tree.read(path);
     return { val, exists: val !== null, key: this.key(path) };
+  }
+
+  private queryPriorityState(path: string, rows: QueryRow[]): string {
+    const base = pathSegments(path);
+    return rows
+      .map((row) => `${row.key}:${this.state.priorities.stateAtOrBelow(joinPath([...base, row.key]))}`)
+      .join('\0');
   }
 
   private key(path: string): string | null {

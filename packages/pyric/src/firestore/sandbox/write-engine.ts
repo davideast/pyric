@@ -1,5 +1,6 @@
 import { type DocStore, type DocumentData } from './local-state.js';
 import {
+  assertServerWriteLimits,
   resolveValueTree,
   type ResolveMethod,
 } from './value-resolver.js';
@@ -155,6 +156,7 @@ export class WriteEngine {
     // never given a chance to evaluate, but the operation is rejected.
     let resolvedData: DocumentData | undefined;
     try {
+      assertServerWriteLimits(path, method, data);
       resolvedData = data
         ? resolveValueTree({ ...data }, {
             path,

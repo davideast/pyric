@@ -1,4 +1,5 @@
 import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { beginFirestoreGroupActivity } from './sdk-activity.js';
 import { toFirestoreFirebaseError, withFirestoreFirebaseError } from './errors.js';
 /**
@@ -53,22 +54,61 @@ export async function runTransaction<R>(
   return runSdkWrite(
     beginFirestoreGroupActivity(target, 'runTransaction'),
     async () => {
-      const result = await withFirestoreFirebaseError(() => database.runTransaction((backing) => {
+      const result = await withFirestoreFirebaseError(() => database.runTransaction(async (backing) => {
         touchedPaths.clear();
+        let hasWrites = false;
+        let stickyError: FirebaseError | undefined;
+        const readExistence = new Map<string, boolean>();
+        const writtenPaths = new Set<string>();
+        const baseGet = modularTransactionRead(backing.get.bind(backing), database, target);
+        function get<T = DocumentData>(reference: DocumentReference<T>): Promise<DocumentSnapshot<T> & { exists(): boolean }>;
+        function get(query: ChainQuery): Promise<AdminQuerySnapshot>;
+        async function get<T>(reference: DocumentReference<T> | ChainQuery): Promise<(DocumentSnapshot<T> & { exists(): boolean }) | AdminQuerySnapshot> {
+          if (hasWrites) {
+            const err = new FirebaseError(
+              'invalid-argument',
+              'Firestore transactions require all reads to be executed before all writes.',
+            );
+            stickyError ??= err;
+            throw err;
+          }
+          const readsQuery = 'where' in reference;
+          if (readsQuery) return baseGet(reference);
+          const snap = await baseGet(reference);
+          if (!writtenPaths.has(reference.path) && !readExistence.has(reference.path)) {
+            readExistence.set(reference.path, snap.exists());
+          }
+          return snap;
+        }
         const transaction: Transaction = {
-          get: modularTransactionRead(backing.get.bind(backing), database, target),
+          get,
           set(ref, data, options) {
             const payload = convertSetData(ref, data);
+            hasWrites = true;
+            writtenPaths.add(ref.path);
             backing.set(database.doc(ref.path), payload, options);
             touchedPaths.add(ref.path);
             return transaction;
           },
           update(ref, dataOrField: unknown, ...rest: unknown[]) {
-            backing.update(database.doc(ref.path), ...parseChainUpdate('Transaction.update', ref.path, dataOrField, rest));
+            const args = parseChainUpdate('Transaction.update', ref.path, dataOrField, rest);
+            hasWrites = true;
+            if (readExistence.get(ref.path) === false && !writtenPaths.has(ref.path)) {
+              stickyError ??= new FirebaseError(
+                'invalid-argument',
+                "Can't update a document that doesn't exist.",
+              );
+              return transaction;
+            }
+            writtenPaths.add(ref.path);
+            backing.update(database.doc(ref.path), ...args);
             touchedPaths.add(ref.path);
             return transaction;
           },
           delete(ref) {
+            hasWrites = true;
+            writtenPaths.add(ref.path);
+            readExistence.set(ref.path, false);
             backing.delete(database.doc(ref.path));
             touchedPaths.add(ref.path);
             return transaction;
@@ -76,10 +116,14 @@ export async function runTransaction<R>(
         };
         registerAtomicWriterCreate(transaction, (ref, data) => {
           const payload = convertSetData(ref, data);
+          hasWrites = true;
+          writtenPaths.add(ref.path);
           backing.create(database.doc(ref.path), payload);
           touchedPaths.add(ref.path);
         });
-        return fn(transaction);
+        const out = await fn(transaction);
+        if (stickyError) throw stickyError;
+        return out;
       }, options));
       for (const path of touchedPaths) client.cachePath(path);
       return result;

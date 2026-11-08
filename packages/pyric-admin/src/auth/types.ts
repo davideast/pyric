@@ -75,6 +75,7 @@ export interface Auth {
   getUserByEmail(email: string): Promise<UserRecord>;
   deleteUser(uid: string): Promise<void>;
   setCustomUserClaims(uid: string, customUserClaims: object | null): Promise<void>;
+  revokeRefreshTokens(uid: string): Promise<void>;
   updateUser(uid: string, properties: UpdateRequest): Promise<UserRecord>;
   listUsers(maxResults?: number, pageToken?: string): Promise<ListUsersResult>;
   [key: string]: unknown;

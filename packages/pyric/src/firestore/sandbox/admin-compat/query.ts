@@ -41,6 +41,7 @@ import {
 import {
   FirestoreCompatError,
   type FirestoreSimError,
+  type AggregateField,
   type AggregateQuerySnapshot,
   type AggregateSpec,
   type AuthContext,
@@ -55,7 +56,7 @@ import {
   type QuerySnapshot,
   type WhereFilterOp,
 } from './types.js';
-import { computeAggregate } from './query-aggregate.js';
+import { aggregateFieldValue, computeAggregate, resolveAggregateSegments } from './query-aggregate.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Internal clause shapes (not exported — wrapper-internal).
@@ -559,9 +560,21 @@ export class QueryImpl implements Query {
     // Aggregates read through the rule-enforced path too (FS-B1) — the
     // count/sum/avg is computed only over docs the caller can read.
     const rows = this.readQueryRows(opts);
+    const valueFields = Object.values(spec).filter(
+      (f): f is Extract<AggregateField, { kind: 'sum' | 'average' }> =>
+        f.kind === 'sum' || f.kind === 'average',
+    );
+    const distinctFieldKeys = new Set(
+      valueFields.map((f) => resolveAggregateSegments(f.field, f.path).join('\0')),
+    );
+    let scopedRows = rows;
+    if (distinctFieldKeys.size === 1) {
+      const primary = valueFields[0]!;
+      scopedRows = rows.filter((row) => aggregateFieldValue(row.data, primary.field, primary.path) !== undefined);
+    }
     const data: Record<string, number | null> = {};
     for (const alias of Object.keys(spec)) {
-      data[alias] = computeAggregate(spec[alias], rows);
+      data[alias] = computeAggregate(spec[alias], scopedRows);
     }
     return { data: () => data };
   }
