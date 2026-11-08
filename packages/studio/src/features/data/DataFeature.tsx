@@ -23,7 +23,7 @@ import { LiveAuthPane } from './AuthPane.js';
 import { LiveStoragePane } from './StoragePane.js';
 import { useDataNav, type DataView } from './navigation.js';
 import { LiveObservedDataBanner } from '../../components/LiveObservedDataBanner.js';
-import { useLiveHost } from '../../shell/live-status.js';
+import { useHostAnswered, useLiveHost } from '../../shell/live-status.js';
 import { useObservedSessionData } from '../../shell/use-observed-session-data.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
 import './data-feature.css';
@@ -77,6 +77,7 @@ function LiveServiceUnavailable({ view }: { view: 'auth' | 'storage' }) {
 export function DataFeature({ view }: { view: DataView }) {
   const { target } = useDataNav();
   const liveHost = useLiveHost();
+  const hostAnswered = useHostAnswered();
   const observed = useObservedSessionData(liveHost !== null, liveHost?.projectId);
 
   // Live handles, dev-seed first (review), env-hydrated otherwise (`dev --ui`).
@@ -107,7 +108,7 @@ export function DataFeature({ view }: { view: DataView }) {
 
   return (
     <div data-pyric-ui="data-feature">
-      {data.status !== 'ready' || !auth ? (
+      {data.status !== 'ready' || !auth || !hostAnswered ? (
         <PendingState view={view} />
       ) : data.authApi ? (
         // Served mode: the worker auth bundle so the feature-level useAuthUsers

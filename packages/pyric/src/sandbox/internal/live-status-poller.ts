@@ -33,6 +33,12 @@ export interface LiveStatusPoller {
   /** Reads again soon, on a live host: traffic may have moved the count. */
   refreshSoon(): void;
   current(): LiveHostStatus | null;
+  /**
+   * Whether the first read has finished, answered or failed. Until then
+   * `current()` is null on a live host too, so a view that would act on a
+   * sandbox host (subscribe to its data) waits for this first.
+   */
+  answered(): boolean;
   dispose(): void;
 }
 
@@ -42,7 +48,7 @@ const DEFAULT_TIMERS: LiveStatusTimers = {
   now: () => Date.now(),
 };
 
-/** `onChange` runs whenever a read returns a status that differs from the last one. */
+/** `onChange` runs on the first answer, and whenever a read returns a status that differs from the last one. */
 export function createLiveStatusPoller(read: ReadLiveStatus, onChange: () => void, timers: LiveStatusTimers = DEFAULT_TIMERS): LiveStatusPoller {
   let status: LiveHostStatus | null = null;
   let shown = 'null';
@@ -51,6 +57,7 @@ export function createLiveStatusPoller(read: ReadLiveStatus, onChange: () => voi
   let isSandboxHost = false;
   let reading = false;
   let failures = 0;
+  let hasAnswered = false;
   let timer: unknown;
   let dueAt = 0;
 
@@ -72,7 +79,8 @@ export function createLiveStatusPoller(read: ReadLiveStatus, onChange: () => voi
     failures = 0;
     isSandboxHost = next === null;
     const nextShown = JSON.stringify(next);
-    const changed = nextShown !== shown;
+    const changed = nextShown !== shown || !hasAnswered;
+    hasAnswered = true;
     status = next;
     shown = nextShown;
     if (changed) onChange();
@@ -80,6 +88,9 @@ export function createLiveStatusPoller(read: ReadLiveStatus, onChange: () => voi
   };
 
   const fail = (): void => {
+    const isFirstAnswer = !hasAnswered;
+    hasAnswered = true;
+    if (isFirstAnswer) onChange();
     const delay = LIVE_RETRY_MS[Math.min(failures, LIVE_RETRY_MS.length - 1)] ?? LIVE_RETRY_MS[0];
     failures += 1;
     schedule(delay);
@@ -109,6 +120,7 @@ export function createLiveStatusPoller(read: ReadLiveStatus, onChange: () => voi
       if (isLive) schedule(LIVE_TRAFFIC_REFRESH_MS);
     },
     current: () => status,
+    answered: () => hasAnswered,
     dispose() {
       disposed = true;
       if (timer !== undefined) timers.clearTimeout(timer);

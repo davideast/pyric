@@ -9,6 +9,7 @@ import {
   billedCallKind,
   createBilledCallCounter,
   createLiveStatusPoller,
+  LIVE_RETRY_MS,
   liveMismatchLine,
   livePassThroughLine,
   liveProjectOf,
@@ -244,5 +245,41 @@ describe('createLiveStatusPoller', () => {
     // Traffic every 50ms: the read due 150ms after the first event still ran.
     expect(reads).toBe(2);
     poller.dispose();
+  });
+
+  it('has not answered until its first read finishes, and tells the view when a sandbox host answers', async () => {
+    const time = clock();
+    let changes = 0;
+    const poller = createLiveStatusPoller(async () => null, () => { changes += 1; }, time.timers);
+    expect(poller.answered()).toBe(false);
+    poller.start();
+    expect(poller.answered()).toBe(false);
+    await time.advance(0);
+    // A sandbox host's null equals the status before any read, and the view still hears the answer.
+    expect(poller.answered()).toBe(true);
+    expect(poller.current()).toBeNull();
+    expect(changes).toBe(1);
+    poller.dispose();
+  });
+
+  it('answers with the live status on a live host, and counts a failed first read as an answer', async () => {
+    const time = clock();
+    const live = createLiveStatusPoller(async () => LIVE, () => undefined, time.timers);
+    live.start();
+    await time.advance(0);
+    expect(live.answered()).toBe(true);
+    expect(live.current()).toEqual(LIVE);
+    live.dispose();
+
+    let changes = 0;
+    const failing = createLiveStatusPoller(async () => { throw new Error('unreachable'); }, () => { changes += 1; }, time.timers);
+    failing.start();
+    await time.advance(0);
+    expect(failing.answered()).toBe(true);
+    expect(failing.current()).toBeNull();
+    expect(changes).toBe(1);
+    await time.advance(LIVE_RETRY_MS[0]);
+    expect(changes).toBe(1);
+    failing.dispose();
   });
 });
