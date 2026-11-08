@@ -20,6 +20,22 @@
  * verdicts: the item set is allowed, the list push the rules have no write
  * rule for is drift, and the denied `/secret` write agrees.
  *
+ * The values production answered stay on the host, in memory only. The
+ * host's session data route (`/__pyric/live/session-data`) holds each
+ * instance's tree as the run left it, under the instance's name: the item
+ * after the second user's write, both pushed list entries and the presence
+ * the onDisconnect wrote. It holds no Firestore document and nothing from the
+ * denied `/secret`, and `.pyric/state/hosted` holds none of those values.
+ * Studio's RTDB surface on the live host shows one pill per instance, and
+ * each instance's tree read-only, with the values the run observed.
+ *
+ * Nothing reaches the sandbox until the developer asks. `pyric sandbox
+ * seed-from-live` without `--confirm` refuses and writes nothing; with it,
+ * it names both instances and `.pyric/state/hosted` holds the trees, with
+ * `.pyric/` in `.gitignore`. `--out` exports a seed file. Once the dev
+ * server's config switches from `pyricLive()` to `pyric({ hosted: true })`,
+ * `pyric database get` reads each instance's seeded tree from that sandbox.
+ *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * capture A for this project and custom-token sign-ins. Each plane gets a
  * fresh one, since capture A's push keys and the frames other connections'
@@ -29,13 +45,18 @@
  * every host but loopback.
  */
 import assert from 'node:assert/strict';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Locator, Page } from 'playwright';
 import { scenario, sleep, type App } from '../driver.ts';
 
 const PROJECT = 'demo-live-rtdb';
 const RUN = '/pyric-live-capture/replay';
 const NAMED = `${PROJECT}-named`;
+/** The default instance's name, as the SDK's `getDatabase(app)` reaches it. */
+const DEFAULT_INSTANCE = `${PROJECT}-default-rtdb`;
 const SIGN_INS = 'sign-ins.json';
+const HOSTED_STATE = '.pyric/state/hosted';
 
 declare function runApp(): Promise<unknown>;
 
@@ -400,6 +421,102 @@ async function billed(url: string): Promise<BilledCount | undefined> {
   return health.live?.billed;
 }
 
+/** The host's in-memory session data, as `GET /__pyric/live/session-data` answers it. */
+interface SessionData {
+  revision: number;
+  projectId: string | null;
+  firestore: Record<string, unknown>;
+  rtdb: Record<string, unknown>;
+  defaultRtdbInstance: string | null;
+  stats: { firestoreDocs: number; rtdbInstances: number; byteEstimate: number; truncated: boolean; droppedCount: number };
+  skips?: Record<string, number>;
+}
+
+async function sessionData(url: string): Promise<SessionData> {
+  const response = await fetch(`${url}/__pyric/live/session-data`);
+  const text = await response.text();
+  const type = response.headers.get('content-type') ?? '';
+  assert.ok(response.status === 200 && type.includes('application/json'), `GET /__pyric/live/session-data answered ${response.status} ${type}: ${text.slice(0, 200)}`);
+  return JSON.parse(text) as SessionData;
+}
+
+/**
+ * What an instance's tree holds once capture A's sequence ran on it `runs`
+ * times, from what production answered the page (`expectedResults`): the
+ * item as the listener last delivered it, after the second user's write; the
+ * presence the second user read once the onDisconnect fired; and both list
+ * entries of each run, under the push keys each client made.
+ */
+function expectedRun(runs = 1): { item: unknown; presence: unknown; list: unknown[] } {
+  const on = expectedResults().default as { onValue: unknown[]; presence: unknown };
+  const list = Array.from({ length: runs }, () => [{ v: 1 }, { v: 2 }]).flat();
+  return { item: on.onValue.at(-1), presence: on.presence, list };
+}
+
+const sortedJson = (values: unknown[]) => values.map((value) => JSON.stringify(value)).sort();
+
+/** The run folder of one instance's tree, checked against what `runs` runs observed, and nothing from `/secret`. */
+function expectObservedTree(tree: unknown, instance: string, runs = 1): Record<string, unknown> {
+  const root = tree as Record<string, unknown> | null;
+  assert.ok(root !== null && typeof root === 'object', `${instance}: no tree: ${JSON.stringify(tree)}`);
+  assert.deepEqual(Object.keys(root), ['pyric-live-capture'], `${instance}: the tree holds only the run folder, nothing from /secret: ${JSON.stringify(root)}`);
+  const run = (root['pyric-live-capture'] as { replay?: Record<string, unknown> }).replay;
+  assert.ok(run, `${instance}: no ${RUN}: ${JSON.stringify(root)}`);
+  const expected = expectedRun(runs);
+  assert.deepEqual(run.items, { a: expected.item }, `${instance}: ${RUN}/items`);
+  assert.equal(run.presence, expected.presence, `${instance}: ${RUN}/presence`);
+  assert.deepEqual(sortedJson(Object.values((run.list ?? {}) as Record<string, unknown>)), sortedJson(expected.list), `${instance}: ${RUN}/list`);
+  return run;
+}
+
+/** Every file under `.pyric/state/hosted` (the SQLite database, its journal, object files), as text. */
+function hostedStateText(app: App): string {
+  const root = join(app.dir, HOSTED_STATE);
+  if (!existsSync(root)) return '';
+  const texts: string[] = [];
+  const walk = (dir: string): void => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) walk(path);
+      else texts.push(readFileSync(path, 'latin1'));
+    }
+  };
+  walk(root);
+  return texts.join('\n');
+}
+
+/** The values only production's answers carry, as JSON writes them: the item's string and the presence. */
+function observedMarkers(): string[] {
+  const { item, presence } = expectedRun();
+  return [JSON.stringify((item as { s: string }).s), JSON.stringify(presence)];
+}
+
+/** Each observed RTDB instance pill Studio's RTDB surface shows, as `<instance> <observed>`. */
+async function instancePills(studio: Page): Promise<string[]> {
+  return studio.locator('[data-rtdb-instance-bar] [data-rtdb-instance]').evaluateAll((elements) => elements.map((element) =>
+    `${element.getAttribute('data-rtdb-instance')} ${element.getAttribute('data-rtdb-instance-observed')}`));
+}
+
+/** The leaf rows of Studio's RTDB tree, as `key: value`. */
+async function treeLeaves(studio: Page): Promise<string[]> {
+  return studio.locator('[data-pyric-ui="rtdb-tree"] [data-rtdb-node][data-rtdb-kind=leaf] > [data-rtdb-row]').evaluateAll((rows) => rows.map((row) =>
+    `${row.querySelector('[data-rtdb-key]')?.textContent ?? ''}: ${row.querySelector('[data-rtdb-value]')?.textContent ?? ''}`).sort());
+}
+
+/** The value `pyric database get` printed as `{ exists, value }`, after the lines naming the sandbox and the read. */
+function printedValue(output: string): unknown {
+  const start = output.search(/^\{/m);
+  assert.ok(start >= 0, `no value in:\n${output}`);
+  let read: { exists?: boolean; value?: unknown };
+  try {
+    read = JSON.parse(output.slice(start).trim()) as { exists?: boolean; value?: unknown };
+  } catch {
+    throw new Error(`pyric database get printed no JSON value:\n${output}`);
+  }
+  assert.equal(read.exists, true, output);
+  return read.value;
+}
+
 export default scenario(async (app) => {
   await writeProject(app);
   const pageReplay = await app.step('start the replay server that plays capture A for the page', () => startReplay(app));
@@ -480,6 +597,47 @@ export default scenario(async (app) => {
   });
   const blockedAfterStudio = blockedLines(app).length;
 
+  await app.step('the host holds each instance\'s observed tree in memory, by instance name, with no Firestore document and nothing from /secret', async () => {
+    const data = await eventually(() => sessionData(host.url), (value) => Object.keys(value.rtdb).length === 2, 'both instances in the session data');
+    assert.equal(data.projectId, PROJECT);
+    assert.deepEqual(Object.keys(data.rtdb).sort(), [DEFAULT_INSTANCE, NAMED].sort());
+    assert.equal(data.defaultRtdbInstance, DEFAULT_INSTANCE);
+    for (const instance of [DEFAULT_INSTANCE, NAMED]) expectObservedTree(data.rtdb[instance], instance);
+    assert.deepEqual(data.firestore, {});
+    assert.equal(data.stats.firestoreDocs, 0);
+    assert.equal(data.stats.rtdbInstances, 2);
+    assert.equal(data.stats.truncated, false);
+    assert.doesNotMatch(JSON.stringify(data.rtdb), /secret/);
+  });
+
+  await app.step('.pyric/state/hosted holds none of the observed values', () => {
+    const text = hostedStateText(app);
+    for (const marker of observedMarkers()) assert.ok(!text.includes(marker), `${HOSTED_STATE} holds ${marker} before any seeding`);
+  });
+
+  const blockedBeforePills = blockedLines(app).length;
+  await app.step('Studio\'s RTDB surface shows one pill per observed instance and each tree read-only, with the observed values', async () => {
+    const studio = await app.page(`${host.url}/__pyric/ui/rtdb${RUN}/items/a`);
+    await studio.locator('[data-pyric-ui="rtdb-live-observed"]').waitFor({ timeout: 30_000 });
+    await eventually(() => instancePills(studio), (pills) => pills.length === 2, 'two instance pills');
+    assert.deepEqual((await instancePills(studio)).sort(), [`${DEFAULT_INSTANCE} true`, `${NAMED} true`].sort());
+    const { item } = expectedRun() as { item: Record<string, unknown> };
+    const leaves = Object.entries(item).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).sort();
+    for (const instance of [DEFAULT_INSTANCE, NAMED]) {
+      const pill = studio.locator(`[data-rtdb-instance-bar] [data-rtdb-instance="${instance}"]`);
+      await pill.click();
+      await eventually(() => pill.getAttribute('aria-selected'), (selected) => selected === 'true', `${instance} selected`);
+      const tree = studio.locator('[data-pyric-ui="rtdb-tree"]');
+      await eventually(() => treeLeaves(studio), (rows) => JSON.stringify(rows) === JSON.stringify(leaves), `${instance}'s ${RUN}/items/a in Studio`);
+      assert.equal(await tree.getAttribute('data-rtdb-readonly'), '', `${instance}'s tree is read-only`);
+      assert.equal(await tree.locator('[data-rtdb-actions], button[data-rtdb-value]').count(), 0, `${instance}'s tree offers no edit`);
+    }
+    await studio.close();
+    const studioBlocked = blockedLines(app).slice(blockedBeforePills);
+    assert.deepEqual(studioBlocked.filter((line) => !STUDIO_FONT_HOSTS.test(line)), [], 'Studio requested nothing off loopback but its fonts');
+  });
+  const blockedAfterPills = blockedLines(app).length;
+
   await pageReplay.stop();
   const nodeReplay = await app.step('start a fresh replay server for the server job', () => startReplay(app));
 
@@ -504,12 +662,67 @@ export default scenario(async (app) => {
     await expectInstances(app, EVENTS_PER_PLANE * 2);
   });
 
+  await app.step('pyric sandbox seed-from-live without --confirm refuses and writes nothing', async () => {
+    const run = await app.pyric(['sandbox', 'seed-from-live']);
+    assert.notEqual(run.code, 0, run.output);
+    assert.match(run.output, /--confirm/, run.output);
+    const text = hostedStateText(app);
+    for (const marker of observedMarkers()) assert.ok(!text.includes(marker), `${HOSTED_STATE} holds ${marker} after a refused seed`);
+  });
+
+  const seeded = await app.step('pyric sandbox seed-from-live --confirm seeds .pyric/state/hosted with both instances\' trees', async () => {
+    // The server job ran the sequence again, so each list holds both runs' entries.
+    const observed = await sessionData(host.url);
+    for (const instance of [DEFAULT_INSTANCE, NAMED]) expectObservedTree(observed.rtdb[instance], instance, 2);
+    const run = await app.pyric(['sandbox', 'seed-from-live', '--confirm']);
+    assert.equal(run.code, 0, run.output);
+    assert.match(run.output, new RegExp(DEFAULT_INSTANCE), run.output);
+    assert.match(run.output, new RegExp(NAMED), run.output);
+    const text = hostedStateText(app);
+    for (const marker of observedMarkers()) assert.ok(text.includes(marker), `${HOSTED_STATE} holds no ${marker} after seeding`);
+    assert.ok(app.readFile('.gitignore').split(/\r?\n/).some((line) => /^\/?\.pyric\/?$/.test(line.trim())), `.gitignore names .pyric/:\n${app.readFile('.gitignore')}`);
+    return observed;
+  });
+
+  await app.step('pyric sandbox seed-from-live --out exports a seed file with the observed trees', async () => {
+    const run = await app.pyric(['sandbox', 'seed-from-live', '--out', 'seed.json']);
+    assert.equal(run.code, 0, run.output);
+    const seed = JSON.parse(app.readFile('seed.json')) as { firestore?: unknown; database?: unknown };
+    assert.deepEqual(seed.firestore, {});
+    expectObservedTree(seed.database, `seed.json's database (${DEFAULT_INSTANCE})`, 2);
+    // A seed file's `database` is one instance; the export names any instance it left out.
+    assert.match(run.output, new RegExp(`not exported:[^\\n]*${NAMED}`), `the export names ${NAMED}, which a seed file's database does not hold:\n${run.output}`);
+  });
+
   await app.step('nothing reached any host but loopback', async () => {
     const blocked = blockedLines(app);
-    assert.deepEqual([...blocked.slice(0, blockedBeforeStudio), ...blocked.slice(blockedAfterStudio)], []);
+    // Only the two Studio pages' font requests were blocked; the app's calls stayed on loopback.
+    assert.deepEqual([...blocked.slice(0, blockedBeforeStudio), ...blocked.slice(blockedAfterStudio, blockedBeforePills), ...blocked.slice(blockedAfterPills)], []);
     assert.deepEqual(await nodeReplay.unmatched(), []);
     await page.close();
     await host.process.stop();
     await nodeReplay.stop();
+  });
+
+  const sandbox = await app.step('with pyric({ hosted: true }) in place of pyricLive(), the dev server serves the seeded sandbox', async () => {
+    app.writeFile('vite.config.js', 'import { defineConfig } from "vite";\nimport { pyric } from "@pyric/cli/vite";\n\nexport default defineConfig({\n  plugins: [pyric({ hosted: true })],\n});\n');
+    // The project names its two instances, as a project with a named instance
+    // does, each under its `database.rules.json`. The seeded item keeps its `n`.
+    app.writeFile('firebase.json', `${JSON.stringify({
+      hosting: { public: 'public' },
+      database: [{ instance: DEFAULT_INSTANCE, rules: 'database.rules.json' }, { instance: NAMED, rules: 'database.rules.json' }],
+    })}\n`);
+    return app.devServer({ name: 'hosted dev server' });
+  });
+
+  await app.step('pyric database get reads each instance\'s seeded tree, as the live host observed it', async () => {
+    for (const instance of [DEFAULT_INSTANCE, NAMED]) {
+      const run = await app.pyric(['database', 'get', '--instance', instance, '--path', RUN]);
+      assert.equal(run.code, 0, run.output);
+      const observed = (seeded.rtdb[instance] as Record<string, { replay: unknown }>)['pyric-live-capture'].replay;
+      assert.deepEqual(printedValue(run.output), observed, `${instance}:\n${run.output}`);
+      expectObservedTree({ 'pyric-live-capture': { replay: printedValue(run.output) } }, `${instance} in the sandbox`, 2);
+    }
+    await sandbox.process.stop();
   });
 });
