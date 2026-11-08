@@ -128,9 +128,10 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     key: 'database.update',
     toMethodArgs: (args) => ({ path: args.path, values: args.value }),
   },
-  // The database lane's own additions: an auto-id write and a structural read.
+  // The database lane's own additions: an auto-id write, a structural read, and static .indexOn extraction.
   push_database_value: { key: 'database.push' },
   crawl_database_structure: { key: 'database.crawl' },
+  extract_database_indexes: { key: 'database.extractIndexes' },
 
   download_storage_file: { key: 'storage.getBytes' },
   list_storage_files: { key: 'storage.listAll' },

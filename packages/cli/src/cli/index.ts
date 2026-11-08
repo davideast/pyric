@@ -16,6 +16,7 @@
  *   pyric storage rules resolve <path> [--out <path>]
  *   pyric database rules validate <path> [--fail-on <critical|high|medium>]
  *   pyric database rules generate [--config <path>] [--out <path>] [--fail-on <critical|high|medium>]
+ *   pyric database indexes generate <path...> [--rules <path>] [--out <path>] [--check] [--instance <name>]
  *   pyric serve diagnostics [--url URL] [--json]
  *   pyric serve sessions [--json]
  *   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore]
@@ -101,6 +102,7 @@ USAGE
   pyric storage rules resolve <path> [--out <path>]
   pyric database rules validate <path> [--fail-on <critical|high|medium>]
   pyric database rules generate [--config <path>] [--out <path>] [--fail-on <critical|high|medium>]
+  pyric database indexes generate <path...> [--rules <path>] [--out <path>] [--check] [--instance <name>]
   pyric serve diagnostics [--url URL] [--json]
   pyric serve sessions [--json]
   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore]
@@ -181,6 +183,7 @@ COMMANDS
   storage rules resolve      Resolve Storage 2+modules imports to one ruleset.
   database rules validate    Validate Realtime Database rules expressions.
   database rules generate    Compile a constraints module to database.rules.json.
+  database indexes generate  Extract RTDB .indexOn rules from application source.
   serve diagnostics          Read bounded startup and connection reports over HTTP.
                              Use --url for a remote origin; --json prints the report.
   serve sessions             List the clients connected to the running bridge with

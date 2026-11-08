@@ -146,7 +146,10 @@ const queryFilterSchema = z.object({
 
 export const querySandboxDataSchema = z.object({
   service: z.enum(['firestore', 'database']).describe('Target data service.'),
-  path: z.string().describe('Collection path, document path, or database root-relative path.'),
+  path: z
+    .string()
+    .optional()
+    .describe('Collection path, document path, or database root-relative path.'),
   filters: z
     .array(queryFilterSchema)
     .optional()
@@ -158,14 +161,30 @@ export const querySandboxDataSchema = z.object({
   // The database lane's own addition: a structural read with no leaf values.
   // Firestore reads carry 'read'; only 'crawl' changes what the call does.
   action: z
-    .enum(['read', 'crawl'])
+    .enum(['read', 'crawl', 'extractIndexes'])
     .describe(
-      "Realtime Database only. 'crawl' returns structure (child names, counts), no leaf values.",
+      "Realtime Database only for 'crawl' (structure, no leaf values) and 'extractIndexes' (static .indexOn extraction).",
     ),
   depth: z
     .number()
     .optional()
     .describe("Realtime Database only, with action 'crawl'. Maximum object depth, 0 to 10, default 10."),
+  pathsJson: z
+    .string()
+    .optional()
+    .describe("Realtime Database only, with action 'extractIndexes'. JSON-encoded source paths[]."),
+  instance: z
+    .string()
+    .optional()
+    .describe("Realtime Database only, with action 'extractIndexes'. Instance name or URL."),
+  rulesPath: z
+    .string()
+    .optional()
+    .describe("Realtime Database only, with action 'extractIndexes'. Rules JSON path."),
+  check: z
+    .boolean()
+    .optional()
+    .describe("Realtime Database only, with action 'extractIndexes'. Include missing-index check summary."),
 });
 
 export const manageStorageFilesSchema = z.object({
@@ -502,6 +521,10 @@ export const inspectFirestoreStructureSchema = z.object({
     .string()
     .optional()
     .describe("JSON-encoded queries[] for 'extractIndexes'."),
+  pathsJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded source paths[] for 'extractIndexes'."),
 });
 
 // ─── Messaging lane ─────────────────────────────────────────────────────

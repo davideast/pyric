@@ -26,7 +26,7 @@ export default {
   effect: 'read',
   signature: `crawl(path?, depth? = ${DEFAULT_DEPTH}, maximum ${MAX_DEPTH}, instance?)`,
   description:
-    'Bounded structural view of the tree at path: child names and object counts, with no leaf values. depth defaults to 10 and cannot exceed 10; a subtree deeper than depth is reported truncated rather than expanded.',
+    'Bounded structural view at path: child names and object counts, no leaf values. Subtrees past depth are reported truncated.',
   args: z.object({
     path: z.string().optional().describe('Root-relative path to inspect. Defaults to the tree root.'),
     depth: z

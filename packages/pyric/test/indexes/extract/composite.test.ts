@@ -55,9 +55,53 @@ describe('needsCompositeIndex — no-composite cases', () => {
       orders: [{ field: 'price', direction: 'desc' }],
     }))).toBe(false);
   });
+
+  test('single equality filter + trailing __name__ ASCENDING → false (built-in single-field index covers it)', () => {
+    expect(needsCompositeIndex(shape({
+      filters: [{ field: 'authorId', op: '==' }],
+      orders: [{ field: '__name__', direction: 'asc' }],
+    }))).toBe(false);
+  });
 });
 
 describe('needsCompositeIndex — composite cases', () => {
+  test('single equality filter + trailing __name__ DESCENDING → true, and multi-field strips redundant trailing __name__ ASCENDING', () => {
+    const descShape = shape({
+      collectionPath: 'posts',
+      filters: [{ field: 'authorId', op: '==' }],
+      orders: [{ field: '__name__', direction: 'desc' }],
+    });
+    expect(needsCompositeIndex(descShape)).toBe(true);
+    expect(shapeToIndexEntry(descShape).fields).toEqual([
+      { fieldPath: 'authorId', order: 'ASCENDING' },
+      { fieldPath: '__name__', order: 'DESCENDING' },
+    ]);
+
+    const multiAscShape = shape({
+      collectionPath: 'posts',
+      filters: [
+        { field: 'authorId', op: '==' },
+        { field: 'published', op: '==' },
+      ],
+      orders: [{ field: '__name__', direction: 'asc' }],
+    });
+    expect(needsCompositeIndex(multiAscShape)).toBe(true);
+    expect(shapeToIndexEntry(multiAscShape).fields).toEqual([
+      { fieldPath: 'authorId', order: 'ASCENDING' },
+      { fieldPath: 'published', order: 'ASCENDING' },
+    ]);
+
+    const nonTrailingNameShape = shape({
+      collectionPath: 'posts',
+      filters: [{ field: '__name__', op: 'in' }],
+      orders: [{ field: 'createdAt', direction: 'desc' }],
+    });
+    expect(needsCompositeIndex(nonTrailingNameShape)).toBe(true);
+    expect(shapeToIndexEntry(nonTrailingNameShape).fields).toEqual([
+      { fieldPath: '__name__', order: 'ASCENDING' },
+      { fieldPath: 'createdAt', order: 'DESCENDING' },
+    ]);
+  });
   test('two equality filters → true', () => {
     expect(needsCompositeIndex(shape({
       filters: [{ field: 'a', op: '==' }, { field: 'b', op: '==' }],

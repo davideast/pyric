@@ -24,7 +24,7 @@ export default {
   effect: 'write',
   signature: 'writeBatch(writes[{type: set|update|delete, path, data?, options?}])',
   description:
-    'Apply several writes in order, stopping at the first failure. Field values take the same $serverTimestamp/$increment/$arrayUnion/$arrayRemove/$deleteField JSON sentinels as setDoc and updateDoc.',
+    'Apply writes in order, stopping at the first failure (accepts setDoc/updateDoc sentinels).',
   args: z.object({
     writes: z.array(writeEntry).describe('The writes, applied in order.'),
   }),

@@ -17,7 +17,7 @@ export default {
   effect: 'write',
   signature: 'updateDoc(path, data)',
   description:
-    'Merge fields into an existing document. Field values may use the $serverTimestamp/$increment/$arrayUnion/$arrayRemove/$deleteField JSON sentinels.',
+    'Merge fields into an existing document (accepts $deleteField and JSON sentinels).',
   args: z.object({
     path: z.string().describe('Document path, for example users/alice.'),
     data: z.record(z.unknown()).describe('The fields to merge.'),

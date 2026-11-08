@@ -79,6 +79,7 @@ const SUITES: readonly string[] = [
   'assurance',
   'storage',
   'firestore-depth',
+  'database-extract-indexes',
   'messaging',
   'functions',
   'ai-logic',

@@ -87,6 +87,7 @@ describe('service command hierarchy', () => {
       'storage rules resolve',
       'database rules validate',
       'database rules generate',
+      'database indexes generate',
     ]) {
       expect(help.stdout).toContain(`pyric ${command}`);
     }

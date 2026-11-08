@@ -10,7 +10,8 @@
  * and `writeIndexes` against the file it wrote.
  */
 import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
 
@@ -123,10 +124,13 @@ describe('findCollectionGroup', () => {
 
 describe('extractIndexes and writeIndexes', () => {
   const indexesPath = 'depth-firestore.indexes.json';
+  const sourceDir = 'depth-firestore-src';
 
   afterAll(() => {
     const absolute = join(projectDir, indexesPath);
     if (existsSync(absolute)) rmSync(absolute);
+    const absoluteSrc = join(projectDir, sourceDir);
+    if (existsSync(absoluteSrc)) rmSync(absoluteSrc, { recursive: true, force: true });
   });
 
   it('finds the composite index a range-plus-orderBy query needs', async () => {
@@ -148,6 +152,79 @@ describe('extractIndexes and writeIndexes', () => {
       { fieldPath: 'total', order: 'ASCENDING' },
       { fieldPath: 'status', order: 'ASCENDING' },
     ]);
+  });
+
+  it('extracts composite indexes from source paths inside projectDir and refuses escaping paths', async () => {
+    mkdirSync(join(projectDir, sourceDir), { recursive: true });
+    writeFileSync(
+      join(projectDir, sourceDir, 'orders.ts'),
+      `
+import { getFirestore, collection, collectionGroup, query, where, orderBy } from 'firebase/firestore';
+const db = getFirestore();
+export const paidByCreated = query(
+  collection(db, 'depth-orders'),
+  where('status', '==', 'paid'),
+  orderBy('createdAt', 'desc'),
+);
+export const groupEntries = query(
+  collectionGroup(db, 'entries'),
+  where('archived', '==', false),
+  orderBy('updatedAt', 'desc'),
+);
+`,
+      'utf8',
+    );
+
+    const extracted = await run('firestore.extractIndexes', {
+      paths: [sourceDir],
+      queries: [
+        {
+          path: 'depth-orders',
+          constraints: [
+            { type: 'where', field: 'status', op: '==', value: 'paid' },
+            { type: 'orderBy', field: 'createdAt', direction: 'desc' },
+          ],
+        },
+      ],
+    });
+    expect(extracted.ok).toBe(true);
+    const indexes = (extracted.data as { indexes: Array<Record<string, unknown>> }).indexes;
+    expect(indexes).toEqual([
+      {
+        collectionGroup: 'depth-orders',
+        queryScope: 'COLLECTION',
+        fields: [
+          { fieldPath: 'status', order: 'ASCENDING' },
+          { fieldPath: 'createdAt', order: 'DESCENDING' },
+        ],
+      },
+      {
+        collectionGroup: 'entries',
+        queryScope: 'COLLECTION_GROUP',
+        fields: [
+          { fieldPath: 'archived', order: 'ASCENDING' },
+          { fieldPath: 'updatedAt', order: 'DESCENDING' },
+        ],
+      },
+    ]);
+
+    const escaping = await run('firestore.extractIndexes', { paths: ['../outside'] });
+    expect(escaping.ok).toBe(false);
+    expect(escaping.summary).toContain('outside the project directory');
+
+    const outsideDir = mkdtempSync(join(tmpdir(), 'pyric-fs-depth-outside-'));
+    try {
+      writeFileSync(join(outsideDir, 'secret.ts'), 'export const x = 1;');
+      const linkPath = join(projectDir, sourceDir, 'secret-link.ts');
+      symlinkSync(join(outsideDir, 'secret.ts'), linkPath);
+      const symlinkEscape = await run('firestore.extractIndexes', {
+        paths: [`${sourceDir}/secret-link.ts`],
+      });
+      expect(symlinkEscape.ok).toBe(false);
+      expect(symlinkEscape.summary).toContain('outside the project directory');
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 
   it('refuses to write without confirm, and refuses a path outside the project directory', async () => {

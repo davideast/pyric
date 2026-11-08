@@ -17,6 +17,7 @@
     "storage rules resolve",
     "database rules validate",
     "database rules generate",
+    "database indexes generate",
     "auth reset",
     "serve sessions",
     "serve diagnostics",
@@ -67,6 +68,7 @@
     "auth useAppSession",
     "auth whoami",
     "database crawl",
+    "database extractIndexes",
     "database get",
     "database push",
     "database query",
@@ -260,6 +262,7 @@
     ],
     "database": [
       "crawl",
+      "extractIndexes",
       "get",
       "push",
       "query",

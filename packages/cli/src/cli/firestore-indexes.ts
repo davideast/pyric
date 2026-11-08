@@ -37,7 +37,10 @@ export async function runFirestoreIndexesGenerate(
   const extract =
     deps.extract ??
     ((options: ExtractIndexesOptions) => new ExtractFirestoreIndexesHandler().execute(options));
-  const result = extract({ paths: parsed.positional.map((path) => resolvePath(cwd, path)) });
+  const result = extract({
+    paths: parsed.positional.map((path) => resolvePath(cwd, path)),
+    projectDir: cwd,
+  });
   if (!result.success) {
     err.write(`pyric firestore indexes generate: ${result.error.message}\n`);
     return 2;
@@ -47,15 +50,17 @@ export async function runFirestoreIndexesGenerate(
   let configuredPath: string | undefined;
   if (typeof outFlag !== 'string') {
     try {
-      configuredPath = defaultFirestoreDatabase(firestoreRulesConfig((await (deps.readFirebaseJson ?? readFirebaseJson)(cwd)).firestore))?.indexesFile;
+      const fbJson = await (deps.readFirebaseJson ?? readFirebaseJson)(cwd);
+      configuredPath = defaultFirestoreDatabase(firestoreRulesConfig(fbJson.firestore))?.indexesFile;
     } catch {
       configuredPath = undefined;
     }
   }
-  const outputPath = resolvePath(
-    cwd,
-    typeof outFlag === 'string' ? outFlag : configuredPath ?? 'firestore.indexes.json',
-  );
+  let relativeOut = configuredPath ?? 'firestore.indexes.json';
+  if (typeof outFlag === 'string') {
+    relativeOut = outFlag;
+  }
+  const outputPath = resolvePath(cwd, relativeOut);
   await (deps.mkdir ?? mkdir)(dirname(outputPath), { recursive: true });
   await (deps.writeFile ?? writeFile)(
     outputPath,
@@ -65,7 +70,10 @@ export async function runFirestoreIndexesGenerate(
 
   out.write(`pyric firestore indexes generate: wrote ${outputPath}\n`);
   for (const warning of result.data.warnings) {
-    const where = warning.line === undefined ? warning.file : `${warning.file}:${warning.line}`;
+    let where = warning.file;
+    if (warning.line !== undefined) {
+      where = `${warning.file}:${warning.line}`;
+    }
     err.write(`pyric firestore indexes generate: warning: ${where}: ${warning.message}\n`);
   }
   return 0;
