@@ -45,7 +45,9 @@ import {
   formatSdkSnippet,
   normalizeServiceName,
   parseJsonWithComments,
+  tryNormalizeServiceName,
 } from './lib/op-snippet.mjs';
+import { resolveRtdbRuleClause, sanitizeInlineRuleSource } from './lib/rtdb-rule-clause.mjs';
 import { IsolatedSandbox } from './lib/sandbox-client.mjs';
 import { ensureActorPageHydrated, signInActorPage, withOffOriginNavigationGuard } from './lib/identity.mjs';
 import { executeStep } from './lib/steps.mjs';
@@ -605,41 +607,47 @@ function synthesizeProbeFromScenario(scenario, rawScenario) {
   };
 }
 
+function readRuleSourceOrInline(ruleRef, baseDir) {
+  if (isPlainObject(ruleRef)) return ruleRef;
+  if (typeof ruleRef !== 'string') return null;
+  const trimmed = ruleRef.trim();
+  if (!trimmed) return null;
+  if (!trimmed.includes('\n') && !trimmed.startsWith('{')) {
+    const resolved = path.isAbsolute(trimmed) ? trimmed : path.resolve(baseDir, trimmed);
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+      return fs.readFileSync(resolved, 'utf8');
+    }
+  }
+  return sanitizeInlineRuleSource(trimmed);
+}
+
 function resolveFixRulesSpec(fixRulesObj, baseDir) {
   if (!isPlainObject(fixRulesObj)) return null;
   const spec = {};
   let hasAny = false;
 
-  const rtdbSpec = fixRulesObj.rtdb ?? fixRulesObj.database;
-  if (typeof rtdbSpec === 'string' && rtdbSpec.trim().length > 0) {
-    const resolved = path.isAbsolute(rtdbSpec) ? rtdbSpec : path.resolve(baseDir, rtdbSpec);
-    const content = fs.existsSync(resolved) ? fs.readFileSync(resolved, 'utf8') : rtdbSpec;
-    spec.rtdbRules = parseJsonWithComments(content);
-    spec.rawSnippet = content.trim();
+  const rtdbLoaded = readRuleSourceOrInline(fixRulesObj.rtdb ?? fixRulesObj.database, baseDir);
+  if (typeof rtdbLoaded === 'string') {
+    spec.rtdbRules = parseJsonWithComments(rtdbLoaded);
+    spec.rawSnippet = rtdbLoaded.trim();
     hasAny = true;
-  } else if (isPlainObject(rtdbSpec)) {
-    spec.rtdbRules = rtdbSpec;
-    spec.rawSnippet = JSON.stringify(rtdbSpec, null, 2);
+  } else if (isPlainObject(rtdbLoaded)) {
+    spec.rtdbRules = rtdbLoaded;
+    spec.rawSnippet = JSON.stringify(rtdbLoaded, null, 2);
     hasAny = true;
   }
 
-  if (typeof fixRulesObj.firestore === 'string' && fixRulesObj.firestore.trim().length > 0) {
-    const resolved = path.isAbsolute(fixRulesObj.firestore)
-      ? fixRulesObj.firestore
-      : path.resolve(baseDir, fixRulesObj.firestore);
-    const content = fs.existsSync(resolved) ? fs.readFileSync(resolved, 'utf8') : fixRulesObj.firestore;
-    spec.firestoreRules = content;
-    spec.rawSnippet = content.trim();
+  const fsLoaded = readRuleSourceOrInline(fixRulesObj.firestore, baseDir);
+  if (typeof fsLoaded === 'string') {
+    spec.firestoreRules = fsLoaded;
+    spec.rawSnippet = fsLoaded.trim();
     hasAny = true;
   }
 
-  if (typeof fixRulesObj.storage === 'string' && fixRulesObj.storage.trim().length > 0) {
-    const resolved = path.isAbsolute(fixRulesObj.storage)
-      ? fixRulesObj.storage
-      : path.resolve(baseDir, fixRulesObj.storage);
-    const content = fs.existsSync(resolved) ? fs.readFileSync(resolved, 'utf8') : fixRulesObj.storage;
-    spec.storageRules = content;
-    spec.rawSnippet = content.trim();
+  const storageLoaded = readRuleSourceOrInline(fixRulesObj.storage, baseDir);
+  if (typeof storageLoaded === 'string') {
+    spec.storageRules = storageLoaded;
+    spec.rawSnippet = storageLoaded.trim();
     hasAny = true;
   }
 
@@ -880,11 +888,30 @@ export function prepareIsolatedSandboxInputs({
     synthesizedCfg.database = { rules: openRulesPath };
   }
 
+  const campaignTargetService = tryNormalizeServiceName(campaignExport?.target?.service, null);
+  let campaignFirestoreRulesPath = null;
+  let campaignStorageRulesPath = null;
+  if (campaignExport?.target?.rulesPath) {
+    const resolvedCampaignRulesPath = path.resolve(projectDir, campaignExport.target.rulesPath);
+    if (campaignTargetService === 'firestore') {
+      campaignFirestoreRulesPath = resolvedCampaignRulesPath;
+    } else if (campaignTargetService === 'storage') {
+      campaignStorageRulesPath = resolvedCampaignRulesPath;
+    }
+  }
+  if (!inputs.rules) {
+    if (rawScenario?.rules?.firestore || rawScenario?.rules?.storage) {
+      inputs.rules = 'scenario';
+    } else if (campaignFirestoreRulesPath || campaignStorageRulesPath) {
+      inputs.rules = 'export-path';
+    } else if (inline.firestoreRulesPath || inline.storageRulesPath) {
+      inputs.rules = 'campaign-inline';
+    }
+  }
+
   const fsRuleCandidate =
     rawScenario?.rules?.firestore ??
-    (campaignExport?.target?.rulesPath
-      ? path.resolve(projectDir, campaignExport.target.rulesPath)
-      : null) ??
+    campaignFirestoreRulesPath ??
     inline.firestoreRulesPath ??
     (synthesizedCfg.firestore?.rules ? path.resolve(cfgDir, synthesizedCfg.firestore.rules) : null);
 
@@ -900,6 +927,7 @@ export function prepareIsolatedSandboxInputs({
 
   const storageRuleCandidate =
     rawScenario?.rules?.storage ??
+    campaignStorageRulesPath ??
     inline.storageRulesPath ??
     (synthesizedCfg.storage?.rules ? path.resolve(cfgDir, synthesizedCfg.storage.rules) : null);
   if (storageRuleCandidate && fs.existsSync(storageRuleCandidate)) {
@@ -1218,16 +1246,22 @@ export async function recordEvidence(options = {}) {
     };
     const validatedPre = validateScenario(mergedRaw);
     selectedProbe = synthesizeProbeFromScenario(validatedPre, mergedRaw);
+    const synthesizedTargetService = normalizeServiceName(
+      selectedProbe.mutationSpec.operation.service || 'database',
+    );
+    const synthesizedTarget = {
+      service: synthesizedTargetService,
+      databaseRulesPath: rawScenario.rules?.rtdb || rawScenario.rules?.database,
+    };
+    if (synthesizedTargetService === 'firestore' && rawScenario.rules?.firestore) {
+      synthesizedTarget.rulesPath = rawScenario.rules.firestore;
+    } else if (synthesizedTargetService === 'storage' && rawScenario.rules?.storage) {
+      synthesizedTarget.rulesPath = rawScenario.rules.storage;
+    }
     campaignExport = parseCampaignExport({
       schema: 'pyric.assurance.export.v1',
       campaignId: validatedPre.finding.campaign,
-      target: {
-        service: normalizeServiceName(
-          selectedProbe.mutationSpec.operation.service || 'database',
-        ),
-        databaseRulesPath: rawScenario.rules?.rtdb || rawScenario.rules?.database,
-        rulesPath: rawScenario.rules?.firestore || rawScenario.rules?.storage,
-      },
+      target: synthesizedTarget,
       probes: [selectedProbe],
     });
     resolvedPlan = buildScenarioFromAssurance({
@@ -1531,19 +1565,31 @@ export async function recordEvidence(options = {}) {
     const controlOffsetMs = isAppView
       ? Math.max(200, Math.round(performance.now() - captureStartMs))
       : 300;
-    const beforeRuleRaw =
-      scenario.fixRules?.before ||
-      (cfgSetup.initialRuleFile && fs.existsSync(cfgSetup.initialRuleFile)
-        ? fs.readFileSync(cfgSetup.initialRuleFile, 'utf8')
-        : null);
+    let initialRtdbRulesRaw = null;
+    if (cfgSetup.initialRuleFile && fs.existsSync(cfgSetup.initialRuleFile)) {
+      initialRtdbRulesRaw = fs.readFileSync(cfgSetup.initialRuleFile, 'utf8');
+    }
+    const resolvedRuleClause = resolveRtdbRuleClause({
+      operation: reproOperation,
+      beforeRules: initialRtdbRulesRaw,
+      afterRules: fixRulesSpec?.rtdbRules ?? fixRulesSpec?.rawSnippet ?? null,
+      fixRules: scenario.fixRules,
+    });
+    const ruleSnippetOptions = {
+      ruleProp: resolvedRuleClause.clause,
+      fallbackScope: resolvedRuleClause.changedScope,
+    };
+    const beforeRuleRaw = scenario.fixRules?.before || initialRtdbRulesRaw;
     const beforeRuleSummary =
-      extractFocusedRuleSnippet(beforeRuleRaw, reproOperation) ||
+      extractFocusedRuleSnippet(beforeRuleRaw, reproOperation, ruleSnippetOptions) ||
       sandbox.databaseRulesHash ||
       sandbox.rulesHash ||
       'active-rules';
     const beforeRuleFull =
-      extractFocusedRuleSnippet(beforeRuleRaw, reproOperation, { maxLen: 900 }) ||
-      beforeRuleSummary;
+      extractFocusedRuleSnippet(beforeRuleRaw, reproOperation, {
+        ...ruleSnippetOptions,
+        maxLen: 900,
+      }) || beforeRuleSummary;
 
     const controlDispatchedMs = isAppView
       ? Math.max(200, Math.round(performance.now() - captureStartMs))
@@ -1665,12 +1711,16 @@ export async function recordEvidence(options = {}) {
           captureBackend,
           t0Ms: captureStartMs,
           onEvent: (ev) => {
-            recordedEvents.push({
+            const recordedEv = {
               ...ev,
               dispatchedAtMs: beforeStepMs,
               tMs: isAppView ? ev.tMs : reproOffsetMs,
               actorLabel: actorLabel,
-            });
+            };
+            if (typeof step.phase === 'string' && step.phase.trim()) {
+              recordedEv.phase = step.phase.trim();
+            }
+            recordedEvents.push(recordedEv);
           },
         });
         if (
@@ -1715,10 +1765,24 @@ export async function recordEvidence(options = {}) {
       });
     } else {
       // Tag primary repro event so timeline sync locks onto both pre-step window and exact SDK dispatch/completion
-      const tagged = recordedEvents.find((e) => e.decision && e.phase !== 'control');
+      const isReproCandidatePhase = (phase) => {
+        if (typeof phase !== 'string' || !phase.trim()) return true;
+        const normalizedPhase = phase.trim().toLowerCase();
+        return (
+          normalizedPhase === 'repro' ||
+          normalizedPhase === 'mutation' ||
+          normalizedPhase === 'attack'
+        );
+      };
+      const tagged =
+        recordedEvents.find((e) => e.decision && isReproCandidatePhase(e.phase)) ||
+        recordedEvents.find((e) => e.decision && e.phase !== 'control');
       if (tagged) {
         const actualExecMs = typeof tagged.tMs === 'number' ? tagged.tMs : reproOffsetMs;
-        tagged.phase = 'repro';
+        if (!tagged.phase) {
+          tagged.phase = 'repro';
+        }
+        tagged.service = reproOperation.service;
         tagged.dispatchedAtMs = Math.max(
           reproOffsetMs,
           typeof tagged.dispatchedAtMs === 'number' ? tagged.dispatchedAtMs : reproDispatchedMs,
@@ -1842,10 +1906,19 @@ export async function recordEvidence(options = {}) {
     let fixControlResult = null;
     let fixReproduceResult = null;
     let fixStateDiff = null;
-    const afterRuleSummary = hasFix
-      ? extractFocusedRuleSnippet(scenario.fixRules?.after || fixRulesSpec.rawSnippet, reproOperation) ||
-        'candidate-fix-rules'
-      : null;
+    let afterRuleSummary = null;
+    let afterRuleFull = null;
+    if (hasFix) {
+      const afterRuleSource = scenario.fixRules?.after || fixRulesSpec.rawSnippet;
+      afterRuleSummary =
+        extractFocusedRuleSnippet(afterRuleSource, reproOperation, ruleSnippetOptions) ||
+        'candidate-fix-rules';
+      afterRuleFull =
+        extractFocusedRuleSnippet(afterRuleSource, reproOperation, {
+          ...ruleSnippetOptions,
+          maxLen: 900,
+        }) || afterRuleSummary;
+    }
 
     if (hasFix) {
       // Reset to exact seeded state with admin access BEFORE activating candidate rules
@@ -2044,18 +2117,14 @@ export async function recordEvidence(options = {}) {
       after: stateDiff.after,
       changedPaths: stateDiff.changedPaths,
       matchedRule: beforeRuleSummary,
+      ruleClause: resolvedRuleClause.clause,
       ...(hasFix
         ? {
             fixRules: {
               before: beforeRuleSummary,
               after: afterRuleSummary,
               beforeFull: beforeRuleFull,
-              afterFull:
-                extractFocusedRuleSnippet(
-                  scenario.fixRules?.after || fixRulesSpec.rawSnippet,
-                  reproOperation,
-                  { maxLen: 900 },
-                ) || afterRuleSummary,
+              afterFull: afterRuleFull,
             },
           }
         : {}),

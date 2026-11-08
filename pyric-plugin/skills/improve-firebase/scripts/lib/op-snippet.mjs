@@ -1,10 +1,12 @@
 import { ContractValidationError, isReadOperationMethod } from './contracts.mjs';
+import { extractFocusedRtdbRule } from './rtdb-rule-clause.mjs';
 
 const SERVICE_ALIASES = new Map([
   ['database', 'database'],
   ['rtdb', 'database'],
   ['realtime-database', 'database'],
   ['firestore', 'firestore'],
+  ['fs', 'firestore'],
   ['cloud-firestore', 'firestore'],
   ['storage', 'storage'],
   ['cloud-storage', 'storage'],
@@ -29,6 +31,23 @@ export function normalizeServiceName(service) {
     );
   }
   return normalized;
+}
+
+/**
+ * Normalizes a Firebase service alias when recognized, falling back to `fallback`
+ * when `raw` is blank or returning the trimmed string when unrecognized.
+ *
+ * @param {unknown} raw
+ * @param {string | null} [fallback]
+ * @returns {string | null}
+ */
+export function tryNormalizeServiceName(raw, fallback = 'database') {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return fallback;
+  }
+  const trimmed = raw.trim();
+  const normalized = SERVICE_ALIASES.get(trimmed.toLowerCase());
+  return normalized || trimmed;
 }
 
 const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -346,64 +365,6 @@ function isWriteMethod(method = 'set') {
   return !isReadOperationMethod(method);
 }
 
-function extractFocusedRtdbRule(parsed, targetPath, method, maxLen = 136) {
-  const root = parsed && typeof parsed.rules === 'object' && parsed.rules !== null ? parsed.rules : parsed;
-  if (!root || typeof root !== 'object') return null;
-
-  const segments = String(targetPath || '')
-    .replace(/^\/+|\/+$/g, '')
-    .split('/')
-    .filter(Boolean);
-
-  const ruleProp = isWriteMethod(method) ? '.write' : '.read';
-  let cursor = root;
-  let pathLabel = '';
-  let deepestMatchedExpr = null;
-  let deepestMatchedScope = '';
-
-  if (typeof cursor[ruleProp] === 'string' || typeof cursor[ruleProp] === 'boolean') {
-    deepestMatchedExpr = String(cursor[ruleProp]);
-    deepestMatchedScope = '/';
-  }
-
-  for (const seg of segments) {
-    if (!cursor || typeof cursor !== 'object') break;
-    let nextKey = null;
-    if (Object.prototype.hasOwnProperty.call(cursor, seg) && !seg.startsWith('.')) {
-      nextKey = seg;
-    } else {
-      const wildcard = Object.keys(cursor).find((k) => k.startsWith('$'));
-      if (wildcard) {
-        nextKey = wildcard;
-      }
-    }
-    if (!nextKey) break;
-    cursor = cursor[nextKey];
-    pathLabel = pathLabel ? `${pathLabel}/${nextKey}` : nextKey;
-    if (cursor && typeof cursor === 'object' && (typeof cursor[ruleProp] === 'string' || typeof cursor[ruleProp] === 'boolean')) {
-      deepestMatchedExpr = String(cursor[ruleProp]);
-      deepestMatchedScope = pathLabel;
-    }
-  }
-
-  if (deepestMatchedExpr !== null) {
-    const shortScope = deepestMatchedScope
-      .split('/')
-      .slice(-2)
-      .join('/');
-    const maxRuleLen = Number.isFinite(maxLen) && maxLen > 0 ? maxLen : 136;
-    const exprText =
-      deepestMatchedExpr === 'true' || deepestMatchedExpr === 'false'
-        ? deepestMatchedExpr
-        : `"${deepestMatchedExpr.length <= maxRuleLen ? deepestMatchedExpr : formatRuleExpressionSummary(deepestMatchedExpr, maxRuleLen)}"`;
-    return shortScope
-      ? `${shortScope}: "${ruleProp}": ${exprText}`
-      : `"${ruleProp}": ${exprText}`;
-  }
-
-  return null;
-}
-
 function extractFocusedTextRule(rawText, targetPath, method, maxLen = 160) {
   const cleaned = String(rawText || '').trim();
   if (!cleaned) return '';
@@ -592,7 +553,7 @@ export function extractFocusedRuleSnippet(rulesInput, operation = {}, options = 
   if (typeof rulesInput === 'object' || rawText.startsWith('{') || rawText.startsWith('//') || rawText.startsWith('/*')) {
     try {
       const parsed = typeof rulesInput === 'object' ? rulesInput : parseJsonWithComments(rawText);
-      const focused = extractFocusedRtdbRule(parsed, targetPath, method, maxLen);
+      const focused = extractFocusedRtdbRule(parsed, targetPath, method, maxLen, options);
       if (focused) return focused;
     } catch {
       // Fall through to text extraction

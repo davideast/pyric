@@ -6,6 +6,8 @@
 
 import path from 'node:path';
 import { firstDefined, isReadOperationMethod } from './contracts.mjs';
+import { extractFocusedRuleSnippet, tryNormalizeServiceName } from './op-snippet.mjs';
+import { resolveRtdbRuleClause, sanitizeInlineRuleSource } from './rtdb-rule-clause.mjs';
 
 const MIN_TIMELINE_MS = 2500;
 const DEFAULT_END_HOLD_MS = 500;
@@ -86,7 +88,7 @@ function formatSdkCallFromEvent(event) {
   if (typeof event.sdkCall === 'string' && event.sdkCall.trim().length > 0) {
     return event.sdkCall.trim();
   }
-  const service = typeof event.service === 'string' ? event.service : null;
+  const service = tryNormalizeServiceName(event.service, null);
   const method = resolveEventMethod(event);
   const targetPath = typeof event.path === 'string' ? event.path : '/';
   if (!service || !method) {
@@ -148,7 +150,160 @@ function detectFixPresence(scenario, eventList, fixEvent, fixStep) {
   return eventList.some((ev) => String(ev?.decision ?? '').toUpperCase() === 'DENY');
 }
 
-function buildBeatDefinitions(scenario, eventList) {
+function defaultVulnerableRuleFallback(ruleKey) {
+  if (ruleKey === '.read') return '".read": "auth != null"';
+  if (ruleKey === '.validate') return '".validate": true';
+  return '".write": "auth != null"';
+}
+
+function defaultFixedRuleFallback(ruleKey) {
+  if (ruleKey === '.read') {
+    return '".read": "auth != null && auth.uid == data.child(\'authorUid\').val()"';
+  }
+  if (ruleKey === '.validate') {
+    return '".validate": "newData.child(\'authorUid\').val() == auth.uid"';
+  }
+  return 'auth != null && auth.uid == data.child("authorUid").val()';
+}
+
+function formatRuleClauseWord(ruleKey, capitalized = false) {
+  if (ruleKey === '.read') {
+    return capitalized ? 'Read' : 'read';
+  }
+  if (ruleKey === '.validate') {
+    return capitalized ? 'Validate' : 'validate';
+  }
+  return capitalized ? 'Write' : 'write';
+}
+
+function sanitizeFixRulesMap(scenarioFixRules, evidenceFixRules) {
+  const out = {};
+  const sources = [scenarioFixRules, evidenceFixRules];
+  for (const src of sources) {
+    if (!isPlainObject(src)) continue;
+    for (const key of ['before', 'after', 'beforeFull', 'afterFull', 'matchedRule', 'rule']) {
+      const sanitized = sanitizeInlineRuleSource(src[key]);
+      if (sanitized !== null) {
+        out[key] = sanitized;
+      }
+    }
+  }
+  return out;
+}
+
+function resolveTimelineRuleContext({
+  scenario,
+  eventList,
+  evidence = null,
+  beforeRulesSource = null,
+  afterRulesSource = null,
+}) {
+  const reproEvent = findEventForPhase(eventList, ['repro', 'mutation', 'attack']);
+  const fixEvent = findEventForPhase(eventList, ['fix', 'verify', 'patched']);
+  const reproStep = findStepForPhase(scenario?.steps, ['repro', 'attack']);
+
+  const rawService =
+    reproEvent?.service ??
+    reproStep?.operation?.service ??
+    scenario?.reproOperation?.service ??
+    scenario?.operation?.service ??
+    evidence?.service ??
+    'database';
+  const service = tryNormalizeServiceName(rawService, 'database');
+  const defaultMethod = service === 'firestore' ? 'setDoc' : 'set';
+  const method =
+    reproEvent?.method ??
+    reproStep?.operation?.method ??
+    scenario?.reproOperation?.method ??
+    scenario?.operation?.method ??
+    evidence?.method ??
+    defaultMethod;
+  const targetPath =
+    reproEvent?.path ??
+    reproStep?.operation?.path ??
+    scenario?.reproOperation?.path ??
+    scenario?.operation?.path ??
+    evidence?.path ??
+    '/target';
+  const data = firstDefined(
+    reproEvent?.data,
+    reproStep?.operation?.data,
+    scenario?.reproOperation?.data,
+    scenario?.operation?.data,
+    evidence?.after,
+  );
+
+  const inlineBefore = sanitizeInlineRuleSource(
+    beforeRulesSource ??
+      evidence?.beforeRulesSource ??
+      scenario?.rules?.rtdb ??
+      scenario?.rules?.database ??
+      scenario?.rules?.firestore ??
+      scenario?.rules?.storage,
+  );
+  const inlineAfter = sanitizeInlineRuleSource(
+    afterRulesSource ??
+      evidence?.afterRulesSource ??
+      scenario?.fixRules?.rtdb ??
+      scenario?.fixRules?.database ??
+      scenario?.fixRules?.firestore ??
+      scenario?.fixRules?.storage ??
+      scenario?.fixRules?.rule,
+  );
+  const sanitizedFixRules = sanitizeFixRulesMap(scenario?.fixRules, evidence?.fixRules);
+
+  const clauseInfo = resolveRtdbRuleClause({
+    service,
+    method,
+    path: targetPath,
+    data,
+    beforeRules: inlineBefore ?? sanitizeInlineRuleSource(reproEvent?.matchedRule),
+    afterRules: inlineAfter ?? sanitizeInlineRuleSource(fixEvent?.matchedRule),
+    fixRules: sanitizedFixRules,
+    explicitClause: evidence?.ruleClause ?? null,
+  });
+
+  const opDescriptor = { service, method, path: targetPath };
+  const summaryOpts = {
+    ruleProp: clauseInfo.clause,
+    fallbackScope: clauseInfo.changedScope,
+  };
+  const fullOpts = {
+    maxLen: 900,
+    ruleProp: clauseInfo.clause,
+    fallbackScope: clauseInfo.changedScope,
+  };
+
+  let extractedBeforeSummary = '';
+  let extractedBeforeFull = '';
+  if (inlineBefore) {
+    extractedBeforeSummary = extractFocusedRuleSnippet(inlineBefore, opDescriptor, summaryOpts);
+    extractedBeforeFull = extractFocusedRuleSnippet(inlineBefore, opDescriptor, fullOpts);
+  }
+
+  let extractedAfterSummary = '';
+  let extractedAfterFull = '';
+  if (inlineAfter) {
+    extractedAfterSummary = extractFocusedRuleSnippet(inlineAfter, opDescriptor, summaryOpts);
+    extractedAfterFull = extractFocusedRuleSnippet(inlineAfter, opDescriptor, fullOpts);
+  }
+
+  return {
+    service,
+    method,
+    targetPath,
+    data,
+    ruleKey: clauseInfo.clause,
+    changedScope: clauseInfo.changedScope,
+    sanitizedFixRules,
+    extractedBeforeSummary,
+    extractedBeforeFull,
+    extractedAfterSummary,
+    extractedAfterFull,
+  };
+}
+
+function buildBeatDefinitions(scenario, eventList, evidence = null, ruleContext = null) {
   const showTitleCard = scenario.stage?.slots?.showTitleCard !== false;
   const showOutroCard = scenario.stage?.slots?.showOutroCard !== false;
 
@@ -164,33 +319,40 @@ function buildBeatDefinitions(scenario, eventList) {
   const hasFix = detectFixPresence(scenario, eventList, fixEvent, fixStep);
   const ownerUid = scenario.actors?.owner?.uid || 'alice';
   const peerUid = scenario.actors?.peer?.uid || 'mallory';
-  const beatMethod =
-    reproEvent?.method ??
-    reproStep?.operation?.method ??
-    scenario?.reproOperation?.method ??
-    scenario?.operation?.method ??
-    'set';
+  const resolved = ruleContext || resolveTimelineRuleContext({ scenario, eventList, evidence });
+  const beatService = resolved.service;
+  const beatMethod = resolved.method;
+  const beatPath = resolved.targetPath;
   const isRead = isReadOperationMethod(beatMethod);
 
   const vulnerableRule =
-    resolveRuleText(reproStep?.matchedRule) ??
-    resolveRuleText(reproEvent?.matchedRule) ??
-    resolveRuleText(scenario.fixRules?.before) ??
-    resolveRuleText(hookEvent?.matchedRule) ??
-    (isRead ? '".read": "auth != null"' : '".write": "auth != null"');
+    resolveRuleText(sanitizeInlineRuleSource(reproStep?.matchedRule)) ??
+    resolveRuleText(sanitizeInlineRuleSource(reproEvent?.matchedRule)) ??
+    resolveRuleText(resolved.sanitizedFixRules.before) ??
+    resolveRuleText(resolved.extractedBeforeSummary) ??
+    resolveRuleText(sanitizeInlineRuleSource(hookEvent?.matchedRule)) ??
+    defaultVulnerableRuleFallback(resolved.ruleKey);
 
   const fixedRule =
-    resolveRuleText(fixStep?.matchedRule) ??
-    resolveRuleText(fixEvent?.matchedRule) ??
-    resolveRuleText(scenario.fixRules?.matchedRule) ??
-    resolveRuleText(scenario.fixRules?.after) ??
-    resolveRuleText(scenario.fixRules?.rule) ??
-    'auth != null && auth.uid == data.child("authorUid").val()';
+    resolveRuleText(sanitizeInlineRuleSource(fixStep?.matchedRule)) ??
+    resolveRuleText(sanitizeInlineRuleSource(fixEvent?.matchedRule)) ??
+    resolveRuleText(resolved.sanitizedFixRules.matchedRule) ??
+    resolveRuleText(resolved.sanitizedFixRules.after) ??
+    resolveRuleText(resolved.extractedAfterSummary) ??
+    resolveRuleText(resolved.sanitizedFixRules.rule) ??
+    defaultFixedRuleFallback(resolved.ruleKey);
+
+  let defaultReproSdkCall = `${beatService}.${beatMethod}('${beatPath}', { actor: '${peerUid}' })`;
+  if (isRead) {
+    defaultReproSdkCall = `${beatService}.${beatMethod}('${beatPath}')`;
+  } else if (resolved.data !== undefined) {
+    defaultReproSdkCall = `${beatService}.${beatMethod}('${beatPath}', ${JSON.stringify(resolved.data)})`;
+  }
 
   const reproSdkCall =
     resolveRuleText(reproStep?.sdkCall) ??
     formatSdkCallFromEvent(reproEvent) ??
-    (isRead ? `database.get('/target')` : `database.set('/target', { actor: '${peerUid}' })`);
+    defaultReproSdkCall;
 
   const hookSdkCall =
     resolveRuleText(hookStep?.sdkCall) ??
@@ -347,10 +509,11 @@ function allocateProportionalDurations(defs, totalMs, minBeatMs) {
  * optional event log, and optional capture duration.
  */
 function formatServiceDisplayName(service) {
-  const s = String(service || 'database').toLowerCase();
-  if (s === 'database' || s === 'rtdb') return 'Realtime Database';
+  const s = tryNormalizeServiceName(service, 'database').toLowerCase();
+  if (s === 'database') return 'Realtime Database';
   if (s === 'firestore') return 'Firestore';
   if (s === 'storage') return 'Cloud Storage';
+  if (s === 'auth') return 'Authentication';
   return 'Firebase';
 }
 
@@ -536,6 +699,7 @@ function derivePathTokens({
   isRead = false,
   isCreate = false,
   isDelete = false,
+  ruleKey = '',
 }) {
   if (Array.isArray(copy?.pathTokens) && copy.pathTokens.length > 0) {
     return copy.pathTokens.map((item) => ({
@@ -673,16 +837,19 @@ function derivePathTokens({
         detail: leafDetail,
       };
     } else if (idx === attachIdx) {
-      callout = {
-        label:
-          leafIdx === attachIdx
-            ? 'Rule and target node'
-            : `${isRead ? 'Read' : 'Write'} rule attaches here`,
-        detail:
-          leafIdx === attachIdx
-            ? `Evaluated here (${concreteVal})`
-            : `Applies to child nodes (${concreteVal})`,
-      };
+      const effectiveRuleKey = ruleKey || (isRead ? '.read' : '.write');
+      const ruleWord = formatRuleClauseWord(effectiveRuleKey, true);
+      if (leafIdx === attachIdx) {
+        callout = {
+          label: 'Rule and target node',
+          detail: `Evaluated here (${concreteVal})`,
+        };
+      } else {
+        callout = {
+          label: `${ruleWord} rule attaches here`,
+          detail: `Applies to child nodes (${concreteVal})`,
+        };
+      }
     } else if (idx === selectedContainerIdx) {
       const parentWord = singularizeToken(humanizeToken(prevConcrete || 'container', 'container'));
       callout = containsOwner
@@ -750,9 +917,11 @@ function derivePathSegments({
 
 function splitTopLevelAndClauses(ruleBody) {
   let inner = String(ruleBody || '').trim();
-  const quoteMatch = /^"(?:\.write|\.read|\.validate)"\s*:\s*"([\s\S]+)"$/.exec(inner);
+  const quoteMatch = /^"(?:\.write|\.read|\.validate)"\s*:\s*(?:"([\s\S]+)"|(true|false))$/.exec(
+    inner,
+  );
   if (quoteMatch) {
-    inner = quoteMatch[1];
+    inner = quoteMatch[1] ?? quoteMatch[2];
   }
   const allowMatch = /^allow\s+[^:]+:\s*if\s+([\s\S]+?);?$/.exec(inner);
   if (allowMatch) {
@@ -800,14 +969,14 @@ function compactRuleChain(expr) {
     const tail = segments.slice(-3);
     return `.../${tail.join('/')}`;
   });
-  s = s.replace(/data(?:\.child\(([^)]+)\)){2,}/g, (full) => {
+  s = s.replace(/\b(newData|data)(?:\.child\(([^)]+)\)){2,}/g, (full, rootVar) => {
     const segments = [];
     const childRe = /\.child\(([^)]+)\)/g;
     let m;
     while ((m = childRe.exec(full)) !== null) {
       segments.push(m[1].replace(/^'|'$/g, ''));
     }
-    return `data.child('${segments.join('/')}')`;
+    return `${rootVar}.child('${segments.join('/')}')`;
   });
   return s;
 }
@@ -865,7 +1034,7 @@ function analyzeRuleClauses({
   }
   const addedOwnerClause =
     addedSummaryClause ||
-    addedCompact.find((c) => /speaker|author|owner|createdBy|userId|uid|!data\.exists|request\.resource/i.test(c)) ||
+    addedCompact.find((c) => /speaker|author|owner|createdBy|userId|uid|!data\.exists|request\.resource|newData/i.test(c)) ||
     addedCompact[0] ||
     '';
 
@@ -890,8 +1059,16 @@ function buildRuleTreeStructure({
   addedCompactSet,
   checkNoun = 'ownership check',
   isRead = false,
+  ruleKey: explicitRuleKey = '',
 }) {
-  const ruleKey = isRead ? '.read' : '.write';
+  let ruleKey = isRead ? '.read' : '.write';
+  if (
+    explicitRuleKey === '.read' ||
+    explicitRuleKey === '.write' ||
+    explicitRuleKey === '.validate'
+  ) {
+    ruleKey = explicitRuleKey;
+  }
   const beforeLocationPath = beforeRuleAnchored || targetPath || '/';
   const afterLocationPath = afterRuleAnchored || beforeLocationPath;
   const beforeTokens = String(parsedBefore.nodePath || beforeRuleAnchored || '')
@@ -916,13 +1093,15 @@ function buildRuleTreeStructure({
       ? afterTokens[afterTokens.length - 1]
       : leafParamToken || beforeAttachNode;
 
-  const ruleMovesDeeper = Boolean(
-    afterRuleAnchored &&
-      beforeRuleAnchored &&
-      afterRuleAnchored !== beforeRuleAnchored &&
-      afterAttachNode &&
-      afterAttachNode !== beforeAttachNode,
-  );
+  const ruleMovesDeeper =
+    ruleKey !== '.validate' &&
+    Boolean(
+      afterRuleAnchored &&
+        beforeRuleAnchored &&
+        afterRuleAnchored !== beforeRuleAnchored &&
+        afterAttachNode &&
+        afterAttachNode !== beforeAttachNode,
+    );
 
   const whyTree = [];
   let indentCursor = 0;
@@ -967,7 +1146,7 @@ function buildRuleTreeStructure({
     const bare = line.replace(/^&&\s*/, '').trim();
     return (
       addedCompactSet.has(bare) ||
-      /!data\.exists|speaker|author|owner|createdBy|userId|request\.resource/i.test(bare)
+      /!data\.exists|speaker|author|owner|createdBy|userId|request\.resource|newData/i.test(bare)
     );
   });
   const sharedAfterLines = afterLines.filter((line) => !addedAfterLines.includes(line));
@@ -1016,7 +1195,7 @@ function buildRuleTreeStructure({
       const bare = text.replace(/^&&\s*/, '').trim();
       const highlight =
         addedCompactSet.has(bare) ||
-        /!data\.exists|speaker|author|owner|createdBy|userId|request\.resource/i.test(bare);
+        /!data\.exists|speaker|author|owner|createdBy|userId|request\.resource|newData/i.test(bare);
       return { text, highlight };
     }),
   });
@@ -1289,7 +1468,14 @@ function buildBehaviorDeck({ scenario, eventList, captureMs, evidence = null }) 
   return { slides, totalMs: cursorMs, totalSec: cursorMs / 1000 };
 }
 
-function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence = null }) {
+function buildPresentationDeck({
+  scenario,
+  eventList,
+  beats,
+  captureMs,
+  evidence = null,
+  ruleContext = null,
+}) {
   const showTitleCard = scenario?.stage?.slots?.showTitleCard !== false;
   const showOutroCard = scenario?.stage?.slots?.showOutroCard !== false;
   if (!showTitleCard && !showOutroCard) {
@@ -1386,9 +1572,21 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
   const peerName = scenario?.actors?.peer?.name || scenario?.actors?.peer?.uid || 'Bob';
   const peerUid = scenario?.actors?.peer?.uid || 'bob';
 
-  const service = reproEvent?.service || 'database';
+  const resolved = ruleContext || resolveTimelineRuleContext({ scenario, eventList, evidence });
+  const rawDeckService =
+    reproEvent?.service ??
+    scenario?.reproOperation?.service ??
+    scenario?.operation?.service ??
+    evidence?.service ??
+    resolved.service;
+  const service = tryNormalizeServiceName(rawDeckService, 'database');
   const serviceName = formatServiceDisplayName(service);
-  const targetPath = reproEvent?.path || '/target';
+  const targetPath =
+    reproEvent?.path ??
+    scenario?.reproOperation?.path ??
+    scenario?.operation?.path ??
+    resolved.targetPath ??
+    '/target';
   const sdkMethod =
     reproEvent?.method ??
     scenario?.reproOperation?.method ??
@@ -1447,23 +1645,35 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
   const sdkCall =
     reproBeat?.sdkCall ||
     (isRead ? `${service}.get('${targetPath}')` : `${service}.${sdkMethod}('${targetPath}')`);
+  const ruleKey = resolved.ruleKey;
   const vulnerableRule =
-    (typeof evidence?.fixRules?.beforeFull === 'string' && evidence.fixRules.beforeFull.trim()) ||
-    (typeof scenario?.fixRules?.before === 'string' && scenario.fixRules.before.trim()) ||
+    resolveRuleText(resolved.sanitizedFixRules.beforeFull) ||
+    resolveRuleText(resolved.sanitizedFixRules.before) ||
+    resolveRuleText(sanitizeInlineRuleSource(reproEvent?.matchedRule)) ||
+    resolved.extractedBeforeFull ||
     reproBeat?.matchedRule ||
-    (isRead ? '".read": "auth != null"' : '".write": "auth != null"');
+    defaultVulnerableRuleFallback(ruleKey);
   const fixedRule =
-    (typeof evidence?.fixRules?.afterFull === 'string' && evidence.fixRules.afterFull.trim()) ||
-    (typeof scenario?.fixRules?.after === 'string' && scenario.fixRules.after.trim()) ||
+    resolveRuleText(resolved.sanitizedFixRules.afterFull) ||
+    resolveRuleText(resolved.sanitizedFixRules.after) ||
+    resolveRuleText(sanitizeInlineRuleSource(fixEvent?.matchedRule)) ||
+    resolved.extractedAfterFull ||
     fixBeat?.matchedRule ||
     '';
   const hasFix = Boolean(fixBeat);
 
   const parsedBefore = parseRuleEntry(vulnerableRule);
   const parsedAfter = parseRuleEntry(fixedRule);
-  const beforeRuleAnchored =
-    scenario?.copy?.rulePathBefore ||
-    resolveAnchoredRulePath(parsedBefore.nodePath, targetPath);
+  let beforeRuleAnchored = '';
+  if (scenario?.copy?.rulePathBefore) {
+    beforeRuleAnchored = scenario.copy.rulePathBefore;
+  } else if (parsedBefore.nodePath) {
+    beforeRuleAnchored = resolveAnchoredRulePath(parsedBefore.nodePath, targetPath);
+  } else if (ruleKey === '.validate' && parsedAfter.nodePath) {
+    beforeRuleAnchored = resolveAnchoredRulePath(parsedAfter.nodePath, targetPath);
+  } else {
+    beforeRuleAnchored = resolveAnchoredRulePath(parsedBefore.nodePath, targetPath);
+  }
   const afterRuleAnchored =
     scenario?.copy?.rulePathAfter ||
     (fixedRule ? resolveAnchoredRulePath(parsedAfter.nodePath, targetPath, beforeRuleAnchored) : '');
@@ -1482,6 +1692,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     isRead,
     isCreate,
     isDelete,
+    ruleKey,
   });
 
   const pathSegments = derivePathSegments({
@@ -1531,6 +1742,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     addedCompactSet,
     checkNoun,
     isRead,
+    ruleKey,
   });
 
   const nounPlural = inferCollectionNoun(targetPath, parsedBefore.nodePath);
@@ -1559,7 +1771,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     defaultTitleSubtitle = `${peerName} can update ${ownerName}'s ${nounPlural} at ${targetPath} with the ${serviceName} SDK.`;
   }
 
-  const ruleKindWord = isRead ? 'read' : 'write';
+  const ruleKindWord = formatRuleClauseWord(ruleKey, false);
   let defaultPathContext = `Requests target ${targetPath}, governed by ${beforeRuleLocationLabel}.`;
   if (ruleMovesDeeper) {
     defaultPathContext = `Because the ${ruleKindWord} rule sits at ${beforeLocationPath}, access cascades to child nodes under ${afterLocationPath}.`;
@@ -1599,10 +1811,11 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     defaultWhySubtitle = `The ${beforeRuleLocationLabel} rule cascades downward, allowing ${peerUid}'s ${sdkMethod} call on ${targetPath}.`;
   }
 
-  const ruleKeyLabel = isRead ? '.read' : '.write';
-  const defaultFixTitle = ruleMovesDeeper
-    ? `Scoping ${ruleKeyLabel} to ${afterLocationPath}`
-    : `Updating ${ruleKeyLabel} at ${afterLocationPath}`;
+  const ruleKeyLabel = ruleKey;
+  let defaultFixTitle = `Updating ${ruleKeyLabel} at ${afterLocationPath}`;
+  if (ruleMovesDeeper) {
+    defaultFixTitle = `Scoping ${ruleKeyLabel} to ${afterLocationPath}`;
+  }
   let defaultFixSubtitle = `The fix updates the ${ruleKeyLabel} rule at ${afterLocationPath}.`;
   if (ruleMovesDeeper && addedSummaryClause) {
     defaultFixSubtitle = `The fix moves ${ruleKeyLabel} from ${beforeLocationPath} to ${afterLocationPath} and adds ${addedSummaryClause}.`;
@@ -1751,7 +1964,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       durationMs: reproTotalMs,
       title: problemVideoTitle,
       impactOffsetSec: reproImpactOffsetSec,
-      actionStatusPending: `Sending ${service}.${reproEvent?.method || 'set'} as ${peerUid}`,
+      actionStatusPending: `Sending ${service}.${sdkMethod} as ${peerUid}`,
       actionStatusImpact: isRead
         ? `Read allowed: data returned to ${peerName}`
         : `Write allowed: updated in both views`,
@@ -1865,7 +2078,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         title: blockedActionTitle,
         impactOffsetSec: fixImpactOffsetSec,
         ...assuranceNoteField,
-        actionStatusPending: `Re-running ${service}.${reproEvent?.method || 'set'} as ${peerUid}`,
+        actionStatusPending: `Re-running ${service}.${sdkMethod} as ${peerUid}`,
         actionStatusImpact: isRead
           ? `PERMISSION_DENIED: ${ownerName}'s ${nounSingular} stays protected`
           : `PERMISSION_DENIED: ${ownerName}'s ${nounSingular} stays unchanged`,
@@ -1964,9 +2177,23 @@ export function mapPresentationTimeToSourceMs(presentation, stageMs) {
   return Math.round(srcStart + progress * (srcEnd - srcStart));
 }
 
-export function computeStageTimeline({ scenario, events, durationMs, evidence = null } = {}) {
+export function computeStageTimeline({
+  scenario,
+  events,
+  durationMs,
+  evidence = null,
+  beforeRulesSource = null,
+  afterRulesSource = null,
+} = {}) {
   const eventList = normalizeEventsList(events);
-  const beatDefs = buildBeatDefinitions(scenario, eventList);
+  const ruleContext = resolveTimelineRuleContext({
+    scenario,
+    eventList,
+    evidence,
+    beforeRulesSource,
+    afterRulesSource,
+  });
+  const beatDefs = buildBeatDefinitions(scenario, eventList, evidence, ruleContext);
 
   const captureMs = typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs > 0
     ? durationMs
@@ -2021,6 +2248,7 @@ export function computeStageTimeline({ scenario, events, durationMs, evidence = 
     beats,
     captureMs: observedMs,
     evidence,
+    ruleContext,
   });
 
   return {

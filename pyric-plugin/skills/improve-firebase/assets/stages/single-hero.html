@@ -838,8 +838,16 @@
         if (!container) return;
 
         const fixRules = payload?.fixRules || payload?.stage?.fixRules || payload?.evidence?.fixRules || {};
-        const vulnRule = fixRules.before || payload?.evidence?.matchedRule || beat.matchedRule || '".write": "auth != null"';
-        const fixedRule = fixRules.after || fixRules.rule || fixRules.matchedRule || 'auth.uid == data.child("authorUid").val()';
+        const isValidateRule =
+          payload?.evidence?.ruleClause === '.validate' ||
+          (typeof fixRules.after === 'string' && fixRules.after.includes('".validate"') && !fixRules.after.includes('".write"'));
+        const defaultVulnRule = isValidateRule ? '".validate": true' : '".write": "auth != null"';
+        let defaultFixedRule = '".write": "auth != null && auth.uid == data.child(\'authorUid\').val()"';
+        if (isValidateRule) {
+          defaultFixedRule = '".validate": "newData.child(\'authorUid\').val() == auth.uid"';
+        }
+        const vulnRule = fixRules.before || payload?.evidence?.matchedRule || beat.matchedRule || defaultVulnRule;
+        const fixedRule = fixRules.after || fixRules.rule || fixRules.matchedRule || defaultFixedRule;
         const highlightsEnabled = document.documentElement.dataset.highlights !== 'false';
 
         container.innerHTML = '';
