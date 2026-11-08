@@ -1,6 +1,15 @@
+import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
+import { getFirestore as getSandboxAdminCompat } from 'pyric/sandbox/admin-firestore';
+import { getFirestore as ipGetFirestore } from 'pyric/firestore';
+import { getInternalEnv } from 'pyric/sandbox/internal';
+import * as client from '../../../src/serve/worker/index.js';
+import type { ClientDb } from '../../../src/serve/worker/client/handles.js';
+import { handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
+import type { InboundMessage, OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
 import { assertOperationArguments } from '../../../src/serve/worker/inbound-validation/operation-arguments.js';
 import { assertListenerOwners } from '../../../src/serve/worker/inbound-validation/listener-owners.js';
 import { refuseInvalidInboundMessage } from '../../../src/serve/worker/inbound-validation.js';
@@ -119,4 +128,150 @@ test('an observe frame with a malformed call is still refused', () => {
   const port = { postMessage: (message: { ok?: boolean }) => posted.push(message) } as never;
   expect(refuseInvalidInboundMessage(port, { t: 'observe', id: 'o-4', call: { service: 'firestore' } })).toBe(true);
   expect(posted[0]?.ok).toBe(false);
+});
+
+test('worker client doc() and collection() synchronously validate non-empty even and odd path segments', () => {
+  const fakeDb: ClientDb = {
+    __kind: 'client-db',
+    port: {
+      onmessage: null,
+      postMessage() {},
+      start() {},
+      close() {},
+    },
+  };
+
+  expect(client.doc(fakeDb, '/items/i1/').path).toBe('items/i1');
+  expect(client.doc(fakeDb, 'items', 'i1').path).toBe('items/i1');
+  expect(client.collection(fakeDb, '/items/').path).toBe('items');
+  const wCol = client.collection(fakeDb, 'items');
+  const wDoc = client.doc(fakeDb, 'items/i1');
+  expect(client.doc(wCol).path).toMatch(/^items\/[A-Za-z0-9]+$/);
+  expect(client.doc(wCol, 'i1/notes/n1').path).toBe('items/i1/notes/n1');
+  expect(client.collection(wDoc, 'notes/n1/replies').path).toBe('items/i1/notes/n1/replies');
+
+  const invalidCalls: Array<() => unknown> = [
+    () => client.doc(fakeDb, 'items'),
+    () => client.doc(fakeDb, ''),
+    () => client.doc(fakeDb, '///'),
+    () => client.doc(fakeDb, 'items//i1'),
+    () => client.doc(fakeDb, 'items', ''),
+    () => client.doc(wCol, 'i1/notes'),
+    () => client.doc(wCol, ''),
+    () => client.collection(fakeDb, 'items/i1'),
+    () => client.collection(fakeDb, ''),
+    () => client.collection(fakeDb, '///'),
+    () => client.collection(fakeDb, 'items//notes'),
+    () => client.collection(fakeDb, 'items', ''),
+    () => client.collection(wDoc, 'notes/n1'),
+    () => client.collection(wDoc, ''),
+  ];
+
+  for (const call of invalidCalls) {
+    let caught: unknown;
+    try {
+      call();
+    } catch (e) {
+      caught = e;
+    }
+    expect((caught as { code?: string })?.code).toBe('invalid-argument');
+  }
+});
+
+test('inbound validation enforces aggregate.path and cursor constraint.fromSnapshot shapes', () => {
+  const colSource = { __ref: 'collection', path: 'items' };
+  expect(() =>
+    assertOperationArguments(
+      op('aggregate', {
+        source: colSource,
+        spec: {
+          c: { kind: 'count' },
+          s: { kind: 'sum', field: 'meta.v1', path: ['meta.v1'] },
+          a: { kind: 'average', field: 'stats.score' },
+        },
+      }),
+    ),
+  ).not.toThrow();
+
+  for (const badSpec of [
+    { c: { kind: 'count', path: ['a'] } },
+    { s: { kind: 'sum', field: 'x', path: [] } },
+    { s: { kind: 'sum', field: 'x', path: [''] } },
+    { a: { kind: 'average', field: 'x', path: [123] } },
+    { a: { kind: 'average', field: 'x', path: 'x' } },
+  ]) {
+    expect(() => assertOperationArguments(op('aggregate', { source: colSource, spec: badSpec }))).toThrow(
+      'aggregate.path',
+    );
+  }
+
+  expect(() =>
+    assertOperationArguments(
+      op('getDocs', {
+        source: {
+          __ref: 'query',
+          source: colSource,
+          constraints: [{ kind: 'startAt', values: [1], fromSnapshot: true }],
+        },
+      }),
+    ),
+  ).not.toThrow();
+
+  for (const badFromSnapshot of ['yes', 1, null, {}]) {
+    expect(() =>
+      assertOperationArguments(
+        op('getDocs', {
+          source: {
+            __ref: 'query',
+            source: colSource,
+            constraints: [{ kind: 'startAt', values: [1], fromSnapshot: badFromSnapshot }],
+          },
+        }),
+      ),
+    ).toThrow();
+  }
+});
+
+test('batchCommit and txnCommit validate set write.options via assertSetOptions with invalid-argument', async () => {
+  const sandbox = initializeSandbox();
+  try {
+    await sandbox.enablePersistence({
+      key: `inbound-validation-${Math.random()}`,
+      injectedBackend: createMemoryBackend(),
+    });
+    getSandboxAdminCompat(sandbox.withAuth(null)).setRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if true; }
+  }
+}`);
+    const ctx: HostCtx = {
+      db: ipGetFirestore(sandbox),
+      sandbox,
+      subs: new Map(),
+    };
+
+    for (const method of ['batchCommit', 'txnCommit'] as const) {
+      for (const badOptions of ['not-an-object', { merge: 'yes' }, { mergeFields: [123] }, { mergeFields: 'x' }]) {
+        const outbound: OutboundMessage[] = [];
+        const port: PortLike = { postMessage: (m) => outbound.push(m) };
+        const id = `${method}-${Math.random()}`;
+        const payload: Record<string, unknown> = {
+          t: 'op',
+          id,
+          method,
+          writes: [{ method: 'set', path: 'items/i1', data: { a: 1 }, options: badOptions }],
+        };
+        if (method === 'txnCommit') payload.reads = [];
+        await handleMessage(ctx, port, payload as unknown as InboundMessage);
+        const res = outbound.find((m): m is ResMessage => m.t === 'res' && m.id === id);
+        expect(res?.ok).toBe(false);
+        if (res && !res.ok) {
+          expect(res.error.code).toBe('invalid-argument');
+        }
+      }
+    }
+  } finally {
+    getInternalEnv(sandbox).dispose();
+  }
 });

@@ -172,6 +172,15 @@ export function fieldPathArgumentSegments(value: unknown): string[] | undefined 
   return [...(segments as string[])];
 }
 
+/** Normalize `SetOptions.mergeFields` entries (strings or `FieldPath` instances) to encoded field-path keys. */
+export function normalizeMergeFields(mergeFields: readonly unknown[]): string[] {
+  return mergeFields.map((field) => {
+    const segments = fieldPathArgumentSegments(field);
+    if (segments !== undefined) return fieldPathKey(segments);
+    return String(field);
+  });
+}
+
 /** True when an `update` call's first data argument selects the field-and-value form. */
 export function isFieldArgument(value: unknown): boolean {
   return typeof value === 'string' || fieldPathArgumentSegments(value) !== undefined;

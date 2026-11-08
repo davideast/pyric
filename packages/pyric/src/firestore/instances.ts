@@ -96,6 +96,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
       }
       const t: SandboxLiveTarget = {
         kind: 'sandbox-live',
+        app: target as object,
         activityApp: target as object,
         sandbox,
         getDb: makeGetDb(sandbox, () => session.currentUser),

@@ -1,6 +1,6 @@
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { generateAutoId, makeError } from 'pyric/sandbox/internal';
-import { lastSegment } from './paths.js';
+import { isDocumentPath, lastSegment } from './paths.js';
 import { DocumentRefImpl } from './doc-ref.js';
 import {
   FirestoreCompatError,
@@ -45,7 +45,13 @@ export class CollectionRefImpl extends QueryImpl implements CollectionReference 
 
   doc(id?: string): DocumentReference {
     const finalId = id ?? generateAutoId();
-    return createDocumentRef(this.env, this.auth, `${this.path}/${finalId}`, this.bypassRules);
+    const sub = `${this.path}/${finalId}`;
+    if (!isDocumentPath(sub)) {
+      throw new FirestoreCompatError(
+        makeError('invalid-argument', `document path must have an even number of segments: ${sub}`),
+      );
+    }
+    return createDocumentRef(this.env, this.auth, sub, this.bypassRules);
   }
 
   /** Mint an id and create the document through `createWithAutoId`, so the

@@ -22,6 +22,7 @@ export type ComparableQueryFilter =
 
 export type ComparableCursor = QueryCursor & {
   readonly comparisonValues: readonly CapturedQueryOperand[];
+  readonly cursorInput?: unknown;
 };
 
 export type ComparableExecutionSpec = Omit<QueryExecutionSpec, 'filters' | 'start' | 'end'> & {

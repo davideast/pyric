@@ -24,6 +24,7 @@ import type { Operation } from './local-environment.js';
 // admin-compat-surface dependency, so importing it here is cycle-free.
 import { translateReadData } from './admin-compat/read-translation.js';
 import { forEachDocument } from './for-each-document.js';
+import { firestoreValuesEqual } from './value-equality.js';
 import type { QueryExecutionSpec, QueryScope } from './query-execution.js';
 import type { QueryConstraints } from './list-query-proof.js';
 import {
@@ -407,7 +408,7 @@ export function buildQuerySnapshot(
     prevDocs,
     docList,
     docs,
-    (before, after) => JSON.stringify(before.data) === JSON.stringify(after.data),
+    (before, after) => firestoreValuesEqual(before.data, after.data),
     (row) => buildQueryDocumentSnapshot(row.path, row.data, metadata),
   );
   return {

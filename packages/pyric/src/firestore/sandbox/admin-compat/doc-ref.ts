@@ -23,10 +23,10 @@
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { makeError } from 'pyric/sandbox/internal';
 import type { OperationResult } from 'pyric/sandbox/internal';
-import { lastSegment, parentCollectionPath } from './paths.js';
+import { isCollectionPath, lastSegment, parentCollectionPath } from './paths.js';
 import { makeDocSnapshot } from './snapshots.js';
 import { parseAdminUpdateArguments, type FieldPath } from './field-path.js';
-import { updateFieldsData, type UpdateField } from '../update-fields.js';
+import { normalizeMergeFields, updateFieldsData, type UpdateField } from '../update-fields.js';
 import {
   boundedActivityIdentity,
   registerActivityValue,
@@ -87,7 +87,13 @@ export class DocumentRefImpl implements DocumentReference {
   }
 
   collection(name: string): CollectionReference {
-    return this.collectionRef(`${this.path}/${name}`);
+    const sub = `${this.path}/${name}`;
+    if (!isCollectionPath(sub)) {
+      throw new FirestoreCompatError(
+        makeError('invalid-argument', `collection path must have an odd number of segments: ${sub}`),
+      );
+    }
+    return this.collectionRef(sub);
   }
 
   async get(opts?: OperationOptions): Promise<DocumentSnapshot> {
@@ -137,7 +143,7 @@ export class DocumentRefImpl implements DocumentReference {
       // FS-B6: pass the full data + the field-path mask to the merge
       // engine. It deep-merges only the listed (dot-separated) paths into
       // the existing doc — dropping the old shallow top-level projection.
-      const mergeFields = options.mergeFields.map((f) => String(f));
+      const mergeFields = normalizeMergeFields(options.mergeFields);
       const existing = this.env.getDocument(this.path);
       const method = existing === null ? 'create' : 'update';
       const result = this.env.execute({

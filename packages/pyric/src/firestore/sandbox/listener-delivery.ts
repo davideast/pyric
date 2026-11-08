@@ -5,18 +5,18 @@
  */
 import type { DocumentData } from './local-state.js';
 import type { QueryScope } from './query-execution.js';
+import { firestoreValuesEqual } from './value-equality.js';
 
 /**
  * Compare two doc payloads for snapshot-suppression purposes. `null`
- * means the doc is absent. Equality test uses `JSON.stringify` to
+ * means the doc is absent. Equality test uses `firestoreValuesEqual` to
  * mirror `computeChanges` in `snapshot-listeners.ts` — keeps the two
- * change-detection paths consistent and good enough for sandbox data
- * (all `DocumentData` is JSON-serialisable post-sentinel-resolution).
+ * change-detection paths consistent across NaN, ±Infinity, -0, and map key order.
  */
 export function docDataEqual(a: DocumentData | null, b: DocumentData | null): boolean {
   if (a === null && b === null) return true;
   if (a === null || b === null) return false;
-  return JSON.stringify(a) === JSON.stringify(b);
+  return firestoreValuesEqual(a, b);
 }
 
 /**

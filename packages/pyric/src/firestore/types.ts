@@ -105,6 +105,7 @@ export interface DocumentSnapshot<T = DocumentData> {
   readonly exists: boolean | (() => boolean);
   readonly metadata: SnapshotMetadata;
   data(): T | undefined;
+  get(fieldPath: string | FieldPath): unknown;
 }
 /**
  * `QueryDocumentSnapshot` is a `DocumentSnapshot` known to exist —

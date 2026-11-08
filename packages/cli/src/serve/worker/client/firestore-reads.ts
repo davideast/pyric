@@ -18,7 +18,7 @@ import { makeDocSnapshot, makeQuerySnapshot, makeSnapshot } from './snapshots.js
 import { beginWorkerFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead, type UsageEvidence } from 'pyric/sandbox/internal';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot, QueryChangeBaseline } from './snapshots.js';
-import type { DocumentData } from 'pyric/firestore';
+import type { DocumentData, FieldPath } from 'pyric/firestore';
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ export async function listSubcollections(db: ClientDb, docPath: string): Promise
 
 export async function getCountFromServer(
   source: CollRefHandle | QueryHandle,
-): Promise<{ data(): { count: number } }> {
+): Promise<{ readonly type: 'AggregateQuerySnapshot'; readonly query: CollRefHandle | QueryHandle; data(): { count: number } }> {
   const activity = beginWorkerFirestoreActivity(source, 'getCountFromServer', 'operation');
   try {
     const result = await dataRpc(source.port, {
@@ -97,11 +97,25 @@ export async function getCountFromServer(
         ? (source as CollRefHandle).descriptor
         : (source as QueryHandle).descriptor,
     }) as { count: number };
-    return finishSdkRead(activity, { data: () => ({ count: result.count }) });
+    return finishSdkRead(activity, {
+      type: 'AggregateQuerySnapshot',
+      query: source,
+      data: () => ({ count: result.count }),
+    });
   } catch (error) { activity.fail(); throw error; }
 }
 
 // ─── Multi-field aggregates (count / sum / average) ───────────────────────
+
+function normalizeAggregateField(field: string | FieldPath): { field: string; path?: readonly string[] } {
+  if (typeof field === 'string') return { field };
+  const segments = field._internalPath.segments;
+  const joined = segments.join('.');
+  if (segments.some((s) => s.includes('.'))) {
+    return { field: joined, path: segments };
+  }
+  return { field: joined };
+}
 
 /** Factory: count() aggregate field. Mirrors `pyric/firestore`'s `count()`. */
 export function count(): AggregateFieldDescriptor {
@@ -109,13 +123,13 @@ export function count(): AggregateFieldDescriptor {
 }
 
 /** Factory: sum-of-`field` aggregate. Mirrors `pyric/firestore`'s `sum()`. */
-export function sum(field: string): AggregateFieldDescriptor {
-  return { kind: 'sum', field };
+export function sum(field: string | FieldPath): AggregateFieldDescriptor {
+  return { kind: 'sum', ...normalizeAggregateField(field) };
 }
 
 /** Factory: average-of-`field` aggregate. Empty input yields `null`. */
-export function average(field: string): AggregateFieldDescriptor {
-  return { kind: 'average', field };
+export function average(field: string | FieldPath): AggregateFieldDescriptor {
+  return { kind: 'average', ...normalizeAggregateField(field) };
 }
 
 /**
@@ -127,7 +141,7 @@ export function average(field: string): AggregateFieldDescriptor {
 export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
   source: CollRefHandle | QueryHandle,
   spec: S,
-): Promise<{ data(): { [K in keyof S]: number | null } }> {
+): Promise<{ readonly type: 'AggregateQuerySnapshot'; readonly query: CollRefHandle | QueryHandle; data(): { [K in keyof S]: number | null } }> {
   const activity = beginWorkerFirestoreActivity(source, 'getAggregateFromServer', 'operation');
   try {
     const result = await dataRpc(source.port, {
@@ -139,7 +153,11 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
         : (source as QueryHandle).descriptor,
       spec,
     }) as { data: { [K in keyof S]: number | null } };
-    return finishSdkRead(activity, { data: () => result.data });
+    return finishSdkRead(activity, {
+      type: 'AggregateQuerySnapshot',
+      query: source,
+      data: () => result.data,
+    });
   } catch (error) { activity.fail(); throw error; }
 }
 
@@ -271,6 +289,7 @@ export function onSnapshot(
       const deliver = callback;
       const hasNext = deliver !== undefined;
       if (hasNext) deliverWithRegions(activity.id, () => deliver(snapshot));
+      notifyWorkerSnapshotDelivered(port);
     },
     error: (error: unknown) => {
       unsubscribed = true;
@@ -315,4 +334,46 @@ export function onSnapshot(
     closeSubscription(port, currentSubId);
   }
   return stop;
+}
+
+const syncObserversByPort = new WeakMap<object, Set<() => void>>();
+const syncScheduledByPort = new WeakSet<object>();
+
+function notifyWorkerSnapshotDelivered(port: object): void {
+  const observers = syncObserversByPort.get(port);
+  if (!observers || observers.size === 0 || syncScheduledByPort.has(port)) return;
+  syncScheduledByPort.add(port);
+  queueMicrotask(() => {
+    syncScheduledByPort.delete(port);
+    for (const observer of [...observers]) observer();
+  });
+}
+
+export function onSnapshotsInSync(
+  db: ClientDb,
+  observerOrCallback: (() => void) | { next?: () => void; complete?: () => void; error?: (error: unknown) => void },
+): Unsubscribe {
+  let cb: (() => void) | undefined;
+  if (typeof observerOrCallback === 'function') {
+    cb = observerOrCallback;
+  } else if (typeof observerOrCallback.next === 'function') {
+    cb = observerOrCallback.next.bind(observerOrCallback);
+  }
+  if (!cb) return () => undefined;
+  const port = db.port as object;
+  let observers = syncObserversByPort.get(port);
+  if (!observers) {
+    observers = new Set();
+    syncObserversByPort.set(port, observers);
+  }
+  observers.add(cb);
+  try {
+    cb();
+  } catch (error) {
+    observers.delete(cb);
+    throw error;
+  }
+  return () => {
+    observers.delete(cb);
+  };
 }

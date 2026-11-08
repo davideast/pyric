@@ -22,6 +22,7 @@ import {
   tagSandboxRef,
   buildSandboxShell,
 } from './state.js';
+import { withConverter } from './refs.js';
 import type {
   DocumentReference,
   CollectionReference,
@@ -60,7 +61,7 @@ import {
  */
 export interface SetOptions {
   merge?: boolean;
-  mergeFields?: readonly string[];
+  mergeFields?: readonly (string | FieldPath)[];
 }
 
 export async function setDoc<T = DocumentData>(
@@ -157,10 +158,18 @@ export async function addDoc<T = DocumentData>(
         target,
         conv,
       );
-      copyQueryValueRegistration(tagged, shell);
-      return shell as DocumentReference<T>;
+      const reference = Object.assign(shell, {
+        withConverter: (next: FirestoreDataConverter<unknown, DocumentData> | null) =>
+          withConverter(reference as never, next as never),
+      });
+      copyQueryValueRegistration(tagged, reference);
+      return reference as DocumentReference<T>;
     }
-    return tagged as DocumentReference<T>;
+    const reference = Object.assign(tagged, {
+      withConverter: (next: FirestoreDataConverter<unknown, DocumentData> | null) =>
+        withConverter(reference as never, next as never),
+    });
+    return reference as DocumentReference<T>;
   });
 }
 

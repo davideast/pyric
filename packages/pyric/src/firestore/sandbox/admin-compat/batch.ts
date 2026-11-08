@@ -19,7 +19,7 @@ import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import type { BatchOperationInput } from 'pyric/sandbox/internal';
 import { makeError } from 'pyric/sandbox/internal';
 import { cloneDoc } from '../document-copy.js';
-import { updateFieldsData } from '../update-fields.js';
+import { normalizeMergeFields, updateFieldsData } from '../update-fields.js';
 import { parseAdminUpdateArguments, type FieldPath } from './field-path.js';
 import {
   FirestoreCompatError,
@@ -33,6 +33,7 @@ import {
 
 export class WriteBatchImpl implements WriteBatch {
   private readonly ops: BatchOperationInput[] = [];
+  private committed = false;
 
   constructor(
     private readonly env: LocalEnvironment,
@@ -42,17 +43,27 @@ export class WriteBatchImpl implements WriteBatch {
     private readonly bypassRules: boolean = false,
   ) {}
 
+  private assertNotCommitted(): void {
+    if (this.committed) {
+      throw new FirestoreCompatError(
+        makeError('failed-precondition', 'WriteBatch has already been committed.'),
+      );
+    }
+  }
+
   create(ref: DocumentReference, data: DocumentData): WriteBatch {
+    this.assertNotCommitted();
     this.ops.push({ method: 'create', path: ref.path, data: cloneDoc(data) });
     return this;
   }
 
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): WriteBatch {
+    this.assertNotCommitted();
     const operation: BatchOperationInput = { method: 'set', path: ref.path, data: cloneDoc(data) };
     const mergeFields = options?.mergeFields;
     const hasFieldMask = mergeFields !== undefined;
     if (hasFieldMask) {
-      operation.merge = { mergeFields: [...mergeFields] };
+      operation.merge = { mergeFields: normalizeMergeFields(mergeFields) };
     } else {
       const mergesAllFields = options?.merge === true;
       if (mergesAllFields) operation.merge = true;
@@ -62,17 +73,21 @@ export class WriteBatchImpl implements WriteBatch {
   }
 
   update(ref: DocumentReference, dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): WriteBatch {
+    this.assertNotCommitted();
     const { fields } = parseAdminUpdateArguments(dataOrField, preconditionOrValues);
     this.ops.push({ method: 'update', path: ref.path, data: cloneDoc(updateFieldsData(fields)) });
     return this;
   }
 
   delete(ref: DocumentReference): WriteBatch {
+    this.assertNotCommitted();
     this.ops.push({ method: 'delete', path: ref.path });
     return this;
   }
 
   async commit(opts?: OperationOptions): Promise<void> {
+    this.assertNotCommitted();
+    this.committed = true;
     // Empty batch is a no-op — match Admin SDK behavior (commit() of an
     // empty WriteBatch resolves cleanly without a network round-trip).
     const isEmpty = this.ops.length === 0;

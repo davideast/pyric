@@ -15,8 +15,15 @@ function assertRecognizedPair(a: object, b: object): void {
 
 export function refEqual(a: DocumentReference, b: DocumentReference): boolean {
   assertRecognizedPair(a, b);
-  return (underlyingOf(a) as { path: string }).path
-    === (underlyingOf(b) as { path: string }).path;
+  const targetA = targetOf(a as object);
+  const targetB = targetOf(b as object);
+  if ((targetA.sandbox ?? targetA) !== (targetB.sandbox ?? targetB)) return false;
+  if ((targetA.app ?? null) !== (targetB.app ?? null)) return false;
+  if ((converterOf(a as object) ?? null) !== (converterOf(b as object) ?? null)) return false;
+  const underA = underlyingOf(a) as { path: string; doc?: unknown };
+  const underB = underlyingOf(b) as { path: string; doc?: unknown };
+  if ((typeof underA.doc === 'function') !== (typeof underB.doc === 'function')) return false;
+  return underA.path === underB.path;
 }
 
 export function queryEqual(a: Query, b: Query): boolean {

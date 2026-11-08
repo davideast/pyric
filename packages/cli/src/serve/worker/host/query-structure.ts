@@ -126,9 +126,14 @@ function assertConstraintStructure(constraint: unknown, depth: number, requiresF
     case 'startAt':
     case 'startAfter':
     case 'endAt':
-    case 'endBefore':
+    case 'endBefore': {
       assertChildren(constraint.values);
+      const hasValidFromSnapshot = constraint.fromSnapshot === undefined || typeof constraint.fromSnapshot === 'boolean';
+      if (!hasValidFromSnapshot) {
+        invalidStructure('Invalid Firestore cursor constraint.');
+      }
       return;
+    }
     default:
       throw new FirebaseError('invalid-argument', 'Unsupported Firestore query constraint descriptor.');
   }

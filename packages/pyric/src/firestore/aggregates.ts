@@ -15,8 +15,22 @@ import type {
 import {
   targetOf,
   chainQueryFor,
+  refToTarget,
 } from './state.js';
+import { clientStateFor } from './client-state.js';
+import { queryEqual } from './equality.js';
+import type { FieldPath } from './field-values.js';
 import type { Query, CollectionReference } from './types.js';
+
+function normalizeAggregateField(field: string | FieldPath): { field: string; path?: readonly string[] } {
+  if (typeof field === 'string') return { field };
+  const segments = field._internalPath.segments;
+  const joined = segments.join('.');
+  if (segments.some((s) => s.includes('.'))) {
+    return { field: joined, path: segments };
+  }
+  return { field: joined };
+}
 
 // ─── Aggregates (Tier 2) ──────────────────────────────────────────────
 //
@@ -48,6 +62,7 @@ export type AggregateSpecData<T> = Record<string, unknown>;
 export interface AggregateField {
   readonly kind: AggregateFieldType;
   readonly field?: string;
+  readonly path?: readonly string[];
 }
 export class AggregateField {
   static [Symbol.hasInstance](instance: unknown): boolean {
@@ -65,6 +80,8 @@ export type AggregateSpec = Record<string, AggregateField>;
  * count-only entry point).
  */
 export interface AggregateQuerySnapshot<T extends Record<string, number | null> = Record<string, number | null>> {
+  readonly type: 'AggregateQuerySnapshot';
+  readonly query: Query | CollectionReference;
   data(): T;
 }
 export class AggregateQuerySnapshot<T extends Record<string, number | null> = Record<string, number | null>> {
@@ -75,12 +92,52 @@ export class AggregateQuerySnapshot<T extends Record<string, number | null> = Re
 
 export function aggregateFieldEqual(a: any, b: any): boolean {
   if (!a || !b) return false;
-  return a.kind === b.kind && a.field === b.field;
+  if (a.kind !== b.kind || a.field !== b.field) return false;
+  if (a.path || b.path) {
+    let pathA: readonly string[] = [];
+    if (a.path) pathA = a.path;
+    else if (typeof a.field === 'string') pathA = a.field.split('.');
+    let pathB: readonly string[] = [];
+    if (b.path) pathB = b.path;
+    else if (typeof b.field === 'string') pathB = b.field.split('.');
+    return JSON.stringify(pathA) === JSON.stringify(pathB);
+  }
+  return true;
+}
+
+function aggregateSnapshotQueriesEqual(qA: unknown, qB: unknown): boolean {
+  if (qA === qB) return true;
+  if (!qA || !qB || typeof qA !== 'object' || typeof qB !== 'object') return false;
+  if (refToTarget.has(qA) || refToTarget.has(qB)) {
+    if (!refToTarget.has(qA) || !refToTarget.has(qB)) return false;
+    return queryEqual(qA as Query, qB as Query);
+  }
+  if ('__kind' in qA && '__kind' in qB && 'descriptor' in qA && 'descriptor' in qB) {
+    const wA = qA as { port?: unknown; converter?: unknown; descriptor?: unknown };
+    const wB = qB as { port?: unknown; converter?: unknown; descriptor?: unknown };
+    return wA.port === wB.port
+      && wA.converter === wB.converter
+      && JSON.stringify(wA.descriptor) === JSON.stringify(wB.descriptor);
+  }
+  return false;
 }
 
 export function aggregateQuerySnapshotEqual(a: any, b: any): boolean {
-  if (!a || !b) return false;
-  return JSON.stringify(a.data()) === JSON.stringify(b.data());
+  if (!a || !b || typeof a.data !== 'function' || typeof b.data !== 'function') return false;
+  if (a.query !== undefined || b.query !== undefined) {
+    if (!aggregateSnapshotQueriesEqual(a.query, b.query)) return false;
+  }
+  const dataA = a.data();
+  const dataB = b.data();
+  if (!dataA || !dataB || typeof dataA !== 'object' || typeof dataB !== 'object') return false;
+  const keysA = Object.keys(dataA);
+  const keysB = Object.keys(dataB);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(dataB, key)) return false;
+    if (!Object.is(dataA[key], dataB[key])) return false;
+  }
+  return true;
 }
 
 /** Factory: count() aggregate. */
@@ -89,13 +146,13 @@ export function count(): AggregateField {
 }
 
 /** Factory: sum-of-`field` aggregate. */
-export function sum(field: string): AggregateField {
-  return { kind: 'sum', field };
+export function sum(field: string | FieldPath): AggregateField {
+  return { kind: 'sum', ...normalizeAggregateField(field) };
 }
 
 /** Factory: average-of-`field` aggregate. */
-export function average(field: string): AggregateField {
-  return { kind: 'average', field };
+export function average(field: string | FieldPath): AggregateField {
+  return { kind: 'average', ...normalizeAggregateField(field) };
 }
 
 /**
@@ -106,12 +163,17 @@ export function average(field: string): AggregateField {
 export async function getCountFromServer(
   source: Query | CollectionReference,
 ): Promise<AggregateQuerySnapshot<{ count: number }>> {
-  const activity = beginFirestoreActivity(targetOf(source), source, 'getCountFromServer', 'operation');
+  const target = targetOf(source);
+  clientStateFor(target).markStarted();
+  const activity = beginFirestoreActivity(target, source, 'getCountFromServer', 'operation');
   try {
-    const target = targetOf(source);
     const snap = await withFirestoreFirebaseError(() => chainQueryFor(target, source).aggregate({ count: { kind: 'count' } }));
     const data = snap.data();
-    return finishSdkRead(activity, { data: () => ({ count: (data.count ?? 0) as number }) });
+    return finishSdkRead(activity, {
+      type: 'AggregateQuerySnapshot',
+      query: source,
+      data: () => ({ count: (data.count ?? 0) as number }),
+    });
   } catch (error) { activity.fail(); throw error; }
 }
 
@@ -126,12 +188,17 @@ export async function getAggregateFromServer<S extends AggregateSpec>(
   source: Query | CollectionReference,
   spec: S,
 ): Promise<AggregateQuerySnapshot<{ [K in keyof S]: number | null }>> {
-  const activity = beginFirestoreActivity(targetOf(source), source, 'getAggregateFromServer', 'operation');
+  const target = targetOf(source);
+  clientStateFor(target).markStarted();
+  const activity = beginFirestoreActivity(target, source, 'getAggregateFromServer', 'operation');
   try {
-    const target = targetOf(source);
     const chainSpec: ChainAggregateSpec = {};
     for (const alias of Object.keys(spec)) chainSpec[alias] = spec[alias] as ChainAggregateField;
     const snap = await withFirestoreFirebaseError(() => chainQueryFor(target, source).aggregate(chainSpec));
-    return finishSdkRead(activity, { data: () => snap.data() as { [K in keyof S]: number | null } });
+    return finishSdkRead(activity, {
+      type: 'AggregateQuerySnapshot',
+      query: source,
+      data: () => snap.data() as { [K in keyof S]: number | null },
+    });
   } catch (error) { activity.fail(); throw error; }
 }

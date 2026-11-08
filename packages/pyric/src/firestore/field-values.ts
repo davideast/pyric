@@ -10,6 +10,7 @@ import {
   Timestamp as ChainTimestamp,
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-firestore';
+import { canonicalFieldPath } from './sandbox/update-fields.js';
 
 export { Bytes } from './bytes.js';
 
@@ -35,6 +36,10 @@ export class FieldPath {
     return Array.isArray(theirs)
       && ours.length === theirs.length
       && ours.every((segment, index) => segment === theirs[index]);
+  }
+
+  toString(): string {
+    return canonicalFieldPath(this._internalPath.segments);
   }
 }
 

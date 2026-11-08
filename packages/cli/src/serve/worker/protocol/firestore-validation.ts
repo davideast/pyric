@@ -32,3 +32,33 @@ export function requireUpdateFields(value: unknown): asserts value is { path: st
   if (isFieldList) return;
   throw new FirebaseError('invalid-argument', 'Firestore update fields must name non-empty segment vectors.');
 }
+
+/** Check optional `SetOptions` (`merge` boolean and/or `mergeFields` string array). */
+export function assertSetOptions(value: unknown): void {
+  if (value === undefined) return;
+  const isRecord = value !== null && typeof value === 'object' && !Array.isArray(value);
+  if (!isRecord) {
+    throw new FirebaseError('invalid-argument', 'Invalid sandbox operation field: options.');
+  }
+  const { merge, mergeFields } = value as { merge?: unknown; mergeFields?: unknown };
+  if (merge !== undefined && typeof merge !== 'boolean') {
+    throw new FirebaseError('invalid-argument', 'Invalid sandbox operation field: options.merge.');
+  }
+  if (mergeFields !== undefined) {
+    const isFieldList = Array.isArray(mergeFields) && mergeFields.every((field) => typeof field === 'string');
+    if (!isFieldList) {
+      throw new FirebaseError('invalid-argument', 'Invalid sandbox operation field: options.mergeFields.');
+    }
+  }
+}
+
+/** Check optional `aggregate.path` (`undefined` on `count`; optional non-empty `string[]` on `sum`/`average`). */
+export function assertAggregateFieldPath(path: unknown, isCount: boolean): void {
+  if (path === undefined) return;
+  const isValidPath = !isCount
+    && Array.isArray(path)
+    && path.length > 0
+    && path.every((segment) => typeof segment === 'string' && segment.length > 0);
+  if (isValidPath) return;
+  throw new FirebaseError('invalid-argument', 'Invalid sandbox operation field: aggregate.path.');
+}

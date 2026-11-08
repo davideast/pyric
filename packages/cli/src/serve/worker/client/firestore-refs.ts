@@ -26,6 +26,24 @@ import { rawClientSnapshotForCursor, type RawCursorSnapshot } from './snapshots.
 
 // ─── Path factories (client-side only — no RPC) ──────────────────────────
 
+function parseClientPathSegments(fnName: 'doc' | 'collection', rawSegments: readonly string[]): string[] {
+  const segments: string[] = [];
+  for (const raw of rawSegments) {
+    if (typeof raw !== 'string') {
+      throw new FirebaseError('invalid-argument', `Function ${fnName}() called with non-string path.`);
+    }
+    if (raw.includes('//')) {
+      throw new FirebaseError('invalid-argument', `Invalid path (${raw}). Paths must not contain '//' in them.`);
+    }
+    const trimmed = raw.replace(/^\/+|\/+$/g, '');
+    if (trimmed.length === 0) {
+      throw new FirebaseError('invalid-argument', `Invalid path (${raw}). Paths must not be empty.`);
+    }
+    segments.push(...trimmed.split('/'));
+  }
+  return segments;
+}
+
 /**
  * Build a document reference. Mirrors `pyric/firestore`'s `doc(db, path)`.
  *
@@ -46,15 +64,33 @@ export function doc(
   if (isDatabase) {
     const isPathMissing = !hasPath;
     if (isPathMissing) throw new TypeError('doc(db, path) requires a path segment.');
-    path = pathSegments.join('/');
+    const segments = parseClientPathSegments('doc', pathSegments);
+    if (segments.length % 2 !== 0) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Invalid document reference. Document references must have an even number of segments, but ${segments.join('/')} has ${segments.length}.`,
+      );
+    }
+    path = segments.join('/');
   } else {
     // parent is a CollRefHandle
     const collPath = parent.descriptor.path;
     converter = parent.converter;
     // No segment means Firebase mints a client-side id for a document that
     // does not exist yet; the collection path itself is not a document.
-    if (hasPath) path = `${collPath}/${pathSegments.join('/')}`;
-    else path = `${collPath}/${generateAutoId()}`;
+    if (hasPath) {
+      const relSegments = parseClientPathSegments('doc', pathSegments);
+      const allSegments = [...collPath.split('/'), ...relSegments];
+      if (allSegments.length % 2 !== 0) {
+        throw new FirebaseError(
+          'invalid-argument',
+          `Invalid document reference. Document references must have an even number of segments, but ${allSegments.join('/')} has ${allSegments.length}.`,
+        );
+      }
+      path = allSegments.join('/');
+    } else {
+      path = `${collPath}/${generateAutoId()}`;
+    }
   }
 
   return createDocumentReference(port, path, converter);
@@ -70,13 +106,18 @@ export function collection(
   const port = parent.port;
   if (pathSegments.length === 0) throw new TypeError('collection() requires a path segment.');
 
-  let path: string;
-  if (parent.__kind === 'client-db') {
-    path = pathSegments.join('/');
-  } else {
-    const docPath = (parent as DocRefHandle).descriptor.path;
-    path = `${docPath}/${pathSegments.join('/')}`;
+  const relSegments = parseClientPathSegments('collection', pathSegments);
+  const baseSegments = parent.__kind === 'client-db'
+    ? []
+    : (parent as DocRefHandle).descriptor.path.split('/');
+  const allSegments = [...baseSegments, ...relSegments];
+  if (allSegments.length % 2 !== 1) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Invalid collection reference. Collection references must have an odd number of segments, but ${allSegments.join('/')} has ${allSegments.length}.`,
+    );
   }
+  const path = allSegments.join('/');
 
   // A parent document's converter describes that document, not the documents
   // of a subcollection under it, so it is not inherited here.
@@ -111,13 +152,16 @@ function createQueryHandle<T = DocumentData>(
   port: ClientDb['port'],
   descriptor: QueryDescriptor,
   converter: FirestoreDataConverter<unknown> | null,
+  items?: readonly RawConstraintItem[],
 ): QueryHandle<T> {
   function withConverter<A, D extends DocumentData = DocumentData>(next: FirestoreDataConverter<A, D>): QueryHandle<A>;
   function withConverter(next: null): QueryHandle;
   function withConverter(next: FirestoreDataConverter<unknown> | null): QueryHandle<unknown> {
-    return createQueryHandle(port, descriptor, next);
+    return createQueryHandle(port, descriptor, next, rawQueryItems.get(handle));
   }
-  return { __kind: 'query', descriptor, port, converter, withConverter };
+  const handle: QueryHandle<T> = { __kind: 'query', descriptor, port, converter, withConverter };
+  if (items !== undefined) rawQueryItems.set(handle, items);
+  return handle;
 }
 
 /**
@@ -160,10 +204,13 @@ function fieldPathString(field: string | FieldPath): string {
 }
 
 function readSnapshotField(data: Record<string, unknown>, fieldPath: string): unknown {
-  if (!fieldPath.includes('.')) return data[fieldPath];
+  if (!fieldPath.includes('.')) {
+    return Object.hasOwn(data, fieldPath) ? data[fieldPath] : undefined;
+  }
   let current: unknown = data;
   for (const segment of fieldPath.split('.')) {
     if (current === null || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    if (!Object.hasOwn(current, segment)) return undefined;
     current = (current as Record<string, unknown>)[segment];
   }
   return current;
@@ -241,13 +288,7 @@ function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryCons
   // order, then the document key (#1364, FL-4).
   const normalizedOrders = normalizeQueryOrders(explicitOrders, inequalityFields);
 
-  // Place normalized `orderBy` clauses before resolved snapshot cursors so host
-  // positional cursor normalization sees every sort slot including `__name__`.
-  const resolved: QueryConstraintDescriptor[] = normalizedOrders.map((order) => ({
-    kind: 'orderBy',
-    field: order.field,
-    direction: order.direction,
-  }));
+  const resolved: QueryConstraintDescriptor[] = [];
 
   for (const item of items) {
     if (isSnapshotCursor(item)) {
@@ -258,15 +299,20 @@ function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryCons
           `Snapshot-based cursors require an existing document — got an empty snapshot for ${snapshot.id || '<unknown>'}.`,
         );
       }
-      const values = normalizedOrders.map((order) =>
-        order.field === KEY_FIELD
-          ? encodeDocValue(snapshot.path)
-          : encodeDocValue(readSnapshotField(snapshot.data!, order.field)),
-      );
-      resolved.push({ kind: item.kind, values, valueEncoding: DOC_VALUE_ENCODING });
+      const values = normalizedOrders.map((order) => {
+        if (order.field === KEY_FIELD) {
+          return { __type: 'reference', path: snapshot.path };
+        }
+        return encodeDocValue(readSnapshotField(snapshot.data!, order.field));
+      });
+      resolved.push({
+        kind: item.kind,
+        values,
+        fromSnapshot: true,
+        valueEncoding: DOC_VALUE_ENCODING,
+      });
       continue;
     }
-    if (item.kind === 'orderBy') continue;
     resolved.push(item);
   }
   return resolved;
@@ -377,9 +423,7 @@ export function query(
       : (sourceDescriptor as DocRef | CollRef | GroupRef),
     constraints: resolveQueryConstraints(allItems),
   };
-  const handle = createQueryHandle(source.port, descriptor, source.converter);
-  rawQueryItems.set(handle, allItems);
-  return handle;
+  return createQueryHandle(source.port, descriptor, source.converter, allItems);
 }
 
 // ─── Sentinel factories (client-side markers) ────────────────────────────
