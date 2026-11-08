@@ -43,9 +43,12 @@ both again. With no `app`, it records the data plane only.
 Key fields:
 
 - `finding.campaign`, `finding.probe`: the probe slug names the output directory.
-- `app.dist`: a built static bundle (`app.build` can produce it first).
+- `app.dist`: a built static bundle (`app.build` can produce it first). Omit `app` for a data-plane-only recording.
+- `rules.rtdb` (or `rules.database`) / `firestore` / `storage`: paths to the baseline Rules when recording standalone or overriding the export. Relative paths in `scenario.json` (`rules.*`, `fixRules.*`, `seedFile`, `app.dist`, `behavior.fixApp.dist`) resolve against the scenario file's directory.
+- `seedFile` (or `--seed`): JSON seed file using the multi-service envelope. Accepted top-level envelope keys are `"version"`, `"firestore"`, `"database"`, `"databases"`, `"rtdb"`, `"auth"`, `"users"`, and `"storage"`. Whenever Realtime Database is configured (including dual Firestore and RTDB setups and the build variant), the seed must declare `"database"`, `"databases"` (`{ "<instance>": { ... } }` for multi-instance RTDB), or `"rtdb"` (`"users"` seeds Auth accounts, not an RTDB `/users` path). User paths inside `"database"` or `"databases.<instance>"` (including top-level `/data`) are loaded verbatim without unwrapping; a bare RTDB tree fails Gate G1.
 - `actors.owner`, `actors.peer`: `uid`, `name`, `view`, `claims`, and an optional `expect.after` DOM assertion for G4.
-- `steps`: `ui` actions, `wait-expect`, or `sdk` operations (`service`, `method`, `path`, `data`; `rateHz` + `frames` for continuous motion).
+- `reproOperation`, `controlOperation`: SDK operations (`service`, `method`, `path`, optional `uid`, optional `instance` for multi-instance RTDB, and `data`) for standalone data-plane scenarios or export overrides. `reproOperation` supplies the probe metadata, target path, and Gate G5 fix replay operation; when `steps` is omitted (or has no `repro` SDK step), `reproOperation` also executes directly during Gate G3, whereas a non-empty `steps` array executes its steps during Gate G3 first. Write operations (`set`, `update`, `push`, `setDoc`, `updateDoc`, `addDoc`) require a non-null `data` payload (`update` and `updateDoc` require a JSON object; use `remove` or `deleteDoc` for deletions).
+- `steps`: `ui` actions, `wait-expect`, or `sdk` operations (`service`, `method`, `path`, optional `instance`, `data`; `rateHz` + `frames` for continuous motion).
 - `fixRules.rtdb` / `firestore` / `storage`: paths to the fixed Rules; `fixRules.before` / `after`: short snippets for the fix slide.
 
 ### From an assurance export
@@ -74,7 +77,7 @@ What the recorder reads from the export:
 | `results[].actorEvidence.uid` | The peer's uid |
 | `observations[]` | The owner's control: an `ALLOW` observation by another actor on the mutated path (or a sibling path), run with that actor's token |
 | `campaign.target.rules.rtdb` | The current Rules (the whole `{ "rules": … }` document) |
-| `campaign.target.state.rtdb` | The sandbox seed |
+| `campaign.target.state.rtdb` | The sandbox seed, wrapped automatically in `{ "database": <tree> }` |
 | `verifications[]` | Whether assurance confirmed the fix you are recording (see below) |
 | `invariant.statement`, `mutationSpec.description`, `probeId` | Default `why`, `repro`, and `title` copy |
 
@@ -151,9 +154,9 @@ To build before and after for a PR, follow [VERIFY.md](VERIFY.md).
 | 7 | Fix | `fix-slide` | The sequence after the change, highlighting what moved |
 | 8 | Fix demo | `fix-video` | The capture on the fixed rules or build |
 
-Copy keys: `title`, `repro`, `pathTitle`, `pathContext`, `attackTitle`,
-`attackContext`, `whyTitle`, `why`, `fixTitle`, `fixContext`, `severity`.
-Write short, plain sentences. Name what the user loses.
+Copy keys: `title`, `summary` (`repro` is accepted as an alias), `pathTitle`,
+`pathContext`, `attackTitle`, `attackContext`, `whyTitle`, `why`, `fixTitle`,
+`fixContext`, `severity`. Write short, plain sentences. Name what the user loses.
 
 ## 4. Visual rules
 
@@ -166,16 +169,19 @@ Write short, plain sentences. Name what the user loses.
 
 ## 5. Gates
 
-Numbering follows `scripts/lib/gates.mjs`.
+All six gates (`G1` through `G6`) are hard gates. Numbering follows
+`scripts/lib/gates.mjs`; if any gate fails, `record.mjs` and `render.mjs` remove
+any rendered `video.mp4` or `preview.gif`, write `status: "not-reproduced"` with
+`failedGate` in `manifest.json`, and exit non-zero.
 
 | Gate | Name | Passes when |
 |---|---|---|
-| G1 | Preconditions | The probe is `confirmed` or `local-counterexample`, and its target and mutation path are valid (build variant: both builds and the scenario validate) |
+| G1 | Preconditions | The probe is `confirmed` or `local-counterexample`, and its target, mutation path, and seed envelope are valid (build variant: both builds, the scenario, and any seed envelope validate) |
 | G2 | Baseline | The control operation is allowed (build variant: both actors appear on the before build) |
-| G3 | Reproduce | The repro succeeds and touches the expected path (build variant: the `check` still finds the entry after the action, decision `LEFT BEHIND`) |
-| G4 | Visible effect | The app view or the data-plane diff shows the change (build variant: no separate check; it rides on G3, so confirm the spotlight in keyframe QA) |
-| G5 | Fix verification | Under the fix, the repro is `DENY` with no changed paths and the control still passes (build variant: the entry is gone within `waitMs`, decision `REMOVED`) |
-| G6 | Render integrity | Video duration and dimensions, no dropped frames, non-blank poster and keyframes, motion, locked provenance strip, secret and PII scan, copy consistent with events |
+| G3 | Reproduce | The repro succeeds and touches the expected path, or for read operations is `ALLOW` and returns protected data at the target path (build variant: the `check` still finds the entry after the action, decision `LEFT BEHIND`) |
+| G4 | Visible effect | The app view or the data-plane diff/returned read payload shows the effect (build variant: no separate check; it rides on G3, so confirm the spotlight in keyframe QA) |
+| G5 | Fix verification | Under the fix, the repro returns a genuine rule `DENY` (non-rule errors count as `ERROR` and fail G5) with no changed paths and the control still passes (build variant: the entry is gone within `waitMs`, decision `REMOVED`) |
+| G6 | Render integrity | Video duration and dimensions, no dropped frames, non-blank poster and keyframes, motion, locked provenance strip, secret and PII scan across copy/slides/beats/share markdown, and scenario plus generated slide/beat copy consistent with events |
 
 Copy must not say "fixed" or "blocked" unless the fix decision is `DENY`. A
 build-variant fix is `REMOVED`, so describe what the change does instead
@@ -190,6 +196,7 @@ with the exact verdict text. A custom stage that hides or edits it fails with
 - Rejected listener events after sign-out aren't logged.
 - The ToS dialog doesn't close; it is hidden during recording.
 - Throttled or delayed writes may never fire.
+- Pre-G5 state resets restore JSON values and do not preserve Realtime Database `.priority` metadata.
 
 Claims that depend on these need the Firebase emulator. Report them as not
 observable in the sandbox.
@@ -294,7 +301,7 @@ this is the build variant.
   },
   "copy": {
     "title": "Signing out leaves you visible in the space",
-    "repro": "When Alice signs out, a shared-chat app revokes her credentials before it cleans up. Her presence entry is left behind, so Bob keeps seeing her.",
+    "summary": "When Alice signs out, a shared-chat app revokes her credentials before it cleans up. Her presence entry is left behind, so Bob keeps seeing her.",
     "pathTitle": "Where presence lives",
     "pathContext": "Each open tab writes one entry here. Peers draw the facepile from this list, so the tab has to delete its own entry while it is still signed in.",
     "attackTitle": "Alice signs out",

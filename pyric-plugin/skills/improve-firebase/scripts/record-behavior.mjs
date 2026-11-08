@@ -24,6 +24,8 @@ import {
   validateBundleManifest,
   validateScenario,
 } from './lib/contracts.mjs';
+import { writeFailureBundle } from './lib/gates.mjs';
+import { inspectSeedPath } from './lib/seed-envelope.mjs';
 import { loadPlaywright, resolveChromiumExecutable } from './lib/runtime.mjs';
 import { selectCaptureBackend } from './lib/capture/backend.mjs';
 import { IsolatedSandbox } from './lib/sandbox-client.mjs';
@@ -69,7 +71,7 @@ function parseArgs(argv) {
 function writeSandboxConfig({ dist, rulesPath }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-behavior-cfg-'));
   const cfg = {
-    ...(rulesPath ? { database: { rules: rulesPath } } : {}),
+    ...(rulesPath ? { database: { rules: path.resolve(rulesPath) } } : {}),
     hosting: { public: path.resolve(dist), rewrites: [{ source: '**', destination: '/index.html' }] },
   };
   const cfgPath = path.join(dir, 'firebase.json');
@@ -84,7 +86,7 @@ async function startSandbox({ dist, rulesPath, seedPath }) {
 }
 
 async function presenceEntries(sandbox, checkPath) {
-  const val = await sandbox.readState('database', checkPath).catch(() => null);
+  const val = await sandbox.readState('database', checkPath, { admin: true }).catch(() => null);
   return Object.entries(val || {}).map(([clientId, entry]) => ({ clientId, uid: entry?.uid ?? null }));
 }
 
@@ -206,18 +208,32 @@ export async function recordBehaviorEvidence({
 }) {
   const t0 = Date.now();
   const timings = {};
-  const raw = JSON.parse(fs.readFileSync(scenarioPath, 'utf8'));
+  const resolvedScenarioPath = path.resolve(scenarioPath);
+  const scenarioDir = path.dirname(resolvedScenarioPath);
+  const resolveFromScenario = (p) =>
+    typeof p === 'string' && p.trim().length > 0 && !path.isAbsolute(p)
+      ? path.resolve(scenarioDir, p.trim())
+      : p;
+  const raw = JSON.parse(fs.readFileSync(resolvedScenarioPath, 'utf8'));
   const scenario = validateScenario(raw);
   const behavior = scenario.behavior;
   if (!behavior) throw new BehaviorRecordError('NOT_A_BEHAVIOR_SCENARIO', 'scenario.behavior is required');
-  if (!scenario.app?.dist || !fs.existsSync(scenario.app.dist)) {
-    throw new BehaviorRecordError('MISSING_APP_DIST', `Before build not found: ${scenario.app?.dist}`);
+  const beforeAppDist = scenario.app?.dist ? resolveFromScenario(scenario.app.dist) : null;
+  const afterAppDist = behavior.fixApp?.dist ? resolveFromScenario(behavior.fixApp.dist) : null;
+  if (!beforeAppDist || !fs.existsSync(beforeAppDist)) {
+    throw new BehaviorRecordError('MISSING_APP_DIST', `Before build not found: ${beforeAppDist || scenario.app?.dist}`);
   }
-  if (!fs.existsSync(behavior.fixApp.dist)) {
-    throw new BehaviorRecordError('MISSING_FIX_DIST', `After build not found: ${behavior.fixApp.dist}`);
+  if (!afterAppDist || !fs.existsSync(afterAppDist)) {
+    throw new BehaviorRecordError('MISSING_FIX_DIST', `After build not found: ${afterAppDist || behavior.fixApp?.dist}`);
   }
-  const rulesPath = raw.rules?.rtdb ? path.resolve(raw.rules.rtdb) : null;
-  const seed = seedPath || (raw.seedFile ? path.resolve(raw.seedFile) : null);
+  const rawRtdbRules = raw.rules?.rtdb ?? raw.rules?.database ?? null;
+  const rulesPath = rawRtdbRules ? resolveFromScenario(rawRtdbRules) : null;
+  let seed = null;
+  if (seedPath) {
+    seed = path.resolve(seedPath);
+  } else if (raw.seedFile) {
+    seed = resolveFromScenario(raw.seedFile);
+  }
   const check = behavior.check;
   const actorRole = behavior.action.actor || 'owner';
   const observerRole = actorRole === 'owner' ? 'peer' : 'owner';
@@ -232,6 +248,27 @@ export async function recordBehaviorEvidence({
   fs.rmSync(bundleDir, { recursive: true, force: true });
   fs.mkdirSync(bundleDir, { recursive: true });
 
+  if (seed) {
+    const seedCheck = inspectSeedPath(seed, { requireRtdb: true });
+    if (!seedCheck.ok) {
+      writeFailureBundle({
+        outDir: bundleDir,
+        finding: scenario.finding,
+        failedGate: 'G1',
+        reasons: [seedCheck.reason],
+        provenanceText: buildLockedProvenanceText({
+          decision: 'PENDING',
+          fixedDecision: 'PENDING',
+          service: 'auth',
+          method: 'signOut',
+          path: check.path,
+          actorLabel: actor.uid,
+        }),
+      });
+      throw new BehaviorRecordError('GATE_G1_FAILED', seedCheck.reason);
+    }
+  }
+
   const events = [];
   const uiFocus = {};
   let before = null;
@@ -240,7 +277,7 @@ export async function recordBehaviorEvidence({
   let captureArtifact = null;
 
   try {
-    before = await startSandbox({ dist: scenario.app.dist, rulesPath, seedPath: seed });
+    before = await startSandbox({ dist: beforeAppDist, rulesPath, seedPath: seed });
     timings.sandboxBeforeSec = (Date.now() - t0) / 1000;
     log(`before sandbox: ${before.appUrl}`);
 
@@ -325,7 +362,7 @@ export async function recordBehaviorEvidence({
     timings.beforeDoneSec = (Date.now() - t0) / 1000;
 
     // Phase 2: after build, same windows, same capture
-    after = await startSandbox({ dist: behavior.fixApp.dist, rulesPath, seedPath: seed });
+    after = await startSandbox({ dist: afterAppDist, rulesPath, seedPath: seed });
     log(`after sandbox: ${after.appUrl}`);
     await signInAll({ pages, sandbox: after.sandbox, appUrl: after.appUrl, actors: scenario.actors, collapseSidebar });
     const presentAfter = await waitFor(
@@ -434,7 +471,17 @@ export async function recordBehaviorEvidence({
   if (render) {
     const tRender = Date.now();
     const { renderEvidenceBundle } = await import('./render.mjs');
-    rendered = await renderEvidenceBundle({ evidenceDir: bundleDir, formats, fps, log });
+    try {
+      rendered = await renderEvidenceBundle({ evidenceDir: bundleDir, formats, fps, log });
+    } catch (renderErr) {
+      if (
+        renderErr?.code === 'GATE_G6_FAILED' ||
+        renderErr?.code === 'PROVENANCE_MISSING_OR_HIDDEN'
+      ) {
+        throw new BehaviorRecordError('GATE_G6_FAILED', renderErr.message, renderErr.details);
+      }
+      throw renderErr;
+    }
     timings.renderSec = (Date.now() - tRender) / 1000;
   }
   timings.totalSec = (Date.now() - t0) / 1000;

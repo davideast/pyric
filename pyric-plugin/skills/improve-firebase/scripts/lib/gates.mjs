@@ -14,8 +14,11 @@ import zlib from 'node:zlib';
 import {
   BUNDLE_SCHEMA,
   buildLockedProvenanceText,
+  extractReadPayload,
+  isReadOperationMethod,
   validateBundleManifest,
 } from './contracts.mjs';
+import { inspectSeedPath } from './seed-envelope.mjs';
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -419,10 +422,12 @@ export function scanTextForSecretsAndPii(text, { allowedEmails = [] } = {}) {
 }
 
 /**
- * Verify locked provenance text and copy consistency against verified execution events.
+ * Verify locked provenance text and copy/slide/beat consistency against verified execution events.
  */
 export function checkCopyAgainstEvents({
   copy,
+  slides = [],
+  beats = [],
   provenanceText,
   reproEvent,
   fixEvent,
@@ -460,34 +465,139 @@ export function checkCopyAgainstEvents({
     }
   }
 
-  if (copy !== undefined && copy !== null) {
-    const reproCopyText =
-      typeof copy === 'string'
-        ? copy
-        : isPlainObject(copy)
-          ? [copy.title, copy.summary, copy.why, copy.baseline].filter(Boolean).join(' ')
-          : '';
+  const slideList = Array.isArray(slides) ? slides.filter(isPlainObject) : [];
+  const beatList = Array.isArray(beats) ? beats.filter(isPlainObject) : [];
 
-    if (reproEvent.decision === 'ALLOW' && reproCopyText) {
-      if (/(?<!\bnot\s)\b(DENIED|BLOCKED)\b/i.test(reproCopyText)) {
+  const reproSlideTexts = slideList
+    .filter((s) => s.id === 'problem-slide' || s.id === 'problem-video')
+    .flatMap((s) => [s.title, s.subtitle])
+    .filter((s) => typeof s === 'string' && s.trim().length > 0);
+  const reproBeatTexts = beatList
+    .filter((b) => b.phase === 'repro')
+    .map((b) => b.caption)
+    .filter((s) => typeof s === 'string' && s.trim().length > 0);
+
+  let copyReproFields = [];
+  if (typeof copy === 'string') {
+    copyReproFields = [copy];
+  } else if (isPlainObject(copy)) {
+    copyReproFields = [copy.title, copy.summary, copy.why, copy.baseline, copy.attackTitle, copy.attackContext].filter(
+      (s) => typeof s === 'string' && s.trim().length > 0,
+    );
+  }
+
+  const reproDecisionCorpus = [...copyReproFields, ...reproSlideTexts, ...reproBeatTexts].join(' ');
+  if (reproEvent.decision === 'ALLOW' && reproDecisionCorpus) {
+    if (/(?<!\bnot\s)\b(DENIED|BLOCKED)\b/i.test(reproDecisionCorpus)) {
+      reasons.push(
+        'Copy contradicts repro event: repro decision is ALLOW, but copy or slide claims DENIED or BLOCKED',
+      );
+    }
+  }
+
+  if (fixEvent && fixEvent.decision !== 'DENY' && fixEvent.decision !== 'REMOVED') {
+    let fixCopyFields = [];
+    if (typeof copy === 'string') {
+      fixCopyFields = [copy];
+    } else if (isPlainObject(copy)) {
+      fixCopyFields = [copy.fixed, copy.fixTitle, copy.fixContext, copy.title, copy.summary, copy.why].filter(
+        (s) => typeof s === 'string' && s.trim().length > 0,
+      );
+    }
+    const fixSlideTexts = slideList
+      .filter((s) => s.id === 'fix-slide' || s.id === 'fix-video')
+      .flatMap((s) => [s.title, s.subtitle, s.titleAfter])
+      .filter((s) => typeof s === 'string' && s.trim().length > 0);
+    const fixBeatTexts = beatList
+      .filter((b) => b.phase === 'fix')
+      .map((b) => b.caption)
+      .filter((s) => typeof s === 'string' && s.trim().length > 0);
+    const fixDecisionCorpus = [...fixCopyFields, ...fixSlideTexts, ...fixBeatTexts].join(' ');
+    if (fixDecisionCorpus && /(?<!\bnot\s)\b(FIXED|BLOCKED)\b/i.test(fixDecisionCorpus)) {
+      reasons.push(
+        `Copy contradicts fix event: fix decision is ${fixEvent.decision ?? 'missing'} (expected DENY), but copy or slide claims FIXED or BLOCKED`,
+      );
+    }
+  }
+
+  // Operation-kind and rule-clause consistency across scenario copy, rendered slides, and beats
+  const methodLower = String(method || '').trim().toLowerCase();
+  const isBehaviorAuthOp = String(service || '').toLowerCase() === 'auth' || reproEvent.decision === 'LEFT BEHIND';
+  if (!isBehaviorAuthOp && methodLower) {
+    const hasStateBefore = 'stateBefore' in reproEvent && reproEvent.stateBefore !== undefined;
+    const isRead = isReadOperationMethod(methodLower);
+    const isDelete =
+      !isRead &&
+      (['remove', 'delete', 'del', 'deletedoc', 'deleteobject'].includes(methodLower) ||
+        (hasStateBefore &&
+          reproEvent.stateBefore !== null &&
+          reproEvent.stateAfter === null &&
+          (reproEvent.data === null || reproEvent.data === undefined)));
+    const isCreate =
+      !isRead &&
+      !isDelete &&
+      (['push', 'add', 'adddoc', 'create'].includes(methodLower) ||
+        (hasStateBefore && reproEvent.stateBefore === null));
+
+    const attackTexts = [
+      ...(isPlainObject(copy) ? [copy.attackTitle, copy.attackContext] : []),
+      ...reproSlideTexts,
+      ...reproBeatTexts,
+    ].filter((s) => typeof s === 'string' && s.trim().length > 0);
+    const summaryAndAttackTexts = [
+      ...(isPlainObject(copy) ? [copy.summary] : []),
+      ...attackTexts,
+    ].filter((s) => typeof s === 'string' && s.trim().length > 0);
+
+    if (isRead && summaryAndAttackTexts.some((t) => /\b(overwrites?|overwritten|deletes?|deleted)\b/i.test(t))) {
+      reasons.push(
+        'Copy/slide contradicts read repro event: operation is a read, but copy or slide claims overwrite or delete',
+      );
+    }
+
+    if (isCreate) {
+      if (attackTexts.some((t) => /\b(overwrites?|overwritten|existing)\b/i.test(t))) {
         reasons.push(
-          'Copy contradicts repro event: repro decision is ALLOW, but copy claims DENIED or BLOCKED',
+          'Copy/slide contradicts create repro event: stateBefore is null (new record), but copy or slide claims overwrite/existing',
         );
+      }
+      const pathSlides = slideList.filter((s) => s.id === 'path-slide' && Array.isArray(s.pathTokens));
+      for (const ps of pathSlides) {
+        const lastTok = ps.pathTokens[ps.pathTokens.length - 1];
+        const detail = lastTok?.callout?.detail;
+        if (typeof detail === 'string' && /\bauthored by\s+\S+/i.test(detail)) {
+          reasons.push(
+            `Path slide contradicts create repro event: non-existent key cannot be labeled "${detail}"`,
+          );
+        }
       }
     }
 
-    if (fixEvent && fixEvent.decision !== 'DENY') {
-      const fixCopyText =
-        typeof copy === 'string'
-          ? copy
-          : isPlainObject(copy)
-            ? [copy.fixed, copy.title, copy.summary, copy.why].filter(Boolean).join(' ')
-            : '';
-      if (fixCopyText && /(?<!\bnot\s)\b(FIXED|BLOCKED)\b/i.test(fixCopyText)) {
-        reasons.push(
-          `Copy contradicts fix event: fix decision is ${fixEvent.decision ?? 'missing'} (expected DENY), but copy claims FIXED or BLOCKED`,
-        );
-      }
+    if (isDelete && attackTexts.some((t) => /\b(overwrites?|overwritten)\b/i.test(t))) {
+      reasons.push(
+        'Copy/slide contradicts delete repro event: operation deletes data, but copy or slide claims overwrite',
+      );
+    }
+
+    const fixDescriptionTexts = [
+      ...(isPlainObject(copy) ? [copy.fixContext] : []),
+      ...slideList
+        .filter((s) => s.id === 'fix-slide')
+        .flatMap((s) => [
+          s.title,
+          s.subtitle,
+          ...(Array.isArray(s.beforeDiffTree) ? s.beforeDiffTree.map((n) => n?.note) : []),
+        ]),
+    ].filter((s) => typeof s === 'string' && s.trim().length > 0);
+
+    const afterRuleStr = String(fixEvent?.matchedRule || '');
+    if (
+      fixDescriptionTexts.some((t) => /require a new record/i.test(t)) &&
+      (!afterRuleStr || !/!data\.exists|data\.exists\(\)\s*===\s*false|resource\s*==\s*null|!exists\(/i.test(afterRuleStr))
+    ) {
+      reasons.push(
+        'Fix slide/copy claims "require a new record" without a new-record predicate in the fixed rule',
+      );
     }
   }
 
@@ -499,9 +609,12 @@ export function checkCopyAgainstEvents({
 }
 
 /**
- * Gate G1: Preconditions (probe classification, target hash, mutationSpec path, invariant).
+ * Gate G1: Preconditions (probe classification, target hash, mutationSpec path, invariant, seed envelope).
  */
-export function evaluateGateG1(probe, { expectedTargetHash } = {}) {
+export function evaluateGateG1(
+  probe,
+  { expectedTargetHash, seedPath = null, requireRtdbSeedEnvelope = false } = {},
+) {
   const reasons = [];
 
   if (!isPlainObject(probe)) {
@@ -534,6 +647,15 @@ export function evaluateGateG1(probe, { expectedTargetHash } = {}) {
     (typeof probe.invariant !== 'string' || probe.invariant.trim().length > 0);
   if (!hasInvariant) {
     reasons.push('Missing probe.invariant');
+  }
+
+  if (seedPath !== undefined && seedPath !== null && String(seedPath).trim().length > 0) {
+    const seedCheck = inspectSeedPath(String(seedPath), {
+      requireRtdb: Boolean(requireRtdbSeedEnvelope),
+    });
+    if (!seedCheck.ok) {
+      reasons.push(seedCheck.reason);
+    }
   }
 
   return {
@@ -582,8 +704,33 @@ function pathsMatchOrRelated(a, b) {
   return nb.startsWith(`${na}/`) || na.startsWith(`${nb}/`);
 }
 
+function hasReturnedProtectedData(reproResult) {
+  if ('readValue' in reproResult) {
+    return reproResult.readValue !== null && reproResult.readValue !== undefined;
+  }
+  if (isPlainObject(reproResult.data) && Array.isArray(reproResult.data.docs)) {
+    return reproResult.data.docs.length > 0;
+  }
+  if (isPlainObject(reproResult.data) && 'exists' in reproResult.data && reproResult.data.exists === true) {
+    const extracted = extractReadPayload(reproResult);
+    if ('value' in reproResult.data || 'data' in reproResult.data) {
+      return extracted !== null && extracted !== undefined;
+    }
+    return true;
+  }
+  const extracted = extractReadPayload(reproResult);
+  if (extracted !== undefined) {
+    return extracted !== null;
+  }
+  if (isPlainObject(reproResult.stateDiff) && 'after' in reproResult.stateDiff) {
+    return reproResult.stateDiff.after !== null && reproResult.stateDiff.after !== undefined;
+  }
+  return false;
+}
+
 /**
- * Gate G3: Reproduce (peer repro must be ALLOW and affect expected path when changedPaths provided).
+ * Gate G3: Reproduce (peer repro must be ALLOW and affect expected path when changedPaths provided,
+ * or return protected data at the target path for read operations).
  */
 export function evaluateGateG3(reproResult, expectedPaths = []) {
   const reasons = [];
@@ -605,7 +752,21 @@ export function evaluateGateG3(reproResult, expectedPaths = []) {
       ? [expectedPaths]
       : [];
 
-  if (expectedList.length > 0 && Array.isArray(reproResult.changedPaths)) {
+  const method = reproResult.method ?? reproResult.operation?.method;
+  if (isReadOperationMethod(method)) {
+    if (reproResult.decision === 'ALLOW' && !hasReturnedProtectedData(reproResult)) {
+      reasons.push('Read reproduce returned no protected data at target path');
+    }
+    const reproPath = reproResult.path ?? reproResult.operation?.path;
+    if (expectedList.length > 0 && typeof reproPath === 'string' && reproPath.trim().length > 0) {
+      const matched = expectedList.some((expected) => pathsMatchOrRelated(expected, reproPath));
+      if (!matched) {
+        reasons.push(
+          `Read reproduce path ${JSON.stringify(reproPath)} does not match expected paths ${JSON.stringify(expectedList)}`,
+        );
+      }
+    }
+  } else if (expectedList.length > 0 && Array.isArray(reproResult.changedPaths)) {
     const matched = expectedList.some((expected) =>
       reproResult.changedPaths.some((changed) => pathsMatchOrRelated(expected, changed)),
     );
@@ -639,10 +800,16 @@ export function evaluateGateG4({ mode = 'data-plane', expectResult, stateDiff } 
       reasons.push(`App-view visible effect check failed (expected expectResult.pass === true)${detail}`);
     }
   } else if (mode === 'data-plane') {
-    const hasChangedPaths = Array.isArray(stateDiff?.changedPaths) && stateDiff.changedPaths.length > 0;
-    const hasAfterState = stateDiff?.after !== undefined;
-    if (!stateDiff || (!hasChangedPaths && !hasAfterState)) {
-      reasons.push('Data-plane visible effect check failed: stateDiff requires changedPaths or after state');
+    if (stateDiff?.isRead) {
+      if (stateDiff.after === undefined || stateDiff.after === null) {
+        reasons.push('Data-plane visible effect check failed: read stateDiff requires non-null protected data');
+      }
+    } else {
+      const hasChangedPaths = Array.isArray(stateDiff?.changedPaths) && stateDiff.changedPaths.length > 0;
+      const hasAfterState = stateDiff?.after !== undefined;
+      if (!stateDiff || (!hasChangedPaths && !hasAfterState)) {
+        reasons.push('Data-plane visible effect check failed: stateDiff requires changedPaths or after state');
+      }
     }
   } else {
     reasons.push(`Unsupported G4 mode "${mode}" (expected "data-plane" or "app-view")`);
@@ -724,6 +891,9 @@ export function evaluateGateG6({
   domProvenanceText,
   expectedProvenanceText,
   copy,
+  slides = [],
+  beats = [],
+  shareMarkdown = '',
   events = [],
   reproEvent,
   fixEvent,
@@ -888,20 +1058,25 @@ export function evaluateGateG6({
     );
   }
 
-  // 8. Secret & PII scan across serialized copy, domProvenanceText, and events
-  const serializedCopy =
-    copy !== undefined && copy !== null
-      ? typeof copy === 'string'
-        ? copy
-        : JSON.stringify(copy)
-      : '';
-  const serializedEvents =
-    events !== undefined && events !== null
-      ? typeof events === 'string'
-        ? events
-        : JSON.stringify(events)
-      : '';
-  const combinedText = [serializedCopy, domProvenanceText ?? '', serializedEvents]
+  // 8. Secret & PII scan across serialized copy, rendered slides/beats/share.md, domProvenanceText, and events
+  let serializedCopy = '';
+  if (copy !== undefined && copy !== null) {
+    serializedCopy = typeof copy === 'string' ? copy : JSON.stringify(copy);
+  }
+  let serializedEvents = '';
+  if (events !== undefined && events !== null) {
+    serializedEvents = typeof events === 'string' ? events : JSON.stringify(events);
+  }
+  const serializedSlides = Array.isArray(slides) && slides.length > 0 ? JSON.stringify(slides) : '';
+  const serializedBeats = Array.isArray(beats) && beats.length > 0 ? JSON.stringify(beats) : '';
+  const combinedText = [
+    serializedCopy,
+    serializedSlides,
+    serializedBeats,
+    typeof shareMarkdown === 'string' ? shareMarkdown : '',
+    domProvenanceText ?? '',
+    serializedEvents,
+  ]
     .filter((s) => typeof s === 'string' && s.length > 0)
     .join('\n');
 
@@ -913,7 +1088,7 @@ export function evaluateGateG6({
     }
   }
 
-  // 9. Copy vs Events consistency check
+  // 9. Copy & rendered slide/beat vs Events consistency check
   let resolvedReproduceEvent = reproEvent;
   let resolvedFixEvent = fixEvent;
   if (!resolvedReproduceEvent && Array.isArray(events)) {
@@ -936,9 +1111,11 @@ export function evaluateGateG6({
     );
   }
 
-  if (copy && resolvedReproduceEvent) {
+  if (resolvedReproduceEvent && (copy || (Array.isArray(slides) && slides.length > 0) || (Array.isArray(beats) && beats.length > 0))) {
     const copyCheck = checkCopyAgainstEvents({
       copy,
+      slides,
+      beats,
       provenanceText: domProvenanceText,
       reproEvent: resolvedReproduceEvent,
       fixEvent: resolvedFixEvent,
@@ -949,8 +1126,11 @@ export function evaluateGateG6({
     }
   }
 
+  const pass = reasons.length === 0;
   return {
-    pass: reasons.length === 0,
+    pass,
+    fatal: !pass,
+    ...(pass ? {} : { code: 'GATE_G6_FAILED', message: `Gate G6 verification failed: ${reasons.join('; ')}` }),
     gate: 'G6',
     name: 'Render integrity',
     reasons,
@@ -965,6 +1145,8 @@ export function evaluateAllGates(input = {}) {
   const {
     probe,
     expectedTargetHash,
+    seedPath,
+    requireRtdbSeedEnvelope,
     controlResult,
     reproResult,
     expectedPaths,
@@ -982,10 +1164,20 @@ export function evaluateAllGates(input = {}) {
   const resolvedControl = controlResult ?? probe?.control;
   const resolvedStateDiff = stateDiff ?? probe?.stateDiff;
   const baseReproduce = reproResult ?? probe?.mutation;
-  const resolvedReproduce =
-    isPlainObject(baseReproduce) && !baseReproduce.changedPaths && resolvedStateDiff?.changedPaths
-      ? { ...baseReproduce, changedPaths: resolvedStateDiff.changedPaths }
-      : baseReproduce;
+  const resolvedReproduce = isPlainObject(baseReproduce)
+    ? {
+        ...baseReproduce,
+        ...(baseReproduce.method === undefined && probe?.mutationSpec?.operation?.method
+          ? { method: probe.mutationSpec.operation.method }
+          : {}),
+        ...(baseReproduce.path === undefined && probe?.mutationSpec?.operation?.path
+          ? { path: probe.mutationSpec.operation.path }
+          : {}),
+        ...(!baseReproduce.changedPaths && resolvedStateDiff?.changedPaths
+          ? { changedPaths: resolvedStateDiff.changedPaths }
+          : {}),
+      }
+    : baseReproduce;
 
   const resolvedExpectedPaths =
     expectedPaths !== undefined
@@ -1001,7 +1193,11 @@ export function evaluateAllGates(input = {}) {
         ? Boolean(fix.enabled)
         : Boolean(fixReproduceResult || fix?.reproResult);
 
-  const g1 = evaluateGateG1(probe, { expectedTargetHash });
+  const g1 = evaluateGateG1(probe, {
+    expectedTargetHash,
+    seedPath,
+    requireRtdbSeedEnvelope,
+  });
   const g2 = evaluateGateG2(resolvedControl);
   const g3 = evaluateGateG3(resolvedReproduce, resolvedExpectedPaths);
   const g4 = evaluateGateG4({ mode, expectResult, stateDiff: resolvedStateDiff });
