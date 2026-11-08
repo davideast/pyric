@@ -389,7 +389,7 @@ const GATED = 'read _;';
  * it (#1274). After each spawn, before the driver looks for the child's
  * sockets, it starts a neighbor with output sockets of its own: sockets the
  * runner opened after the spawn. It notes the runner's end of each socket
- * from the kernel's peer record, not from the driver's numbering rule.
+ * from the kernel's peer record, read on its own, apart from the driver's.
  *
  * The kernel keeps that record only while both ends are open, so the child
  * and the neighbor each start with `GATED` and wait on stdin. The spawner
@@ -434,7 +434,7 @@ describe('where the output went when the runner lost close (#1797)', () => {
     expect(await child.exited).toBe(1);
     expect(child.output).toContain('the runner lost `close`; the driver records the exit (#1274)');
     const [stdoutEnd, stderrEnd] = childEnds;
-    expect(child.output).toMatch(new RegExp(`\\[driver\\] refuser's output sockets: stdout [^(]+ \\(socket ${stdoutEnd}, taken as the runner's end\\), stderr [^(]+ \\(socket ${stderrEnd}, taken as the runner's end\\); .+ \\(#1797\\)`));
+    expect(child.output).toMatch(new RegExp(`\\[driver\\] refuser's output sockets: stdout [^(]+ \\(socket ${stdoutEnd}, the runner's end\\), stderr [^(]+ \\(socket ${stderrEnd}, the runner's end\\); .+ \\(#1797\\)`));
     for (const end of neighborEnds) expect(child.output).not.toContain(`socket ${end}`);
     // The neighbor's sockets were left alone: its output arrives whole, through its own reader.
     expect(await neighborOutput).toBe('neighbor-output\n');
@@ -446,6 +446,7 @@ describe('where the output went when the runner lost close (#1797)', () => {
     expect(result.code).toBe(3);
     expect(result.output).toContain('the runner lost `close`');
     expect(result.output).toContain(`[driver] sh's output sockets: stdout`);
-    expect(result.output).toContain(`(socket ${childEnds[0]}, taken as the runner's end)`);
+    const [stdoutEnd, stderrEnd] = childEnds;
+    expect(result.output).toMatch(new RegExp(`stdout [^(]+ \\(socket ${stdoutEnd}, the runner's end\\), stderr [^(]+ \\(socket ${stderrEnd}, the runner's end\\)`));
   });
 });
