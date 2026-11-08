@@ -2,7 +2,7 @@
  * `pyric sandbox seed-from-live` — explicit opt-in seeding or export of
  * session-observed Live mode data into a local sandbox.
  *
- *   pyric sandbox seed-from-live --confirm [--mode merge|replace] [--json]
+ *   pyric sandbox seed-from-live --confirm [--replace] [--json]
  *   pyric sandbox seed-from-live --out <FILE> [--instance <NAME>] [--force] [--json]
  *
  * Live mode (`@pyric/live`) never mirrors observed production documents or RTDB
@@ -61,6 +61,11 @@ function isUnderPyricDir(projectDir: string, targetPath: string): boolean {
 
 function isTrueFlag(value: unknown): boolean {
   return value === true || value === 'true';
+}
+
+/** Whether a flag was left out or given as a boolean (`--flag`, `--flag true`, `--flag false`). */
+function isBooleanFlag(value: unknown): boolean {
+  return value === undefined || typeof value === 'boolean' || value === 'true' || value === 'false';
 }
 
 /** The host's answer as a JSON body, or the exit code after naming why there is none. */
@@ -220,8 +225,7 @@ export async function runSeedFromLive(
 
   const outFlag = parsed.flags.get('out');
   const rawConfirm = parsed.flags.get('confirm');
-  const isBooleanConfirm = rawConfirm === undefined || typeof rawConfirm === 'boolean' || rawConfirm === 'true' || rawConfirm === 'false';
-  if (!isBooleanConfirm) {
+  if (!isBooleanFlag(rawConfirm)) {
     err.write(`${PREFIX} --confirm must be boolean (pass --confirm alone).\n`);
     return 1;
   }
@@ -232,17 +236,23 @@ export async function runSeedFromLive(
     return 1;
   }
 
-  const mode = parsed.flags.get('mode') ?? 'merge';
-  if (mode !== 'merge' && mode !== 'replace') {
-    err.write(`${PREFIX} --mode must be 'merge' or 'replace'.\n`);
+  if (parsed.flags.has('mode')) {
+    err.write(`${PREFIX} --mode is not a flag. Seeding merges by default; pass --replace to replace the local sandbox instead.\n`);
     return 1;
   }
+  const rawReplace = parsed.flags.get('replace');
+  if (!isBooleanFlag(rawReplace)) {
+    err.write(`${PREFIX} --replace must be boolean (pass --replace alone).\n`);
+    return 1;
+  }
+  let mode: LiveSeedMode = 'merge';
+  if (isTrueFlag(rawReplace)) mode = 'replace';
 
   const exportsFile = typeof outFlag === 'string';
   if (!exportsFile && !confirm) {
     err.write(
       `${PREFIX} seeding observed production data into the local sandbox writes to .pyric/state/hosted on disk and requires explicit confirmation.\n` +
-        'Pass --confirm [--mode merge|replace] to seed .pyric/state/hosted, or --out <file.json> to export a seed JSON file.\n',
+        'Pass --confirm [--replace] to seed .pyric/state/hosted, or --out <file.json> to export a seed JSON file.\n',
     );
     return 1;
   }
