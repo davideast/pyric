@@ -50,6 +50,7 @@ import {
   redactEmails,
 } from 'pyric/sandbox/internal';
 import type { EventProvenance, Sandbox } from 'pyric/sandbox';
+import { getAuthLens } from '../sandbox/internal/auth-lens.js';
 import {
   storageOperationProvenance,
   storageRulesInForce,
@@ -379,7 +380,10 @@ export function enforceRules(
   // `result: 'not-applicable'` + `origin: 'admin'` — the same shape RTDB's
   // admin plane (`adminSet`/`adminGet`/...) emits, with an explicit
   // bypass disposition independent of source or auth-lens presentation.
-  if (target?.kind === 'sandbox' && target.admin === true) {
+  const isAdminPlane = target?.kind === 'sandbox' && (
+    target.admin === true || (target.currentAuth !== undefined && getAuthLens()?.mode === 'admin')
+  );
+  if (isAdminPlane) {
     emitOperation(allowTarget, input, 'not-applicable', undefined, 'admin', false, boundProvenance);
     return;
   }

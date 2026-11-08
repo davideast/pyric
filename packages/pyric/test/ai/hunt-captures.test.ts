@@ -46,19 +46,12 @@ function compare(production: Outcome, pyric: Outcome, pins: Pin[]): string[] {
   return replayMismatches({ production: { outcome, httpStatus } as Behavior, pyric: pyric as unknown as Behavior, pins });
 }
 
-const pinsFor = (finding: string, production: Outcome, pyric: Outcome): Pin[] => [
-  { key: 'outcome', finding, production: production.outcome, pyric: pyric.outcome },
-  { key: 'httpStatus', finding, production: production.httpStatus, pyric: pyric.httpStatus },
-];
-const ANSWERED: Outcome = { outcome: 'answered', httpStatus: 200 };
-
 describe('ai-request-edge replays', () => {
   test('ai-request-edge-roleless-contents: contents with no role (AI-21)', async () => {
     const production = productionOutcome('ai-request-edge-roleless-contents');
     const request = production.request.body as unknown as GenerateContentRequest;
     const pyric = await pyricOutcome(() => model(production.request.model).generateContent(request));
-    // Pyric refuses with "Role '' is not supported"; production answers the turn.
-    expect(compare(production, pyric, pinsFor('AI-21', ANSWERED, { outcome: 'refused', httpStatus: 400 }))).toEqual([]);
+    expect(compare(production, pyric, [])).toEqual([]);
   });
 
   test('ai-request-edge-string-system-instruction: startChat with a string systemInstruction (AI-22)', async () => {
@@ -68,13 +61,13 @@ describe('ai-request-edge replays', () => {
     const prompt = body.contents[0]?.parts[0]?.text ?? '';
     // The real SDK's startChat sends this string as a top-level systemInstruction, the request the capture sent.
     const pyric = await pyricOutcome(() => model(production.request.model).startChat({ systemInstruction }).sendMessage(prompt));
-    expect(compare(production, pyric, pinsFor('AI-22', { outcome: 'refused', httpStatus: 400 }, ANSWERED))).toEqual([]);
+    expect(compare(production, pyric, [])).toEqual([]);
   });
 
   test('ai-request-edge-model-gemini-pro: the model name gemini-pro (AI-23)', async () => {
     const production = productionOutcome('ai-request-edge-model-gemini-pro');
     const request = production.request.body as unknown as GenerateContentRequest;
     const pyric = await pyricOutcome(() => model(production.request.model).generateContent(request));
-    expect(compare(production, pyric, pinsFor('AI-23', { outcome: 'refused', httpStatus: 404 }, ANSWERED))).toEqual([]);
+    expect(compare(production, pyric, [])).toEqual([]);
   });
 });

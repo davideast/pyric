@@ -3,7 +3,7 @@ import { runSdkWrite } from 'pyric/sandbox/internal';
 import { validateWritablePath } from 'pyric/database/internal';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
 import { nextId } from './core.js';
-import { rtdbRpc } from './rtdb-references.js';
+import { rtdbRpc, withRtdbTransactionBarrier, withRtdbTransactionUpdate } from './rtdb-references.js';
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
 import { hydrateRtdbSnapshot, type RtdbWireSnapshot } from './rtdb-snapshots.js';
 import { validateRtdbTransactionValue } from './rtdb-value-validation.js';
@@ -35,29 +35,34 @@ export function rtdbRunTransaction<T>(
   options?: RtdbTransactionOptions,
 ): Promise<RtdbTransactionResult> {
   validateWritablePath('Reference.transaction', ref.path);
-  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'runTransaction', 'operation'), async () => {
-    for (let attempt = 0; attempt < 25; attempt++) {
-      const before = hydrateRtdbSnapshot(ref, await rtdbRpc(ref, {
-        t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
-      }));
-      const expected = before.val() as T | null;
-      const current = expected === null ? null : structuredClone(expected);
-      const value = transactionUpdate(current);
-      if (value === undefined) return transactionResult(false, before);
-      validateRtdbTransactionValue(value, ref.path);
-      // A commit in flight at a hosted drop rejects with Error('disconnect') and is not retried (#1088).
-      const wire = await rtdbRpc(ref, {
-        t: 'op',
-        id: nextId(),
-        method: 'rtdb.transactionCommit',
-        path: ref.path,
-        expected,
-        value,
-        applyLocally: options?.applyLocally,
-      }) as { retry?: boolean; committed: boolean; snapshot: RtdbWireSnapshot };
-      const snapshot = hydrateRtdbSnapshot(ref, wire.snapshot);
-      if (!wire.retry) return transactionResult(wire.committed, snapshot);
-    }
-    throw new Error('maxretry');
-  });
+  const run = () =>
+    withRtdbTransactionBarrier(ref, async () => {
+      for (let attempt = 0; attempt < 25; attempt++) {
+        const before = hydrateRtdbSnapshot(ref, await rtdbRpc(ref, {
+          t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
+        }));
+        const expected = before.val() as T | null;
+        let current: T | null = null;
+        if (expected !== null) {
+          current = structuredClone(expected);
+        }
+        const value = withRtdbTransactionUpdate(() => transactionUpdate(current));
+        if (value === undefined) return transactionResult(false, before);
+        validateRtdbTransactionValue(value, ref.path);
+        // A commit in flight at a hosted drop rejects with Error('disconnect') and is not retried (#1088).
+        const wire = await rtdbRpc(ref, {
+          t: 'op',
+          id: nextId(),
+          method: 'rtdb.transactionCommit',
+          path: ref.path,
+          expected,
+          value,
+          applyLocally: options?.applyLocally,
+        }) as { retry?: boolean; committed: boolean; snapshot: RtdbWireSnapshot };
+        const snapshot = hydrateRtdbSnapshot(ref, wire.snapshot);
+        if (!wire.retry) return transactionResult(wire.committed, snapshot);
+      }
+      throw new Error('maxretry');
+    });
+  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'runTransaction', 'operation'), run);
 }

@@ -27,6 +27,7 @@ import { makeAuthError } from './auth-errors.js';
 import { requireSandboxUser, userInternal } from './action-codes.js';
 import { AuthCredential, EmailAuthCredential } from './credentials.js';
 import type { AuthProvider } from './providers.js';
+import { SandboxBackend } from './sandbox-backend.js';
 import type { AuthFlowRequest, AuthFlowResolver, User, UserCredential } from './types.js';
 
 /**
@@ -73,7 +74,7 @@ export async function reauthenticateWithCredential(
     // The real check — same path signInWithEmailAndPassword takes, so it
     // throws the same `auth/wrong-password` / `auth/user-disabled`.
     target.backend.validatePassword(credential.email, password);
-    return completeReauth(user, target, null);
+    return completeReauth(user, target, null, credential.providerId);
   }
 
   // OAuth credential: the sandbox cannot verify an IdP token, so the only
@@ -160,17 +161,18 @@ function completeReauth(
   user: User,
   target: ReturnType<typeof requireSandboxUser>,
   providerId: string | null,
+  signInProvider: string | null = providerId,
 ): UserCredential {
   const stored = target.backend.findByUid(user.uid);
-  const claims = stored?.customClaims ?? {};
   // A successful re-auth is a fresh authentication: it restarts the
   // recent-login window and the next token carries the new authTime.
   const hasStoredUser = stored !== undefined;
   const refreshed = hasStoredUser ? target.backend.buildUserFromStored(stored) : user;
   // Both handles on the session authenticated now, so a revocation before it
   // no longer refuses their refresh.
-  target.backend.recordAuthentication(user.uid, user);
+  SandboxBackend.recordReauthentication(target.backend, user.uid, signInProvider, user);
   if (refreshed !== user) target.backend.recordAuthentication(user.uid, refreshed);
+  const claims = SandboxBackend.getEffectiveClaims(target.backend, user.uid);
   target.backend.getIdTokenResultFor(user.uid, claims, true, user.tenantId, user);
   return {
     user: refreshed,

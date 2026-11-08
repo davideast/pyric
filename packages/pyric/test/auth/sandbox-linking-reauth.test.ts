@@ -28,6 +28,7 @@ import {
   reauthenticateWithPopup,
   signInAnonymously,
   signInWithCredential,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signOut,
   unlink,
@@ -35,6 +36,7 @@ import {
   type Auth,
   type User,
 } from '../../src/auth/index.js';
+import { mintCustomTokenFor } from '../../src/auth/internal.js';
 
 function freshAuth(): Auth {
   return getAuth(initializeSandbox());
@@ -214,6 +216,28 @@ describe('reauthenticateWithCredential', () => {
 
     const after = await user.getIdToken();
     expect(after).not.toBe(before);
+  });
+
+  it('clears transient custom-token developer claims upon password reauthentication', async () => {
+    const auth = freshAuth();
+    const record = authSandbox.createUser(auth, {
+      email: 'ada@example.com',
+      password: 'pw123456',
+      customClaims: { storedRole: 'member' },
+    });
+    const customToken = mintCustomTokenFor(auth, record.uid, { tempAdmin: true });
+    const { user } = await signInWithCustomToken(auth, customToken);
+    expect((await user.getIdTokenResult()).claims.tempAdmin).toBe(true);
+
+    await reauthenticateWithCredential(
+      user,
+      EmailAuthProvider.credential('ada@example.com', 'pw123456'),
+    );
+    await user.getIdToken(true);
+    const refreshed = await user.getIdTokenResult();
+    expect(refreshed.signInProvider).toBe('password');
+    expect(refreshed.claims.tempAdmin).toBeUndefined();
+    expect(refreshed.claims.storedRole).toBe('member');
   });
 
   it('throws wrong-password for a bad password', async () => {

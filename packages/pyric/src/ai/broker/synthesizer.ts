@@ -182,6 +182,24 @@ export function emptyContents(): WireErrorEnvelope {
   );
 }
 
+/** `ai-request-edge-string-system-instruction` (400 INVALID_ARGUMENT): non-Content systemInstruction. */
+export function invalidSystemInstruction(value: unknown): WireErrorEnvelope {
+  const message = `Invalid value at 'system_instruction' (type.googleapis.com/google.ai.generativelanguage.v1beta.Content), ${JSON.stringify(value)}`;
+  const envelope = errorEnvelope(400, message, 'INVALID_ARGUMENT');
+  envelope.error.details = [
+    {
+      '@type': 'type.googleapis.com/google.rpc.BadRequest',
+      fieldViolations: [
+        {
+          field: 'system_instruction',
+          description: message,
+        },
+      ],
+    },
+  ];
+  return envelope;
+}
+
 /**
  * `ai-error-fncall-missing-thought-signature` (400 INVALID_ARGUMENT).
  * Production names the call `default_api:<name>` and a 1-based `position`

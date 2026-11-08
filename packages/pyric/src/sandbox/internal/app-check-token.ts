@@ -36,6 +36,7 @@ export const APP_CHECK_PLACEHOLDER_TOKEN = 'eyJlcnJvciI6IlVOS05PV05fRVJST1IifQ==
 export interface AppCheckIdentity {
   appId: string;
   projectId: string;
+  jti?: string;
 }
 
 export interface AppCheckTokenClaims {
@@ -75,15 +76,20 @@ export async function mintAppCheckToken(
   const iat = Math.floor(nowMillis / 1000);
   const exp = iat + ttlSeconds;
   const projectNumber = appCheckProjectNumber(identity.appId);
+  let limitedUseClaim = 'pyric-sandbox';
+  if (identity.jti !== undefined) {
+    limitedUseClaim = randomId();
+  }
+  const jtiClaim = identity.jti ?? randomId();
   const claims: AppCheckTokenClaims = {
     sub: identity.appId,
     aud: [`projects/${projectNumber}`, `projects/${identity.projectId}`],
     provider: 'pyric-sandbox',
-    lu: 'pyric-sandbox',
+    lu: limitedUseClaim,
     iss: `${ISSUER}/${projectNumber}`,
     exp,
     iat,
-    jti: randomId(),
+    jti: jtiClaim,
   };
   const token = await signAppCheckToken({ alg: 'RS256', kid: SANDBOX_JWT_KID, typ: 'JWT' }, claims);
   return { token, expireTimeMillis: exp * 1000 };

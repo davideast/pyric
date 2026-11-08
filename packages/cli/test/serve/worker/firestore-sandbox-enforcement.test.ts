@@ -7,7 +7,7 @@
  *   Evidence: `observations/firestore/firestore-read-denied-error-code.json`.
  * - FS-ENF-3a: Denied document `onSnapshot` on worker client carries `denialContext`.
  * - FS-ENF-6: Worker `runTransaction` enforces read-before-write
- *   (`failed-precondition`), respects `{ maxAttempts }`, and rejects with
+ *   (`invalid-argument`), respects `{ maxAttempts }`, and rejects with
  *   `code: 'failed-precondition'` on retry exhaustion.
  *   Evidence: `observations/firestore/firestore-transaction-contention-retries.json`.
  */
@@ -187,13 +187,13 @@ service cloud.firestore {
     const harness = createWorkerHarness(rules, { 'docs/d1': { n: 0 } });
 
     try {
-      // 1. Read after write inside worker runTransaction -> failed-precondition
+      // 1. Read after write inside worker runTransaction -> invalid-argument
       const rawErr = await workerClient.runTransaction(harness.wdb, async (tx) => {
         tx.set(workerClient.doc(harness.wdb, 'docs/d1'), { n: 1 });
         await tx.get(workerClient.doc(harness.wdb, 'docs/d1'));
       }).catch((e) => e);
       expect(rawErr).toBeInstanceOf(FirebaseError);
-      expect((rawErr as FirebaseError).code).toBe('failed-precondition');
+      expect((rawErr as FirebaseError).code).toBe('invalid-argument');
 
       // 2 & 3. Contention retry respects { maxAttempts: 2 } and rejects with failed-precondition
       let bumpCounter = 0;

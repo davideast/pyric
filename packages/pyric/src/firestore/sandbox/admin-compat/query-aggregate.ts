@@ -1,6 +1,6 @@
 import type { AggregateField, DocumentData } from './types.js';
 
-function resolveAggregateSegments(
+export function resolveAggregateSegments(
   fieldPath: string | { _internalPath?: { segments?: readonly string[] } },
   pathSegments?: readonly string[],
 ): readonly string[] {
@@ -16,7 +16,7 @@ function resolveAggregateSegments(
  * Read a (possibly nested or literal-dot) field path from a document for
  * `sum` and `average` aggregations.
  */
-function aggregateFieldValue(
+export function aggregateFieldValue(
   data: DocumentData,
   fieldPath: string | { _internalPath?: { segments?: readonly string[] } },
   pathSegments?: readonly string[],
@@ -51,7 +51,7 @@ export function computeAggregate(
   let count = 0;
   for (const row of rows) {
     const value = aggregateFieldValue(row.data, field.field, field.path);
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (typeof value === 'number') {
       sum += value;
       count++;
     }

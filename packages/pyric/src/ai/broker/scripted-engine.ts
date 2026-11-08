@@ -54,7 +54,7 @@ export function lastUserText(req: GenerateContentRequest): string {
   const contents = req.contents ?? [];
   for (let i = contents.length - 1; i >= 0; i--) {
     const c = contents[i]!;
-    const isUserTurn = (c.role ?? '').toLowerCase() === 'user';
+    const isUserTurn = c.role === undefined || c.role.toLowerCase() === 'user';
     const isFunctionResponseTurn = (c.parts ?? []).some((p) => p.functionResponse);
     if (isUserTurn && !isFunctionResponseTurn) {
       return (c.parts ?? []).map((p) => p.text ?? '').join('');

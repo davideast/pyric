@@ -93,8 +93,13 @@ export function requireSessionUser(session: MintedSession | null, api: string): 
  * session, and the new session keeps the held one's authentication.
  */
 export function remintSessionWithClaims(auth: Auth, session: MintedSession): MintedSession {
+  const providerClaim = (session.state.token?.firebase as { sign_in_provider?: string } | undefined)?.sign_in_provider;
+  let kind: 'custom' | 'uid' = 'uid';
+  if (providerClaim === 'custom') {
+    kind = 'custom';
+  }
   return authSandboxOps.mintSession(auth, {
-    kind: 'uid',
+    kind,
     uid: session.user.uid,
     tenantId: session.user.tenantId ?? null,
     from: session.user,

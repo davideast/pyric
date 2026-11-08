@@ -402,15 +402,34 @@ export function buildQuerySnapshot(
   options: { excludesMetadataChanges: boolean },
   prevDocs?: { path: string; data: DocumentData }[],
   metadata: SnapshotMetadata = SANDBOX_METADATA,
+  docPendingPaths?: ReadonlySet<string>,
+  metadataChangedPaths?: ReadonlySet<string>,
 ): QuerySnapshot {
-  const docs = docList.map((d) => buildQueryDocumentSnapshot(d.path, d.data, metadata));
+  const docMetaFor = (path: string): SnapshotMetadata => {
+    if (docPendingPaths === undefined) return metadata;
+    if (docPendingPaths.has(path)) return SANDBOX_METADATA_PENDING;
+    return SANDBOX_METADATA;
+  };
+  const docs = docList.map((d) => buildQueryDocumentSnapshot(d.path, d.data, docMetaFor(d.path)));
   const changes = computeDocumentChanges(
     prevDocs,
     docList,
     docs,
     (before, after) => firestoreValuesEqual(before.data, after.data),
-    (row) => buildQueryDocumentSnapshot(row.path, row.data, metadata),
+    (row) => buildQueryDocumentSnapshot(row.path, row.data, docMetaFor(row.path)),
   );
+  let changesWithMetadata: DocumentChange<QueryDocumentSnapshot>[] | undefined;
+  if (!options.excludesMetadataChanges) {
+    changesWithMetadata = computeDocumentChanges(
+      prevDocs,
+      docList,
+      docs,
+      (before, after) =>
+        firestoreValuesEqual(before.data, after.data)
+        && !(metadataChangedPaths?.has(after.path) ?? false),
+      (row) => buildQueryDocumentSnapshot(row.path, row.data, docMetaFor(row.path)),
+    );
+  }
   return {
     query,
     metadata,
@@ -418,7 +437,7 @@ export function buildQuerySnapshot(
     empty: docs.length === 0,
     docs,
     forEach: forEachDocument(docs),
-    docChanges: createDocChanges(changes, options.excludesMetadataChanges),
+    docChanges: createDocChanges(changes, options.excludesMetadataChanges, changesWithMetadata),
   };
 }
 
@@ -441,6 +460,7 @@ export const METADATA_CHANGES_NOT_REQUESTED_MESSAGE =
 export function createDocChanges<S>(
   changes: readonly DocumentChange<S>[],
   excludesMetadataChanges: boolean,
+  changesWithMetadata?: readonly DocumentChange<S>[],
 ): (options?: DocChangesOptions) => DocumentChange<S>[] {
   let withoutMetadata: DocumentChange<S>[] | null = null;
   let withMetadata: DocumentChange<S>[] | null = null;
@@ -449,10 +469,8 @@ export function createDocChanges<S>(
     if (wantsMetadata && excludesMetadataChanges) {
       throw new Error(METADATA_CHANGES_NOT_REQUESTED_MESSAGE);
     }
-    // The sandbox has no metadata-only document changes, so both views hold
-    // the same entries in separate arrays.
     if (wantsMetadata) {
-      withMetadata ??= changes.slice();
+      withMetadata ??= (changesWithMetadata ?? changes).slice();
       return withMetadata;
     }
     withoutMetadata ??= changes.slice();

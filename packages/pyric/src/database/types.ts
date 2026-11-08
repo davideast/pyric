@@ -85,6 +85,8 @@ export type EventType =
 
 export interface ListenOptions extends RecordedListenerOwners {
   readonly onlyOnce?: boolean;
+  /** Internal worker-host hint preserving the client listener's event kind for canonical fan-out ordering. */
+  readonly event?: EventType;
   /**
    * Pyric's own extension, absent from the Firebase Web SDK: who owns this
    * listener. A name, or the DOM element the listener feeds. It is recorded

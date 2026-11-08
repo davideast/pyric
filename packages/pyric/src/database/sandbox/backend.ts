@@ -6,7 +6,7 @@
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { BackendState } from './backend-state.js';
 import { ChildListeners } from './child-listeners.js';
-import type { ChildListener, ValueListenerSnapshot } from './listener-types.js';
+import type { ChildListener, ValueListener, ValueListenerSnapshot } from './listener-types.js';
 import { PersistenceState } from './persistence-state.js';
 import { generatePushId } from './push-id.js';
 import type { Priority, QueryRow, QuerySpec } from './query.js';
@@ -142,16 +142,18 @@ export class RtdbBackend {
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
     attribution?: ListenerAttribution,
+    event?: ValueListener['event'],
   ): () => void {
-    return this.values.onValue(auth, path, cb, query, cancelCallback, onCanceled, attribution);
+    return this.values.onValue(auth, path, cb, query, cancelCallback, onCanceled, attribution, event);
   }
 
   adminOnValue(
     path: string,
     cb: (snap: ValueListenerSnapshot) => void,
     query?: QuerySpec,
+    event?: ValueListener['event'],
   ): () => void {
-    return this.values.adminOnValue(path, cb, query);
+    return this.values.adminOnValue(path, cb, query, event);
   }
 
   runTransaction(

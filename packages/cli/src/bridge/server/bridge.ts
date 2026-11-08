@@ -634,10 +634,10 @@ export function createBridge(opts: BridgeOptions): Bridge {
   }
 
   function handleSandboxMessage(msg: BridgeMessage, msgGeneration?: number): void {
-    // Frames from a REPLACED peer's socket must not act on the current
-    // peer's state (subscriptions make stale delivery likely on tab
-    // refresh: the old tab's worker port keeps firing until its WS dies).
-    const stale = msgGeneration !== undefined && msgGeneration !== generation;
+    // Frames from a REPLACED or DISCONNECTED peer's socket must not act on
+    // bridge state (subscriptions make stale delivery likely on tab refresh
+    // or close: the old tab's worker port keeps firing until torn down).
+    const stale = msgGeneration !== undefined && (peer === null || msgGeneration !== generation);
     if (stale) return;
     const isOperationReply = msg.type === 'tool-result' || msg.type === 'worker-res';
     const hasInvalidReplyId = isOperationReply && typeof msg.id !== 'string';

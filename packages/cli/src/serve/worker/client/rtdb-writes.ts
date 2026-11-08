@@ -14,7 +14,7 @@ import { sandboxNow } from './clock.js';
 import { nextId } from './core.js';
 import { validateRtdbPriority, validateRtdbUpdateValues, validateRtdbValue } from './rtdb-value-validation.js';
 import type { RtdbRefHandle } from './handles.js';
-import { makeRtdbRef, rtdbRpc } from './rtdb-references.js';
+import { afterActiveRtdbTransactions, makeRtdbRef, normalizeRtdbPath, rtdbRpc } from './rtdb-references.js';
 
 const RTDB_PUSH_CHARS = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz';
 let lastRtdbPushTime = 0;
@@ -47,17 +47,21 @@ function generateRtdbPushId(now: number): string {
 export function rtdbSet(ref: RtdbRefHandle, value: unknown): Promise<void> {
   validateWritablePath('set', ref.path);
   validateRtdbValue('set', value, ref.path);
-  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'set', 'operation'), async () => {
-    await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.set', path: ref.path, value });
-  });
+  const run = () =>
+    afterActiveRtdbTransactions(ref, [ref.path], async () => {
+      await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.set', path: ref.path, value });
+    });
+  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'set', 'operation'), run);
 }
 
 export function rtdbSetPriority(ref: RtdbRefHandle, priority: string | number | null): Promise<void> {
   validateWritablePath('setPriority', ref.path);
   validateRtdbPriority('setPriority', priority);
-  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'setPriority', 'operation'), async () => {
-    await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.setPriority', path: ref.path, priority });
-  });
+  const run = () =>
+    afterActiveRtdbTransactions(ref, [ref.path], async () => {
+      await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.setPriority', path: ref.path, priority });
+    });
+  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'setPriority', 'operation'), run);
 }
 
 export function rtdbSetWithPriority(
@@ -68,26 +72,37 @@ export function rtdbSetWithPriority(
   validateWritablePath('setWithPriority', ref.path);
   validateRtdbValue('setWithPriority', value, ref.path);
   validateRtdbPriority('setWithPriority', priority);
-  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'setWithPriority', 'operation'), async () => {
-    await rtdbRpc(ref, {
-      t: 'op', id: nextId(), method: 'rtdb.setWithPriority', path: ref.path, value, priority,
+  const run = () =>
+    afterActiveRtdbTransactions(ref, [ref.path], async () => {
+      await rtdbRpc(ref, {
+        t: 'op', id: nextId(), method: 'rtdb.setWithPriority', path: ref.path, value, priority,
+      });
     });
-  });
+  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'setWithPriority', 'operation'), run);
 }
 
 export function rtdbUpdate(ref: RtdbRefHandle, values: Record<string, unknown>): Promise<void> {
   validateRtdbUpdateValues('update', values, ref.path);
   validateUpdatePaths(values);
-  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'update', 'operation'), async () => {
-    await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.update', path: ref.path, values });
-  });
+  const keys = Object.keys(values);
+  let targetPaths: string[] = [ref.path];
+  if (keys.length > 0) {
+    targetPaths = keys.map((key) => normalizeRtdbPath(`${ref.path}/${key}`));
+  }
+  const run = () =>
+    afterActiveRtdbTransactions(ref, targetPaths, async () => {
+      await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.update', path: ref.path, values });
+    });
+  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'update', 'operation'), run);
 }
 
 export function rtdbRemove(ref: RtdbRefHandle): Promise<void> {
   validateWritablePath('remove', ref.path);
-  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'remove', 'operation'), async () => {
-    await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.remove', path: ref.path });
-  });
+  const run = () =>
+    afterActiveRtdbTransactions(ref, [ref.path], async () => {
+      await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.remove', path: ref.path });
+    });
+  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'remove', 'operation'), run);
 }
 
 export function rtdbPush(
@@ -103,10 +118,12 @@ export function rtdbPush(
   if (value === undefined) {
     promise = Promise.resolve(settledRef);
   } else {
-    promise = runSdkWrite(beginWorkerDatabaseActivity(pushed, 'push', 'operation'), async () => {
-      await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.push', path: ref.path, key, value });
-      return settledRef;
-    });
+    const run = () =>
+      afterActiveRtdbTransactions(ref, [pushed.path], async () => {
+        await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.push', path: ref.path, key, value });
+        return settledRef;
+      });
+    promise = runSdkWrite(beginWorkerDatabaseActivity(pushed, 'push', 'operation'), run);
   }
   return Object.assign(pushed, {
     then: promise.then.bind(promise),

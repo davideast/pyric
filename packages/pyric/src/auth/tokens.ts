@@ -64,19 +64,13 @@ export function resolveCustomTokenIdentity(auth: Auth, customToken: string): { u
 
   const existing = target.backend.findByUid(payload.uid);
   const isNewUser = existing === undefined;
-  const hasExistingUser = !isNewUser;
-  const hasClaims = payload.claims !== undefined;
-  if (hasExistingUser) {
-    // A custom token re-asserts claims on every exchange — prod merges the
-    // token's claims into the session, so a claims change on the backend
-    // takes effect at the next sign-in without touching the user record.
-    if (hasClaims) {
-      target.backend.updateUser(payload.uid, { customClaims: payload.claims });
-    }
-  } else {
-    const identity = hasClaims ? { uid: payload.uid, customClaims: payload.claims } : { uid: payload.uid };
-    target.backend.createUser(identity);
+  if (isNewUser) {
+    target.backend.createUser({ uid: payload.uid });
   }
+  // A custom token asserts claims for the active session only: production merges
+  // the custom token's claims over the account's stored customClaims without
+  // writing them to the account record.
+  SandboxBackend.setCustomTokenClaims(target.backend, payload.uid, payload.claims);
   const stored = target.backend.findByUid(payload.uid);
   const missingIdentity = stored === undefined;
   if (missingIdentity) {
@@ -122,6 +116,14 @@ export function mintCustomTokenFor(auth: Auth, uid: string, claims?: Record<stri
   return mintCustomToken({
     uid, claims, projectId: SandboxBackend.tokenProjectId(target.backend), nowMs: getClock(target.sandbox).now(),
   });
+}
+
+/**
+ * Effective custom claims for `uid` in `auth`'s current session (stored custom
+ * claims merged with active custom-token claims when signed in via custom token).
+ */
+export function effectiveSessionClaimsFor(auth: Auth, uid: string): Record<string, unknown> {
+  return SandboxBackend.getEffectiveClaims(targetOf(auth).backend, uid);
 }
 
 // ─── revokeAccessToken ────────────────────────────────────────────────

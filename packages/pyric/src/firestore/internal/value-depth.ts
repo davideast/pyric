@@ -10,6 +10,7 @@ export function assertEncodedDocValueDepth(value: unknown): void {
 function checkContainerDepth(value: unknown, parentDepth: number): void {
   const isScalar = value === null || typeof value !== 'object';
   if (isScalar) return;
+  if ((value as { __type?: unknown }).__type === 'number') return;
   const depth = parentDepth + 1;
   const exceedsLimit = depth > MAX_ENCODED_DOCUMENT_DEPTH;
   if (exceedsLimit) {

@@ -204,9 +204,13 @@ function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessag
       msg.target.path,
       msg.target.query,
     );
-    const options: { owners?: typeof msg.owners } = {};
+    const options: {
+      owners?: typeof msg.owners;
+      event?: typeof msg.target.event;
+    } = {};
     const hasOwners = Boolean(msg.owners);
     if (hasOwners) options.owners = msg.owners;
+    if (msg.target.event !== undefined) options.event = msg.target.event;
     // The page logs the unspecified-index warning a production listen
     // response carries; it rides on the listener's first snapshot.
     let warning = listenIndexWarning(ref as DatabaseReference | RtdbQuery);

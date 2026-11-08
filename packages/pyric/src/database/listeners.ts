@@ -2,9 +2,9 @@ import { sdkActivity, type SdkActivityHandle } from '../sandbox/internal/sdk-act
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
-import type { ChildEventSnapshot } from './sandbox/listener-types.js';
+import type { ChildEventSnapshot, ValueListenerSnapshot } from './sandbox/listener-types.js';
 import type { JsonValue } from './sandbox/data-tree.js';
-import { authFor, targetOf, type Target } from './routing.js';
+import { authFor, isAdminFor, targetOf, type Target } from './routing.js';
 import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
 import type { QueryRow } from './internal/query-projection.js';
 import { isInfoPath } from './writable-path.js';
@@ -88,7 +88,11 @@ function attributionOf(options: ListenOptions | undefined): ListenerAttribution 
  * attribution, never `onlyOnce` itself, which the outer call already honored.
  */
 function ownerOnlyOptions(options: ListenOptions | undefined): ListenOptions | undefined {
-  return attributionOf(options);
+  if (options === undefined) return undefined;
+  const base = attributionOf(options);
+  if (options.event === undefined) return base;
+  if (base === undefined) return { event: options.event };
+  return { ...base, event: options.event };
 }
 
 function queryScope(r: DatabaseReference | Query): string {
@@ -154,6 +158,44 @@ export function onValue(
   } catch (error) { activity.fail(); throw error; }
 }
 
+function subscribeTrackedValue(
+  target: Target,
+  path: string,
+  spec: Query['_spec'] | undefined,
+  scope: string | undefined,
+  deliver: (raw: ValueListenerSnapshot) => void,
+  cancelCallback: ((error: Error) => void) | undefined,
+  listenOptions: ListenOptions | undefined,
+  registryCallback: (snap: DataSnapshot) => void,
+  activity: SdkActivityHandle,
+): Unsubscribe {
+  return registerTracked(target, path, 'value', registryCallback, activity, scope, (unregister) => {
+    if (target.admin === true) {
+      const subscribed = target.backend.adminOnValue(path, deliver, spec, listenOptions?.event);
+      return () => { unregister(); subscribed(); };
+    }
+    let cancelHandler: ((error: Error) => void) | undefined;
+    if (cancelCallback !== undefined) {
+      cancelHandler = (error) => { activity.fail(); cancelCallback(error); };
+    }
+    return subscribeWithLiveAuth(
+      target,
+      (auth, onCanceled, replaying) => {
+        const forward = (raw: ValueListenerSnapshot): void => { if (!replaying()) deliver(raw); };
+        if (isAdminFor(target)) {
+          return target.backend.adminOnValue(path, forward, spec, listenOptions?.event);
+        }
+        return target.backend.onValue(
+          auth, path, forward, spec, cancelHandler,
+          () => { activity.fail(); onCanceled(); },
+          attributionOf(listenOptions), listenOptions?.event,
+        );
+      },
+      unregister,
+    );
+  });
+}
+
 function onValueInternal(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
@@ -164,7 +206,6 @@ function onValueInternal(
 ): Unsubscribe {
   const hasCancelCallback = typeof cancelCallbackOrOptions === 'function';
   const cancelCallback = hasCancelCallback ? cancelCallbackOrOptions : undefined;
-  const reportsCancel = cancelCallback !== undefined;
   const listenOptions = hasCancelCallback ? options : cancelCallbackOrOptions;
   // `onlyOnce` (DB-B12): wrap the callback so it unsubscribes itself
   // after the first fire. The unsub is filled in once the real
@@ -207,7 +248,6 @@ function onValueInternal(
   if (isQueryTarget) {
     const q = r;
     const target = targetOf(q.ref);
-    const isAdmin = target.admin === true;
     const scope = queryScope(q);
     const deliver = (raw: { val: JsonValue; key: string | null; rows?: QueryRow[] }): void => {
       const rows = raw.rows ?? [];
@@ -222,29 +262,10 @@ function onValueInternal(
     // listen-plane sibling of `adminGet`/`adminSet` (#401). `admin` is set
     // only on server-minted `getAdminDatabase` handles, never anything a page
     // controls, so a page's `onValue` stays on the rule-gated path below.
-    return registerTracked(target, q.ref._path, 'value', registryCallback, activity, scope, (unregister) => {
-      if (isAdmin) {
-        const subscribed = target.backend.adminOnValue(q.ref._path, deliver, q._spec);
-        return () => { unregister(); subscribed(); };
-      }
-      return subscribeWithLiveAuth(
-        target,
-        (auth, onCanceled, replaying) => target.backend.onValue(
-          auth,
-          q.ref._path,
-          (snapshot) => { if (!replaying()) deliver(snapshot); },
-          q._spec,
-          reportsCancel ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
-          () => { activity.fail(); onCanceled(); },
-          attributionOf(listenOptions),
-        ),
-        unregister,
-      );
-    });
+    return subscribeTrackedValue(target, q.ref._path, q._spec, scope, deliver, cancelCallback, listenOptions, registryCallback, activity);
   }
   const ref0 = reference;
   const target = targetOf(ref0);
-  const isAdmin = target.admin === true;
   const wrapper = (raw: { val: JsonValue; key: string | null }): void => {
     const snap = buildSandboxSnapFromRaw(target, ref0, raw.val);
     try {
@@ -254,25 +275,7 @@ function onValueInternal(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  return registerTracked(target, ref0._path, 'value', registryCallback, activity, undefined, (unregister) => {
-    if (isAdmin) {
-      const subscribed = target.backend.adminOnValue(ref0._path, wrapper);
-      return () => { unregister(); subscribed(); };
-    }
-    return subscribeWithLiveAuth(
-      target,
-      (auth, onCanceled, replaying) => target.backend.onValue(
-        auth,
-        ref0._path,
-        (raw) => { if (!replaying()) wrapper(raw); },
-        undefined,
-        reportsCancel ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
-        () => { activity.fail(); onCanceled(); },
-        attributionOf(listenOptions),
-      ),
-      unregister,
-    );
-  });
+  return subscribeTrackedValue(target, ref0._path, undefined, undefined, wrapper, cancelCallback, listenOptions, registryCallback, activity);
 }
 
 /**
@@ -516,15 +519,16 @@ function onChildEvent(
     }
     return subscribeWithLiveAuth(
       target,
-      (auth, onCanceled, replaying) => target.backend.onChild(
-        auth,
-        event,
-        baseRef._path,
-        (raw) => { if (!replaying()) wrapper(raw); },
-        spec,
-        cancelCallback,
-        () => { activity.fail(); onCanceled(); },
-      ),
+      (auth, onCanceled, replaying) => {
+        const forward = (raw: ChildEventSnapshot): void => { if (!replaying()) wrapper(raw); };
+        if (isAdminFor(target)) {
+          return target.backend.adminOnChild(event, baseRef._path, forward, spec);
+        }
+        return target.backend.onChild(
+          auth, event, baseRef._path, forward, spec, cancelCallback,
+          () => { activity.fail(); onCanceled(); },
+        );
+      },
       unregister,
     );
   });

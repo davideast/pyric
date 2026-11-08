@@ -38,15 +38,23 @@ export async function buildFixture(
   excludePasswords = false,
 ): Promise<SandboxSeed> {
   const firestore = snapshotDocuments(sandbox);
-  const database = (await databaseGet(databaseRef(getAdminDatabase(sandbox)))).val() as
+  const database = (await databaseGet(databaseRef(getAdminDatabase(sandbox)))).exportVal() as
     | Record<string, unknown>
     | null;
   const storage = await exportStorage(getAdminStorageSandbox(sandbox), FIXTURE_EXPORT_DOCUMENT);
   const users: SeedUserEntry[] = authSandbox.exportUsers(getAuth(sandbox)).map((user) => {
     const record: SeedUserEntry = { uid: user.uid };
     if (user.email !== undefined) record.email = user.email;
+    if (user.emailVerified !== undefined) record.emailVerified = user.emailVerified;
+    if (user.displayName !== undefined) record.displayName = user.displayName;
+    if (user.photoUrl !== undefined) record.photoUrl = user.photoUrl;
+    if (user.phoneNumber !== undefined) record.phoneNumber = user.phoneNumber;
+    if (user.disabled !== undefined) record.disabled = user.disabled;
     if (user.customClaims !== undefined) record.customClaims = user.customClaims;
     if (user.tenantId !== undefined) record.tenantId = user.tenantId;
+    if (user.providerId !== undefined) record.providerId = user.providerId;
+    if (user.createdAt !== undefined) record.createdAt = user.createdAt;
+    if (user.lastLoginAt !== undefined) record.lastLoginAt = user.lastLoginAt;
     if (!excludePasswords && user.password !== undefined) record.password = user.password;
     return record;
   });

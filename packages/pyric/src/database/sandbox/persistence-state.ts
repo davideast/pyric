@@ -192,8 +192,7 @@ export class PersistenceState {
     this.state.priorities.restore(persisted.priorities);
     this.state.mutations.mark('/');
     this.writes.cancelDeniedListeners();
-    this.values.fanOut(['/']);
-    this.children.fanOut(priors);
+    this.writes.fanOutAll(['/'], priors);
   }
 
   reset(preserveRules = false): void {
@@ -207,8 +206,7 @@ export class PersistenceState {
       this.state.activeRules = null;
     }
     this.writes.cancelDeniedListeners();
-    this.values.fanOut(['/']);
-    this.children.fanOut(priors);
+    this.writes.fanOutAll(['/'], priors);
   }
 
   subscribe(onChange: () => void): () => void {

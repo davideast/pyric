@@ -13,9 +13,16 @@ export class RtdbConnectionLifecycle {
   constructor(
     private readonly backend: RtdbBackend,
     private readonly auth: () => AuthState,
-    private readonly admin: boolean,
+    private readonly admin: boolean | (() => boolean),
   ) {
     this.resetGeneration = backend.connectionResetGeneration;
+  }
+
+  private isAdmin(): boolean {
+    if (typeof this.admin === 'function') {
+      return this.admin();
+    }
+    return this.admin;
   }
 
   private synchronizeReset(): void {
@@ -29,7 +36,7 @@ export class RtdbConnectionLifecycle {
   register(operation: DisconnectOperation): Promise<void> {
     this.synchronizeReset();
     try {
-      const requiresRules = !this.admin;
+      const requiresRules = !this.isAdmin();
       if (requiresRules) {
         // Decided when registered, as production decides it, and recorded as
         // an `onDisconnect.*` operation so a captured session carries it.
@@ -99,7 +106,7 @@ export class RtdbConnectionLifecycle {
       for (const operation of queued) {
         try {
           const isUpdate = operation.kind === 'update';
-          const isAdmin = this.admin;
+          const isAdmin = this.isAdmin();
           if (isUpdate) {
             if (isAdmin) {
               this.backend.adminUpdate(operation.path, operation.values as Record<string, JsonValue>);

@@ -255,13 +255,25 @@ export function makeQuerySnapshot(
     (before, after) => before.doc.data?.json === after.doc.data?.json,
     (row) => snapshotOf(row.doc),
   );
+  let changesWithMetadata: typeof changes | undefined;
+  if (!baseline.excludesMetadataChanges) {
+    changesWithMetadata = computeDocumentChanges(
+      previous,
+      rows,
+      docs,
+      (before, after) =>
+        before.doc.data?.json === after.doc.data?.json
+        && Boolean(before.doc.hasPendingWrites) === Boolean(after.doc.hasPendingWrites),
+      (row) => snapshotOf(row.doc),
+    );
+  }
   return {
     metadata,
     size: docs.length,
     empty: docs.length === 0,
     docs,
     forEach: forEachDocument(docs),
-    docChanges: createDocChanges(changes, baseline.excludesMetadataChanges),
+    docChanges: createDocChanges(changes, baseline.excludesMetadataChanges, changesWithMetadata),
   };
 }
 

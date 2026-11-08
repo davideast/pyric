@@ -22,6 +22,8 @@ import { EventHistory, type EventHistoryLimits } from './event-history.js';
 import { LocalEnvironment } from '../../firestore/sandbox/local-environment.js';
 import { recordedAdminDelete, recordedAdminSet } from '../../firestore/sandbox/admin-writes.js';
 import { SandboxClock, SANDBOX_CLOCK } from '../clock.js';
+
+const SANDBOX_ENV = Symbol.for('pyric.sandbox.internalEnv');
 import type { AuthState } from '../types/auth-state.js';
 import type { SandboxContext } from '../types/context.js';
 import { SandboxError } from '../types/errors.js';
@@ -40,6 +42,7 @@ import type {
 import type { PersistableService, SandboxSnapshot } from '../types/persistence.js';
 import type { LocalSandbox, Sandbox, SandboxAdmin } from '../types/service.js';
 import { LOCAL_SANDBOX } from './local-brand.js';
+import { getAuthLens, resolveAuthLensState } from './auth-lens.js';
 import { SandboxContextImpl, validateAuthState } from '../sandbox-context.js';
 import {
   attachPersistence,
@@ -174,6 +177,7 @@ export class SandboxImpl implements LocalSandbox {
     this._env = env;
     this.clock = clock;
     Object.defineProperty(this, SANDBOX_CLOCK, { value: clock, enumerable: false });
+    Object.defineProperty(this, SANDBOX_ENV, { value: () => this._env, enumerable: false });
     this.attachToEnv();
   }
 
@@ -591,7 +595,8 @@ export class SandboxImpl implements LocalSandbox {
     // `user` IS the new auth. `AuthState` is structurally the `ListenerAuth`
     // shape the env expects (`{ uid, token? } | null`). No-op when there are
     // no live listeners (e.g. the post-`reset()` env is freshly empty).
-    this._env.reevaluateLiveListeners(user);
+    const next = resolveAuthLensState(getAuthLens(), user);
+    this._env.reevaluateLiveListeners(next.auth, undefined, next.bypassRules);
     if (this.currentUserSubs.size === 0) return;
     for (const cb of this.currentUserSubs) {
       try {
@@ -744,13 +749,17 @@ function currentUserEqual(a: AuthState, b: AuthState): boolean {
  * one) — custom Sandbox implementations are not supported.
  */
 export function getInternalEnv(sandbox: Sandbox): LocalEnvironment {
-  if (!(sandbox instanceof SandboxImpl)) {
-    throw new SandboxError(
-      'invalid-argument',
-      'Sandbox handle was not produced by initializeSandbox(); custom Sandbox implementations are not supported.',
-    );
+  if (sandbox instanceof SandboxImpl) {
+    return sandbox.getEnv();
   }
-  return sandbox.getEnv();
+  const readEnv = (sandbox as unknown as { [SANDBOX_ENV]?: () => LocalEnvironment } | null | undefined)?.[SANDBOX_ENV];
+  if (typeof readEnv === 'function') {
+    return readEnv();
+  }
+  throw new SandboxError(
+    'invalid-argument',
+    'Sandbox handle was not produced by initializeSandbox(); custom Sandbox implementations are not supported.',
+  );
 }
 
 /**

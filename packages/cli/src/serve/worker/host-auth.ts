@@ -483,12 +483,27 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.reload': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'reload');
-        // The account lookup answers a deleted or disabled account as the
-        // engine's reload does, before the session is minted again.
+        // `reload(user)` refreshes `User` profile properties in-place via
+        // `accounts:lookup` without exchanging the refresh token or minting a
+        // new ID token (`auth-request-auth-per-sign-in.json` -> `reloadAfterAdminChanges`,
+        // `customTokenReload`). Keep `session.state.token` and the backend
+        // `tokenCache` at the last minted ID token until `getIdToken(true)`.
         await reload(session.user);
-        const freshSession = remintSessionWithClaims(auth, session);
-        setPortSession(ctx, port, freshSession);
-        ok(port, msg.id, serializeUser(freshSession.user));
+        const tenant = session.user.tenantId ?? portTenant(ctx, port);
+        if (tenant) {
+          session.state.tenant = tenant;
+          if (session.state.token?.firebase && typeof session.state.token.firebase === 'object') {
+            (session.state.token.firebase as { tenant?: string }).tenant = tenant;
+          }
+        }
+        const serialized = serializeUser(session.user);
+        for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
+          const isTokenSubscription = target === 'idToken';
+          if (isTokenSubscription) {
+            post(port, { t: 'snap', subId, value: serialized });
+          }
+        }
+        ok(port, msg.id, serialized);
       } catch (e) {
         signOutPortIfInvalidated(ctx, port, e);
         fail(port, msg.id, e);

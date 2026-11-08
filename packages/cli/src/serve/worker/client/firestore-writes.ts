@@ -260,15 +260,20 @@ export async function runTransaction<R>(
       // Fresh read-set and write buffer for each attempt.
       const reads: TxnReadEntry[] = [];
       const writes: WriteDescriptor[] = [];
+      let hasWrites = false;
+      let stickyError: FirebaseError | undefined;
+      const readExistence = new Map<string, boolean>();
+      const writtenPaths = new Set<string>();
 
       const txn: ClientTransaction = {
         async get(ref) {
-          const hasQueuedWrites = writes.length > 0;
-          if (hasQueuedWrites) {
-            throw new FirebaseError(
-              'failed-precondition',
+          if (hasWrites) {
+            const err = new FirebaseError(
+              'invalid-argument',
               'Firestore transactions require all reads to be executed before all writes.',
             );
+            stickyError ??= err;
+            throw err;
           }
           // RPC to the worker — capture the raw result before rehydration.
           const rawResult = await dataRpc(ref.port, {
@@ -284,31 +289,53 @@ export async function runTransaction<R>(
           // re-serialize the current doc and compare JSON strings.
           const serialized = rawResult.data;
           const hasData = rawResult.exists && serialized !== undefined;
+          let readData: typeof serialized | null = null;
+          if (hasData) {
+            readData = serialized;
+          }
           reads.push({
             path: ref.descriptor.path,
-            data: hasData ? serialized : null,
+            data: readData,
           });
+          if (!writtenPaths.has(ref.descriptor.path) && !readExistence.has(ref.descriptor.path)) {
+            readExistence.set(ref.descriptor.path, Boolean(rawResult.exists));
+          }
 
           return makeDocSnapshot(rawResult, ref.port, ref);
         },
         set(ref, data, options) {
           const capturedOptions = captureSetOptions(options);
           const payload = convertSetData(ref, data);
+          hasWrites = true;
+          writtenPaths.add(ref.descriptor.path);
           writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
           return txn;
         },
         update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
           const fields = encodeUpdate('Transaction.update', ref, dataOrField, rest);
+          hasWrites = true;
+          if (readExistence.get(ref.descriptor.path) === false && !writtenPaths.has(ref.descriptor.path)) {
+            stickyError ??= new FirebaseError(
+              'invalid-argument',
+              "Can't update a document that doesn't exist.",
+            );
+            return txn;
+          }
+          writtenPaths.add(ref.descriptor.path);
           writes.push({ method: 'update', path: ref.descriptor.path, fields, valueEncoding: DOC_VALUE_ENCODING });
           return txn;
         },
         delete(ref) {
+          hasWrites = true;
+          writtenPaths.add(ref.descriptor.path);
+          readExistence.set(ref.descriptor.path, false);
           writes.push({ method: 'delete', path: ref.descriptor.path });
           return txn;
         },
       };
 
       const result = await updateFn(txn);
+      if (stickyError) throw stickyError;
 
       // Send read-set + writes to the worker for validation and commit.
       try {

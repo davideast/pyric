@@ -145,28 +145,7 @@ const KINDS: Record<string, () => Promise<Run>> = {
  * finding.
  */
 interface PinGroup { finding: string; plane: string; kinds: string[]; labels: string[]; pyric: string; production: string }
-const PIN_GROUPS: PinGroup[] = [
-  {
-    finding: 'auth-claims CO-3: reauthenticating a custom-token session with a password credential keeps sign_in_provider custom',
-    plane: 'provider', kinds: ['customTokenReauthPassword'], pyric: 'custom', production: 'password',
-    labels: ['signInProvider'],
-  },
-  {
-    finding: 'auth-claims AU-2: custom-token claims replace the stored custom claims instead of merging over them',
-    plane: 'shape', kinds: ['customTokenOverStoredClaims', 'passwordAfterCustomToken'], pyric: 'absent', production: 'string',
-    labels: ['key1', 'role'],
-  },
-  {
-    finding: 'auth-claims AU-2: custom-token claims are written to the account and reach a later password sign-in',
-    plane: 'shape', kinds: ['passwordAfterCustomToken'], pyric: 'boolean', production: 'absent',
-    labels: ['admin'],
-  },
-  {
-    finding: 'auth-claims AU-2: custom-token claims are written to the account and reach a later password sign-in',
-    plane: 'shape', kinds: ['passwordAfterCustomToken'], pyric: 'string', production: 'absent',
-    labels: ['key2'],
-  },
-];
+const PIN_GROUPS: PinGroup[] = [];
 
 const PINS: Record<string, { pyric: string; production: string; finding: string }> = Object.fromEntries(
   PIN_GROUPS.flatMap((group) => group.kinds.flatMap((kind) => group.labels.map((label) => [

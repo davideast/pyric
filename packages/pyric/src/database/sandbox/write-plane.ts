@@ -94,6 +94,7 @@ export function captureRewindDetail(
 const ROOT_IDENTIFIER_PATTERN = /\broot\b/;
 const DATA_IDENTIFIER_PATTERN = /\bdata\b/;
 const PARENT_IDENTIFIER_PATTERN = /\bparent\b/;
+const CANONICAL_CHILD_EVENTS = ['child_removed', 'child_added', 'child_moved', 'child_changed'] as const;
 
 function pathsTouch(left: string, right: string): boolean {
   if (left === right || left === '/' || right === '/') return true;
@@ -162,8 +163,7 @@ export class WritePlane {
     }
     this.state.mutations.mark('/');
     this.cancelDeniedListeners(['/']);
-    this.values.fanOut(['/']);
-    this.children.fanOut(priors);
+    this.fanOutAll(['/'], priors);
     this.state.notifyWrite();
   }
 
@@ -673,8 +673,103 @@ export class WritePlane {
   changed(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>): void {
     this.state.mutations.mark(paths);
     this.cancelDeniedListeners(paths);
-    this.values.fanOut(paths);
-    this.children.fanOut(priors);
+    this.fanOutAll(paths, priors);
+  }
+
+  /**
+   * Fan out listener notifications in Firebase's SyncTree order:
+   * deepest path first, plain-reference view before query views on the same
+   * path, and within each view:
+   * `child_removed` -> `child_added` -> `child_moved` -> `child_changed` -> `value`.
+   */
+  fanOutAll(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>): void {
+    if (this.state.childListeners.size === 0 && this.state.valueListeners.size === 0) return;
+    const pathOrder: string[] = [];
+    const seenPaths = new Set<string>();
+    for (const listener of this.state.childListeners) {
+      const p = joinPath(pathSegments(listener.path));
+      if (!seenPaths.has(p)) {
+        seenPaths.add(p);
+        pathOrder.push(p);
+      }
+    }
+    for (const listener of this.state.valueListeners) {
+      const p = joinPath(pathSegments(listener.path));
+      if (!seenPaths.has(p)) {
+        seenPaths.add(p);
+        pathOrder.push(p);
+      }
+    }
+    pathOrder.sort((a, b) => pathSegments(b).length - pathSegments(a).length);
+
+    for (const listenerPath of pathOrder) {
+      const plainChildren: ChildListener[] = [];
+      const plainValues: ValueListener[] = [];
+      const queryViews = new Map<string, { children: ChildListener[]; values: ValueListener[] }>();
+      const getQueryView = (spec: QuerySpec) => {
+        const key = JSON.stringify(spec);
+        let view = queryViews.get(key);
+        if (!view) {
+          view = { children: [], values: [] };
+          queryViews.set(key, view);
+        }
+        return view;
+      };
+      for (const listener of this.state.childListeners) {
+        if (joinPath(pathSegments(listener.path)) !== listenerPath) continue;
+        if (listener.spec) {
+          getQueryView(listener.spec).children.push(listener);
+        } else {
+          plainChildren.push(listener);
+        }
+      }
+      for (const listener of this.state.valueListeners) {
+        if (joinPath(pathSegments(listener.path)) !== listenerPath) continue;
+        if (listener.query) {
+          getQueryView(listener.query).values.push(listener);
+        } else {
+          plainValues.push(listener);
+        }
+      }
+
+      if (plainChildren.length > 0 || plainValues.length > 0) {
+        let plainEvents: ReturnType<typeof this.children.computePlainPathEvents> | undefined;
+        if (plainChildren.length > 0) {
+          plainEvents = this.children.computePlainPathEvents(listenerPath, priors);
+        }
+        for (const eventKind of CANONICAL_CHILD_EVENTS) {
+          if (plainEvents) {
+            this.children.deliverPlainPathEvents(plainChildren, plainEvents, eventKind);
+          }
+          const matchingValues = plainValues.filter((l) => l.event === eventKind);
+          if (matchingValues.length > 0) {
+            this.values.fanOutListeners(matchingValues, paths);
+          }
+        }
+        const valueListeners = plainValues.filter((l) => (l.event ?? 'value') === 'value');
+        if (valueListeners.length > 0) {
+          this.values.fanOutListeners(valueListeners, paths);
+        }
+      }
+
+      for (const view of queryViews.values()) {
+        for (const eventKind of CANONICAL_CHILD_EVENTS) {
+          for (const childListener of view.children) {
+            if (childListener.event === eventKind) {
+              this.children.fanOutQueryListener(childListener);
+            }
+          }
+          const matchingValues = view.values.filter((l) => l.event === eventKind);
+          if (matchingValues.length > 0) {
+            this.values.fanOutListeners(matchingValues, paths);
+          }
+        }
+        const valueListeners = view.values.filter((l) => (l.event ?? 'value') === 'value');
+        if (valueListeners.length > 0) {
+          this.values.fanOutListeners(valueListeners, paths);
+        }
+      }
+    }
   }
 
   cancelDeniedListeners(changedPaths?: readonly string[]): void {

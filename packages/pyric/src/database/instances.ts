@@ -12,7 +12,8 @@ import {
 } from '../sandbox/internal/instances.js';
 import { getOrCreateBackend } from './sandbox/backend-for.js';
 import { RtdbConnectionLifecycle } from './connection-lifecycle.js';
-import { TARGET_SYMBOL, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
+import { onAuthLensChanged } from '../sandbox/internal/auth-lens.js';
+import { authFor, isAdminFor, TARGET_SYMBOL, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
 import { Database, type AppDatabase } from './types.js';
 
 // ─── Constructors ────────────────────────────────────────────────────
@@ -95,13 +96,14 @@ export function getDatabase(
       let deleted = false;
       appRuntime.onDelete(() => { deleted = true; });
       const backend = getOrCreateBackend(sandbox, instance);
+      let t!: SandboxLiveTarget;
       const connection = new RtdbConnectionLifecycle(
         backend,
-        () => session.currentUser,
-        false,
+        () => authFor(t),
+        () => isAdminFor(t),
       );
       appRuntime.onDelete(() => connection.drain().catch(() => undefined));
-      const t: SandboxLiveTarget = {
+      t = {
         kind: 'sandbox-live',
         activityApp: app,
         activityScope: instanceKey,
@@ -110,7 +112,14 @@ export function getDatabase(
         instanceUrl: rootUrl,
         sandbox,
         currentUser: () => session.currentUser,
-        onCurrentUserChanged: (callback) => session.onCurrentUserChanged(callback),
+        onCurrentUserChanged: (callback) => {
+          const unsubSession = session.onCurrentUserChanged(callback);
+          const unsubLens = onAuthLensChanged(() => callback(authFor(t)));
+          return () => {
+            unsubSession();
+            unsubLens();
+          };
+        },
         own: (cleanup) => appRuntime.onDelete(cleanup),
         assertUsable: () => {
           if (deleted) {
@@ -141,12 +150,13 @@ export function getDatabase(
   if (isSandbox(target)) {
     const instance = resolveDatabaseInstance(effectiveUrl);
     const backend = getOrCreateBackend(target, instance);
+    let t!: SandboxLiveTarget;
     const connection = new RtdbConnectionLifecycle(
       backend,
-      () => target.currentUser,
-      false,
+      () => authFor(t),
+      () => isAdminFor(t),
     );
-    const t: SandboxLiveTarget = {
+    t = {
       kind: 'sandbox-live',
       activityApp: target,
       activityScope: databaseInstanceKey(instance),
@@ -154,7 +164,14 @@ export function getDatabase(
       connection,
       instanceUrl: instance?.url,
       sandbox: target,
-      onCurrentUserChanged: (callback) => target.onCurrentUserChanged(callback),
+      onCurrentUserChanged: (callback) => {
+        const unsubSession = target.onCurrentUserChanged(callback);
+        const unsubLens = onAuthLensChanged(() => callback(authFor(t)));
+        return () => {
+          unsubSession();
+          unsubLens();
+        };
+      },
     };
     return new Database(t);
   }

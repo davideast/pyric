@@ -421,6 +421,7 @@ export class ListenerDispatch {
    * non-trivial UI.
    */
   private fireInitialSnapshot(record: ListenerRecord): void {
+    if (record.errored) return;
     if (record.target.kind === 'doc') {
       const result = this.readDocWithLookupDeps(record, record.target.path);
       if (!result.allowed) {
@@ -736,6 +737,8 @@ export class ListenerDispatch {
       { excludesMetadataChanges: !record.options.includeMetadataChanges },
       prevDocs,
       SANDBOX_METADATA_PENDING,
+      touchedPaths,
+      touchedPaths,
     );
     // Suppression: empty change set ⇒ nothing observable changed for
     // this listener (e.g., a write that landed under a different
@@ -765,7 +768,7 @@ export class ListenerDispatch {
           sample: { docs: result.docs.map((d) => ({ path: d.path, data: d.data })) },
           ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
         });
-        this.scheduleQueryMetadataAck(record, record.target, result.docs);
+        this.scheduleQueryMetadataAck(record, record.target, result.docs, touchedPaths);
         return;
       }
       this.emitSnapshotSuppressed({
@@ -801,7 +804,7 @@ export class ListenerDispatch {
       sample: { docs: result.docs.map((d) => ({ path: d.path, data: d.data })) },
       ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
     });
-    this.scheduleQueryMetadataAck(record, record.target, result.docs);
+    this.scheduleQueryMetadataAck(record, record.target, result.docs, touchedPaths);
   }
 
   /**
@@ -814,6 +817,7 @@ export class ListenerDispatch {
     record: ListenerRecord,
     target: QuerySnapshotTarget,
     docs: { path: string; data: DocumentData }[],
+    touchedPaths?: ReadonlySet<string>,
   ): void {
     if (!record.options.includeMetadataChanges) return;
     const eventTarget = queryEventTarget(target);
@@ -826,6 +830,8 @@ export class ListenerDispatch {
         { excludesMetadataChanges: false },
         docs,
         SANDBOX_METADATA,
+        undefined,
+        touchedPaths,
       );
       record.currentSnapshot = ack;
       try {
@@ -920,7 +926,7 @@ export class ListenerDispatch {
    * snapshot-then-skip-orphans pattern as {@link notifyListenersForPaths}
    * — a callback may add or remove listeners during dispatch.
    */
-  reevaluateLiveListeners(newAuth: ListenerAuth, authScope?: object): void {
+  reevaluateLiveListeners(newAuth: ListenerAuth, authScope?: object, bypassRules?: boolean): void {
     if (this.snapshotListeners.size === 0) return;
     const records = Array.from(this.snapshotListeners.values());
     for (const record of records) {
@@ -928,10 +934,11 @@ export class ListenerDispatch {
       if (record.authScope !== authScope) continue;
       if (!this.snapshotListeners.has(record.id)) continue;
       if (record.errored) continue;
-      // Re-capture the session's new auth, then re-read under it. This is
-      // the live-listener counterpart to prod re-establishing the stream
-      // under the new identity.
+      // Re-capture the session's new auth and rules-bypass flag, then re-read under them.
       record.auth = newAuth;
+      if (bypassRules !== undefined) {
+        record.bypassRules = bypassRules;
+      }
       if (record.target.kind === 'doc') {
         this.reEvaluateDocListener(record);
       } else {

@@ -153,6 +153,21 @@ describe('the provider a session signed in through', () => {
     expect(reportedAppSessionLine(sandbox)).toContain('via custom');
   });
 
+  it('surfaces custom-token developer claims on the active session without mutating the stored record', async () => {
+    const sandbox = seeded();
+    const auth = getAuth(sandbox);
+    const ctx = createSurfaceContext(sandbox);
+    const result = await signInWithCustomToken.handler(
+      { token: mintCustomTokenFor(auth, 'riley', { tier: 'gold' }) },
+      ctx,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(readAppSession(sandbox)?.customClaims).toEqual({ role: 'viewer', tier: 'gold' });
+    const stored = authSandbox.listUsers(auth).find((entry) => entry.uid === 'riley');
+    expect(stored?.customClaims).toEqual({ role: 'viewer' });
+  });
+
   it('reports anonymous for an anonymous sign-in', async () => {
     const sandbox = initializeSandbox();
     await signInAnonymously(getAuth(sandbox));

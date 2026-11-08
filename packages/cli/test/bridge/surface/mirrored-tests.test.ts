@@ -52,7 +52,6 @@ const KNOWN_GAPS = new Set([
   'bridge/surface/render/verb-prefixed.ts',
   'bridge/surface/render/verb-suffixed.ts',
   'bridge/surface/rules-simulation.ts',
-  'bridge/surface/seed-apply.ts',
   'bridge/surface/service-handles.ts',
   'bridge/surface/storage-rules.ts',
   'bridge/surface/types.ts',

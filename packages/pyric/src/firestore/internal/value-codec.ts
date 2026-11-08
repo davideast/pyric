@@ -50,8 +50,17 @@ function resolveMapEncoding(encoding: DocValueEncoding | undefined): boolean {
   return allowsEscapedMaps;
 }
 
+function encodeNumberScalar(value: number): unknown {
+  if (Number.isNaN(value)) return { __type: 'number', value: 'NaN' };
+  if (value === Infinity) return { __type: 'number', value: 'Infinity' };
+  if (value === -Infinity) return { __type: 'number', value: '-Infinity' };
+  if (Object.is(value, -0)) return { __type: 'number', value: '-0' };
+  return value;
+}
+
 /** Encode SDK values before transport removes their class or copies their owner. */
 export function encodeDocValue(value: unknown): unknown {
+  if (typeof value === 'number') return encodeNumberScalar(value);
   const isScalar = value === null || typeof value !== 'object';
   if (isScalar) return value;
   const isTimestamp = value instanceof Timestamp;
@@ -212,6 +221,12 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean, construct
       }
       case 'path':
         return withActivityIdentity(new Path(obj.segments as string[]));
+      case 'number':
+        if (obj.value === 'NaN') return Number.NaN;
+        if (obj.value === 'Infinity') return Infinity;
+        if (obj.value === '-Infinity') return -Infinity;
+        if (obj.value === '-0') return -0;
+        break;
     }
   }
 

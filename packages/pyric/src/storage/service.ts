@@ -26,6 +26,7 @@ import {
   provenanceForOperationContext,
   resolveOperationContext,
 } from 'pyric/sandbox/internal';
+import { getAuthLens } from '../sandbox/internal/auth-lens.js';
 import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
 import { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
 import type { StorageRules } from './sandbox/rules.js';
@@ -86,7 +87,19 @@ export interface SandboxTarget {
 export type Target = SandboxTarget;
 
 export function storageAuth(target: SandboxTarget): AuthState {
-  return target.currentAuth?.() ?? target.context.auth;
+  if (target.admin === true) return null;
+  if (target.currentAuth !== undefined) {
+    const lens = getAuthLens();
+    if (lens?.mode === 'admin' || lens?.mode === 'anon') return null;
+    if (lens?.mode === 'as') {
+      const impersonated: NonNullable<AuthState> = { uid: lens.uid };
+      if (lens.tenant) impersonated.tenant = lens.tenant;
+      if (lens.token) impersonated.token = lens.token;
+      return impersonated;
+    }
+    return target.currentAuth();
+  }
+  return target.context.auth;
 }
 
 /**
@@ -766,13 +779,20 @@ export function storageOperationProvenance(
   target: SandboxTarget,
   override?: EventProvenance,
 ): EventProvenance {
+  let lensOverride = override;
+  if (target.currentAuth !== undefined && override?.authLens === undefined) {
+    const activeLens = getAuthLens();
+    if (activeLens !== undefined) {
+      lensOverride = { ...override, authLens: activeLens };
+    }
+  }
   const context = resolveOperationContext(
-    override,
+    lensOverride,
     provenanceForOperationContext(target.context.operationContext),
   );
   const caller = override?.caller ?? target.caller;
   return {
-    ...override,
+    ...lensOverride,
     ...provenanceForOperationContext(context),
     ...(caller === undefined ? {} : { caller }),
     service: 'storage',

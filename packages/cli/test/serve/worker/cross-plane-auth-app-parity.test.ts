@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { deleteApp } from 'pyric/app';
 import { createAppForSandbox } from 'pyric/app/internal';
 import * as ipAuth from 'pyric/auth';
+import { mintCustomTokenFor } from 'pyric/auth/internal';
 import * as ipDb from 'pyric/database';
 import { initializeSandbox } from 'pyric/sandbox';
 import * as ipStorage from 'pyric/storage';
@@ -401,6 +402,79 @@ describe('Cross-plane Auth, App lifecycle, and multi-instance parity', () => {
       await deleteApp(ipBareApp);
       await deleteApp(ipGsApp);
       await deleteApp(servedGsApp);
+    }
+  });
+
+  it('reload(user) updates User profile in-place without prematurely refreshing cached ID token or overwriting custom signInProvider', async () => {
+    const { ctx, servedAuth } = await setupServedHost({ projectId: 'demo-project' });
+    const servedApp = createAppForSandbox(ctx.sandbox, { projectId: 'demo-project' }, nextAppName('served-reload-token'));
+    const ipSandbox = initializeSandbox();
+    const ipApp = createAppForSandbox(ipSandbox, { projectId: 'demo-project' }, nextAppName('ip-reload-token'));
+
+    try {
+      const hostAuth = ipAuth.getAuth(ctx.sandbox);
+      const pAuth = ipAuth.getAuth(ipApp);
+      const sAuth = servedAuth.getAuth(servedApp);
+
+      ipAuth.sandbox.seedUsers(hostAuth, [
+        { uid: 'u-reload', email: 'reload@example.test', password: 'password1234', customClaims: { role: 'viewer' } },
+      ]);
+      ipAuth.sandbox.seedUsers(pAuth, [
+        { uid: 'u-reload', email: 'reload@example.test', password: 'password1234', customClaims: { role: 'viewer' } },
+      ]);
+
+      const sCred = await servedAuth.signInWithEmailAndPassword(sAuth, 'reload@example.test', 'password1234');
+      const pCred = await ipAuth.signInWithEmailAndPassword(pAuth, 'reload@example.test', 'password1234');
+
+      ipAuth.sandbox.updateUser(hostAuth, 'u-reload', {
+        displayName: 'Admin Renamed',
+        emailVerified: true,
+        customClaims: { role: 'admin' },
+      });
+      ipAuth.sandbox.updateUser(pAuth, 'u-reload', {
+        displayName: 'Admin Renamed',
+        emailVerified: true,
+        customClaims: { role: 'admin' },
+      });
+
+      await servedAuth.reload(sCred.user);
+      await ipAuth.reload(pCred.user);
+
+      expect(sCred.user.displayName).toBe('Admin Renamed');
+      expect(sCred.user.emailVerified).toBe(true);
+
+      const pTokCached = await ipAuth.getIdTokenResult(pCred.user, false);
+      const sTokCached = await servedAuth.getIdTokenResult(sCred.user, false);
+      expect(sTokCached.claims.role).toBe(pTokCached.claims.role);
+      expect(sTokCached.claims.role).toBe('viewer');
+      expect(sTokCached.claims.email_verified).toBe(false);
+
+      const pTokFresh = await ipAuth.getIdTokenResult(pCred.user, true);
+      const sTokFresh = await servedAuth.getIdTokenResult(sCred.user, true);
+      expect(sTokFresh.claims.role).toBe(pTokFresh.claims.role);
+      expect(sTokFresh.claims.role).toBe('admin');
+      expect(sTokFresh.claims.email_verified).toBe(true);
+
+      // Custom token signInProvider stays 'custom' across reload and updateEmail
+      const sCustomTok = mintCustomTokenFor(hostAuth, 'u-custom', { tier: 'pro' });
+      const pCustomTok = mintCustomTokenFor(pAuth, 'u-custom', { tier: 'pro' });
+      const sCustomCred = await servedAuth.signInWithCustomToken(sAuth, sCustomTok);
+      const pCustomCred = await ipAuth.signInWithCustomToken(pAuth, pCustomTok);
+
+      await servedAuth.reload(sCustomCred.user);
+      await ipAuth.reload(pCustomCred.user);
+      expect((await servedAuth.getIdTokenResult(sCustomCred.user, false)).signInProvider).toBe('custom');
+      expect((await ipAuth.getIdTokenResult(pCustomCred.user, false)).signInProvider).toBe('custom');
+
+      await servedAuth.updateEmail(sCustomCred.user, 'custom-updated@example.test');
+      await ipAuth.updateEmail(pCustomCred.user, 'custom-updated@example.test');
+      const sCustomAfterEmail = await servedAuth.getIdTokenResult(sCustomCred.user, true);
+      const pCustomAfterEmail = await ipAuth.getIdTokenResult(pCustomCred.user, true);
+      expect(sCustomAfterEmail.signInProvider).toBe(pCustomAfterEmail.signInProvider);
+      expect(sCustomAfterEmail.signInProvider).toBe('custom');
+    } finally {
+      await deleteApp(servedApp);
+      await deleteApp(ipApp);
     }
   });
 });

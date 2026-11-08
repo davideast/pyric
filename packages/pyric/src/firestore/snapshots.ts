@@ -40,6 +40,7 @@ import type {
   DocumentSnapshot,
   QueryDocumentSnapshot,
   FirestoreDataConverter,
+  SnapshotMetadata,
 } from './types.js';
 
 interface DocumentSnapshotEqualityState {
@@ -260,6 +261,16 @@ function readSnapshotField(
   }
 }
 
+function mergedSnapshotMetadata(snap: object, target: Target, path: string): SnapshotMetadata {
+  const clientMeta = clientStateFor(target).snapshotMetadata(path);
+  const existingMeta = (snap as { metadata?: { fromCache?: boolean; hasPendingWrites?: boolean } }).metadata;
+  if (!existingMeta) return clientMeta;
+  return Object.freeze({
+    fromCache: Boolean(existingMeta.fromCache || clientMeta.fromCache),
+    hasPendingWrites: Boolean(existingMeta.hasPendingWrites || clientMeta.hasPendingWrites),
+  });
+}
+
 export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSnapshot<T> & { exists(): boolean } {
   const s = snap as {
     data: () => DocumentData | undefined;
@@ -289,7 +300,7 @@ export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSn
     const hasPath = path !== undefined && path.length > 0;
     if (hasPath) {
       Object.defineProperty(s, 'metadata', {
-        value: clientStateFor(target).snapshotMetadata(path),
+        value: mergedSnapshotMetadata(s, target, path),
         configurable: true,
       });
     }
@@ -315,11 +326,12 @@ export function applyConverterToDocSnap<AppModel>(
     const rawData = isMissing ? undefined : (snap.data() as DocumentData);
     return readSnapshotField(rawData, fieldPath, references);
   };
+  const mergedMeta = mergedSnapshotMetadata(snap, target, snap.ref.path);
   const wrapped = {
     id: snap.id,
     ref: reference,
     exists: () => snapshotExists(snap),
-    metadata: clientStateFor(target).snapshotMetadata(snap.ref.path),
+    metadata: mergedMeta,
     data: () => {
       // Sandbox snaps expose `exists` as a property (Admin shape).
       const isMissing = !snapshotExists(snap);
@@ -332,7 +344,7 @@ export function applyConverterToDocSnap<AppModel>(
         id: snap.id,
         ref: rawReference,
         exists: () => true,
-        metadata: clientStateFor(target).snapshotMetadata(snap.ref.path),
+        metadata: mergedMeta,
         data: () => finalizeSandboxData(snap.data() as DocumentData, references) as DocumentData,
         get: readRawField,
       };
@@ -394,11 +406,12 @@ export function applyConverterToDeliveredSnap(
       const raw = readRaw();
       const isMissing = raw === undefined;
       if (isMissing) return undefined;
+      const mergedMeta = mergedSnapshotMetadata(s, target, path);
       const queryDocSnap: QueryDocumentSnapshot = {
         id: s.id,
         ref: rawReference,
         exists: () => true,
-        metadata: clientStateFor(target).snapshotMetadata(path),
+        metadata: mergedMeta,
         data: () => readRaw() as DocumentData,
         get: readRawField,
       };

@@ -1,5 +1,5 @@
 /** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
-import type { InboundMessage } from '../protocol.js';
+import type { InboundMessage, RtdbValueSubMessage } from '../protocol.js';
 import { logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
@@ -17,7 +17,6 @@ import { observeInfo, servesInfoLocally } from './rtdb-info.js';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
 import type { SdkActivityHandle } from 'pyric/sandbox/internal';
 import {
-  instanceField,
   isRtdbQuery,
   rtdbChild,
   sameRtdbInstance,
@@ -73,7 +72,15 @@ type ValueListenOptions = { readonly onlyOnce?: boolean; readonly owner?: unknow
 /** What a value snapshot shows the page: whether it exists, and its data with priorities. */
 function deliveredContent(wire: unknown): string {
   const snapshot = wire as Partial<RtdbWireSnapshot> | null;
-  return JSON.stringify([snapshot?.exists ?? null, snapshot?.exportValue ?? null, snapshot?.entries?.map((entry) => entry.key) ?? null]);
+  return JSON.stringify([
+    snapshot?.exists ?? null,
+    snapshot?.exportValue ?? null,
+    snapshot?.entries?.map((entry) => [
+      entry.key,
+      entry.priority ?? null,
+      entry.exportValue ?? entry.value ?? null,
+    ]) ?? null,
+  ]);
 }
 
 function removeRegistration(registration: ListenerRegistration): void {
@@ -87,6 +94,7 @@ function openValueSubscription(
   cancelCallbackOrOptions: ((err: unknown) => void) | ValueListenOptions | undefined,
   options: ValueListenOptions | undefined,
   activity: SdkActivityHandle,
+  eventType: RtdbEventType = 'value',
 ): Unsubscribe {
   const { ref, query } = targetParts(target);
   const error = typeof cancelCallbackOrOptions === 'function' ? cancelCallbackOrOptions : undefined;
@@ -101,12 +109,20 @@ function openValueSubscription(
   // Derived here, on the stack the caller is still on and against the page's
   // own document. The worker's attach can read neither.
   const owners = pageListenerOwners(listenOptions);
-  const ownerFields = owners ? { owners } : {};
 
-  const makeSubMsg = (subId: string, lens: typeof _defaultLens): InboundMessage =>
-    lens
-      ? { t: 'sub', subId, target: { service: 'rtdb', ...instanceField(ref), path: ref.path, ...(query ? { query } : {}) }, actAs: lens, ...ownerFields }
-      : { t: 'sub', subId, target: { service: 'rtdb', ...instanceField(ref), path: ref.path, ...(query ? { query } : {}) }, ...ownerFields };
+  const makeSubMsg = (subId: string, lens: typeof _defaultLens): InboundMessage => {
+    const subTarget: RtdbValueSubMessage['target'] = {
+      service: 'rtdb',
+      instance: ref.instance?.name,
+      path: ref.path,
+    };
+    if (query) subTarget.query = query;
+    if (eventType !== 'value') subTarget.event = eventType;
+    const msg: RtdbValueSubMessage = { t: 'sub', subId, target: subTarget };
+    if (lens) msg.actAs = lens;
+    if (owners) msg.owners = owners;
+    return msg;
+  };
 
   let unsubLens: () => void = () => {};
   // The host re-registers a listener when the port's session or the page's
@@ -259,9 +275,13 @@ function onChildEvent(
   const { ref, query } = targetParts(target);
   let initialized = false;
   let previous: RtdbWireEntry[] = [];
-  const observeParent = (deliver: (parent: RtdbDataSnapshot) => void): Unsubscribe => servesInfoLocally(ref)
-    ? observeInfo(target, deliver)
-    : openValueSubscription(target, deliver, error, undefined, activity);
+  const eventType = `child_${kind}` as RtdbEventType;
+  const observeParent = (deliver: (parent: RtdbDataSnapshot) => void): Unsubscribe => {
+    if (servesInfoLocally(ref)) {
+      return observeInfo(target, deliver);
+    }
+    return openValueSubscription(target, deliver, error, undefined, activity, eventType);
+  };
   return observeParent((parent) => {
     const current: RtdbWireEntry[] = [];
     parent.forEach((childSnap) => {
@@ -314,19 +334,28 @@ function onChildEvent(
         const prior = previousByKey.get(entry.key);
         const previousChildName = current[index - 1]?.key ?? null;
         if (kind === 'added' && !prior) emit(entry, previousChildName);
-        if (kind === 'changed' && prior && !sameRtdbValue(prior.entry.value, entry.value)) {
+        if (
+          kind === 'changed' &&
+          prior &&
+          (!sameRtdbValue(prior.entry.value, entry.value) ||
+            (prior.entry.priority ?? null) !== (entry.priority ?? null))
+        ) {
           emit(entry, previousChildName);
         }
         if (kind === 'moved' && prior) {
           const orderBy = query?.orderBy ?? { kind: 'priority' as const };
-          const indexed = (candidate: RtdbWireEntry): unknown => {
-            if (orderBy.kind === 'key') return candidate.key;
-            if (orderBy.kind === 'priority') return candidate.priority ?? null;
-            if (orderBy.kind === 'value') return candidate.value;
-            return valueAt(candidate.value, orderBy.path);
-          };
-          if (!sameRtdbValue(indexed(prior.entry), indexed(entry))) {
-            emit(entry, previousChildName);
+          if (orderBy.kind !== 'key') {
+            const indexed = (candidate: RtdbWireEntry): unknown => {
+              if (orderBy.kind === 'priority') return candidate.priority ?? null;
+              if (orderBy.kind === 'value') return candidate.value;
+              return valueAt(candidate.value, orderBy.path);
+            };
+            const priorityChangedUnderValue =
+              orderBy.kind === 'value' &&
+              (prior.entry.priority ?? null) !== (entry.priority ?? null);
+            if (!sameRtdbValue(indexed(prior.entry), indexed(entry)) || priorityChangedUnderValue) {
+              emit(entry, previousChildName);
+            }
           }
         }
       }

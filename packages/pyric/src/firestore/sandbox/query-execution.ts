@@ -112,8 +112,10 @@ export function captureQueryExecutionSpec(input: QueryExecutionSpec): QueryExecu
   const limitFromEnd = input.limitFromEnd;
   const start = input.start;
   const end = input.end;
+  const capturedFilters = Object.freeze(Array.from(filters, captureFilter));
+  assertQueryDisjunctionLimits(capturedFilters);
   return Object.freeze({
-    filters: Object.freeze(Array.from(filters, captureFilter)),
+    filters: capturedFilters,
     orders: Object.freeze(Array.from(orders, (order) => {
       const field = order.field;
       const direction = order.direction;
@@ -124,6 +126,58 @@ export function captureQueryExecutionSpec(input: QueryExecutionSpec): QueryExecu
     start: captureCursor(start),
     end: captureCursor(end),
   });
+}
+
+function countFilterDisjunctions(filter: QueryFilter): number {
+  if (filter.kind === 'where') {
+    const { op, value } = filter;
+    if (op === 'in' || op === 'array-contains-any') {
+      if (!Array.isArray(value)) return 1;
+      if (value.length > 30) {
+        throw new FirestoreCompatError({
+          code: 'invalid-argument',
+          message: `'${op}' filters support a maximum of 30 elements in the value array.`,
+        });
+      }
+      return Math.max(1, value.length);
+    }
+    if (op === 'not-in') {
+      if (Array.isArray(value) && value.length > 10) {
+        throw new FirestoreCompatError({
+          code: 'invalid-argument',
+          message: "'not-in' filters support a maximum of 10 elements in the value array.",
+        });
+      }
+      return 1;
+    }
+    return 1;
+  }
+  if (filter.kind === 'or') {
+    if (filter.filters.length === 0) return 1;
+    let sum = 0;
+    for (const child of filter.filters) {
+      sum += countFilterDisjunctions(child);
+    }
+    return sum;
+  }
+  let product = 1;
+  for (const child of filter.filters) {
+    product *= countFilterDisjunctions(child);
+  }
+  return product;
+}
+
+function assertQueryDisjunctionLimits(filters: readonly QueryFilter[]): void {
+  let totalDisjunctions = 1;
+  for (const filter of filters) {
+    totalDisjunctions *= countFilterDisjunctions(filter);
+  }
+  if (totalDisjunctions > 30) {
+    throw new FirestoreCompatError({
+      code: 'invalid-argument',
+      message: 'Query exceeds maximum of 30 disjunctions.',
+    });
+  }
 }
 
 /** Derive the conservative rules-proof projection from the executable plan.
@@ -469,6 +523,7 @@ export function executeQuery(
   rows: QueryRow[],
   spec: QueryExecutionSpec,
 ): QueryRow[] {
+  assertQueryDisjunctionLimits(spec.filters);
   let filtered = applyQueryFilters(rows, [...spec.filters]);
   const normalized = normalizedQueryOrders(spec);
   const limitCount = spec.limitCount;
