@@ -228,7 +228,7 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
   {
     entry: 'firestore',
     owner: 'QuerySnapshot',
-    members: ['docChanges', 'isEqual', 'query', 'readTime'],
+    members: ['isEqual', 'query', 'readTime'],
     reason: 'snapshot timestamps and equality the sandbox snapshot does not carry',
   },
   {

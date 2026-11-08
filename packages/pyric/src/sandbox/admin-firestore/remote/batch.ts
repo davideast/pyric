@@ -6,6 +6,7 @@ import type { DocumentData, DocumentReference, OperationOptions, SetOptions, Wri
 import { armOp, type RemoteArm } from './channel.js';
 import { encodeUpdateFields, encodeWriteData } from './value-codec.js';
 import { parseAdminUpdateArguments } from '../../../firestore/sandbox/admin-compat/field-path.js';
+import { normalizeMergeFields } from '../../../firestore/sandbox/update-fields.js';
 import type { WireWrite } from './wire-types.js';
 
 export type WireSetOptions = NonNullable<Extract<WireWrite, { method: 'set' }>['options']>;
@@ -17,7 +18,7 @@ export function toWireSetOptions(options?: SetOptions): WireSetOptions | undefin
     wireOptions.merge = options.merge;
   }
   if ('mergeFields' in options && options.mergeFields !== undefined) {
-    wireOptions.mergeFields = options.mergeFields.map((field) => String(field));
+    wireOptions.mergeFields = normalizeMergeFields(options.mergeFields);
   }
   return wireOptions;
 }

@@ -15,6 +15,10 @@ import { makeDocRef } from './doc-ref.js';
 import type { WireDocSnap, WireQuerySnap } from './wire-types.js';
 import { getSnapshotField } from '../../../firestore/sandbox/admin-compat/field-path.js';
 import { forEachDocument } from '../../../firestore/sandbox/for-each-document.js';
+import {
+  computeDocumentChanges,
+  createDocChanges,
+} from '../../../firestore/sandbox/snapshot-listeners.js';
 
 export function makeDocumentSnapshot(ref: DocumentReference, wire: WireDocSnap): DocumentSnapshot {
   const data = wire.exists && wire.data ? decodeDocData(wire.data) : undefined;
@@ -31,10 +35,12 @@ export function makeQuerySnapshot(
   arm: RemoteArm,
   wire: WireQuerySnap,
 ): QuerySnapshot {
+  const rows: Array<{ path: string; data: Record<string, unknown> }> = [];
   const docs: QueryDocumentSnapshot[] = wire.docs.map((row) => {
     const path = row.path ?? row.id;
     const ref = makeDocRef(arm, path);
     const data = row.data ? decodeDocData(row.data) : {};
+    rows.push({ path, data });
     return {
       id: ref.id,
       ref,
@@ -43,10 +49,18 @@ export function makeQuerySnapshot(
       get: (fieldPath) => getSnapshotField(data, fieldPath),
     };
   });
+  const changes = computeDocumentChanges(
+    undefined,
+    rows,
+    docs,
+    () => false,
+    () => docs[0]!,
+  );
   return {
     size: docs.length,
     empty: docs.length === 0,
     docs,
     forEach: forEachDocument(docs),
+    docChanges: createDocChanges(changes, false),
   };
 }
