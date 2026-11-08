@@ -2,7 +2,7 @@
  * Resolution logic for determining the local Pyric dev server URL.
  */
 import type { PyricNextOptions } from './types.js';
-import { readProjectPointerUrl } from '../serve/discovery.js';
+import { readProjectPointer, readProjectPointerUrl, type ProjectPointer } from '../serve/discovery.js';
 import { parsePyricSandbox } from 'pyric/sandbox/internal';
 
 const DEFAULT_LOOPBACK_HOST = 'http://127.0.0.1';
@@ -61,13 +61,32 @@ function portOfUrl(url: string): string | null {
 const reportedStaleUrls = new Set<string>();
 
 /**
+ * Whether `pyric sandbox` set the explicit url for its own child: it pins the
+ * host it started in `PYRIC_SANDBOX_INSTANCE` beside `PYRIC_SANDBOX`.
+ */
+function isLauncherPinned(): boolean {
+  const pinned = process.env.PYRIC_SANDBOX_INSTANCE;
+  return pinned !== undefined && pinned !== '';
+}
+
+/**
  * An explicit `PYRIC_SANDBOX=remote:<url>` on a port other than the one the
  * project's `.pyric/serve.json` records is stale: the host moved, or the url
  * came from another machine. Config resolution is synchronous, so the
  * locator url is taken without a health probe.
+ *
+ * A url the launcher pinned is not stale: `pyric sandbox` computed it for the
+ * host it just started, and a pointer that names another instance belongs to
+ * an earlier sandbox, which may be an orphan that no longer listens (#1641).
+ * The Node plane's `selectExplicitHost` takes the launcher's host first too.
  */
-function resolveExplicitRemoteUrl(explicitUrl: string, pointerUrl: string | null): string {
-  const isStale = pointerUrl !== null && portOfUrl(pointerUrl) !== portOfUrl(explicitUrl);
+function resolveExplicitRemoteUrl(explicitUrl: string, pointer: ProjectPointer | null): string {
+  if (pointer === null) return explicitUrl;
+  const pointsAtLauncherHost = pointer.instanceId !== null && pointer.instanceId === process.env.PYRIC_SANDBOX_INSTANCE;
+  const keepsExplicit = isLauncherPinned() && !pointsAtLauncherHost;
+  if (keepsExplicit) return explicitUrl;
+  const pointerUrl = pointer.url;
+  const isStale = portOfUrl(pointerUrl) !== portOfUrl(explicitUrl);
   if (!isStale) return explicitUrl;
   const hasReported = reportedStaleUrls.has(explicitUrl);
   if (!hasReported) {
@@ -103,7 +122,7 @@ export function resolveSandboxTargetUrl(options?: PyricNextOptions, cwd: string 
   const isRemote = activation.mode === 'remote';
   const explicitUrl = isRemote ? activation.url : undefined;
   if (explicitUrl !== undefined) {
-    return resolveExplicitRemoteUrl(normalizeUrl(explicitUrl), readProjectPointerUrl(cwd));
+    return resolveExplicitRemoteUrl(normalizeUrl(explicitUrl), readProjectPointer(cwd));
   }
   if (isRemote) {
     const pointerUrl = readProjectPointerUrl(cwd);

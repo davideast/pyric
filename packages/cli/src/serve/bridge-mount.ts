@@ -28,7 +28,7 @@ import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { answerAndClose, attachPeer, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
-import { pointerHeldByAnotherHost } from './discovery.js';
+import { pointerHeldByAnotherHost, pointerHostAnswers, type ServePointer } from './discovery.js';
 import { boundedFetch } from '../bounded-request.js';
 import { pyricVersion } from './standalone-assets.js';
 import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade, isLocalPeer } from './server.js';
@@ -298,11 +298,11 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   };
 
   /** The pointer's contents when it names another live host; null when this mount may write it. */
-  const livePointerHolder = (pointer: string): { url?: string; pid?: unknown } | null => {
+  const livePointerHolder = (pointer: string): ServePointer | null => {
     try {
       const isMissing = !existsSync(pointer);
       if (isMissing) return null;
-      const current = JSON.parse(readFileSync(pointer, 'utf8')) as { url?: string; pid?: unknown; instanceId?: unknown };
+      const current = JSON.parse(readFileSync(pointer, 'utf8')) as ServePointer;
       return pointerHeldByAnotherHost(current, bridge.instanceId) ? current : null;
     } catch {
       // A malformed pointer names no host.
@@ -596,6 +596,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const upgradedSockets = new Set<Duplex>();
       const collisionAbort = new AbortController();
       let collisionProbe: Promise<void> | null = null;
+      let pointerSettle: Promise<void> | null = null;
       let attachmentClosed = false;
       let attachmentClosePromise: Promise<void> | null = null;
 
@@ -636,20 +637,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         });
       };
 
-      const publish = (): void => {
-        const currentOrigin = origin();
-        const cannotPublish = !currentOrigin?.port || attachmentClosed;
-        if (cannotPublish) return;
-        const holder = livePointerHolder(pointer);
-        if (holder !== null) {
-          const warn = collision?.warn ?? ((message: string) => { process.stderr.write(message); });
-          warn(
-            `\n⚠  pyric: ${pointer} names another running sandbox (${holder.url ?? 'unknown url'}, pid ${String(holder.pid)}). ` +
-              `This server at http://${urlHost(currentOrigin.host)}:${currentOrigin.port} leaves it in place, so ` +
-              '`pyric <tool> <method>`, `pyric mcp`, and PYRIC_SANDBOX=remote keep finding that one.\n',
-          );
-          return;
-        }
+      const writePointer = (currentOrigin: { host: string; port: number }): void => {
         try {
           mkdirSync(dirname(pointer), { recursive: true });
           writeFileSync(pointer, JSON.stringify({
@@ -663,6 +651,59 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         } catch {
           // Discovery falls back to a port scan.
         }
+      };
+
+      const warnPointer = (message: string): void => {
+        const warn = collision?.warn ?? ((text: string) => { process.stderr.write(text); });
+        warn(message);
+      };
+
+      /**
+       * A live holder keeps the pointer only while its host answers. Its
+       * process can outlive its listener (an orphan whose terminal closed),
+       * and a pointer to it would send every client to a dead host (#1641).
+       */
+      const settleHeldPointer = async (holder: ServePointer, currentOrigin: { host: string; port: number }): Promise<void> => {
+        const holderAnswers = await pointerHostAnswers(holder);
+        if (attachmentClosed) return;
+        const here = `http://${urlHost(currentOrigin.host)}:${currentOrigin.port}`;
+        const named = `${holder.url ?? 'unknown url'}, pid ${String(holder.pid)}`;
+        if (holderAnswers) {
+          warnPointer(
+            `\n⚠  pyric: ${pointer} names another running sandbox (${named}). ` +
+              `This server at ${here} leaves it in place, so ` +
+              '`pyric <tool> <method>`, `pyric mcp`, and PYRIC_SANDBOX=remote keep finding that one.\n',
+          );
+          return;
+        }
+        const current = livePointerHolder(pointer);
+        const holderChanged = current !== null && current.instanceId !== holder.instanceId;
+        if (holderChanged) return;
+        writePointer(currentOrigin);
+        warnPointer(
+          `\n⚠  pyric: ${pointer} named a sandbox whose process runs but does not answer (${named}). ` +
+            `This server at ${here} replaces it, so ` +
+            '`pyric <tool> <method>`, `pyric mcp`, and PYRIC_SANDBOX=remote find this one.\n',
+        );
+      };
+
+      const publish = (): void => {
+        const currentOrigin = origin();
+        const cannotPublish = !currentOrigin?.port || attachmentClosed;
+        if (cannotPublish) return;
+        const holder = livePointerHolder(pointer);
+        if (holder === null) {
+          writePointer(currentOrigin);
+          return;
+        }
+        const isSettling = pointerSettle !== null;
+        if (isSettling) return;
+        const current = settleHeldPointer(holder, currentOrigin);
+        pointerSettle = current;
+        void current.finally(() => {
+          const isCurrentSettle = pointerSettle === current;
+          if (isCurrentSettle) pointerSettle = null;
+        });
       };
 
       const probeCollision = async (): Promise<void> => {
@@ -732,6 +773,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
             lifecycleServer?.removeListener('listening', announce);
             lifecycleServer?.removeListener('close', onClose);
             await collisionProbe;
+            await pointerSettle;
             removeOwnedPointer(pointer);
             for (const client of wss.clients) client.terminate();
             for (const socket of upgradedSockets) socket.destroy();

@@ -9,10 +9,15 @@
 // the raw headers, and a Vite `server.proxy`, behave
 // the same way.
 //
+// A `.pyric/serve.json` left by an earlier sandbox whose process still runs
+// but no longer listens does not take the rewrite away from the host
+// `pyric sandbox` started (#1641): the page reaches the live host.
+//
 // The non-loopback client needs an address on this machine other than
 // 127.0.0.0/8. In an offline network namespace, add one first:
 // `ip addr add 10.203.0.1/32 dev lo`.
 import assert from 'node:assert/strict';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { scenario, sleep, type App, type AppProcess } from '../driver.ts';
 import { get, nonLoopbackAddress, post, statusOf, upgrades } from '../peer-client.ts';
@@ -40,6 +45,19 @@ async function waitForAnswer(port: number, running: () => boolean): Promise<void
       if (answer.status === 200) return;
     } catch { /* not listening yet */ }
     assert.ok(Date.now() < deadline, `port ${port} did not answer /__pyric/init.json within 180s`);
+    await sleep(500);
+  }
+}
+
+async function waitForPage(port: number, running: () => boolean): Promise<void> {
+  const deadline = Date.now() + 180_000;
+  for (;;) {
+    assert.ok(running(), 'pyric sandbox exited before Next served its page');
+    try {
+      const answer = await get({ address: '127.0.0.1', port, path: '/', host: `localhost:${port}` });
+      if (answer.status === 200) return;
+    } catch { /* not listening yet */ }
+    assert.ok(Date.now() < deadline, `port ${port} did not serve the page within 180s`);
     await sleep(500);
   }
 }
@@ -122,6 +140,53 @@ async function runNextCase(app: App, remote: string, name: string, hosted: boole
   });
 }
 
+/**
+ * An earlier sandbox's process still runs and still holds the project's
+ * `.pyric/serve.json`, but nothing listens on the port it records (an orphan
+ * left after its terminal closed). A new `pyric sandbox -- next dev` in the
+ * same project rewrites to its own host.
+ */
+async function runStalePointerCase(app: App): Promise<void> {
+  const name = 'pyric sandbox -- next dev over a stale pointer';
+  const deadPort = await app.freePort();
+  const sandboxPort = await app.freePort();
+  const nextPort = await app.freePort();
+  const env = { PATH: `${join(app.dir, 'node_modules', '.bin')}:${process.env.PATH ?? ''}`, NEXT_TELEMETRY_DISABLED: '1' };
+  const orphan = app.commandProcess('node', ['-e', 'setInterval(() => {}, 1 << 30)']);
+  let sandbox: AppProcess | undefined;
+  try {
+    await app.step(`${name}: an orphan holds the pointer and does not listen`, () => {
+      assert.ok(orphan.pid !== undefined && orphan.running, 'the stand-in orphan did not start');
+      mkdirSync(join(app.dir, '.pyric'), { recursive: true });
+      app.writeFile('.pyric/serve.json', JSON.stringify({
+        url: `http://localhost:${deadPort}`,
+        mcpUrl: `http://localhost:${deadPort}/__pyric/mcp`,
+        port: deadPort,
+        pid: orphan.pid,
+        instanceId: 'orphaned-sandbox',
+      }, null, 2) + '\n');
+    });
+    await app.step(`${name}: Next serves its page`, async () => {
+      const child = app.pyricProcess(['sandbox', '--no-open', '--port', String(sandboxPort), '--', 'next', 'dev', '--port', String(nextPort)], { env });
+      sandbox = child;
+      await waitForPage(nextPort, () => child.running);
+    });
+    await app.step(`${name}: the rewrite reaches the host pyric sandbox started`, async () => {
+      const init = await get({ address: '127.0.0.1', port: nextPort, path: '/__pyric/init.json', host: `localhost:${nextPort}` });
+      assert.equal(init.status, 200, init.body.slice(0, 300));
+      assert.ok(init.body.includes(RULES_MARKER), 'init.json did not come from this project\'s host');
+    });
+    await app.step(`${name}: the page reaches the live host`, async () => {
+      const page = await app.page(`http://127.0.0.1:${nextPort}/`);
+      await page.waitForFunction(() => document.querySelector('#items-status')?.textContent === 'Listening', undefined, { timeout: 90_000 });
+      await page.close();
+    });
+  } finally {
+    await sandbox?.stop();
+    await orphan.stop();
+  }
+}
+
 /** A server other than Next, under `pyric sandbox`, that forwards `/__pyric/*` to the host. */
 async function runProxyCase(app: App, remote: string, name: string, command: (port: number) => string[], found: string[]): Promise<void> {
   const sandboxPort = await app.freePort();
@@ -155,4 +220,5 @@ export default scenario(async (app) => {
   await app.step('a client on another address got the answers it gets from the host directly', () => {
     assert.deepEqual(found, []);
   });
+  await runStalePointerCase(app);
 });

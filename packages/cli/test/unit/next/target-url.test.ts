@@ -92,6 +92,32 @@ describe('resolveSandboxTargetUrl', () => {
       expect(warnings[0]).toContain('http://localhost:5174');
       expect(warnings[0]).toContain('PYRIC_SANDBOX=remote');
     });
+
+    describe('under pyric sandbox, which pins its host in PYRIC_SANDBOX_INSTANCE', () => {
+      const savedInstance = process.env.PYRIC_SANDBOX_INSTANCE;
+      afterEach(() => {
+        if (savedInstance === undefined) delete process.env.PYRIC_SANDBOX_INSTANCE;
+        else process.env.PYRIC_SANDBOX_INSTANCE = savedInstance;
+      });
+
+      // The locator's process still runs (this test's parent) but may no longer listen (#1641).
+      it('keeps the explicit url when a running process\'s locator names another instance', () => {
+        writeFileSync(
+          join(project, '.pyric', 'serve.json'),
+          JSON.stringify({ url: 'http://localhost:5421', port: 5421, pid: process.ppid, instanceId: 'orphan' }),
+        );
+        process.env.PYRIC_SANDBOX = 'remote:http://localhost:5321';
+        process.env.PYRIC_SANDBOX_INSTANCE = 'launched-host';
+        expect(resolveSandboxTargetUrl(undefined, project)).toBe('http://localhost:5321');
+        expect(warnings).toEqual([]);
+      });
+
+      it('takes the locator url when the locator names the pinned instance', () => {
+        process.env.PYRIC_SANDBOX = 'remote:http://localhost:5173';
+        process.env.PYRIC_SANDBOX_INSTANCE = 'host';
+        expect(resolveSandboxTargetUrl(undefined, project)).toBe('http://localhost:5174');
+      });
+    });
   });
 
   it('resolves bare remote without a locator through the port fallbacks', () => {

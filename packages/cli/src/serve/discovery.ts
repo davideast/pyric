@@ -426,33 +426,59 @@ export function pointerHeldByAnotherHost(pointer: { pid?: unknown; instanceId?: 
   return isPointerProcessAlive(pid);
 }
 
+/** What a project's `.pyric/serve.json` records, read without a health probe. */
+export interface ProjectPointer {
+  /** The display URL of the host the pointer names. */
+  url: string;
+  /** The host's identity, or `null` for a pointer that records none. */
+  instanceId: string | null;
+}
+
+/** A pointer's identity, or `null` when it records none. */
+function pointerInstanceId(pointer: ServePointer): string | null {
+  const id = pointer.instanceId;
+  const hasId = typeof id === 'string' && id !== '';
+  return hasId ? id : null;
+}
+
 /**
- * The display URL the project's `.pyric/serve.json` records, read without a
- * health probe, for callers that must resolve synchronously. A pointer whose
- * writing process has exited is skipped. `null` when no live pointer is found
- * from `cwd`.
+ * The project's `.pyric/serve.json`, read without a health probe, for callers
+ * that must resolve synchronously. A pointer whose writing process has exited
+ * is skipped. `null` when no live pointer is found from `cwd`.
  */
-export function readProjectPointerUrl(cwd: string): string | null {
+export function readProjectPointer(cwd: string): ProjectPointer | null {
   for (const pointerPath of candidatePointerPaths(cwd)) {
     const hasPointerFile = existsSync(pointerPath);
     if (!hasPointerFile) continue;
     try {
-      const p = JSON.parse(readFileSync(pointerPath, 'utf8')) as {
-        url?: string;
-        mcpUrl?: string;
-        port?: number;
-        pid?: number;
-      };
+      const p = JSON.parse(readFileSync(pointerPath, 'utf8')) as ServePointer;
       const isLeftOver = !isPointerProcessAlive(p.pid);
       if (isLeftOver) continue;
       const port = p.port ?? portOf(p.mcpUrl) ?? portOf(p.url);
       const hasPort = port !== null && Boolean(port);
-      if (hasPort) return canonicalServeUrl(port, p.url);
+      if (hasPort) return { url: canonicalServeUrl(port, p.url), instanceId: pointerInstanceId(p) };
     } catch {
       /* corrupt pointer: try the next candidate */
     }
   }
   return null;
+}
+
+/** The display URL {@link readProjectPointer} finds, or `null`. */
+export function readProjectPointerUrl(cwd: string): string | null {
+  return readProjectPointer(cwd)?.url ?? null;
+}
+
+/**
+ * Whether the host a pointer names answers its health probe as that host. A
+ * pointer's process can outlive its listener (an orphaned sandbox whose
+ * terminal closed), and then the pointer names a host nobody can reach (#1641).
+ */
+export async function pointerHostAnswers(pointer: ServePointer): Promise<boolean> {
+  const port = pointer.port ?? portOf(pointer.mcpUrl) ?? portOf(pointer.url);
+  const hasPort = port !== null && Boolean(port);
+  if (!hasPort) return false;
+  return (await healthyBase(port, pointerInstanceId(pointer))) !== null;
 }
 
 /**
@@ -465,7 +491,8 @@ export function readProjectPointerUrl(cwd: string): string | null {
 const LIVE_POINTER_WAIT_MS = 10_000;
 const LIVE_POINTER_POLL_MS = 250;
 
-interface ServePointer {
+/** A `.pyric/serve.json` as read from disk. */
+export interface ServePointer {
   url?: string;
   mcpUrl?: string;
   port?: number;
