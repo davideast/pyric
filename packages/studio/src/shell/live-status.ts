@@ -48,6 +48,21 @@ export function useLiveHost(): LiveHostStatus | null {
   return useSyncExternalStore(subscribe, currentStatus, () => null);
 }
 
+/** With no fetch there is no health report to wait for. */
+const currentAnswered = (): boolean => typeof fetch === 'undefined' || (poller?.answered() ?? false);
+
+/**
+ * Whether the host's first health read has finished. Until it has,
+ * {@link useLiveHost} is null on a live host too, so a view that subscribes
+ * to the sandbox's data waits for this: on a live host that subscription
+ * would reach the host as Studio's own call and join the session's events.
+ * A read that fails counts as an answer, so a host with no health report
+ * still shows its sandbox views.
+ */
+export function useHostAnswered(): boolean {
+  return useSyncExternalStore(subscribe, currentAnswered, () => false);
+}
+
 /** Reads the host's status again soon after each event Studio's feed delivers: the count moves with traffic. */
 export function useLiveStatusRefresh(enabled: boolean): void {
   const feed = useStudioEventFeed();
