@@ -216,6 +216,45 @@
   font-size: var(--fs-label);
 }
 
+/* On a live host: the line above Settings that says these controls change the local sandbox. */
+.studio-live-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+  min-width: 0;
+  margin: 0 0 var(--space-3);
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+  line-height: 18px;
+}
+.studio-live-notice__label {
+  flex: none;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 16px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.studio-live-notice__text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.studio-live-notice__project {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 760px) {
   .studio-settings__grid {
     grid-template-columns: 1fr;

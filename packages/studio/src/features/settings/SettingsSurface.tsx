@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import './settings.css';
 import { instanceSlug } from '../../shell/instance-slug.js';
+import { useLiveHost } from '../../shell/live-status.js';
 import { useServeInit } from '../../shell/serve-init.js';
 import {
   useSandboxInstanceId,
@@ -23,6 +24,7 @@ import {
 import { useStudioReset } from '../../shell/studio-writes.js';
 import { useResourceIndex } from '../home/useResourceIndex.js';
 import { countInventory, inventoryLine } from './sandbox-inventory.js';
+import { LiveSandboxNotice } from './LiveSandboxNotice.js';
 
 // ─── Action glyphs: simple line SVGs, one weight, currentColor ──────────────
 
@@ -127,6 +129,7 @@ export function SettingsSurface() {
   const importState = useStudioImport();
   const savedStates = useSavedStates();
   const serve = useServeInit();
+  const liveHost = useLiveHost();
   const fileRef = useRef<HTMLInputElement>(null);
   const slug = instanceSlug(useSandboxInstanceId());
   const [resetting, setResetting] = useState(false);
@@ -217,6 +220,7 @@ export function SettingsSurface() {
 
   return (
     <section className="studio-surface studio-settings" aria-labelledby="settings-title">
+      <LiveSandboxNotice projectId={liveHost?.projectId ?? null} />
       <div className="studio-surface__intro">
         <p className="studio-surface__eyebrow">Settings</p>
         <h1 id="settings-title" className="studio-surface__title">
