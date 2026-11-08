@@ -1,4 +1,5 @@
 /** RTDB database handles, references, path validation, and query target routing. */
+import { queryIdentifier } from 'pyric/database/internal';
 import type { InboundMessage, RtdbQuerySpec } from '../protocol.js';
 import { dataRpc, isDisconnectedPort } from './core.js';
 import { getFirestore } from './connection.js';
@@ -80,12 +81,19 @@ export function makeRtdbRef(port: ClientPort, path: string, instance?: ClientRtd
     ...(instance === undefined ? {} : { instance }),
     path: normalized,
     _path: normalized,
+    _spec: { orderBy: null, bounds: [], limit: null },
     key: rtdbKey(normalized),
+    get ref() { return self; },
     get parent() { return normalized === '/' ? null : makeRtdbRef(port, parentPath, instance); },
     get root() { return makeRtdbRef(port, '/', instance); },
     isEqual(other) {
-      return other !== null && other.__kind === 'rtdb-ref'
-        && other.port === port && sameRtdbInstance(other, self) && other.path === normalized;
+      if (!other || typeof other !== 'object' || !('ref' in other) || !('_spec' in other)) return false;
+      const otherRef = other.ref;
+      return Boolean(otherRef && typeof otherRef === 'object' && 'port' in otherRef)
+        && otherRef.port === port
+        && sameRtdbInstance(otherRef, self)
+        && otherRef._path === normalized
+        && queryIdentifier(other._spec) === 'default';
     },
     toJSON() { return referenceString(instance, normalized); },
     toString() { return referenceString(instance, normalized); },
@@ -118,14 +126,14 @@ export function rtdbChild(parent: RtdbRefHandle, path: string): RtdbRefHandle {
 }
 
 export function isRtdbQuery(target: RtdbTarget): target is RtdbQueryLike {
-  return 'ref' in target && '_spec' in target;
+  return 'ref' in target && '_spec' in target && target.ref !== target;
 }
 
 export function targetParts(target: RtdbTarget): {
   ref: RtdbRefHandle;
   query?: RtdbQuerySpec;
 } {
-  return isRtdbQuery(target)
-    ? { ref: target.ref, query: target._spec }
-    : { ref: target };
+  if (!isRtdbQuery(target)) return { ref: target };
+  if (queryIdentifier(target._spec) === 'default') return { ref: target.ref };
+  return { ref: target.ref, query: target._spec };
 }

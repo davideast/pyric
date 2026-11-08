@@ -6,6 +6,7 @@ import { nextId } from './core.js';
 import { rtdbRpc } from './rtdb-references.js';
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
 import { hydrateRtdbSnapshot, type RtdbWireSnapshot } from './rtdb-snapshots.js';
+import { validateRtdbTransactionValue } from './rtdb-value-validation.js';
 
 export interface RtdbTransactionOptions {
   readonly applyLocally?: boolean;
@@ -43,6 +44,7 @@ export function rtdbRunTransaction<T>(
       const current = expected === null ? null : structuredClone(expected);
       const value = transactionUpdate(current);
       if (value === undefined) return transactionResult(false, before);
+      validateRtdbTransactionValue(value, ref.path);
       // A commit in flight at a hosted drop rejects with Error('disconnect') and is not retried (#1088).
       const wire = await rtdbRpc(ref, {
         t: 'op',

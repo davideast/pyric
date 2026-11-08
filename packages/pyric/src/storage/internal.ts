@@ -43,7 +43,14 @@ export {
 export { storageRulesMayReadRedactedProps } from './sandbox/rules.js';
 export { requestResourceFor, resourceFromStored } from './sandbox/rules-resources.js';
 export { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
-export { patchObjectMetadata, toFullMetadata, type AdminMetadataPatch } from './metadata.js';
+export { clientContentEncoding, uploadContentDisposition } from './content-defaults.js';
+export {
+  cloneCustomMetadata,
+  cloneSettableMetadata,
+  patchObjectMetadata,
+  toFullMetadata,
+  type AdminMetadataPatch,
+} from './metadata.js';
 export {
   decodeString,
   defaultRawContentType,

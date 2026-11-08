@@ -65,7 +65,11 @@ export function getDatabase(
       projectId = app.options?.projectId;
       optionsRead = true;
     } catch {
-      // If app is already deleted, reading app.options throws app/app-deleted.
+      // If app is already deleted, reading app.options throws app/app-deleted;
+      // fall back to the options captured at attach time so cached service
+      // lookups compute the same instanceKey as before deletion.
+      appDbUrl = appRuntime.options?.databaseURL;
+      projectId = appRuntime.options?.projectId;
     }
     // As in production, an empty URL falls back to the app's databaseURL, then
     // to the project's default instance, and the URL is parsed with the SDK's

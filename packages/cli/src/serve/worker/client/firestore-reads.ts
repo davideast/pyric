@@ -246,6 +246,9 @@ export function onSnapshot(
   const activity = beginWorkerFirestoreActivity(target, 'onSnapshot', 'subscription', owners);
   activity.transport(currentSubId);
 
+  let unsubscribed = false;
+  let unsubLens: () => void = () => {};
+
   const subscription = {
     port,
     service: 'firestore' as const,
@@ -269,7 +272,12 @@ export function onSnapshot(
       const hasNext = deliver !== undefined;
       if (hasNext) deliverWithRegions(activity.id, () => deliver(snapshot));
     },
-    error: (error: unknown) => { activity.fail(); reportError(error); },
+    error: (error: unknown) => {
+      unsubscribed = true;
+      unsubLens();
+      activity.fail();
+      reportError(error);
+    },
     close: () => activity.close(),
   };
 
@@ -290,14 +298,15 @@ export function onSnapshot(
   }
   subscribe();
 
-  let unsubscribed = false;
-  const unsubLens = subscribeLens(() => {
-    if (unsubscribed) return;
-    closeSubscription(port, currentSubId);
-    currentSubId = nextSubId();
-    activity.transport(currentSubId);
-    subscribe();
-  });
+  if (!unsubscribed) {
+    unsubLens = subscribeLens(() => {
+      if (unsubscribed) return;
+      closeSubscription(port, currentSubId);
+      currentSubId = nextSubId();
+      activity.transport(currentSubId);
+      subscribe();
+    });
+  }
 
   function stop(): void {
     unsubscribed = true;

@@ -74,7 +74,7 @@ export async function reload(user: User): Promise<void> {
 }
 
 export async function updateCurrentUser(auth: Auth, user: User | null): Promise<void> {
-  targetOf(auth).backend.setCurrentUser(user);
+  await targetOf(auth).backend.transitionCurrentUser(user);
 }
 
 export function useDeviceLanguage(auth: Auth): void {

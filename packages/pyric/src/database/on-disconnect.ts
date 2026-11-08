@@ -1,7 +1,7 @@
 import { targetOf, type Target } from './routing.js';
 import type { DatabaseReference } from './types.js';
 import { validateWritablePath } from './writable-path.js';
-import { errorPrefix, validateWrite } from './sandbox/normalize.js';
+import { errorPrefix, validatePriorityArg, validateUpdate, validateWrite } from './sandbox/normalize.js';
 
 export class OnDisconnect {
   /** @internal Construct through {@link onDisconnect}. */
@@ -28,11 +28,13 @@ export class OnDisconnect {
   setWithPriority(value: unknown, priority: string | number | null): Promise<void> {
     validateWritablePath('OnDisconnect.setWithPriority', this._path);
     validateWrite(value, this._path, errorPrefix('OnDisconnect.setWithPriority', 'value'));
+    validatePriorityArg('OnDisconnect.setWithPriority', priority);
     return this._repo.connection.register({ kind: 'set', path: this._path, value, priority });
   }
 
   update(values: Record<string, unknown>): Promise<void> {
     validateWritablePath('OnDisconnect.update', this._path);
+    validateUpdate(values, this._path, 'OnDisconnect.update');
     return this._repo.connection.register({ kind: 'update', path: this._path, values });
   }
 }

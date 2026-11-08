@@ -10,7 +10,7 @@ import { setAiEvidence } from 'pyric/ai/internal';
  * observe every `setLens(...)` update through the same singleton — exactly as
  * they did when all of this lived inline in `client.ts`.
  */
-import type { InboundMessage, OutboundMessage } from '../protocol.js';
+import type { InboundMessage, OutboundMessage, SerializedError } from '../protocol.js';
 import type { RuntimeReloadMessage } from '../protocol.js';
 // TYPE-ONLY — the auth-lens contract + the cross-service event envelope, shared
 // with the worker host + the sandbox's event provenance. Erased at build, so the
@@ -517,6 +517,53 @@ function relayDenial(
   }
 }
 
+type RevivedWireError = Error & {
+  code?: string;
+  denialContext?: unknown;
+  remediation?: unknown;
+  aiEnvelope?: unknown;
+};
+
+function reviveWireError(
+  payload: SerializedError | NonNullable<ReturnType<typeof snapshotError>>,
+  options: { plainPermissionDenied: boolean },
+): RevivedWireError {
+  const hasCode = payload.codeless !== true;
+  const customData: Record<string, unknown> = {};
+  if (payload.denialContext !== undefined) customData.denialContext = payload.denialContext;
+  if (payload.remediation !== undefined) customData.remediation = payload.remediation;
+  let err: RevivedWireError;
+  if (!hasCode) {
+    err = new Error(payload.message);
+  } else if (options.plainPermissionDenied && payload.code === 'PERMISSION_DENIED') {
+    err = Object.assign(new Error(payload.message), { code: payload.code });
+  } else {
+    err = new FirebaseError(
+      payload.code,
+      payload.message,
+      Object.keys(customData).length === 0 ? undefined : customData,
+    );
+  }
+  // Structured denial context (spike gap 6): re-attach so consumers and the
+  // bridge relay see the same shape a local SandboxError carries.
+  if (payload.denialContext !== undefined) {
+    err.denialContext = payload.denialContext;
+  }
+  if (payload.remediation !== undefined) {
+    err.remediation = payload.remediation;
+  }
+  for (const field of ['queryProof', 'rule', 'request', 'resource', 'query'] as const) {
+    if (payload[field] !== undefined) Object.assign(err, { [field]: payload[field] });
+  }
+  // AI wire error envelope (pyric/ai): re-attach so the served `firebase/ai`
+  // entry can mint the exact SDK AIError decoration the in-process plane applies.
+  if (payload.aiEvidence !== undefined) setAiEvidence(err, payload.aiEvidence);
+  if (payload.aiEnvelope !== undefined) {
+    err.aiEnvelope = payload.aiEnvelope;
+  }
+  return err;
+}
+
 /** Wire up the port's onmessage handler (idempotent per-port). */
 export function wirePort(port: ClientPort): void {
   port.onmessage = (ev: MessageEvent<OutboundMessage>) => {
@@ -555,34 +602,7 @@ export function wirePort(port: ClientPort): void {
       if (succeeded) {
         pending.resolve(msg.value);
       } else {
-        const hasCode = msg.error.codeless !== true;
-        let err: Error & {
-          code?: string;
-          denialContext?: unknown;
-          aiEnvelope?: unknown;
-        };
-        if (hasCode) {
-          err = new FirebaseError(msg.error.code, msg.error.message);
-        } else {
-          err = new Error(msg.error.message);
-        }
-        // Structured denial context (spike gap 6): re-attach so consumers —
-        // and the bridge relay, which re-serializes thrown errors — see the
-        // same shape a local SandboxError carries.
-        const hasDenialContext = msg.error.denialContext !== undefined;
-        if (hasDenialContext) {
-          err.denialContext = msg.error.denialContext;
-        }
-        // AI wire error envelope (pyric/ai): re-attach so the served
-        // `firebase/ai` entry can mint the exact SDK AIError decoration the
-        // in-process plane applies (see entries/ai.ts).
-        const aiEvidence = msg.error.aiEvidence;
-        const hasAiEvidence = aiEvidence !== undefined;
-        if (hasAiEvidence) setAiEvidence(err, aiEvidence);
-        const hasAiEnvelope = msg.error.aiEnvelope !== undefined;
-        if (hasAiEnvelope) {
-          err.aiEnvelope = msg.error.aiEnvelope;
-        }
+        const err = reviveWireError(msg.error, { plainPermissionDenied: true });
         relayDenial('read', err, pending.instance);
         pending.reject(err);
       }
@@ -606,20 +626,9 @@ export function wirePort(port: ClientPort): void {
       const hasError = errPayload !== undefined;
       if (hasError) {
         closeSubscription(port, msg.subId, sub.message?.clientSessionId);
-        const hasCode = errPayload.codeless !== true;
-        let err: Error & { code?: string; denialContext?: unknown; aiEnvelope?: unknown };
-        if (hasCode) {
-          err = new FirebaseError(errPayload.code, errPayload.message);
-        } else {
-          err = new Error(errPayload.message);
-        }
-        const hasDenialContext = errPayload.denialContext !== undefined;
-        if (hasDenialContext) err.denialContext = errPayload.denialContext;
-        const aiEvidence = errPayload.aiEvidence;
-        const hasAiEvidence = aiEvidence !== undefined;
-        if (hasAiEvidence) setAiEvidence(err, aiEvidence);
-        const hasAiEnvelope = errPayload.aiEnvelope !== undefined;
-        if (hasAiEnvelope) err.aiEnvelope = errPayload.aiEnvelope;
+        const err = reviveWireError(errPayload, {
+          plainPermissionDenied: sub.service !== 'firestore',
+        });
         const opened = sub.message;
         const owners = opened !== undefined && 'owners' in opened ? opened.owners : undefined;
         relayDenial('listener', err, requestInstance(opened), owners);

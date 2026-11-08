@@ -109,8 +109,13 @@ export const getDatabase = ((app?: FirebaseApp, url?: string) => {
   const resolved = app ?? getApp();
   markServiceUsed();
   if (!useWorker) {
-    databaseRules.register(url || resolved.options.databaseURL, resolved.options.projectId);
-    return pyricGetDatabase(resolved, url);
+    const handle = pyricGetDatabase(resolved, url);
+    try {
+      databaseRules.register(url || resolved.options.databaseURL, resolved.options.projectId);
+    } catch {
+      // Deleted app returning a cached handle: rules were already registered when opened.
+    }
+    return handle;
   }
   let databases = workerDatabasesByApp.get(resolved);
   if (databases === undefined) {
@@ -243,18 +248,16 @@ export const refFromURL = (useWorker ? workerRefFromURL : ip.refFromURL) as type
 
 export const runTransaction = (
   useWorker
-    ? (async (
+    ? ((
         target: Parameters<typeof ip.runTransaction>[0],
         update: Parameters<typeof ip.runTransaction>[1],
         options?: Parameters<typeof ip.runTransaction>[2],
-      ) => {
-        const result = await rtdbRunTransaction(
+      ) =>
+        rtdbRunTransaction(
           target as never,
           update as (current: unknown) => unknown,
           options,
-        );
-        return new ip.TransactionResult(result.committed, wrapWorkerSnapshot(result.snapshot));
-      })
+        ).then((result) => new ip.TransactionResult(result.committed, wrapWorkerSnapshot(result.snapshot))))
     : ip.runTransaction
 ) as typeof ip.runTransaction;
 
@@ -265,7 +268,8 @@ export const query = (
         return {
           ...built,
           isEqual(other: ip.Query | null) {
-            return other !== null
+            if (!other || typeof other !== 'object' || !('ref' in other) || !('_spec' in other)) return false;
+            return Boolean(other.ref && typeof other.ref === 'object')
               && 'port' in built.ref
               && 'port' in other.ref
               && built.ref.port === other.ref.port

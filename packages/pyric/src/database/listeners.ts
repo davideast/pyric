@@ -3,14 +3,20 @@ import { beginDatabaseActivity } from './sdk-activity.js';
 import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
 import type { ChildEventSnapshot } from './sandbox/listener-types.js';
-import { jsonValuesEqual, type JsonValue } from './sandbox/data-tree.js';
+import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf, type Target } from './routing.js';
 import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
-import { executeQuery, type QueryRow } from './internal/query-projection.js';
+import type { QueryRow } from './internal/query-projection.js';
+import { isInfoPath } from './writable-path.js';
 import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
 import type { ListenerAttribution } from '../sandbox/attribution/listener-owners.js';
 import { child } from './references.js';
 import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
+import {
+  observeConnectionChildMetadata,
+  observeConnectionMetadata,
+  type ChildEvent,
+} from './info-listeners.js';
 
 // ─── Listeners (Tier 2) ──────────────────────────────────────────────
 
@@ -148,57 +154,6 @@ export function onValue(
   } catch (error) { activity.fail(); throw error; }
 }
 
-function observeConnectionMetadata(
-  query: Query,
-  callback: (snapshot: DataSnapshot) => void,
-  registryCallback: (snapshot: DataSnapshot) => void,
-  activity: SdkActivityHandle,
-): Unsubscribe {
-  const reference = query.ref;
-  const target = targetOf(reference);
-  const isMetadataRoot = reference._path === '/.info';
-  const scope = queryScope(query);
-  const hasConstraints = !isDefaultQuerySpec(query._spec);
-  let stopped = false;
-  let stopObserving: Unsubscribe = () => {};
-  let release: Unsubscribe | undefined;
-  let previousRows: QueryRow[] | undefined;
-  const stop = (): void => {
-    if (stopped) return;
-    stopped = true;
-    stopObserving();
-    release?.();
-    listenerRegistry.removeExact(target, reference._path, 'value', registryCallback, registration, scope);
-    activity.close();
-  };
-  const registration: ListenerRegistration = { unsubscribe: stop };
-  listenerRegistry.add(target, reference._path, 'value', registryCallback, registration, scope);
-  const hasAppLifetime = target.kind === 'sandbox-live';
-  if (hasAppLifetime) release = target.own?.(stop);
-  stopObserving = target.connection.observeConnection((connected) => {
-    if (stopped) return;
-    const value = isMetadataRoot ? { connected, serverTimeOffset: 0 } : connected;
-    const filtersChildren = isMetadataRoot && hasConstraints;
-    let snapshot: DataSnapshot;
-    if (filtersChildren) {
-      const rows = executeQuery(value, query._spec);
-      const isUnchangedSelection = jsonValuesEqual(previousRows, rows);
-      if (isUnchangedSelection) return;
-      previousRows = rows;
-      snapshot = buildSandboxQuerySnap(target, reference, rows);
-    } else {
-      snapshot = buildSandboxSnapFromRaw(target, reference, value);
-    }
-    try {
-      callback(snapshot);
-    } catch {
-      // Match ordinary RTDB listener isolation.
-    }
-  });
-  if (stopped) stopObserving();
-  return stop;
-}
-
 function onValueInternal(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
@@ -243,12 +198,12 @@ function onValueInternal(
   const isMetadataRoot = reference._path === '/.info';
   const hasDefaultQuery = isDefaultQuerySpec(r._spec);
   const observesConnection = isMetadataRoot || (hasDefaultQuery && isConnectionValue);
-  if (observesConnection) return observeConnectionMetadata(r, cb, registryCallback, activity);
+  if (observesConnection) return observeConnectionMetadata(listenerRegistry, r, cb, registryCallback, activity);
   // Query branch — fire only when the windowed result changes.
   // Locked by oracle observation `rtdb-modular-onvalue-with-query.json`:
   // a write OUTSIDE the window does NOT re-fire the listener; a write
   // INSIDE or one that displaces a member DOES.
-  const isQueryTarget = isQuery(r);
+  const isQueryTarget = isQuery(r) && !isDefaultQuerySpec(r._spec);
   if (isQueryTarget) {
     const q = r;
     const target = targetOf(q.ref);
@@ -415,8 +370,6 @@ export function onChildMoved(
   return subscribeChild(r, 'child_moved', cb, cancelCallbackOrOptions, options);
 }
 
-type ChildEvent = 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
-
 function subscribeChild(
   r: DatabaseReference | Query,
   event: ChildEvent,
@@ -525,11 +478,23 @@ function onChildEvent(
   activity: SdkActivityHandle,
 ): Unsubscribe {
   // Unwrap a Query into its base ref + spec; a plain ref has no spec.
-  const isQ = isQuery(r as object);
-  const baseRef = isQ ? (r as Query).ref : (r as DatabaseReference);
+  const isQ = isQuery(r as object) && !isDefaultQuerySpec((r as Query)._spec);
+  const baseRef = isQuery(r as object) ? (r as Query).ref : (r as DatabaseReference);
   const spec = isQ ? (r as Query)._spec : undefined;
   const target = targetOf(baseRef as unknown as object);
-  const scope = isQuery(r as object) ? queryScope(r) : undefined;
+  const scope = isQ ? queryScope(r) : undefined;
+  if (isInfoPath(baseRef._path)) {
+    return observeConnectionChildMetadata(
+      listenerRegistry,
+      baseRef,
+      spec,
+      event,
+      cb,
+      registryCallback,
+      activity,
+      scope,
+    );
+  }
   const wrapper = (raw: ChildEventSnapshot): void => {
     // Synthesize a snapshot rooted at the child path so `snap.key`
     // and `snap.val()` match the upstream `onChildAdded` snapshot

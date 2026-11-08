@@ -155,57 +155,133 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
       },
     }));
 
-    // Seed data as alice via admin/lens
+    // Seed data under admin lens and attach active Firestore onSnapshot and RTDB onValue listeners.
     switchAuthLens({ mode: 'admin' });
     await setDoc(doc(clientDb, 'secrets/alice'), { message: 'alice-firestore-secret' });
     await rtdbSet(rtdbRef(clientRtdb, 'secrets/alice'), 'alice-rtdb-secret');
-    switchAuthLens(undefined);
     await tick(20);
 
-    // Register active Firestore onSnapshot and RTDB onValue listeners while impersonating bob
-    switchAuthLens({ mode: 'as', uid: 'bob' });
-    const fsSnapshots: Array<Record<string, unknown> | undefined> = [];
-    const rtdbValues: unknown[] = [];
+    const activeFsSnapshots: Array<Record<string, unknown> | undefined> = [];
+    const activeFsErrors: string[] = [];
+    const activeRtdbValues: unknown[] = [];
+    const activeRtdbErrors: string[] = [];
 
-    const unsubFs = onSnapshot(
+    const unsubActiveFs = onSnapshot(
       doc(clientDb, 'secrets/alice'),
       (snap) => {
-        fsSnapshots.push(snap.data());
+        activeFsSnapshots.push(snap.data());
       },
-      () => {
-        // permission-denied while bob
+      (err) => {
+        activeFsErrors.push((err as { code?: string }).code ?? 'unknown');
       },
     );
 
-    const unsubRtdb = rtdbOnValue(
+    const unsubActiveRtdb = rtdbOnValue(
       rtdbRef(clientRtdb, 'secrets/alice'),
       (snap) => {
-        rtdbValues.push(snap.val());
+        activeRtdbValues.push(snap.val());
       },
-      () => {
-        // permission-denied while bob
+      (err) => {
+        activeRtdbErrors.push((err as { code?: string }).code ?? 'unknown');
       },
     );
 
     await tick(30);
-    expect(fsSnapshots.length).toBe(0);
+    expect(activeFsSnapshots).toEqual([{ message: 'alice-firestore-secret' }]);
+    expect(activeRtdbValues).toEqual(['alice-rtdb-secret']);
+    expect(activeFsErrors).toEqual([]);
+    expect(activeRtdbErrors).toEqual([]);
 
-    // Switch lens to alice — listeners must automatically re-subscribe and deliver alice's data
+    // Switch lens to alice: active listeners re-evaluate under alice and continue receiving writes.
+    switchAuthLens({ mode: 'as', uid: 'alice' });
+    await tick(30);
+    await setDoc(doc(clientDb, 'secrets/alice'), { message: 'alice-firestore-updated' });
+    await rtdbSet(rtdbRef(clientRtdb, 'secrets/alice'), 'alice-rtdb-updated');
+    await tick(30);
+    expect(activeFsSnapshots.at(-1)).toEqual({ message: 'alice-firestore-updated' });
+    expect(activeRtdbValues.at(-1)).toBe('alice-rtdb-updated');
+    expect(activeFsErrors).toEqual([]);
+    expect(activeRtdbErrors).toEqual([]);
+
+    // Switch lens to bob: active listeners re-evaluate immediately, cancel with permission-denied, and detach.
+    switchAuthLens({ mode: 'as', uid: 'bob' });
+    await tick(40);
+    expect(activeFsErrors).toEqual(['permission-denied']);
+    expect(activeRtdbErrors).toEqual(['PERMISSION_DENIED']);
+    const fsCountAtCancel = activeFsSnapshots.length;
+    const rtdbCountAtCancel = activeRtdbValues.length;
+
+    // Listeners registered while impersonating bob are denied immediately and must also stay detached.
+    const bobFsSnapshots: Array<Record<string, unknown> | undefined> = [];
+    const bobFsErrors: string[] = [];
+    const bobRtdbValues: unknown[] = [];
+    const bobRtdbErrors: string[] = [];
+
+    const unsubBobFs = onSnapshot(
+      doc(clientDb, 'secrets/alice'),
+      (snap) => {
+        bobFsSnapshots.push(snap.data());
+      },
+      (err) => {
+        bobFsErrors.push((err as { code?: string }).code ?? 'unknown');
+      },
+    );
+
+    const unsubBobRtdb = rtdbOnValue(
+      rtdbRef(clientRtdb, 'secrets/alice'),
+      (snap) => {
+        bobRtdbValues.push(snap.val());
+      },
+      (err) => {
+        bobRtdbErrors.push((err as { code?: string }).code ?? 'unknown');
+      },
+    );
+
+    await tick(30);
+    expect(bobFsSnapshots).toEqual([]);
+    expect(bobFsErrors).toEqual(['permission-denied']);
+    expect(bobRtdbValues).toEqual([]);
+    expect(bobRtdbErrors).toEqual(['PERMISSION_DENIED']);
+
+    // Switch lens back to alice: cancelled listeners stay detached, while new listeners deliver alice's data.
     switchAuthLens({ mode: 'as', uid: 'alice' });
     await tick(40);
+    expect(activeFsSnapshots.length).toBe(fsCountAtCancel);
+    expect(activeRtdbValues.length).toBe(rtdbCountAtCancel);
+    expect(bobFsSnapshots).toEqual([]);
+    expect(bobRtdbValues).toEqual([]);
 
-    expect(fsSnapshots.length).toBeGreaterThanOrEqual(1);
-    expect(fsSnapshots.at(-1)).toEqual({ message: 'alice-firestore-secret' });
-    expect(rtdbValues.length).toBeGreaterThanOrEqual(1);
-    expect(rtdbValues.at(-1)).toBe('alice-rtdb-secret');
+    const aliceFsSnapshots: Array<Record<string, unknown> | undefined> = [];
+    const aliceRtdbValues: unknown[] = [];
+    const unsubAliceFs = onSnapshot(doc(clientDb, 'secrets/alice'), (snap) => {
+      aliceFsSnapshots.push(snap.data());
+    });
+    const unsubAliceRtdb = rtdbOnValue(rtdbRef(clientRtdb, 'secrets/alice'), (snap) => {
+      aliceRtdbValues.push(snap.val());
+    });
 
-    // Switch lens to admin — listeners remain authorized
-    switchAuthLens({ mode: 'admin' });
     await tick(30);
-    expect(fsSnapshots.at(-1)).toEqual({ message: 'alice-firestore-secret' });
+    expect(aliceFsSnapshots.at(-1)).toEqual({ message: 'alice-firestore-updated' });
+    expect(aliceRtdbValues.at(-1)).toBe('alice-rtdb-updated');
 
-    unsubFs();
-    unsubRtdb();
+    // Switch lens to admin: active alice listeners remain authorized while cancelled ones stay silent.
+    switchAuthLens({ mode: 'admin' });
+    await setDoc(doc(clientDb, 'secrets/alice'), { message: 'alice-firestore-admin' });
+    await rtdbSet(rtdbRef(clientRtdb, 'secrets/alice'), 'alice-rtdb-admin');
+    await tick(30);
+    expect(aliceFsSnapshots.at(-1)).toEqual({ message: 'alice-firestore-admin' });
+    expect(aliceRtdbValues.at(-1)).toBe('alice-rtdb-admin');
+    expect(activeFsSnapshots.length).toBe(fsCountAtCancel);
+    expect(activeRtdbValues.length).toBe(rtdbCountAtCancel);
+    expect(bobFsSnapshots).toEqual([]);
+    expect(bobRtdbValues).toEqual([]);
+
+    unsubActiveFs();
+    unsubActiveRtdb();
+    unsubBobFs();
+    unsubBobRtdb();
+    unsubAliceFs();
+    unsubAliceRtdb();
   });
 
   it('2. auth.tenantId propagates over SharedWorker sessions and populates request.auth.token.firebase.tenant in Security Rules', async () => {

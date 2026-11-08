@@ -409,7 +409,8 @@ function toSettableMetadata(msg: {
     }
   }
   const settable: SettableMetadata = {};
-  const contentType = msg.contentType ?? str('contentType');
+  const rawContentType = (msg.contentType !== '' ? msg.contentType : undefined) ?? str('contentType');
+  const contentType = rawContentType !== '' ? rawContentType : undefined;
   if (contentType !== undefined) settable.contentType = contentType;
   const cacheControl = str('cacheControl');
   if (cacheControl !== undefined) settable.cacheControl = cacheControl;
@@ -626,7 +627,7 @@ export async function handleStorageOp(
 
     case 'storage.beginUpload': {
       try {
-        if (!msg.path || msg.path.trim() === '') {
+        if (!msg.path) {
           throw new FirebaseError('storage/invalid-root-operation', 'storage.beginUpload cannot operate on root reference.');
         }
         if (msg.size < 0) {
@@ -641,6 +642,9 @@ export async function handleStorageOp(
           opProvenance(msg),
         );
         const r = storageRef(storage, msg.path);
+        if (r.fullPath === '') {
+          throw new FirebaseError('storage/invalid-root-operation', 'storage.beginUpload cannot operate on root reference.');
+        }
         const target = targetOf(r.storage);
         const service = await getStorageService(r.storage);
         const existing = await service.backend.getMetadata(r.fullPath);
@@ -660,7 +664,7 @@ export async function handleStorageOp(
               fullPath: r.fullPath,
               bucket: r.bucket,
               size: msg.size,
-              contentType: settable.contentType ?? msg.contentType ?? 'application/octet-stream',
+              contentType: settable.contentType || msg.contentType || 'application/octet-stream',
             }, 'upload'),
           },
           resource: resourceFromStored(existing),
@@ -672,7 +676,7 @@ export async function handleStorageOp(
           target.bucket,
           r.fullPath,
           msg.size,
-          settable.contentType ?? msg.contentType ?? 'application/octet-stream',
+          settable.contentType || msg.contentType || 'application/octet-stream',
           settable.customMetadata,
         );
         const token = mintCapabilityToken();
@@ -894,12 +898,15 @@ export async function handleStorageOp(
         if (!routed) {
           throw new FirebaseError('storage/unsupported', 'Upload sessions need a host with an HTTP byte route. This host has none; upload with File.save() instead.');
         }
-        if (!msg.path || msg.path.trim() === '') {
+        if (!msg.path) {
           throw new FirebaseError('storage/invalid-root-operation', 'storage.createUploadSession cannot operate on root reference.');
         }
         const bucket = bucketOfOp(ctx, msg);
         const storage = lensStorage(ctx, msg.actAs, port, bucket);
         const r = storageRef(storage, msg.path);
+        if (r.fullPath === '') {
+          throw new FirebaseError('storage/invalid-root-operation', 'storage.createUploadSession cannot operate on root reference.');
+        }
         const sessionId = crypto.randomUUID();
         const token = mintCapabilityToken();
         const downloadTokens = uploadDownloadTokens(msg);

@@ -67,6 +67,24 @@ export interface UploadResult {
   ref: StorageReference;
 }
 
+/** Shallow-clone `customMetadata` so caller mutations and stored records stay isolated. */
+export function cloneCustomMetadata(
+  customMetadata: { [key: string]: string } | undefined,
+): { [key: string]: string } | undefined {
+  if (customMetadata === undefined) return undefined;
+  return { ...customMetadata };
+}
+
+/** Shallow-clone settable metadata and its nested `customMetadata` map when present. */
+export function cloneSettableMetadata<T extends { customMetadata?: { [key: string]: string } }>(
+  metadata: T | undefined,
+): T | undefined {
+  if (metadata === undefined) return undefined;
+  const customMetadata = cloneCustomMetadata(metadata.customMetadata);
+  if (customMetadata === undefined) return { ...metadata };
+  return { ...metadata, customMetadata };
+}
+
 /**
  * Project a `StoredMetadata` (persistence-layer shape) onto the public
  * `FullMetadata` a caller on `plane` reads. A client reads an unset
@@ -74,8 +92,15 @@ export interface UploadResult {
  * it; the admin plane reads the stored record as is.
  */
 export function toFullMetadata(stored: StoredMetadata, plane: StoragePlane): FullMetadata {
-  if (plane === 'admin') return { ...stored };
-  return { ...stored, contentEncoding: clientContentEncoding(stored.contentEncoding) };
+  const custom = cloneCustomMetadata(stored.customMetadata);
+  if (plane === 'admin') {
+    return { ...stored, ...(custom !== undefined ? { customMetadata: custom } : {}) };
+  }
+  return {
+    ...stored,
+    ...(custom !== undefined ? { customMetadata: custom } : {}),
+    contentEncoding: clientContentEncoding(stored.contentEncoding),
+  };
 }
 
 /**
@@ -103,7 +128,7 @@ export function applyMetadataPatch(
     contentDisposition: patch.contentDisposition ?? base.contentDisposition,
     contentEncoding: patch.contentEncoding ?? base.contentEncoding,
     contentLanguage: patch.contentLanguage ?? base.contentLanguage,
-    customMetadata: patch.customMetadata ?? base.customMetadata,
+    customMetadata: cloneCustomMetadata(patch.customMetadata ?? base.customMetadata),
     metageneration: bump(base.metageneration),
     updated: now.toISOString(),
   };

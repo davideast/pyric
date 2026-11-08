@@ -28,7 +28,7 @@ import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
-import { toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
+import { cloneCustomMetadata, toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
 import { planeOf, uploadContentDisposition } from './content-defaults.js';
 import { StorageError, invalidRootOperation, invalidFormat } from './errors.js';
 import { clockGeneration, generationIssuer } from './generation.js';
@@ -234,7 +234,7 @@ export function buildStoredMetadata(args: {
       : settable?.contentDisposition,
     contentEncoding: settable?.contentEncoding,
     contentLanguage: settable?.contentLanguage,
-    customMetadata: settable?.customMetadata,
+    customMetadata: cloneCustomMetadata(settable?.customMetadata),
   };
 }
 

@@ -12,6 +12,11 @@ export interface ClientAppRuntime {
   readonly sandbox: Sandbox;
   readonly session: ClientAppSession;
   readonly authScope?: object;
+  readonly options?: {
+    readonly projectId?: string;
+    readonly databaseURL?: string;
+    readonly storageBucket?: string;
+  };
   /** Throw the Firebase-compatible deletion error when the app is no longer usable. */
   assertAlive(): void;
   service<T>(key: string, create: () => T): T;

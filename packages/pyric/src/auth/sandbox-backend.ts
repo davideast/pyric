@@ -2650,11 +2650,23 @@ export class SandboxBackend {
    *  object in place. */
   private applyStoredToUser(user: User, stored: StoredUser): void {
     const m = user as Mutable<User>;
+    const photoURL = readPhotoUrl(stored, this.photoOriginByUid);
     m.email = stored.email;
     m.displayName = stored.displayName;
-    m.photoURL = readPhotoUrl(stored, this.photoOriginByUid);
+    m.photoURL = photoURL;
     m.emailVerified = stored.emailVerified;
     m.phoneNumber = stored.phoneNumber;
+    if (stored.tenantId !== null) m.tenantId = stored.tenantId;
+    m.providerData = stored.isAnonymous
+      ? []
+      : stored.providerUserInfo.map((p) => ({
+        uid: stored.uid,
+        displayName: stored.displayName,
+        email: stored.email,
+        phoneNumber: stored.phoneNumber,
+        photoURL,
+        providerId: p.providerId,
+      }));
   }
 
   /** Live customClaims for a uid — the current value in the user DB,

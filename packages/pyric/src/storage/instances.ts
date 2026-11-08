@@ -23,17 +23,25 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): AppFirebaseSt
   const resolvedApp = app ?? defaultClientApp() as FirebaseApp;
   const runtime = resolveClientApp(resolvedApp);
   if (!runtime) throw new TypeError('pyric/storage: unrecognized FirebaseApp handle');
-  return runtime.service(`storage/${bucketUrl ?? 'default'}`, () => {
+  let appBucket = runtime.options?.storageBucket;
+  let projectId = runtime.options?.projectId;
+  try {
+    appBucket = resolvedApp.options?.storageBucket;
+    projectId = resolvedApp.options?.projectId;
+  } catch {
+    // Deleted app: use options captured at attach time for cache lookup.
+  }
+  const isOther = namesOtherBucket(bucketUrl, appBucket);
+  const cacheKey = isOther ? rulesBucketName('', bucketUrl) : 'default';
+  return runtime.service(`storage/${cacheKey}`, () => {
     const { sandbox, session } = runtime;
     // Project-scope the storage database by the app's projectId (issue #359)
     // — first-call-per-Sandbox semantics apply, so a host that already opened
     // the service (e.g. `pyric dev` with the served project's key) wins.
-    const projectId = resolvedApp.options?.projectId;
-    const appBucket = resolvedApp.options?.storageBucket;
     // A bucket URL naming another bucket opens that bucket, with its own
     // objects and its own rules, as production keeps them apart (#1313). The
     // app's default bucket keeps the store key `pyric-default`.
-    const otherBucket = namesOtherBucket(bucketUrl, appBucket) ? rulesBucketName('', bucketUrl) : undefined;
+    const otherBucket = isOther ? rulesBucketName('', bucketUrl) : undefined;
     const handle = getStorageSandbox(bindOperationContext(sandbox.withAuth(session.currentUser), {
       source: { kind: 'app' },
       authLens: { mode: 'app-session' },

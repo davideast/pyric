@@ -12,7 +12,7 @@ import { storageTaskProgress, storageTaskResult } from '../sandbox/internal/stor
 import type { EventProvenance } from 'pyric/sandbox';
 import type { StorageReference } from './reference.js';
 import type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js';
-import { toFullMetadata } from './metadata.js';
+import { cloneSettableMetadata, toFullMetadata } from './metadata.js';
 import { planeOf } from './content-defaults.js';
 import { getStorageService, targetOf } from './service.js';
 import { buildStoredMetadata, uploadObjectReplacing } from './upload.js';
@@ -76,7 +76,7 @@ function normalizeBlob(
 ): Blob {
   const isBlob = data instanceof Blob;
   if (isBlob) {
-    const hasHint = contentTypeHint !== undefined;
+    const hasHint = contentTypeHint !== undefined && contentTypeHint !== '';
     if (hasHint) {
       const isDifferentType = contentTypeHint !== data.type;
       if (isDifferentType) {
@@ -118,18 +118,19 @@ class UploadTaskImpl implements UploadTask {
     metadata?: SettableMetadata,
     provenance?: EventProvenance,
   ) {
+    const clonedMetadata = cloneSettableMetadata(metadata);
     this._ref = ref;
-    this._metadata = metadata;
+    this._metadata = clonedMetadata;
     this._provenance = provenance;
 
     let hint: string | undefined;
-    const isMetadataDefined = metadata !== undefined;
+    const isMetadataDefined = clonedMetadata !== undefined;
     if (isMetadataDefined) {
-      hint = metadata.contentType;
+      hint = clonedMetadata.contentType;
     }
 
     this._blob = normalizeBlob(data, hint);
-    const stored = buildStoredMetadata({ ref, blob: this._blob, settable: metadata });
+    const stored = buildStoredMetadata({ ref, blob: this._blob, settable: clonedMetadata });
     const fullMetadata = toFullMetadata(stored, planeOf(targetOf(ref.storage)));
 
     this._promise = new Promise<UploadTaskSnapshot>((resolve, reject) => {
@@ -259,17 +260,17 @@ class UploadTaskImpl implements UploadTask {
         error?: (error: Error | StorageError) => unknown;
         complete?: () => unknown;
       };
-      const hasNext = observerObj.next !== undefined;
+      const hasNext = typeof observerObj.next === 'function';
       if (hasNext) {
-        nextCb = observerObj.next;
+        nextCb = observerObj.next!.bind(observerObj);
       }
-      const hasError = observerObj.error !== undefined;
+      const hasError = typeof observerObj.error === 'function';
       if (hasError) {
-        errCb = observerObj.error;
+        errCb = observerObj.error!.bind(observerObj);
       }
-      const hasComplete = observerObj.complete !== undefined;
+      const hasComplete = typeof observerObj.complete === 'function';
       if (hasComplete) {
-        compCb = observerObj.complete;
+        compCb = observerObj.complete!.bind(observerObj);
       }
     } else {
       const isFunction = typeof nextOrObserver === 'function';
