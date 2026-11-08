@@ -26,10 +26,16 @@ export type ProductionOutcome =
  * 500 characters, an email address in it reads `[email]`, and one shaped like
  * a token is dropped. Only the host's terminal prints it: the event's
  * `production.outcome` holds the status and code alone.
+ *
+ * `failure` is the reader's, never a client's: `missing-index` when the code
+ * is `failed-precondition` and the message says the query requires an index.
+ * The reader decides it before it drops a token-shaped message, since the
+ * console link in production's index message often reads as one. The event
+ * carries it as `detail.failure`, as a sandbox RTDB query's missing index does.
  */
 export type ObservedOutcome =
   | { status: 'ok' }
-  | { status: 'error'; code: string; message?: string };
+  | { status: 'error'; code: string; message?: string; failure?: 'missing-index' };
 
 /**
  * The signed-in account a call ran as: the account id, the names of its
