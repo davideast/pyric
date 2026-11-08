@@ -89,4 +89,77 @@ describe('inferOwnerBindings', () => {
     ]);
     expect(out).toEqual([]);
   });
+
+  test('normalizes service headers on matching default resources while isolating named databases and instances', () => {
+    const matchingDefault = inferOwnerBindings(
+      [
+        cond({
+          service: 'firestore',
+          path: '/databases/(default)/documents/posts/{p}',
+          kind: 'incomingField',
+          field: 'author',
+          location: '/databases/(default)/documents/posts/{p}#author',
+          ops: ['create'],
+        }),
+      ],
+      [
+        site({
+          service: 'firestore',
+          op: 'setDoc',
+          path: 'posts/{id}',
+          payload: { kind: 'object', open: false, fields: [{ name: 'author', kind: 'string', auth: uid }] },
+        }),
+      ],
+    );
+    expect(matchingDefault.map((b) => [b.kind, b.field, b.strength, b.evidence])).toEqual([
+      ['incomingField', 'author', 'strong', 'rules+code'],
+    ]);
+
+    const isolatedNamedDb = inferOwnerBindings(
+      [
+        cond({
+          service: 'firestore',
+          path: '/databases/analytics-db/documents/posts/{p}',
+          kind: 'incomingField',
+          field: 'author',
+          location: '/databases/analytics-db/documents/posts/{p}#author',
+          ops: ['create'],
+        }),
+      ],
+      [
+        site({
+          service: 'firestore',
+          op: 'setDoc',
+          path: 'posts/{id}',
+          payload: { kind: 'object', open: false, fields: [{ name: 'author', kind: 'string', auth: uid }] },
+        }),
+      ],
+    );
+    expect(isolatedNamedDb.map((b) => [b.evidence])).toEqual([['rules-only'], ['code-only']]);
+
+    const isolatedPathVar = inferOwnerBindings(
+      [
+        cond({
+          service: 'firestore',
+          path: 'users/{uid}',
+          kind: 'pathVar',
+          field: '{uid}',
+          varIndex: 0,
+        }),
+      ],
+      [
+        site({
+          service: 'firestore',
+          op: 'setDoc',
+          path: '/databases/analytics-db/documents/users/{uid}',
+          pathVariables: [{ name: 'uid', auth: uid }],
+          payload: { kind: 'object', open: false, fields: [] },
+        }),
+      ],
+    );
+    expect(isolatedPathVar.map((b) => [b.path, b.evidence])).toEqual([
+      ['/databases/analytics-db/documents/users/{uid}', 'code-only'],
+      ['users/{uid}', 'rules-only'],
+    ]);
+  });
 });

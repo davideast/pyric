@@ -5,27 +5,51 @@
  */
 import type { AccessSite } from '../code/types.js';
 import type { OwnerCondition } from '../rules/types.js';
-import { covers, parseTemplate } from '../rules/templates.js';
+import { coversPattern, parseResourcePattern, unifyPatterns } from '../../sandbox/internal/index.js';
 import { concretePayload, fillTemplate } from './fixtures.js';
 import type { ProbeActor, ProbeStep } from './types.js';
 
-/** Values of a rule template's variables, read off a concrete path at the same positions. */
-function bindRuleVars(ruleTemplate: string, concrete: string): Record<string, string> {
-  const segs = concrete.split('/');
+/** Values of a rule template's variables, unified against a concrete path. */
+function bindRuleVars(
+  service: 'firestore' | 'rtdb',
+  ruleTemplate: string,
+  concrete: string,
+): Record<string, string> {
+  const concreteSegs = concrete
+    .split('/')
+    .filter((s) => s.length > 0)
+    .map((text) => ({ kind: 'lit' as const, text }));
+  const rulePattern = parseResourcePattern(service, ruleTemplate);
+  const unified = unifyPatterns(
+    rulePattern,
+    { service, resourceId: rulePattern.resourceId, segments: concreteSegs },
+    { cascade: true },
+  );
   const out: Record<string, string> = {};
-  parseTemplate(ruleTemplate).forEach((seg, i) => {
-    if (seg.kind === 'var' && segs[i] !== undefined) out[seg.name] = segs[i];
+  if (unified !== null) {
+    for (const [name, seg] of unified) {
+      if (seg.kind === 'lit') out[name] = seg.text;
+    }
+    return out;
+  }
+  rulePattern.segments.forEach((seg, i) => {
+    const target = concreteSegs[i];
+    if (seg.kind === 'var' && target !== undefined) out[seg.name] = target.text;
   });
   return out;
 }
 
 /** A client write site whose template is the lookup's record, for the record's shape. */
-function recordSite(lookup: string, sites: AccessSite[]): AccessSite | undefined {
-  const target = parseTemplate(lookup.replace('{auth.uid}', '{uid}'));
+function recordSite(
+  service: 'firestore' | 'rtdb',
+  lookup: string,
+  sites: AccessSite[],
+): AccessSite | undefined {
+  const target = parseResourcePattern(service, lookup.replace('{auth.uid}', '{uid}'));
   return sites.find((s) => {
-    if (!s.payload || !s.path) return false;
-    const sitePath = parseTemplate(s.path);
-    return covers(target, sitePath, false) && covers(sitePath, target, false);
+    if (!s.payload || !s.path || s.service !== service) return false;
+    const sitePattern = parseResourcePattern(s.service, s.path);
+    return coversPattern(target, sitePattern) && coversPattern(sitePattern, target);
   });
 }
 
@@ -53,19 +77,19 @@ export function lookupSeeds(
 ): ProbeStep[] {
   const out: ProbeStep[] = [];
   const seen = new Set<string>();
-  const site = parseTemplate(template);
+  const site = parseResourcePattern(service, template);
   for (const c of conditions) {
     if (c.service !== service || c.kind !== 'lookup') continue;
-    const rule = parseTemplate(c.path);
-    if (!covers(rule, site, service === 'rtdb')) continue;
+    const rule = parseResourcePattern(service, c.path);
+    if (!coversPattern(rule, site, { cascade: service === 'rtdb' })) continue;
     const [lookupPath, field] = c.field.split('#');
-    const lookup = parseTemplate(lookupPath);
+    const lookup = parseResourcePattern(service, lookupPath).segments;
     const authIndex = lookup.findIndex((s) => s.kind === 'var' && s.name === 'auth.uid');
     // A lookup of a child under the user's record (`members/{auth.uid}/removed`) needs no seed of its own.
     if (authIndex >= 0 && authIndex !== lookup.length - 1) continue;
-    const vars = bindRuleVars(c.path, concrete);
+    const vars = bindRuleVars(service, c.path, concrete);
     if (service === 'rtdb' && !lookup.some((s) => s.kind === 'var' && s.name === 'auth.uid') && c.relation === 'equals') {
-      const path = fillTemplate(lookupPath, vars, (n) => `v-${n}`);
+      const path = fillTemplate(lookupPath, vars, (n) => `v-${n}`, service);
       if (!seen.has(path)) {
         seen.add(path);
         const matchActor = actors.find((a) => path.includes(a.uid)) ?? actors[0];
@@ -75,7 +99,7 @@ export function lookupSeeds(
       continue;
     }
     for (const actor of actors) {
-      const path = fillTemplate(lookupPath, { ...vars, 'auth.uid': actor.uid }, (n) => `v-${n}`);
+      const path = fillTemplate(lookupPath, { ...vars, 'auth.uid': actor.uid }, (n) => `v-${n}`, service);
       if (seen.has(path)) continue;
       seen.add(path);
       let data: unknown;
@@ -86,7 +110,7 @@ export function lookupSeeds(
           data = { [field]: actor.uid };
         }
       } else {
-        const shapeSite = recordSite(lookupPath, sites);
+        const shapeSite = recordSite(service, lookupPath, sites);
         if (shapeSite) {
           data = concretePayload(shapeSite.payload, actor, separatorFor(service));
         }

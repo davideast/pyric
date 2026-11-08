@@ -4,7 +4,12 @@
  */
 import { isWriteOp } from '../code/operation-specs.js';
 import type { AccessSite } from '../code/types.js';
-import { covers, parseTemplate, shapeKey } from '../rules/templates.js';
+import {
+  coversPattern,
+  parseResourcePattern,
+  resourceShapeKey,
+  type PatternSegment,
+} from '../../sandbox/internal/index.js';
 import type { OwnerCondition } from '../rules/types.js';
 import type { ValueHint } from '../rules/value-hints.js';
 import { concretePath, concretePayload, uidFields } from './fixtures.js';
@@ -29,8 +34,10 @@ export function recordPath(step: ProbeStep): string {
 
 /** Field overrides from rule hints, for fields whose client value isn't a literal or auth-sourced. */
 export function hintOverrides(site: AccessSite, hints: ValueHint[]): Record<string, unknown> {
-  const t = parseTemplate(site.path);
-  const at = hints.filter((h) => h.service === site.service && covers(parseTemplate(h.path), t, false));
+  const sitePattern = parseResourcePattern(site.service, site.path);
+  const at = hints.filter(
+    (h) => h.service === site.service && coversPattern(parseResourcePattern(h.service, h.path), sitePattern),
+  );
   if (at.length === 0) return {};
   const out: Record<string, unknown> = {};
   const free = (f: { literal?: unknown; auth?: unknown[]; kind: string }): boolean =>
@@ -55,7 +62,7 @@ export function probeable(s: AccessSite): boolean {
     return false;
   }
   // A path with no literal segment (a bare parameter) can't be addressed.
-  return parseTemplate(s.path).some((x) => x.kind === 'lit');
+  return parseResourcePattern(s.service, s.path).segments.some((x) => x.kind === 'lit');
 }
 
 /**
@@ -67,7 +74,7 @@ export function shareUidVariables(sites: AccessSite[]): AccessSite[] {
   const known = new Map<string, Map<number, NonNullable<AccessSite['pathVariables']>[number]>>();
   for (const s of sites) {
     if (!s.path) continue;
-    const key = `${s.service}|${shapeKey(s.path)}`;
+    const key = resourceShapeKey(parseResourcePattern(s.service, s.path));
     const m = known.get(key) ?? new Map();
     (s.pathVariables ?? []).forEach((v, i) => {
       if (v.auth?.some((a) => a.source === 'auth.uid') && !m.has(i)) m.set(i, v);
@@ -75,8 +82,9 @@ export function shareUidVariables(sites: AccessSite[]): AccessSite[] {
     known.set(key, m);
   }
   return sites.map((s) => {
-    const m = s.path ? known.get(`${s.service}|${shapeKey(s.path)}`) : undefined;
-    if (!m || m.size === 0 || !s.pathVariables) return s;
+    if (!s.path || !s.pathVariables) return s;
+    const m = known.get(resourceShapeKey(parseResourcePattern(s.service, s.path)));
+    if (!m || m.size === 0) return s;
     const vars = s.pathVariables.map((v, i) => {
       if (v.auth?.some((a) => a.source === 'auth.uid') || !m.has(i)) return v;
       const shared = m.get(i)!;
@@ -140,12 +148,22 @@ export function stepFor(
 }
 
 export function same(a: AccessSite, b: AccessSite): boolean {
-  return a.service === b.service && shapeKey(a.path) === shapeKey(b.path);
+  if (a.service !== b.service) return false;
+  return (
+    resourceShapeKey(parseResourcePattern(a.service, a.path))
+    === resourceShapeKey(parseResourcePattern(b.service, b.path))
+  );
 }
 
 export function findCreateCondition(site: AccessSite, conditions: OwnerCondition[]): string | undefined {
+  const sitePattern = parseResourcePattern(site.service, site.path);
   for (const c of conditions) {
-    if (c.ops && c.ops.includes('create') && covers(parseTemplate(c.path), parseTemplate(site.path), true)) {
+    if (
+      c.service === site.service
+      && c.ops
+      && c.ops.includes('create')
+      && coversPattern(parseResourcePattern(c.service, c.path), sitePattern, { cascade: true })
+    ) {
       return c.field.replace(/^\.\.\//, '');
     }
   }
@@ -157,7 +175,13 @@ export function creator(site: AccessSite, sites: AccessSite[]): AccessSite | und
   let candidates = sites.filter((s) => probeable(s) && same(s, site) && !isCleanup(s) && s.op !== 'updateDoc' && s.op !== 'update');
   if (candidates.length === 0) candidates = sites.filter((s) => probeable(s) && same(s, site) && !isCleanup(s));
   if (candidates.length === 0) {
-    candidates = sites.filter((s) => probeable(s) && !isCleanup(s) && covers(parseTemplate(s.path), parseTemplate(site.path), true));
+    const sitePattern = parseResourcePattern(site.service, site.path);
+    candidates = sites.filter(
+      (s) =>
+        probeable(s)
+        && !isCleanup(s)
+        && coversPattern(parseResourcePattern(s.service, s.path), sitePattern, { cascade: true }),
+    );
   }
   return candidates.sort((a, b) => {
     const aUid = uidFields(a.payload).length;
@@ -172,19 +196,22 @@ export function creator(site: AccessSite, sites: AccessSite[]): AccessSite | und
 
 /** Cleanup writes in the same scope (a shared prefix holding a variable), on other records. */
 export function siblingsOf(site: AccessSite, sites: AccessSite[]): AccessSite[] {
-  const t = parseTemplate(site.path);
+  const sitePattern = parseResourcePattern(site.service, site.path);
+  const t = sitePattern.segments;
   return sites.filter((s) => {
     if (!probeable(s) || !isCleanup(s) || s.service !== site.service || same(s, site)) return false;
-    const o = parseTemplate(s.path);
+    const otherPattern = parseResourcePattern(s.service, s.path);
+    if (otherPattern.resourceId !== sitePattern.resourceId) return false;
+    const o = otherPattern.segments;
     let common = 0;
-    while (common < t.length && common < o.length && segEq(t[common], o[common])) common++;
+    while (common < t.length && common < o.length && segEq(t[common]!, o[common]!)) common++;
     // Same scope: a shared prefix that holds a variable (the scope id) and ends in a literal (the feature), as
     // `rooms/$id/call` for `call/participants/$me` and `call/signals/$me/$peer`.
-    return common >= 2 && t.slice(0, common).some((x) => x.kind !== 'lit') && t[common - 1].kind === 'lit';
+    return common >= 2 && t.slice(0, common).some((x) => x.kind !== 'lit') && t[common - 1]!.kind === 'lit';
   });
 }
 
-function segEq(a: ReturnType<typeof parseTemplate>[number], b: ReturnType<typeof parseTemplate>[number]): boolean {
+function segEq(a: PatternSegment, b: PatternSegment): boolean {
   if (a.kind === 'lit' || b.kind === 'lit') return a.kind === b.kind && a.kind === 'lit' && b.kind === 'lit' && a.text === b.text;
   return true;
 }
@@ -192,7 +219,10 @@ function segEq(a: ReturnType<typeof parseTemplate>[number], b: ReturnType<typeof
 export function dedupeSites(sites: AccessSite[]): AccessSite[] {
   const byKey = new Map<string, AccessSite>();
   for (const s of sites) {
-    const key = `${s.service}|${shapeKey(s.path)}|${s.op}|${s.multiPath ? 'm' : ''}|${(s.payload?.fields ?? []).map((f) => f.name).sort().join(',')}`;
+    let multiTag = '';
+    if (s.multiPath) multiTag = 'm';
+    const fieldsTag = (s.payload?.fields ?? []).map((f) => f.name).sort().join(',');
+    const key = `${resourceShapeKey(parseResourcePattern(s.service, s.path))}|${s.op}|${multiTag}|${fieldsTag}`;
     const prev = byKey.get(key);
     if (!prev || (prev.resolution !== 'resolved' && s.resolution === 'resolved')) byKey.set(key, s);
   }

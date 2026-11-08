@@ -4,7 +4,7 @@
  * test. A setup denial or an engine error makes the probe invalid, never a
  * finding.
  */
-import { parseTemplate } from '../rules/templates.js';
+import { parseResourcePattern } from '../../sandbox/internal/index.js';
 import { ProbeWorld, type WorldRules, type WorldState } from './world.js';
 import type { Finding, Probe, ProbeActor, ProbeResult, StepResult } from './types.js';
 
@@ -43,10 +43,20 @@ export function rtdbRulesFor(rules: ProbeRules, path: string): unknown | undefin
   return best;
 }
 
+function sampleProbePath(probe: Probe): string {
+  return parseResourcePattern(probe.service, probe.template)
+    .segments.map((s) => {
+      if (s.kind === 'lit') return s.text;
+      if (s.kind === 'var') return `${s.prefix ?? ''}x${s.suffix ?? ''}`;
+      return 'x';
+    })
+    .join('/');
+}
+
 function worldRules(probe: Probe, rules: ProbeRules): WorldRules | undefined {
   if (probe.service === 'firestore') return rules.firestore ? { firestore: rules.firestore } : undefined;
   const concrete = probe.attack.path || Object.keys((probe.attack.data as object) ?? {})[0] || '';
-  const rtdb = rtdbRulesFor(rules, concrete || parseTemplate(probe.template).map((s) => (s.kind === 'lit' ? s.text : 'x')).join('/'));
+  const rtdb = rtdbRulesFor(rules, concrete || sampleProbePath(probe));
   return rtdb ? { rtdb } : undefined;
 }
 

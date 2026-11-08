@@ -3,7 +3,7 @@
  * `foreign-delete`, `owner-forge-create`).
  */
 import type { AccessSite, PayloadShape } from '../code/types.js';
-import { covers, parseTemplate } from '../rules/templates.js';
+import { coversPattern, parseResourcePattern } from '../../sandbox/internal/index.js';
 import { attributionFields, concretePath, concretePayload } from './fixtures.js';
 import type { PlanInput } from './plan.js';
 import { fieldOf, recordsAt, type StateRecord } from './state.js';
@@ -48,8 +48,12 @@ export function planFieldOwned(
     (s) => probeable(s) && same(s, site) && (s.op === 'update' || s.op === 'updateDoc') && s !== site && editsContent(s.payload, fields),
   );
   // Without one, edit a written field only where the rules themselves guard updates by owner.
+  const sitePattern = parseResourcePattern(site.service, site.path);
   const rulesGuardUpdate = input.bindings.some(
-    (b) => b.service === site.service && covers(parseTemplate(b.path), parseTemplate(site.path), false) && (b.ops ?? []).some((o) => o === 'update' || o === 'write'),
+    (b) =>
+      b.service === site.service
+      && coversPattern(parseResourcePattern(b.service, b.path), sitePattern)
+      && (b.ops ?? []).some((o) => o === 'update' || o === 'write'),
   );
   let editData: Record<string, unknown> | undefined;
   let ownerEdit: Record<string, unknown> | undefined;
@@ -111,15 +115,18 @@ export function planFieldOwned(
 
   const deleteSite = input.sites.find((s) => probeable(s) && same(s, site) && isCleanup(s));
   const rulesGuardDelete = input.bindings.some(
-    (b) => b.service === site.service && covers(parseTemplate(b.path), parseTemplate(site.path), false) && (b.ops ?? []).some((o) => o === 'delete' || o === 'write'),
+    (b) =>
+      b.service === site.service
+      && coversPattern(parseResourcePattern(b.service, b.path), sitePattern)
+      && (b.ops ?? []).some((o) => o === 'delete' || o === 'write'),
   );
-  const isCollectionItem = parseTemplate(site.path).at(-1)?.kind === 'var';
+  const isCollectionItem = sitePattern.segments.at(-1)?.kind === 'var';
   if (deleteSite || rulesGuardDelete || byName || (!byName && fields.length > 0 && isCollectionItem)) {
     const own2 = step(site, 'owner', { variant: '-own' });
     const deleteMethod = site.service === 'firestore' ? 'delete' : 'remove';
     const del = (actor: 'owner' | 'peer', p: string): ProbeStep => ({ actor, service: site.service, method: deleteMethod, path: p });
     // The owner deleting a second record of their own is the control; a template with one record has no second.
-    const hasVars = parseTemplate(site.path).some((x) => x.kind !== 'lit');
+    const hasVars = sitePattern.segments.some((x) => x.kind !== 'lit');
     const control: ProbeStep[] = [];
     if (deleteSite && hasVars) {
       control.push(own2, del('owner', recordPath(own2)));

@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { deleteApp, getApps, initializeApp } from '../../../src/app/index.js';
+import { resetAppRegistryForTests } from '../../../src/app/registry.js';
 import {
   createUserWithEmailAndPassword,
   getAuth,
@@ -21,12 +22,18 @@ import { resolveClientApp } from '../../../src/sandbox/internal/client-app.js';
 
 const APP_OPTIONS = { projectId: 'demo-auth-lens' };
 
+beforeEach(async () => {
+  switchAuthLens(undefined);
+  await resetAppRegistryForTests();
+});
+
 afterEach(async () => {
   switchAuthLens(undefined);
   for (const app of getApps()) {
     resolveClientApp(app)?.sandbox.reset();
   }
   await Promise.all(getApps().map((app) => deleteApp(app)));
+  await resetAppRegistryForTests();
 });
 
 describe('cross-surface AuthLens state', () => {

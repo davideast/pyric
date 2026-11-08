@@ -352,3 +352,26 @@ export {
   type AppCheckActivation,
   type AppCheckTokenOptions,
 } from './app-check-activation.js';
+export {
+  coversPattern,
+  matchesConcrete,
+  overlapsPattern,
+  parseResourcePattern,
+  renderResourcePattern,
+  resourceShapeKey,
+  unifyPatterns,
+  type AssuranceService,
+  type CoversPatternOptions,
+  type OverlapsPatternOptions,
+  type PatternSegment,
+  type ResourcePattern,
+  type UnifyPatternsOptions,
+} from './resource-pattern.js';
+export {
+  shouldFailOnDiagnostic,
+  sortAssuranceDiagnostics,
+  type AssuranceDiagnostic,
+  type DiagnosticCertainty,
+  type DiagnosticFailPolicy,
+  type DiagnosticSeverity,
+} from './assurance-diagnostic.js';
