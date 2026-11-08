@@ -18,11 +18,40 @@ g.IS_REACT_ACT_ENVIRONMENT = true;
 g.HTMLElement.prototype.scrollIntoView = () => {};
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import type { SandboxEvent } from 'pyric/sandbox';
 import { ListenersView } from '../../../src/features/listeners/ListenersView.js';
+import { resetLiveStatusPollerForTesting } from '../../../src/shell/live-status.js';
 
-afterEach(() => cleanup());
+const originalFetch = globalThis.fetch;
+
+function installLiveHostHealth(): void {
+  g.fetch = async (input: unknown) => {
+    const url = typeof input === 'string' ? input : String(input);
+    if (url.includes('/__pyric/health')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          live: {
+            projectId: 'demo-project',
+            configProjectId: 'demo-project',
+            configSource: '.firebaserc',
+            appProjectIds: ['demo-project'],
+            billed: { reads: 2, writes: 0, deliveries: 2 },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response('null', { status: 404 });
+  };
+}
+
+afterEach(() => {
+  cleanup();
+  resetLiveStatusPollerForTesting();
+  g.fetch = originalFetch;
+});
 
 /** A controlled input's `change` does not reach React through this JSDOM
  *  harness, so drive the handler the way `shell/remote-clients.test.tsx`
@@ -519,5 +548,45 @@ describe('the footer', () => {
     const methodology = container.querySelector('.traffic__metric-methodology')!;
     expect(methodology.querySelector('summary')!.textContent).toBe('How this is counted');
     expect(methodology.textContent).toContain('detach');
+  });
+
+  it('counts live observed deliveries across Firestore and Database and states honest Live Mode copy', async () => {
+    installLiveHostHealth();
+    const attach = (id: string, at: number, service: string, listenerId: string, kind: string, path: string) => ({
+      kind: 'listener', id, at, service, phase: 'attach', listenerId, target: { kind, path }, auth: { uid: 'u-1' }, operationContext: CONTEXT,
+    });
+    const op = (id: string, at: number, service: string, method: string, path: string, listenerId: string, delivery: unknown) => ({
+      kind: 'operation', id, at, service, method, path, auth: { uid: 'u-1' }, result: 'allow',
+      production: { outcome: { status: 'ok' }, billedDocuments: 2 }, detail: { listenerId, delivery }, operationContext: CONTEXT,
+    });
+    const liveEvents = [
+      attach('la-1', 10_000, 'firestore', 'page:tab-1:l-fs', 'query', 'rooms'),
+      attach('la-2', 11_000, 'rtdb', 'page:tab-1:l-rt', 'ref', 'rooms/r1'),
+      op('op-1', 12_000, 'firestore', 'onSnapshot', 'rooms', 'page:tab-1:l-fs', { mode: 'delta', size: 2, paths: ['rooms/one', 'rooms/two'] }),
+      op('op-2', 13_000, 'rtdb', 'onValue', 'rooms/r1', 'page:tab-1:l-rt', { mode: 'snapshot', size: 1, paths: ['rooms/r1/alpha'] }),
+      op('op-3', 14_000, 'rtdb', 'onValue', 'rooms/r1', 'page:tab-1:l-rt', { mode: 'snapshot', size: 2, paths: ['rooms/r1/alpha', 'rooms/r1/beta'] }),
+    ] as unknown as SandboxEvent[];
+
+    const { container } = view({ events: liveEvents, now: 20_000 });
+    await waitFor(() => {
+      expect(container.querySelector('.traffic__metric-source')!.textContent).toBe(
+        'Source: observed live listeners · listeners attached now, deliveries in this window',
+      );
+    });
+    expect(container.textContent).not.toContain('sandbox listener events');
+    const cardValue = (key: string) =>
+      container.querySelector(`[data-pyric-metric-key="${key}"] [data-pyric-metric-value]`)!.textContent;
+    expect(cardValue('delivering')).toBe('2');
+    expect(cardValue('idle')).toBe('0');
+    expect(container.querySelector('.traffic__metric-evidence .traffic__empty')).toBeNull();
+    expect(container.querySelector('[data-pyric-chart-svg]')).not.toBeNull();
+    expect(cells(container, 'deliveries')).toEqual(['2', '1']);
+    expect(cells(container, 'attached')).toEqual(['9s ago', '10s ago']);
+
+    const inspector = openRow(container, 'page:tab-1:l-rt');
+    fireEvent.click(inspector.querySelector('[data-pyric-delivery-row]')!);
+    const changed = [...inspector.querySelectorAll('[data-pyric-delivery-path]')];
+    expect(changed.map((el) => el.getAttribute('data-pyric-delivery-path'))).toEqual(['rooms/r1/beta']);
+    expect(changed[0]!.querySelector('a')?.getAttribute('href')).toContain('/rtdb/rooms/r1/beta');
   });
 });

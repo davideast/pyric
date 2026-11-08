@@ -108,6 +108,7 @@ export { messagingRequestsLine } from './messaging-requests-line.js';
 export type {
   LocalRtdbEvaluation,
   LocalStorageEvaluation,
+  ObservedDeliverySummary,
   ObservedWriteValue,
 } from '../types/observed-call.js';
 export {
@@ -115,6 +116,16 @@ export {
   observedListenerEvent, productionVerdict, readObservedCall, redactDiagnosticEmails, redactEmails,
   type ObservedListenerEvent, type ProductionVerdict,
 } from './observed-call.js';
+export {
+  MAX_OBSERVED_DELIVERY_PATHS,
+  isFirestoreDocumentPath,
+  isLiveListenerDeliveryEvent,
+  liveListenerIdOf,
+  observedDeliveryOf,
+  observedDetailListenerId,
+  observedListenerTarget,
+  trimObservedPath,
+} from './observed-delivery.js';
 export { isObservedRtdbListener, observedMethod, rtdbRulesMethod, rulesOperation, type ObservedMethod } from './observed-method.js';
 export {
   billedCallKind, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, liveProjectOf,

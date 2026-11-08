@@ -238,12 +238,16 @@ export function databaseResult(site: ObservedSite, value: unknown): ResultReadin
 
 /**
  * Extracts bounded session-observed RTDB values from `onValue`, `onChildAdded`,
- * `onChildChanged`, and `onChildRemoved` listener deliveries.
+ * `onChildChanged`, `onChildRemoved`, and `onChildMoved` listener deliveries.
  */
 export function databaseDelivery(site: ObservedSite, value: unknown): ObservedSessionDelta | undefined {
   if (!isSnapshot(value)) return undefined;
   const instance = site.instance ?? UNREAD_INSTANCE;
-  const isChildListener = site.name === 'onChildAdded' || site.name === 'onChildChanged' || site.name === 'onChildRemoved';
+  const isChildListener =
+    site.name === 'onChildAdded' ||
+    site.name === 'onChildChanged' ||
+    site.name === 'onChildRemoved' ||
+    site.name === 'onChildMoved';
   if (isChildListener) {
     const childPath = snapshotPathOf(value, undefined) ?? keyedChildPath(site, value);
     if (!isValidRtdbSessionPath(childPath)) return skipDeltaOf('unsupported');

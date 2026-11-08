@@ -165,7 +165,7 @@ function appOfDatabase(db: unknown): unknown {
  * `_repo` as a getter that starts the repo, so only an own data property is
  * read.
  */
-function repoOf(subject: unknown): Fields | undefined {
+export function repoOf(subject: unknown): Fields | undefined {
   if (!isObject(subject)) return undefined;
   const repo: unknown = Object.getOwnPropertyDescriptor(subject, '_repo')?.value;
   return isObject(repo) ? repo : undefined;
@@ -206,7 +206,7 @@ export const UNREAD_INSTANCE = 'instance-not-read-from-the-sdk-reference';
  * namespace a `?ns=` URL parameter spells as written, and production's
  * instance names are lowercase, so `?ns=My-App` is the instance `my-app`.
  */
-function instanceOf(repo: Fields | undefined): string {
+export function instanceOf(repo: Fields | undefined): string {
   const namespace = stringAt(repo, ['repoInfo_', 'namespace']);
   return namespace === undefined ? UNREAD_INSTANCE : namespace.toLowerCase();
 }
@@ -301,96 +301,6 @@ export function databaseCode(error: unknown): string {
 }
 
 /**
- * The listener arguments with the cancel callback third. RTDB listeners take
- * `(query, callback, cancelCallbackOrOptions, options)`; when the third is an
- * options object (the SDK reads any object, `null` included, as options), it
- * moves to the fourth, so the recording cancel callback can go third.
- */
-export function databaseListenerArguments(args: unknown[]): unknown[] {
-  const third = args[2];
-  const isOptions = typeof third === 'object';
-  if (!isOptions) return args;
-  return [args[0], args[1], undefined, third];
-}
-
-/** The listener export each `off()` event type belongs to. */
-const LISTENER_OF_EVENT: Readonly<Record<string, string>> = {
-  value: 'onValue',
-  child_added: 'onChildAdded',
-  child_changed: 'onChildChanged',
-  child_removed: 'onChildRemoved',
-  child_moved: 'onChildMoved',
-};
-
-/** One app callback's recording callbacks: by repo, and, for a reference whose repo the row cannot read, in one map keyed by listener and path. */
-interface Handed {
-  readonly byRepo: WeakMap<object, Map<string, Callback>>;
-  readonly unread: Map<string, Callback>;
-}
-
-/**
- * The callbacks the row handed the SDK for each app callback, by the repo and
- * the listener and path they listen with. One app callback listening twice on
- * the same reference gets the same recording callback twice, so the SDK sees
- * what it would see without live mode, and `off()` removes both. A reference
- * whose `_repo` the row cannot read is keyed by its listener and path alone,
- * so `off()` still finds the callback the SDK holds.
- */
-const HANDED = new WeakMap<object, Handed>();
-
-function handedKey(listener: string, instance: string, path: string | undefined): string {
-  return JSON.stringify([listener, instance, path ?? null]);
-}
-
-/** The map that holds an app callback's recording callbacks for `query`'s repo, creating it when `create` is set. */
-function handedFor(appCallback: object, query: unknown, create: boolean): Map<string, Callback> | undefined {
-  let handed = HANDED.get(appCallback);
-  if (handed === undefined) {
-    if (!create) return undefined;
-    handed = { byRepo: new WeakMap(), unread: new Map() };
-    HANDED.set(appCallback, handed);
-  }
-  const repo = repoOf(query);
-  if (repo === undefined) return handed.unread;
-  let byListener = handed.byRepo.get(repo);
-  if (byListener === undefined && create) {
-    byListener = new Map();
-    handed.byRepo.set(repo, byListener);
-  }
-  return byListener;
-}
-
-/** The key a listener's recording callback is kept under in its repo's map. */
-function keyFor(listener: string, query: unknown): string {
-  return handedKey(listener, instanceOf(repoOf(query)), pathOf(query));
-}
-
-/**
- * The recording callback for an app callback on one listener: the one
- * already handed the SDK for the same repo, listener and path, or a new one
- * `make` builds and the map keeps.
- */
-export function databaseListenerCallback(name: string, args: readonly unknown[], appCallback: Callback, make: () => Callback): Callback {
-  const handed = handedFor(appCallback, args[0], true)!;
-  const key = keyFor(name, args[0]);
-  const known = handed.get(key);
-  if (known !== undefined) return known;
-  const made = make();
-  handed.set(key, made);
-  return made;
-}
-
-/** The recording callback the row handed the SDK for `off(query, eventType, callback)`, or undefined. */
-function handedForOff(args: readonly unknown[]): Callback | undefined {
-  const [query, eventType, callback] = args;
-  const isOneCallback = typeof eventType === 'string' && typeof callback === 'function';
-  if (!isOneCallback) return undefined;
-  const listener = LISTENER_OF_EVENT[eventType];
-  if (listener === undefined) return undefined;
-  return handedFor(callback, query, false)?.get(keyFor(listener, query));
-}
-
-/**
  * A query's identifier as the SDK keys its views: `default` for a whole
  * location, else a key of its parameters, which may hold values. Read through
  * the SDK's own `_queryIdentifier` getter, which runs no code of the app's;
@@ -438,105 +348,6 @@ export function databaseJournalPlace(subject: unknown): DatabaseJournalPlace | u
   if (repo === undefined || path === undefined || isInfoPath(path)) return undefined;
   const queryId = queryIdOf(subject);
   return { database: repo, target: path, isQuery: queryId !== 'default', key: JSON.stringify([instanceOf(repo), path, queryId]) };
-}
-
-/** One attached listener, as `off()` finds it: its export, the app's callback, its query and what detaches it. */
-interface AttachedListener {
-  readonly listener: string;
-  readonly callback: unknown;
-  readonly queryId: string;
-  readonly detach: () => void;
-}
-
-/** The attached listeners at each instance and path, until each ends. */
-const ATTACHED = new Map<string, Set<AttachedListener>>();
-
-function locationOf(query: unknown): string {
-  return JSON.stringify([instanceOf(repoOf(query)), pathOf(query) ?? null]);
-}
-
-/**
- * Notes a listener that attached, so `off()` can detach it, and returns what
- * forgets it once it has ended.
- */
-export function databaseListenerAttached(name: string, args: readonly unknown[], detach: () => void): () => void {
-  const location = locationOf(args[0]);
-  const attached: AttachedListener = { listener: name, callback: args[1], queryId: queryIdOf(args[0]), detach };
-  let atLocation = ATTACHED.get(location);
-  if (atLocation === undefined) {
-    atLocation = new Set();
-    ATTACHED.set(location, atLocation);
-  }
-  const listeners = atLocation;
-  listeners.add(attached);
-  return () => {
-    listeners.delete(attached);
-    if (listeners.size === 0 && ATTACHED.get(location) === listeners) ATTACHED.delete(location);
-  };
-}
-
-/** Whether an attached listener is one `off(query, eventType, callback)` names, ignoring the SDK's one-per-view rule. */
-function namedByOff(attached: AttachedListener, off: { queryId: string; listener?: string; callback: unknown }): boolean {
-  const isView = off.queryId === 'default' || attached.queryId === off.queryId;
-  const isListener = off.listener === undefined || attached.listener === off.listener;
-  const isCallback = typeof off.callback !== 'function' || attached.callback === off.callback;
-  return isView && isListener && isCallback;
-}
-
-/**
- * The attached listeners `off(query, eventType, callback)` ends, as the SDK
- * removes registrations: every one at the location for a `default` query,
- * else those of the query's own view; of one export when `eventType` names
- * it; and, given a callback, the first registration of it in each view,
- * else all of them.
- */
-function endedByOff(args: readonly unknown[]): AttachedListener[] {
-  const [query, eventType, callback] = args;
-  const atLocation = ATTACHED.get(locationOf(query));
-  if (atLocation === undefined) return [];
-  const listener = typeof eventType === 'string' ? LISTENER_OF_EVENT[eventType] : undefined;
-  const namesUnknownEvent = typeof eventType === 'string' && listener === undefined;
-  if (namesUnknownEvent) return [];
-  const off = { queryId: queryIdOf(query), callback, ...(listener === undefined ? {} : { listener }) };
-  const named = [...atLocation].filter((attached) => namedByOff(attached, off));
-  if (typeof callback !== 'function') return named;
-  const firstPerView = new Map<string, AttachedListener>();
-  for (const attached of named) {
-    if (!firstPerView.has(attached.queryId)) firstPerView.set(attached.queryId, attached);
-  }
-  return [...firstPerView.values()];
-}
-
-/** What `off(...args)` ends, or nothing when the arguments can't be read. */
-function readEndedByOff(args: readonly unknown[]): AttachedListener[] {
-  try {
-    return endedByOff(args);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * The row's `off`: `off(query, eventType, callback)` removes the recording
- * callback the row handed the SDK for that app callback. With no callback, or
- * one the row never wrapped (a `/.info` listener runs unwrapped), `off` runs
- * as the app called it. Once the SDK's `off` returns, each listener it ended
- * records `detached`.
- */
-export function offByCallback(real: Callback): Callback {
-  return function off(this: unknown, ...args: unknown[]): unknown {
-    let handed: Callback | undefined;
-    try {
-      handed = handedForOff(args);
-    } catch {
-      handed = undefined;
-    }
-    const ended = readEndedByOff(args);
-    const offArgs = handed === undefined ? args : [args[0], args[1], handed];
-    const returned = Reflect.apply(real, this, offArgs);
-    for (const attached of ended) attached.detach();
-    return returned;
-  };
 }
 
 /**

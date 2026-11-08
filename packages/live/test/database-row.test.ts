@@ -219,7 +219,7 @@ async function drive(one: Database, two: Database): Promise<Drive> {
 
 /** A record without its module, listener and production's message (asserted on its own), and its account as the uid. */
 function shape(record: LiveCallRecord): Record<string, unknown> {
-  const { module: _module, account, listener: _listener, message: _message, writeData: _writeData, ...rest } = record;
+  const { module: _module, account, listener: _listener, listenerId: _listenerId, message: _message, writeData: _writeData, ...rest } = record;
   return { ...rest, account: account?.uid ?? null };
 }
 
@@ -272,10 +272,13 @@ describe('the live-database row over capture A', () => {
       const run = runs.find((entry) => entry.label === label)!;
       for (const name of ['onValue', 'onChildAdded']) {
         const lifecycle = run.records.filter((record) => record.name === name && record.listener !== undefined);
+        const deliveries = run.records.filter((record) => record.name === name && record.outcome === 'delivered');
         expect(lifecycle.map((record) => record.outcome)).toEqual(['attached', 'detached']);
         expect(lifecycle[0]!.listener!.id).toMatch(/^l-[0-9a-f]{8}-[0-9]+$/);
         expect(lifecycle[0]!.listener!.key).toMatch(/^[0-9a-f]{16}$/);
         expect(lifecycle[1]!.listener).toEqual(lifecycle[0]!.listener!);
+        expect(deliveries.length).toBeGreaterThanOrEqual(1);
+        for (const delivery of deliveries) expect(delivery.listenerId).toBe(lifecycle[0]!.listener!.id);
       }
     });
 

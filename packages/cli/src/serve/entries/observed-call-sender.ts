@@ -23,8 +23,12 @@
  */
 import type { ObservedCall } from 'pyric/sandbox';
 import type { ObservedSessionDelta } from '../observed-session/wire.js';
-import { nextId, rpc } from '../worker/client/core.js';
+import { rpc } from '../worker/client/core.js';
 import type { ClientDb } from '../worker/client/handles.js';
+import {
+  buildObserveFrame,
+  trackObservedPortListener,
+} from '../worker/client/observed-listener-restore.js';
 import { isServiceWorkerRealm } from '../worker/service-worker-channel.js';
 import { initPayload } from './init-payload.js';
 import { openWorkerDb, useHosted, workerDb } from './worker-runtime.js';
@@ -61,11 +65,11 @@ async function hostConnection(): Promise<ClientDb> {
 const MAX_SCRIPT_LENGTH = 256;
 
 /** A service worker's script path, as the field of its observe frames; nothing for a page or an unusable path. */
-function serviceWorkerScript(): { script?: string } {
-  if (!isServiceWorkerRealm()) return {};
+function serviceWorkerScript(): string | undefined {
+  if (!isServiceWorkerRealm()) return undefined;
   const path = (globalThis as { location?: { pathname?: unknown } }).location?.pathname;
   const isUsable = typeof path === 'string' && path.startsWith('/') && path.length <= MAX_SCRIPT_LENGTH;
-  return isUsable ? { script: path } : {};
+  return isUsable ? path : undefined;
 }
 
 /** Sends one observed call. Rejects when the page or service worker has no Node host connection. */
@@ -74,6 +78,7 @@ export async function sendObservedCall(
   sessionData?: ObservedSessionDelta,
 ): Promise<void> {
   const db = await hostConnection();
+  trackObservedPortListener(db.port, call, serviceWorkerScript);
   // An absent delta and an undefined one read the same on the host.
-  await rpc(db.port, { t: 'observe', id: nextId(), call, ...serviceWorkerScript(), sessionData });
+  await rpc(db.port, buildObserveFrame(call, serviceWorkerScript(), sessionData));
 }

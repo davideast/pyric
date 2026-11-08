@@ -7,10 +7,10 @@
 
 import { useMemo, useSyncExternalStore } from 'react';
 import type { TimeWindow } from '@pyric/ui/traffic';
-import { useStudioEvents } from '../../shell/studio-events.js';
 import { currentPath, locationKey, subscribeToLocation } from '../../shell/router.js';
 import { ListenersView } from './ListenersView.js';
 import { listenersDeepLinkFromQuery, type ListenersDeepLink } from './listeners-deep-link.js';
+import { useScopedListenerEvents } from './use-scoped-listener-events.js';
 
 const CLOSED: ListenersDeepLink = { open: false };
 
@@ -24,11 +24,13 @@ export interface ListenersSurfaceProps {
   window: TimeWindow;
   /** The Traffic surface's `Hide Studio traffic` toggle. */
   hideStudio?: boolean;
+  /** Live-host `From` client/user scope (`?from=`). */
+  fromScope?: string | undefined;
   deepLink?: ListenersDeepLink;
 }
 
-export function ListenersSurface({ window, hideStudio, deepLink }: ListenersSurfaceProps) {
-  const events = useStudioEvents('active-listeners');
+export function ListenersSurface({ window, hideStudio, fromScope, deepLink }: ListenersSurfaceProps) {
+  const events = useScopedListenerEvents(fromScope);
   // The link lives in the URL, so back/forward and a chip click that lands on
   // an already-open Studio both move the selection (N4: the URL is the store).
   // The subscribed snapshot is the location string, not the parsed link:

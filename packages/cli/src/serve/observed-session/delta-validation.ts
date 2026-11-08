@@ -19,11 +19,11 @@ const MAX_SESSION_OPS_PER_DELTA = 500;
 const MAX_SESSION_DELTA_BYTES = 1024 * 1024;
 const MAX_SESSION_VALUE_DEPTH = 20;
 const MAX_FIRESTORE_PATH_SEGMENTS = 32;
-const MAX_PATH_LENGTH = 1024;
+export const MAX_PATH_LENGTH = 1024;
 const MAX_DELETE_FIELDS = 256;
 const MAX_SKIP_COUNT = 1_000_000;
 
-const RTDB_FORBIDDEN_SEGMENT = /[.#$[\]]/;
+export const RTDB_FORBIDDEN_SEGMENT = /[.#$[\]]/;
 
 /** Why the host skipped a delta, as the snapshot's `skips` counts it. */
 export type SessionDeltaSkipReason = 'oversized' | 'unsupported';

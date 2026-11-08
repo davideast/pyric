@@ -338,6 +338,77 @@ export default scenario(async (app) => {
     await chip.locator('[data-listener-mode=overview]').click();
   });
 
+  await app.step("Studio's Traffic subtabs report observed live billable operations, advisory local rules, and live listener deliveries", async () => {
+    const context = await app.browser();
+    const fontHosts = /^https:\/\/(use\.typekit\.net|fonts\.googleapis\.com)\//;
+    await context.route(fontHosts, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+    const studio = await app.page(`${host.url}/__pyric/ui/traffic?view=billable`);
+    const opPanel = studio.locator('[data-pyric-billable-panel="operation"]');
+    const bwPanel = studio.locator('[data-pyric-billable-panel="bandwidth"]');
+    const opMetric = async (key: string) => (await opPanel.locator(`[data-pyric-metric-key="${key}"] [data-pyric-metric-value]`).textContent())?.trim() ?? '';
+    const metricValue = async (key: string) => (await studio.locator(`[data-pyric-metric-key="${key}"] [data-pyric-metric-value]`).textContent())?.trim() ?? '';
+
+    await studio.locator('[data-pyric-ui="traffic-billable-view"]').waitFor({ timeout: 30_000 });
+    const healthCounts = await billed(host.url);
+    const expectedBillableReads = (healthCounts?.reads ?? 0) + (healthCounts?.deliveries ?? 0);
+    await eventually(async () => ({
+      reads: Number(await opMetric('reads')),
+      writes: Number(await opMetric('writes')),
+      deletes: Number(await opMetric('deletes')),
+    }), ({ reads, writes, deletes }) => reads === expectedBillableReads && writes === 2 && deletes === 0, 'exact observed live billable reads, writes, and deletes');
+    assert.equal(
+      (await opPanel.locator('.traffic__metric-source').textContent())?.trim(),
+      'Source: observed live requests · Firestore documents and Storage operations, not a Firebase invoice',
+    );
+    assert.equal(
+      (await bwPanel.locator('[data-pyric-metric-key="deliveries"] [data-pyric-metric-value]').textContent())?.trim(),
+      '0',
+    );
+    const from = studio.locator('[data-pyric-traffic-from]');
+    await from.selectOption(`user:${reader}`);
+    await eventually(() => opMetric('writes'), (writes) => writes === '1', 'billable writes scoped to reader');
+    await from.selectOption('all');
+    await eventually(() => opMetric('writes'), (writes) => writes === '2', 'billable writes across all clients');
+
+    await studio.getByRole('tab', { name: 'Rules' }).click();
+    await studio.locator('[data-pyric-ui="traffic-rules-view"]').waitFor({ timeout: 30_000 });
+    assert.equal((await studio.locator('.traffic__metric-eyebrow').textContent())?.trim(), 'Advisory local rules');
+    await eventually(async () => ({
+      allows: Number(await metricValue('allows')),
+      denies: Number(await metricValue('denies')),
+    }), ({ allows, denies }) => allows === 4 && denies === 2, 'exact advisory local rules allows (4) and denies (2)');
+    const rulesSummary = (await studio.locator('[data-pyric-live-rules-summary]').textContent()) ?? '';
+    assert.match(rulesSummary, /Drift with production: 0/);
+    assert.match(rulesSummary, /Denied by production: 2/);
+    assert.equal(
+      (await studio.locator('.traffic__metric-source').textContent())?.trim(),
+      'Source: observed live requests · Local rules evaluated against observed traffic (advisory)',
+    );
+
+    await studio.getByRole('tab', { name: 'Listeners' }).click();
+    await studio.locator('[data-pyric-ui="traffic-listeners-view"]').waitFor({ timeout: 30_000 });
+    await eventually(async () => ({
+      delivering: await metricValue('delivering'),
+      idle: await metricValue('idle'),
+    }), ({ delivering, idle }) => delivering === '1' && idle === '0', 'the page listener marked delivering');
+    assert.equal(await studio.locator('[data-pyric-chart-svg]').count(), 1);
+    assert.doesNotMatch((await studio.locator('[data-pyric-ui="traffic-listeners-view"]').textContent()) ?? '', /No deliveries in this window/);
+    const listenerRow = studio.locator('[data-pyric-listener-row]').first();
+    assert.ok(Number(await listenerRow.locator('[data-col="deliveries"]').textContent()) >= 2, 'the live listener row counts its deliveries');
+    assert.match((await listenerRow.locator('[data-col="attached"]').textContent())?.trim() ?? '', /^(\d+s|[1-4]m) ago$/);
+    assert.match((await studio.locator('.traffic__metric-source').textContent()) ?? '', /Source: observed live listeners/);
+
+    await listenerRow.click();
+    await studio.locator('[data-pyric-inspector-title]').click();
+    await studio.locator('[data-pyric-ui="traffic-listener-page"]').waitFor({ timeout: 30_000 });
+    assert.ok(Number(await metricValue('deliveries')) >= 2, 'the listener page counts live deliveries');
+    assert.ok(await studio.locator('[data-pyric-delivery-entry]').count() >= 2, 'the listener page lists live delivery rows');
+    assert.match((await studio.locator('.traffic__metric-footer .traffic__metric-source').textContent()) ?? '', /Source: observed live deliveries/);
+
+    await studio.close();
+    await context.unroute(fontHosts);
+  });
+
   await app.step('each call the page makes that live mode refuses throws its refusal and sends nothing', async () => {
     const outcomes = await sendsNothing(app, replay, async () => ({
       functions: await page.evaluate(() => refused.functions()),

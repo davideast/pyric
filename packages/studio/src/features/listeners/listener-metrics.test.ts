@@ -49,6 +49,44 @@ describe('deliveries in the window', () => {
     expect(counts.get('a')).toBe(2);
     expect(counts.get('b')).toBe(1);
   });
+
+  it('counts live operation deliveries carrying detail.listenerId', () => {
+    const liveFs = {
+      kind: 'operation',
+      id: 'op-fs',
+      at: 120,
+      service: 'firestore',
+      method: 'onSnapshot',
+      path: 'rooms',
+      auth: null,
+      result: 'allow',
+      detail: { listenerId: 'page:tab-1:l-fs' },
+    } as unknown as SandboxEvent;
+    const liveDb = {
+      kind: 'operation',
+      id: 'op-db',
+      at: 640,
+      service: 'rtdb',
+      method: 'onValue',
+      path: 'rooms/r1',
+      auth: null,
+      result: 'allow',
+      detail: { listenerId: 'page:tab-1:l-db' },
+    } as unknown as SandboxEvent;
+    const counts = deliveryCountsInWindow([liveFs, liveDb], WINDOW);
+    expect(counts.get('page:tab-1:l-fs')).toBe(1);
+    expect(counts.get('page:tab-1:l-db')).toBe(1);
+
+    const metrics = deliveryMetrics(
+      [liveFs, liveDb],
+      [listener('page:tab-1:l-fs', 'firestore'), listener('page:tab-1:l-db', 'database')],
+      WINDOW,
+      10,
+    );
+    expect(metrics.total).toBe(2);
+    expect(metrics.series.find((s) => s.key === 'firestore')!.total).toBe(1);
+    expect(metrics.series.find((s) => s.key === 'database')!.total).toBe(1);
+  });
 });
 
 describe('the delivery chart', () => {

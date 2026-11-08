@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'bun:test';
 import {
   bucketBillableMetrics,
+  bucketRtdbTransferMetrics,
   bucketRulesMetrics,
   classifyBillable,
+  classifyRtdbTransfer,
   classifyRules,
   isAdminEvent,
   useBillableMetrics,
+  useRtdbTransferMetrics,
   useRulesMetrics,
   type BillableEvent,
   type BillableProduction,
@@ -160,14 +163,63 @@ describe('a call production served', () => {
     const events = [
       observed({ at: 10, method: 'getDocs', result: 'deny' }, { usage: { documentReads: 3 } }),
       observed({ at: 20, method: 'getDocs', result: 'error' }, {}),
+      observed({ at: 30, method: 'DocumentReference.get', result: 'error', origin: 'admin' }, {}),
     ];
     expect(totals(events)).toEqual({ reads: 0, writes: 0, deletes: 0 });
+    expect(
+      classifyBillable(
+        observed({ method: 'DocumentReference.set', result: 'error' }, {}),
+        () => true,
+      ),
+    ).toBeNull();
   });
 
   it('classifies an observed export by the request it makes', () => {
     expect(classifyBillable(observed({ method: 'getDocsFromServer' }, {}))).toBe('reads');
     expect(classifyBillable(observed({ method: 'addDoc' }, {}))).toBe('writes');
     expect(classifyBillable(observed({ method: 'onSnapshot' }, {}))).toBeNull();
+  });
+
+  it('keeps operation-metered (Firestore + Storage) separate from bandwidth-metered (Realtime Database)', () => {
+    const events: BillableEvent[] = [
+      observed({ at: 10, service: 'rtdb', method: 'onValue' }, {}),
+      observed({ at: 20, service: 'rtdb', method: 'onChildAdded' }, {}),
+      observed({ at: 25, service: 'rtdb', method: 'get' }, {}),
+      observed({ at: 30, service: 'rtdb', method: 'update' }, {}),
+      observed({ at: 40, service: 'rtdb', method: 'remove' }, {}),
+      observed({ at: 50, service: 'storage', method: 'uploadBytes' }, {}),
+      observed({ at: 55, service: 'storage', method: 'listAll' }, {}),
+      observed({ at: 60, service: 'storage', method: 'getMetadata' }, {}),
+      observed({ at: 65, service: 'firestore', method: 'getDocFromCache' }, {}),
+      observed({ at: 70, service: 'firestore', method: 'DocumentReference.get', origin: 'admin' }, {}),
+      observed({ at: 80, service: 'rtdb', method: 'Reference.set', origin: 'admin' }, {}),
+      observed({ at: 90, service: 'storage', method: 'File.delete', origin: 'admin' }, {}),
+    ];
+    // Operation-metered counts only Firestore + Storage (Storage listAll = Class A write; FromCache = 0).
+    expect(totals(events)).toEqual({ reads: 2, writes: 2, deletes: 1 });
+
+    // Bandwidth-metered counts only RTDB outbound deliveries, writes, and removes.
+    const rtdbTotals = Object.fromEntries(
+      bucketRtdbTransferMetrics(events, WINDOW, 10).series.map((s) => [s.key, s.total]),
+    );
+    expect(rtdbTotals).toEqual({ deliveries: 3, writes: 2, removes: 1 });
+    expect(classifyRtdbTransfer(observed({ service: 'rtdb', method: 'onChildMoved' }, {}))).toBe('deliveries');
+    expect(classifyRtdbTransfer(observed({ service: 'rtdb', method: 'runTransaction' }, {}))).toBe('writes');
+    expect(classifyRtdbTransfer(observed({ service: 'rtdb', method: 'get', result: 'deny' }, {}))).toBeNull();
+  });
+});
+
+describe('useRtdbTransferMetrics', () => {
+  it('buckets RTDB deliveries, writes, and removes over the window', async () => {
+    const events: BillableEvent[] = [
+      { ...evt({ kind: 'operation', at: 120, service: 'rtdb', method: 'onValue', result: 'allow' }), production: {} },
+    ];
+    const { result } = renderHook(() =>
+      useRtdbTransferMetrics({ events, window: WINDOW, bucketCount: 10 }),
+    );
+    await waitFor(() =>
+      expect(result.current.series.find((s) => s.key === 'deliveries')!.total).toBe(1),
+    );
   });
 });
 

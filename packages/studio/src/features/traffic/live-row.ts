@@ -6,6 +6,7 @@
  * (`client-scope` in `pyric/sandbox/internal`); Studio is not a page, so it
  * offers no "this page" and names a browser profile a browser tab.
  */
+import type { SandboxEvent } from 'pyric/sandbox';
 import {
   callerSource,
   callerSourceLabelOutsidePage,
@@ -19,6 +20,7 @@ import {
   withClientLabel,
   type LiveHostStatus,
   type ScopeOptions,
+  type ScopedEventFields,
 } from 'pyric/sandbox/internal';
 import { verdictFor, verdictLabel, type StudioTrafficEvent } from './verdict.js';
 
@@ -126,4 +128,64 @@ export function inFromScope<E extends Pick<StudioTrafficEvent, 'caller' | 'auth'
   const keepsAll = scope === null || scope.kind === 'all' || scope.kind === 'page';
   if (keepsAll) return [...events];
   return events.filter((event) => inClientScope(event, scope));
+}
+
+function attachListenerId(event: SandboxEvent): string | undefined {
+  if (event.kind === 'listener_attach') return event.listenerId;
+  if (event.kind === 'listener' && event.phase === 'attach') return event.listenerId;
+  return undefined;
+}
+
+function detachListenerId(event: SandboxEvent): string | undefined {
+  if (event.kind === 'listener_detach' || event.kind === 'listener_errored') return event.listenerId;
+  if (event.kind === 'listener' && (event.phase === 'detach' || event.phase === 'errored')) {
+    return event.listenerId;
+  }
+  return undefined;
+}
+
+function scopedFieldsOf(event: SandboxEvent): ScopedEventFields {
+  const rawAuth = (event as { auth?: { uid?: unknown } | null }).auth;
+  let auth: ScopedEventFields['auth'];
+  if (rawAuth === null) {
+    auth = null;
+  } else if (typeof rawAuth?.uid === 'string') {
+    auth = { uid: rawAuth.uid };
+  }
+  if (event.caller !== undefined && auth !== undefined) {
+    return { caller: event.caller, auth };
+  }
+  if (event.caller !== undefined) {
+    return { caller: event.caller };
+  }
+  if (auth !== undefined) {
+    return { auth };
+  }
+  return {};
+}
+
+/**
+ * Raw sandbox events in the "From" scope `value` names, preserving lifecycle
+ * detach/error events for any listener attached within the scope so sign-out
+ * before detach never leaves a zombie active listener.
+ */
+export function inRawEventFromScope(events: readonly SandboxEvent[], value: string): SandboxEvent[] {
+  const scope = scopeFromValue(value);
+  const keepsAll = scope === null || scope.kind === 'all' || scope.kind === 'page';
+  if (keepsAll) return [...events];
+  const seenListeners = new Set<string>();
+  const filtered: SandboxEvent[] = [];
+  for (const event of events) {
+    if (inClientScope(scopedFieldsOf(event), scope)) {
+      const attached = attachListenerId(event);
+      if (attached !== undefined) seenListeners.add(attached);
+      filtered.push(event);
+      continue;
+    }
+    const detached = detachListenerId(event);
+    if (detached !== undefined && seenListeners.has(detached)) {
+      filtered.push(event);
+    }
+  }
+  return filtered;
 }

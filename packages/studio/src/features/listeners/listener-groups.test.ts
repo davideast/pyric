@@ -1,7 +1,12 @@
 /** Listener grouping, pure fold tests. */
 import { describe, expect, it } from 'bun:test';
 import type { ActiveListener, ListenerOwner } from 'pyric/sandbox';
-import { formatListenerTarget, groupIdentityFor, groupListeners } from './listener-groups.js';
+import {
+  formatListenerTarget,
+  groupIdentityFor,
+  groupListeners,
+  isSingleDocumentTarget,
+} from './listener-groups.js';
 
 function listener(overrides: Partial<ActiveListener> & { id: string }): ActiveListener {
   return {
@@ -106,5 +111,16 @@ describe('formatListenerTarget', () => {
   it('marks a query target', () => {
     expect(formatListenerTarget({ collection: 'notes', query: true })).toBe('notes (query)');
     expect(formatListenerTarget({ collection: 'notes' })).toBe('notes');
+  });
+});
+
+describe('isSingleDocumentTarget', () => {
+  it('identifies even-segment Firestore document targets and rejects collections, wildcards, and RTDB targets', () => {
+    expect(isSingleDocumentTarget({ service: 'firestore', target: 'rooms/lobby' })).toBe(true);
+    expect(isSingleDocumentTarget({ service: 'firestore', target: 'rooms/lobby/items/i1' })).toBe(true);
+    expect(isSingleDocumentTarget({ service: 'firestore', target: 'rooms' })).toBe(false);
+    expect(isSingleDocumentTarget({ service: 'firestore', target: 'rooms/**' })).toBe(false);
+    expect(isSingleDocumentTarget({ service: 'firestore', target: { collection: 'rooms' } })).toBe(false);
+    expect(isSingleDocumentTarget({ service: 'database', target: 'rooms/lobby' })).toBe(false);
   });
 });

@@ -926,4 +926,44 @@ describe('observed listener lifecycle', () => {
   it('refuses a call that is not a listener record', () => {
     expect(() => observedListenerEvent(DENIED_READ)).toThrow('Invalid observed call field: listener.');
   });
+
+  it('accepts listenerId on client Firestore and RTDB delivery calls and rejects invalid uses', () => {
+    const firestoreDelivery = readObservedCall({
+      service: 'firestore',
+      method: 'onSnapshot',
+      path: 'rooms/r1',
+      at: 1_000,
+      outcome: { status: 'ok' },
+      billedDocuments: 1,
+      listenerId: 'l-a1b2c3d4-1',
+    });
+    expect(firestoreDelivery.listenerId).toBe('l-a1b2c3d4-1');
+    expect(observedCallEvent(firestoreDelivery).detail).toEqual({ listenerId: 'l-a1b2c3d4-1' });
+
+    const rtdbDelivery = readObservedCall({
+      service: 'rtdb',
+      method: 'onValue',
+      instance: 'my-project-default-rtdb',
+      path: '/rooms/r1',
+      at: 1_000,
+      outcome: { status: 'ok' },
+      listenerId: 'l-a1b2c3d4-2',
+    });
+    expect(rtdbDelivery.listenerId).toBe('l-a1b2c3d4-2');
+    expect(observedCallEvent(rtdbDelivery).detail).toEqual({ listenerId: 'l-a1b2c3d4-2' });
+
+    const invalidCases: Array<[unknown, string]> = [
+      [{ ...firestoreDelivery, listenerId: '' }, 'listenerId'],
+      [{ ...firestoreDelivery, listenerId: 'l 1' }, 'listenerId'],
+      [{ ...firestoreDelivery, listenerId: 'a'.repeat(65) }, 'listenerId'],
+      [{ ...firestoreDelivery, listenerId: 'eyJhbGciOiJFUzI1NiJ9abc' }, 'listenerId'],
+      [{ ...firestoreDelivery, sdk: 'admin' }, 'listenerId'],
+      [{ ...firestoreDelivery, outcome: { status: 'error', code: 'permission-denied' } }, 'listenerId'],
+      [{ ...UPLOAD, listenerId: 'l-1' }, 'listenerId'],
+      [{ ...ROOMS_ATTACH, listenerId: 'l-1' }, 'listenerId'],
+    ];
+    for (const [candidate, field] of invalidCases) {
+      expect(() => readObservedCall(candidate)).toThrow(`Invalid observed call field: ${field}.`);
+    }
+  });
 });

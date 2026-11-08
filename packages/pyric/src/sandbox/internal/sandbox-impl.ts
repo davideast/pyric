@@ -56,6 +56,7 @@ import {
   mergeProvenance,
   stampProvenance,
 } from './provenance.js';
+import { primedHistoryEvents } from './primed-history.js';
 
 // Kept for internal import compatibility; the implementation lives in the
 // focused provenance module so this class remains an orchestration shell.
@@ -385,18 +386,9 @@ export class SandboxImpl implements LocalSandbox {
    * interleave after live ones. Returns the number of events primed.
    */
   primeEventHistory(events: readonly SandboxEvent[]): number {
-    const hasHistory = this.eventHistory.length > 0;
-    const isEmpty = events.length === 0;
-    if (hasHistory) return 0;
-    if (isEmpty) return 0;
-    for (const event of events) {
-      const unfinished = event.kind === 'operation' && event.observation?.status === 'pending';
-      if (unfinished) {
-        const observation: NonNullable<SandboxOperationEvent['observation']> = {
-          ...event.observation!, status: 'interrupted', error: { code: 'host-restarted' },
-        };
-        this.eventHistory.append({ ...event, observation });
-      } else this.eventHistory.append(event);
+    if (this.eventHistory.length > 0 || events.length === 0) return 0;
+    for (const primed of primedHistoryEvents(events)) {
+      this.eventHistory.append(primed);
     }
     return events.length;
   }

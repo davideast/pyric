@@ -31,6 +31,8 @@ export interface ClientPort {
   withdrawSubscription?(subId: string): boolean;
   /** Restore this app's Auth state before a replacement host receives data operations. */
   restoreAuth?(request: (message: OpMessage) => Promise<unknown>): Promise<void>;
+  /** Replay still-open `@pyric/live` listener attaches when reattaching to a replacement host. */
+  restoreObservedListeners?(request: (message: InboundMessage) => Promise<unknown>): void;
   /**
    * Present when the host moves Storage bytes over its HTTP byte route: the
    * origin that serves it, and the page's session token for its own reads.

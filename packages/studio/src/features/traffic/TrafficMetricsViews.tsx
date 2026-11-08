@@ -1,28 +1,54 @@
 /**
  * Traffic tab strip, views 2 + 3: "Billable metrics" and "Rules"
- * (Firebase Console "Usage" reference). Both metric charts reuse the
- * `@pyric/ui/traffic` bucketing hooks unchanged — this module is rendering
- * + the Studio-specific Rules-bypass classifier only.
+ * (Firebase Console "Usage" reference). Metric charts reuse the
+ * `@pyric/ui/traffic` bucketing hooks; this module handles rendering,
+ * mode-specific copy selection, and the Studio-specific Rules-bypass classifier.
  *
  * ── Rules-bypass classification ──
  * The shared metric hooks retain their legacy `isAdmin` callback name, but
  * Studio supplies the canonical Rules disposition. The metrics therefore do
  * not infer rule behavior from the operation's source or auth lens.
- *
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   TrafficLineChart,
   TrafficMetricCards,
   useBillableMetrics,
+  useRtdbTransferMetrics,
   useRulesMetrics,
   type MetricPoint,
   type MetricSeries,
   type TimeWindow,
 } from '@pyric/ui/traffic';
-import { verdictFor, rulesDecisionEvents, queryProofUnsupportedCount, type StudioTrafficEvent } from './verdict.js';
-import { billableStory, rulesStory, type MetricStory } from './metric-story.js';
+import {
+  verdictFor,
+  rulesDecisionEvents,
+  queryProofUnsupportedCount,
+  type StudioTrafficEvent,
+} from './verdict.js';
+import {
+  liveRulesDecisionEvents,
+  localDriftCount,
+  localUnevaluatedCount,
+  productionDeniedCount,
+} from './live-verdict.js';
+import {
+  billableStory,
+  rtdbTransferStory,
+  rulesStory,
+  liveRulesStory,
+  type MetricStory,
+} from './metric-story.js';
+import {
+  BILLABLE_OPERATION_COPY,
+  LIVE_RTDB_TRANSFER_COPY,
+  RULES_PANEL_COPY,
+  rulesDecisionSeriesForMode,
+  type JournalPanelCopy,
+  type TrafficHostMode,
+} from './traffic-panel-copy.js';
+import { useLiveHost } from '../../shell/live-status.js';
 
 const metricNumberFormatter = new Intl.NumberFormat();
 const metricTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -48,28 +74,58 @@ function allZero(series: readonly MetricSeries[]): boolean {
   return series.every((s) => s.total === 0);
 }
 
+function isLiveOperationMeteredService(event: StudioTrafficEvent): boolean {
+  const service = event.service ?? 'firestore';
+  return service === 'firestore' || service === 'storage';
+}
+
+function isRtdbTransferService(event: StudioTrafficEvent): boolean {
+  return event.service === 'rtdb' || event.service === 'database';
+}
+
+function RulesSummaryLine({
+  mode,
+  driftCount,
+  unevaluatedCount,
+  deniedByProduction,
+  unsupportedCount,
+}: {
+  mode: TrafficHostMode;
+  driftCount: number;
+  unevaluatedCount: number;
+  deniedByProduction: number;
+  unsupportedCount: number;
+}) {
+  if (mode === 'sandbox') {
+    return <p>Query proof unsupported: {unsupportedCount}</p>;
+  }
+  const parts = [
+    `Drift with production: ${formatMetricNumber(driftCount)}`,
+    `Unevaluated locally: ${formatMetricNumber(unevaluatedCount)}`,
+    `Denied by production: ${formatMetricNumber(deniedByProduction)}`,
+  ];
+  if (unsupportedCount > 0) {
+    parts.push(`Query proof unsupported: ${formatMetricNumber(unsupportedCount)}`);
+  }
+  return <p data-pyric-live-rules-summary="">{parts.join(' · ')}</p>;
+}
+
 /** Shared data-journal composition: observed story, direct totals, evidence,
  *  and a visible source boundary with methodology on demand. */
 function JournalMetricPanel({
-  eyebrow,
+  copy,
   story,
   series,
   points,
   window,
-  emptyLabel,
-  evidenceTitle,
-  source,
-  methodology,
+  panelKey,
 }: {
-  eyebrow: string;
+  copy: JournalPanelCopy;
   story: MetricStory;
   series: MetricSeries[];
   points: MetricPoint[];
   window: TimeWindow;
-  emptyLabel: string;
-  evidenceTitle: string;
-  source: string;
-  methodology: ReactNode;
+  panelKey?: string;
 }) {
   const [visible, setVisible] = useState<Set<string>>(
     () => new Set(series.map((item) => item.key)),
@@ -87,9 +143,10 @@ function JournalMetricPanel({
     <section
       className="traffic__metric-panel traffic__metric-panel--journal"
       data-pyric-ui="traffic-metric-panel"
+      data-pyric-billable-panel={panelKey}
     >
       <header className="traffic__metric-story">
-        <p className="traffic__metric-eyebrow">{eyebrow}</p>
+        <p className="traffic__metric-eyebrow">{copy.eyebrow}</p>
         <h3 className="traffic__metric-headline">{story.headline}</h3>
         <p className="traffic__metric-finding">{story.finding}</p>
       </header>
@@ -103,11 +160,11 @@ function JournalMetricPanel({
       />
 
       {allZero(series) ? (
-        <p className="traffic__empty">{emptyLabel}</p>
+        <p className="traffic__empty">{copy.emptyLabel}</p>
       ) : (
         <div className="traffic__metric-evidence">
           <div className="traffic__metric-evidence-header">
-            <h4>{evidenceTitle}</h4>
+            <h4>{copy.evidenceTitle}</h4>
             <span>
               {formatMetricTime(window.start)}–{formatMetricTime(window.end)}
             </span>
@@ -129,17 +186,17 @@ function JournalMetricPanel({
       )}
 
       <footer className="traffic__metric-footer">
-        <p className="traffic__metric-source">{source}</p>
+        <p className="traffic__metric-source">{copy.source}</p>
         <details className="traffic__metric-methodology">
           <summary>How this is counted</summary>
-          <div>{methodology}</div>
+          <div>{copy.methodology}</div>
         </details>
       </footer>
     </section>
   );
 }
 
-/** Tab 2: reads / writes / deletes over the session window. */
+/** Tab 2: operation-metered activity (plus bandwidth-metered RTDB transfers in Live Mode). */
 export function BillableMetricsView({
   events,
   window,
@@ -147,52 +204,75 @@ export function BillableMetricsView({
   events: StudioTrafficEvent[];
   window: TimeWindow;
 }) {
-  // The billing semantics documented below are Firestore-specific. Storage and
-  // RTDB operations can share method names but not Firestore's billing unit.
-  const firestoreEvents = useMemo(
-    () => events.filter((event) => (event.service ?? 'firestore') === 'firestore'),
-    [events],
+  const mode: TrafficHostMode = useLiveHost() !== null ? 'live' : 'sandbox';
+  const operationEvents = useMemo(
+    () =>
+      events.filter((event) => {
+        if (mode === 'live') return isLiveOperationMeteredService(event);
+        return (event.service ?? 'firestore') === 'firestore';
+      }),
+    [events, mode],
   );
-  const metrics = useBillableMetrics({
-    events: firestoreEvents,
+  const rtdbEvents = useMemo(
+    () => (mode === 'live' ? events.filter(isRtdbTransferService) : []),
+    [events, mode],
+  );
+  const operationMetrics = useBillableMetrics({
+    events: operationEvents,
     window,
     isAdmin: isBypassedOp,
   });
-  const story = useMemo(() => billableStory(metrics.series), [metrics.series]);
+  const rtdbMetrics = useRtdbTransferMetrics({
+    events: rtdbEvents,
+    window,
+    isAdmin: isBypassedOp,
+  });
+  const operationStory = useMemo(
+    () => billableStory(operationMetrics.series),
+    [operationMetrics.series],
+  );
+  const rtdbStory = useMemo(
+    () => rtdbTransferStory(rtdbMetrics.series),
+    [rtdbMetrics.series],
+  );
+
+  if (mode === 'sandbox') {
+    return (
+      <div className="traffic__metrics" data-pyric-ui="traffic-billable-view">
+        <JournalMetricPanel
+          copy={BILLABLE_OPERATION_COPY.sandbox}
+          story={operationStory}
+          series={operationMetrics.series}
+          points={operationMetrics.points}
+          window={window}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-billable-view">
       <JournalMetricPanel
-        eyebrow="Billable activity"
-        story={story}
-        series={metrics.series}
-        points={metrics.points}
+        panelKey="operation"
+        copy={BILLABLE_OPERATION_COPY.live}
+        story={operationStory}
+        series={operationMetrics.series}
+        points={operationMetrics.points}
         window={window}
-        emptyLabel="No reads, writes, or deletes in this session yet."
-        evidenceTitle="When the activity happened"
-        source="Source: Pyric Firestore sandbox events · Operation counts, not a Firebase invoice"
-        methodology={
-          <>
-            <p>
-              Counts successful Firestore sandbox <code>get</code>/<code>list</code>,{' '}
-              <code>create</code>/<code>update</code>/<code>set</code>, and{' '}
-              <code>delete</code>/<code>remove</code> operations in the displayed window.
-              Rules-bypassed admin operations are included because they still execute.
-            </p>
-            <p>
-              <strong>Read ops are a proxy, not billed document reads.</strong> Each{' '}
-              <code>list</code> is counted once because the event does not report how many
-              documents the query returned. This is observed sandbox activity, not a Firebase
-              invoice.
-            </p>
-          </>
-        }
+      />
+      <JournalMetricPanel
+        panelKey="bandwidth"
+        copy={LIVE_RTDB_TRANSFER_COPY}
+        story={rtdbStory}
+        series={rtdbMetrics.series}
+        points={rtdbMetrics.points}
+        window={window}
       />
     </div>
   );
 }
 
-/** Tab 3: rules allow/deny/error metrics. */
+/** Tab 3: rules allow/deny metrics (or advisory local rules in Live Mode). */
 export function RulesMetricsView({
   events,
   window,
@@ -200,46 +280,54 @@ export function RulesMetricsView({
   events: StudioTrafficEvent[];
   window: TimeWindow;
 }) {
+  const mode: TrafficHostMode = useLiveHost() !== null ? 'live' : 'sandbox';
   const evaluatedEvents = useMemo(
-    () => rulesDecisionEvents(events),
-    [events],
+    () => (mode === 'live' ? liveRulesDecisionEvents(events) : rulesDecisionEvents(events)),
+    [events, mode],
   );
   const rules = useRulesMetrics({ events: evaluatedEvents, window });
-  // `RulesDisposition` has only allow/deny verdicts. A runtime error is
-  // explicitly `not-evaluated`, so the shared hook's generic error series is
-  // not a Rules metric in Studio.
   const decisionSeries = useMemo(
-    () => rules.series.filter((series) => series.key === 'allows' || series.key === 'denies'),
-    [rules.series],
+    () => rulesDecisionSeriesForMode(rules.series, mode),
+    [rules.series, mode],
   );
-  const story = useMemo(() => rulesStory(decisionSeries), [decisionSeries]);
+  const driftCount = useMemo(
+    () => (mode === 'live' ? localDriftCount(events, window) : 0),
+    [events, window, mode],
+  );
+  const unevaluatedCount = useMemo(
+    () => (mode === 'live' ? localUnevaluatedCount(events, window) : 0),
+    [events, window, mode],
+  );
+  const deniedByProduction = useMemo(
+    () => (mode === 'live' ? productionDeniedCount(events, window) : 0),
+    [events, window, mode],
+  );
+  const unsupportedCount = useMemo(
+    () => queryProofUnsupportedCount(events, window),
+    [events, window],
+  );
+  const story = useMemo(() => {
+    if (mode === 'live') {
+      return liveRulesStory(decisionSeries, { driftCount, unevaluatedCount });
+    }
+    return rulesStory(decisionSeries);
+  }, [decisionSeries, mode, driftCount, unevaluatedCount]);
 
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-rules-view">
-      <p>Query proof unsupported: {queryProofUnsupportedCount(events, window)}</p>
+      <RulesSummaryLine
+        mode={mode}
+        driftCount={driftCount}
+        unevaluatedCount={unevaluatedCount}
+        deniedByProduction={deniedByProduction}
+        unsupportedCount={unsupportedCount}
+      />
       <JournalMetricPanel
-        eyebrow="Rules decisions"
+        copy={RULES_PANEL_COPY[mode]}
         story={story}
         series={decisionSeries}
         points={rules.points}
         window={window}
-        emptyLabel="No allow or deny decisions in this session yet."
-        evidenceTitle="When Rules evaluated requests"
-        source="Source: Pyric sandbox events · Evaluated Rules dispositions only"
-        methodology={
-          <>
-            <p>
-              Counts only operations whose canonical Rules disposition is{' '}
-              <code>evaluated</code>, grouped by its <code>allow</code> or <code>deny</code>{' '}
-              verdict. Query-proof limitations are counted separately, not as ordinary denials.
-            </p>
-            <p>
-              <strong>Bypasses and runtime failures are not Rules decisions.</strong> Admin
-              bypasses, services without Rules, unsupported operations, and runtime errors are
-              excluded because Rules did not produce a verdict.
-            </p>
-          </>
-        }
       />
     </div>
   );

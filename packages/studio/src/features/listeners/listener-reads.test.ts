@@ -37,4 +37,14 @@ describe('estimatedDocumentReads', () => {
   it('counts nothing for a listener that has never delivered', () => {
     expect(estimatedDocumentReads([])).toBe(0);
   });
+
+  it('prefers measured billedDocuments on live deliveries when snapshots exceed the 64-path cap or deliver metadata only', () => {
+    expect(
+      estimatedDocumentReads([
+        delivery({ at: 1, initial: true, size: 80, addedCount: 64, billedDocuments: 80 }),
+        delivery({ at: 2, size: 80, addedCount: 0, modifiedCount: 0, billedDocuments: 0 }),
+        delivery({ at: 3, size: 85, addedCount: 5, modifiedCount: 0, billedDocuments: 5 }),
+      ]),
+    ).toBe(85);
+  });
 });

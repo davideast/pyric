@@ -8,6 +8,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { activeListeners, initializeSandbox } from 'pyric/sandbox';
+import { emitSandboxEvent, observedCallEvent, observedListenerEvent } from 'pyric/sandbox/internal';
 import { doc, getFirestore, onSnapshot, setDoc } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import {
@@ -82,6 +83,57 @@ describe('activeListeners', () => {
     const db = getFirestore(sandbox);
     await setDoc(doc(db, 'plain/doc'), { value: 1 });
     expect(activeListeners(sandbox.history())).toHaveLength(0);
+  });
+
+  it('folds live observed listener deliveries carrying detail.listenerId into deliveryCount and lastDeliveryAt', () => {
+    const sandbox = initializeSandbox();
+    emitSandboxEvent(
+      sandbox,
+      {
+        ...observedListenerEvent({
+          service: 'rtdb',
+          method: 'onValue',
+          instance: 'demo-default-rtdb',
+          path: '/rooms/r1',
+          at: 1_000,
+          outcome: { status: 'ok' },
+          listener: { phase: 'attach', id: 'l-1', target: '/rooms/r1' },
+        }),
+        listenerId: 'page:tab-1:l-1',
+      },
+    );
+    emitSandboxEvent(sandbox, {
+      ...observedCallEvent({
+        service: 'rtdb',
+        method: 'onValue',
+        instance: 'demo-default-rtdb',
+        path: '/rooms/r1',
+        at: 1_250,
+        outcome: { status: 'ok' },
+      }),
+      detail: { listenerId: 'page:tab-1:l-1' },
+    });
+    emitSandboxEvent(sandbox, {
+      ...observedCallEvent({
+        service: 'rtdb',
+        method: 'onValue',
+        instance: 'demo-default-rtdb',
+        path: '/rooms/r1',
+        at: 1_500,
+        outcome: { status: 'error', code: 'permission_denied' },
+      }),
+      detail: { listenerId: 'page:tab-1:l-1' },
+    });
+
+    const [listener] = activeListeners(sandbox.history());
+    expect(listener).toMatchObject({
+      id: 'page:tab-1:l-1',
+      service: 'database',
+      target: '/rooms/r1',
+      attachedAt: 1_000,
+      deliveryCount: 1,
+      lastDeliveryAt: 1_250,
+    });
   });
 });
 

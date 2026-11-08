@@ -19,7 +19,9 @@ import type { ObserveMessage } from '../protocol.js';
 import { activityJourneyId, ok, fail, type HostCtx, type PortLike } from '../host-context.js';
 import { callerOf } from './caller.js';
 import { claimNodeClient, closeNodeClient, forgetNodeClient, resumeNodeClient } from './node-client-restarts.js';
+import { observedDeliverySummaryOf } from './observed-delivery.js';
 import { localVerdict } from './observe-local-verdict.js';
+import { claimPageTab, closePageTab, forgetPageTab, resumePageTab } from './page-tab-restarts.js';
 
 /** A listener's attach or detach, as the reader returns it. */
 type ObservedListener = NonNullable<ObservedCall['listener']>;
@@ -192,21 +194,29 @@ function sweepEarlierRuns(ctx: HostCtx, earlier: readonly PortLike[]): void {
 
 /**
  * The host retains `port`'s closed connection for a while. When it is a Node
- * process whose next run has already connected, its listeners end now.
+ * process or browser tab whose next run has already connected, its listeners end now.
  */
 export function observedPortInterrupted(ctx: HostCtx, port: PortLike): void {
   sweepEarlierRuns(ctx, closeNodeClient(ctx, port));
+  sweepEarlierRuns(ctx, closePageTab(ctx, port));
 }
 
 /** `port`'s connection resumed its retained session, so it is no earlier run. */
 export function observedPortResumed(ctx: HostCtx, port: PortLike): void {
   resumeNodeClient(ctx, port);
+  resumePageTab(ctx, port);
 }
 
 /** The host ended `port`: sweep what it left attached and forget it. */
 export function endObservedPort(ctx: HostCtx, port: PortLike): void {
   sweepObservedListeners(ctx, port);
   forgetNodeClient(ctx, port);
+  forgetPageTab(ctx, port);
+}
+
+/** Record a page port's declared `tabId` and sweep any interrupted earlier ports of that tab. */
+export function claimObservedPageTab(ctx: HostCtx, port: PortLike, tabId: string): void {
+  sweepEarlierRuns(ctx, claimPageTab(ctx, port, tabId));
 }
 
 /** A Node process's first labelled frame: an earlier run of it that closed ends its listeners. */
@@ -222,9 +232,10 @@ export function handleObserve(ctx: HostCtx, port: PortLike, msg: ObserveMessage)
   try {
     const call = readObservedCall(msg.call);
     claimNodeRun(ctx, port, msg);
+    const caller = callerOf(msg);
     const listener = call.listener;
     if (listener !== undefined) {
-      emitListener(ctx, port, { call, listener, caller: callerOf(msg) });
+      emitListener(ctx, port, { call, listener, caller });
       ok(port, msg.id, undefined);
       return;
     }
@@ -232,8 +243,15 @@ export function handleObserve(ctx: HostCtx, port: PortLike, msg: ObserveMessage)
     const local = localVerdict(ctx, call);
     const production = observed.production;
     const hasLocal = local !== undefined && production !== undefined;
-    const event = hasLocal ? { ...observed, production: { ...production, local } } : observed;
-    const caller = callerOf(msg);
+    const withLocal = hasLocal ? { ...observed, production: { ...production, local } } : observed;
+    let event = withLocal;
+    if (call.listenerId !== undefined) {
+      const scopedId = scopedListenerId(ctx, port, caller, call.listenerId);
+      const delivery = observedDeliverySummaryOf(call, msg.sessionData);
+      const detail: Record<string, unknown> = { ...withLocal.detail, listenerId: scopedId };
+      if (delivery !== undefined) detail.delivery = delivery;
+      event = { ...withLocal, detail };
+    }
     // Before the emit, so the capture its event schedules finds them.
     rememberValues(ctx.sandbox, event.id, call);
     emitSandboxEvent(ctx.sandbox, event, {

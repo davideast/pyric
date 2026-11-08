@@ -4,17 +4,33 @@
  * event stream and hands `ListenerPage` its snapshot.
  */
 
-import { useStudioEvents } from '../../shell/studio-events.js';
 import type { TimeWindow } from '@pyric/ui/traffic';
 import { ListenerPage } from './ListenerPage.js';
+import { useScopedListenerEvents } from './use-scoped-listener-events.js';
 
 export interface ListenerPageSurfaceProps {
   listenerId: string;
   /** The window the Traffic surface computed, shared with the metrics tabs. */
   window: TimeWindow;
+  /** The Traffic surface's `Hide Studio traffic` toggle. */
+  hideStudio?: boolean;
+  /** Live-host `From` client/user scope (`?from=`). */
+  fromScope?: string | undefined;
 }
 
-export function ListenerPageSurface({ listenerId, window }: ListenerPageSurfaceProps) {
-  const events = useStudioEvents();
-  return <ListenerPage events={events} listenerId={listenerId} window={window} />;
+export function ListenerPageSurface({
+  listenerId,
+  window,
+  hideStudio,
+  fromScope,
+}: ListenerPageSurfaceProps) {
+  const events = useScopedListenerEvents(fromScope);
+  const props: {
+    events: readonly typeof events[number][];
+    listenerId: string;
+    window: TimeWindow;
+    hideStudio?: boolean;
+  } = { events, listenerId, window };
+  if (hideStudio !== undefined) props.hideStudio = hideStudio;
+  return <ListenerPage {...props} />;
 }
