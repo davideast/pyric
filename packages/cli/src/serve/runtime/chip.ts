@@ -500,6 +500,13 @@ const PRODUCTION_BADGES: Record<ChipRequest['verdict'], { label: string; icon: s
   error: { label: 'Failed', icon: 'warning', tone: '', title: 'Production failed', outcome: 'failed' },
   unsupported: { label: 'N/A', icon: 'unavailable', tone: '', title: 'Production failed', outcome: 'failed' },
 };
+/** Production's missing index reads as the index badge sandbox rows carry, still production's failure. */
+const PRODUCTION_INDEX_BADGE = { label: 'Index', icon: 'warning', tone: 'index-warning', title: 'Production needs an index for this query', outcome: 'failed' };
+
+/** A row production failed because the query needs an index production lacks. */
+function productionNeedsIndex(request: ChipRequest): boolean {
+  return request.production !== undefined && request.indexFailure === true;
+}
 
 /** The outcome fact for a row production served, with production's error code. */
 function productionOutcomeText(outcome: NonNullable<ChipRequest['production']>): string {
@@ -552,9 +559,9 @@ function productionReasonHtml(request: ChipRequest, fact: (label: string, value:
 }
 
 /** A shared icon and label track keeps request statuses aligned across rows. */
-function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false, production = false): string {
+function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false, production = false, productionIndex = false): string {
   if (production) {
-    const badge = PRODUCTION_BADGES[verdict];
+    const badge = productionIndex ? PRODUCTION_INDEX_BADGE : PRODUCTION_BADGES[verdict];
     return `<span class="verdict ${badge.tone}" data-verdict-production="${badge.outcome}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
   }
   if (bypassed) return `<span class="verdict bypassed" title="${BYPASSED_TITLE}" aria-label="${BYPASSED_TITLE}"><span class="verdict-icon">${iconHtml('check')}</span><span class="verdict-label">Bypassed</span></span>`;
@@ -1166,6 +1173,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const rows = shown.map((request) => {
       // Keep named cells stable for copying while the path owns the main line.
       const indexMissing = requestMissingIndex(request);
+      const productionIndex = productionNeedsIndex(request);
       const named = request.service !== null && request.method !== null;
       const call = named ? `${request.service}.${request.method}` : 'runtime';
       const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
@@ -1186,8 +1194,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined, request.production ? 'production' : 'sandbox') : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: context,
-        slot: request.aiRequest && !request.production ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing, bypassed, request.production !== undefined),
-        className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' || bypassed ? '' : ' problem'}`,
+        slot: request.aiRequest && !request.production ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing, bypassed, request.production !== undefined, productionIndex),
+        className: `traffic-row${(indexMissing || productionIndex) && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' || bypassed ? '' : ' problem'}`,
         title: [productionLabel, sourceLabel, call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}" data-traffic-row-call="${escapeAttribute(call)}"${identityAttribute}`,
         label: `Inspect ${productionLabel ? `${productionLabel.toLowerCase()} ` : ''}${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}${request.localDrift ? `. ${DRIFT_TITLE}` : ''}`,
