@@ -32,7 +32,13 @@ export {
   lockUndeployedStorageBuckets,
   storageBucketsWithRules,
 } from './service.js';
-export { enforceRules, storageFirestoreLookup } from './enforce.js';
+export {
+  enforceRules,
+  primeStorageDeniedWrites,
+  storageDeniedWrites,
+  storageFirestoreLookup,
+  type RecordedStorageDeniedWrite,
+} from './enforce.js';
 export { requestResourceFor, resourceFromStored } from './sandbox/rules-resources.js';
 export { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
 export { patchObjectMetadata, toFullMetadata, type AdminMetadataPatch } from './metadata.js';

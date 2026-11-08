@@ -36,6 +36,7 @@ import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
+import { primeStorageDeniedWrites } from 'pyric/storage/internal';
 import {
   applyStorageRulesUpdate,
   installServedStorageRules,
@@ -579,7 +580,11 @@ export async function hydrateEventHistory(
 
   const retained = new EventHistory({ ...SERVE_HISTORY_LIMITS, maxEvents: MAX_PRIMED_EVENTS });
   for (const event of events) retained.append(event);
-  return primeEventHistory(ctx.sandbox, retained.snapshot());
+  const primed = primeEventHistory(ctx.sandbox, retained.snapshot());
+  if (primed > 0) {
+    primeStorageDeniedWrites(ctx.sandbox, fixture.storageDeniedWrites);
+  }
+  return primed;
 }
 
 // ─── Worker boot: build the ONE shared HostCtx ──────────────────────────────

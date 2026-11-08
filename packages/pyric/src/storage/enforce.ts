@@ -41,7 +41,13 @@
  * throws `StorageError` exactly as before — the error contract to
  * app code is unchanged.
  */
-import { emitSandboxEvent, getClock, makeSandboxOperationEvent } from 'pyric/sandbox/internal';
+import {
+  emitSandboxEvent,
+  getClock,
+  makeSandboxOperationEvent,
+  observationText,
+  redactEmails,
+} from 'pyric/sandbox/internal';
 import type { EventProvenance, Sandbox } from 'pyric/sandbox';
 import {
   storageOperationProvenance,
@@ -53,9 +59,190 @@ import {
 } from './service.js';
 import { evaluateStorageRules } from './sandbox/rules-evaluator.js';
 import { RuleEvalError } from './sandbox/rules-evaluation-error.js';
-import type { EvaluationInput, FirestoreLookup } from './sandbox/rules.js';
+import type {
+  EvaluationInput,
+  FirestoreLookup,
+  StorageRequestResource,
+  StorageResource,
+} from './sandbox/rules.js';
 import { unauthorized } from './errors.js';
 import { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
+
+/**
+ * Redacted `request.resource` and existing `resource` bindings captured beside
+ * a denied Storage operation event for `pyric verify` replay, kept off the
+ * live Traffic / Studio `SandboxOperationEvent.detail` payload.
+ */
+export interface RecordedStorageDeniedWrite {
+  requestResource?: StorageRequestResource;
+  resource?: StorageResource;
+}
+
+interface DeniedWriteStore {
+  byEvent: Map<string, RecordedStorageDeniedWrite>;
+  pruneAt: number;
+}
+
+type HistoryBearingSandbox = Pick<Sandbox, 'history'>;
+
+const DENIED_WRITES_KEY = Symbol.for('pyric.storage.denied-writes');
+const MIN_DENIED_WRITES_PRUNE_AT = 256;
+const SECRET_METADATA_FIELD = /password|credential|secret|token|authorization|cookie|api[-_]?key/i;
+
+const globalDeniedWrites = globalThis as {
+  [DENIED_WRITES_KEY]?: WeakMap<HistoryBearingSandbox, DeniedWriteStore>;
+};
+const STORAGE_DENIED_WRITES: WeakMap<HistoryBearingSandbox, DeniedWriteStore> =
+  (globalDeniedWrites[DENIED_WRITES_KEY] ??= new WeakMap());
+
+function pruneDeniedWrites(sandbox: HistoryBearingSandbox, store: DeniedWriteStore): void {
+  const held = new Set(sandbox.history().map((event) => event.id));
+  for (const id of store.byEvent.keys()) {
+    if (!held.has(id)) store.byEvent.delete(id);
+  }
+  store.pruneAt = Math.max(MIN_DENIED_WRITES_PRUNE_AT, store.byEvent.size * 2);
+}
+
+function sanitizeCapturedText(value: string): string {
+  return redactEmails(observationText(value));
+}
+
+function sanitizeOptionalText<T extends string | null | undefined>(value: T): T {
+  return (typeof value === 'string' ? sanitizeCapturedText(value) : value) as T;
+}
+
+function sanitizeStorageMetadata<T extends Record<string, string> | null | undefined>(
+  metadata: T,
+): T {
+  if (metadata === null || metadata === undefined) return metadata;
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(metadata)) {
+    if (typeof raw !== 'string') continue;
+    const sanitizedKey = sanitizeCapturedText(key);
+    const sanitizedValue = SECRET_METADATA_FIELD.test(key)
+      ? '[redacted]'
+      : sanitizeCapturedText(raw);
+    Object.defineProperty(out, sanitizedKey, {
+      value: sanitizedValue,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return out as T;
+}
+
+function sanitizeStorageRequestResource(
+  resource: StorageRequestResource | undefined,
+): StorageRequestResource | undefined {
+  if (resource === undefined) return undefined;
+  return {
+    ...resource,
+    ...(resource.name === undefined ? {} : { name: sanitizeCapturedText(resource.name) }),
+    ...(resource.contentType === undefined
+      ? {}
+      : { contentType: sanitizeCapturedText(resource.contentType) }),
+    ...(resource.contentDisposition === undefined
+      ? {}
+      : { contentDisposition: sanitizeOptionalText(resource.contentDisposition) }),
+    ...(resource.contentEncoding === undefined
+      ? {}
+      : { contentEncoding: sanitizeOptionalText(resource.contentEncoding) }),
+    ...(resource.contentLanguage === undefined
+      ? {}
+      : { contentLanguage: sanitizeOptionalText(resource.contentLanguage) }),
+    ...(resource.cacheControl === undefined
+      ? {}
+      : { cacheControl: sanitizeOptionalText(resource.cacheControl) }),
+    ...(resource.metadata === undefined
+      ? {}
+      : { metadata: sanitizeStorageMetadata(resource.metadata) }),
+  };
+}
+
+function sanitizeStorageResource(
+  resource: StorageResource | null | undefined,
+): StorageResource | undefined {
+  if (resource === null || resource === undefined) return undefined;
+  return {
+    ...resource,
+    ...(resource.name === undefined ? {} : { name: sanitizeCapturedText(resource.name) }),
+    ...(resource.contentType === undefined
+      ? {}
+      : { contentType: sanitizeCapturedText(resource.contentType) }),
+    ...(resource.metadata === undefined
+      ? {}
+      : { metadata: sanitizeStorageMetadata(resource.metadata) }),
+  };
+}
+
+function recordStorageDeniedWrite(
+  sandbox: HistoryBearingSandbox,
+  eventId: string,
+  input: EvaluationInput,
+): void {
+  const requestResource = sanitizeStorageRequestResource(input.request.resource);
+  const resource = sanitizeStorageResource(input.resource);
+  if (requestResource === undefined && resource === undefined) return;
+  let store = STORAGE_DENIED_WRITES.get(sandbox);
+  if (store === undefined) {
+    store = { byEvent: new Map(), pruneAt: MIN_DENIED_WRITES_PRUNE_AT };
+    STORAGE_DENIED_WRITES.set(sandbox, store);
+  } else if (store.byEvent.size >= store.pruneAt) {
+    pruneDeniedWrites(sandbox, store);
+  }
+  store.byEvent.set(eventId, {
+    ...(requestResource === undefined ? {} : { requestResource }),
+    ...(resource === undefined ? {} : { resource }),
+  });
+}
+
+/**
+ * Redacted resource bindings recorded for denied Storage operations on
+ * `sandbox`, keyed by `SandboxOperationEvent.id` and pruned to events still
+ * retained in `sandbox.history()`.
+ */
+export function storageDeniedWrites(
+  sandbox: HistoryBearingSandbox,
+): ReadonlyMap<string, RecordedStorageDeniedWrite> {
+  const store = STORAGE_DENIED_WRITES.get(sandbox);
+  if (store === undefined) return new Map();
+  pruneDeniedWrites(sandbox, store);
+  return store.byEvent;
+}
+
+/**
+ * Restore redacted denied-write bindings onto a freshly hydrated worker
+ * sandbox for events present in `sandbox.history()`.
+ */
+export function primeStorageDeniedWrites(
+  sandbox: HistoryBearingSandbox,
+  deniedWrites: Record<string, RecordedStorageDeniedWrite> | undefined,
+): void {
+  if (deniedWrites === undefined || typeof deniedWrites !== 'object' || deniedWrites === null) {
+    return;
+  }
+  const held = new Set(sandbox.history().map((event) => event.id));
+  if (held.size === 0) return;
+  let store = STORAGE_DENIED_WRITES.get(sandbox);
+  for (const [eventId, entry] of Object.entries(deniedWrites)) {
+    if (!held.has(eventId) || typeof entry !== 'object' || entry === null) continue;
+    const requestResource = sanitizeStorageRequestResource(entry.requestResource);
+    const resource = sanitizeStorageResource(entry.resource);
+    if (requestResource === undefined && resource === undefined) continue;
+    if (store === undefined) {
+      store = { byEvent: new Map(), pruneAt: MIN_DENIED_WRITES_PRUNE_AT };
+      STORAGE_DENIED_WRITES.set(sandbox, store);
+    }
+    store.byEvent.set(eventId, {
+      ...(requestResource === undefined ? {} : { requestResource }),
+      ...(resource === undefined ? {} : { resource }),
+    });
+  }
+  if (store !== undefined) {
+    store.pruneAt = Math.max(MIN_DENIED_WRITES_PRUNE_AT, store.byEvent.size * 2);
+  }
+}
 
 /** What {@link enforceRules} records besides deciding. */
 export interface EnforceOptions {
@@ -175,39 +362,41 @@ function emitOperation(
 ): void {
   if (!target) return;
   try {
+    const operationEvent = makeSandboxOperationEvent({
+      at: getClock(target.sandbox).now(),
+      service: 'storage',
+      method: input.request.method,
+      path: input.request.path,
+      auth: input.request.auth,
+      result,
+      origin,
+      reasons,
+      // The store key, and the name the rules saw it by, so a replay binds
+      // the same name (ST-H2-4).
+      // A permissive-mode open bucket says so, since no rule decided it.
+      detail: {
+        bucket: target.bucket,
+        bucketName: rulesBucketName(target.bucket, target.bucketName),
+        ...(defaultPolicy === undefined ? {} : { defaultPolicy }),
+      },
+      rulesDisposition: origin === 'admin'
+        ? { kind: 'bypassed', reason: 'admin' }
+        : evaluated
+          ? { kind: 'evaluated', verdict: result === 'deny' ? 'deny' : 'allow' }
+          : { kind: 'not-evaluated', reason: 'no-rules' },
+      rules: evaluated
+        ? {
+            engine: 'storage',
+            reason: reasons && reasons.length > 0 ? reasons.join('; ') : undefined,
+          }
+        : undefined,
+    });
+    if (result === 'deny') {
+      recordStorageDeniedWrite(target.sandbox, operationEvent.id, input);
+    }
     emitSandboxEvent(
       target.sandbox,
-      makeSandboxOperationEvent({
-        at: getClock(target.sandbox).now(),
-        service: 'storage',
-        method: input.request.method,
-        path: input.request.path,
-        auth: input.request.auth,
-        result,
-        origin,
-        reasons,
-        // The store key, and the name the rules saw it by, so a replay binds
-        // the same name (ST-H2-4).
-        // A permissive-mode open bucket says so, since no rule decided it.
-        detail: {
-          bucket: target.bucket,
-          bucketName: rulesBucketName(target.bucket, target.bucketName),
-          ...(defaultPolicy === undefined ? {} : { defaultPolicy }),
-          ...(input.request.resource === undefined ? {} : { requestResource: input.request.resource }),
-          ...(input.resource === null || input.resource === undefined ? {} : { resource: input.resource }),
-        },
-        rulesDisposition: origin === 'admin'
-          ? { kind: 'bypassed', reason: 'admin' }
-          : evaluated
-            ? { kind: 'evaluated', verdict: result === 'deny' ? 'deny' : 'allow' }
-            : { kind: 'not-evaluated', reason: 'no-rules' },
-        rules: evaluated
-          ? {
-              engine: 'storage',
-              reason: reasons && reasons.length > 0 ? reasons.join('; ') : undefined,
-            }
-          : undefined,
-      }),
+      operationEvent,
       { ...provenance, service: 'storage' },
     );
   } catch {

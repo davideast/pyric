@@ -1,6 +1,7 @@
 import { assertCompleteHistory } from 'pyric/sandbox/internal';
 import type { EventService, Sandbox, SandboxEvent } from 'pyric/sandbox';
 import { getStorageSandbox } from 'pyric/storage';
+import { storageDeniedWrites, type RecordedStorageDeniedWrite } from 'pyric/storage/internal';
 import { isRtdbRulesJson } from '../rtdb/rules-json.js';
 
 export const VERIFY_FIXTURE_SCHEMA = 'pyric.verify.fixture.v1' as const;
@@ -57,6 +58,12 @@ export interface PyricVerifyFixture {
    * session observed no call that carried any.
    */
   observedCalls?: Record<string, VerifyObservedCallValues>;
+  /**
+   * Redacted `request.resource` and existing `resource` bindings for denied
+   * Storage operations, keyed by operation event id so `SandboxOperationEvent`
+   * stays narrow on the Traffic chip and Studio event stream.
+   */
+  storageDeniedWrites?: Record<string, RecordedStorageDeniedWrite>;
   services: {
     firestore?: {
       rules: VerifyFirestoreRulesBlock;
@@ -128,6 +135,29 @@ function observedCallsIn(events: SandboxEvent[], observedCalls: Record<string, V
   return kept.length === 0 ? undefined : Object.fromEntries(kept);
 }
 
+/** Redacted denied-write Storage resource bindings whose events the history still holds, or `undefined` for none. */
+function storageDeniedWritesIn(
+  events: SandboxEvent[],
+  sandbox: BuildVerifyFixtureInput['sandbox'],
+): Record<string, RecordedStorageDeniedWrite> | undefined {
+  const byEvent = storageDeniedWrites(sandbox);
+  if (byEvent.size === 0) return undefined;
+  const out: Record<string, RecordedStorageDeniedWrite> = {};
+  let count = 0;
+  for (const event of events) {
+    const entry = byEvent.get(event.id);
+    if (entry === undefined) continue;
+    Object.defineProperty(out, event.id, {
+      value: entry,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    count++;
+  }
+  return count === 0 ? undefined : out;
+}
+
 export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyFixture {
   const events = input.sandbox.history();
   const snapshot = input.sandbox.snapshot();
@@ -193,6 +223,7 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
   }
 
   const observedCalls = observedCallsIn(events, input.observedCalls);
+  const deniedStorageWrites = storageDeniedWritesIn(events, input.sandbox);
   return {
     schema: VERIFY_FIXTURE_SCHEMA,
     ...(input.description ? { description: input.description } : {}),
@@ -200,6 +231,7 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
     ...(input.capturedBy ? { capturedBy: input.capturedBy } : {}),
     events,
     ...(observedCalls === undefined ? {} : { observedCalls }),
+    ...(deniedStorageWrites === undefined ? {} : { storageDeniedWrites: deniedStorageWrites }),
     services,
   };
 }
@@ -222,6 +254,11 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
   const hasInvalidObservedCalls = value.observedCalls !== undefined && !isVerifyFixtureObject(value.observedCalls);
   if (hasInvalidObservedCalls) {
     throw new Error('fixture.observedCalls must be an object.');
+  }
+  const hasInvalidStorageDeniedWrites =
+    value.storageDeniedWrites !== undefined && !isVerifyFixtureObject(value.storageDeniedWrites);
+  if (hasInvalidStorageDeniedWrites) {
+    throw new Error('fixture.storageDeniedWrites must be an object.');
   }
   const services = value.services;
   const hasInvalidServices = !isVerifyFixtureObject(services);

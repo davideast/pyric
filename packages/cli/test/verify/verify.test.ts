@@ -1313,7 +1313,13 @@ service firebase.storage {
       uploadBytes(
         storageRef(storage, 'files/oversized.txt'),
         new Blob(['x'.repeat(128)], { type: 'text/plain' }),
-        { customMetadata: { note: 'blocked' } },
+        {
+          customMetadata: {
+            note: 'blocked',
+            contact: 'alice@example.com',
+            firebaseStorageDownloadTokens: 'secret-download-token-123',
+          },
+        },
       ),
     ).rejects.toThrow();
 
@@ -1332,7 +1338,31 @@ service firebase.storage {
       firestoreRules,
       storageRules,
     });
-    const persistedFixture = JSON.parse(JSON.stringify(rawFixture)) as PyricVerifyFixture;
+    const serializedFixture = JSON.stringify(rawFixture);
+    expect(serializedFixture).not.toContain('alice@example.com');
+    expect(serializedFixture).not.toContain('secret-download-token-123');
+
+    const persistedFixture = JSON.parse(serializedFixture) as PyricVerifyFixture;
+    const storageOperations = persistedFixture.events.filter(
+      (event) => event.kind === 'operation' && event.service === 'storage',
+    );
+    expect(storageOperations.length).toBe(5);
+    for (const op of storageOperations) {
+      expect(op.kind === 'operation' && op.detail).toEqual({
+        bucket: 'pyric-default',
+        bucketName: 'pyric-default',
+      });
+    }
+    const deniedCreate = storageOperations.find(
+      (op) => op.kind === 'operation' && op.method === 'create' && op.result === 'deny',
+    );
+    expect(deniedCreate).toBeDefined();
+    expect(persistedFixture.storageDeniedWrites?.[deniedCreate!.id]?.requestResource?.metadata).toEqual({
+      note: 'blocked',
+      contact: '[email]',
+      firebaseStorageDownloadTokens: '[redacted]',
+    });
+
     const verifyResult = await verifyFixture(persistedFixture, {
       rules: {
         firestore: firestoreRules,

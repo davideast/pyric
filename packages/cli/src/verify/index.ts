@@ -918,14 +918,13 @@ async function verifyStorage(
       pairedMutation && pairedMutation.before !== undefined
         ? (pairedMutation.before as StoredMetadata | undefined)
         : objectState.get(key);
-    const detailRequestResource = (
-      opEvent.detail as
-        | { requestResource?: Parameters<typeof evaluateStorageRules>[1]['request']['resource'] }
-        | undefined
-    )?.requestResource;
-    const detailResource = (
-      opEvent.detail as { resource?: Parameters<typeof evaluateStorageRules>[1]['resource'] } | undefined
-    )?.resource;
+    const deniedWrite =
+      fixture.storageDeniedWrites !== undefined &&
+      Object.hasOwn(fixture.storageDeniedWrites, opEvent.id)
+        ? fixture.storageDeniedWrites[opEvent.id]
+        : undefined;
+    const detailRequestResource = deniedWrite?.requestResource;
+    const detailResource = deniedWrite?.resource;
 
     let requestResource;
     if (opEvent.method === 'create' || opEvent.method === 'write') {
