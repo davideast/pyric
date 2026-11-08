@@ -261,6 +261,22 @@ function readOutcomeMessage(value: unknown): { message?: string } {
   return isTokenShaped(message) ? {} : { message };
 }
 
+/** Production's own words for a query whose index it lacks, from the client SDK and the Admin SDK alike. */
+const MISSING_INDEX_MESSAGE = /\bquery requires an index\b/i;
+
+/**
+ * `missing-index` when production's `failed-precondition` says the query
+ * requires an index, read from the raw message before any of it is dropped.
+ * Every other `failed-precondition` (a terminated client, a committed batch,
+ * a read after a write in a transaction, a database in Datastore mode) and a
+ * failure with no message stay unclassified.
+ */
+function outcomeFailure(code: string, message: unknown): { failure?: 'missing-index' } {
+  const isFailedPrecondition = code === 'failed-precondition' || code.endsWith('/failed-precondition');
+  const namesIndex = isBoundedString(message, MAX_OUTCOME_MESSAGE_LENGTH) && MISSING_INDEX_MESSAGE.test(message);
+  return isFailedPrecondition && namesIndex ? { failure: 'missing-index' } : {};
+}
+
 function readOutcome(value: unknown): ObservedOutcome {
   requireField(isFields(value), 'outcome');
   if (value.status === 'ok') {
@@ -271,7 +287,7 @@ function readOutcome(value: unknown): ObservedOutcome {
   requireOnly(value, new Set(['status', 'code', 'message']), 'outcome.');
   const code = value.code;
   requireField(typeof code === 'string' && CODE_PATTERN.test(code), 'outcome.code');
-  return { status: 'error', code, ...readOutcomeMessage(value.message) };
+  return { status: 'error', code, ...readOutcomeMessage(value.message), ...outcomeFailure(code, value.message) };
 }
 
 function readClaimNames(value: unknown): string[] {
@@ -814,7 +830,8 @@ export function observedListenerEvent(call: ObservedCall): ObservedListenerEvent
 
 /**
  * A Storage call's bucket, under the key the sandbox's own Storage events use,
- * a Messaging call's requests, each copied, and an Admin call's `sdk`.
+ * a Messaging call's requests, each copied, an Admin call's `sdk`, and the
+ * `failure` the reader read from production's message.
  */
 function eventDetail(call: ObservedCall): { detail?: Record<string, unknown> } {
   const requests = call.requests;
@@ -822,6 +839,7 @@ function eventDetail(call: ObservedCall): { detail?: Record<string, unknown> } {
     bucket: call.bucket,
     requests: requests?.map((request) => ({ ...request })),
     sdk: call.sdk,
+    failure: call.outcome.status === 'error' ? call.outcome.failure : undefined,
   });
   return Object.keys(detail).length === 0 ? {} : { detail };
 }

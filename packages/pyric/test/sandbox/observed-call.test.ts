@@ -530,6 +530,36 @@ describe("production's message and an AI block", () => {
     expect(JSON.stringify(observedCallEvent(rejected))).not.toContain('invalid argument.');
   });
 
+  it("reads production's missing index from the message, even one dropped as token-shaped, and puts only that reading on the event", () => {
+    const query = { scope: 'collection', filters: [{ field: 'open', op: '==' }], orderBy: [{ field: 'seats', direction: 'desc' }] };
+    // The console link's create_composite parameter reads as a token, so the reader drops the message itself.
+    const link = 'https://console.firebase.google.com/v1/r/project/my-project/firestore/indexes?create_composite=ClBwcm9qZWN0cy9teS1wcm9qZWN0L2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9yb29tcy9pbmRleGVzL18QARoICgRvcGVuEAEaCQoFc2VhdHMQAhoMCghfX25hbWVfXxAC';
+    const list = { service: 'firestore', method: 'getDocs', path: 'rooms', at: 1, query };
+    const missing = readObservedCall({ ...list, outcome: { status: 'error', code: 'failed-precondition', message: `The query requires an index. You can create it here: ${link}` } });
+    expect(missing.outcome).toEqual({ status: 'error', code: 'failed-precondition', failure: 'missing-index' });
+    const event = observedCallEvent(missing);
+    expect(event.detail).toEqual({ failure: 'missing-index' });
+    expect(event.production?.outcome).toEqual({ status: 'error', code: 'failed-precondition' });
+    expect(JSON.stringify(event)).not.toContain('requires an index');
+    // The Admin SDK prefixes gRPC's status; an index still building is still one production needs.
+    const admin = `9 FAILED_PRECONDITION: The query requires an index. That index is currently building and cannot be used yet. See its status here: ${link}`;
+    expect(readObservedCall({ ...list, method: 'Query.get', sdk: 'admin', outcome: { status: 'error', code: 'failed-precondition', message: admin } }).outcome).toMatchObject({ failure: 'missing-index' });
+
+    const others = [
+      { status: 'error', code: 'failed-precondition', message: 'The client has already been terminated.' },
+      { status: 'error', code: 'failed-precondition', message: 'The Cloud Firestore API is not available for Firestore in Datastore Mode database projects/my-project/databases/(default).' },
+      { status: 'error', code: 'failed-precondition' },
+      { status: 'error', code: 'invalid-argument', message: 'The query requires an index.' },
+    ];
+    for (const outcome of others) {
+      const read = readObservedCall({ ...list, outcome });
+      expect(read.outcome).not.toHaveProperty('failure');
+      expect(observedCallEvent(read).detail).toBeUndefined();
+    }
+    // A client cannot claim the reading itself.
+    expect(() => readObservedCall({ ...list, outcome: { status: 'error', code: 'failed-precondition', failure: 'missing-index' } })).toThrow('Invalid observed call field: outcome.failure.');
+  });
+
   it("keeps an AI call's block reasons, drops an answer's own finish reason or a bad one, and puts neither on the event", () => {
     const blocked = { ...GENERATE, ai: { model: 'models/gemini-flash-lite-latest', finishReason: 'SAFETY' } };
     expect(readObservedCall(blocked).ai).toEqual({ model: 'models/gemini-flash-lite-latest', finishReason: 'SAFETY' });
