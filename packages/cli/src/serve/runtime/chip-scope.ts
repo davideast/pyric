@@ -10,7 +10,7 @@
  */
 import {
   AGENTS_SCOPE_LABEL, CALLER_SOURCE_LABELS, EVERY_CLIENT_SCOPE, LIVE_CLIENT_CALLER_KINDS, PAGE_SCOPE, clientScopeOptions, inClientScope,
-  isAgentCall, liveClientEmails, scopeClients, scopeFromValue, scopeValue, withClientLabel,
+  isAgentCall, keepChosenOption, liveClientEmails, scopeClients, scopeFromValue, scopeValue, withClientLabel,
   type CallerSource, type ClientScope, type LiveHostStatus, type ScopedEventFields, type ScopeOption, type ScopeOptions,
 } from 'pyric/sandbox/internal';
 import { CLIENT_KIND_LABELS } from './chip-live-view.js';
@@ -56,12 +56,8 @@ export function scopeOptions(clients: readonly LiveClient[], selfClientId: strin
  */
 export function scopeSelectHtml(attribute: string, scope: ChipScope, options: ScopeOptions, chosen: ScopeOption | null, escape: (value: string) => string): string {
   const selected = scopeValue(scope);
-  const listed = [...options.clients, ...options.users].some((option) => option.value === selected);
-  const kept = !listed && chosen !== null && chosen.value === selected ? [chosen] : [];
+  const { clients, users } = keepChosenOption(options, selected, chosen);
   const option = (entry: ScopeOption) => `<option value="${escape(entry.value)}"${entry.value === selected ? ' selected' : ''}>${escape(entry.label)}</option>`;
-  const isUserScope = scope.kind === 'user';
-  const clients = isUserScope ? options.clients : [...options.clients, ...kept];
-  const users = isUserScope ? [...options.users, ...kept] : options.users;
   const fixed = [{ value: 'page', label: 'From this page' }, { value: 'all', label: 'From every client' }].map(option).join('');
   return `<select ${attribute} aria-label="Requests from">${fixed}<optgroup label="Clients">${clients.map(option).join('')}</optgroup><optgroup label="Users">${users.map(option).join('')}</optgroup></select>`;
 }

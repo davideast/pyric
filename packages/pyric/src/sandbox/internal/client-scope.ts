@@ -125,6 +125,21 @@ export interface ScopeOptions {
   readonly users: readonly ScopeOption[];
 }
 
+/**
+ * `options` with the option `selected` was chosen from kept in its group, when
+ * that option is gone (a client that disconnected): the select still names
+ * what the view lists, and the scope keeps filtering to it until another
+ * option is chosen. `chosen` is the option as the view last listed it.
+ */
+export function keepChosenOption(options: ScopeOptions, selected: string, chosen: ScopeOption | null): ScopeOptions {
+  const listed = [...options.clients, ...options.users].some((option) => option.value === selected);
+  const keeps = !listed && chosen !== null && chosen.value === selected;
+  if (!keeps) return options;
+  const isUserScope = scopeFromValue(selected)?.kind === 'user';
+  if (isUserScope) return { clients: options.clients, users: [...options.users, chosen] };
+  return { clients: [...options.clients, chosen], users: options.users };
+}
+
 /** How a view names each client kind in an option, after "From", and which listed client is the view's own. */
 export interface ScopeOptionNames {
   readonly kindLabels: Readonly<Record<LiveClient['kind'], string>>;

@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { cleanup, render } from '@testing-library/react';
 import { TrafficRow } from '@pyric/ui/traffic';
 import type { LiveHostStatus } from 'pyric/sandbox/internal';
-import { LiveRowDetail, OutcomeCell, TargetCell } from '../../../src/features/traffic/TrafficLiveRow.js';
+import { FromSelect, LiveRowDetail, OutcomeCell, TargetCell } from '../../../src/features/traffic/TrafficLiveRow.js';
 import { fromOptions, inFromScope, methodLabel } from '../../../src/features/traffic/live-row.js';
 import type { StudioTrafficEvent } from '../../../src/features/traffic/verdict.js';
 
@@ -218,5 +218,38 @@ describe('the "From" scope', () => {
     expect(kept('signed-out')).toEqual(['from-node', 'sandbox-deny', 'service']);
     expect(kept('agents')).toEqual(['sandbox-deny', 'service']);
     expect(kept('not-a-scope')).toEqual(events.map((item) => item.id).sort());
+  });
+});
+
+describe('a chosen client that disconnects', () => {
+  const events = Object.values(EVENTS);
+  const chosen = 'client:page:profile-b';
+  const withoutB = CLIENTS.filter((client) => client.clientId !== 'profile-b');
+
+  it('keeps its option selected and its rows until another option is chosen', () => {
+    const select = (clients: LiveClient[]) => (
+      <FromSelect value={chosen} onChange={() => {}} clients={clients} events={events} />
+    );
+    const { container, rerender } = render(select(CLIENTS));
+    const element = () => container.querySelector('select')!;
+    expect(element().value).toBe(chosen);
+
+    rerender(select(withoutB));
+    expect(element().value).toBe(chosen);
+    const values = [...element().querySelectorAll('option')].map((option) => option.value);
+    expect(values.filter((value) => value === chosen)).toHaveLength(1);
+    expect(inFromScope(events, chosen).map((item) => item.id)).toEqual(['from-b']);
+  });
+
+  it('drops the kept option once another option is chosen', () => {
+    const select = (value: string, clients: LiveClient[]) => (
+      <FromSelect value={value} onChange={() => {}} clients={clients} events={events} />
+    );
+    const { container, rerender } = render(select(chosen, CLIENTS));
+    rerender(select(chosen, withoutB));
+    rerender(select('client:page:profile-a', withoutB));
+    const values = [...container.querySelectorAll('option')].map((option) => option.value);
+    expect(values).not.toContain(chosen);
+    expect(container.querySelector('select')!.value).toBe('client:page:profile-a');
   });
 });

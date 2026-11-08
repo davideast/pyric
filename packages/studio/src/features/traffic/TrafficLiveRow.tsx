@@ -6,8 +6,8 @@
  * shows Traffic's existing detail. The "From" select, at the tab strip's
  * trailing edge, scopes the rows by client or user.
  */
-import { useCallback, useSyncExternalStore } from 'react';
-import type { LiveHostStatus } from 'pyric/sandbox/internal';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { keepChosenOption, type LiveHostStatus, type ScopeOption } from 'pyric/sandbox/internal';
 import { DenialDetail } from '../rules-debug/index.js';
 import { useStudioRulesSource } from '../../shell/studio-rules-source.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
@@ -166,7 +166,15 @@ export function FromSelect({
   clients: readonly LiveClient[];
   events: readonly StudioTrafficEvent[];
 }) {
-  const options = fromOptions(clients, events);
+  const listedOptions = fromOptions(clients, events);
+  const listed = [...listedOptions.clients, ...listedOptions.users].find((option) => option.value === value);
+  // The option the scope was chosen from, as last listed: a client that
+  // disconnects while chosen keeps its option and its rows, as the chip's does.
+  const [chosen, setChosen] = useState<ScopeOption | null>(listed ?? null);
+  useEffect(() => {
+    if (listed !== undefined) setChosen(listed);
+  }, [listed?.value, listed?.label]); // eslint-disable-line react-hooks/exhaustive-deps
+  const options = keepChosenOption(listedOptions, value, listed ?? chosen);
   return (
     <span className="traffic__from">
       <select
