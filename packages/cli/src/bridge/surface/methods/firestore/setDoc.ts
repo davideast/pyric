@@ -17,7 +17,7 @@ export default {
   effect: 'write',
   signature: 'setDoc(path, data, options?)',
   description:
-    'Write one document, replacing it unless options.merge is true. Field values may use the $serverTimestamp/$increment/$arrayUnion/$arrayRemove JSON sentinels.',
+    'Write one document, replacing unless options.merge is true. Values accept $serverTimestamp/$increment/$arrayUnion/$arrayRemove sentinels.',
   args: z.object({
     path: z.string().describe('Document path, for example users/alice.'),
     data: z.record(z.unknown()).describe('The document fields to write.'),

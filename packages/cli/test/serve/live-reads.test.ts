@@ -102,7 +102,7 @@ describe('live host reads', () => {
 
   it('keeps rules tooling, local logs and writes on their own path', async () => {
     const bridge = newBridge();
-    const local = ['rules.simulate', 'rules.explainDenial', 'rules.lint', 'firestore.extractIndexes', 'firestore.setDoc', 'sandbox.events',
+    const local = ['rules.simulate', 'rules.explainDenial', 'rules.lint', 'firestore.extractIndexes', 'database.extractIndexes', 'firestore.setDoc', 'sandbox.events',
       'functions.executions', 'functions.listTriggers', 'messaging.tokens', 'messaging.deliveries'];
     for (const key of local) {
       const result = await runHostedMethod(bridge.tabTools, call(key), async () => SANDBOX_ANSWER);

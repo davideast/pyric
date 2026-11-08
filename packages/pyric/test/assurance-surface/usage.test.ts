@@ -2,11 +2,15 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  checkRtdbIndexes,
   countSites,
   extractAccessSites,
   extractSdkUsage,
   FIRESTORE_SERVICE_MODEL,
+  firestoreIndexPass,
+  mergeRtdbIndexes,
   RTDB_SERVICE_MODEL,
+  rtdbIndexPass,
   type ConstraintOperand,
   type SdkQuery,
   type SdkQueryConstraint,
@@ -102,5 +106,8 @@ describe('pyric/rules/internal/usage seam', () => {
 
     const pass: SdkUsagePass<string[]> = (idx) => idx.operations.map((op) => op.op);
     expect(pass(usage)).toEqual(['ref', 'setDoc', 'update', 'uploadBytes', 'query']);
+    expect(firestoreIndexPass(usage).config.indexes).toEqual([]);
+    expect(rtdbIndexPass(usage).requirements).toEqual([]);
+    expect(checkRtdbIndexes(mergeRtdbIndexes(undefined, []).rules, [])).toEqual([]);
   });
 });

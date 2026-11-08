@@ -23,7 +23,12 @@ const LIVE_REFUSED = 'PYRIC_LIVE_REFUSED';
 const DATA_SERVICES: ReadonlySet<string> = new Set(['firestore', 'database', 'storage', 'auth']);
 
 /** Reads of a data service that need no production data, and so stay local. */
-const LOCAL_READS: ReadonlySet<string> = new Set(['firestore.extractIndexes', 'auth.whoami', 'auth.sessions']);
+const LOCAL_READS: ReadonlySet<string> = new Set([
+  'firestore.extractIndexes',
+  'database.extractIndexes',
+  'auth.whoami',
+  'auth.sessions',
+]);
 
 /** Data reads outside the data services. */
 const OTHER_DATA_READS: ReadonlySet<string> = new Set(['ai_logic.status']);

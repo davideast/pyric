@@ -25,7 +25,7 @@ export default {
   effect: 'write',
   signature: 'push(path, value?, instance?)',
   description:
-    'Mint an auto-id child key under path. With value given, write it at the new child. With no value, only the key is minted; nothing is written at the new child, matching a push the SDK never resolves with data.',
+    'Mint an auto-id child key under path, writing value when given; without value, only the key is minted.',
   args: z.object({
     path: pathArgument,
     value: z

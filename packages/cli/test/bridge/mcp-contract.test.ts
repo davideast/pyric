@@ -30,7 +30,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'writeBatch',
     'writeIndexes',
   ],
-  database: ['crawl', 'get', 'push', 'query', 'remove', 'set', 'update'],
+  database: ['crawl', 'extractIndexes', 'get', 'push', 'query', 'remove', 'set', 'update'],
   storage: [
     'deleteObject',
     'getBytes',
