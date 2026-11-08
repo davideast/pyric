@@ -21,7 +21,6 @@
 import './client/bootstrap.js';
 import type { ObservedCall } from 'pyric/sandbox';
 import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
-import type { ObservedSessionDelta } from '../serve/observed-session/wire.js';
 import { openWorkerDb } from '../serve/entries/worker-runtime.js';
 import { nextId, rpc } from '../serve/worker/client/core.js';
 import { disconnectClient } from '../serve/worker/client/disconnect.js';
@@ -74,13 +73,9 @@ function scriptField(): { script?: string } {
 }
 
 /** Sends one observed call. Rejects when the process cannot reach the Node host. */
-export async function sendObservedCall(
-  call: ObservedCall,
-  sessionData?: ObservedSessionDelta,
-): Promise<void> {
+export async function sendObservedCall(call: ObservedCall): Promise<void> {
   connection ??= openConnection();
-  // An absent delta and an undefined one read the same on the host.
-  await rpc(connection.port, { t: 'observe', id: nextId(), call, nodeClient: nodeClient(), ...scriptField(), sessionData });
+  await rpc(connection.port, { t: 'observe', id: nextId(), call, nodeClient: nodeClient(), ...scriptField() });
 }
 
 /** Sends the process's unobserved lists, bounded. Rejects when the process cannot reach the Node host. */

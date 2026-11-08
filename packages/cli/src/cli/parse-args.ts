@@ -165,9 +165,9 @@ function isExecutionSubcommand(subcommand: string | null, positional: readonly s
   const isOtherService = subcommand !== 'sandbox';
   if (isOtherService) return false;
   const first = positional[0];
-  // Offline recovery and live-session seeding are CLI commands, not surface methods or child processes.
-  const isCliSubcommand = first === 'salvage' || first === 'seed-from-live';
-  if (isCliSubcommand) return false;
+  // Offline recovery is a CLI command, not a surface method or child process.
+  const isRecovery = first === 'salvage';
+  if (isRecovery) return false;
   return first === undefined || !SANDBOX_METHOD_WORDS.has(first);
 }
 

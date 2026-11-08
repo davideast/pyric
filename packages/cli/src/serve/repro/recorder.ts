@@ -85,12 +85,11 @@ function recordedOutcome(outcome: ObservedCall['outcome']): ObservedCall['outcom
 /** An observe frame without the values the host keeps in memory only, or the terminal prints only; any other frame as it came. */
 function recordedFrame(frame: InboundMessage): InboundMessage {
   if (frame.t !== 'observe') return frame;
-  const { sessionData: _sessionData, ...restFrame } = frame;
-  const { writeData: _writeData, document: _document, account, outcome, ...rest } = restFrame.call;
+  const { writeData: _writeData, document: _document, account, outcome, ...rest } = frame.call;
   const call = { ...rest, outcome: recordedOutcome(outcome) };
-  if (account === undefined) return { ...restFrame, call };
+  if (account === undefined) return { ...frame, call };
   const { claims: _claims, ...named } = account;
-  return { ...restFrame, call: { ...call, account: named } };
+  return { ...frame, call: { ...call, account: named } };
 }
 
 export function createReproRecorder(options: {

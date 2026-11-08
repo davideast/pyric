@@ -81,27 +81,13 @@ function makeFakeApi(initial: unknown) {
 
 // ── Harness: path bar + tree wired the way Studio wires them ───────────────
 
-function Viewer({
-  api,
-  pageSize,
-  readOnly,
-}: {
-  api: RtdbApi;
-  pageSize?: number;
-  readOnly?: boolean;
-}) {
+function Viewer({ api, pageSize }: { api: RtdbApi; pageSize?: number }) {
   const [path, setPath] = useState('/');
   const tree = useRtdbTree(api, path, { pageSize });
   return (
     <>
       <RtdbPathBar path={path} onNavigate={setPath} rootLabel="test-sandbox" />
-      <RtdbTree
-        tree={tree}
-        api={api}
-        onNavigate={setPath}
-        rootLabel="test-sandbox"
-        readOnly={readOnly}
-      />
+      <RtdbTree tree={tree} api={api} onNavigate={setPath} rootLabel="test-sandbox" />
     </>
   );
 }
@@ -301,44 +287,5 @@ describe('RtdbTree: paging (console-style show more)', () => {
     fireEvent.click(container.querySelector('[data-rtdb-show-more]')!);
     expect(keys(container)).toEqual(['test-sandbox', 'wide', 'k0', 'k1', 'k2', 'k3', 'k4']);
     expect(container.querySelector('[data-rtdb-show-more]')).toBeNull();
-  });
-});
-
-describe('RtdbTree: readOnly mode', () => {
-  it('renders non-editable leaf spans, omits add/delete actions, and preserves navigation + expand', () => {
-    const { api, current } = makeFakeApi({
-      rooms: { lobby: { topic: 'Hello', count: 3 } },
-      status: 'online',
-    });
-    const { container } = render(<Viewer api={api} readOnly />);
-
-    const treeRoot = container.querySelector('[data-pyric-ui="rtdb-tree"]')!;
-    expect(treeRoot.hasAttribute('data-rtdb-readonly')).toBe(true);
-
-    // No add/delete controls anywhere in the tree.
-    expect(container.querySelector('[data-rtdb-actions]')).toBeNull();
-    expect(container.querySelector('[data-rtdb-action-add]')).toBeNull();
-    expect(container.querySelector('[data-rtdb-action-delete]')).toBeNull();
-
-    // Leaf value renders as a non-interactive <span>, not a <button>, and clicking does not open ValueEditor.
-    const leafValue = container.querySelector('[data-rtdb-kind="leaf"] [data-rtdb-value]')!;
-    expect(leafValue.tagName.toLowerCase()).toBe('span');
-    expect(leafValue.textContent).toBe('"online"');
-    fireEvent.click(leafValue);
-    expect(container.querySelector('[data-rtdb-editor]')).toBeNull();
-
-    // Caret expand + key click navigation still work normally.
-    fireEvent.click(container.querySelector('[data-rtdb-caret]')!);
-    expect(keys(container)).toEqual(['test-sandbox', 'rooms', 'lobby', 'status']);
-    const lobbyKey = Array.from(container.querySelectorAll('[data-rtdb-key]')).find(
-      (el) => el.textContent === 'lobby',
-    )!;
-    fireEvent.click(lobbyKey);
-    expect(keys(container)).toEqual(['lobby', 'count', 'topic']);
-    expect(container.querySelector('[data-rtdb-actions]')).toBeNull();
-    expect(current()).toEqual({
-      rooms: { lobby: { topic: 'Hello', count: 3 } },
-      status: 'online',
-    });
   });
 });

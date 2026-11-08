@@ -45,7 +45,6 @@
 import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
 import { randomKey, realmHash } from './keyed-hash.js';
 import { CALL_TARGET_FIELDS, liveProjectRefusal, type CallTargetField, type LiveClient, type ProjectField } from './refusal.js';
-import { attachSessionData, mergeSessionData, type ObservedSessionDelta } from './session-data.js';
 
 export type { LiveListener, LiveListenerActivity, LiveListenerJournal } from './listener-journal.js';
 
@@ -298,23 +297,10 @@ export interface CallContext {
   readonly query?: LiveQuery;
   /** On a resolved read: the documents production billed it for, once a hook has counted them. */
   readonly billedDocuments?: number;
-  /** Session-scoped observed Firestore/RTDB payloads attached via WeakMap on resolution. */
-  readonly sessionData?: ObservedSessionDelta;
-  /** Extracted `addDoc` payload awaiting the resolved `DocumentReference.path`. */
-  readonly pendingAddDocFields?: {
-    readonly data: Record<string, unknown>;
-    readonly deleteFields?: readonly string[];
-  };
-  /** Extracted RTDB `push` payload awaiting the resolved `DatabaseReference` path. */
-  readonly pendingPushValue?: {
-    readonly value: unknown;
-  };
-  /** True when an RTDB `get` or `onValue` ran with query constraints rather than on a bare reference. */
-  readonly rtdbFilteredQuery?: boolean;
 }
 
 /** What a resolved call's value adds to its record, or `UNOBSERVED` when production never answered it. */
-export type ResultReading = Pick<CallContext, 'ai' | 'requests' | 'document' | 'billedDocuments' | 'sessionData'> | typeof UNOBSERVED;
+export type ResultReading = Pick<CallContext, 'ai' | 'requests' | 'document' | 'billedDocuments'> | typeof UNOBSERVED;
 
 /**
  * What a rejected call's error adds to its record: the requests it made and
@@ -374,11 +360,6 @@ export interface ObservedHooks {
    */
   readonly rejectionOf?: (site: ObservedSite, error: unknown) => RejectionReading | Promise<RejectionReading>;
   /**
-   * Reads a listener delivery's value to extract bounded session-observed
-   * Firestore/RTDB data for the live host's in-memory session store.
-   */
-  readonly deliveryOf?: (site: ObservedSite, value: unknown) => ObservedSessionDelta | undefined;
-  /**
    * Whether a synchronous throw is the SDK's own check, made before any
    * request, as every Storage export's is (a root reference, a bad argument,
    * Node's `getBlob`). Such a throw reaches the app and makes no record.
@@ -437,19 +418,6 @@ export interface ObservedSite extends ObservedHooks {
   readonly document?: Readonly<Record<string, unknown>>;
   /** The shape of the query the Firestore list or listener this site records ran. */
   readonly query?: LiveQuery;
-  /** Session-scoped observed Firestore/RTDB payloads attached via WeakMap on resolution. */
-  readonly sessionData?: ObservedSessionDelta;
-  /** Extracted `addDoc` payload awaiting the resolved `DocumentReference.path`. */
-  readonly pendingAddDocFields?: {
-    readonly data: Record<string, unknown>;
-    readonly deleteFields?: readonly string[];
-  };
-  /** Extracted RTDB `push` payload awaiting the resolved `DatabaseReference` path. */
-  readonly pendingPushValue?: {
-    readonly value: unknown;
-  };
-  /** True when an RTDB `get` or `onValue` ran with query constraints rather than on a bare reference. */
-  readonly rtdbFilteredQuery?: boolean;
   /**
    * Whether the export returns a thenable that is not a promise, whose
    * settlement is production's answer, as `push` returns its reference.
@@ -794,8 +762,7 @@ function readResult(site: ObservedSite, value: unknown): ResultReading | Promise
 /** Records one reading of a resolved call, or nothing when production never answered it. */
 function reportReading(site: ObservedSite, reading: ResultReading): void {
   if (reading === UNOBSERVED) return;
-  const mergedSession = mergeSessionData(site.sessionData, reading.sessionData);
-  report({ ...site, ...reading, sessionData: mergedSession }, 'resolved');
+  report({ ...site, ...reading }, 'resolved');
 }
 
 /** The observer's measure of a resolved value: a fresh copy, or nothing when it does not measure or its measure throws. */
@@ -862,17 +829,6 @@ function reportRejected(site: ObservedSite, error: unknown): void {
 function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): LiveCallRecord | undefined {
   try {
     const record = buildRecord(site, outcome, value);
-    if (site.sdk !== 'admin') {
-      if (outcome === 'resolved') {
-        attachSessionData(record, site.sessionData);
-      } else if (outcome === 'delivered' && site.deliveryOf !== undefined) {
-        try {
-          attachSessionData(record, site.deliveryOf(site, value));
-        } catch {
-          // A delivery hook failure never drops the record.
-        }
-      }
-    }
     ignoreRejection(site.observer(record));
     return record;
   } catch {

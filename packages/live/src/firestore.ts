@@ -29,8 +29,7 @@
  * `update` and `delete` the SDK accepted, and the commit is one observed
  * `writeBatch` call whose usage names those writes and deletes, with the
  * project and account of the Firestore `writeBatch` was handed. The batch
- * stays the SDK's own object, with own-property wrappers. What each call
- * adds to the session data is `firestore-session-capture.ts`'s.
+ * stays the SDK's own object, with own-property wrappers.
  *
  * Reading never calls the app's code and never throws. Loaded in the page
  * too. From observe.ts, which imports this file through listener-journal.ts,
@@ -47,10 +46,10 @@ import {
   type LiveUsage,
   type ObservedSite,
   type ListenerIdentity,
+  type ResultReading,
 } from './observe.js';
 import { jsonFields } from './json-copy.js';
 import { realmHash } from './keyed-hash.js';
-import { BatchSession, firestoreWriteSession } from './firestore-session-capture.js';
 
 /** Where a reference or query sits: its path or group id, and the key its listeners share. */
 export interface FirestorePath {
@@ -63,12 +62,12 @@ const WRITES: ReadonlySet<string> = new Set(['setDoc', 'updateDoc', 'addDoc']);
 /** The constraints of a query, as the SDK keeps them in its `_query`. */
 const QUERY_CONSTRAINTS = ['filters', 'explicitOrderBy', 'limit', 'limitType', 'startAt', 'endAt'] as const;
 
-export function isObject(value: unknown): value is object {
+function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
 }
 
 /** The collection path a query's SDK `path` names, or undefined when it names none. */
-export function canonicalPath(path: unknown): unknown {
+function canonicalPath(path: unknown): unknown {
   if (!isObject(path)) return undefined;
   const canonical: unknown = Reflect.get(path, 'canonicalString');
   return typeof canonical === 'function' ? Reflect.apply(canonical, path, []) : undefined;
@@ -299,7 +298,7 @@ export function firestoreJournalPlace(name: string, args: readonly unknown[]): F
 }
 
 /** The path the first argument names, when it is a reference or query. */
-export function pathOf(subject: unknown): string | undefined {
+function pathOf(subject: unknown): string | undefined {
   if (!isObject(subject)) return undefined;
   return firestorePath(subject, Reflect.get(subject, 'type'))?.target;
 }
@@ -397,7 +396,7 @@ function resumedListener(snapshotJson: unknown): ListenerIdentity | undefined {
 }
 
 /** Whether a reference or query reads and writes through the app's converter (`withConverter`). */
-export function hasConverter(subject: unknown): boolean {
+function hasConverter(subject: unknown): boolean {
   if (!isObject(subject)) return false;
   const converter: unknown = Reflect.get(subject, 'converter');
   return converter !== null && converter !== undefined;
@@ -433,20 +432,36 @@ export function firestoreContext(name: string, args: readonly unknown[]): CallCo
     const path = name === 'onSnapshotResume' ? resumedListener(args[1])?.target : pathOf(subject);
     const writeData = writeDataOf(name, args);
     const query = queryShape(name, subject);
-    const writeSession = firestoreWriteSession(name, args, path);
     return {
       subject,
       ...project,
       ...(path === undefined ? {} : { path }),
       ...(writeData === undefined ? {} : { writeData }),
       ...(query === undefined ? {} : { query }),
-      ...writeSession,
     };
   } catch {
     // An argument that throws on read is still recorded, with its project but without its path.
     return { subject: args[0], ...project };
   }
 }
+
+const DOCUMENT_READS: ReadonlySet<string> = new Set(['getDoc', 'getDocFromServer']);
+
+/**
+ * What a resolved document read adds to its record: the fields of the
+ * document it returned, read through the snapshot's own `data()`, or
+ * nothing for a missing document, one that is not plain JSON or too large,
+ * or a reference with a converter, whose `data()` would run the app's code.
+ */
+export function firestoreResult(site: ObservedSite, value: unknown): ResultReading {
+  const isPlainRead = DOCUMENT_READS.has(site.name) && !hasConverter(site.subject);
+  if (!isPlainRead || !isObject(value)) return {};
+  const data: unknown = Reflect.get(value, 'data');
+  if (typeof data !== 'function') return {};
+  const document = jsonFields(Reflect.apply(data, value, []));
+  return document === undefined ? {} : { document };
+}
+
 type Callback = (this: unknown, ...args: unknown[]) => unknown;
 
 /** The batch operations production bills, each as a write or a delete. */
@@ -466,19 +481,14 @@ function defineMethod(batch: object, name: string, method: Callback): void {
   Object.defineProperty(batch, name, { value: method, writable: true, configurable: true, enumerable: false });
 }
 
-/** Counts each operation the SDK accepted, and records its session op: one that throws (a bad argument, a committed batch) counts nothing. */
-function countOperations(batch: object, usage: BatchUsage, session: BatchSession): void {
+/** Counts each operation the SDK accepted: one that throws (a bad argument, a committed batch) counts nothing. */
+function countOperations(batch: object, usage: BatchUsage): void {
   for (const [name, kind] of BATCH_OPERATIONS) {
     const real: unknown = Reflect.get(batch, name);
     if (typeof real !== 'function') continue;
     defineMethod(batch, name, function counted(this: unknown, ...args: unknown[]): unknown {
       const returned = Reflect.apply(real, this, args);
       usage[kind] += 1;
-      try {
-        session.record(name, args);
-      } catch {
-        // Copying an operation's data never changes what the app gets.
-      }
       return returned;
     });
   }
@@ -486,29 +496,17 @@ function countOperations(batch: object, usage: BatchUsage, session: BatchSession
 
 /**
  * Makes the batch's `commit` one observed `writeBatch` call, with the usage
- * counted so far, the context of `writeBatch`'s arguments and the session ops
- * named so far. The name stays `writeBatch`: the senders'
- * `measureObservedUsage` returns undefined for it, so the counted usage
- * stands, while `writeBatch.commit` would measure as `unmeasured` and
- * replace it.
+ * counted so far and the context of `writeBatch`'s arguments. The name stays
+ * `writeBatch`: the senders' `measureObservedUsage` returns undefined for it,
+ * so the counted usage stands, while `writeBatch.commit` would measure as
+ * `unmeasured` and replace it.
  */
-function observeCommit(
-  batch: object,
-  usage: BatchUsage,
-  session: BatchSession,
-  site: Omit<ObservedSite, 'name'>,
-  args: readonly unknown[],
-): void {
+function observeCommit(batch: object, usage: BatchUsage, site: Omit<ObservedSite, 'name'>, args: readonly unknown[]): void {
   const real: unknown = Reflect.get(batch, 'commit');
   if (typeof real !== 'function') return;
+  const context = (): CallContext => firestoreContext('writeBatch', args);
   defineMethod(batch, 'commit', function commit(this: unknown, ...commitArgs: unknown[]): unknown {
     const committed: LiveUsage = { ...usage };
-    const sessionData = session.delta();
-    const context = (): CallContext => {
-      const batchContext = firestoreContext('writeBatch', args);
-      if (sessionData === undefined) return batchContext;
-      return { ...batchContext, sessionData };
-    };
     const observed = observedCall({ ...site, name: 'writeBatch', context, usage: committed }, real as Callback);
     return Reflect.apply(observed, this, commitArgs);
   });
@@ -525,9 +523,8 @@ export function observedWriteBatch(real: Callback, site: Omit<ObservedSite, 'nam
     try {
       if (isObject(batch)) {
         const usage: BatchUsage = { documentWrites: 0, documentDeletes: 0 };
-        const session = new BatchSession();
-        countOperations(batch, usage, session);
-        observeCommit(batch, usage, session, site, args);
+        countOperations(batch, usage);
+        observeCommit(batch, usage, site, args);
       }
     } catch {
       // Observing the batch never changes what the app gets.

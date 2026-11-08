@@ -13,10 +13,9 @@
  */
 import { realpathSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { isPyricStateOrEnvPath } from './project-secret-paths.js';
-import { isPathInside } from './path-inside.js';
 
 const FS_PREFIX = '/@fs/';
 
@@ -69,13 +68,18 @@ function realPathOf(path: string): string | null {
   }
 }
 
+function isInside(root: string, target: string): boolean {
+  const fromRoot = relative(root, target);
+  return fromRoot === '' || (!fromRoot.startsWith('..') && !isAbsolute(fromRoot));
+}
+
 /**
  * Inside a root, only the part below that root counts, so a project that lives
  * under a directory with a denied name still serves its own files. Outside
  * every root, as with a link to another project's state, the whole path counts.
  */
 function isDeniedRealPath(realPath: string, realRoots: readonly string[]): boolean {
-  const containing = realRoots.filter((root) => isPathInside(root, realPath));
+  const containing = realRoots.filter((root) => isInside(root, realPath));
   const isOutsideRoots = containing.length === 0;
   if (isOutsideRoots) return isPyricStateOrEnvPath(realPath);
   return containing.some((root) => isPyricStateOrEnvPath(relative(root, realPath)));

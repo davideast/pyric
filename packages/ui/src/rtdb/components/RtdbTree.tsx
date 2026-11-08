@@ -28,8 +28,6 @@ export interface RtdbTreeProps {
   /** Label for the view-root row when the root is `'/'` — the database /
    *  instance identity. Default `'/'`. */
   rootLabel?: ReactNode;
-  /** Render as a read-only inspection tree (omits inline edit, add, and delete affordances). */
-  readOnly?: boolean;
   className?: string;
 }
 
@@ -53,25 +51,14 @@ export interface RtdbTreeProps {
  * `show-more`, `error`, `loading`). An empty root renders the console's
  * classic form — `<root>: null` — not an instructional empty state.
  */
-export function RtdbTree({
-  tree,
-  api,
-  onNavigate,
-  rootLabel = '/',
-  readOnly = false,
-  className,
-}: RtdbTreeProps) {
+export function RtdbTree({ tree, api, onNavigate, rootLabel = '/', className }: RtdbTreeProps) {
   const { state } = tree;
   const rootSegments = rtdbPathSegments(state.path);
   const rootKey: ReactNode =
     rootSegments.length === 0 ? rootLabel : rootSegments[rootSegments.length - 1];
 
   return (
-    <div
-      className={className}
-      data-pyric-ui="rtdb-tree"
-      data-rtdb-readonly={readOnly ? '' : undefined}
-    >
+    <div className={className} data-pyric-ui="rtdb-tree">
       {state.status === 'loading' ? (
         <p data-rtdb-loading>Loading…</p>
       ) : state.status === 'error' ? (
@@ -85,7 +72,6 @@ export function RtdbTree({
           onNavigate={onNavigate}
           path={state.path}
           label={rootKey}
-          readOnly={readOnly}
           isViewRoot
         />
       )}
@@ -101,11 +87,10 @@ interface NodeProps {
   path: string;
   /** The key text (or the root label node for the view root at `'/'`). */
   label: ReactNode;
-  readOnly?: boolean;
   isViewRoot?: boolean;
 }
 
-function Node({ tree, api, onNavigate, path, label, readOnly = false, isViewRoot }: NodeProps) {
+function Node({ tree, api, onNavigate, path, label, isViewRoot }: NodeProps) {
   const value = tree.valueAt(path);
   const isParent = hasRtdbChildren(value);
   const expanded = tree.isExpanded(path);
@@ -127,7 +112,6 @@ function Node({ tree, api, onNavigate, path, label, readOnly = false, isViewRoot
   };
 
   const openAdd = () => {
-    if (readOnly) return;
     setAdding(true);
     setConfirming(false);
     if (isParent && !expanded) tree.toggle(path);
@@ -177,33 +161,64 @@ function Node({ tree, api, onNavigate, path, label, readOnly = false, isViewRoot
             <span aria-hidden data-rtdb-sep>
               :
             </span>
-            <LeafValue
-              value={value}
-              readOnly={readOnly}
-              onEdit={() => {
+            <button
+              type="button"
+              data-rtdb-value
+              data-rtdb-type={rtdbValueKind(value)}
+              title="Edit value"
+              onClick={() => {
                 setEditing(true);
                 setConfirming(false);
               }}
-            />
+            >
+              {formatRtdbValueLabel(value)}
+            </button>
           </>
         ) : null}
 
-        {!readOnly ? (
-          <NodeActions
-            path={path}
-            isParent={isParent}
-            confirming={confirming}
-            onAdd={openAdd}
-            onAskDelete={() => setConfirming(true)}
-            onCancelDelete={() => setConfirming(false)}
-            onConfirmDelete={() =>
-              void run(
-                () => api.remove(path),
-                () => setConfirming(false),
-              )
-            }
-          />
-        ) : null}
+        <span data-rtdb-actions>
+          {confirming ? (
+            <span data-rtdb-confirm>
+              <span data-rtdb-confirm-label>Delete{isParent ? ' subtree' : ''}?</span>
+              <button
+                type="button"
+                data-rtdb-confirm-yes
+                onClick={() =>
+                  void run(
+                    () => api.remove(path),
+                    () => setConfirming(false),
+                  )
+                }
+              >
+                Delete
+              </button>
+              <button type="button" data-rtdb-confirm-no onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                data-rtdb-action-add
+                aria-label={`Add child to ${pathLabel(path)}`}
+                title="Add child"
+                onClick={openAdd}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                data-rtdb-action-delete
+                aria-label={`Delete ${pathLabel(path)}`}
+                title="Delete"
+                onClick={() => setConfirming(true)}
+              >
+                ×
+              </button>
+            </>
+          )}
+        </span>
       </div>
 
       {actionError ? (
@@ -212,7 +227,7 @@ function Node({ tree, api, onNavigate, path, label, readOnly = false, isViewRoot
         </p>
       ) : null}
 
-      {!readOnly && editing ? (
+      {editing ? (
         <ValueEditor
           initialType={inferRtdbEditorType(value)}
           initialText={formatRtdbEditorValue(value, inferRtdbEditorType(value))}
@@ -227,7 +242,7 @@ function Node({ tree, api, onNavigate, path, label, readOnly = false, isViewRoot
         />
       ) : null}
 
-      {!readOnly && adding ? (
+      {adding ? (
         <ValueEditor
           withKey
           initialType="string"
@@ -253,7 +268,6 @@ function Node({ tree, api, onNavigate, path, label, readOnly = false, isViewRoot
                 onNavigate={onNavigate}
                 path={joinRtdbPath(path, key)}
                 label={key}
-                readOnly={readOnly}
               />
             </li>
           ))}
@@ -267,94 +281,6 @@ function Node({ tree, api, onNavigate, path, label, readOnly = false, isViewRoot
         </ul>
       ) : null}
     </div>
-  );
-}
-
-/** A leaf's value: a click-to-edit button, or plain text in a read-only tree. */
-function LeafValue({
-  value,
-  readOnly,
-  onEdit,
-}: {
-  value: unknown;
-  readOnly: boolean;
-  onEdit: () => void;
-}) {
-  if (readOnly) {
-    return (
-      <span data-rtdb-value data-rtdb-type={rtdbValueKind(value)}>
-        {formatRtdbValueLabel(value)}
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      data-rtdb-value
-      data-rtdb-type={rtdbValueKind(value)}
-      title="Edit value"
-      onClick={onEdit}
-    >
-      {formatRtdbValueLabel(value)}
-    </button>
-  );
-}
-
-interface NodeActionsProps {
-  path: string;
-  isParent: boolean;
-  confirming: boolean;
-  onAdd: () => void;
-  onAskDelete: () => void;
-  onCancelDelete: () => void;
-  onConfirmDelete: () => void;
-}
-
-/** The hover-revealed `+` / `×` pair, or the inline delete confirm while it is open. */
-function NodeActions({
-  path,
-  isParent,
-  confirming,
-  onAdd,
-  onAskDelete,
-  onCancelDelete,
-  onConfirmDelete,
-}: NodeActionsProps) {
-  return (
-    <span data-rtdb-actions>
-      {confirming ? (
-        <span data-rtdb-confirm>
-          <span data-rtdb-confirm-label>Delete{isParent ? ' subtree' : ''}?</span>
-          <button type="button" data-rtdb-confirm-yes onClick={onConfirmDelete}>
-            Delete
-          </button>
-          <button type="button" data-rtdb-confirm-no onClick={onCancelDelete}>
-            Cancel
-          </button>
-        </span>
-      ) : (
-        <>
-          <button
-            type="button"
-            data-rtdb-action-add
-            aria-label={`Add child to ${pathLabel(path)}`}
-            title="Add child"
-            onClick={onAdd}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            data-rtdb-action-delete
-            aria-label={`Delete ${pathLabel(path)}`}
-            title="Delete"
-            onClick={onAskDelete}
-          >
-            ×
-          </button>
-        </>
-      )}
-    </span>
   );
 }
 

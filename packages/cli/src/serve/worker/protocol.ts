@@ -40,7 +40,6 @@ import type {
 import type { Query as RtdbQuery } from 'pyric/database';
 import { redactDiagnosticEmails, type NodeUnobservedLists } from 'pyric/sandbox/internal';
 import { stripWireTokenClaims } from '../repro/token-claims.js';
-import type { ObservedSessionDelta } from '../observed-session/wire.js';
 import type {
   BrokerMessage,
   ClientVisibilityState,
@@ -566,12 +565,6 @@ export interface ObserveMessage {
    * authority; the host drops a malformed one and keeps the client.
    */
   script?: string;
-  /**
-   * Optional bounded Firestore/RTDB document and snapshot values observed by
-   * a `@pyric/live` client in this session. Retained strictly in live-host
-   * memory (`observed-session/store.ts`) and stripped before repro recording.
-   */
-  sessionData?: ObservedSessionDelta;
 }
 
 /**

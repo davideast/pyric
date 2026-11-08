@@ -74,10 +74,8 @@ import {
   observeOnDisconnect,
   offByCallback,
 } from './database.js';
-import { databaseDelivery, databaseResult } from './database-session-capture.js';
 import { AI_REFUSED_CALLS, aiCode, aiContext, aiMessage, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
-import { firestoreContext, firestoreListener, observedWriteBatch } from './firestore.js';
-import { firestoreDelivery, firestoreResult } from './firestore-session-capture.js';
+import { firestoreContext, firestoreListener, firestoreResult, observedWriteBatch } from './firestore.js';
 import { observedGetStream, STORAGE_CALLS, storageContext, storageResult } from './storage.js';
 import {
   MESSAGING_CALLS,
@@ -247,12 +245,7 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     ],
     listeners: ['onSnapshot', 'onSnapshotResume'],
     uncaughtListenerError: firestoreUncaughtListenerError,
-    hooks: {
-      context: firestoreContext,
-      resultOf: firestoreResult,
-      deliveryOf: firestoreDelivery,
-      listenerOf: firestoreListener,
-    },
+    hooks: { context: firestoreContext, resultOf: firestoreResult, listenerOf: firestoreListener },
     replaced: { writeBatch: observedWriteBatch },
     refused: {
       getFirestore: getFirestoreDatabase,
@@ -270,8 +263,6 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
     hooks: {
       context: databaseContext,
       codeOf: databaseCode,
-      resultOf: databaseResult,
-      deliveryOf: databaseDelivery,
       listenerArguments: databaseListenerArguments,
       listenerCallback: databaseListenerCallback,
       listenerOf: databaseListener,
