@@ -20,7 +20,7 @@ function precedenceOf(expr: Expression): number {
     case 'ternary': return 1;
     case 'binaryOp': return PRECEDENCE[expr.op] ?? 0;
     case 'inExpr': return 4;
-    case 'isExpr': return 4;
+    case 'isExpr': return 6;
     case 'pathLiteral': return 7.5;
     case 'unaryOp': return 9;
     default: return 100; // atoms, postfix — never need parens
@@ -67,10 +67,10 @@ function assembleExprInner(expr: Expression): string {
       return `${assembleExprWithPrec(expr.condition, 2)} ? ${assembleExpression(expr.consequent)} : ${assembleExpression(expr.alternate)}`;
 
     case 'inExpr':
-      return `${assembleExprWithPrec(expr.element, 5)} in ${assembleExprWithPrec(expr.collection, 5)}`;
+      return `${assembleExprWithPrec(expr.element, 4)} in ${assembleExprWithPrec(expr.collection, 5)}`;
 
     case 'isExpr':
-      return `${assembleExprWithPrec(expr.value, 5)} is ${expr.typeName}`;
+      return `${assembleExprWithPrec(expr.value, 6)} is ${expr.typeName}`;
 
     case 'listLiteral':
       if (expr.elements.length === 0) return '[]';
@@ -298,8 +298,9 @@ export function assembleRulesWithSourceMap(ast: FirestoreRules): {
     }
   }
 
-  const root = ast.service.match;
-  assembleMatchBlockWithMap(root, 2, lines, sourceMap);
+  for (const root of ast.service.matches ?? [ast.service.match]) {
+    assembleMatchBlockWithMap(root, 2, lines, sourceMap);
+  }
   lines.push('}');
   lines.push('');
   return { resolved: lines.join('\n'), sourceMap };

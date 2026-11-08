@@ -33,7 +33,7 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
 
   RulesVersion = "rules_version" "=" string ";"
 
-  ServiceBlock = "service" serviceName "{" FunctionDef* DocumentsMatch FunctionDef* "}"
+  ServiceBlock = "service" serviceName "{" FunctionDef* (DocumentsMatch FunctionDef*)+ "}"
 
   DocumentsMatch = "match" matchPath "{" MatchBody "}"
 
@@ -106,8 +106,7 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
     | InIsExpr
 
   InIsExpr
-    = Equality in Equality   -- in
-    | Equality is typeName   -- is
+    = InIsExpr in Equality   -- in
     | Equality
 
   in = "in" ~identChar
@@ -123,6 +122,7 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
     | Comparison "<=" Additive  -- lte
     | Comparison ">" Additive   -- gt
     | Comparison "<" Additive   -- lt
+    | Comparison is typeName    -- is
     | Additive
 
   Additive

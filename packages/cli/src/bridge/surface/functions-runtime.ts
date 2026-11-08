@@ -10,13 +10,16 @@
  * config) throws, which this lets propagate, because that is a project
  * mistake rather than an absent capability.
  */
+import { httpOnRequestFamily } from '../../functions/http/discovery.js';
 import {
   inspectOnValueCreated,
+  rtdbCreatedFamily,
   type DiscoveredOnValueCreated,
   type UnsupportedOnValueCreated,
 } from '../../functions/rtdb/discovery.js';
 import { loadFunctionsModuleExports } from '../../functions/module-loader.js';
 import { discoverFunctionsProject } from '../../functions/project.js';
+import { findUnsupportedTriggers } from '../../functions/unsupported.js';
 
 export interface FunctionsDiscovery {
   /** Where this project's Functions source was looked for. */
@@ -32,5 +35,6 @@ export async function discoverFunctionsTriggers(projectDir: string): Promise<Fun
   if (project === null) return { lookedAt, triggers: [], unsupported: [] };
   const exported = await loadFunctionsModuleExports(project.entry);
   const inspected = inspectOnValueCreated(exported);
-  return { lookedAt, triggers: inspected.triggers, unsupported: inspected.unsupported };
+  const unsupported = findUnsupportedTriggers(exported, [rtdbCreatedFamily, httpOnRequestFamily]);
+  return { lookedAt, triggers: inspected.triggers, unsupported };
 }

@@ -15,6 +15,7 @@ import { validateFirestoreRules, type ValidationFinding } from '../../../src/rul
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
 import { callChainDepths, collectRulesetScopes } from '../../../src/rules/grammar/function-scopes.js';
 import { countDocumentAccessCalls } from '../../../src/rules/grammar/document-access-count.js';
+import { lintFirestoreRules } from '../../../src/rules/linter/linter.js';
 
 interface Probe {
   name: string;
@@ -398,5 +399,107 @@ service cloud.firestore {
     const findings = validate(modularRules);
     expect(findings.some(i => i.code === 'SEM-4')).toBe(false);
     expect(findings.some(i => i.code === 'SEC-3')).toBe(false);
+  });
+
+  test('shadowed inner helper delegating via mid() to outer helper counts outer document accesses and request.time', () => {
+    const elevenExists = Array.from(
+      { length: 11 },
+      (_, idx) => `exists(/databases/$(database)/documents/cfg/d${idx})`,
+    ).join(' && ');
+    const shadowedBudgetSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function helper() {
+      return ${elevenExists} && request.time != null;
+    }
+    function mid() {
+      return helper();
+    }
+    match /items/{id} {
+      function helper() {
+        return mid();
+      }
+      allow read: if helper() && helper();
+    }
+  }
+}`;
+    const findings = validate(shadowedBudgetSource);
+    expect(findings.some(i => i.code === 'SEM-3')).toBe(true);
+
+    const lint = lintFirestoreRules(shadowedBudgetSource, {
+      testCases: [
+        {
+          description: 'read item without requestTime',
+          expectation: 'ALLOW',
+          method: 'get',
+          path: 'items/i1',
+        },
+      ],
+    });
+    expect(lint.warnings.some(w => w.rule === 'GET_COUNT')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'GET_DUPLICATION')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'REQUEST_TIME_NOT_PINNED')).toBe(true);
+  });
+
+  test('service cloud.storage with two top-level bucket match blocks validates and lints the second block', () => {
+    const previousSource = `rules_version = '2';
+service cloud.storage {
+  match /b/bucket-one/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+  match /b/bucket-two/o {
+    match /items/{id} {
+      allow write: if request.auth != null && request.resource.size < 1024;
+    }
+  }
+}`;
+    const currentSource = `rules_version = '2';
+service cloud.storage {
+  match /b/bucket-one/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+  match /b/bucket-two/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+    match /items/{id} {
+      allow write: if request.resource.size < 1024;
+      allow read: if resource.data.owner == request.auth.uid;
+    }
+  }
+}`;
+    const findings = validate(currentSource);
+    expect(findings.some(f => f.code === 'SEC-1' && f.path === '/{allPaths=**}')).toBe(true);
+
+    const lint = lintFirestoreRules(currentSource, { previousSource });
+    expect(lint.warnings.some(w => w.rule === 'PERMISSIVE_RULE')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'RECURSIVE_WILDCARD_OPEN')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'RULES_WEAKENED')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'WRONG_CONTEXT_PATH')).toBe(true);
+  });
+
+  test('service cloud.storage with three firestore.exists calls triggers 2-read Storage SEM-3 and GET_COUNT', () => {
+    const threeReads = `rules_version = '2';
+service cloud.storage {
+  match /b/{bucket}/o {
+    match /items/{id} {
+      allow read: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/orgs/a)
+        && firestore.exists(/databases/(default)/documents/orgs/b)
+        && firestore.exists(/databases/(default)/documents/orgs/c);
+    }
+  }
+}`;
+    const findings = validate(threeReads);
+    const sem3 = findings.find(f => f.code === 'SEM-3');
+    expect(sem3).toBeDefined();
+    expect(sem3?.message).toContain('exceeds the 2-call budget');
+
+    const lint = lintFirestoreRules(threeReads);
+    expect(lint.warnings.some(w => w.rule === 'GET_COUNT')).toBe(true);
   });
 });

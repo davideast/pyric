@@ -34,6 +34,7 @@
  * facts of the branch that must hold is costed as failing at its gate.
  */
 import type { AllowRule, Expression, FirestoreRules, FunctionDef, MatchBlock } from '../grammar/FirestoreAST.js';
+import { topLevelMatches } from '../grammar/service-blocks.js';
 import { expressionFingerprint } from './ast-utils.js';
 
 /** Production's per-request evaluation limit. */
@@ -364,7 +365,9 @@ function walkBlocks(ast: FirestoreRules): ScopedBlock[] {
     out.push({ block, path, fns });
     for (const child of block.children) visit(child, path, fns);
   };
-  visit(ast.service.match, '', base);
+  for (const root of topLevelMatches(ast.service)) {
+    visit(root, '', base);
+  }
   return out;
 }
 

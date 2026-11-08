@@ -39,6 +39,8 @@ import { toStrictRulesJson } from '../../rules/rtdb/rules-text.js';
 import { getAdminStorageSandbox, replaceStorageRules } from '../../storage/internal.js';
 import { Timestamp } from 'pyric/rules/internal';
 import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
+import type { BatchOperationInput } from '../../firestore/sandbox/writes.js';
+import { getClock } from '../clock.js';
 import {
   applyFullState,
   captureFullState,
@@ -197,42 +199,116 @@ export async function fork(
 export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
   assertLive(branch);
   const env = getInternalEnv(branch.sandbox);
+  const clock = getClock(branch.sandbox);
+  const priorClock = clock.capture();
+  let clockPinned = false;
   const writes = events.filter((event): event is WriteSandboxEvent => event.kind === 'write');
   const consumedRequestIndices = new Set<number>();
-
-  for (const write of writes) {
+  const pathAliases = new Map<string, string>();
+  const remap = (path: string): string => {
+    for (const [originalPath, replayedPath] of pathAliases) {
+      if (path === originalPath) return replayedPath;
+      if (path.startsWith(`${originalPath}/`)) {
+        return replayedPath + path.slice(originalPath.length);
+      }
+    }
+    return path;
+  };
+  const pinClockTo = (write: WriteSandboxEvent): void => {
+    clock.set(write.requestTime.seconds * 1000 + Math.floor(write.requestTime.nanoseconds / 1e6));
+    clockPinned = true;
+  };
+  const dataFor = (write: WriteSandboxEvent): DocData | undefined => {
     const rawData =
       preResolutionDataFor(write, events, consumedRequestIndices) ??
       enginePayloadOf({ resourceData: write.data, updateMask: write.updateMask });
-    const data = rawData !== undefined ? (rehydrateReplayValue(rawData) as DocData) : undefined;
-    const requestTime = new Timestamp(write.requestTime.seconds, write.requestTime.nanoseconds);
-    const bypassRules = write.detail?.admin === true;
+    if (rawData === undefined) return undefined;
+    return rehydrateReplayValue(rawData) as DocData;
+  };
 
-    if (write.autoId) {
-      const collection = write.path.slice(0, write.path.lastIndexOf('/'));
-      try {
-        env.createWithAutoId(collection, (data ?? {}) as DocData, write.auth, bypassRules);
-      } catch {
-        // Keep applying subsequent writes so diff() surfaces the divergence.
+  try {
+    for (let index = 0; index < writes.length;) {
+      const write = writes[index]!;
+      const group = groupAt(writes, index);
+      if (group.length > 0) {
+        pinClockTo(write);
+        const operations: BatchOperationInput[] = group.map((event) => {
+          let method: BatchOperationInput['method'] = event.method;
+          if (event.merge !== undefined || (event.method === 'update' && event.updateMask === undefined)) {
+            method = 'set';
+          }
+          const operation: BatchOperationInput = { method, path: remap(event.path) };
+          if (event.method !== 'delete') {
+            const data = dataFor(event);
+            if (data !== undefined) operation.data = data;
+          }
+          if (event.merge !== undefined) operation.merge = event.merge;
+          return operation;
+        });
+        try {
+          env.batch(operations, group[0]!.auth, group[0]!.detail?.admin === true);
+        } catch {
+          // A denied or failed batch surfaces later as state divergence in diff().
+        }
+        index += group.length;
+        continue;
       }
-      continue;
-    }
+      index += 1;
 
-    try {
-      env.execute(executionFor(write, data, requestTime));
-    } catch {
-      // A denied or failed re-issue surfaces later as state divergence in
-      // diff(), so one bad write does not abort the rest of the stream.
+      const data = dataFor(write);
+      const requestTime = new Timestamp(write.requestTime.seconds, write.requestTime.nanoseconds);
+      const bypassRules = write.detail?.admin === true;
+
+      if (write.autoId) {
+        const targetPath = remap(write.path);
+        const collection = targetPath.slice(0, targetPath.lastIndexOf('/'));
+        pinClockTo(write);
+        try {
+          const { path: mintedPath, result } = env.createWithAutoId(
+            collection,
+            (data ?? {}) as DocData,
+            write.auth,
+            bypassRules,
+          );
+          if (result.allowed) {
+            pathAliases.set(write.path, mintedPath);
+          }
+        } catch {
+          // Keep applying subsequent writes so diff() surfaces the divergence.
+        }
+        continue;
+      }
+
+      try {
+        env.execute(executionFor(write, remap(write.path), data, requestTime));
+      } catch {
+        // A denied or failed re-issue surfaces later as state divergence in
+        // diff(), so one bad write does not abort the rest of the stream.
+      }
     }
+  } finally {
+    if (clockPinned) clock.restore(priorClock);
   }
 
   branch.events.push(...events);
   return branch;
 }
 
+/** The writes of the batch or transaction starting at `index`, or `[]` when single. */
+function groupAt(writes: readonly WriteSandboxEvent[], index: number): WriteSandboxEvent[] {
+  const groupId = writes[index]?.groupId;
+  if (groupId === undefined) return [];
+  const group: WriteSandboxEvent[] = [];
+  for (let at = index; at < writes.length && writes[at]!.groupId === groupId; at++) {
+    group.push(writes[at]!);
+  }
+  return group;
+}
+
 /** One re-issued write, assembled before it crosses the environment boundary. */
 function executionFor(
   write: WriteSandboxEvent,
+  path: string,
   data: DocData | undefined,
   requestTime: Timestamp,
 ): {
@@ -256,7 +332,7 @@ function executionFor(
     merge?: WriteSandboxEvent['merge'];
     bypassRules?: boolean;
     requestTime: Timestamp;
-  } = { method, path: write.path, auth: write.auth, requestTime };
+  } = { method, path, auth: write.auth, requestTime };
   if (data !== undefined) execution.data = data;
   if (write.merge !== undefined) execution.merge = write.merge;
   if (write.detail?.admin === true) execution.bypassRules = true;

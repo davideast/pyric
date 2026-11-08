@@ -9,6 +9,7 @@ import { parseToASTOrError, parseFunctions } from '../grammar/FirestoreParser.js
 import { assembleRules, assembleRulesWithSourceMap, type RulesSourceMapEntry } from '../grammar/FirestoreAssembler.js';
 import type { FunctionDef, Expression, FirestoreRules, MatchBlock } from '../grammar/FirestoreAST.js';
 import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
+import { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '../grammar/source-compile-limits.js';
 import { STDLIB_MODULE_EVIDENCE } from './stdlib-services.generated.js';
 import {
@@ -301,15 +302,26 @@ export function resolveModulesWith(
     };
   }
   if (options?.targetService !== undefined) {
-    const selected = (ast.services ?? [ast.service]).find((block) => block.name === options.targetService);
+    const selected = (ast.services ?? [ast.service]).find((block) => {
+      if (options.targetService === 'firebase.storage') {
+        return isStorageServiceName(block.name);
+      }
+      return block.name === options.targetService;
+    });
     if (selected !== undefined) ast.service = selected;
   }
   const isModular = ast.version === '2+modules';
-  const isStorageService = ast.service.name === 'firebase.storage';
-  let sourceFile = isStorageService ? 'storage.rules' : 'firestore.rules';
-  if (isModular) sourceFile = isStorageService
-    ? 'storage.modules.rules'
-    : 'firestore.modules.rules';
+  const isStorageService = isStorageServiceName(ast.service.name);
+  let sourceFile = 'firestore.rules';
+  if (isStorageService) {
+    sourceFile = 'storage.rules';
+  }
+  if (isModular) {
+    sourceFile = 'firestore.modules.rules';
+    if (isStorageService) {
+      sourceFile = 'storage.modules.rules';
+    }
+  }
   const hasOptions = options !== undefined;
   if (hasOptions) {
     const hasSourceFile = options!.sourceFile !== undefined;
@@ -329,7 +341,7 @@ export function resolveModulesWith(
 
   const isFirestore = ast.service.name === 'cloud.firestore';
   if (isFirestore === false) {
-    const isStorage = ast.service.name === 'firebase.storage';
+    const isStorage = isStorageServiceName(ast.service.name);
     if (isStorage === false) {
       return {
         success: false,
@@ -349,7 +361,9 @@ export function resolveModulesWith(
     match.functions.forEach((fn) => sourceFnNames.add(fn.name));
     match.children.forEach(collectMatchFunctions);
   };
-  collectMatchFunctions(ast.service.match);
+  for (const rootMatch of topLevelMatches(ast.service)) {
+    collectMatchFunctions(rootMatch);
+  }
   const builtinSourceCollision = [...sourceFnNames]
     .find((name) => RULES_BUILTIN_FUNCTIONS.has(name));
   if (builtinSourceCollision) {
@@ -501,10 +515,15 @@ export function resolveModulesWith(
           : `Function '${fnName}' not found in module '${imp.module}'`;
         return { success: false, error: { code: 'UNKNOWN_FUNCTION', message: msg } };
       }
-      if (ast.service.name === 'cloud.firestore' || ast.service.name === 'firebase.storage') {
-        const message = bundledPerModule.get(modKey)
-          ? incompatibleStdlibExport(ast.service.name, imp.module, fnName)
-          : null;
+      if (ast.service.name === 'cloud.firestore' || isStorageService) {
+        let canonicalService: 'cloud.firestore' | 'firebase.storage' = 'cloud.firestore';
+        if (isStorageService) {
+          canonicalService = 'firebase.storage';
+        }
+        let message: string | null = null;
+        if (bundledPerModule.get(modKey)) {
+          message = incompatibleStdlibExport(canonicalService, imp.module, fnName);
+        }
         if (message) {
           return { success: false, error: { code: 'INCOMPATIBLE_FUNCTION', message } };
         }
@@ -658,7 +677,9 @@ export function resolveModulesWith(
     return unimportedModuleCall(ownExpressions, names) ??
       match.children.map((child) => checkMatchCalls(child, names)).find(Boolean) ?? null;
   };
-  invalidSourceCall ??= checkMatchCalls(ast.service.match, serviceNames);
+  for (const rootMatch of topLevelMatches(ast.service)) {
+    invalidSourceCall ??= checkMatchCalls(rootMatch, serviceNames);
+  }
   if (invalidSourceCall) {
     return {
       success: false,
@@ -690,7 +711,11 @@ export function resolveModulesWith(
     };
   }
 
-  if (ast.service.name === 'firebase.storage' || ast.service.name === 'cloud.firestore') {
+  if (isStorageService || ast.service.name === 'cloud.firestore') {
+    let canonicalService: 'cloud.firestore' | 'firebase.storage' = 'cloud.firestore';
+    if (isStorageService) {
+      canonicalService = 'firebase.storage';
+    }
     const reachableFunctions = new Map(injected.map((fn) => [fn.name, fn]));
     for (const fn of injected) {
       const callSites: ModuleCallSite[] = [
@@ -704,13 +729,14 @@ export function resolveModulesWith(
             })),
           })),
       ];
-      const argumentSets = callSites.length > 0
-        ? callSites
-        : [{ arguments: [] }];
+      let argumentSets: ModuleCallSite[] = [{ arguments: [] }];
+      if (callSites.length > 0) {
+        argumentSets = callSites;
+      }
       for (const { arguments: arguments_ } of argumentSets) {
         const requirement = incompatibleFunction(
           fn,
-          ast.service.name,
+          canonicalService,
           reachableFunctions,
           arguments_,
         );
@@ -746,9 +772,10 @@ export function resolveModulesWith(
   ast.imports = [];
 
   const evidenceIds = new Set<string>();
-  const evidencePrefix = ast.service.name === 'firebase.storage'
-    ? 'storage-rules#'
-    : 'firestore-rules#';
+  let evidencePrefix = 'firestore-rules#';
+  if (isStorageService) {
+    evidencePrefix = 'storage-rules#';
+  }
   for (const moduleName of bundledModulesUsed) {
     const key = conventionalStdlibKey(moduleName) ?? moduleName;
     const moduleEvidence = STDLIB_MODULE_EVIDENCE[
@@ -811,7 +838,7 @@ export function attachAstSourceFile(ast: FirestoreRules, file: string): void {
       attachToFunction(fn);
     }
   }
-  const stack: MatchBlock[] = [ast.service.match];
+  const stack: MatchBlock[] = [...topLevelMatches(ast.service)];
   let stackLength = stack.length;
   while (stackLength > 0) {
     const block = stack.pop()!;

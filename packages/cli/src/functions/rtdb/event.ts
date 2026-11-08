@@ -14,16 +14,28 @@ export type CreatedExecutionResult =
   | { status: 'rejected'; event: Record<string, unknown>; error: unknown };
 
 function canonicalizeRtdbValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalizeRtdbValue);
-  if (typeof value !== 'object' || value === null) return value;
-  return Object.fromEntries(
-    Object.keys(value as Record<string, unknown>)
-      .sort()
-      .map((key) => [
-        key,
-        canonicalizeRtdbValue((value as Record<string, unknown>)[key]),
-      ]),
-  );
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    const entries: Array<[number, unknown]> = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!(index in value)) continue;
+      const mapped = canonicalizeRtdbValue(value[index]);
+      if (mapped !== null) entries.push([index, mapped]);
+    }
+    if (entries.length === 0) return null;
+    if (entries.every(([idx], pos) => idx === pos)) {
+      return entries.map(([, item]) => item);
+    }
+    return Object.fromEntries(entries.map(([idx, item]) => [String(idx), item]));
+  }
+  if (typeof value !== 'object') return value;
+  const entries: [string, unknown][] = [];
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    const child = canonicalizeRtdbValue((value as Record<string, unknown>)[key]);
+    if (child !== null) entries.push([key, child]);
+  }
+  if (entries.length > 0) return Object.fromEntries(entries);
+  return null;
 }
 
 /** Invoke the real Firebase Functions wrapper and await the user's result, carrying it through on success. */

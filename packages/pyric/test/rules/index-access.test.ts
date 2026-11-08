@@ -38,6 +38,14 @@ const SHAPES: ReadonlyArray<readonly [string, boolean]> = [
   ["['a', 'b'][2] == null", false],
   ["['a', 'b'][-1] == 'b'", false],
   ["['a', 'b']['length'] == 2", false],
+  ['request.time.year == null', false],
+  ["duration.value(1, 'h').seconds == null", false],
+  ['latlng.value(1.0, 2.0).lat == null', false],
+  ["b'abc'.size == null", false],
+  ["[1, 2].toSet()['items'] != null", false],
+  ["{'a': 1}.diff({'a': 2})['before'] != null", false],
+  ["{'s': [1, 2].toSet()}.get(['s', 'items'], 'fallback') == 'fallback'", true],
+  ["{'d': {'a': 1}.diff({'a': 2})}.get(['d', 'before'], 'fallback') == 'fallback'", true],
 ];
 
 const firestore = new SimulateFirestoreRulesHandler();

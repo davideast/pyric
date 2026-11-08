@@ -838,4 +838,105 @@ ${lines.join('\n')}
     expect(hasRule(r, 'EXPRESSION_TOO_DEEP')).toBe(false);
     expect(hasRule(r, 'MEMBER_CHAIN_LENGTH')).toBe(false);
   });
+
+  test('preserves 1-based line numbers on compile-blocking parse-origin warnings and respects user-defined get/exists shadowing', () => {
+    const letLimitRes = lintSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function tooManyLets() {
+      let a1 = 1; let a2 = 2; let a3 = 3; let a4 = 4;
+      let a5 = 5; let a6 = 6; let a7 = 7; let a8 = 8;
+      let a9 = 9; let a10 = 10; let a11 = 11; let a12 = 12;
+      return a12 == 12;
+    }
+    match /items/{id} {
+      allow read: if tooManyLets();
+    }
+  }
+}`);
+    const letWarning = letLimitRes.warnings.find(w => w.rule === 'LET_LIMIT');
+    expect(letWarning?.location?.functionName).toBe('tooManyLets');
+    expect(letWarning?.location?.line).toBe(8);
+
+    const regexRes = lintSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if resource.data.name.matches('[unclosed');
+    }
+  }
+}`);
+    const regexWarning = regexRes.warnings.find(w => w.rule === 'INVALID_REGEX_PATTERN');
+    expect(regexWarning?.location?.line).toBe(5);
+
+    const redefinedRes = lintSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function dup() { return true; }
+    function dup() { return false; }
+    match /items/{id} {
+      allow read: if dup();
+    }
+  }
+}`);
+    const redefinedWarning = redefinedRes.warnings.find(w => w.rule === 'FUNCTION_REDEFINED');
+    expect(redefinedWarning?.location?.functionName).toBe('dup');
+    expect(redefinedWarning?.location?.line).toBe(5);
+
+    // User-defined helper named `get(m, k)` shadows builtin `get(path)` and should not count toward GET_COUNT or GET_DUPLICATION
+    const shadowedGetSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function get(m, k) {
+      return m[k];
+    }
+    match /items/{id} {
+      allow read: if get(resource.data, 'a') == 1
+        && get(resource.data, 'b') == 2
+        && get(resource.data, 'c') == 3
+        && get(resource.data, 'd') == 4
+        && get(resource.data, 'e') == 5
+        && get(resource.data, 'f') == 6
+        && get(resource.data, 'g') == 7
+        && get(resource.data, 'h') == 8
+        && get(resource.data, 'i') == 9
+        && get(resource.data, 'j') == 10
+        && get(resource.data, 'k') == 11;
+    }
+  }
+}`;
+    const shadowedGetRes = lintSource(shadowedGetSource);
+    expect(hasRule(shadowedGetRes, 'GET_COUNT')).toBe(false);
+    expect(hasRule(shadowedGetRes, 'GET_DUPLICATION')).toBe(false);
+    expect(shadowedGetRes.metrics.getCallCount).toBe(0);
+
+    const storageBareGetSource = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function get(k) { return k; }
+    match /docs/{id} {
+      allow read: if get('a') == 'a'
+        && get('b') == 'b'
+        && get('c') == 'c';
+    }
+  }
+}`;
+    const storageBareGetRes = lintSource(storageBareGetSource);
+    expect(hasRule(storageBareGetRes, 'GET_COUNT')).toBe(false);
+    expect(storageBareGetRes.metrics.getCallCount).toBe(0);
+
+    const storageFirestoreGetSource = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{id} {
+      allow read: if firestore.exists(/databases/(default)/documents/users/u1)
+        && firestore.exists(/databases/(default)/documents/users/u2)
+        && firestore.exists(/databases/(default)/documents/users/u3);
+    }
+  }
+}`;
+    const storageFirestoreGetRes = lintSource(storageFirestoreGetSource);
+    expect(hasRule(storageFirestoreGetRes, 'GET_COUNT')).toBe(true);
+    expect(storageFirestoreGetRes.metrics.getCallCount).toBe(3);
+  });
 });

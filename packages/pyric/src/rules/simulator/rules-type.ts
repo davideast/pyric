@@ -335,7 +335,12 @@ export function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
     if (caseInsensitive) {
       const lo = target.toLowerCase();
       const up = target.toUpperCase();
-      return { kind: 'char', test: (c) => c === lo || c === up };
+      const cp = target.codePointAt(0);
+      let re: RegExp | null = null;
+      if (cp !== undefined) {
+        re = new RegExp(`^\\u{${cp.toString(16)}}$`, 'iu');
+      }
+      return { kind: 'char', test: (c) => c === lo || c === up || (re !== null && re.test(c)) };
     }
     return { kind: 'char', test: (c) => c === target };
   };

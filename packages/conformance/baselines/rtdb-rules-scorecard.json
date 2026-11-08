@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 90,
+    "numerator": 91,
     "denominator": 91,
-    "ratio": 0.989010989010989,
-    "percent": 98.9
+    "ratio": 1,
+    "percent": 100
   },
   "axes": {
     "productionAcceptance": {
@@ -125,14 +125,14 @@
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 89,
-      "diverged": 1,
+      "verified": 90,
+      "diverged": 0,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 90,
-    "diverged": 1,
+    "conformant": 91,
+    "diverged": 0,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -440,8 +440,8 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r10-snapshot-type-guards",
         "r23-validate-sibling-scope",
@@ -454,11 +454,10 @@
         "r62-deploy-ternary-snapshot-member"
       ],
       "verifiedByRows": [
-        "rtdb-rules#30"
-      ],
-      "divergedByRows": [
+        "rtdb-rules#30",
         "rtdb-rules#196"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.method.snapshot.hasChild": {
       "productionAcceptance": "accepted",

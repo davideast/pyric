@@ -1,10 +1,6 @@
 import { describe, test, expect } from 'bun:test';
-import {
-  evaluateQueryProof,
-  isProvablyDocIndependent,
-  referencesResourceData,
-  type QueryConstraints,
-} from '../../../src/rules/simulator/query-proof.js';
+import { evaluateQueryProof, type QueryConstraints } from '../../../src/rules/simulator/query-proof.js';
+import { isProvablyDocIndependent, referencesResourceData } from '../../../src/rules/simulator/query-proof-scope.js';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
 import { collectAllRules, collectAllFunctions } from '../../../src/rules/linter/ast-utils.js';
 import type { Expression, FunctionDef } from '../../../src/rules/grammar/FirestoreAST.js';

@@ -21,6 +21,13 @@ export function resourceFromStored(
         updated?: string;
         generation?: string;
         metageneration?: string;
+        md5Hash?: string;
+        crc32c?: string;
+        etag?: string;
+        contentDisposition?: string;
+        contentEncoding?: string;
+        contentLanguage?: string;
+        cacheControl?: string;
       }
     | null
     | undefined,
@@ -46,6 +53,13 @@ export function resourceFromStored(
     // Persisted as strings (FullMetadata shape); production types both `int`.
     generation: numberOrUndefined(stored.generation),
     metageneration: numberOrUndefined(stored.metageneration),
+    md5Hash: stored.md5Hash,
+    crc32c: stored.crc32c,
+    etag: stored.etag,
+    contentDisposition: stored.contentDisposition,
+    contentEncoding: stored.contentEncoding,
+    contentLanguage: stored.contentLanguage,
+    cacheControl: stored.cacheControl,
   });
 }
 

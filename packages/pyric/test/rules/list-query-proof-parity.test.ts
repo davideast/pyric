@@ -1076,5 +1076,89 @@ service cloud.firestore {
       );
       expect(eqZeroSnap.docs.map((d) => d.id).sort()).toEqual(['negZero', 'posZero']);
     });
+
+    test('resolves outer helper calls in their lexical scope when an inner match block shadows a helper name', async () => {
+      const shadowedDenyRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function checkGate() {
+      return request.auth != null;
+    }
+    function canRead(status) {
+      return checkGate() && status == 'pub';
+    }
+    match /items/{id} {
+      function checkGate() {
+        return false;
+      }
+      allow read: if canRead(resource.data.status);
+    }
+  }
+}`;
+      const simAllow = firestoreRules(shadowedDenyRules).simulate([
+        {
+          description: 'list items where status == pub with outer checkGate() true and inner shadowed checkGate() false',
+          expectation: 'ALLOW',
+          method: 'list',
+          path: 'items',
+          auth: { uid: 'u1' },
+          query: { where: [{ field: 'status', op: '==', value: 'pub' }] },
+        },
+      ]).cases[0]!;
+      expect(simAllow.decision).toBe('ALLOW');
+      expect(simAllow.queryProof?.verdict).toBe('PROVABLE');
+
+      const shadowedAllowRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function checkGate() {
+      return false;
+    }
+    function canRead(status) {
+      return checkGate() && status == 'pub';
+    }
+    match /items/{id} {
+      function checkGate() {
+        return true;
+      }
+      allow read: if canRead(resource.data.status);
+    }
+  }
+}`;
+      const simDeny = firestoreRules(shadowedAllowRules).simulate([
+        {
+          description: 'list items where status == pub with outer checkGate() false and inner shadowed checkGate() true',
+          expectation: 'DENY',
+          method: 'list',
+          path: 'items',
+          auth: { uid: 'u1' },
+          query: { where: [{ field: 'status', op: '==', value: 'pub' }] },
+        },
+      ]).cases[0]!;
+      expect(simDeny.decision).toBe('DENY');
+
+      const sandbox = initializeSandbox();
+      const db = getFirestore(sandbox);
+      seedDocuments(sandbox, { 'items/a': { status: 'pub' } });
+
+      setRules(sandbox, shadowedAllowRules);
+      await expect(getDoc(doc(db, 'items/a'))).rejects.toMatchObject({
+        code: 'permission-denied',
+      });
+      await expect(
+        getDocs(query(collection(db, 'items'), where('status', '==', 'pub'))),
+      ).rejects.toMatchObject({
+        code: 'permission-denied',
+      });
+
+      setRules(sandbox, shadowedDenyRules);
+      const authedDb = getFirestore(sandbox.withAuth({ uid: 'u1' }));
+      const getSnap = await getDoc(doc(authedDb, 'items/a'));
+      expect(getSnap.data()).toEqual({ status: 'pub' });
+      const listSnap = await getDocs(
+        query(collection(authedDb, 'items'), where('status', '==', 'pub')),
+      );
+      expect(listSnap.docs.map((d) => d.data())).toEqual([{ status: 'pub' }]);
+    });
   });
 });

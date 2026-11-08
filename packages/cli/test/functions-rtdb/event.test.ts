@@ -147,4 +147,74 @@ describe('executeOnValueCreated', () => {
 
     expect(childKeys).toEqual(['count', 'hello', 'items', 'nested']);
   });
+
+  test('prunes nested null and empty-object properties from event.data.val()', async () => {
+    const { onValueCreated } = databaseFunctions;
+    let observedVal: unknown;
+    const [trigger] = discoverOnValueCreated({
+      itemCreated: onValueCreated('/items/{id}', (event) => {
+        observedVal = event.data.val();
+      }),
+    });
+
+    await executeOnValueCreated(
+      trigger,
+      {
+        ref: 'items/i1',
+        params: { id: 'i1' },
+        value: {
+          keep: 'ok',
+          emptyObj: {},
+          nullLeaf: null,
+          nestedEmpty: { dropped: null, innerEmpty: {} },
+          nestedMixed: { present: 7, omitted: null },
+        },
+      },
+      {
+        id: 'pruned-1',
+        time: '2026-07-13T20:00:00.000Z',
+        instance: 'demo-project-default-rtdb',
+        location: 'us-central1',
+        databaseHost: 'firebasedatabase.app',
+      },
+    );
+
+    expect(observedVal).toEqual({
+      keep: 'ok',
+      nestedMixed: { present: 7 },
+    });
+  });
+
+  test('canonicalizes array null elements in delta without emitting null slots', async () => {
+    const { onValueCreated } = databaseFunctions;
+    const [trigger] = discoverOnValueCreated({
+      itemCreated: onValueCreated('/items/{id}', () => undefined),
+    });
+
+    const trailing = await executeOnValueCreated(
+      trigger,
+      { ref: 'items/a', params: { id: 'a' }, value: [1, null] },
+      {
+        id: 'arr-1',
+        time: '2026-07-13T20:00:00.000Z',
+        instance: 'demo-project-default-rtdb',
+        location: 'us-central1',
+        databaseHost: 'firebasedatabase.app',
+      },
+    );
+    const leading = await executeOnValueCreated(
+      trigger,
+      { ref: 'items/b', params: { id: 'b' }, value: [null, 1] },
+      {
+        id: 'arr-2',
+        time: '2026-07-13T20:00:00.000Z',
+        instance: 'demo-project-default-rtdb',
+        location: 'us-central1',
+        databaseHost: 'firebasedatabase.app',
+      },
+    );
+
+    expect((trailing.event.data as { delta: unknown }).delta).toEqual([1]);
+    expect((leading.event.data as { delta: unknown }).delta).toEqual({ '1': 1 });
+  });
 });

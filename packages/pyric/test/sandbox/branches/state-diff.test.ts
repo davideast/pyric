@@ -45,6 +45,7 @@ describe('jsonEqual', () => {
     expect(jsonEqual([1, 2], [1, 2, 3])).toBe(false);
     expect(jsonEqual([1], { 0: 1 })).toBe(false);
     expect(jsonEqual(null, {})).toBe(false);
+    expect(jsonEqual(NaN, NaN)).toBe(true);
   });
 });
 
@@ -212,5 +213,46 @@ describe('diffFullStates', () => {
       'auth',
       'rules',
     ]);
+  });
+
+  it('reports Firestore wrapper changes at leaf field paths without recursing into wrapper internals', () => {
+    const before = state({
+      firestoreEncoding: 'pyric/firestore-values/1',
+      firestore: {
+        'items/1': {
+          ts: { __type: 'timestamp', seconds: 100, nanos: 0 },
+          geo: { __type: 'latlng', lat: 1, lng: 2 },
+          bin: { __type: 'bytes', base64: 'AQI=' },
+          ref: { __type: 'reference', path: 'users/alice' },
+          swapped: { __type: 'timestamp', seconds: 10, nanos: 0 },
+        },
+      },
+    });
+    const after = state({
+      firestoreEncoding: 'pyric/firestore-values/1',
+      firestore: {
+        'items/1': {
+          ts: { __type: 'timestamp', seconds: 200, nanos: 0 },
+          geo: { __type: 'latlng', lat: 3, lng: 4 },
+          bin: { __type: 'bytes', base64: 'CQo=' },
+          ref: { __type: 'reference', path: 'users/bob' },
+          swapped: { __type: 'latlng', lat: 5, lng: 6 },
+        },
+      },
+    });
+    expect(diffFullStates(before, after).map((d) => d.field).sort()).toEqual([
+      'bin',
+      'geo',
+      'ref',
+      'swapped',
+      'ts',
+    ]);
+  });
+
+  it('compares Date instances by epoch milliseconds in jsonEqual', async () => {
+    const { jsonEqual } = await import('../../../src/rules/rtdb/data/json-equal.js');
+    expect(jsonEqual(new Date(1_000), new Date(1_000))).toBe(true);
+    expect(jsonEqual(new Date(1_000), new Date(2_000))).toBe(false);
+    expect(jsonEqual(new Date(1_000), {})).toBe(false);
   });
 });

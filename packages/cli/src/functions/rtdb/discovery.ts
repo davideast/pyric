@@ -56,12 +56,26 @@ export function inspectOnValueCreated(
     const reference = trigger.eventFilterPathPatterns?.ref;
     const exactInstance = trigger.eventFilters?.instance;
     const instancePattern = trigger.eventFilterPathPatterns?.instance;
-    if (typeof reference !== 'string') continue;
-    if (typeof exactInstance !== 'string' && instancePattern !== '*') {
-      if (typeof instancePattern === 'string') {
+    if (typeof reference !== 'string') {
+      unsupported.push({
+        exportName,
+        eventType: `${CREATED_EVENT_TYPE} (unsupported dynamic ref option)`,
+      });
+      continue;
+    }
+    if (
+      (exactInstance !== undefined && typeof exactInstance !== 'string')
+      || (typeof exactInstance !== 'string' && instancePattern !== '*')
+    ) {
+      if (typeof instancePattern === 'string' && instancePattern !== '*') {
         unsupported.push({
           exportName,
           eventType: `${CREATED_EVENT_TYPE} (unsupported instance pattern: ${instancePattern})`,
+        });
+      } else {
+        unsupported.push({
+          exportName,
+          eventType: `${CREATED_EVENT_TYPE} (unsupported dynamic instance option)`,
         });
       }
       continue;

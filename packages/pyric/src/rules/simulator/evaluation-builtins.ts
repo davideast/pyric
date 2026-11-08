@@ -213,7 +213,7 @@ function invokeUserFunction(
   const fnScopeInfo = getFunctionScope(fn);
   let fnCtx = ctx;
   if (fnScopeInfo) {
-    const scopedVars: Record<string, string> = {};
+    const scopedVars: Record<string, string | Path> = Object.create(null);
     for (const key of fnScopeInfo.captures) {
       if (Object.hasOwn(ctx.pathVariables, key)) {
         scopedVars[key] = ctx.pathVariables[key]!;
@@ -370,7 +370,7 @@ export function evaluateMethodCall(
           let cur: unknown = map;
           for (const seg of keyArg) {
             if (cur === null || cur === undefined) return def;
-            if (typeof cur !== 'object' || Array.isArray(cur) || cur instanceof RulesValue) return def;
+            if (!isRulesMap(cur)) return def;
             if (!Object.hasOwn(cur as object, seg)) return def;
             cur = (cur as Record<string, unknown>)[seg];
           }

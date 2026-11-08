@@ -372,5 +372,25 @@ describe('RTDB simulate normalizes arrays, empty objects, and pruned priorities 
     expect(verdict).toBe('ALLOW');
     expect(result.decision).toBe(verdict);
   });
+
+  test('empty multi-path update {} resolves as ALLOW in both sandbox and simulate/explain', async () => {
+    const box = initializeSandbox();
+    const admin = getDatabase(box.withAuth({ uid: 'admin' }));
+    sandbox.setRules(admin, rules);
+    await update(ref(getDatabase(box.withAuth(null)), 'rooms/r1'), {});
+    const [simResult] = rtdbRules(rules).simulate([
+      { expectation: 'ALLOW', operation: 'update', path: '/rooms/r1', auth: null, newData: {} },
+    ]).cases;
+    expect(simResult.decision).toBe('ALLOW');
+    expect(simResult.unsupported).toBe(false);
+    const explainResult = rtdbRules(rules).explain({
+      expectation: 'ALLOW',
+      operation: 'update',
+      path: '/rooms/r1',
+      auth: null,
+      newData: {},
+    });
+    expect(explainResult.decision).toBe('ALLOW');
+  });
 });
 

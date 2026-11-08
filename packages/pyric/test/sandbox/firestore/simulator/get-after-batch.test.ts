@@ -185,4 +185,48 @@ service cloud.firestore {
     expect(result.allowed).toBe(true);
     expect(env.getDocument('docs/a')).toEqual({ note: 'solo' });
   });
+
+  test('same-document multi-op batch: existsAfter and getAfter on the target doc reflect the final batch projection', () => {
+    const env = new LocalEnvironment();
+    env.seed({
+      rules: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} {
+      allow update: if existsAfter(/databases/$(database)/documents/docs/$(id));
+      allow delete: if true;
+    }
+  }
+}`,
+      documents: { 'docs/a': { status: 'active' } },
+    });
+
+    const updateThenDelete = env.batch([
+      { method: 'update', path: 'docs/a', data: { status: 'updated' } },
+      { method: 'delete', path: 'docs/a' },
+    ], { uid: 'u1' });
+    expect(updateThenDelete.allowed).toBe(false);
+    expect(env.getDocument('docs/a')).toEqual({ status: 'active' });
+
+    const envRecreate = new LocalEnvironment();
+    envRecreate.seed({
+      rules: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} {
+      allow write: if existsAfter(/databases/$(database)/documents/docs/$(id))
+                   && getAfter(/databases/$(database)/documents/docs/$(id)).data.status == 'active';
+    }
+  }
+}`,
+      documents: { 'docs/b': { status: 'active', count: 1 } },
+    });
+
+    const deleteThenSet = envRecreate.batch([
+      { method: 'delete', path: 'docs/b' },
+      { method: 'set', path: 'docs/b', data: { status: 'active', count: 5 } },
+    ], { uid: 'u1' });
+    expect(deleteThenSet.allowed).toBe(true);
+    expect(envRecreate.getDocument('docs/b')).toEqual({ status: 'active', count: 5 });
+  });
 });

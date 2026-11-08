@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
+import { Reference } from '../../../src/rules/simulator/wrappers/reference.js';
 
 // ─── firestore.get() / firestore.exists() cross-service lookups ───
 //
@@ -194,13 +195,23 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
     expect(r.allowed).toBe(true);
   });
 
-  it('wraps GeoPoint and Path in document data for type tests', () => {
+  it('wraps GeoPoint and Reference in document data while keeping /databases/ strings as strings', () => {
     const r = evalFs(
-      "firestore.get(/databases/(default)/documents/places/p1).data.loc is latlng && firestore.get(/databases/(default)/documents/places/p1).data.ref is path",
+      "firestore.get(/databases/(default)/documents/places/p1).data.loc is latlng"
+        + " && firestore.get(/databases/(default)/documents/places/p1).data.ref is path"
+        + " && firestore.get(/databases/(default)/documents/places/p1).data.note is string"
+        + " && !(firestore.get(/databases/(default)/documents/places/p1).data.note is path)"
+        + " && firestore.get(/databases/(default)/documents/places/p1).data.refMap is map"
+        + " && firestore.get(/databases/(default)/documents/places/p1).data.refMap.path is path"
+        + " && firestore.get(/databases/(default)/documents/places/p1).data.strMap is map"
+        + " && firestore.get(/databases/(default)/documents/places/p1).data.strMap.path is string",
       {
         'places/p1': {
           loc: { latitude: 37.7749, longitude: -122.4194 },
-          ref: { path: '/databases/(default)/documents/users/alice' },
+          ref: new Reference('/databases/(default)/documents/users/alice/'),
+          note: '/databases/(default)/documents/users/alice',
+          refMap: { path: new Reference('users/alice') },
+          strMap: { path: '/databases/(default)/documents/users/alice' },
         },
       },
     );

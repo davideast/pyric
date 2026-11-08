@@ -1,4 +1,5 @@
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from '../grammar/FirestoreAST.js';
+import { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 import type { RulesReceiverType } from './receiver-types.js';
 import {
   expressionFacts,
@@ -70,7 +71,10 @@ export function moduleCallSites(
   const sites: ModuleCallSite[] = [];
   const declarations = new Map<FunctionDef, SourceFunctionDeclaration>();
   const analyzedFunctions = new Set<FunctionDef>();
-  const service = ast.service.name === 'firebase.storage' ? 'firebase.storage' : 'cloud.firestore';
+  let service: 'cloud.firestore' | 'firebase.storage' = 'cloud.firestore';
+  if (isStorageServiceName(ast.service.name)) {
+    service = 'firebase.storage';
+  }
 
   const makeContext = (
     declaration: SourceFunctionDeclaration,
@@ -164,11 +168,13 @@ export function moduleCallSites(
     for (const { condition } of match.allows) analyzeExpression(condition, ctx);
     match.children.forEach((child) => addMatch(child, declaration));
   };
-  addMatch(ast.service.match, {
-    aliases: new Map(),
-    receiverTypes: new Map(),
-    functions: serviceFunctions,
-  });
+  for (const rootMatch of topLevelMatches(ast.service)) {
+    addMatch(rootMatch, {
+      aliases: new Map(),
+      receiverTypes: new Map(),
+      functions: serviceFunctions,
+    });
+  }
   for (const fn of rootFunctions) {
     if (!analyzedFunctions.has(fn)) {
       analyzeFunction(fn, [], new Set());

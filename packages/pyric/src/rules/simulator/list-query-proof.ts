@@ -24,6 +24,7 @@ import type {
   FirestoreRules,
   MatchBlock,
 } from '../grammar/FirestoreAST.js';
+import { topLevelMatches } from '../grammar/service-blocks.js';
 import { resolveAuthoredSourceLoc } from '../modules/resolver-core.js';
 import type { EvaluatedRuleInfo, ListQuery } from '../test/spec.js';
 import { indexRulesetScopes, type MatchResult } from './match-resolution.js';
@@ -152,7 +153,6 @@ export function proveListQuery(
   const rootFunctions = [
     ...(ast!.functions ?? []),
     ...(ast!.service.functions ?? []),
-    ...ast!.service.match.functions,
   ];
   const matches: MatchResult[] = collectRootMatches(ast!, relPath, rootFunctions);
   const isMatchesEmpty = matches.length === 0;
@@ -182,9 +182,10 @@ export function proveListQuery(
         continue;
       }
       applicableRuleCount++;
+      const candidateVariables = new Set(match.candidateVariables);
       const pathAnalysis = analyzeListRulePathInvariance(
         rule.condition,
-        new Set(match.candidateVariables),
+        candidateVariables,
         fnMap,
         functionScope.ambiguousNames,
       );
@@ -198,10 +199,17 @@ export function proveListQuery(
         });
         continue;
       }
+      const recursiveVariables = new Set(match.recursiveVariables ?? []);
+      const parentPathVariables: Record<string, string> = Object.create(null);
+      for (const [k, v] of Object.entries(match.pathVariables)) {
+        if (!candidateVariables.has(k) && !recursiveVariables.has(k)) {
+          parentPathVariables[k] = v;
+        }
+      }
       // `auth.uid` is threaded into the proof so the canonical owner pattern
       // can be discharged by a matching query equality. Residual simulation
       // still evaluates the real auth value against the synthetic resource.
-      const result = evaluateQueryProof(rule.condition, constraints, fnMap, auth?.uid);
+      const result = evaluateQueryProof(rule.condition, constraints, fnMap, auth?.uid, parentPathVariables);
       const isProvable = result.provable === true;
       if (isProvable) {
         provableRules.set(rule, result.residualCondition ? { ...rule, condition: result.residualCondition } : rule);
@@ -264,14 +272,16 @@ function proofSourceInfo(expression: string, loc: AllowRule['loc'], source = '')
 function projectRules(ast: FirestoreRules, retained: ReadonlyMap<AllowRule, AllowRule>): FirestoreRules {
   const projectBlock = (block: MatchBlock): MatchBlock => ({
     ...block,
-    allows: block.allows.filter((rule) => retained.has(rule)).map(rule => retained.get(rule)!),
+    allows: block.allows.filter((rule) => retained.has(rule)).map((rule) => retained.get(rule)!),
     children: block.children.map(projectBlock),
   });
+  const projectedRoots = topLevelMatches(ast.service).map(projectBlock);
   return {
     ...ast,
     service: {
       ...ast.service,
-      match: projectBlock(ast.service.match),
+      match: projectedRoots[0] ?? ast.service.match,
+      matches: projectedRoots,
     },
   };
 }

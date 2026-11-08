@@ -26,6 +26,7 @@ import {
   referencesRequestTime,
   collectDeclaredFunctions,
   collectAllRules,
+  collectServiceRules,
   evalConstBool,
   serializeExpression,
   extractConjuncts,
@@ -33,6 +34,7 @@ import {
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
 import { recursiveScope, type RecursiveScope } from '../grammar/recursive-scope.js';
+import { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 import {
   analyzeCallChains,
   collectRulesetScopes,
@@ -132,16 +134,56 @@ function checkSourceSize(source: string, warnings: LintWarning[]) {
   });
 }
 
+function buildWarningLocation(opts: {
+  functionName?: string;
+  matchPath?: string;
+  line?: number;
+}): LintWarning['location'] | undefined {
+  const loc: NonNullable<LintWarning['location']> = {};
+  let hasField = false;
+  if (opts.functionName !== undefined) {
+    loc.functionName = opts.functionName;
+    hasField = true;
+  }
+  if (opts.matchPath !== undefined) {
+    loc.matchPath = opts.matchPath;
+    hasField = true;
+  }
+  if (opts.line !== undefined) {
+    loc.line = opts.line;
+    hasField = true;
+  }
+  if (!hasField) return undefined;
+  return loc;
+}
+
+function pushWarning(
+  warnings: LintWarning[],
+  base: Omit<LintWarning, 'location'>,
+  locationOpts?: { functionName?: string; matchPath?: string; line?: number },
+): void {
+  const warning: LintWarning = { ...base };
+  if (locationOpts !== undefined) {
+    const location = buildWarningLocation(locationOpts);
+    if (location !== undefined) warning.location = location;
+  }
+  warnings.push(warning);
+}
+
 function checkLetBindings(functions: FunctionDef[], warnings: LintWarning[]) {
   for (const fn of functions) {
     if (fn.lets.length > THRESHOLDS.LET_LIMIT) {
-      warnings.push({
-        rule: 'LET_LIMIT',
-        severity: 'error',
-        message: `Function '${fn.name}' has ${fn.lets.length} let bindings. Limit is ${THRESHOLDS.LET_LIMIT}.`,
-        location: { functionName: fn.name },
-        fix: 'Inline some let expressions into the return statement, or split the function.',
-      });
+      const line = (fn.returnLoc ?? fn.loc)?.line;
+      pushWarning(
+        warnings,
+        {
+          rule: 'LET_LIMIT',
+          severity: 'error',
+          message: `Function '${fn.name}' has ${fn.lets.length} let bindings. Limit is ${THRESHOLDS.LET_LIMIT}.`,
+          fix: 'Inline some let expressions into the return statement, or split the function.',
+        },
+        { functionName: fn.name, line },
+      );
     }
   }
 }
@@ -164,16 +206,22 @@ function checkNestingDepth(violations: readonly CompileLimitViolation[], warning
     const key = `${violation.functionName ?? ''}@${violation.line ?? ''}`;
     if (reported.has(key)) continue;
     reported.add(key);
-    const subject = violation.functionName !== undefined
-      ? `Function '${violation.functionName}'`
-      : violation.line !== undefined ? `The rule at line ${violation.line}` : 'An allow rule';
-    warnings.push({
-      rule: 'NESTING_DEPTH',
-      severity: 'error',
-      message: `${subject} nests an expression deeper than ${NESTING_LEVEL_LIMIT} levels. Production rejects the ruleset: "${NESTING_MESSAGE}"`,
-      ...(violation.functionName !== undefined ? { location: { functionName: violation.functionName } } : {}),
-      fix: 'Remove redundant parentheses, or move a nested group into its own function and call it.',
-    });
+    let subject = 'An allow rule';
+    if (violation.functionName !== undefined) {
+      subject = `Function '${violation.functionName}'`;
+    } else if (violation.line !== undefined) {
+      subject = `The rule at line ${violation.line}`;
+    }
+    pushWarning(
+      warnings,
+      {
+        rule: 'NESTING_DEPTH',
+        severity: 'error',
+        message: `${subject} nests an expression deeper than ${NESTING_LEVEL_LIMIT} levels. Production rejects the ruleset: "${NESTING_MESSAGE}"`,
+        fix: 'Remove redundant parentheses, or move a nested group into its own function and call it.',
+      },
+      { functionName: violation.functionName, line: violation.line },
+    );
   }
 }
 
@@ -190,34 +238,40 @@ function checkSlashStartsPath(violations: readonly CompileLimitViolation[], warn
     if (violation.code !== 'SLASH_STARTS_PATH') continue;
     let where = 'in an allow rule';
     if (violation.functionName !== undefined) {
-      const lineSuffix = violation.line === undefined ? '' : ` at line ${violation.line}`;
+      let lineSuffix = '';
+      if (violation.line !== undefined) {
+        lineSuffix = ` at line ${violation.line}`;
+      }
       where = `in function '${violation.functionName}'${lineSuffix}`;
     } else if (violation.line !== undefined) {
       where = `in the rule at line ${violation.line}`;
     }
-    warnings.push({
-      rule: 'SLASH_STARTS_PATH',
-      severity: 'error',
-      message: `A '/' ${where} is directly followed by a character other than whitespace, which production reads as the start of a path. Production rejects the ruleset: "${SLASH_STARTS_PATH_MESSAGE}"`,
-      ...(violation.functionName !== undefined ? { location: { functionName: violation.functionName } } : {}),
-      fix: "To divide, put whitespace after the '/': `a / b`.",
-    });
+    pushWarning(
+      warnings,
+      {
+        rule: 'SLASH_STARTS_PATH',
+        severity: 'error',
+        message: `A '/' ${where} is directly followed by a character other than whitespace, which production reads as the start of a path. Production rejects the ruleset: "${SLASH_STARTS_PATH_MESSAGE}"`,
+        fix: "To divide, put whitespace after the '/': `a / b`.",
+      },
+      { functionName: violation.functionName, line: violation.line },
+    );
   }
 }
 
 function checkGlobMatchCount(violations: readonly CompileLimitViolation[], warnings: LintWarning[]) {
   for (const violation of violations) {
     if (violation.code !== 'GLOB_MATCH_COUNT') continue;
-    const warning: LintWarning = {
-      rule: 'GLOB_MATCH_COUNT',
-      severity: 'error',
-      message: violation.message,
-      fix: 'Restructure match blocks so a path contains at most one recursive wildcard `{name=**}`.',
-    };
-    if (violation.scope !== undefined) {
-      warning.location = { matchPath: violation.scope };
-    }
-    warnings.push(warning);
+    pushWarning(
+      warnings,
+      {
+        rule: 'GLOB_MATCH_COUNT',
+        severity: 'error',
+        message: violation.message,
+        fix: 'Restructure match blocks so a path contains at most one recursive wildcard `{name=**}`.',
+      },
+      { matchPath: violation.scope, line: violation.line },
+    );
   }
 }
 
@@ -229,63 +283,70 @@ function checkAdditionalCompileRejections(
   for (const violation of violations) {
     switch (violation.code) {
       case 'UNSUPPORTED_RULES_VERSION':
-        warnings.push({
-          rule: 'UNSUPPORTED_RULES_VERSION',
-          severity: 'error',
-          message: violation.message,
-          fix: "Set rules_version to '1', '2', or '2+modules'.",
-        });
+        pushWarning(
+          warnings,
+          {
+            rule: 'UNSUPPORTED_RULES_VERSION',
+            severity: 'error',
+            message: violation.message,
+            fix: "Set rules_version to '1', '2', or '2+modules'.",
+          },
+          { line: violation.line },
+        );
         break;
       case 'UNRESOLVED_MODULES':
         if (ast.version !== '2+modules') {
-          warnings.push({
-            rule: 'UNRESOLVED_MODULES',
-            severity: 'error',
-            message: violation.message,
-            fix: "Set `rules_version = '2+modules';` or resolve module imports before compiling.",
-          });
+          pushWarning(
+            warnings,
+            {
+              rule: 'UNRESOLVED_MODULES',
+              severity: 'error',
+              message: violation.message,
+              fix: "Set `rules_version = '2+modules';` or resolve module imports before compiling.",
+            },
+            { line: violation.line },
+          );
         }
         break;
       case 'INVALID_REGEX_PATTERN':
-        warnings.push({
-          rule: 'INVALID_REGEX_PATTERN',
-          severity: 'error',
-          message: violation.message,
-          ...(violation.functionName !== undefined ? { location: { functionName: violation.functionName } } : {}),
-          fix: 'Rewrite the regular expression using RE2-compatible syntax (no lookahead, lookbehind, or backreferences).',
-        });
+        pushWarning(
+          warnings,
+          {
+            rule: 'INVALID_REGEX_PATTERN',
+            severity: 'error',
+            message: violation.message,
+            fix: 'Rewrite the regular expression using RE2-compatible syntax (no lookahead, lookbehind, or backreferences).',
+          },
+          { functionName: violation.functionName, line: violation.line },
+        );
         break;
       case 'FUNCTION_REDEFINED':
-        warnings.push({
-          rule: 'FUNCTION_REDEFINED',
-          severity: 'error',
-          message: violation.message,
-          ...(violation.functionName !== undefined || violation.scope !== undefined
-            ? {
-                location: {
-                  ...(violation.functionName !== undefined ? { functionName: violation.functionName } : {}),
-                  ...(violation.scope !== undefined ? { matchPath: violation.scope } : {}),
-                },
-              }
-            : {}),
-          fix: `Rename or remove the duplicate declaration of '${violation.functionName ?? 'function'}' in ${violation.scope ?? 'this scope'}.`,
-        });
+        pushWarning(
+          warnings,
+          {
+            rule: 'FUNCTION_REDEFINED',
+            severity: 'error',
+            message: violation.message,
+            fix: `Rename or remove the duplicate declaration of '${violation.functionName ?? 'function'}' in ${violation.scope ?? 'this scope'}.`,
+          },
+          {
+            functionName: violation.functionName,
+            matchPath: violation.scope,
+            line: violation.line,
+          },
+        );
         break;
       case 'DOUBLE_MINUS':
-        warnings.push({
-          rule: 'DOUBLE_MINUS',
-          severity: 'error',
-          message: violation.message,
-          ...(violation.functionName !== undefined || violation.line !== undefined
-            ? {
-                location: {
-                  ...(violation.functionName !== undefined ? { functionName: violation.functionName } : {}),
-                  ...(violation.line !== undefined ? { line: violation.line } : {}),
-                },
-              }
-            : {}),
-          fix: "Remove the duplicate unary '-' or rewrite using '0 - x'.",
-        });
+        pushWarning(
+          warnings,
+          {
+            rule: 'DOUBLE_MINUS',
+            severity: 'error',
+            message: violation.message,
+            fix: "Remove the duplicate unary '-' or rewrite using '0 - x'.",
+          },
+          { functionName: violation.functionName, line: violation.line },
+        );
         break;
       case 'INVALID_NUMBER_LITERAL':
         warnings.push({
@@ -329,7 +390,7 @@ function checkMemberChainLength(ast: FirestoreRules, functions: readonly Functio
     for (const binding of fn.lets) roots.push({ expr: binding.value, functionName: fn.name });
     roots.push({ expr: fn.body, functionName: fn.name });
   }
-  for (const { rule } of collectAllRules(ast.service.match)) {
+  for (const { rule } of collectServiceRules(ast.service)) {
     roots.push({ expr: rule.condition, ...(rule.loc === undefined ? {} : { line: rule.loc.line }) });
   }
   for (const root of roots) {
@@ -481,13 +542,16 @@ function checkCallDepth(scopes: RulesetScopes, warnings: LintWarning[]): Map<Fun
     if (cyclic.has(scoped.fn)) {
       if (!reportedCycle) {
         reportedCycle = true;
-        warnings.push({
-          rule: 'CALL_DEPTH',
-          severity: 'error',
-          message: `Function '${scoped.fn.name}' is part of a recursive call cycle, exceeding the call depth limit of ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
-          location: { functionName: scoped.fn.name, matchPath: scoped.label },
-          fix: 'Remove recursion between helper functions; Firestore rules do not allow recursive calls.',
-        });
+        pushWarning(
+          warnings,
+          {
+            rule: 'CALL_DEPTH',
+            severity: 'error',
+            message: `Function '${scoped.fn.name}' is part of a recursive call cycle, exceeding the call depth limit of ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
+            fix: 'Remove recursion between helper functions; Firestore rules do not allow recursive calls.',
+          },
+          { functionName: scoped.fn.name, matchPath: scoped.label, line: scoped.fn.loc?.line },
+        );
       }
       continue;
     }
@@ -495,12 +559,20 @@ function checkCallDepth(scopes: RulesetScopes, warnings: LintWarning[]): Map<Fun
     const depth = depths.get(scoped.fn) ?? 1;
     if (depth < THRESHOLDS.CALL_DEPTH_WARN) continue;
     const over = depth > THRESHOLDS.CALL_DEPTH_LIMIT;
-    warnings.push({
+    let severity: LintWarning['severity'] = 'warning';
+    if (over) severity = 'error';
+    const base: Omit<LintWarning, 'location'> = {
       rule: 'CALL_DEPTH',
-      severity: over ? 'error' : 'warning',
+      severity,
       message: `Function '${scoped.fn.name}' starts a function call chain of depth ${depth}. Limit is ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
-      location: { functionName: scoped.fn.name, matchPath: scoped.label },
-      ...(over ? { fix: 'Inline intermediate functions to reduce call depth.' } : {}),
+    };
+    if (over) {
+      base.fix = 'Inline intermediate functions to reduce call depth.';
+    }
+    pushWarning(warnings, base, {
+      functionName: scoped.fn.name,
+      matchPath: scoped.label,
+      line: scoped.fn.loc?.line,
     });
   }
   return depths;
@@ -521,7 +593,7 @@ function checkGetCount(
     : 'get()/exists()/getAfter()/existsAfter()';
   for (let i = 0; i < rules.length; i++) {
     const fnMap = ruleScopes.get(rules[i].rule) ?? emptyScope;
-    const count = countDocumentAccessCalls(rules[i].rule.condition, fnMap, new Set(), fnScopes);
+    const count = countDocumentAccessCalls(rules[i].rule.condition, fnMap, new Set(), fnScopes, isStorage);
     // Error only ABOVE the limit: production allows exactly 10 (or 2 in Storage)
     // and fails the next, so a rule at the limit is legal (still worth the WARN).
     if (count > errorLimit) {
@@ -548,6 +620,7 @@ function checkGetDuplication(
   ruleScopes: ReadonlyMap<AllowRule, ReadonlyMap<string, FunctionDef>>,
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
   warnings: LintWarning[],
+  isStorage = false,
 ) {
   const emptyScope = new Map<string, FunctionDef>();
   for (let i = 0; i < rules.length; i++) {
@@ -555,7 +628,7 @@ function checkGetDuplication(
     const fnNames = new Set(fnMap.keys());
     const callCounts = countFunctionCallSites(rules[i].rule.condition, fnNames);
     for (const [fnName, count] of callCounts) {
-      if (count >= 2 && functionContainsGet(fnName, fnMap, new Set(), fnScopes)) {
+      if (count >= 2 && functionContainsGet(fnName, fnMap, new Set(), fnScopes, new Set(), isStorage)) {
         warnings.push({
           rule: 'GET_DUPLICATION',
           severity: 'warning',
@@ -794,12 +867,12 @@ function collectMatchBlocksWithPaths(
 }
 
 function checkRulesWeakened(
-  currentMatch: MatchBlock,
-  previousMatch: MatchBlock,
+  currentMatches: readonly MatchBlock[],
+  previousMatches: readonly MatchBlock[],
   warnings: LintWarning[],
 ): void {
-  const currentBlocks = collectMatchBlocksWithPaths(currentMatch, '');
-  const previousBlocks = collectMatchBlocksWithPaths(previousMatch, '');
+  const currentBlocks = currentMatches.flatMap((m) => collectMatchBlocksWithPaths(m, ''));
+  const previousBlocks = previousMatches.flatMap((m) => collectMatchBlocksWithPaths(m, ''));
 
   const currentByPath = new Map<string, MatchBlock>();
   for (const { block, normalizedPath } of currentBlocks) {
@@ -978,9 +1051,9 @@ function analyzeParsedRules(
   warnings: LintWarning[],
 ): LintResult {
   // Collect all functions and rules from the AST
-  const isStorage = ast.service?.name === 'firebase.storage';
+  const isStorage = isStorageServiceName(ast.service?.name);
   const allFunctions = collectDeclaredFunctions(ast);
-  const allRules = collectAllRules(ast.service.match);
+  const allRules = collectServiceRules(ast.service);
   const scopes = collectRulesetScopes(ast);
   const fnScopes = new Map<FunctionDef, ReadonlyMap<string, FunctionDef>>(
     scopes.functions.map(s => [s.fn, s.functions]),
@@ -1031,7 +1104,7 @@ function analyzeParsedRules(
   checkGetCount(allRules, ruleScopes, fnScopes, warnings, isStorage);
 
   // Rule 8: Get duplication (same get()-containing function called multiple times)
-  checkGetDuplication(allRules, ruleScopes, fnScopes, warnings);
+  checkGetDuplication(allRules, ruleScopes, fnScopes, warnings, isStorage);
 
   // Rule 9: Hallucinations, JS-style code that parses but fails at runtime.
   // `allowDebug` is an EXPLICIT caller opt-in only. It used to be implied by
@@ -1048,7 +1121,13 @@ function analyzeParsedRules(
   // failure mode in the playground was escaping denials with `if true`.
   // Paths are relative to the documents root, so its children start empty.
   const recursiveScopes = new Map<AllowRule, RuleScope>();
-  for (const child of ast.service.match.children) collectRecursiveScopes(child, [], recursiveScopes);
+  for (const root of topLevelMatches(ast.service)) {
+    const rootScope = recursiveScope(root.path.segments);
+    if (rootScope) {
+      root.allows.forEach((rule, ruleIndex) => recursiveScopes.set(rule, { ...rootScope, ruleIndex }));
+    }
+    for (const child of root.children) collectRecursiveScopes(child, [], recursiveScopes);
+  }
   checkPermissiveRules(allRules, recursiveScopes, warnings, isStorage);
   checkRecursiveWildcardOpen(recursiveScopes, warnings);
 
@@ -1066,7 +1145,7 @@ function analyzeParsedRules(
   if (options.previousSource) {
     const prev = parseToASTOrError(options.previousSource);
     if (prev.ok) {
-      checkRulesWeakened(ast.service.match, prev.ast.service.match, warnings);
+      checkRulesWeakened(topLevelMatches(ast.service), topLevelMatches(prev.ast.service), warnings);
     }
   }
 
@@ -1092,7 +1171,7 @@ function analyzeParsedRules(
   let maxGets = 0;
   for (const r of allRules) {
     const fnMap = ruleScopes.get(r.rule) ?? emptyScope;
-    const gets = countDocumentAccessCalls(r.rule.condition, fnMap, new Set(), fnScopes);
+    const gets = countDocumentAccessCalls(r.rule.condition, fnMap, new Set(), fnScopes, isStorage);
     if (gets > maxGets) maxGets = gets;
   }
 

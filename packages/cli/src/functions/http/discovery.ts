@@ -66,6 +66,7 @@ export function inspectOnRequest(exported: Record<string, unknown>): DiscoveredO
   for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
     const endpoint = callable.__endpoint;
     if (!endpoint || !isHttpsEndpoint(endpoint)) continue;
+    if (endpoint.omit !== undefined && endpoint.omit !== false) continue;
     discovered.push({
       exportName,
       regions: regionsOf(endpoint),
@@ -84,8 +85,20 @@ export function httpFunctionInfo(discovered: DiscoveredOnRequest): HttpFunctionI
   return info;
 }
 
-/** The HTTP family claims every endpoint with an `httpsTrigger` and refuses none of them. */
+/** The HTTP family claims every endpoint with an `httpsTrigger` and reports omitted ones. */
 export const httpOnRequestFamily: FunctionsTriggerFamily = {
   claims: isHttpsEndpoint,
-  unsupported: () => [],
+  unsupported: (exported) => {
+    const unsupported: Array<{ exportName: string; eventType: string }> = [];
+    for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
+      const endpoint = callable.__endpoint;
+      if (!endpoint || !isHttpsEndpoint(endpoint)) continue;
+      if (endpoint.omit === true) {
+        unsupported.push({ exportName, eventType: 'https (omitted from emulation)' });
+      } else if (endpoint.omit !== undefined && endpoint.omit !== false) {
+        unsupported.push({ exportName, eventType: 'https (unsupported dynamic omit option)' });
+      }
+    }
+    return unsupported;
+  },
 };

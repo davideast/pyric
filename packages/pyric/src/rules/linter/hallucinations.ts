@@ -22,6 +22,7 @@ import type {
   Expression,
   MatchBlock,
 } from '../grammar/FirestoreAST.js';
+import { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 import type { LintWarning } from './linter.js';
 import { stripCommentsAndStrings } from './ast-utils.js';
 
@@ -437,7 +438,7 @@ function isMethodMissingParens(expr: Expression, isStorage = false): boolean {
 export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?: boolean } = {}): LintWarning[] {
   const warnings: LintWarning[] = [];
   const seen = new Set<string>();
-  const isStorage = ast.service?.name === 'firebase.storage';
+  const isStorage = isStorageServiceName(ast.service?.name);
 
   function emit(rule: string, key: string, loc: Loc, w: LintWarning) {
     const dedup = `${rule}|${key}|${loc.matchPath || ''}|${loc.functionName || ''}|${loc.ruleIndex ?? ''}`;
@@ -633,7 +634,9 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
     walkExpr(fn.body, loc, outerScope, fnVars, visitNode);
   }
 
-  walkAllExpressions(ast.service.match, outerScope, new Set(), visitNode);
+  for (const root of topLevelMatches(ast.service)) {
+    walkAllExpressions(root, outerScope, new Set(), visitNode);
+  }
 
   return warnings;
 }

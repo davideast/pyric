@@ -21,8 +21,35 @@ function canonicalPath(path: string): string {
   return normalized ? `/${normalized}` : '/';
 }
 
+function pruneRtdbValue(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    const entries: Array<[number, unknown]> = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!(index in value)) continue;
+      const pruned = pruneRtdbValue(value[index]);
+      if (pruned !== null) entries.push([index, pruned]);
+    }
+    if (entries.length === 0) return null;
+    if (entries.every(([idx], pos) => idx === pos)) {
+      return entries.map(([, item]) => item);
+    }
+    return Object.fromEntries(entries.map(([idx, item]) => [String(idx), item]));
+  }
+  if (typeof value === 'object') {
+    const entries: [string, unknown][] = [];
+    for (const [key, childValue] of Object.entries(value)) {
+      const pruned = pruneRtdbValue(childValue);
+      if (pruned !== null) entries.push([key, pruned]);
+    }
+    if (entries.length > 0) return Object.fromEntries(entries);
+    return null;
+  }
+  return value;
+}
+
 function exists(value: unknown): boolean {
-  return value !== null && value !== undefined;
+  return pruneRtdbValue(value) !== null;
 }
 
 function child(value: unknown, key: string): unknown {
@@ -71,8 +98,9 @@ export function projectValueCreates(
     captures: Record<string, string>,
   ): void => {
     if (depth === pattern.length) {
-      if (!exists(before) && exists(after)) {
-        projected.push({ ref: concrete.join('/'), params: captures, value: after });
+      const prunedAfter = pruneRtdbValue(after);
+      if (!exists(before) && prunedAfter !== null) {
+        projected.push({ ref: concrete.join('/'), params: captures, value: prunedAfter });
       }
       return;
     }

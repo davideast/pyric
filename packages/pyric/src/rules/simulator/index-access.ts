@@ -103,8 +103,8 @@ export function indexValue(value: unknown, index: unknown): unknown {
       ? value.bindings[name]
       : new IndexAccessFailure(undefinedPropertyMessage(name));
   }
-  if (value instanceof RulesValue) return new IndexAccessFailure(NO_INDEX_OPERATOR_MESSAGE);
-  return indexMap(value as object, String(index));
+  if (!isRulesMap(value)) return new IndexAccessFailure(NO_INDEX_OPERATOR_MESSAGE);
+  return indexMap(value, String(index));
 }
 
 /**

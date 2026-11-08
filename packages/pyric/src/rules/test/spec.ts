@@ -745,6 +745,13 @@ export interface StorageResourceShape {
   updated?: string;
   generation?: number;
   metageneration?: number;
+  md5Hash?: string;
+  crc32c?: string;
+  etag?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+  cacheControl?: string;
 }
 
 export const StorageFunctionMockSchema = z.object({

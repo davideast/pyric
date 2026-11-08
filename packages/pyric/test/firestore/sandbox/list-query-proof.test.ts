@@ -5,6 +5,7 @@ import {
   type ListProofVerdict,
 } from '../../../src/firestore/sandbox/list-query-proof.js';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
+import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
 
 function rules(children: string, outer = '') {
   return parseToAST(`rules_version = '2';
@@ -155,6 +156,222 @@ describe('proveListQuery', () => {
       ],
     }));
     expect(eqThenIn.syntheticResource).toEqual({ status: 'open' });
+  });
+
+  test('resolves doc-independent user helper calls and bound parent path wildcards in static list query operands', () => {
+    const ast = rules(
+      `match /items/{id} {
+        allow list: if currentUid() in resource.data.members
+                    && resource.data.tags.hasAny([currentUid(), requiredTag()])
+                    && resource.data.status in [requiredTag()];
+      }
+      match /orgs/{orgId}/items/{id} {
+        allow list: if orgId in resource.data.orgIds && resource.data.orgId == orgId;
+      }`,
+      `function currentUid() { return request.auth.uid; }
+       function requiredTag() { return 'public'; }`,
+    );
+
+    expectProvable(
+      proveListQuery(ast, 'items/__listPlaceholder__', { uid: 'u1' }, {
+        where: [
+          { field: 'members', op: 'array-contains', value: 'u1' },
+          { field: 'tags', op: 'array-contains', value: 'u1' },
+          { field: 'status', op: '==', value: 'public' },
+        ],
+      }),
+    );
+
+    expectProvable(
+      proveListQuery(ast, 'orgs/org-1/items/__listPlaceholder__', { uid: 'u1' }, {
+        where: [
+          { field: 'orgIds', op: 'array-contains', value: 'org-1' },
+          { field: 'orgId', op: '==', value: 'org-1' },
+        ],
+      }),
+    );
+  });
+
+  test('does not treat recursive parent path variables as string equalities', () => {
+    const ast = parseToAST(`rules_version = '2';
+      service cloud.firestore {
+        match /databases/{prefix=**}/documents {
+          match /items/{id} {
+            allow list: if prefix in resource.data.parents;
+          }
+        }
+      }`)!;
+
+    const verdict = proveListQuery(ast, 'items/__listPlaceholder__', { uid: 'u1' }, {
+      where: [{ field: 'parents', op: 'array-contains', value: '(default)' }],
+    });
+    expect(verdict.kind).toBe('unprovable');
+
+    const eqAst = parseToAST(`rules_version = '2';
+      service cloud.firestore {
+        match /databases/{prefix=**}/documents {
+          match /items/{id} {
+            allow list: if resource.data.parent == prefix;
+          }
+        }
+      }`)!;
+
+    const contradictoryVerdict = proveListQuery(eqAst, 'items/__listPlaceholder__', { uid: 'u1' }, {
+      where: [
+        { field: 'parent', op: '==', value: '(default)' },
+        { field: 'parent', op: '==', value: 'other' },
+      ],
+    });
+    expect(contradictoryVerdict.kind).toBe('unprovable');
+    if (contradictoryVerdict.kind === 'unprovable') {
+      expect(contradictoryVerdict.failures[0]?.kind).toBe('unsupported-predicate');
+    }
+  });
+
+  test('fails closed instead of falling back across lexical scopes when helper inlining exceeds budget', () => {
+    const nineLets = [
+      "let a0 = resource.data.secret == 's';",
+      'let a1 = a0 && a0;',
+      'let a2 = a1 && a1;',
+      'let a3 = a2 && a2;',
+      'let a4 = a3 && a3;',
+      'let a5 = a4 && a4;',
+      'let a6 = a5 && a5;',
+      'let a7 = a6 && a6;',
+      'let a8 = a7 && a7;',
+    ].join('\n');
+
+    const argScopeAst = parseToAST(`rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          function helper() { return true; }
+          function passthrough(flag) { return resource.data.owner == 'u1' && flag; }
+          match /items/{id} {
+            function helper() {
+              ${nineLets}
+              return a8;
+            }
+            allow list: if passthrough(helper());
+          }
+        }
+      }`)!;
+
+    const argVerdict = proveListQuery(argScopeAst, 'items/__listPlaceholder__', { uid: 'u1' }, {
+      where: [{ field: 'owner', op: '==', value: 'u1' }],
+    });
+    expect(argVerdict.kind).toBe('unprovable');
+
+    const leafScopeAst = parseToAST(`rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          function bigSecret() {
+            ${nineLets}
+            return a8;
+          }
+          function checkOwnerAndSecret() {
+            return resource.data.owner == 'u1' && bigSecret();
+          }
+          match /items/{id} {
+            function bigSecret() { return true; }
+            allow list: if checkOwnerAndSecret();
+          }
+        }
+      }`)!;
+
+    const leafVerdict = proveListQuery(leafScopeAst, 'items/__listPlaceholder__', { uid: 'u1' }, {
+      where: [{ field: 'owner', op: '==', value: 'u1' }],
+    });
+    expect(leafVerdict.kind).toBe('unprovable');
+  });
+
+  test('tracks active callees by FunctionDef identity when an inner helper delegates to an outer helper of the same name', () => {
+    const eqShadowAst = parseToAST(`rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          function helper() { return resource.data.owner == 'u1'; }
+          function mid() { return helper(); }
+          match /items/{id} {
+            function helper() { return mid(); }
+            allow list: if helper();
+          }
+        }
+      }`)!;
+
+    expectProvable(
+      proveListQuery(eqShadowAst, 'items/__listPlaceholder__', { uid: 'u1' }, {
+        where: [{ field: 'owner', op: '==', value: 'u1' }],
+      }),
+    );
+
+    const residualShadowAst = parseToAST(`rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          function helper() {
+            return resource.data.owner == 'u1' || resource.data.owner == 'u2';
+          }
+          function mid() { return helper(); }
+          match /items/{id} {
+            function helper() { return mid(); }
+            allow list: if helper();
+          }
+        }
+      }`)!;
+
+    expectProvable(
+      proveListQuery(residualShadowAst, 'items/__listPlaceholder__', { uid: 'u1' }, {
+        where: [{ field: 'owner', op: 'in', value: ['u1', 'u2'] }],
+      }),
+    );
+  });
+
+  test('evaluates get and list across all top-level match blocks in service cloud.firestore', () => {
+    const twoRootsSource = `rules_version = '2';
+      service cloud.firestore {
+        match /databases/{db}/documents {
+          function firstRootHelper() { return false; }
+          match /users/{uid} {
+            allow read: if firstRootHelper();
+          }
+        }
+        match /databases/{db}/documents {
+          function secondRootOwner() { return request.auth.uid; }
+          match /items/{id} {
+            allow read: if request.auth != null && resource.data.owner == secondRootOwner();
+          }
+        }
+      }`;
+    const ast = parseToAST(twoRootsSource)!;
+
+    expectProvable(
+      proveListQuery(ast, 'items/__listPlaceholder__', { uid: 'u1' }, {
+        where: [{ field: 'owner', op: '==', value: 'u1' }],
+      }),
+    );
+
+    const handler = new SimulateFirestoreRulesHandler();
+    const sim = handler.simulate(twoRootsSource, [
+      {
+        description: 'get item from second root block',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'items/i1',
+        auth: { uid: 'u1' },
+        resource: { owner: 'u1' },
+      },
+      {
+        description: 'list items from second root block with matching where',
+        expectation: 'ALLOW',
+        method: 'list',
+        path: 'items',
+        auth: { uid: 'u1' },
+        query: { where: [{ field: 'owner', op: '==', value: 'u1' }] },
+      },
+    ]);
+    expect(sim.success).toBe(true);
+    if (sim.success) {
+      expect(sim.data.results.map((r) => r.decision)).toEqual(['ALLOW', 'ALLOW']);
+      expect(sim.data.results[1]?.queryProof?.verdict).toBe('PROVABLE');
+    }
   });
 });
 

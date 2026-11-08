@@ -4,8 +4,16 @@
  * These are low-level tree-walking primitives that the lint rules compose.
  * Each is independently testable against the linter corpus.
  */
-import type { Expression, FunctionDef, AllowRule, MatchBlock, FirestoreRules } from '../grammar/FirestoreAST.js';
+import type {
+  Expression,
+  FunctionDef,
+  AllowRule,
+  MatchBlock,
+  FirestoreRules,
+  ServiceBlock,
+} from '../grammar/FirestoreAST.js';
 import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
+import { topLevelMatches } from '../grammar/service-blocks.js';
 
 /**
  * Count the maximum flat binary chain depth for a given operator.
@@ -212,22 +220,37 @@ export function countFunctionCallSites(expr: Expression, fnNames: Set<string>): 
 export function functionContainsGet(
   fnName: string,
   fnMap: ReadonlyMap<string, FunctionDef>,
-  visited = new Set<string>(),
+  visited: ReadonlySet<string> = new Set<string>(),
   fnScopes?: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  visitedFns = new Set<FunctionDef>(),
+  visitedFns: ReadonlySet<FunctionDef> = new Set<FunctionDef>(),
+  isStorage = false,
 ): boolean {
   const fn = fnMap.get(fnName);
   if (!fn) return false;
-  if (visitedFns.has(fn) || visited.has(fnName)) return false;
-  visited.add(fnName);
-  visitedFns.add(fn);
+  const seenFns = new Set<FunctionDef>(visitedFns);
+  for (const blockedName of visited) {
+    const blockedFn = fnMap.get(blockedName);
+    if (blockedFn !== undefined) {
+      seenFns.add(blockedFn);
+    }
+  }
+  if (seenFns.has(fn)) return false;
+  seenFns.add(fn);
   const scope = fnScopes?.get(fn) ?? fnMap;
 
   const check = (e: Expression): boolean => {
     switch (e.type) {
       case 'functionCall':
-        if (e.name === 'get' || e.name === 'exists' || e.name === 'getAfter' || e.name === 'existsAfter') return true;
-        if (scope.has(e.name) && functionContainsGet(e.name, scope, new Set(), fnScopes, visitedFns)) return true;
+        if (scope.has(e.name)) {
+          if (functionContainsGet(e.name, scope, undefined, fnScopes, seenFns, isStorage)) return true;
+          return e.args.some(check);
+        }
+        if (
+          !isStorage &&
+          (e.name === 'get' || e.name === 'exists' || e.name === 'getAfter' || e.name === 'existsAfter')
+        ) {
+          return true;
+        }
         return e.args.some(check);
       case 'binaryOp': return check(e.left) || check(e.right);
       case 'unaryOp': return check(e.operand);
@@ -270,10 +293,17 @@ export function functionContainsGet(
 export function referencesRequestTime(
   expr: Expression,
   fnMap: ReadonlyMap<string, FunctionDef>,
-  visited = new Set<string>(),
+  visited: ReadonlySet<string> = new Set<string>(),
   fnScopes?: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  visitedFns = new Set<FunctionDef>(),
+  visitedFns: ReadonlySet<FunctionDef> = new Set<FunctionDef>(),
 ): boolean {
+  const seenFns = new Set<FunctionDef>(visitedFns);
+  for (const blockedName of visited) {
+    const blockedFn = fnMap.get(blockedName);
+    if (blockedFn !== undefined) {
+      seenFns.add(blockedFn);
+    }
+  }
   const check = (e: Expression): boolean => {
     switch (e.type) {
       case 'memberAccess':
@@ -295,12 +325,12 @@ export function referencesRequestTime(
         return check(e.object) || check(e.start) || check(e.end);
       case 'functionCall': {
         const fn = fnMap.get(e.name);
-        if (fn && !visitedFns.has(fn) && !visited.has(e.name)) {
-          visited.add(e.name);
-          visitedFns.add(fn);
+        if (fn && !seenFns.has(fn)) {
+          const nextSeenFns = new Set<FunctionDef>(seenFns);
+          nextSeenFns.add(fn);
           const calleeScope = fnScopes?.get(fn) ?? fnMap;
-          if (referencesRequestTime(fn.body, calleeScope, new Set(), fnScopes, visitedFns)) return true;
-          if (fn.lets.some(b => referencesRequestTime(b.value, calleeScope, new Set(), fnScopes, visitedFns))) return true;
+          if (referencesRequestTime(fn.body, calleeScope, undefined, fnScopes, nextSeenFns)) return true;
+          if (fn.lets.some(b => referencesRequestTime(b.value, calleeScope, undefined, fnScopes, nextSeenFns))) return true;
         }
         return e.args.some(check);
       }
@@ -326,11 +356,24 @@ export function referencesRequestTime(
  * declaration, the same inner-shadows-outer order the simulator uses.
  */
 export function collectDeclaredFunctions(ast: FirestoreRules): FunctionDef[] {
-  return [
+  const out: FunctionDef[] = [
     ...(ast.functions ?? []),
     ...(ast.service.functions ?? []),
-    ...collectAllFunctions(ast.service.match),
   ];
+  for (const root of topLevelMatches(ast.service)) {
+    out.push(...collectAllFunctions(root));
+  }
+  return out;
+}
+
+export function collectServiceRules(
+  service: Pick<ServiceBlock, 'match' | 'matches'> | undefined,
+): { rule: AllowRule; path: string; matchFunctions: FunctionDef[] }[] {
+  const out: { rule: AllowRule; path: string; matchFunctions: FunctionDef[] }[] = [];
+  for (const root of topLevelMatches(service)) {
+    out.push(...collectAllRules(root));
+  }
+  return out;
 }
 
 /**

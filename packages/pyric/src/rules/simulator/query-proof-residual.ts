@@ -6,11 +6,16 @@ import type { Expression, FunctionDef } from "../grammar/FirestoreAST.js";
 import type { SimulationContext } from "./evaluation-context.js";
 import { evaluate, requireBoolean } from "./evaluator.js";
 import { getValidFunctionLexicalScope } from "./match-resolution.js";
+import type { QueryConstraints } from "./query-proof.js";
 import {
+  callsResolveInOuterScope,
+  dataFieldPath,
+  inlineFunctionsInExpr,
+  inlineIfNeeded,
   isProvablyDocIndependent,
+  isRequestAuthUid,
   substituteIdentifiers,
-  type QueryConstraints,
-} from "./query-proof.js";
+} from "./query-proof-scope.js";
 import { hostNumber, inInt64, isHostIntNumber } from "./rules-int.js";
 import { listElementsEqual, rulesValuesEqual } from "./value-equality.js";
 import { RulesFloat } from "./wrappers/float.js";
@@ -46,50 +51,6 @@ const literal = (value: Scalar): Expression => ({
   value,
   raw: literalRaw(value),
 });
-
-function memberStep(
-  expr: Expression,
-): { object: Expression; property: string } | null {
-  if (expr.type === "memberAccess") {
-    return { object: expr.object, property: expr.property };
-  }
-  if (
-    expr.type === "bracketAccess" &&
-    expr.index.type === "literal" &&
-    typeof expr.index.value === "string"
-  ) {
-    return { object: expr.object, property: expr.index.value };
-  }
-  return null;
-}
-
-export function isResourceData(expr: Expression): boolean {
-  const step = memberStep(expr);
-  if (!step || step.property !== "data") return false;
-  return step.object.type === "identifier" && step.object.name === "resource";
-}
-
-/**
- * If `expr` is a single-segment `resource.data.<field>` or `resource.data['<field>']`
- * access (including `resource['data']`), return `<field>`; otherwise null.
- */
-export function dataFieldPath(expr: Expression): string | null {
-  const step = memberStep(expr);
-  if (!step || step.property.length === 0 || step.property.includes(".")) {
-    return null;
-  }
-  if (!isResourceData(step.object)) return null;
-  return step.property;
-}
-
-/** True for `request.auth.uid` (dot or bracket access). */
-export function isRequestAuthUid(expr: Expression): boolean {
-  const uidStep = memberStep(expr);
-  if (!uidStep || uidStep.property !== "uid") return false;
-  const authStep = memberStep(uidStep.object);
-  if (!authStep || authStep.property !== "auth") return false;
-  return authStep.object.type === "identifier" && authStep.object.name === "request";
-}
 
 /**
  * Collect the list of per-filter scalar sets (`==` or finite `in`) for each
@@ -151,146 +112,6 @@ export function computeWhereDomains(
   return domains;
 }
 
-export function inlineFunctionsInExpr(
-  expr: Expression,
-  functions: Map<string, FunctionDef>,
-  visiting: ReadonlySet<string> = new Set(),
-): Expression | null {
-  let budget = 500;
-  const inline = (
-    e: Expression,
-    currentFunctions: Map<string, FunctionDef>,
-    seen: ReadonlySet<string>,
-  ): Expression | null => {
-    if (--budget < 0) return null;
-    if (e.type === "functionCall" && currentFunctions.has(e.name)) {
-      if (seen.has(e.name)) return null;
-      const fn = currentFunctions.get(e.name)!;
-      if (fn.parameters.length !== e.args.length) return null;
-      const nextFunctions = getValidFunctionLexicalScope(fn, currentFunctions);
-      if (!nextFunctions) return null;
-      const bindings = new Map<string, Expression>();
-      for (let i = 0; i < fn.parameters.length; i++) {
-        const inlinedArg = inline(e.args[i]!, currentFunctions, seen);
-        if (!inlinedArg) return null;
-        bindings.set(fn.parameters[i]!, inlinedArg);
-      }
-      const nextSeen = new Set(seen).add(e.name);
-      for (const b of fn.lets) {
-        const inlinedLet = inline(substituteIdentifiers(b.value, bindings), nextFunctions, nextSeen);
-        if (!inlinedLet) return null;
-        bindings.set(b.name, inlinedLet);
-      }
-      return inline(substituteIdentifiers(fn.body, bindings), nextFunctions, nextSeen);
-    }
-    switch (e.type) {
-      case "literal":
-      case "identifier":
-        return e;
-      case "memberAccess": {
-        const object = inline(e.object, currentFunctions, seen);
-        if (!object) return null;
-        return { ...e, object };
-      }
-      case "bracketAccess": {
-        const object = inline(e.object, currentFunctions, seen);
-        const index = inline(e.index, currentFunctions, seen);
-        if (!object || !index) return null;
-        return { ...e, object, index };
-      }
-      case "binaryOp": {
-        const left = inline(e.left, currentFunctions, seen);
-        const right = inline(e.right, currentFunctions, seen);
-        if (!left || !right) return null;
-        return { ...e, left, right };
-      }
-      case "unaryOp": {
-        const operand = inline(e.operand, currentFunctions, seen);
-        if (!operand) return null;
-        return { ...e, operand };
-      }
-      case "sliceAccess": {
-        const object = inline(e.object, currentFunctions, seen);
-        const start = inline(e.start, currentFunctions, seen);
-        const end = inline(e.end, currentFunctions, seen);
-        if (!object || !start || !end) return null;
-        return { ...e, object, start, end };
-      }
-      case "ternary": {
-        const condition = inline(e.condition, currentFunctions, seen);
-        const consequent = inline(e.consequent, currentFunctions, seen);
-        const alternate = inline(e.alternate, currentFunctions, seen);
-        if (!condition || !consequent || !alternate) return null;
-        return { ...e, condition, consequent, alternate };
-      }
-      case "inExpr": {
-        const element = inline(e.element, currentFunctions, seen);
-        const collection = inline(e.collection, currentFunctions, seen);
-        if (!element || !collection) return null;
-        return { ...e, element, collection };
-      }
-      case "isExpr": {
-        const value = inline(e.value, currentFunctions, seen);
-        if (!value) return null;
-        return { ...e, value };
-      }
-      case "listLiteral": {
-        const elements: Expression[] = [];
-        for (const el of e.elements) {
-          const inlined = inline(el, currentFunctions, seen);
-          if (!inlined) return null;
-          elements.push(inlined);
-        }
-        return { ...e, elements };
-      }
-      case "mapLiteral": {
-        const entries: { key: Expression; value: Expression }[] = [];
-        for (const entry of e.entries) {
-          const key = inline(entry.key, currentFunctions, seen);
-          const value = inline(entry.value, currentFunctions, seen);
-          if (!key || !value) return null;
-          entries.push({ key, value });
-        }
-        return { ...e, entries };
-      }
-      case "pathLiteral": {
-        const segments: (string | Expression)[] = [];
-        for (const seg of e.segments) {
-          if (typeof seg === "string") {
-            segments.push(seg);
-          } else {
-            const inlined = inline(seg, currentFunctions, seen);
-            if (!inlined) return null;
-            segments.push(inlined);
-          }
-        }
-        return { ...e, segments };
-      }
-      case "methodCall": {
-        const object = inline(e.object, currentFunctions, seen);
-        if (!object) return null;
-        const args: Expression[] = [];
-        for (const arg of e.args) {
-          const inlined = inline(arg, currentFunctions, seen);
-          if (!inlined) return null;
-          args.push(inlined);
-        }
-        return { ...e, object, args };
-      }
-      case "functionCall": {
-        const args: Expression[] = [];
-        for (const arg of e.args) {
-          const inlined = inline(arg, currentFunctions, seen);
-          if (!inlined) return null;
-          args.push(inlined);
-        }
-        return { ...e, args };
-      }
-    }
-  };
-  return inline(expr, functions, visiting);
-}
-
 function join(left: Expression, right: Expression, op: string): Expression {
   return { type: "binaryOp", op, left, right };
 }
@@ -336,12 +157,23 @@ export function resolveStaticRulesOperand(
   expr: Expression,
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
+  pathVariables?: Readonly<Record<string, string>>,
 ): RulesScalar | undefined {
-  if (isClosedConstantExpr(expr, userFunctions)) {
-    const value = evalConstValue(expr, userFunctions);
-    return isRulesScalar(value) ? value : undefined;
+  const inlined = inlineIfNeeded(expr, userFunctions);
+  if (!inlined) return undefined;
+  if (
+    inlined.type === "identifier" &&
+    pathVariables !== undefined &&
+    Object.hasOwn(pathVariables, inlined.name)
+  ) {
+    return pathVariables[inlined.name];
   }
-  if (isRequestAuthUid(expr)) {
+  if (isClosedConstantExpr(inlined, userFunctions)) {
+    const value = evalConstValue(inlined, userFunctions);
+    if (isRulesScalar(value)) return value;
+    return undefined;
+  }
+  if (isRequestAuthUid(inlined)) {
     return authUid;
   }
   return undefined;
@@ -353,8 +185,9 @@ function isGuaranteedByArrayContains(
   constraints: QueryConstraints,
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
+  pathVariables?: Readonly<Record<string, string>>,
 ): boolean {
-  const ruleVal = resolveStaticRulesOperand(element, userFunctions, authUid);
+  const ruleVal = resolveStaticRulesOperand(element, userFunctions, authUid, pathVariables);
   if (ruleVal === undefined) return false;
   return (constraints.where ?? []).some(
     (filter) =>
@@ -371,13 +204,14 @@ function isEqualityImpliedByFilterSet(
   filterSetsByField: ReadonlyMap<string, Scalar[][]>,
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
+  pathVariables?: Readonly<Record<string, string>>,
 ): boolean {
   const checkSide = (dataExpr: Expression, valueExpr: Expression): boolean => {
     const field = dataFieldPath(dataExpr);
     if (field === null) return false;
     const sets = filterSetsByField.get(field);
     if (!sets) return false;
-    const target = resolveStaticRulesOperand(valueExpr, userFunctions, authUid);
+    const target = resolveStaticRulesOperand(valueExpr, userFunctions, authUid, pathVariables);
     if (target === undefined || !isSafePrecisionRulesScalar(target)) return false;
     return sets.some(
       (set) =>
@@ -394,6 +228,7 @@ function isInImpliedByFilterSet(
   filterSetsByField: ReadonlyMap<string, Scalar[][]>,
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
+  pathVariables?: Readonly<Record<string, string>>,
 ): boolean {
   const field = dataFieldPath(element);
   if (field === null || collection.type !== "listLiteral") return false;
@@ -401,7 +236,7 @@ function isInImpliedByFilterSet(
   if (!sets) return false;
   const allowedValues: RulesScalar[] = [];
   for (const el of collection.elements) {
-    const resolved = resolveStaticRulesOperand(el, userFunctions, authUid);
+    const resolved = resolveStaticRulesOperand(el, userFunctions, authUid, pathVariables);
     if (resolved === undefined) return false;
     allowedValues.push(resolved);
   }
@@ -522,9 +357,10 @@ export function evalConstValue(
   expr: Expression,
   userFunctions: ReadonlyMap<string, FunctionDef> = new Map(),
 ): unknown {
-  if (!isClosedConstantExpr(expr, userFunctions)) return undefined;
+  const inlined = inlineIfNeeded(expr, userFunctions);
+  if (!inlined || !isClosedConstantExpr(inlined, userFunctions)) return undefined;
   try {
-    const val = evaluate(expr, CLOSED_CONST_CTX);
+    const val = evaluate(inlined, CLOSED_CONST_CTX);
     if (typeof val === "bigint" && !inInt64(val)) return CONST_ERROR;
     return val;
   } catch {
@@ -536,10 +372,11 @@ function isConstRefuted(
   expr: Expression,
   userFunctions: ReadonlyMap<string, FunctionDef>,
 ): boolean {
-  if (!isClosedConstantExpr(expr, userFunctions)) return false;
+  const inlined = inlineIfNeeded(expr, userFunctions);
+  if (!inlined || !isClosedConstantExpr(inlined, userFunctions)) return false;
   try {
-    const val = evaluate(expr, CLOSED_CONST_CTX);
-    return !requireBoolean(val, expr);
+    const val = evaluate(inlined, CLOSED_CONST_CTX);
+    return !requireBoolean(val, inlined);
   } catch {
     return true;
   }
@@ -578,8 +415,9 @@ function pinCandidateExpressions(value: Scalar): Expression[] {
 export function queryResidual(
   condition: Expression,
   constraints: QueryConstraints,
-  functions: Map<string, FunctionDef>,
+  functions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
+  pathVariables?: Readonly<Record<string, string>>,
 ): { condition: Expression; partial: boolean } | undefined {
   let partial = false;
   const filterSetsByField = computeFieldFilterSets(constraints);
@@ -602,8 +440,8 @@ export function queryResidual(
     let budget = 2000;
     function rewrite(
       expr: Expression,
-      currentFunctions: Map<string, FunctionDef> = functions,
-      visiting = new Set<string>(),
+      currentFunctions: ReadonlyMap<string, FunctionDef> = functions,
+      visiting: ReadonlySet<FunctionDef> = new Set(),
     ): Expression {
       if (--budget < 0) throw new Error("proof expansion budget");
       const directKey = dataFieldPath(expr);
@@ -611,21 +449,43 @@ export function queryResidual(
         return pins.get(directKey)!;
       }
       if (expr.type === "functionCall" && currentFunctions.has(expr.name)) {
-        // Leave already-independent helpers intact to preserve evaluator scoping/budgets.
-        if (isProvablyDocIndependent(expr, currentFunctions)) return expr;
-        if (visiting.has(expr.name)) throw new Error("recursive proof helper");
+        // Leave already-independent helpers intact to preserve evaluator scoping/budgets,
+        // provided every function call in `expr` resolves to the same FunctionDef in the
+        // outer rule scope `functions` as in `currentFunctions`.
+        if (
+          callsResolveInOuterScope(expr, currentFunctions, functions) &&
+          isProvablyDocIndependent(expr, currentFunctions)
+        ) {
+          return expr;
+        }
         const fn = currentFunctions.get(expr.name)!;
+        if (visiting.has(fn)) throw new Error("recursive proof helper");
         if (fn.parameters.length !== expr.args.length)
           throw new Error("proof arity");
         const nextFunctions = getValidFunctionLexicalScope(fn, currentFunctions);
         if (!nextFunctions) throw new Error("lexically invalid proof helper");
-        const rewrittenArgs = expr.args.map((arg) =>
-          rewrite(arg, currentFunctions, visiting),
-        );
+        const rewrittenArgs = expr.args.map((arg) => {
+          const rewrittenArg = rewrite(arg, currentFunctions, visiting);
+          if (
+            currentFunctions !== nextFunctions &&
+            !callsResolveInOuterScope(rewrittenArg, currentFunctions, nextFunctions)
+          ) {
+            const expandedArg = inlineFunctionsInExpr(rewrittenArg, currentFunctions, visiting);
+            if (
+              !expandedArg ||
+              !callsResolveInOuterScope(expandedArg, currentFunctions, nextFunctions) ||
+              !callsResolveInOuterScope(expandedArg, currentFunctions, functions)
+            ) {
+              throw new Error("cross-scope argument expansion");
+            }
+            return expandedArg;
+          }
+          return rewrittenArg;
+        });
         const bindings = new Map(
           fn.parameters.map((name, i) => [name, rewrittenArgs[i]!]),
         );
-        const nextVisiting = new Set([...visiting, expr.name]);
+        const nextVisiting = new Set([...visiting, fn]);
         for (const binding of fn.lets)
           bindings.set(
             binding.name,
@@ -653,6 +513,7 @@ export function queryResidual(
             constraints,
             currentFunctions,
             authUid,
+            pathVariables,
           )
         ) {
           return literal(true);
@@ -664,6 +525,7 @@ export function queryResidual(
             filterSetsByField,
             currentFunctions,
             authUid,
+            pathVariables,
           )
         ) {
           return literal(true);
@@ -713,6 +575,7 @@ export function queryResidual(
               filterSetsByField,
               currentFunctions,
               authUid,
+              pathVariables,
             )
           ) {
             return literal(true);
@@ -750,6 +613,7 @@ export function queryResidual(
                   constraints,
                   currentFunctions,
                   authUid,
+                  pathVariables,
                 ),
               )
             ) {
@@ -765,6 +629,7 @@ export function queryResidual(
                   constraints,
                   currentFunctions,
                   authUid,
+                  pathVariables,
                 ),
               )
             ) {
@@ -778,6 +643,9 @@ export function queryResidual(
           };
         }
         case "functionCall":
+          if (currentFunctions !== functions && functions.has(expr.name)) {
+            throw new Error("shadowed builtin");
+          }
           return { ...expr, args: expr.args.map(sub) };
         case "listLiteral":
           return { ...expr, elements: expr.elements.map(sub) };
