@@ -1,6 +1,8 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "bun:test";
 import { initializeSandbox } from "pyric/sandbox";
+import { ref as storageRef, uploadBytes } from "pyric/storage";
+import { getAdminStorageSandbox } from "pyric/storage/internal";
 import {
   createOwnedSandboxAttachmentProvider,
   createSandboxAttachmentProvider,
@@ -30,7 +32,7 @@ service cloud.firestore {
 }`;
 
 describe("Storage attachment rules and coverage gap accuracy (AV-CON-5b/c)", () => {
-  it("preserves storageRules from /__pyric/init.json and reports object-enumeration-only gap when Storage rules are present", async () => {
+  it("attaches Storage rules and objects with zero gap when rules exist, and reports storage-rules-unavailable only when objects exist without rules", async () => {
     const sandbox = initializeSandbox();
     const served = createSandboxAttachmentProvider(sandbox, {
       origin: "http://127.0.0.1:4400",
@@ -46,12 +48,7 @@ describe("Storage attachment rules and coverage gap accuracy (AV-CON-5b/c)", () 
 
     const servedAttached = await served({ url: "http://127.0.0.1:4400" });
     expect(servedAttached.target.rules.storage).toBe(STORAGE_RULES);
-    expect(servedAttached.coverageGaps).toContainEqual({
-      service: "storage",
-      code: "storage-attachment-unavailable",
-      reason:
-        "Storage object enumeration is not yet exposed by attachment; provide explicit Storage objects in target.state.storage.",
-    });
+    expect(servedAttached.coverageGaps).toEqual([]);
 
     const owned = createOwnedSandboxAttachmentProvider(
       sandbox,
@@ -60,10 +57,31 @@ describe("Storage attachment rules and coverage gap accuracy (AV-CON-5b/c)", () 
     );
     const ownedAttached = await owned({ url: "pyric:in-process-sandbox" });
     expect(ownedAttached.target.rules.storage).toBe(STORAGE_RULES);
-    const storageGap = ownedAttached.coverageGaps.find(
-      (gap) => gap.service === "storage",
+    expect(ownedAttached.coverageGaps).toEqual([]);
+
+    const unruledSandbox = initializeSandbox();
+    const unruledStorage = getAdminStorageSandbox(unruledSandbox, {
+      dbName: "pyric-contracts-unruled-storage",
+    });
+    await uploadBytes(
+      storageRef(unruledStorage, "files/u1/item.bin"),
+      new Uint8Array([1, 2, 3]),
     );
-    expect(storageGap?.reason).not.toMatch(/expose Storage rules/i);
+    const unruledOwned = createOwnedSandboxAttachmentProvider(
+      unruledSandbox,
+      {},
+      "pyric:in-process-sandbox",
+    );
+    const unruledAttached = await unruledOwned({
+      url: "pyric:in-process-sandbox",
+    });
+    expect(unruledAttached.inventory.storageObjects).toBe(1);
+    expect(unruledAttached.coverageGaps).toEqual([
+      expect.objectContaining({
+        service: "storage",
+        code: "storage-rules-unavailable",
+      }),
+    ]);
   });
 });
 

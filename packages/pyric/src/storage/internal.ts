@@ -15,6 +15,20 @@
  * the sandbox's host-only seams.
  */
 
+import type { Sandbox } from 'pyric/sandbox';
+import { getClock } from '../sandbox/clock.js';
+import { generationIssuer } from './generation.js';
+import { ref } from './reference.js';
+import { rulesBucketName } from './sandbox/rules-bucket-name.js';
+import {
+  deployStorageBucketRules,
+  getStorageService,
+  storageBucketsWithRules,
+  targetOf,
+  type FirebaseStorage,
+} from './service.js';
+import { buildStoredMetadata } from './upload.js';
+
 export {
   bindStorageOperationContext,
   getAdminStorageSandbox,
@@ -89,3 +103,80 @@ export { fetchFromByteRoute, uploadOverByteRoute, type RemoteByteRoute, type Rem
 
 export { observeStorageOperation, storageTaskProgress, storageTaskResult } from '../sandbox/internal/storage-activity.js';
 export { localStorageUrl, storageObjectPath, STORAGE_ROUTE_PREFIX } from './byte-route.js';
+
+const SERVICE_CACHES_KEY = Symbol.for('pyric.storage.service-caches');
+
+interface MutableStorageBucketRuleCaches {
+  bucketRules?: WeakMap<Sandbox, Map<string, unknown>>;
+  defaultStoreNames?: WeakMap<Sandbox, string>;
+  undeployedPolicies?: WeakMap<Sandbox, string>;
+}
+
+/**
+ * Remove per-bucket Storage rules not present in `keepBuckets`. When zero
+ * named-bucket rules remain on `sandbox`, clears the per-sandbox bucket-rules
+ * map entry so undeployed buckets revert to unlocked default rules resolution.
+ */
+export function pruneStorageBucketRules(
+  sandbox: Sandbox,
+  keepBuckets: ReadonlySet<string>,
+): void {
+  const normalizedKeep = new Set<string>();
+  for (const bucket of keepBuckets) {
+    normalizedKeep.add(rulesBucketName(bucket, bucket));
+  }
+  for (const deployed of storageBucketsWithRules(sandbox)) {
+    if (!normalizedKeep.has(deployed)) {
+      deployStorageBucketRules(sandbox, deployed, null);
+    }
+  }
+  if (storageBucketsWithRules(sandbox).length === 0) {
+    const holder = globalThis as { [SERVICE_CACHES_KEY]?: MutableStorageBucketRuleCaches };
+    const caches = holder[SERVICE_CACHES_KEY];
+    caches?.bucketRules?.delete(sandbox);
+    caches?.defaultStoreNames?.delete(sandbox);
+    caches?.undeployedPolicies?.delete(sandbox);
+  }
+}
+
+/**
+ * Seed an object directly onto `storage`'s backing store without evaluating
+ * Storage rules or emitting synthetic SDK operation/mutation history events.
+ */
+export async function seedStorageObject(
+  storage: FirebaseStorage,
+  path: string,
+  bytes: Uint8Array,
+  settable?: {
+    readonly contentType?: string;
+    readonly customMetadata?: Readonly<Record<string, string>>;
+  },
+): Promise<void> {
+  const objectRef = ref(storage, path);
+  if (objectRef.fullPath === '') {
+    throw new Error('Cannot seed a Storage object at the bucket root.');
+  }
+  const target = targetOf(storage);
+  const uploadedAt = getClock(target.sandbox).date();
+  const blob = new Blob([bytes as BlobPart], { type: settable?.contentType ?? '' });
+  let customMetadata: Record<string, string> | undefined;
+  if (settable?.customMetadata !== undefined) {
+    customMetadata = { ...settable.customMetadata };
+  }
+  const stored = buildStoredMetadata({
+    ref: objectRef,
+    blob,
+    settable: {
+      contentType: settable?.contentType,
+      customMetadata,
+    },
+    now: uploadedAt,
+  });
+  const service = await getStorageService(storage);
+  await service.backend.put(
+    objectRef.fullPath,
+    blob,
+    stored,
+    generationIssuer(uploadedAt.getTime()),
+  );
+}

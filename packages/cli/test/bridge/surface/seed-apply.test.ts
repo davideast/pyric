@@ -1,140 +1,246 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, spyOn } from 'bun:test';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import {
+  get as databaseGet,
+  getAdminDatabase,
+  ref as databaseRef,
+  set as databaseSet,
+} from 'pyric/database';
+import {
+  Bytes,
+  GeoPoint,
+  Timestamp,
+  doc,
+  getAdminFirestore,
+  getDoc,
+  setDoc,
+} from 'pyric/firestore';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getAuth, sandbox as authSandbox, signInAnonymously } from 'pyric/auth';
-import { Bytes, doc, GeoPoint, getAdminFirestore, getDoc, Timestamp } from 'pyric/firestore';
-import { get as dbGet, getAdminDatabase, ref as dbRef } from 'pyric/database';
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import { getActiveRules } from 'pyric/sandbox/database';
+import { getInternalEnv } from 'pyric/sandbox/internal';
 import { getBytes, getMetadata, ref as storageRef } from 'pyric/storage';
-import { applyData, applyRules, applyUsers } from '../../../src/bridge/surface/seed-apply.js';
-import { applyFixture, buildFixture } from '../../../src/bridge/surface/fixture.js';
+import {
+  getAdminStorageSandbox,
+  getStorageRulesResolution,
+} from 'pyric/storage/internal';
 
-describe('seed-apply (applyUsers, applyRules, applyData)', () => {
-  it('does not synthesize email or password for anonymous users unless explicitly supplied', async () => {
+import {
+  applyData,
+  applyRules,
+  applyUsers,
+} from '../../../src/bridge/surface/seed-apply.js';
+
+let nextSeedStorageSeq = 1;
+
+describe('seed-apply', () => {
+  it('applyUsers preserves profile metadata, timestamps, and anonymous accounts without synthesizing anonymous credentials unless explicit', () => {
     const sandbox = initializeSandbox();
     const seedSpy = spyOn(authSandbox, 'seedUsers');
     try {
       applyUsers(sandbox, [
-        { uid: 'anon-1', providerId: 'anonymous', customClaims: { guest: true } },
-        { uid: 'anon-explicit', providerId: 'anonymous', email: 'explicit@example.com', password: 'secret' },
-        { uid: 'member-1' },
+        {
+          uid: 'u1',
+          email: 'u1@example.test',
+          password: 'pw-1',
+          displayName: 'Alice Example',
+          photoUrl: 'https://example.test/u1.png',
+          phoneNumber: '+15550101',
+          emailVerified: true,
+          disabled: true,
+          customClaims: { role: 'owner' },
+          tenantId: 'org-1',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          lastLoginAt: '2026-01-02T00:00:00.000Z',
+        },
+        {
+          uid: 'anon-1',
+          providerId: 'anonymous',
+          displayName: 'Guest One',
+          photoUrl: 'https://example.test/guest.png',
+          customClaims: { tier: 'guest' },
+          tenantId: 'org-1',
+        },
+        {
+          uid: 'anon-explicit',
+          providerId: 'anonymous',
+          email: 'explicit@example.test',
+          password: 'secret',
+        },
+        {
+          uid: 'u2',
+        },
       ]);
 
       expect(seedSpy).toHaveBeenCalledTimes(1);
       const passedRecords = seedSpy.mock.calls[0]?.[1] ?? [];
-      expect(passedRecords[0]).toEqual({
-        uid: 'anon-1',
-        providerId: 'anonymous',
-        customClaims: { guest: true },
-      });
-      expect(Object.hasOwn(passedRecords[0] ?? {}, 'email')).toBe(false);
-      expect(Object.hasOwn(passedRecords[0] ?? {}, 'password')).toBe(false);
-
-      expect(passedRecords[1]).toEqual({
+      expect(Object.hasOwn(passedRecords[1] ?? {}, 'email')).toBe(false);
+      expect(Object.hasOwn(passedRecords[1] ?? {}, 'password')).toBe(false);
+      expect(passedRecords[2]).toEqual({
         uid: 'anon-explicit',
         providerId: 'anonymous',
-        email: 'explicit@example.com',
+        email: 'explicit@example.test',
         password: 'secret',
-      });
-
-      expect(passedRecords[2]).toEqual({
-        uid: 'member-1',
-        email: 'member-1@pyric.invalid',
-        password: 'seed-member-1',
       });
     } finally {
       seedSpy.mockRestore();
     }
 
-    const exported = authSandbox.exportUsers(getAuth(sandbox));
-    const anon1 = exported.find((u) => u.uid === 'anon-1');
-    expect(anon1?.providerId).toBe('anonymous');
-    expect(anon1?.email).toBeUndefined();
-    expect(anon1?.password).toBeUndefined();
-    expect(anon1?.customClaims).toEqual({ guest: true });
+    const auth = getAuth(sandbox);
+    const listed = authSandbox.listUsers(auth);
+    const exported = authSandbox.exportUsers(auth);
 
-    const source = initializeSandbox();
-    const { user: liveAnon } = await signInAnonymously(getAuth(source));
-    const fixture = await buildFixture(source);
-    const target = initializeSandbox();
-    await applyFixture(target, fixture);
-    const roundTripped = authSandbox.listUsers(getAuth(target)).find((u) => u.uid === liveAnon.uid);
-    expect(roundTripped?.isAnonymous).toBe(true);
-    expect(roundTripped?.email).toBeNull();
-    expect(roundTripped?.providerUserInfo).toEqual([]);
+    expect(listed.find((u) => u.uid === 'u1')).toMatchObject({
+      uid: 'u1',
+      email: 'u1@example.test',
+      displayName: 'Alice Example',
+      photoUrl: 'https://example.test/u1.png',
+      phoneNumber: '+15550101',
+      emailVerified: true,
+      disabled: true,
+      customClaims: { role: 'owner' },
+      tenantId: 'org-1',
+      isAnonymous: false,
+    });
+    const u1Export = exported.find((u) => u.uid === 'u1');
+    expect(u1Export?.createdAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(u1Export?.lastLoginAt).toBe('2026-01-02T00:00:00.000Z');
+
+    expect(listed.find((u) => u.uid === 'anon-1')).toMatchObject({
+      uid: 'anon-1',
+      email: null,
+      displayName: 'Guest One',
+      photoUrl: 'https://example.test/guest.png',
+      customClaims: { tier: 'guest' },
+      tenantId: 'org-1',
+      isAnonymous: true,
+      providerUserInfo: [],
+    });
+    const anonExport = exported.find((u) => u.uid === 'anon-1');
+    expect(anonExport?.providerId).toBe('anonymous');
+    expect(anonExport?.email).toBeUndefined();
+    expect(anonExport?.password).toBeUndefined();
+
+    const defaultExport = exported.find((u) => u.uid === 'u2');
+    expect(defaultExport?.email).toBe('u2@pyric.invalid');
+    expect(defaultExport?.password).toBe('seed-u2');
   });
 
-  it('captures syntax refusals from applyRules without throwing', async () => {
+  it('applyRules installs valid rules and retains existing rules when sources are refused', async () => {
     const sandbox = initializeSandbox();
-    const refusals = await applyRules(sandbox, {
-      firestoreRules: 'rules_version = "2"; invalid {{{',
-      databaseRules: JSON.stringify({ rules: { '.read': 'auth &&&' } }),
-      storageRules: 'service firebase.storage { invalid {{{ }',
+    const validFirestore = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /items/{id} { allow read: if true; }\n  }\n}`;
+    const validDatabase = JSON.stringify({ rules: { items: { '.read': true } } });
+    const validStorage = `rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /files/{uid}/{name} { allow read: if true; }\n  }\n}`;
+
+    const okRefusals = await applyRules(sandbox, {
+      firestoreRules: validFirestore,
+      databaseRules: validDatabase,
+      storageRules: validStorage,
     });
-    expect(refusals).toHaveLength(3);
+    expect(okRefusals).toEqual([]);
+    expect(getInternalEnv(sandbox).getRules()).toBe(validFirestore);
+    expect(getActiveRules(sandbox)).toEqual({ rules: { items: { '.read': true } } });
+    expect(getStorageRulesResolution(getAdminStorageSandbox(sandbox))?.source).toBe(validStorage);
+
+    const badRefusals = await applyRules(sandbox, {
+      firestoreRules: 'service broken {',
+      databaseRules: JSON.stringify({ rules: { items: { '.read': 'auth.uid ===' } } }),
+      storageRules: 'service broken {',
+    });
+    expect(badRefusals.length).toBe(3);
+    expect(getInternalEnv(sandbox).getRules()).toBe(validFirestore);
+    expect(getActiveRules(sandbox)).toEqual({ rules: { items: { '.read': true } } });
+    expect(getStorageRulesResolution(getAdminStorageSandbox(sandbox))?.source).toBe(validStorage);
   });
 
-  it('applies Firestore rich values, Realtime Database priority nodes, and Storage objects', async () => {
+  it('applyData merges rich Firestore, RTDB, Storage, and Auth entries without wiping sibling state', async () => {
     const sandbox = initializeSandbox();
-    await applyRules(sandbox, {
-      storageRules: `rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} { allow read, write: if true; }
-  }
-}`,
+    const adminDb = getAdminFirestore(sandbox);
+    await setDoc(doc(adminDb, 'orgs/existing'), { intact: true });
+    const adminRtdb = getAdminDatabase(sandbox);
+    await databaseSet(databaseRef(adminRtdb, 'orgs/existing'), { intact: true });
+    const adminStorage = getAdminStorageSandbox(sandbox, {
+      dbName: `pyric-seed-apply-test:${nextSeedStorageSeq++}`,
     });
+
     await applyData(sandbox, {
       users: [
         {
-          uid: 'user-1',
-          email: 'user@example.com',
-          password: 'password-1',
-          emailVerified: true,
-          displayName: 'User One',
-          disabled: false,
-          tenantId: 'org-a',
+          uid: 'u1',
+          email: 'u1@example.test',
+          displayName: 'Alice Example',
+          photoUrl: 'https://example.test/u1.png',
+          phoneNumber: '+15550101',
+        },
+        {
+          uid: 'anon-2',
+          providerId: 'anonymous',
+          displayName: 'Anonymous Visitor',
         },
       ],
       firestore: {
         'items/item-1': {
-          createdAt: new Timestamp(1700000000, 500).toJSON(),
+          createdAt: {
+            type: 'firestore/timestamp/1.0',
+            seconds: 1_700_000_000,
+            nanoseconds: 250_000_000,
+          },
           coords: new GeoPoint(40.0, -74.0).toJSON(),
-          payload: Bytes.fromUint8Array(new Uint8Array([9, 8, 7])).toJSON(),
-          owner: { __type: 'reference', path: 'users/user-1' },
+          payload: {
+            type: 'firestore/bytes/1.0',
+            bytes: btoa('ok'),
+          },
+          owner: { __type: 'reference', path: 'users/u1' },
         },
       },
       database: {
-        orgs: {
-          'org-1': { '.value': 'active', '.priority': 5 },
+        items: {
+          ranked: { '.value': 'gold', '.priority': 3 },
         },
       },
       storage: [
         {
-          path: 'docs/readme.txt',
-          contentBase64: Buffer.from('hello world', 'utf8').toString('base64'),
+          path: 'files/u1/doc.txt',
+          contentBase64: btoa('seeded-bytes'),
           contentType: 'text/plain',
-          customMetadata: { version: '1' },
+          customMetadata: { source: 'seed' },
         },
       ],
     });
 
-    const fsSnap = await getDoc(doc(getAdminFirestore(sandbox), 'items/item-1'));
-    const data = fsSnap.data()!;
-    expect(data.createdAt).toBeInstanceOf(Timestamp);
-    expect(data.coords).toBeInstanceOf(GeoPoint);
-    expect(data.payload).toBeInstanceOf(Bytes);
-    expect((data.owner as { path?: string }).path).toBe('users/user-1');
+    expect((await getDoc(doc(adminDb, 'orgs/existing'))).data()).toEqual({ intact: true });
+    expect((await databaseGet(databaseRef(adminRtdb, 'orgs/existing'))).val()).toEqual({
+      intact: true,
+    });
 
-    const rtdbSnap = await dbGet(dbRef(getAdminDatabase(sandbox), 'orgs/org-1'));
-    expect(rtdbSnap.val()).toBe('active');
-    expect(rtdbSnap.priority).toBe(5);
+    const itemData = (await getDoc(doc(adminDb, 'items/item-1'))).data()!;
+    expect(itemData.createdAt).toBeInstanceOf(Timestamp);
+    expect(itemData.coords).toBeInstanceOf(GeoPoint);
+    expect(itemData.payload).toBeInstanceOf(Bytes);
+    expect((itemData.owner as { path?: string }).path).toBe('users/u1');
 
-    const objRef = storageRef(getAdminStorageSandbox(sandbox), 'docs/readme.txt');
-    const bytes = await getBytes(objRef);
-    expect(Buffer.from(bytes).toString('utf8')).toBe('hello world');
-    const meta = await getMetadata(objRef);
+    const rankedSnap = await databaseGet(databaseRef(adminRtdb, 'items/ranked'));
+    expect(rankedSnap.val()).toBe('gold');
+    expect(rankedSnap.priority).toBe(3);
+
+    const fileRef = storageRef(adminStorage, 'files/u1/doc.txt');
+    const meta = await getMetadata(fileRef);
     expect(meta.contentType).toBe('text/plain');
-    expect(meta.customMetadata).toEqual({ version: '1' });
+    expect(meta.customMetadata).toEqual({ source: 'seed' });
+    const bytes = new Uint8Array(await getBytes(fileRef));
+    expect(new TextDecoder().decode(bytes)).toBe('seeded-bytes');
+
+    const users = authSandbox.listUsers(getAuth(sandbox));
+    expect(users.find((u) => u.uid === 'u1')).toMatchObject({
+      displayName: 'Alice Example',
+      photoUrl: 'https://example.test/u1.png',
+      phoneNumber: '+15550101',
+    });
+    expect(users.find((u) => u.uid === 'anon-2')).toMatchObject({
+      uid: 'anon-2',
+      email: null,
+      displayName: 'Anonymous Visitor',
+      isAnonymous: true,
+    });
   });
 });

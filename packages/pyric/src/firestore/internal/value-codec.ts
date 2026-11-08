@@ -33,7 +33,10 @@ import {
   trustedWireActivityValue,
 } from '../sandbox/activity-value-registry.js';
 import { registerQueryValue, registeredReferenceQueryValuePath } from '../sandbox/query-value-registry.js';
-export { registerReferenceQueryValue } from '../sandbox/query-value-registry.js';
+export {
+  registerReferenceQueryValue,
+  registeredReferenceQueryValuePath,
+} from '../sandbox/query-value-registry.js';
 export { requireDocumentData } from './document-data.js';
 export { assertEncodedDocValueDepth } from './value-depth.js';
 
@@ -118,7 +121,10 @@ const rulesValues: ValueConstructors = {
  */
 function base64UrlDecode(s: string): Uint8Array {
   const std = s.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = std.length % 4 === 0 ? '' : '='.repeat(4 - (std.length % 4));
+  let pad = '';
+  if (std.length % 4 !== 0) {
+    pad = '='.repeat(4 - (std.length % 4));
+  }
   const bin = atob(std + pad);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);

@@ -3,6 +3,8 @@
  * attack can target another user's real record) and the display names
  * users already sign their records with.
  */
+import { Timestamp as SdkTimestamp } from 'pyric/firestore';
+import { Timestamp as RulesTimestamp } from 'pyric/rules/internal';
 import { isWriteOp } from '../code/operation-specs.js';
 import type { AccessService, AccessSite, PayloadField } from '../code/types.js';
 import {
@@ -19,13 +21,137 @@ export interface StateRecord {
   data: unknown;
 }
 
+const DEFAULT_RESOURCE_KEY = '(default)';
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function decodeStateField(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => decodeStateField(item));
+  }
+  if (!isPlainObject(value)) return value;
+  if (
+    Object.hasOwn(value, 'type') &&
+    value.type === 'pyric/map/1.0' &&
+    Object.hasOwn(value, 'fields') &&
+    isPlainObject(value.fields)
+  ) {
+    const unwrapped: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value.fields)) {
+      unwrapped[key] = decodeStateField(entry);
+    }
+    return unwrapped;
+  }
+  if (
+    Object.hasOwn(value, 'type') &&
+    value.type === 'pyric/number/1.0' &&
+    Object.hasOwn(value, 'value')
+  ) {
+    if (value.value === 'NaN') return Number.NaN;
+    if (value.value === 'Infinity') return Number.POSITIVE_INFINITY;
+    if (value.value === '-Infinity') return Number.NEGATIVE_INFINITY;
+    if (value.value === '-0') return -0;
+  }
+  if (
+    Object.hasOwn(value, 'type') &&
+    value.type === 'firestore/timestamp/1.0' &&
+    typeof value.seconds === 'number'
+  ) {
+    let nanos = 0;
+    if (typeof value.nanoseconds === 'number') nanos = value.nanoseconds;
+    return new RulesTimestamp(value.seconds, nanos);
+  }
+  if (
+    Object.hasOwn(value, '__type') &&
+    value.__type === 'timestamp' &&
+    typeof value.seconds === 'number'
+  ) {
+    let nanos = 0;
+    if (typeof value.nanos === 'number') nanos = value.nanos;
+    return new RulesTimestamp(value.seconds, nanos);
+  }
+  const next: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    next[key] = decodeStateField(entry);
+  }
+  return next;
+}
+
+function decodeFirestoreRecord(raw: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  let topLevel: Readonly<Record<string, unknown>> = raw;
+  if (
+    Object.hasOwn(raw, 'type') &&
+    raw.type === 'pyric/map/1.0' &&
+    Object.hasOwn(raw, 'fields') &&
+    isPlainObject(raw.fields)
+  ) {
+    topLevel = raw.fields;
+  }
+  const decoded: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(topLevel)) {
+    decoded[key] = decodeStateField(entry);
+  }
+  return decoded;
+}
+
+export function effectiveFirestoreDocs(
+  state: WorldState | undefined,
+): Record<string, Record<string, unknown>> {
+  if (!state) return {};
+  if (state.firestore !== undefined) {
+    const out: Record<string, Record<string, unknown>> = {};
+    for (const [rawPath, docData] of Object.entries(state.firestore)) {
+      const cleanPath = rawPath.replace(/^\/+|\/+$/g, '');
+      if (cleanPath.length === 0) continue;
+      out[cleanPath] = decodeFirestoreRecord(docData);
+    }
+    return out;
+  }
+  const snapshotDocs = state.snapshot?.firestore[DEFAULT_RESOURCE_KEY];
+  if (!snapshotDocs) return {};
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [rawPath, encoded] of Object.entries(snapshotDocs)) {
+    const cleanPath = rawPath.replace(/^\/+|\/+$/g, '');
+    if (cleanPath.length === 0) continue;
+    out[cleanPath] = decodeFirestoreRecord(encoded);
+  }
+  return out;
+}
+
+function unwrapRtdbPriorities(node: unknown): unknown {
+  if (node === null || typeof node !== 'object' || Array.isArray(node)) return node;
+  const record = node as Record<string, unknown>;
+  if (Object.hasOwn(record, '.value')) {
+    return unwrapRtdbPriorities(record['.value']);
+  }
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (key === '.priority') continue;
+    clean[key] = unwrapRtdbPriorities(value);
+  }
+  return clean;
+}
+
+export function effectiveRtdbTree(state: WorldState | undefined): unknown {
+  if (!state) return undefined;
+  if (state.rtdb !== undefined) return unwrapRtdbPriorities(state.rtdb);
+  if (state.snapshot && Object.hasOwn(state.snapshot.rtdb, DEFAULT_RESOURCE_KEY)) {
+    return unwrapRtdbPriorities(state.snapshot.rtdb[DEFAULT_RESOURCE_KEY]);
+  }
+  return undefined;
+}
+
 /** Records in the seed whose path matches a template (variables match any key). */
 export function recordsAt(service: AccessService, template: string, state: WorldState | undefined): StateRecord[] {
   if (!state || service === 'storage') return [];
   const pattern = parseResourcePattern(service, template);
   if (service === 'firestore') {
     const out: StateRecord[] = [];
-    for (const [path, data] of Object.entries(state.firestore ?? {})) {
+    for (const [path, data] of Object.entries(effectiveFirestoreDocs(state))) {
       if (!matchesConcrete(pattern, path)) continue;
       const segs = path.replace(/^\/+/, '').split('/').filter((s) => s.length > 0);
       out.push({ path: segs.join('/'), data });
@@ -52,7 +178,7 @@ export function recordsAt(service: AccessService, template: string, state: World
     }
     for (const [k, v] of Object.entries(obj)) walk(v, depth + 1, [...path, k]);
   };
-  walk(state.rtdb, 0, []);
+  walk(effectiveRtdbTree(state), 0, []);
   return out;
 }
 
@@ -115,12 +241,25 @@ export function attributionValuesAt(site: AccessSite, field: string, state: Worl
     .filter((v): v is string => typeof v === 'string');
 }
 
+function isTimestampValue(v: unknown): boolean {
+  if (v instanceof SdkTimestamp || v instanceof RulesTimestamp || v instanceof Date) {
+    return true;
+  }
+  if (v === null || typeof v !== 'object' || Array.isArray(v) || isPlainObject(v)) {
+    return false;
+  }
+  const candidate = v as { seconds?: unknown; nanoseconds?: unknown; nanos?: unknown };
+  if (typeof candidate.seconds !== 'number') return false;
+  return typeof candidate.nanoseconds === 'number' || typeof candidate.nanos === 'number';
+}
+
 function kindOf(v: unknown): PayloadField['kind'] {
   if (v === null) return 'null';
   if (Array.isArray(v)) return 'array';
   if (typeof v === 'string') return 'string';
   if (typeof v === 'number') return 'number';
   if (typeof v === 'boolean') return 'boolean';
+  if (isTimestampValue(v)) return 'serverTimestamp';
   if (typeof v === 'object') return 'object';
   return 'unknown';
 }
@@ -136,15 +275,19 @@ function kindOf(v: unknown): PayloadField['kind'] {
 export function sitesFromState(state: WorldState | undefined, uids: string[]): AccessSite[] {
   const byTemplate = new Map<string, { site: AccessSite; docs: number; fieldValues: Map<string, Set<unknown>> }>();
   const users = new Set(uids);
-  for (const [rawPath, data] of Object.entries(state?.firestore ?? {})) {
+  for (const [rawPath, data] of Object.entries(effectiveFirestoreDocs(state))) {
     const segs = rawPath.replace(/^\/+/, '').split('/');
     if (segs.length % 2 !== 0 || !data || typeof data !== 'object') continue;
     const vars: NonNullable<AccessSite['pathVariables']> = [];
     const template = segs
       .map((s, i) => {
         if (i % 2 === 0) return s;
-        const name = users.has(s) ? 'uid' : `${segs[i - 1].replace(/s$/, '')}Id`;
-        vars.push(users.has(s) ? { name, auth: [{ source: 'auth.uid', certainty: 'exact' }] } : { name });
+        if (users.has(s)) {
+          vars.push({ name: 'uid', auth: [{ source: 'auth.uid', certainty: 'exact' }] });
+          return '{uid}';
+        }
+        const name = `${segs[i - 1].replace(/s$/, '')}Id`;
+        vars.push({ name });
         return `{${name}}`;
       })
       .join('/');
@@ -205,7 +348,7 @@ export function sitesFromState(state: WorldState | undefined, uids: string[]): A
  * absent or when no seeded item under `${s.path}/$itemId` carries a known uid.
  */
 export function rtdbReadOnlySitesFromState(sites: AccessSite[], state: WorldState | undefined, uids: string[]): AccessSite[] {
-  if (!state?.rtdb || uids.length === 0) return [];
+  if (effectiveRtdbTree(state) === undefined || uids.length === 0) return [];
   const users = new Set(uids);
   const out: AccessSite[] = [];
   const seen = new Set<string>();

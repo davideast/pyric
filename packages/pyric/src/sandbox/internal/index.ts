@@ -375,3 +375,33 @@ export {
   type DiagnosticFailPolicy,
   type DiagnosticSeverity,
 } from './assurance-diagnostic.js';
+export {
+  decodeBase64ToBytes,
+  decodeSnapshotMap,
+  decodeSnapshotMapForEnv,
+  encodeBytesToBase64,
+  encodeSnapshotMap,
+  encodeSnapshotValue,
+  type EncodedMap,
+  type ReferenceDecoder,
+} from './snapshot-value-codec.js';
+export {
+  DEFAULT_SNAPSHOT_RESOURCE,
+  captureSandboxSnapshot,
+  forkSandbox,
+  restoreSandboxSnapshot,
+  summarizeSandboxSnapshot,
+  type AuthInspectionSummary,
+  type AuthUserSummaryEntry,
+  type CaptureSnapshotOptions,
+  type DatabaseInspectionSummary,
+  type FirestoreInspectionSummary,
+  type MultiServiceInspectionSummary,
+  type RestoreSnapshotOptions,
+  type SandboxSnapshot,
+  type SnapshotStorageObject,
+  type SnapshotUserRecord,
+  type StorageInspectionSummary,
+  type StorageObjectSummaryEntry,
+  type SummarizeSnapshotOptions,
+} from './snapshot-codec.js';

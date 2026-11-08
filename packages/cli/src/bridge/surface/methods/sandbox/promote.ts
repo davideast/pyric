@@ -40,7 +40,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'promote(branch, confirm)',
-  description: 'Land the branch on live, then delete it. The clock does not move.',
+  description: 'Land branch on live and delete it.',
   args: z.object({
     branch: branchName,
     confirm: z
@@ -61,7 +61,10 @@ export default {
       await promote(loaded.branch, ctx.sandbox);
     } catch (error) {
       loaded.branch.sandbox.dispose();
-      const reason = error instanceof Error ? error.message : String(error);
+      let reason = String(error);
+      if (error instanceof Error) {
+        reason = error.message;
+      }
       return operationFailure(
         `Promoting branch '${name}' failed partway through: ${reason}. The live sandbox is back to what it held before the call, and the branch is still there to promote again.`,
       );

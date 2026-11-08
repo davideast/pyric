@@ -45,7 +45,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `activity(since?, pattern?: ${PATTERNS.join('|')})`,
-  description: 'Report repeated reads, duplicate listeners and listener churn in Firestore.',
+  description: 'Report Firestore read and listener churn.',
   args: z.object({
     since: z.string().optional().describe('A prior event id; keep only incidents with newer evidence.'),
     pattern: z.enum(PATTERNS).optional(),
@@ -53,8 +53,14 @@ export default {
   operation: 'list_sandbox_activity',
   example: {},
   async handler(args, ctx) {
-    const since = typeof args.since === 'string' ? args.since : undefined;
-    const pattern = typeof args.pattern === 'string' ? args.pattern : undefined;
+    let since: string | undefined;
+    if (typeof args.since === 'string') {
+      since = args.since;
+    }
+    let pattern: string | undefined;
+    if (typeof args.pattern === 'string') {
+      pattern = args.pattern;
+    }
 
     const history = ctx.sandbox.history();
     const feed = historyFeed(history);

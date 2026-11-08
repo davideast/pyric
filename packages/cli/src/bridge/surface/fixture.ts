@@ -3,27 +3,20 @@
  * loads one back on top of live state.
  *
  * A fixture is the same shape `sandbox.seed` already accepts (`SandboxSeed`),
- * which is also the shape the evaluation harness seeds a task with. Loading a
- * fixture goes through the same two functions `seed` calls, `applyRules` and
- * `applyData`, so there is one code path for "apply this state to a sandbox"
- * rather than a second loader beside the one `seed` already has.
- *
- * This is a different envelope from `pyric snapshot`'s `PyricStateFile`
- * (`packages/cli/src/cli/snapshot.ts`), which stores Firestore's own
- * persistence-controller blob rather than plain JSON documents. Unifying the
- * two fixture formats is a tracked design item, not done here; `seedFromFixture`
- * reads the shape `exportFixture` writes.
+ * which is also the shape the evaluation harness seeds a task with. Exporting a
+ * fixture captures a canonical `SandboxSnapshot` (preserving Firestore SDK
+ * value types, RTDB priorities, Storage metadata, and Auth user records), and
+ * loading a fixture applies rules and merges data onto the live sandbox via
+ * `applyRules` and `applyData`.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { getInternalEnv } from 'pyric/sandbox/internal';
-import { getActiveRules as getDatabaseRules } from 'pyric/sandbox/database';
-import { snapshotDocuments } from 'pyric/sandbox/firestore';
-import { getAdminDatabase, get as databaseGet, ref as databaseRef } from 'pyric/database';
-import { getAdminStorageSandbox, getStorageRulesResolution } from 'pyric/storage/internal';
-import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import type { LocalSandbox } from 'pyric/sandbox';
-import { FIXTURE_EXPORT_DOCUMENT, exportStorage } from './storage-state.js';
+import {
+  DEFAULT_SNAPSHOT_RESOURCE,
+  captureSandboxSnapshot,
+} from 'pyric/sandbox/internal';
+import { FIXTURE_EXPORT_DOCUMENT } from './storage-state.js';
 import {
   applyData,
   applyRules,
@@ -37,61 +30,70 @@ export async function buildFixture(
   sandbox: LocalSandbox,
   excludePasswords = false,
 ): Promise<SandboxSeed> {
-  const firestore = snapshotDocuments(sandbox);
-  const database = (await databaseGet(databaseRef(getAdminDatabase(sandbox)))).exportVal() as
-    | Record<string, unknown>
-    | null;
-  const storage = await exportStorage(getAdminStorageSandbox(sandbox), FIXTURE_EXPORT_DOCUMENT);
-  const users: SeedUserEntry[] = authSandbox.exportUsers(getAuth(sandbox)).map((user) => {
+  const snapshot = await captureSandboxSnapshot(sandbox, {
+    excludePasswords,
+    inlineStorageDocument: FIXTURE_EXPORT_DOCUMENT,
+  });
+
+  const users: SeedUserEntry[] = snapshot.auth.users.map((user) => {
     const record: SeedUserEntry = { uid: user.uid };
     if (user.email !== undefined) record.email = user.email;
-    if (user.emailVerified !== undefined) record.emailVerified = user.emailVerified;
     if (user.displayName !== undefined) record.displayName = user.displayName;
     if (user.photoUrl !== undefined) record.photoUrl = user.photoUrl;
     if (user.phoneNumber !== undefined) record.phoneNumber = user.phoneNumber;
-    if (user.disabled !== undefined) record.disabled = user.disabled;
-    if (user.customClaims !== undefined) record.customClaims = user.customClaims;
-    if (user.tenantId !== undefined) record.tenantId = user.tenantId;
     if (user.providerId !== undefined) record.providerId = user.providerId;
+    if (user.emailVerified !== undefined) record.emailVerified = user.emailVerified;
+    if (user.disabled !== undefined) record.disabled = user.disabled;
+    if (user.customClaims !== undefined) {
+      record.customClaims = structuredClone(user.customClaims) as Record<string, unknown>;
+    }
+    if (user.tenantId !== undefined) record.tenantId = user.tenantId;
     if (user.createdAt !== undefined) record.createdAt = user.createdAt;
     if (user.lastLoginAt !== undefined) record.lastLoginAt = user.lastLoginAt;
     if (!excludePasswords && user.password !== undefined) record.password = user.password;
     return record;
   });
 
-  const storageEntries: SeedStorageEntry[] = storage.map((object) => {
-    const entry: SeedStorageEntry = { path: object.path, contentBase64: object.contentBase64 };
+  const defaultStorage = snapshot.storage[DEFAULT_SNAPSHOT_RESOURCE] ?? [];
+  const storageEntries: SeedStorageEntry[] = defaultStorage.map((object) => {
+    const entry: SeedStorageEntry = {
+      path: object.path,
+      contentBase64: object.contentBase64,
+    };
     if (object.contentType !== undefined) entry.contentType = object.contentType;
-    const custom = customMetadataOf(object.metadata);
-    if (custom !== null) entry.customMetadata = custom;
+    if (object.customMetadata !== undefined) {
+      entry.customMetadata = { ...object.customMetadata };
+    }
     return entry;
   });
 
+  const firestoreDocs: Record<string, Record<string, unknown>> = {};
+  const capturedDocs = snapshot.firestore[DEFAULT_SNAPSHOT_RESOURCE] ?? {};
+  for (const [path, encodedDoc] of Object.entries(capturedDocs)) {
+    firestoreDocs[path] = { ...encodedDoc };
+  }
+
   const fixture: SandboxSeed = {
-    firestoreRules: getInternalEnv(sandbox).getRules(),
+    firestoreRules: snapshot.rules.firestore?.[DEFAULT_SNAPSHOT_RESOURCE] ?? '',
     users,
-    firestore,
+    firestore: firestoreDocs,
     storage: storageEntries,
   };
-  if (database !== null && database !== undefined) fixture.database = database;
-  const databaseRules = getDatabaseRules(sandbox);
-  if (databaseRules !== null) fixture.databaseRules = JSON.stringify(databaseRules);
-  const storageRules = getStorageRulesResolution(getAdminStorageSandbox(sandbox))?.source;
+
+  const defaultDatabase = snapshot.rtdb[DEFAULT_SNAPSHOT_RESOURCE];
+  if (
+    defaultDatabase !== null &&
+    defaultDatabase !== undefined &&
+    typeof defaultDatabase === 'object' &&
+    !Array.isArray(defaultDatabase)
+  ) {
+    fixture.database = defaultDatabase as Record<string, unknown>;
+  }
+  const databaseRules = snapshot.rules.rtdb?.[DEFAULT_SNAPSHOT_RESOURCE];
+  if (databaseRules !== undefined) fixture.databaseRules = databaseRules;
+  const storageRules = snapshot.rules.storage?.[DEFAULT_SNAPSHOT_RESOURCE];
   if (storageRules !== undefined) fixture.storageRules = storageRules;
   return fixture;
-}
-
-/** Storage custom metadata is a string map; a value of another type is not one. */
-function customMetadataOf(metadata: Record<string, unknown>): Record<string, string> | null {
-  const entries: Record<string, string> = {};
-  let found = false;
-  for (const [key, value] of Object.entries(metadata)) {
-    if (typeof value !== 'string') continue;
-    entries[key] = value;
-    found = true;
-  }
-  if (!found) return null;
-  return entries;
 }
 
 /** Write a fixture to `path`, creating its parent directory. */

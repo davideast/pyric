@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { isConcretePayload } from '../../../src/assurance-surface/probes/fixtures.js';
+import { getAdminDatabase, ref as rtdbRef, setWithPriority } from 'pyric/database';
+import { doc, getAdminFirestore, setDoc } from 'pyric/firestore';
+import { initializeSandbox } from 'pyric/sandbox';
+import { captureSandboxSnapshot } from 'pyric/sandbox/internal';
+import type { AccessSite } from '../../../src/assurance-surface/code/types.js';
+import { concretePath, isConcretePayload } from '../../../src/assurance-surface/probes/fixtures.js';
+import type { ProbeActor } from '../../../src/assurance-surface/probes/types.js';
 
 describe('isConcretePayload', () => {
   test('treats optional unknown fields as non-concrete while allowing optional determined kinds', () => {
@@ -56,5 +62,57 @@ describe('isConcretePayload', () => {
         ],
       }),
     ).toBe(true);
+  });
+});
+
+describe('concretePath', () => {
+  const actor: ProbeActor = {
+    role: 'owner',
+    uid: 'u-alice',
+    email: 'alice@probe.local',
+    displayName: 'Alice',
+    token: {},
+  };
+
+  test('resolves non-leaf segment keys from WorldState.snapshot and leading-slash state.firestore identically', async () => {
+    const fsSite: AccessSite = {
+      service: 'firestore',
+      op: 'setDoc',
+      path: 'orgs/{orgId}/items/{itemId}',
+      source: 'items.ts:10',
+      resolution: 'resolved',
+      pathVariables: [{ name: 'orgId' }, { name: 'itemId' }],
+    };
+    const rtdbSite: AccessSite = {
+      service: 'rtdb',
+      op: 'set',
+      path: 'orgs/$orgId/items/$itemId',
+      source: 'items.ts:20',
+      resolution: 'resolved',
+      pathVariables: [{ name: 'orgId' }, { name: 'itemId' }],
+    };
+
+    const sandbox = initializeSandbox();
+    try {
+      await setDoc(doc(getAdminFirestore(sandbox), 'orgs/acme/items/i-1'), { ok: true });
+      await setWithPriority(
+        rtdbRef(getAdminDatabase(sandbox), 'orgs/acme'),
+        { items: { i1: { ok: true } } },
+        5,
+      );
+      const snapshot = await captureSandboxSnapshot(sandbox);
+
+      expect(
+        concretePath(fsSite, actor, {
+          state: { firestore: { '/orgs/acme/items/i-1': { ok: true } } },
+        }),
+      ).toBe('orgs/acme/items/v-itemId');
+      expect(concretePath(fsSite, actor, { state: { snapshot } })).toBe('orgs/acme/items/v-itemId');
+      expect(concretePath(rtdbSite, actor, { state: { snapshot } })).toBe(
+        'orgs/acme/items/v-itemId',
+      );
+    } finally {
+      sandbox.dispose();
+    }
   });
 });

@@ -23,12 +23,14 @@ export interface Sentinel {
 export interface ProbeStep {
   actor: 'owner' | 'peer' | 'admin';
   service: AccessService;
-  /** RTDB `set`/`update`/`remove`/`get`; Firestore `create`/`set`/`update`/`delete`/`get`. */
+  /** RTDB `set`/`update`/`remove`/`get`; Firestore/Storage `create`/`set`/`update`/`delete`/`get`. */
   method: 'set' | 'update' | 'remove' | 'create' | 'delete' | 'get';
   /** Concrete path, no leading slash. */
   path: string;
   data?: unknown;
   merge?: boolean;
+  contentType?: string;
+  customMetadata?: Record<string, string>;
 }
 
 export type FindingKind =

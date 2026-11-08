@@ -8,10 +8,11 @@ import { parseResourcePattern } from '../../sandbox/internal/index.js';
 import { ProbeWorld, type WorldRules, type WorldState } from './world.js';
 import type { Finding, Probe, ProbeActor, ProbeResult, StepResult } from './types.js';
 
-/** Rules available to probes: one Firestore ruleset and any number of RTDB rulesets (instances, shards). */
+/** Rules available to probes: one Firestore ruleset, any number of RTDB rulesets (instances, shards), and optional Storage rules. */
 export interface ProbeRules {
   firestore?: string;
   rtdb: unknown[];
+  storage?: string;
 }
 
 /** How deep a path reaches into an RTDB rules tree (literal keys first, then a `$` wildcard). */
@@ -54,10 +55,18 @@ function sampleProbePath(probe: Probe): string {
 }
 
 function worldRules(probe: Probe, rules: ProbeRules): WorldRules | undefined {
-  if (probe.service === 'firestore') return rules.firestore ? { firestore: rules.firestore } : undefined;
+  if (probe.service === 'firestore') {
+    if (!rules.firestore) return undefined;
+    return { firestore: rules.firestore };
+  }
+  if (probe.service === 'storage') {
+    if (!rules.storage) return undefined;
+    return { storage: rules.storage };
+  }
   const concrete = probe.attack.path || Object.keys((probe.attack.data as object) ?? {})[0] || '';
   const rtdb = rtdbRulesFor(rules, concrete || sampleProbePath(probe));
-  return rtdb ? { rtdb } : undefined;
+  if (!rtdb) return undefined;
+  return { rtdb };
 }
 
 export async function runProbe(probe: Probe, rules: ProbeRules, actors: ProbeActor[], state: WorldState = {}): Promise<ProbeResult | undefined> {
@@ -68,7 +77,9 @@ export async function runProbe(probe: Probe, rules: ProbeRules, actors: ProbeAct
   try {
     world = new ProbeWorld(wr, actors, state);
   } catch (e) {
-    return { probe, outcome: 'invalid', reason: `engine error: ${e instanceof Error ? e.message : String(e)}`, steps };
+    let detail = String(e);
+    if (e instanceof Error) detail = e.message;
+    return { probe, outcome: 'invalid', reason: `engine error: ${detail}`, steps };
   }
   try {
     for (const step of probe.seed) {
@@ -79,12 +90,19 @@ export async function runProbe(probe: Probe, rules: ProbeRules, actors: ProbeAct
     for (const step of probe.setup) {
       const r = await world.run(step);
       steps.push(r);
-      if (r.decision !== 'allow') return { probe, outcome: 'invalid', reason: `setup ${step.actor} ${step.method} ${step.path} was ${r.decision === 'deny' ? 'denied' : `an error: ${r.message}`}`, steps };
+      if (r.decision !== 'allow') {
+        let why = `an error: ${r.message}`;
+        if (r.decision === 'deny') why = 'denied';
+        return { probe, outcome: 'invalid', reason: `setup ${step.actor} ${step.method} ${step.path} was ${why}`, steps };
+      }
     }
     const r = await world.run(probe.attack);
     steps.push(r);
     if (r.decision === 'error') return { probe, outcome: 'invalid', reason: `engine error: ${r.message}`, steps };
-    if (probe.expect === 'deny') return { probe, outcome: r.decision === 'allow' ? 'hit' : 'clean', steps };
+    if (probe.expect === 'deny') {
+      const outcome = r.decision === 'allow' ? 'hit' : 'clean';
+      return { probe, outcome, steps };
+    }
     if (r.decision === 'allow') return { probe, outcome: 'clean', steps };
     if (probe.inconclusiveOnDeny) return { probe, outcome: 'invalid', reason: probe.inconclusiveOnDeny, steps };
     return { probe, outcome: 'hit', steps };

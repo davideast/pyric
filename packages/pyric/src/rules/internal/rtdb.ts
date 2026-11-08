@@ -120,6 +120,7 @@ export {
   defineRtdbRules,
 } from '../rtdb/constraints/index.js';
 export { checkRtdbRules, normalizeSimulationInput } from '../rtdb/constraints/document.js';
+export { withPriorities, type InlinePriority } from '../rtdb/data/normalize.js';
 export { rtdbRulesSourceRejection } from '../rtdb/source-rejection.js';
 export { toStrictRulesJson } from '../rtdb/rules-text.js';
 export type { RtdbRulesSourceRejection } from '../rtdb/source-rejection.js';

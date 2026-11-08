@@ -6,6 +6,7 @@
  */
 import type { AccessService, AccessSite, PayloadField, PayloadShape } from '../code/types.js';
 import { parseResourcePattern } from '../../sandbox/internal/index.js';
+import { effectiveFirestoreDocs, effectiveRtdbTree } from './state.js';
 import type { ProbeActor, Sentinel } from './types.js';
 import type { WorldState } from './world.js';
 
@@ -57,8 +58,14 @@ export function concretePath(site: AccessSite, actor: ProbeActor, options: FillO
     }
   }
 
+  let fsKeys: string[] = [];
+  if (options.state && site.service === 'firestore') {
+    fsKeys = Object.keys(effectiveFirestoreDocs(options.state));
+  }
   let currentState: unknown = undefined;
-  if (options.state && site.service === 'rtdb') currentState = options.state.rtdb;
+  if (options.state && site.service === 'rtdb') {
+    currentState = effectiveRtdbTree(options.state);
+  }
 
   for (let i = 0; i < parsed.length; i++) {
     const seg = parsed[i];
@@ -83,11 +90,11 @@ export function concretePath(site: AccessSite, actor: ProbeActor, options: FillO
         if (options.state && site.service === 'firestore') {
           let prefix = '';
           if (outSegments.length > 0) prefix = `${outSegments.join('/')}/`;
-          const fsKeys = Object.keys(options.state.firestore ?? {});
-          for (const k of fsKeys) {
+          for (const rawKey of fsKeys) {
+            const k = rawKey.replace(/^\/+|\/+$/g, '');
             if (k.startsWith(prefix)) {
               const remainder = k.slice(prefix.length).split('/');
-              if (remainder.length > 0) {
+              if (remainder.length > 0 && remainder[0]!.length > 0) {
                 seedKey = remainder[0];
                 break;
               }

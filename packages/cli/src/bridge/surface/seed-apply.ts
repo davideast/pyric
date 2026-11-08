@@ -1,13 +1,12 @@
 /**
- * Apply a typed seed to a sandbox, through the public sandbox surfaces the
- * product exposes rather than a raw snapshot restore.
+ * Apply a typed seed to a sandbox, merging onto its live state via the
+ * canonical `SandboxSnapshot` restoration pipeline.
  *
  * This is the one implementation of "what a seed does to a sandbox." The eval
- * harness seeds a fresh sandbox with it before a run starts, and the
- * `sandbox.seed` operation calls the same two functions against the live
- * sandbox, so a task's seed and an agent's own seed call are one shape and one
- * code path. `SandboxSeed` is that one shape: the harness's `EvalSeed` is an
- * alias of it rather than a second declaration of the same fields.
+ * harness seeds a fresh sandbox with it before a run starts, `sandbox.seed`
+ * calls the same two functions against the live sandbox, and `applyFixture`
+ * restores `ValueCodec`-tagged or plain JSON `SandboxSeed` documents through
+ * the same path.
  *
  * Ordering matters. The database default policy is stateful and every write
  * is evaluated against whatever ruleset is in force, so rules are applied
@@ -16,12 +15,16 @@
 import { parseRtdbRulesText } from '../../rtdb/rules-json.js';
 import { loadDatabaseRules } from './database-rules-load.js';
 import type { LocalSandbox } from 'pyric/sandbox';
-import { getAdminFirestore, doc, setDoc } from 'pyric/firestore';
-import { decodeDocValue } from 'pyric/firestore/internal/value-codec';
-import { getAdminDatabase, ref as databaseRef, set as databaseSet } from 'pyric/database';
+import {
+  DEFAULT_SNAPSHOT_RESOURCE,
+  decodeBase64ToBytes,
+  restoreSandboxSnapshot,
+  type SandboxSnapshot,
+  type SnapshotStorageObject,
+  type SnapshotUserRecord,
+} from 'pyric/sandbox/internal';
 import { getAdminStorageSandbox, replaceStorageRules } from 'pyric/storage/internal';
-import { ref as storageRef, uploadBytes } from 'pyric/storage';
-import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { getAuth, sandbox as authSandbox, type SeedUser } from 'pyric/auth';
 import { loadFirestoreRules } from './firestore-rules-load.js';
 import { rememberUnloadedStorageRules } from './storage-rules.js';
 
@@ -29,14 +32,14 @@ import { rememberUnloadedStorageRules } from './storage-rules.js';
 export interface SeedUserEntry {
   uid: string;
   email?: string;
-  emailVerified?: boolean;
   displayName?: string;
   photoUrl?: string;
   phoneNumber?: string;
+  providerId?: string;
+  emailVerified?: boolean;
   disabled?: boolean;
   customClaims?: Record<string, unknown>;
   tenantId?: string;
-  providerId?: string;
   createdAt?: string;
   lastLoginAt?: string | null;
   /**
@@ -83,6 +86,47 @@ function seedPassword(uid: string): string {
   return `seed-${uid}`;
 }
 
+function normalizeSeedUser(user: SeedUserEntry): SnapshotUserRecord {
+  const record: {
+    uid: string;
+    email?: string;
+    password?: string;
+    displayName?: string;
+    photoUrl?: string;
+    phoneNumber?: string;
+    providerId?: string;
+    emailVerified?: boolean;
+    disabled?: boolean;
+    customClaims?: Record<string, unknown>;
+    tenantId?: string;
+    createdAt?: string;
+    lastLoginAt?: string | null;
+  } = {
+    uid: user.uid,
+  };
+  if (user.providerId === 'anonymous') {
+    record.providerId = 'anonymous';
+    if (user.email !== undefined) record.email = user.email;
+    if (user.password !== undefined) record.password = user.password;
+  } else {
+    record.email = seedEmail(user.uid, user.email);
+    record.password = user.password ?? seedPassword(user.uid);
+    if (user.providerId !== undefined) record.providerId = user.providerId;
+  }
+  if (user.displayName !== undefined) record.displayName = user.displayName;
+  if (user.photoUrl !== undefined) record.photoUrl = user.photoUrl;
+  if (user.phoneNumber !== undefined) record.phoneNumber = user.phoneNumber;
+  if (user.emailVerified !== undefined) record.emailVerified = user.emailVerified;
+  if (user.disabled !== undefined) record.disabled = user.disabled;
+  if (user.customClaims !== undefined) {
+    record.customClaims = { ...user.customClaims };
+  }
+  if (user.tenantId !== undefined) record.tenantId = user.tenantId;
+  if (user.createdAt !== undefined) record.createdAt = user.createdAt;
+  if (user.lastLoginAt !== undefined) record.lastLoginAt = user.lastLoginAt;
+  return record;
+}
+
 /**
  * Write user records into the auth pool. `seedUsers` is the only entry point
  * that carries a tenant onto a stored record, so every seeded identity goes
@@ -94,27 +138,33 @@ export function applyUsers(sandbox: LocalSandbox, users: readonly SeedUserEntry[
   const auth = getAuth(sandbox);
   authSandbox.seedUsers(
     auth,
-    users.map((user) => {
-      const record: Parameters<typeof authSandbox.seedUsers>[1][number] = {
-        uid: user.uid,
-      };
-      if (user.providerId === 'anonymous') {
-        if (user.email !== undefined) record.email = user.email;
-        if (user.password !== undefined) record.password = user.password;
-      } else {
-        record.email = seedEmail(user.uid, user.email);
-        record.password = user.password ?? seedPassword(user.uid);
+    users.map((user): SeedUser => {
+      const normalized = normalizeSeedUser(user);
+      const record: SeedUser = { uid: normalized.uid };
+      if (normalized.email !== undefined) record.email = normalized.email;
+      if (normalized.password !== undefined) record.password = normalized.password;
+      if (normalized.displayName !== undefined) record.displayName = normalized.displayName;
+      if (normalized.photoUrl !== undefined) record.photoUrl = normalized.photoUrl;
+      if (normalized.phoneNumber !== undefined) record.phoneNumber = normalized.phoneNumber;
+      if (normalized.providerId !== undefined) record.providerId = normalized.providerId;
+      if (normalized.emailVerified !== undefined) {
+        record.emailVerified = normalized.emailVerified;
       }
-      if (user.emailVerified !== undefined) record.emailVerified = user.emailVerified;
-      if (user.displayName !== undefined) record.displayName = user.displayName;
-      if (user.photoUrl !== undefined) record.photoUrl = user.photoUrl;
-      if (user.phoneNumber !== undefined) record.phoneNumber = user.phoneNumber;
-      if (user.disabled !== undefined) record.disabled = user.disabled;
-      if (user.customClaims !== undefined) record.customClaims = user.customClaims;
-      if (user.tenantId !== undefined) record.tenantId = user.tenantId;
-      if (user.providerId !== undefined) record.providerId = user.providerId;
-      if (user.createdAt !== undefined) record.createdAt = user.createdAt;
-      if (user.lastLoginAt !== undefined) record.lastLoginAt = user.lastLoginAt;
+      if (normalized.disabled !== undefined) {
+        record.disabled = normalized.disabled;
+      }
+      if (normalized.customClaims !== undefined) {
+        record.customClaims = { ...normalized.customClaims };
+      }
+      if (normalized.tenantId !== undefined) {
+        record.tenantId = normalized.tenantId;
+      }
+      if (normalized.createdAt !== undefined) {
+        record.createdAt = normalized.createdAt;
+      }
+      if (normalized.lastLoginAt !== undefined) {
+        record.lastLoginAt = normalized.lastLoginAt;
+      }
       return record;
     }),
   );
@@ -138,7 +188,11 @@ export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Prom
     } catch (error) {
       getAdminStorageSandbox(sandbox);
       rememberUnloadedStorageRules(sandbox, storageRules);
-      refusals.push(error instanceof Error ? error.message : String(error));
+      if (error instanceof Error) {
+        refusals.push(error.message);
+      } else {
+        refusals.push(String(error));
+      }
     }
   }
   const databaseRules = seed.databaseRules;
@@ -157,31 +211,41 @@ export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Prom
 
 /** Load the data a seed carries: users, documents, database tree, storage objects. */
 export async function applyData(sandbox: LocalSandbox, seed: SandboxSeed): Promise<void> {
-  applyUsers(sandbox, seed.users ?? []);
-
-  const documents = seed.firestore ?? {};
-  const db = getAdminFirestore(sandbox);
-  const references = { create: (refPath: string) => doc(db, refPath) };
-  for (const [path, data] of Object.entries(documents)) {
-    const decoded = decodeDocValue(data, references) as Record<string, unknown>;
-    await setDoc(doc(db, path), decoded);
+  const users = (seed.users ?? []).map(normalizeSeedUser);
+  const rtdb: Record<string, unknown> = {};
+  if (seed.database !== undefined) {
+    rtdb[DEFAULT_SNAPSHOT_RESOURCE] = seed.database;
   }
-
-  const tree = seed.database;
-  if (tree !== undefined) {
-    const rtdb = getAdminDatabase(sandbox);
-    for (const [key, value] of Object.entries(tree)) {
-      await databaseSet(databaseRef(rtdb, `/${key}`), value);
-    }
+  const storage: Record<string, readonly SnapshotStorageObject[]> = {};
+  const rawObjects = seed.storage ?? [];
+  if (rawObjects.length > 0) {
+    storage[DEFAULT_SNAPSHOT_RESOURCE] = rawObjects.map((object) => {
+      const bytes = decodeBase64ToBytes(object.contentBase64);
+      const entry: {
+        path: string;
+        contentBase64: string;
+        size: number;
+        contentType?: string;
+        customMetadata?: Record<string, string>;
+      } = {
+        path: object.path,
+        contentBase64: object.contentBase64,
+        size: bytes.byteLength,
+      };
+      if (object.contentType !== undefined) entry.contentType = object.contentType;
+      if (object.customMetadata !== undefined) {
+        entry.customMetadata = { ...object.customMetadata };
+      }
+      return entry;
+    });
   }
-
-  const objects = seed.storage ?? [];
-  const storage = getAdminStorageSandbox(sandbox);
-  for (const object of objects) {
-    const bytes = Uint8Array.from(Buffer.from(object.contentBase64, 'base64'));
-    const metadata: { contentType?: string; customMetadata?: Record<string, string> } = {};
-    if (object.contentType !== undefined) metadata.contentType = object.contentType;
-    if (object.customMetadata !== undefined) metadata.customMetadata = object.customMetadata;
-    await uploadBytes(storageRef(storage, object.path), bytes, metadata);
-  }
+  const snapshot: SandboxSnapshot = {
+    version: 1,
+    rules: {},
+    auth: { users },
+    firestore: { [DEFAULT_SNAPSHOT_RESOURCE]: seed.firestore ?? {} },
+    rtdb,
+    storage,
+  };
+  await restoreSandboxSnapshot(sandbox, snapshot, { merge: true });
 }

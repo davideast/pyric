@@ -1,14 +1,25 @@
-import type { ToolHandler } from 'pyric/sandbox/internal';
+import type { ToolHandler } from "pyric/sandbox/internal";
+import type { AssuranceAttachmentProvider } from "./attachment.js";
+import { publishAssuranceVisualization } from "./browser.js";
 import {
   AuthorizationCampaign,
   createAuthorizationCampaign,
 } from "./campaign.js";
-import { publishAssuranceVisualization } from "./browser.js";
-import type { AssuranceAttachmentProvider } from "./attachment.js";
+import {
+  actorSchema,
+  campaignParameters,
+  invariantSchema,
+  mutationSchema,
+  observationSchema,
+  probeSchema,
+  redactCampaignExport,
+  resultError,
+  rulesSchema,
+  targetSchema,
+} from "./tools-schemas.js";
 import {
   AssuranceInputError,
   type AssuranceActor,
-  type CampaignExport,
   type AssuranceObservation,
   type AssuranceProbe,
   type AssuranceVisualizationSnapshot,
@@ -46,8 +57,9 @@ export class AssuranceCampaignStore {
     listener: (campaign: AssuranceVisualizationSnapshot) => void,
   ): () => void {
     this.#listeners.add(listener);
-    for (const campaign of this.#campaigns.values())
+    for (const campaign of this.#campaigns.values()) {
       listener(campaign.visualization());
+    }
     return () => this.#listeners.delete(listener);
   }
 }
@@ -62,322 +74,16 @@ export interface AssuranceToolDeps {
 
 let generatedCampaignId = 0;
 
-const jsonRecordSchema = {
-  type: "object",
-  additionalProperties: true,
-};
-
-const firestoreOperationSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    service: { const: "firestore" },
-    method: {
-      enum: ["get", "list", "create", "set", "merge", "update", "delete"],
-    },
-    path: { type: "string", minLength: 1 },
-    data: jsonRecordSchema,
-    query: jsonRecordSchema,
-  },
-  required: ["service", "method", "path"],
-};
-
-const rtdbOperationSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    service: { const: "rtdb" },
-    method: { enum: ["get", "set", "update", "remove"] },
-    path: { type: "string", minLength: 1 },
-    data: {},
-    query: jsonRecordSchema,
-  },
-  required: ["service", "method", "path"],
-};
-
-const storageOperationSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    service: { const: "storage" },
-    method: { enum: ["get", "list", "upload", "updateMetadata", "delete"] },
-    path: { type: "string", minLength: 1 },
-    dataBase64: { type: "string" },
-    contentType: { type: "string" },
-    customMetadata: {
-      type: "object",
-      additionalProperties: { type: "string" },
-    },
-  },
-  required: ["service", "method", "path"],
-};
-
-const operationSchema = {
-  oneOf: [
-    firestoreOperationSchema,
-    rtdbOperationSchema,
-    storageOperationSchema,
-  ],
-};
-
-const actorSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: { type: "string", minLength: 1 },
-    acquisition: {
-      oneOf: [
-        {
-          type: "object",
-          additionalProperties: false,
-          properties: { kind: { const: "anonymous-request" } },
-          required: ["kind"],
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          properties: { kind: { const: "anonymous-account" } },
-          required: ["kind"],
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            kind: { const: "password" },
-            email: { type: "string", minLength: 1 },
-            password: { type: "string", minLength: 1 },
-          },
-          required: ["kind", "email", "password"],
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            kind: { const: "fixture-user" },
-            uid: { type: "string", minLength: 1 },
-          },
-          required: ["kind", "uid"],
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            kind: { const: "synthetic" },
-            uid: { type: "string", minLength: 1 },
-            token: jsonRecordSchema,
-          },
-          required: ["kind", "uid"],
-        },
-      ],
-    },
-  },
-  required: ["id", "acquisition"],
-};
-
-const invariantSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: { type: "string", minLength: 1 },
-    statement: { type: "string", minLength: 1 },
-    service: { enum: ["firestore", "rtdb", "storage", "cross-service"] },
-    expected: { enum: ["ALLOW", "DENY"] },
-    source: {
-      enum: ["declared", "authored-test", "captured", "derived", "agent"],
-    },
-    confidence: { enum: ["authoritative", "strong", "tentative"] },
-  },
-  required: ["id", "statement", "service", "expected", "source", "confidence"],
-};
-
-const observationSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: { type: "string", minLength: 1 },
-    actorId: { type: "string", minLength: 1 },
-    operation: operationSchema,
-    result: { const: "ALLOW" },
-    source: { enum: ["captured", "authored", "discovered"] },
-    description: { type: "string" },
-  },
-  required: ["id", "actorId", "operation", "result", "source"],
-};
-
-const mutationSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: { type: "string", minLength: 1 },
-    dimension: { enum: ["path", "query", "payload", "operation"] },
-    description: { type: "string", minLength: 1 },
-    operation: operationSchema,
-  },
-  required: ["dimension", "description", "operation"],
-};
-
-const probeSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    id: { type: "string", minLength: 1 },
-    actorId: { type: "string", minLength: 1 },
-    invariantId: { type: "string", minLength: 1 },
-    control: operationSchema,
-    mutation: mutationSchema,
-    requires: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          kind: { enum: ["construct", "registry-row"] },
-          id: { type: "string", minLength: 1 },
-        },
-        required: ["kind", "id"],
-      },
-    },
-  },
-  required: ["id", "actorId", "invariantId", "control", "mutation"],
-};
-
-const rulesSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    firestore: { type: "string" },
-    rtdb: {
-      type: "object",
-      additionalProperties: false,
-      properties: { rules: jsonRecordSchema },
-      required: ["rules"],
-    },
-    storage: { type: "string" },
-  },
-};
-
-const targetSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    schema: { const: "pyric.assurance.target.v1" },
-    network: { const: "forbid" },
-    rules: rulesSchema,
-    state: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        firestore: jsonRecordSchema,
-        rtdb: {},
-        storage: {
-          type: "array",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              path: { type: "string", minLength: 1 },
-              dataBase64: { type: "string" },
-              contentType: { type: "string" },
-              customMetadata: {
-                type: "object",
-                additionalProperties: { type: "string" },
-              },
-            },
-            required: ["path", "dataBase64"],
-          },
-        },
-        auth: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            users: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  uid: { type: "string", minLength: 1 },
-                  email: {
-                    oneOf: [{ type: "string" }, { type: "null" }],
-                  },
-                  password: { type: "string" },
-                  emailVerified: { type: "boolean" },
-                  disabled: { type: "boolean" },
-                  customClaims: jsonRecordSchema,
-                },
-                required: ["uid"],
-              },
-            },
-          },
-          required: ["users"],
-        },
-      },
-    },
-  },
-  required: ["schema", "network", "rules", "state"],
-};
-
-function resultError(error: unknown): {
-  ok: false;
-  summary: string;
-  data?: { code: string };
-} {
-  return {
-    ok: false,
-    summary: error instanceof Error ? error.message : String(error),
-    ...(error instanceof AssuranceInputError
-      ? { data: { code: error.code } }
-      : {}),
-  };
-}
-
-function campaignParameters(
-  extra: Record<string, unknown> = {},
-): ToolHandler["parameters"] {
-  return {
-    type: "object",
-    properties: {
-      campaignId: { type: "string", minLength: 1 },
-      ...extra,
-    },
-    required: ["campaignId"],
-  };
-}
-
-function redactCampaignExport(bundle: CampaignExport) {
-  const auth = bundle.campaign.target.state.auth;
-  const actors = bundle.campaign.actors.map((actor) =>
-    actor.acquisition.kind === "password"
-      ? {
-          ...actor,
-          acquisition: { ...actor.acquisition, password: "[REDACTED]" },
-        }
-      : actor,
-  );
-  const target = {
-    ...bundle.campaign.target,
-    state: {
-      ...bundle.campaign.target.state,
-      ...(auth
-        ? {
-            auth: {
-              users: auth.users.map((user) => {
-                const { password: _password, ...safe } = user;
-                return safe;
-              }),
-            },
-          }
-        : {}),
-    },
-  };
-  return {
-    ...bundle,
-    campaign: { ...bundle.campaign, target, actors },
-    redactions: [
-      "campaign.target.state.auth.users[].password",
-      "campaign.actors[].acquisition.password",
-    ],
-  };
+function configuredServices(
+  rules: LocalFirebaseTarget["rules"],
+): Array<"firestore" | "rtdb" | "storage"> {
+  const services: Array<"firestore" | "rtdb" | "storage"> = [];
+  if (rules.firestore !== undefined) services.push("firestore");
+  if (rules.rtdb !== undefined || rules.rtdbInstances !== undefined) {
+    services.push("rtdb");
+  }
+  if (rules.storage !== undefined) services.push("storage");
+  return services;
 }
 
 export function createAssuranceTools(
@@ -414,6 +120,10 @@ export function createAssuranceTools(
           const attached = await deps.attachmentProvider({ url: input.url });
           const campaignId =
             input.campaignId ?? `assurance-${++generatedCampaignId}`;
+          const safety: { network: "forbid"; maxRuns?: number } = {
+            network: "forbid",
+          };
+          if (input.maxRuns !== undefined) safety.maxRuns = input.maxRuns;
           const campaign = createAuthorizationCampaign({
             id: campaignId,
             target: attached.target,
@@ -424,18 +134,11 @@ export function createAssuranceTools(
                 coverageGaps: attached.coverageGaps,
               },
             },
-            safety: {
-              network: "forbid",
-              ...(input.maxRuns !== undefined
-                ? { maxRuns: input.maxRuns }
-                : {}),
-            },
+            safety,
           });
           store.create(campaign);
           store.publish(campaign);
-          const services = (["firestore", "rtdb", "storage"] as const).filter(
-            (service) => attached.target.rules[service] !== undefined,
-          );
+          const services = configuredServices(attached.target.rules);
           const visualizationUrl = new URL(attached.source.studioUrl);
           visualizationUrl.searchParams.set("campaign", campaignId);
           return {
@@ -496,21 +199,18 @@ export function createAssuranceTools(
         try {
           const campaignId =
             input.campaignId ?? `assurance-${++generatedCampaignId}`;
+          const safety: { network: "forbid"; maxRuns?: number } = {
+            network: "forbid",
+          };
+          if (input.maxRuns !== undefined) safety.maxRuns = input.maxRuns;
           const campaign = createAuthorizationCampaign({
             id: campaignId,
             target: input.target,
-            safety: {
-              network: "forbid",
-              ...(input.maxRuns !== undefined
-                ? { maxRuns: input.maxRuns }
-                : {}),
-            },
+            safety,
           });
           store.create(campaign);
           store.publish(campaign);
-          const services = (["firestore", "rtdb", "storage"] as const).filter(
-            (service) => input.target.rules[service] !== undefined,
-          );
+          const services = configuredServices(input.target.rules);
           return {
             ok: true,
             summary: `Started local-only campaign '${campaignId}' for ${services.join(", ") || "no configured services"}`,
@@ -588,8 +288,9 @@ export function createAssuranceTools(
         };
         try {
           const campaign = store.get(input.campaignId);
-          for (const invariant of input.invariants ?? [])
+          for (const invariant of input.invariants ?? []) {
             campaign.addInvariant(invariant);
+          }
           store.publish(campaign);
           const count = campaign.spec().invariants.length;
           return {
@@ -658,20 +359,19 @@ export function createAssuranceTools(
           const campaign = store.get(input.campaignId);
           const report = await campaign.run(input.probeIds);
           store.publish(campaign);
+          let nextActions = [
+            "Inspect engine and coverage gaps before expanding mutations.",
+          ];
+          if (report.summary.localCounterexamples > 0) {
+            nextActions = [
+              "Inspect and minimize local counterexamples.",
+              "Test a candidate rules change with exported cases.",
+            ];
+          }
           return {
             ok: true,
             summary: `Ran ${report.summary.probes} probe(s): ${report.summary.localCounterexamples} local counterexample(s), ${report.summary.engineGaps} engine gap(s)`,
-            data: {
-              ...report,
-              nextActions: report.summary.localCounterexamples
-                ? [
-                    "Inspect and minimize local counterexamples.",
-                    "Test a candidate rules change with exported cases.",
-                  ]
-                : [
-                    "Inspect engine and coverage gaps before expanding mutations.",
-                  ],
-            },
+            data: { ...report, nextActions },
           };
         } catch (error) {
           return resultError(error);
@@ -690,6 +390,13 @@ export function createAssuranceTools(
         const input = args as { campaignId: string; probeId: string };
         try {
           const result = store.get(input.campaignId).inspect(input.probeId);
+          let nextActions = ["Review its qualification and evidence."];
+          if (result.classification === "local-counterexample") {
+            nextActions = [
+              "Minimize this counterexample.",
+              "Open its rule decision in Studio.",
+            ];
+          }
           return {
             ok: true,
             summary: `${input.probeId}: ${result.classification}`,
@@ -700,13 +407,7 @@ export function createAssuranceTools(
                 campaignId: input.campaignId,
                 probeId: input.probeId,
               },
-              nextActions:
-                result.classification === "local-counterexample"
-                  ? [
-                      "Minimize this counterexample.",
-                      "Open its rule decision in Studio.",
-                    ]
-                  : ["Review its qualification and evidence."],
+              nextActions,
             },
           };
         } catch (error) {
@@ -728,11 +429,13 @@ export function createAssuranceTools(
           const campaign = store.get(input.campaignId);
           const result = await campaign.minimize(input.probeId);
           store.publish(campaign);
+          let summary = `'${input.probeId}' is already minimal for the v1 payload reducer`;
+          if (result.changed) {
+            summary = `Minimized '${input.probeId}' by removing ${result.removedPayloadFields.length} field(s)`;
+          }
           return {
             ok: true,
-            summary: result.changed
-              ? `Minimized '${input.probeId}' by removing ${result.removedPayloadFields.length} field(s)`
-              : `'${input.probeId}' is already minimal for the v1 payload reducer`,
+            summary,
             data: {
               ...result,
               nextActions: [
@@ -766,13 +469,18 @@ export function createAssuranceTools(
         };
         try {
           const campaign = store.get(input.campaignId);
-          const report = await campaign.verifyRules({
-            rules: input.rules,
-            ...(input.includeCandidates !== undefined
-              ? { includeCandidates: input.includeCandidates }
-              : {}),
-            ...(input.verificationId ? { id: input.verificationId } : {}),
-          });
+          const verifyOptions: {
+            rules: LocalFirebaseTarget["rules"];
+            includeCandidates?: boolean;
+            id?: string;
+          } = { rules: input.rules };
+          if (input.includeCandidates !== undefined) {
+            verifyOptions.includeCandidates = input.includeCandidates;
+          }
+          if (input.verificationId) {
+            verifyOptions.id = input.verificationId;
+          }
+          const report = await campaign.verifyRules(verifyOptions);
           store.publish(campaign);
           const passed =
             report.summary.controlsPassed === report.summary.probes &&
@@ -780,11 +488,19 @@ export function createAssuranceTools(
             report.summary.localCounterexamples === 0 &&
             report.summary.engineGaps === 0 &&
             report.summary.invalidProbes === 0;
+          let summary = `Candidate rules did not fully verify: ${report.summary.controlsPassed}/${report.summary.probes} controls passed and ${report.summary.noCounterexamples}/${report.summary.probes} negative cases were denied`;
+          let nextActions = [
+            "Inspect verification results before changing or reporting the candidate rules.",
+          ];
+          if (passed) {
+            summary = `Candidate rules preserved ${report.summary.controlsPassed} control(s) and denied ${report.summary.noCounterexamples} negative case(s)`;
+            nextActions = [
+              "Export the campaign and verified regression cases.",
+            ];
+          }
           return {
             ok: true,
-            summary: passed
-              ? `Candidate rules preserved ${report.summary.controlsPassed} control(s) and denied ${report.summary.noCounterexamples} negative case(s)`
-              : `Candidate rules did not fully verify: ${report.summary.controlsPassed}/${report.summary.probes} controls passed and ${report.summary.noCounterexamples}/${report.summary.probes} negative cases were denied`,
+            summary,
             data: {
               ...report,
               verified: passed,
@@ -793,11 +509,7 @@ export function createAssuranceTools(
                 campaignId: input.campaignId,
                 verificationId: report.campaignId,
               },
-              nextActions: passed
-                ? ["Export the campaign and verified regression cases."]
-                : [
-                    "Inspect verification results before changing or reporting the candidate rules.",
-                  ],
+              nextActions,
             },
           };
         } catch (error) {
