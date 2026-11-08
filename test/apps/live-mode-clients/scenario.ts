@@ -20,6 +20,12 @@
  * Firestore reads follow the select (`[data-rates-from]`): the writer's are
  * fewer than every client's, and signed-out calls have none.
  *
+ * Studio's Traffic, on the same host, scopes its rows with its own "From"
+ * select by the same rule: profile B's client lists only profile B's rows,
+ * the reader lists only the reader's. Every row lays its cells on one grid,
+ * and a row opens in place on its source (the client's label) and its
+ * account.
+ *
  * The host's health report (`/__pyric/health`) names each client by its
  * script: a server job still running by its entry script relative to its
  * working directory (`server.mjs`), and the app's service worker, which
@@ -318,6 +324,50 @@ export default scenario(async (app) => {
     assert.ok(writer > 0 && writer < every, `the writer's reads ${writer} of ${every}`);
     assert.equal(await reads('signed-out'), 0);
     await chip.locator('[data-traffic-display=requests]').click();
+  });
+
+  await app.step("Studio's Traffic scopes its rows with the From select, and an expanded row names its source and account", async () => {
+    const profileB = events.find((event) => event.caller?.kind === 'page' && event.auth?.uid === WRITER)!.caller!;
+    const captured = await allEvents(host.url);
+    const fromProfileB = new Set(ids(captured.filter((event) => event.caller?.kind === 'page' && event.caller.clientId === profileB.clientId)));
+    const asReader = new Set(ids(captured.filter((event) => event.auth?.uid === READER)));
+
+    // Studio's pages ask two web font hosts for their stylesheets; answer them empty, offline.
+    const context = await app.browser();
+    const fontHosts = /^https:\/\/(use\.typekit\.net|fonts\.googleapis\.com)\//;
+    await context.route(fontHosts, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+    const studio = await app.page(`${host.url}/__pyric/ui/traffic`);
+    const from = studio.locator('[data-pyric-traffic-from]');
+    await from.waitFor({ timeout: 30_000 });
+    const listed = () => studio.locator('.traffic__log [data-pyric-traffic-id]').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-pyric-traffic-id') ?? ''));
+    const everyRow = await eventually(listed, (rows) => rows.some((id) => fromProfileB.has(id)) && rows.some((id) => !fromProfileB.has(id)), "Studio's rows from every client");
+
+    await from.selectOption(`client:page:${profileB.clientId}`);
+    const profileBRows = await eventually(listed, (rows) => rows.length > 0 && rows.length < everyRow.length, "Studio's rows from profile B");
+    for (const id of profileBRows) assert.ok(fromProfileB.has(id), `Studio's row ${id} is not profile B's`);
+
+    await from.selectOption(`user:${READER}`);
+    const readerRows = await eventually(listed, (rows) => rows.length > 0 && rows.every((id) => asReader.has(id)), "Studio's rows as the reader");
+    assert.ok(readerRows.every((id) => !fromProfileB.has(id)), 'a reader row came from profile B');
+
+    // Every row lays its cells on the same grid columns.
+    const lefts = await studio.locator('.traffic__log [data-pyric-traffic-row]').evaluateAll((rows) => rows.map((row) => [...row.children].map((cell) => Math.round(cell.getBoundingClientRect().left)).join(',')));
+    assert.equal(new Set(lefts).size, 1, `column edges differ by row: ${JSON.stringify(lefts)}`);
+
+    // Profile B's own row opens in place on its source and its account.
+    await from.selectOption(`client:page:${profileB.clientId}`);
+    const rowId = (await eventually(listed, (rows) => rows.length > 0 && rows.every((id) => fromProfileB.has(id)), "Studio's rows from profile B"))[0]!;
+    const row = studio.locator(`[data-pyric-traffic-id="${rowId}"] [data-pyric-traffic-row]`);
+    await row.click();
+    assert.equal(await row.getAttribute('aria-expanded'), 'true');
+    const fact = (name: string) => studio.locator(`[data-pyric-traffic-id="${rowId}"] [data-pyric-row-fact="${name}"] dd`).textContent();
+    const client = (await healthClients(host.url)).find((entry) => entry.kind === 'browser' && entry.clientId === profileB.clientId) as (HealthClient & { email?: string }) | undefined;
+    assert.ok(client, "profile B in the host's clients");
+    const source = await fact('source');
+    if (client.label !== undefined) assert.ok(source?.includes(client.label), `source ${source} does not name ${client.label}`);
+    assert.ok([WRITER, client.email].includes(await fact('identity') ?? ''), `identity ${await fact('identity')}`);
+    await studio.close();
+    await context.unroute(fontHosts);
   });
 
   await app.step('the health report names a running server job and the service worker by their scripts', async () => {

@@ -91,6 +91,11 @@ export {
   CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, eventScope,
   type CallerSource, type EventScope, type ScopeClient, type ScopedEventFields,
 } from './caller-source.js';
+export {
+  AGENTS_SCOPE_LABEL, EVERY_CLIENT_SCOPE, LIVE_CLIENT_CALLER_KINDS, PAGE_SCOPE, clientScopeOptions, inClientScope, isAgentCall, keepChosenOption,
+  liveClientEmails, scopeClients, scopeFromValue, scopeValue, withClientLabel,
+  type ClientScope, type ScopeOption, type ScopeOptionNames, type ScopeOptions,
+} from './client-scope.js';
 export { storageGsPath } from './storage-gs-path.js';
 export { messagingRequestsLine } from './messaging-requests-line.js';
 export {

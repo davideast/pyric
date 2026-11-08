@@ -67,6 +67,8 @@ import {
 } from '../listeners/index.js';
 import { TRAFFIC_TABS, trafficTabForView, type TrafficTab } from './traffic-tabs.js';
 import { trafficTimeFocus, toggleTimeFocus } from './timeline-focus.js';
+import { FromSelect, LiveRowDetail, OutcomeCell, TargetCell, useFromScope } from './TrafficLiveRow.js';
+import { inFromScope, methodLabel } from './live-row.js';
 import './traffic.css';
 
 export type { TrafficTab } from './traffic-tabs.js';
@@ -294,6 +296,26 @@ function InspectedDetail({
   return <TrafficRulesInspector eventId={eventId} onClose={onClose} />;
 }
 
+/**
+ * An inspected op with no visible row, above the log: on a live host the
+ * row's own detail when the op is in the buffer, else the inspected detail.
+ */
+function StandaloneDetail({
+  eventId,
+  events,
+  live,
+  onClose,
+}: {
+  eventId: string;
+  events: readonly StudioTrafficEvent[];
+  live: ReturnType<typeof useLiveHost>;
+  onClose: () => void;
+}) {
+  const event = live === null ? undefined : events.find((candidate) => candidate.id === eventId);
+  if (event !== undefined) return <LiveRowDetail event={event} live={live} onClose={onClose} />;
+  return <InspectedDetail eventId={eventId} events={events} onClose={onClose} />;
+}
+
 /** The URL-driven inspector focus (`?inspect=<id>`): the inspected op's id, or
  *  null. Read reactively so back/forward and palette deep links drive it. */
 function useInspectParam(): string | null {
@@ -316,14 +338,22 @@ export function TrafficSurface() {
   const [tab, setTab] = useTrafficTab();
   const drilledListener = useDrilledListener();
   const [hideStudio, toggleHideStudio] = useHideStudio();
+  const liveHost = useLiveHost();
+  const isLiveHost = liveHost !== null;
+  const [fromScope, setFromScope] = useFromScope();
   // The Studio filter applies UPSTREAM of everything — timeline buckets,
   // counts, verdict filtering, AND the metrics tabs' aggregations — so
-  // "hide Studio traffic" means the numbers agree with the rows.
-  const events = useMemo(
+  // "hide Studio traffic" means the numbers agree with the rows. On a live
+  // host the "From" scope applies there too.
+  const withoutStudio = useMemo(
     () => filterStudioTraffic(allEvents, hideStudio),
     [allEvents, hideStudio],
   );
-  const hiddenStudioCount = allEvents.length - events.length;
+  const events = useMemo(
+    () => (isLiveHost ? inFromScope(withoutStudio, fromScope) : withoutStudio),
+    [withoutStudio, isLiveHost, fromScope],
+  );
+  const hiddenStudioCount = allEvents.length - withoutStudio.length;
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
   const [timeFocus, setTimeFocus] = useState<TimeWindow | null>(null);
   const expandedId = useInspectParam();
@@ -385,14 +415,18 @@ export function TrafficSurface() {
   const denied = events.filter((e) => e.result === 'deny').length;
 
   const verdictBadge = (event: StudioTrafficEvent) => <VerdictCell event={event} />;
+  const outcomeCell = (event: StudioTrafficEvent) => <OutcomeCell event={event} />;
+  const targetCell = (event: StudioTrafficEvent) => <TargetCell event={event} />;
 
   // The row's navigation semantic: a RULES-EVALUATED row (allow or deny)
   // expands in place into the rules inspector — the rules decision IS
   // Traffic's detail; its subject link would hide the why. Admin-bypass and
   // blank-verdict rows have no rules decision to inspect, so they keep the
   // C3 drill-in to the record the op touched.
+  // On a live host every row expands in place: who sent it and as whom
+  // live in its detail, with the record link among its actions.
   const onRowSelect = (e: StudioTrafficEvent) => {
-    if (opensDetail(e)) {
+    if (isLiveHost || opensDetail(e)) {
       openInspect(e.id);
       return;
     }
@@ -423,6 +457,14 @@ export function TrafficSurface() {
             {t.label}
           </button>
         ))}
+        {isLiveHost ? (
+          <FromSelect
+            value={fromScope}
+            onChange={setFromScope}
+            clients={liveHost.clients ?? []}
+            events={allEvents}
+          />
+        ) : null}
         <button
           type="button"
           className="traffic__hide-studio"
@@ -536,10 +578,11 @@ export function TrafficSurface() {
               pagination fold, folded into a group, or absent from the buffer):
               the inspector renders standalone above the log. */}
           {expandedId && !expandedRowVisible ? (
-            <InspectedDetail
+            <StandaloneDetail
               key={expandedId}
               eventId={expandedId}
               events={events}
+              live={liveHost}
               onClose={closeInspect}
             />
           ) : null}
@@ -595,16 +638,36 @@ export function TrafficSurface() {
                       data-pyric-traffic-id={item.event.id}
                       data-verdict={verdictFor(item.event as StudioTrafficEvent) ?? undefined}
                     >
-                      <TrafficRow
-                        event={item.event}
-                        selected={item.event.id === expandedId}
-                        onSelect={(e) => onRowSelect(e as StudioTrafficEvent)}
-                        renderClassification={(event) =>
-                          verdictBadge(event as StudioTrafficEvent)
-                        }
-                        formatTime={defaultFormatTime}
-                      />
-                      {item.event.id === expandedId &&
+                      {isLiveHost ? (
+                        <TrafficRow
+                          event={item.event}
+                          selected={item.event.id === expandedId}
+                          expanded={item.event.id === expandedId}
+                          onSelect={(e) => onRowSelect(e as StudioTrafficEvent)}
+                          renderLead={(event) => targetCell(event as StudioTrafficEvent)}
+                          formatMethod={methodLabel}
+                          renderClassification={(event) => outcomeCell(event as StudioTrafficEvent)}
+                          formatTime={defaultFormatTime}
+                        />
+                      ) : (
+                        <TrafficRow
+                          event={item.event}
+                          selected={item.event.id === expandedId}
+                          onSelect={(e) => onRowSelect(e as StudioTrafficEvent)}
+                          renderClassification={(event) =>
+                            verdictBadge(event as StudioTrafficEvent)
+                          }
+                          formatTime={defaultFormatTime}
+                        />
+                      )}
+                      {item.event.id === expandedId && isLiveHost ? (
+                        <LiveRowDetail
+                          key={expandedId}
+                          event={item.event as StudioTrafficEvent}
+                          live={liveHost}
+                          onClose={closeInspect}
+                        />
+                      ) : item.event.id === expandedId &&
                       opensDetail(item.event as StudioTrafficEvent) ? (
                         <InspectedDetail
                           key={expandedId}
