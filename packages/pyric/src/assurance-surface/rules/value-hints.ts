@@ -6,21 +6,31 @@
  */
 import {
   parseToAST,
+  topLevelMatches,
   type Expression,
   type FunctionDef,
   type MatchBlock,
   type PathSegment,
 } from '../../rules/internal/index.js';
 import { parseRtdbExpressionTree, type RtdbExpressionTree } from '../../rules/internal/rtdb.js';
+import type { AccessService } from '../code/types.js';
 
 const MAX_INLINE_DEPTH = 8;
 
 /** A hinted value for a field at a rule path. `field` is `.` for the node's own value. */
 export interface ValueHint {
-  service: 'firestore' | 'rtdb';
+  service: AccessService;
   path: string;
   field: string;
   value: string | number | boolean;
+  wildcardBucket?: boolean;
+}
+
+/** Hints from a single parsed RTDB rule expression at `path`. */
+export function rtdbExpressionValueHints(tree: RtdbExpressionTree, path: string): ValueHint[] {
+  const out: ValueHint[] = [];
+  collectRtdb(tree, path, false, out);
+  return out;
 }
 
 /** Hints from RTDB rules: every positive `newData...val() == literal` comparison. */
@@ -154,6 +164,22 @@ function resolve(expr: Expression, scope: Scope): { expr: Expression; scope: Sco
   return cur;
 }
 
+/** Hints from a single Firestore `allow` condition at `docPath`. */
+export function firestoreAllowValueHints(
+  condition: Expression,
+  functions: readonly (readonly FunctionDef[])[],
+  docPath: string,
+): ValueHint[] {
+  const out: ValueHint[] = [];
+  const scope: Scope = {
+    vars: new Map(),
+    functions: functions.map((group) => [...group]),
+    depth: 0,
+  };
+  collectFs(condition, scope, docPath, false, out);
+  return out;
+}
+
 /** Hints from Firestore rules: positive `request.resource.data.x == literal` checks. */
 export function firestoreValueHints(source: string): ValueHint[] {
   const ast = parseToAST(source);
@@ -177,7 +203,9 @@ export function firestoreValueHints(source: string): ValueHint[] {
   for (const service of services) {
     if (!/firestore/.test(service.name)) continue;
     const baseFns: FunctionDef[][] = [ast.functions ?? [], service.functions ?? []];
-    walk(service.match, [], baseFns);
+    for (const topMatch of topLevelMatches(service)) {
+      walk(topMatch, [], baseFns);
+    }
   }
   return out;
 }

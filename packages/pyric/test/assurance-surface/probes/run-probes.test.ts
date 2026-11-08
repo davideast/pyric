@@ -1,7 +1,9 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
 import { runProbes } from '../../../src/assurance-surface/probes/run-probes.js';
 import { ownerConditionsFrom } from '../../../src/assurance-surface/rules/analyze-owners.js';
 import { inferOwnerBindings } from '../../../src/assurance-surface/rules/cross-check.js';
+import { extractSdkUsage } from '../../../src/assurance-surface/usage.js';
 import type { AccessSite } from '../../../src/assurance-surface/code/types.js';
 import type { RuleSources } from '../../../src/assurance-surface/rules/rule-sources.js';
 
@@ -239,6 +241,206 @@ service cloud.firestore {
           f.kind === 'must-allow-denied' &&
           f.op === 'delete' &&
           f.path === 'rooms/$roomId/call/sessions/$from/$to',
+      ),
+    ).toBe(true);
+  });
+
+  test('runs end-to-end Storage probes against named client buckets governed by unscoped wildcard /b/{bucket}/o rules', async () => {
+    const clientFiles = {
+      'src/upload.ts': [
+        "import 'fake-indexeddb/auto';",
+        "import { getAuth } from 'firebase/auth';",
+        "import { getStorage, ref, uploadBytes } from 'firebase/storage';",
+        'export async function uploadNamedBucketDoc(fileId: string, bytes: Uint8Array, tier: string) {',
+        '  const uid = getAuth().currentUser!.uid;',
+        "  const storage = getStorage(undefined, 'gs://my-app.firebasestorage.app');",
+        '  await uploadBytes(ref(storage, `files/${uid}/${fileId}`), bytes, {',
+        "    contentType: 'image/png',",
+        '    customMetadata: { tier },',
+        '  });',
+        '}',
+      ].join('\n'),
+    };
+    const accessSites = [...extractSdkUsage({ root: 'app', files: clientFiles }).operations];
+
+    const fixedRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{uid}/{fileId} {
+      allow read, create, update, delete: if request.auth != null
+        && request.auth.uid == uid
+        && (request.resource == null || (
+          request.resource.contentType.matches('image/.*')
+          && request.resource.metadata.tier == 'pro'
+        ));
+    }
+  }
+}`;
+    const fixedSources: RuleSources = {
+      firestore: [],
+      rtdb: [],
+      storage: [{ source: 'storage.rules', text: fixedRules }],
+      problems: [],
+    };
+    const fixedConditions = ownerConditionsFrom(fixedSources);
+    const fixedBindings = inferOwnerBindings(fixedConditions, accessSites);
+    const fixedReport = await runProbes({
+      accessSites,
+      ownerBindings: fixedBindings,
+      conditions: fixedConditions,
+      sources: fixedSources,
+    });
+    expect(fixedReport.probes.total).toBeGreaterThan(0);
+    expect(fixedReport.probes.invalid).toBe(0);
+    expect(fixedReport.findings).toEqual([]);
+
+    const buggyRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{uid}/{fileId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}`;
+    const buggySources: RuleSources = {
+      firestore: [],
+      rtdb: [],
+      storage: [{ source: 'storage.rules', text: buggyRules }],
+      problems: [],
+    };
+    const buggyConditions = ownerConditionsFrom(buggySources);
+    const buggyBindings = inferOwnerBindings(buggyConditions, accessSites);
+    const buggyReport = await runProbes({
+      accessSites,
+      ownerBindings: buggyBindings,
+      conditions: buggyConditions,
+      sources: buggySources,
+    });
+    expect(
+      buggyReport.findings.some(
+        (f) =>
+          f.service === 'storage'
+          && f.path === 'files/{uid}/{fileId}'
+          && f.kind === 'foreign-slot-write'
+          && f.status === 'proven',
+      ),
+    ).toBe(true);
+  });
+
+  test('evaluates updateMetadata must-allow-denied probes for MIME mismatches, update-only MIME seeds, and missing customMetadata', async () => {
+    const updateOnlyMimeRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /assets/{uid}/{assetId} {
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentType.matches('image/.*')
+        && 'reviewedBy' in request.resource.metadata;
+    }
+  }
+}`;
+    const sources: RuleSources = {
+      firestore: [],
+      rtdb: [],
+      storage: [{ source: 'storage.rules', text: updateOnlyMimeRules }],
+      problems: [],
+    };
+    const conditions = ownerConditionsFrom(sources);
+
+    // 1. Valid updateMetadata (omits contentType so seeded image/png is preserved, and passes reviewedBy) -> 0 findings, 0 invalid
+    const validSites = [
+      ...extractSdkUsage({
+        root: 'app',
+        files: {
+          'src/meta.ts': [
+            "import { getAuth } from 'firebase/auth';",
+            "import { getStorage, ref, updateMetadata } from 'firebase/storage';",
+            'export async function markReviewed(assetId: string) {',
+            '  const uid = getAuth().currentUser!.uid;',
+            '  await updateMetadata(ref(getStorage(), `assets/${uid}/${assetId}`), {',
+            '    customMetadata: { reviewedBy: uid },',
+            '  });',
+            '}',
+          ].join('\n'),
+        },
+      }).operations,
+    ];
+    const validReport = await runProbes({
+      accessSites: validSites,
+      ownerBindings: inferOwnerBindings(conditions, validSites),
+      conditions,
+      sources,
+    });
+    expect(validReport.probes.invalid).toBe(0);
+    expect(validReport.findings).toEqual([]);
+
+    // 2. Bad MIME on updateMetadata (application/pdf vs image/.*) -> must-allow-denied
+    const badMimeSites = [
+      ...extractSdkUsage({
+        root: 'app',
+        files: {
+          'src/bad-mime.ts': [
+            "import { getAuth } from 'firebase/auth';",
+            "import { getStorage, ref, updateMetadata } from 'firebase/storage';",
+            'export async function setPdfMime(assetId: string) {',
+            '  const uid = getAuth().currentUser!.uid;',
+            '  await updateMetadata(ref(getStorage(), `assets/${uid}/${assetId}`), {',
+            "    contentType: 'application/pdf',",
+            '    customMetadata: { reviewedBy: uid },',
+            '  });',
+            '}',
+          ].join('\n'),
+        },
+      }).operations,
+    ];
+    const badMimeReport = await runProbes({
+      accessSites: badMimeSites,
+      ownerBindings: inferOwnerBindings(conditions, badMimeSites),
+      conditions,
+      sources,
+    });
+    expect(
+      badMimeReport.findings.some(
+        (f) =>
+          f.service === 'storage'
+          && f.path === 'assets/{uid}/{assetId}'
+          && f.kind === 'must-allow-denied'
+          && f.op === 'update',
+      ),
+    ).toBe(true);
+
+    // 3. Missing customMetadata on updateMetadata (passes contentType: 'image/png' without customMetadata) -> must-allow-denied
+    const missingMetaSites = [
+      ...extractSdkUsage({
+        root: 'app',
+        files: {
+          'src/no-meta.ts': [
+            "import { getAuth } from 'firebase/auth';",
+            "import { getStorage, ref, updateMetadata } from 'firebase/storage';",
+            'export async function touchMimeOnly(assetId: string) {',
+            '  const uid = getAuth().currentUser!.uid;',
+            '  await updateMetadata(ref(getStorage(), `assets/${uid}/${assetId}`), {',
+            "    contentType: 'image/png',",
+            '  });',
+            '}',
+          ].join('\n'),
+        },
+      }).operations,
+    ];
+    const missingMetaReport = await runProbes({
+      accessSites: missingMetaSites,
+      ownerBindings: inferOwnerBindings(conditions, missingMetaSites),
+      conditions,
+      sources,
+    });
+    expect(
+      missingMetaReport.findings.some(
+        (f) =>
+          f.service === 'storage'
+          && f.path === 'assets/{uid}/{assetId}'
+          && f.kind === 'must-allow-denied'
+          && f.op === 'update',
       ),
     ).toBe(true);
   });

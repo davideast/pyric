@@ -101,6 +101,7 @@ export type ApiModule =
   | 'auth-hooks'
   | 'sandbox-firestore'
   | 'sandbox-rtdb'
+  | 'sandbox-storage'
   | 'rules-testing';
 
 /** Lexical bindings for parameters of an inlined call. */

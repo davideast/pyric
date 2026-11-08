@@ -8,17 +8,20 @@ describe('findEmbeddedRules', () => {
       'driver.ts': `
         import { setRules as setFs } from 'pyric/sandbox/firestore';
         import { setRules as setDb } from 'pyric/sandbox/database';
+        import { setRules as setSt } from 'pyric/sandbox/storage';
         export function init(sandbox: any) {
           const fsRules = \`rules_version = '2';\`;
           setFs(sandbox, fsRules);
           const dbRules = { rules: { presence: { $uid: { '.write': 'auth.uid === $uid' } } } };
           setDb(sandbox, dbRules);
+          setSt(sandbox, 'service firebase.storage {}');
         }
       `,
     });
     expect(findEmbeddedRules(h.ev, [h.file('driver.ts')], ROOT)).toEqual([
-      { service: 'firestore', source: 'driver.ts:6', rules: "rules_version = '2';" },
-      { service: 'rtdb', source: 'driver.ts:8', rules: { rules: { presence: { $uid: { '.write': 'auth.uid === $uid' } } } } },
+      { service: 'firestore', source: 'driver.ts:7', rules: "rules_version = '2';" },
+      { service: 'rtdb', source: 'driver.ts:9', rules: { rules: { presence: { $uid: { '.write': 'auth.uid === $uid' } } } } },
+      { service: 'storage', source: 'driver.ts:10', rules: 'service firebase.storage {}' },
     ]);
   });
 

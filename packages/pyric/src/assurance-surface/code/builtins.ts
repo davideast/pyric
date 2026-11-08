@@ -7,6 +7,7 @@ import ts from 'typescript';
 import type { Evaluator } from './evaluator.js';
 import { expressionName, hole } from './paths.js';
 import { ReferenceIndex } from './references.js';
+import { evalBinaryBuiltin } from './storage-upload.js';
 import { alternatives, authMarksOf, concatParts, definiteTruthiness, lit, literalText, union, type AVal, type Env, type StrPart } from './values.js';
 
 const MAX_OBJECT_ENTRIES = 25;
@@ -41,12 +42,16 @@ export function builtinCall(ev: Evaluator, node: ts.CallExpression | ts.NewExpre
       return { k: 'bool' };
     }
     if (callee.text === 'Date' && ts.isNewExpression(node)) return { k: 'num' };
+    const binary = evalBinaryBuiltin(ev, node, env);
+    if (binary) return binary;
     if (STRING_RESULTS.has(callee.text)) return { k: 'str', parts: [hole(callee.text)] };
     if (NUMBER_RESULTS.has(callee.text)) return { k: 'num' };
     return undefined;
   }
   if (!ts.isPropertyAccessExpression(callee)) return undefined;
   const method = callee.name.text;
+  const encoded = evalBinaryBuiltin(ev, node, env);
+  if (encoded) return encoded;
   if (method === 'getIdTokenResult') {
     const recvAlts = alternatives(ev.force(ev.eval(callee.expression, env)));
     const authUsers = recvAlts.filter((a): a is Extract<AVal, { k: 'authUser' }> => a.k === 'authUser');

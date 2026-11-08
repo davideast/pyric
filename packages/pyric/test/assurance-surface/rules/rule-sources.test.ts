@@ -37,4 +37,32 @@ describe('loadRuleSources', () => {
   test('parseRtdbRulesText accepts trailing commas', () => {
     expect(parseRtdbRulesText('{"rules":{"a":{".write":"auth != null",},},}')).toEqual({ rules: { a: { '.write': 'auth != null' } } });
   });
+
+  test('loads single and per-bucket storage rule entries from firebase.json', () => {
+    const stDir = mkdtempSync(join(tmpdir(), 'rule-sources-storage-'));
+    try {
+      writeFileSync(
+        join(stDir, 'firebase.json'),
+        JSON.stringify({
+          storage: [
+            { rules: 'storage.rules' },
+            { bucket: 'media-bucket', rules: 'media.storage.rules' },
+          ],
+        }),
+      );
+      writeFileSync(join(stDir, 'storage.rules'), "rules_version = '2'; service firebase.storage {}");
+      writeFileSync(join(stDir, 'media.storage.rules'), "rules_version = '2'; service firebase.storage {}");
+      const loaded = loadRuleSources(stDir);
+      expect(loaded.storage).toEqual([
+        { source: 'storage.rules', text: "rules_version = '2'; service firebase.storage {}" },
+        {
+          source: 'media.storage.rules',
+          bucket: 'media-bucket',
+          text: "rules_version = '2'; service firebase.storage {}",
+        },
+      ]);
+    } finally {
+      rmSync(stDir, { recursive: true, force: true });
+    }
+  });
 });

@@ -7,10 +7,14 @@
 // `firestore/instances.ts`, `database/instances.ts`, and `storage/service.ts`
 // check `instanceof SandboxImpl` / `SandboxContextImpl` against `pyric/sandbox`,
 // so `initializeSandbox` and internal snapshot helpers share that module identity.
-import { initializeSandbox, type AuthState, type LocalSandbox } from 'pyric/sandbox';
+import {
+  initializeSandbox,
+  type AuthState,
+  type LocalSandbox,
+  type SandboxContext,
+} from 'pyric/sandbox';
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
-  decodeBase64ToBytes,
   decodeSnapshotMapForEnv,
   encodeSnapshotMap,
   getInternalEnv,
@@ -20,7 +24,7 @@ import {
   type SnapshotStorageObject,
   type SnapshotUserRecord,
 } from 'pyric/sandbox/internal';
-import { getAdminStorageSandbox, seedStorageObject } from 'pyric/storage/internal';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import {
   get,
   getAdminDatabase,
@@ -47,23 +51,19 @@ import {
   updateDoc,
   type Firestore,
 } from 'pyric/firestore';
-import {
-  deleteObject,
-  getBlob,
-  getMetadata,
-  getStorageSandbox,
-  ref as storageRef,
-  updateMetadata,
-  uploadBytes,
-  type FirebaseStorage,
-} from 'pyric/storage';
 import { isSentinel } from './fixtures.js';
 import type { ProbeActor, ProbeStep, StepResult } from './types.js';
+import {
+  executeWorldStorageStep,
+  nextProbeWorldStorageDbName,
+  populateWorldStorageRules,
+  type WorldStorageRules,
+} from './world-storage.js';
 
 export interface WorldRules {
   firestore?: string;
   rtdb?: unknown;
-  storage?: string;
+  storage?: WorldStorageRules;
 }
 
 export interface WorldState {
@@ -76,17 +76,9 @@ export interface WorldState {
 interface Handles {
   rtdb?: Database;
   firestore?: Firestore;
-  storage?: FirebaseStorage;
 }
 
 const DENIED = /permission[-_ ]?denied|unauthorized/i;
-
-let nextWorldStorageSequence = 1;
-
-function nextProbeWorldStorageDbName(): string {
-  const suffix = `${nextWorldStorageSequence++}-${Math.random().toString(36).slice(2, 10)}`;
-  return `pyric-probe-world:${suffix}`;
-}
 
 function isRulesJson(value: unknown): value is { rules: Record<string, unknown> } {
   if (!value || typeof value !== 'object') return false;
@@ -123,9 +115,7 @@ function buildWorldSnapshot(rules: WorldRules, state: WorldState): SandboxSnapsh
   }
 
   const storageRules: Record<string, string> = Object.assign({}, base?.rules.storage);
-  if (rules.storage !== undefined) {
-    storageRules[DEFAULT_SNAPSHOT_RESOURCE] = rules.storage;
-  }
+  populateWorldStorageRules(storageRules, rules.storage);
 
   const snapshotRules: {
     firestore?: Record<string, string>;
@@ -221,7 +211,9 @@ function buildActorAuth(
 export class ProbeWorld {
   private readonly sandbox: LocalSandbox;
   private readonly handles = new Map<string, Handles>();
+  private readonly actorContexts = new Map<string, SandboxContext>();
   private readonly admin: Handles = {};
+  private readonly hasStorage: boolean;
   private readonly initOutcome: Promise<Error | null>;
 
   constructor(
@@ -238,7 +230,7 @@ export class ProbeWorld {
       Boolean(rules.rtdb) ||
       Boolean(snapshot.rules.rtdb?.[DEFAULT_SNAPSHOT_RESOURCE]) ||
       Object.keys(snapshot.rtdb).length > 0;
-    const hasStorage =
+    this.hasStorage =
       Boolean(rules.storage) ||
       Object.keys(snapshot.rules.storage ?? {}).length > 0 ||
       Object.keys(snapshot.storage).length > 0;
@@ -246,18 +238,18 @@ export class ProbeWorld {
     if (hasRtdb) {
       this.admin.rtdb = getAdminDatabase(this.sandbox);
     }
-    if (hasStorage) {
-      this.admin.storage = getAdminStorageSandbox(this.sandbox, {
+    if (this.hasStorage) {
+      getAdminStorageSandbox(this.sandbox, {
         dbName: nextProbeWorldStorageDbName(),
       });
     }
 
     for (const actor of actors) {
       const ctx = this.sandbox.withAuth(buildActorAuth(actor, snapshot.auth.users));
+      this.actorContexts.set(actor.role, ctx);
       const handles: Handles = {};
       if (hasRtdb) handles.rtdb = getDatabase(ctx);
       if (hasFirestore) handles.firestore = getFirestore(ctx);
-      if (hasStorage) handles.storage = getStorageSandbox(ctx);
       this.handles.set(actor.role, handles);
     }
 
@@ -335,13 +327,6 @@ export class ProbeWorld {
     return db;
   }
 
-  private storageFor(step: ProbeStep): FirebaseStorage {
-    let storage = this.handles.get(step.actor)?.storage;
-    if (step.actor === 'admin') storage = this.admin.storage;
-    if (!storage) throw new Error('no Cloud Storage rules in this world');
-    return storage;
-  }
-
   private async runRtdb(step: ProbeStep): Promise<void> {
     const db = this.rtdbFor(step);
     const r = ref(db, step.path);
@@ -380,58 +365,8 @@ export class ProbeWorld {
   }
 
   private async runStorage(step: ProbeStep): Promise<void> {
-    const storage = this.storageFor(step);
-    const r = storageRef(storage, step.path);
-    const metadata = toStorageMetadata(step);
-    if (step.method === 'delete' || step.method === 'remove') {
-      await deleteObject(r);
-      return;
-    }
-    if (step.method === 'update') {
-      await updateMetadata(r, metadata);
-      return;
-    }
-    if (step.method === 'get') {
-      try {
-        await getBlob(r);
-        await getMetadata(r);
-      } catch (error) {
-        const code = (error as { code?: unknown } | null)?.code;
-        if (code === 'storage/object-not-found') return;
-        throw error;
-      }
-      return;
-    }
-    const bytes = toStorageBytes(step.data);
-    if (step.actor === 'admin') {
-      await seedStorageObject(storage, step.path, bytes, metadata);
-      return;
-    }
-    await uploadBytes(r, bytes, metadata);
+    await executeWorldStorageStep(this.sandbox, this.actorContexts, this.hasStorage, step);
   }
-}
-
-function toStorageBytes(data: unknown): Uint8Array {
-  if (data instanceof Uint8Array) return data;
-  if (typeof data === 'string') return new TextEncoder().encode(data);
-  if (data !== null && typeof data === 'object' && Object.hasOwn(data, 'contentBase64')) {
-    const base64 = (data as { contentBase64?: unknown }).contentBase64;
-    if (typeof base64 === 'string') return decodeBase64ToBytes(base64);
-  }
-  if (data === undefined || data === null) return new Uint8Array(0);
-  return new TextEncoder().encode(JSON.stringify(data));
-}
-
-function toStorageMetadata(step: ProbeStep): {
-  contentType?: string;
-  customMetadata?: Record<string, string>;
-} {
-  const metadata: { contentType?: string; customMetadata?: Record<string, string> } = {};
-  if (step.contentType !== undefined) metadata.contentType = step.contentType;
-  if (step.customMetadata !== undefined) {
-    metadata.customMetadata = { ...step.customMetadata };
-  }
-  return metadata;
 }
 
 function mapValues(v: unknown, f: (x: unknown) => unknown): unknown {

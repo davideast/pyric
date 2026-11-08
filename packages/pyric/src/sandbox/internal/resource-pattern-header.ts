@@ -20,6 +20,16 @@ export const DOLLAR_PAREN_VAR_RE = /^([^{}=$]*)\$\(([^/{}=()$]+)\)([^{}=$]*)$/;
 export const BRACE_VAR_RE = /^([^{}=$]*)\{([^/{}=()$]+)\}([^{}=$]*)$/;
 
 const RTDB_URL_SCHEME_RE = /^(?:https?|wss?):\/\//i;
+const STORAGE_HTTP_SCHEME_RE = /^https?:\/\//i;
+const STORAGE_GS_SCHEME_RE = /^gs:\/\//i;
+const STORAGE_BUCKET_TOKEN_RE = /^[A-Za-z0-9.\-_]+$/;
+const HOLE_PLACEHOLDER_RE = /__pyric_hole_\d+__/i;
+const FIREBASE_STORAGE_HTTP_RE =
+  /^https?:\/\/firebasestorage\.googleapis\.com\/v[A-Za-z0-9_]+\/b\/([^/]*)\/o(?:\/(.*))?$/i;
+const GCS_STORAGE_HTTP_RE =
+  /^https?:\/\/(?:storage\.googleapis\.com|storage\.cloud\.google\.com)\/([^/]*)\/(.*)$/i;
+const PYRIC_STORAGE_HTTP_RE =
+  /^https?:\/\/([^/?#]+)\/__pyric\/storage\/v0\/b\/([^/]*)\/o\/(.+)$/i;
 const IPV4_HOST_RE = /^\d+(?:\.\d+){3}$/;
 const RTDB_INSTANCE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 const FIRESTORE_HEADER_RE = /^(\/+)?databases(\/+)([^/]*)(\/+)documents(?=\/|$)(.*)$/;
@@ -172,13 +182,95 @@ function extractBracketedHeader(
   return { headerKind: 'concrete', headerResourceId: idToken, bodyPath };
 }
 
+function decodePercentChunk(chunk: string): string {
+  try {
+    return decodeURIComponent(chunk);
+  } catch {
+    return chunk.replace(/(?:%[0-9A-Fa-f]{2})+/g, (seq) => decodePercentComponent(seq));
+  }
+}
+
+function decodeStorageUrlObjectPath(rawEncoded: string): string {
+  if (rawEncoded.length === 0) return '';
+  const placeholderScan = /__PYRIC_HOLE_\d+__/gi;
+  let decoded = '';
+  let last = 0;
+  for (let m = placeholderScan.exec(rawEncoded); m !== null; m = placeholderScan.exec(rawEncoded)) {
+    if (m.index > last) {
+      decoded += decodePercentChunk(rawEncoded.slice(last, m.index));
+    }
+    decoded += m[0];
+    last = m.index + m[0].length;
+  }
+  if (last < rawEncoded.length) {
+    decoded += decodePercentChunk(rawEncoded.slice(last));
+  }
+  return decoded;
+}
+
+function classifyStorageBucketHeader(bucketToken: string, bodyPath: string): ExtractedServiceHeader {
+  if (bucketToken.length === 0) {
+    return { headerKind: 'malformed', bodyPath };
+  }
+  if (isWildcardToken(bucketToken) || HOLE_PLACEHOLDER_RE.test(bucketToken)) {
+    return { headerKind: 'wildcard', bodyPath };
+  }
+  if (!STORAGE_BUCKET_TOKEN_RE.test(bucketToken)) {
+    return { headerKind: 'malformed', bodyPath };
+  }
+  return { headerKind: 'concrete', headerResourceId: bucketToken, bodyPath };
+}
+
+function parseStorageHttpUrlHeader(trimmed: string): ExtractedServiceHeader {
+  let withoutSuffix = trimmed;
+  const hashIndex = withoutSuffix.indexOf('#');
+  if (hashIndex >= 0) {
+    withoutSuffix = withoutSuffix.slice(0, hashIndex);
+  }
+  const queryIndex = withoutSuffix.indexOf('?');
+  if (queryIndex >= 0) {
+    withoutSuffix = withoutSuffix.slice(0, queryIndex);
+  }
+
+  let bucketToken: string | undefined;
+  let encodedObject = '';
+  const fbMatch = FIREBASE_STORAGE_HTTP_RE.exec(withoutSuffix);
+  if (fbMatch !== null) {
+    bucketToken = fbMatch[1]!;
+    encodedObject = fbMatch[2] ?? '';
+  } else {
+    const gcsMatch = GCS_STORAGE_HTTP_RE.exec(withoutSuffix);
+    if (gcsMatch !== null) {
+      bucketToken = gcsMatch[1]!;
+      encodedObject = gcsMatch[2]!;
+    } else {
+      const pyricMatch = PYRIC_STORAGE_HTTP_RE.exec(withoutSuffix);
+      if (pyricMatch !== null && extractHostWithoutPort(pyricMatch[1]!) !== null) {
+        bucketToken = pyricMatch[2]!;
+        encodedObject = pyricMatch[3]!;
+      }
+    }
+  }
+
+  if (bucketToken === undefined) {
+    return { headerKind: 'malformed', bodyPath: trimmed };
+  }
+
+  const decodedObject = decodeStorageUrlObjectPath(encodedObject);
+  let bodyPath = '';
+  if (decodedObject.length > 0) {
+    bodyPath = `/${decodedObject}`;
+  }
+  return classifyStorageBucketHeader(bucketToken, bodyPath);
+}
+
 export function extractServiceHeader(
   service: AssuranceService,
   rawPath: string,
 ): ExtractedServiceHeader {
   const trimmed = rawPath.trim();
 
-  if (service === 'storage' && trimmed.startsWith('gs://')) {
+  if (service === 'storage' && STORAGE_GS_SCHEME_RE.test(trimmed)) {
     const withoutScheme = trimmed.slice('gs://'.length);
     const firstSlash = withoutScheme.indexOf('/');
     let bucketToken = withoutScheme;
@@ -190,10 +282,14 @@ export function extractServiceHeader(
     if (bucketToken.length === 0) {
       return { headerKind: 'malformed', bodyPath };
     }
-    if (isWildcardToken(bucketToken)) {
+    if (isWildcardToken(bucketToken) || HOLE_PLACEHOLDER_RE.test(bucketToken)) {
       return { headerKind: 'wildcard', bodyPath };
     }
     return { headerKind: 'concrete', headerResourceId: bucketToken, bodyPath };
+  }
+
+  if (service === 'storage' && STORAGE_HTTP_SCHEME_RE.test(trimmed)) {
+    return parseStorageHttpUrlHeader(trimmed);
   }
 
   if (service === 'rtdb') {

@@ -4,8 +4,14 @@
  */
 import type { AccessSite } from '../code/types.js';
 import { isWriteOp } from '../code/operation-specs.js';
-import { firestoreRequiredClaims, rtdbRequiredClaims } from '../rules/claims.js';
-import type { RuleSources } from '../rules/rule-sources.js';
+import {
+  firestoreRequiredClaims,
+  rtdbRequiredClaims,
+  storageRequiredClaims,
+} from '../rules/claims.js';
+import { projectRuleSurface } from '../rules/rule-surface.js';
+import type { RuleSources, StorageRuleSource } from '../rules/rule-sources.js';
+import { storageValueHints } from '../rules/storage-owners.js';
 import type { OwnerBinding, OwnerCondition } from '../rules/types.js';
 import { firestoreValueHints, rtdbValueHints } from '../rules/value-hints.js';
 import { planProbes } from './plan.js';
@@ -13,6 +19,7 @@ import { findingFor, runProbe, type ProbeRules } from './run.js';
 import { namesFromState, rtdbReadOnlySitesFromState, sitesFromState } from './state.js';
 import type { Finding, Probe, ProbeActor, ProbeResult, ProbeStep } from './types.js';
 import type { WorldState } from './world.js';
+import { normalizeStorageBucketKey, type WorldStorageRules } from './world-storage.js';
 
 export interface ProbeReport {
   probes: { total: number; invalid: number };
@@ -80,6 +87,7 @@ function byPresence(users: ProbeUser[], state: WorldState | undefined): ProbeUse
 function classifyStepOp(step: ProbeStep, existingFirestoreDocs: ReadonlySet<string>): string {
   if (step.method === 'delete' || step.method === 'remove') return 'delete';
   if (step.method === 'get') return 'get';
+  if (step.method === 'list') return 'list';
   if (step.method === 'update') return 'update';
   if (step.service === 'firestore' && existingFirestoreDocs.has(step.path)) return 'update';
   return 'create';
@@ -94,6 +102,22 @@ function collectStepClaims(
   if (step.service === 'firestore') {
     for (const source of sources.firestore) {
       firestoreRequiredClaims(source.text, { path: step.path, op: stepOp }, into);
+    }
+    return;
+  }
+  if (step.service === 'storage') {
+    for (const source of sources.storage ?? []) {
+      const normalizedStepBucket = normalizeStorageBucketKey(step.resourceId);
+      if (
+        source.bucket !== undefined
+        && normalizedStepBucket !== undefined
+        && source.bucket !== normalizedStepBucket
+      ) {
+        continue;
+      }
+      let bucket = step.resourceId;
+      if (bucket === undefined) bucket = source.bucket;
+      storageRequiredClaims(source.text, { path: step.path, op: stepOp, bucket }, into);
     }
     return;
   }
@@ -131,6 +155,34 @@ function seedUsersFromInput(input: RunProbesInput): ProbeUser[] {
     }
     return entry;
   });
+}
+
+function buildProbeStorageRules(
+  storageSources: readonly StorageRuleSource[] | undefined,
+  state: WorldState | undefined,
+): WorldStorageRules | undefined {
+  if (storageSources && storageSources.length > 0) {
+    if (storageSources.length === 1 && storageSources[0]!.bucket === undefined) {
+      return storageSources[0]!.text;
+    }
+    const map: Record<string, string> = {};
+    for (const src of storageSources) {
+      let key = '(default)';
+      if (src.bucket !== undefined && src.bucket.length > 0) key = src.bucket;
+      Object.defineProperty(map, key, {
+        value: src.text,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return map;
+  }
+  const snapshotStorageRules = state?.snapshot?.rules.storage;
+  if (snapshotStorageRules && Object.keys(snapshotStorageRules).length > 0) {
+    return snapshotStorageRules;
+  }
+  return undefined;
 }
 
 function actorsForProbe(
@@ -179,7 +231,7 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   const allUsers = byPresence(seedUsersFromInput(input), input.state);
   let selectedUsers = allUsers;
   if (allUsers.length >= 2) {
-    selectedUsers = [allUsers[0], allUsers[1]];
+    selectedUsers = [allUsers[0]!, allUsers[1]!];
   }
   const names = namesFromState(
     input.accessSites,
@@ -188,14 +240,22 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   );
   const { owner, peer } = probeActors({}, selectedUsers, names);
   const actors = [owner, peer];
+  const storageSources = input.sources.storage ?? [];
   const rules: ProbeRules = {
     firestore: input.sources.firestore[0]?.text,
     rtdb: input.sources.rtdb.map((source) => source.json),
+    storage: buildProbeStorageRules(storageSources, input.state),
   };
   const hints = [
     ...input.sources.rtdb.flatMap((source) => rtdbValueHints(source.json)),
     ...input.sources.firestore.flatMap((source) => firestoreValueHints(source.text)),
+    ...storageSources.flatMap((source) => storageValueHints(source.text, source.bucket)),
   ];
+  const surface = projectRuleSurface({
+    firestore: input.sources.firestore,
+    rtdb: input.sources.rtdb,
+    storage: storageSources,
+  });
   const knownUids = allUsers.map((user) => user.uid);
 
   let sites = input.accessSites;
@@ -218,6 +278,7 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
     peer,
     hints,
     state: input.state,
+    surface,
   });
 
   const results: ProbeResult[] = [];

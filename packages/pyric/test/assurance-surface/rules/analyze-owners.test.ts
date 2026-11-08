@@ -56,4 +56,68 @@ describe('analyzeOwners', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test('infers Storage pathVar and customMetadata ownerBindings from storage.rules', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'owners-storage-'));
+    try {
+      writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ storage: { rules: 'storage.rules' } }));
+      writeFileSync(
+        join(dir, 'storage.rules'),
+        `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{uid}/{fileId} {
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /items/{itemId} {
+      allow create: if request.auth != null && request.resource.metadata.owner == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.metadata.owner == request.auth.uid;
+    }
+  }
+}`,
+      );
+      const sites: AccessSite[] = [
+        {
+          service: 'storage',
+          op: 'uploadBytes',
+          path: 'files/{uid}/{fileId}',
+          source: 'upload.ts:8',
+          resolution: 'resolved',
+          pathVariables: [
+            { name: 'uid', auth: [{ source: 'auth.uid', certainty: 'exact' }] },
+            { name: 'fileId' },
+          ],
+        },
+        {
+          service: 'storage',
+          op: 'uploadBytes',
+          path: 'items/{itemId}',
+          source: 'upload.ts:14',
+          resolution: 'resolved',
+          pathVariables: [{ name: 'itemId' }],
+          payload: {
+            kind: 'object',
+            fields: [
+              {
+                name: 'owner',
+                kind: 'string',
+                optional: false,
+                auth: [{ source: 'auth.uid', certainty: 'exact' }],
+              },
+            ],
+            open: false,
+          },
+        },
+      ];
+      const out = analyzeOwners(dir, sites, []);
+      expect(out.ruleSources).toEqual([{ service: 'storage', source: 'storage.rules' }]);
+      expect(out.ownerBindings.map((b) => [b.service, b.path, b.kind, b.field, b.strength])).toEqual([
+        ['storage', 'files/{uid}/{fileId}', 'pathVar', '{uid}', 'strong'],
+        ['storage', 'items/{itemId}', 'incomingField', 'owner', 'strong'],
+        ['storage', 'items/{itemId}', 'storedField', 'owner', 'strong'],
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

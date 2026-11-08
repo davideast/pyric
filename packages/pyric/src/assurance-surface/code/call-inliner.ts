@@ -7,7 +7,7 @@ import { builtinCall } from './builtins.js';
 import type { Evaluator } from './evaluator.js';
 import { typeofLeaf, unwrapExpr } from './operators.js';
 import { expressionName, functionName } from './paths.js';
-import { apiCall, apiNew } from './sdk-models.js';
+import { apiCall, apiNew, serviceMemberCall } from './sdk-models.js';
 import {
   alternatives,
   definiteTruthiness,
@@ -58,6 +58,11 @@ export class CallInliner {
           out.push(this.inlineCall(c, node.arguments, env));
           break;
         case 'unknown': {
+          const sdkMember = serviceMemberCall(this.ev, node, env);
+          if (sdkMember !== undefined) {
+            out.push(sdkMember);
+            break;
+          }
           const builtin = builtinCall(this.ev, node, env);
           out.push(builtin ?? unknown(`result of ${expressionName(node.expression)}(): ${c.reason}`));
           break;
