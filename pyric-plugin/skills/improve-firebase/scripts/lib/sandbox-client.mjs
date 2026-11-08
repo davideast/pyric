@@ -253,6 +253,9 @@ function encodeUploadBase64(operation) {
   if (typeof raw === 'string') {
     return Buffer.from(raw, 'utf8').toString('base64');
   }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.contentBase64 === 'string') {
+    return raw.contentBase64;
+  }
   return Buffer.from(JSON.stringify(raw), 'utf8').toString('base64');
 }
 
@@ -1228,8 +1231,10 @@ export class IsolatedSandbox {
         hostedArgs = {
           path: storagePath,
           contentBase64: encodeUploadBase64(operation),
-          ...(contentType ? { contentType: String(contentType) } : {}),
         };
+        if (contentType) {
+          hostedArgs.metadata = { contentType: String(contentType) };
+        }
       } else if (rawMethod === 'delete' || rawMethod === 'deleteobject' || rawMethod === 'remove') {
         hostedKey = 'storage.deleteObject';
         hostedArgs = { path: storagePath };

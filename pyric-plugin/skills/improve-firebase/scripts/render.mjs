@@ -40,6 +40,8 @@ import {
   probeMedia,
 } from './lib/ffmpeg.mjs';
 import { evaluateGateG6, writeFailureBundle } from './lib/gates.mjs';
+import { extractFocusedRuleSnippet, tryNormalizeServiceName } from './lib/op-snippet.mjs';
+import { resolveRtdbRuleClause, sanitizeInlineRuleSource } from './lib/rtdb-rule-clause.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.resolve(SCRIPT_DIR, '../assets');
@@ -233,9 +235,90 @@ function resolveStageHtmlPath(layout, customStagePath) {
   return builtIn;
 }
 
-function extractStageEvidence({ scenario, eventsData, extraEvidence, existingManifest }) {
-  const eventsObj = eventsData && !Array.isArray(eventsData) && typeof eventsData === 'object' ? eventsData : {};
-  const eventList = Array.isArray(eventsData) ? eventsData : (Array.isArray(eventsObj.events) ? eventsObj.events : []);
+function normalizeSingleEventService(ev) {
+  if (!ev || typeof ev !== 'object' || Array.isArray(ev)) {
+    return ev;
+  }
+  let normalizedService = ev.service;
+  if (typeof ev.service === 'string' && ev.service.trim()) {
+    normalizedService = tryNormalizeServiceName(ev.service, ev.service.trim());
+  }
+  const hasOp = ev.operation && typeof ev.operation === 'object' && !Array.isArray(ev.operation);
+  let normalizedOpService;
+  if (hasOp && typeof ev.operation.service === 'string' && ev.operation.service.trim()) {
+    normalizedOpService = tryNormalizeServiceName(
+      ev.operation.service,
+      ev.operation.service.trim(),
+    );
+  }
+
+  if (
+    normalizedService === ev.service &&
+    (!hasOp || normalizedOpService === undefined || normalizedOpService === ev.operation.service)
+  ) {
+    return ev;
+  }
+  const next = Object.assign({}, ev);
+  if (normalizedService !== undefined) {
+    next.service = normalizedService;
+  }
+  if (hasOp && normalizedOpService !== undefined) {
+    next.operation = Object.assign({}, ev.operation, { service: normalizedOpService });
+  }
+  return next;
+}
+
+function normalizeEventsContainer(eventsData) {
+  if (Array.isArray(eventsData)) {
+    return eventsData.map(normalizeSingleEventService);
+  }
+  if (eventsData && typeof eventsData === 'object') {
+    const next = Object.assign({}, eventsData);
+    if (typeof next.service === 'string' && next.service.trim()) {
+      next.service = tryNormalizeServiceName(next.service, next.service.trim());
+    }
+    if (Array.isArray(next.events)) {
+      next.events = next.events.map(normalizeSingleEventService);
+    }
+    return next;
+  }
+  return eventsData;
+}
+
+function readRuleFileOrInline(ruleRef, baseDir) {
+  if (ruleRef === null || ruleRef === undefined) return null;
+  if (typeof ruleRef === 'object' && !Array.isArray(ruleRef)) return ruleRef;
+  if (typeof ruleRef !== 'string') return null;
+  const trimmed = ruleRef.trim();
+  if (!trimmed) return null;
+  if (!trimmed.includes('\n') && !trimmed.startsWith('{') && baseDir) {
+    const resolved = path.isAbsolute(trimmed) ? trimmed : path.resolve(baseDir, trimmed);
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+      return fs.readFileSync(resolved, 'utf8');
+    }
+  }
+  return sanitizeInlineRuleSource(trimmed);
+}
+
+function extractStageEvidence({
+  scenario,
+  eventsData,
+  extraEvidence,
+  existingManifest,
+  beforeRulesSource = null,
+  afterRulesSource = null,
+}) {
+  const normalizedContainer = normalizeEventsContainer(eventsData);
+  let eventsObj = {};
+  if (normalizedContainer && !Array.isArray(normalizedContainer) && typeof normalizedContainer === 'object') {
+    eventsObj = normalizedContainer;
+  }
+  let eventList = [];
+  if (Array.isArray(normalizedContainer)) {
+    eventList = normalizedContainer;
+  } else if (Array.isArray(eventsObj.events)) {
+    eventList = eventsObj.events;
+  }
 
   let reproEvent = null;
   let fixEvent = null;
@@ -257,7 +340,15 @@ function extractStageEvidence({ scenario, eventsData, extraEvidence, existingMan
   const ownerUid = scenario.actors?.owner?.uid || 'alice';
   const peerUid = scenario.actors?.peer?.uid || 'mallory';
 
-  const service = pickFirstDefined(extraEvidence?.service, eventsObj.service, reproEvent?.service, 'database');
+  const rawService = pickFirstDefined(
+    extraEvidence?.service,
+    eventsObj.service,
+    reproEvent?.service,
+    scenario?.reproOperation?.service,
+    scenario?.operation?.service,
+    'database',
+  );
+  const service = tryNormalizeServiceName(rawService, 'database');
   const method = pickFirstDefined(extraEvidence?.method, eventsObj.method, reproEvent?.method, reproEvent?.op, 'set');
   const isRead = isReadOperationMethod(method);
   const targetPath = pickFirstDefined(extraEvidence?.path, eventsObj.path, reproEvent?.path, '/channels/general/messages/msg_alice_1');
@@ -285,12 +376,39 @@ function extractStageEvidence({ scenario, eventsData, extraEvidence, existingMan
     reproEvent?.stateDiff?.changedPaths,
     isRead ? [] : [targetPath],
   );
+  const explicitClause = pickFirstDefined(extraEvidence?.ruleClause, eventsObj.ruleClause, null);
+  const resolvedClauseInfo = resolveRtdbRuleClause({
+    service,
+    method,
+    path: targetPath,
+    data: after,
+    beforeRules: beforeRulesSource ?? sanitizeInlineRuleSource(reproEvent?.matchedRule),
+    afterRules: afterRulesSource ?? sanitizeInlineRuleSource(fixEvent?.matchedRule),
+    fixRules: Object.assign({}, scenario.fixRules || {}, extraEvidence?.fixRules || {}),
+    explicitClause,
+  });
+  const ruleClause = explicitClause || resolvedClauseInfo.clause;
+  let defaultMatchedRule = '".write": "auth != null"';
+  if (isRead) {
+    defaultMatchedRule = '".read": "auth != null"';
+  } else if (ruleClause === '.validate') {
+    defaultMatchedRule = '".validate": true';
+  }
+  let extractedBeforeMatched;
+  if (beforeRulesSource) {
+    extractedBeforeMatched = extractFocusedRuleSnippet(
+      beforeRulesSource,
+      { service, method, path: targetPath },
+      { ruleProp: ruleClause, fallbackScope: resolvedClauseInfo.changedScope },
+    );
+  }
   const matchedRule = pickFirstDefined(
     extraEvidence?.matchedRule,
     eventsObj.matchedRule,
     reproEvent?.matchedRule,
-    scenario.fixRules?.before,
-    isRead ? '".read": "auth != null"' : '".write": "auth != null"',
+    sanitizeInlineRuleSource(scenario.fixRules?.before),
+    extractedBeforeMatched || undefined,
+    defaultMatchedRule,
   );
   const rawFixRules = pickFirstDefined(scenario.fixRules, extraEvidence?.fixRules, eventsObj.fixRules, null);
   const fixRules =
@@ -338,6 +456,9 @@ function extractStageEvidence({ scenario, eventsData, extraEvidence, existingMan
     matchedRule,
     events: gateEvents,
   };
+  if (ruleClause) {
+    evidence.ruleClause = ruleClause;
+  }
   if (fixedDecision) {
     evidence.fixedDecision = fixedDecision;
   }
@@ -582,11 +703,31 @@ export async function renderEvidenceBundle({
   });
 
   const eventsPath = path.join(evidenceDir, 'events.json');
-  const eventsData = fs.existsSync(eventsPath) ? readJsonFile(eventsPath) : [];
+  const rawEventsData = fs.existsSync(eventsPath) ? readJsonFile(eventsPath) : [];
+  const eventsData = normalizeEventsContainer(rawEventsData);
   const extraEvidencePath = path.join(evidenceDir, 'evidence.json');
-  const extraEvidence = fs.existsSync(extraEvidencePath) ? readJsonFile(extraEvidencePath) : null;
+  const rawExtraEvidence = fs.existsSync(extraEvidencePath) ? readJsonFile(extraEvidencePath) : null;
+  let extraEvidence = rawExtraEvidence;
+  if (rawExtraEvidence && typeof rawExtraEvidence === 'object' && typeof rawExtraEvidence.service === 'string') {
+    extraEvidence = Object.assign({}, rawExtraEvidence, {
+      service: tryNormalizeServiceName(rawExtraEvidence.service, rawExtraEvidence.service.trim()),
+    });
+  }
   const capturePath = path.join(evidenceDir, 'raw', 'capture.json');
   const captureArtifact = fs.existsSync(capturePath) ? validateRawCapture(readJsonFile(capturePath)) : null;
+
+  const beforeRulesSource = readRuleFileOrInline(
+    scenario?.rules?.rtdb ?? scenario?.rules?.database ?? scenario?.rules?.firestore ?? scenario?.rules?.storage,
+    evidenceDir,
+  );
+  const afterRulesSource = readRuleFileOrInline(
+    scenario?.fixRules?.rtdb ??
+      scenario?.fixRules?.database ??
+      scenario?.fixRules?.firestore ??
+      scenario?.fixRules?.storage ??
+      scenario?.fixRules?.rule,
+    evidenceDir,
+  );
 
   const tools = probeSystemTools();
   if (!tools.ffmpegPath) {
@@ -599,12 +740,21 @@ export async function renderEvidenceBundle({
     throw new RuntimeMissingError('VIDEO_CHROMIUM_MISSING', 'Chromium executable not found.', 'Run `npx playwright install chromium`.');
   }
 
-  const { evidence, provenanceText } = extractStageEvidence({ scenario, eventsData, extraEvidence, existingManifest });
+  const { evidence, provenanceText } = extractStageEvidence({
+    scenario,
+    eventsData,
+    extraEvidence,
+    existingManifest,
+    beforeRulesSource,
+    afterRulesSource,
+  });
   const timeline = computeStageTimeline({
     scenario,
     events: eventsData,
     durationMs: captureArtifact?.durationMs,
     evidence,
+    beforeRulesSource,
+    afterRulesSource,
   });
   const activePresentation = (scenario.stage.layout === 'split-actors' || !scenario.app) && timeline.presentation ? timeline.presentation : null;
   const renderTotalSec = activePresentation ? activePresentation.totalSec : timeline.totalSec;

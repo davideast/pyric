@@ -1,5 +1,6 @@
 import { ContractValidationError } from './contracts.mjs';
 import { signInActorPage } from './identity.mjs';
+import { normalizeServiceName } from './op-snippet.mjs';
 
 /**
  * Creates a strict single-flight executor with monotonic sequence numbering and
@@ -443,7 +444,7 @@ export async function executeStep({
             seq,
             frameIndex: i,
             tMs: relMs(),
-            service: op.service,
+            service: normalizeServiceName(op.service),
             method: op.method,
             path: op.path ?? null,
             data: res.data ?? op.data ?? op.value ?? null,
@@ -452,6 +453,9 @@ export async function executeStep({
             error: res.error,
             latencyMs: res.latencyMs,
           };
+          if (typeof step.phase === 'string' && step.phase.trim()) {
+            evt.phase = step.phase.trim();
+          }
           events.push(evt);
           emit(evt);
           return evt;
@@ -487,7 +491,7 @@ export async function executeStep({
       actor: step.actor || null,
       seq: 1,
       tMs: relMs(),
-      service: step.operation.service,
+      service: normalizeServiceName(step.operation.service),
       method: step.operation.method,
       path: step.operation.path ?? null,
       data: res.data ?? step.operation.data ?? step.operation.value ?? null,
@@ -496,6 +500,9 @@ export async function executeStep({
       error: res.error,
       latencyMs: res.latencyMs,
     };
+    if (typeof step.phase === 'string' && step.phase.trim()) {
+      event.phase = step.phase.trim();
+    }
     emit(event);
     return {
       kind: 'sdk',

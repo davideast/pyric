@@ -19,6 +19,7 @@ import {
   validateBundleManifest,
 } from './contracts.mjs';
 import { inspectSeedPath } from './seed-envelope.mjs';
+import { tryNormalizeServiceName } from './op-snippet.mjs';
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -439,7 +440,7 @@ export function checkCopyAgainstEvents({
     return { pass: false, reasons };
   }
 
-  const service = reproEvent.service ?? reproEvent.operation?.service;
+  const service = tryNormalizeServiceName(reproEvent.service ?? reproEvent.operation?.service, null);
   const method = reproEvent.method ?? reproEvent.operation?.method;
   const targetPath = reproEvent.path ?? reproEvent.operation?.path;
   const actorLabel = reproEvent.actorLabel;
@@ -598,6 +599,80 @@ export function checkCopyAgainstEvents({
       reasons.push(
         'Fix slide/copy claims "require a new record" without a new-record predicate in the fixed rule',
       );
+    }
+
+    const slideClauseBadges = slideList
+      .filter((s) => s.id === 'problem-video' || s.id === 'fix-video' || s.id === 'fix-slide')
+      .flatMap((s) => [s.title, s.subtitle])
+      .filter((s) => typeof s === 'string' && s.trim().length > 0);
+    const slideRuleKeys = slideList
+      .filter((s) => s.id === 'why-slide' || s.id === 'fix-slide')
+      .flatMap((s) => [
+        ...(Array.isArray(s.ruleTree) ? s.ruleTree : []),
+        ...(Array.isArray(s.beforeDiffTree) ? s.beforeDiffTree : []),
+        ...(Array.isArray(s.afterDiffTree) ? s.afterDiffTree : []),
+      ])
+      .map((entry) => entry?.ruleKey)
+      .filter((rk) => typeof rk === 'string' && rk.trim().length > 0);
+    const serviceLower = String(service || '').toLowerCase();
+
+    if (isRead) {
+      const readContradictedByClause =
+        slideClauseBadges.some((t) => /\b(Allowed|Blocked|Updating|Scoping)\s+(?:by\s+)?\.(write|validate)\b/i.test(t)) ||
+        slideRuleKeys.some((rk) => rk === '.write' || rk === '.validate');
+      if (readContradictedByClause) {
+        reasons.push(
+          'Slide contradicts read repro event: read operation cannot be attributed to .write or .validate',
+        );
+      }
+    } else {
+      const writeContradictedByRead =
+        slideClauseBadges.some((t) => /\b(Allowed|Blocked|Updating|Scoping)\s+(?:by\s+)?\.read\b/i.test(t)) ||
+        slideRuleKeys.some((rk) => rk === '.read');
+      if (writeContradictedByRead) {
+        reasons.push(
+          'Slide contradicts write repro event: write operation cannot be attributed to .read',
+        );
+      }
+
+      if (serviceLower !== 'database') {
+        const nonRtdbClaimsValidate =
+          slideClauseBadges.some((t) => /\b(Allowed|Blocked|Updating|Scoping)\s+(?:by\s+)?\.validate\b/i.test(t)) ||
+          slideRuleKeys.some((rk) => rk === '.validate');
+        if (nonRtdbClaimsValidate) {
+          reasons.push(
+            'Slide contradicts non-RTDB service: .validate only applies to Realtime Database write operations',
+          );
+        }
+      } else {
+        const beforeRuleStr = String(reproEvent?.matchedRule || '');
+        const isVerifiedValidateFinding =
+          /"\.validate"\s*:/.test(afterRuleStr) &&
+          !/"\.write"\s*:/.test(afterRuleStr) &&
+          !/"\.write"\s*:/.test(beforeRuleStr);
+        if (isVerifiedValidateFinding) {
+          const slideMislabeledAsWrite =
+            slideClauseBadges.some((t) => /\b(Allowed|Blocked|Updating|Scoping)\s+(?:by\s+)?\.write\b/i.test(t)) ||
+            slideRuleKeys.some((rk) => rk === '.write');
+          if (slideMislabeledAsWrite) {
+            reasons.push(
+              'Slide contradicts RTDB .validate finding: matched rules target .validate, but slide labels clause as .write',
+            );
+          }
+        }
+        const isVerifiedWriteFinding =
+          /"\.write"\s*:/.test(afterRuleStr) && !/"\.validate"\s*:/.test(afterRuleStr);
+        if (isVerifiedWriteFinding) {
+          const slideMislabeledAsValidate =
+            slideClauseBadges.some((t) => /\b(Allowed|Blocked|Updating|Scoping)\s+(?:by\s+)?\.validate\b/i.test(t)) ||
+            slideRuleKeys.some((rk) => rk === '.validate');
+          if (slideMislabeledAsValidate) {
+            reasons.push(
+              'Slide contradicts RTDB .write finding: matched rules target .write, but slide labels clause as .validate',
+            );
+          }
+        }
+      }
     }
   }
 
