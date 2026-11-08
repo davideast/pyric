@@ -37,6 +37,32 @@ const HOLE_TOKEN_SUFFIX = '__';
 const HOLE_TOKEN_SCAN_SOURCE = '__PYRIC_HOLE_(\\d+)__';
 const ANY_HOLE_TOKEN_RE = /__pyric_hole_\d+__/i;
 const HEADER_PREFIX_RE = /^(?:(?:https?|wss?|gs):\/\/|\/?(?:databases|b)\/)/i;
+const STORAGE_URL_SCHEME_RE = /^(?:gs|https?):\/\//i;
+const HTTP_URL_SCHEME_RE = /^https?:\/\//i;
+
+function stripIgnoredUrlSuffix(service: AssuranceService, encoded: string): string {
+  let clean = encoded;
+  const hashIndex = clean.indexOf('#');
+  if (hashIndex >= 0) {
+    clean = clean.slice(0, hashIndex);
+  }
+  if (service === 'storage' && HTTP_URL_SCHEME_RE.test(clean.trimStart())) {
+    const queryIndex = clean.indexOf('?');
+    if (queryIndex >= 0) {
+      clean = clean.slice(0, queryIndex);
+    }
+  }
+  return clean;
+}
+
+function holeIndicesIn(text: string): Set<number> {
+  const indices = new Set<number>();
+  const scan = new RegExp(HOLE_TOKEN_SCAN_SOURCE, 'g');
+  for (let m = scan.exec(text); m !== null; m = scan.exec(text)) {
+    indices.add(Number(m[1]));
+  }
+  return indices;
+}
 
 /** True when `v` is or contains an unforced caller parameter symbol (`k: 'sym'`). */
 export function containsCallerSymbol(v: AVal): boolean {
@@ -205,12 +231,18 @@ export function extractStringHeader(
   }
   if (last < joinedBody.length) rebuilt.push({ kind: 'lit', text: joinedBody.slice(last) });
 
+  const significantHoles = holeIndicesIn(stripIgnoredUrlSuffix(service, encoded));
   const leakedHeaderHole = ANY_HOLE_TOKEN_RE.test(parsed.resourceId);
-  const missingHeaderHole = usedHoles.size < holes.length;
+  const missingHeaderHole = [...significantHoles].some((idx) => !usedHoles.has(idx));
   const nonConcreteHeader =
     extracted.headerKind === 'wildcard' || extracted.headerKind === 'malformed';
+  const trimmedEncoded = encoded.trimStart();
   const missingForcedScheme =
-    forceCheck && holes.length > 0 && !HEADER_PREFIX_RE.test(encoded.trimStart());
+    forceCheck
+    && (
+      (holes.length > 0 && !HEADER_PREFIX_RE.test(trimmedEncoded))
+      || (service === 'storage' && !STORAGE_URL_SCHEME_RE.test(trimmedEncoded))
+    );
 
   if (leakedHeaderHole || missingHeaderHole || nonConcreteHeader || missingForcedScheme) {
     return {

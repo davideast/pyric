@@ -9,6 +9,7 @@
 import ts from 'typescript';
 import { FIRESTORE_SERVICE_MODEL } from './service-models/firestore.js';
 import { RTDB_SERVICE_MODEL } from './service-models/rtdb.js';
+import { STORAGE_SERVICE_MODEL } from './service-models/storage.js';
 import type { SdkServiceModel } from './service-models/types.js';
 import type { AccessPreset } from './types.js';
 import type { ApiModule, AVal } from './values.js';
@@ -16,6 +17,7 @@ import type { ApiModule, AVal } from './values.js';
 export const DEFAULT_SERVICE_MODELS: readonly SdkServiceModel[] = [
   FIRESTORE_SERVICE_MODEL,
   RTDB_SERVICE_MODEL,
+  STORAGE_SERVICE_MODEL,
 ];
 
 const NON_SERVICE_MODULES: Readonly<Record<string, ApiModule>> = {
@@ -26,6 +28,7 @@ const NON_SERVICE_MODULES: Readonly<Record<string, ApiModule>> = {
   'react-firebase-hooks/auth': 'auth-hooks',
   'pyric/sandbox/firestore': 'sandbox-firestore',
   'pyric/sandbox/database': 'sandbox-rtdb',
+  'pyric/sandbox/storage': 'sandbox-storage',
   '@firebase/rules-unit-testing': 'rules-testing',
 };
 
@@ -53,10 +56,14 @@ export class SdkTable {
           if (op.write) this.writeOps.add(op.op);
         }
       }
+      for (const op of Object.values(model.refMethods ?? {})) {
+        if (op.write) this.writeOps.add(op.op);
+      }
     }
     for (const p of presets) {
       for (const m of p.firestoreModules ?? []) this.modules.set(m, 'firestore');
       for (const m of p.rtdbModules ?? []) this.modules.set(m, 'rtdb');
+      for (const m of p.storageModules ?? []) this.modules.set(m, 'storage');
       for (const m of p.authModules ?? []) this.modules.set(m, 'auth');
       for (const spec of p.authUserFunctions ?? []) {
         const [mod, name] = spec.split('#');

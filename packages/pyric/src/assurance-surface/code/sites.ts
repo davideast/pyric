@@ -25,6 +25,7 @@ import {
   type RecordedOp,
   type UnconsumedCandidate,
 } from './specialization.js';
+import { extractStorageUpload, type ExtractedUploadInfo } from './storage-upload.js';
 import type { AccessService, AccessSite, PayloadShape, QueryConstraint } from './types.js';
 import { attachSiteUsage, collectProgramUsage, mergeSiteUsage } from './usage-records.js';
 import {
@@ -150,23 +151,51 @@ export class SiteCollector {
         }
       }
     }
-    if (ts.isPropertyAccessExpression(call.expression) && this.opIndex.methodNames.has(name)) {
+    if (
+      ts.isPropertyAccessExpression(call.expression)
+      && (this.opIndex.methodNames.has(name) || (owned && this.opIndex.handleRefMethodNames.has(name)))
+    ) {
       const receiverExpr = call.expression.expression;
       const receiver = this.force(this.ev.eval(receiverExpr));
       for (const r of alternatives(receiver)) {
-        if (r.k !== 'receiver') continue;
-        const receiverTable = ownRecordValue(
-          this.ev.sdk.serviceModel(r.service)?.receiverMethods,
-          r.receiverKind,
-        );
-        const methodSpec = ownRecordValue(receiverTable, name);
-        if (!methodSpec) continue;
-        let boundReceiver: ts.Expression | undefined;
-        if (methodSpec.usesReceiverRef) boundReceiver = receiverExpr;
-        this.record(
-          { call, service: r.service, spec: methodSpec, via: methodSpec.via, receiverExpr: boundReceiver },
-          owned,
-        );
+        if (r.k === 'receiver' && this.opIndex.methodNames.has(name)) {
+          const receiverTable = ownRecordValue(
+            this.ev.sdk.serviceModel(r.service)?.receiverMethods,
+            r.receiverKind,
+          );
+          const methodSpec = ownRecordValue(receiverTable, name);
+          if (methodSpec) {
+            let boundReceiver: ts.Expression | undefined;
+            if (methodSpec.usesReceiverRef) boundReceiver = receiverExpr;
+            this.record(
+              { call, service: r.service, spec: methodSpec, via: methodSpec.via, receiverExpr: boundReceiver },
+              owned,
+            );
+          }
+          continue;
+        }
+        if (r.k === 'ref' && this.opIndex.methodNames.has(name)) {
+          const refMethodSpec = ownRecordValue(this.ev.sdk.serviceModel(r.service)?.refMethods, name);
+          if (refMethodSpec) {
+            this.record(
+              { call, service: r.service, spec: refMethodSpec, via: refMethodSpec.via, receiverExpr },
+              owned,
+            );
+            continue;
+          }
+        }
+        if (owned && (r.k === 'db' || r.k === 'ref') && this.opIndex.handleRefMethodNames.has(name)) {
+          const refSpec = ownRecordValue(this.ev.sdk.serviceModel(r.service)?.handleRefMethods, name);
+          if (refSpec) {
+            this.constructions.push({
+              call,
+              service: r.service,
+              name,
+              isQuery: false,
+              reportUnconsumed: refSpec.reportUnconsumed !== false,
+            });
+          }
+        }
       }
     }
   }
@@ -200,9 +229,11 @@ export class SiteCollector {
   private refValueOf(op: OpCall, env: Env | undefined): AVal {
     if (op.receiverExpr) {
       const receiver = this.force(this.ev.eval(op.receiverExpr, env));
-      const refs = alternatives(receiver)
-        .filter((r): r is Extract<AVal, { k: 'receiver' }> => r.k === 'receiver' && r.ref !== undefined)
-        .map((r) => r.ref!);
+      const refs: AVal[] = [];
+      for (const r of alternatives(receiver)) {
+        if (r.k === 'receiver' && r.ref !== undefined) refs.push(r.ref);
+        else if (r.k === 'ref') refs.push(r);
+      }
       if (refs.length === 0) return unknown(`${op.spec.op}() receiver not traced`);
       return union(refs);
     }
@@ -216,7 +247,7 @@ export class SiteCollector {
     const refExpr = op.receiverExpr ?? call.arguments[0];
     const alts = alternatives(this.force(this.refValueOf(op, env)));
     const refs = alts.filter((a): a is Extract<AVal, { k: 'ref' }> => a.k === 'ref' && a.service === service);
-    if (spec.readKind && !this.includeReads) {
+    if ((spec.readKind || spec.read) && !this.includeReads) {
       for (const ref of refs) for (const b of ref.built) this.consumed.add(nodeId(b));
       return [];
     }
@@ -237,6 +268,10 @@ export class SiteCollector {
     const fieldSep = this.ev.sdk.serviceModel(service)?.nestedFieldSeparator ?? '.';
     let payload: { shape: PayloadShape; value: AVal } | undefined;
     if (spec.data !== undefined) payload = evaluateCallPayload(this.ev, this.force, call, spec, fieldSep, env);
+    let uploadInfo: ExtractedUploadInfo | undefined;
+    if (spec.uploadPayload !== undefined) {
+      uploadInfo = extractStorageUpload(this.ev, this.force, call, spec.uploadPayload, env);
+    }
     for (const ref of refs) {
       for (const b of ref.built) this.consumed.add(nodeId(b));
       const segments: Segment[] = spec.append ? [...ref.segments, [hole(spec.append)]] : ref.segments;
@@ -249,10 +284,12 @@ export class SiteCollector {
       const { path, variables } = renderPath(service, segments, this.force);
       const resolution = notes.length > 0 ? 'partial' : 'resolved';
       const site: AccessSite = { ...base, op: opName, path, resolution };
+      if (ref.resourceId !== '(default)') site.resourceId = ref.resourceId;
       if (ref.fromCallers) CALLER_SHAPED.add(site);
       if (notes.length > 0) site.reason = notes.join('; ');
       if (variables.length > 0) site.pathVariables = variables;
       if (ref.constraints?.length) site.query = ref.constraints.map(toConstraint);
+      if (uploadInfo?.storageUpload) site.storageUpload = uploadInfo.storageUpload;
       if (payload && spec.multiPathUpdate) {
         for (const expanded of expandMultiPathSites(this.force, service, fieldSep, site, segments, payload.value)) {
           attachSiteUsage(expanded, ref, refs, refExpr, sourceNode, through, this.ev, this.force, (n) => this.source(n));
@@ -269,6 +306,7 @@ export class SiteCollector {
         continue;
       }
       if (payload) site.payload = payload.shape;
+      else if (uploadInfo?.metadataPayload) site.payload = uploadInfo.metadataPayload;
       attachSiteUsage(site, ref, refs, refExpr, sourceNode, through, this.ev, this.force, (n) => this.source(n));
       out.push(site);
     }

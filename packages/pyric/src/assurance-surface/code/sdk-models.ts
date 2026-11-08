@@ -82,6 +82,7 @@ export function apiCall(ev: Evaluator, api: Api, call: ts.CallExpression, env: E
       return reactCall(ev, api.name, call, arg);
     case 'sandbox-firestore':
     case 'sandbox-rtdb':
+    case 'sandbox-storage':
     case 'rules-testing':
       return unknown(`result of ${api.name}()`);
     default:
@@ -377,6 +378,82 @@ function serviceCall(
     return evalConstraintCall(ev, constraintSpec, call, arg, env);
   }
   return unknown(`result of ${model.service} ${name}()`);
+}
+
+/** Evaluate a declarative handle/ref method call (`adminStorage.bucket(...)`, `bucket.file(...)`). */
+export function serviceMemberCall(
+  ev: Evaluator,
+  call: ts.CallExpression,
+  env: Env | undefined,
+): AVal | undefined {
+  if (!ts.isPropertyAccessExpression(call.expression)) return undefined;
+  const methodName = call.expression.name.text;
+  const receiverVal = ev.force(ev.eval(call.expression.expression, env));
+  const arg = (i: number): AVal => {
+    const a = call.arguments[i];
+    if (!a) return { k: 'undefined' };
+    if (ts.isSpreadElement(a)) return unknown('spread argument');
+    return ev.eval(a, env);
+  };
+  const out: AVal[] = [];
+  for (const r of alternatives(receiverVal)) {
+    if (r.k === 'db') {
+      const model = ev.sdk.serviceModel(r.service);
+      const subSpec = ownRecordValue(model?.handleSubFactories, methodName);
+      if (subSpec) {
+        if (call.arguments.length === 0) {
+          out.push(r);
+          continue;
+        }
+        const firstAlts = alternatives(ev.force(arg(0)));
+        if (firstAlts.length === 1 && firstAlts[0]?.k === 'undefined') {
+          out.push(r);
+          continue;
+        }
+        out.push(evalHandleFactory(ev, r.service, methodName, subSpec, call, arg));
+        continue;
+      }
+      const refSpec = ownRecordValue(model?.handleRefMethods, methodName);
+      if (refSpec) {
+        const origin: BaseRefOrigin = {
+          prefix: [],
+          resourceId: r.resourceId,
+          built: [],
+          notes: r.notes ?? [],
+          fromCallers: Boolean(r.fromCallers),
+        };
+        let end = call.arguments.length;
+        if (refSpec.pathArgsEnd !== undefined) end = Math.min(call.arguments.length, refSpec.pathArgsEnd);
+        let append: Segment | undefined;
+        if (refSpec.appendHole) append = [hole(refSpec.appendHole)];
+        out.push(
+          buildRefsFromBases(ev, [origin], r.service, refSpec.refKind, call, arg, methodName, 0, end, refSpec.mode === 'url', append),
+        );
+      }
+    } else if (r.k === 'ref') {
+      const model = ev.sdk.serviceModel(r.service);
+      const refSpec = ownRecordValue(model?.handleRefMethods, methodName);
+      if (refSpec) {
+        const origin: BaseRefOrigin = {
+          prefix: r.segments,
+          resourceId: r.resourceId,
+          built: r.built,
+          notes: r.notes,
+          refKind: r.refKind,
+          fromCallers: Boolean(r.fromCallers),
+        };
+        let end = call.arguments.length;
+        if (refSpec.pathArgsEnd !== undefined) end = Math.min(call.arguments.length, refSpec.pathArgsEnd);
+        let append: Segment | undefined;
+        if (refSpec.appendHole) append = [hole(refSpec.appendHole)];
+        out.push(
+          buildRefsFromBases(ev, [origin], r.service, refSpec.refKind, call, arg, methodName, 0, end, refSpec.mode === 'url', append),
+        );
+      }
+    }
+  }
+  if (out.length === 0) return undefined;
+  return union(out);
 }
 
 /** The value an SDK passes to a callback's parameter. */

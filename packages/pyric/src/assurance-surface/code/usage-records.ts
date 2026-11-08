@@ -352,7 +352,9 @@ export function collectProgramUsage(
       );
       if (refAlts.length === 0) {
         const serviceModel = ev.sdk.serviceModel(c.service);
-        const refSpec = ownRecordValue(serviceModel?.refConstructors, c.name);
+        const refSpec =
+          ownRecordValue(serviceModel?.refConstructors, c.name)
+          ?? ownRecordValue(serviceModel?.handleRefMethods, c.name);
         const refKind: RefKind = refSpec?.refKind ?? serviceModel?.defaultRefKind ?? 'doc';
         const untraced = alternatives(v)
           .filter((a): a is Extract<AVal, { k: 'unknown' }> => a.k === 'unknown')

@@ -46,9 +46,24 @@ export interface ConstraintSpec {
   readonly composite?: boolean;
 }
 
+export interface UploadPayloadSpec {
+  /** Argument index of the raw data, string, or byte buffer (`uploadBytes`, `uploadString`, `file.save`). */
+  readonly dataArg?: number;
+  /** Argument index of the string encoding format (`uploadString(ref, value, format?, metadata?)`). */
+  readonly formatArg?: number;
+  /** Argument index of the upload/object metadata object (`uploadBytes`, `updateMetadata`, `file.save`). */
+  readonly metadataArg?: number;
+  /** Property inside metadata carrying custom string key/value pairs (`'customMetadata'` by default; `'metadata'` for Admin). */
+  readonly customMetadataProp?: string;
+  /** True when string literals passed to `dataArg` represent raw UTF-8 text (`uploadString`, `file.save`). */
+  readonly stringData?: boolean;
+}
+
 export interface OpSpec {
   readonly op: string;
   readonly write?: boolean;
+  /** True for fixed-name read operations (`getDownloadURL`, `getBytes`, `listAll`, ...). */
+  readonly read?: boolean;
   /** Index of the written value argument, if any. */
   readonly data?: number;
   /** Index of an options argument (`setDoc(ref, data, { merge })`). */
@@ -67,8 +82,10 @@ export interface OpSpec {
   readonly variadicFieldPairs?: boolean;
   /** True when slash-containing object keys expand as multi-path updates (`update(ref, { 'a/b': 1 })`). */
   readonly multiPathUpdate?: boolean;
-  /** True when the ref lives on the receiver handle (`onDisconnect(ref).set(...)`). */
+  /** True when the ref lives on the receiver handle (`onDisconnect(ref).set(...)`, `file.save(...)`). */
   readonly usesReceiverRef?: boolean;
+  /** Declarative upload payload and metadata extraction spec for object storage writes. */
+  readonly uploadPayload?: UploadPayloadSpec;
 }
 
 export interface ReceiverFactorySpec {
@@ -80,10 +97,16 @@ export interface SdkServiceModel {
   readonly service: AssuranceService;
   readonly modules: readonly string[];
   readonly handleFactories: Readonly<Record<string, HandleFactorySpec>>;
+  /** Methods on a service handle that refine or select a resource handle (`adminStorage.bucket(name?)`). */
+  readonly handleSubFactories?: Readonly<Record<string, HandleFactorySpec>>;
+  /** Methods on a service handle that construct a resource ref (`bucket.file(path)`). */
+  readonly handleRefMethods?: Readonly<Record<string, RefConstructorSpec>>;
   readonly refConstructors: Readonly<Record<string, RefConstructorSpec>>;
   readonly queryBuilder?: string;
   readonly constraints: Readonly<Record<string, ConstraintSpec>>;
   readonly operations: Readonly<Record<string, OpSpec>>;
+  /** Operations invoked directly as methods on a resource ref (`file.save(...)`, `file.delete()`). */
+  readonly refMethods?: Readonly<Record<string, OpSpec>>;
   readonly receiverMethods?: Readonly<Record<string, Readonly<Record<string, OpSpec>>>>;
   readonly receiverFactories?: Readonly<Record<string, ReceiverFactorySpec>>;
   readonly callbackReceivers?: Readonly<Record<string, Readonly<Record<number, string>>>>;

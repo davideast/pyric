@@ -110,18 +110,34 @@ export interface QueryConstraint {
   direction?: 'asc' | 'desc';
 }
 
+/** Static upload payload and metadata facts extracted from a Cloud Storage write site. */
+export interface StorageUploadMetadata {
+  /** Static MIME type (`metadata.contentType`, `Blob` `type`, or `data:` URL header). */
+  readonly contentType?: string;
+  /** Exact payload size in bytes when statically determinable. */
+  readonly sizeBytes?: number;
+  /** Sorted custom metadata keys when statically known. */
+  readonly customMetadataKeys?: readonly string[];
+  /** Per-key value shape and auth provenance for `customMetadata` entries. */
+  readonly customMetadata?: Readonly<Record<string, PayloadField>>;
+  /** True when `customMetadata` has spread or dynamic computed keys. */
+  readonly customMetadataOpen?: boolean;
+}
+
 /** One access site. */
 export interface AccessSite {
   /**
-   * Path template. Firestore variables render as `{name}`, RTDB variables
-   * as `$name`. No leading slash. Empty string when unresolved.
+   * Path template. Firestore and Storage variables render as `{name}`, RTDB
+   * variables as `$name`. No leading slash. Empty string when unresolved.
    */
   path: string;
   service: AccessService;
+  /** Non-default service resource identifier (named database, RTDB instance, or Storage bucket), when known. */
+  resourceId?: string;
   /**
    * Operation, named after the SDK call: `set`, `update`, `remove`,
    * `push`, `transaction`, `onDisconnect.set`, `setDoc`, `addDoc`,
-   * `updateDoc`, `deleteDoc`, `get`, `query`.
+   * `updateDoc`, `deleteDoc`, `uploadBytes`, `getDownloadURL`, `get`, `query`.
    */
   op: string;
   /** `batch` or `transaction` when a Firestore write went through one. */
@@ -143,6 +159,8 @@ export interface AccessSite {
   pathVariables?: PathVariable[];
   /** Written payload, for writes that carry one. */
   payload?: PayloadShape;
+  /** Static upload metadata (MIME type, byte length, customMetadata) for Storage writes. */
+  storageUpload?: StorageUploadMetadata;
   /** Constraint shape, for query sites. */
   query?: QueryConstraint[];
   /** True when the site is one key of an RTDB multi-path `update`. */
@@ -157,6 +175,8 @@ export interface AccessPreset {
   firestoreModules?: string[];
   /** Extra module specifiers that export the RTDB modular API. */
   rtdbModules?: string[];
+  /** Extra module specifiers that export the Storage modular API. */
+  storageModules?: string[];
   /** Extra module specifiers that export the Auth modular API. */
   authModules?: string[];
   /**

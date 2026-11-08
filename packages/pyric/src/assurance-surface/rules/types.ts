@@ -43,6 +43,8 @@ export interface OwnerCondition {
   source: string;
   /** The comparison as written, printed back. */
   expression: string;
+  /** True when projected from an unscoped Storage ruleset (`bucket === undefined`) under wildcard `match /b/{bucket}/o`. */
+  wildcardBucket?: boolean;
 }
 
 /** Which side supports a binding. */
@@ -71,4 +73,6 @@ export interface OwnerBinding {
   codeSources?: string[];
   /** Short text of the rule comparison or the code evidence. */
   evidenceText: string;
+  /** True when backed by an unscoped Storage ruleset (`bucket === undefined`) under wildcard `match /b/{bucket}/o`. */
+  wildcardBucket?: boolean;
 }

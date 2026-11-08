@@ -5,6 +5,7 @@
  */
 import type { AccessSite } from '../code/types.js';
 import { coversPattern, parseResourcePattern } from '../../sandbox/internal/index.js';
+import type { RuleSurface } from '../rules/rule-surface.js';
 import type { OwnerBinding, OwnerCondition } from '../rules/types.js';
 import type { ValueHint } from '../rules/value-hints.js';
 import { planFieldOwned } from './field-owned-probes.js';
@@ -12,6 +13,7 @@ import { attributionFields, concretePath, isConcretePayload, isSentinel, uidFiel
 import { lookupSeeds } from './prerequisites.js';
 import { attributionValuesAt, fieldOf, recordsAt } from './state.js';
 import { creator, dedupeSites, findCreateCondition, hintOverrides, isCleanup, opOf, probeable, recordPath, same, sep, shareUidVariables, siblingsOf, stepFor, type MakeStep } from './step-builder.js';
+import { planStorageProbes } from './storage-probes.js';
 import type { Probe, ProbeActor, ProbeStep } from './types.js';
 import type { WorldState } from './world.js';
 
@@ -25,6 +27,8 @@ export interface PlanInput {
   hints?: ValueHint[];
   /** Existing data every probe starts from; attacks target real records in it when they can. */
   state?: WorldState;
+  /** Projected unified `RuleSurface` (provides Cloud Storage constraints and cross-service lookups). */
+  surface?: RuleSurface;
 }
 
 function bindingsAt(site: AccessSite, bindings: OwnerBinding[]): OwnerBinding[] {
@@ -72,7 +76,7 @@ export function planProbes(input: PlanInput): Probe[] {
     if (options.overrides) Object.assign(overrides, options.overrides);
     return stepFor(site, actor, actors, { state: input.state, otherUid, ...options, overrides });
   };
-  const sites = dedupeSites(input.sites.filter(probeable));
+  const sites = dedupeSites(input.sites.filter((s) => s.service !== 'storage' && probeable(s)));
   const probes: Probe[] = [];
   const seeds = (site: AccessSite, concrete: string): ProbeStep[] =>
     lookupSeeds(site.service, site.path, concrete, conditions, input.sites, [owner, peer]);
@@ -226,6 +230,7 @@ export function planProbes(input: PlanInput): Probe[] {
       evidence: `${peer.uid} moved ${counters.join(', ')} by 100 where the client increments by 1 (${site.source})`, sources: [site.source],
     });
   }
+  planStorageProbes(input, add);
   return dedupeProbes(probes);
 }
 

@@ -140,6 +140,82 @@ describe('resource-pattern-header: service headers and resourceId resolution', (
     );
   });
 
+  it('parses Storage HTTP(S) download, GCS, and local emulator URLs while rejecting unrecognized HTTP(S) URLs', () => {
+    expect(
+      extractServiceHeader(
+        'storage',
+        'https://firebasestorage.googleapis.com/v0/b/media-bucket.appspot.com/o/files%2Fu-alice%2Freport%20v1.pdf?alt=media&token=t-1#viewer',
+      ),
+    ).toEqual({
+      headerKind: 'concrete',
+      headerResourceId: 'media-bucket.appspot.com',
+      bodyPath: '/files/u-alice/report v1.pdf',
+    });
+
+    expect(
+      extractServiceHeader(
+        'storage',
+        'https://storage.googleapis.com/assets-bucket/orgs/org-1/banner%20hero.png?generation=1',
+      ),
+    ).toEqual({
+      headerKind: 'concrete',
+      headerResourceId: 'assets-bucket',
+      bodyPath: '/orgs/org-1/banner hero.png',
+    });
+
+    expect(
+      extractServiceHeader(
+        'storage',
+        'https://storage.cloud.google.com/archive_bucket/backups%2F2026%2Fdump.tar#top',
+      ),
+    ).toEqual({
+      headerKind: 'concrete',
+      headerResourceId: 'archive_bucket',
+      bodyPath: '/backups/2026/dump.tar',
+    });
+
+    expect(
+      extractServiceHeader(
+        'storage',
+        'http://127.0.0.1:4000/__pyric/storage/v0/b/local-bucket/o/files%2F__PYRIC_HOLE_0__%2Favatar.png?alt=media',
+      ),
+    ).toEqual({
+      headerKind: 'concrete',
+      headerResourceId: 'local-bucket',
+      bodyPath: '/files/__PYRIC_HOLE_0__/avatar.png',
+    });
+
+    expect(
+      extractServiceHeader(
+        'storage',
+        'https://firebasestorage.googleapis.com/v0/b/{bucket}/o/files%2F{uid}%2Fdoc.pdf',
+      ),
+    ).toEqual({
+      headerKind: 'wildcard',
+      bodyPath: '/files/{uid}/doc.pdf',
+    });
+
+    expect(
+      extractServiceHeader(
+        'storage',
+        'https://firebasestorage.googleapis.com/v0/b/__PYRIC_HOLE_0__/o/files%2Fdoc.pdf',
+      ),
+    ).toEqual({
+      headerKind: 'wildcard',
+      bodyPath: '/files/doc.pdf',
+    });
+
+    expect(
+      extractServiceHeader('storage', 'https://example.com/files/u1/doc.pdf').headerKind,
+    ).toBe('malformed');
+    expect(
+      extractServiceHeader(
+        'storage',
+        'https://firebasestorage.googleapis.com/v0/b//o/files%2Fdoc.pdf',
+      ).headerKind,
+    ).toBe('malformed');
+  });
+
   it('normalizes explicit resourceIds and distinguishes pattern vs concrete resolution', () => {
     expect(normalizeExplicitResourceId('storage', 'gs://{bucket}/')).toBeUndefined();
     expect(normalizeExplicitResourceId('firestore', '{database}')).toBeUndefined();

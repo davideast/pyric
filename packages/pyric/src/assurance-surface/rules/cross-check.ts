@@ -59,7 +59,7 @@ function codeFacts(sites: AccessSite[]): CodeFact[] {
   const out: CodeFact[] = [];
   sites.forEach((site, n) => {
     if (!isWriteOp(site.op) || !site.path || site.resolution === 'unresolved') return;
-    const sitePattern = parseResourcePattern(site.service, site.path);
+    const sitePattern = parseResourcePattern(site.service, site.path, site.resourceId);
     const segs = sitePattern.segments;
     let varPos = 0;
     segs.forEach((seg, index) => {
@@ -98,25 +98,63 @@ function cascades(c: OwnerCondition): boolean {
   return c.service === 'rtdb' && !c.ops.every((op) => op === 'validate');
 }
 
+function effectiveStorageRulePattern(
+  rule: ResourcePattern,
+  wildcardBucket: boolean | undefined,
+  sitePattern: ResourcePattern,
+  explicitStorageBuckets: ReadonlySet<string>,
+): ResourcePattern {
+  if (
+    rule.service === 'storage'
+    && wildcardBucket === true
+    && sitePattern.resourceId !== '(default)'
+    && !explicitStorageBuckets.has(sitePattern.resourceId)
+  ) {
+    return { ...rule, resourceId: sitePattern.resourceId };
+  }
+  return rule;
+}
+
 /** Code facts that support one rule condition, and the write sites the rule governs. */
-function supportFor(c: OwnerCondition, facts: CodeFact[], sites: AccessSite[]): { support: CodeFact[]; governed: AccessSite[] } {
+function supportFor(
+  c: OwnerCondition,
+  facts: CodeFact[],
+  sites: AccessSite[],
+  explicitStorageBuckets: ReadonlySet<string>,
+): { support: CodeFact[]; governed: AccessSite[] } {
   const rule = parseResourcePattern(c.service, c.path);
   const cascadeRule = cascades(c);
-  const governed = sites.filter(
-    (s) =>
-      s.service === c.service
-      && Boolean(s.path)
-      && isWriteOp(s.op)
-      && coversPattern(rule, parseResourcePattern(s.service, s.path), { cascade: cascadeRule }),
-  );
+  const governed = sites.filter((s) => {
+    if (s.service !== c.service || !s.path || !isWriteOp(s.op)) return false;
+    const sitePattern = parseResourcePattern(s.service, s.path, s.resourceId);
+    const effectiveRule = effectiveStorageRulePattern(
+      rule,
+      c.wildcardBucket,
+      sitePattern,
+      explicitStorageBuckets,
+    );
+    return coversPattern(effectiveRule, sitePattern, { cascade: cascadeRule });
+  });
   const support: CodeFact[] = [];
   for (const fact of facts) {
     if (fact.site.service !== c.service) continue;
-    const sitePattern = parseResourcePattern(fact.site.service, fact.site.path);
+    const sitePattern = parseResourcePattern(fact.site.service, fact.site.path, fact.site.resourceId);
     if (c.kind === 'pathVar' && fact.kind === 'pathVar') {
-      if (c.varIndex !== undefined && c.varIndex === fact.index && coversPattern(rule, sitePattern, { cascade: true })) support.push(fact);
+      const effectiveRule = effectiveStorageRulePattern(
+        rule,
+        c.wildcardBucket,
+        sitePattern,
+        explicitStorageBuckets,
+      );
+      if (
+        c.varIndex !== undefined
+        && c.varIndex === fact.index
+        && coversPattern(effectiveRule, sitePattern, { cascade: true })
+      ) {
+        support.push(fact);
+      }
     } else if ((c.kind === 'storedField' || c.kind === 'incomingField') && fact.kind === 'field' && c.location) {
-      if (fieldMatches(c, fact)) support.push(fact);
+      if (fieldMatches(c, fact, explicitStorageBuckets)) support.push(fact);
     } else if (c.kind === 'lookup' && fact.kind === 'pathVar') {
       const lookup = parseResourcePattern(c.service, c.field.split('#')[0]!);
       const authIndex = lookup.segments.findIndex((s) => s.kind === 'var' && s.name === 'auth.uid');
@@ -126,16 +164,22 @@ function supportFor(c: OwnerCondition, facts: CodeFact[], sites: AccessSite[]): 
   return { support, governed };
 }
 
-function fieldMatches(c: OwnerCondition, fact: CodeFact): boolean {
-  if (c.service === 'firestore') {
+function fieldMatches(
+  c: OwnerCondition,
+  fact: CodeFact,
+  explicitStorageBuckets: ReadonlySet<string>,
+): boolean {
+  if (c.service === 'firestore' || c.service === 'storage') {
     const [docPath, field] = c.location!.split('#');
-    return (
-      fact.field === field
-      && coversPattern(
-        parseResourcePattern('firestore', docPath!),
-        parseResourcePattern('firestore', fact.site.path),
-      )
+    if (fact.field !== field) return false;
+    const sitePattern = parseResourcePattern(c.service, fact.site.path, fact.site.resourceId);
+    const docPattern = effectiveStorageRulePattern(
+      parseResourcePattern(c.service, docPath!),
+      c.wildcardBucket,
+      sitePattern,
+      explicitStorageBuckets,
     );
+    return coversPattern(docPattern, sitePattern);
   }
   const location = parseResourcePattern('rtdb', c.location!);
   return coversPattern(location, fact.location!);
@@ -153,11 +197,19 @@ function depthOf(service: AccessService, decidedAt: string, written: string[]): 
 
 /** Infer owner bindings from rule conditions and access sites. */
 export function inferOwnerBindings(conditions: OwnerCondition[], sites: AccessSite[]): OwnerBinding[] {
+  const explicitStorageBuckets = new Set<string>();
+  for (const cond of conditions) {
+    if (cond.service !== 'storage' || cond.wildcardBucket) continue;
+    const condPattern = parseResourcePattern('storage', cond.path);
+    if (condPattern.resourceId !== '(default)') {
+      explicitStorageBuckets.add(condPattern.resourceId);
+    }
+  }
   const facts = codeFacts(sites);
   const used = new Set<string>();
   const byKey = new Map<string, OwnerBinding>();
   for (const c of conditions) {
-    const found = supportFor(c, facts, sites);
+    const found = supportFor(c, facts, sites, explicitStorageBuckets);
     const support = found.support;
     const governed = guardsWrites(c) ? found.governed : [];
     for (const f of support) used.add(f.id);
@@ -194,6 +246,7 @@ export function inferOwnerBindings(conditions: OwnerCondition[], sites: AccessSi
       evidenceText: c.expression,
     };
     if (strong) binding.codeSources = [...new Set(support.map((f) => f.site.source))];
+    if (c.wildcardBucket) binding.wildcardBucket = true;
     byKey.set(key, binding);
   }
   for (const b of codeOnlyBindings(facts.filter((f) => !used.has(f.id)))) {
@@ -225,11 +278,14 @@ function codeOnlyBindings(facts: CodeFact[]): OwnerBinding[] {
   const byKey = new Map<string, OwnerBinding>();
   for (const f of facts) {
     const service: AccessService = f.site.service;
-    const sitePattern = parseResourcePattern(service, f.site.path);
+    const sitePattern = parseResourcePattern(service, f.site.path, f.site.resourceId);
     const segs = sitePattern.segments;
     let kind: OwnerBinding['kind'];
     let field: string;
-    let path = f.site.path;
+    let path = renderScopedPath(sitePattern);
+    if (f.site.resourceId === undefined || f.site.resourceId === '(default)') {
+      path = f.site.path;
+    }
     if (f.kind === 'pathVar') {
       kind = 'pathVar';
       const seg = segs[f.index!]!;

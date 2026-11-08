@@ -7,16 +7,17 @@
  * literal, a constant or an object literal all work.
  */
 import ts from 'typescript';
+import type { AssuranceService } from '../../sandbox/internal/resource-pattern.js';
 import type { Evaluator } from './evaluator.js';
 import { posixRelative } from './posix-path.js';
 import { alternatives, literalText, type AVal } from './values.js';
 
 /** Rules found in code. */
 export interface EmbeddedRules {
-  service: 'firestore' | 'rtdb';
+  service: AssuranceService;
   /** `file:line` of the call that installs them. */
   source: string;
-  /** Firestore rules text, or the RTDB rules object. */
+  /** Firestore/Storage rules text, or the RTDB rules object. */
   rules: string | Record<string, unknown>;
 }
 
@@ -35,17 +36,29 @@ function inspectCall(ev: Evaluator, call: ts.CallExpression, root: string, out: 
   const callee = ev.force(ev.eval(call.expression));
   if (callee.k !== 'api') return;
   const source = sourceOf(call, root);
-  if (callee.name === 'setRules' && (callee.module === 'sandbox-firestore' || callee.module === 'sandbox-rtdb')) {
+  if (
+    callee.name === 'setRules'
+    && (callee.module === 'sandbox-firestore'
+      || callee.module === 'sandbox-rtdb'
+      || callee.module === 'sandbox-storage')
+  ) {
     const arg = call.arguments[1];
     if (!arg) return;
-    const value = toRules(ev, ev.eval(arg), callee.module === 'sandbox-firestore' ? 'firestore' : 'rtdb');
-    if (value !== undefined) out.push({ service: callee.module === 'sandbox-firestore' ? 'firestore' : 'rtdb', source, rules: value });
+    let service: AssuranceService = 'rtdb';
+    if (callee.module === 'sandbox-firestore') service = 'firestore';
+    else if (callee.module === 'sandbox-storage') service = 'storage';
+    const value = toRules(ev, ev.eval(arg), service);
+    if (value !== undefined) out.push({ service, source, rules: value });
     return;
   }
   if (callee.module === 'rules-testing' && callee.name === 'initializeTestEnvironment' && call.arguments[0]) {
     const config = ev.force(ev.eval(call.arguments[0]));
     if (config.k !== 'obj') return;
-    for (const [key, service] of [['firestore', 'firestore'], ['database', 'rtdb']] as const) {
+    for (const [key, service] of [
+      ['firestore', 'firestore'],
+      ['database', 'rtdb'],
+      ['storage', 'storage'],
+    ] as const) {
       const section = config.props.get(key);
       const forced = section ? ev.force(section) : undefined;
       const rules = forced?.k === 'obj' ? forced.props.get('rules') : undefined;
@@ -61,12 +74,12 @@ function sourceOf(node: ts.Node, root: string): string {
   return `${posixRelative(root, sf.fileName)}:${line + 1}`;
 }
 
-/** Firestore rules must be a literal string; RTDB rules a literal object or a JSON string. */
-function toRules(ev: Evaluator, v: AVal, service: 'firestore' | 'rtdb'): string | Record<string, unknown> | undefined {
+/** Firestore and Storage rules must be a literal string; RTDB rules a literal object or a JSON string. */
+function toRules(ev: Evaluator, v: AVal, service: AssuranceService): string | Record<string, unknown> | undefined {
   for (const alt of alternatives(ev.force(v))) {
     const text = literalText(alt);
     if (text !== null) {
-      if (service === 'firestore') return text;
+      if (service === 'firestore' || service === 'storage') return text;
       try {
         const parsed: unknown = JSON.parse(text);
         if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;

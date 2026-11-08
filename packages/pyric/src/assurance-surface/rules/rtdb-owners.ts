@@ -22,6 +22,18 @@ interface DbRef {
   authKeyed: boolean;
 }
 
+/** Collect owner conditions from a single parsed RTDB rule expression. */
+export function rtdbExpressionOwnerConditions(
+  tree: RtdbExpressionTree,
+  path: readonly string[],
+  op: string,
+  source: string,
+): OwnerCondition[] {
+  const out: OwnerCondition[] = [];
+  collect(tree, { path: [...path], op, source, out, required: true, negated: false });
+  return out;
+}
+
 /** Collect owner conditions from a parsed RTDB rules object (`{ rules: {...} }`). */
 export function rtdbOwnerConditions(rulesJson: unknown, file: string): OwnerCondition[] {
   const out: OwnerCondition[] = [];

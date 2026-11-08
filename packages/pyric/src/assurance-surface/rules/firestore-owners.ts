@@ -6,12 +6,13 @@
  */
 import {
   assembleExpression,
-  parseToAST,
+  type AllowRule,
   type Expression,
   type FunctionDef,
   type MatchBlock,
   type Operation,
 } from '../../rules/internal/index.js';
+import { parseRulesAstWithMultiMatch } from './rules-ast-utils.js';
 import type { OwnerCondition, OwnerKind, OwnerRelation } from './types.js';
 
 const MAX_INLINE_DEPTH = 8;
@@ -39,17 +40,47 @@ interface Ctx {
   negated: boolean;
 }
 
+/** Collect owner conditions from a single Firestore `allow` clause. */
+export function firestoreAllowOwnerConditions(
+  allow: AllowRule,
+  fallbackLine: number | undefined,
+  fullPath: readonly string[],
+  functions: readonly (readonly FunctionDef[])[],
+  wildcards: ReadonlySet<string>,
+  file: string,
+): OwnerCondition[] {
+  const out: OwnerCondition[] = [];
+  const scope: Scope = {
+    vars: new Map(),
+    functions: functions.map((group) => [...group]),
+    wildcards: new Set(wildcards),
+    depth: 0,
+  };
+  const line = allow.loc?.line ?? fallbackLine;
+  let ruleSource = file;
+  if (line) ruleSource = `${file}:${line}`;
+  const ctx: Ctx = {
+    path: stripDocuments([...fullPath]),
+    ops: expandOps(allow.operations),
+    source: ruleSource,
+    out,
+    required: true,
+    negated: false,
+  };
+  visit(allow.condition, scope, ctx);
+  return out;
+}
+
 /** Collect owner conditions from Firestore rules source. Returns [] when it doesn't parse. */
 export function firestoreOwnerConditions(source: string, file: string): OwnerCondition[] {
-  const ast = parseToAST(source);
-  if (!ast) return [];
+  const services = parseRulesAstWithMultiMatch(source);
   const out: OwnerCondition[] = [];
-  let services = [ast.service];
-  if (ast.services && ast.services.length > 0) services = ast.services;
   for (const service of services) {
     if (!/firestore/.test(service.name)) continue;
-    const functions: FunctionDef[][] = [ast.functions ?? [], service.functions ?? []];
-    walkMatch(service.match, [], functions, new Set(), file, out);
+    const functions: FunctionDef[][] = service.functions.map((group) => [...group]);
+    for (const match of service.matches) {
+      walkMatch(match, [], functions, new Set(), file, out);
+    }
   }
   return out;
 }
@@ -77,25 +108,13 @@ function walkMatch(
   }
   const scopeFns = [...functions, match.functions];
   for (const allow of match.allows) {
-    const scope: Scope = { vars: new Map(), functions: scopeFns, wildcards: names, depth: 0 };
-    const line = allow.loc?.line ?? match.loc?.line;
-    let ruleSource = file;
-    if (line) ruleSource = `${file}:${line}`;
-    const ctx: Ctx = {
-      path: stripDocuments(path),
-      ops: expandOps(allow.operations),
-      source: ruleSource,
-      out,
-      required: true,
-      negated: false,
-    };
-    visit(allow.condition, scope, ctx);
+    out.push(...firestoreAllowOwnerConditions(allow, match.loc?.line, path, scopeFns, names, file));
   }
   for (const child of match.children) walkMatch(child, path, scopeFns, names, file, out);
 }
 
 function matchesPrefixSegment(prefixSeg: string, actual: string): boolean {
-  if (prefixSeg === '{database}') return /^\{.+\}$/.test(actual);
+  if (prefixSeg === '{database}') return actual.length > 0;
   return actual === prefixSeg;
 }
 

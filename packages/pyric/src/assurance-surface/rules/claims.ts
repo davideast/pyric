@@ -7,6 +7,7 @@
 import {
   collectRootMatches,
   parseToAST,
+  topLevelMatches,
   type Expression,
   type FirestoreRules,
   type FunctionDef,
@@ -15,6 +16,9 @@ import {
   type Operation,
 } from '../../rules/internal/index.js';
 import { parseRtdbExpressionTree, type RtdbExpressionTree } from '../../rules/internal/rtdb.js';
+import { extractServiceHeader } from '../../sandbox/internal/resource-pattern-header.js';
+import { overlapsPattern, parseResourcePattern } from '../../sandbox/internal/resource-pattern.js';
+import { formatMatchSegment, parseRulesAstWithMultiMatch } from './rules-ast-utils.js';
 
 /** Claims set on every Firebase ID token; never inferred as custom claims. */
 const STANDARD_CLAIMS = new Set([
@@ -36,6 +40,7 @@ export type Claims = Record<string, unknown>;
 export interface ClaimTarget {
   path: string;
   op?: string;
+  bucket?: string;
 }
 
 function splitSegments(path: string): string[] {
@@ -224,6 +229,49 @@ export function firestoreRequiredClaims(source: string, target: ClaimTarget, int
   return copyClaimsInto(intersectClaimList(matchingAllows), into);
 }
 
+/** Required claims for a Cloud Storage object path and operation. */
+export function storageRequiredClaims(source: string, target: ClaimTarget, into: Claims = {}): Claims {
+  const services = parseRulesAstWithMultiMatch(source);
+  if (services.length === 0) return into;
+
+  const targetPattern = parseResourcePattern('storage', target.path, target.bucket);
+  const matchingAllows: Claims[] = [];
+
+  for (const svc of services) {
+    if (!/storage/.test(svc.name)) continue;
+    const declScopes = new WeakMap<FunctionDef, FunctionDef[]>();
+    const rootFns = svc.functions.flat();
+    for (const fn of rootFns) declScopes.set(fn, rootFns);
+
+    const walk = (block: MatchBlock, parentSegments: readonly string[], parentFns: FunctionDef[]): void => {
+      const currentFns = [...parentFns, ...block.functions];
+      for (const fn of block.functions) declScopes.set(fn, currentFns);
+      const fullSegments = [...parentSegments, ...block.path.segments.map(formatMatchSegment)];
+      const rawRulePath = `/${fullSegments.join('/')}`;
+      const header = extractServiceHeader('storage', rawRulePath);
+      if (header.headerKind === 'concrete' || header.headerKind === 'wildcard') {
+        const rulePattern = parseResourcePattern('storage', rawRulePath, target.bucket);
+        if (overlapsPattern(rulePattern, targetPattern)) {
+          for (const allow of block.allows) {
+            if (!allowCoversOp(allow.operations, target.op)) continue;
+            if (isFsFalseLiteral(allow.condition)) continue;
+            matchingAllows.push(fsExprClaims(allow.condition, currentFns, new Map(), declScopes, 0));
+          }
+        }
+      }
+      for (const child of block.children) {
+        walk(child, fullSegments, currentFns);
+      }
+    };
+
+    for (const topMatch of svc.matches) {
+      walk(topMatch, [], rootFns);
+    }
+  }
+
+  return copyClaimsInto(intersectClaimList(matchingAllows), into);
+}
+
 function indexFunctionScopes(ast: FirestoreRules): WeakMap<FunctionDef, FunctionDef[]> {
   const scopes = new WeakMap<FunctionDef, FunctionDef[]>();
   const globalFns = [...(ast.functions ?? [])];
@@ -239,7 +287,9 @@ function indexFunctionScopes(ast: FirestoreRules): WeakMap<FunctionDef, Function
   for (const service of services) {
     const serviceScope = [...globalFns, ...(service.functions ?? [])];
     for (const fn of service.functions ?? []) scopes.set(fn, serviceScope);
-    walkBlock(service.match, serviceScope);
+    for (const topMatch of topLevelMatches(service)) {
+      walkBlock(topMatch, serviceScope);
+    }
   }
   return scopes;
 }

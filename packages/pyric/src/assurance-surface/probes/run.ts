@@ -6,13 +6,14 @@
  */
 import { parseResourcePattern } from '../../sandbox/internal/index.js';
 import { ProbeWorld, type WorldRules, type WorldState } from './world.js';
+import type { WorldStorageRules } from './world-storage.js';
 import type { Finding, Probe, ProbeActor, ProbeResult, StepResult } from './types.js';
 
 /** Rules available to probes: one Firestore ruleset, any number of RTDB rulesets (instances, shards), and optional Storage rules. */
 export interface ProbeRules {
   firestore?: string;
   rtdb: unknown[];
-  storage?: string;
+  storage?: WorldStorageRules;
 }
 
 /** How deep a path reaches into an RTDB rules tree (literal keys first, then a `$` wildcard). */
@@ -61,7 +62,9 @@ function worldRules(probe: Probe, rules: ProbeRules): WorldRules | undefined {
   }
   if (probe.service === 'storage') {
     if (!rules.storage) return undefined;
-    return { storage: rules.storage };
+    const wr: WorldRules = { storage: rules.storage };
+    if (rules.firestore) wr.firestore = rules.firestore;
+    return wr;
   }
   const concrete = probe.attack.path || Object.keys((probe.attack.data as object) ?? {})[0] || '';
   const rtdb = rtdbRulesFor(rules, concrete || sampleProbePath(probe));

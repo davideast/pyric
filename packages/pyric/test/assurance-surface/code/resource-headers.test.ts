@@ -37,6 +37,32 @@ describe('resource-headers', () => {
     expect(dynamic.resourceId).toBe('(default)');
     expect(dynamic.note).toBe('resource header of refFromURL() was not literal');
     expect(literalText(dynamic.value)).toBe('items/1');
+
+    const storageDownloadUrl = extractStringHeader(
+      'storage',
+      'refFromURL',
+      [
+        {
+          kind: 'lit',
+          text: 'https://firebasestorage.googleapis.com/v0/b/media-bucket/o/files%2F',
+        },
+        { kind: 'hole', name: 'uid', auth: [{ source: 'auth.uid', certainty: 'exact' }] },
+        { kind: 'lit', text: '%2Freport.pdf?alt=media&token=' },
+        { kind: 'hole', name: 'downloadToken', auth: [] },
+      ],
+      '(default)',
+      true,
+    );
+    expect(storageDownloadUrl.resourceId).toBe('media-bucket');
+    expect(storageDownloadUrl.note).toBeUndefined();
+    expect(storageDownloadUrl.value).toEqual({
+      k: 'str',
+      parts: [
+        { kind: 'lit', text: 'files/' },
+        { kind: 'hole', name: 'uid', auth: [{ source: 'auth.uid', certainty: 'exact' }] },
+        { kind: 'lit', text: '/report.pdf' },
+      ],
+    });
   });
 
   test('splitHeaderAlternatives keeps clean and dynamic-header branches separate', () => {

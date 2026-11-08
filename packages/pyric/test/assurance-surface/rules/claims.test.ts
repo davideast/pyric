@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { firestoreRequiredClaims, rtdbRequiredClaims } from '../../../src/assurance-surface/rules/claims.js';
+import {
+  firestoreRequiredClaims,
+  rtdbRequiredClaims,
+  storageRequiredClaims,
+} from '../../../src/assurance-surface/rules/claims.js';
 
 describe('firestoreRequiredClaims', () => {
   test('scopes required claims per template and never grants escape-hatch claims from other paths', () => {
@@ -103,6 +107,30 @@ describe('rtdbRequiredClaims', () => {
     });
     expect(rtdbRequiredClaims(rules, { path: 'adminLogs/l-1', op: 'create' })).toEqual({
       admin: true,
+    });
+  });
+});
+
+describe('storageRequiredClaims', () => {
+  test('scopes required custom claims to the target Storage bucket and path without granting escape-hatch claims', () => {
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /adminExports/{fileId} {
+      allow read, write: if request.auth.token.staff == true;
+    }
+    match /files/{uid}/{fileId} {
+      allow read, write: if request.auth.token.appMember == true
+        && (request.auth.uid == uid || request.auth.token.staff == true);
+    }
+  }
+}`;
+
+    expect(storageRequiredClaims(storageRules, { path: 'files/u-1/doc.png', op: 'create' })).toEqual({
+      appMember: true,
+    });
+    expect(storageRequiredClaims(storageRules, { path: 'adminExports/e-1.csv', op: 'get' })).toEqual({
+      staff: true,
     });
   });
 });

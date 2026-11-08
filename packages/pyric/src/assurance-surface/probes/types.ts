@@ -23,12 +23,16 @@ export interface Sentinel {
 export interface ProbeStep {
   actor: 'owner' | 'peer' | 'admin';
   service: AccessService;
-  /** RTDB `set`/`update`/`remove`/`get`; Firestore/Storage `create`/`set`/`update`/`delete`/`get`. */
-  method: 'set' | 'update' | 'remove' | 'create' | 'delete' | 'get';
+  /** RTDB `set`/`update`/`remove`/`get`; Firestore/Storage `create`/`set`/`update`/`delete`/`get`/`list`. */
+  method: 'set' | 'update' | 'remove' | 'create' | 'delete' | 'get' | 'list';
   /** Concrete path, no leading slash. */
   path: string;
+  /** Optional non-default resource identifier (for example a named Storage bucket). */
+  resourceId?: string;
   data?: unknown;
   merge?: boolean;
+  /** Optional explicit payload byte count for Cloud Storage upload steps. */
+  sizeBytes?: number;
   contentType?: string;
   customMetadata?: Record<string, string>;
 }
@@ -38,6 +42,7 @@ export type FindingKind =
   | 'foreign-delete'
   | 'owner-forge-create'
   | 'owner-transfer'
+  | 'metadata-owner-forge'
   | 'attribution-spoof'
   | 'foreign-slot-write'
   | 'counter-integrity'

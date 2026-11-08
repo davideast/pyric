@@ -11,6 +11,7 @@ import {
   mergeRtdbIndexes,
   RTDB_SERVICE_MODEL,
   rtdbIndexPass,
+  STORAGE_SERVICE_MODEL,
   type ConstraintOperand,
   type SdkQuery,
   type SdkQueryConstraint,
@@ -46,6 +47,7 @@ describe('pyric/rules/internal/usage seam', () => {
 
     expect(FIRESTORE_SERVICE_MODEL.service).toBe('firestore');
     expect(RTDB_SERVICE_MODEL.service).toBe('rtdb');
+    expect(STORAGE_SERVICE_MODEL.service).toBe('storage');
 
     const options = {
       root: '/virtual/app',

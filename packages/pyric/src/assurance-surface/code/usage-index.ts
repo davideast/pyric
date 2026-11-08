@@ -19,6 +19,7 @@ import type {
   RefKind,
   SdkQueryConstraint,
   SdkServiceModel,
+  UploadPayloadSpec,
 } from './service-models/types.js';
 import { SiteCollector } from './sites.js';
 import { mergeResults, type CollectorResult } from './specialization.js';
@@ -48,6 +49,7 @@ export type {
   RefKind,
   SdkQueryConstraint,
   SdkServiceModel,
+  UploadPayloadSpec,
 } from './service-models/types.js';
 
 export type ExtractSdkUsageOptions = ExtractAccessSitesOptions;
