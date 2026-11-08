@@ -26,13 +26,18 @@
  *
  * Loaded in the page, so it imports only types from `@pyric/cli`.
  */
-import type { ObservedCall, ObservedCallService } from '@pyric/cli/vite/internal/supplied-rows';
+import type {
+  ObservedCall,
+  ObservedCallService,
+  ObservedSessionDelta,
+} from '@pyric/cli/vite/internal/supplied-rows';
 
 type ListenerPhase = NonNullable<ObservedCall['listener']>['phase'];
 import { UNREAD_MODEL } from './ai.js';
 import { UNREAD_INSTANCE } from './database.js';
 import { UNREAD_BUCKET } from './storage.js';
 import type { LiveCallOutcome, LiveCallRecord, LiveObserver } from './observe.js';
+import { sessionDataOf } from './session-data.js';
 
 const SERVICES: ReadonlyMap<string, ObservedCallService> = new Map<string, ObservedCallService>([
   ['firebase/firestore', 'firestore'],
@@ -213,13 +218,17 @@ function adminCallOf(service: ObservedCallService, record: LiveCallRecord, at: n
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */
-export type ObservedCallSend = (call: ObservedCall) => Promise<unknown>;
+export type ObservedCallSend = (call: ObservedCall, sessionData?: ObservedSessionDelta) => Promise<unknown>;
 
 /** The observer a page's live modules share: each record that has a row is sent with the time it was made. */
 export function pageObserver(send: ObservedCallSend, now: () => number = Date.now): LiveObserver {
   return (record) => {
     const call = observedCallOf(record, now());
     if (call === null) return undefined;
+    if (call.outcome.status === 'ok' && call.sdk !== 'admin') {
+      const sessionData = sessionDataOf(record);
+      if (sessionData !== undefined) return send(call, sessionData);
+    }
     return send(call);
   };
 }

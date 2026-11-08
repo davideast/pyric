@@ -28,7 +28,7 @@ import { createOperationBudget } from '../../bridge/operation-budget.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { open as openFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createSandboxRoot, emitSandboxEvent, getInternalEnv, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
@@ -54,6 +54,10 @@ import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { observedPortInterrupted, observedPortResumed } from '../worker/host/observe.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
 import { rtdbInstance } from '../worker/host/rtdb-instances.js';
+import { ensureGitignored } from '../capture-store.js';
+import { isPathInside } from '../path-inside.js';
+import type { LiveSeedMode, ObservedSessionDataSnapshot } from '../observed-session/wire.js';
+import { seedFromObservedSession, type ObservedSeedResult } from './seed-from-observed-session.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, hostedStateDirectory, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
@@ -123,6 +127,9 @@ export async function createHostedRuntime(
   ai: HostedRuntimeOptions = {},
 ) {
   const ownedProjectDir = realpathSync(projectDir);
+  /** Whether a caller's project directory is this host's project or inside it. */
+  const isInOwnedProject = (callerProjectDir: string): boolean =>
+    isPathInside(ownedProjectDir, resolveRealPath(callerProjectDir));
   const ownsPersistence = ai.persistence === undefined;
   const persistence = ai.persistence ?? await createHostedPersistence(ownedProjectDir);
   // The session prints the repairs it opened; this path prints its own.
@@ -306,6 +313,7 @@ export async function createHostedRuntime(
   const closingPorts = new Set<Promise<void>>();
   const methodWork = new Map<object, OperationQueue>();
   const toolWork = new Map<string, OperationQueue>();
+  let seedWork = Promise.resolve();
   let closed = false;
   let closePromise: Promise<void> | undefined;
 
@@ -657,9 +665,7 @@ export async function createHostedRuntime(
      */
     async captureRepro(callerProjectDir: string = ownedProjectDir): Promise<ReproFile> {
       if (closed) throw new Error('The hosted sandbox is closed.');
-      const projectDistance = relative(ownedProjectDir, resolveRealPath(callerProjectDir));
-      const isOutsideProject = projectDistance === '..' || projectDistance.startsWith(`..${sep}`) || isAbsolute(projectDistance);
-      if (isOutsideProject) throw new Error('The discovered host belongs to another project.');
+      if (!isInOwnedProject(callerProjectDir)) throw new Error('The discovered host belongs to another project.');
       if (recorder === undefined) throw new Error('This host does not record operations.');
       const log = await recorder.log();
       return buildReproFile(
@@ -694,14 +700,39 @@ export async function createHostedRuntime(
     databaseRules: databaseInstanceRulesHost(ctx),
     instanceId,
     toolNames: SANDBOX_TOOL_NAMES,
+    /**
+     * Seeds the local sandbox from a Live mode session's observed data, once
+     * the developer confirmed it (`seed-from-observed-session.ts`). Queued so
+     * two seeds never interleave, and flushed to `.pyric/state/hosted` with
+     * `.pyric/` git-ignored first.
+     */
+    seedFromObservedSession(
+      snapshot: ObservedSessionDataSnapshot,
+      options: { mode?: LiveSeedMode; callerProjectDir?: string } = {},
+    ): Promise<ObservedSeedResult> {
+      if (closed) return Promise.reject(new Error('The hosted sandbox is closed.'));
+      const callerProjectDir = options.callerProjectDir ?? ownedProjectDir;
+      if (!isInOwnedProject(callerProjectDir)) {
+        return Promise.reject(new Error('The discovered host belongs to another project.'));
+      }
+      const mode = options.mode ?? 'merge';
+      const run = seedWork.then(async () => {
+        if (closed) throw new Error('The hosted sandbox is closed.');
+        requireHealthyPersistence();
+        ensureGitignored(ownedProjectDir);
+        const seeded = await seedFromObservedSession(ctx, snapshot, mode);
+        restoreFirestoreSubscriptions(ctx);
+        await flushPersistence();
+        return seeded;
+      });
+      seedWork = run.then(() => {}, () => {});
+      return run;
+    },
     /** The admitted transport connection owns command ordering; JSON cannot choose another caller. */
     runMethod(call: HostedMethodRequest, connection: object): Promise<OperationResult> {
       if (closed) return Promise.resolve({ ok: false, summary: 'The hosted sandbox is closed.' });
       const { key, args, projectDir: callerProjectDir } = call;
-      const projectDistance = relative(ownedProjectDir, resolveRealPath(callerProjectDir));
-      const namesParentDirectory = projectDistance === '..' || projectDistance.startsWith(`..${sep}`);
-      const isOutsideProject = namesParentDirectory || isAbsolute(projectDistance);
-      if (isOutsideProject) return Promise.resolve({ ok: false, summary: 'The discovered host belongs to another project.' });
+      if (!isInOwnedProject(callerProjectDir)) return Promise.resolve({ ok: false, summary: 'The discovered host belongs to another project.' });
       const method = methodByKey(key);
       const existing = methodWork.get(connection);
       const needsQueue = existing === undefined;
@@ -853,7 +884,7 @@ export async function createHostedRuntime(
         try {
           const pendingCalls = [...methodWork.values(), ...toolWork.values()].map(queue => queue.pending);
           const portClosures = [...ports.keys()].map(closePort);
-          await Promise.all([...pendingCalls, ...portClosures, ...closingPorts]);
+          await Promise.all([...pendingCalls, ...portClosures, ...closingPorts, seedWork]);
           await persistenceWork;
           const healthy = persistenceIsHealthy();
           if (healthy) await flushPersistence();

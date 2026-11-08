@@ -36,6 +36,8 @@ import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import type { BridgeMessage } from '../bridge/protocol.js';
 import type { LiveHostState } from './live-host-state.js';
+import { LIVE_SEED_SANDBOX_PATH, LIVE_SESSION_DATA_PATH } from './observed-session/wire.js';
+import { serveLiveSeedSandbox, serveLiveSessionData } from './live-session-routes.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { InitPayload, RulesDestination } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
@@ -358,8 +360,11 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const isHostedRepro = url.pathname === HOSTED_REPRO_PATH;
       // The repro route takes the same guards as a direct command.
       const isHostedMethod = url.pathname === HOSTED_METHOD_PATH || isHostedRepro;
+      const isLiveSessionData = url.pathname === LIVE_SESSION_DATA_PATH;
+      const isLiveSeedSandbox = url.pathname === LIVE_SEED_SANDBOX_PATH;
+      const isLiveRoute = isLiveSessionData || isLiveSeedSandbox;
       const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
-      const isMountRoute = isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes;
+      const isMountRoute = isHealthRequest || isMcpRequest || isHostedMethod || isLiveRoute || isStorageBytes;
       // These run admin commands or hand out data, and a client chooses its own
       // headers, so `allowedHosts` does not open them to another machine.
       const refusesPeer = isMountRoute && !isLocalPeer(req);
@@ -390,7 +395,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
         return true;
       }
-      const requiresControlGuard = isMcpRequest || isHostedMethod;
+      const requiresControlGuard = isMcpRequest || isHostedMethod || isLiveRoute;
       if (requiresControlGuard) {
         const guard = opts.upgradeGuard;
         const requiresRequestGuard = guard?.allowedHosts !== true;
@@ -434,6 +439,11 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           return true;
         }
         return runtime.storageHttp(req, res, url);
+      }
+      if (isLiveRoute) {
+        const context = { sessionData: opts.liveHost?.sessionData, runtime: hostedRuntime, instanceId: bridge.instanceId };
+        if (isLiveSessionData) return serveLiveSessionData(req, res, context);
+        return serveLiveSeedSandbox(req, res, context);
       }
       if (isHostedRepro) {
         const runtime = hostedRuntime;

@@ -84,6 +84,8 @@ export interface FirestoreDocumentTreeProps {
   firestore?: Firestore;
   listSubcollections?: ListSubcollections;
   onSubcollectionClick?: (collection: CollectionReference) => void;
+  /** Render fields and subcollections as read-only (hides inline edit, add, and delete actions). */
+  readOnly?: boolean;
 }
 
 export function FirestoreDocumentTree({
@@ -98,6 +100,7 @@ export function FirestoreDocumentTree({
   firestore,
   listSubcollections,
   onSubcollectionClick,
+  readOnly = false,
 }: FirestoreDocumentTreeProps) {
   const snapshotData = useMemo(
     () => (snapshot?.data() as Record<string, unknown>) ?? {},
@@ -227,54 +230,62 @@ export function FirestoreDocumentTree({
   const rootChildren = editor.tree.childIds[editor.tree.rootId] ?? [];
 
   return (
-    <div data-pyric-ui="fs-doctree" className="fs-doctree">
+    <div
+      data-pyric-ui="fs-doctree"
+      data-fs-readonly={readOnly ? '' : undefined}
+      className="fs-doctree"
+    >
       <div className="fs-doctree__head">
         <span className="fs-doctree__docid">{docId}</span>
-        <OverflowMenu
-          items={[
-            {
-              label: 'Delete document fields',
-              onSelect: () => {
-                void (async () => {
-                  const ok = await confirm({
-                    title: 'Delete all fields?',
-                    body: 'The document itself is kept, empty.',
-                    destructive: true,
-                    confirmLabel: 'Delete fields',
-                  });
-                  if (ok) void onDeleteDocumentFields();
-                })();
+        {!readOnly ? (
+          <OverflowMenu
+            items={[
+              {
+                label: 'Delete document fields',
+                onSelect: () => {
+                  void (async () => {
+                    const ok = await confirm({
+                      title: 'Delete all fields?',
+                      body: 'The document itself is kept, empty.',
+                      destructive: true,
+                      confirmLabel: 'Delete fields',
+                    });
+                    if (ok) void onDeleteDocumentFields();
+                  })();
+                },
+                destructive: true,
               },
-              destructive: true,
-            },
-            {
-              label: 'Delete document',
-              onSelect: onDeleteDocument,
-              destructive: true,
-            },
-          ]}
-        />
+              {
+                label: 'Delete document',
+                onSelect: onDeleteDocument,
+                destructive: true,
+              },
+            ]}
+          />
+        ) : null}
       </div>
 
       {commitError ? <p className="fs-doctree__err">{commitError.message}</p> : null}
 
       <ul className="fs-doctree__rows">
-        {onStartCollection ? (
+        {!readOnly && onStartCollection ? (
           <li className="fs-doctree__action-row">
             <button type="button" className="fs-doctree__action" onClick={onStartCollection}>
               <span aria-hidden="true">+</span> Start collection
             </button>
           </li>
         ) : null}
-        <li className="fs-doctree__action-row">
-          <button
-            type="button"
-            className="fs-doctree__action"
-            onClick={() => startAdd(editor.tree.rootId, 'map')}
-          >
-            <span aria-hidden="true">+</span> Add field
-          </button>
-        </li>
+        {!readOnly ? (
+          <li className="fs-doctree__action-row">
+            <button
+              type="button"
+              className="fs-doctree__action"
+              onClick={() => startAdd(editor.tree.rootId, 'map')}
+            >
+              <span aria-hidden="true">+</span> Add field
+            </button>
+          </li>
+        ) : null}
 
         {rootChildren.map((id) => (
           <Row
@@ -295,6 +306,7 @@ export function FirestoreDocumentTree({
             }}
             onReferenceClick={onReferenceClick}
             updates={updates}
+            readOnly={readOnly}
           />
         ))}
       </ul>
@@ -326,6 +338,7 @@ interface RowProps {
   onCommitNeeded: () => void;
   onReferenceClick?: (ref: DocumentReference) => void;
   updates: ReadonlyMap<string, UpdateHighlight>;
+  readOnly: boolean;
 }
 
 function Row({
@@ -343,6 +356,7 @@ function Row({
   onCommitNeeded,
   onReferenceClick,
   updates,
+  readOnly,
 }: RowProps) {
   const { tree } = editor;
   const node = tree.nodes[nodeId];
@@ -353,7 +367,7 @@ function Row({
   const rowIdentity = firestoreRowIdentity(tree, nodeId);
   const update = updates.get(rowIdentity);
   const isOpen = expanded.has(rowIdentity);
-  const isEditing = editingId === nodeId;
+  const isEditing = !readOnly && editingId === nodeId;
   const isNew = newIdsRef.current.has(nodeId);
 
   if (isEditing) {
@@ -431,36 +445,17 @@ function Row({
 
         <span className="fs-doctree__hover">
           <span className="fs-doctree__typenote">({node.type})</span>
-          {isContainer ? (
-            <button
-              type="button"
-              className="fs-doctree__icon"
-              title="Add field"
-              aria-label={`Add field to ${label || 'document'}`}
-              onClick={() => onAdd(nodeId, node.type === 'array' ? 'array' : 'map')}
-            >
-              +
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="fs-doctree__icon"
-              title="Edit"
-              aria-label={`Edit ${label}`}
-              onClick={() => setEditingId(nodeId)}
-            >
-              ✎
-            </button>
-          )}
-          <button
-            type="button"
-            className="fs-doctree__icon fs-doctree__icon--danger"
-            title="Delete (shift-click to skip confirmation)"
-            aria-label={`Delete ${label || 'field'} (shift-click to skip confirmation)`}
-            onClick={(e) => void onDelete(node, label, { shiftKey: e.shiftKey })}
-          >
-            🗑
-          </button>
+          {!readOnly ? (
+            <RowEditActions
+              node={node}
+              nodeId={nodeId}
+              label={label}
+              isContainer={isContainer}
+              setEditingId={setEditingId}
+              onAdd={onAdd}
+              onDelete={onDelete}
+            />
+          ) : null}
         </span>
       </div>
 
@@ -483,20 +478,77 @@ function Row({
               onCommitNeeded={onCommitNeeded}
               onReferenceClick={onReferenceClick}
               updates={updates}
+              readOnly={readOnly}
             />
           ))}
-          <li className="fs-doctree__action-row fs-doctree__action-row--nested">
-            <button
-              type="button"
-              className="fs-doctree__action"
-              onClick={() => onAdd(nodeId, node.type === 'array' ? 'array' : 'map')}
-            >
-              <span aria-hidden="true">+</span> {node.type === 'array' ? 'Add item' : 'Add field'}
-            </button>
-          </li>
+          {!readOnly ? (
+            <li className="fs-doctree__action-row fs-doctree__action-row--nested">
+              <button
+                type="button"
+                className="fs-doctree__action"
+                onClick={() => onAdd(nodeId, node.type === 'array' ? 'array' : 'map')}
+              >
+                <span aria-hidden="true">+</span> {node.type === 'array' ? 'Add item' : 'Add field'}
+              </button>
+            </li>
+          ) : null}
         </ul>
       ) : null}
     </li>
+  );
+}
+
+/** A row's hover actions in edit mode: add (containers) or edit (leaves), then delete. */
+function RowEditActions({
+  node,
+  nodeId,
+  label,
+  isContainer,
+  setEditingId,
+  onAdd,
+  onDelete,
+}: {
+  node: FieldNode;
+  nodeId: string;
+  label: string;
+  isContainer: boolean;
+  setEditingId: RowProps['setEditingId'];
+  onAdd: RowProps['onAdd'];
+  onDelete: RowProps['onDelete'];
+}) {
+  return (
+    <>
+      {isContainer ? (
+        <button
+          type="button"
+          className="fs-doctree__icon"
+          title="Add field"
+          aria-label={`Add field to ${label || 'document'}`}
+          onClick={() => onAdd(nodeId, node.type === 'array' ? 'array' : 'map')}
+        >
+          +
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="fs-doctree__icon"
+          title="Edit"
+          aria-label={`Edit ${label}`}
+          onClick={() => setEditingId(nodeId)}
+        >
+          ✎
+        </button>
+      )}
+      <button
+        type="button"
+        className="fs-doctree__icon fs-doctree__icon--danger"
+        title="Delete (shift-click to skip confirmation)"
+        aria-label={`Delete ${label || 'field'} (shift-click to skip confirmation)`}
+        onClick={(e) => void onDelete(node, label, { shiftKey: e.shiftKey })}
+      >
+        🗑
+      </button>
+    </>
   );
 }
 

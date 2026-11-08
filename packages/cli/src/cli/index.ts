@@ -88,6 +88,7 @@ USAGE
   pyric run [--sandbox URL] [--wait[=SECONDS]] -- <command...>
   pyric init [dir] [--template=web|node]
   pyric sandbox salvage --source=DIR --out=NEW_DIR
+  pyric sandbox seed-from-live --confirm [--mode=merge|replace] | --out=FILE
   pyric snapshot [--out=DIR]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|staging|both]
   pyric can-i-use <feature> [--json]
@@ -419,6 +420,11 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
   if (asksForVersion) {
     printVersion();
     return 0;
+  }
+
+  if (parsed.subcommand === 'sandbox' && parsed.positional[0] === 'seed-from-live') {
+    const { runSeedFromLive } = await import('./seed-from-live.js');
+    return runSeedFromLive(parsed);
   }
 
   const serviceCommand = await dispatchServiceCommand(parsed);

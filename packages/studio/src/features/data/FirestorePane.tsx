@@ -111,9 +111,17 @@ export interface FirestorePaneProps {
   /** Known uids (passed by DataFeature; reserved for a future uid->user
    *  field-editor override). Unused by the library-composed body. */
   knownUids?: ReadonlySet<string>;
+  /** Render collections, documents, and fields as read-only (Live mode observed data). */
+  readOnly?: boolean;
+  /** Custom empty-state copy when no root collections exist yet. */
+  emptyCollectionsMessage?: string;
 }
 
-export function LiveFirestorePane({ handles }: FirestorePaneProps) {
+export function LiveFirestorePane({
+  handles,
+  readOnly = false,
+  emptyCollectionsMessage,
+}: FirestorePaneProps) {
   const { target, navigate } = useDataNav();
   // Data views are always admin (M3): the rules-bypass handle, no lens.
   const firestore = handles.adminFirestore;
@@ -171,6 +179,8 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
       collectionIds={handles.listRootCollections()}
       onSelect={(id) => setPath([{ kind: 'collection', id, path: id }])}
       onStartCollection={() => setCollectionTarget({ parentDocPath: null })}
+      readOnly={readOnly}
+      emptyCollectionsMessage={emptyCollectionsMessage}
     />,
     ...path.map((seg, i) =>
       seg.kind === 'collection' ? (
@@ -183,6 +193,7 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
           selectedId={path[i + 1]?.id ?? null}
           onSelect={(ref) => selectAt(i, { kind: 'document', id: ref.id, path: ref.path })}
           onCollectionDeleted={() => setPath((p) => p.slice(0, i))}
+          readOnly={readOnly}
         />
       ) : (
         <DocumentDetailColumn
@@ -195,6 +206,7 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
           onReferenceClick={(r) => navigate({ view: 'firestore', path: parseDocPath(r.path) })}
           onStartCollection={() => setCollectionTarget({ parentDocPath: seg.path })}
           onDeleted={() => setPath((p) => p.slice(0, i))}
+          readOnly={readOnly}
         />
       ),
     ),
@@ -258,10 +270,16 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
     // `useConfirm()` — scope the provider to this pane rather than mounting
     // it globally, since nothing else in Studio uses it yet.
     <ConfirmProvider>
-      <div ref={browserRef} data-pyric-ui="fs-browser" data-fs-depth={path.length} data-size={size}>
+      <div
+        ref={browserRef}
+        data-pyric-ui="fs-browser"
+        data-fs-depth={path.length}
+        data-size={size}
+        data-fs-readonly={readOnly ? '' : undefined}
+      >
         <Breadcrumb path={path} onHome={() => setPath([])} onJump={(i) => setPath((p) => p.slice(0, i + 1))} />
         <div className="fs-columns">{visible}</div>
-        {collectionTarget ? (
+        {!readOnly && collectionTarget ? (
           <FirestoreCreateModal
             mode="collection"
             parentPath={collectionTarget.parentDocPath ? `/${collectionTarget.parentDocPath}` : '/'}
@@ -332,12 +350,16 @@ function CollectionColumn({
   collectionIds,
   onSelect,
   onStartCollection,
+  readOnly,
+  emptyCollectionsMessage,
 }: {
   api: FirestoreApi;
   firestore: Firestore;
   collectionIds: string[];
   onSelect: (id: string) => void;
   onStartCollection: () => void;
+  readOnly: boolean;
+  emptyCollectionsMessage?: string;
 }) {
   const collections = useMemo(
     () => collectionIds.map((id) => api.collection(firestore, id)),
@@ -347,14 +369,20 @@ function CollectionColumn({
     <section data-pyric-ui="fs-collections" className="fs-pane fs-col">
       <div className="fs-phead">
         <span className="fs-phead-title">Collections</span>
-        <button type="button" className="fs-add" onClick={onStartCollection}>
-          + New
-        </button>
+        {!readOnly ? (
+          <button type="button" className="fs-add" onClick={onStartCollection}>
+            + New
+          </button>
+        ) : null}
       </div>
       <CollectionList
         collections={collections}
         onSelect={(coll) => onSelect(coll.id)}
-        emptyState={<p className="fs-empty">No collections yet. App or agent writes show up here.</p>}
+        emptyState={
+          <p className="fs-empty">
+            {emptyCollectionsMessage ?? 'No collections yet. App or agent writes show up here.'}
+          </p>
+        }
       />
     </section>
   );
@@ -369,6 +397,7 @@ function DocumentColumn({
   selectedId,
   onSelect,
   onCollectionDeleted,
+  readOnly,
 }: {
   api: FirestoreApi;
   firestore: Firestore;
@@ -377,6 +406,7 @@ function DocumentColumn({
   selectedId: string | null;
   onSelect: (ref: DocumentReference) => void;
   onCollectionDeleted: () => void;
+  readOnly: boolean;
 }) {
   const collection = useMemo(
     () => collectionAtPath(api, firestore, collectionPath),
@@ -461,19 +491,23 @@ function DocumentColumn({
     <section data-pyric-ui="fs-documents" className="fs-pane fs-col">
       <div className="fs-phead">
         <span className="fs-phead-title">{collId}</span>
-        <span className="fs-phead-actions">
-          <button type="button" className="fs-add" onClick={() => setCreating(true)}>
-            + New
-          </button>
-        </span>
-        <OverflowMenu
-          items={[
-            { label: 'Delete collection', onSelect: () => void onDeleteCollection(), destructive: true },
-          ]}
-        />
+        {!readOnly ? (
+          <>
+            <span className="fs-phead-actions">
+              <button type="button" className="fs-add" onClick={() => setCreating(true)}>
+                + New
+              </button>
+            </span>
+            <OverflowMenu
+              items={[
+                { label: 'Delete collection', onSelect: () => void onDeleteCollection(), destructive: true },
+              ]}
+            />
+          </>
+        ) : null}
       </div>
 
-      {creating ? (
+      {!readOnly && creating ? (
         <FirestoreCreateModal
           mode="document"
           parentPath={`/${collectionPath}`}
@@ -511,9 +545,8 @@ function DocumentColumn({
           );
         }}
         renderRowAction={(snap: QueryDocumentSnapshot) => {
-          // No per-row delete on a phantom: there is no stored doc to delete.
-          // Its subtree deletes through the detail column / delete-collection.
-          if (isPhantomRow(snap)) return null;
+          // No per-row delete in read-only mode or on a phantom doc.
+          if (readOnly || isPhantomRow(snap)) return null;
           const r = (snap as unknown as { ref: DocumentReference }).ref;
           return (
             <button
@@ -552,6 +585,7 @@ function DocumentDetailColumn({
   onReferenceClick,
   onStartCollection,
   onDeleted,
+  readOnly,
 }: {
   api: FirestoreApi;
   firestore: Firestore;
@@ -561,6 +595,7 @@ function DocumentDetailColumn({
   onReferenceClick: (ref: DocumentReference) => void;
   onStartCollection: () => void;
   onDeleted: () => void;
+  readOnly: boolean;
 }) {
   const ref = useMemo(() => api.doc(firestore, docPath), [api, firestore, docPath]);
   const { data: snapshot, error: snapshotError, isLoading } = useFirestoreDoc(ref);
@@ -597,11 +632,13 @@ function DocumentDetailColumn({
       {!exists ? (
         <div className="fs-phead">
           <span className="fs-phead-title">{ref.id}</span>
-          <span className="fs-phead-actions">
-            <button type="button" className="fs-add" onClick={onStartCollection}>
-              + Collection
-            </button>
-          </span>
+          {!readOnly ? (
+            <span className="fs-phead-actions">
+              <button type="button" className="fs-add" onClick={onStartCollection}>
+                + Collection
+              </button>
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -614,12 +651,13 @@ function DocumentDetailColumn({
           listSubcollections={listSubcollections}
           onReferenceClick={onReferenceClick}
           onSubcollectionClick={onOpenSubcollection}
-          onStartCollection={onStartCollection}
+          onStartCollection={readOnly ? undefined : onStartCollection}
           onDeleteDocument={() => void onDeleteDocument()}
           onDeleteDocumentFields={onDeleteDocumentFields}
           onCommit={async (data) => {
             await api.setDoc(ref, data);
           }}
+          readOnly={readOnly}
         />
       ) : snapshotError ? (
         <p className="fs-empty fs-doc-del-err">{snapshotError.message}</p>

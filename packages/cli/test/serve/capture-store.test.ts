@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createCaptureStore, CAPTURE_RELATIVE_PATH } from '../../src/serve/capture-store.js';
+import { createCaptureStore, CAPTURE_RELATIVE_PATH, ensureGitignored } from '../../src/serve/capture-store.js';
 
 const tmp = (): string => mkdtempSync(join(tmpdir(), 'pyric-capture-'));
 
@@ -120,6 +120,20 @@ describe('createCaptureStore', () => {
       writeFileSync(join(dir, '.gitignore'), 'dist\n/.pyric\n');
       createCaptureStore(dir).write('{}');
       expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('dist\n/.pyric\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('ensureGitignored', () => {
+  it('appends .pyric/ once', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-gitignore-'));
+    try {
+      writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
+      ensureGitignored(dir);
+      ensureGitignored(dir);
+      expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules/\n.pyric/\n');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

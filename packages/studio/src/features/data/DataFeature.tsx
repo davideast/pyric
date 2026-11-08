@@ -22,6 +22,9 @@ import { LiveFirestorePane } from './FirestorePane.js';
 import { LiveAuthPane } from './AuthPane.js';
 import { LiveStoragePane } from './StoragePane.js';
 import { useDataNav, type DataView } from './navigation.js';
+import { LiveObservedDataBanner } from '../../components/LiveObservedDataBanner.js';
+import { useLiveHost } from '../../shell/live-status.js';
+import { useObservedSessionData } from '../../shell/use-observed-session-data.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
 import './data-feature.css';
 
@@ -44,8 +47,37 @@ function PendingState({ view }: { view: DataView }) {
   );
 }
 
+const LIVE_SERVICE_UNAVAILABLE_COPY: Record<'auth' | 'storage', { title: string; copy: string }> = {
+  auth: {
+    title: 'Auth user listing is unavailable in Live mode',
+    copy: 'Live mode observes your app’s client SDK traffic without Admin credentials, so it cannot enumerate production Auth users and never mutates local sandbox users implicitly. Inspect observed Auth operations in Traffic.',
+  },
+  storage: {
+    title: 'Storage object browser is unavailable in Live mode',
+    copy: 'Live mode does not retain or persist production Storage object bytes in host memory or .pyric/. Inspect observed Storage metadata, upload, and download calls in Traffic.',
+  },
+};
+
+function LiveServiceUnavailable({ view }: { view: 'auth' | 'storage' }) {
+  const { title, copy } = LIVE_SERVICE_UNAVAILABLE_COPY[view];
+  return (
+    <div
+      data-pyric-ui="live-service-unavailable"
+      className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-line bg-panel py-16 px-6 text-center"
+    >
+      <span className="rounded-full border border-line px-3 py-1 text-xs uppercase tracking-wide text-muted">
+        Live mode · Read-only
+      </span>
+      <p className="font-medium text-sm text-ink">{title}</p>
+      <p className="max-w-md text-sm leading-relaxed text-muted">{copy}</p>
+    </div>
+  );
+}
+
 export function DataFeature({ view }: { view: DataView }) {
   const { target } = useDataNav();
+  const liveHost = useLiveHost();
+  const observed = useObservedSessionData(liveHost !== null, liveHost?.projectId);
 
   // Live handles, dev-seed first (review), env-hydrated otherwise (`dev --ui`).
   const data = useStudioDataSource();
@@ -53,6 +85,25 @@ export function DataFeature({ view }: { view: DataView }) {
   // Shared live user list (one subscription for the whole feature). The auth
   // handle only exists once the sandbox handles resolved.
   const auth = data.status === 'ready' ? data.handles.auth : null;
+
+  if (liveHost !== null) {
+    return (
+      <div data-pyric-ui="data-feature" data-live-mode="">
+        <LiveObservedDataBanner observed={observed} />
+        {view === 'firestore' ? (
+          <FirestoreApiProvider value={observed.firestoreApi}>
+            <LiveFirestorePane
+              handles={observed.handles}
+              readOnly
+              emptyCollectionsMessage="No Firestore reads or writes observed in this live session yet. Interact with your app to inspect observed documents here."
+            />
+          </FirestoreApiProvider>
+        ) : (
+          <LiveServiceUnavailable view={view} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div data-pyric-ui="data-feature">

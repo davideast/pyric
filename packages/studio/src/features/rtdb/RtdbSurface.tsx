@@ -37,15 +37,29 @@ import {
   type RtdbApi,
 } from '@pyric/ui/rtdb';
 import { useEnvironment } from '../../shell/environment.js';
+import { LiveObservedDataBanner } from '../../components/LiveObservedDataBanner.js';
+import { useLiveHost } from '../../shell/live-status.js';
+import {
+  useObservedSessionData,
+  type ObservedRtdbInstanceSummary,
+  type ObservedSessionViewState,
+} from '../../shell/use-observed-session-data.js';
 import { useSandboxInstanceId } from '../../shell/studio-saved-states.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import type { WorkerLivePlane } from '../../clients/worker-live.js';
 import { useRoutedRtdbPath } from './routed-path.js';
 import './rtdb.css';
 
+const LIVE_RTDB_COPY =
+  'Inspect Realtime Database paths observed during this live session (partial, read-only).';
+const SANDBOX_RTDB_COPY = 'Browse and edit RTDB data in the shared sandbox.';
+
 export function RtdbSurface() {
   const env = useEnvironment();
+  const liveHost = useLiveHost();
+  const observed = useObservedSessionData(liveHost !== null, liveHost?.projectId);
   const live = env.status === 'ready' ? env.env.live : undefined;
+  const isLiveMode = liveHost !== null;
 
   return (
     <section className="studio-surface grid gap-4" aria-labelledby="rtdb-title">
@@ -54,11 +68,123 @@ export function RtdbSurface() {
         <h1 id="rtdb-title" className="studio-surface__title">
           RTDB
         </h1>
-        <p className="studio-surface__copy">Browse and edit RTDB data in the shared sandbox.</p>
+        <p className="studio-surface__copy">{isLiveMode ? LIVE_RTDB_COPY : SANDBOX_RTDB_COPY}</p>
       </div>
 
-      {live ? <LiveRtdbViewer live={live} /> : <RtdbPending />}
+      <RtdbSurfaceBody isLiveMode={isLiveMode} observed={observed} live={live} />
     </section>
+  );
+}
+
+/** Live mode shows observed data; otherwise the sandbox viewer once the worker plane is up. */
+function RtdbSurfaceBody({
+  isLiveMode,
+  observed,
+  live,
+}: {
+  isLiveMode: boolean;
+  observed: ObservedSessionViewState;
+  live: WorkerLivePlane | undefined;
+}) {
+  if (isLiveMode) return <ObservedLiveRtdbSection observed={observed} />;
+  if (live) return <LiveRtdbViewer live={live} />;
+  return <RtdbPending />;
+}
+
+function formatByteSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function pluralKeys(count: number): string {
+  if (count === 1) return '1 key';
+  return `${count} keys`;
+}
+
+/** The pill's trailing meta: key count and size for an observed instance, `no traffic` otherwise. */
+function instancePillMeta(item: ObservedRtdbInstanceSummary): string {
+  if (!item.observed) return 'no traffic';
+  return `${pluralKeys(item.topLevelKeys)} · ${formatByteSize(item.byteEstimate)}`;
+}
+
+function instancePillClassName(item: ObservedRtdbInstanceSummary, active: boolean): string {
+  const classes = ['rtdb__instance-pill'];
+  if (active) classes.push('rtdb__instance-pill--active');
+  if (!item.observed) classes.push('rtdb__instance-pill--idle');
+  return classes.join(' ');
+}
+
+function ObservedLiveRtdbSection({ observed }: { observed: ObservedSessionViewState }) {
+  const anyOtherInstanceObserved = observed.rtdbInstanceSummaries.some(
+    (item) => item.observed && item.instance !== observed.activeRtdbInstance,
+  );
+  return (
+    <div className="grid gap-3" data-pyric-ui="rtdb-live-observed">
+      <LiveObservedDataBanner observed={observed} />
+
+      {observed.rtdbInstanceSummaries.length > 0 ? (
+        <div
+          className="rtdb__instances"
+          data-rtdb-instance-bar=""
+          role="tablist"
+          aria-label="Observed RTDB instances"
+        >
+          {observed.rtdbInstanceSummaries.map((item) => {
+            const active = item.instance === observed.activeRtdbInstance;
+            return (
+              <button
+                key={item.instance}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                data-rtdb-instance={item.instance}
+                data-rtdb-instance-observed={item.observed ? 'true' : 'false'}
+                className={instancePillClassName(item, active)}
+                onClick={() => observed.setActiveRtdbInstance(item.instance)}
+              >
+                <span className="rtdb__instance-name">{item.instance}</span>
+                {item.isDefault ? <span className="rtdb__instance-badge">default</span> : null}
+                <span className="rtdb__instance-meta">{instancePillMeta(item)}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {!observed.hasObservedRtdb ? (
+        <div
+          data-rtdb-live-empty=""
+          className="rounded-md border border-dashed border-line bg-panel p-8 text-center"
+        >
+          <span className="rounded-full border border-line px-3 py-1 text-xs uppercase tracking-wide text-muted">
+            Observed this session · Empty
+          </span>
+          <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">
+            {anyOtherInstanceObserved ? (
+              <>
+                No Realtime Database reads or writes observed on{' '}
+                <code>{observed.activeRtdbInstance}</code> in this live session yet. Select an
+                instance with traffic above or trigger a request on this shard.
+              </>
+            ) : (
+              <>
+                No Realtime Database reads or writes observed in this live session yet. Trigger a{' '}
+                <code>get</code>, <code>onValue</code>, child listener, <code>set</code>,{' '}
+                <code>update</code>, or <code>push</code> in your app to inspect observed paths
+                here.
+              </>
+            )}
+          </p>
+        </div>
+      ) : (
+        <RoutedRtdbViewer
+          api={observed.rtdbApi}
+          instanceLabel={`${observed.activeRtdbInstance} (observed)`}
+          readOnly
+        />
+      )}
+    </div>
   );
 }
 
@@ -101,6 +227,8 @@ export interface RoutedRtdbViewerProps {
   api: RtdbApi;
   /** The database identity shown on the root crumb and the root row. */
   instanceLabel: string;
+  /** Render the tree as read-only (Live mode observed session data). */
+  readOnly?: boolean;
 }
 
 /**
@@ -108,7 +236,11 @@ export interface RoutedRtdbViewerProps {
  * {@link LiveRtdbViewer} so the route binding is exercised over any
  * {@link RtdbApi}, not only the shared worker's.
  */
-export function RoutedRtdbViewer({ api, instanceLabel }: RoutedRtdbViewerProps) {
+export function RoutedRtdbViewer({
+  api,
+  instanceLabel,
+  readOnly = false,
+}: RoutedRtdbViewerProps) {
   // The focused path comes from the URL, not from component state: a listener
   // link or a pasted URL lands on the node it names, and clicking a node in
   // the tree writes the path back so the address bar keeps up. Back/forward
@@ -147,6 +279,7 @@ export function RoutedRtdbViewer({ api, instanceLabel }: RoutedRtdbViewerProps) 
         api={api}
         onNavigate={navigate}
         rootLabel={instanceLabel}
+        readOnly={readOnly}
       />
     </div>
   );
