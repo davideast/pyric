@@ -66,7 +66,16 @@ Every start prints a line that names the project:
 pyric-live: live mode for the Firebase project my-project. Your app talks to production with its real data, and production bills each read, write and listener delivery. The chip and Studio show "Live: my-project" while it runs.
 ```
 
-The chip and Studio show `Live: my-project` from the moment the host starts, before the app makes its first call. When your app's Firebase config names a different project from your project settings, the terminal, the chip and Studio warn you and name both. A host lists up to eight projects. Calls to a project past the eighth still run and still show in traffic, but the label and the warning don't name that project.
+The chip and Studio show `Live: my-project` from the moment the host starts, before the app makes its first call.
+
+Each call from a page or a Node process is checked against that project before your SDK runs it. The call throws `PYRIC_LIVE_REFUSED` when another project is named by:
+
+- **The app's config.** Its `projectId`, or the project in its `databaseURL`, `storageBucket` or `authDomain`.
+- **What the call reaches.** A Realtime Database instance or Cloud Storage bucket of another project, such as `getDatabase(app, url)` or `getStorage(app, 'gs://...')`.
+
+The error names the field and both projects, and production hears nothing of the call. Only a field's default form names a project. A custom auth domain, a named or legacy `firebaseio.com` instance, a bucket with its own name, and an emulator address name none, so they aren't checked. Neither are `firebase/app` calls such as `initializeApp`, which make no request, or imports listed in `passThrough`.
+
+When a call that wasn't checked names another project, such as one from a Node process started for another project, the terminal, the chip and Studio warn you and name both. A host lists up to eight projects. Calls to a project past the eighth still run and still show in traffic, but the label and the warning don't name that project.
 
 ## Live mode observes, it doesn't block
 
@@ -79,10 +88,11 @@ What you see for each kind of call:
 | A call a live row serves, from a page, a Node process or `firebase-admin` | Goes to production | A row in Traffic, Studio and the terminal |
 | Any other Google or Firebase call from a Node process or the dev server | Goes to production | One "unobserved" line per host in the terminal, and the host in the health report |
 | A `firebase-admin` service no row serves | Loads from your installed SDK and goes to production | One line when it loads, and the service in the process health |
+| A call from a page or a Node process whose app's config, or the instance or bucket it reaches, names another project | Refused before your SDK runs it | `PYRIC_LIVE_REFUSED`, naming the field and both projects |
 | An Admin call whose app names another project | Refused before any request | `PYRIC_LIVE_REFUSED`, and one line in the terminal |
 | An Admin Realtime Database call to an instance that isn't your project's | Refused before it connects | `PYRIC_LIVE_REFUSED`, naming firebase.json |
 
-The last two are the only calls live mode refuses because of where they go. Live mode also refuses Firebase imports it doesn't serve, and pyric's own writes. See [What it refuses](#what-it-refuses).
+The last three are the only calls live mode refuses because of where they go. See [Check which project it's on](#check-which-project-its-on). Live mode also refuses Firebase imports it doesn't serve, and pyric's own writes. See [What it refuses](#what-it-refuses).
 
 Two health reports list what pyric didn't observe:
 
