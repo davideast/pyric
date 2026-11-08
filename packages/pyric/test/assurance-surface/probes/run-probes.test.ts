@@ -1,0 +1,245 @@
+import { describe, expect, test } from 'bun:test';
+import { runProbes } from '../../../src/assurance-surface/probes/run-probes.js';
+import { ownerConditionsFrom } from '../../../src/assurance-surface/rules/analyze-owners.js';
+import { inferOwnerBindings } from '../../../src/assurance-surface/rules/cross-check.js';
+import type { AccessSite } from '../../../src/assurance-surface/code/types.js';
+import type { RuleSources } from '../../../src/assurance-surface/rules/rule-sources.js';
+
+function makeSources(opts: { firestore?: string; rtdb?: unknown }): RuleSources {
+  return {
+    firestore: opts.firestore ? [{ source: 'firestore.rules', text: opts.firestore }] : [],
+    rtdb: opts.rtdb ? [{ source: 'database.rules.json', json: opts.rtdb }] : [],
+    problems: [],
+  };
+}
+
+describe('runProbes', () => {
+  test('does not grant admin claims from unrelated paths to peer when probing owned records', async () => {
+    const firestoreRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /adminLogs/{logId} {
+      allow read, write: if request.auth.token.admin == true;
+    }
+    match /posts/{postId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.author == request.auth.uid;
+      allow update: if (resource.data.author == request.auth.uid && request.resource.data.author == resource.data.author)
+        || request.auth.token.admin == true;
+      allow delete: if resource.data.author == request.auth.uid
+        || request.auth.token.admin == true;
+    }
+  }
+}`;
+    const sources = makeSources({ firestore: firestoreRules });
+    const sites: AccessSite[] = [
+      {
+        service: 'firestore',
+        op: 'addDoc',
+        path: 'posts/{postId}',
+        pathVariables: [{ name: 'postId' }],
+        resolution: 'resolved',
+        source: 'src/posts.ts:10',
+        payload: {
+          kind: 'object',
+          open: false,
+          fields: [
+            { name: 'author', kind: 'string', auth: [{ source: 'auth.uid', certainty: 'exact' }] },
+            { name: 'title', kind: 'string' },
+          ],
+        },
+      },
+      {
+        service: 'firestore',
+        op: 'deleteDoc',
+        path: 'posts/{postId}',
+        pathVariables: [{ name: 'postId' }],
+        resolution: 'resolved',
+        source: 'src/posts.ts:18',
+      },
+      {
+        service: 'firestore',
+        op: 'addDoc',
+        path: 'adminLogs/{logId}',
+        pathVariables: [{ name: 'logId' }],
+        resolution: 'resolved',
+        source: 'src/admin.ts:6',
+        payload: {
+          kind: 'object',
+          open: false,
+          fields: [{ name: 'event', kind: 'string' }],
+        },
+      },
+    ];
+    const conditions = ownerConditionsFrom(sources);
+    const bindings = inferOwnerBindings(conditions, sites);
+    const report = await runProbes({
+      accessSites: sites,
+      ownerBindings: bindings,
+      conditions,
+      sources,
+    });
+
+    expect(report.probes.total).toBeGreaterThan(0);
+    expect(report.probes.invalid).toBe(0);
+    const postFindings = report.findings.filter((f) => f.path === 'posts/{postId}');
+    expect(postFindings).toEqual([]);
+  });
+
+  test('seeds multi-actor membership lookup records without wiping owner membership', async () => {
+    const firestoreRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orgs/{orgId}/items/{itemId} {
+      allow read: if exists(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid));
+      allow create: if exists(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid))
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if exists(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid));
+    }
+  }
+}`;
+    const sources = makeSources({ firestore: firestoreRules });
+    const sites: AccessSite[] = [
+      {
+        service: 'firestore',
+        op: 'addDoc',
+        path: 'orgs/{orgId}/items/{itemId}',
+        pathVariables: [{ name: 'orgId' }, { name: 'itemId' }],
+        resolution: 'resolved',
+        source: 'src/items.ts:12',
+        payload: {
+          kind: 'object',
+          open: false,
+          fields: [
+            { name: 'ownerId', kind: 'string', auth: [{ source: 'auth.uid', certainty: 'exact' }] },
+            { name: 'label', kind: 'string' },
+          ],
+        },
+      },
+      {
+        service: 'firestore',
+        op: 'deleteDoc',
+        path: 'orgs/{orgId}/items/{itemId}',
+        pathVariables: [{ name: 'orgId' }, { name: 'itemId' }],
+        resolution: 'resolved',
+        source: 'src/items.ts:20',
+      },
+    ];
+    const conditions = ownerConditionsFrom(sources);
+    const bindings = inferOwnerBindings(conditions, sites);
+    const report = await runProbes({
+      accessSites: sites,
+      ownerBindings: bindings,
+      conditions,
+      sources,
+    });
+
+    expect(report.probes.invalid).toBe(0);
+    expect(
+      report.findings.some((f) => f.kind === 'foreign-delete' && f.path === 'orgs/{orgId}/items/{itemId}'),
+    ).toBe(true);
+  });
+
+  test('detects must-allow-denied when sibling teardown removes participant before session cleanup', async () => {
+    const rtdbRules = {
+      rules: {
+        rooms: {
+          $roomId: {
+            call: {
+              participants: {
+                $uid: {
+                  '.read': 'auth != null',
+                  '.write': 'auth != null && auth.uid === $uid',
+                },
+              },
+              sessions: {
+                $from: {
+                  $to: {
+                    '.read': 'auth != null && (auth.uid === $from || auth.uid === $to)',
+                    '.write': 'auth != null && auth.uid === $from && root.child("rooms").child($roomId).child("call").child("participants").child(auth.uid).exists()',
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    const sources = makeSources({ rtdb: rtdbRules });
+    const sites: AccessSite[] = [
+      {
+        service: 'rtdb',
+        op: 'set',
+        path: 'rooms/$roomId/call/participants/$uid',
+        pathVariables: [
+          { name: 'roomId' },
+          { name: 'uid', auth: [{ source: 'auth.uid', certainty: 'exact' }] },
+        ],
+        resolution: 'resolved',
+        source: 'src/call.ts:14',
+        payload: {
+          kind: 'object',
+          open: false,
+          fields: [{ name: 'joinedAt', kind: 'serverTimestamp' }],
+        },
+      },
+      {
+        service: 'rtdb',
+        op: 'remove',
+        path: 'rooms/$roomId/call/participants/$uid',
+        pathVariables: [
+          { name: 'roomId' },
+          { name: 'uid', auth: [{ source: 'auth.uid', certainty: 'exact' }] },
+        ],
+        resolution: 'resolved',
+        source: 'src/call.ts:18',
+      },
+      {
+        service: 'rtdb',
+        op: 'set',
+        path: 'rooms/$roomId/call/sessions/$from/$to',
+        pathVariables: [
+          { name: 'roomId' },
+          { name: 'from', auth: [{ source: 'auth.uid', certainty: 'exact' }] },
+          { name: 'to' },
+        ],
+        resolution: 'resolved',
+        source: 'src/call.ts:24',
+        payload: {
+          kind: 'object',
+          open: false,
+          fields: [{ name: 'sdp', kind: 'string' }],
+        },
+      },
+      {
+        service: 'rtdb',
+        op: 'remove',
+        path: 'rooms/$roomId/call/sessions/$from/$to',
+        pathVariables: [
+          { name: 'roomId' },
+          { name: 'from', auth: [{ source: 'auth.uid', certainty: 'exact' }] },
+          { name: 'to' },
+        ],
+        resolution: 'resolved',
+        source: 'src/call.ts:30',
+      },
+    ];
+    const conditions = ownerConditionsFrom(sources);
+    const bindings = inferOwnerBindings(conditions, sites);
+    const report = await runProbes({
+      accessSites: sites,
+      ownerBindings: bindings,
+      conditions,
+      sources,
+    });
+
+    expect(
+      report.findings.some(
+        (f) =>
+          f.kind === 'must-allow-denied' &&
+          f.op === 'delete' &&
+          f.path === 'rooms/$roomId/call/sessions/$from/$to',
+      ),
+    ).toBe(true);
+  });
+});

@@ -37,7 +37,7 @@ export {
   parseFunctions,
 } from '../grammar/FirestoreParser.js';
 export type { ParseError, ParseResult } from '../grammar/FirestoreParser.js';
-export { assembleRules, assembleExpression as printExpression } from '../grammar/FirestoreAssembler.js';
+export { assembleRules, assembleExpression, assembleExpression as printExpression } from '../grammar/FirestoreAssembler.js';
 export { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
 export { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 export { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
@@ -54,7 +54,9 @@ export type {
   FirestoreRules,
   MatchBlock,
   AllowRule,
+  Operation,
   FunctionDef,
+  LetBinding,
   Expression,
   PathSegment,
   SourceLoc,
