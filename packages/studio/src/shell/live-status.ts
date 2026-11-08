@@ -56,3 +56,9 @@ export function useLiveStatusRefresh(enabled: boolean): void {
     return feed.subscribe(() => poller?.refreshSoon());
   }, [enabled, feed]);
 }
+
+/** Disposes the module poller so tests can switch between sandbox and live hosts. */
+export function resetLiveStatusPollerForTesting(): void {
+  poller?.dispose();
+  poller = undefined;
+}

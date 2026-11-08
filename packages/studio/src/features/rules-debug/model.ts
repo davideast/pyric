@@ -22,8 +22,11 @@ import type {
 } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules/internal';
-import { locateRtdbRule, locateRtdbTrace } from 'pyric/rules/internal/rtdb';
+import { locateRtdbTrace } from 'pyric/rules/internal/rtdb';
 import type { RtdbRuleEvaluation } from 'pyric/rules/internal/rtdb';
+import { explainRtdb, explainRtdbAllow } from './rtdb-explanation.js';
+
+export { rtdbRuleLine } from './rtdb-explanation.js';
 
 type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent | SandboxListenerEvent;
 
@@ -337,30 +340,6 @@ function engineOf(denial: Denial): RuleEngine {
   return e === 'rtdb' || e === 'storage' ? e : 'firestore';
 }
 
-function isRtdbValidateReason(reason: string | undefined): boolean {
-  return reason === 'Validation rule evaluated to false' || Boolean(reason?.startsWith("Validation rule at '"));
-}
-
-/** RTDB rule phase for a denial: a `.validate` failure (from the mechanical
- *  `reason`) beats the method-derived read/write gate. */
-function rtdbPhase(denial: Denial): RulePhase {
-  if (isRtdbValidateReason(denial.rules?.reason)) return 'validate';
-  const m = denial.method;
-  return m === 'get' || m === 'list' || m === 'listen' ? 'read' : 'write';
-}
-
-/** 1-based line in `database.rules.json` of the RTDB rule that decided a
- *  denial: the `.read`, `.write` or `.validate` key at the verdict's
- *  `matchedPath`. Undefined for an implicit deny, for a verdict without a
- *  matched path, or when the source is absent or does not contain the rule. */
-export function rtdbRuleLine(denial: Denial, rulesSource: string | undefined): number | undefined {
-  const matchedPath = denial.rules?.matchedPath;
-  if (!rulesSource || !matchedPath || denial.rules?.errorCode === 'NO_MATCHING_RULE') {
-    return undefined;
-  }
-  return locateRtdbRule(rulesSource, matchedPath, `.${rtdbPhase(denial)}`)?.line;
-}
-
 /** Static attribution is separate from the rule that actually evaluated. */
 export function queryProofFailure(denial: Denial): NonNullable<RequestEvent['queryProof']>['failures'][number] | undefined {
   if (denial.result === 'allow') return undefined;
@@ -433,14 +412,18 @@ export function explainDenial(denial: Denial): RuleExplanation {
         noEvaluation: true,
       };
     }
-    return {
+    if (engine === 'rtdb' && denial.rules) return explainRtdbAllow(denial, ruleLines, otherLines);
+    const genericAllow: RuleExplanation = {
       headline: `Rules allowed ${denial.method} on ${denial.path}.`,
       engine,
-      ...(denial.rules?.matchedRule ? { ruleExpression: denial.rules.matchedRule } : {}),
       ruleLines,
       otherLines,
       implicitDeny: false,
     };
+    if (denial.rules?.matchedRule) {
+      genericAllow.ruleExpression = denial.rules.matchedRule;
+    }
+    return genericAllow;
   }
 
   if (engine === 'rtdb') return explainRtdb(denial, ruleLines, otherLines);
@@ -465,46 +448,6 @@ function explainFirestore(
     headline = `${ruleNode} denied ${denial.method} on ${denial.path}.`;
   }
   return { headline, engine: 'firestore', ruleNode, ruleLines, otherLines, implicitDeny };
-}
-
-/** RTDB: grounded in `SimulateHandler`'s verdict — the `.write`/`.validate` node
- *  at `matchedPath`, its raw expression, and the path-variable bindings. */
-function explainRtdb(
-  denial: Denial,
-  ruleLines: string[],
-  otherLines: string[],
-): RuleExplanation {
-  const rules = denial.rules;
-  const phase = rtdbPhase(denial);
-  const implicitDeny = !rules?.matchedPath || rules?.errorCode === 'NO_MATCHING_RULE';
-  const bindings =
-    rules?.pathVariableBindings && Object.keys(rules.pathVariableBindings).length > 0
-      ? rules.pathVariableBindings
-      : undefined;
-
-  let headline: string;
-  let ruleNode: string | undefined;
-  if (implicitDeny) {
-    headline = `No \`.${phase}\` rule granted ${denial.method} on ${denial.path}: RTDB implicit deny (no rule matched).`;
-  } else if (phase === 'validate') {
-    ruleNode = `${rules!.matchedPath} .validate`;
-    headline = `The \`.validate\` rule at \`${rules!.matchedPath}\` rejected the proposed value for ${denial.method} ${denial.path}.`;
-  } else {
-    ruleNode = `${rules!.matchedPath} .${phase}`;
-    headline = `The \`.${phase}\` rule at \`${rules!.matchedPath}\` evaluated false for ${denial.method} ${denial.path}.`;
-  }
-
-  return {
-    headline,
-    engine: 'rtdb',
-    ruleNode,
-    ruleExpression: rules?.matchedRule,
-    phase,
-    bindings,
-    ruleLines,
-    otherLines,
-    implicitDeny,
-  };
 }
 
 /** Storage: grounded in `evaluateStorageRules`' reasons — the `match` block whose

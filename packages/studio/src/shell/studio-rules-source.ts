@@ -32,6 +32,12 @@ export function stripPyricSourceMap(source: string): string {
   return source.slice(0, markerIndex).trimEnd();
 }
 
+function formatRtdbRulesPayload(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'string') return raw;
+  return JSON.stringify(raw, null, 2);
+}
+
 /**
  * The deployed ruleset for the targeted service. Studio's rule inspectors
  * (`TrafficSurface` → `DenialDetail`, `RulesSurface`) display this text and
@@ -40,9 +46,10 @@ export function stripPyricSourceMap(source: string): string {
  * runtime compiler compiled); for standalone offline sessions (`?seed=`) it
  * reads them without a worker round-trip. Empty until resolved (the inspector
  * still shows the denial's path/method/auth; the trace fills in once present).
- * Supports Firestore, Realtime Database (`databaseRules`), and Storage.
+ * Supports Firestore, Realtime Database (`databaseRules` and named
+ * `databaseInstances`), and Storage.
  */
-export function useStudioRulesSource(service: string = 'firestore'): string {
+export function useStudioRulesSource(service: string = 'firestore', instance?: string): string {
   const seed = useDevSeed();
   const seedReady = seed.status === 'ready';
   const [servedRules, setServedRules] = useState<Record<string, string>>({});
@@ -52,29 +59,48 @@ export function useStudioRulesSource(service: string = 'firestore'): string {
     let alive = true;
     fetch('/__pyric/init.json')
       .then((r) => (r.ok ? r.json() : null))
-      .then((payload: { rules?: string | null; databaseRules?: unknown | null; storageRules?: string | null } | null) => {
-        const isInvalidPayload = !alive || !payload || typeof payload !== 'object';
-        if (isInvalidPayload) return;
-        const resolved: Record<string, string> = {};
-        const hasFirestore = typeof payload.rules === 'string';
-        if (hasFirestore) {
-          resolved.firestore = payload.rules as string;
-        }
-        const hasDatabase = payload.databaseRules !== undefined && payload.databaseRules !== null;
-        if (hasDatabase) {
-          const isStringRule = typeof payload.databaseRules === 'string';
-          if (isStringRule) {
-            resolved.rtdb = payload.databaseRules as string;
-          } else {
-            resolved.rtdb = JSON.stringify(payload.databaseRules, null, 2);
+      .then(
+        (payload: {
+          rules?: string | null;
+          databaseRules?: unknown | null;
+          databaseInstances?: {
+            defaultInstance?: string;
+            rules?: Record<string, unknown | null>;
+          } | null;
+          storageRules?: string | null;
+        } | null) => {
+          const isInvalidPayload = !alive || !payload || typeof payload !== 'object';
+          if (isInvalidPayload) return;
+          const resolved: Record<string, string> = {};
+          if (typeof payload.rules === 'string') {
+            resolved.firestore = payload.rules;
           }
-        }
-        const hasStorage = typeof payload.storageRules === 'string';
-        if (hasStorage) {
-          resolved.storage = payload.storageRules as string;
-        }
-        setServedRules(resolved);
-      })
+          const defaultRtdb = formatRtdbRulesPayload(payload.databaseRules);
+          if (defaultRtdb !== undefined) {
+            resolved.rtdb = defaultRtdb;
+          }
+          const instanceRules = payload.databaseInstances?.rules;
+          if (instanceRules && typeof instanceRules === 'object') {
+            for (const [instanceName, rawRules] of Object.entries(instanceRules)) {
+              const formatted = formatRtdbRulesPayload(rawRules);
+              if (formatted !== undefined) {
+                resolved[`rtdb:${instanceName}`] = formatted;
+              }
+            }
+            const defaultName = payload.databaseInstances?.defaultInstance;
+            if (resolved.rtdb === undefined && defaultName !== undefined) {
+              const fallback = resolved[`rtdb:${defaultName}`];
+              if (fallback !== undefined) {
+                resolved.rtdb = fallback;
+              }
+            }
+          }
+          if (typeof payload.storageRules === 'string') {
+            resolved.storage = payload.storageRules;
+          }
+          setServedRules(resolved);
+        },
+      )
       .catch(() => {
         /* best-effort: no text, the inspector still renders the denial. */
       });
@@ -87,9 +113,12 @@ export function useStudioRulesSource(service: string = 'firestore'): string {
     const isOfflineSeed = seed.status === 'ready';
     const normalizedService = service === 'database' ? 'rtdb' : service;
     if (!isOfflineSeed) {
+      if (normalizedService === 'rtdb' && instance !== undefined && instance !== '') {
+        const named = servedRules[`rtdb:${instance}`];
+        if (named !== undefined) return named;
+      }
       const source = servedRules[normalizedService];
-      const hasServedSource = source !== undefined;
-      if (hasServedSource) {
+      if (source !== undefined) {
         return source;
       }
       return '';
@@ -109,5 +138,5 @@ export function useStudioRulesSource(service: string = 'firestore'): string {
     } catch {
       return '';
     }
-  }, [seed, servedRules, service]);
+  }, [seed, servedRules, service, instance]);
 }

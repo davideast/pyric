@@ -168,11 +168,15 @@ function DenialList({
 export function DenialDetail({
   denial,
   rulesSource,
+  advisory = false,
 }: {
   denial: Denial;
   rulesSource?: string;
+  /** The local rules' answer on a call production decided: worded as what the local rules would do, not what happened. */
+  advisory?: boolean;
 }) {
   const exp = explainDenial(denial);
+  let allowLabel = 'allowed';
   let rejectionLabel = 'denied';
   let rejectionKind = 'deny';
   if (isQueryProofUnsupported(denial)) {
@@ -181,6 +185,14 @@ export function DenialDetail({
   } else if (denial.unsupported) {
     rejectionLabel = 'unsupported';
     rejectionKind = 'unsupported';
+  } else if (advisory) {
+    rejectionLabel = 'local rules would deny';
+  }
+  let advisoryLead: string | undefined;
+  if (advisory && !denial.unsupported) {
+    const verb = denial.result === 'allow' ? 'allow' : 'deny';
+    if (denial.result === 'allow') allowLabel = 'local rules would allow';
+    advisoryLead = `Local rules would ${verb} ${denial.method} on ${denial.path}; production's answer above is what happened.`;
   }
   return (
     <div
@@ -195,7 +207,7 @@ export function DenialDetail({
               kind="allow"
               className="rounded bg-primary/15 px-2 py-0.5 text-xs font-semibold uppercase text-primary"
             >
-              allowed
+              {allowLabel}
             </Badge>
           ) : (
             <Badge
@@ -210,6 +222,11 @@ export function DenialDetail({
             {denial.method} {denial.path}
           </span>
         </div>
+        {advisoryLead === undefined ? null : (
+          <p data-pyric-ui="denial-detail-advisory" className="mb-1 text-sm leading-relaxed text-soft-white">
+            {advisoryLead}
+          </p>
+        )}
         <p className="text-sm leading-relaxed text-soft-white">{exp.headline}</p>
       </section>
 
@@ -300,7 +317,7 @@ function stripPyricSourceMap(source: string): string {
   return source.slice(0, markerIndex).trimEnd();
 }
 
-function resolveMarkedLine(
+export function resolveMarkedLine(
   rawSource: string | undefined,
   authoredLine: number | undefined,
 ): number | undefined {

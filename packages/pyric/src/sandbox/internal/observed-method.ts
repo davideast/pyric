@@ -75,17 +75,48 @@ function isObservedService(service: string | undefined): service is ObservedCall
 }
 
 /**
- * RTDB calls as the sandbox's write plane names them: `push` and
- * `setWithPriority` write as `set`, and a removal reads `remove`.
+ * RTDB calls as the sandbox's event plane names them: `push` and
+ * `setWithPriority` write as `set`, a removal reads `remove`, and listener
+ * exports (`onValue`, `onChild*`) read as `listen`.
  */
 const RTDB_ROWS: Readonly<Record<string, string>> = {
   get: 'get',
+  onValue: 'listen',
+  onChildAdded: 'listen',
+  onChildChanged: 'listen',
+  onChildRemoved: 'listen',
+  onChildMoved: 'listen',
   set: 'set',
   setWithPriority: 'set',
+  setPriority: 'setPriority',
   push: 'set',
   update: 'update',
   remove: 'remove',
 };
+
+/** The `firebase/database` listener exports whose deliveries report as observed RTDB reads. */
+const RTDB_LISTENERS: ReadonlySet<string> = new Set(
+  Object.entries(RTDB_ROWS).filter(([, row]) => row === 'listen').map(([method]) => method),
+);
+
+/** Whether `method` is a client `firebase/database` listener export (`onValue` or `onChild*`). */
+export function isObservedRtdbListener(method: string): boolean {
+  return RTDB_LISTENERS.has(method);
+}
+
+/**
+ * The rules request an RTDB SDK export makes: `observedMethod`'s name, a
+ * listener's delivery as the `get` it reads, and `setPriority` as the `set`
+ * it writes; `null` for an export no rules govern (a transaction,
+ * `onDisconnect`).
+ */
+export function rtdbRulesMethod(method: string): ObservedMethod | null {
+  const direct = observedMethod('rtdb', method);
+  if (direct !== null) return direct;
+  if (isObservedRtdbListener(method)) return 'get';
+  if (method === 'setPriority') return 'set';
+  return null;
+}
 
 function rtdbRowMethod(method: string): string {
   return Object.hasOwn(RTDB_ROWS, method) ? RTDB_ROWS[method] ?? method : method;

@@ -5,7 +5,13 @@
  */
 import { describe, expect, it } from 'bun:test';
 import type { ObservedCallService } from '../../src/sandbox/index.js';
-import { observedMethod, rulesOperation, type ObservedMethod } from '../../src/sandbox/internal/index.js';
+import {
+  isObservedRtdbListener,
+  observedMethod,
+  rtdbRulesMethod,
+  rulesOperation,
+  type ObservedMethod,
+} from '../../src/sandbox/internal/index.js';
 
 type Row = readonly [ObservedCallService, string, ObservedMethod];
 
@@ -79,12 +85,39 @@ describe('rulesOperation', () => {
 
   it("reads an RTDB call as the sandbox's write plane names it", () => {
     expect(rulesOperation('rtdb', 'get')).toBe('get');
+    expect(rulesOperation('rtdb', 'onValue')).toBe('listen');
+    expect(rulesOperation('rtdb', 'onChildAdded')).toBe('listen');
+    expect(rulesOperation('rtdb', 'onChildChanged')).toBe('listen');
+    expect(rulesOperation('rtdb', 'onChildRemoved')).toBe('listen');
+    expect(rulesOperation('rtdb', 'onChildMoved')).toBe('listen');
     expect(rulesOperation('rtdb', 'set')).toBe('set');
     expect(rulesOperation('rtdb', 'setWithPriority')).toBe('set');
+    expect(rulesOperation('rtdb', 'setPriority')).toBe('setPriority');
     expect(rulesOperation('rtdb', 'push')).toBe('set');
     expect(rulesOperation('rtdb', 'update')).toBe('update');
     expect(rulesOperation('rtdb', 'remove')).toBe('remove');
     expect(rulesOperation('rtdb', 'toString')).toBe('toString');
+  });
+
+  it('recognizes RTDB client listener exports without turning observedMethod non-null', () => {
+    for (const listener of ['onValue', 'onChildAdded', 'onChildChanged', 'onChildRemoved', 'onChildMoved']) {
+      expect(isObservedRtdbListener(listener)).toBe(true);
+      expect(observedMethod('rtdb', listener)).toBeNull();
+    }
+    expect(isObservedRtdbListener('get')).toBe(false);
+    expect(isObservedRtdbListener('Query.on')).toBe(false);
+  });
+
+  it('names the rules request an RTDB export makes', () => {
+    expect(rtdbRulesMethod('get')).toBe('get');
+    expect(rtdbRulesMethod('onValue')).toBe('get');
+    expect(rtdbRulesMethod('onChildMoved')).toBe('get');
+    expect(rtdbRulesMethod('set')).toBe('set');
+    expect(rtdbRulesMethod('setPriority')).toBe('set');
+    expect(rtdbRulesMethod('push')).toBe('create');
+    expect(rtdbRulesMethod('remove')).toBe('delete');
+    expect(rtdbRulesMethod('runTransaction')).toBeNull();
+    expect(rtdbRulesMethod('onDisconnect.set')).toBeNull();
   });
 
   it('reads a Storage call as observedMethod does', () => {

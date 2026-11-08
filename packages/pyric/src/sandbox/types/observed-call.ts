@@ -317,12 +317,41 @@ export interface LocalRule {
 }
 
 /**
+ * The bounded Realtime Database local evaluation record on a live verdict:
+ * the rule node path and expression, `$variable` bindings along the path,
+ * the engine's reason or implicit-deny code, and (on a decided verdict) the
+ * root-first rule trace, with every email address left out. Absent for other
+ * services and when the record was too large to keep.
+ */
+export interface LocalRtdbEvaluation {
+  matchedPath?: string;
+  matchedRule?: string;
+  pathVariableBindings?: Record<string, string>;
+  reason?: string;
+  errorCode?: string;
+  rtdbTrace?: import('../../rules/rtdb/simulation/spec.js').RtdbRuleEvaluation[];
+}
+
+/**
  * The local rules' answer to an observed call. `drift` marks an answer
  * that disagrees with production's allow or deny. `trace` is the same
  * bounded evaluation record a sandbox Firestore request carries as
- * `rulesEvidence`, with every email address left out; absent for RTDB, and
- * when the record was too large to keep.
+ * `rulesEvidence`, with every email address left out; `rtdb` carries the
+ * bounded Realtime Database rule context and trace. An `unevaluated` verdict
+ * preserves `rule` / `rtdb` rule-node context when determinable, without an
+ * evaluation trace.
  */
 export type LocalVerdict =
-  | { result: 'allow' | 'deny'; rule?: LocalRule; drift?: true; trace?: import('./rules-evidence.js').RulesEvidence }
-  | { result: 'unevaluated'; needs: LocalVerdictGap[] };
+  | {
+      result: 'allow' | 'deny';
+      rule?: LocalRule;
+      drift?: true;
+      trace?: import('./rules-evidence.js').RulesEvidence;
+      rtdb?: LocalRtdbEvaluation;
+    }
+  | {
+      result: 'unevaluated';
+      needs: LocalVerdictGap[];
+      rule?: LocalRule;
+      rtdb?: LocalRtdbEvaluation;
+    };

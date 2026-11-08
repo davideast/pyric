@@ -115,6 +115,16 @@ service cloud.firestore {
   }
 }`;
 
+const CREATE_ONLY = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+      allow create: if request.auth != null;
+      allow update: if false;
+    }
+  }
+}`;
+
 describe('host: local verdict of an observed call', () => {
   it('records a live allow the local rules also allow, with the rule that allowed it', async () => {
     const ctx = ctxWithFirestoreRules(SIGNED_IN);
@@ -159,6 +169,26 @@ describe('host: local verdict of an observed call', () => {
     const ctx = ctxWithFirestoreRules(OWNER_ONLY);
     const event = await observedEvent(ctx, getDoc(OK));
     expect(event).toMatchObject({ production: { outcome: OK, local: { result: 'unevaluated', needs: ['stored-document'] } } });
+  });
+
+  it('keeps the rule an unevaluated deny evaluated with the data missing, and no trace', async () => {
+    const ctx = ctxWithFirestoreRules(PUBLIC_DOCS);
+    const event = await observedEvent(ctx, getDoc(OK));
+    expect(event).toMatchObject({
+      production: {
+        local: { result: 'unevaluated', needs: ['stored-document'], rule: { line: 5, expression: 'resource.data.public == true' } },
+      },
+    });
+    expect(event).not.toHaveProperty('production.local.trace');
+    expect(event).not.toHaveProperty('production.local.drift');
+  });
+
+  it('names no rule on a setDoc whose create and update disagree', async () => {
+    const ctx = ctxWithFirestoreRules(CREATE_ONLY);
+    const setDoc: ObservedCall = { service: 'firestore', method: 'setDoc', path: 'rooms/r1', at: 1, outcome: OK, account: { uid: 'alice' } };
+    const event = await observedEvent(ctx, setDoc);
+    expect(event).toMatchObject({ production: { local: { result: 'unevaluated', needs: ['stored-document'] } } });
+    expect(event).not.toHaveProperty('production.local.rule');
   });
 
   it('gives a setDoc a verdict when its create and its update agree', async () => {
@@ -392,7 +422,333 @@ describe('host: the local evaluation trace of an observed call', () => {
   it('keeps no trace on an unevaluated verdict', async () => {
     const ctx = ctxWithFirestoreRules(PUBLIC_DOCS);
     const event = await observedEvent(ctx, getDoc(DENIED));
-    expect(event).toMatchObject({ production: { local: { result: 'unevaluated' } } });
+    expect(event).toMatchObject({
+      production: {
+        local: {
+          result: 'unevaluated',
+          needs: ['stored-document'],
+          rule: { line: 5, expression: 'resource.data.public == true' },
+        },
+      },
+    });
     expect(event).not.toHaveProperty('production.local.trace');
+  });
+});
+
+describe('host: RTDB local evaluation trace, listeners, and unevaluated context', () => {
+  function rtdbCall(overrides: Partial<ObservedCall> = {}): ObservedCall {
+    return {
+      service: 'rtdb',
+      method: 'get',
+      path: '/rooms/s1',
+      instance: 'demo-project-default-rtdb',
+      projectId: 'demo-project',
+      at: 1_700_000_000_000,
+      outcome: OK,
+      account: { uid: 'alice' },
+      ...overrides,
+    };
+  }
+
+  function ctxWithRtdbRules(rules: Record<string, unknown>): HostCtx {
+    const ctx = hostCtx();
+    expect(setDatabaseRules(ctx, undefined, rules).ok).toBe(true);
+    return ctx;
+  }
+
+  it('records rtdbTrace, matchedPath, matchedRule, and $variable bindings on RTDB allow and deny', async () => {
+    const ctx = ctxWithRtdbRules({
+      rules: {
+        '.read': 'false',
+        rooms: {
+          '.read': 'auth.token.admin === true',
+          $roomId: {
+            '.read': 'auth != null && $roomId === "s1"',
+          },
+        },
+      },
+    });
+
+    const allowed = await observedEvent(ctx, rtdbCall({ account: { uid: 'alice', claims: { admin: false } } }));
+    expect(allowed).toMatchObject({
+      production: {
+        local: {
+          result: 'allow',
+          rule: { path: '/rooms/$roomId', expression: 'auth != null && $roomId === "s1"' },
+          rtdb: {
+            matchedPath: '/rooms/$roomId',
+            matchedRule: 'auth != null && $roomId === "s1"',
+            pathVariableBindings: { $roomId: 's1' },
+            reason: 'Rule expression evaluated to true',
+            rtdbTrace: [
+              { path: '/', kind: 'read', verdict: 'DENY', conditionText: 'false' },
+              { path: '/rooms', kind: 'read', verdict: 'DENY', conditionText: 'auth.token.admin === true' },
+              {
+                path: '/rooms/$roomId',
+                kind: 'read',
+                verdict: 'ALLOW',
+                conditionText: 'auth != null && $roomId === "s1"',
+                pathVariableBindings: { $roomId: 's1' },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const denied = await observedEvent(
+      ctx,
+      rtdbCall({ path: '/rooms/s2', outcome: DENIED, account: { uid: 'alice', claims: { admin: false } } }),
+    );
+    expect(denied).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          rtdb: {
+            matchedPath: '/rooms/$roomId',
+            matchedRule: 'auth != null && $roomId === "s1"',
+            pathVariableBindings: { $roomId: 's2' },
+            rtdbTrace: expect.arrayContaining([
+              expect.objectContaining({ path: '/rooms/$roomId', verdict: 'DENY' }),
+            ]),
+          },
+        },
+      },
+    });
+  });
+
+  it('stamps NO_MATCHING_RULE on an implicit RTDB deny', async () => {
+    const ctx = ctxWithRtdbRules({ rules: { public: { '.read': 'true' } } });
+    const event = await observedEvent(ctx, rtdbCall({ path: '/private/item', outcome: DENIED }));
+    expect(event).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          rtdb: {
+            matchedPath: '',
+            matchedRule: '',
+            errorCode: 'NO_MATCHING_RULE',
+            rtdbTrace: [],
+          },
+        },
+      },
+    });
+  });
+
+  it('evaluates RTDB listener deliveries and cancels (onValue and onChild*) as reads', async () => {
+    const ctx = ctxWithRtdbRules({
+      rules: {
+        rooms: {
+          $roomId: {
+            '.read': 'auth != null',
+          },
+        },
+      },
+    });
+
+    for (const method of ['onValue', 'onChildAdded', 'onChildChanged', 'onChildRemoved', 'onChildMoved'] as const) {
+      const allowed = await observedEvent(ctx, rtdbCall({ method }));
+      expect(allowed, method).toMatchObject({
+        production: {
+          local: {
+            result: 'allow',
+            rtdb: {
+              matchedPath: '/rooms/$roomId',
+              matchedRule: 'auth != null',
+              pathVariableBindings: { $roomId: 's1' },
+            },
+          },
+        },
+      });
+    }
+
+    const driftingListener = await observedEvent(
+      ctx,
+      rtdbCall({ method: 'onValue', account: undefined, outcome: OK }),
+    );
+    expect(driftingListener).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          drift: true,
+          rtdb: { matchedPath: '/rooms/$roomId', matchedRule: 'auth != null' },
+        },
+      },
+    });
+  });
+
+  it('evaluates RTDB remove as a delete write with null newData', async () => {
+    const ctx = ctxWithRtdbRules({
+      rules: {
+        rooms: {
+          $roomId: {
+            '.write': 'auth.uid === $roomId',
+          },
+        },
+      },
+    });
+    const removed = await observedEvent(
+      ctx,
+      rtdbCall({ method: 'remove', path: '/rooms/alice', account: { uid: 'alice' } }),
+    );
+    expect(removed).toMatchObject({
+      production: {
+        local: {
+          result: 'allow',
+          rtdb: {
+            matchedPath: '/rooms/$roomId',
+            matchedRule: 'auth.uid === $roomId',
+            pathVariableBindings: { $roomId: 'alice' },
+          },
+        },
+      },
+    });
+  });
+
+  it('preserves applicable rule node and bindings without simulated trace on unevaluated RTDB reads and writes', async () => {
+    const ctx = ctxWithRtdbRules({
+      rules: {
+        rooms: {
+          $roomId: {
+            '.read': "root.child('roomMembers/' + $roomId + '/' + auth.uid).exists()",
+            '.write': "auth != null && !data.exists() && newData.hasChild('title')",
+          },
+        },
+        queries: {
+          '.read': "query.orderByChild === 'owner'",
+        },
+      },
+    });
+
+    const dataRead = await observedEvent(ctx, rtdbCall({ path: '/rooms/s9' }));
+    expect(dataRead).toMatchObject({
+      production: {
+        local: {
+          result: 'unevaluated',
+          needs: ['stored-document'],
+          rule: {
+            path: '/rooms/$roomId',
+            expression: "root.child('roomMembers/' + $roomId + '/' + auth.uid).exists()",
+          },
+          rtdb: {
+            matchedPath: '/rooms/$roomId',
+            matchedRule: "root.child('roomMembers/' + $roomId + '/' + auth.uid).exists()",
+            pathVariableBindings: { $roomId: 's9' },
+          },
+        },
+      },
+    });
+    expect(dataRead).not.toHaveProperty('production.local.rtdb.rtdbTrace');
+    expect(dataRead).not.toHaveProperty('production.local.rtdb.reason');
+
+    const write = await observedEvent(ctx, rtdbCall({ method: 'set', path: '/rooms/s9' }));
+    expect(write).toMatchObject({
+      production: {
+        local: {
+          result: 'unevaluated',
+          needs: ['stored-document', 'write-data'],
+          rtdb: {
+            matchedPath: '/rooms/$roomId',
+            matchedRule: "auth != null && !data.exists() && newData.hasChild('title')",
+            pathVariableBindings: { $roomId: 's9' },
+          },
+        },
+      },
+    });
+    expect(write).not.toHaveProperty('production.local.rtdb.rtdbTrace');
+
+    const pushed = await observedEvent(ctx, rtdbCall({ method: 'push', path: '/rooms' }));
+    expect(pushed).toMatchObject({
+      production: {
+        local: {
+          result: 'unevaluated',
+          needs: ['stored-document', 'write-data'],
+          rtdb: {
+            matchedPath: '/rooms/$roomId',
+            matchedRule: "auth != null && !data.exists() && newData.hasChild('title')",
+          },
+        },
+      },
+    });
+
+    const queried = await observedEvent(ctx, rtdbCall({ method: 'onValue', path: '/queries' }));
+    expect(queried).toMatchObject({
+      production: {
+        local: {
+          result: 'unevaluated',
+          needs: ['query'],
+          rtdb: {
+            matchedPath: '/queries',
+            matchedRule: "query.orderByChild === 'owner'",
+          },
+        },
+      },
+    });
+  });
+
+  it('drops oversized rtdbTrace past TRACE_LIMIT while keeping rule metadata', async () => {
+    let nested: Record<string, unknown> = { '.read': `'${'x'.repeat(900)}' === 'y'` };
+    const segments: string[] = [];
+    for (let i = 24; i >= 0; i--) {
+      const seg = `level_${i}`;
+      segments.unshift(seg);
+      nested = { '.read': `'${'x'.repeat(900)}' === '${i}'`, [seg]: nested };
+    }
+    const ctx = ctxWithRtdbRules({ rules: nested });
+    const event = await observedEvent(ctx, rtdbCall({ path: `/${segments.join('/')}`, outcome: DENIED }));
+    expect(event).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          rtdb: {
+            matchedPath: `/${segments.join('/')}`,
+          },
+        },
+      },
+    });
+    expect(event).not.toHaveProperty('production.local.rtdb.rtdbTrace');
+    // Compiling 25 nested rules with long literals takes seconds under a loaded suite.
+  }, 30_000);
+
+  it('records no local verdict for Admin SDK RTDB calls, onDisconnect, or runTransaction', async () => {
+    const ctx = ctxWithRtdbRules({ rules: { rooms: { '.read': 'true', '.write': 'true' } } });
+    const adminGet = await observedEvent(ctx, rtdbCall({ method: 'Query.get', sdk: 'admin', path: '/rooms' }));
+    expect(adminGet).not.toHaveProperty('production.local');
+    const onDisc = await observedEvent(ctx, rtdbCall({ method: 'onDisconnect.set', path: '/rooms' }));
+    expect(onDisc).not.toHaveProperty('production.local');
+    const tx = await observedEvent(ctx, rtdbCall({ method: 'runTransaction', path: '/rooms' }));
+    expect(tx).not.toHaveProperty('production.local');
+  });
+
+  it('withholds account email addresses from RTDB trace and path bindings', async () => {
+    const ctx = ctxWithRtdbRules({
+      rules: {
+        invites: {
+          $email: {
+            '.read': "auth != null && auth.token.email === $email",
+          },
+        },
+      },
+    });
+    const event = await observedEvent(
+      ctx,
+      rtdbCall({
+        path: '/invites/alice@example.com',
+        outcome: DENIED,
+        account: { uid: 'bob', claims: { email: 'bob@example.com' } },
+      }),
+    );
+    expect(event).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          rtdb: {
+            matchedPath: '/invites/$email',
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(event.production?.local)).not.toContain('alice@example.com');
+    expect(JSON.stringify(event.production?.local)).not.toContain('bob@example.com');
   });
 });

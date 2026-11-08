@@ -98,12 +98,13 @@ export {
 } from './client-scope.js';
 export { storageGsPath } from './storage-gs-path.js';
 export { messagingRequestsLine } from './messaging-requests-line.js';
+export type { LocalRtdbEvaluation } from '../types/observed-call.js';
 export {
   DIAGNOSTIC_EMAIL_RE, EMAIL_SHAPE, OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent,
   observedListenerEvent, productionVerdict, readObservedCall, redactDiagnosticEmails, redactEmails,
   type ObservedListenerEvent, type ProductionVerdict,
 } from './observed-call.js';
-export { observedMethod, rulesOperation, type ObservedMethod } from './observed-method.js';
+export { isObservedRtdbListener, observedMethod, rtdbRulesMethod, rulesOperation, type ObservedMethod } from './observed-method.js';
 export {
   billedCallKind, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, liveProjectOf,
   readLiveHostStatus,

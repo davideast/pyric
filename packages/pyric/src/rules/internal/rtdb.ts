@@ -5,7 +5,12 @@
  * unstable internal subpath exposes the pure rules parser, simulator,
  * and constraints DSL used by pyric's tooling packages.
  */
-export { simulatedAuthOf as rtdbAuthVariable } from '../rtdb/simulation/handler.js';
+export {
+  collectAncestors as collectRtdbRuleAncestors,
+  simulatedAuthOf as rtdbAuthVariable,
+  wildcardChildOf as rtdbWildcardChild,
+} from '../rtdb/simulation/handler.js';
+export type { AncestorMatch as RtdbRuleAncestor } from '../rtdb/simulation/handler.js';
 export {
   buildRuleExpression,
   compileRtdbRules,

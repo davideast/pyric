@@ -8,17 +8,14 @@
  */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { keepChosenOption, type LiveHostStatus, type ScopeOption } from 'pyric/sandbox/internal';
-import { DenialDetail } from '../rules-debug/index.js';
-import { useStudioRulesSource } from '../../shell/studio-rules-source.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
-  liveRuleEvaluation,
   localDrift,
   opensRulesInspector,
-  productionLabel,
-  subjectTarget,
+  rowNavigationTarget,
   type StudioTrafficEvent,
 } from './verdict.js';
+import { LiveRulesView } from './TrafficLiveRulesDetail.js';
 import { TrafficRulesInspector } from './TrafficRulesInspector.js';
 import {
   EVERY_CLIENT,
@@ -72,21 +69,6 @@ function rowFacts(event: StudioTrafficEvent, live: LiveHostStatus | null): Fact[
   ];
 }
 
-/** A production op's rules view: production's verdict, then the local rules' trace. */
-function ProductionRulesView({ event }: { event: StudioTrafficEvent }) {
-  const rulesSource = useStudioRulesSource('firestore');
-  const evaluation = liveRuleEvaluation(event, rulesSource);
-  if (evaluation === undefined || event.production === undefined) return null;
-  return (
-    <div className="traffic__row-detail-wide">
-      <p className="traffic__live-production" data-production-verdict={event.production.outcome.status}>
-        {productionLabel(event.production)}
-      </p>
-      <DenialDetail denial={evaluation} rulesSource={rulesSource} />
-    </div>
-  );
-}
-
 /**
  * The expanded row: one label/value list (`data-pyric-row-fact` names each
  * field), then the detail Traffic already shows, then the row's actions.
@@ -101,7 +83,8 @@ export function LiveRowDetail({
   onClose: () => void;
 }) {
   const isProduction = event.production !== undefined;
-  const target = subjectTarget(event);
+  // A production RTDB op has no record in the local sandbox viewer, so it offers no link.
+  const target = rowNavigationTarget(event);
   const opensSandboxRules = !isProduction && opensRulesInspector(event);
   return (
     <div className="traffic__inspector traffic__row-detail" data-pyric-ui="traffic-row-detail">
@@ -118,7 +101,7 @@ export function LiveRowDetail({
           {DRIFT_REASON}
         </p>
       )}
-      <ProductionRulesView event={event} />
+      {isProduction ? <LiveRulesView event={event} className="traffic__row-detail-wide" showDrift={false} /> : null}
       {opensSandboxRules ? (
         <div className="traffic__row-detail-wide">
           <TrafficRulesInspector eventId={event.id} onClose={onClose} />

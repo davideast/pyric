@@ -155,3 +155,19 @@ describe('a Messaging row in Studio lists its requests', () => {
     expect(trafficPath(event)).toBe('(service)');
   });
 });
+
+describe('an observed RTDB row in Studio preserves its database instance', () => {
+  test('carries a non-default instance onto StudioTrafficEvent', () => {
+    const event = observedCallEvent({
+      service: 'rtdb',
+      method: 'get',
+      path: '/rooms/s1',
+      instance: 'demo-app-secondary',
+      projectId: 'demo-app',
+      at: 1000,
+      outcome: { status: 'ok' },
+    });
+    const row = studioTrafficEvents([event])[0];
+    expect(row?.instance).toBe('demo-app-secondary');
+  });
+});
