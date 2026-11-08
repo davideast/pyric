@@ -64,10 +64,10 @@ export type QueryConstraintDescriptor =
   | { kind: 'orderBy'; field: string; direction?: 'asc' | 'desc' }
   | { kind: 'limit'; n: number }
   | { kind: 'limitToLast'; n: number }
-  | { kind: 'startAt'; values: unknown[]; isSnapshot?: false; valueEncoding?: DocValueEncoding }
-  | { kind: 'startAfter'; values: unknown[]; isSnapshot?: false; valueEncoding?: DocValueEncoding }
-  | { kind: 'endAt'; values: unknown[]; isSnapshot?: false; valueEncoding?: DocValueEncoding }
-  | { kind: 'endBefore'; values: unknown[]; isSnapshot?: false; valueEncoding?: DocValueEncoding };
+  | { kind: 'startAt'; values: unknown[]; isSnapshot?: false; fromSnapshot?: boolean; valueEncoding?: DocValueEncoding }
+  | { kind: 'startAfter'; values: unknown[]; isSnapshot?: false; fromSnapshot?: boolean; valueEncoding?: DocValueEncoding }
+  | { kind: 'endAt'; values: unknown[]; isSnapshot?: false; fromSnapshot?: boolean; valueEncoding?: DocValueEncoding }
+  | { kind: 'endBefore'; values: unknown[]; isSnapshot?: false; fromSnapshot?: boolean; valueEncoding?: DocValueEncoding };
 
 export type TargetDescriptor = DocRef | CollRef | GroupRef | QueryDescriptor;
 
@@ -112,8 +112,8 @@ export function isSentinelMarker(v: unknown): v is SentinelMarker {
  */
 export type AggregateFieldDescriptor =
   | { kind: 'count' }
-  | { kind: 'sum'; field: string }
-  | { kind: 'average'; field: string };
+  | { kind: 'sum'; field: string; path?: readonly string[] }
+  | { kind: 'average'; field: string; path?: readonly string[] };
 
 /** Spec passed on the `aggregate` op — aliases become the result's keys. */
 export type AggregateSpecDescriptor = Record<string, AggregateFieldDescriptor>;

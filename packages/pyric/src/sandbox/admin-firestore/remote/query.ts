@@ -23,6 +23,7 @@ import type {
 import { armOp, type RemoteArm } from './channel.js';
 import { invalidArgument } from './errors.js';
 import { encodeValue } from './value-codec.js';
+import { fieldPathArgumentSegments } from '../../../firestore/sandbox/update-fields.js';
 import { makeQuerySnapshot } from './snapshots.js';
 import {
   chainableOnSnapshot,
@@ -218,10 +219,37 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
 
     async aggregate(spec: AggregateSpec): Promise<AggregateQuerySnapshot> {
       validateExecutable(state);
+      const wireSpec: Record<string, { kind: 'count' } | { kind: 'sum' | 'average'; field: string; path?: string[] }> = {};
+      for (const [alias, entry] of Object.entries(spec)) {
+        if (entry.kind === 'count') {
+          wireSpec[alias] = { kind: 'count' };
+          continue;
+        }
+        if (typeof entry.field === 'string') {
+          const normalized: { kind: 'sum' | 'average'; field: string; path?: string[] } = {
+            kind: entry.kind,
+            field: entry.field,
+          };
+          if (entry.path !== undefined) normalized.path = [...entry.path];
+          wireSpec[alias] = normalized;
+          continue;
+        }
+        const segments = fieldPathArgumentSegments(entry.field) ?? [];
+        const normalized: { kind: 'sum' | 'average'; field: string; path?: string[] } = {
+          kind: entry.kind,
+          field: segments.join('.'),
+        };
+        if (entry.path !== undefined) {
+          normalized.path = [...entry.path];
+        } else if (segments.some((s) => s.includes('.'))) {
+          normalized.path = segments;
+        }
+        wireSpec[alias] = normalized;
+      }
       const wire = (await armOp(arm, {
         method: 'aggregate',
         source: buildDescriptor(state),
-        spec,
+        spec: wireSpec,
       })) as { data: Record<string, number | null> };
       return { data: () => wire.data };
     },

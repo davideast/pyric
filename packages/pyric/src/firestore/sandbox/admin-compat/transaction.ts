@@ -24,7 +24,7 @@
 
 import type { Transaction as SimTransaction } from 'pyric/sandbox/internal';
 import { makeDocSnapshot } from './snapshots.js';
-import { updateFieldsData } from '../update-fields.js';
+import { normalizeMergeFields, updateFieldsData } from '../update-fields.js';
 import { parseAdminUpdateArguments, type FieldPath } from './field-path.js';
 import {
   type DocumentData,
@@ -55,6 +55,9 @@ export class TransactionImpl implements Transaction {
   async get(refOrQuery: DocumentReference | Query): Promise<DocumentSnapshot | QuerySnapshot> {
     const readsQuery = isQuery(refOrQuery);
     if (readsQuery) {
+      // Enforce read-before-write ordering upfront before executing the query
+      // or evaluating list rules, including when the query matches 0 documents.
+      this.simTx.getAll();
       // Run the query through the wrapper's normal path. In the
       // single-threaded simulator, env.listDocuments and simTx.get see
       // the same state snapshot, so registering reads after-the-fact
@@ -85,7 +88,7 @@ export class TransactionImpl implements Transaction {
     const mergeFields = options?.mergeFields;
     const hasFieldMask = mergeFields !== undefined;
     if (hasFieldMask) {
-      this.simTx.set(ref.path, data, { mergeFields });
+      this.simTx.set(ref.path, data, { mergeFields: normalizeMergeFields(mergeFields) });
       return this;
     }
     const mergesAllFields = options?.merge === true;

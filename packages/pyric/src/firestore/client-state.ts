@@ -2,7 +2,7 @@ import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type { Target } from './state.js';
 
 interface PendingWrite<T = unknown> {
-  readonly path?: string;
+  readonly paths: ReadonlySet<string>;
   readonly promise: Promise<T>;
   localDone: boolean;
   value?: T;
@@ -50,9 +50,15 @@ export class FirestoreClientState {
     await Promise.all([...this.pending].map((write) => write.promise));
   }
 
-  runWrite<T>(operation: () => Promise<T>, path?: string): Promise<T> {
+  runWrite<T>(operation: () => Promise<T>, pathOrPaths?: string | Iterable<string>): Promise<T> {
     this.started = true;
-    if (path) this.cachedPaths.add(path);
+    const paths = new Set<string>();
+    if (typeof pathOrPaths === 'string') {
+      if (pathOrPaths.length > 0) paths.add(pathOrPaths);
+    } else if (pathOrPaths !== undefined) {
+      for (const entry of pathOrPaths) paths.add(entry);
+    }
+    for (const p of paths) this.cachedPaths.add(p);
     if (this.networkEnabled) return operation();
 
     let resolve!: (value: T) => void;
@@ -62,7 +68,7 @@ export class FirestoreClientState {
       reject = rej;
     });
     const pending: PendingWrite<T> = {
-      path,
+      paths,
       promise,
       localDone: false,
       resolve,
@@ -121,7 +127,7 @@ export class FirestoreClientState {
   } {
     return Object.freeze({
       fromCache: !this.networkEnabled,
-      hasPendingWrites: [...this.pending].some((write) => write.path === path),
+      hasPendingWrites: [...this.pending].some((write) => write.paths.has(path)),
     });
   }
 
@@ -137,7 +143,12 @@ export class FirestoreClientState {
 
   addSnapshotsInSyncObserver(observer: () => void): () => void {
     this.syncObservers.add(observer);
-    observer();
+    try {
+      observer();
+    } catch (error) {
+      this.syncObservers.delete(observer);
+      throw error;
+    }
     return () => this.syncObservers.delete(observer);
   }
 

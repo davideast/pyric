@@ -40,12 +40,7 @@ import {
 } from './value-resolver.js';
 import { FirebaseError } from '../../sandbox/internal/firebase-error.js';
 import { cloneDoc } from './document-copy.js';
-import { fieldPathKeySegments } from './update-fields.js';
-
-/** Split a dot-separated FieldPath string into segments. */
-function splitPath(key: string): string[] {
-  return key.split('.');
-}
+import { fieldPathArgumentSegments, fieldPathKeySegments } from './update-fields.js';
 
 /** Field-path segments that must never be walked or written. The merge
  *  engine sets leaves into plain JS objects, and `isPlainObject` treats
@@ -179,7 +174,8 @@ export function applyMerge(
     // Restrict to the listed field paths. Each is a dot-separated path
     // into `resolved` and must be present in the supplied data.
     for (const field of mergeFields) {
-      const segments = splitPath(field);
+      const argSegments = fieldPathArgumentSegments(field);
+      const segments = argSegments !== undefined ? argSegments : fieldPathKeySegments(String(field));
       const value = readPath(resolved, segments);
       const isMissing = value === ABSENT;
       if (isMissing) {

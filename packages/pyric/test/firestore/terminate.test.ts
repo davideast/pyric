@@ -11,7 +11,8 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
-import { getFirestore, doc, collection, getDoc, getDocs, getDocFromServer, getDocsFromServer, setDoc } from '../../src/firestore/index.js';
+import { getInternalEnv } from 'pyric/sandbox/internal';
+import { getFirestore, doc, collection, getDoc, getDocs, getDocFromServer, getDocsFromServer, onSnapshot, setDoc } from '../../src/firestore/index.js';
 import { terminate } from '../../src/firestore/index.js';
 
 const RULES = `rules_version = '2';
@@ -32,37 +33,100 @@ function setup() {
 
 describe('terminate', () => {
   it('resolves without throwing on a sandbox handle', async () => {
-    const { db } = setup();
-    await expect(terminate(db)).resolves.toBeUndefined();
+    const { sandbox, db } = setup();
+    try {
+      await expect(terminate(db)).resolves.toBeUndefined();
+    } finally {
+      getInternalEnv(sandbox).dispose();
+    }
   });
 
   it('terminates only this Firestore handle and leaves its sibling usable', async () => {
     const { sandbox, db } = setup();
-    const sibling = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    const disposeSpy = mock(sandbox.dispose.bind(sandbox));
-    sandbox.dispose = disposeSpy;
-    const terminatedRef = doc(db, 'notes/n1');
-    await setDoc(terminatedRef, { text: 'before' });
+    try {
+      const sibling = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+      const disposeSpy = mock(sandbox.dispose.bind(sandbox));
+      sandbox.dispose = disposeSpy;
+      const terminatedRef = doc(db, 'notes/n1');
+      await setDoc(terminatedRef, { text: 'before' });
 
-    const terminatedQuery = collection(db, 'notes');
-    await terminate(db);
+      const terminatedQuery = collection(db, 'notes');
+      await terminate(db);
 
-    expect(disposeSpy).not.toHaveBeenCalled();
-    for (const read of [
-      () => getDoc(terminatedRef),
-      () => getDocs(terminatedQuery),
-      () => getDocFromServer(terminatedRef),
-      () => getDocsFromServer(terminatedQuery),
-    ]) {
-      await expect(read()).rejects.toMatchObject({ code: 'failed-precondition' });
+      expect(disposeSpy).not.toHaveBeenCalled();
+      for (const read of [
+        () => getDoc(terminatedRef),
+        () => getDocs(terminatedQuery),
+        () => getDocFromServer(terminatedRef),
+        () => getDocsFromServer(terminatedQuery),
+      ]) {
+        await expect(read()).rejects.toMatchObject({ code: 'failed-precondition' });
+      }
+      await setDoc(doc(sibling, 'notes/n1'), { text: 'after' });
+      expect((await getDoc(doc(sibling, 'notes/n1'))).data()).toEqual({ text: 'after' });
+    } finally {
+      getInternalEnv(sandbox).dispose();
     }
-    await setDoc(doc(sibling, 'notes/n1'), { text: 'after' });
-    expect((await getDoc(doc(sibling, 'notes/n1'))).data()).toEqual({ text: 'after' });
   });
 
   it('is idempotent — calling it twice does not throw', async () => {
-    const { db } = setup();
-    await terminate(db);
-    await expect(terminate(db)).resolves.toBeUndefined();
+    const { sandbox, db } = setup();
+    try {
+      await terminate(db);
+      await expect(terminate(db)).resolves.toBeUndefined();
+    } finally {
+      getInternalEnv(sandbox).dispose();
+    }
+  });
+
+  it('does not fire aborted on listeners already cancelled with permission-denied', async () => {
+    const sandbox = initializeSandbox();
+    try {
+      setRules(sandbox, RULES);
+      const db = getFirestore(sandbox.withAuth({ uid: 'user-1' }));
+      await setDoc(doc(db, 'notes/n1'), { text: 'visible' });
+
+      const callbackErrors: string[] = [];
+      const observerErrors: string[] = [];
+
+      // 1. Listener that initially succeeds and is then revoked by a rules tighten
+      onSnapshot(
+        doc(db, 'notes/n1'),
+        { includeMetadataChanges: true },
+        () => {},
+        (err) => callbackErrors.push((err as { code?: string }).code ?? 'unknown'),
+      );
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+      setRules(
+        sandbox,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /notes/{id} {
+      allow read, write: if false;
+    }
+  }
+}`,
+      );
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+      // 2. Observer listener that errors immediately with permission-denied on attach
+      onSnapshot(doc(db, 'notes/n1'), {
+        next: () => {},
+        error: (err) => observerErrors.push((err as { code?: string }).code ?? 'unknown'),
+      });
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+      expect(callbackErrors).toEqual(['permission-denied']);
+      expect(observerErrors).toEqual(['permission-denied']);
+
+      await terminate(db);
+
+      expect(callbackErrors).toEqual(['permission-denied']);
+      expect(observerErrors).toEqual(['permission-denied']);
+    } finally {
+      getInternalEnv(sandbox).dispose();
+    }
   });
 });

@@ -22,6 +22,7 @@ export function documentSnapshotFromJSON(db: Firestore, json: string): DocumentS
     exists: false,
     metadata: { fromCache: true, hasPendingWrites: false },
     data: () => undefined,
+    get: () => undefined,
   };
 }
 

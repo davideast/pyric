@@ -437,7 +437,12 @@ export function onSnapshotsInSync(
   const target = targetOf(db);
   const state = clientStateFor(target);
   state.markStarted();
-  const cb = typeof observerOrCallback === 'function' ? observerOrCallback : observerOrCallback.next;
+  let cb: (() => void) | undefined;
+  if (typeof observerOrCallback === 'function') {
+    cb = observerOrCallback;
+  } else if (typeof observerOrCallback.next === 'function') {
+    cb = observerOrCallback.next.bind(observerOrCallback);
+  }
   if (!cb) return () => undefined;
   const unsubscribe = state.addSnapshotsInSyncObserver(cb);
   if (!target.own) return unsubscribe;

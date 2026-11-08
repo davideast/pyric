@@ -334,19 +334,27 @@ function cursorValuesConstraint(
   inclusive: boolean,
   start: boolean,
   prepared = false,
+  fromSnapshot = false,
 ): QueryConstraint {
-  return {
+  let prepareSandbox: QueryConstraint['prepareSandbox'];
+  const constraint: QueryConstraint & { _fromSnapshot?: boolean } = {
     type: start ? 'startAt' : 'endAt',
-    applySandbox: (q) => start
-      ? q.startCursor([...values], inclusive)
-      : q.endCursor([...values], inclusive),
-    prepareSandbox: prepared ? undefined : (owner) => cursorValuesConstraint(
-      values.map((value) => captureQueryOperand(value, owner).executionValue),
-      inclusive,
-      start,
-      true,
-    ),
+    _fromSnapshot: fromSnapshot,
+    applySandbox: (q) => {
+      const isFromSnapshot = Boolean(constraint._fromSnapshot);
+      if (start) return q.startCursor([...values], inclusive, isFromSnapshot);
+      return q.endCursor([...values], inclusive, isFromSnapshot);
+    },
+    prepareSandbox: undefined,
   };
+  if (!prepared) {
+    prepareSandbox = (owner) => {
+      const captured = values.map((value) => captureQueryOperand(value, owner).executionValue);
+      return cursorValuesConstraint(captured, inclusive, start, true, Boolean(constraint._fromSnapshot));
+    };
+    constraint.prepareSandbox = prepareSandbox;
+  }
+  return constraint;
 }
 
 export type QueryConstraintType = 'where' | 'orderBy' | 'limit' | 'limitToLast' | 'startAt' | 'startAfter' | 'endAt' | 'endBefore' | 'or' | 'and';

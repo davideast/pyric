@@ -23,7 +23,8 @@ export function pathSegments(path: string): string[] {
  * shape rule for document paths (`collection/doc[/sub/doc]*`).
  */
 export function isDocumentPath(path: string): boolean {
-  return pathSegments(path).length % 2 === 0 && pathSegments(path).length > 0;
+  const segs = pathSegments(path);
+  return segs.length > 0 && segs.length % 2 === 0 && segs.every((s) => s.length > 0);
 }
 
 /**
@@ -31,7 +32,8 @@ export function isDocumentPath(path: string): boolean {
  * for collection paths (`collection[/doc/sub]*`).
  */
 export function isCollectionPath(path: string): boolean {
-  return pathSegments(path).length % 2 === 1;
+  const segs = pathSegments(path);
+  return segs.length > 0 && segs.length % 2 === 1 && segs.every((s) => s.length > 0);
 }
 
 /**

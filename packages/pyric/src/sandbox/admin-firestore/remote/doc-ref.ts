@@ -22,6 +22,7 @@ import { armOp, type RemoteArm } from './channel.js';
 import { invalidArgument } from './errors.js';
 import { encodeUpdateFields, encodeWriteData } from './value-codec.js';
 import { parseAdminUpdateArguments } from '../../../firestore/sandbox/admin-compat/field-path.js';
+import { normalizeMergeFields } from '../../../firestore/sandbox/update-fields.js';
 import { makeDocumentSnapshot } from './snapshots.js';
 import { makeQuery } from './query.js';
 import {
@@ -88,12 +89,14 @@ export function makeDocRef(arm: RemoteArm, path: string): DocumentReference {
       });
     },
     async set(data: DocumentData, options?: SetOptions): Promise<void> {
-      await armOp(arm, {
+      const op: Record<string, unknown> = {
         method: 'setDoc',
         path,
         data: encodeWriteData(data),
-        ...(setOptionsForWire(options) ? { options: setOptionsForWire(options) } : {}),
-      });
+      };
+      const wireOptions = setOptionsForWire(options);
+      if (wireOptions !== undefined) op.options = wireOptions;
+      await armOp(arm, op);
     },
     // Argument errors throw synchronously, as the Admin SDK's do.
     update(dataOrField: unknown, ...preconditionOrValues: unknown[]): Promise<void> {
@@ -117,6 +120,6 @@ function setOptionsForWire(
   if (!options) return undefined;
   const wire: { merge?: boolean; mergeFields?: string[] } = {};
   if (options.merge !== undefined) wire.merge = options.merge;
-  if (options.mergeFields !== undefined) wire.mergeFields = [...options.mergeFields];
+  if (options.mergeFields !== undefined) wire.mergeFields = normalizeMergeFields(options.mergeFields);
   return wire.merge !== undefined || wire.mergeFields !== undefined ? wire : undefined;
 }

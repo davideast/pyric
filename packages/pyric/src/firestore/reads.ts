@@ -35,6 +35,7 @@ import type {
 } from './types.js';
 import { clientStateFor } from './client-state.js';
 import { forEachDocument } from './sandbox/for-each-document.js';
+import { computeDocumentChanges, createDocChanges } from './sandbox/snapshot-listeners.js';
 import { beginFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead, type SdkActivityHandle } from '../sandbox/internal/sdk-activity.js';
 
@@ -89,10 +90,24 @@ export async function readQuery<T = DocumentData>(query: Query<T>, activity: Sdk
   try {
     const conv = converterOf(query);
     const snap = await withFirestoreFirebaseError(() => chainQueryFor(target, query).get());
+    const rawDocs = (snap as unknown as ChainQuerySnap).docs;
+    if (typeof (snap as { docChanges?: unknown }).docChanges !== 'function') {
+      const rawChanges = computeDocumentChanges(
+        undefined,
+        rawDocs.map((doc) => ({ path: doc.ref.path })),
+        rawDocs,
+        () => false,
+        () => rawDocs[0]!,
+      );
+      Object.defineProperty(snap, 'docChanges', {
+        value: createDocChanges(rawChanges, false),
+        configurable: true,
+      });
+    }
     client.cacheQuery(query as object);
     if (conv) {
       const c = conv as FirestoreDataConverter<T>;
-      const wrappedDocs = (snap as unknown as ChainQuerySnap).docs.map((d) =>
+      const wrappedDocs = rawDocs.map((d) =>
         applyConverterToDocSnap(
           d as unknown as ChainDocSnap,
           c,
@@ -100,11 +115,19 @@ export async function readQuery<T = DocumentData>(query: Query<T>, activity: Sdk
           'query-child',
         ) as QueryDocumentSnapshot<T>,
       );
+      const changes = computeDocumentChanges(
+        undefined,
+        wrappedDocs.map((doc) => ({ path: doc.ref.path })),
+        wrappedDocs,
+        () => false,
+        () => wrappedDocs[0]!,
+      );
       const wrapped = tag({
         size: wrappedDocs.length,
         empty: wrappedDocs.length === 0,
         docs: wrappedDocs,
         forEach: forEachDocument(wrappedDocs),
+        docChanges: createDocChanges(changes, false),
         metadata: client.querySnapshotMetadata(),
       }, target);
       for (const document of wrappedDocs) client.cachePath(document.ref.path);
@@ -112,8 +135,7 @@ export async function readQuery<T = DocumentData>(query: Query<T>, activity: Sdk
       return finishSdkRead(activity, wrapped);
     }
     tagSnapshotRefs(snap, target);
-    const docs = (snap as unknown as ChainQuerySnap).docs;
-    for (const d of docs) {
+    for (const d of rawDocs) {
       client.cachePath(d.ref.path);
       wrapSandboxDocSnap(d as object, target);
     }

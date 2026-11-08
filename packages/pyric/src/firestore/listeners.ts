@@ -78,7 +78,17 @@ export function onSnapshot(
   const r = resolveSandboxListenable(target, ref);
   const attribution = typeof arg2 === 'object' && arg2 !== null && !isPartialObserver(arg2) ? arg2 as SnapshotListenOptions : undefined;
   const activity = beginFirestoreActivity(target, ref, 'onSnapshot', 'subscription', attribution);
-  const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target, ref as object, activity);
+  let stopped = false;
+  let errored = false;
+  const hooks: ListenerHooks = {
+    onNext: () => {
+      errored = false;
+    },
+    onError: () => {
+      errored = true;
+    },
+  };
+  const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target, ref as object, activity, hooks);
   const finalArgs = markSandboxLiveSnapshotArgs(wrappedArgs, target);
   let unsubscribe: Unsubscribe;
   try {
@@ -89,7 +99,6 @@ export function onSnapshot(
     });
   } catch (error) { activity.fail(); throw error; }
   if (!target.own) return () => { activity.close(); unsubscribe(); };
-  let stopped = false;
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
@@ -98,6 +107,10 @@ export function onSnapshot(
   };
   const abort = (): void => {
     if (stopped) return;
+    if (errored) {
+      stop();
+      return;
+    }
     activity.fail();
     stop();
     snapshotErrorHandler(finalArgs)?.(
@@ -176,6 +189,11 @@ function isPartialObserver(obj: unknown): boolean {
   );
 }
 
+interface ListenerHooks {
+  onNext: () => void;
+  onError: () => void;
+}
+
 function tagSandboxSnapshotArgs(
   arg2: SnapshotListenOptions | SnapshotObserver<unknown> | ((snap: unknown) => void),
   arg3:
@@ -187,6 +205,7 @@ function tagSandboxSnapshotArgs(
   target: Target,
   source: object,
   activity: SdkActivityHandle,
+  hooks: ListenerHooks,
 ): unknown[] {
   // Detect whether arg2 is the SnapshotListenOptions form. FS-B14 — an
   // observer is any object carrying at least one of `next` / `error` /
@@ -201,22 +220,22 @@ function tagSandboxSnapshotArgs(
     // (options, next | observer, error?)
     const next = arg3;
     if (typeof next === 'function') {
-      return [arg2, wrapNext(next as (snap: unknown) => void, target, source, activity), wrapError(arg4 ?? defaultSnapshotErrorHandler, activity)];
+      return [arg2, wrapNext(next as (snap: unknown) => void, target, source, activity, hooks.onNext), wrapError(arg4 ?? defaultSnapshotErrorHandler, activity, hooks.onError)];
     }
     if (next && typeof next === 'object') {
-      return [arg2, wrapObserver(next as SnapshotObserver<unknown>, target, source, activity)];
+      return [arg2, wrapObserver(next as SnapshotObserver<unknown>, target, source, activity, hooks)];
     }
     return [arg2];
   }
   // (next | observer, error?)
   if (typeof arg2 === 'function') {
     return [
-      wrapNext(arg2 as (snap: unknown) => void, target, source, activity),
-      wrapError((arg3 as ((error: unknown) => void) | undefined) ?? defaultSnapshotErrorHandler, activity),
+      wrapNext(arg2 as (snap: unknown) => void, target, source, activity, hooks.onNext),
+      wrapError((arg3 as ((error: unknown) => void) | undefined) ?? defaultSnapshotErrorHandler, activity, hooks.onError),
     ];
   }
   if (arg2 && typeof arg2 === 'object') {
-    return [wrapObserver(arg2 as SnapshotObserver<unknown>, target, source, activity)];
+    return [wrapObserver(arg2 as SnapshotObserver<unknown>, target, source, activity, hooks)];
   }
   return [arg2];
 }
@@ -263,6 +282,7 @@ function finalizeSandboxSnapshot(snap: unknown, target: Target, source: object):
   const s = snap as {
     data?: () => DocumentData | undefined;
     docs?: Array<object>;
+    docChanges?: () => Array<{ type?: string; doc?: object }>;
   };
   const conv = converterOf(source) ?? null;
   const hasConverter = conv !== null;
@@ -274,6 +294,14 @@ function finalizeSandboxSnapshot(snap: unknown, target: Target, source: object):
     for (const d of s.docs) {
       wrapSandboxDocSnap(d as object, target);
       if (hasConverter) applyConverterToDeliveredSnap(d as object, conv, target, 'query-child');
+    }
+    if (typeof s.docChanges === 'function') {
+      for (const change of s.docChanges()) {
+        if (change.type === 'removed' && change.doc) {
+          wrapSandboxDocSnap(change.doc, target);
+          if (hasConverter) applyConverterToDeliveredSnap(change.doc, conv, target, 'query-child');
+        }
+      }
     }
     recordQuerySnapshot(snap as object, snap as object, target, source, 'listener');
   }
@@ -299,8 +327,10 @@ function wrapNext(
   target: Target,
   source: object,
   activity: SdkActivityHandle,
+  onNext: () => void,
 ): (snap: unknown) => void {
   return (snap) => {
+    onNext();
     const value = finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source);
     activity.delivered(value);
     next(value);
@@ -313,22 +343,43 @@ function wrapObserver(
   target: Target,
   source: object,
   activity: SdkActivityHandle,
+  hooks: ListenerHooks,
 ): SnapshotObserver<unknown> {
+  let next: ((snap: unknown) => void) | undefined;
+  if (typeof obs.next === 'function') {
+    next = (snap) => {
+      hooks.onNext();
+      const value = finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source);
+      activity.delivered(value);
+      obs.next!(value);
+      clientStateFor(target).notifySnapshotDelivered();
+    };
+  }
   return {
     ...obs,
-    next: obs.next
-      ? (snap) => {
-          const value = finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source);
-          activity.delivered(value);
-          obs.next!(value);
-          clientStateFor(target).notifySnapshotDelivered();
-        }
-      : undefined,
+    next,
     // Surface an unobserved listener error instead of swallowing it.
-    error: wrapError(obs.error ?? defaultSnapshotErrorHandler, activity),
+    error: wrapError(
+      resolveObserverErrorCallback(obs),
+      activity,
+      hooks.onError,
+    ),
   };
 }
 
-function wrapError(callback: (error: unknown) => void, activity: SdkActivityHandle): (error: unknown) => void {
-  return error => { activity.fail(); callback(toFirestoreFirebaseError(error)); };
+function resolveObserverErrorCallback(obs: SnapshotObserver<unknown>): (error: unknown) => void {
+  if (typeof obs.error === 'function') return obs.error.bind(obs);
+  return defaultSnapshotErrorHandler;
+}
+
+function wrapError(
+  callback: (error: unknown) => void,
+  activity: SdkActivityHandle,
+  onError?: () => void,
+): (error: unknown) => void {
+  return error => {
+    onError?.();
+    activity.fail();
+    callback(toFirestoreFirebaseError(error));
+  };
 }

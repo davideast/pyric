@@ -17,7 +17,11 @@
  */
 import * as ip from 'pyric/firestore';
 import { readDocumentAs, readQueryAs } from 'pyric/firestore/internal';
-import { readDocumentAs as workerDocumentRead, readQueryAs as workerQueryRead } from '../worker/client/firestore-reads.js';
+import {
+  readDocumentAs as workerDocumentRead,
+  readQueryAs as workerQueryRead,
+  onSnapshotsInSync as workerOnSnapshotsInSync,
+} from '../worker/client/firestore-reads.js';
 import { getFirestore as pyricGetFirestore } from 'pyric/firestore';
 import { markServiceUsed } from './service-use.js';
 import * as wcRaw from '../worker/client.js';
@@ -234,10 +238,24 @@ export const getDocsFromCache: typeof ip.getDocs = query => queryRead(query, 'ge
  * same honest approximation as the in-page implementation — on both paths.
  */
 export function onSnapshotsInSync(
-  _db: unknown,
+  db: unknown,
   observerOrCallback: (() => void) | { next?: () => void },
 ): () => void {
-  const cb = typeof observerOrCallback === 'function' ? observerOrCallback : observerOrCallback.next;
+  if (db && typeof db === 'object' && 'port' in db) {
+    return workerOnSnapshotsInSync(
+      db as Parameters<typeof workerOnSnapshotsInSync>[0],
+      observerOrCallback,
+    );
+  }
+  if (db && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
+    return ip.onSnapshotsInSync(db as ip.Firestore, observerOrCallback);
+  }
+  let cb: (() => void) | undefined;
+  if (typeof observerOrCallback === 'function') {
+    cb = observerOrCallback;
+  } else if (typeof observerOrCallback.next === 'function') {
+    cb = observerOrCallback.next.bind(observerOrCallback);
+  }
   let cancelled = false;
   queueMicrotask(() => {
     if (!cancelled && cb) cb();

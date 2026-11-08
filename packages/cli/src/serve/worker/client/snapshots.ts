@@ -93,6 +93,7 @@ export function makeDocSnapshot<T = DocumentData>(
         exists: () => true,
         metadata,
         data: () => document,
+        get: (fieldPath) => readField(document, fieldPath),
       };
       return (converter as FirestoreDataConverter<T>).fromFirestore(snapshot);
     }

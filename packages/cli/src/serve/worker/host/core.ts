@@ -131,14 +131,26 @@ function resolveConstraint(constraint: QueryConstraintDescriptor, db: Firestore)
       return pyricLimitToLast(constraint.n);
     // Cursor values rehydrate for the same reason as `where` values —
     // `startAfter(<timestamp>)` must position against real Timestamps.
-    case 'startAt':
-      return pyricStartAt(...decodeCursorValues(constraint.values, constraint.valueEncoding));
-    case 'startAfter':
-      return pyricStartAfter(...decodeCursorValues(constraint.values, constraint.valueEncoding));
-    case 'endAt':
-      return pyricEndAt(...decodeCursorValues(constraint.values, constraint.valueEncoding));
-    case 'endBefore':
-      return pyricEndBefore(...decodeCursorValues(constraint.values, constraint.valueEncoding));
+    case 'startAt': {
+      const c = pyricStartAt(...decodeCursorValues(constraint.values, constraint.valueEncoding));
+      if (constraint.fromSnapshot) (c as { _fromSnapshot?: boolean })._fromSnapshot = true;
+      return c;
+    }
+    case 'startAfter': {
+      const c = pyricStartAfter(...decodeCursorValues(constraint.values, constraint.valueEncoding));
+      if (constraint.fromSnapshot) (c as { _fromSnapshot?: boolean })._fromSnapshot = true;
+      return c;
+    }
+    case 'endAt': {
+      const c = pyricEndAt(...decodeCursorValues(constraint.values, constraint.valueEncoding));
+      if (constraint.fromSnapshot) (c as { _fromSnapshot?: boolean })._fromSnapshot = true;
+      return c;
+    }
+    case 'endBefore': {
+      const c = pyricEndBefore(...decodeCursorValues(constraint.values, constraint.valueEncoding));
+      if (constraint.fromSnapshot) (c as { _fromSnapshot?: boolean })._fromSnapshot = true;
+      return c;
+    }
   }
 }
 

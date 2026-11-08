@@ -37,7 +37,6 @@ import {
 import {
   FirestoreCompatError,
   type FirestoreSimError,
-  type AggregateField,
   type AggregateQuerySnapshot,
   type AggregateSpec,
   type AuthContext,
@@ -52,6 +51,7 @@ import {
   type QuerySnapshot,
   type WhereFilterOp,
 } from './types.js';
+import { computeAggregate } from './query-aggregate.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Internal clause shapes (not exported — wrapper-internal).
@@ -123,8 +123,12 @@ function cursorValuesFromSnapshot(
   // `__name__` clause), so a `startAt(snapshot)` with no explicit orderBy
   // is legal in prod: it positions on the document key. `__name__` reads
   // the snapshot's ref path; data fields read positionally.
-  return orders.map((o) => o.field === KEY_FIELD ? snapshot.ref : data[o.field]);
+  return orders.map((o) => o.field === KEY_FIELD ? snapshot.ref : getSnapshotField(data, o.field));
 }
+
+type CursorInput =
+  | { readonly kind: 'values'; readonly values: readonly unknown[]; readonly inclusive: boolean; readonly fromSnapshot: boolean }
+  | { readonly kind: 'snapshot'; readonly snapshot: DocumentSnapshot; readonly inclusive: boolean };
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — QueryImpl.
@@ -172,13 +176,19 @@ export class QueryImpl implements Query {
   }
 
   where(field: string, op: WhereFilterOp, value: unknown): Query {
+    const clauses = [...this.clauses, snapshotFilter({ kind: 'where', field, op, value })];
     return this.clone({
-      clauses: [...this.clauses, snapshotFilter({ kind: 'where', field, op, value })],
+      clauses,
+      ...this.recomputeCursors(clauses, this.orders),
     });
   }
 
   applyFilter(filter: Filter): Query {
-    return this.clone({ clauses: [...this.clauses, snapshotFilter(filter)] });
+    const clauses = [...this.clauses, snapshotFilter(filter)];
+    return this.clone({
+      clauses,
+      ...this.recomputeCursors(clauses, this.orders),
+    });
   }
 
   orderBy(field: string, direction: OrderDirection = 'asc'): Query {
@@ -188,7 +198,11 @@ export class QueryImpl implements Query {
         code: 'invalid-argument', message: "orderBy() direction must be 'asc' or 'desc'.",
       });
     }
-    return this.clone({ orders: [...this.orders, { field, direction }] });
+    const orders = [...this.orders, { field, direction }];
+    return this.clone({
+      orders,
+      ...this.recomputeCursors(this.clauses, orders),
+    });
   }
 
   limit(n: number): Query {
@@ -201,35 +215,41 @@ export class QueryImpl implements Query {
     return this.clone({ limitCount: n, limitFromEnd: true });
   }
 
-  startCursor(values: unknown[], inclusive: boolean): Query {
+  startCursor(values: unknown[], inclusive: boolean, fromSnapshot = false): Query {
+    const cursorInput: CursorInput = {
+      kind: 'values',
+      values: Object.freeze([...values]),
+      inclusive,
+      fromSnapshot,
+    };
     return this.clone({
-      start: snapshotCursor(this.normalizeExplicitCursorValues(values), inclusive, false),
+      start: this.buildCursor(cursorInput, this.clauses, this.orders),
     });
   }
 
-  endCursor(values: unknown[], inclusive: boolean): Query {
+  endCursor(values: unknown[], inclusive: boolean, fromSnapshot = false): Query {
+    const cursorInput: CursorInput = {
+      kind: 'values',
+      values: Object.freeze([...values]),
+      inclusive,
+      fromSnapshot,
+    };
     return this.clone({
-      end: snapshotCursor(this.normalizeExplicitCursorValues(values), inclusive, false),
+      end: this.buildCursor(cursorInput, this.clauses, this.orders),
     });
   }
 
   startCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
+    const cursorInput: CursorInput = { kind: 'snapshot', snapshot, inclusive };
     return this.clone({
-      start: snapshotCursor(
-        cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
-        inclusive,
-        true,
-      ),
+      start: this.buildCursor(cursorInput, this.clauses, this.orders),
     });
   }
 
   endCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
+    const cursorInput: CursorInput = { kind: 'snapshot', snapshot, inclusive };
     return this.clone({
-      end: snapshotCursor(
-        cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
-        inclusive,
-        true,
-      ),
+      end: this.buildCursor(cursorInput, this.clauses, this.orders),
     });
   }
 
@@ -377,10 +397,12 @@ export class QueryImpl implements Query {
    * Firestore stores in its bound. This makes `startAt(snapshot)` and
    * `startAt(...fieldValues, snapshot.id)` structurally identical while
    * retaining Firebase's string-only validation for `documentId()` values. */
-  private normalizeExplicitCursorValues(values: readonly unknown[]): unknown[] {
+  private normalizeExplicitCursorValues(
+    values: readonly unknown[],
+    orders: readonly OrderClause[] = this.orders,
+  ): unknown[] {
     // Only user-declared documentId() positions accept an explicit ID.
     // The normalized implicit key order is not an extra public cursor slot.
-    const orders = this.orders;
     return values.map((value, index) => {
       if (orders[index]?.field !== KEY_FIELD) return value;
       if (typeof value !== 'string') {
@@ -392,6 +414,49 @@ export class QueryImpl implements Query {
       const path = value.includes('/') ? value : `${this.collectionPath}/${value}`;
       return this.documentRef(path);
     });
+  }
+
+  private buildCursor(
+    cursorInput: CursorInput,
+    clauses: readonly ComparableQueryFilter[],
+    orders: readonly OrderClause[],
+  ): ComparableCursor {
+    if (cursorInput.kind === 'snapshot') {
+      const normalized = normalizedQueryOrders({
+        filters: Object.freeze(clauses.map(executionFilter)),
+        orders,
+        limitCount: this.limitCount,
+        limitFromEnd: this.limitFromEnd,
+      });
+      const built = snapshotCursor(
+        cursorValuesFromSnapshot(cursorInput.snapshot, normalized),
+        cursorInput.inclusive,
+        true,
+      );
+      return Object.freeze({ ...built, cursorInput });
+    }
+    let resolvedValues: unknown[];
+    if (cursorInput.fromSnapshot) {
+      resolvedValues = [...cursorInput.values];
+    } else {
+      resolvedValues = this.normalizeExplicitCursorValues(cursorInput.values, orders);
+    }
+    const built = snapshotCursor(resolvedValues, cursorInput.inclusive, cursorInput.fromSnapshot);
+    return Object.freeze({ ...built, cursorInput });
+  }
+
+  private recomputeCursors(
+    clauses: readonly ComparableQueryFilter[],
+    orders: readonly OrderClause[],
+  ): Partial<Pick<QueryState, 'start' | 'end'>> {
+    const patch: Partial<Pick<QueryState, 'start' | 'end'>> = {};
+    if (this.start?.cursorInput !== undefined) {
+      patch.start = this.buildCursor(this.start.cursorInput as CursorInput, clauses, orders);
+    }
+    if (this.end?.cursorInput !== undefined) {
+      patch.end = this.buildCursor(this.end.cursorInput as CursorInput, clauses, orders);
+    }
+    return patch;
   }
 
   private executionSpec(): QueryExecutionSpec {
@@ -488,49 +553,6 @@ export class QueryImpl implements Query {
     }
     return { data: () => data };
   }
-}
-
-/**
- * Run one aggregate against a filtered doc set. Non-numeric values
- * are skipped silently (Firestore production behavior on heterogeneous
- * fields). Empty inputs produce `0` for count/sum and `null` for
- * average — the latter matches the JS SDK's
- * `AggregateField.average(...)` contract.
- */
-/**
- * Read a (possibly dotted) field path from a document. Aggregates accept
- * nested paths like `sum('metadata.pages')` the same way `where`/`orderBy`
- * do for data fields — top-level `data[field]` would miss nested values.
- */
-function aggregateFieldValue(data: DocumentData, fieldPath: string): unknown {
-  if (!fieldPath.includes('.')) return data[fieldPath];
-  let cursor: unknown = data;
-  for (const seg of fieldPath.split('.')) {
-    if (typeof cursor !== 'object' || cursor === null || Array.isArray(cursor)) {
-      return undefined;
-    }
-    cursor = (cursor as DocumentData)[seg];
-  }
-  return cursor;
-}
-
-function computeAggregate(
-  field: AggregateField,
-  rows: { data: DocumentData }[],
-): number | null {
-  if (field.kind === 'count') return rows.length;
-  let sum = 0;
-  let n = 0;
-  for (const row of rows) {
-    const v = aggregateFieldValue(row.data, field.field);
-    if (typeof v === 'number' && Number.isFinite(v)) {
-      sum += v;
-      n++;
-    }
-  }
-  if (field.kind === 'sum') return sum;
-  // average — undefined for empty/all-non-numeric sets
-  return n === 0 ? null : sum / n;
 }
 
 function assertFiniteLimit(n: number): void {

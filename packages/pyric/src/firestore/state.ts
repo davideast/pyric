@@ -40,6 +40,7 @@ import { Bytes, GeoPoint, vector } from './field-values.js';
 export const TARGET_SYMBOL: unique symbol = Symbol('pyric/firestore/target');
 
 interface FirestoreTargetLifecycle {
+  app?: object;
   activityApp?: object;
   own?: (cleanup: () => void) => () => void;
   assertUsable?: () => void;
@@ -347,6 +348,7 @@ export function finalizeSandboxValue(value: unknown, references?: ReferenceDecod
   // that motivated #109/#110 in the first place).
   const isObject = value !== null && typeof value === 'object';
   if (isObject) {
+    if (MODULAR_VALUE_SYMBOL in value || refToTarget.has(value)) return value;
     const proto = Object.getPrototypeOf(value);
     const isPlainMap = proto === Object.prototype || proto === null;
     if (isPlainMap) {

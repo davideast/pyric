@@ -48,7 +48,13 @@ import { FirebaseError } from 'pyric/app';
 
 import type { OpMessage, WriteDescriptor, SentinelMarker, UpdatePayload } from '../protocol.js';
 import { isSentinelMarker } from '../protocol.js';
-import { assertAtomicList, requireFirestorePath, requireSingleUpdateForm, requireUpdateFields } from '../protocol/firestore-validation.js';
+import {
+  assertAtomicList,
+  assertSetOptions,
+  requireFirestorePath,
+  requireSingleUpdateForm,
+  requireUpdateFields,
+} from '../protocol/firestore-validation.js';
 import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from '../host-context.js';
 
 // ─── Sentinel resolution ──────────────────────────────────────────────────
@@ -224,6 +230,7 @@ function applyAtomicWrite(
       return;
     }
     case 'set': {
+      assertSetOptions(write.options);
       const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
       writer.set(ref, data, write.options);
       return;

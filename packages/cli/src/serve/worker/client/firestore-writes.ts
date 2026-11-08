@@ -6,7 +6,7 @@ import { beginWorkerFirestoreActivity } from './sdk-activity.js';
  */
 
 import type { WriteDescriptor, TxnReadEntry, UpdateFieldDescriptor } from '../protocol.js';
-import { parseUpdateArguments } from 'pyric/firestore/internal/update-fields';
+import { normalizeMergeFields, parseUpdateArguments } from 'pyric/firestore/internal/update-fields';
 import { encodeDocValue, requireDocumentData, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
 import { nextId, dataRpc } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
@@ -18,13 +18,19 @@ import { FirebaseError } from 'pyric/app';
 
 interface ClientSetOptions {
   merge?: boolean;
-  mergeFields?: string[];
+  mergeFields?: readonly (string | FieldPath)[];
 }
 
-function captureSetOptions(options: ClientSetOptions | undefined): ClientSetOptions | undefined {
-  const hasOptions = options !== undefined;
-  if (hasOptions) return { ...options, mergeFields: options.mergeFields?.slice() };
-  return undefined;
+function captureSetOptions(
+  options: ClientSetOptions | undefined,
+): { merge?: boolean; mergeFields?: string[] } | undefined {
+  if (options === undefined) return undefined;
+  const captured: { merge?: boolean; mergeFields?: string[] } = {};
+  if (options.merge !== undefined) captured.merge = options.merge;
+  if (options.mergeFields !== undefined) {
+    captured.mergeFields = normalizeMergeFields(options.mergeFields);
+  }
+  return captured;
 }
 
 /** Convert models before encoding; update payloads bypass model converters. */
@@ -45,6 +51,7 @@ export async function setDoc<T = DocumentData>(
   options?: ClientSetOptions,
 ): Promise<void> {
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'setDoc', 'operation'), async () => {
+    const capturedOptions = captureSetOptions(options);
     const payload = convertSetData(ref, data);
     await dataRpc(ref.port, {
       t: 'op',
@@ -53,7 +60,7 @@ export async function setDoc<T = DocumentData>(
       path: ref.descriptor.path,
       data: encodeDocValue(payload),
       valueEncoding: DOC_VALUE_ENCODING,
-      options,
+      options: capturedOptions,
     });
   });
 }
@@ -151,24 +158,36 @@ export interface ClientWriteBatch {
 export function writeBatch(db: ClientDb): ClientWriteBatch {
   const writes: WriteDescriptor[] = [];
   const port = db.port;
+  let committed = false;
+
+  function assertNotCommitted(): void {
+    if (committed) {
+      throw new FirebaseError('failed-precondition', 'WriteBatch has already been committed.');
+    }
+  }
 
   const batch: ClientWriteBatch = {
     set(ref, data, options) {
+      assertNotCommitted();
       const capturedOptions = captureSetOptions(options);
       const payload = convertSetData(ref, data);
       writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
       return batch;
     },
     update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
+      assertNotCommitted();
       const fields = encodeUpdate('WriteBatch.update', ref, dataOrField, rest);
       writes.push({ method: 'update', path: ref.descriptor.path, fields, valueEncoding: DOC_VALUE_ENCODING });
       return batch;
     },
     delete(ref) {
+      assertNotCommitted();
       writes.push({ method: 'delete', path: ref.descriptor.path });
       return batch;
     },
     async commit() {
+      assertNotCommitted();
+      committed = true;
       await runSdkWrite(beginGroupActivity(db, 'writeBatch.commit'), () => dataRpc(port, {
         t: 'op',
         id: nextId(),

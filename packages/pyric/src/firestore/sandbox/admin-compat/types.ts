@@ -69,7 +69,7 @@ export interface OperationOptions {
  */
 export interface SetOptions extends OperationOptions {
   merge?: boolean;
-  mergeFields?: readonly string[];
+  mergeFields?: readonly (string | SnapshotFieldPath)[];
 }
 
 export interface DocumentSnapshot {
@@ -150,12 +150,12 @@ export interface Query {
    * vs `startAfter` (false). Repeated calls replace the previous
    * cursor — matches production.
    */
-  startCursor(values: unknown[], inclusive: boolean): Query;
+  startCursor(values: unknown[], inclusive: boolean, fromSnapshot?: boolean): Query;
   /**
    * Set the end position of the query relative to the orderBy fields.
    * `inclusive` controls `endAt` (true) vs `endBefore` (false).
    */
-  endCursor(values: unknown[], inclusive: boolean): Query;
+  endCursor(values: unknown[], inclusive: boolean, fromSnapshot?: boolean): Query;
   /**
    * Variant of {@link startCursor} that takes a `DocumentSnapshot`
    * and extracts the cursor values from the snapshot's data at each
@@ -195,8 +195,8 @@ export interface Query {
  */
 export type AggregateField =
   | { kind: 'count' }
-  | { kind: 'sum'; field: string }
-  | { kind: 'average'; field: string };
+  | { kind: 'sum'; field: string | FieldPath; path?: readonly string[] }
+  | { kind: 'average'; field: string | FieldPath; path?: readonly string[] };
 
 /** Spec passed to `Query.aggregate(...)`. Aliases become the keys in
  *  the returned snapshot's `.data()` object. */

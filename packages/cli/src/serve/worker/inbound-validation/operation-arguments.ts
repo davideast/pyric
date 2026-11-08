@@ -2,7 +2,13 @@ import { FirebaseError } from 'pyric/app';
 import type { OpMessage } from '../protocol.js';
 import { DELIVERY_STAGES } from 'pyric/messaging/internal';
 import { requireDocumentData } from 'pyric/firestore/internal/value-codec';
-import { requireFirestorePath, requireSingleUpdateForm, requireUpdateFields } from '../protocol/firestore-validation.js';
+import {
+  assertAggregateFieldPath,
+  assertSetOptions,
+  requireFirestorePath,
+  requireSingleUpdateForm,
+  requireUpdateFields,
+} from '../protocol/firestore-validation.js';
 import { assertQueryStructure } from '../host/query-structure.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
@@ -80,19 +86,6 @@ function assertMetadataPatch(patch: unknown): void {
   requireOptionalRecord(customMetadata, 'patch.customMetadata');
   requireShape(customMetadata === undefined || Object.values(customMetadata as object).every(value => value === null || typeof value === 'string'), 'patch.customMetadata');
   requireShape(downloadTokens === undefined || downloadTokens === null || typeof downloadTokens === 'string', 'patch.downloadTokens');
-}
-
-function assertSetOptions(value: unknown): void {
-  const isAbsent = value === undefined;
-  if (isAbsent) return;
-  requireRecord(value, 'options');
-  requireOptionalBoolean(value.merge, 'options.merge');
-  const fields = value.mergeFields;
-  const hasFields = fields !== undefined;
-  if (hasFields) {
-    const isFieldList = Array.isArray(fields) && fields.every(field => typeof field === 'string');
-    requireShape(isFieldList, 'options.mergeFields');
-  }
 }
 
 /** Validate adapter-owned argument shapes; service validators retain value semantics. */
@@ -291,6 +284,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
         requireShape(isKnownKind, 'aggregate.kind');
         const needsField = !isCount;
         if (needsField) requireString(aggregate.field, 'aggregate.field');
+        assertAggregateFieldPath(aggregate.path, isCount);
       }
       return;
     }

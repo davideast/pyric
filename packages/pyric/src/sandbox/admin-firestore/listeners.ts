@@ -150,6 +150,22 @@ function isDocumentReference(ref: unknown): ref is DocumentReference {
   );
 }
 
+function bindSnapshotObserver(obs: SnapshotObserver<unknown>): {
+  onNext?: (s: unknown) => void;
+  onError?: (e: unknown) => void;
+  onComplete?: () => void;
+} {
+  const bound: {
+    onNext?: (s: unknown) => void;
+    onError?: (e: unknown) => void;
+    onComplete?: () => void;
+  } = {};
+  if (typeof obs.next === 'function') bound.onNext = obs.next.bind(obs);
+  if (typeof obs.error === 'function') bound.onError = obs.error.bind(obs);
+  if (typeof obs.complete === 'function') bound.onComplete = obs.complete.bind(obs);
+  return bound;
+}
+
 // Overloads — order matches `firebase/firestore`'s `onSnapshot`.
 export function onSnapshot(
   reference: DocumentReference,
@@ -229,6 +245,7 @@ export function onSnapshot(
   let options: SnapshotListenOptions = {};
   let onNext: ((snapshot: unknown) => void) | undefined;
   let onError: ((error: unknown) => void) | undefined;
+  let onComplete: (() => void) | undefined;
 
   // Detect whether arg2 is the SnapshotListenOptions slot. The options
   // object is the only plain-object value at arg2 that lacks both `next`
@@ -247,23 +264,21 @@ export function onSnapshot(
     if (typeof arg3 === 'function') {
       onNext = arg3 as (s: unknown) => void;
       onError = arg4 as ((e: unknown) => void) | undefined;
+      onComplete = typeof arg5 === 'function' ? arg5 : undefined;
       // arg5 is onCompletion — accepted, never invoked (no terminal state).
     } else if (typeof arg3 === 'object' && arg3 !== null) {
-      const obs = arg3 as SnapshotObserver<unknown>;
-      onNext = obs.next;
-      onError = obs.error;
+      ({ onNext, onError, onComplete } = bindSnapshotObserver(arg3 as SnapshotObserver<unknown>));
     }
   } else if (typeof arg2 === 'function') {
     onNext = arg2 as (s: unknown) => void;
     onError = arg3 as ((e: unknown) => void) | undefined;
+    if (typeof arg4 === 'function') onComplete = arg4 as () => void;
     // arg4 is onCompletion — accepted, never invoked.
   } else if (typeof arg2 === 'object' && arg2 !== null) {
-    const obs = arg2 as SnapshotObserver<unknown>;
-    onNext = obs.next;
-    onError = obs.error;
+    ({ onNext, onError, onComplete } = bindSnapshotObserver(arg2 as SnapshotObserver<unknown>));
   }
 
-  if (!onNext && !onError) {
+  if (!onNext && !onError && !onComplete) {
     // FS-B14 — prod accepts an observer carrying only `error` (or
     // `complete`); it registers and routes denials to the error handler.
     // Only a fully-empty observer (no next AND no error) is a programming
