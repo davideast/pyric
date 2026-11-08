@@ -1,4 +1,11 @@
-import { storageTaskProgress, storageTaskResult } from 'pyric/storage/internal';
+import {
+  clientContentEncoding,
+  cloneCustomMetadata,
+  cloneSettableMetadata,
+  storageTaskProgress,
+  storageTaskResult,
+  uploadContentDisposition,
+} from 'pyric/storage/internal';
 /**
  * Worker-mode resumable upload operations: `uploadBytesResumable` and observer tasks.
  *
@@ -109,9 +116,10 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     data: Blob | Uint8Array | ArrayBuffer,
     metadata?: ClientSettableMetadata,
   ) {
+    const clonedMetadata = cloneSettableMetadata(metadata);
     this._ref = ref;
     this._data = data;
-    this._metadata = metadata;
+    this._metadata = clonedMetadata;
 
     const size = computePayloadSize(data);
     // The placeholder metadata an in-flight task reports. The stamp is the
@@ -129,10 +137,10 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     }
     const hasMetadata = metadata !== undefined;
     if (hasMetadata) {
-      const hasMetaType = metadata.contentType !== undefined;
+      const hasMetaType = metadata.contentType !== undefined && metadata.contentType !== '';
       if (hasMetaType) {
         const metaTypeDefined = metadata.contentType;
-        if (metaTypeDefined !== undefined) {
+        if (metaTypeDefined !== undefined && metaTypeDefined !== '') {
           contentType = metaTypeDefined;
         }
       }
@@ -148,6 +156,13 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       updated: now,
       size,
       contentType,
+      contentDisposition: uploadContentDisposition(metadata?.contentDisposition, ref.fullPath),
+      contentEncoding: clientContentEncoding(metadata?.contentEncoding),
+      ...(clonedMetadata?.cacheControl !== undefined ? { cacheControl: clonedMetadata.cacheControl } : {}),
+      ...(clonedMetadata?.contentLanguage !== undefined ? { contentLanguage: clonedMetadata.contentLanguage } : {}),
+      ...(clonedMetadata?.customMetadata !== undefined
+        ? { customMetadata: cloneCustomMetadata(clonedMetadata.customMetadata) }
+        : {}),
     };
 
     this._promise = new Promise<ClientUploadTaskSnapshot>((resolve, reject) => {
@@ -334,17 +349,17 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         error?: (error: Error) => unknown;
         complete?: () => unknown;
       };
-      const hasNext = observerObj.next !== undefined;
+      const hasNext = typeof observerObj.next === 'function';
       if (hasNext) {
-        nextCb = observerObj.next;
+        nextCb = observerObj.next!.bind(observerObj);
       }
-      const hasError = observerObj.error !== undefined;
+      const hasError = typeof observerObj.error === 'function';
       if (hasError) {
-        errCb = observerObj.error;
+        errCb = observerObj.error!.bind(observerObj);
       }
-      const hasComplete = observerObj.complete !== undefined;
+      const hasComplete = typeof observerObj.complete === 'function';
       if (hasComplete) {
-        compCb = observerObj.complete;
+        compCb = observerObj.complete!.bind(observerObj);
       }
     } else {
       const isFunction = typeof nextOrObserver === 'function';
@@ -542,7 +557,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       const route = byteRouteOf(this._ref)!;
       let upload = this._upload;
       if (upload === undefined) {
-        const contentType = this._metadata?.contentType ?? (data.type !== '' ? data.type : undefined);
+        const contentType = (this._metadata?.contentType || undefined) ?? (data.type !== '' ? data.type : undefined);
         upload = await beginRouteUpload(this._ref, route, data.size, contentType, this._metadata);
         this._upload = upload;
         const canceled = this._snapshot.state === 'canceled';

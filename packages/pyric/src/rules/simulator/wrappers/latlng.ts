@@ -42,6 +42,18 @@ function haversineMeters(latA: number, lngA: number, latB: number, lngB: number)
   return R * c;
 }
 
+function latLngCoords(other: unknown): { readonly lat: number; readonly lng: number } | null {
+  if (!(other instanceof RulesValue) || other.typeName !== 'latlng') return null;
+  const candidate = other as { lat?: unknown; lng?: unknown; latitude?: unknown; longitude?: unknown };
+  if (typeof candidate.lat === 'number' && typeof candidate.lng === 'number') {
+    return { lat: candidate.lat, lng: candidate.lng };
+  }
+  if (typeof candidate.latitude === 'number' && typeof candidate.longitude === 'number') {
+    return { lat: candidate.latitude, lng: candidate.longitude };
+  }
+  return null;
+}
+
 export class LatLng extends RulesValue {
   readonly typeName = 'latlng';
   readonly lat: number;
@@ -79,10 +91,11 @@ export class LatLng extends RulesValue {
   }
 
   equals(other: unknown): boolean {
+    const coords = latLngCoords(other);
     return (
-      other instanceof LatLng &&
-      this.lat === other.lat &&
-      this.lng === other.lng
+      coords !== null &&
+      this.lat === coords.lat &&
+      this.lng === coords.lng
     );
   }
 
@@ -103,16 +116,13 @@ export class LatLng extends RulesValue {
           );
         }
         const other = args[0];
-        if (!(other instanceof LatLng)) {
-          // Real type error, not a sim gap — caller throws EvalError, not
-          // UnsupportedError. Returning NO_OP would mask the type bug as
-          // "method not implemented", which is wrong: we *did* implement
-          // distance, the caller passed garbage.
+        const coords = latLngCoords(other);
+        if (coords === null) {
           throw new TypeError(
             `latlng.distance() requires a LatLng argument, got ${typeof other}`,
           );
         }
-        return haversineMeters(this.lat, this.lng, other.lat, other.lng);
+        return haversineMeters(this.lat, this.lng, coords.lat, coords.lng);
       }
       default:
         return NO_OP;

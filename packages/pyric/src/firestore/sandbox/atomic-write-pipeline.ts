@@ -130,7 +130,11 @@ export class AtomicWritePipeline {
           groupId: context.groupId,
         };
         const includesData = this.includesRequestData(context, input);
-        if (includesData) Object.assign(request, publicWritePayload(input, input.preData));
+        if (includesData) {
+          Object.assign(request, publicWritePayload(input, input.preData));
+          const reqMerge = this.requestMerge(input);
+          if (reqMerge !== undefined) request.merge = reqMerge;
+        }
         const bypassesRules = context.bypassRules === true;
         if (bypassesRules) request.detail = { admin: true };
         const hasProvenance = context.provenance !== undefined;
@@ -396,12 +400,25 @@ export class AtomicWritePipeline {
       groupId: context.groupId,
     };
     const includesData = this.includesRequestData(context, input);
-    if (includesData) Object.assign(request, publicWritePayload(input, input.preData));
+    if (includesData) {
+      Object.assign(request, publicWritePayload(input, input.preData));
+      const reqMerge = this.requestMerge(input);
+      if (reqMerge !== undefined) request.merge = reqMerge;
+    }
     const bypassesRules = context.bypassRules === true;
     if (bypassesRules) request.detail = { admin: true };
     const hasProvenance = context.provenance !== undefined;
     if (hasProvenance) request.provenance = context.provenance;
     return request;
+  }
+
+  private requestMerge(input: AtomicWriteInput): EmitRequestInput['merge'] {
+    if (input.merge === true) return true;
+    if (input.merge !== undefined && input.merge !== false) {
+      return { mergeFields: [...input.merge.mergeFields] };
+    }
+    if (input.method === 'set') return false;
+    return undefined;
   }
 
   private includesRequestData(

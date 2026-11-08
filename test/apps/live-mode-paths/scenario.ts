@@ -14,7 +14,9 @@
  * a pyric command send it (`/__pyric/hosted/method`), turns the captured
  * shape into the index the list needs; the host's `/__pyric/mcp` route has
  * no index tool. The chip's Traffic row for the list opens its index block,
- * which reads the same shape against the project's index file.
+ * which reads the same shape against the project's index file. Production's
+ * answer named a missing index, so the event's `detail.failure` reads
+ * `missing-index` and the row carries the index badge sandbox rows use.
  *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * `live-mode-traffic.json` for the sign-in and the room, and
@@ -92,6 +94,7 @@ interface CapturedEvent {
   method?: string;
   path?: string;
   request?: { query?: QueryShape };
+  detail?: { failure?: string };
   production?: { outcome?: { status?: string; code?: string }; usage?: Record<string, number>; billedDocuments?: number };
 }
 
@@ -148,6 +151,8 @@ async function openIndexBlock(page: Page, id: string): Promise<void> {
   await chip.locator('[data-chip-tab=traffic]').click();
   const row = chip.locator(`[data-inspect-request="${id}"]`).first();
   await row.waitFor({ state: 'visible', timeout: 20_000 });
+  // Production's missing index reads as the index badge, still marked as production's failure.
+  await row.locator('.verdict.index-warning[data-verdict-production="failed"]').waitFor({ state: 'visible', timeout: 20_000 });
   await row.click();
   await chip.locator('[data-index-details]').first().waitFor({ state: 'visible', timeout: 20_000 });
 }
@@ -197,6 +202,9 @@ export default scenario(async (app) => {
     assert.deepEqual(shapeOf(listed.request?.query), LIST_SHAPE);
     assert.match(listed.request?.query?.fingerprint ?? '', /^[0-9a-f]{16}$/);
     assert.deepEqual(listed.production?.outcome, { status: 'error', code: 'failed-precondition' });
+    // Production's message named the index; the event keeps that reading, never the message.
+    assert.equal(listed.detail?.failure, 'missing-index');
+    assert.ok(!JSON.stringify(listed).includes('requires an index'), 'the event holds production\'s message');
 
     const group = events.filter((event) => event.method === 'onSnapshot');
     assert.ok(group.length > 0, 'the listener\'s deliveries');
@@ -223,7 +231,7 @@ export default scenario(async (app) => {
     }]);
   });
 
-  await app.step('the chip\'s Traffic row for the list opens its index block', async () => {
+  await app.step('the chip\'s Traffic row for the list carries the index badge and opens its index block', async () => {
     await openIndexBlock(page, list.id);
   });
 

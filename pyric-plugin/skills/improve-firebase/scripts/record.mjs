@@ -23,6 +23,8 @@ import {
   DEFAULT_VIEWPORT_DIP,
   SCENARIO_SCHEMA,
   buildLockedProvenanceText,
+  extractReadPayload,
+  isReadOperationMethod,
   validateBundleManifest,
   validateScenario,
 } from './lib/contracts.mjs';
@@ -396,7 +398,7 @@ export async function prepareActorUiForRecording(page, { targetTexts = [], colla
     .catch(() => {});
 }
 
-export async function measureActorTargetFocus(page, targetTexts = []) {
+async function measureActorTargetFocus(page, targetTexts = []) {
   if (!page || typeof page.evaluate !== 'function' || targetTexts.length === 0) {
     return null;
   }
@@ -513,6 +515,9 @@ function resolveScenarioRelativePaths(rawScenario, baseDir) {
     ? path.resolve(baseDir, p.trim())
     : p);
 
+  if (typeof cloned.seedFile === 'string') {
+    cloned.seedFile = resolveIfRel(cloned.seedFile);
+  }
   if (isPlainObject(cloned.app) && cloned.app.dist) {
     cloned.app.dist = resolveIfRel(cloned.app.dist);
   }
@@ -547,13 +552,16 @@ function synthesizeProbeFromScenario(scenario, rawScenario) {
     );
     if (step) {
       const baseOp = step.operation || step.op;
-      const frames = Array.isArray(step.frames)
-        ? step.frames
-        : Array.isArray(step.trajectory)
-          ? step.trajectory
-          : null;
+      let frames = null;
+      if (Array.isArray(step.frames)) {
+        frames = step.frames;
+      } else if (Array.isArray(step.trajectory)) {
+        frames = step.trajectory;
+      }
+      const hasPayload =
+        baseOp.data !== undefined || baseOp.value !== undefined || baseOp.values !== undefined;
       reproOp =
-        baseOp.data === undefined && baseOp.value === undefined && frames && frames.length > 0
+        !hasPayload && frames && frames.length > 0
           ? { ...baseOp, data: frames[frames.length - 1] }
           : baseOp;
     }
@@ -661,13 +669,87 @@ function computeStateDiff(beforeVal, afterVal, basePath) {
   };
 }
 
+function normalizeStatePathKey(service, rawPath, instance) {
+  const svc = normalizeServiceName(service || 'database');
+  const normPath = String(rawPath || '/').trim().replace(/\/+$/, '') || '/';
+  return `${svc}:${instance || 'default'}:${normPath}`;
+}
+
+function resolveAdminDeleteMethod(service) {
+  if (service === 'firestore') return 'deleteDoc';
+  if (service === 'storage') return 'deleteObject';
+  return 'remove';
+}
+
+function resolveAdminWriteMethod(service) {
+  if (service === 'firestore') return 'setDoc';
+  if (service === 'storage') return 'uploadBytes';
+  return 'set';
+}
+
+async function snapshotTrackedPaths(sandbox, operations) {
+  const seen = new Map();
+  for (const op of operations) {
+    if (!isPlainObject(op) || typeof op.path !== 'string' || !op.path.trim()) continue;
+    const service = normalizeServiceName(op.service || 'database');
+    const targetPath = op.path.trim();
+    const instance = op.instance ? String(op.instance) : undefined;
+    const key = normalizeStatePathKey(service, targetPath, instance);
+    if (seen.has(key)) continue;
+    const value = await sandbox
+      .readState(service, targetPath, { admin: true }, instance ? { instance } : undefined)
+      .catch(() => null);
+    seen.set(key, {
+      service,
+      path: targetPath,
+      instance,
+      value: structuredClone(value ?? null),
+    });
+  }
+  return Array.from(seen.values()).sort(
+    (a, b) => a.path.split('/').filter(Boolean).length - b.path.split('/').filter(Boolean).length,
+  );
+}
+
+async function restoreTrackedPaths(sandbox, trackedEntries) {
+  for (const entry of trackedEntries) {
+    const { service, path: targetPath, instance, value } = entry;
+    if (value === null || value === undefined) {
+      const deleteMethod = resolveAdminDeleteMethod(service);
+      await sandbox.executeOperation({
+        operation: {
+          service,
+          method: deleteMethod,
+          path: targetPath,
+          ...(instance ? { instance } : {}),
+        },
+        idToken: { admin: true },
+      });
+    } else {
+      const writeMethod = resolveAdminWriteMethod(service);
+      await sandbox.executeOperation({
+        operation: {
+          service,
+          method: writeMethod,
+          path: targetPath,
+          data: structuredClone(value),
+          ...(instance ? { instance } : {}),
+        },
+        idToken: { admin: true },
+      });
+    }
+  }
+}
+
 export function prepareIsolatedSandboxInputs({
   projectDir,
+  scenarioBaseDir = projectDir,
   firebaseConfigPath,
   scenario,
   rawScenario,
   campaignExport,
   reproOperation,
+  controlOperation = null,
   initialSeedValue,
   seedDir,
   useInlineTarget = false,
@@ -714,6 +796,13 @@ export function prepareIsolatedSandboxInputs({
       synthesizedCfg.database.find((d) => isPlainObject(d) && typeof d.rules === 'string')
     : null;
 
+  let configRtdbRulePath = null;
+  if (arrayRtdbEntry?.rules) {
+    configRtdbRulePath = path.resolve(cfgDir, arrayRtdbEntry.rules);
+  } else if (synthesizedCfg.database?.rules) {
+    configRtdbRulePath = path.resolve(cfgDir, synthesizedCfg.database.rules);
+  }
+
   const rtdbRuleCandidate =
     rawScenario?.rules?.rtdb ??
     rawScenario?.rules?.database ??
@@ -721,11 +810,7 @@ export function prepareIsolatedSandboxInputs({
       ? path.resolve(projectDir, campaignExport.target.databaseRulesPath)
       : null) ??
     inline.rtdbRulesPath ??
-    (arrayRtdbEntry?.rules
-      ? path.resolve(cfgDir, arrayRtdbEntry.rules)
-      : synthesizedCfg.database?.rules
-        ? path.resolve(cfgDir, synthesizedCfg.database.rules)
-        : null);
+    configRtdbRulePath;
 
   const explicitRtdbRuleOverride =
     rawScenario?.rules?.rtdb ??
@@ -852,34 +937,42 @@ export function prepareIsolatedSandboxInputs({
     }
   }
 
-  const outFirebaseConfigPath = path.join(scratchCfgDir, 'firebase.json');
-  fs.writeFileSync(outFirebaseConfigPath, `${JSON.stringify(synthesizedCfg, null, 2)}\n`, 'utf8');
-
   let resolvedSeedPath = seedDir;
   if (resolvedSeedPath) inputs.seed = 'cli';
   if (!resolvedSeedPath && rawScenario?.seedFile) {
-    resolvedSeedPath = path.resolve(projectDir, rawScenario.seedFile);
+    resolvedSeedPath = path.resolve(scenarioBaseDir, rawScenario.seedFile);
     inputs.seed = 'scenario';
   }
-  if (resolvedSeedPath && inlineTarget.rtdbState !== null && inlineTarget.rtdbState !== undefined) {
+  let suppliedSeedParsed = null;
+  if (resolvedSeedPath && fs.existsSync(resolvedSeedPath) && fs.statSync(resolvedSeedPath).isFile()) {
     try {
-      const supplied = readJsonFile(resolvedSeedPath, 'seed');
-      const suppliedDb = isPlainObject(supplied) && 'database' in supplied ? supplied.database : supplied;
-      if (stableStringify(suppliedDb) !== stableStringify(inlineTarget.rtdbState)) {
-        warnings.push({
-          code: 'SEED_DIFFERS_FROM_CAMPAIGN',
-          message: `Seed (${resolvedSeedPath}) differs from the state the assurance campaign ran against; recording uses the supplied seed.`,
-        });
-      }
+      suppliedSeedParsed = readJsonFile(resolvedSeedPath, 'seed');
     } catch {
-      // seed directories or unreadable seeds are left to the sandbox
+      suppliedSeedParsed = null;
+    }
+  }
+  if (suppliedSeedParsed && inlineTarget.rtdbState !== null && inlineTarget.rtdbState !== undefined) {
+    const suppliedDb =
+      isPlainObject(suppliedSeedParsed) && 'database' in suppliedSeedParsed
+        ? suppliedSeedParsed.database
+        : suppliedSeedParsed;
+    if (stableStringify(suppliedDb) !== stableStringify(inlineTarget.rtdbState)) {
+      warnings.push({
+        code: 'SEED_DIFFERS_FROM_CAMPAIGN',
+        message: `Seed (${resolvedSeedPath}) differs from the state the assurance campaign ran against; recording uses the supplied seed.`,
+      });
     }
   }
   if (!resolvedSeedPath && inline.seedPath) {
     resolvedSeedPath = inline.seedPath;
     inputs.seed = 'campaign-inline';
   }
-  if (!resolvedSeedPath && initialSeedValue !== undefined && reproOperation.service === 'database') {
+  if (
+    !resolvedSeedPath &&
+    initialSeedValue !== undefined &&
+    initialSeedValue !== null &&
+    reproOperation.service === 'database'
+  ) {
     const seedTree = {};
     const parts = reproOperation.path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
     let cursor = seedTree;
@@ -890,10 +983,69 @@ export function prepareIsolatedSandboxInputs({
     if (parts.length > 0) {
       cursor[parts[parts.length - 1]] = structuredClone(initialSeedValue);
     }
+    const seedPayload = reproOperation.instance
+      ? { databases: { [reproOperation.instance]: seedTree } }
+      : { database: seedTree };
     resolvedSeedPath = path.join(scratchCfgDir, 'seed.json');
-    fs.writeFileSync(resolvedSeedPath, JSON.stringify({ database: seedTree }, null, 2), 'utf8');
+    fs.writeFileSync(resolvedSeedPath, JSON.stringify(seedPayload, null, 2), 'utf8');
+    suppliedSeedParsed = seedPayload;
     inputs.seed = 'probe-state';
   }
+
+  // Register any named secondary RTDB instances referenced by operations or `databases` seeds
+  const namedRtdbInstances = new Set();
+  const addInstanceIfNamed = (inst) => {
+    if (typeof inst !== 'string') return;
+    const trimmed = inst.trim();
+    if (trimmed && trimmed !== 'default' && trimmed !== 'pyric-sandbox-default-rtdb') {
+      namedRtdbInstances.add(trimmed);
+    }
+  };
+  if (reproOperation?.service === 'database') {
+    addInstanceIfNamed(reproOperation.instance);
+  }
+  if (controlOperation?.service === 'database') {
+    addInstanceIfNamed(controlOperation.instance);
+  }
+  if (Array.isArray(scenario?.steps)) {
+    for (const step of scenario.steps) {
+      const op = isPlainObject(step) ? step.operation ?? step.op : null;
+      if (isPlainObject(op) && normalizeServiceName(op.service || 'database') === 'database') {
+        addInstanceIfNamed(op.instance);
+      }
+    }
+  }
+  if (isPlainObject(suppliedSeedParsed?.databases)) {
+    for (const inst of Object.keys(suppliedSeedParsed.databases)) {
+      addInstanceIfNamed(inst);
+    }
+  }
+
+  if (namedRtdbInstances.size > 0 && synthesizedCfg.database) {
+    if (Array.isArray(synthesizedCfg.database)) {
+      const fallbackRule =
+        synthesizedCfg.database.find((d) => isPlainObject(d) && typeof d.rules === 'string')?.rules ?? null;
+      if (fallbackRule) {
+        for (const inst of namedRtdbInstances) {
+          const alreadyListed = synthesizedCfg.database.some(
+            (d) => isPlainObject(d) && d.instance === inst,
+          );
+          if (!alreadyListed) {
+            synthesizedCfg.database.push({ instance: inst, rules: fallbackRule });
+          }
+        }
+      }
+    } else if (isPlainObject(synthesizedCfg.database) && typeof synthesizedCfg.database.rules === 'string') {
+      const baseRulesPath = synthesizedCfg.database.rules;
+      synthesizedCfg.database = [
+        { instance: 'pyric-sandbox-default-rtdb', rules: baseRulesPath },
+        ...Array.from(namedRtdbInstances).map((inst) => ({ instance: inst, rules: baseRulesPath })),
+      ];
+    }
+  }
+
+  const outFirebaseConfigPath = path.join(scratchCfgDir, 'firebase.json');
+  fs.writeFileSync(outFirebaseConfigPath, `${JSON.stringify(synthesizedCfg, null, 2)}\n`, 'utf8');
 
   const serviceRuleMap = {
     database: rtdbRuleCandidate,
@@ -951,14 +1103,15 @@ async function checkOwnerDomExpectation(page, expectSpec, timeoutMs = 6000) {
     await sleep(60);
   }
   const finalBody = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
+  let timeoutReason = 'Expectation timed out';
+  if (expectSpec.text !== undefined && !finalBody.includes(String(expectSpec.text))) {
+    timeoutReason = `Expected text "${expectSpec.text}" not found in owner DOM (got: ${finalBody.slice(0, 120)})`;
+  } else if (expectSpec.notText !== undefined) {
+    timeoutReason = `Forbidden text "${expectSpec.notText}" still present in owner DOM`;
+  }
   return {
     pass: false,
-    reason:
-      expectSpec.text !== undefined && !finalBody.includes(String(expectSpec.text))
-        ? `Expected text "${expectSpec.text}" not found in owner DOM (got: ${finalBody.slice(0, 120)})`
-        : expectSpec.notText !== undefined
-          ? `Forbidden text "${expectSpec.notText}" still present in owner DOM`
-          : 'Expectation timed out',
+    reason: timeoutReason,
   };
 }
 
@@ -995,6 +1148,7 @@ export async function recordEvidence(options = {}) {
     campaignPath = null,
     probeId = null,
     scenarioPath = null,
+    fixRules = null,
     fixRulesPath = null,
     rtdbRulesPath = null,
     firestoreRulesPath = null,
@@ -1023,6 +1177,7 @@ export async function recordEvidence(options = {}) {
 
   const baseDir = path.resolve(projectDir);
   const cliFixRules = {
+    ...(isPlainObject(fixRules) ? fixRules : {}),
     ...(fixRulesPath ? classifyFixRuleFile(fixRulesPath) : {}),
     ...(rtdbRulesPath ? { rtdb: rtdbRulesPath } : {}),
     ...(firestoreRulesPath ? { firestore: firestoreRulesPath } : {}),
@@ -1142,7 +1297,20 @@ export async function recordEvidence(options = {}) {
   const expectedTargetHash = strictTargetHash
     ? campaignExport.target?.databaseRulesHash ?? campaignExport.target?.rulesHash
     : undefined;
-  const g1 = evaluateGateG1(probe, { expectedTargetHash });
+  const explicitSeedPath =
+    seedDir || (rawScenario?.seedFile ? path.resolve(scenarioBaseDir, rawScenario.seedFile) : null);
+  const requireRtdbSeedEnvelope =
+    Boolean(explicitSeedPath) &&
+    (reproOperation.service === 'database' ||
+      Boolean(rawScenario?.rules?.rtdb) ||
+      Boolean(rawScenario?.rules?.database) ||
+      Boolean(cliFixRules.rtdb) ||
+      Boolean(cliFixRules.database));
+  const g1 = evaluateGateG1(probe, {
+    expectedTargetHash,
+    seedPath: explicitSeedPath,
+    requireRtdbSeedEnvelope,
+  });
   if (!g1.pass) {
     writeFailureBundle({
       outDir: bundleDir,
@@ -1175,11 +1343,13 @@ export async function recordEvidence(options = {}) {
 
   const cfgSetup = prepareIsolatedSandboxInputs({
     projectDir: baseDir,
+    scenarioBaseDir,
     firebaseConfigPath,
     scenario,
     rawScenario,
     campaignExport,
     reproOperation,
+    controlOperation,
     initialSeedValue,
     seedDir,
     useInlineTarget: Boolean(campaignPath),
@@ -1239,10 +1409,15 @@ export async function recordEvidence(options = {}) {
     const peerRole = scenario.actors.peer ? 'peer' : null;
     const peerToken = peerRole ? tokenMap.get(peerRole) ?? null : null;
 
-    // Seed baseline target state if not already seeded
-    if (initialSeedValue !== undefined) {
+    // Seed baseline target state if no seed file supplied and probe carried known pre-state
+    if (!cfgSetup.seedDir && initialSeedValue !== undefined && initialSeedValue !== null) {
       const existingBefore = await sandbox
-        .readState(reproOperation.service, reproOperation.path, ownerToken)
+        .readState(
+          reproOperation.service,
+          reproOperation.path,
+          { admin: true },
+          reproOperation.instance ? { instance: reproOperation.instance } : undefined,
+        )
         .catch(() => null);
       if (existingBefore === null || existingBefore === undefined) {
         await sandbox.executeOperation({
@@ -1251,8 +1426,9 @@ export async function recordEvidence(options = {}) {
             method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
             path: reproOperation.path,
             data: structuredClone(initialSeedValue),
+            ...(reproOperation.instance ? { instance: reproOperation.instance } : {}),
           },
-          idToken: ownerToken,
+          idToken: { admin: true },
         });
       }
     }
@@ -1264,11 +1440,12 @@ export async function recordEvidence(options = {}) {
     let uiReadyAtMs = null;
 
     if (isAppView) {
-      const pwSearchDir = findProjectPlaywright(baseDir)
-        ? baseDir
-        : findProjectPlaywright(process.cwd())
-          ? process.cwd()
-          : path.dirname(fileURLToPath(import.meta.url));
+      let pwSearchDir = path.dirname(fileURLToPath(import.meta.url));
+      if (findProjectPlaywright(baseDir)) {
+        pwSearchDir = baseDir;
+      } else if (findProjectPlaywright(process.cwd())) {
+        pwSearchDir = process.cwd();
+      }
       const pw = await loadPlaywright({ projectDir: pwSearchDir, log });
       const executablePath = resolveChromiumExecutable(pw.chromium);
       captureBackend = selectCaptureBackend({ backend });
@@ -1331,10 +1508,25 @@ export async function recordEvidence(options = {}) {
     }
 
     // 1. Baseline Control Operation (Gate G2)
-    const beforeStateRaw = await sandbox
-      .readState(reproOperation.service, reproOperation.path, ownerToken)
-      .catch(() => initialSeedValue ?? null);
-    const baselineSnapshot = structuredClone(beforeStateRaw ?? initialSeedValue ?? null);
+    const stepOperations = Array.isArray(scenario.steps)
+      ? scenario.steps
+          .map((s) => (isPlainObject(s) ? s.operation ?? s.op : null))
+          .filter((op) => isPlainObject(op))
+      : [];
+    const trackedBaseline = await snapshotTrackedPaths(sandbox, [
+      reproOperation,
+      controlOperation,
+      ...stepOperations,
+    ]);
+    const reproTargetKey = normalizeStatePathKey(
+      reproOperation.service,
+      reproOperation.path,
+      reproOperation.instance,
+    );
+    const reproTracked = trackedBaseline.find(
+      (entry) => normalizeStatePathKey(entry.service, entry.path, entry.instance) === reproTargetKey,
+    );
+    const baselineSnapshot = structuredClone(reproTracked ? reproTracked.value : null);
 
     const controlOffsetMs = isAppView
       ? Math.max(200, Math.round(performance.now() - captureStartMs))
@@ -1406,18 +1598,8 @@ export async function recordEvidence(options = {}) {
       throw new EvidenceRecordError('GATE_G2_FAILED', g2.reasons.join('; '), { gate: g2 });
     }
 
-    // Restore exact pre-repro state if baseline write modified anything
-    if (baselineSnapshot !== null && baselineSnapshot !== undefined) {
-      await sandbox.executeOperation({
-        operation: {
-          service: reproOperation.service,
-          method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
-          path: reproOperation.path,
-          data: structuredClone(baselineSnapshot),
-        },
-        idToken: ownerToken,
-      });
-    }
+    // Restore exact pre-repro seeded state with admin access (delete created keys, restore modified ones)
+    await restoreTrackedPaths(sandbox, trackedBaseline);
 
     const targetUiTexts = collectTargetDisplayTexts(scenario, reproOperation);
     const shouldCollapseSidebar = scenario.stage?.slots?.collapseSidebar !== false;
@@ -1550,13 +1732,35 @@ export async function recordEvidence(options = {}) {
     }
 
     const afterReproduceState = await sandbox
-      .readState(reproOperation.service, reproOperation.path, ownerToken)
-      .catch(() => reproResult.data ?? null);
-    const stateDiff = computeStateDiff(baselineSnapshot, afterReproduceState, reproOperation.path);
-    const _reproEv = recordedEvents.find(e => e.phase === 'repro');
-    if (_reproEv) { _reproEv.stateBefore = stateDiff.before; _reproEv.stateAfter = stateDiff.after; }
+      .readState(
+        reproOperation.service,
+        reproOperation.path,
+        { admin: true },
+        reproOperation.instance ? { instance: reproOperation.instance } : undefined,
+      )
+      .catch(() => null);
+    const isReadRepro = isReadOperationMethod(reproOperation.method);
+    const extractedReadValue = isReadRepro
+      ? extractReadPayload(reproResult, afterReproduceState)
+      : undefined;
+    const rawStateDiff = computeStateDiff(baselineSnapshot, afterReproduceState, reproOperation.path);
+    const stateDiff = isReadRepro
+      ? {
+          ...rawStateDiff,
+          isRead: true,
+          after: extractedReadValue,
+        }
+      : rawStateDiff;
+    const _reproEv = recordedEvents.find((e) => e.phase === 'repro');
+    if (_reproEv) {
+      _reproEv.stateBefore = stateDiff.before;
+      _reproEv.stateAfter = stateDiff.after;
+    }
     const enrichedReproduceResult = {
       ...reproResult,
+      method: reproOperation.method,
+      path: reproOperation.path,
+      ...(isReadRepro ? { readValue: extractedReadValue } : {}),
       changedPaths: stateDiff.changedPaths,
       stateDiff,
     };
@@ -1644,18 +1848,8 @@ export async function recordEvidence(options = {}) {
       : null;
 
     if (hasFix) {
-      // Restore clean pre-repro baseline BEFORE activating restrictive candidate rules
-      if (baselineSnapshot !== null && baselineSnapshot !== undefined) {
-        await sandbox.executeOperation({
-          operation: {
-            service: reproOperation.service,
-            method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
-            path: reproOperation.path,
-            data: structuredClone(baselineSnapshot),
-          },
-          idToken: ownerToken,
-        });
-      }
+      // Reset to exact seeded state with admin access BEFORE activating candidate rules
+      await restoreTrackedPaths(sandbox, trackedBaseline);
 
       await sandbox.updateRules({
         rtdbRules: fixRulesSpec.rtdbRules,
@@ -1665,27 +1859,11 @@ export async function recordEvidence(options = {}) {
 
       fixControlResult = await sandbox.executeOperation({
         operation: controlOperation,
-        idToken: ownerToken,
+        idToken: controlToken,
       });
 
-      // Re-seed clean state in case control write modified anything
-      const controlMethodLower = String(controlOperation.method || '').toLowerCase();
-      if (
-        baselineSnapshot !== null &&
-        baselineSnapshot !== undefined &&
-        controlMethodLower !== 'get' &&
-        controlMethodLower !== 'getdoc'
-      ) {
-        await sandbox.executeOperation({
-          operation: {
-            service: reproOperation.service,
-            method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
-            path: reproOperation.path,
-            data: structuredClone(baselineSnapshot),
-          },
-          idToken: ownerToken,
-        });
-      }
+      // Reset to exact seeded state with admin access in case control modified or created keys
+      await restoreTrackedPaths(sandbox, trackedBaseline);
 
       if (isAppView) {
         let listenerUpdated = false;
@@ -1765,9 +1943,18 @@ export async function recordEvidence(options = {}) {
         : fixDispatchedMs + 50;
 
       const postFixState = await sandbox
-        .readState(reproOperation.service, reproOperation.path, ownerToken)
+        .readState(
+          reproOperation.service,
+          reproOperation.path,
+          { admin: true },
+          reproOperation.instance ? { instance: reproOperation.instance } : undefined,
+        )
         .catch(() => baselineSnapshot);
       fixStateDiff = computeStateDiff(baselineSnapshot, postFixState, reproOperation.path);
+      let fixEventStateAfter = null;
+      if (!isReadRepro && fixStateDiff) {
+        fixEventStateAfter = fixStateDiff.after;
+      }
 
       recordedEvents.push({
         phase: 'fix',
@@ -1782,7 +1969,7 @@ export async function recordEvidence(options = {}) {
         path: reproOperation.path,
         data: reproOperation.data,
         stateBefore: fixStateDiff ? fixStateDiff.before : null,
-        stateAfter: fixStateDiff ? fixStateDiff.after : null,
+        stateAfter: fixEventStateAfter,
         decision: fixReproduceResult.decision,
         status: fixReproduceResult.status,
         error: fixReproduceResult.error ?? 'permission-denied',
@@ -1825,7 +2012,7 @@ export async function recordEvidence(options = {}) {
       }
     }
 
-    // All recording gates passed — stop tracing & finalize CaptureBackend if active
+    // All recording gates passed; stop tracing and finalize CaptureBackend if active
     await stopTracingQuietly(contexts);
     if (captureBackend) {
       captureArtifact = await captureBackend.stop();
@@ -1931,21 +2118,85 @@ export async function recordEvidence(options = {}) {
 
     if (render) {
       const renderMod = await import('./render.mjs');
-      const rendered = await renderMod.renderEvidenceBundle({
-        evidenceDir: bundleDir,
-        stagePath,
-        sizeStr,
-        formats,
-        fps,
-        outPath: outVideoPath,
-        log,
-      });
+      let rendered;
+      try {
+        rendered = await renderMod.renderEvidenceBundle({
+          evidenceDir: bundleDir,
+          stagePath,
+          sizeStr,
+          formats,
+          fps,
+          outPath: outVideoPath,
+          log,
+        });
+      } catch (renderErr) {
+        const failedManifestPath = path.join(bundleDir, 'manifest.json');
+        let recordedFailedGate = null;
+        if (fs.existsSync(failedManifestPath)) {
+          try {
+            recordedFailedGate =
+              JSON.parse(fs.readFileSync(failedManifestPath, 'utf8'))?.failedGate ?? null;
+          } catch {
+            recordedFailedGate = null;
+          }
+        }
+        if (
+          recordedFailedGate !== 'G6' &&
+          (renderErr?.code === 'GATE_G6_FAILED' || renderErr?.code === 'PROVENANCE_MISSING_OR_HIDDEN')
+        ) {
+          writeFailureBundle({
+            outDir: bundleDir,
+            finding: scenario.finding,
+            failedGate: 'G6',
+            gates: {
+              g1: true,
+              g2: true,
+              g3: true,
+              g4: true,
+              g5: hasFix ? true : 'skipped',
+              g6: false,
+            },
+            reasons: [renderErr?.message || String(renderErr)],
+            provenanceText: finalProvenanceText,
+          });
+        }
+        if (
+          renderErr?.code === 'GATE_G6_FAILED' ||
+          renderErr?.code === 'PROVENANCE_MISSING_OR_HIDDEN'
+        ) {
+          throw new EvidenceRecordError(
+            'GATE_G6_FAILED',
+            renderErr.message,
+            renderErr.details ?? { code: renderErr.code },
+          );
+        }
+        throw renderErr;
+      }
+      const g6Passed = Boolean(rendered?.gates?.g6);
+      if (!g6Passed) {
+        writeFailureBundle({
+          outDir: bundleDir,
+          finding: scenario.finding,
+          failedGate: 'G6',
+          gates: {
+            g1: true,
+            g2: true,
+            g3: true,
+            g4: true,
+            g5: hasFix ? true : 'skipped',
+            g6: false,
+          },
+          reasons: ['Render completed without passing Gate G6'],
+          provenanceText: finalProvenanceText,
+        });
+        throw new EvidenceRecordError('GATE_G6_FAILED', 'Render completed without passing Gate G6');
+      }
       return {
         ok: true,
         status: 'reproduced',
         bundleDir,
         provenanceText: finalProvenanceText,
-        gates: { g1: true, g2: true, g3: true, g4: true, g5: hasFix ? true : 'skipped', g6: true },
+        gates: { g1: true, g2: true, g3: true, g4: true, g5: hasFix ? true : 'skipped', g6: g6Passed },
         ...resultExtras,
         rendered,
       };

@@ -159,6 +159,7 @@ function handleSubImpl(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): 
 
   let target: DocumentReference | CollectionReference | Query;
   let unsub: () => void;
+  const errored = { current: false };
   try {
     // Resolve the listener's data handle through the SAME lens path ops use
     // (Pyric Studio F4 "watch as user"): `{ mode: 'as', uid }` registers the
@@ -167,13 +168,18 @@ function handleSubImpl(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): 
     // evaluates rules as whoever this tab signed in as.
     const db = lensDb(ctx, msg.actAs, port);
     target = resolveTarget(db, msg.target);
-    unsub = registerListener(ctx, port, msg, target);
+    unsub = registerListener(ctx, port, msg, target, errored);
   } catch (e) {
     // resolveTarget / onSnapshot / lensDb can throw synchronously (e.g. an invalid
     // query, malformed actAs lens, or a rules-rejected target). Deliver it to the client's onSnapshot
     // error callback as a snap-error instead of letting it escape handleMessage
     // as an unhandled rejection (which would silently deliver NOTHING).
     post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
+    return;
+  }
+
+  if (errored.current) {
+    unsub();
     return;
   }
 
@@ -240,13 +246,15 @@ function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessag
  *  Split out of handleSub so the throwing surface (resolveTarget + onSnapshot)
  *  is inside handleSub's try/catch. */
 function registerListener(
-  _ctx: HostCtx,
+  ctx: HostCtx,
   port: PortLike,
   msg: FirestoreSubMessage,
   target: DocumentReference | CollectionReference | Query,
+  errored?: { current: boolean },
 ): () => void {
   let initial = true;
-  return onSnapshot(
+  let unsub: (() => void) | undefined;
+  unsub = onSnapshot(
     target as DocumentReference | Query,
     // The page derived the owners where its stack and its DOM are. Handing
     // them over makes the sandbox record those instead of capturing a frame
@@ -295,12 +303,19 @@ function registerListener(
       }
     },
     (err) => {
+      if (errored) errored.current = true;
+      if (unsub === undefined || ctx.subs.get(port)?.get(msg.subId) === unsub) {
+        _subscriptionIntents.get(ctx)?.get(port)?.delete(msg.subId);
+        ctx.subs.get(port)?.delete(msg.subId);
+        unsub?.();
+      }
       // Snapshot listener error (e.g. rules changed to deny).
       // We forward as a snap with an __error field so the client can
       // surface it to the original onSnapshot error callback.
       post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } });
     },
   );
+  return unsub;
 }
 
 export function handleUnsub(ctx: HostCtx, port: PortLike, msg: UnsubMessage): void {

@@ -78,7 +78,10 @@ export async function signOut(auth: Auth): Promise<void> {
     // Firebase retains a cached Auth handle after deleteApp and makes signOut
     // an idempotent no-op, while every operation that could create or restore
     // identity rejects app/app-deleted.
-    if ((error as { code?: string }).code === 'app/app-deleted') return;
+    if ((error as { code?: string }).code === 'app/app-deleted') {
+      target.backend.setCurrentUser(null);
+      return;
+    }
     throw error;
   }
   await target.backend.transitionCurrentUser(null);

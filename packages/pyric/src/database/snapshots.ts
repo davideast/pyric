@@ -51,7 +51,7 @@ function snapshotWithPriorities(
   const childCount = (val !== null && typeof val === 'object' && !Array.isArray(val))
     ? Object.keys(val as Record<string, JsonValue>).length
     : 0;
-  const priority = priorityOf(refForSnap._path);
+  const priority = exists ? priorityOf(refForSnap._path) : null;
   const implementation: DataSnapshotImplementation = {
     key: refForSnap.key,
     ref: refForSnap,
@@ -63,7 +63,7 @@ function snapshotWithPriorities(
       const segs = pathSegments(p);
       let cur: JsonValue = val;
       for (const s of segs) {
-        if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) {
+        if (cur === null || typeof cur !== 'object' || Array.isArray(cur) || !Object.hasOwn(cur, s)) {
           cur = null;
           break;
         }
@@ -124,7 +124,7 @@ export function buildSandboxQuerySnap(
     key: refForSnap.key,
     ref: refForSnap,
     size: rows.length,
-    priority: target.backend.getPriority(refForSnap._path),
+    priority: exists ? target.backend.getPriority(refForSnap._path) : null,
     exists(): boolean { return exists; },
     // Like production, `val()` and `exportVal()` order the window's keys by
     // priority, then key; only `forEach` follows the query's order (RT-7).
@@ -133,7 +133,7 @@ export function buildSandboxQuerySnap(
       const segs = pathSegments(p);
       let cur: JsonValue = val;
       for (const s of segs) {
-        if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) {
+        if (cur === null || typeof cur !== 'object' || Array.isArray(cur) || !Object.hasOwn(cur, s)) {
           cur = null;
           break;
         }

@@ -91,11 +91,17 @@ export {
   CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, eventScope,
   type CallerSource, type EventScope, type ScopeClient, type ScopedEventFields,
 } from './caller-source.js';
+export {
+  AGENTS_SCOPE_LABEL, EVERY_CLIENT_SCOPE, LIVE_CLIENT_CALLER_KINDS, PAGE_SCOPE, clientScopeOptions, inClientScope, isAgentCall, keepChosenOption,
+  liveClientEmails, scopeClients, scopeFromValue, scopeValue, withClientLabel,
+  type ClientScope, type ScopeOption, type ScopeOptionNames, type ScopeOptions,
+} from './client-scope.js';
 export { storageGsPath } from './storage-gs-path.js';
 export { messagingRequestsLine } from './messaging-requests-line.js';
 export {
-  EMAIL_SHAPE, OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, observedListenerEvent, productionVerdict,
-  readObservedCall, redactEmails, type ObservedListenerEvent, type ProductionVerdict,
+  DIAGNOSTIC_EMAIL_RE, EMAIL_SHAPE, OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent,
+  observedListenerEvent, productionVerdict, readObservedCall, redactDiagnosticEmails, redactEmails,
+  type ObservedListenerEvent, type ProductionVerdict,
 } from './observed-call.js';
 export { observedMethod, rulesOperation, type ObservedMethod } from './observed-method.js';
 export {
@@ -206,7 +212,7 @@ export { coverageMethodOf } from './admin-methods.js';
 export type { ObservedUsage } from '../types/observed-call.js';
 
 export { OBSERVATION_HISTORY_LIMITS } from './observation-history.js';
-export { observationPayload, observationText } from './observation-payload.js';
+export { isSecretObservationKey, observationPayload, observationText } from './observation-payload.js';
 
 export { aiCompletionUsage } from './usage-evidence.js';
 export { requestStatusLabel } from '../types/request-observation.js';

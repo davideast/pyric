@@ -29,6 +29,7 @@ import {
   type SandboxEvent,
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
+import { getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
 
 const PERMISSIVE_RULES = `
   rules_version = '2';
@@ -903,6 +904,39 @@ describe('hydrateEventHistory — Traffic/activity survives worker death', () =>
     const restored = { ...(await makeCtx()), instanceId: 'inst-A' };
     await hydrateEventHistory(restored, { fetch: captureFetch(JSON.stringify(fixture)) });
     expect(restored.sandbox.history()).toEqual(fixture.events);
+  });
+
+  it('preserves denied Storage write metadata across hydrateEventHistory into the next capture', async () => {
+    const source = await makeCtx();
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{file} {
+      allow create: if false;
+    }
+  }
+}`;
+    const storage = getStorageSandbox(source.sandbox, {
+      dbName: `serve-init-denied-storage-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      rules: storageRules,
+    });
+    await expect(
+      uploadBytes(storageRef(storage, 'files/denied.txt'), new Uint8Array([1, 2, 3]), {
+        contentType: 'text/plain',
+        customMetadata: { note: 'keep', ownerEmail: 'alice@example.com' },
+      }),
+    ).rejects.toThrow();
+
+    const fixture = buildVerifyFixture({ sandbox: source.sandbox, storageRules, capturedBy: 'inst-A' });
+    expect(fixture.storageDeniedWrites).toBeDefined();
+    const [deniedEntry] = Object.values(fixture.storageDeniedWrites ?? {});
+    expect(deniedEntry?.redacted).toBe(true);
+    expect(deniedEntry?.redactedFields).toEqual(['request.resource.metadata']);
+
+    const restored = { ...(await makeCtx()), instanceId: 'inst-A' };
+    await hydrateEventHistory(restored, { fetch: captureFetch(JSON.stringify(fixture)) });
+    const reCaptured = buildVerifyFixture({ sandbox: restored.sandbox, storageRules, capturedBy: 'inst-A' });
+    expect(reCaptured.storageDeniedWrites).toEqual(fixture.storageDeniedWrites);
   });
 
   it('primes eventHistory from the served capture on a fresh worker', async () => {

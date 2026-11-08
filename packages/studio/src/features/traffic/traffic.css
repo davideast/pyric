@@ -1522,3 +1522,163 @@
     width: 140px;
   }
 }
+
+/* ── Live host: the row as one grid, opened in place ────────────────────
+   time | Production or Sandbox | service | method | path (the one flexible
+   track) | outcome | chevron. Every column starts at the same x on every
+   row. Who sent the op and as whom move into the row's detail. */
+.traffic__log [data-pyric-traffic-row][data-pyric-lead] {
+  display: grid;
+  grid-template-columns: 60px 68px 64px 104px minmax(0, 1fr) 56px 10px;
+  column-gap: 12px;
+  align-items: center;
+}
+.traffic__log [data-pyric-traffic-row][data-pyric-lead] > * {
+  min-width: 0;
+}
+.traffic__log [data-pyric-lead] [data-pyric-traffic-time] {
+  min-width: 0;
+}
+.traffic__target {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.traffic__target[data-target='production'] {
+  color: var(--accent);
+}
+.traffic__target[data-target='sandbox'] {
+  color: var(--muted);
+  font-weight: 500;
+}
+/* Service: plain small caps text, no pill, left aligned in its track. */
+.traffic__log [data-pyric-lead] [data-pyric-traffic-service] {
+  width: auto;
+  padding: 0;
+  background: none;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Method: plain mono text, cut with an ellipsis, the full name in its title. */
+.traffic__log [data-pyric-traffic-method] {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.traffic__log [data-pyric-lead] .traffic__verdict {
+  width: 56px;
+  justify-self: end;
+}
+.traffic__verdict--blank {
+  visibility: hidden;
+}
+.traffic__log [data-pyric-traffic-chevron]::before {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--faint);
+  border-bottom: 1.5px solid var(--faint);
+  transform: rotate(-45deg);
+}
+.traffic__log [aria-expanded='true'] [data-pyric-traffic-chevron]::before {
+  transform: rotate(45deg);
+}
+.traffic__log [aria-expanded='true'] {
+  background: var(--panel);
+}
+
+/* The expanded row: labels end where the service column starts (60 + 12 + 68 + 12 = 152px). */
+.traffic__row-detail {
+  background: var(--panel);
+  gap: var(--space-3);
+  padding: 4px 14px 14px;
+}
+.traffic__facts {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.traffic__fact {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: baseline;
+}
+.traffic__fact dt {
+  color: var(--faint);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.traffic__fact dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.traffic__fact dd[data-mono] {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.traffic__row-detail-wide {
+  margin-left: 152px;
+  min-width: 0;
+}
+.traffic__row-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.traffic__row-detail-actions .traffic__inspector-close {
+  margin-left: 0;
+}
+.traffic__row-detail-action {
+  appearance: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+@media (max-width: 620px) {
+  .traffic__fact {
+    grid-template-columns: 1fr;
+  }
+  .traffic__row-detail-wide {
+    margin-left: 0;
+  }
+}
+
+/* The "From" select, at the tab strip's trailing edge beside "Hide Studio traffic". */
+.traffic__from {
+  position: relative;
+  margin-left: auto;
+}
+.traffic__from + .traffic__hide-studio {
+  margin-left: 0;
+}
+.traffic__from-select {
+  width: 220px;
+  padding-right: 24px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 13px) 50%,
+    calc(100% - 9px) 50%;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  text-overflow: ellipsis;
+}

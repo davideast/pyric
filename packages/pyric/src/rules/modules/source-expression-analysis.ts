@@ -93,8 +93,10 @@ export function sourceProvenance(
   ctx: SourceExpressionContext,
 ): SourceProvenance {
   if (expression.type === 'identifier') {
+    if (ctx.aliases.has(expression.name)) return ctx.aliases.get(expression.name) ?? null;
+    if (ctx.receiverTypes.has(expression.name)) return null;
     if (expression.name === 'request' || expression.name === 'resource') return [expression.name];
-    return ctx.aliases.get(expression.name) ?? null;
+    return null;
   }
   if (expression.type === 'memberAccess') {
     const parent = sourceProvenance(expression.object, ctx);
@@ -135,6 +137,8 @@ export function sourceProvenance(
     return sourceProvenance(fn.body, nested);
   }
   if (expression.type === 'methodCall' && expression.object.type === 'identifier' &&
+      !ctx.aliases.has(expression.object.name) &&
+      !ctx.receiverTypes.has(expression.object.name) &&
       expression.object.name === 'firestore' &&
       (expression.method === 'get' || expression.method === 'exists')) return null;
 
@@ -166,8 +170,8 @@ export function sourceReceiverType(
   if (ambientType) return ambientType;
   switch (expression.type) {
     case 'identifier': {
-      const inferred = ctx.receiverTypes.get(expression.name);
-      if (inferred) return inferred;
+      if (ctx.receiverTypes.has(expression.name)) return ctx.receiverTypes.get(expression.name) ?? null;
+      if (ctx.aliases.has(expression.name)) return null;
       const namespaces = ctx.service === 'cloud.firestore' ? FIRESTORE_NAMESPACES : STORAGE_NAMESPACES;
       return namespaces[expression.name] || expression.name === 'firestore' ? 'namespace' : null;
     }
@@ -220,7 +224,14 @@ export function sourceReceiverType(
     }
     case 'methodCall': {
       const namespaceReturnType = methodReturnType(expression);
-      if (expression.object.type === 'identifier' && namespaceReturnType) return namespaceReturnType;
+      if (
+        expression.object.type === 'identifier' &&
+        !ctx.aliases.has(expression.object.name) &&
+        !ctx.receiverTypes.has(expression.object.name) &&
+        namespaceReturnType
+      ) {
+        return namespaceReturnType;
+      }
       if (expression.method === 'get') {
         const objectPath = sourceProvenance(expression.object, ctx);
         if (ctx.service === 'firebase.storage' && Array.isArray(objectPath) &&

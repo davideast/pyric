@@ -41,6 +41,12 @@ interface SnapshotError {
   codeless?: true;
   message: string;
   denialContext?: unknown;
+  remediation?: string;
+  queryProof?: unknown;
+  rule?: unknown;
+  request?: unknown;
+  resource?: unknown;
+  query?: unknown;
   aiEnvelope?: unknown;
   aiEvidence?: Partial<AiEvidence>;
   envelope?: unknown;
@@ -66,6 +72,19 @@ export function snapshotError(frame: { value?: unknown }): SnapshotError | undef
   const evidence = error.aiEvidence;
   const hasEvidence = isRecord(evidence);
   const codeless = error.codeless === true ? { codeless: true as const } : {};
-  return { code, ...codeless, message, denialContext: error.denialContext,
-    aiEnvelope: error.aiEnvelope, aiEvidence: hasEvidence ? evidence : undefined, envelope: error.envelope };
+  return {
+    code,
+    ...codeless,
+    message,
+    denialContext: error.denialContext,
+    remediation: typeof error.remediation === 'string' ? error.remediation : undefined,
+    queryProof: error.queryProof,
+    rule: error.rule,
+    request: error.request,
+    resource: error.resource,
+    query: error.query,
+    aiEnvelope: error.aiEnvelope,
+    aiEvidence: hasEvidence ? evidence : undefined,
+    envelope: error.envelope,
+  };
 }

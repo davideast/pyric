@@ -43,6 +43,7 @@ export function attachSandboxApp(
   session: ClientAppSession = createAppSession(),
 ): OwnedAppRuntime {
   const appName = app.name;
+  const appOptions = { ...app.options };
   const authScope = session === sandbox ? undefined : {};
   const services = new Map<string, unknown>();
   const cleanups = new Set<() => void | Promise<void>>();
@@ -50,6 +51,7 @@ export function attachSandboxApp(
     app,
     sandbox,
     session,
+    options: appOptions,
     services,
     cleanups,
     assertAlive() {

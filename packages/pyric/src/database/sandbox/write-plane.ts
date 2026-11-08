@@ -149,6 +149,7 @@ export class WritePlane {
   }
 
   setData(seed: Record<string, JsonValue>): void {
+    const priors = this.children.snapshotParents();
     this.state.tree.restore({});
     this.state.priorities.clear();
     for (const [path, value] of Object.entries(seed)) {
@@ -161,6 +162,8 @@ export class WritePlane {
     }
     this.state.mutations.mark('/');
     this.cancelDeniedListeners(['/']);
+    this.values.fanOut(['/']);
+    this.children.fanOut(priors);
     this.state.notifyWrite();
   }
 

@@ -14,7 +14,11 @@ import {
   ContractValidationError,
   SCENARIO_SCHEMA,
   STORY_TEMPLATES,
+  firstDefined,
+  getOperationPayload,
+  isReadOperationMethod,
   validateScenario,
+  validateScenarioOperation,
 } from './contracts.mjs';
 import { formatSdkSnippet, normalizeServiceName } from './op-snippet.mjs';
 
@@ -123,7 +127,8 @@ export function normalizeAssuranceOperation(op, fallbackTarget = {}) {
 
   const rawService = op.service ?? fallbackTarget.service ?? 'database';
   const service = normalizeServiceName(rawService);
-  const rawMethod = op.method ?? op.op ?? (op.data !== undefined ? 'set' : 'get');
+  const payload = getOperationPayload(op);
+  const rawMethod = op.method ?? op.op ?? (payload !== undefined ? 'set' : 'get');
   const method = String(rawMethod).trim();
 
   let targetPath = op.path;
@@ -148,8 +153,16 @@ export function normalizeAssuranceOperation(op, fallbackTarget = {}) {
     path: normalizedPath,
   };
 
-  if (op.data !== undefined) {
-    normalized.data = structuredClone(op.data);
+  const rawInstance = op.instance ?? fallbackTarget.instance;
+  if (rawInstance !== undefined && rawInstance !== null) {
+    if (typeof rawInstance !== 'string' || rawInstance.trim().length === 0) {
+      throw new ContractValidationError(`${service}.${method} operation instance must be a non-empty string`);
+    }
+    normalized.instance = rawInstance.trim();
+  }
+
+  if (payload !== undefined) {
+    normalized.data = structuredClone(payload);
   }
   if (op.query !== undefined) {
     normalized.query = structuredClone(op.query);
@@ -170,7 +183,7 @@ export function normalizeAssuranceOperation(op, fallbackTarget = {}) {
 /**
  * Infer a storytelling template from an assurance probe and actor definitions.
  */
-export function inferStoryTemplate(probe, actors = {}) {
+function inferStoryTemplate(probe, actors = {}) {
   const haystack = [
     probe?.template,
     probe?.invariant?.id,
@@ -194,7 +207,7 @@ export function inferStoryTemplate(probe, actors = {}) {
     return 'escalation';
   }
   const opMethod = String(probe?.mutationSpec?.operation?.method ?? '').toLowerCase();
-  if (opMethod === 'get' || opMethod === 'list' || /\bexpos|leak|read|disclos\b/i.test(haystack)) {
+  if (isReadOperationMethod(opMethod) || /\bexpos|leak|read|disclos\b/i.test(haystack)) {
     return 'exposure';
   }
   return 'tamper';
@@ -208,7 +221,7 @@ function capitalize(value) {
 /**
  * Resolve a campaign actor id (`campaign.actors[].id`) to the uid it signs in as.
  */
-export function resolveCampaignActorUid(campaignExport, actorId) {
+function resolveCampaignActorUid(campaignExport, actorId) {
   if (typeof actorId !== 'string' || actorId.length === 0) return null;
   const actors = campaignExport?.campaign?.actors;
   const actor = Array.isArray(actors) ? actors.find((a) => a?.id === actorId) : null;
@@ -219,7 +232,7 @@ export function resolveCampaignActorUid(campaignExport, actorId) {
  * The uid of the actor that performed the probe's mutation (the peer). Real exports
  * carry it as `actorEvidence.uid` / `actorEvidence.actorId`; older fixtures as `peerUid`.
  */
-export function resolveProbeActorUid(campaignExport, probe) {
+function resolveProbeActorUid(campaignExport, probe) {
   const evidence = isPlainObject(probe?.actorEvidence) ? probe.actorEvidence : {};
   if (evidence.peerUid !== undefined) return evidence.peerUid;
   if (typeof evidence.uid === 'string' && evidence.uid) return evidence.uid;
@@ -327,6 +340,10 @@ export function selectControlObservation({
     if (probeActorUid && uid === probeActorUid) continue;
     if (ownerUid && uid !== ownerUid) continue;
 
+    if (reproOperation.instance && op.instance && op.instance !== reproOperation.instance) {
+      continue;
+    }
+
     let score;
     if (op.path === reproOperation.path) score = 2;
     else if (parentPath(op.path) === targetParent) score = 1;
@@ -348,26 +365,28 @@ export function selectControlObservation({
 }
 
 function deriveControlOperation({ probe, reproOperation, actors }) {
+  const fallbackTarget = {
+    service: reproOperation.service,
+    ...(reproOperation.instance ? { instance: reproOperation.instance } : {}),
+  };
   if (isPlainObject(probe?.control?.operation)) {
-    return normalizeAssuranceOperation(probe.control.operation, { service: reproOperation.service });
+    return normalizeAssuranceOperation(probe.control.operation, fallbackTarget);
   }
   if (isPlainObject(probe?.mutationSpec?.controlOperation)) {
-    return normalizeAssuranceOperation(probe.mutationSpec.controlOperation, {
-      service: reproOperation.service,
-    });
+    return normalizeAssuranceOperation(probe.mutationSpec.controlOperation, fallbackTarget);
   }
 
   const ownerUid = actors.owner?.uid || 'alice';
   const preState = probe?.mutation?.before ?? probe?.stateDiff?.before?.[reproOperation.path];
-  const isReadMethod = ['get', 'list', 'getDoc', 'getDocs', 'getBytes', 'getDownloadURL'].includes(
-    reproOperation.method,
-  );
+  const isReadMethod = isReadOperationMethod(reproOperation.method);
+  const instanceSpread = reproOperation.instance ? { instance: reproOperation.instance } : {};
 
   if (isReadMethod || reproOperation.service === 'storage') {
     return {
       service: reproOperation.service,
       method: reproOperation.service === 'firestore' ? 'getDoc' : 'get',
       path: reproOperation.path,
+      ...instanceSpread,
       uid: ownerUid,
     };
   }
@@ -397,6 +416,7 @@ function deriveControlOperation({ probe, reproOperation, actors }) {
     service: reproOperation.service,
     method: reproOperation.service === 'firestore' ? 'setDoc' : 'set',
     path: reproOperation.path,
+    ...instanceSpread,
     data: safeBaselineData,
     uid: ownerUid,
   };
@@ -552,6 +572,7 @@ export function buildScenarioFromAssurance({
   // Real exports carry no severity; say so instead of defaulting to HIGH.
   const defaultSeverity = probe?.invariant?.severity || probe?.severity || 'UNRATED';
 
+  const isReadRepro = isReadOperationMethod(reproOperation.method);
   const copy = {
     severity: String(defaultSeverity).toUpperCase(),
     title: defaultTitle,
@@ -560,17 +581,16 @@ export function buildScenarioFromAssurance({
     why: defaultWhy,
     ...(hasFix
       ? {
-          fixed: `Updated security rules reject ${peerLabel}'s unauthorized mutation while preserving ${ownerLabel}'s access.`,
+          fixed: `Updated security rules reject ${peerLabel}'s unauthorized ${isReadRepro ? 'read' : 'mutation'} while preserving ${ownerLabel}'s access.`,
         }
       : {}),
     ...(isPlainObject(override.copy) ? override.copy : {}),
   };
 
-  const defaultLayout = mergedApp
-    ? actors.peer
-      ? 'split-actors'
-      : 'single-hero'
-    : 'data-plane';
+  let defaultLayout = 'data-plane';
+  if (mergedApp) {
+    defaultLayout = actors.peer ? 'split-actors' : 'single-hero';
+  }
 
   const mergedStage = {
     layout: defaultLayout,
@@ -585,10 +605,17 @@ export function buildScenarioFromAssurance({
     isPlainObject(probe?.stateDiff) && 'changed' in probe.stateDiff
       ? probe.stateDiff.before
       : probe?.stateDiff?.before?.[reproOperation.path];
-  const initialSeedValue =
-    probe?.mutation?.before ??
-    stateDiffBefore ??
-    controlOperation.data;
+  const initialSeedValue = firstDefined(probe?.mutation?.before, stateDiffBefore);
+
+  const opValidationErrors = [];
+  validateScenarioOperation(reproOperation, 'reproOperation', opValidationErrors);
+  validateScenarioOperation(controlOperation, 'controlOperation', opValidationErrors);
+  if (opValidationErrors.length > 0) {
+    throw new ContractValidationError(
+      `Invalid export-derived operation:\n- ${opValidationErrors.join('\n- ')}`,
+      opValidationErrors,
+    );
+  }
 
   const scenario = validateScenario({
     schema: SCENARIO_SCHEMA,
@@ -599,6 +626,14 @@ export function buildScenarioFromAssurance({
     copy,
     stage: mergedStage,
     ...(Array.isArray(override.steps) ? { steps: override.steps } : {}),
+    ...(override.reproOperation !== undefined && override.reproOperation !== null
+      ? { reproOperation: override.reproOperation }
+      : {}),
+    ...(override.controlOperation !== undefined && override.controlOperation !== null
+      ? { controlOperation: override.controlOperation }
+      : {}),
+    ...(isPlainObject(override.rules) ? { rules: override.rules } : {}),
+    ...(typeof override.seedFile === 'string' ? { seedFile: override.seedFile } : {}),
     ...(mergedFixRules ? { fixRules: mergedFixRules } : {}),
   });
 
@@ -693,10 +728,8 @@ export function materializeInlineTarget(campaignExport, dir) {
   return out;
 }
 
-const READ_METHODS = new Set(['get', 'list', 'getdoc', 'getdocs', 'getbytes', 'getdownloadurl', 'onvalue', 'onsnapshot']);
-
 function fixAssuranceNote(reason, method) {
-  const noun = READ_METHODS.has(String(method || '').toLowerCase()) ? 'read' : 'write';
+  const noun = isReadOperationMethod(method) ? 'read' : 'write';
   const shown = `The sandbox recording shows the ${noun} denied.`;
   switch (reason) {
     case 'engine-gap':

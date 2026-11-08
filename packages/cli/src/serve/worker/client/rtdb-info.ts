@@ -12,7 +12,7 @@
  * | `/.info`                 | `{ connected, serverTimeOffset: 0 }` |
  * | any other `.info` path   | `null`                             |
  */
-import { executeQuery, isInfoPath } from 'pyric/database/internal';
+import { executeQuery, isInfoPath, queryIdentifier } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import { isDisconnectedPort } from './core.js';
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
@@ -33,7 +33,7 @@ function infoValue(path: string, connected: boolean): unknown {
   const segments = path.split('/').filter(segment => segment.length > 0).slice(1);
   let value: unknown = { connected, serverTimeOffset: 0 };
   for (const segment of segments) {
-    const isBranch = value !== null && typeof value === 'object';
+    const isBranch = value !== null && typeof value === 'object' && Object.hasOwn(value, segment);
     value = isBranch ? (value as Record<string, unknown>)[segment] ?? null : null;
   }
   return value;
@@ -41,7 +41,7 @@ function infoValue(path: string, connected: boolean): unknown {
 
 /** The snapshot a listener or read sees, with a query's selection applied to a branch. */
 function infoSnapshot(ref: RtdbRefHandle, value: unknown, query: RtdbQuerySpec | undefined): { snapshot: RtdbDataSnapshot; content: unknown } {
-  const filtersChildren = query !== undefined && value !== null && typeof value === 'object';
+  const filtersChildren = query !== undefined && queryIdentifier(query) !== 'default';
   if (!filtersChildren) return { snapshot: makeRtdbSnapshot(ref, value), content: value };
   const rows = executeQuery(value as Parameters<typeof executeQuery>[0], query);
   const hasRows = rows.length > 0;

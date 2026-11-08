@@ -40,8 +40,23 @@ export function expectNoArguments(expr: MethodCall): void {
   }
 }
 
+const preEvaluatedReceiverArgs = new WeakMap<MethodCall, unknown[] | RuleError>();
+
+export function setPreEvaluatedArguments(expr: MethodCall, args: unknown[] | RuleError): void {
+  preEvaluatedReceiverArgs.set(expr, args);
+}
+
+export function clearPreEvaluatedArguments(expr: MethodCall): void {
+  preEvaluatedReceiverArgs.delete(expr);
+}
+
 /** Evaluate every argument in order, after an error too; the first error value wins. */
 export function evalArguments(expr: MethodCall, ctx: EvalCtx): unknown[] | RuleError {
+  if (preEvaluatedReceiverArgs.has(expr)) {
+    const cached = preEvaluatedReceiverArgs.get(expr)!;
+    preEvaluatedReceiverArgs.delete(expr);
+    return cached;
+  }
   return evalOperands(expr.args, ctx);
 }
 

@@ -82,6 +82,7 @@ export interface ClientAuth {
    *  evaluate the port's operations with
    *  `request.auth.token.firebase.tenant` set to it. */
   tenantId: string | null;
+  signOut(): Promise<void>;
 }
 
 /** Hidden per-`ClientUser` port handle so top-level user lifecycle functions
@@ -176,6 +177,9 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     set tenantId(val: string | null) {
       _tenantId = val;
       void rpc(port, { t: 'op', id: nextId(), method: 'auth.setTenantId', tenantId: val });
+    },
+    signOut() {
+      return signOut(auth);
     },
   };
 
@@ -379,16 +383,24 @@ export async function setPersistence(
 
 // ─── Observers (streaming subs) ────────────────────────────────────────────
 
+export type ClientAuthObserver =
+  | ((user: ClientUser | null) => void)
+  | {
+      next?: (user: ClientUser | null) => void;
+      error?: (err: Error) => void;
+      complete?: () => void;
+    };
+
 export function onAuthStateChanged(
   auth: ClientAuth,
-  callback: (user: ClientUser | null) => void,
+  callback: ClientAuthObserver,
 ): Unsubscribe {
   return openAuthSub(auth, 'authState', callback);
 }
 
 export function onIdTokenChanged(
   auth: ClientAuth,
-  callback: (user: ClientUser | null) => void,
+  callback: ClientAuthObserver,
 ): Unsubscribe {
   return openAuthSub(auth, 'idToken', callback);
 }
@@ -396,7 +408,7 @@ export function onIdTokenChanged(
 function openAuthSub(
   auth: ClientAuth,
   target: 'authState' | 'idToken',
-  callback: (user: ClientUser | null) => void,
+  callback: ClientAuthObserver,
 ): Unsubscribe {
   const subId = nextSubId();
   const port = auth.port;
@@ -406,7 +418,15 @@ function openAuthSub(
     next: (raw) => {
       const user = toClientUser(port, raw as SerializedUser | null);
       auth.currentUser = user;
-      callback(user);
+      try {
+        if (typeof callback === 'function') {
+          callback(user);
+        } else if (typeof callback?.next === 'function') {
+          callback.next(user);
+        }
+      } catch {
+        // Observational: swallow so a faulty subscriber cannot destabilize the auth stream.
+      }
     },
   }, { t: 'sub', subId, target } satisfies InboundMessage);
 

@@ -66,7 +66,7 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStora
   // default bucket goes by the app's `storageBucket` option, as the host and
   // firebase-admin name it.
   const configured = resolved.options?.storageBucket;
-  const appBucket = typeof configured === 'string' && configured !== '' ? configured : undefined;
+  const appBucket = typeof configured === 'string' && configured !== '' ? rulesBucketName('', configured) : undefined;
   const namesOtherBucket = named !== '' && named !== appBucket;
   const key = namesOtherBucket ? named : '';
   const existing = handles.get(key);
@@ -79,6 +79,7 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStora
   const handle = Object.assign(opened, { app: resolved }) as unknown as FirebaseStorage;
   handles.set(key, handle);
   handles.set(named, handle);
+  if (!namesOtherBucket && appBucket) handles.set(appBucket, handle);
   return handle;
 }
 

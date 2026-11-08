@@ -10,7 +10,9 @@
  * refused with live mode's code, never answered from the empty sandbox. A
  * Firestore rules write from a command is refused before and after the page
  * signs in. The sandbox event log still answers to
- * `pyric sandbox events`, and the chip's Identity tab opens. Production
+ * `pyric sandbox events`, and the chip's Identity tab opens. Studio's
+ * Settings, opened from the chip, carries a notice naming the host's project,
+ * since its controls act on the local sandbox only. Production
  * received nothing for any of it: the replay server's own log of what it
  * received holds the page's sign-in and nothing else.
  *
@@ -136,8 +138,15 @@ async function sendsNothing<T>(app: App, replay: Replay, run: () => Promise<T>):
   return result;
 }
 
+/** Studio's stylesheet asks its font hosts for web fonts; those requests carry nothing of the app's. */
+const STUDIO_FONT_HOSTS = ['https://use.typekit.net/', 'https://fonts.googleapis.com/'];
+
+function isStudioFont(line: string): boolean {
+  return STUDIO_FONT_HOSTS.some((host) => line.includes(` ${host}`));
+}
+
 function blockedLines(app: App): string[] {
-  return app.browserLog.filter((line) => line.includes('[blocked external'));
+  return app.browserLog.filter((line) => line.includes('[blocked external') && !isStudioFont(line));
 }
 
 export default scenario(async (app) => {
@@ -216,6 +225,22 @@ export default scenario(async (app) => {
     await chip.locator('[data-live-identity="signed-out"]').waitFor({ timeout: 15_000 });
     assert.equal(await page.evaluate(() => currentUid()), null);
     await chip.locator('[data-live-recent-user="user-reader"]').waitFor({ timeout: 15_000 });
+  });
+
+  await app.step("Studio's Settings, opened from the chip's Live tab, carries the sandbox notice with the host's project", async () => {
+    const chip = await openChip(page);
+    await chip.locator('[data-chip-tab=sandbox]').click();
+    const href = await chip.locator('[data-open-studio]').getAttribute('href');
+    assert.ok(href, 'the chip offers no Studio link');
+    const studio = await sendsNothing(app, replay, async () => {
+      const opened = await app.page(new URL(href, host.url).href);
+      await opened.locator('[data-surface=settings]').first().waitFor({ timeout: 30_000 });
+      await opened.locator('[data-live-notice]').waitFor({ timeout: 30_000 });
+      return opened;
+    });
+    assert.equal(await studio.locator('[data-live-notice]').count(), 1);
+    assert.equal(await studio.locator('[data-live-notice] [data-live-notice-project]').textContent(), PROJECT);
+    await studio.close();
   });
 
   await app.step('production received only the page\'s sign-in, by the replay server\'s own log', async () => {

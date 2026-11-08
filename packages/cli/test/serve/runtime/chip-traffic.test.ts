@@ -623,12 +623,20 @@ describe('a call production served', () => {
     expect(group?.indexQuery).toMatchObject({ collectionGroup: 'messages', queryScope: 'COLLECTION_GROUP' });
   });
 
-  it("marks production's failed-precondition on a query as an index failure", () => {
+  it("marks production's missing index on a query as an index failure, and no other failed-precondition", () => {
     const query = { scope: 'collection' as const, filters: [{ field: 'status', op: '==' as const }], orderBy: [{ field: 'createdAt', direction: 'desc' as const }] };
-    const failed = chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms', query, outcome: { status: 'error', code: 'failed-precondition' } }));
+    const read = (outcome: unknown): SandboxEvent => observedCallEvent(readObservedCall({ service: 'firestore', method: 'getDocs', path: 'rooms', at: 1000, query, outcome })) as SandboxEvent;
+    const failed = chipRequestFromEvent(read({ status: 'error', code: 'failed-precondition', message: 'The query requires an index. You can create it here: https://console.firebase.google.com/' }));
     expect(failed).toMatchObject({ verdict: 'error', indexFailure: true, indexQuery: { collectionGroup: 'rooms' } });
-    const other = chipRequestFromEvent(observed({ method: 'getDocs', path: 'rooms', query, outcome: { status: 'error', code: 'unavailable' } }));
-    expect(other?.indexFailure).toBeUndefined();
+    for (const outcome of [
+      { status: 'error', code: 'failed-precondition', message: 'The client has already been terminated.' },
+      { status: 'error', code: 'failed-precondition' },
+      { status: 'error', code: 'unavailable' },
+    ]) {
+      const other = chipRequestFromEvent(read(outcome));
+      expect(other).toMatchObject({ verdict: 'error', indexQuery: { collectionGroup: 'rooms' } });
+      expect(other?.indexFailure).toBeUndefined();
+    }
   });
 
   it('gives a document read and an unshaped query no index query', () => {

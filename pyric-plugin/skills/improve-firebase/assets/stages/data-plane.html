@@ -733,12 +733,17 @@
       }
 
       function buildNestedTree(leafData, targetPath) {
-        if (!leafData || typeof leafData !== 'object') {
-          return { root: String(leafData ?? '') };
-        }
         const segments = String(targetPath || '')
           .split('/')
           .filter(Boolean);
+        if (leafData === null || leafData === undefined || typeof leafData !== 'object') {
+          const leafKey = segments[segments.length - 1] || 'root';
+          let wrappedLeaf = { [leafKey]: leafData ?? null };
+          for (let i = segments.length - 2; i >= 0; i--) {
+            wrappedLeaf = { [segments[i]]: wrappedLeaf };
+          }
+          return wrappedLeaf;
+        }
         if (segments.length === 0) {
           return leafData;
         }

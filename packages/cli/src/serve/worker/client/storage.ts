@@ -17,7 +17,13 @@ import {
 import type { StorageBucketWire } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
 import type { FullMetadata, StringFormat } from 'pyric/storage';
-import { arrayBufferToBase64, decodeString, defaultRawContentType, refPathOf } from 'pyric/storage/internal';
+import {
+  arrayBufferToBase64,
+  cloneSettableMetadata,
+  decodeString,
+  defaultRawContentType,
+  refPathOf,
+} from 'pyric/storage/internal';
 import { dataRpc, nextId, wirePort } from './core.js';
 import { reserveSend, type SendReservation } from './send-order.js';
 import { lastSegment } from './handles.js';
@@ -173,7 +179,21 @@ export async function listAll(
 }
 
 function withReferenceBucket(reference: ClientStorageReference, metadata: FullMetadata): FullMetadata {
-  return reference.bucket ? { ...metadata, bucket: reference.bucket } : metadata;
+  const custom = metadata.customMetadata !== undefined ? { ...metadata.customMetadata } : undefined;
+  return {
+    ...metadata,
+    ...(reference.bucket ? { bucket: reference.bucket } : {}),
+    ...(custom !== undefined ? { customMetadata: custom } : {}),
+  };
+}
+
+function guardClientNonRoot(reference: ClientStorageReference, operation: string): void {
+  if (reference.fullPath === '') {
+    throw new FirebaseError(
+      'storage/invalid-root-operation',
+      `storage/invalid-root-operation: ${operation} cannot operate on the root reference.`,
+    );
+  }
 }
 
 async function fetchMetadataFromHost(reference: ClientStorageReference): Promise<FullMetadata> {
@@ -184,6 +204,7 @@ async function fetchMetadataFromHost(reference: ClientStorageReference): Promise
 
 /** Read an object's metadata (Pyric Studio inspector). */
 export async function getMetadata(reference: ClientStorageReference): Promise<FullMetadata> {
+  guardClientNonRoot(reference, 'getMetadata');
   return withReferenceBucket(reference, await fetchMetadataFromHost(reference));
 }
 
@@ -384,6 +405,7 @@ export async function getBlob(
   reference: ClientStorageReference,
   maxDownloadSizeBytes?: number,
 ): Promise<Blob> {
+  guardClientNonRoot(reference, 'getBlob');
   const result = await readStorageBytesInternal(reference);
   const bytes =
     typeof maxDownloadSizeBytes === 'number' && result.bytes.byteLength > maxDownloadSizeBytes
@@ -474,6 +496,7 @@ function readStorageBytes(reference: ClientStorageReference): Promise<{
  * context the page hands it to rather than only inside the page that made it.
  */
 export async function getDownloadURL(reference: ClientStorageReference): Promise<string> {
+  guardClientNonRoot(reference, 'getDownloadURL');
   // A host with a byte route returns the object's HTTP URL, carrying its
   // persistent download token, as production does.
   const routedUrl = await afterRouteSettles(reference, async (route, reservation) => {
@@ -521,6 +544,7 @@ export async function uploadBytes(
   data: Blob | Uint8Array | ArrayBuffer,
   metadata?: ClientSettableMetadata,
 ): Promise<{ ref: ClientStorageReference; metadata: FullMetadata }> {
+  guardClientNonRoot(reference, 'uploadBytes');
   const committed = await commitUpload(reference, data, metadata, false);
   return { ref: reference, metadata: committed.metadata };
 }
@@ -536,16 +560,17 @@ export async function commitUpload(
   metadata: ClientSettableMetadata | undefined,
   rollback: boolean,
 ): Promise<CommittedUpload> {
+  const clonedMetadata = cloneSettableMetadata(metadata);
   return afterRouteSettles(reference, (route, reservation) => {
     const routed = route !== undefined;
     if (routed) {
       reservation?.release();
-      return uploadOverRoute(reference, route, uploadBlobOf(data), metadata, rollback);
+      return uploadOverRoute(reference, route, uploadBlobOf(data), clonedMetadata, rollback);
     }
     const isBlob = data instanceof Blob;
-    if (isBlob) return uploadBlobInOrder(reference, data, metadata, rollback, reservation);
+    if (isBlob) return uploadBlobInOrder(reference, data, clonedMetadata, rollback, reservation);
     const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
-    return uploadByteArray(reference, bytes, metadata?.contentType, metadata, rollback, reservation);
+    return uploadByteArray(reference, bytes, clonedMetadata?.contentType || undefined, clonedMetadata, rollback, reservation);
   });
 }
 
@@ -564,7 +589,7 @@ async function uploadBlobInOrder(
   const tooLarge = data.size > MAX_STORAGE_OBJECT_BYTES;
   if (tooLarge) throw storageQuotaExceeded(data.size, `uploadBytes payload for '${reference.fullPath}'`);
   // contentType precedence mirrors pyric/storage: caller metadata → Blob.type.
-  const contentType = metadata?.contentType ?? (data.type !== '' ? data.type : undefined);
+  const contentType = (metadata?.contentType || undefined) ?? (data.type !== '' ? data.type : undefined);
   const reservation = claimed ?? reserveSend(reference.port);
   try {
     const bytes = new Uint8Array(await data.arrayBuffer());
@@ -670,7 +695,7 @@ async function uploadOverRoute(
   const tooLarge = data.size > MAX_STORAGE_OBJECT_BYTES;
   if (tooLarge) throw storageQuotaExceeded(data.size, `uploadBytes payload for '${reference.fullPath}'`);
   // contentType precedence mirrors pyric/storage: caller metadata → Blob.type.
-  const contentType = metadata?.contentType ?? (data.type !== '' ? data.type : undefined);
+  const contentType = (metadata?.contentType || undefined) ?? (data.type !== '' ? data.type : undefined);
   const upload = await beginRouteUpload(reference, route, data.size, contentType, metadata);
   try {
     let offset = 0;
@@ -704,6 +729,7 @@ export async function getBytes(
   reference: ClientStorageReference,
   maxDownloadSizeBytes?: number,
 ): Promise<ArrayBuffer> {
+  guardClientNonRoot(reference, 'getBytes');
   const res = await readStorageBytesInternal(reference);
   const bytes =
     typeof maxDownloadSizeBytes === 'number' && res.bytes.byteLength > maxDownloadSizeBytes
@@ -715,6 +741,7 @@ export async function getBytes(
 /** Delete the object at the reference's path (idempotent — missing = no-op,
  *  matching the sandbox backend's delete semantics). */
 export async function deleteObject(reference: ClientStorageReference): Promise<void> {
+  guardClientNonRoot(reference, 'deleteObject');
   await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.deleteObject', path: reference.fullPath, ...bucketWire(reference),
   });

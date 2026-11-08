@@ -133,7 +133,12 @@ function openValueSubscription(
       }
       next(hydrateRtdbSnapshot(ref, wire));
     },
-    error: (cause: unknown) => { activity.fail(); error?.(cause); },
+    error: (cause: unknown) => {
+      unsubscribed = true;
+      unsubLens();
+      activity.fail();
+      error?.(cause);
+    },
     close: () => activity.close(),
   };
 
@@ -246,7 +251,7 @@ type ChildEventKind = 'added' | 'changed' | 'removed' | 'moved';
 function onChildEvent(
   target: RtdbTarget,
   kind: ChildEventKind,
-  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
+  next: (snap: RtdbDataSnapshot, previousChildName: string | null, initialBatch: boolean) => void,
   error: ((err: unknown) => void) | undefined,
   activity: SdkActivityHandle,
   reverseInitial = false,
@@ -269,7 +274,7 @@ function onChildEvent(
         });
       }
     });
-    const emit = (entry: RtdbWireEntry, previousChildName: string | null): void => {
+    const emit = (entry: RtdbWireEntry, previousChildName: string | null, initialBatch = false): void => {
       try {
         next(makeRtdbSnapshot(
           rtdbChild(ref, entry.key),
@@ -278,7 +283,7 @@ function onChildEvent(
           entry.priority ?? null,
           undefined,
           entry.exportValue ?? entry.value,
-        ), previousChildName);
+        ), previousChildName, initialBatch);
       } catch {
         // Firebase isolates listener exceptions from sibling deliveries.
       }
@@ -289,7 +294,7 @@ function onChildEvent(
         const indexes = current.map((_, index) => index);
         if (reverseInitial) indexes.reverse();
         for (const index of indexes) {
-          emit(current[index]!, current[index - 1]?.key ?? null);
+          emit(current[index]!, current[index - 1]?.key ?? null, true);
         }
       }
       previous = current;
@@ -355,12 +360,12 @@ function subscribeChild(
   let stopped = false;
   let stopScheduled = false;
   let unsubscribe: Unsubscribe = () => {};
-  const rawUnsubscribe = onChildEvent(target, kind, (snapshot, previousChildName) => {
+  const rawUnsubscribe = onChildEvent(target, kind, (snapshot, previousChildName, initialBatch) => {
     if (stopped) return;
     try {
       next(snapshot, kind === 'removed' ? null : previousChildName);
     } finally {
-      if (kind === 'added') {
+      if (kind === 'added' && initialBatch) {
         if (!stopScheduled) {
           stopScheduled = true;
           queueMicrotask(() => { stopped = true; unsubscribe(); });
@@ -398,7 +403,7 @@ export function rtdbOnChildMoved(target: RtdbTarget, next: ChildCallback, cancel
 export function rtdbOff(target: RtdbTarget, eventType?: RtdbEventType, callback?: object): void {
   const { ref } = targetParts(target);
   const scope = targetScope(target);
-  const allViews = !isRtdbQuery(target);
+  const allViews = !isRtdbQuery(target) || scope === 'default';
   const matches = (registration: ListenerRegistration): boolean =>
     registration.port === ref.port
       && sameRtdbInstance(registration, ref)

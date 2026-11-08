@@ -4,7 +4,16 @@ import { evalFirestoreBuiltin } from './rules-firestore-lookup.js';
 import { bytesMethods, evalHashingNamespace } from './rules-hashing-methods.js';
 import { evalLatLngNamespace, latlngMethods } from './rules-latlng.js';
 import { evalMathNamespace } from './rules-math-methods.js';
-import { evalArguments, functionNotFound, type MethodCall, type NamespaceMethod, type ReceiverMethod, type ReceiverMethods } from './rules-method-calls.js';
+import {
+  clearPreEvaluatedArguments,
+  evalArguments,
+  functionNotFound,
+  setPreEvaluatedArguments,
+  type MethodCall,
+  type NamespaceMethod,
+  type ReceiverMethod,
+  type ReceiverMethods,
+} from './rules-method-calls.js';
 import { pathMethods } from './rules-path.js';
 import { stringMethods } from './rules-string-methods.js';
 import { evalDurationNamespace, evalTimestampNamespace, timeMethods } from './rules-time-methods.js';
@@ -50,15 +59,17 @@ export function evalMethodCall(expr: MethodCall, ctx: EvalCtx): unknown {
 
   const method = RECEIVER_METHODS.get(expr.method) ?? unknownMethod;
   const receiver = evalOperand(expr.target, ctx);
-  // `resource.name.matches(…)` on an object whose `name` is absent: the
-  // receiver is already production's absent-property error. Propagate it
-  // (→ deny) rather than recasting it as a method-specific failure, after
-  // evaluating the arguments, which production evaluates and counts too.
-  if (isErr(receiver)) {
-    evalArguments(expr, ctx);
-    return receiver;
+  const args = evalArguments(expr, ctx);
+  // Propagate an error receiver after evaluating arguments, which production
+  // evaluates and counts before reporting receiver or method errors.
+  if (isErr(receiver)) return receiver;
+  if (isErr(args)) return args;
+  setPreEvaluatedArguments(expr, args);
+  try {
+    return method(receiver, expr, ctx);
+  } finally {
+    clearPreEvaluatedArguments(expr);
   }
-  return method(receiver, expr, ctx);
 }
 
 /** A method name no receiver type defines: production's function-not-found error. */

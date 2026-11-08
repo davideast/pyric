@@ -19,6 +19,7 @@ import {
   validateRawCapture,
   buildLockedProvenanceText,
   buildStagePayload,
+  isReadOperationMethod,
   validateBundleManifest,
 } from './lib/contracts.mjs';
 import {
@@ -38,6 +39,7 @@ import {
   transcodePreviewGif,
   probeMedia,
 } from './lib/ffmpeg.mjs';
+import { evaluateGateG6, writeFailureBundle } from './lib/gates.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.resolve(SCRIPT_DIR, '../assets');
@@ -88,6 +90,15 @@ function pickFirstDefined(...candidates) {
   return undefined;
 }
 
+function pickFirstPresent(...candidates) {
+  for (const val of candidates) {
+    if (val !== undefined) {
+      return val;
+    }
+  }
+  return undefined;
+}
+
 function parseFormats(formatsStr) {
   const items = String(formatsStr)
     .split(',')
@@ -125,7 +136,7 @@ function readFlagValue(argv, index, flagName) {
   return { value: nextVal, nextIndex: index + 1 };
 }
 
-export function parseCliArgs(argv) {
+function parseCliArgs(argv) {
   let evidenceDir = null;
   let stagePath = null;
   let sizeStr = null;
@@ -248,11 +259,39 @@ function extractStageEvidence({ scenario, eventsData, extraEvidence, existingMan
 
   const service = pickFirstDefined(extraEvidence?.service, eventsObj.service, reproEvent?.service, 'database');
   const method = pickFirstDefined(extraEvidence?.method, eventsObj.method, reproEvent?.method, reproEvent?.op, 'set');
+  const isRead = isReadOperationMethod(method);
   const targetPath = pickFirstDefined(extraEvidence?.path, eventsObj.path, reproEvent?.path, '/channels/general/messages/msg_alice_1');
-  const before = pickFirstDefined(extraEvidence?.before, eventsObj.before, reproEvent?.stateDiff?.before, reproEvent?.before, fixEvent?.before, { authorUid: ownerUid, text: 'Verified baseline state' });
-  const after = pickFirstDefined(extraEvidence?.after, eventsObj.after, reproEvent?.stateDiff?.after, reproEvent?.after, reproEvent?.data, { authorUid: ownerUid, text: `Mutated by ${peerUid}` });
-  const changedPaths = pickFirstDefined(extraEvidence?.changedPaths, eventsObj.changedPaths, reproEvent?.stateDiff?.changedPaths, [targetPath]);
-  const matchedRule = pickFirstDefined(extraEvidence?.matchedRule, eventsObj.matchedRule, reproEvent?.matchedRule, scenario.fixRules?.before, '".write": "auth != null"');
+  const before = pickFirstPresent(
+    extraEvidence?.before,
+    eventsObj.before,
+    reproEvent?.stateBefore,
+    reproEvent?.stateDiff?.before,
+    reproEvent?.before,
+    fixEvent?.before,
+    { authorUid: ownerUid, text: 'Verified baseline state' },
+  );
+  const after = pickFirstPresent(
+    extraEvidence?.after,
+    eventsObj.after,
+    reproEvent?.stateAfter,
+    reproEvent?.stateDiff?.after,
+    reproEvent?.after,
+    reproEvent?.data,
+    isRead ? before : { authorUid: ownerUid, text: `Mutated by ${peerUid}` },
+  );
+  const changedPaths = pickFirstDefined(
+    extraEvidence?.changedPaths,
+    eventsObj.changedPaths,
+    reproEvent?.stateDiff?.changedPaths,
+    isRead ? [] : [targetPath],
+  );
+  const matchedRule = pickFirstDefined(
+    extraEvidence?.matchedRule,
+    eventsObj.matchedRule,
+    reproEvent?.matchedRule,
+    scenario.fixRules?.before,
+    isRead ? '".read": "auth != null"' : '".write": "auth != null"',
+  );
   const rawFixRules = pickFirstDefined(scenario.fixRules, extraEvidence?.fixRules, eventsObj.fixRules, null);
   const fixRules =
     rawFixRules && typeof rawFixRules === 'object'
@@ -381,11 +420,11 @@ function resolvePlaywrightProjectDir(evidenceDir) {
 function buildShareMarkdown({ scenario, provenanceText, evidenceDir }) {
   const severity = scenario.copy?.severity || 'HIGH';
   const title = scenario.copy?.title || 'Security Audit Finding';
-  const reproSummary = scenario.copy?.repro || '';
+  const reproSummary = scenario.copy?.repro || scenario.copy?.summary || '';
   const relDir = path.basename(evidenceDir);
   return [
     `### [${severity}] ${title}`,
-    `**Verdict:** \`${provenanceText}\` — ${reproSummary}`,
+    `**Verdict:** \`${provenanceText}\` - ${reproSummary}`,
     `**Reproduce:** \`npx pyric verify --campaign ${scenario.finding.campaign} --probe ${scenario.finding.probe}\` | \`node render.mjs ${relDir}\``,
     '',
   ].join('\n');
@@ -399,20 +438,14 @@ function toBundleArtifactPath(evidenceDir, filePath) {
   return path.resolve(filePath);
 }
 
-async function runGateG6IfAvailable(gateContext) {
-  const gatesMod = await import('./lib/gates.mjs').catch(() => null);
-  if (!gatesMod || typeof gatesMod.evaluateGateG6 !== 'function') {
-    return true;
-  }
-  const result = await gatesMod.evaluateGateG6(gateContext);
-  if (typeof result === 'boolean') {
-    return result;
-  }
-  if (result && typeof result === 'object' && (result.pass === false || result.ok === false)) {
-    if (result.fatal) {
-      throw new EvidenceRenderError(result.code || 'GATE_G6_FAILED', result.message || 'Gate G6 verification failed', result);
-    }
-    return false;
+async function runGateG6(gateContext) {
+  const result = evaluateGateG6(gateContext);
+  if (result.pass === false) {
+    throw new EvidenceRenderError(
+      result.code || 'GATE_G6_FAILED',
+      result.message || `Gate G6 verification failed: ${result.reasons.join('; ')}`,
+      result,
+    );
   }
   return true;
 }
@@ -603,12 +636,9 @@ export async function renderEvidenceBundle({
   const wantMp4 = formats.includes('mp4');
   const wantGif = formats.includes('gif');
   const finalMp4Path = outPath || path.join(evidenceDir, 'video.mp4');
-  let workingMp4Path = finalMp4Path;
-  let tempDir = null;
-  if (!wantMp4 && wantGif) {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-render-mp4-'));
-    workingMp4Path = path.join(tempDir, 'temp-video.mp4');
-  }
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-render-mp4-'));
+  const workingMp4Path = path.join(tempDir, 'temp-video.mp4');
+  const workingGifPath = path.join(tempDir, 'temp-preview.gif');
 
   const storyboardDir = path.join(evidenceDir, 'storyboard');
   fs.mkdirSync(storyboardDir, { recursive: true });
@@ -832,40 +862,44 @@ export async function renderEvidenceBundle({
       await transcodePreviewGif({
         ffmpegPath: tools.ffmpegPath,
         inputMp4Path: workingMp4Path,
-        outGifPath: previewGifPath,
+        outGifPath: workingGifPath,
         fps: 12,
         width: gifWidth,
         maxSeconds: 8,
       });
     }
 
-    fs.writeFileSync(
-      path.join(evidenceDir, 'share.md'),
-      buildShareMarkdown({ scenario, provenanceText, evidenceDir }),
-      'utf8',
-    );
+    const shareMarkdown = buildShareMarkdown({ scenario, provenanceText, evidenceDir });
 
     const mediaProbe = tools.ffprobePath && fs.existsSync(workingMp4Path)
       ? await probeMedia({ ffprobePath: tools.ffprobePath, mediaPath: workingMp4Path })
       : null;
 
-    const g6Pass = await runGateG6IfAvailable({
-      evidenceDir,
-      scenario,
+    const g6Pass = await runGateG6({
       videoPath: workingMp4Path,
       ffprobeResult: mediaProbe,
       expectedWidth: dimensions.width,
       expectedHeight: dimensions.height,
       captureArtifact,
       posterPath,
-      gifPath: wantGif ? previewGifPath : null,
       storyboardPaths: storyboardRelPaths.map((rel) => path.join(evidenceDir, rel)),
       domProvenanceText,
       expectedProvenanceText: provenanceText,
-      provenanceText,
       copy: scenario.copy,
-      events: evidence.events,
+      slides: activePresentation ? activePresentation.slides : [],
+      beats: timeline.beats,
+      shareMarkdown,
+      events: eventList.length > 0 ? eventList : evidence.events,
     });
+
+    if (wantMp4) {
+      fs.mkdirSync(path.dirname(finalMp4Path), { recursive: true });
+      fs.copyFileSync(workingMp4Path, finalMp4Path);
+    }
+    if (wantGif) {
+      fs.copyFileSync(workingGifPath, previewGifPath);
+    }
+    fs.writeFileSync(path.join(evidenceDir, 'share.md'), shareMarkdown, 'utf8');
 
     const artifacts = Object.assign({}, existingManifest?.artifacts || {}, {
       poster: 'poster.png',
@@ -879,12 +913,13 @@ export async function renderEvidenceBundle({
       artifacts.previewGif = 'preview.gif';
     }
 
+    const mergedGates = Object.assign({}, existingManifest?.gates || {}, { g6: g6Pass });
     const nextManifest = validateBundleManifest(
       Object.assign({}, existingManifest || {}, {
         schema: BUNDLE_SCHEMA,
         status: 'reproduced',
         finding: scenario.finding,
-        gates: Object.assign({}, existingManifest?.gates || {}, { g6: g6Pass }),
+        gates: mergedGates,
         provenanceText,
         renderedAt: new Date().toISOString(),
         timeline: {
@@ -907,6 +942,7 @@ export async function renderEvidenceBundle({
       evidenceDir,
       manifestPath,
       provenanceText,
+      gates: mergedGates,
       dimensions,
       fps,
       totalFrames,
@@ -916,6 +952,38 @@ export async function renderEvidenceBundle({
       artifacts,
       media: wantMp4 ? mediaProbe : null,
     };
+  } catch (err) {
+    if (encoder) {
+      encoder.abort();
+      encoder = null;
+    }
+    if (
+      err instanceof EvidenceRenderError &&
+      (err.code === 'GATE_G6_FAILED' || err.code === 'PROVENANCE_MISSING_OR_HIDDEN')
+    ) {
+      if (fs.existsSync(finalMp4Path)) {
+        fs.rmSync(finalMp4Path, { force: true });
+      }
+      for (const staleRel of ['poster.png', 'share.md']) {
+        const p = path.join(evidenceDir, staleRel);
+        if (fs.existsSync(p)) {
+          fs.rmSync(p, { force: true });
+        }
+      }
+      writeFailureBundle({
+        outDir: evidenceDir,
+        finding: scenario.finding,
+        failedGate: 'G6',
+        reasons: err.details?.reasons || [err.message],
+        provenanceText,
+        gates: Object.assign(
+          { g1: true, g2: true, g3: true, g4: true, g5: 'skipped' },
+          existingManifest?.gates || {},
+          { g6: false },
+        ),
+      });
+    }
+    throw err;
   } finally {
     if (encoder) {
       encoder.abort();

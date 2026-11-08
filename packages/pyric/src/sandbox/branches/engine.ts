@@ -51,6 +51,7 @@ import type { SandboxEvent, WriteSandboxEvent } from '../types/events.js';
 import type { LocalSandbox } from '../types/service.js';
 import { promoteFullState } from './promotion.js';
 import { diffFullStates, type BranchDivergence } from './state-diff.js';
+import { rehydrateReplayValue } from '../replay/index.js';
 
 type DocData = Record<string, unknown>;
 
@@ -197,14 +198,23 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
   assertLive(branch);
   const env = getInternalEnv(branch.sandbox);
   const writes = events.filter((event): event is WriteSandboxEvent => event.kind === 'write');
+  const consumedRequestIndices = new Set<number>();
 
   for (const write of writes) {
-    const data = preResolutionDataFor(write, events) ?? enginePayloadOf({ resourceData: write.data, updateMask: write.updateMask });
+    const rawData =
+      preResolutionDataFor(write, events, consumedRequestIndices) ??
+      enginePayloadOf({ resourceData: write.data, updateMask: write.updateMask });
+    const data = rawData !== undefined ? (rehydrateReplayValue(rawData) as DocData) : undefined;
     const requestTime = new Timestamp(write.requestTime.seconds, write.requestTime.nanoseconds);
+    const bypassRules = write.detail?.admin === true;
 
     if (write.autoId) {
       const collection = write.path.slice(0, write.path.lastIndexOf('/'));
-      env.createWithAutoId(collection, (data ?? {}) as DocData, write.auth);
+      try {
+        env.createWithAutoId(collection, (data ?? {}) as DocData, write.auth, bypassRules);
+      } catch {
+        // Keep applying subsequent writes so diff() surfaces the divergence.
+      }
       continue;
     }
 
@@ -230,16 +240,26 @@ function executionFor(
   path: string;
   auth: WriteSandboxEvent['auth'];
   data?: DocData;
+  merge?: WriteSandboxEvent['merge'];
+  bypassRules?: boolean;
   requestTime: Timestamp;
 } {
+  const method: WriteSandboxEvent['method'] =
+    write.method === 'update' && write.updateMask === undefined && write.merge === undefined
+      ? 'set'
+      : write.method;
   const execution: {
     method: WriteSandboxEvent['method'];
     path: string;
     auth: WriteSandboxEvent['auth'];
     data?: DocData;
+    merge?: WriteSandboxEvent['merge'];
+    bypassRules?: boolean;
     requestTime: Timestamp;
-  } = { method: write.method, path: write.path, auth: write.auth, requestTime };
+  } = { method, path: write.path, auth: write.auth, requestTime };
   if (data !== undefined) execution.data = data;
+  if (write.merge !== undefined) execution.merge = write.merge;
+  if (write.detail?.admin === true) execution.bypassRules = true;
   return execution;
 }
 
@@ -251,13 +271,26 @@ function executionFor(
 function preResolutionDataFor(
   write: WriteSandboxEvent,
   allEvents: readonly SandboxEvent[],
+  consumedRequestIndices: Set<number>,
 ): DocData | undefined {
   const writeIndex = allEvents.indexOf(write);
   if (writeIndex < 0) return undefined;
-  for (let index = writeIndex; index >= 0; index--) {
+  for (let index = writeIndex - 1; index >= 0; index--) {
     const event = allEvents[index];
-    if (!event || event.kind !== 'request') continue;
+    if (!event) continue;
+    if (event.kind === 'write' && event.path === write.path && !write.groupId && !event.groupId) {
+      break;
+    }
+    if (consumedRequestIndices.has(index)) continue;
+    if (event.kind !== 'request' || event.result !== 'allow') continue;
     if (event.path !== write.path) continue;
+    const sameGroup =
+      write.groupId !== undefined ? event.groupId === write.groupId : event.groupId === undefined;
+    if (!sameGroup) continue;
+    const methodMatches =
+      event.method === write.method || event.method === 'set' || write.method === 'set';
+    if (!methodMatches) continue;
+    consumedRequestIndices.add(index);
     return enginePayloadOf(event.request) as DocData | undefined;
   }
   return undefined;

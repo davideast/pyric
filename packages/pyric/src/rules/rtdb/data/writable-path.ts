@@ -39,6 +39,7 @@ const INVALID_KEY_CHARS = /[[\].#$/\u0000-\u001F\u007F]/;
 export function validateUpdatePaths(
   values: Record<string, unknown>,
   segmentsOf: (path: string) => string[] = pathSegments,
+  fnName = 'update',
 ): void {
   for (const key of Object.keys(values)) {
     const segments = segmentsOf(key);
@@ -46,7 +47,7 @@ export function validateUpdatePaths(
       const isTrailingPriority = segment === '.priority' && index === segments.length - 1;
       if (!isTrailingPriority && (segment.length === 0 || INVALID_KEY_CHARS.test(segment))) {
         throw new Error(
-          `update failed: values argument contains an invalid key (${segment}) in path /${segments.join('/')}. ` +
+          `${fnName} failed: values argument contains an invalid key (${segment}) in path /${segments.join('/')}. ` +
           'Keys must be non-empty strings and can\'t contain ".", "#", "$", "/", "[", or "]"',
         );
       }
@@ -64,7 +65,7 @@ export function validateUpdatePaths(
       const isRoot = ancestor === '/';
       if (ancestor === descendant || isRoot || descendant.startsWith(`${ancestor}/`)) {
         throw new Error(
-          `update failed: values argument contains a path ${ancestor} that is ancestor of another path ${descendant}`,
+          `${fnName} failed: values argument contains a path ${ancestor} that is ancestor of another path ${descendant}`,
         );
       }
     }

@@ -95,9 +95,11 @@ export function formatResults(results: FixtureResult[]): string {
       .map((service) => {
         const failures = failingDivergences(service.divergences).length;
         const info = service.divergences.length - failures;
+        const unevaluated = service.unevaluatedEvents?.length ?? 0;
+        const unevaluatedNote = unevaluated > 0 ? `, ${unevaluated} unevaluated` : '';
         return service.ok
-          ? `${service.service}: ok (${info} informational)`
-          : `${service.service}: ${failures} failure(s)`;
+          ? `${service.service}: ok (${info} informational${unevaluatedNote})`
+          : `${service.service}: ${failures} failure(s)${unevaluatedNote}`;
       })
       .join(', ');
     lines.push(`${marker} ${result.name}${desc} - ${serviceSummary}`);

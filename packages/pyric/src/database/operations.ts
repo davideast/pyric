@@ -2,14 +2,14 @@ import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
 import { generatePushId } from './sandbox/push-id.js';
 import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf } from './routing.js';
-import { isQuery } from './query-shape.js';
+import { isDefaultQuerySpec, isQuery } from './query-shape.js';
 import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from './types.js';
 import { buildSandboxRef } from './references.js';
 import { assertGettablePath } from './info-read.js';
 import { validateUpdatePaths, validateWritablePath } from './writable-path.js';
-import { errorPrefix, validateWrite } from './sandbox/normalize.js';
+import { errorPrefix, validateUpdate, validateWrite } from './sandbox/normalize.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
 // ─── Reads ───────────────────────────────────────────────────────────
@@ -25,8 +25,8 @@ import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
  * Matches the SDK's `DataSnapshot.val()` contract.
  */
 export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
-  const query = isQuery(r as object) ? r as Query : undefined;
-  const ref0 = query?.ref ?? r as DatabaseReference;
+  const query = isQuery(r as object) && !isDefaultQuerySpec((r as Query)._spec) ? r as Query : undefined;
+  const ref0 = isQuery(r as object) ? (r as Query).ref : r as DatabaseReference;
   const target = targetOf(ref0 as object);
   const activity = beginDatabaseActivity(r, 'get', 'operation');
   // Keep the existing single Promise reaction and exact backend error object.
@@ -122,7 +122,11 @@ export function update(
   values: Record<string, unknown>,
 ): Promise<void> {
   const target = targetOf(r as unknown as object);
+  if (values === null || typeof values !== 'object' || Array.isArray(values)) {
+    throw new Error(`${errorPrefix('update', 'values')} must be an object containing the children to replace.`);
+  }
   validateUpdatePaths(values);
+  validateUpdate(values, r._path, 'update');
   return runSdkWrite(beginDatabaseActivity(r, 'update', 'operation'), () => {
     if (target.admin) {
       target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);

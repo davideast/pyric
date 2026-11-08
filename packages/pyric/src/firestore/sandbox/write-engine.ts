@@ -119,6 +119,16 @@ export class WriteEngine {
     // Events and errors carry the public payload: a non-merge update as its
     // decoded field tree plus its field paths, never the engine's encoded keys.
     const payload = data ? publicWritePayload(operation, data) : undefined;
+    const requestMerge: boolean | { mergeFields: string[] } | undefined =
+      merge === true
+        ? true
+        : merge !== undefined && merge !== false
+          ? { mergeFields: [...merge.mergeFields] }
+          : undefined;
+    const requestPayload =
+      payload !== undefined
+        ? { ...payload, ...(requestMerge !== undefined ? { merge: requestMerge } : {}) }
+        : undefined;
     const detail = bypassRules ? { admin: true } : undefined;
 
     // Write operations: evaluate rules. Capture only this path's prior state
@@ -175,7 +185,7 @@ export class WriteEngine {
       this.runtime.emitRequest({
         at: this.runtime.clock.now(), evalMs: 0, method, path, auth, result: 'deny',
         debugMessages: [`FieldValue resolve error: ${msg}`],
-        ...(payload ?? {}),
+        ...(requestPayload ?? {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
         origin: 'user',
         ...(detail ? { detail } : {}),
@@ -207,7 +217,7 @@ export class WriteEngine {
       this.runtime.emitRequest({
         at: evalAt, evalMs, method, path, auth, result: 'deny',
         debugMessages: [`Simulation error: ${simResult.error.message}`],
-        ...(payload ?? {}),
+        ...(requestPayload ?? {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
         origin: 'user',
         ...(detail ? { detail } : {}),
@@ -230,7 +240,7 @@ export class WriteEngine {
         at: evalAt, evalMs, method, path, auth, result: 'unsupported',
         rulesEvidence,
         debugMessages: renderLegacyDebugMessages(result),
-        ...(payload ?? {}),
+        ...(requestPayload ?? {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
         origin: 'user',
         ...(detail ? { detail } : {}),
@@ -355,7 +365,7 @@ export class WriteEngine {
       debugMessages: renderLegacyDebugMessages(result),
       evaluatedRule: projectEvaluatedRule(result),
       rulesEvidence,
-      ...(payload ?? {}),
+      ...(requestPayload ?? {}),
       resourceBefore: { data: priorDoc, exists: priorDoc !== null },
       ...(method !== 'delete'
         ? { resourceAfter: { data: finalDoc, exists: finalDoc !== null } }

@@ -216,17 +216,22 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
   return { ...request, at: answeredAt, aiRequest };
 }
 
-/** Firestore's code for a query that needs an index production does not have. */
-function isFailedPrecondition(outcome: ProductionOutcome): boolean {
+/**
+ * Production's `failed-precondition` for a query whose index it lacks: the
+ * host read it from production's message into `detail.failure`. Any other
+ * `failed-precondition` reads as a plain failure.
+ */
+function isMissingIndex(event: Extract<SandboxEvent, { kind: 'operation' }>, outcome: ProductionOutcome): boolean {
   if (outcome.status === 'ok') return false;
   const code = outcome.code.toLowerCase();
-  return code === 'failed-precondition' || code.endsWith('/failed-precondition');
+  const isFailedPrecondition = code === 'failed-precondition' || code.endsWith('/failed-precondition');
+  return isFailedPrecondition && event.detail?.failure === 'missing-index';
 }
 
 /**
  * An observed Firestore query's index check, from the shape the page sent
- * (fields and operators, never a value), and production's
- * `failed-precondition` as the index it lacked.
+ * (fields and operators, never a value), and production's missing index as
+ * the index it lacked.
  */
 function observedIndexFields(
   event: Extract<SandboxEvent, { kind: 'operation' }>,
@@ -238,7 +243,7 @@ function observedIndexFields(
   if (!isFirestoreList || shape === undefined || path === undefined) return {};
   const filters = (shape.filters ?? []).map(filter => ({ kind: 'where', ...filter }));
   const indexQuery = captureIndexQuery(path, shape.scope === 'collection-group', filters, shape.orderBy ?? []);
-  return isFailedPrecondition(outcome) ? { indexQuery, indexFailure: true } : { indexQuery };
+  return isMissingIndex(event, outcome) ? { indexQuery, indexFailure: true } : { indexQuery };
 }
 
 /** The AI rows the sandbox served, which Rates and the Sandbox tab count; production's rows are Traffic's only. */

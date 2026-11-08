@@ -621,8 +621,10 @@ class SandboxFile implements File {
 
   async download(options: DownloadOptions = {}): Promise<[Buffer]> {
     await this.bucket.storage.waitForReset();
-    const service = await getStorageService(this.bucket.adminStorage());
-    const object = await service.backend.getObject(this.name, this.bucket.storeBucket);
+    const adminStorage = this.bucket.adminStorage();
+    const r = storageRef(adminStorage, this.name);
+    const service = await getStorageService(adminStorage);
+    const object = await service.backend.getObject(r.fullPath, this.bucket.storeBucket);
     if (!object) {
       // Mirror the gcs/firebase-admin error message shape so consumer
       // catch-blocks that string-match `No such object` keep working.
@@ -676,8 +678,10 @@ class SandboxFile implements File {
 
   async exists(): Promise<[boolean]> {
     await this.bucket.storage.waitForReset();
-    const service = await getStorageService(this.bucket.adminStorage());
-    const stored = await service.backend.getMetadata(this.name, this.bucket.storeBucket);
+    const adminStorage = this.bucket.adminStorage();
+    const r = storageRef(adminStorage, this.name);
+    const service = await getStorageService(adminStorage);
+    const stored = await service.backend.getMetadata(r.fullPath, this.bucket.storeBucket);
     return [stored !== undefined];
   }
 
@@ -963,7 +967,7 @@ class RemoteFile implements File {
       ...this.bucket.wire,
       path: this.name,
       actAs: STORAGE_REMOTE_ADMIN_LENS,
-    })) as { bucket: string; size: number; generation: string };
+    })) as { bucket: string; fullPath: string; size: number; generation: string };
     const route = await this.channel.byteRoute?.();
     const routed = route !== undefined;
     if (!routed) {
@@ -973,7 +977,7 @@ class RemoteFile implements File {
     const response = await this.missingAsNoSuchObject(fetchFromByteRoute(route, {
       bucket: metadata.bucket,
       ...this.bucket.wire,
-      path: this.name,
+      path: metadata.fullPath,
       start: options.start,
       end: options.end,
     }));
@@ -992,12 +996,15 @@ class RemoteFile implements File {
   }
 
   /** Read from a SharedWorker host, which sends bytes as frames: whole, or in ranged parts (ADR 0015). */
-  private async *readFrames(metadata: { size: number; generation: string }, options: DownloadOptions): AsyncGenerator<Uint8Array> {
+  private async *readFrames(
+    metadata: { fullPath: string; size: number; generation: string },
+    options: DownloadOptions,
+  ): AsyncGenerator<Uint8Array> {
     if (metadata.size <= MAX_STORAGE_PART_BYTES) {
       const wire = await this.missingAsNoSuchObject(this.channel.op({
         method: 'storage.getBytes',
         ...this.bucket.wire,
-        path: this.name,
+        path: metadata.fullPath,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
       })) as RemoteGetBytesResult;
       yield byteRange(Buffer.from(wire.dataB64, 'base64'), options);
@@ -1008,7 +1015,7 @@ class RemoteFile implements File {
       const wire = await this.missingAsNoSuchObject(this.channel.op({
         method: 'storage.getBytes',
         ...this.bucket.wire,
-        path: this.name,
+        path: metadata.fullPath,
         offset,
         length: Math.min(MAX_STORAGE_PART_BYTES, last - offset),
         expectedGeneration: metadata.generation,

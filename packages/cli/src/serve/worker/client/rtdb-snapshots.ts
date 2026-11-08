@@ -21,10 +21,15 @@ export interface RtdbWireSnapshot {
   warning?: string;
 }
 
+function hasOwnChildProperty(container: object, segment: string): boolean {
+  return Object.prototype.propertyIsEnumerable.call(container, segment);
+}
+
 export function valueAt(root: unknown, path: string): unknown {
   let current = root;
   for (const segment of path.split('/').filter(Boolean)) {
     if (current === null || typeof current !== 'object') return null;
+    if (!hasOwnChildProperty(current, segment)) return null;
     current = (current as Record<string, unknown>)[segment];
   }
   return current === undefined ? null : current;
@@ -40,6 +45,7 @@ function exportValueAt(root: unknown, path: string): unknown {
       (key) => key === '.value' || key === '.priority',
     ) ? record['.value'] : current;
     if (container === null || typeof container !== 'object') return null;
+    if (!hasOwnChildProperty(container, segment)) return null;
     current = (container as Record<string, unknown>)[segment];
   }
   return current === undefined ? null : current;

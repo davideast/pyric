@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { JSDOM } from 'jsdom';
 import { createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox } from 'pyric/sandbox';
-import { createSdkActivityJournal, createSdkRateMonitor, observedCallEvent } from 'pyric/sandbox/internal';
+import { createSdkActivityJournal, createSdkRateMonitor, observedCallEvent, readObservedCall } from 'pyric/sandbox/internal';
 import { getStorage, getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
 import { createListenerMode, type ListenerMode } from '../../../src/serve/runtime/listener-mode.js';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
@@ -746,6 +746,30 @@ describe('the Traffic view', () => {
     // The details name the call by its rules operation; the row keeps the SDK name.
     const methodFact = root.querySelector('[data-traffic-detail] .request-fact');
     expect(methodFact?.querySelector('dd')?.textContent).toBe('get');
+  });
+
+  it("gives production's missing index the index badge kind, and another failed-precondition the failed one", () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    const query = { scope: 'collection', filters: [{ field: 'status', op: '==' }], orderBy: [{ field: 'publishedAt', direction: 'desc' }] };
+    const listed = (path: string, at: number, message: string): SandboxEvent => ({
+      ...observedCallEvent(readObservedCall({
+        service: 'firestore', method: 'getDocs', path, at, query, account: { uid: 'alice' },
+        outcome: { status: 'error', code: 'failed-precondition', message },
+      })),
+      caller: { kind: 'page', pageId: 'tab-1' },
+    }) as SandboxEvent;
+    const missing = listed('posts', now - 2000, 'The query requires an index. You can create it here: https://console.firebase.google.com/v1/r/project/p/firestore/indexes?create_composite=x');
+    const terminated = listed('notes', now - 1000, 'The client has already been terminated.');
+    push([missing, terminated], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const badgeOf = (event: SandboxEvent) => root.querySelector(`[data-request-row="${event.id}"] [data-verdict-production]`)!;
+    expect(badgeOf(missing).classList.contains('index-warning')).toBe(true);
+    expect(badgeOf(missing).getAttribute('data-verdict-production')).toBe('failed');
+    expect(root.querySelector(`[data-request-row="${missing.id}"]`)!.classList.contains('pending')).toBe(true);
+    expect(badgeOf(terminated).classList.contains('index-warning')).toBe(false);
+    expect(badgeOf(terminated).getAttribute('data-verdict-production')).toBe('failed');
+    expect(root.querySelector(`[data-request-row="${terminated.id}"]`)!.classList.contains('problem')).toBe(true);
   });
 
   it('marks only the production row whose local rules disagree, and opens the rules view from the local trace', () => {
