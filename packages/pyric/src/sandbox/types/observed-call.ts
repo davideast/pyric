@@ -257,16 +257,19 @@ export interface ObservedCall {
    * Refused on any other call; the event carries them as `detail.requests`.
    */
   requests?: ObservedRequest[];
+
   /**
-   * `firestore` only: the fields a `setDoc`, `updateDoc` or `addDoc` wrote,
-   * as JSON values, so the local rules can read `request.resource.data`.
-   * Memory only, emails left out; no event holds them.
+   * `firestore` (`setDoc`, `updateDoc`, `addDoc`), `rtdb` (`set`,
+   * `setWithPriority`, `update`, `push`), or `storage` (`uploadBytes`,
+   * `uploadString`, `uploadBytesResumable`, `updateMetadata`): the written
+   * JSON value or object metadata so local rules can inspect `request.resource`
+   * / `newData`. Memory only, emails left out; no event holds them.
    */
-  writeData?: Record<string, unknown>;
+  writeData?: ObservedWriteValue;
   /**
-   * `firestore` only: the fields of the document an allowed read returned,
-   * as JSON values, so the local rules can read `resource.data`. Memory
-   * only, emails left out; no event holds them.
+   * `firestore` or `storage` (`getMetadata`): the fields or metadata of the
+   * stored document/object an allowed read returned, so local rules can inspect
+   * `resource.data` or `resource`. Memory only, emails left out; no event holds them.
    */
   document?: Record<string, unknown>;
   /**
@@ -281,6 +284,14 @@ export interface ObservedCall {
    */
   listener?: ObservedListener;
 }
+
+export type ObservedWriteValue =
+  | string
+  | number
+  | boolean
+  | null
+  | unknown[]
+  | Record<string, unknown>;
 
 /**
  * The production side of an observed `operation` event. Its presence means
@@ -333,13 +344,25 @@ export interface LocalRtdbEvaluation {
 }
 
 /**
+ * The bounded Cloud Storage local evaluation record on a live verdict:
+ * the matched `match` block path and `allow` line, and per-rule evaluation
+ * reasons with every email address left out.
+ */
+export interface LocalStorageEvaluation {
+  matchedPath?: string;
+  matchedLine?: number;
+  reasons?: string[];
+}
+
+/**
  * The local rules' answer to an observed call. `drift` marks an answer
  * that disagrees with production's allow or deny. `trace` is the same
  * bounded evaluation record a sandbox Firestore request carries as
  * `rulesEvidence`, with every email address left out; `rtdb` carries the
- * bounded Realtime Database rule context and trace. An `unevaluated` verdict
- * preserves `rule` / `rtdb` rule-node context when determinable, without an
- * evaluation trace.
+ * bounded Realtime Database rule context and trace; `storage` carries the
+ * bounded Cloud Storage match context and evaluation reasons. An `unevaluated`
+ * verdict preserves `rule` / `rtdb` / `storage` rule-node context when
+ * determinable, without a decided trace.
  */
 export type LocalVerdict =
   | {
@@ -348,10 +371,12 @@ export type LocalVerdict =
       drift?: true;
       trace?: import('./rules-evidence.js').RulesEvidence;
       rtdb?: LocalRtdbEvaluation;
+      storage?: LocalStorageEvaluation;
     }
   | {
       result: 'unevaluated';
       needs: LocalVerdictGap[];
       rule?: LocalRule;
       rtdb?: LocalRtdbEvaluation;
+      storage?: LocalStorageEvaluation;
     };

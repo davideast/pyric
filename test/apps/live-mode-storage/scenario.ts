@@ -10,7 +10,10 @@
  * resumable upload, the paused one included), reads, metadata, lists and
  * deletes, the two misses, and the denied upload, download, list and
  * signed-out upload. The host's event stream names each call's bucket, and
- * Storage calls add nothing to the billed count. Last, the same page under
+ * Storage calls add nothing to the billed count. The project's
+ * `storage.rules` is loaded as the default bucket's local rules: each
+ * default-bucket row shows what they say beside production's answer, and
+ * the nested upload they have no rule for is drift. Last, the same page under
  * the sandbox (`pyric()`) shows its upload on a sandbox row under the app's
  * bucket name, not the sandbox's store key.
  *
@@ -64,7 +67,8 @@ function signIns(format: string): Record<string, unknown> {
 async function writeProject(app: App): Promise<void> {
   const { FORMAT } = await import('../replay/format.ts');
   app.writeFile('.firebaserc', `${JSON.stringify({ projects: { default: PROJECT } })}\n`);
-  app.writeFile('firebase.json', `${JSON.stringify({ hosting: { public: 'public' } })}\n`);
+  app.writeFile('firebase.json', `${JSON.stringify({ hosting: { public: 'public' }, storage: { rules: 'storage.rules' } })}\n`);
+  app.writeFile('storage.rules', LOCAL_RULES);
   app.writeFile(SIGN_INS, `${JSON.stringify(signIns(FORMAT))}\n`);
 }
 
@@ -210,6 +214,59 @@ function expectedRows(source: 'page' | 'node'): string[] {
 
 const distinct = (rows: string[]) => [...new Set(rows)].sort();
 
+/**
+ * The default bucket's local rules: signed-in users read, delete and upload
+ * objects under 1 MiB directly in the run's folder. Nothing deeper matches,
+ * so the local rules refuse the nested uploads production accepts.
+ */
+const LOCAL_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /${RUN}/{file} {
+      allow read, delete: if request.auth != null;
+      allow create: if request.auth != null && request.resource.size < 1024 * 1024;
+    }
+  }
+}
+`;
+
+/** What a row's detail says about the local rules, and whether the row carries the drift marker. */
+interface LocalReading {
+  detail: string;
+  drift: boolean;
+}
+
+/** The first `source` row for `call` on `gs://<default bucket>/<path>` by `account`, its drift marker, and the text of its detail. */
+async function localReading(chip: Locator, source: 'page' | 'node', call: string, path: string, account: string): Promise<LocalReading> {
+  await storageRows(chip);
+  const target = `gs://${BUCKETS.default}/${path}`;
+  const row = chip.locator(`[data-traffic-rows] [data-request-row][data-traffic-row-call="storage.${call}"][data-traffic-row-identity="${account}"]`)
+    .filter({ has: chip.page().locator(`[data-traffic-row-source="${source}"]`) })
+    .filter({ has: chip.page().locator('.c2', { hasText: target }) })
+    .filter({ hasNot: chip.page().locator('.c2', { hasText: `${target}/` }) })
+    .first();
+  const drift = await row.locator('[data-traffic-row-drift]').count() > 0;
+  await row.click();
+  const detail = await chip.locator('[data-traffic-detail]').textContent() ?? '';
+  await chip.locator('[data-request-back]').click();
+  return { detail, drift };
+}
+
+/** Each default-bucket upload from `source` reads the local rules' verdict, and the nested upload they refuse is drift. */
+async function expectLocalVerdicts(chip: Locator, source: 'page' | 'node'): Promise<void> {
+  const upload = await localReading(chip, source, 'uploadBytes', `${RUN}/a.bin`, 'user-1');
+  assert.match(upload.detail, /Local rules allowed this request\./, upload.detail);
+  assert.match(upload.detail, /Line 6/, upload.detail);
+  assert.equal(upload.drift, false);
+  const nested = await localReading(chip, source, 'uploadString', `${RUN}/nested/two.txt`, 'user-1');
+  assert.match(nested.detail, /Local rules did not allow this request\./, nested.detail);
+  assert.match(nested.detail, /The local rules file differs from the deployed rules/, nested.detail);
+  assert.equal(nested.drift, true, 'the upload the local rules refuse is drift');
+  const signedOut = await localReading(chip, source, 'uploadBytes', `${RUN}/signed-out.bin`, 'signed out');
+  assert.match(signedOut.detail, /Local rules did not allow this request\./, signedOut.detail);
+  assert.equal(signedOut.drift, false, 'production denied it too');
+}
+
 /** The chip shows each of capture S's calls from `source` once or more, as production's, and nothing else from it. */
 async function expectRows(chip: Locator, source: 'page' | 'node'): Promise<void> {
   const expected = expectedRows(source);
@@ -307,6 +364,10 @@ export default scenario(async (app) => {
     assert.equal(health.live?.projectId, PROJECT);
     await expectRows(opened, 'page');
     return opened;
+  });
+
+  await app.step('each default-bucket page upload reads the local rules\' verdict, and the nested one they refuse is drift', async () => {
+    await expectLocalVerdicts(chip, 'page');
   });
 
   await app.step('the host\'s event stream names each call\'s bucket in detail.bucket', async () => {

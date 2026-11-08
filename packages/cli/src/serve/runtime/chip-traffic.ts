@@ -70,19 +70,33 @@ export interface ChipRequest {
    * verdict, or one the host could not decide, leaves the row as it was.
    */
   localDrift?: LocalDrift;
+  /**
+   * The local rules' verdict on a call production served, agreeing or not,
+   * with the rule context it carries; `unevaluated` names the data it needed.
+   */
+  local?: LocalVerdict;
 }
 
+export type LocalVerdict = NonNullable<ObservedProduction['local']>;
 /** A local verdict that disagrees with production's: the local answer and the rule that decided it. */
-export type LocalDrift = Extract<NonNullable<ObservedProduction['local']>, { result: 'allow' | 'deny' }>;
+export type LocalDrift = Extract<LocalVerdict, { result: 'allow' | 'deny' }>;
 
 /** The local verdict on `production` when it disagrees with production's answer. */
 function localDriftOf(production: ObservedProduction): LocalDrift | undefined {
   const local = production.local;
   const isDrift = local !== undefined && local.result !== 'unevaluated' && local.drift === true;
   if (!isDrift) return undefined;
-  // The trace rides as the row's rulesEvidence; the drift keeps the verdict only.
-  const { trace: _trace, rtdb: _rtdb, ...verdict } = local;
+  // The trace/service details ride on `rulesEvidence` / `local`; drift keeps the verdict only.
+  const { trace: _trace, rtdb: _rtdb, storage: _storage, ...verdict } = local;
   return structuredClone(verdict);
+}
+
+/** The local verdict a live row keeps; a decided verdict's trace rides as the row's `rulesEvidence`. */
+function localVerdictOf(local: LocalVerdict | undefined): LocalVerdict | undefined {
+  if (local === undefined) return undefined;
+  if (local.result === 'unevaluated') return structuredClone(local);
+  const { trace: _trace, ...rest } = local;
+  return structuredClone(rest);
 }
 
 /** Which requests Traffic lists: this page's own, or everything the sandbox received. */
@@ -193,14 +207,16 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
   const outcome = production.outcome;
   const verdict = OBSERVED_VERDICTS[productionVerdict(outcome)];
   const localDrift = localDriftOf(production);
+  const local = localVerdictOf(production.local);
   const request: ChipRequest = {
     id: event.id, at: event.at, service: event.service, method: event.method,
     path: rowPath(event, event.path), verdict,
     identity: event.auth === null ? 'signed out' : event.auth.uid,
     production: { ...outcome },
-    ...(localDrift === undefined ? {} : { localDrift }),
     ...observedIndexFields(event, outcome),
   };
+  if (localDrift !== undefined) request.localDrift = localDrift;
+  if (local !== undefined) request.local = local;
   // The local rules' trace reads as a sandbox row's evidence; production still decided.
   const trace = production.local?.result === 'unevaluated' ? undefined : production.local?.trace;
   if (trace !== undefined) request.rulesEvidence = structuredClone(trace);

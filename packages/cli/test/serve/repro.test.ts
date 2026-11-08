@@ -3,7 +3,14 @@ import { mintIdToken } from 'pyric/sandbox/internal';
 import { IdBindings, matchRecorded, normalize, TIME } from '../../src/serve/repro/compare.js';
 import { parseRepro, redactSecrets, REDACTED_SECRET, restoreRedactedTokens } from '../../src/serve/repro/format.js';
 import { createReproRecorder } from '../../src/serve/repro/recorder.js';
+import { captureReproBase } from '../../src/serve/repro/capture.js';
 import { runServeReproCapture, runServeReproReplay } from '../../src/cli/serve-repro.js';
+import type { HostCtx } from '../../src/serve/worker/host-context.js';
+import { initializeSandbox } from 'pyric/sandbox';
+import { getFirestore } from 'pyric/firestore';
+import { getAdminDatabase, ref, set } from 'pyric/database';
+import { installStorageBackend, type StorageBackend } from 'pyric/storage/internal';
+import { rtdbInstance } from '../../src/serve/worker/host/rtdb-instances.js';
 import type { ReproBase } from '../../src/serve/repro/format.js';
 import type { InboundMessage } from '../../src/serve/worker/protocol.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
@@ -156,6 +163,25 @@ describe('repro recorder', () => {
   });
 });
 
+/** A Storage backend with no objects, whose objects a capture by reference can list. */
+function emptyReferencedStorage(): StorageBackend {
+  const none = async () => undefined;
+  return {
+    put: none,
+    deleteIfGeneration: async () => false,
+    replaceIfGeneration: async () => false,
+    getBlob: none,
+    getMetadata: none,
+    getObject: none,
+    putMetadata: async () => {},
+    delete: async () => {},
+    listByPrefix: async () => [],
+    reset: async () => {},
+    close: () => {},
+    references: async () => [],
+  };
+}
+
 describe('pyric serve repro', () => {
   const output = () => {
     let text = '';
@@ -196,6 +222,26 @@ describe('pyric serve repro', () => {
       expect(out.text()).toContain('Wrote 3 log entries');
     } finally {
       server.stop(true);
+    }
+  });
+
+  test("capturing the base reads a second RTDB instance's tree without recording a read", async () => {
+    const sandbox = initializeSandbox();
+    // A host's Storage keeps its objects in files a capture refers to; this one holds none.
+    installStorageBackend(sandbox, emptyReferencedStorage());
+    try {
+      const ctx: HostCtx = { db: getFirestore(sandbox), sandbox, instanceId: 'repro-test', subs: new Map() };
+      ctx.defaultRtdbInstance = 'demo-default-rtdb';
+      rtdbInstance(ctx, 'demo-default-rtdb');
+      rtdbInstance(ctx, 'second-instance');
+      await set(ref(getAdminDatabase(sandbox, 'second-instance'), '/items/a'), { count: 1 });
+      const before = sandbox.history().length;
+      const base = await captureReproBase(ctx, []);
+      expect(base.databaseInstances).toMatchObject({ 'second-instance': { items: { a: { count: 1 } } } });
+      const recorded = sandbox.history().slice(before);
+      expect(recorded.filter((event) => event.service === 'rtdb')).toEqual([]);
+    } finally {
+      sandbox.dispose();
     }
   });
 

@@ -26,6 +26,7 @@ import type {
   ObservedRequest,
   ObservedRequestApi,
   ObservedUsage,
+  ObservedWriteValue,
   ProductionOutcome,
 } from '../types/observed-call.js';
 import type {
@@ -156,6 +157,15 @@ const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const INSTANCE_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/;
 /** Bare Cloud Storage bucket names, never a `gs://` URL: `my-project.firebasestorage.app`. */
 const BUCKET_PATTERN = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
+
+/**
+ * The bucket a page names on a Storage call whose reference did not say
+ * which bucket it is (a call always names one, so it still reaches Traffic).
+ * A host reads it as "no bucket named" and uses the app's default bucket.
+ * `@pyric/live` sends it from page code, which cannot import this module, so
+ * it keeps its own copy, pinned to this one by its tests.
+ */
+export const UNREAD_BUCKET = 'bucket-not-read-from-the-sdk-reference';
 /**
  * The Storage codes production denies with, as the SDK maps them: Rules
  * denial (403) and App Check rejection (401).
@@ -339,6 +349,41 @@ function copyJsonFields(value: Fields, depth: number, budget: { left: number }):
     copy[key] = copied;
   }
   return copy;
+}
+
+/** Services whose writes may carry bounded written values (`writeData`), and Storage metadata reads (`document`). */
+const RTDB_WRITE_METHODS = new Set(['set', 'setWithPriority', 'update', 'push']);
+const STORAGE_WRITE_METHODS = new Set(['uploadBytes', 'uploadString', 'uploadBytesResumable', 'updateMetadata']);
+const STORAGE_METADATA_READ_METHODS = new Set(['getMetadata']);
+
+/** A fresh copy of a bounded JSON value for RTDB writes, or `undefined` when malformed or oversized. */
+function readJsonValue(value: unknown, maxSize: number): ObservedWriteValue | undefined {
+  if (value === undefined) return undefined;
+  const budget = { left: maxSize };
+  const copied = copyJsonValue(value, 0, budget);
+  if (copied === undefined || budget.left < 0) return undefined;
+  return copied as ObservedWriteValue;
+}
+
+/**
+ * The written value a call keeps: a Firestore write's or a Storage upload's
+ * fields, an RTDB write's JSON value, or `undefined` for any other call or a
+ * value past the bound.
+ */
+function writtenValueFor(call: ObservedCall, raw: unknown): ObservedWriteValue | undefined {
+  const service = call.service;
+  if (service === 'firestore') return readJsonFields(raw, MAX_FIELDS_SIZE);
+  if (service === 'storage' && STORAGE_WRITE_METHODS.has(call.method)) return readJsonFields(raw, MAX_FIELDS_SIZE);
+  if (service === 'rtdb' && RTDB_WRITE_METHODS.has(call.method)) return readJsonValue(raw, MAX_FIELDS_SIZE);
+  return undefined;
+}
+
+/** The returned document a call keeps: a Firestore read's, or a Storage metadata read's. */
+function returnedDocumentFor(call: ObservedCall, raw: unknown): Fields | undefined {
+  const service = call.service;
+  if (service === 'firestore') return readJsonFields(raw, MAX_FIELDS_SIZE);
+  if (service === 'storage' && STORAGE_METADATA_READ_METHODS.has(call.method)) return readJsonFields(raw, MAX_FIELDS_SIZE);
+  return undefined;
 }
 
 /**
@@ -701,9 +746,9 @@ export function readObservedCall(input: unknown): ObservedCall {
     requireField(LISTENER_SERVICES.has(call.service) && call.outcome.status === 'ok', 'listener');
     call.listener = readListener(value.listener);
   }
-  const writeData = isFirestore ? readJsonFields(value.writeData, MAX_FIELDS_SIZE) : undefined;
+  const writeData = writtenValueFor(call, value.writeData);
   if (writeData !== undefined) call.writeData = writeData;
-  const returned = isFirestore ? readJsonFields(value.document, MAX_FIELDS_SIZE) : undefined;
+  const returned = returnedDocumentFor(call, value.document);
   if (returned !== undefined) call.document = returned;
   return call;
 }

@@ -352,9 +352,19 @@ describe('readObservedCall', () => {
     }
   });
 
-  it('keeps write data and a document off every call but Firestore, and claim values off Messaging', () => {
+  it('keeps write data and documents to the matching service/methods, and claim values off Messaging', () => {
     const rtdb = { ...NAMED_RTDB_READ, writeData: { a: 1 }, document: { a: 1 } };
     expect(readObservedCall(rtdb)).toEqual(NAMED_RTDB_READ);
+    const rtdbWrite = { ...NAMED_RTDB_READ, method: 'set', writeData: 'hello' };
+    expect(readObservedCall(rtdbWrite)).toEqual(rtdbWrite as ObservedCall);
+    const rtdbDelete = { ...NAMED_RTDB_READ, method: 'set', writeData: null };
+    expect(readObservedCall(rtdbDelete)).toEqual(rtdbDelete as ObservedCall);
+    const storageUpload = { ...UPLOAD, method: 'uploadBytes', writeData: { size: 12, contentType: 'image/png' }, document: { ignored: true } };
+    expect(readObservedCall(storageUpload)).toEqual({ ...UPLOAD, method: 'uploadBytes', writeData: { size: 12, contentType: 'image/png' } });
+    const storageRead = { ...UPLOAD, method: 'getMetadata', writeData: { ignored: true }, document: { size: 12, contentType: 'image/png' } };
+    expect(readObservedCall(storageRead)).toEqual({ ...UPLOAD, method: 'getMetadata', document: { size: 12, contentType: 'image/png' } });
+    const storageUrl = { ...UPLOAD, method: 'getDownloadURL', writeData: { ignored: true }, document: { ignored: true } };
+    expect(readObservedCall(storageUrl)).toEqual({ ...UPLOAD, method: 'getDownloadURL' });
     const firebase = { identities: { 'google.com': ['1234'] }, sign_in_provider: 'google.com' };
     const messaging = { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, account: { uid: 'alice', claims: { firebase } } };
     expect(readObservedCall(messaging)).toEqual({ ...messaging, account: { uid: 'alice' } } as ObservedCall);

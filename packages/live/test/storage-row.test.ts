@@ -26,7 +26,8 @@ import * as realAuth from 'firebase/auth';
 import type { FirebaseStorage, StorageReference, UploadTask } from 'firebase/storage';
 import { observedCallOf } from '../src/page-observer.js';
 import { wrapLiveModule, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
-import { storageContext, UNREAD_BUCKET } from '../src/storage.js';
+import { storageContext, storageResult, UNREAD_BUCKET } from '../src/storage.js';
+import { UNREAD_BUCKET as HOST_UNREAD_BUCKET } from '@pyric/cli/vite/internal/supplied-rows';
 
 /** A replay recording, as `test/apps/replay/format.ts` defines it. */
 interface Recording {
@@ -256,10 +257,9 @@ async function drive(bucket: string): Promise<Drive> {
   };
 }
 
-/** A record as the assertions read it: what was called, how it ended, and where. */
 /** A record without its module and production's message (asserted on its own), and its account as the uid. */
 function shape(record: LiveCallRecord): Record<string, unknown> {
-  const { module: _module, account, message: _message, ...rest } = record;
+  const { module: _module, account, message: _message, writeData: _writeData, document: _document, ...rest } = record;
   return { ...rest, account: account?.uid ?? null };
 }
 
@@ -430,5 +430,26 @@ describe('the observed call a record becomes', () => {
     expect(unread).toEqual({ bucket: UNREAD_BUCKET, path: 'a' });
     const record: LiveCallRecord = { module: 'firebase/storage', name: 'getMetadata', outcome: 'resolved' };
     expect(observedCallOf(record, 7)?.bucket).toBe(UNREAD_BUCKET);
+  });
+
+  test('the unread bucket is the one the host reads as no bucket named', () => {
+    expect(UNREAD_BUCKET).toBe(HOST_UNREAD_BUCKET);
+  });
+});
+
+describe('the metadata a Storage call sent or read', () => {
+  test('an upload or metadata update sends its metadata and size, never its bytes, and getMetadata its returned metadata', () => {
+    const fakeRef = { bucket: 'demo.appspot.com', fullPath: 'uploads/a.txt', storage: { app: { options: { projectId: 'demo' } } } };
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    const uploadCtx = storageContext('uploadBytes', [fakeRef, bytes, { contentType: 'text/plain', customMetadata: { owner: 'alice' } }]);
+    expect(uploadCtx.writeData).toEqual({ contentType: 'text/plain', customMetadata: { owner: 'alice' }, size: 4 });
+    const stringCtx = storageContext('uploadString', [fakeRef, 'data:image/png;base64,AQIDBA==', 'data_url']);
+    expect(stringCtx.writeData).toEqual({ contentType: 'image/png', size: 4 });
+    const updateCtx = storageContext('updateMetadata', [fakeRef, { cacheControl: 'max-age=60', contentType: null }]);
+    expect(updateCtx.writeData).toEqual({ cacheControl: 'max-age=60', contentType: null });
+    const metaResult = storageResult({ name: 'getMetadata' } as Parameters<typeof storageResult>[0], { size: 42, contentType: 'image/png', customMetadata: { role: 'avatar' }, fullPath: 'uploads/a.png', bucket: 'demo.appspot.com', ignoredBlob: new Uint8Array([9]) });
+    const expectedDoc = { size: 42, contentType: 'image/png', customMetadata: { role: 'avatar' }, fullPath: 'uploads/a.png', bucket: 'demo.appspot.com' };
+    expect(metaResult).toEqual({ document: expectedDoc });
+    expect(observedCallOf({ module: 'firebase/storage', name: 'getMetadata', outcome: 'resolved', bucket: 'demo.appspot.com', path: 'uploads/a.png', document: expectedDoc }, 1)?.document).toEqual(expectedDoc);
   });
 });

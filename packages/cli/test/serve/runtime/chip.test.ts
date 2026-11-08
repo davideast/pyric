@@ -816,6 +816,80 @@ describe('the Traffic view', () => {
       expect(disclosure.querySelector('.rule-expression')!.textContent).toBe('request.auth != null');
     }
     expect(openDetail(untraced).querySelector('[data-rule-details]')).toBeNull();
+    expect(openDetail(untraced).textContent).toContain('Needs the stored data in production to evaluate against local rules.');
+  });
+
+  it('renders local rules details on live RTDB and Storage rows, and the drift a local deny is', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    const rtdbEvaluated = {
+      ...observedCallEvent({ service: 'rtdb', method: 'get', path: '/rooms/r1', at: now - 500, outcome: { status: 'ok' }, instance: 'demo-default-rtdb', account: { uid: 'alice' } }),
+      caller: { kind: 'page', pageId: 'tab-1' },
+      production: {
+        outcome: { status: 'ok' },
+        local: {
+          result: 'allow',
+          rule: { path: '/rooms/$roomId', expression: 'auth != null' },
+          rtdb: {
+            matchedPath: '/rooms/$roomId',
+            matchedRule: 'auth != null',
+            pathVariableBindings: { $roomId: 'r1' },
+            rtdbTrace: [{ path: '/rooms/$roomId', kind: 'read', verdict: 'ALLOW', conditionText: 'auth != null', pathVariableBindings: { $roomId: 'r1' } }],
+          },
+        },
+      },
+    } as unknown as SandboxEvent;
+    const rtdbDrift = {
+      ...observedCallEvent({ service: 'rtdb', method: 'set', path: '/rooms/r2/title', at: now - 450, outcome: { status: 'ok' }, instance: 'demo-default-rtdb', account: { uid: 'alice' } }),
+      caller: { kind: 'page', pageId: 'tab-1' },
+      production: {
+        outcome: { status: 'ok' },
+        local: {
+          result: 'deny',
+          drift: true,
+          rtdb: { matchedPath: '', matchedRule: '', errorCode: 'NO_MATCHING_RULE', rtdbTrace: [] },
+        },
+      },
+    } as unknown as SandboxEvent;
+    const storageEvaluated = {
+      ...observedCallEvent({ service: 'storage', method: 'uploadBytes', path: 'uploads/a.png', at: now - 400, outcome: { status: 'ok' }, bucket: 'demo.appspot.com', account: { uid: 'alice' } }),
+      caller: { kind: 'page', pageId: 'tab-1' },
+      production: {
+        outcome: { status: 'ok' },
+        local: {
+          result: 'allow',
+          rule: { path: 'match /uploads/{allPaths=**}', line: 4 },
+          storage: { matchedPath: 'match /uploads/{allPaths=**}', matchedLine: 4, reasons: [] },
+        },
+      },
+    } as unknown as SandboxEvent;
+    push([rtdbEvaluated, rtdbDrift, storageEvaluated], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    expect(root.querySelector(`[data-request-row="${rtdbDrift.id}"] [data-traffic-row-drift]`)).not.toBeNull();
+    expect(root.querySelector(`[data-request-row="${rtdbEvaluated.id}"] [data-traffic-row-drift]`)).toBeNull();
+
+    const openDetail = (event: SandboxEvent) => {
+      root.querySelector<HTMLButtonElement>('[data-request-back]')?.click();
+      root.querySelector<HTMLButtonElement>(`[data-request-row="${event.id}"]`)!.click();
+      return root.querySelector<HTMLElement>('[data-traffic-detail]')!;
+    };
+
+    const rtdbDetail = openDetail(rtdbEvaluated);
+    expect(rtdbDetail.textContent).toContain('Local rules allowed this request.');
+    const rtdbDisclosure = rtdbDetail.querySelector(`[data-rule-details="${rtdbEvaluated.id}"]`);
+    expect(rtdbDisclosure).not.toBeNull();
+    expect(rtdbDisclosure!.textContent).toContain('$roomId = r1');
+    expect(rtdbDisclosure!.textContent).toContain('.read');
+    expect(rtdbDisclosure!.textContent).toContain('Full database records and email addresses are omitted');
+
+    const driftDetail = openDetail(rtdbDrift);
+    expect(driftDetail.textContent).toContain('Local rules denied this request (no matching rule allowed it).');
+    expect(driftDetail.textContent).toContain("The local rules file differs from the deployed rules");
+
+    const storageDetail = openDetail(storageEvaluated);
+    expect(storageDetail.textContent).toContain('Local rules allowed this request.');
+    expect(storageDetail.textContent).toContain('Line 4');
+    expect(storageDetail.textContent).toContain('Object bytes and email addresses are omitted');
   });
 
   it("shows an AI call production served with production's answer and its tokens", () => {

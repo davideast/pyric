@@ -26,7 +26,7 @@ import {
   type RtdbReplayDivergence,
 } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';
-import { evaluateFirestoreCall, type FirestoreSimulate } from '../serve/worker/host/observe-local-verdict.js';
+import { evaluateFirestoreCall, type FirestoreSimulate } from '../serve/worker/host/observe-local-firestore.js';
 import {
   rulesSourceRejection,
   SimulateFirestoreRulesHandler,

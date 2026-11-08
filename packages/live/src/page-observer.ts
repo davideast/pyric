@@ -81,11 +81,20 @@ function accountOf(record: LiveCallRecord): Pick<ObservedCall, 'account'> {
   return { account: { uid: account.uid, ...claims } };
 }
 
-/** The record's write data and returned document, as the host takes them: Firestore only, a fresh copy of each. */
+function copyWriteValue(value: LiveCallRecord['writeData']): ObservedCall['writeData'] {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return [...value];
+  return { ...value };
+}
+
+/** The record's write data and returned document, as the host takes them: a fresh copy of each. */
 function valuesOf(service: ObservedCallService, record: LiveCallRecord): Pick<ObservedCall, 'writeData' | 'document'> {
-  if (service !== 'firestore') return {};
-  const written = record.writeData === undefined ? {} : { writeData: { ...record.writeData } };
-  return record.document === undefined ? written : { ...written, document: { ...record.document } };
+  const values: Pick<ObservedCall, 'writeData' | 'document'> = {};
+  const keepsWrite = service === 'firestore' || service === 'rtdb' || service === 'storage';
+  if (keepsWrite && record.writeData !== undefined) values.writeData = copyWriteValue(record.writeData);
+  const keepsDocument = service === 'firestore' || service === 'storage';
+  if (keepsDocument && record.document !== undefined) values.document = { ...record.document };
+  return values;
 }
 
 /** The record's query shape, as the host takes it: Firestore only, each clause copied. */

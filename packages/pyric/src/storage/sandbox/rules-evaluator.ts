@@ -45,11 +45,55 @@ import {
   isRuleError as isErr,
 } from './rules-values.js';
 
+/** The allow rule an evaluation stopped on: its match block's path and the rule's line. */
+export interface StorageMatchedRule {
+  path: string;
+  line?: number;
+}
+
+/**
+ * What one evaluation read, for a caller that must know which inputs a
+ * verdict rested on (a live host deciding whether it had the data to judge
+ * production's answer), and the allow rule that decided it.
+ */
+export interface StorageEvaluationObservation {
+  matchedRule?: StorageMatchedRule;
+  readResource: boolean;
+  readRequestResource: boolean;
+  readFirestore: boolean;
+  readAuthToken: boolean;
+  readAuthTokenEmail: boolean;
+}
+
+/** An observation of an evaluation that has read nothing yet. */
+export function emptyStorageObservation(): StorageEvaluationObservation {
+  return {
+    readResource: false,
+    readRequestResource: false,
+    readFirestore: false,
+    readAuthToken: false,
+    readAuthTokenEmail: false,
+  };
+}
+
+/** Fold one granular run's reads into the request's: a read in any run is a read, and the latest run's rule decides. */
+function mergeObservation(into: StorageEvaluationObservation, run: StorageEvaluationObservation): void {
+  into.readResource ||= run.readResource;
+  into.readRequestResource ||= run.readRequestResource;
+  into.readFirestore ||= run.readFirestore;
+  into.readAuthToken ||= run.readAuthToken;
+  into.readAuthTokenEmail ||= run.readAuthTokenEmail;
+  if (run.matchedRule !== undefined) into.matchedRule = run.matchedRule;
+}
+
+type TrackedRoot = 'request' | 'auth' | 'token';
+
 export function evaluateStorageRules(
   rules: StorageRules,
   input: EvaluationInput,
   now: Date = new Date(),
   firestoreLookup?: FirestoreLookup,
+  observation?: StorageEvaluationObservation,
 ): EvaluationResult {
   // `request.time` is the request's evaluation moment. The caller injects it
   // (deterministic in tests); it defaults to now. The request binding turns
@@ -67,7 +111,10 @@ export function evaluateStorageRules(
   // denying one's.
   let result: EvaluationResult | undefined;
   for (const method of impliedVerbs(input)) {
-    result = evaluateGranularRequest(rules, input, method, nowMillis, firestoreLookup);
+    let runObservation: StorageEvaluationObservation | undefined;
+    if (observation !== undefined) runObservation = emptyStorageObservation();
+    result = evaluateGranularRequest(rules, input, method, nowMillis, firestoreLookup, runObservation);
+    if (observation !== undefined && runObservation !== undefined) mergeObservation(observation, runObservation);
     if (result.allowed) return result;
   }
   if (result === undefined) throw new Error('a request implies at least one verb');
@@ -108,11 +155,15 @@ function evaluateGranularRequest(
   requestVerb: StorageVerb,
   nowMillis: number,
   firestoreLookup: FirestoreLookup | undefined,
+  observation?: StorageEvaluationObservation,
 ): EvaluationResult {
   const pathSegments = splitPath(input.request.path);
   const boundInput = withMethod(input, requestVerb);
   const reasons: string[] = [];
   const firestoreAccesses = new Set<string>();
+  const trackedRoots = observation ? new WeakMap<object, TrackedRoot>() : undefined;
+  let allowingRule: StorageMatchedRule | undefined;
+  let lastCheckedRule: StorageMatchedRule | undefined;
   // One expression budget for the request, shared by every allow rule and
   // match block, in the unit the Firestore simulator counts.
   const expressionBudget = new ExpressionBudget((message, position) => new RuleExpressionLimitError(message, position));
@@ -150,6 +201,12 @@ function evaluateGranularRequest(
         // covers get + list; `allow get` covers only get.
         const grantVerbs = new Set(rule.verbs.flatMap(expandVerb));
         if (!grantVerbs.has(requestVerb)) continue;
+        let candidateRule: StorageMatchedRule | undefined;
+        if (observation) {
+          candidateRule = { path: `match ${formatPath(block.segments)}` };
+          if (rule.line !== undefined) candidateRule.line = rule.line;
+          lastCheckedRule = candidateRule;
+        }
         let result: boolean;
         try {
           let value: unknown = true;
@@ -165,6 +222,8 @@ function evaluateGranularRequest(
               firestoreLookup,
               firestoreAccesses,
               expressionBudget,
+              observation,
+              trackedRoots,
             });
           }
           if (typeof value === 'boolean') {
@@ -234,7 +293,10 @@ function evaluateGranularRequest(
           }
           throw err;
         }
-        if (result) return true;
+        if (result) {
+          allowingRule = candidateRule;
+          return true;
+        }
         reasons.push(
           `match ${formatPath(block.segments)} ${input.request.method}: condition false`,
         );
@@ -274,6 +336,10 @@ function evaluateGranularRequest(
   const allowed = visit(rules._root, pathSegments, {});
   if (!allowed && reasons.length === 0) {
     reasons.push(`no rule matches ${input.request.method} /${pathSegments.join('/')}`);
+  }
+  if (observation) {
+    const matched = allowingRule ?? lastCheckedRule;
+    if (matched) observation.matchedRule = matched;
   }
   return {
     allowed,
@@ -323,6 +389,10 @@ export interface EvalCtx {
   firestoreAccesses: Set<string>;
   /** Per-request expression budget; absent in direct evaluator use. */
   expressionBudget?: ExpressionBudget;
+  /** Optional host observation sink for live traffic gap & rule diagnostics. */
+  observation?: StorageEvaluationObservation;
+  /** Tracks live wrapper objects back to request/auth/token for property observation. */
+  trackedRoots?: WeakMap<object, TrackedRoot>;
 }
 
 /**
@@ -362,6 +432,30 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
   return value;
 }
 
+function trackObject(ctx: EvalCtx, value: unknown, kind: TrackedRoot): void {
+  if (ctx.trackedRoots && value !== null && typeof value === 'object') {
+    ctx.trackedRoots.set(value, kind);
+  }
+}
+
+function notePropertyRead(ctx: EvalCtx, target: unknown, name: string, result: unknown): void {
+  const obs = ctx.observation;
+  const tracked = ctx.trackedRoots;
+  if (!obs || !tracked || target === null || typeof target !== 'object') return;
+  const kind = tracked.get(target);
+  if (kind === 'request') {
+    if (name === 'resource') obs.readRequestResource = true;
+    else if (name === 'auth') trackObject(ctx, result, 'auth');
+  } else if (kind === 'auth') {
+    if (name === 'token') {
+      obs.readAuthToken = true;
+      trackObject(ctx, result, 'token');
+    }
+  } else if (kind === 'token') {
+    if (name === 'email') obs.readAuthTokenEmail = true;
+  }
+}
+
 function evalNode(expr: Expr, ctx: EvalCtx): unknown {
   switch (expr.kind) {
     case 'literal':
@@ -374,11 +468,16 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       if (Object.hasOwn(ctx.locals, expr.name)) return ctx.locals[expr.name];
       if (Object.hasOwn(ctx.params, expr.name)) return ctx.params[expr.name];
       if (ctx.scopeKind !== 'global') {
-        if (expr.name === 'request') return buildRequestObject(ctx.input, ctx.now);
+        if (expr.name === 'request') {
+          const req = buildRequestObject(ctx.input, ctx.now);
+          trackObject(ctx, req, 'request');
+          return req;
+        }
         // Production exposes no usable `resource` value when the target object
         // does not exist. Even comparing the missing binding with null errors
         // and denies; it is not a JavaScript-like null sentinel.
         if (expr.name === 'resource') {
+          if (ctx.observation) ctx.observation.readResource = true;
           return ctx.input.resource === null
             ? new RuleError('Null value error.')
             : buildResourceObject(ctx.input.resource);
@@ -392,7 +491,9 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       // Production: dereferencing a null (e.g. `resource.name` on a create) is
       // a "Null value error" — it denies, and denies through a negation too.
       if (t === null || t === undefined) return new RuleError(`Null value error.`);
-      return readProperty(t, expr.name);
+      const prop = readProperty(t, expr.name);
+      notePropertyRead(ctx, t, expr.name, prop);
+      return prop;
     }
     case 'index': {
       // The index evaluates before the value it indexes, as in the
@@ -405,7 +506,9 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       // must be owned, and other wrappers have no index operator
       // (`index-access.ts`, shared with the Firestore simulator).
       const element = indexValue(t, idx);
-      return element instanceof IndexAccessFailure ? new RuleError(element.message) : element;
+      const out = element instanceof IndexAccessFailure ? new RuleError(element.message) : element;
+      if (typeof idx === 'string') notePropertyRead(ctx, t, idx, out);
+      return out;
     }
     case 'call':
       return evalCall(expr, ctx);
@@ -493,6 +596,7 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       const operands = evalOperands([expr.collection, expr.element], ctx);
       if (isErr(operands)) return operands;
       const [coll, el] = operands;
+      if (typeof el === 'string') notePropertyRead(ctx, coll, el, undefined);
       const result = membership(el, coll);
       return result instanceof MembershipFailure ? new RuleError(result.message) : result;
     }

@@ -91,7 +91,7 @@ import { parseToASTOrError } from '../../rules/grammar/FirestoreParser.js';
 import { parseErrorWording } from '../../rules/grammar/parse-error-wording.js';
 import { compileLimitViolations, describeCompileLimitViolations } from '../../rules/grammar/compile-limits.js';
 import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '../../rules/grammar/source-compile-limits.js';
-import { copyExpressionPosition } from '../../rules/grammar/expression-positions.js';
+import { copyExpressionPosition, expressionPosition } from '../../rules/grammar/expression-positions.js';
 import { re2PatternProblem } from '../../rules/simulator/re2-pattern-check.js';
 // RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
 // tagged with this wrapper while an INT is a bigint, or a bare integral JS
@@ -354,6 +354,7 @@ export type PathSegment =
 export interface AllowRule {
   verbs: StorageGrantVerb[];
   condition: Expr | null;
+  line?: number;
 }
 
 export type BinaryOp =
@@ -412,14 +413,25 @@ export type PathArgSegment =
 // a storage mapping fails loudly at parse time instead of drifting
 // silently.
 
+/** The line an allow rule starts on: its own position, else its condition's. */
+function allowLine(allow: SharedMatchBlock['allows'][number]): number | undefined {
+  const ownLine = allow.loc?.line;
+  if (ownLine !== undefined) return ownLine;
+  return expressionPosition(allow.condition)?.line;
+}
+
+function convertAllow(allow: SharedMatchBlock['allows'][number]): AllowRule {
+  const rule: AllowRule = { verbs: allow.operations, condition: convertExpr(allow.condition) };
+  const line = allowLine(allow);
+  if (line !== undefined) rule.line = line;
+  return rule;
+}
+
 function convertMatch(block: SharedMatchBlock): MatchBlock {
   return {
     segments: block.path.segments.map(convertSegment),
     children: block.children.map(convertMatch),
-    allows: block.allows.map((a) => ({
-      verbs: a.operations,
-      condition: convertExpr(a.condition),
-    })),
+    allows: block.allows.map(convertAllow),
     functions: block.functions.map(convertFunction),
   };
 }

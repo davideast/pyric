@@ -30,7 +30,8 @@
  * these shapes gives a record without its project, account, instance or path.
  * This file imports no Firebase SDK.
  */
-import { observedCall, refusedFactory, UNOBSERVED, type CallContext, type ListenerIdentity, type ObservedSite } from './observe.js';
+import { isPlainObject, jsonValue } from './json-copy.js';
+import { observedCall, refusedFactory, UNOBSERVED, type CallContext, type ListenerIdentity, type LiveWriteValue, type ObservedSite } from './observe.js';
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
 type Fields = Record<string, unknown>;
@@ -226,6 +227,18 @@ export const ON_DISCONNECT_METHODS = ['set', 'setWithPriority', 'update', 'remov
 
 const ON_DISCONNECT_PREFIX = 'onDisconnect.';
 
+/** The exports whose second argument is the value they write. */
+const RTDB_WRITE_EXPORTS = new Set(['set', 'setWithPriority', 'update', 'push']);
+
+/** The value a write sent, as the host takes it: a bounded JSON copy, an update's only when it is a map of locations. */
+function writeDataOf(name: string, args: readonly unknown[]): LiveWriteValue | undefined {
+  if (!RTDB_WRITE_EXPORTS.has(name)) return undefined;
+  const raw = args[1];
+  if (raw === undefined) return undefined;
+  if (name === 'update' && !isPlainObject(raw)) return undefined;
+  return jsonValue(raw);
+}
+
 /**
  * The record context of one call: what its reference names, or `UNOBSERVED`
  * for a call production never answers. An OnDisconnect method reads its
@@ -240,7 +253,12 @@ export function databaseContext(name: string, args: readonly unknown[], self: un
     const writesNothing = name === 'push' && (args[1] === undefined || args[1] === null);
     if (isInfoPath(path) || writesNothing) return UNOBSERVED;
     const context = repoContext(repoOf(source));
-    return path === undefined ? context : { ...context, path };
+    const located = path === undefined ? context : { ...context, path };
+    // An OnDisconnect write runs when the client leaves, against rules the host cannot time.
+    if (name.startsWith(ON_DISCONNECT_PREFIX)) return located;
+    const writeData = writeDataOf(name, args);
+    if (writeData === undefined) return located;
+    return { ...located, writeData };
   } catch {
     // A reference that throws on read is still recorded, without its context.
     return { instance: UNREAD_INSTANCE };

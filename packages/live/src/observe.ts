@@ -146,11 +146,13 @@ export interface LiveCallRecord {
    * Timing.
    */
   readonly requests?: readonly LiveRequest[];
+
   /**
-   * On a Firestore `setDoc`, `updateDoc` or `addDoc`: the fields it wrote, as
-   * JSON values. Sent to the host for its local rules only.
+   * On a Firestore write, RTDB write, or Storage metadata upload/update: the
+   * bounded JSON value or object metadata it sent. Sent to the host for its
+   * local rules only.
    */
-  readonly writeData?: Readonly<Record<string, unknown>>;
+  readonly writeData?: LiveWriteValue;
   /**
    * On a resolved Firestore `getDoc`: the fields of the document it
    * returned, as JSON values. Sent to the host for its local rules only.
@@ -161,6 +163,15 @@ export interface LiveCallRecord {
   /** On an `attached` or `detached` record: the listener's id and hashed key. */
   readonly listener?: LiveListenerLifecycle;
 }
+
+/** A bounded JSON value an observed Firestore, RTDB or Storage write carried. */
+export type LiveWriteValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly unknown[]
+  | Readonly<Record<string, unknown>>;
 
 /** One `where` filter of a query: its field path and operator. Never its value. */
 export interface LiveQueryFilter {
@@ -278,8 +289,8 @@ export interface CallContext {
   readonly timelineStart?: number;
   /** On a Cloud Messaging call: the requests it made, once a hook has read them. */
   readonly requests?: readonly LiveRequest[];
-  /** On a Firestore write: the fields it wrote. */
-  readonly writeData?: Readonly<Record<string, unknown>>;
+  /** On a Firestore, RTDB or Storage write: the value or metadata it wrote. */
+  readonly writeData?: LiveWriteValue;
   /** On a Firestore read: the document it returned, once a hook has read it. */
   readonly document?: Readonly<Record<string, unknown>>;
   /** On a Firestore list or listener: the shape of its query. */
@@ -401,8 +412,8 @@ export interface ObservedSite extends ObservedHooks {
   readonly timelineStart?: number;
   /** The Cloud Messaging requests the call this site records made. */
   readonly requests?: readonly LiveRequest[];
-  /** The fields the Firestore write this site records sent. */
-  readonly writeData?: Readonly<Record<string, unknown>>;
+  /** The value or metadata the write this site records sent. */
+  readonly writeData?: LiveWriteValue;
   /** The document the Firestore read this site records returned. */
   readonly document?: Readonly<Record<string, unknown>>;
   /** The shape of the query the Firestore list or listener this site records ran. */
