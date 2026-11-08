@@ -1,12 +1,26 @@
 /**
  * A local probe world: one Pyric sandbox with the app's rules installed,
- * seeded state, and one SDK handle per actor, so an owner's setup and a
- * peer's probe run against shared data. Everything is in-process; nothing
- * leaves the machine.
+ * seeded state restored through the canonical `SandboxSnapshot` pipeline,
+ * and one SDK handle per actor, so an owner's setup and a peer's probe run
+ * against shared data. Everything is in-process; nothing leaves the machine.
  */
-// `firestore/instances.ts` and `database/instances.ts` check `instanceof SandboxContextImpl`
-// against `pyric/sandbox`, so `initializeSandbox` must share that module identity.
+// `firestore/instances.ts`, `database/instances.ts`, and `storage/service.ts`
+// check `instanceof SandboxImpl` / `SandboxContextImpl` against `pyric/sandbox`,
+// so `initializeSandbox` and internal snapshot helpers share that module identity.
 import { initializeSandbox, type AuthState, type LocalSandbox } from 'pyric/sandbox';
+import {
+  DEFAULT_SNAPSHOT_RESOURCE,
+  decodeBase64ToBytes,
+  decodeSnapshotMapForEnv,
+  encodeSnapshotMap,
+  getInternalEnv,
+  restoreSandboxSnapshot,
+  type EncodedMap,
+  type SandboxSnapshot,
+  type SnapshotStorageObject,
+  type SnapshotUserRecord,
+} from 'pyric/sandbox/internal';
+import { getAdminStorageSandbox, seedStorageObject } from 'pyric/storage/internal';
 import {
   get,
   getAdminDatabase,
@@ -14,12 +28,11 @@ import {
   increment as rtdbIncrement,
   ref,
   remove,
-  sandbox as rtdbSandbox,
   serverTimestamp as rtdbServerTimestamp,
   set,
   update,
   type Database,
-} from '../../database/index.js';
+} from 'pyric/database';
 import {
   arrayRemove,
   arrayUnion,
@@ -32,29 +45,48 @@ import {
   serverTimestamp as fsServerTimestamp,
   setDoc,
   updateDoc,
-  type DocumentData,
   type Firestore,
-} from '../../firestore/index.js';
-import { seedDocuments, setRules, snapshotDocuments } from '../../firestore/sandbox-controls.js';
+} from 'pyric/firestore';
+import {
+  deleteObject,
+  getBlob,
+  getMetadata,
+  getStorageSandbox,
+  ref as storageRef,
+  updateMetadata,
+  uploadBytes,
+  type FirebaseStorage,
+} from 'pyric/storage';
 import { isSentinel } from './fixtures.js';
 import type { ProbeActor, ProbeStep, StepResult } from './types.js';
 
 export interface WorldRules {
   firestore?: string;
   rtdb?: unknown;
+  storage?: string;
 }
 
 export interface WorldState {
   rtdb?: unknown;
   firestore?: Record<string, Record<string, unknown>>;
+  storage?: readonly SnapshotStorageObject[];
+  snapshot?: SandboxSnapshot;
 }
 
 interface Handles {
   rtdb?: Database;
   firestore?: Firestore;
+  storage?: FirebaseStorage;
 }
 
-const DENIED = /permission[-_ ]denied/i;
+const DENIED = /permission[-_ ]?denied|unauthorized/i;
+
+let nextWorldStorageSequence = 1;
+
+function nextProbeWorldStorageDbName(): string {
+  const suffix = `${nextWorldStorageSequence++}-${Math.random().toString(36).slice(2, 10)}`;
+  return `pyric-probe-world:${suffix}`;
+}
 
 function isRulesJson(value: unknown): value is { rules: Record<string, unknown> } {
   if (!value || typeof value !== 'object') return false;
@@ -63,49 +95,193 @@ function isRulesJson(value: unknown): value is { rules: Record<string, unknown> 
   return Boolean(inner && typeof inner === 'object' && !Array.isArray(inner));
 }
 
-function buildActorAuth(actor: ProbeActor): AuthState {
-  const emailVerified = actor.token.email_verified ?? true;
+function normalizeLegacyDocuments(
+  documents: Record<string, Record<string, unknown>>,
+): Record<string, EncodedMap> {
+  const encoded: Record<string, EncodedMap> = {};
+  for (const [rawPath, docData] of Object.entries(documents)) {
+    const cleanPath = rawPath.replace(/^\/+|\/+$/g, '');
+    if (cleanPath.length === 0) continue;
+    encoded[cleanPath] = encodeSnapshotMap(docData);
+  }
+  return encoded;
+}
+
+function buildWorldSnapshot(rules: WorldRules, state: WorldState): SandboxSnapshot {
+  const base = state.snapshot;
+
+  const firestoreRules: Record<string, string> = Object.assign({}, base?.rules.firestore);
+  if (rules.firestore !== undefined) {
+    firestoreRules[DEFAULT_SNAPSHOT_RESOURCE] = rules.firestore;
+  }
+
+  const rtdbRules: Record<string, string> = Object.assign({}, base?.rules.rtdb);
+  if (typeof rules.rtdb === 'string') {
+    rtdbRules[DEFAULT_SNAPSHOT_RESOURCE] = rules.rtdb;
+  } else if (isRulesJson(rules.rtdb)) {
+    rtdbRules[DEFAULT_SNAPSHOT_RESOURCE] = JSON.stringify(rules.rtdb);
+  }
+
+  const storageRules: Record<string, string> = Object.assign({}, base?.rules.storage);
+  if (rules.storage !== undefined) {
+    storageRules[DEFAULT_SNAPSHOT_RESOURCE] = rules.storage;
+  }
+
+  const snapshotRules: {
+    firestore?: Record<string, string>;
+    rtdb?: Record<string, string>;
+    storage?: Record<string, string>;
+  } = {};
+  if (Object.keys(firestoreRules).length > 0) snapshotRules.firestore = firestoreRules;
+  if (Object.keys(rtdbRules).length > 0) snapshotRules.rtdb = rtdbRules;
+  if (Object.keys(storageRules).length > 0) snapshotRules.storage = storageRules;
+
+  const firestore: Record<string, Readonly<Record<string, EncodedMap>>> = Object.assign(
+    {},
+    base?.firestore,
+  );
+  if (state.firestore !== undefined) {
+    firestore[DEFAULT_SNAPSHOT_RESOURCE] = normalizeLegacyDocuments(state.firestore);
+  } else if (!Object.hasOwn(firestore, DEFAULT_SNAPSHOT_RESOURCE)) {
+    firestore[DEFAULT_SNAPSHOT_RESOURCE] = {};
+  }
+
+  const rtdb: Record<string, unknown> = Object.assign({}, base?.rtdb);
+  if (state.rtdb !== undefined) {
+    rtdb[DEFAULT_SNAPSHOT_RESOURCE] = state.rtdb;
+  } else if (Boolean(rules.rtdb) && !Object.hasOwn(rtdb, DEFAULT_SNAPSHOT_RESOURCE)) {
+    rtdb[DEFAULT_SNAPSHOT_RESOURCE] = {};
+  }
+
+  const storage: Record<string, readonly SnapshotStorageObject[]> = Object.assign(
+    {},
+    base?.storage,
+  );
+  if (state.storage !== undefined) {
+    storage[DEFAULT_SNAPSHOT_RESOURCE] = state.storage;
+  }
+
   return {
-    uid: actor.uid,
-    token: {
-      ...actor.token,
-      email: actor.email,
-      email_verified: emailVerified,
-      name: actor.displayName,
-    },
+    version: 1,
+    rules: snapshotRules,
+    auth: { users: base?.auth.users ?? [] },
+    firestore,
+    rtdb,
+    storage,
   };
+}
+
+function buildActorAuth(
+  actor: ProbeActor,
+  snapshotUsers: readonly SnapshotUserRecord[],
+): AuthState {
+  const matched = snapshotUsers.find((user) => user.uid === actor.uid);
+  let emailVerified = true;
+  if (typeof actor.token.email_verified === 'boolean') {
+    emailVerified = actor.token.email_verified;
+  } else if (typeof matched?.emailVerified === 'boolean') {
+    emailVerified = matched.emailVerified;
+  }
+  let email = actor.email;
+  if (!email && matched?.email) email = matched.email;
+  let name = actor.displayName;
+  if (!name && matched?.displayName) name = matched.displayName;
+
+  const token: Record<string, unknown> = {};
+  if (matched?.customClaims !== undefined) {
+    Object.assign(token, matched.customClaims);
+  }
+  Object.assign(token, actor.token);
+  token.email = email;
+  token.email_verified = emailVerified;
+  token.name = name;
+
+  if (matched?.tenantId !== undefined || matched?.providerId !== undefined) {
+    let existingFirebase: Record<string, unknown> = {};
+    if (
+      token.firebase !== null &&
+      typeof token.firebase === 'object' &&
+      !Array.isArray(token.firebase)
+    ) {
+      existingFirebase = token.firebase as Record<string, unknown>;
+    }
+    const firebaseClaim: Record<string, unknown> = { ...existingFirebase };
+    if (matched.tenantId !== undefined && firebaseClaim.tenant === undefined) {
+      firebaseClaim.tenant = matched.tenantId;
+    }
+    if (matched.providerId !== undefined && firebaseClaim.sign_in_provider === undefined) {
+      firebaseClaim.sign_in_provider = matched.providerId;
+    }
+    token.firebase = firebaseClaim;
+  }
+
+  return { uid: actor.uid, token };
 }
 
 export class ProbeWorld {
   private readonly sandbox: LocalSandbox;
   private readonly handles = new Map<string, Handles>();
   private readonly admin: Handles = {};
+  private readonly initOutcome: Promise<Error | null>;
 
   constructor(
-    private readonly rules: WorldRules,
+    rules: WorldRules,
     actors: ProbeActor[],
     state: WorldState = {},
   ) {
     this.sandbox = initializeSandbox();
+    const snapshot = buildWorldSnapshot(rules, state);
+    const hasFirestore =
+      Boolean(rules.firestore) ||
+      Boolean(snapshot.rules.firestore?.[DEFAULT_SNAPSHOT_RESOURCE]);
+    const hasRtdb =
+      Boolean(rules.rtdb) ||
+      Boolean(snapshot.rules.rtdb?.[DEFAULT_SNAPSHOT_RESOURCE]) ||
+      Object.keys(snapshot.rtdb).length > 0;
+    const hasStorage =
+      Boolean(rules.storage) ||
+      Object.keys(snapshot.rules.storage ?? {}).length > 0 ||
+      Object.keys(snapshot.storage).length > 0;
+
+    if (hasRtdb) {
+      this.admin.rtdb = getAdminDatabase(this.sandbox);
+    }
+    if (hasStorage) {
+      this.admin.storage = getAdminStorageSandbox(this.sandbox, {
+        dbName: nextProbeWorldStorageDbName(),
+      });
+    }
+
     for (const actor of actors) {
-      const ctx = this.sandbox.withAuth(buildActorAuth(actor));
+      const ctx = this.sandbox.withAuth(buildActorAuth(actor, snapshot.auth.users));
       const handles: Handles = {};
-      if (rules.rtdb) handles.rtdb = getDatabase(ctx);
-      if (rules.firestore) handles.firestore = getFirestore(ctx);
+      if (hasRtdb) handles.rtdb = getDatabase(ctx);
+      if (hasFirestore) handles.firestore = getFirestore(ctx);
+      if (hasStorage) handles.storage = getStorageSandbox(ctx);
       this.handles.set(actor.role, handles);
     }
-    if (rules.rtdb) {
-      const firstRtdb = [...this.handles.values()][0]?.rtdb;
-      if (firstRtdb && isRulesJson(rules.rtdb)) {
-        rtdbSandbox.setRules(firstRtdb, rules.rtdb);
-      }
-      this.admin.rtdb = getAdminDatabase(this.sandbox);
-      rtdbSandbox.setData(this.admin.rtdb, { '/': state.rtdb ?? {} });
+
+    this.initOutcome = this.restoreInitialSnapshot(snapshot);
+  }
+
+  static async create(
+    rules: WorldRules,
+    actors: ProbeActor[],
+    state: WorldState = {},
+  ): Promise<ProbeWorld> {
+    const world = new ProbeWorld(rules, actors, state);
+    try {
+      await world.ready();
+      return world;
+    } catch (error) {
+      world.dispose();
+      throw error;
     }
-    if (rules.firestore) {
-      setRules(this.sandbox, rules.firestore);
-      if (state.firestore) seedDocuments(this.sandbox, state.firestore);
-    }
+  }
+
+  async ready(): Promise<void> {
+    const error = await this.initOutcome;
+    if (error !== null) throw error;
   }
 
   dispose(): void {
@@ -115,7 +291,9 @@ export class ProbeWorld {
   /** Run one step and classify the result. */
   async run(step: ProbeStep): Promise<StepResult> {
     try {
+      await this.ready();
       if (step.service === 'rtdb') await this.runRtdb(step);
+      else if (step.service === 'storage') await this.runStorage(step);
       else await this.runFirestore(step);
       return { step, decision: 'allow' };
     } catch (e) {
@@ -126,6 +304,19 @@ export class ProbeWorld {
         return { step, decision: 'deny', message: message.slice(0, 200) };
       }
       return { step, decision: 'error', message: message.slice(0, 200) };
+    }
+  }
+
+  private async restoreInitialSnapshot(snapshot: SandboxSnapshot): Promise<Error | null> {
+    try {
+      const { refusals } = await restoreSandboxSnapshot(this.sandbox, snapshot);
+      if (refusals.length > 0) {
+        return new Error(refusals.join('; '));
+      }
+      return null;
+    } catch (error) {
+      if (error instanceof Error) return error;
+      return new Error(String(error));
     }
   }
 
@@ -144,6 +335,13 @@ export class ProbeWorld {
     return db;
   }
 
+  private storageFor(step: ProbeStep): FirebaseStorage {
+    let storage = this.handles.get(step.actor)?.storage;
+    if (step.actor === 'admin') storage = this.admin.storage;
+    if (!storage) throw new Error('no Cloud Storage rules in this world');
+    return storage;
+  }
+
   private async runRtdb(step: ProbeStep): Promise<void> {
     const db = this.rtdbFor(step);
     const r = ref(db, step.path);
@@ -159,9 +357,16 @@ export class ProbeWorld {
       if (step.method === 'delete' || step.method === 'remove') {
         throw new Error('admin delete is not modelled');
       }
-      const existing = snapshotDocuments(this.sandbox);
-      const nextDoc = toPlain(step.data) as DocumentData;
-      seedDocuments(this.sandbox, { ...existing, [step.path]: nextDoc });
+      const cleanPath = step.path.replace(/^\/+|\/+$/g, '');
+      const plainData = toPlain(step.data);
+      let plainRecord: Record<string, unknown> = {};
+      if (plainData !== null && typeof plainData === 'object' && !Array.isArray(plainData)) {
+        plainRecord = plainData as Record<string, unknown>;
+      }
+      getInternalEnv(this.sandbox).adminSetDocument(
+        cleanPath,
+        decodeSnapshotMapForEnv(encodeSnapshotMap(plainRecord)),
+      );
       return;
     }
     const db = this.firestoreFor(step);
@@ -173,13 +378,70 @@ export class ProbeWorld {
     else if (step.merge) await setDoc(d, data, { merge: true });
     else await setDoc(d, data);
   }
+
+  private async runStorage(step: ProbeStep): Promise<void> {
+    const storage = this.storageFor(step);
+    const r = storageRef(storage, step.path);
+    const metadata = toStorageMetadata(step);
+    if (step.method === 'delete' || step.method === 'remove') {
+      await deleteObject(r);
+      return;
+    }
+    if (step.method === 'update') {
+      await updateMetadata(r, metadata);
+      return;
+    }
+    if (step.method === 'get') {
+      try {
+        await getBlob(r);
+        await getMetadata(r);
+      } catch (error) {
+        const code = (error as { code?: unknown } | null)?.code;
+        if (code === 'storage/object-not-found') return;
+        throw error;
+      }
+      return;
+    }
+    const bytes = toStorageBytes(step.data);
+    if (step.actor === 'admin') {
+      await seedStorageObject(storage, step.path, bytes, metadata);
+      return;
+    }
+    await uploadBytes(r, bytes, metadata);
+  }
+}
+
+function toStorageBytes(data: unknown): Uint8Array {
+  if (data instanceof Uint8Array) return data;
+  if (typeof data === 'string') return new TextEncoder().encode(data);
+  if (data !== null && typeof data === 'object' && Object.hasOwn(data, 'contentBase64')) {
+    const base64 = (data as { contentBase64?: unknown }).contentBase64;
+    if (typeof base64 === 'string') return decodeBase64ToBytes(base64);
+  }
+  if (data === undefined || data === null) return new Uint8Array(0);
+  return new TextEncoder().encode(JSON.stringify(data));
+}
+
+function toStorageMetadata(step: ProbeStep): {
+  contentType?: string;
+  customMetadata?: Record<string, string>;
+} {
+  const metadata: { contentType?: string; customMetadata?: Record<string, string> } = {};
+  if (step.contentType !== undefined) metadata.contentType = step.contentType;
+  if (step.customMetadata !== undefined) {
+    metadata.customMetadata = { ...step.customMetadata };
+  }
+  return metadata;
 }
 
 function mapValues(v: unknown, f: (x: unknown) => unknown): unknown {
   if (isSentinel(v)) return f(v);
   if (Array.isArray(v)) return v.map((x) => mapValues(x, f));
-  if (v && typeof v === 'object') {
-    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mapValues(x, f)]));
+  if (v !== null && typeof v === 'object') {
+    const proto = Object.getPrototypeOf(v);
+    if (proto === Object.prototype || proto === null) {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mapValues(x, f)]));
+    }
   }
   return v;
 }

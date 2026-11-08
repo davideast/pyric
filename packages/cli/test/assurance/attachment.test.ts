@@ -1,14 +1,21 @@
+import "fake-indexeddb/auto";
 import { describe, expect, it } from "bun:test";
-import { getAuth, sandbox as authSandbox } from "pyric/auth";
+import { getAuth, sandbox as authSandbox, signInAnonymously } from "pyric/auth";
 import {
   getAdminDatabase,
   getDatabase,
   sandbox as rtdbSandbox,
 } from "pyric/database";
-import { getFirestore } from "pyric/firestore";
+import { Timestamp, getFirestore } from "pyric/firestore";
 import { initializeSandbox } from "pyric/sandbox";
 import { seedDocuments, setRules } from "pyric/sandbox/firestore";
-import { createSandboxAttachmentProvider } from "../../src/assurance/attachment.js";
+import { ref as storageRef, uploadBytes } from "pyric/storage";
+import { getAdminStorageSandbox } from "pyric/storage/internal";
+import {
+  createOwnedSandboxAttachmentProvider,
+  createSandboxAttachmentProvider,
+} from "../../src/assurance/attachment.js";
+import { createAuthorizationCampaign } from "../../src/assurance/campaign.js";
 import { AssuranceInputError } from "../../src/assurance/types.js";
 
 const FIRESTORE_RULES = `rules_version = '2';
@@ -117,12 +124,206 @@ describe("createSandboxAttachmentProvider", () => {
       authUsers: 1,
       storageObjects: 0,
     });
-    expect(attached.coverageGaps).toContainEqual(
-      expect.objectContaining({
-        service: "storage",
-        code: "storage-attachment-unavailable",
-      }),
+    expect(attached.coverageGaps).toEqual([]);
+  });
+
+  it("clones live Storage objects, metadata, active Storage rules, and rich Firestore types into an executable campaign target", async () => {
+    const firestoreRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if request.auth != null
+        && request.auth.uid == resource.data.ownerId
+        && resource.data.createdAt is timestamp;
+    }
+  }
+}`;
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{uid}/{name} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`;
+    const sandbox = seededSandbox();
+    authSandbox.seedUsers(getAuth(sandbox), [
+      {
+        uid: "alice",
+        email: "alice@example.test",
+        password: "password-123",
+        displayName: "Alice Example",
+        photoUrl: "https://example.test/alice.png",
+        phoneNumber: "+15550101",
+        tenantId: "t1",
+        customClaims: { tenant: "t1" },
+      },
+    ]);
+    const anonCred = await signInAnonymously(getAuth(sandbox));
+    const anonUid = anonCred.user.uid;
+    setRules(sandbox, firestoreRules);
+    seedDocuments(sandbox, {
+      "items/item-1": {
+        ownerId: "alice",
+        createdAt: new Timestamp(1_700_000_000, 0),
+        nanScore: Number.NaN,
+        negZeroOffset: -0,
+      },
+    });
+    const adminStorage = getAdminStorageSandbox(sandbox, {
+      dbName: "pyric-attach-live-storage-1",
+      rules: storageRules,
+    });
+    await uploadBytes(
+      storageRef(adminStorage, "files/alice/note.txt"),
+      new TextEncoder().encode("confidential"),
+      {
+        contentType: "text/plain",
+        customMetadata: { owner: "alice" },
+      },
     );
+    await uploadBytes(
+      storageRef(adminStorage, "files/u2/own.txt"),
+      new TextEncoder().encode("u2-note"),
+      {
+        contentType: "text/plain",
+      },
+    );
+
+    const attach = createOwnedSandboxAttachmentProvider(
+      sandbox,
+      { firestore: firestoreRules, rtdb: RTDB_RULES },
+      "http://localhost:5210/__pyric/ui/assurance",
+    );
+    const attached = await attach({ url: "http://localhost:5210" });
+
+    expect(attached.inventory.storageObjects).toBe(2);
+    expect(attached.target.rules.storage).toBe(storageRules);
+    expect(attached.target.state.storage).toEqual([
+      {
+        path: "files/alice/note.txt",
+        dataBase64: btoa("confidential"),
+        contentType: "text/plain",
+        customMetadata: { owner: "alice" },
+      },
+      {
+        path: "files/u2/own.txt",
+        dataBase64: btoa("u2-note"),
+        contentType: "text/plain",
+      },
+    ]);
+    expect(attached.coverageGaps).toEqual([]);
+    const attachedAlice = attached.target.state.auth?.users.find((u) => u.uid === "alice");
+    expect(attachedAlice).toMatchObject({
+      uid: "alice",
+      displayName: "Alice Example",
+      photoUrl: "https://example.test/alice.png",
+      phoneNumber: "+15550101",
+      tenantId: "t1",
+    });
+    const attachedAnon = attached.target.state.auth?.users.find((u) => u.uid === anonUid);
+    expect(attachedAnon).toMatchObject({
+      uid: anonUid,
+      providerId: "anonymous",
+    });
+    expect(attachedAnon?.email).toBeUndefined();
+
+    const roundTrippedTarget = JSON.parse(
+      JSON.stringify(attached.target),
+    ) as typeof attached.target;
+
+    const directCampaign = createAuthorizationCampaign({
+      id: "attach-direct-campaign",
+      target: attached.target,
+    });
+    const campaign = createAuthorizationCampaign({
+      id: "attach-live-campaign",
+      target: roundTrippedTarget,
+    });
+    const invariants = [
+      {
+        id: "inv-storage",
+        statement: "Only the owner can read files/{uid}/{name}",
+        service: "storage" as const,
+        expected: "DENY" as const,
+        source: "declared" as const,
+        confidence: "authoritative" as const,
+      },
+      {
+        id: "inv-firestore-ts",
+        statement: "Only the owner can read items/{id} when createdAt is a Timestamp",
+        service: "firestore" as const,
+        expected: "DENY" as const,
+        source: "declared" as const,
+        confidence: "authoritative" as const,
+      },
+    ];
+    for (const inv of invariants) {
+      directCampaign.addInvariant(inv);
+      campaign.addInvariant(inv);
+    }
+    const mapping = {
+      actors: [
+        { id: "owner", acquisition: { kind: "fixture-user" as const, uid: "alice" } },
+        { id: "other", acquisition: { kind: "fixture-user" as const, uid: anonUid } },
+      ],
+      probes: [
+        {
+          id: "probe-storage-read",
+          actorId: "other",
+          invariantId: "inv-storage",
+          control: { service: "storage" as const, method: "get" as const, path: `files/${anonUid}/own.txt` },
+          mutation: {
+            dimension: "path" as const,
+            description: "Read another user's stored file",
+            operation: { service: "storage" as const, method: "get" as const, path: "files/alice/note.txt" },
+          },
+        },
+        {
+          id: "probe-firestore-ts",
+          actorId: "owner",
+          invariantId: "inv-firestore-ts",
+          control: { service: "firestore" as const, method: "get" as const, path: "items/item-1" },
+          mutation: {
+            dimension: "path" as const,
+            description: "Read non-existent item",
+            operation: { service: "firestore" as const, method: "get", path: "items/item-2" },
+          },
+        },
+      ],
+    };
+    await uploadBytes(
+      storageRef(adminStorage, `files/${anonUid}/own.txt`),
+      new TextEncoder().encode("anon-note"),
+      { contentType: "text/plain" },
+    );
+    const refreshed = await attach({ url: "http://localhost:5210" });
+    const refreshedRoundTrip = JSON.parse(
+      JSON.stringify(refreshed.target),
+    ) as typeof refreshed.target;
+    const directRefreshed = createAuthorizationCampaign({
+      id: "attach-direct-refreshed",
+      target: refreshed.target,
+    });
+    const roundTripRefreshed = createAuthorizationCampaign({
+      id: "attach-roundtrip-refreshed",
+      target: refreshedRoundTrip,
+    });
+    for (const inv of invariants) {
+      directRefreshed.addInvariant(inv);
+      roundTripRefreshed.addInvariant(inv);
+    }
+    directRefreshed.map(mapping);
+    roundTripRefreshed.map(mapping);
+
+    const directReport = await directRefreshed.run();
+    const report = await roundTripRefreshed.run();
+    expect(report.targetHash).toBe(directReport.targetHash);
+    const storageResult = report.results.find((r) => r.probeId === "probe-storage-read");
+    const fsResult = report.results.find((r) => r.probeId === "probe-firestore-ts");
+    expect(storageResult?.control.decision).toBe("ALLOW");
+    expect(storageResult?.mutation?.decision).toBe("DENY");
+    expect(fsResult?.control.decision).toBe("ALLOW");
   });
 
   it("rejects non-loopback and cross-origin URLs before any request", async () => {

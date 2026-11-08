@@ -77,5 +77,6 @@ describe('the generated tool descriptions', () => {
       .map((tool) => `${tool.name}${tool.description}${JSON.stringify(tool.inputSchema)}`)
       .join('');
     expect(listing.length / CHARACTERS_PER_TOKEN).toBeLessThan(LISTING_TOKEN_BUDGET);
+    expect(listing.length / CHARACTERS_PER_TOKEN).toBeLessThanOrEqual(4980);
   });
 });

@@ -1,83 +1,23 @@
-import { getAuth, sandbox as authSandbox, type SeedUser } from "pyric/auth";
-import {
-  endAt as endAtRtdb,
-  endBefore as endBeforeRtdb,
-  equalTo as equalToRtdb,
-  getAdminDatabase,
-  getDatabase,
-  get as getRtdb,
-  limitToFirst as limitToFirstRtdb,
-  limitToLast as limitToLastRtdb,
-  orderByChild as orderByChildRtdb,
-  orderByKey as orderByKeyRtdb,
-  orderByValue as orderByValueRtdb,
-  query as queryRtdb,
-  ref as rtdbRef,
-  remove as removeRtdb,
-  sandbox as rtdbSandbox,
-  set as setRtdb,
-  startAfter as startAfterRtdb,
-  startAt as startAtRtdb,
-  update as updateRtdb,
-  type Database,
-  type QueryConstraint as RtdbQueryConstraint,
-} from "pyric/database";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  getFirestore,
-  limit,
-  orderBy,
-  query,
-  setDoc,
-  updateDoc,
-  where,
-  type Firestore,
-  type Query,
-  type QueryConstraint,
-} from "pyric/firestore";
-import { seedDocuments, setRules, snapshotDocuments } from "pyric/sandbox/firestore";
-import {
-  deleteObject,
-  getBlob,
-  getMetadata,
-  getStorageSandbox,
-  listAll,
-  ref as storageRef,
-  updateMetadata,
-  uploadBytes,
-  type FirebaseStorage,
-} from "pyric/storage";
-import {
-  arrayBufferToBase64,
-  getAdminStorageSandbox,
-} from "pyric/storage/internal";
-import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
-import {
-  initializeSandbox,
-  type AuthState,
-  type LocalSandbox,
-  type SandboxContext,
-  type SandboxEvent,
-} from "pyric/sandbox";
-import { getInternalEnv, resolveDatabaseInstance } from "pyric/sandbox/internal";
+import { getDatabase } from "pyric/database";
+import { initializeSandbox, type SandboxEvent } from "pyric/sandbox";
+import { resolveDatabaseInstance } from "pyric/sandbox/internal";
 import { qualifyProbe, rulesLoadRefusal } from "./capabilities.js";
 import {
-  assertActor,
-  assertInvariant,
-  assertProbe,
-  assertTarget,
-  assertCampaign,
-} from "./validation.js";
+  executeFirestore,
+  executeRtdb,
+  executeStorage,
+} from "./runner-operations.js";
 import {
-  ASSURANCE_CAMPAIGN_SCHEMA,
+  acquireActor,
+  createRuntime,
+  readState,
+  stableStringify,
+  targetHash,
+  type ActorRuntime,
+} from "./runner-runtime.js";
+import {
   ASSURANCE_REPORT_SCHEMA,
-  AssuranceInputError,
   type ActorEvidence,
-  type AssuranceActor,
   type AssuranceDecision,
   type AssuranceEventEvidence,
   type AssuranceProbe,
@@ -90,26 +30,8 @@ import {
   type ProbeClassification,
   type SecurityInvariant,
   type StateDiff,
-  type StorageOperation,
 } from "./types.js";
-
-interface ActorRuntime {
-  evidence: ActorEvidence;
-  auth: AuthState | null;
-}
-
-
-
-interface ServiceRuntime {
-  sandbox: LocalSandbox;
-  actor: ActorRuntime;
-  context: SandboxContext;
-  firestore?: Firestore;
-  rtdb?: Database;
-  rtdbAdmin?: Database;
-  storage?: FirebaseStorage;
-  storageAdmin?: FirebaseStorage;
-}
+import { assertCampaign } from "./validation.js";
 
 interface ExecutedOperation {
   actorEvidence: ActorEvidence;
@@ -117,296 +39,39 @@ interface ExecutedOperation {
   stateDiff: StateDiff;
 }
 
-let storageRunSequence = 0;
-
-function uniqueIds(items: ReadonlyArray<{ id: string }>, label: string): void {
-  const seen = new Set<string>();
-  for (const item of items) {
-    if (!item.id.trim())
-      throw new AssuranceInputError(`${label} id is required.`);
-    if (seen.has(item.id))
-      throw new AssuranceInputError(`duplicate ${label} id '${item.id}'.`);
-    seen.add(item.id);
-  }
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-    .join(",")}}`;
-}
-
-function targetHash(target: LocalFirebaseTarget): string {
-  const input = stableStringify(target);
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < input.length; index++) {
-    hash ^= input.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return `fnv1a32-${hash.toString(16).padStart(8, "0")}`;
-}
-
-function authUsers(target: LocalFirebaseTarget): SeedUser[] {
-  return (target.state.auth?.users ?? []).map((user) => ({
-    uid: user.uid,
-    ...(typeof user.email === "string" ? { email: user.email } : {}),
-    ...(user.password !== undefined ? { password: user.password } : {}),
-    ...(user.customClaims ? { customClaims: user.customClaims } : {}),
-  }));
-}
-
-function normalizeFirestorePath(path: string): string {
-  return path.replace(/^\/+|\/+$/g, "");
-}
-
-function normalizeFirestoreDocuments(
-  docs: Record<string, Record<string, unknown>> | undefined,
-): Record<string, Record<string, unknown>> {
-  if (!docs) return {};
-  const normalized: Record<string, Record<string, unknown>> = {};
-  for (const [path, data] of Object.entries(docs)) {
-    normalized[normalizeFirestorePath(path)] = data;
-  }
-  return normalized;
-}
-
-function seedAuth(
-  sandbox: LocalSandbox,
-  target: LocalFirebaseTarget,
-): ReturnType<typeof getAuth> {
-  const auth = getAuth(sandbox);
-  authSandbox.seedUsers(auth, authUsers(target));
-  for (const user of target.state.auth?.users ?? []) {
-    if (user.disabled !== undefined || user.emailVerified !== undefined) {
-      authSandbox.updateUser(auth, user.uid, {
-        ...(user.disabled !== undefined ? { disabled: user.disabled } : {}),
-        ...(user.emailVerified !== undefined
-          ? { emailVerified: user.emailVerified }
-          : {}),
-      });
-    }
-  }
-  return auth;
-}
-
-function acquireActor(
-  sandbox: LocalSandbox,
-  target: LocalFirebaseTarget,
-  actor: AssuranceActor,
-): ActorRuntime {
-  const auth = seedAuth(sandbox, target);
-  try {
-    switch (actor.acquisition.kind) {
-      case "anonymous-request":
-        return {
-          auth: null,
-          evidence: {
-            actorId: actor.id,
-            acquisition: actor.acquisition.kind,
-            reachability: "reachable",
-          },
-        };
-      case "anonymous-account": {
-        const session = authSandbox.mintSession(auth, { kind: "anonymous" });
-        return {
-          auth: session.state,
-          evidence: {
-            actorId: actor.id,
-            acquisition: actor.acquisition.kind,
-            reachability: "reachable",
-            uid: session.user.uid,
-          },
-        };
-      }
-      case "password": {
-        const session = authSandbox.mintSession(auth, {
-          kind: "password",
-          email: actor.acquisition.email,
-          password: actor.acquisition.password,
-        });
-        return {
-          auth: session.state,
-          evidence: {
-            actorId: actor.id,
-            acquisition: actor.acquisition.kind,
-            reachability: "reachable",
-            uid: session.user.uid,
-          },
-        };
-      }
-      case "fixture-user": {
-        const session = authSandbox.mintSession(auth, {
-          kind: "uid",
-          uid: actor.acquisition.uid,
-        });
-        return {
-          auth: session.state,
-          evidence: {
-            actorId: actor.id,
-            acquisition: actor.acquisition.kind,
-            reachability: "reachable",
-            uid: session.user.uid,
-          },
-        };
-      }
-      case "synthetic":
-        return {
-          auth: {
-            uid: actor.acquisition.uid,
-            token: actor.acquisition.token ?? {},
-          },
-          evidence: {
-            actorId: actor.id,
-            acquisition: actor.acquisition.kind,
-            reachability: "synthetic",
-            uid: actor.acquisition.uid,
-          },
-        };
-    }
-  } catch (error) {
-    return {
-      auth: null,
-      evidence: {
-        actorId: actor.id,
-        acquisition: actor.acquisition.kind,
-        reachability: "unreachable",
-        error: error instanceof Error ? error.message : String(error),
-      },
-    };
-  }
-}
-
-async function createRuntime(
-  campaignId: string,
-  probeId: string,
-  phase: "control" | "mutation",
-  target: LocalFirebaseTarget,
-  actorRuntime: ActorRuntime,
-  service: FirebaseOperation["service"],
-): Promise<ServiceRuntime> {
-  const sandbox = initializeSandbox();
-  seedAuth(sandbox, target);
-  const context = sandbox.withAuth(actorRuntime.auth);
-  const runtime: ServiceRuntime = { sandbox, actor: actorRuntime, context };
-
-  if (service === "firestore") {
-    const firestore = getFirestore(context);
-    setRules(sandbox, target.rules.firestore!);
-    seedDocuments(sandbox, normalizeFirestoreDocuments(target.state.firestore));
-    runtime.firestore = firestore;
-  } else if (service === "rtdb") {
-    const rtdb = getDatabase(context);
-    const admin = getAdminDatabase(sandbox);
-    if (target.rules.rtdb) {
-      const refusal = rtdbRulesSourceRejection(target.rules.rtdb as any);
-      if (refusal !== null) throw new Error(`The assurance target's database rules would not deploy. ${refusal.message}`);
-      rtdbSandbox.setRules(rtdb, target.rules.rtdb as any);
-      rtdbSandbox.setData(admin, { "/": target.state.rtdb ?? {} });
-    }
-    runtime.rtdb = rtdb;
-    runtime.rtdbAdmin = admin;
-
-    if (target.rules.rtdbInstances) {
-      const stateByResolved = new Map<string, unknown>();
-      if (target.state.rtdbInstances) {
-         for (const [k, v] of Object.entries(target.state.rtdbInstances)) {
-            stateByResolved.set(resolveDatabaseInstance(k)!.name, v);
-         }
-      }
-      for (const [instanceName, instanceValue] of Object.entries(target.rules.rtdbInstances)) {
-        const instanceRefusal = rtdbRulesSourceRejection(instanceValue);
-        if (instanceRefusal !== null) throw new Error(`The assurance target's database rules for instance '${instanceName}' would not deploy. ${instanceRefusal.message}`);
-        
-        const resolved = resolveDatabaseInstance(instanceName)!;
-        const instDb = getDatabase(context, resolved.url);
-        const instAdmin = getAdminDatabase(sandbox, resolved.url);
-        rtdbSandbox.setRules(instDb, instanceValue as { rules: Record<string, unknown> });
-        const instData = stateByResolved.get(resolved.name);
-        rtdbSandbox.setData(instAdmin, { "/": instData ?? {} });
-      }
-    }
-  } else {
-    if (target.state.firestore) {
-      seedDocuments(
-        sandbox,
-        normalizeFirestoreDocuments(target.state.firestore),
-      );
-    }
-    const dbName = [
-      "pyric-assurance",
-      campaignId,
-      probeId,
-      phase,
-      Date.now(),
-      storageRunSequence++,
-    ]
-      .join("-")
-      .replace(/[^a-zA-Z0-9_-]/g, "_");
-    const admin = getAdminStorageSandbox(sandbox, {
-      dbName,
-      rules: target.rules.storage!,
-    });
-    for (const object of target.state.storage ?? []) {
-      await uploadBytes(
-        storageRef(admin, object.path),
-        decodeBase64(object.dataBase64),
-        {
-          ...(object.contentType ? { contentType: object.contentType } : {}),
-          ...(object.customMetadata
-            ? { customMetadata: object.customMetadata }
-            : {}),
-        },
-      );
-    }
-    runtime.storageAdmin = admin;
-    runtime.storage = getStorageSandbox(context, { dbName });
-  }
-  return runtime;
-}
-
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
-
 function eventEvidence(events: SandboxEvent[]): AssuranceEventEvidence[] {
-  return events.map((event) => {
+  return events.map((event): AssuranceEventEvidence => {
     const raw = event as unknown as Record<string, unknown>;
-    return {
-      ...(typeof raw.id === "string" ? { id: raw.id } : {}),
-      ...(typeof raw.at === "number" ? { at: raw.at } : {}),
-      ...(typeof raw.kind === "string" ? { kind: raw.kind } : {}),
-      ...(typeof raw.service === "string" ? { service: raw.service } : {}),
-      ...(typeof raw.method === "string" ? { method: raw.method } : {}),
-      ...(typeof raw.op === "string" ? { op: raw.op } : {}),
-      ...(typeof raw.path === "string" ? { path: raw.path } : {}),
-      ...(typeof raw.result === "string" ? { result: raw.result } : {}),
-      ...(raw.auth !== undefined ? { auth: raw.auth } : {}),
-      ...(raw.actor !== undefined ? { actor: raw.actor } : {}),
-      ...(raw.authLens !== undefined ? { authLens: raw.authLens } : {}),
-      ...(Array.isArray(raw.reasons) &&
+    const entry: AssuranceEventEvidence = {};
+    if (typeof raw.id === "string") entry.id = raw.id;
+    if (typeof raw.at === "number") entry.at = raw.at;
+    if (typeof raw.kind === "string") entry.kind = raw.kind;
+    if (typeof raw.service === "string") entry.service = raw.service;
+    if (typeof raw.method === "string") entry.method = raw.method;
+    if (typeof raw.op === "string") entry.op = raw.op;
+    if (typeof raw.path === "string") entry.path = raw.path;
+    if (typeof raw.result === "string") entry.result = raw.result;
+    if (raw.auth !== undefined) entry.auth = raw.auth;
+    if (raw.actor !== undefined) entry.actor = raw.actor;
+    if (raw.authLens !== undefined) entry.authLens = raw.authLens;
+    if (
+      Array.isArray(raw.reasons) &&
       raw.reasons.every((item) => typeof item === "string")
-        ? { reasons: raw.reasons as string[] }
-        : {}),
-      ...(raw.origin !== undefined ? { origin: raw.origin } : {}),
-      ...(raw.request !== undefined ? { request: raw.request } : {}),
-      ...(raw.resourceBefore !== undefined
-        ? { resourceBefore: raw.resourceBefore }
-        : {}),
-      queryProof: event.kind === 'request' ? event.queryProof : undefined,
-      ...(raw.matchedRule !== undefined
-        ? { matchedRule: raw.matchedRule }
-        : {}),
-      ...(raw.evaluatedRule !== undefined
-        ? { evaluatedRule: raw.evaluatedRule }
-        : {}),
-      ...(raw.rules !== undefined ? { rules: raw.rules } : {}),
-    };
+    ) {
+      entry.reasons = raw.reasons as string[];
+    }
+    if (raw.origin !== undefined) entry.origin = raw.origin;
+    if (raw.request !== undefined) entry.request = raw.request;
+    if (raw.resourceBefore !== undefined) {
+      entry.resourceBefore = raw.resourceBefore;
+    }
+    if (event.kind === "request") {
+      entry.queryProof = event.queryProof;
+    }
+    if (raw.matchedRule !== undefined) entry.matchedRule = raw.matchedRule;
+    if (raw.evaluatedRule !== undefined) entry.evaluatedRule = raw.evaluatedRule;
+    if (raw.rules !== undefined) entry.rules = raw.rules;
+    return entry;
   });
 }
 
@@ -415,285 +80,28 @@ function errorDecision(error: unknown): {
   error: { code?: string; message: string };
 } {
   const code = (error as { code?: unknown } | null)?.code;
-  const message = error instanceof Error ? error.message : String(error);
-  const codeString = typeof code === "string" ? code : undefined;
-  const denied =
-    /permission[-_ ]?denied|unauthorized/i.test(message) ||
-    (codeString
-      ? /permission[-_ ]?denied|unauthorized/i.test(codeString)
-      : false);
-  return {
-    decision: denied ? "DENY" : "ERROR",
-    error: { ...(codeString ? { code: codeString } : {}), message },
-  };
-}
-
-async function executeFirestore(
-  operation: FirebaseOperation,
-  db: Firestore,
-  runtime: ServiceRuntime,
-): Promise<unknown> {
-  if (operation.service !== "firestore")
-    throw new Error("Expected a Firestore operation.");
-  const path = normalizeFirestorePath(operation.path);
-  switch (operation.method) {
-    case "get": {
-      const snapshot = await getDoc(doc(db, path));
-      const exists =
-        typeof snapshot.exists === "function"
-          ? snapshot.exists()
-          : snapshot.exists;
-      return exists ? snapshot.data() : null;
-    }
-    case "list": {
-      const constraints: QueryConstraint[] = [];
-      for (const item of operation.query?.where ?? []) {
-        constraints.push(where(item.field, item.op, item.value));
-      }
-      for (const item of operation.query?.orderBy ?? []) {
-        constraints.push(orderBy(item.field, item.direction));
-      }
-      if (operation.query?.limit !== undefined)
-        constraints.push(limit(operation.query.limit));
-      const source = constraints.length
-        ? query(collection(db, path), ...constraints)
-        : collection(db, path);
-      const snapshot = await getDocs(source as Query);
-      return snapshot.docs.map((item) => ({
-        path: `${path}/${item.id}`,
-        data: item.data(),
-      }));
-    }
-    case "create": {
-      doc(db, path);
-      const result = getInternalEnv(runtime.sandbox).execute({
-        method: "create",
-        path,
-        data: operation.data ?? {},
-        auth: runtime.actor.auth,
-      });
-      if (!result.allowed) {
-        throw (
-          result.error ??
-          new Error(result.debugMessages.join("; ") || "create denied")
-        );
-      }
-      return null;
-    }
-    case "set":
-      await setDoc(doc(db, path), operation.data ?? {});
-      return null;
-    case "merge":
-      await setDoc(doc(db, path), operation.data ?? {}, {
-        merge: true,
-      });
-      return null;
-    case "update":
-      await updateDoc(doc(db, path), operation.data ?? {});
-      return null;
-    case "delete":
-      await deleteDoc(doc(db, path));
-      return null;
+  let message = String(error);
+  if (error instanceof Error) {
+    message = error.message;
   }
-}
-
-async function executeRtdb(
-  operation: FirebaseOperation,
-  db: Database,
-): Promise<unknown> {
-  if (operation.service !== "rtdb")
-    throw new Error("Expected an RTDB operation.");
-  const target = rtdbRef(db, operation.path);
-  switch (operation.method) {
-    case "get": {
-      const constraints: RtdbQueryConstraint[] = [];
-      const querySpec = operation.query;
-      if (querySpec?.orderBy?.kind === "child") {
-        constraints.push(orderByChildRtdb(querySpec.orderBy.path));
-      } else if (querySpec?.orderBy?.kind === "key") {
-        constraints.push(orderByKeyRtdb());
-      } else if (querySpec?.orderBy?.kind === "value") {
-        constraints.push(orderByValueRtdb());
-      }
-      if (querySpec?.startAt) {
-        constraints.push(
-          startAtRtdb(querySpec.startAt.value as never, querySpec.startAt.key),
-        );
-      }
-      if (querySpec?.startAfter) {
-        constraints.push(
-          startAfterRtdb(
-            querySpec.startAfter.value as never,
-            querySpec.startAfter.key,
-          ),
-        );
-      }
-      if (querySpec?.endAt) {
-        constraints.push(
-          endAtRtdb(querySpec.endAt.value as never, querySpec.endAt.key),
-        );
-      }
-      if (querySpec?.endBefore) {
-        constraints.push(
-          endBeforeRtdb(
-            querySpec.endBefore.value as never,
-            querySpec.endBefore.key,
-          ),
-        );
-      }
-      if (querySpec?.equalTo) {
-        constraints.push(
-          equalToRtdb(querySpec.equalTo.value as never, querySpec.equalTo.key),
-        );
-      }
-      if (querySpec?.limitToFirst !== undefined) {
-        constraints.push(limitToFirstRtdb(querySpec.limitToFirst));
-      }
-      if (querySpec?.limitToLast !== undefined) {
-        constraints.push(limitToLastRtdb(querySpec.limitToLast));
-      }
-      const source =
-        constraints.length > 0 ? queryRtdb(target, ...constraints) : target;
-      return (await getRtdb(source)).val();
-    }
-    case "set":
-      await setRtdb(target, operation.data);
-      return null;
-    case "update":
-      if (
-        !operation.data ||
-        typeof operation.data !== "object" ||
-        Array.isArray(operation.data)
-      ) {
-        throw new Error("RTDB update data must be an object.");
-      }
-      await updateRtdb(target, operation.data as Record<string, unknown>);
-      return null;
-    case "remove":
-      await removeRtdb(target);
-      return null;
+  let codeString: string | undefined;
+  if (typeof code === "string") {
+    codeString = code;
   }
-}
-
-async function executeStorage(
-  operation: StorageOperation,
-  storage: FirebaseStorage,
-): Promise<unknown> {
-  const target = storageRef(storage, operation.path);
-  switch (operation.method) {
-    case "get": {
-      try {
-        const [blob, metadata] = await Promise.all([
-          getBlob(target),
-          getMetadata(target),
-        ]);
-        const buffer = await blob.arrayBuffer();
-        return {
-          dataBase64: arrayBufferToBase64(buffer),
-          text: new TextDecoder().decode(buffer),
-          contentType: metadata.contentType,
-          customMetadata: metadata.customMetadata ?? {},
-        };
-      } catch (error) {
-        const code = (error as { code?: string } | null)?.code;
-        if (code === "storage/object-not-found") return null;
-        throw error;
-      }
-    }
-    case "list": {
-      const result = await listAll(target);
-      return {
-        items: result.items.map((item) => item.fullPath),
-        prefixes: result.prefixes.map((item) => item.fullPath),
-      };
-    }
-    case "upload": {
-      if (!operation.dataBase64)
-        throw new Error("Storage upload requires dataBase64.");
-      const result = await uploadBytes(
-        target,
-        decodeBase64(operation.dataBase64),
-        {
-          ...(operation.contentType
-            ? { contentType: operation.contentType }
-            : {}),
-          ...(operation.customMetadata
-            ? { customMetadata: operation.customMetadata }
-            : {}),
-        },
-      );
-      return result.metadata;
-    }
-    case "updateMetadata":
-      return updateMetadata(target, {
-        ...(operation.contentType
-          ? { contentType: operation.contentType }
-          : {}),
-        ...(operation.customMetadata
-          ? { customMetadata: operation.customMetadata }
-          : {}),
-      });
-    case "delete":
-      await deleteObject(target);
-      return null;
+  const messageDenied = /permission[-_ ]?denied|unauthorized/i.test(message);
+  let codeDenied = false;
+  if (codeString !== undefined) {
+    codeDenied = /permission[-_ ]?denied|unauthorized/i.test(codeString);
   }
-}
-
-async function readState(
-  operation: FirebaseOperation,
-  runtime: ServiceRuntime,
-): Promise<unknown> {
-  if (operation.service === "firestore") {
-    const state = snapshotDocuments(runtime.sandbox);
-    const normalizedPath = normalizeFirestorePath(operation.path);
-    if (operation.method === "list") {
-      const prefix = `${normalizedPath}/`;
-      return Object.fromEntries(
-        Object.entries(state).filter(([path]) => path.startsWith(prefix)),
-      );
-    }
-    return state[normalizedPath] ?? null;
+  let decision: AssuranceDecision = "ERROR";
+  if (messageDenied || codeDenied) {
+    decision = "DENY";
   }
-  if (operation.service === "rtdb") {
-    let admin = runtime.rtdbAdmin!;
-    if (operation.instance && operation.instance !== "default") {
-      const url = resolveDatabaseInstance(operation.instance)!.url;
-      admin = getAdminDatabase(runtime.sandbox, url);
-    }
-    return (await getRtdb(rtdbRef(admin, operation.path))).val();
+  const detail: { code?: string; message: string } = { message };
+  if (codeString) {
+    detail.code = codeString;
   }
-  return readStorageState(operation, runtime.storageAdmin!);
-}
-
-async function readStorageState(
-  operation: StorageOperation,
-  storage: FirebaseStorage,
-): Promise<unknown> {
-  if (operation.method === "list") {
-    const result = await listAll(storageRef(storage, operation.path));
-    return {
-      items: result.items.map((item) => item.fullPath),
-      prefixes: result.prefixes.map((item) => item.fullPath),
-    };
-  }
-  const target = storageRef(storage, operation.path);
-  try {
-    const [blob, metadata] = await Promise.all([
-      getBlob(target),
-      getMetadata(target),
-    ]);
-    const buffer = await blob.arrayBuffer();
-    return {
-      dataBase64: arrayBufferToBase64(buffer),
-      text: new TextDecoder().decode(buffer),
-      contentType: metadata.contentType,
-      customMetadata: metadata.customMetadata ?? {},
-    };
-  } catch (error) {
-    const code = (error as { code?: string } | null)?.code;
-    if (code === "storage/object-not-found") return null;
-    throw error;
-  }
+  return { decision, error: detail };
 }
 
 async function executeOperation(
@@ -718,12 +126,18 @@ async function executeOperation(
   let output: unknown;
   let failure: { code?: string; message: string } | undefined;
   try {
-    output =
-      operation.service === "firestore"
-        ? await executeFirestore(operation, runtime.firestore!, runtime)
-        : operation.service === "rtdb"
-          ? await executeRtdb(operation, operation.instance && operation.instance !== "default" ? getDatabase(runtime.context, resolveDatabaseInstance(operation.instance)!.url) : runtime.rtdb!)
-          : await executeStorage(operation, runtime.storage!);
+    if (operation.service === "firestore") {
+      output = await executeFirestore(operation, runtime.firestore!, runtime);
+    } else if (operation.service === "rtdb") {
+      let db = runtime.rtdb!;
+      if (operation.instance && operation.instance !== "default") {
+        const instanceUrl = resolveDatabaseInstance(operation.instance)!.url;
+        db = getDatabase(runtime.context, instanceUrl);
+      }
+      output = await executeRtdb(operation, db);
+    } else {
+      output = await executeStorage(operation, runtime.storage!);
+    }
   } catch (error) {
     const result = errorDecision(error);
     decision = result.decision;
@@ -731,15 +145,16 @@ async function executeOperation(
   }
   const events = eventEvidence(runtime.sandbox.history().slice(eventOffset));
   const after = await readState(operation, runtime);
+  const evidence: OperationEvidence = {
+    operation,
+    decision,
+    events,
+  };
+  if (output !== undefined) evidence.output = output;
+  if (failure !== undefined) evidence.error = failure;
   return {
     actorEvidence: runtime.actor.evidence,
-    evidence: {
-      operation,
-      decision,
-      ...(output !== undefined ? { output } : {}),
-      ...(failure ? { error: failure } : {}),
-      events,
-    },
+    evidence,
     stateDiff: {
       changed: stableStringify(before) !== stableStringify(after),
       before,
@@ -783,21 +198,33 @@ function classify(
 ): ProbeClassification {
   if (actor.reachability === "unreachable") return "invalid-probe";
   if (control.decision !== "ALLOW") return "invalid-probe";
-  if (mutation.decision === "ERROR" || mutation.decision === "UNSUPPORTED")
+  if (mutation.decision === "ERROR" || mutation.decision === "UNSUPPORTED") {
     return "invalid-probe";
+  }
   if (mutation.decision === invariant.expected) return "no-counterexample";
   if (invariant.expected === "DENY" && mutation.decision === "ALLOW") {
     const isRead = READ_METHODS.has(mutation.operation.method);
-    const hasImpact = isRead
-      ? hasReadImpact(mutation.operation, mutation.output)
-      : stateDiff.changed;
-    return actor.reachability === "reachable" &&
+    let hasImpact = stateDiff.changed;
+    if (isRead) {
+      hasImpact = hasReadImpact(mutation.operation, mutation.output);
+    }
+    const isAuthoritativeCounterexample =
+      actor.reachability === "reachable" &&
       invariant.confidence !== "tentative" &&
-      hasImpact
-      ? "local-counterexample"
-      : "candidate-signal";
+      hasImpact;
+    if (isAuthoritativeCounterexample) {
+      return "local-counterexample";
+    }
+    return "candidate-signal";
   }
   return "candidate-signal";
+}
+
+function unreachableReachability(
+  kind: ActorEvidence["acquisition"],
+): ActorEvidence["reachability"] {
+  if (kind === "synthetic") return "synthetic";
+  return "unreachable";
 }
 
 async function runProbe(
@@ -810,9 +237,6 @@ async function runProbe(
     (item) => item.id === probe.invariantId,
   )!;
   const qualification = qualifyProbe(spec.target, probe);
-  // Production refuses to load a source that does not parse or breaks a
-  // compile limit, so no request is ever evaluated against it. The probe
-  // reports that refusal in production's words instead of running.
   const refusal =
     rulesLoadRefusal(spec.target, probe.control.service) ??
     rulesLoadRefusal(spec.target, probe.mutation.operation.service);
@@ -825,8 +249,7 @@ async function runProbe(
       actorEvidence: {
         actorId: actor.id,
         acquisition: actor.acquisition.kind,
-        reachability:
-          actor.acquisition.kind === "synthetic" ? "synthetic" : "unreachable",
+        reachability: unreachableReachability(actor.acquisition.kind),
       },
       invariant,
       mutationSpec: probe.mutation,
@@ -847,8 +270,7 @@ async function runProbe(
       actorEvidence: {
         actorId: actor.id,
         acquisition: actor.acquisition.kind,
-        reachability:
-          actor.acquisition.kind === "synthetic" ? "synthetic" : "unreachable",
+        reachability: unreachableReachability(actor.acquisition.kind),
       },
       invariant,
       mutationSpec: probe.mutation,

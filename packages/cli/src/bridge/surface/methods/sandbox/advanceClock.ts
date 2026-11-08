@@ -10,8 +10,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'advanceClock(ms)',
-  description:
-    'Advance ms; a running clock keeps running, a pinned clock stays frozen.',
+  description: 'Advance clock by ms.',
   args: z.object({
     ms: z.number().int().positive().describe('Milliseconds to advance the clock by.'),
   }),

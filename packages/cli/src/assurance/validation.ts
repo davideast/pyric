@@ -14,20 +14,28 @@
  * own passes nothing and gets the record's kind instead.
  */
 import { resolveDatabaseInstance } from "pyric/sandbox/internal";
-import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import {
   ASSURANCE_CAMPAIGN_SCHEMA,
-  ASSURANCE_TARGET_SCHEMA,
   AssuranceInputError,
   type AssuranceActor,
   type AssuranceObservation,
   type AssuranceProbe,
-  type FirebaseOperation,
   type AuthorizationCampaignSpec,
-  type LocalFirebaseTarget,
+  type FirebaseOperation,
   type MutationDimension,
   type SecurityInvariant,
 } from "./types.js";
+import {
+  assertPositiveInteger,
+  assertTarget,
+  assertValidBase64,
+  enumValue,
+  received,
+  requiredRecord,
+  requiredString,
+} from "./validation-target.js";
+
+export { assertTarget };
 
 AssuranceInputError.prototype.name = "AssuranceInputError";
 
@@ -112,209 +120,6 @@ export const FIRESTORE_ORDER_DIRECTIONS = ["asc", "desc"] as const;
 /** The orderBy kinds an RTDB query can name. */
 export const RTDB_ORDER_KINDS = ["child", "key", "value", "priority"] as const;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-/** One value as a rejection spells it, so a caller sees what was actually sent. */
-function received(value: unknown): string {
-  if (value === undefined) return "nothing was sent";
-  if (typeof value === "string") return `'${value}' was sent`;
-  return `${JSON.stringify(value)} was sent`;
-}
-
-/**
- * Reject a missing or empty string, naming where it sits and which field it is.
- */
-function requiredString(
-  value: unknown,
-  where: string,
-  field: string,
-): asserts value is string {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new AssuranceInputError(
-      `${where}.${field} is required and must be a non-empty string. ${received(value)}.`,
-    );
-  }
-}
-
-/**
- * Reject a value outside a closed set, listing every value the set holds.
- * This is the rejection a caller reads before its next call, so the list is
- * the whole point of it.
- */
-function enumValue(
-  value: unknown,
-  allowed: readonly string[],
-  where: string,
-  field: string,
-): asserts value is string {
-  if (typeof value !== "string" || !allowed.includes(value)) {
-    throw new AssuranceInputError(
-      `${where}.${field} must be one of ${allowed.join(", ")}. ${received(value)}.`,
-    );
-  }
-}
-
-/** Reject a value that is not an object, naming where it sits. */
-function requiredRecord(
-  value: unknown,
-  where: string,
-): asserts value is Record<string, unknown> {
-  if (!isRecord(value)) {
-    throw new AssuranceInputError(`${where} must be an object. ${received(value)}.`);
-  }
-}
-
-/** Reject a value that is not a valid base64 string, naming where it sits. */
-function assertValidBase64(
-  value: unknown,
-  where: string,
-): asserts value is string {
-  if (typeof value !== "string") {
-    throw new AssuranceInputError(`${where} must be a string. ${received(value)}.`);
-  }
-  try {
-    atob(value);
-  } catch {
-    throw new AssuranceInputError(`${where} must be valid base64. ${received(value)}.`);
-  }
-}
-
-/** Reject a value that is not a positive integer, naming where it sits. */
-function assertPositiveInteger(
-  value: unknown,
-  where: string,
-): asserts value is number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-    throw new AssuranceInputError(
-      `${where} must be a positive integer. ${received(value)}.`,
-    );
-  }
-}
-
-export function assertTarget(
-  target: unknown,
-  where = "target",
-): asserts target is LocalFirebaseTarget {
-  requiredRecord(target, where);
-  if (target.schema !== ASSURANCE_TARGET_SCHEMA) {
-    throw new AssuranceInputError(
-      `${where}.schema must be one of ${ASSURANCE_TARGET_SCHEMA}. ${received(target.schema)}.`,
-    );
-  }
-  if (target.network !== "forbid") {
-    throw new AssuranceInputError(
-      `${where}.network must be one of forbid. ${received(target.network)}.`,
-    );
-  }
-  requiredRecord(target.rules, `${where}.rules`);
-  requiredRecord(target.state, `${where}.state`);
-  if (
-    target.rules.firestore !== undefined &&
-    typeof target.rules.firestore !== "string"
-  ) {
-    throw new AssuranceInputError(
-      `${where}.rules.firestore must be a string. ${received(target.rules.firestore)}.`,
-    );
-  }
-  if (
-    target.rules.storage !== undefined &&
-    typeof target.rules.storage !== "string"
-  ) {
-    throw new AssuranceInputError(
-      `${where}.rules.storage must be a string. ${received(target.rules.storage)}.`,
-    );
-  }
-  if (target.rules.rtdb !== undefined) {
-    requiredRecord(target.rules.rtdb, `${where}.rules.rtdb`);
-    requiredRecord(target.rules.rtdb.rules, `${where}.rules.rtdb.rules`);
-
-  }
-
-  const declaredRuleInstances = new Map<string, string>();
-  if (target.rules.rtdbInstances !== undefined) {
-    requiredRecord(target.rules.rtdbInstances, `${where}.rules.rtdbInstances`);
-    for (const [instance, rules] of Object.entries(target.rules.rtdbInstances)) {
-      const at = `${where}.rules.rtdbInstances[${JSON.stringify(instance)}]`;
-      requiredRecord(rules, at);
-      requiredRecord((rules as any).rules, `${at}.rules`);
-      try {
-        const resolvedName = resolveDatabaseInstance(instance)!.name;
-        if (declaredRuleInstances.has(resolvedName)) {
-           throw new AssuranceInputError(`${at} declares instance '${resolvedName}' which is already declared by key '${declaredRuleInstances.get(resolvedName)}'`);
-        }
-        declaredRuleInstances.set(resolvedName, instance);
-      } catch (e) {
-        if (e instanceof AssuranceInputError) throw e;
-        throw new AssuranceInputError(`${at} names a malformed RTDB instance: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-  }
-
-  if (target.state.firestore !== undefined) {
-    requiredRecord(target.state.firestore, `${where}.state.firestore`);
-    for (const [docPath, docData] of Object.entries(target.state.firestore)) {
-      requiredRecord(docData, `${where}.state.firestore[${docPath}]`);
-    }
-  }
-  if (target.state.rtdbInstances !== undefined) {
-    requiredRecord(target.state.rtdbInstances, `${where}.state.rtdbInstances`);
-    const declaredStateInstances = new Map<string, string>();
-    for (const [instance] of Object.entries(target.state.rtdbInstances)) {
-      const at = `${where}.state.rtdbInstances[${JSON.stringify(instance)}]`;
-      try {
-        const resolvedName = resolveDatabaseInstance(instance)!.name;
-        if (!declaredRuleInstances.has(resolvedName)) {
-           throw new AssuranceInputError(`${at} provides state for instance '${resolvedName}' which has no declared rules`);
-        }
-        if (declaredStateInstances.has(resolvedName)) {
-           throw new AssuranceInputError(`${at} provides state for instance '${resolvedName}' which is already provided by key '${declaredStateInstances.get(resolvedName)}'`);
-        }
-        declaredStateInstances.set(resolvedName, instance);
-      } catch (e) {
-        if (e instanceof AssuranceInputError) throw e;
-        throw new AssuranceInputError(`${at} names a malformed RTDB instance: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-  }
-
-  if (target.state.storage !== undefined) {
-    if (!Array.isArray(target.state.storage)) {
-      throw new AssuranceInputError(
-        `${where}.state.storage must be an array. ${received(target.state.storage)}.`,
-      );
-    }
-    for (const [index, object] of target.state.storage.entries()) {
-      const at = `${where}.state.storage[${index}]`;
-      requiredRecord(object, at);
-      requiredString(object.path, at, "path");
-      assertValidBase64(object.dataBase64, `${at}.dataBase64`);
-    }
-  }
-  if (target.state.auth !== undefined) {
-    requiredRecord(target.state.auth, `${where}.state.auth`);
-    if (!Array.isArray(target.state.auth.users)) {
-      throw new AssuranceInputError(
-        `${where}.state.auth.users must be an array. ${received(target.state.auth.users)}.`,
-      );
-    }
-    for (const [index, user] of target.state.auth.users.entries()) {
-      const at = `${where}.state.auth.users[${index}]`;
-      requiredRecord(user, at);
-      requiredString(user.uid, at, "uid");
-      if (user.password !== undefined && typeof user.password !== "string") {
-        throw new AssuranceInputError(
-          `${at}.password must be a string. ${received(user.password)}.`,
-        );
-      }
-      if (user.customClaims !== undefined) {
-        requiredRecord(user.customClaims, `${at}.customClaims`);
-      }
-    }
-  }
-}
-
 export function assertActor(
   actor: unknown,
   where = "actor",
@@ -384,8 +189,10 @@ export function assertProbe(
 
   const changed = changedDimensions(probe.control, probe.mutation.operation);
   if (changed.length !== 1 || changed[0] !== probe.mutation.dimension) {
-    const changeDescription =
-      changed.length === 0 ? "no dimensions" : changed.join(", ");
+    let changeDescription = "no dimensions";
+    if (changed.length > 0) {
+      changeDescription = changed.join(", ");
+    }
     throw new AssuranceInputError(
       `${where}.mutation declares a '${probe.mutation.dimension}' mutation but changes ${changeDescription}.`,
     );
@@ -414,13 +221,13 @@ function assertOperation(
 ): asserts operation is FirebaseOperation {
   requiredRecord(operation, where);
   enumValue(operation.service, OPERATION_SERVICES, where, "service");
-  if (operation.service === "rtdb" && (operation as any).instance !== undefined) {
-    requiredString((operation as any).instance, where, "instance");
+  if (operation.service === "rtdb" && operation.instance !== undefined) {
+    requiredString(operation.instance, where, "instance");
   }
   requiredString(operation.path, where, "path");
   enumValue(
     operation.method,
-    OPERATION_METHODS[operation.service as string]!,
+    OPERATION_METHODS[operation.service]!,
     where,
     "method",
   );
@@ -539,7 +346,8 @@ function payload(operation: FirebaseOperation): unknown {
 }
 
 function queryShape(operation: FirebaseOperation): unknown {
-  return operation.service === "storage" ? undefined : operation.query;
+  if (operation.service === "storage") return undefined;
+  return operation.query;
 }
 
 export function changedDimensions(
@@ -558,15 +366,15 @@ export function changedDimensions(
   return changed;
 }
 
-
 export function assertCampaign(spec: AuthorizationCampaignSpec): void {
   if (spec.schema !== ASSURANCE_CAMPAIGN_SCHEMA) {
     throw new AssuranceInputError(
       `campaign schema must be '${ASSURANCE_CAMPAIGN_SCHEMA}'.`,
     );
   }
-  if (!spec.id.trim())
+  if (!spec.id.trim()) {
     throw new AssuranceInputError("campaign id is required.");
+  }
   assertTarget(spec.target);
   if (!Array.isArray(spec.actors)) {
     throw new AssuranceInputError("campaign actors must be an array.");
@@ -584,26 +392,55 @@ export function assertCampaign(spec: AuthorizationCampaignSpec): void {
   uniqueIds(spec.invariants, "invariant");
   uniqueIds(spec.probes, "probe");
 
-  const declaredRtdbInstances = spec.target.rules.rtdbInstances ? Object.keys(spec.target.rules.rtdbInstances).map(k => resolveDatabaseInstance(k)!.name) : [];
+  let declaredRtdbInstances: string[] = [];
+  if (spec.target.rules.rtdbInstances) {
+    declaredRtdbInstances = Object.keys(spec.target.rules.rtdbInstances).map(
+      (key) => resolveDatabaseInstance(key)!.name,
+    );
+  }
+  const allowedKeys = new Set([
+    "service",
+    "method",
+    "path",
+    "data",
+    "query",
+    "dataBase64",
+    "contentType",
+    "customMetadata",
+    "instance",
+  ]);
   for (const probe of spec.probes) {
     for (const op of [probe.control, probe.mutation.operation]) {
-      // test what happens to unknown fields (unrecognized keys)
-      const allowedKeys = new Set(["service", "method", "path", "data", "query", "dataBase64", "contentType", "customMetadata", "instance"]);
       for (const key of Object.keys(op)) {
         if (!allowedKeys.has(key)) {
-          throw new AssuranceInputError(`operation names unknown field '${key}'`);
+          throw new AssuranceInputError(
+            `operation names unknown field '${key}'`,
+          );
         }
       }
-      
-      if (op.service === "rtdb" && op.instance !== undefined && op.instance !== "default") {
-        let resolvedName;
+      if (
+        op.service === "rtdb" &&
+        op.instance !== undefined &&
+        op.instance !== "default"
+      ) {
+        let resolvedName: string;
         try {
           resolvedName = resolveDatabaseInstance(op.instance)!.name;
-        } catch (e) {
-          throw new AssuranceInputError(`invalid RTDB instance '${op.instance}': ${e instanceof Error ? e.message : String(e)}`);
+        } catch (error) {
+          let detail = String(error);
+          if (error instanceof Error) detail = error.message;
+          throw new AssuranceInputError(
+            `invalid RTDB instance '${op.instance}': ${detail}`,
+          );
         }
         if (!declaredRtdbInstances.includes(resolvedName)) {
-          throw new AssuranceInputError(`probe '${probe.id}' names undeclared RTDB instance '${op.instance}'. Declared instances: ${declaredRtdbInstances.length > 0 ? declaredRtdbInstances.join(", ") : "none"}.`);
+          let listed = "none";
+          if (declaredRtdbInstances.length > 0) {
+            listed = declaredRtdbInstances.join(", ");
+          }
+          throw new AssuranceInputError(
+            `probe '${probe.id}' names undeclared RTDB instance '${op.instance}'. Declared instances: ${listed}.`,
+          );
         }
       }
     }
@@ -614,10 +451,11 @@ export function assertCampaign(spec: AuthorizationCampaignSpec): void {
     const invariant = spec.invariants.find(
       (item) => item.id === probe.invariantId,
     );
-    if (!actor)
+    if (!actor) {
       throw new AssuranceInputError(
         `probe '${probe.id}' references unknown actor '${probe.actorId}'.`,
       );
+    }
     if (!invariant) {
       throw new AssuranceInputError(
         `probe '${probe.id}' references unknown invariant '${probe.invariantId}'.`,
@@ -637,10 +475,12 @@ export function assertCampaign(spec: AuthorizationCampaignSpec): void {
 function uniqueIds(items: ReadonlyArray<{ id: string }>, label: string): void {
   const seen = new Set<string>();
   for (const item of items) {
-    if (!item.id.trim())
+    if (!item.id.trim()) {
       throw new AssuranceInputError(`${label} id is required.`);
-    if (seen.has(item.id))
+    }
+    if (seen.has(item.id)) {
       throw new AssuranceInputError(`duplicate ${label} id '${item.id}'.`);
+    }
     seen.add(item.id);
   }
 }

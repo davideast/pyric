@@ -1,16 +1,17 @@
-import { getAuth, sandbox as authSandbox } from "pyric/auth";
+import type { LocalSandbox, Sandbox } from "pyric/sandbox";
 import {
-  getAdminDatabase,
-  sandbox as rtdbSandbox,
-} from "pyric/database";
-import type { Sandbox } from "pyric/sandbox";
+  DEFAULT_SNAPSHOT_RESOURCE,
+  captureSandboxSnapshot,
+} from "pyric/sandbox/internal";
 import {
   ASSURANCE_TARGET_SCHEMA,
   AssuranceInputError,
   type AssuranceAttachmentInventory,
   type AssuranceAttachmentSource,
   type AssuranceCoverageGap,
+  type AuthFixtureUser,
   type LocalFirebaseTarget,
+  type StorageObjectFixture,
 } from "./types.js";
 
 export interface AssuranceAttachmentInput {
@@ -52,8 +53,9 @@ function isLoopbackHostname(hostname: string): boolean {
     normalized === "localhost" ||
     normalized === "[::1]" ||
     normalized === "::1"
-  )
+  ) {
     return true;
+  }
   const parts = normalized.split(".");
   return (
     parts.length === 4 &&
@@ -97,6 +99,14 @@ function hasRtdbState(value: unknown): boolean {
   return Object.keys(value as Record<string, unknown>).length > 0;
 }
 
+function resolveRuntimeOrigin(explicitOrigin: string | undefined): string {
+  if (explicitOrigin !== undefined) return explicitOrigin;
+  if (typeof globalThis.location !== "undefined") {
+    return globalThis.location.origin;
+  }
+  return "";
+}
+
 /**
  * Clone the sandbox currently hosting the connected bridge peer. The URL is an
  * origin assertion and source for explicit rules metadata; no arbitrary host is
@@ -107,11 +117,7 @@ export function createSandboxAttachmentProvider(
   options: SandboxAttachmentProviderOptions = {},
 ): AssuranceAttachmentProvider {
   return async ({ url }) => {
-    const runtimeOrigin =
-      options.origin ??
-      (typeof globalThis.location !== "undefined"
-        ? globalThis.location.origin
-        : "");
+    const runtimeOrigin = resolveRuntimeOrigin(options.origin);
     if (!runtimeOrigin) {
       throw new AssuranceInputError(
         "localhost attachment is available only inside a served Pyric sandbox peer.",
@@ -163,12 +169,6 @@ export function createSandboxAttachmentProvider(
 /**
  * Clone the sandbox this process owns, with no origin to assert and nothing
  * to contact.
- *
- * The in-process server holds the sandbox in its own memory, so the rules the
- * served page would have published in its initialization metadata are read
- * from the sandbox by the caller and handed in. Everything else about the
- * campaign is the same: the state is copied, the campaign forbids the
- * network, and the live sandbox is never probed or mutated.
  */
 export function createOwnedSandboxAttachmentProvider(
   sandbox: Sandbox,
@@ -186,26 +186,81 @@ export function createOwnedSandboxAttachmentProvider(
 }
 
 /** The campaign target, inventory, and coverage gaps one sandbox's state produces. */
-function cloneSandboxTarget(
+async function cloneSandboxTarget(
   sandbox: Sandbox,
   rules: LocalFirebaseTarget["rules"],
   source: AssuranceAttachmentSource,
-): AssuranceAttachment {
-  const snapshot = sandbox.snapshot();
-  const rtdbState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
-  const authUsers = authSandbox.exportUsers(getAuth(sandbox));
+): Promise<AssuranceAttachment> {
+  const snapshot = await captureSandboxSnapshot(sandbox as LocalSandbox);
+  const rawFirestoreDocs = snapshot.firestore[DEFAULT_SNAPSHOT_RESOURCE] ?? {};
+  const firestoreDocs: Record<string, Record<string, unknown>> = {};
+  for (const [docPath, encodedData] of Object.entries(rawFirestoreDocs)) {
+    firestoreDocs[docPath] = { ...encodedData };
+  }
+  const rtdbState = snapshot.rtdb[DEFAULT_SNAPSHOT_RESOURCE] ?? null;
+  const rawStorageObjects = snapshot.storage[DEFAULT_SNAPSHOT_RESOURCE] ?? [];
 
-  const coverageGaps: AssuranceCoverageGap[] = [
-    {
-      service: "storage",
-      code: "storage-attachment-unavailable",
-      reason:
-        rules.storage !== undefined
-          ? "Storage object enumeration is not yet exposed by attachment; provide explicit Storage objects in target.state.storage."
-          : "The served runtime does not yet expose Storage rules or complete object enumeration; provide explicit Storage rules and objects in a fixture campaign.",
-    },
-  ];
-  if (!rules.firestore && Object.keys(snapshot.firestore).length > 0) {
+  const effectiveRules: LocalFirebaseTarget["rules"] = { ...rules };
+  const activeStorageRules = snapshot.rules.storage?.[DEFAULT_SNAPSHOT_RESOURCE];
+  if (
+    !effectiveRules.storage &&
+    typeof activeStorageRules === "string" &&
+    activeStorageRules.trim().length > 0
+  ) {
+    effectiveRules.storage = activeStorageRules;
+  }
+
+  const storageEntries: StorageObjectFixture[] = rawStorageObjects.map((item) => {
+    const entry: StorageObjectFixture = {
+      path: item.path,
+      dataBase64: item.contentBase64,
+    };
+    if (item.contentType !== undefined) {
+      entry.contentType = item.contentType;
+    }
+    if (item.customMetadata !== undefined) {
+      entry.customMetadata = { ...item.customMetadata };
+    }
+    return entry;
+  });
+
+  const authUsers: AuthFixtureUser[] = snapshot.auth.users.map((user) => {
+    const entry: AuthFixtureUser = { uid: user.uid };
+    if (user.email !== undefined) {
+      entry.email = user.email;
+    }
+    if (user.password !== undefined) {
+      entry.password = user.password;
+    }
+    if (user.displayName !== undefined) {
+      entry.displayName = user.displayName;
+    }
+    if (user.photoUrl !== undefined) {
+      entry.photoUrl = user.photoUrl;
+    }
+    if (user.phoneNumber !== undefined) {
+      entry.phoneNumber = user.phoneNumber;
+    }
+    if (user.tenantId !== undefined) {
+      entry.tenantId = user.tenantId;
+    }
+    if (user.providerId !== undefined) {
+      entry.providerId = user.providerId;
+    }
+    if (user.customClaims !== undefined) {
+      entry.customClaims = { ...user.customClaims };
+    }
+    if (user.emailVerified === true) {
+      entry.emailVerified = true;
+    }
+    if (user.disabled === true) {
+      entry.disabled = true;
+    }
+    return entry;
+  });
+
+  const coverageGaps: AssuranceCoverageGap[] = [];
+  if (!effectiveRules.firestore && Object.keys(firestoreDocs).length > 0) {
     coverageGaps.push({
       service: "firestore",
       code: "firestore-rules-unavailable",
@@ -213,7 +268,7 @@ function cloneSandboxTarget(
         "The running sandbox has Firestore data but no explicit project rules source.",
     });
   }
-  if (!rules.rtdb && hasRtdbState(rtdbState)) {
+  if (!effectiveRules.rtdb && hasRtdbState(rtdbState)) {
     coverageGaps.push({
       service: "rtdb",
       code: "rtdb-rules-unavailable",
@@ -221,33 +276,39 @@ function cloneSandboxTarget(
         "The running sandbox has RTDB data but no explicit database rules source.",
     });
   }
+  if (!effectiveRules.storage && storageEntries.length > 0) {
+    coverageGaps.push({
+      service: "storage",
+      code: "storage-rules-unavailable",
+      reason:
+        "The running sandbox has Storage objects but no explicit Storage rules source.",
+    });
+  }
+
+  const state: LocalFirebaseTarget["state"] = {
+    firestore: firestoreDocs,
+    auth: { users: authUsers },
+  };
+  if (effectiveRules.rtdb || hasRtdbState(rtdbState)) {
+    state.rtdb = rtdbState;
+  }
+  if (storageEntries.length > 0) {
+    state.storage = storageEntries;
+  }
 
   return {
     target: {
       schema: ASSURANCE_TARGET_SCHEMA,
       network: "forbid",
-      rules,
-      state: {
-        firestore: snapshot.firestore,
-        ...(rules.rtdb || hasRtdbState(rtdbState) ? { rtdb: rtdbState } : {}),
-        auth: {
-          users: authUsers.map((user) => ({
-            uid: user.uid,
-            email: user.email,
-            password: user.password,
-            ...(user.customClaims ? { customClaims: user.customClaims } : {}),
-            ...(user.emailVerified ? { emailVerified: true } : {}),
-            ...(user.disabled ? { disabled: true } : {}),
-          })),
-        },
-      },
+      rules: effectiveRules,
+      state,
     },
     source,
     inventory: {
-      firestoreDocuments: Object.keys(snapshot.firestore).length,
+      firestoreDocuments: Object.keys(firestoreDocs).length,
       rtdbPresent: hasRtdbState(rtdbState),
       authUsers: authUsers.length,
-      storageObjects: 0,
+      storageObjects: storageEntries.length,
     },
     coverageGaps,
   };

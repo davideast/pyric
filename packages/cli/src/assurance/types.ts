@@ -46,6 +46,11 @@ export interface AuthFixtureUser {
   uid: string;
   email?: string | null;
   password?: string;
+  displayName?: string;
+  photoUrl?: string;
+  phoneNumber?: string;
+  tenantId?: string;
+  providerId?: string;
   emailVerified?: boolean;
   disabled?: boolean;
   customClaims?: Record<string, unknown>;

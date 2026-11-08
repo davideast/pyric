@@ -110,6 +110,29 @@ function collectStepClaims(
   }
 }
 
+function initialFirestoreDocPaths(state: WorldState | undefined): Set<string> {
+  if (state?.firestore) return new Set(Object.keys(state.firestore));
+  const snapshotDocs = state?.snapshot?.firestore['(default)'];
+  if (snapshotDocs) return new Set(Object.keys(snapshotDocs));
+  return new Set();
+}
+
+function seedUsersFromInput(input: RunProbesInput): ProbeUser[] {
+  if (input.users && input.users.length > 0) return input.users;
+  const snapshotUsers = input.state?.snapshot?.auth.users;
+  if (!snapshotUsers) return [];
+  return snapshotUsers.map((user): ProbeUser => {
+    const entry: ProbeUser = { uid: user.uid };
+    if (user.email !== undefined) entry.email = user.email;
+    if (user.displayName !== undefined) entry.displayName = user.displayName;
+    if (user.emailVerified !== undefined) entry.emailVerified = user.emailVerified;
+    if (user.customClaims !== undefined) {
+      entry.customClaims = { ...user.customClaims };
+    }
+    return entry;
+  });
+}
+
 function actorsForProbe(
   probe: Probe,
   baseOwner: ProbeActor,
@@ -118,7 +141,7 @@ function actorsForProbe(
   sources: RuleSources,
   state: WorldState | undefined,
 ): ProbeActor[] {
-  const existingFirestoreDocs = new Set(Object.keys(state?.firestore ?? {}));
+  const existingFirestoreDocs = initialFirestoreDocPaths(state);
   for (const seedStep of probe.seed) {
     if (seedStep.service !== 'firestore') continue;
     if (seedStep.method === 'delete' || seedStep.method === 'remove') {
@@ -153,7 +176,7 @@ function actorsForProbe(
 
 /** Plan and run every probe; findings come only from reproduced hits. */
 export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
-  const allUsers = byPresence(input.users ?? [], input.state);
+  const allUsers = byPresence(seedUsersFromInput(input), input.state);
   let selectedUsers = allUsers;
   if (allUsers.length >= 2) {
     selectedUsers = [allUsers[0], allUsers[1]];
@@ -180,7 +203,10 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   if (rules.firestore && !hasFirestoreClientWrite) {
     sites = [...sites, ...sitesFromState(input.state, knownUids)];
   }
-  if (rules.rtdb.length > 0 && input.state?.rtdb) {
+  const hasRtdbState =
+    Boolean(input.state?.rtdb) ||
+    Boolean(input.state?.snapshot && Object.hasOwn(input.state.snapshot.rtdb, '(default)'));
+  if (rules.rtdb.length > 0 && hasRtdbState) {
     sites = [...sites, ...rtdbReadOnlySitesFromState(sites, input.state, knownUids)];
   }
 
