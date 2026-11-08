@@ -22,6 +22,7 @@
  * each resolved call the way the Node process's sender does.
  */
 import type { ObservedCall } from 'pyric/sandbox';
+import type { ObservedSessionDelta } from '../observed-session/wire.js';
 import { nextId, rpc } from '../worker/client/core.js';
 import type { ClientDb } from '../worker/client/handles.js';
 import { isServiceWorkerRealm } from '../worker/service-worker-channel.js';
@@ -68,7 +69,11 @@ function serviceWorkerScript(): { script?: string } {
 }
 
 /** Sends one observed call. Rejects when the page or service worker has no Node host connection. */
-export async function sendObservedCall(call: ObservedCall): Promise<void> {
+export async function sendObservedCall(
+  call: ObservedCall,
+  sessionData?: ObservedSessionDelta,
+): Promise<void> {
   const db = await hostConnection();
-  await rpc(db.port, { t: 'observe', id: nextId(), call, ...serviceWorkerScript() });
+  // An absent delta and an undefined one read the same on the host.
+  await rpc(db.port, { t: 'observe', id: nextId(), call, ...serviceWorkerScript(), sessionData });
 }

@@ -16,10 +16,16 @@ import { useSyncExternalStore } from 'react';
 
 /** The slice of the serve init payload Studio surfaces read. Mirrors
  *  `@pyric/cli`' `InitPayload` (kept structural; no runtime import). */
+export interface ServeInitDatabaseInstances {
+  defaultInstance?: string;
+  rules?: Record<string, unknown | null>;
+}
+
 export interface ServeInitPayload {
   rules?: string | null;
   rulesHash?: string | null;
   databaseRulesHash?: string | null;
+  databaseInstances?: ServeInitDatabaseInstances | null;
   bridgeUrl?: string | null;
   persist?: boolean;
   persistenceUnhealthy?: boolean;

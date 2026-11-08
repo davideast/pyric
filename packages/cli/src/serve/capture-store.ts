@@ -38,7 +38,7 @@ function readGitignore(path: string): string {
  * absent: a capture holds live calls' claim values and documents, which
  * must never reach a commit. Never throws: a read-only project still captures.
  */
-function ensureGitignored(projectDir: string): void {
+export function ensureGitignored(projectDir: string): void {
   const path = join(projectDir, '.gitignore');
   const text = readGitignore(path);
   const isIgnored = text.split(/\r?\n/).some((line) => IGNORES_PYRIC.test(line.trim()));

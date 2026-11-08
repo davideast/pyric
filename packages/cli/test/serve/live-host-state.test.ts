@@ -9,6 +9,7 @@ import { readLiveHostStatus } from 'pyric/sandbox/internal';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
 import type { ServedFirebaseSpecifier } from '../../src/serve/firebase-module-swap.js';
 import { createLiveHostState, projectSourceName } from '../../src/serve/live-host-state.js';
+import { refuseInvalidInboundMessage } from '../../src/serve/worker/inbound-validation.js';
 
 function observe(id: string, call: Partial<ObservedCall> & { method: string }, clientSessionId = 'client-1'): BridgeMessage {
   const full = { service: 'firestore', at: 1, outcome: { status: 'ok' }, ...call };
@@ -152,5 +153,91 @@ describe('the live host state', () => {
     expect(projectSourceName('firebase-use', '--project')).toBe('`firebase use`');
     expect(projectSourceName('option', '--project')).toBe('--project');
     expect(projectSourceName('PYRIC_PROJECT', '--project')).toBe('PYRIC_PROJECT');
+  });
+});
+
+describe('the live host state\'s observed session data', () => {
+  /**
+   * Sends one observe frame the way a live host does: the live host state sees
+   * it first, then the worker's inbound validation, whose refusal (or the
+   * dispatch's ok) is the reply the live host state reads.
+   */
+  function sendThroughValidation(live: ReturnType<typeof createLiveHostState>, id: string, call: Record<string, unknown>, sessionData?: unknown) {
+    const inner: Record<string, unknown> = { t: 'observe', id, call: { service: 'firestore', at: 1, outcome: { status: 'ok' }, ...call } };
+    if (sessionData !== undefined) inner.sessionData = sessionData;
+    live.inbound({ type: 'worker-message', clientSessionId: 'client-1', message: inner } as unknown as BridgeMessage);
+    const posted: unknown[] = [];
+    const refused = refuseInvalidInboundMessage({ postMessage: (message: unknown) => posted.push(message) } as never, inner);
+    const message = refused ? posted[0] : { t: 'res', id, ok: true, value: undefined };
+    live.outbound({ type: 'worker-message-result', clientSessionId: 'client-1', message } as unknown as BridgeMessage);
+    return { refused, inner };
+  }
+
+  it('bills and prints a call whose session data is malformed or oversized, and counts only the data as skipped', () => {
+    const printed: string[] = [];
+    const live = createLiveHostState({
+      configProjectId: 'demo-live',
+      configSource: 'firebaserc',
+      optionName: '--project',
+      warn: () => {},
+      print: (line) => printed.push(line),
+      unobserved: () => [],
+    });
+
+    const oversized = sendThroughValidation(
+      live,
+      'too-big',
+      { method: 'getDoc', path: 'rooms/too-big' },
+      { firestore: [{ kind: 'set', path: 'rooms/too-big', data: { blob: 'z'.repeat(1_100_000) } }] },
+    );
+    const malformed = sendThroughValidation(
+      live,
+      'bad-shape',
+      { method: 'getDoc', path: 'rooms/bad-shape' },
+      { firestore: [{ kind: 'set', path: 'not-a-doc-path', data: {} }] },
+    );
+    let deep: Record<string, unknown> = { leaf: 1 };
+    for (let level = 0; level < 25; level++) deep = { child: deep };
+    sendThroughValidation(live, 'too-deep', { method: 'getDoc', path: 'rooms/too-deep' }, {
+      firestore: [{ kind: 'set', path: 'rooms/too-deep', data: deep }],
+    });
+
+    expect(oversized.refused).toBe(false);
+    expect(malformed.refused).toBe(false);
+    expect('sessionData' in oversized.inner).toBe(false);
+    expect('sessionData' in malformed.inner).toBe(false);
+    expect(live.report().billed).toEqual({ reads: 3, writes: 0, deliveries: 0 });
+    expect(live.sessionData.snapshot().skips).toEqual({ oversized: 1, unsupported: 2, truncated: 0, failed: 0, admin: 0 });
+    expect(live.sessionData.snapshot().firestore).toEqual({});
+  });
+
+  it('keeps valid session data, counts failed and Admin calls, and counts no skip for a listener attach', () => {
+    const { live } = state('demo-live');
+    sendThroughValidation(live, 'attach', {
+      service: 'rtdb',
+      method: 'onValue',
+      instance: 'demo-live-default-rtdb',
+      path: '/rooms',
+      listener: { phase: 'attach', id: 'l-1', target: '/rooms' },
+    });
+    sendThroughValidation(live, 'denied', {
+      service: 'rtdb',
+      method: 'get',
+      instance: 'demo-live-default-rtdb',
+      path: '/secret',
+      outcome: { status: 'error', code: 'permission-denied' },
+    });
+    sendThroughValidation(live, 'admin', { method: 'DocumentReference.get', sdk: 'admin', path: 'rooms/admin-read' });
+    const valid = sendThroughValidation(
+      live,
+      'read',
+      { method: 'getDoc', path: 'rooms/r1' },
+      { firestore: [{ kind: 'set', path: 'rooms/r1', data: { title: 'One' } }] },
+    );
+
+    expect(valid.refused).toBe(false);
+    const snapshot = live.sessionData.snapshot();
+    expect(snapshot.firestore).toEqual({ 'rooms/r1': { title: 'One' } });
+    expect(snapshot.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 0, failed: 1, admin: 1 });
   });
 });

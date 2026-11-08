@@ -1,11 +1,27 @@
 import { validateAuthState } from 'pyric/sandbox';
 import { readNodeUnobservedLists, readObservedCall } from 'pyric/sandbox/internal';
+import { readObservedSessionDelta } from '../observed-session/delta-validation.js';
 import type { PortLike } from './host-context.js';
 import type { OutboundMessage } from './protocol.js';
 import { assertOperationArguments } from './inbound-validation/operation-arguments.js';
 import { assertSubscription } from './inbound-validation/subscription.js';
 import { isMessageRecord, requireRecord, requireShape, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalLabel } from './inbound-validation/fields.js';
+
+/**
+ * An observe frame's `sessionData` is optional data riding on a call, not part
+ * of the call: one the host cannot read is removed, never a reason to refuse
+ * the call. The live host has already counted it as skipped
+ * (`live-host-state.ts`), and the call is still answered, counted and printed.
+ */
+function dropUnreadableSessionData(message: Record<string, unknown>): void {
+  if (message.sessionData === undefined) return;
+  try {
+    readObservedSessionDelta(message.sessionData);
+  } catch {
+    delete message.sessionData;
+  }
+}
 
 function assertInboundFields(message: Record<string, unknown>): void {
   requireOptionalString(message.clientSessionId, 'clientSessionId');
@@ -59,6 +75,7 @@ function assertInboundFields(message: Record<string, unknown>): void {
       requireString(message.id, 'id');
       readObservedCall(message.call);
       requireOptionalLabel(message.nodeClient, 'nodeClient');
+      dropUnreadableSessionData(message);
       return;
     case 'unobserved':
       requireString(message.id, 'id');

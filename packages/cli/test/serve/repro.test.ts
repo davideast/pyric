@@ -253,3 +253,34 @@ describe('pyric serve repro', () => {
     expect(err.text()).toContain("--plane is 'node' or 'worker'");
   });
 });
+
+describe('the repro recorder and observed session data', () => {
+  test('strips sessionData from inbound observe frames so repro files never carry observed values', async () => {
+    const recorder = createReproRecorder({
+      capture: async () => ({
+        firestore: { rules: null, documents: {} },
+        auth: { users: [], currentUserUid: null },
+        database: { rules: null, data: null },
+        storage: { rules: null, objects: [] },
+      }),
+    });
+    await recorder.inbound('client-1', {
+      t: 'observe',
+      id: 'obs-1',
+      call: {
+        service: 'firestore',
+        method: 'getDoc',
+        path: 'items/doc1',
+        at: 10,
+        outcome: { status: 'ok' },
+        document: { marker: 'should-be-stripped' },
+      },
+      sessionData: {
+        firestore: [{ kind: 'set', path: 'items/doc1', data: { marker: 'should-be-stripped' } }],
+      },
+    } as InboundMessage);
+    const log = JSON.stringify(await recorder.log());
+    expect(log).not.toContain('should-be-stripped');
+    expect(log).not.toContain('sessionData');
+  });
+});

@@ -23,6 +23,17 @@ export type { PyricWrite, PyricWriter, PyricWriteRefusal } from './hosted/own-wr
 export type { LiveListener, LiveListenerActivity } from './entries/live-listener-journal.js';
 export type { ObservedCall, ObservedCallService, ProductionOutcome } from 'pyric/sandbox';
 export { livePassThroughLine, UNREAD_BUCKET } from 'pyric/sandbox/internal';
+export type {
+  LiveSeedMode,
+  LiveSeedSandboxResult,
+  ObservedFirestoreSessionOp,
+  ObservedRtdbSessionOp,
+  ObservedSessionDataSnapshot,
+  ObservedSessionDelta,
+  ObservedSessionSkipCounts,
+  ObservedSessionSkipStats,
+  ObservedSessionStats,
+} from './observed-session/wire.js';
 
 /** What the supplier gives: the error for a refused import, where it is installed, and the served specifiers it passes through. */
 export interface SuppliedRowsInput {

@@ -32,6 +32,7 @@
  */
 import { isPlainObject, jsonValue } from './json-copy.js';
 import { observedCall, refusedFactory, UNOBSERVED, type CallContext, type ListenerIdentity, type LiveWriteValue, type ObservedSite } from './observe.js';
+import { databaseWriteSession } from './database-session-capture.js';
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
 type Fields = Record<string, unknown>;
@@ -39,7 +40,7 @@ type Fields = Record<string, unknown>;
 /** Each Database's repo, mapped to the app that owns it, as `getDatabase` handed it to the app. */
 const APP_BY_REPO = new WeakMap<object, object>();
 
-function isObject(value: unknown): value is Fields {
+export function isObject(value: unknown): value is Fields {
   return (typeof value === 'object' || typeof value === 'function') && value !== null;
 }
 
@@ -171,7 +172,7 @@ function repoOf(subject: unknown): Fields | undefined {
 }
 
 /** A reference's or query's path as the SDK prints it, `/items/a`, or undefined. */
-function pathOf(subject: unknown): string | undefined {
+export function pathOf(subject: unknown): string | undefined {
   if (!isObject(subject)) return undefined;
   const path = subject._path;
   return isObject(path) ? String(path) : undefined;
@@ -248,17 +249,21 @@ function writeDataOf(name: string, args: readonly unknown[]): LiveWriteValue | u
  */
 export function databaseContext(name: string, args: readonly unknown[], self: unknown): CallContext | typeof UNOBSERVED {
   try {
-    const source = name.startsWith(ON_DISCONNECT_PREFIX) ? self : args[0];
+    const isOnDisconnect = name.startsWith(ON_DISCONNECT_PREFIX);
+    const source = isOnDisconnect ? self : args[0];
     const path = pathOf(source);
     const writesNothing = name === 'push' && (args[1] === undefined || args[1] === null);
     if (isInfoPath(path) || writesNothing) return UNOBSERVED;
     const context = repoContext(repoOf(source));
     const located = path === undefined ? context : { ...context, path };
     // An OnDisconnect write runs when the client leaves, against rules the host cannot time.
-    if (name.startsWith(ON_DISCONNECT_PREFIX)) return located;
+    if (isOnDisconnect) return located;
+    let full: CallContext = { ...located, ...databaseWriteSession(name, args, context.instance ?? UNREAD_INSTANCE, path) };
     const writeData = writeDataOf(name, args);
-    if (writeData === undefined) return located;
-    return { ...located, writeData };
+    if (writeData !== undefined) full = { ...full, writeData };
+    const isFilteredQuery = queryIdOf(source) !== 'default';
+    if (isFilteredQuery) full = { ...full, rtdbFilteredQuery: true };
+    return full;
   } catch {
     // A reference that throws on read is still recorded, without its context.
     return { instance: UNREAD_INSTANCE };
@@ -391,7 +396,7 @@ function handedForOff(args: readonly unknown[]): Callback | undefined {
  * the SDK's own `_queryIdentifier` getter, which runs no code of the app's;
  * `default` when it can't be read.
  */
-function queryIdOf(query: unknown): string {
+export function queryIdOf(query: unknown): string {
   try {
     const id = isObject(query) ? query._queryIdentifier : undefined;
     return typeof id === 'string' ? id : 'default';

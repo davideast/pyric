@@ -4,3 +4,12 @@ export { LIVE_MODULES, replacedExports, wrapLiveModule, type LiveModuleKey, type
 export { LIVE_REFUSED, liveCallRefusal, liveRefusal, liveWriteRefusal, type LiveClient, type RefusedCall } from './refusal.js';
 export { accountOf, claimNamesOf, noteAuth } from './account.js';
 export type { LiveAccount, LiveCallOutcome, LiveCallRecord, LiveObserver, UncaughtListenerError } from './observe.js';
+export {
+  attachSessionData,
+  mergeSessionData,
+  sessionDataOf,
+  type ObservedFirestoreSessionOp,
+  type ObservedRtdbSessionOp,
+  type ObservedSessionDelta,
+  type ObservedSessionSkipCounts,
+} from './session-data.js';

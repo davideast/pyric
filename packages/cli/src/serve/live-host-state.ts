@@ -33,6 +33,9 @@ import type { FirebaseProjectSource } from '../cli/firebase-project.js';
 import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import { createLiveClients, type SandboxClientIds } from './live-clients.js';
 import { createLiveTerminalLines, type LiveCallSource, type LiveRulesFiles } from './live-terminal-lines.js';
+import { createObservedSessionDataStore, type ObservedSessionDataStore } from './observed-session/store.js';
+import { readObservedSessionDelta, skipReasonOf, type SessionDeltaSkipReason } from './observed-session/delta-validation.js';
+import type { ObservedSessionDelta } from './observed-session/wire.js';
 import { liveUnobservedHosts } from '../register/live-net-guard.js';
 
 /** Observed calls waiting on the host's answer; a bound, since a client could send replies it never gets. */
@@ -51,6 +54,8 @@ export interface LiveHostState {
   readClientIds(lookup: SandboxClientIds): void;
   /** Name the local rules files in the production denial lines, once the session runs (`live-terminal-lines.ts`). */
   readRulesFiles(read: () => LiveRulesFiles): void;
+  /** Session-scoped observed Firestore/RTDB payloads kept strictly in host memory. */
+  readonly sessionData: ObservedSessionDataStore;
 }
 
 export interface LiveHostStateInput {
@@ -108,14 +113,16 @@ function pendingKey(clientSessionId: string, id: string): string {
   return `${clientSessionId}\u0000${id}`;
 }
 
-/** An observed call waiting on the host's answer, with the connection that sent it. */
-interface PendingCall {
+/** An observed call waiting on the host's answer, with the connection that sent it and its session data. */
+interface PendingObservation {
   call: ObservedCall;
   clientSessionId: string;
+  sessionData?: ObservedSessionDelta;
+  sessionDataSkip?: SessionDeltaSkipReason;
 }
 
 /** The observed call in a frame from a client, or null for any other frame or a malformed record. */
-function observedCallIn(message: BridgeMessage): { key: string; pending: PendingCall } | null {
+function observedCallIn(message: BridgeMessage): { key: string; pending: PendingObservation } | null {
   const isClientFrame = message.type === 'worker-message' && message.clientSessionId !== undefined;
   if (!isClientFrame) return null;
   const inner = message.message;
@@ -123,7 +130,16 @@ function observedCallIn(message: BridgeMessage): { key: string; pending: Pending
   if (!isObserve) return null;
   const clientSessionId = message.clientSessionId as string;
   try {
-    return { key: pendingKey(clientSessionId, inner.id), pending: { call: readObservedCall(inner.call), clientSessionId } };
+    const pending: PendingObservation = { call: readObservedCall(inner.call), clientSessionId };
+    if (inner.sessionData !== undefined) {
+      // A malformed or oversized delta never costs the call its count: only its data is skipped.
+      try {
+        pending.sessionData = readObservedSessionDelta(inner.sessionData);
+      } catch (err) {
+        pending.sessionDataSkip = skipReasonOf(err);
+      }
+    }
+    return { key: pendingKey(clientSessionId, inner.id), pending };
   } catch {
     // The host refuses it and names the field; nothing to count.
     return null;
@@ -169,7 +185,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const appProjectIds: string[] = [];
   const warned = new Set<string>();
   const billed = createBilledCallCounter();
-  const pending = new Map<string, PendingCall>();
+  const pending = new Map<string, PendingObservation>();
   const passThrough = [...(input.passThrough ?? [])];
   const passThroughField = passThrough.length === 0 ? {} : { passThrough };
   // A Node process under the live register observes firebase-admin, so every live host reports it. The host
@@ -177,6 +193,10 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const admin: NonNullable<LiveHostStatus['admin']> = { mode: 'observed', observed: true, bypassesRules: true };
   const clients = createLiveClients(input.now ?? Date.now);
   const terminal = createLiveTerminalLines({ print: input.print ?? input.warn, now: input.now });
+  const sessionData = createObservedSessionDataStore({
+    projectId: input.configProjectId,
+    now: input.now ?? Date.now,
+  });
 
   const report = (): LiveHostStatus => ({
     projectId: liveProjectOf(appProjectIds, input.configProjectId),
@@ -201,15 +221,38 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     input.warn(mismatchWarning(report()));
   };
 
-  const accept = ({ call, clientSessionId }: PendingCall): void => {
+  const isSessionDataService = (service: ObservedCall['service']): boolean =>
+    service === 'firestore' || service === 'rtdb';
+
+  const accept = (entry: PendingObservation): void => {
+    const { call, clientSessionId } = entry;
     noteProject(call.projectId);
     billed.addCall(call);
     const source: LiveCallSource | undefined = clients.sourceOf(clientSessionId);
     terminal.accepted(call, source);
+    if (call.listener !== undefined) return;
+    if (isSessionDataService(call.service)) {
+      if (call.outcome.status !== 'ok') {
+        sessionData.recordSkip({ failed: 1 });
+        return;
+      }
+      if (call.sdk === 'admin') {
+        sessionData.recordSkip({ admin: 1 });
+        return;
+      }
+    }
+    if (entry.sessionDataSkip !== undefined) {
+      sessionData.recordSkip({ [entry.sessionDataSkip]: 1 });
+      return;
+    }
+    if (entry.sessionData !== undefined) {
+      sessionData.apply(entry.sessionData, liveProjectOf(appProjectIds, input.configProjectId));
+    }
   };
 
   return {
     report,
+    sessionData,
     inbound(message) {
       clients.inbound(message);
       const observed = observedCallIn(message);

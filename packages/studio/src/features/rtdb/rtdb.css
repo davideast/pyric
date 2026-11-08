@@ -255,6 +255,12 @@
 .rtdb__tree [data-rtdb-value]:hover {
   background: var(--accent-tint);
 }
+.rtdb__tree[data-rtdb-readonly] [data-rtdb-value] {
+  cursor: default;
+}
+.rtdb__tree[data-rtdb-readonly] [data-rtdb-value]:hover {
+  background: none;
+}
 .rtdb__tree [data-rtdb-value][data-rtdb-type='string'] {
   color: var(--diff-add);
 }
@@ -424,4 +430,58 @@
 }
 .rtdb__tree [data-rtdb-show-more]:hover {
   background: var(--accent-tint);
+}
+
+/* ── Live observed multi-instance switcher ───────────────────────────── */
+
+.rtdb__instances {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rtdb__instance-pill {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.rtdb__instance-pill:hover {
+  border-color: var(--accent);
+}
+
+.rtdb__instance-pill--active {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.rtdb__instance-pill--idle {
+  opacity: 0.72;
+}
+
+.rtdb__instance-name {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.rtdb__instance-badge {
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  padding: 0 5px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.rtdb__instance-meta {
+  color: var(--muted);
 }
