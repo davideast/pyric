@@ -1,0 +1,205 @@
+/**
+ * Public shapes of the access-site extractor: what a client app reads and
+ * writes in Firestore and the Realtime Database, read from its source.
+ *
+ * An access site is one operation call (`setDoc`, `update`,
+ * `onDisconnect(ref).set`, `getDocs(query(...))`, ...) with the path it
+ * touches, the shape of the payload it writes, and how sure the extractor
+ * is. Nothing is dropped: a call the extractor recognises but can't trace
+ * is reported with `resolution: 'unresolved'` and a reason.
+ */
+import type { EmbeddedRules } from './embedded-rules.js';
+
+/** Which database a site touches. */
+export type AccessService = 'firestore' | 'rtdb';
+
+/**
+ * How completely the extractor traced a site.
+ *
+ * - `resolved`: the path was traced to a database root, and every
+ *   segment is a literal or a named variable.
+ * - `partial`: a path was found, but some alternative could not be
+ *   traced, or the trace relied on an assumption named in `reason`.
+ * - `unresolved`: the operation was recognised but its path could not be
+ *   traced. `reason` says where the trace stopped.
+ */
+export type AccessResolution = 'resolved' | 'partial' | 'unresolved';
+
+/**
+ * Where a value came from, when it came from the signed-in user.
+ * `auth.uid` is the uid of the signed-in user, read from a Firebase Auth
+ * user object (`auth.currentUser`, the `onAuthStateChanged` callback
+ * argument, a sign-in credential's `user`).
+ */
+export type AuthSource =
+  | 'auth.uid'
+  | 'auth.displayName'
+  | 'auth.email'
+  | 'auth.photoURL'
+  | 'auth.phoneNumber';
+
+/**
+ * Provenance attached to a path variable or a payload field.
+ * `certainty: 'exact'` means every traced alternative is the auth value;
+ * `partial` means some alternatives are (for example `user?.uid || ""`,
+ * or a key built as `${uid}:${tabId}`).
+ */
+export interface AuthProvenance {
+  source: AuthSource;
+  certainty: 'exact' | 'partial';
+}
+
+/** A variable segment of a path template. */
+export interface PathVariable {
+  /** Name as rendered in the template, without `{}` or `$`. */
+  name: string;
+  /** Present when the variable's value comes from the signed-in user. */
+  auth?: AuthProvenance[];
+  /** For a segment built around the uid, how: `{auth.uid}:{*}`. Absent when it is the uid itself. */
+  pattern?: string;
+}
+
+/** One field of a written payload. */
+export interface PayloadField {
+  /** Field name, or a multi-segment key (`a/b`) for RTDB multi-path updates. */
+  name: string;
+  /** Coarse kind of the written value. */
+  kind:
+    | 'string'
+    | 'number'
+    | 'boolean'
+    | 'null'
+    | 'object'
+    | 'array'
+    | 'serverTimestamp'
+    | 'increment'
+    | 'arrayUnion'
+    | 'arrayRemove'
+    | 'deleteField'
+    | 'unknown';
+  /** Set when the value comes from the signed-in user. */
+  auth?: AuthProvenance[];
+  /** True when the field is only written on some paths (`payload.x = ...` under a branch, a spread). */
+  optional?: boolean;
+  /** Literal value, when it is a short literal. */
+  literal?: string | number | boolean | null;
+}
+
+/** The written payload of a write site. */
+export interface PayloadShape {
+  /** `object` when the payload is an object literal; otherwise the value kind. */
+  kind: PayloadField['kind'];
+  fields: PayloadField[];
+  /** True when the payload has fields the extractor could not enumerate (an unknown spread, a computed key). */
+  open: boolean;
+  /** Present on `setDoc(..., { merge: true })`. */
+  merge?: boolean;
+  /** Set when the payload itself comes from the signed-in user (`set(ref, user.uid)`). */
+  auth?: AuthProvenance[];
+  literal?: string | number | boolean | null;
+}
+
+/** A query constraint shape, for query sites. */
+export interface QueryConstraint {
+  kind: string;
+  field?: string;
+  op?: string;
+  direction?: 'asc' | 'desc';
+}
+
+/** One access site. */
+export interface AccessSite {
+  /**
+   * Path template. Firestore variables render as `{name}`, RTDB variables
+   * as `$name`. No leading slash. Empty string when unresolved.
+   */
+  path: string;
+  service: AccessService;
+  /**
+   * Operation, named after the SDK call: `set`, `update`, `remove`,
+   * `push`, `transaction`, `onDisconnect.set`, `setDoc`, `addDoc`,
+   * `updateDoc`, `deleteDoc`, `get`, `query`.
+   */
+  op: string;
+  /** `batch` or `transaction` when a Firestore write went through one. */
+  via?: 'batch' | 'transaction';
+  /** True for listeners (`onSnapshot`, `onValue`, `onChild*`). */
+  listen?: boolean;
+  /** `file:line`, file relative to the scanned root. */
+  source: string;
+  /**
+   * When the SDK call sits inside an in-project wrapper (a helper, a
+   * driver method) and the site is attributed to the wrapper's caller,
+   * the SDK call's own `file:line`.
+   */
+  through?: string;
+  resolution: AccessResolution;
+  /** Present when `resolution` is not `resolved`. */
+  reason?: string;
+  /** Variables in the path, in order. */
+  pathVariables?: PathVariable[];
+  /** Written payload, for writes that carry one. */
+  payload?: PayloadShape;
+  /** Constraint shape, for query sites. */
+  query?: QueryConstraint[];
+  /** True when the site is one key of an RTDB multi-path `update`. */
+  multiPath?: boolean;
+}
+
+/** App-specific conventions, supplied as data rather than code. */
+export interface AccessPreset {
+  /** Preset name, for reports. */
+  name: string;
+  /** Extra module specifiers that export the Firestore modular API. */
+  firestoreModules?: string[];
+  /** Extra module specifiers that export the RTDB modular API. */
+  rtdbModules?: string[];
+  /** Extra module specifiers that export the Auth modular API. */
+  authModules?: string[];
+  /**
+   * Functions (by `module#export`) whose return value is the signed-in
+   * Firebase user, for user hooks that live outside the project.
+   */
+  authUserFunctions?: string[];
+  /** Path substrings to skip when scanning (tests, fixtures). */
+  exclude?: string[];
+}
+
+/** Options for {@link extractAccessSites}. */
+export interface ExtractAccessSitesOptions {
+  /** Directory to scan. File paths in the result are relative to it. */
+  root: string;
+  /**
+   * In-memory files, keyed by path relative to `root`. When present, the
+   * extractor reads only these and never touches the file system.
+   */
+  files?: Record<string, string>;
+  clientRoots?: string[];
+  serverRoots?: string[];
+  /** Presets to apply on top of the built-in Firebase Web preset. */
+  presets?: AccessPreset[];
+  /** Include read sites (`get`, `query`, listeners). Defaults to true. */
+  includeReads?: boolean;
+}
+
+/** Summary counts per resolution. */
+export interface AccessSiteCounts {
+  total: number;
+  writes: number;
+  reads: number;
+  resolved: number;
+  partial: number;
+  unresolved: number;
+}
+
+/** Result of {@link extractAccessSites}. */
+export interface AccessSiteReport {
+  accessSites: AccessSite[];
+  counts: AccessSiteCounts;
+  /** Files scanned, relative to root. */
+  filesScanned: number;
+  /** tsconfig files used to build programs, relative to root. */
+  projects: string[];
+  /** Security rules the app installs from code (Pyric's in-page sandbox, the rules unit-testing library). */
+  embeddedRules: EmbeddedRules[];
+}
