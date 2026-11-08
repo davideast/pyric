@@ -67,6 +67,18 @@ describe('guardWorkerArguments', () => {
     expect(options).toEqual({ env: { PYRIC_SANDBOX_FORCE: '0', PYRIC_SANDBOX: 'local' } });
   });
 
+  it('forces the sandbox in a worker whose caller passes an empty PYRIC_SANDBOX_FORCE', () => {
+    const env = { NODE_ENV: 'production', PYRIC_SANDBOX_FORCE: '' };
+    const [, options] = guardWorkerArguments('/app/worker.js', { env }, REGISTER_URL, { PYRIC_SANDBOX: 'local' }, true);
+    expect(options).toEqual({ env: { NODE_ENV: 'production', PYRIC_SANDBOX_FORCE: '1', PYRIC_SANDBOX: 'local' } });
+  });
+
+  it('forces the sandbox in a worker when the parent env holds PYRIC_SANDBOX_FORCE=true', () => {
+    const parentEnv = { PYRIC_SANDBOX: 'local', PYRIC_SANDBOX_FORCE: 'true' };
+    const [, options] = guardWorkerArguments('/app/worker.js', { env: { NODE_ENV: 'production' } }, REGISTER_URL, parentEnv, true);
+    expect(options).toEqual({ env: { NODE_ENV: 'production', PYRIC_SANDBOX: 'local', PYRIC_SANDBOX_FORCE: '1' } });
+  });
+
   it('leaves a worker that shares the parent env alone', () => {
     const shared = Symbol('SHARE_ENV');
     const [, options] = guardWorkerArguments('/app/worker.js', { env: shared }, REGISTER_URL, { PYRIC_SANDBOX: 'local' }, true);

@@ -12,11 +12,16 @@
  * `NODE_OPTIONS` gets `--import <register>` when it lacks the register, and
  * each `PYRIC_*` variable this process has and the child's environment lacks
  * is copied in, `PYRIC_SANDBOX` first among them. A variable the caller set
- * for the child keeps the caller's value. A shell the process starts passes
- * the environment on, so a Node process the shell starts is registered too,
- * unless the command line it runs sets `NODE_OPTIONS` itself
- * (`NODE_OPTIONS=--max-old-space-size=4096 node server.js`), which no code in
- * this process can see.
+ * for the child keeps the caller's value. When the sandbox register is active
+ * in this process, and the live register is not, the child also gets
+ * `PYRIC_SANDBOX_FORCE=1` unless the caller set it, so a child started with
+ * `NODE_ENV=production` stays in the sandbox instead of refusing it (#2340).
+ * A process that is not registered, or is in live mode, adds no force.
+ *
+ * A shell the process starts passes the environment on, so a Node process the
+ * shell starts is registered too, unless the command line it runs sets
+ * `NODE_OPTIONS` itself (`NODE_OPTIONS=--max-old-space-size=4096 node
+ * server.js`), which no code in this process can see.
  *
  * Every asynchronous child (`spawn`, `exec`, `execFile`, `fork`, and their
  * promisified forms) is built by `ChildProcess.prototype.spawn` from the env
@@ -25,6 +30,7 @@
  * `execSync` and `execFileSync` are wrapped where they are exported.
  */
 import Module, { createRequire } from 'node:module';
+import { isLiveRegisterActive, isRegisterActive } from './activation.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -68,13 +74,55 @@ export function withSandboxVariables(env: Env, parentEnv: Env): Env {
 }
 
 /**
- * The environment to start a child with, so that it loads the register at
- * `registerUrl` in the sandbox `parentEnv` names. Returns a new object and
- * never changes `childEnv`. `file:` URLs are percent-encoded, so the import
- * needs no quoting in `NODE_OPTIONS`.
+ * Whether this thread is in the sandbox its children inherit: the sandbox
+ * register is active here, and the live register is not. A process the
+ * register refused (`NODE_ENV=production`) is not active.
  */
-export function guardChildEnv(childEnv: Env, parentEnv: Env, registerUrl: string): Env {
-  const guarded = withSandboxVariables(childEnv, parentEnv);
+export function isSandboxParent(): boolean {
+  return isRegisterActive() && !isLiveRegisterActive();
+}
+
+/**
+ * Whether the caller chose `PYRIC_SANDBOX_FORCE` for the child or worker,
+ * read from the caller's `env` alone. An empty value is no choice, and a
+ * value equal to this process's own is inherited, as when the caller spread
+ * `process.env`, so neither counts.
+ */
+function callerSetForce(env: Env, parentEnv: Env): boolean {
+  const value = env.PYRIC_SANDBOX_FORCE;
+  const hasValue = value !== undefined && value !== '';
+  return hasValue && value !== parentEnv.PYRIC_SANDBOX_FORCE;
+}
+
+/**
+ * `env` carrying the sandbox to a child process or a worker: the `PYRIC_*`
+ * variables `parentEnv` has and `env` lacks (see {@link withSandboxVariables}),
+ * and, when `parentActive`, `PYRIC_SANDBOX_FORCE=1` unless the caller chose
+ * another value ({@link callerSetForce}), so a `NODE_ENV=production` there
+ * does not make the register refuse. Returns a new object and never changes
+ * `env`.
+ */
+export function withInheritedSandbox(env: Env, parentEnv: Env, parentActive: boolean): Env {
+  const guarded = withSandboxVariables(env, parentEnv);
+  const forces = parentActive && !callerSetForce(env, parentEnv);
+  if (forces) guarded.PYRIC_SANDBOX_FORCE = '1';
+  return guarded;
+}
+
+/**
+ * The environment to start a child with, so that it loads the register at
+ * `registerUrl` in the sandbox `parentEnv` names. `parentActive` says whether
+ * this process is a sandbox parent ({@link isSandboxParent}). Returns a new
+ * object and never changes `childEnv`. `file:` URLs are percent-encoded, so
+ * the import needs no quoting in `NODE_OPTIONS`.
+ */
+export function guardChildEnv(
+  childEnv: Env,
+  parentEnv: Env,
+  registerUrl: string,
+  parentActive: boolean = isSandboxParent(),
+): Env {
+  const guarded = withInheritedSandbox(childEnv, parentEnv, parentActive);
   const nodeOptions = guarded.NODE_OPTIONS ?? '';
   if (!loadsRegister(nodeOptions, registerUrl)) {
     const importFlag = `--import ${registerUrl}`;
@@ -84,14 +132,19 @@ export function guardChildEnv(childEnv: Env, parentEnv: Env, registerUrl: string
 }
 
 /** `envPairs` (`NAME=value` strings, as `ChildProcess.prototype.spawn` takes them) with the guarded env. */
-export function guardEnvPairs(envPairs: readonly string[], parentEnv: Env, registerUrl: string): string[] {
+export function guardEnvPairs(
+  envPairs: readonly string[],
+  parentEnv: Env,
+  registerUrl: string,
+  parentActive: boolean = isSandboxParent(),
+): string[] {
   const childEnv: Env = {};
   for (const pair of envPairs) {
     const split = pair.indexOf('=');
     if (split === -1) childEnv[pair] = '';
     else childEnv[pair.slice(0, split)] = pair.slice(split + 1);
   }
-  const guarded = guardChildEnv(childEnv, parentEnv, registerUrl);
+  const guarded = guardChildEnv(childEnv, parentEnv, registerUrl, parentActive);
   const pairs: string[] = [];
   for (const [name, value] of Object.entries(guarded)) {
     if (value !== undefined) pairs.push(`${name}=${value}`);

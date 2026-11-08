@@ -9,7 +9,9 @@
 // it is started: one that only inherits the environment, one given its own
 // execArgv, NODE_OPTIONS or env, and one started through a shell. Before #1618
 // each of those loaded the real firebase-admin. A worker thread given its own
-// env is registered too; before #1621 it loaded the real firebase-admin.
+// env is registered too; before #1621 it loaded the real firebase-admin. A
+// child given NODE_ENV=production stays in the parent's sandbox; before #2340
+// the register refused there and the child loaded the real firebase-admin.
 //
 // safety.mjs loads before the register and sends any connection the guard
 // permits to a closed local port, so no probe reaches the network either way.
@@ -86,6 +88,7 @@ export default scenario(async (app) => {
       'child: spawnSync with its own NODE_OPTIONS': 'swapped, guard block',
       'child: execFile with an env of only PATH': 'swapped, guard block',
       'child: execSync through a shell': 'swapped, guard block',
+      'child: spawn with an env of PATH and NODE_ENV=production': 'swapped, guard block',
     });
   });
 

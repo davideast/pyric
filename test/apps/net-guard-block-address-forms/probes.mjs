@@ -162,6 +162,12 @@ const childProbes = {
     execFile(process.execPath, childArgs('execFile'), { env: { PATH: process.env.PATH } }, (_error, stdout) => resolve(stdout));
   }),
   'execSync through a shell': () => execSync(`"${process.execPath}" ${childArgs('execSync').join(' ')}`),
+  // The parent is in the sandbox, so a child it starts with NODE_ENV=production
+  // is too (#2340). Before the fix the register refused in that child, which
+  // then loaded the real firebase-admin with no guard.
+  'spawn with an env of PATH and NODE_ENV=production': () => asyncChild(
+    spawn(process.execPath, childArgs('spawn-production'), { env: { PATH: process.env.PATH, NODE_ENV: 'production' } }),
+  ),
 };
 for (const [name, run] of Object.entries(childProbes)) {
   record(`child: ${name}`, childOutcome(await run()));
