@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { rtdbReadOnlySitesFromState } from '../../../src/assurance-surface/probes/state.js';
+import { recordsAt, rtdbReadOnlySitesFromState } from '../../../src/assurance-surface/probes/state.js';
 import type { AccessSite } from '../../../src/assurance-surface/code/types.js';
 
 describe('rtdbReadOnlySitesFromState', () => {
@@ -70,6 +70,31 @@ describe('rtdbReadOnlySitesFromState', () => {
         ['u-alice'],
       ),
     ).toEqual([]);
+  });
+});
+
+describe('recordsAt', () => {
+  test('matches default headers and affixed variables while isolating named resources', () => {
+    const state = {
+      firestore: {
+        'items/item_alpha': { owner: 'u-alice' },
+        'items/other': { owner: 'u-bob' },
+      },
+      rtdb: {
+        users: {
+          user_alice: { role: 'member' },
+          plain: { role: 'guest' },
+        },
+      },
+    };
+    expect(recordsAt('firestore', '/databases/(default)/documents/items/item_{id}', state)).toEqual([
+      { path: 'items/item_alpha', data: { owner: 'u-alice' } },
+    ]);
+    expect(recordsAt('firestore', '/databases/analytics-db/documents/items/{id}', state)).toEqual([]);
+    expect(recordsAt('rtdb', 'users/user_{uid}', state)).toEqual([
+      { path: 'users/user_alice', data: { role: 'member' } },
+    ]);
+    expect(recordsAt('rtdb', 'https://secondary-rtdb.firebaseio.com/users/$uid', state)).toEqual([]);
   });
 });
 

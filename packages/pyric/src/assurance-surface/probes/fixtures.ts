@@ -4,8 +4,8 @@
  * (literals kept, auth-sourced fields set from the actor, SDK sentinels
  * kept as sentinels).
  */
-import type { AccessSite, PayloadField, PayloadShape } from '../code/types.js';
-import { parseTemplate } from '../rules/templates.js';
+import type { AccessService, AccessSite, PayloadField, PayloadShape } from '../code/types.js';
+import { parseResourcePattern } from '../../sandbox/internal/index.js';
 import type { ProbeActor, Sentinel } from './types.js';
 import type { WorldState } from './world.js';
 
@@ -44,7 +44,7 @@ export function concretePath(site: AccessSite, actor: ProbeActor, options: FillO
   const usedUids = new Set<string>();
   const outSegments: string[] = [];
 
-  const parsed = parseTemplate(site.path);
+  const parsed = parseResourcePattern(site.service, site.path).segments;
 
   let tempVarPos = 0;
   let lastVarIndex = -1;
@@ -117,7 +117,7 @@ export function concretePath(site: AccessSite, actor: ProbeActor, options: FillO
         } else {
           let suffix = '';
           if (i === lastVarIndex && options.variant) suffix = options.variant;
-          val = `v-${seg.name}${suffix}`;
+          val = `${seg.prefix ?? ''}v-${seg.name}${suffix}${seg.suffix ?? ''}`;
         }
       }
     }
@@ -132,11 +132,23 @@ export function concretePath(site: AccessSite, actor: ProbeActor, options: FillO
 }
 
 /** Concrete path for a template alone (rule templates), with named variables filled from a map. */
-export function fillTemplate(template: string, values: Record<string, string>, fallback: (name: string) => string): string {
-  return parseTemplate(template)
-    .map((seg) => {
+export function fillTemplate(
+  template: string,
+  values: Record<string, string>,
+  fallback: (name: string) => string,
+  service: AccessService = 'firestore',
+): string {
+  return parseResourcePattern(service, template)
+    .segments.map((seg) => {
       if (seg.kind === 'lit') return seg.text;
-      return Object.hasOwn(values, seg.name) ? values[seg.name] : fallback(seg.name);
+      let bound = fallback(seg.name);
+      if (Object.hasOwn(values, seg.name)) {
+        bound = values[seg.name]!;
+      }
+      if (seg.kind === 'var') {
+        return `${seg.prefix ?? ''}${bound}${seg.suffix ?? ''}`;
+      }
+      return bound;
     })
     .join('/');
 }

@@ -5,7 +5,12 @@
  */
 import { isWriteOp } from '../code/operation-specs.js';
 import type { AccessSite, PayloadField } from '../code/types.js';
-import { covers, parseTemplate, shapeKey } from '../rules/templates.js';
+import {
+  coversPattern,
+  matchesConcrete,
+  parseResourcePattern,
+  resourceShapeKey,
+} from '../../sandbox/internal/index.js';
 import { attributionFields, uidFields } from './fixtures.js';
 import type { WorldState } from './world.js';
 
@@ -17,24 +22,29 @@ export interface StateRecord {
 /** Records in the seed whose path matches a template (variables match any key). */
 export function recordsAt(service: 'firestore' | 'rtdb', template: string, state: WorldState | undefined): StateRecord[] {
   if (!state) return [];
-  const t = parseTemplate(template);
+  const pattern = parseResourcePattern(service, template);
   if (service === 'firestore') {
     const out: StateRecord[] = [];
     for (const [path, data] of Object.entries(state.firestore ?? {})) {
-      const segs = path.replace(/^\/+/, '').split('/');
-      if (segs.length !== t.length) continue;
-      if (t.every((s, i) => s.kind !== 'lit' || s.text === segs[i])) out.push({ path: segs.join('/'), data });
+      if (!matchesConcrete(pattern, path)) continue;
+      const segs = path.replace(/^\/+/, '').split('/').filter((s) => s.length > 0);
+      out.push({ path: segs.join('/'), data });
     }
     return out;
   }
+  if (pattern.resourceId !== '(default)') return [];
+  const t = pattern.segments;
   const out: StateRecord[] = [];
   const walk = (node: unknown, depth: number, path: string[]): void => {
     if (depth === t.length) {
-      out.push({ path: path.join('/'), data: node });
+      const candidate = path.join('/');
+      if (matchesConcrete(pattern, candidate)) {
+        out.push({ path: candidate, data: node });
+      }
       return;
     }
     if (!node || typeof node !== 'object') return;
-    const seg = t[depth];
+    const seg = t[depth]!;
     const obj = node as Record<string, unknown>;
     if (seg.kind === 'lit') {
       if (Object.hasOwn(obj, seg.text)) walk(obj[seg.text], depth + 1, [...path, seg.text]);
@@ -203,19 +213,19 @@ export function rtdbReadOnlySitesFromState(sites: AccessSite[], state: WorldStat
   for (const s of sites) {
     if (s.service !== 'rtdb' || (s.op !== 'get' && s.op !== 'query') || s.resolution === 'unresolved') continue;
     if (!s.path || s.path.includes('=**')) continue;
-    const readTemplate = parseTemplate(s.path);
+    const readPattern = parseResourcePattern('rtdb', s.path);
     const hasClientWrite = sites.some(
       (w) =>
-        w.service === 'rtdb' &&
-        isWriteOp(w.op) &&
-        w.resolution !== 'unresolved' &&
-        Boolean(w.path) &&
-        covers(readTemplate, parseTemplate(w.path), true),
+        w.service === 'rtdb'
+        && isWriteOp(w.op)
+        && w.resolution !== 'unresolved'
+        && Boolean(w.path)
+        && coversPattern(readPattern, parseResourcePattern('rtdb', w.path), { cascade: true }),
     );
     if (hasClientWrite) continue;
 
     const itemTemplate = `${s.path}/$itemId`;
-    const key = shapeKey(itemTemplate);
+    const key = resourceShapeKey(parseResourcePattern('rtdb', itemTemplate));
     if (seen.has(key)) continue;
 
     const records = recordsAt('rtdb', itemTemplate, state).filter(

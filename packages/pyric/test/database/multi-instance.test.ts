@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox, createMemoryBackend } from 'pyric/sandbox';
 import { initializeApp, deleteApp } from '../../src/app/index.js';
+import { resetAppRegistryForTests } from '../../src/app/registry.js';
 import {
   getAdminDatabase,
   getDatabase,
@@ -11,6 +12,8 @@ import {
 } from '../../src/database/index.js';
 import { setRules, setDefaultPolicy } from '../../src/database/sandbox-controls.js';
 import { heldDatabaseInstances } from '../../src/database/internal.js';
+
+afterEach(() => resetAppRegistryForTests());
 
 describe('RTDB Multi-Instance Isolation & Routing', () => {
   it('maintains independent DataTree storage across instances', async () => {

@@ -4,7 +4,7 @@
  * under test.
  */
 import type { AccessSite } from '../code/types.js';
-import { covers, parseTemplate } from '../rules/templates.js';
+import { coversPattern, parseResourcePattern } from '../../sandbox/internal/index.js';
 import type { OwnerBinding, OwnerCondition } from '../rules/types.js';
 import type { ValueHint } from '../rules/value-hints.js';
 import { planFieldOwned } from './field-owned-probes.js';
@@ -28,8 +28,15 @@ export interface PlanInput {
 }
 
 function bindingsAt(site: AccessSite, bindings: OwnerBinding[]): OwnerBinding[] {
-  const t = parseTemplate(site.path);
-  return bindings.filter((b) => b.service === site.service && (covers(parseTemplate(b.path), t, true) || covers(t, parseTemplate(b.path), true)));
+  const sitePattern = parseResourcePattern(site.service, site.path);
+  return bindings.filter((b) => {
+    if (b.service !== site.service) return false;
+    const bindingPattern = parseResourcePattern(b.service, b.path);
+    return (
+      coversPattern(bindingPattern, sitePattern, { cascade: true })
+      || coversPattern(sitePattern, bindingPattern, { cascade: true })
+    );
+  });
 }
 
 function isRuleConfirmed(bs: OwnerBinding[]): boolean {
@@ -157,7 +164,7 @@ export function planProbes(input: PlanInput): Probe[] {
         seed: slotSeeds, setup: [ownerStep], attack, expect: 'deny',
         evidence: `${peer.uid} wrote into ${owner.uid}'s slot at ${recordPath(attack)} (client write ${site.source})`, sources: [site.source],
       });
-      if (parseTemplate(site.path).filter((x) => x.kind === 'var').length > uidVars.length) {
+      if (parseResourcePattern(site.service, site.path).segments.filter((x) => x.kind === 'var').length > uidVars.length) {
         const fresh = step(site, 'peer', { keyActor: owner, variant: '-fresh', overrides: uidOverrides });
         add({
           kind: 'foreign-slot-write', op: 'write', service: site.service, template: site.path, status: slotStatus,
