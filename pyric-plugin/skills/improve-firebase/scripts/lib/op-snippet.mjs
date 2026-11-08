@@ -1,4 +1,4 @@
-import { ContractValidationError } from './contracts.mjs';
+import { ContractValidationError, isReadOperationMethod } from './contracts.mjs';
 
 const SERVICE_ALIASES = new Map([
   ['database', 'database'],
@@ -343,8 +343,7 @@ export function formatRuleExpressionSummary(expr, maxLen = 136) {
 }
 
 function isWriteMethod(method = 'set') {
-  const m = String(method || '').toLowerCase();
-  return !['get', 'read', 'once', 'onvalue', 'query', 'getdoc', 'getdocs', 'list', 'getdownloadurl', 'getmetadata'].includes(m);
+  return !isReadOperationMethod(method);
 }
 
 function extractFocusedRtdbRule(parsed, targetPath, method, maxLen = 136) {

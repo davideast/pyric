@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { ASSURANCE_EXPORT_SCHEMA, ContractValidationError } from './contracts.mjs';
+import { ASSURANCE_EXPORT_SCHEMA, ContractValidationError, getOperationPayload } from './contracts.mjs';
 import { normalizeServiceName } from './op-snippet.mjs';
+import { inspectSeedPath } from './seed-envelope.mjs';
 
 const LOG_RING_LIMIT = 200;
 
@@ -623,63 +624,18 @@ export class IsolatedSandbox {
       // Handle seed file or snapshot directory
       let cliSeedPath = null;
       let postStartSnapshot = null;
-      const isMultiServiceEnvelope = (obj) =>
-        Boolean(
-          obj &&
-            typeof obj === 'object' &&
-            ('version' in obj ||
-              'firestore' in obj ||
-              'database' in obj ||
-              'databases' in obj ||
-              'rtdb' in obj ||
-              'auth' in obj ||
-              'users' in obj ||
-              'storage' in obj),
-        );
       if (seedDir) {
         const resolvedSeed = path.resolve(baseDir, seedDir);
-        if (!fs.existsSync(resolvedSeed)) {
-          throw new ContractValidationError(`Seed path does not exist: ${resolvedSeed}`);
+        const requireRtdbEnvelope = Boolean(tempConfig.database);
+        const seedCheck = inspectSeedPath(resolvedSeed, { requireRtdb: requireRtdbEnvelope });
+        if (!seedCheck.ok) {
+          throw new ContractValidationError(seedCheck.reason);
         }
-        const stat = fs.statSync(resolvedSeed);
-        if (stat.isFile()) {
-          let parsedSeed = null;
-          try {
-            parsedSeed = JSON.parse(fs.readFileSync(resolvedSeed, 'utf8'));
-          } catch {
-            parsedSeed = null;
-          }
-          if (isMultiServiceEnvelope(parsedSeed)) {
-            postStartSnapshot = parsedSeed;
-          } else {
-            cliSeedPath = path.join(tempDir, 'seed.json');
-            fs.copyFileSync(resolvedSeed, cliSeedPath);
-          }
-        } else if (stat.isDirectory()) {
-          const dirSeedJson = path.join(resolvedSeed, 'seed.json');
-          const dirStateJson = path.join(resolvedSeed, 'state.json');
-          if (fs.existsSync(dirSeedJson)) {
-            let parsedSeed = null;
-            try {
-              parsedSeed = JSON.parse(fs.readFileSync(dirSeedJson, 'utf8'));
-            } catch {
-              parsedSeed = null;
-            }
-            if (isMultiServiceEnvelope(parsedSeed)) {
-              postStartSnapshot = parsedSeed;
-            } else {
-              cliSeedPath = path.join(tempDir, 'seed.json');
-              fs.copyFileSync(dirSeedJson, cliSeedPath);
-            }
-          } else if (fs.existsSync(dirStateJson)) {
-            const parsedState = JSON.parse(fs.readFileSync(dirStateJson, 'utf8'));
-            if (!isMultiServiceEnvelope(parsedState)) {
-              cliSeedPath = path.join(tempDir, 'seed.json');
-              fs.copyFileSync(dirStateJson, cliSeedPath);
-            } else {
-              postStartSnapshot = parsedState;
-            }
-          }
+        if (seedCheck.isEnvelope) {
+          postStartSnapshot = seedCheck.parsed;
+        } else if (seedCheck.filePath) {
+          cliSeedPath = path.join(tempDir, 'seed.json');
+          fs.copyFileSync(seedCheck.filePath, cliSeedPath);
         }
       }
 
@@ -1195,12 +1151,7 @@ export class IsolatedSandbox {
     }
 
     const rawMethod = String(operation.method || 'get').trim().toLowerCase();
-    const payload =
-      operation.value !== undefined
-        ? operation.value
-        : operation.data !== undefined
-          ? operation.data
-          : operation.values;
+    const payload = getOperationPayload(operation);
 
     let hostedKey;
     let hostedArgs;
@@ -1216,7 +1167,7 @@ export class IsolatedSandbox {
         hostedArgs = { path: targetPath, value: payload ?? null, ...instanceOpt };
       } else if (rawMethod === 'update' || rawMethod === 'patch') {
         hostedKey = 'database.update';
-        hostedArgs = { path: targetPath, value: payload ?? {}, ...instanceOpt };
+        hostedArgs = { path: targetPath, values: payload ?? {}, ...instanceOpt };
       } else if (rawMethod === 'push' || rawMethod === 'post') {
         hostedKey = 'database.push';
         hostedArgs = { path: targetPath, ...(payload !== undefined ? { value: payload } : {}), ...instanceOpt };
@@ -1319,19 +1270,19 @@ export class IsolatedSandbox {
       const summary = body?.summary || `HTTP ${httpStatus}`;
       const isRuleDenial =
         body?.data?.code === 'denied_by_rules' ||
-        /permission_denied|denied by rules|unauthorized/i.test(summary);
-      const status = isRuleDenial
-        ? identity.mode === 'anonymous'
-          ? 401
-          : 403
-        : httpStatus >= 400
-          ? httpStatus
-          : /not.?found/i.test(summary)
-            ? 404
-            : 400;
+        body?.error?.code === 'denied_by_rules' ||
+        /permission_denied|permission denied|denied by rules|unauthorized/i.test(summary);
+      let status = 400;
+      if (isRuleDenial) {
+        status = identity.mode === 'anonymous' ? 401 : 403;
+      } else if (httpStatus >= 400) {
+        status = httpStatus;
+      } else if (/not.?found/i.test(summary)) {
+        status = 404;
+      }
 
       return {
-        decision: 'DENY',
+        decision: isRuleDenial ? 'DENY' : 'ERROR',
         status,
         data: body?.data ?? null,
         error: summary,
@@ -1348,15 +1299,24 @@ export class IsolatedSandbox {
    * @param {string} service
    * @param {string} targetPath
    * @param {string | object | null} [idToken]
+   * @param {{ instance?: string }} [options]
    * @returns {Promise<unknown>}
    */
-  async readState(service, targetPath, idToken = undefined) {
+  async readState(service, targetPath, idToken = undefined, options = {}) {
     const normalized = normalizeServiceName(service);
     const effectiveIdentity = idToken === undefined ? { admin: true } : idToken;
+    const resolvedInstance =
+      options?.instance ??
+      (effectiveIdentity && typeof effectiveIdentity === 'object' ? effectiveIdentity.instance : undefined);
 
     if (normalized === 'database') {
       const res = await this.executeOperation({
-        operation: { service: 'database', method: 'get', path: targetPath },
+        operation: {
+          service: 'database',
+          method: 'get',
+          path: targetPath,
+          ...(resolvedInstance ? { instance: String(resolvedInstance) } : {}),
+        },
         idToken: effectiveIdentity,
       });
       if (res.decision !== 'ALLOW') return null;
@@ -1387,23 +1347,24 @@ export class IsolatedSandbox {
   /**
    * Hot-swaps security rules inside the isolated sandbox and updates the temp workspace files.
    *
-   * @param {{ rtdbRules?: string | object, databaseRules?: string | object, firestoreRules?: string, storageRules?: string }} rulesSpec
+   * @param {{ rtdbRules?: string | object, databaseRules?: string | object, instance?: string, rtdbInstance?: string, firestoreRules?: string, storageRules?: string }} rulesSpec
    * @returns {Promise<{ ok: boolean, rulesHash: string | null, databaseRulesHash: string | null, storageRulesHash: string | null }>}
    */
-  async updateRules({ rtdbRules, databaseRules, rtdbInstance, firestoreRules, storageRules } = {}) {
+  async updateRules({ rtdbRules, databaseRules, instance, rtdbInstance, firestoreRules, storageRules } = {}) {
     return this._enqueueOp(async () => {
       const effectiveRtdb = rtdbRules !== undefined ? rtdbRules : databaseRules;
+      const targetInstance = instance || rtdbInstance || null;
       if (effectiveRtdb !== undefined) {
         const source =
           typeof effectiveRtdb === 'string'
             ? effectiveRtdb
             : `${JSON.stringify(effectiveRtdb, null, 2)}\n`;
         fs.writeFileSync(path.join(this.tempDir, 'database.rules.json'), source, 'utf8');
-        if (rtdbInstance) {
+        if (targetInstance) {
           await this.callHostedMethod('rules.set', {
             service: 'database',
             rules: source,
-            rtdbInstance,
+            instance: targetInstance,
           });
         } else {
           await this.callHostedMethod('rules.set', {
@@ -1414,7 +1375,7 @@ export class IsolatedSandbox {
             await this.callHostedMethod('rules.set', {
               service: 'database',
               rules: source,
-              rtdbInstance: secInst,
+              instance: secInst,
             });
           }
         }
@@ -1480,19 +1441,20 @@ export class IsolatedSandbox {
 
   async _applySnapshotState(snapshot) {
     if (!snapshot || typeof snapshot !== 'object') return;
-    const rawUsers = Array.isArray(snapshot.users)
-      ? snapshot.users
-      : Array.isArray(snapshot.auth?.users)
-        ? snapshot.auth.users
-        : snapshot.users && typeof snapshot.users === 'object'
-          ? Object.entries(snapshot.users).map(([uid, spec]) => ({ uid, ...(spec || {}) }))
-          : [];
+    let rawUsers = [];
+    if (Array.isArray(snapshot.users)) {
+      rawUsers = snapshot.users;
+    } else if (Array.isArray(snapshot.auth?.users)) {
+      rawUsers = snapshot.auth.users;
+    } else if (snapshot.users && typeof snapshot.users === 'object') {
+      rawUsers = Object.entries(snapshot.users).map(([uid, spec]) => ({ uid, ...(spec || {}) }));
+    }
     for (const user of rawUsers) {
       if (user?.uid) {
         await this.ensureUser(user);
       }
     }
-    const rtdbRoot = snapshot.database?.data ?? snapshot.database ?? snapshot.rtdb?.data ?? snapshot.rtdb;
+    const rtdbRoot = snapshot.database ?? snapshot.rtdb;
     if (rtdbRoot && typeof rtdbRoot === 'object') {
       for (const [key, value] of Object.entries(rtdbRoot)) {
         if (!key) continue;
@@ -1504,13 +1466,15 @@ export class IsolatedSandbox {
     }
     if (snapshot.databases && typeof snapshot.databases === 'object') {
       for (const [instanceName, tree] of Object.entries(snapshot.databases)) {
-        if (tree && typeof tree === 'object') {
+        if (!instanceName || !tree || typeof tree !== 'object') continue;
+        for (const [key, value] of Object.entries(tree)) {
+          if (!key) continue;
           await this.executeOperation({
             operation: {
               service: 'database',
               method: 'set',
-              path: '/',
-              data: tree,
+              path: key,
+              data: value,
               instance: instanceName,
             },
             idToken: { admin: true },
@@ -1518,7 +1482,7 @@ export class IsolatedSandbox {
         }
       }
     }
-    const firestoreDocs = snapshot.firestore?.documents ?? snapshot.firestore;
+    const firestoreDocs = snapshot.firestore;
     if (firestoreDocs && typeof firestoreDocs === 'object') {
       for (const [docPath, docData] of Object.entries(firestoreDocs)) {
         if (docData && typeof docData === 'object') {

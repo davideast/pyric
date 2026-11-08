@@ -5,9 +5,14 @@
  */
 
 import path from 'node:path';
+import { firstDefined, isReadOperationMethod } from './contracts.mjs';
 
 const MIN_TIMELINE_MS = 2500;
 const DEFAULT_END_HOLD_MS = 500;
+
+function isPlainObject(val) {
+  return val !== null && typeof val === 'object' && !Array.isArray(val);
+}
 
 /**
  * Binary-search a sorted `frames` array (`[{ tMs, files }, ...]`) and return
@@ -159,13 +164,20 @@ function buildBeatDefinitions(scenario, eventList) {
   const hasFix = detectFixPresence(scenario, eventList, fixEvent, fixStep);
   const ownerUid = scenario.actors?.owner?.uid || 'alice';
   const peerUid = scenario.actors?.peer?.uid || 'mallory';
+  const beatMethod =
+    reproEvent?.method ??
+    reproStep?.operation?.method ??
+    scenario?.reproOperation?.method ??
+    scenario?.operation?.method ??
+    'set';
+  const isRead = isReadOperationMethod(beatMethod);
 
   const vulnerableRule =
     resolveRuleText(reproStep?.matchedRule) ??
     resolveRuleText(reproEvent?.matchedRule) ??
     resolveRuleText(scenario.fixRules?.before) ??
     resolveRuleText(hookEvent?.matchedRule) ??
-    '".write": "auth != null"';
+    (isRead ? '".read": "auth != null"' : '".write": "auth != null"');
 
   const fixedRule =
     resolveRuleText(fixStep?.matchedRule) ??
@@ -178,7 +190,7 @@ function buildBeatDefinitions(scenario, eventList) {
   const reproSdkCall =
     resolveRuleText(reproStep?.sdkCall) ??
     formatSdkCallFromEvent(reproEvent) ??
-    `database.set('/target', { actor: '${peerUid}' })`;
+    (isRead ? `database.get('/target')` : `database.set('/target', { actor: '${peerUid}' })`);
 
   const hookSdkCall =
     resolveRuleText(hookStep?.sdkCall) ??
@@ -232,7 +244,9 @@ function buildBeatDefinitions(scenario, eventList) {
       resolveRuleText(fixStep?.caption) ??
       resolveRuleText(fixEvent?.caption) ??
       resolveRuleText(scenario.copy?.fixed) ??
-      'Security rules updated — unauthorized mutation denied';
+      (isRead
+        ? 'Security rules updated: unauthorized read denied'
+        : 'Security rules updated: unauthorized mutation denied');
     beats.push({
       id: 'fix',
       phase: 'fix',
@@ -374,9 +388,6 @@ function resolveAnchoredRulePath(nodePath, targetPath, parentAnchoredPath = '') 
   const rawNode = String(nodePath || '').trim();
 
   if (!rawNode) {
-    if (targetTokens.length >= 2) {
-      return `/${targetTokens.slice(0, -1).join('/')}/$${targetTokens[targetTokens.length - 1]}`;
-    }
     return cleanTarget || '/';
   }
 
@@ -522,6 +533,9 @@ function derivePathTokens({
   ownerUid,
   peerName,
   peerUid,
+  isRead = false,
+  isCreate = false,
+  isDelete = false,
 }) {
   if (Array.isArray(copy?.pathTokens) && copy.pathTokens.length > 0) {
     return copy.pathTokens.map((item) => ({
@@ -549,7 +563,7 @@ function derivePathTokens({
         isParam: true,
         callout: {
           label: 'Target path',
-          detail: copy?.targetContext || `Written directly by ${peerUid}`,
+          detail: copy?.targetContext || `${isRead ? 'Read' : 'Written'} directly by ${peerUid}`,
         },
       },
     ];
@@ -597,71 +611,80 @@ function derivePathTokens({
   for (let i = 0; i < attachIdx; i += 1) {
     const bTok = beforeTokens[i] || '';
     const aTok = afterTokens[i] || '';
-    if (isParamToken(bTok) || isParamToken(aTok)) {
+    const prevSeg = i > 0 ? concreteTokens[i - 1] : '';
+    const inferredWildcard = prevSeg ? wildcardByParent.get(prevSeg) || '' : '';
+    if (isParamToken(bTok) || isParamToken(aTok) || Boolean(inferredWildcard)) {
       containerIndices.push(i);
     }
   }
-  // If no explicit wildcard before attachIdx, highlight the primary container ID if path is deep (e.g. col/id/subcol/id)
   if (containerIndices.length === 0 && attachIdx >= 2) {
-    const candidateIdx = concreteTokens[1] && !/^(spaces|data|v1|app)$/i.test(concreteTokens[1]) ? 1 : concreteTokens[2] && 2 < attachIdx ? 2 : -1;
+    let candidateIdx = -1;
+    if (concreteTokens[1] && !/^(spaces|data|v1|app)$/i.test(concreteTokens[1])) {
+      candidateIdx = 1;
+    } else if (concreteTokens[2] && 2 < attachIdx) {
+      candidateIdx = 2;
+    }
     if (candidateIdx >= 0) {
       containerIndices.push(candidateIdx);
     }
   }
-  // Keep at most the most relevant container parameter so we never have more than 3 callouts
   const selectedContainerIdx = containerIndices.length > 0 ? containerIndices[containerIndices.length - 1] : -1;
-
-  const nounPlural = inferCollectionNoun(targetPath, beforeRuleAnchored);
-  const nounSingular = singularizeToken(nounPlural);
 
   return concreteTokens.map((concreteVal, idx) => {
     const bTok = beforeTokens[idx] || '';
     const aTok = afterTokens[idx] || '';
     const prevConcrete = idx > 0 ? concreteTokens[idx - 1] : '';
     const inferredWildcard = prevConcrete ? wildcardByParent.get(prevConcrete) || '' : '';
-    const rawParam = isParamToken(bTok)
-      ? bTok
-      : isParamToken(aTok)
-        ? aTok
-        : inferredWildcard;
+    let rawParam = inferredWildcard;
+    if (isParamToken(bTok)) {
+      rawParam = bTok;
+    } else if (isParamToken(aTok)) {
+      rawParam = aTok;
+    }
     const containsOwner =
       Boolean(uidLower) &&
       (concreteVal.toLowerCase() === uidLower || concreteVal.toLowerCase().includes(uidLower));
 
-    let displayText = rawParam || concreteVal;
-    let isParam = Boolean(rawParam);
+    const displayText = rawParam || concreteVal;
+    const isParam = Boolean(rawParam);
     let callout = null;
 
     if (idx === leafIdx) {
-      if (!isParam) {
-        const baseNoun = prevConcrete && !isParamToken(beforeTokens[idx - 1] || '')
-          ? singularizeToken(humanizeToken(prevConcrete, nounSingular).replace(/\bhistory\b/i, '').trim() || nounSingular).replace(/\s+/g, '')
-          : nounSingular;
-        displayText = `$${baseNoun || 'record'}id`;
-        isParam = true;
+      let leafDetail = copy?.targetContext || '';
+      if (!leafDetail) {
+        if (isCreate) {
+          leafDetail = `New key written by ${peerUid} (${concreteVal})`;
+        } else if (isDelete) {
+          leafDetail = ownerUid
+            ? `Owned by ${ownerUid}, deleted by ${peerUid} (${concreteVal})`
+            : `Deleted directly by ${peerUid} (${concreteVal})`;
+        } else if (isRead) {
+          leafDetail = ownerUid
+            ? `Owned by ${ownerUid} (${concreteVal})`
+            : `Read directly by ${peerUid} (${concreteVal})`;
+        } else {
+          leafDetail = ownerUid
+            ? `Owned by ${ownerUid} (${concreteVal})`
+            : `Written directly by ${peerUid} (${concreteVal})`;
+        }
       }
       callout = {
         label: idx < concreteTokens.length - 1 ? 'Target record' : 'Target leaf',
-        detail:
-          copy?.targetContext ||
-          (ownerUid
-            ? `Authored by ${ownerUid} (${concreteVal})`
-            : `Written directly by ${peerUid} (${concreteVal})`),
+        detail: leafDetail,
       };
     } else if (idx === attachIdx) {
       callout = {
-        label: leafIdx === attachIdx ? 'Rule and target node' : 'Write rule attaches here',
+        label:
+          leafIdx === attachIdx
+            ? 'Rule and target node'
+            : `${isRead ? 'Read' : 'Write'} rule attaches here`,
         detail:
           leafIdx === attachIdx
-            ? `Checked here without owner verification (${concreteVal})`
-            : `Applies to all child nodes (${concreteVal})`,
+            ? `Evaluated here (${concreteVal})`
+            : `Applies to child nodes (${concreteVal})`,
       };
     } else if (idx === selectedContainerIdx) {
       const parentWord = singularizeToken(humanizeToken(prevConcrete || 'container', 'container'));
-      if (!isParam && prevConcrete) {
-        displayText = `$${parentWord.replace(/\s+/g, '') || 'container'}id`;
-        isParam = true;
-      }
       callout = containsOwner
         ? {
             label: `${ownerName}'s ${parentWord}`,
@@ -669,7 +692,7 @@ function derivePathTokens({
           }
         : {
             label: 'Shared container',
-            detail: `Both ${ownerName} and ${peerName} are members (${concreteVal})`,
+            detail: `Shared container (${concreteVal})`,
           };
     }
 
@@ -687,9 +710,9 @@ function derivePathSegments({
   copy,
   ownerName,
   ownerUid,
-  peerName,
   peerUid,
-  beforeRuleShortPath,
+  isRead = false,
+  isCreate = false,
 }) {
   if (Array.isArray(copy?.pathSegments) && copy.pathSegments.length > 0) {
     return copy.pathSegments.map((item) => ({
@@ -709,7 +732,7 @@ function derivePathSegments({
       {
         path: cleanTarget || '/target',
         label: 'Target database path',
-        detail: copy?.targetContext || `Written directly by ${peerUid}`,
+        detail: copy?.targetContext || `${isRead ? 'Read' : 'Written'} directly by ${peerUid}`,
         tone: 'danger',
       },
     ];
@@ -718,7 +741,7 @@ function derivePathSegments({
   return [
     {
       path: strippedTarget.startsWith('/') ? strippedTarget : `/${strippedTarget}`,
-      label: ownerUid ? `${ownerName}'s target path (${ownerUid})` : 'Target path',
+      label: ownerUid && !isCreate ? `${ownerName}'s target path (${ownerUid})` : 'Target path',
       detail: copy?.targetContext || `Targeted directly by ${peerUid}`,
       tone: 'neutral',
     },
@@ -831,17 +854,26 @@ function analyzeRuleClauses({
     .map((c) => compactRuleChain(c))
     .filter((c) => !beforeNormalized.has(c));
 
+  let addedSummaryClause = '';
+  if (addedCompact.length === 1) {
+    addedSummaryClause = addedCompact[0];
+  } else if (addedCompact.length === 2) {
+    const joined = addedCompact.join(' && ');
+    if (joined.length <= 84) {
+      addedSummaryClause = joined;
+    }
+  }
   const addedOwnerClause =
+    addedSummaryClause ||
     addedCompact.find((c) => /speaker|author|owner|createdBy|userId|uid|!data\.exists|request\.resource/i.test(c)) ||
     addedCompact[0] ||
-    (!beforeClauses.some((c) => /speaker|author|owner|createdBy|userId/i.test(c))
-      ? `!data.exists() || data.child('owner/uid').val() == auth.uid`
-      : '');
+    '';
 
   return {
     beforeLines: distillRuleLines(vulnerableRuleBody),
     afterLines: distillRuleLines(fixedRuleBody, { maxLines: 6 }),
     addedOwnerClause,
+    addedSummaryClause,
     addedCompactSet: new Set(addedCompact),
   };
 }
@@ -851,12 +883,17 @@ function buildRuleTreeStructure({
   parsedAfter,
   beforeRuleAnchored,
   afterRuleAnchored,
+  targetPath,
   pathTokens,
   beforeLines,
   afterLines,
   addedCompactSet,
   checkNoun = 'ownership check',
+  isRead = false,
 }) {
+  const ruleKey = isRead ? '.read' : '.write';
+  const beforeLocationPath = beforeRuleAnchored || targetPath || '/';
+  const afterLocationPath = afterRuleAnchored || beforeLocationPath;
   const beforeTokens = String(parsedBefore.nodePath || beforeRuleAnchored || '')
     .split('/')
     .filter(Boolean);
@@ -864,7 +901,7 @@ function buildRuleTreeStructure({
     .split('/')
     .filter(Boolean);
 
-  const beforeAttachNode = beforeTokens[beforeTokens.length - 1] || '$target';
+  const beforeAttachNode = beforeTokens[beforeTokens.length - 1] || beforeLocationPath;
   const beforeParentNode =
     beforeTokens.length >= 2 && !/^[$@]/.test(beforeTokens[beforeTokens.length - 2])
       ? beforeTokens[beforeTokens.length - 2]
@@ -874,14 +911,19 @@ function buildRuleTreeStructure({
     (pathTokens || []).find(
       (t) => t.callout?.label === 'Target record' || t.callout?.label === 'Target leaf',
     )?.text || '';
-  let afterAttachNode = afterTokens[afterTokens.length - 1] || leafParamToken || beforeAttachNode;
-  if (afterAttachNode === beforeAttachNode && leafParamToken && leafParamToken !== beforeAttachNode) {
-    afterAttachNode = leafParamToken;
-  }
+  const afterAttachNode =
+    afterTokens.length > 0
+      ? afterTokens[afterTokens.length - 1]
+      : leafParamToken || beforeAttachNode;
 
-  const ruleMovesDeeper = Boolean(afterAttachNode && afterAttachNode !== beforeAttachNode);
+  const ruleMovesDeeper = Boolean(
+    afterRuleAnchored &&
+      beforeRuleAnchored &&
+      afterRuleAnchored !== beforeRuleAnchored &&
+      afterAttachNode &&
+      afterAttachNode !== beforeAttachNode,
+  );
 
-  // Why-slide tree: shows hierarchy where .write attaches and where the write actually lands
   const whyTree = [];
   let indentCursor = 0;
   if (beforeParentNode) {
@@ -899,9 +941,9 @@ function buildRuleTreeStructure({
   whyTree.push({
     indent: indentCursor,
     node: beforeAttachNode,
-    ruleKey: '.write',
+    ruleKey,
     ruleLines: beforeLines,
-    note: ruleMovesDeeper ? 'Rule attached here' : `Rule evaluated here (no ${checkNoun})`,
+    note: ruleMovesDeeper ? `Rule attached at ${beforeLocationPath}` : `Evaluated at ${beforeLocationPath}`,
     isAttachPoint: true,
     isFlawHighlight: !ruleMovesDeeper,
   });
@@ -912,13 +954,12 @@ function buildRuleTreeStructure({
       node: afterAttachNode,
       ruleKey: '',
       ruleLines: [],
-      note: `no rule, inherits parent .write without ${checkNoun}`,
+      note: `no child rule, inherits ${ruleKey} from ${beforeLocationPath}`,
       isInheritedGap: true,
       isFlawHighlight: true,
     });
   }
 
-  // Fix-slide Before vs After trees: compact 3-line summary + highlighted new ownership predicate
   const compactBeforeForDiff = beforeLines.length > 3
     ? [beforeLines[0], beforeLines[1], beforeLines[beforeLines.length - 1]]
     : beforeLines;
@@ -939,8 +980,9 @@ function buildRuleTreeStructure({
     {
       indent: 0,
       node: beforeAttachNode,
-      ruleKey: '.write',
-      note: ruleMovesDeeper ? 'Attached too high (only checks membership)' : 'Only checks membership',
+      ruleKey,
+      note: ruleMovesDeeper ? `Attached at ${beforeLocationPath}` : `Vulnerable ${ruleKey} rule`,
+      isFlawHighlight: !ruleMovesDeeper,
       ruleLines: compactBeforeForDiff.map((text) => ({ text, highlight: false })),
     },
     ...(ruleMovesDeeper
@@ -948,7 +990,7 @@ function buildRuleTreeStructure({
           {
             indent: 1,
             node: afterAttachNode,
-            note: `no ${checkNoun}, inherits parent .write`,
+            note: `inherits parent ${ruleKey} without ${checkNoun}`,
             isFlawHighlight: true,
           },
         ]
@@ -967,8 +1009,8 @@ function buildRuleTreeStructure({
   afterDiffTree.push({
     indent: ruleMovesDeeper ? 1 : 0,
     node: afterAttachNode || beforeAttachNode,
-    ruleKey: '.write',
-    note: ruleMovesDeeper ? `Moved here + ${checkNoun} added` : `${checkNoun.charAt(0).toUpperCase() + checkNoun.slice(1)} added`,
+    ruleKey,
+    note: ruleMovesDeeper ? `Moved to ${afterLocationPath}` : `Updated ${ruleKey} rule`,
     isFixNodeHighlight: true,
     ruleLines: compactAfterForDiff.map((text) => {
       const bare = text.replace(/^&&\s*/, '').trim();
@@ -982,6 +1024,10 @@ function buildRuleTreeStructure({
   return {
     beforeAttachNode,
     afterAttachNode,
+    beforeLocationPath,
+    afterLocationPath,
+    beforeRuleLocationLabel: `${ruleKey} at ${beforeLocationPath}`,
+    afterRuleLocationLabel: `${ruleKey} at ${afterLocationPath}`,
     ruleMovesDeeper,
     whyTree,
     beforeDiffTree,
@@ -1343,12 +1389,69 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
   const service = reproEvent?.service || 'database';
   const serviceName = formatServiceDisplayName(service);
   const targetPath = reproEvent?.path || '/target';
-  const sdkCall = reproBeat?.sdkCall || `database.set('${targetPath}', ...)`;
+  const sdkMethod =
+    reproEvent?.method ??
+    scenario?.reproOperation?.method ??
+    scenario?.operation?.method ??
+    (service === 'firestore' ? 'setDoc' : 'set');
+  const sdkMethodLower = String(sdkMethod || '').trim().toLowerCase();
+  const isRead = isReadOperationMethod(sdkMethodLower);
+  const controlMethod =
+    controlEvent?.method ??
+    scenario?.controlOperation?.method ??
+    sdkMethod;
+  const controlIsRead = isReadOperationMethod(controlMethod);
+
+  const stateMode = !scenario.app;
+  const controlData = firstDefined(controlEvent?.data, scenario?.controlOperation?.data);
+  const hasExplicitBefore =
+    Boolean(reproEvent && ('stateBefore' in reproEvent || 'stateDiff' in reproEvent)) ||
+    Boolean(evidence && 'before' in evidence);
+  const dataBefore = firstDefined(
+    reproEvent?.stateBefore,
+    reproEvent?.stateDiff?.before,
+    evidence?.before,
+    controlData,
+    {},
+  );
+  const attachStateBefore =
+    dataBefore === null && controlData !== undefined ? controlData : dataBefore;
+  const dataAfter = firstDefined(
+    reproEvent?.stateAfter,
+    reproEvent?.stateDiff?.after,
+    evidence?.after,
+    reproEvent?.data,
+    scenario?.reproOperation?.data,
+    scenario?.operation?.data,
+    {},
+  );
+
+  const isDelete =
+    !isRead &&
+    (['remove', 'delete', 'del', 'deletedoc', 'deleteobject'].includes(sdkMethodLower) ||
+      (hasExplicitBefore &&
+        dataBefore !== null &&
+        dataAfter === null &&
+        (reproEvent?.data === null || reproEvent?.data === undefined)));
+  const isCreate =
+    !isRead &&
+    !isDelete &&
+    (['push', 'add', 'adddoc', 'create'].includes(sdkMethodLower) ||
+      (hasExplicitBefore && dataBefore === null));
+  const isUpdatePartial =
+    !isRead &&
+    !isDelete &&
+    !isCreate &&
+    ['update', 'patch', 'updatedoc'].includes(sdkMethodLower);
+
+  const sdkCall =
+    reproBeat?.sdkCall ||
+    (isRead ? `${service}.get('${targetPath}')` : `${service}.${sdkMethod}('${targetPath}')`);
   const vulnerableRule =
     (typeof evidence?.fixRules?.beforeFull === 'string' && evidence.fixRules.beforeFull.trim()) ||
     (typeof scenario?.fixRules?.before === 'string' && scenario.fixRules.before.trim()) ||
     reproBeat?.matchedRule ||
-    '".write": "auth != null"';
+    (isRead ? '".read": "auth != null"' : '".write": "auth != null"');
   const fixedRule =
     (typeof evidence?.fixRules?.afterFull === 'string' && evidence.fixRules.afterFull.trim()) ||
     (typeof scenario?.fixRules?.after === 'string' && scenario.fixRules.after.trim()) ||
@@ -1376,6 +1479,9 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     ownerUid,
     peerName,
     peerUid,
+    isRead,
+    isCreate,
+    isDelete,
   });
 
   const pathSegments = derivePathSegments({
@@ -1383,9 +1489,9 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     copy: scenario?.copy,
     ownerName,
     ownerUid,
-    peerName,
     peerUid,
-    beforeRuleShortPath: parsedBefore.nodePath,
+    isRead,
+    isCreate,
   });
 
   const checkNoun = scenario?.copy?.checkNoun || 'ownership check';
@@ -1393,6 +1499,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     beforeLines,
     afterLines,
     addedOwnerClause,
+    addedSummaryClause,
     addedCompactSet,
   } = analyzeRuleClauses({
     vulnerableRuleBody: parsedBefore.body || vulnerableRule,
@@ -1404,6 +1511,10 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
   const {
     beforeAttachNode,
     afterAttachNode,
+    beforeLocationPath,
+    afterLocationPath,
+    beforeRuleLocationLabel,
+    afterRuleLocationLabel,
     ruleMovesDeeper,
     whyTree,
     beforeDiffTree,
@@ -1413,25 +1524,102 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
     parsedAfter,
     beforeRuleAnchored,
     afterRuleAnchored,
+    targetPath,
     pathTokens,
     beforeLines,
     afterLines,
     addedCompactSet,
     checkNoun,
+    isRead,
   });
 
   const nounPlural = inferCollectionNoun(targetPath, parsedBefore.nodePath);
   const nounSingular = singularizeToken(nounPlural);
   const rawTargetSegs = String(targetPath || '').split('/').filter(Boolean);
   const leafSegmentId = rawTargetSegs[rawTargetSegs.length - 1] || 'record';
-  const sdkMethod = reproEvent?.method || (service === 'firestore' ? 'setDoc' : 'set');
   const uiFocus = evidence?.uiFocus || {};
 
+  const highlightKeys = isPlainObject(dataAfter)
+    ? Object.keys(dataAfter).filter(
+        (k) => !isPlainObject(dataBefore) || JSON.stringify(dataAfter[k]) !== JSON.stringify(dataBefore[k]),
+      )
+    : [];
+  const highlightValue =
+    (!isPlainObject(dataAfter) || !isPlainObject(dataBefore)) &&
+    JSON.stringify(dataAfter) !== JSON.stringify(dataBefore);
 
-  const stateMode = !scenario.app;
-  const dataBefore = reproEvent?.stateBefore || controlEvent?.data || scenario?.controlOperation?.data || {};
-  const dataAfter = reproEvent?.stateAfter || reproEvent?.data || scenario?.operation?.data || {};
-  const highlightKeys = Object.keys(dataAfter).filter(k => JSON.stringify(dataAfter[k]) !== JSON.stringify(dataBefore[k]));
+  let defaultTitleSubtitle = `${peerName} can overwrite ${ownerName}'s ${nounPlural} at ${targetPath} with the ${serviceName} SDK.`;
+  if (isRead) {
+    defaultTitleSubtitle = `${peerName} can read ${ownerName}'s ${nounPlural} at ${targetPath} with the ${serviceName} SDK.`;
+  } else if (isCreate) {
+    defaultTitleSubtitle = `${peerName} can create unauthorized ${nounPlural} at ${targetPath} with the ${serviceName} SDK.`;
+  } else if (isDelete) {
+    defaultTitleSubtitle = `${peerName} can delete ${ownerName}'s ${nounPlural} at ${targetPath} with the ${serviceName} SDK.`;
+  } else if (isUpdatePartial) {
+    defaultTitleSubtitle = `${peerName} can update ${ownerName}'s ${nounPlural} at ${targetPath} with the ${serviceName} SDK.`;
+  }
+
+  const ruleKindWord = isRead ? 'read' : 'write';
+  let defaultPathContext = `Requests target ${targetPath}, governed by ${beforeRuleLocationLabel}.`;
+  if (ruleMovesDeeper) {
+    defaultPathContext = `Because the ${ruleKindWord} rule sits at ${beforeLocationPath}, access cascades to child nodes under ${afterLocationPath}.`;
+  }
+
+  let defaultAttackSubtitle = `Signed in as ${peerUid}, ${peerName} calls the ${serviceName} SDK directly to overwrite ${targetPath}.`;
+  if (isRead) {
+    defaultAttackSubtitle = `Signed in as ${peerUid}, ${peerName} calls the ${serviceName} SDK directly to read ${targetPath}.`;
+  } else if (isCreate) {
+    defaultAttackSubtitle = `Signed in as ${peerUid}, ${peerName} calls the ${serviceName} SDK directly to create a new ${nounSingular} at ${targetPath}.`;
+  } else if (isDelete) {
+    defaultAttackSubtitle = `Signed in as ${peerUid}, ${peerName} calls the ${serviceName} SDK directly to delete ${targetPath}.`;
+  } else if (isUpdatePartial) {
+    defaultAttackSubtitle = `Signed in as ${peerUid}, ${peerName} calls the ${serviceName} SDK directly to update ${targetPath}.`;
+  }
+
+  let callerSummary = `${peerUid}`;
+  if (ownerUid) {
+    callerSummary = isRead
+      ? `${peerUid} (authenticated peer, not ${ownerUid})`
+      : `${peerUid} (authenticated caller, not ${ownerUid})`;
+  }
+
+  let problemVideoTitle = `${peerName} overwrites ${ownerName}'s ${nounSingular}`;
+  if (isRead) {
+    problemVideoTitle = `${peerName} reads ${ownerName}'s ${nounSingular}`;
+  } else if (isCreate) {
+    problemVideoTitle = `${peerName} creates a new ${nounSingular}`;
+  } else if (isDelete) {
+    problemVideoTitle = `${peerName} deletes ${ownerName}'s ${nounSingular}`;
+  } else if (isUpdatePartial) {
+    problemVideoTitle = `${peerName} updates ${ownerName}'s ${nounSingular}`;
+  }
+
+  let defaultWhySubtitle = `The ${beforeRuleLocationLabel} rule permits ${peerUid}'s ${sdkMethod} call on ${targetPath}.`;
+  if (ruleMovesDeeper) {
+    defaultWhySubtitle = `The ${beforeRuleLocationLabel} rule cascades downward, allowing ${peerUid}'s ${sdkMethod} call on ${targetPath}.`;
+  }
+
+  const ruleKeyLabel = isRead ? '.read' : '.write';
+  const defaultFixTitle = ruleMovesDeeper
+    ? `Scoping ${ruleKeyLabel} to ${afterLocationPath}`
+    : `Updating ${ruleKeyLabel} at ${afterLocationPath}`;
+  let defaultFixSubtitle = `The fix updates the ${ruleKeyLabel} rule at ${afterLocationPath}.`;
+  if (ruleMovesDeeper && addedSummaryClause) {
+    defaultFixSubtitle = `The fix moves ${ruleKeyLabel} from ${beforeLocationPath} to ${afterLocationPath} and adds ${addedSummaryClause}.`;
+  } else if (ruleMovesDeeper) {
+    defaultFixSubtitle = `The fix moves ${ruleKeyLabel} from ${beforeLocationPath} to ${afterLocationPath}.`;
+  } else if (addedSummaryClause) {
+    defaultFixSubtitle = `The fix updates the ${ruleKeyLabel} rule at ${afterLocationPath} with ${addedSummaryClause}.`;
+  }
+
+  let blockedActionTitle = 'Unauthorized write blocked';
+  if (isRead) {
+    blockedActionTitle = 'Unauthorized read blocked';
+  } else if (isCreate) {
+    blockedActionTitle = 'Unauthorized create blocked';
+  } else if (isDelete) {
+    blockedActionTitle = 'Unauthorized delete blocked';
+  }
 
   const slideDefs = [
     {
@@ -1441,9 +1629,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       phase: 'hook',
       durationMs: 1700,
       title: scenario?.copy?.title || 'Security rule vulnerability reproduction',
-      subtitle:
-        scenario?.copy?.repro ||
-        `${peerName} can overwrite ${ownerName}'s ${nounPlural} by targeting ${targetPath} directly with the ${serviceName} SDK.`,
+      subtitle: scenario?.copy?.summary || scenario?.copy?.repro || defaultTitleSubtitle,
       sourceStartMs: attachStartMs,
       sourceEndMs: attachStartMs,
       playDurationMs: 0,
@@ -1455,9 +1641,9 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       phase: 'hook',
       durationMs: attachTotalMs,
       title: scenario?.copy?.attachTitle || `${ownerName}'s ${nounSingular} exists`,
-      subtitle: scenario?.copy?.setupSubtitle || `${ownerName}'s own write is allowed`,
-      stateBefore: dataBefore,
-      titleBefore: 'Owner record',
+      subtitle: scenario?.copy?.setupSubtitle || `${ownerName}'s own ${controlIsRead ? 'read' : 'write'} is allowed`,
+      stateBefore: attachStateBefore,
+      titleBefore: controlIsRead ? 'Owner read' : 'Owner write',
       decisionBefore: 'ALLOW',
       sourceStartMs: attachStartMs,
       sourceEndMs: attachEndMs,
@@ -1470,11 +1656,11 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       durationMs: attachTotalMs,
       title:
         scenario?.copy?.attachTitle ||
-        `${ownerName} writes a ${nounSingular} in the shared space`,
+        `${ownerName} ${controlIsRead ? 'reads' : 'writes'} a ${nounSingular} in the shared space`,
       impactOffsetSec: 0.35,
       actionStatusPending: `Connected as ${ownerUid} and ${peerUid}`,
-      actionStatusImpact: `Write allowed under ${beforeAttachNode}`,
-      actorStatus: { role: 'owner', text: 'Normal write', tone: 'neutral' },
+      actionStatusImpact: `${controlIsRead ? 'Read' : 'Write'} allowed under ${beforeAttachNode}`,
+      actorStatus: { role: 'owner', text: `Normal ${controlIsRead ? 'read' : 'write'}`, tone: 'neutral' },
       uiOverlays: {
         focus: uiFocus.control || uiFocus.reproPre || uiFocus.reproPost || null,
         before: {
@@ -1482,12 +1668,12 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
           peer: { label: `Synced view for ${peerName}` },
           wire: {
             caller: ownerUid,
-            method: sdkMethod,
+            method: controlMethod,
             targetPath,
             pathTokens,
             ruleNode: beforeAttachNode,
             decision: 'ALLOW',
-            caption: `Written under ${beforeAttachNode}`,
+            caption: `${controlIsRead ? 'Read' : 'Written'} under ${beforeAttachNode}`,
           },
         },
         after: {
@@ -1495,12 +1681,12 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
           peer: { label: `Shared node visible to ${peerName}` },
           wire: {
             caller: ownerUid,
-            method: sdkMethod,
+            method: controlMethod,
             targetPath,
             pathTokens,
             ruleNode: beforeAttachNode,
             decision: 'ALLOW',
-            caption: `Write allowed by ${beforeAttachNode}`,
+            caption: `${controlIsRead ? 'Read' : 'Write'} allowed by ${beforeAttachNode}`,
           },
         },
       },
@@ -1515,11 +1701,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       phase: 'hook',
       durationMs: 3800,
       title: scenario?.copy?.pathTitle || `Where ${nounPlural} live`,
-      subtitle:
-        scenario?.copy?.pathContext ||
-        (ruleMovesDeeper
-          ? `Every ${nounSingular} sits inside a shared container. Because the write rule sits on ${beforeAttachNode}, any member inherits write permission to every child ${nounSingular}.`
-          : `Writes target ${targetPath}, where the active rule checks container access without verifying who authored the ${nounSingular}.`),
+      subtitle: scenario?.copy?.pathContext || defaultPathContext,
       targetPath,
       pathTokens,
       pathSegments,
@@ -1534,14 +1716,10 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       phase: 'repro',
       durationMs: 3600,
       title: scenario?.copy?.attackTitle || `Bypassing the UI as ${peerName}`,
-      subtitle:
-        scenario?.copy?.attackContext ||
-        `Signed in as ${peerUid}, ${peerName} calls the ${serviceName} SDK directly to overwrite ${ownerName}'s existing ${nounSingular}.`,
+      subtitle: scenario?.copy?.attackContext || defaultAttackSubtitle,
       targetPath,
       pathTokens,
-      callerSummary: ownerUid
-        ? `${peerUid} (member of container, not author)`
-        : `${peerUid}`,
+      callerSummary,
       code: sdkCall,
       sourceStartMs: reproVideoStartMs,
       sourceEndMs: reproVideoStartMs,
@@ -1553,14 +1731,15 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       variant: 'state',
       phase: 'repro',
       durationMs: reproTotalMs,
-      title: `${peerName} overwrites ${ownerName}'s ${nounSingular}`,
-      subtitle: `Allowed by ${beforeAttachNode}`,
-      stateBefore: dataBefore,
-      titleBefore: 'Before',
+      title: problemVideoTitle,
+      subtitle: `Allowed by ${beforeRuleLocationLabel}`,
+      stateBefore: isRead ? attachStateBefore : dataBefore,
+      titleBefore: isRead ? 'Protected record' : 'Before',
       stateAfter: dataAfter,
-      titleAfter: 'After',
+      titleAfter: isRead ? `Returned to ${peerName}` : 'After',
       decisionAfter: 'ALLOW',
-      highlightKeys,
+      highlightKeys: isRead ? [] : highlightKeys,
+      highlightValue: isRead ? false : highlightValue,
       sourceStartMs: reproVideoStartMs,
       sourceEndMs: reproSettledMs,
       playDurationMs: 0,
@@ -1570,11 +1749,13 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       variant: 'video',
       phase: 'repro',
       durationMs: reproTotalMs,
-      title: `${peerName} overwrites ${ownerName}'s ${nounSingular}`,
+      title: problemVideoTitle,
       impactOffsetSec: reproImpactOffsetSec,
       actionStatusPending: `Sending ${service}.${reproEvent?.method || 'set'} as ${peerUid}`,
-      actionStatusImpact: `Write allowed — updated in both views`,
-      actorStatus: { role: 'peer', text: 'Write allowed', tone: 'neutral' },
+      actionStatusImpact: isRead
+        ? `Read allowed: data returned to ${peerName}`
+        : `Write allowed: updated in both views`,
+      actorStatus: { role: 'peer', text: `${isRead ? 'Read' : 'Write'} allowed`, tone: 'neutral' },
       uiOverlays: {
         focus: uiFocus.reproPre || uiFocus.control || uiFocus.reproPost || null,
         focusAfter: uiFocus.reproPost || uiFocus.control || uiFocus.reproPre || null,
@@ -1592,8 +1773,8 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
           },
         },
         after: {
-          owner: { label: `Overwritten in ${ownerName}'s UI` },
-          peer: { label: `Spoofed via direct SDK write` },
+          owner: { label: isRead ? `Exposed from ${ownerName}'s record` : `Updated in ${ownerName}'s UI` },
+          peer: { label: isRead ? `Read via direct SDK call` : `Sent via direct SDK call` },
           wire: {
             caller: peerUid,
             method: sdkMethod,
@@ -1601,7 +1782,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
             pathTokens,
             ruleNode: beforeAttachNode,
             decision: 'ALLOW',
-            caption: `Allowed by ${beforeAttachNode} (no ${checkNoun})`,
+            caption: `Allowed by ${beforeRuleLocationLabel}`,
           },
         },
       },
@@ -1616,16 +1797,15 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
       phase: 'repro',
       durationMs: 3800,
       title: 'Why the database allowed it',
-      subtitle:
-        scenario?.copy?.why ||
-        (ruleMovesDeeper
-          ? `The write rule sits on ${beforeAttachNode} and only checks membership. Because rules cascade downward, any member can overwrite existing nodes under ${afterAttachNode}.`
-          : `The write rule checks caller membership but never verifies whether the target node belongs to ${peerUid}.`),
+      subtitle: scenario?.copy?.why || defaultWhySubtitle,
       targetPath,
       ruleTree: whyTree,
       missingCheck: {
         label: 'Missing check',
-        code: scenario?.copy?.missingCheckCode || addedOwnerClause || `!data.exists() || data.child('owner/uid').val() == auth.uid`,
+        code:
+          scenario?.copy?.missingCheckCode ||
+          addedOwnerClause ||
+          (fixedRule ? compactRuleChain(parsedAfter.body || fixedRule) : `${ruleKeyLabel} check at ${beforeLocationPath}`),
       },
       sourceStartMs: reproSettledMs,
       sourceEndMs: reproSettledMs,
@@ -1648,16 +1828,8 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         variant: 'fix',
         phase: 'fix',
         durationMs: 3800,
-        title:
-          scenario?.copy?.fixTitle ||
-          (ruleMovesDeeper
-            ? `Scoping writes to the ${nounSingular} author`
-            : `Enforcing ${nounSingular} ownership in rules`),
-        subtitle:
-          scenario?.copy?.fixContext ||
-          (ruleMovesDeeper
-            ? `Move .write down to ${afterAttachNode} and require a new record or a matching author UID.`
-            : `Require a new record or a matching author UID on ${afterAttachNode} so callers can only modify their own data.`),
+        title: scenario?.copy?.fixTitle || defaultFixTitle,
+        subtitle: scenario?.copy?.fixContext || defaultFixSubtitle,
         targetPath,
         beforeDiffTree,
         afterDiffTree,
@@ -1672,13 +1844,14 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         variant: 'state',
         phase: 'fix',
         durationMs: fixTotalMs,
-        title: 'Unauthorized write blocked',
-        subtitle: `Blocked at ${afterAttachNode || beforeAttachNode}`,
-        stateBefore: dataBefore,
-        titleBefore: 'Owner record',
+        title: blockedActionTitle,
+        subtitle: `Blocked by ${afterRuleLocationLabel}`,
+        ...assuranceNoteField,
+        stateBefore: attachStateBefore,
+        titleBefore: controlIsRead ? 'Owner read' : 'Owner write',
         decisionBefore: 'ALLOW',
-        stateAfter: dataAfter,
-        titleAfter: 'Peer write',
+        stateAfter: isRead ? null : dataAfter,
+        titleAfter: blockedActionTitle,
         decisionAfter: 'DENY',
         sourceStartMs: fixVideoStartMs,
         sourceEndMs: fixSettledMs,
@@ -1689,12 +1862,14 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
         variant: 'video',
         phase: 'fix',
         durationMs: fixTotalMs,
-        title: 'Unauthorized write blocked',
+        title: blockedActionTitle,
         impactOffsetSec: fixImpactOffsetSec,
         ...assuranceNoteField,
         actionStatusPending: `Re-running ${service}.${reproEvent?.method || 'set'} as ${peerUid}`,
-        actionStatusImpact: `PERMISSION_DENIED — ${ownerName}'s ${nounSingular} stays unchanged`,
-        actorStatus: { role: 'peer', text: 'Write denied', tone: 'neutral' },
+        actionStatusImpact: isRead
+          ? `PERMISSION_DENIED: ${ownerName}'s ${nounSingular} stays protected`
+          : `PERMISSION_DENIED: ${ownerName}'s ${nounSingular} stays unchanged`,
+        actorStatus: { role: 'peer', text: `${isRead ? 'Read' : 'Write'} denied`, tone: 'neutral' },
         uiOverlays: {
           focus: uiFocus.fixPost || uiFocus.control || uiFocus.reproPost || null,
           before: {
@@ -1707,12 +1882,12 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
               pathTokens,
               ruleNode: afterAttachNode || beforeAttachNode,
               decision: 'ARMED',
-              caption: `Re-testing write under ${afterAttachNode || beforeAttachNode}`,
+              caption: `Re-testing ${isRead ? 'read' : 'write'} under ${afterRuleLocationLabel}`,
             },
           },
           after: {
             owner: { label: `Unchanged in ${ownerName}'s UI` },
-            peer: { label: `SDK write rejected` },
+            peer: { label: `SDK ${isRead ? 'read' : 'write'} rejected` },
             wire: {
               caller: peerUid,
               method: sdkMethod,
@@ -1720,7 +1895,7 @@ function buildPresentationDeck({ scenario, eventList, beats, captureMs, evidence
               pathTokens,
               ruleNode: afterAttachNode || beforeAttachNode,
               decision: 'DENIED',
-              caption: `Blocked at ${afterAttachNode || beforeAttachNode}`,
+              caption: `Blocked by ${afterRuleLocationLabel}`,
             },
           },
         },

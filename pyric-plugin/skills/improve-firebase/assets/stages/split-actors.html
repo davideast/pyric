@@ -1005,6 +1005,8 @@
     }
     .state-val {
       color: var(--ink);
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 </style>
 </head>
@@ -1928,31 +1930,64 @@
               const decBefore = document.getElementById('stateDecisionBefore');
               const decAfter = document.getElementById('stateDecisionAfter');
               
-              const renderData = (container, data, highlightKeys = []) => {
-                container.innerHTML = '';
-                if (!data) return;
-                const obj = typeof data === 'string' ? JSON.parse(data) : data;
-                for (const [k, v] of Object.entries(obj)) {
-                  const div = document.createElement('div');
-                  div.className = 'state-prop';
-                  if (highlightKeys.includes(k)) div.classList.add('is-changed');
-                  
+              const appendStatePropRow = (container, { keyLabel = null, valueText, changed = false }) => {
+                const div = document.createElement('div');
+                div.className = 'state-prop';
+                if (changed) div.classList.add('is-changed');
+                if (keyLabel !== null) {
                   const keySpan = document.createElement('span');
                   keySpan.className = 'state-key';
-                  keySpan.textContent = '"' + k + '":';
-                  
-                  const valSpan = document.createElement('span');
-                  valSpan.className = 'state-val';
-                  valSpan.textContent = JSON.stringify(v);
-                  
+                  keySpan.textContent = keyLabel;
                   div.appendChild(keySpan);
-                  div.appendChild(valSpan);
-                  container.appendChild(div);
+                }
+                const valSpan = document.createElement('span');
+                valSpan.className = 'state-val';
+                valSpan.textContent = valueText;
+                div.appendChild(valSpan);
+                container.appendChild(div);
+              };
+
+              const renderData = (container, data, highlightKeys = [], highlightValue = false) => {
+                container.innerHTML = '';
+                if (data === undefined) return;
+                if (data === null || typeof data !== 'object') {
+                  appendStatePropRow(container, {
+                    valueText: JSON.stringify(data),
+                    changed: highlightValue,
+                  });
+                  return;
+                }
+                if (Array.isArray(data)) {
+                  if (data.length === 0) {
+                    appendStatePropRow(container, { valueText: '[]', changed: highlightValue });
+                    return;
+                  }
+                  data.forEach((item, idx) => {
+                    appendStatePropRow(container, {
+                      keyLabel: '[' + idx + ']:',
+                      valueText: JSON.stringify(item),
+                      changed: highlightValue || highlightKeys.includes(String(idx)),
+                    });
+                  });
+                  return;
+                }
+                const entries = Object.entries(data);
+                if (entries.length === 0) {
+                  appendStatePropRow(container, { valueText: '{}', changed: highlightValue });
+                  return;
+                }
+                for (const [k, v] of entries) {
+                  appendStatePropRow(container, {
+                    keyLabel: '"' + k + '":',
+                    valueText: JSON.stringify(v),
+                    changed: highlightKeys.includes(k),
+                  });
                 }
               };
 
-              if (slide.stateBefore) {
-                renderData(contentBefore, slide.stateBefore, slide.highlightKeys || []);
+              if ('stateBefore' in slide && slide.stateBefore !== undefined) {
+                paneBefore.hidden = false;
+                renderData(contentBefore, slide.stateBefore, slide.highlightKeys || [], false);
                 document.getElementById('stateTitleBefore').textContent = slide.titleBefore || 'Before';
                 if (slide.decisionBefore) {
                   decBefore.hidden = false;
@@ -1961,11 +1996,13 @@
                 } else {
                   decBefore.hidden = true;
                 }
+              } else {
+                paneBefore.hidden = true;
               }
 
-              if (slide.stateAfter) {
+              if ('stateAfter' in slide && slide.stateAfter !== undefined) {
                 paneAfter.hidden = false;
-                renderData(contentAfter, slide.stateAfter, slide.highlightKeys || []);
+                renderData(contentAfter, slide.stateAfter, slide.highlightKeys || [], Boolean(slide.highlightValue));
                 document.getElementById('stateTitleAfter').textContent = slide.titleAfter || 'After';
                 if (slide.decisionAfter) {
                   decAfter.hidden = false;

@@ -1,3 +1,11 @@
+/**
+ * Shared schemas, constants, and payload builders for Pyric audit video scripts.
+ * Pure module with zero external or filesystem dependencies.
+ */
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
 function normalizeAliases(raw) {
   if (!isPlainObject(raw)) return;
@@ -5,8 +13,12 @@ function normalizeAliases(raw) {
     if (raw.actors.victim && !raw.actors.owner) raw.actors.owner = raw.actors.victim;
     if (raw.actors.attacker && !raw.actors.peer) raw.actors.peer = raw.actors.attacker;
   }
-  if (isPlainObject(raw.copy) && raw.copy.exploit && !raw.copy.summary) {
-    raw.copy.summary = raw.copy.exploit;
+  if (isPlainObject(raw.copy) && !raw.copy.summary) {
+    if (typeof raw.copy.repro === 'string') {
+      raw.copy.summary = raw.copy.repro;
+    } else if (typeof raw.copy.exploit === 'string') {
+      raw.copy.summary = raw.copy.exploit;
+    }
   }
   if (isPlainObject(raw.behavior) && isPlainObject(raw.behavior.action)) {
     if (raw.behavior.action.actor === 'victim') raw.behavior.action.actor = 'owner';
@@ -24,51 +36,21 @@ function normalizeAliases(raw) {
   }
 }
 
-/**
- * Shared schemas, constants, and payload builders for Pyric audit video scripts.
- * Zero external runtime dependencies so scripts run directly from any plugin cache directory.
- */
-
 export const SCENARIO_SCHEMA = 'pyric.evidence.scenario.v1';
 export const RAW_CAPTURE_SCHEMA = 'pyric.evidence.capture.v1';
 export const STAGE_PAYLOAD_SCHEMA = 'pyric.evidence.stage.v1';
 export const BUNDLE_SCHEMA = 'pyric.evidence.bundle.v1';
 export const ASSURANCE_EXPORT_SCHEMA = 'pyric.assurance.export.v1';
 
-export const STORY_TEMPLATES = Object.freeze([
-  'tamper',
-  'spoof',
-  'exposure',
-  'escalation',
-  'unauthenticated',
-]);
-
-export const STAGE_LAYOUTS = Object.freeze([
-  'split-actors',
-  'single-hero',
-  'data-plane',
-  'before-after',
-]);
-
-export const MVP_STAGE_LAYOUTS = Object.freeze([
-  'split-actors',
-  'single-hero',
-  'data-plane',
-]);
-
-export const STAGE_ASPECTS = Object.freeze({
+export const STORY_TEMPLATES = Object.freeze(['tamper', 'spoof', 'exposure', 'escalation', 'unauthenticated']);
+const STAGE_LAYOUTS = Object.freeze(['split-actors', 'single-hero', 'data-plane', 'before-after']);
+const STAGE_ASPECTS = Object.freeze({
   '16:9': { width: 1920, height: 1080 },
   '1:1': { width: 1080, height: 1080 },
   '9:16': { width: 1080, height: 1920 },
 });
-
-export const CAPTION_STYLES = Object.freeze(['pill', 'bar', 'minimal', 'none']);
-
-export const CAPTURE_BACKENDS = Object.freeze([
-  'x11-xvfb',
-  'macos-avfoundation',
-  'cdp-surface',
-]);
+const CAPTION_STYLES = Object.freeze(['pill', 'bar', 'minimal', 'none']);
+export const CAPTURE_BACKENDS = Object.freeze(['x11-xvfb', 'macos-avfoundation', 'cdp-surface']);
 
 export const DEFAULT_VIEWPORT_DIP = Object.freeze({ width: 900, height: 675 });
 export const DEFAULT_DPR = 2;
@@ -78,28 +60,54 @@ export const DEFAULT_PHYSICAL_SIZE = Object.freeze({
 });
 
 export const DEFAULT_STAGE_THEME = Object.freeze({
-  surface: '#212121',
-  panel: '#2a2a2a',
-  ink: '#f5f5f5',
-  muted: '#b3b3b3',
-  accent: '#f5f5f5',
-  danger: '#d4d4d4',
-  success: '#a3a3a3',
-  border: 'rgba(255, 255, 255, 0.12)',
-  radius: '10px',
+  surface: '#212121', panel: '#2a2a2a', ink: '#f5f5f5', muted: '#b3b3b3',
+  accent: '#f5f5f5', danger: '#d4d4d4', success: '#a3a3a3',
+  border: 'rgba(255, 255, 255, 0.12)', radius: '10px',
   fontSans: '"PyricSans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   fontMono: '"PyricMono", "Noto Sans Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
 });
 
 export const DEFAULT_STAGE_SLOTS = Object.freeze({
-  captionStyle: 'pill',
-  highlights: true,
-  showRuleDiff: true,
-  showRequestCard: true,
-  showTitleCard: true,
-  showOutroCard: true,
-  collapseSidebar: true,
+  captionStyle: 'pill', highlights: true, showRuleDiff: true, showRequestCard: true,
+  showTitleCard: true, showOutroCard: true, collapseSidebar: true,
 });
+
+const READ_OPERATION_METHOD_SET = new Set([
+  'get', 'read', 'once', 'onvalue', 'onsnapshot', 'query', 'list',
+  'getdoc', 'getdocs', 'getbytes', 'getdownloadurl', 'getmetadata',
+]);
+
+export function isReadOperationMethod(method) {
+  return typeof method === 'string' && READ_OPERATION_METHOD_SET.has(method.trim().toLowerCase());
+}
+
+export function firstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+export function getOperationPayload(op) {
+  if (!isPlainObject(op)) return undefined;
+  return firstDefined(op.data, op.value, op.values);
+}
+
+export function extractReadPayload(result, fallbackValue = undefined) {
+  if (!isPlainObject(result)) return fallbackValue;
+  if ('readPayload' in result && result.readPayload !== undefined) return result.readPayload;
+  const inner = firstDefined(result.data, result.result, result.value);
+  if (inner === undefined) return fallbackValue;
+  if (isPlainObject(inner)) {
+    if ('exists' in inner) return inner.exists ? (inner.value ?? inner.data ?? null) : null;
+    if (Array.isArray(inner.docs)) return inner.docs.length > 0 ? inner.docs : null;
+    if ('value' in inner) return inner.value;
+    if ('data' in inner && Object.keys(inner).every((k) => k === 'data' || k === 'exists' || k === 'path')) {
+      return inner.data;
+    }
+  }
+  return inner;
+}
 
 export class ContractValidationError extends Error {
   constructor(message, details = []) {
@@ -108,10 +116,6 @@ export class ContractValidationError extends Error {
     this.code = 'EVIDENCE_CONTRACT_INVALID';
     this.details = details;
   }
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function assertNonEmptyString(value, field, errors) {
@@ -141,6 +145,107 @@ export function parseSizeString(sizeStr) {
   return { width, height };
 }
 
+const WRITE_METHODS_REQUIRING_DATA = new Set([
+  'set', 'put', 'write', 'update', 'patch', 'push', 'post', 'setdoc', 'updatedoc', 'add', 'adddoc', 'create',
+]);
+
+const UPDATE_OBJECT_METHODS = new Set(['update', 'patch', 'updatedoc']);
+
+const OPTIONAL_COPY_STRING_KEYS = [
+  'baseline', 'fixed', 'pathTitle', 'pathContext', 'attackTitle', 'attackContext',
+  'targetContext', 'whyDetail', 'fixTitle', 'fixContext', 'missingCheckCode',
+  'rulePathBefore', 'rulePathBeforeContext', 'rulePathAfter', 'rulePathAfterContext',
+  'attachTitle', 'setupSubtitle', 'checkNoun',
+];
+
+function buildNormalizedCopy(rawCopy, errors) {
+  if (!isPlainObject(rawCopy)) {
+    errors.push('copy must be an object with title, summary, and why');
+    return { title: '', summary: '', why: '', severity: 'HIGH' };
+  }
+  const out = {
+    title: assertNonEmptyString(rawCopy.title, 'copy.title', errors),
+    summary: assertNonEmptyString(rawCopy.summary, 'copy.summary', errors),
+    why: assertNonEmptyString(rawCopy.why, 'copy.why', errors),
+    severity: typeof rawCopy.severity === 'string' ? rawCopy.severity.toUpperCase() : 'HIGH',
+  };
+  for (const key of OPTIONAL_COPY_STRING_KEYS) {
+    out[key] = typeof rawCopy[key] === 'string' ? rawCopy[key] : undefined;
+  }
+  out.pathTokens = Array.isArray(rawCopy.pathTokens) ? rawCopy.pathTokens : undefined;
+  if (Array.isArray(rawCopy.pathSegments)) {
+    out.pathSegments = rawCopy.pathSegments
+      .filter(
+        (s) =>
+          isPlainObject(s) &&
+          (typeof s.path === 'string' || typeof s.segment === 'string') &&
+          typeof s.label === 'string',
+      )
+      .map((s) => ({
+        path: String(s.path ?? s.segment).trim(),
+        label: String(s.label).trim(),
+        ...(typeof s.detail === 'string' && s.detail.trim() ? { detail: s.detail.trim() } : {}),
+        ...(typeof s.tone === 'string' && s.tone.trim() ? { tone: s.tone.trim() } : {}),
+      }));
+  }
+  if (Array.isArray(rawCopy.ruleBreakdown)) {
+    out.ruleBreakdown = rawCopy.ruleBreakdown
+      .filter((b) => isPlainObject(b) && typeof b.label === 'string')
+      .map((b) => ({
+        label: String(b.label).trim(),
+        ...(typeof b.detail === 'string' && b.detail.trim() ? { detail: b.detail.trim() } : {}),
+        ...(typeof b.code === 'string' && b.code.trim() ? { code: b.code.trim() } : {}),
+        ...(typeof b.status === 'string' && b.status.trim() ? { status: b.status.trim() } : {}),
+      }));
+  }
+  return out;
+}
+
+export function validateScenarioOperation(op, fieldLabel, errors, { hasFrames = false } = {}) {
+  if (!isPlainObject(op)) {
+    errors.push(`${fieldLabel} must be an object`);
+    return null;
+  }
+  const method = typeof op.method === 'string' ? op.method.trim() : '';
+  const opPath = typeof op.path === 'string' ? op.path.trim() : '';
+  if (!method) {
+    errors.push(`${fieldLabel}.method must be a non-empty string`);
+  }
+  if (!opPath) {
+    errors.push(`${fieldLabel}.path must be a non-empty string`);
+  }
+  let normalizedInstance;
+  if (op.instance !== undefined && op.instance !== null) {
+    if (typeof op.instance !== 'string' || op.instance.trim().length === 0) {
+      errors.push(`${fieldLabel}.instance must be a non-empty string when provided`);
+    } else {
+      normalizedInstance = op.instance.trim();
+    }
+  }
+  const methodLower = method.toLowerCase();
+  if (methodLower && WRITE_METHODS_REQUIRING_DATA.has(methodLower) && !hasFrames) {
+    const payload = getOperationPayload(op);
+    if (payload === undefined || payload === null) {
+      errors.push(
+        `${fieldLabel} with method "${method}" requires a non-null "data" payload (use "remove" or "deleteDoc" for deletions)`,
+      );
+    } else if (UPDATE_OBJECT_METHODS.has(methodLower) && !isPlainObject(payload)) {
+      errors.push(`${fieldLabel} with method "${method}" requires "data" to be a plain JSON object`);
+    }
+  }
+  const out = { ...op };
+  if (normalizedInstance) {
+    out.instance = normalizedInstance;
+  }
+  return out;
+}
+
+function getStepFrames(step) {
+  if (Array.isArray(step.frames)) return step.frames;
+  if (Array.isArray(step.trajectory)) return step.trajectory;
+  return null;
+}
+
 /**
  * Validate and normalize a `pyric.evidence.scenario.v1` object.
  */
@@ -160,7 +265,6 @@ export function validateScenario(raw) {
     errors.push(`template must be one of: ${STORY_TEMPLATES.join(', ')}`);
   }
 
-  // Finding metadata (required)
   if (!isPlainObject(raw.finding)) {
     errors.push('finding must be an object with campaign and probe');
   }
@@ -171,7 +275,6 @@ export function validateScenario(raw) {
     ? assertNonEmptyString(raw.finding.probe, 'finding.probe', errors)
     : '';
 
-  // Actors (owner required; peer optional for single-hero/unauthenticated/data-plane)
   if (!isPlainObject(raw.actors) || !isPlainObject(raw.actors.owner)) {
     errors.push('actors.owner must be an object');
   }
@@ -196,63 +299,8 @@ export function validateScenario(raw) {
     }
   }
 
-  // Copy
-  if (!isPlainObject(raw.copy)) {
-    errors.push('copy must be an object with title, repro, and why');
-  }
-  const copy = isPlainObject(raw.copy)
-    ? {
-        title: assertNonEmptyString(raw.copy.title, 'copy.title', errors),
-        summary: assertNonEmptyString(raw.copy.summary || raw.copy.summary, 'copy.summary', errors),
-        why: assertNonEmptyString(raw.copy.why, 'copy.why', errors),
-        severity: typeof raw.copy.severity === 'string' ? raw.copy.severity.toUpperCase() : 'HIGH',
-        baseline: typeof raw.copy.baseline === 'string' ? raw.copy.baseline : undefined,
-        fixed: typeof raw.copy.fixed === 'string' ? raw.copy.fixed : undefined,
-        pathTitle: typeof raw.copy.pathTitle === 'string' ? raw.copy.pathTitle : undefined,
-        pathContext: typeof raw.copy.pathContext === 'string' ? raw.copy.pathContext : undefined,
-        attackTitle: typeof raw.copy.attackTitle === 'string' ? raw.copy.attackTitle : undefined,
-        attackContext: typeof raw.copy.attackContext === 'string' ? raw.copy.attackContext : undefined,
-        targetContext: typeof raw.copy.targetContext === 'string' ? raw.copy.targetContext : undefined,
-        whyDetail: typeof raw.copy.whyDetail === 'string' ? raw.copy.whyDetail : undefined,
-        fixTitle: typeof raw.copy.fixTitle === 'string' ? raw.copy.fixTitle : undefined,
-        fixContext: typeof raw.copy.fixContext === 'string' ? raw.copy.fixContext : undefined,
-        missingCheckCode: typeof raw.copy.missingCheckCode === 'string' ? raw.copy.missingCheckCode : undefined,
-        pathTokens: Array.isArray(raw.copy.pathTokens) ? raw.copy.pathTokens : undefined,
-        pathSegments: Array.isArray(raw.copy.pathSegments)
-          ? raw.copy.pathSegments
-              .filter(
-                (s) =>
-                  isPlainObject(s) &&
-                  (typeof s.path === 'string' || typeof s.segment === 'string') &&
-                  typeof s.label === 'string',
-              )
-              .map((s) => ({
-                path: String(s.path ?? s.segment).trim(),
-                label: String(s.label).trim(),
-                ...(typeof s.detail === 'string' && s.detail.trim() ? { detail: s.detail.trim() } : {}),
-                ...(typeof s.tone === 'string' && s.tone.trim() ? { tone: s.tone.trim() } : {}),
-              }))
-          : undefined,
-        rulePathBefore: typeof raw.copy.rulePathBefore === 'string' ? raw.copy.rulePathBefore : undefined,
-        rulePathBeforeContext:
-          typeof raw.copy.rulePathBeforeContext === 'string' ? raw.copy.rulePathBeforeContext : undefined,
-        rulePathAfter: typeof raw.copy.rulePathAfter === 'string' ? raw.copy.rulePathAfter : undefined,
-        rulePathAfterContext:
-          typeof raw.copy.rulePathAfterContext === 'string' ? raw.copy.rulePathAfterContext : undefined,
-        ruleBreakdown: Array.isArray(raw.copy.ruleBreakdown)
-          ? raw.copy.ruleBreakdown
-              .filter((b) => isPlainObject(b) && typeof b.label === 'string')
-              .map((b) => ({
-                label: String(b.label).trim(),
-                ...(typeof b.detail === 'string' && b.detail.trim() ? { detail: b.detail.trim() } : {}),
-                ...(typeof b.code === 'string' && b.code.trim() ? { code: b.code.trim() } : {}),
-                ...(typeof b.status === 'string' && b.status.trim() ? { status: b.status.trim() } : {}),
-              }))
-          : undefined,
-      }
-    : { title: '', repro: '', why: '', severity: 'HIGH' };
+  const copy = buildNormalizedCopy(raw.copy, errors);
 
-  // Stage configuration (3-tier loose customization)
   const rawStage = isPlainObject(raw.stage) ? raw.stage : {};
   const layout = rawStage.layout ?? (raw.app ? 'split-actors' : 'data-plane');
   if (!STAGE_LAYOUTS.includes(layout)) {
@@ -305,8 +353,34 @@ export function validateScenario(raw) {
 
   const fixRules = isPlainObject(raw.fixRules) ? { ...raw.fixRules } : undefined;
   const steps = Array.isArray(raw.steps) ? raw.steps : undefined;
+  if (steps) {
+    steps.forEach((step, idx) => {
+      if (!isPlainObject(step)) return;
+      const kind = String(step.kind || step.type || '').toLowerCase();
+      const stepOp = step.operation ?? step.op;
+      if (kind === 'sdk' && stepOp !== undefined && stepOp !== null) {
+        const frames = getStepFrames(step);
+        validateScenarioOperation(stepOp, `steps[${idx}].operation`, errors, {
+          hasFrames: Boolean(frames && frames.length > 0),
+        });
+      }
+    });
+  }
 
-  // Behavior findings (app-code fixes): before/after app builds instead of before/after rules.
+  let reproOperation;
+  if (raw.reproOperation !== undefined && raw.reproOperation !== null) {
+    reproOperation = validateScenarioOperation(raw.reproOperation, 'reproOperation', errors);
+  }
+  let controlOperation;
+  if (raw.controlOperation !== undefined && raw.controlOperation !== null) {
+    controlOperation = validateScenarioOperation(raw.controlOperation, 'controlOperation', errors);
+  }
+  if (raw.operation !== undefined && raw.operation !== null) {
+    validateScenarioOperation(raw.operation, 'operation', errors);
+  }
+  const rules = isPlainObject(raw.rules) ? { ...raw.rules } : undefined;
+  const seedFile = typeof raw.seedFile === 'string' && raw.seedFile.trim() ? raw.seedFile.trim() : undefined;
+
   let behavior;
   if (raw.behavior !== undefined && raw.behavior !== null) {
     if (!isPlainObject(raw.behavior)) {
@@ -346,6 +420,10 @@ export function validateScenario(raw) {
       ...(viewport ? { viewport } : {}),
     },
     ...(steps ? { steps } : {}),
+    ...(reproOperation ? { reproOperation } : {}),
+    ...(controlOperation ? { controlOperation } : {}),
+    ...(rules ? { rules } : {}),
+    ...(seedFile ? { seedFile } : {}),
     ...(fixRules ? { fixRules } : {}),
     ...(behavior ? { behavior } : {}),
   };
@@ -438,39 +516,16 @@ export function validateRawCapture(raw) {
   return raw;
 }
 
-/**
- * Construct the mandatory locked provenance strip from verified execution metadata.
- * Custom stages must render this exact factual text in `[data-pyric-provenance]`.
- */
-export function buildLockedProvenanceText({
-  decision,
-  fixedDecision,
-  service,
-  method,
-  path,
-  actorLabel,
-}) {
+export function buildLockedProvenanceText({ decision, fixedDecision, service, method, path, actorLabel }) {
   const verdict = fixedDecision ? `${decision} → ${fixedDecision}` : decision;
   const op = `${service}.${method}`;
   const who = actorLabel ? `as ${actorLabel}` : 'anonymous';
   return `${verdict} / ${op} ${path} / ${who} / Local Pyric sandbox`;
 }
 
-/**
- * Build the `window.__PYRIC_EVIDENCE__` payload injected into offline stage HTML pages.
- */
-export function buildStagePayload({
-  passes,
-  scenario,
-  fps = 30,
-  beats,
-  slides,
-  evidence,
-  provenanceText,
-  ...rest
-}) {
+export function buildStagePayload({ passes, scenario, fps = 30, beats, slides, evidence, provenanceText }) {
   if (isPlainObject(passes) && passes.exploit && !passes.repro) passes.repro = passes.exploit;
-  if (!isPlainObject(passes) || (!isPlainObject(passes.repro) && !isPlainObject(passes.repro))) {
+  if (!isPlainObject(passes) || !isPlainObject(passes.repro)) {
     throw new ContractValidationError('buildStagePayload requires passes.repro frame map');
   }
   return {
@@ -484,7 +539,7 @@ export function buildStagePayload({
     stage: scenario.stage,
     beats,
     ...(Array.isArray(slides) ? { slides } : {}),
-    passes: passes.repro ? passes : { ...passes, repro: passes.repro },
+    passes,
     evidence,
     provenanceText,
   };
