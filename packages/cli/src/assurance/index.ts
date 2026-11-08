@@ -14,6 +14,15 @@ export {
   createAuthorizationCampaign,
   type CreateAuthorizationCampaignOptions,
 } from "./campaign.js";
+export {
+  deriveAssurance,
+  runStaticAssurancePasses,
+  summarizeDiagnosticCounts,
+  type DeriveAssuranceDeps,
+  type DeriveAssuranceInput,
+  type DeriveAssuranceResult,
+  type DeriveDiagnosticCounts,
+} from "./derive.js";
 export { runAuthorizationCampaign } from "./runner.js";
 export {
   ASSURANCE_BROADCAST_CHANNEL,

@@ -20,8 +20,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'attach(campaignId?, maxRuns?)',
-  description:
-    'Clone this sandbox into a campaign.',
+  description: 'Clone sandbox.',
   args: z.object({
     campaignId: campaignId
       .optional()

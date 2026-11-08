@@ -28,6 +28,7 @@ export interface TracedRefRecord {
   readonly pathVariables: readonly PathVariable[];
   readonly source: string;
   readonly through?: string;
+  readonly admin?: boolean;
   readonly consumer?: string;
   readonly nodeKey?: string;
   readonly specializedNodeKey?: string;
@@ -63,7 +64,9 @@ export function constraintListKey(list: readonly SdkQueryConstraint[]): string {
 
 export function refIdentityKey(rec: TracedRefRecord): string {
   const rendered = renderResourcePattern(rec.pattern);
-  return `${rec.pattern.service}|${rec.pattern.resourceId}|${rec.refKind}|${rendered}|${rec.source}|${rec.through ?? ''}`;
+  let adminTag = '';
+  if (rec.admin) adminTag = 'a';
+  return `${rec.pattern.service}|${rec.pattern.resourceId}|${rec.refKind}|${rendered}|${rec.source}|${rec.through ?? ''}|${adminTag}`;
 }
 
 function resolveRefAttribution(
@@ -118,6 +121,7 @@ function materializeRefRecord(
     pathVariables: readonly PathVariable[];
     source: string;
     through?: string;
+    admin?: boolean;
     consumer?: string;
     nodeKey?: string;
     specializedNodeKey?: string;
@@ -130,6 +134,7 @@ function materializeRefRecord(
   };
   if (baseTarget.notes.length > 0) out.reason = baseTarget.notes.join('; ');
   if (attr.through !== undefined) out.through = attr.through;
+  if (baseTarget.admin || ref.admin) out.admin = true;
   if (consumer !== undefined) out.consumer = consumer;
   if (attr.nodeKey !== undefined) out.nodeKey = attr.nodeKey;
   if (attr.specializedNodeKey !== undefined) out.specializedNodeKey = attr.specializedNodeKey;
@@ -281,8 +286,18 @@ function unresolvedBaseRef(
   call: ts.CallExpression,
   reason: string,
   sourceOf: (node: ts.Node) => string,
+  admin?: boolean,
 ): TracedRefRecord {
-  return {
+  const out: {
+    pattern: ResourcePattern;
+    refKind: RefKind;
+    resolution: AccessResolution;
+    reason: string;
+    pathVariables: readonly PathVariable[];
+    source: string;
+    admin?: boolean;
+    nodeKey: string;
+  } = {
     pattern: parseResourcePattern(service, ''),
     refKind,
     resolution: 'unresolved',
@@ -291,6 +306,8 @@ function unresolvedBaseRef(
     source: sourceOf(call),
     nodeKey: nodeId(call),
   };
+  if (admin) out.admin = true;
+  return out;
 }
 
 function evaluateStandaloneConstraints(
@@ -360,7 +377,7 @@ export function collectProgramUsage(
           .filter((a): a is Extract<AVal, { k: 'unknown' }> => a.k === 'unknown')
           .map((a) => a.reason);
         const reason = untraced[0] ?? `${c.name}() path was not traced`;
-        refs.push(unresolvedBaseRef(c.service, refKind, c.call, reason, sourceOf));
+        refs.push(unresolvedBaseRef(c.service, refKind, c.call, reason, sourceOf, c.admin));
         continue;
       }
       for (const r of refAlts) {
@@ -429,6 +446,7 @@ export function collectProgramUsage(
         c.call,
         untraced[0] ?? 'query() base was not traced',
         sourceOf,
+        c.admin,
       );
       queries.push({
         anchorKey: `call:${nodeId(c.call)}`,

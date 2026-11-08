@@ -50,6 +50,7 @@ export type AVal =
       resourceId: string;
       notes?: string[];
       fromCallers?: boolean;
+      admin?: boolean;
     }
   | { k: 'auth' }
   | { k: 'authUser'; exact: boolean }
@@ -69,6 +70,8 @@ export type AVal =
       constraints?: ConstraintValue[];
       /** True when part of the path was expanded from the values callers pass for a parameter. */
       fromCallers?: boolean;
+      /** True when built from an Admin SDK handle or Admin module export. */
+      admin?: boolean;
       /** Underlying base ref when this ref was produced by `query(...)`. */
       baseRef?: Extract<AVal, { k: 'ref' }>;
       /** First `query()` call in a chained `query(query(base, ...), ...)` sequence. */
@@ -86,9 +89,9 @@ export type AVal =
   | { k: 'class'; decl: ts.ClassLikeDeclaration }
   | { k: 'instance'; decl: ts.ClassLikeDeclaration | undefined }
   /** An SDK export: `doc`, `setDoc`, `ref`, `onAuthStateChanged`, a React hook. */
-  | { k: 'api'; module: ApiModule; name: string }
+  | { k: 'api'; module: ApiModule; name: string; admin?: boolean }
   /** A namespace import of an SDK module: `import * as fs from 'firebase/firestore'`. */
-  | { k: 'ns'; module: ApiModule }
+  | { k: 'ns'; module: ApiModule; admin?: boolean }
   /** A value with a name whose possible values are computed on demand (a parameter). */
   | { k: 'sym'; name: string; node: ts.Node; resolve: () => AVal }
   | { k: 'union'; alts: AVal[] };
@@ -222,7 +225,9 @@ function leafKey(v: AVal): string | null {
     case 'db': {
       let callerTag = '';
       if (v.fromCallers) callerTag = 'c';
-      return `db:${v.service}:${v.resourceId}:${(v.notes ?? []).join(';')}:${callerTag}`;
+      let adminTag = '';
+      if (v.admin) adminTag = 'a';
+      return `db:${v.service}:${v.resourceId}:${(v.notes ?? []).join(';')}:${callerTag}:${adminTag}`;
     }
     case 'authUser':
     case 'authTokenResult':
@@ -236,7 +241,9 @@ function leafKey(v: AVal): string | null {
       const cKey = (v.constraints ?? []).map(constraintKey).join('|');
       let callerTag = '';
       if (v.fromCallers) callerTag = 'c';
-      return `ref:${v.service}:${v.resourceId}:${v.refKind}:${v.segments.map(renderParts).join('/')}:${cKey}:${v.built.map(nodeId).join(',')}:${v.notes.join(';')}:${callerTag}`;
+      let adminTag = '';
+      if (v.admin) adminTag = 'a';
+      return `ref:${v.service}:${v.resourceId}:${v.refKind}:${v.segments.map(renderParts).join('/')}:${cKey}:${v.built.map(nodeId).join(',')}:${v.notes.join(';')}:${callerTag}:${adminTag}`;
     }
     default:
       return null;

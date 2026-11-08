@@ -16,6 +16,14 @@ export { RTDB_SERVICE_MODEL } from './code/service-models/rtdb.js';
 export { STORAGE_SERVICE_MODEL } from './code/service-models/storage.js';
 export { extractSdkUsage } from './code/usage-index.js';
 export {
+  coverageMatrixPass,
+  type ConcretizedPatternResult,
+  type CoverageMatrixRuleInput,
+  type CoverageMatrixRuntimeInput,
+  type RuntimePathObservation,
+  type SandboxHistoryEvent,
+} from './passes/coverage-matrix.js';
+export {
   firestoreIndexPass,
   type FirestoreIndexPassOptions,
   type FirestoreIndexPassResult,
@@ -32,11 +40,61 @@ export {
   mergeRtdbIndexes,
   type MergeRtdbIndexesResult,
 } from './passes/rtdb-rules-merge.js';
+export {
+  staticQueryProofPass,
+  type StaticQueryProofPassOptions,
+  type StaticQueryProofRulesConfig,
+} from './passes/static-query-proof.js';
+export {
+  storageContractPass,
+  type StorageContractPassConfig,
+  type StorageContractPassOptions,
+} from './passes/storage-contract.js';
 export { firestoreOwnerConditions } from './rules/firestore-owners.js';
+export {
+  analyzeOwners,
+  ownerConditionsFrom,
+  withEmbeddedRules,
+  type OwnerAnalysis,
+} from './rules/analyze-owners.js';
+export { inferOwnerBindings } from './rules/cross-check.js';
 export { rtdbOwnerConditions } from './rules/rtdb-owners.js';
+export {
+  loadRuleSources,
+  parseRtdbRulesText,
+  type FirestoreRuleSource,
+  type RtdbRuleSource,
+  type RuleSources,
+  type StorageRuleSource,
+} from './rules/rule-sources.js';
 export { projectRuleSurface } from './rules/rule-surface.js';
 export { storageOwnerConditions, storageValueHints } from './rules/storage-owners.js';
 export { firestoreValueHints, rtdbValueHints } from './rules/value-hints.js';
+export { planProbes } from './probes/plan.js';
+export {
+  probeActors,
+  runProbes,
+  type ProbeReport,
+  type ProbeUser,
+  type RunProbesInput,
+} from './probes/run-probes.js';
+export type {
+  Finding,
+  FindingKind,
+  FindingOp,
+  Probe,
+  ProbeActor,
+  ProbeOutcome,
+  ProbeResult,
+  ProbeStep,
+  StepResult,
+} from './probes/types.js';
+export type { WorldState } from './probes/world.js';
+export {
+  loadDiskProject,
+  type LoadDiskProjectResult,
+  type LoadedDiskFile,
+} from '../indexes/disk-project.js';
 export type { EmbeddedRules } from './code/embedded-rules.js';
 export type {
   AccessPreset,

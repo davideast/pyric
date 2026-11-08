@@ -173,4 +173,45 @@ describe('storageUpload static metadata & byte-size extraction', () => {
     const c = usage.operations.find((op) => op.path === 'files/c.txt')!;
     expect(c.storageUpload).toEqual({ contentType: 'text/plain' });
   });
+
+  test('distinguishes spread metadata (customMetadataOpen) from untraced metadata arguments (customMetadataUnresolved)', () => {
+    const usage = extractSdkUsage({
+      root: '/virtual/app',
+      files: {
+        'meta-states.ts': `
+          import { getStorage, ref, uploadBytes, type UploadMetadata } from 'pyric/storage';
+          const storage = getStorage();
+          export async function uploadCases(
+            bytes: Uint8Array,
+            extraOpts: UploadMetadata,
+            extraCustom: Record<string, string>,
+            untracedMeta: UploadMetadata,
+            untracedMap: Record<string, string>,
+          ) {
+            await uploadBytes(ref(storage, 'files/spread-opts.bin'), bytes, { ...extraOpts });
+            await uploadBytes(ref(storage, 'files/spread-custom.bin'), bytes, {
+              customMetadata: { ...extraCustom, tag: 'v1' },
+            });
+            await uploadBytes(ref(storage, 'files/unknown-meta.bin'), bytes, untracedMeta);
+            await uploadBytes(ref(storage, 'files/unknown-custom.bin'), bytes, {
+              contentType: 'application/pdf',
+              customMetadata: untracedMap,
+            });
+          }
+        `,
+      },
+    });
+
+    const byPath = new Map(usage.operations.map((op) => [op.path, op.storageUpload]));
+    expect(byPath.get('files/spread-opts.bin')).toEqual({ customMetadataOpen: true });
+    expect(byPath.get('files/spread-custom.bin')).toMatchObject({
+      customMetadataKeys: ['tag'],
+      customMetadataOpen: true,
+    });
+    expect(byPath.get('files/unknown-meta.bin')).toEqual({ customMetadataUnresolved: true });
+    expect(byPath.get('files/unknown-custom.bin')).toEqual({
+      contentType: 'application/pdf',
+      customMetadataUnresolved: true,
+    });
+  });
 });

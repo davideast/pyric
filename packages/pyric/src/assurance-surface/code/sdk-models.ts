@@ -39,6 +39,7 @@ interface BaseRefOrigin {
   notes: string[];
   refKind?: RefKind;
   fromCallers?: boolean;
+  admin?: boolean;
 }
 
 const SIGN_IN_CALLS = /^(?:signIn\w*|createUserWithEmailAndPassword|getRedirectResult|link\w*|reauthenticate\w*)$/;
@@ -53,7 +54,7 @@ export function apiCall(ev: Evaluator, api: Api, call: ts.CallExpression, env: E
   };
   const serviceModel = ev.sdk.serviceModel(api.module);
   if (serviceModel !== undefined) {
-    return serviceCall(ev, serviceModel, api.name, call, arg, env);
+    return serviceCall(ev, serviceModel, api.name, Boolean(api.admin), call, arg, env);
   }
   switch (api.module) {
     case 'auth': {
@@ -119,6 +120,7 @@ function baseRefs(
   base: AVal,
   service: AssuranceService,
   fnName: string,
+  admin = false,
 ): BaseRefOrigin[] {
   const callerBase = containsCallerSymbol(base);
   const forcedAlts = alternatives(ev.force(base));
@@ -138,6 +140,7 @@ function baseRefs(
         notes: b.notes,
         refKind: b.refKind,
         fromCallers: Boolean(b.fromCallers || callerBase),
+        admin: Boolean(b.admin || admin),
       });
     } else if (b.k === 'db' && b.service === service) {
       out.push({
@@ -146,9 +149,10 @@ function baseRefs(
         built: [],
         notes: b.notes ?? [],
         fromCallers: Boolean(b.fromCallers || callerBase),
+        admin: Boolean(b.admin || admin),
       });
     } else if (b.k === 'instance') {
-      out.push({ prefix: [], resourceId: DEFAULT_RESOURCE_ID, built: [], notes: [] });
+      out.push({ prefix: [], resourceId: DEFAULT_RESOURCE_ID, built: [], notes: [], admin });
     } else if (b.k === 'unknown') {
       if (hasConcreteBase && b.reason.startsWith('no in-project caller of ')) {
         continue;
@@ -158,6 +162,8 @@ function baseRefs(
         resourceId: DEFAULT_RESOURCE_ID,
         built: [],
         notes: [`first argument of ${fnName}() was not traced (${b.reason}); assumed to be the database`],
+        fromCallers: callerBase,
+        admin,
       });
     }
   }
@@ -260,6 +266,7 @@ function buildRefsFromBases(
         notes: [...base.notes, ...p.notes],
       };
       if (p.fromCallers || base.fromCallers) ref.fromCallers = true;
+      if (base.admin) ref.admin = true;
       out.push(ref);
     }
   }
@@ -274,9 +281,10 @@ function evalRefConstructor(
   spec: RefConstructorSpec,
   call: ts.CallExpression,
   arg: (i: number) => AVal,
+  admin = false,
 ): AVal {
   if (spec.mode === 'collectionGroup') {
-    const bases = baseRefs(ev, arg(0), service, name);
+    const bases = baseRefs(ev, arg(0), service, name, admin);
     const rawId = arg(1);
     const idFromCallers = containsCallerSymbol(rawId);
     const idVal = ev.force(rawId);
@@ -297,6 +305,7 @@ function evalRefConstructor(
         notes,
       };
       if (base.fromCallers || idFromCallers) ref.fromCallers = true;
+      if (base.admin) ref.admin = true;
       out.push(ref);
     }
     if (out.length === 0) return unknown(`${name}() on a value that is not a ${service} handle`);
@@ -304,13 +313,13 @@ function evalRefConstructor(
   }
   if (spec.mode === 'url') {
     if (call.arguments.length === 1) {
-      const defaultBase: BaseRefOrigin = { prefix: [], resourceId: DEFAULT_RESOURCE_ID, built: [], notes: [] };
+      const defaultBase: BaseRefOrigin = { prefix: [], resourceId: DEFAULT_RESOURCE_ID, built: [], notes: [], admin };
       return buildRefsFromBases(ev, [defaultBase], service, spec.refKind, call, arg, name, 0, 1, true);
     }
-    const bases = baseRefs(ev, arg(0), service, name);
+    const bases = baseRefs(ev, arg(0), service, name, admin);
     return buildRefsFromBases(ev, bases, service, spec.refKind, call, arg, name, 1, Math.min(2, call.arguments.length), true);
   }
-  const bases = baseRefs(ev, arg(0), service, name);
+  const bases = baseRefs(ev, arg(0), service, name, admin);
   if (call.arguments.length === 1 && spec.singleArgAppendHole) {
     return buildRefsFromBases(ev, bases, service, spec.refKind, call, arg, name, 1, 1, false, [hole(spec.singleArgAppendHole)]);
   }
@@ -344,20 +353,30 @@ function serviceCall(
   ev: Evaluator,
   model: SdkServiceModel,
   name: string,
+  admin: boolean,
   call: ts.CallExpression,
   arg: (i: number) => AVal,
   env: Env | undefined,
 ): AVal {
   const handleSpec = ownRecordValue(model.handleFactories, name);
   if (handleSpec) {
-    return evalHandleFactory(ev, model.service, name, handleSpec, call, arg);
+    return evalHandleFactory(ev, model.service, name, handleSpec, call, arg, admin);
   }
   const refSpec = ownRecordValue(model.refConstructors, name);
   if (refSpec) {
-    return evalRefConstructor(ev, model.service, name, refSpec, call, arg);
+    return evalRefConstructor(ev, model.service, name, refSpec, call, arg, admin);
   }
   if (model.queryBuilder === name) {
-    return evalQueryCall(ev, model.service, call, arg, env);
+    const queryVal = evalQueryCall(ev, model.service, call, arg, env);
+    if (!admin) return queryVal;
+    return union(
+      alternatives(queryVal).map((alt) => {
+        if (alt.k !== 'ref') return alt;
+        const next: RefVal = { ...alt, admin: true };
+        if (alt.baseRef) next.baseRef = { ...alt.baseRef, admin: true };
+        return next;
+      }),
+    );
   }
   const receiverSpec = ownRecordValue(model.receiverFactories, name);
   if (receiverSpec) {
@@ -410,7 +429,7 @@ export function serviceMemberCall(
           out.push(r);
           continue;
         }
-        out.push(evalHandleFactory(ev, r.service, methodName, subSpec, call, arg));
+        out.push(evalHandleFactory(ev, r.service, methodName, subSpec, call, arg, Boolean(r.admin)));
         continue;
       }
       const refSpec = ownRecordValue(model?.handleRefMethods, methodName);
@@ -421,6 +440,7 @@ export function serviceMemberCall(
           built: [],
           notes: r.notes ?? [],
           fromCallers: Boolean(r.fromCallers),
+          admin: Boolean(r.admin),
         };
         let end = call.arguments.length;
         if (refSpec.pathArgsEnd !== undefined) end = Math.min(call.arguments.length, refSpec.pathArgsEnd);
@@ -441,6 +461,7 @@ export function serviceMemberCall(
           notes: r.notes,
           refKind: r.refKind,
           fromCallers: Boolean(r.fromCallers),
+          admin: Boolean(r.admin),
         };
         let end = call.arguments.length;
         if (refSpec.pathArgsEnd !== undefined) end = Math.min(call.arguments.length, refSpec.pathArgsEnd);

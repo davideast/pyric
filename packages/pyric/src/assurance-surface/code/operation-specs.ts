@@ -15,6 +15,7 @@ export interface OpCall {
   service: AccessService;
   spec: OpSpec;
   via?: 'batch' | 'transaction';
+  admin?: boolean;
   /** For receiver-bound operations (`onDisconnect(ref).set(...)`): the receiver whose value carries the ref. */
   receiverExpr?: ts.Expression;
 }

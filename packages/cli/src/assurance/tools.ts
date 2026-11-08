@@ -1,3 +1,4 @@
+import type { LocalSandbox } from "pyric/sandbox";
 import type { ToolHandler } from "pyric/sandbox/internal";
 import type { AssuranceAttachmentProvider } from "./attachment.js";
 import { publishAssuranceVisualization } from "./browser.js";
@@ -5,6 +6,7 @@ import {
   AuthorizationCampaign,
   createAuthorizationCampaign,
 } from "./campaign.js";
+import { createDeriveAssuranceTool } from "./derive-tool.js";
 import {
   actorSchema,
   campaignParameters,
@@ -41,6 +43,10 @@ export class AssuranceCampaignStore {
     this.#campaigns.set(campaign.id, campaign);
   }
 
+  replace(campaign: AuthorizationCampaign): void {
+    this.#campaigns.set(campaign.id, campaign);
+  }
+
   get(id: string): AuthorizationCampaign {
     const campaign = this.#campaigns.get(id);
     if (!campaign) throw new AssuranceInputError(`unknown campaign '${id}'.`);
@@ -70,6 +76,9 @@ export interface AssuranceToolDeps {
   store?: AssuranceCampaignStore;
   onCampaignUpdate?: (campaign: AssuranceVisualizationSnapshot) => void;
   attachmentProvider?: AssuranceAttachmentProvider;
+  sandbox?: LocalSandbox;
+  projectDir?: string;
+  fetchImpl?: typeof fetch;
 }
 
 let generatedCampaignId = 0;
@@ -177,6 +186,7 @@ export function createAssuranceTools(
         }
       },
     },
+    createDeriveAssuranceTool(store, deps),
     {
       name: "firebase_assurance_start",
       description:

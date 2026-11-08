@@ -1,0 +1,13 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /orgs/{orgId}/attachments/{fileName} {
+      allow create: if request.auth != null
+        && firestore.get(/databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid)).data.role == 'editor'
+        && request.resource.contentType.matches('application/pdf')
+        && request.resource.metadata.ownerId == request.auth.uid;
+      allow read: if request.auth != null
+        && firestore.get(/databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid)).data.role == 'editor';
+    }
+  }
+}

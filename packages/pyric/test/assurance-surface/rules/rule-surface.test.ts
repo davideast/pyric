@@ -329,4 +329,70 @@ describe('projectRuleSurface (Firestore, RTDB & Storage)', () => {
     expect(mediaMatches).toHaveLength(1);
     expect(mediaMatches[0]!.wildcardBucket).toBeUndefined();
   });
+
+  test('marks unconditionally false rules with alwaysDeny across Firestore, RTDB, and Storage', () => {
+    const surface = projectRuleSurface({
+      firestore: `
+        rules_version = '2';
+        service cloud.firestore {
+          match /databases/{database}/documents {
+            function denyAll() { return false; }
+            match /items/{id} {
+              allow read: if true;
+              allow write: if denyAll();
+            }
+            match /{document=**} {
+              allow read, write: if false;
+            }
+          }
+        }
+      `,
+      rtdb: {
+        rules: {
+          '.read': false,
+          '.write': 'false',
+          items: {
+            $id: {
+              '.read': 'auth != null',
+            },
+          },
+        },
+      },
+      storage: `
+        rules_version = '2';
+        service firebase.storage {
+          match /b/{bucket}/o {
+            match /{allPaths=**} {
+              allow read, write: if !true;
+            }
+          }
+        }
+      `,
+    });
+
+    const fsRead = surface.matching(parseResourcePattern('firestore', 'items/1'), 'getDoc');
+    expect(fsRead.map((e) => ({ source: e.source, alwaysDeny: e.alwaysDeny }))).toEqual([
+      { source: 'firestore.rules:7', alwaysDeny: undefined },
+      { source: 'firestore.rules:11', alwaysDeny: true },
+    ]);
+
+    const fsWrite = surface.matching(parseResourcePattern('firestore', 'items/1'), 'setDoc');
+    expect(fsWrite.every((e) => e.alwaysDeny === true)).toBe(true);
+
+    const rtdbRoot = surface.entries.filter(
+      (e) => e.pattern.service === 'rtdb' && e.pattern.segments.length === 0,
+    );
+    expect(rtdbRoot.map((e) => ({ ops: e.ops, alwaysDeny: e.alwaysDeny }))).toEqual([
+      { ops: ['read'], alwaysDeny: true },
+      { ops: ['write'], alwaysDeny: true },
+    ]);
+
+    const rtdbItemRead = surface.entries.find(
+      (e) => e.pattern.service === 'rtdb' && e.pattern.segments.length === 2,
+    );
+    expect(rtdbItemRead?.alwaysDeny).toBeUndefined();
+
+    const stEntry = surface.entries.find((e) => e.pattern.service === 'storage');
+    expect(stEntry?.alwaysDeny).toBe(true);
+  });
 });

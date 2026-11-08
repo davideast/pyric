@@ -71,6 +71,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'attach',
     'canIUse',
     'define',
+    'derive',
     'export',
     'inspect',
     'map',

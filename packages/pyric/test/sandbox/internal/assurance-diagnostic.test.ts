@@ -4,6 +4,7 @@ import {
   shouldFailOnDiagnostic,
   sortAssuranceDiagnostics,
   type AssuranceDiagnostic,
+  type DiagnosticRuntimeSite,
 } from '../../../src/sandbox/internal/index.js';
 
 function makeDiagnostic(
@@ -187,5 +188,22 @@ describe('AssuranceDiagnostic envelope sorting and gating policies', () => {
     expect(
       shouldFailOnDiagnostic(lowHeuristic, { minSeverity: 'medium', includeHeuristic: true }),
     ).toBe(false);
+  });
+
+  it('preserves runtimeSite evidence on AssuranceDiagnostic across sorting', () => {
+    const runtimeSite: DiagnosticRuntimeSite = {
+      source: 'snapshot:firestore:(default)',
+      concretePath: 'orgs/acme/items/1',
+    };
+    const diag = makeDiagnostic({
+      id: 'd-runtime',
+      certainty: 'heuristic',
+      runtimeSite,
+    });
+    const [sorted] = sortAssuranceDiagnostics([diag]);
+    expect(sorted?.runtimeSite).toEqual({
+      source: 'snapshot:firestore:(default)',
+      concretePath: 'orgs/acme/items/1',
+    });
   });
 });

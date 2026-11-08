@@ -84,6 +84,8 @@ export interface OpSpec {
   readonly multiPathUpdate?: boolean;
   /** True when the ref lives on the receiver handle (`onDisconnect(ref).set(...)`, `file.save(...)`). */
   readonly usesReceiverRef?: boolean;
+  /** True when this operation bypasses client security rules via Admin SDK credentials. */
+  readonly admin?: boolean;
   /** Declarative upload payload and metadata extraction spec for object storage writes. */
   readonly uploadPayload?: UploadPayloadSpec;
 }
@@ -96,6 +98,8 @@ export interface ReceiverFactorySpec {
 export interface SdkServiceModel {
   readonly service: AssuranceService;
   readonly modules: readonly string[];
+  /** Subset of `modules` that construct privileged Admin SDK handles bypassing client rules. */
+  readonly adminModules?: readonly string[];
   readonly handleFactories: Readonly<Record<string, HandleFactorySpec>>;
   /** Methods on a service handle that refine or select a resource handle (`adminStorage.bucket(name?)`). */
   readonly handleSubFactories?: Readonly<Record<string, HandleFactorySpec>>;

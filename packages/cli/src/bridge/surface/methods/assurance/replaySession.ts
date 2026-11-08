@@ -75,8 +75,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'replaySession(sessionPath?, candidateRules?, service?: firestore|database)',
-  description:
-    'Replay a capture under candidate rules.',
+  description: 'Replay capture.',
   args: z.object({
     sessionPath: z
       .string()

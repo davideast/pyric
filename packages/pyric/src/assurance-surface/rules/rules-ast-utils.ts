@@ -407,7 +407,7 @@ function combineConjunction(left: GuardSummary, right: GuardSummary): GuardSumma
   return 'tautology';
 }
 
-function summarizeRulesGuard(
+export function summarizeRulesGuard(
   expr: Expression,
   scope: RuleAstScope,
   negated: boolean,
@@ -519,7 +519,7 @@ function isRtdbNullOrEmpty(t: RtdbExpressionTree): boolean {
   return t.type === 'string' && t.value === '';
 }
 
-function summarizeRtdbGuard(t: RtdbExpressionTree, negated: boolean): GuardSummary {
+export function summarizeRtdbGuard(t: RtdbExpressionTree, negated: boolean): GuardSummary {
   if (t.type === 'boolean') {
     let val = t.value;
     if (negated) val = !val;

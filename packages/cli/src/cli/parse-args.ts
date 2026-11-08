@@ -43,6 +43,8 @@ const BOOLEAN_FLAGS = new Set([
   'in-process',
   // `pyric mcp --allow-production` mounts `production` methods; valueless.
   'allow-production',
+  'static',
+  'include-heuristic',
   'help',
   'version',
 ]);

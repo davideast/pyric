@@ -24,8 +24,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'verify(campaignId, rules, includeCandidates?, verificationId?)',
-  description:
-    "Check candidate rules against the cases.",
+  description: 'Verify rules.',
   args: z.object({
     campaignId,
     rules: authoredRecord.describe('The candidate rules by service: firestore, rtdb, and storage.'),

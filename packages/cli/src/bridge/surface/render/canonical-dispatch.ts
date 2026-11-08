@@ -308,6 +308,10 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   },
   check_assurance_feature: { key: 'assurance.canIUse' },
   attach_assurance_target: { key: 'assurance.attach' },
+  derive_assurance_campaign: {
+    key: 'assurance.derive',
+    toMethodArgs: (args) => pick(args, ['root', 'campaignId', 'includeStaticChecks', 'includeHeuristic']),
+  },
   start_assurance_campaign: { key: 'assurance.start' },
   map_assurance_campaign: { key: 'assurance.map' },
   define_assurance_invariants: { key: 'assurance.define' },

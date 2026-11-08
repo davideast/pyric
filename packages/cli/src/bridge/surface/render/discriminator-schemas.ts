@@ -289,6 +289,7 @@ export const judgeAuthorizationRiskSchema = z.object({
       'verify_cases',
       'test_rules_hosted',
       'attach',
+      'derive',
       'start',
       'map',
       'define',

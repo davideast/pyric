@@ -27,6 +27,7 @@ export const RTDB_SERVICE_MODEL: SdkServiceModel = {
     'firebase-admin/database',
     'pyric-admin/database',
   ],
+  adminModules: ['firebase-admin/database', 'pyric-admin/database'],
   handleFactories: {
     getDatabase: { resourceArgIndex: 1, singleStringArgIsResource: true },
     getDatabaseWithUrl: { resourceArgIndex: 0 },

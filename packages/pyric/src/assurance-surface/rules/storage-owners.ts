@@ -29,6 +29,7 @@ import {
   isRequestMemberChain,
   parseRulesAstWithMultiMatch,
   resolveRuleExpr,
+  summarizeRulesGuard,
   type RuleAstScope,
 } from './rules-ast-utils.js';
 import {
@@ -392,6 +393,7 @@ export function projectStorageRulesSource(
           crossServiceReads: readonly CrossServiceLookup[];
           overbroadAuthOnlyWrite?: boolean;
           wildcardBucket?: boolean;
+          alwaysDeny?: boolean;
           source: string;
         } = {
           pattern,
@@ -405,6 +407,9 @@ export function projectStorageRulesSource(
         if (storageMetadata !== undefined) entry.storageMetadata = storageMetadata;
         if (ops.some((op) => WRITE_OPS.has(op))) {
           entry.overbroadAuthOnlyWrite = isOverbroadAuthOnlyRulesExpr(allow.condition, scope);
+        }
+        if (summarizeRulesGuard(allow.condition, scope, false) === 'impossible') {
+          entry.alwaysDeny = true;
         }
         out.push(entry);
       }
