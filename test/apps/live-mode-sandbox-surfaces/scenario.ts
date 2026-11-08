@@ -218,6 +218,15 @@ export default scenario(async (app) => {
     }
   });
 
+  await app.step("Sign out signs the page's own Auth out, and the user stays among the recent users", async () => {
+    const chip = await openChip(page);
+    assert.equal(await page.evaluate(() => currentUid()), 'user-reader');
+    await chip.locator('[data-live-sign-out]').click();
+    await chip.locator('[data-live-identity="signed-out"]').waitFor({ timeout: 15_000 });
+    assert.equal(await page.evaluate(() => currentUid()), null);
+    await chip.locator('[data-live-recent-user="user-reader"]').waitFor({ timeout: 15_000 });
+  });
+
   await app.step("Studio's Settings, opened from the chip's Live tab, carries the sandbox notice with the host's project", async () => {
     const chip = await openChip(page);
     await chip.locator('[data-chip-tab=sandbox]').click();
@@ -232,15 +241,6 @@ export default scenario(async (app) => {
     assert.equal(await studio.locator('[data-live-notice]').count(), 1);
     assert.equal(await studio.locator('[data-live-notice] [data-live-notice-project]').textContent(), PROJECT);
     await studio.close();
-  });
-
-  await app.step("Sign out signs the page's own Auth out, and the user stays among the recent users", async () => {
-    const chip = await openChip(page);
-    assert.equal(await page.evaluate(() => currentUid()), 'user-reader');
-    await chip.locator('[data-live-sign-out]').click();
-    await chip.locator('[data-live-identity="signed-out"]').waitFor({ timeout: 15_000 });
-    assert.equal(await page.evaluate(() => currentUid()), null);
-    await chip.locator('[data-live-recent-user="user-reader"]').waitFor({ timeout: 15_000 });
   });
 
   await app.step('production received only the page\'s sign-in, by the replay server\'s own log', async () => {
