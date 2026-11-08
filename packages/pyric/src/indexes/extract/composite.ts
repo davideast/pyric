@@ -37,16 +37,23 @@ function isEqualityLike(f: Filter): boolean {
 }
 
 export function needsCompositeIndex(s: QueryShape): boolean {
-  const eq = s.filters.filter(isEqualityLike);
+  const eq = s.filters.filter(isEquality);
+  const arr = s.filters.filter(isArrayContains);
   const range = s.filters.filter(f => !isEqualityLike(f));
   const filterFields = new Set(s.filters.map(f => f.field));
 
-  // Trivially no composite — too few constraints.
+  // Trivially no composite when there are too few constraints.
   if (filterFields.size === 0 && s.orders.length <= 1) return false;
-  if (filterFields.size === 1 && s.orders.length === 0) return false;
+  if (filterFields.size === 1 && s.orders.length === 0) {
+    return arr.length >= 1 && (eq.length >= 1 || range.length >= 1);
+  }
 
-  // 2+ distinct filter fields → composite.
+  // 2+ distinct filter fields -> composite.
   if (filterFields.size >= 2) return true;
+
+  // array-contains / array-contains-any + any orderBy -> composite (even on the same field,
+  // because arrayConfig CONTAINS only indexes membership, not field sort order).
+  if (arr.length >= 1 && s.orders.length >= 1) return true;
 
   // Equality + orderBy: composite iff orderBy is on a different field.
   if (eq.length >= 1 && s.orders.length >= 1) {
@@ -76,42 +83,40 @@ export function needsCompositeIndex(s: QueryShape): boolean {
  */
 export function shapeToIndexEntry(s: QueryShape): IndexesConfigEntry {
   const fields: IndexField[] = [];
-  const seen = new Set<string>();
+  const seenOrder = new Set<string>();
+  const seenContains = new Set<string>();
 
-  // Equality filters → ASCENDING.
+  // Equality filters -> ASCENDING.
   for (const f of s.filters) {
-    if (isEquality(f) && !seen.has(f.field)) {
-      seen.add(f.field);
+    if (isEquality(f) && !seenOrder.has(f.field)) {
+      seenOrder.add(f.field);
       fields.push({ fieldPath: f.field, order: 'ASCENDING' });
     }
   }
-  // Array membership filters → CONTAINS.
+  // Array membership filters -> CONTAINS.
   for (const f of s.filters) {
-    if (isArrayContains(f) && !seen.has(f.field)) {
-      seen.add(f.field);
+    if (isArrayContains(f) && !seenContains.has(f.field)) {
+      seenContains.add(f.field);
       fields.push({ fieldPath: f.field, arrayConfig: 'CONTAINS' });
     }
   }
-  // Range filters → ASCENDING.
+  // Range filters -> ASCENDING.
   for (const f of s.filters) {
-    if (!isEqualityLike(f) && !seen.has(f.field)) {
-      seen.add(f.field);
+    if (!isEqualityLike(f) && !seenOrder.has(f.field)) {
+      seenOrder.add(f.field);
       fields.push({ fieldPath: f.field, order: 'ASCENDING' });
     }
   }
-  // OrderBy fields — direction matters; only include fields not already in.
+  // OrderBy fields: direction matters; only include fields not already present with an order.
   for (const o of s.orders) {
     const order: IndexFieldOrder = o.direction === 'desc' ? 'DESCENDING' : 'ASCENDING';
-    const existing = fields.findIndex(x => x.fieldPath === o.field);
+    const existing = fields.findIndex(x => x.fieldPath === o.field && !x.arrayConfig);
     if (existing >= 0) {
       // The orderBy direction wins over a default-ascending entry from
-      // the filter loop — Firestore's index requires the orderBy
-      // direction to match (unless the field uses arrayConfig).
-      if (!fields[existing].arrayConfig) {
-        fields[existing] = { fieldPath: o.field, order };
-      }
+      // the filter loop so the index matches the requested sort direction.
+      fields[existing] = { fieldPath: o.field, order };
     } else {
-      seen.add(o.field);
+      seenOrder.add(o.field);
       fields.push({ fieldPath: o.field, order });
     }
   }

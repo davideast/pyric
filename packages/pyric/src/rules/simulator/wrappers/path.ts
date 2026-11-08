@@ -112,12 +112,17 @@ export class Path extends RulesValue {
   }
 
   equals(other: unknown): boolean {
-    if (!(other instanceof Path)) return false;
-    if (this.segments.length !== other.segments.length) return false;
-    for (let i = 0; i < this.segments.length; i++) {
-      if (this.segments[i] !== other.segments[i]) return false;
+    if (other instanceof Path) {
+      if (this.segments.length !== other.segments.length) return false;
+      for (let i = 0; i < this.segments.length; i++) {
+        if (this.segments[i] !== other.segments[i]) return false;
+      }
+      return true;
     }
-    return true;
+    if (other instanceof RulesValue && other.typeName === 'path') {
+      return String(other) === this.toString();
+    }
+    return false;
   }
 
   callMethod(method: string, args: unknown[]): unknown | NoOp {

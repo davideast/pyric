@@ -34,6 +34,8 @@ export interface EmitRequestInput {
   resourceData?: DocumentData;
   /** A non-merge update's field paths as segment vectors. */
   updateMask?: string[][];
+  /** Set/merge write-mode metadata when the originating write was a set or merge. */
+  merge?: boolean | { mergeFields: string[] };
   resourceBefore?: { data: DocumentData | null; exists: boolean };
   resourceAfter?: { data: DocumentData | null; exists: boolean };
   origin: 'user' | 'listener' | 'transaction' | 'batch';
@@ -96,6 +98,7 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
   if (input.resourceData !== undefined) {
     out.request = { resourceData: input.resourceData };
     if (input.updateMask !== undefined) out.request.updateMask = input.updateMask;
+    if (input.merge !== undefined) out.request.merge = input.merge;
   }
   if (input.resourceBefore !== undefined) {
     out.resourceBefore = input.resourceBefore;

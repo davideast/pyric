@@ -41,7 +41,14 @@
  * throws `StorageError` exactly as before — the error contract to
  * app code is unchanged.
  */
-import { emitSandboxEvent, getClock, makeSandboxOperationEvent } from 'pyric/sandbox/internal';
+import {
+  emitSandboxEvent,
+  getClock,
+  isSecretObservationKey,
+  makeSandboxOperationEvent,
+  observationText,
+  redactEmails,
+} from 'pyric/sandbox/internal';
 import type { EventProvenance, Sandbox } from 'pyric/sandbox';
 import {
   storageOperationProvenance,
@@ -53,9 +60,286 @@ import {
 } from './service.js';
 import { evaluateStorageRules } from './sandbox/rules-evaluator.js';
 import { RuleEvalError } from './sandbox/rules-evaluation-error.js';
-import type { EvaluationInput, FirestoreLookup } from './sandbox/rules.js';
+import type {
+  EvaluationInput,
+  FirestoreLookup,
+  StorageRequestResource,
+  StorageResource,
+} from './sandbox/rules.js';
 import { unauthorized } from './errors.js';
 import { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
+
+/**
+ * Redacted `request.resource` and existing `resource` bindings captured beside
+ * a denied Storage operation event for `pyric verify` replay, kept off the
+ * live Traffic / Studio `SandboxOperationEvent.detail` payload.
+ */
+export interface RecordedStorageDeniedWrite {
+  requestResource?: StorageRequestResource;
+  resource?: StorageResource;
+  /** True when one or more captured field values were replaced by redaction placeholders. */
+  redacted?: true;
+  /** Binding paths whose values were redacted (`request.resource.metadata`, `resource.metadata`, etc.). */
+  redactedFields?: string[];
+}
+
+interface DeniedWriteStore {
+  byEvent: Map<string, RecordedStorageDeniedWrite>;
+  pruneAt: number;
+}
+
+type HistoryBearingSandbox = Pick<Sandbox, 'history'>;
+
+const DENIED_WRITES_KEY = Symbol.for('pyric.storage.denied-writes');
+const MIN_DENIED_WRITES_PRUNE_AT = 256;
+const KNOWN_REDACTED_FIELD_NAMES: ReadonlySet<string> = new Set([
+  'request.resource.metadata',
+  'request.resource.contentType',
+  'request.resource.contentDisposition',
+  'request.resource.contentEncoding',
+  'request.resource.contentLanguage',
+  'request.resource.cacheControl',
+  'resource.metadata',
+  'resource.contentType',
+]);
+
+const globalDeniedWrites = globalThis as {
+  [DENIED_WRITES_KEY]?: WeakMap<HistoryBearingSandbox, DeniedWriteStore>;
+};
+const STORAGE_DENIED_WRITES: WeakMap<HistoryBearingSandbox, DeniedWriteStore> =
+  (globalDeniedWrites[DENIED_WRITES_KEY] ??= new WeakMap());
+
+function pruneDeniedWrites(sandbox: HistoryBearingSandbox, store: DeniedWriteStore): void {
+  const held = new Set(sandbox.history().map((event) => event.id));
+  for (const id of store.byEvent.keys()) {
+    if (!held.has(id)) store.byEvent.delete(id);
+  }
+  store.pruneAt = Math.max(MIN_DENIED_WRITES_PRUNE_AT, store.byEvent.size * 2);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function sanitizeCapturedText(value: string): { value: string; redacted: boolean } {
+  const next = redactEmails(observationText(value));
+  return { value: next, redacted: next !== value };
+}
+
+function sanitizeStorageMetadata(
+  metadata: unknown,
+): { value: Record<string, string> | null | undefined; redacted: boolean } {
+  if (metadata === undefined) return { value: undefined, redacted: false };
+  if (metadata === null) return { value: null, redacted: false };
+  if (!isPlainRecord(metadata)) return { value: undefined, redacted: false };
+  const out: Record<string, string> = {};
+  let redacted = false;
+  for (const [key, raw] of Object.entries(metadata)) {
+    if (typeof raw !== 'string') continue;
+    let sanitizedValue: string;
+    if (isSecretObservationKey(key)) {
+      sanitizedValue = '[redacted]';
+      redacted = true;
+    } else {
+      const checked = sanitizeCapturedText(raw);
+      sanitizedValue = checked.value;
+      if (checked.redacted) redacted = true;
+    }
+    // Preserve metadata keys verbatim so `size()` and `keys()` never collapse distinct keys.
+    Object.defineProperty(out, key, {
+      value: sanitizedValue,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return { value: out, redacted };
+}
+
+function sanitizeStorageRequestResource(
+  raw: unknown,
+): { resource: StorageRequestResource | undefined; redactedFields: string[] } {
+  if (!isPlainRecord(raw)) return { resource: undefined, redactedFields: [] };
+  if (typeof raw.size !== 'number' || !Number.isFinite(raw.size)) {
+    return { resource: undefined, redactedFields: [] };
+  }
+  const out: StorageRequestResource = { size: raw.size };
+  const redactedFields: string[] = [];
+
+  // Keep `name` and `bucket` unredacted (the path is already on `opEvent.path`).
+  if (typeof raw.name === 'string') out.name = raw.name;
+  if (typeof raw.bucket === 'string') out.bucket = raw.bucket;
+
+  if (typeof raw.contentType === 'string') {
+    const checked = sanitizeCapturedText(raw.contentType);
+    out.contentType = checked.value;
+    if (checked.redacted) redactedFields.push('request.resource.contentType');
+  }
+  if (raw.contentDisposition === null) {
+    out.contentDisposition = null;
+  } else if (typeof raw.contentDisposition === 'string') {
+    const checked = sanitizeCapturedText(raw.contentDisposition);
+    out.contentDisposition = checked.value;
+    if (checked.redacted) redactedFields.push('request.resource.contentDisposition');
+  }
+  if (raw.contentEncoding === null) {
+    out.contentEncoding = null;
+  } else if (typeof raw.contentEncoding === 'string') {
+    const checked = sanitizeCapturedText(raw.contentEncoding);
+    out.contentEncoding = checked.value;
+    if (checked.redacted) redactedFields.push('request.resource.contentEncoding');
+  }
+  if (raw.contentLanguage === null) {
+    out.contentLanguage = null;
+  } else if (typeof raw.contentLanguage === 'string') {
+    const checked = sanitizeCapturedText(raw.contentLanguage);
+    out.contentLanguage = checked.value;
+    if (checked.redacted) redactedFields.push('request.resource.contentLanguage');
+  }
+  if (raw.cacheControl === null) {
+    out.cacheControl = null;
+  } else if (typeof raw.cacheControl === 'string') {
+    const checked = sanitizeCapturedText(raw.cacheControl);
+    out.cacheControl = checked.value;
+    if (checked.redacted) redactedFields.push('request.resource.cacheControl');
+  }
+  if (raw.metadata === null || isPlainRecord(raw.metadata)) {
+    const checked = sanitizeStorageMetadata(raw.metadata);
+    if (checked.value !== undefined) out.metadata = checked.value;
+    if (checked.redacted) redactedFields.push('request.resource.metadata');
+  }
+  if (raw.generation === null || (typeof raw.generation === 'number' && Number.isFinite(raw.generation))) {
+    out.generation = raw.generation;
+  }
+  if (raw.metageneration === null || (typeof raw.metageneration === 'number' && Number.isFinite(raw.metageneration))) {
+    out.metageneration = raw.metageneration;
+  }
+  if (raw.etag === null) {
+    out.etag = null;
+  }
+  return { resource: out, redactedFields };
+}
+
+function sanitizeStorageResource(
+  raw: unknown,
+): { resource: StorageResource | undefined; redactedFields: string[] } {
+  if (!isPlainRecord(raw)) return { resource: undefined, redactedFields: [] };
+  if (typeof raw.size !== 'number' || !Number.isFinite(raw.size)) {
+    return { resource: undefined, redactedFields: [] };
+  }
+  const out: StorageResource = { size: raw.size };
+  const redactedFields: string[] = [];
+
+  if (typeof raw.name === 'string') out.name = raw.name;
+  if (typeof raw.bucket === 'string') out.bucket = raw.bucket;
+  if (typeof raw.contentType === 'string') {
+    const checked = sanitizeCapturedText(raw.contentType);
+    out.contentType = checked.value;
+    if (checked.redacted) redactedFields.push('resource.contentType');
+  }
+  if (isPlainRecord(raw.metadata)) {
+    const checked = sanitizeStorageMetadata(raw.metadata);
+    if (checked.value !== null && checked.value !== undefined) out.metadata = checked.value;
+    if (checked.redacted) redactedFields.push('resource.metadata');
+  }
+  if (typeof raw.timeCreated === 'string') out.timeCreated = raw.timeCreated;
+  if (typeof raw.updated === 'string') out.updated = raw.updated;
+  if (typeof raw.generation === 'number' && Number.isFinite(raw.generation)) {
+    out.generation = raw.generation;
+  }
+  if (typeof raw.metageneration === 'number' && Number.isFinite(raw.metageneration)) {
+    out.metageneration = raw.metageneration;
+  }
+  return { resource: out, redactedFields };
+}
+
+/**
+ * Validate and sanitize a recorded or persisted denied Storage write entry,
+ * allowlisting known fields and preserving redaction markers across hydration.
+ */
+export function normalizeRecordedStorageDeniedWrite(
+  raw: unknown,
+): RecordedStorageDeniedWrite | undefined {
+  if (!isPlainRecord(raw)) return undefined;
+  const req = sanitizeStorageRequestResource(raw.requestResource);
+  const res = sanitizeStorageResource(raw.resource);
+  if (req.resource === undefined && res.resource === undefined) return undefined;
+
+  const priorFields = Array.isArray(raw.redactedFields)
+    ? raw.redactedFields.filter(
+        (item): item is string => typeof item === 'string' && KNOWN_REDACTED_FIELD_NAMES.has(item),
+      )
+    : [];
+  const combinedFields = [...new Set([...priorFields, ...req.redactedFields, ...res.redactedFields])];
+  const isRedacted = raw.redacted === true || combinedFields.length > 0;
+  return {
+    ...(req.resource === undefined ? {} : { requestResource: req.resource }),
+    ...(res.resource === undefined ? {} : { resource: res.resource }),
+    ...(isRedacted ? { redacted: true as const } : {}),
+    ...(combinedFields.length > 0 ? { redactedFields: combinedFields } : {}),
+  };
+}
+
+function recordStorageDeniedWrite(
+  sandbox: HistoryBearingSandbox,
+  eventId: string,
+  input: EvaluationInput,
+): void {
+  const normalized = normalizeRecordedStorageDeniedWrite({
+    requestResource: input.request.resource,
+    resource: input.resource ?? undefined,
+  });
+  if (normalized === undefined) return;
+  let store = STORAGE_DENIED_WRITES.get(sandbox);
+  if (store === undefined) {
+    store = { byEvent: new Map(), pruneAt: MIN_DENIED_WRITES_PRUNE_AT };
+    STORAGE_DENIED_WRITES.set(sandbox, store);
+  } else if (store.byEvent.size >= store.pruneAt) {
+    pruneDeniedWrites(sandbox, store);
+  }
+  store.byEvent.set(eventId, normalized);
+}
+
+/**
+ * Redacted resource bindings recorded for denied Storage operations on
+ * `sandbox`, keyed by `SandboxOperationEvent.id` and pruned to events still
+ * retained in `sandbox.history()`.
+ */
+export function storageDeniedWrites(
+  sandbox: HistoryBearingSandbox,
+): ReadonlyMap<string, RecordedStorageDeniedWrite> {
+  const store = STORAGE_DENIED_WRITES.get(sandbox);
+  if (store === undefined) return new Map();
+  pruneDeniedWrites(sandbox, store);
+  return store.byEvent;
+}
+
+/**
+ * Restore redacted denied-write bindings onto a freshly hydrated worker
+ * sandbox for events present in `sandbox.history()`.
+ */
+export function primeStorageDeniedWrites(
+  sandbox: HistoryBearingSandbox,
+  deniedWrites: Record<string, RecordedStorageDeniedWrite> | undefined,
+): void {
+  if (!isPlainRecord(deniedWrites)) return;
+  const held = new Set(sandbox.history().map((event) => event.id));
+  if (held.size === 0) return;
+  let store = STORAGE_DENIED_WRITES.get(sandbox);
+  for (const [eventId, entry] of Object.entries(deniedWrites)) {
+    if (!held.has(eventId)) continue;
+    const normalized = normalizeRecordedStorageDeniedWrite(entry);
+    if (normalized === undefined) continue;
+    if (store === undefined) {
+      store = { byEvent: new Map(), pruneAt: MIN_DENIED_WRITES_PRUNE_AT };
+      STORAGE_DENIED_WRITES.set(sandbox, store);
+    }
+    store.byEvent.set(eventId, normalized);
+  }
+  if (store !== undefined) {
+    store.pruneAt = Math.max(MIN_DENIED_WRITES_PRUNE_AT, store.byEvent.size * 2);
+  }
+}
 
 /** What {@link enforceRules} records besides deciding. */
 export interface EnforceOptions {
@@ -175,37 +459,41 @@ function emitOperation(
 ): void {
   if (!target) return;
   try {
+    const operationEvent = makeSandboxOperationEvent({
+      at: getClock(target.sandbox).now(),
+      service: 'storage',
+      method: input.request.method,
+      path: input.request.path,
+      auth: input.request.auth,
+      result,
+      origin,
+      reasons,
+      // The store key, and the name the rules saw it by, so a replay binds
+      // the same name (ST-H2-4).
+      // A permissive-mode open bucket says so, since no rule decided it.
+      detail: {
+        bucket: target.bucket,
+        bucketName: rulesBucketName(target.bucket, target.bucketName),
+        ...(defaultPolicy === undefined ? {} : { defaultPolicy }),
+      },
+      rulesDisposition: origin === 'admin'
+        ? { kind: 'bypassed', reason: 'admin' }
+        : evaluated
+          ? { kind: 'evaluated', verdict: result === 'deny' ? 'deny' : 'allow' }
+          : { kind: 'not-evaluated', reason: 'no-rules' },
+      rules: evaluated
+        ? {
+            engine: 'storage',
+            reason: reasons && reasons.length > 0 ? reasons.join('; ') : undefined,
+          }
+        : undefined,
+    });
+    if (result === 'deny') {
+      recordStorageDeniedWrite(target.sandbox, operationEvent.id, input);
+    }
     emitSandboxEvent(
       target.sandbox,
-      makeSandboxOperationEvent({
-        at: getClock(target.sandbox).now(),
-        service: 'storage',
-        method: input.request.method,
-        path: input.request.path,
-        auth: input.request.auth,
-        result,
-        origin,
-        reasons,
-        // The store key, and the name the rules saw it by, so a replay binds
-        // the same name (ST-H2-4).
-        // A permissive-mode open bucket says so, since no rule decided it.
-        detail: {
-          bucket: target.bucket,
-          bucketName: rulesBucketName(target.bucket, target.bucketName),
-          ...(defaultPolicy === undefined ? {} : { defaultPolicy }),
-        },
-        rulesDisposition: origin === 'admin'
-          ? { kind: 'bypassed', reason: 'admin' }
-          : evaluated
-            ? { kind: 'evaluated', verdict: result === 'deny' ? 'deny' : 'allow' }
-            : { kind: 'not-evaluated', reason: 'no-rules' },
-        rules: evaluated
-          ? {
-              engine: 'storage',
-              reason: reasons && reasons.length > 0 ? reasons.join('; ') : undefined,
-            }
-          : undefined,
-      }),
+      operationEvent,
       { ...provenance, service: 'storage' },
     );
   } catch {

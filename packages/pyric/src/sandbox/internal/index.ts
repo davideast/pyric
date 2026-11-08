@@ -206,7 +206,7 @@ export { coverageMethodOf } from './admin-methods.js';
 export type { ObservedUsage } from '../types/observed-call.js';
 
 export { OBSERVATION_HISTORY_LIMITS } from './observation-history.js';
-export { observationPayload, observationText } from './observation-payload.js';
+export { isSecretObservationKey, observationPayload, observationText } from './observation-payload.js';
 
 export { aiCompletionUsage } from './usage-evidence.js';
 export { requestStatusLabel } from '../types/request-observation.js';

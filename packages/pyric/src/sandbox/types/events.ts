@@ -173,6 +173,7 @@ export interface RequestEvent {
   request?: {
     resourceData?: Record<string, unknown>;
     updateMask?: string[][];
+    merge?: boolean | { mergeFields: string[] };
   };
   /** Existing document state before the write (or read target for get). */
   resourceBefore?: {

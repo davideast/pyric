@@ -2,6 +2,7 @@
  * Unit tests for needsCompositeIndex + shapeToIndexEntry + indexEntryKey.
  */
 import { describe, test, expect } from 'bun:test';
+import { extractIndexes } from 'pyric/rules/internal/extract';
 import {
   needsCompositeIndex,
   shapeToIndexEntry,
@@ -88,6 +89,74 @@ describe('needsCompositeIndex — composite cases', () => {
       filters: [{ field: 'tags', op: 'array-contains' }],
       orders: [{ field: 'createdAt', direction: 'desc' }],
     }))).toBe(true);
+  });
+
+  test('array-contains and array-contains-any + orderBy on same field require composite index and keep both CONTAINS and directional sort entries', () => {
+    for (const op of ['array-contains', 'array-contains-any'] as const) {
+      const s = shape({
+        collectionPath: 'items',
+        filters: [{ field: 'tags', op }],
+        orders: [{ field: 'tags', direction: 'desc' }],
+      });
+      expect(needsCompositeIndex(s)).toBe(true);
+      expect(shapeToIndexEntry(s).fields).toEqual([
+        { fieldPath: 'tags', arrayConfig: 'CONTAINS' },
+        { fieldPath: 'tags', order: 'DESCENDING' },
+      ]);
+    }
+
+    expect(needsCompositeIndex(shape({
+      collectionPath: 'items',
+      filters: [
+        { field: 'tags', op: 'array-contains' },
+        { field: 'tags', op: '==' },
+      ],
+      orders: [],
+    }))).toBe(true);
+    expect(needsCompositeIndex(shape({
+      collectionPath: 'items',
+      filters: [
+        { field: 'tags', op: 'array-contains-any' },
+        { field: 'tags', op: '>' },
+      ],
+      orders: [],
+    }))).toBe(true);
+    expect(needsCompositeIndex(shape({
+      collectionPath: 'items',
+      filters: [{ field: 'tags', op: 'array-contains' }],
+      orders: [],
+    }))).toBe(false);
+
+    const extracted = extractIndexes({
+      files: [
+        {
+          name: 'queries.ts',
+          source: `
+            import { collection, orderBy, query, where } from 'firebase/firestore';
+            export function listTagged(db: any) {
+              const q = query(
+                collection(db, 'items'),
+                where('tags', 'array-contains', 'featured'),
+                orderBy('tags', 'asc'),
+              );
+              return q;
+            }
+          `,
+        },
+      ],
+    });
+    expect(extracted.success).toBe(true);
+    if (!extracted.success) return;
+    expect(extracted.data.config.indexes).toEqual([
+      {
+        collectionGroup: 'items',
+        queryScope: 'COLLECTION',
+        fields: [
+          { fieldPath: 'tags', arrayConfig: 'CONTAINS' },
+          { fieldPath: 'tags', order: 'ASCENDING' },
+        ],
+      },
+    ]);
   });
 });
 

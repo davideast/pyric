@@ -131,7 +131,7 @@ export function replay(
   env.seed({ rules });
 
   const pathAliases = new Map<string, string>();
-  const deniedWrites: Array<{ path: string; before: unknown }> = [];
+  const deniedWrites: Array<{ path: string; before: unknown; event?: WriteSandboxEvent }> = [];
   const consumedRequestIndices = new Set<number>();
   const writes = events.filter((e): e is WriteSandboxEvent => e.kind === 'write');
   const clock = getClock(sandbox);
@@ -193,10 +193,10 @@ export function replay(
         if (result.allowed) {
           pathAliases.set(wEv.path, mintedPath);
         } else {
-          deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? {} });
+          deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? {}, event: wEv });
         }
       } catch {
-        deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? {} });
+        deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? {}, event: wEv });
       }
       continue;
     }
@@ -215,12 +215,20 @@ export function replay(
       if (wEv.merge !== undefined) operation.merge = wEv.merge;
       const res = env.execute(operation);
       if (!res.allowed) {
-        deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? wEv.priorState ?? {} });
+        deniedWrites.push({
+          path: wEv.path,
+          before: wEv.nextState ?? wEv.data ?? wEv.priorState ?? {},
+          event: wEv,
+        });
       }
     } catch {
       // Replay denials surface as state divergence below; keep going
       // to surface as much as possible in one pass.
-      deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? wEv.priorState ?? {} });
+      deniedWrites.push({
+        path: wEv.path,
+        before: wEv.nextState ?? wEv.data ?? wEv.priorState ?? {},
+        event: wEv,
+      });
     }
   }
   if (clockPinned) clock.reset();
@@ -281,7 +289,7 @@ function base64StdDecode(s: string): Uint8Array {
  * preserve/normalize FieldValue sentinels so rules evaluation and state
  * diffing operate on canonical rules wrapper instances.
  */
-function rehydrateReplayValue(value: unknown): unknown {
+export function rehydrateReplayValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map(rehydrateReplayValue);
   if (!isPlainRecord(value)) return value;
@@ -403,8 +411,8 @@ function groupAt(writes: readonly WriteSandboxEvent[], index: number): WriteSand
  * existing document.
  */
 function batchMethodOf(event: WriteSandboxEvent): BatchOperationInput['method'] {
-  const isReplacingSet = event.method === 'update' && event.updateMask === undefined && event.merge === undefined;
-  return isReplacingSet ? 'set' : event.method;
+  const isSet = event.merge !== undefined || (event.method === 'update' && event.updateMask === undefined);
+  return isSet ? 'set' : event.method;
 }
 
 /** Re-commit one captured batch or transaction as a single batch. */
@@ -413,7 +421,7 @@ function replayGroup(
   group: readonly WriteSandboxEvent[],
   dataFor: (event: WriteSandboxEvent) => DocData | undefined,
   remap: (path: string) => string,
-  deniedWrites: Array<{ path: string; before: unknown }>,
+  deniedWrites: Array<{ path: string; before: unknown; event?: WriteSandboxEvent }>,
 ): void {
   const operations = group.map((event) => {
     const operation: BatchOperationInput = { method: batchMethodOf(event), path: remap(event.path) };
@@ -428,13 +436,21 @@ function replayGroup(
     const res = env.batch(operations, group[0]!.auth, isAdminWrite(group[0]!));
     if (!res.allowed) {
       for (const event of group) {
-        deniedWrites.push({ path: event.path, before: event.nextState ?? event.data ?? event.priorState ?? {} });
+        deniedWrites.push({
+          path: event.path,
+          before: event.nextState ?? event.data ?? event.priorState ?? {},
+          event,
+        });
       }
     }
   } catch {
     // A rejected batch surfaces as state divergence, like a denied write.
     for (const event of group) {
-      deniedWrites.push({ path: event.path, before: event.nextState ?? event.data ?? event.priorState ?? {} });
+      deniedWrites.push({
+        path: event.path,
+        before: event.nextState ?? event.data ?? event.priorState ?? {},
+        event,
+      });
     }
   }
 }
@@ -506,7 +522,7 @@ function computeDivergences(
   originalState: Record<string, DocData>,
   replayedState: Record<string, DocData>,
   pathAliases: Map<string, string>,
-  deniedWrites: ReadonlyArray<{ path: string; before: unknown }> = [],
+  deniedWrites: ReadonlyArray<{ path: string; before: unknown; event?: WriteSandboxEvent }> = [],
 ): Divergence[] {
   const out: Divergence[] = [];
 
@@ -514,14 +530,25 @@ function computeDivergences(
     out.push({ kind: 'autoid-alias', originalPath, replayedPath });
   }
 
+  const deniedEventSet = new Set<WriteSandboxEvent>();
+  for (const d of deniedWrites) {
+    if (d.event) deniedEventSet.add(d.event);
+  }
+
   type SentinelKind = 'serverTimestamp' | 'increment' | 'arrayUnion' | 'arrayRemove' | 'delete';
   const sentinelsByPath = new Map<string, Map<string, SentinelKind>>();
   for (const w of writes) {
-    if (w.sentinels && w.sentinels.length > 0) {
-      const m = sentinelsByPath.get(w.path) ?? new Map<string, SentinelKind>();
-      for (const s of w.sentinels) m.set(s.field, s.kind as SentinelKind);
-      sentinelsByPath.set(w.path, m);
+    if (!w.sentinels || w.sentinels.length === 0) continue;
+    if (deniedEventSet.has(w)) {
+      const existing = sentinelsByPath.get(w.path);
+      if (existing) {
+        for (const s of w.sentinels) existing.delete(s.field);
+      }
+      continue;
     }
+    const m = sentinelsByPath.get(w.path) ?? new Map<string, SentinelKind>();
+    for (const s of w.sentinels) m.set(s.field, s.kind as SentinelKind);
+    sentinelsByPath.set(w.path, m);
   }
 
   // Each original document is compared with the replayed document at its
