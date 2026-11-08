@@ -89,6 +89,12 @@ export interface QuerySnapshot {
   readonly empty: boolean;
   readonly docs: QueryDocumentSnapshot[];
   forEach(callback: (snap: QueryDocumentSnapshot) => void, thisArg?: unknown): void;
+  docChanges(options?: { includeMetadataChanges?: boolean }): Array<{
+    readonly type: 'added' | 'modified' | 'removed';
+    readonly doc: QueryDocumentSnapshot;
+    readonly oldIndex: number;
+    readonly newIndex: number;
+  }>;
 }
 
 export interface DocumentReference {

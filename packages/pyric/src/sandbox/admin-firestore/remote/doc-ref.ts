@@ -14,6 +14,7 @@ import type {
 } from 'pyric/sandbox/admin-compat';
 import {
   isCollectionPath,
+  isDocumentPath,
   lastSegment,
   parentCollectionPath,
 } from '../../../firestore/sandbox/admin-compat/paths.js';
@@ -22,9 +23,9 @@ import { armOp, type RemoteArm } from './channel.js';
 import { invalidArgument } from './errors.js';
 import { encodeUpdateFields, encodeWriteData } from './value-codec.js';
 import { parseAdminUpdateArguments } from '../../../firestore/sandbox/admin-compat/field-path.js';
-import { normalizeMergeFields } from '../../../firestore/sandbox/update-fields.js';
 import { makeDocumentSnapshot } from './snapshots.js';
 import { makeQuery } from './query.js';
+import { toWireSetOptions, type WireSetOptions } from './batch.js';
 import {
   chainableOnSnapshot,
   REMOTE_SNAPSHOT_REGISTRAR,
@@ -44,8 +45,19 @@ export function makeCollectionRef(arm: RemoteArm, path: string): CollectionRefer
     id: lastSegment(path),
     path,
     doc(id?: string): DocumentReference {
-      const finalId = id ?? generateAutoId();
-      return makeDocRef(arm, `${path}/${finalId}`);
+      if (id === undefined) {
+        return makeDocRef(arm, `${path}/${generateAutoId()}`);
+      }
+      const trimmed = id.replace(/^\/+|\/+$/g, '');
+      const hasEmptySegment = trimmed.length === 0 || trimmed.split('/').some((seg) => seg.length === 0);
+      if (hasEmptySegment) {
+        throw invalidArgument(`document path must contain non-empty segments: ${path}/${id}`);
+      }
+      const sub = `${path}/${trimmed}`;
+      if (!isDocumentPath(sub)) {
+        throw invalidArgument(`document path must have an even number of segments: ${sub}`);
+      }
+      return makeDocRef(arm, sub);
     },
     async add(data: DocumentData, _opts?: OperationOptions): Promise<DocumentReference> {
       // The worker mints the id (`addDoc`), so creation is one round-trip
@@ -89,13 +101,15 @@ export function makeDocRef(arm: RemoteArm, path: string): DocumentReference {
       });
     },
     async set(data: DocumentData, options?: SetOptions): Promise<void> {
-      const op: Record<string, unknown> = {
+      const op: { method: 'setDoc'; path: string; data: unknown; options?: WireSetOptions } = {
         method: 'setDoc',
         path,
         data: encodeWriteData(data),
       };
       const wireOptions = setOptionsForWire(options);
-      if (wireOptions !== undefined) op.options = wireOptions;
+      if (wireOptions !== undefined) {
+        op.options = wireOptions;
+      }
       await armOp(arm, op);
     },
     // Argument errors throw synchronously, as the Admin SDK's do.
@@ -114,12 +128,8 @@ export function makeDocRef(arm: RemoteArm, path: string): DocumentReference {
   return ref;
 }
 
-function setOptionsForWire(
-  options?: SetOptions,
-): { merge?: boolean; mergeFields?: string[] } | undefined {
-  if (!options) return undefined;
-  const wire: { merge?: boolean; mergeFields?: string[] } = {};
-  if (options.merge !== undefined) wire.merge = options.merge;
-  if (options.mergeFields !== undefined) wire.mergeFields = normalizeMergeFields(options.mergeFields);
+function setOptionsForWire(options?: SetOptions): WireSetOptions | undefined {
+  const wire = toWireSetOptions(options);
+  if (!wire) return undefined;
   return wire.merge !== undefined || wire.mergeFields !== undefined ? wire : undefined;
 }

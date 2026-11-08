@@ -42,17 +42,29 @@ function hostPeer(bridge: Bridge): Sandbox {
   const tab: PortLike = {
     postMessage(raw: unknown) {
       const message = raw as OutboundMessage;
-      if (message.t !== 'res') return;
-      const reply = message.ok
-        ? { type: 'worker-res', id: message.id, ok: true, value: message.value }
-        : { type: 'worker-res', id: message.id, ok: false, error: message.error };
-      bridge.handleSandboxMessage(overWire(reply) as BridgeMessage, generation);
+      if (message.t === 'res') {
+        const reply = message.ok
+          ? { type: 'worker-res', id: message.id, ok: true, value: message.value }
+          : { type: 'worker-res', id: message.id, ok: false, error: message.error };
+        bridge.handleSandboxMessage(overWire(reply) as BridgeMessage, generation);
+      } else if (message.t === 'snap') {
+        bridge.handleSandboxMessage(
+          overWire({ type: 'worker-snap', subId: message.subId, value: message.value }) as BridgeMessage,
+          generation,
+        );
+      }
     },
   };
   bridge.registerSandboxPeer((message: BridgeMessage) => {
     if (generation === 0) generation = bridge.peerGeneration();
     const wire = overWire(message);
-    if (wire.type === 'worker-op') void handleMessage(ctx, tab, { ...wire.op, t: 'op', id: wire.id } as InboundMessage);
+    if (wire.type === 'worker-op') {
+      void handleMessage(ctx, tab, { ...wire.op, t: 'op', id: wire.id } as InboundMessage);
+    } else if (wire.type === 'worker-sub') {
+      void handleMessage(ctx, tab, { ...wire.sub, t: 'sub', subId: wire.subId } as InboundMessage);
+    } else if (wire.type === 'worker-unsub') {
+      void handleMessage(ctx, tab, { t: 'unsub', subId: wire.subId } as InboundMessage);
+    }
   }, [], 'fake-tab', [WORKER_RELAY_CAPABILITY]);
   return sandbox;
 }

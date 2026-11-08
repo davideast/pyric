@@ -23,8 +23,17 @@ import type {
 import { armOp, type RemoteArm } from './channel.js';
 import { invalidArgument } from './errors.js';
 import { encodeValue } from './value-codec.js';
-import { fieldPathArgumentSegments } from '../../../firestore/sandbox/update-fields.js';
 import { makeQuerySnapshot } from './snapshots.js';
+import {
+  fieldPathSegments,
+  getSnapshotField,
+  type SnapshotFieldPath,
+} from '../../../firestore/sandbox/admin-compat/field-path.js';
+import {
+  canonicalFieldPath,
+  fieldPathArgumentSegments,
+} from '../../../firestore/sandbox/update-fields.js';
+import { normalizeQueryOrders } from '../../../firestore/internal/implicit-order.js';
 import {
   chainableOnSnapshot,
   REMOTE_SNAPSHOT_REGISTRAR,
@@ -35,14 +44,21 @@ import type { WireConstraint, WireFilter, WireQuerySnap, WireTarget } from './wi
 
 /** Immutable query state accumulated by the chainable constraint calls.
  *  Cursors REPLACE on repeat (matching the local arm / production). */
+export interface CursorState {
+  readonly values: readonly unknown[];
+  readonly inclusive: boolean;
+  readonly snapshot?: DocumentSnapshot;
+  readonly method?: string;
+}
+
 export interface QueryState {
   readonly source: { __ref: 'collection'; path: string } | { __ref: 'group'; collectionId: string };
   readonly filters: readonly WireFilter[];
   readonly orders: readonly { field: string; direction: OrderDirection }[];
   readonly limitCount?: number;
   readonly limitFromEnd: boolean;
-  readonly start?: { values: readonly unknown[]; inclusive: boolean };
-  readonly end?: { values: readonly unknown[]; inclusive: boolean };
+  readonly start?: CursorState;
+  readonly end?: CursorState;
 }
 
 /** Brand for `Transaction.get`'s doc-vs-query runtime dispatch and the
@@ -73,6 +89,24 @@ function validateWhereOp(op: WhereFilterOp): void {
   }
 }
 
+const INEQUALITY_OPS: ReadonlySet<string> = new Set([
+  '<', '<=', '>', '>=', '!=', 'not-in',
+]);
+
+function collectInequalityFields(filters: readonly WireFilter[]): string[] {
+  const fields: string[] = [];
+  for (const filter of filters) {
+    if (filter.kind === 'where') {
+      if (INEQUALITY_OPS.has(filter.op)) {
+        fields.push(filter.field);
+      }
+      continue;
+    }
+    fields.push(...collectInequalityFields(filter.filters));
+  }
+  return fields;
+}
+
 /** Flatten the accumulated state into the wire's constraint list. */
 export function buildDescriptor(state: QueryState): WireTarget {
   const constraints: WireConstraint[] = [...state.filters];
@@ -80,23 +114,30 @@ export function buildDescriptor(state: QueryState): WireTarget {
     constraints.push({ kind: 'orderBy', field: o.field, direction: o.direction });
   }
   if (state.start) {
-    constraints.push({
-      kind: state.start.inclusive ? 'startAt' : 'startAfter',
+    const startKind = state.start.inclusive ? 'startAt' : 'startAfter';
+    const startConstraint: Extract<WireConstraint, { kind: 'startAt' | 'startAfter' }> = {
+      kind: startKind,
       values: state.start.values.map(encodeValue),
-    });
+    };
+    if (state.start.snapshot) {
+      startConstraint.fromSnapshot = true;
+    }
+    constraints.push(startConstraint);
   }
   if (state.end) {
-    constraints.push({
-      kind: state.end.inclusive ? 'endAt' : 'endBefore',
+    const endKind = state.end.inclusive ? 'endAt' : 'endBefore';
+    const endConstraint: Extract<WireConstraint, { kind: 'endAt' | 'endBefore' }> = {
+      kind: endKind,
       values: state.end.values.map(encodeValue),
-    });
+    };
+    if (state.end.snapshot) {
+      endConstraint.fromSnapshot = true;
+    }
+    constraints.push(endConstraint);
   }
   if (state.limitCount !== undefined) {
-    constraints.push(
-      state.limitFromEnd
-        ? { kind: 'limitToLast', n: state.limitCount }
-        : { kind: 'limit', n: state.limitCount },
-    );
+    const limitKind = state.limitFromEnd ? 'limitToLast' : 'limit';
+    constraints.push({ kind: limitKind, n: state.limitCount });
   }
   if (constraints.length === 0) return state.source;
   return { __ref: 'query', source: state.source, constraints };
@@ -129,20 +170,24 @@ export function buildDescriptor(state: QueryState): WireTarget {
  */
 function cursorValuesFromSnapshot(
   snapshot: DocumentSnapshot,
-  orders: readonly { field: string }[],
+  filters: readonly WireFilter[],
+  orders: readonly { field: string; direction: OrderDirection }[],
   method: string,
 ): unknown[] {
-  if (orders.length === 0) {
-    throw invalidArgument(
-      `${method}(snapshot) on a remote sandbox requires at least one explicit orderBy() ` +
-        'clause — the relay protocol has no document-key cursor.',
-    );
-  }
   if (orders.some((o) => o.field === '__name__')) {
     throw invalidArgument(
       `${method}(snapshot) on a remote sandbox does not support orderBy('__name__') — ` +
         'the relay protocol has no document-key cursor, and __name__ is not a data ' +
         'field a value cursor can carry. Order by a real document field instead.',
+    );
+  }
+  const effectiveOrders = normalizeQueryOrders(orders, collectInequalityFields(filters)).filter(
+    (o) => o.field !== '__name__',
+  );
+  if (effectiveOrders.length === 0) {
+    throw invalidArgument(
+      `${method}(snapshot) on a remote sandbox requires at least one explicit orderBy() ` +
+        'clause; the relay protocol has no document-key cursor.',
     );
   }
   const data = snapshot.data();
@@ -153,7 +198,81 @@ function cursorValuesFromSnapshot(
         `snapshot for ${snapshot.id ?? '<unknown>'}.`,
     );
   }
-  return orders.map((o) => data[o.field]);
+  return effectiveOrders.map((o) => {
+    const value = getSnapshotField(data, o.field);
+    if (value === undefined) {
+      throw invalidArgument(
+        `Field "${o.field}" is missing in the provided DocumentSnapshot for ${method}().`,
+      );
+    }
+    return value;
+  });
+}
+
+function validateOrderField(field: SnapshotFieldPath): string {
+  try {
+    const segments = fieldPathSegments(field);
+    return typeof field === 'string' ? field : canonicalFieldPath(segments);
+  } catch (error) {
+    throw invalidArgument((error as Error).message);
+  }
+}
+
+function assertValidLimit(n: number): void {
+  const isPositiveInteger = typeof n === 'number' && Number.isInteger(n) && n > 0;
+  if (!isPositiveInteger) {
+    throw invalidArgument('Query limit must be a positive integer.');
+  }
+}
+
+function recomputeSnapshotCursor(
+  cursor: CursorState | undefined,
+  filters: readonly WireFilter[],
+  orders: readonly { field: string; direction: OrderDirection }[],
+  defaultInclusiveMethod: string,
+  defaultExclusiveMethod: string,
+): CursorState | undefined {
+  if (!cursor?.snapshot) return cursor;
+  const fallbackMethod = cursor.inclusive ? defaultInclusiveMethod : defaultExclusiveMethod;
+  const method = cursor.method ?? fallbackMethod;
+  return {
+    values: cursorValuesFromSnapshot(cursor.snapshot, filters, orders, method),
+    inclusive: cursor.inclusive,
+    snapshot: cursor.snapshot,
+    method,
+  };
+}
+
+function normalizeWireAggregateSpec(spec: AggregateSpec): Record<string, unknown> {
+  const wireSpec: Record<string, unknown> = {};
+  for (const [alias, entry] of Object.entries(spec)) {
+    if (entry.kind === 'count') {
+      wireSpec[alias] = { kind: 'count' };
+      continue;
+    }
+    const segments = fieldPathArgumentSegments(entry.field);
+    if (segments !== undefined) {
+      const wireEntry: { kind: 'sum' | 'average'; field: string; path?: readonly string[] } = {
+        kind: entry.kind,
+        field: segments.join('.'),
+      };
+      if (segments.some((segment) => segment.includes('.'))) {
+        wireEntry.path = [...segments];
+      }
+      wireSpec[alias] = wireEntry;
+      continue;
+    }
+    const validatedField = validateOrderField(entry.field);
+    const wireEntry: { kind: 'sum' | 'average'; field: string; path?: readonly string[] } = {
+      kind: entry.kind,
+      field: validatedField,
+    };
+    if (entry.path !== undefined) {
+      wireEntry.path = [...entry.path];
+    }
+    wireSpec[alias] = wireEntry;
+  }
+  return wireSpec;
 }
 
 export function makeQuery(arm: RemoteArm, state: QueryState): Query {
@@ -169,20 +288,36 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
 
     where(field: string, op: WhereFilterOp, value: unknown): Query {
       validateWhereOp(op);
-      return clone({
-        filters: [...state.filters, { kind: 'where', field, op, value: encodeValue(value) }],
-      });
+      const filters: WireFilter[] = [
+        ...state.filters,
+        { kind: 'where', field, op, value: encodeValue(value) },
+      ];
+      const start = recomputeSnapshotCursor(state.start, filters, state.orders, 'startAt', 'startAfter');
+      const end = recomputeSnapshotCursor(state.end, filters, state.orders, 'endAt', 'endBefore');
+      return clone({ filters, start, end });
     },
     applyFilter(filter: Filter): Query {
-      return clone({ filters: [...state.filters, encodeFilter(filter)] });
+      const filters: WireFilter[] = [...state.filters, encodeFilter(filter)];
+      const start = recomputeSnapshotCursor(state.start, filters, state.orders, 'startAt', 'startAfter');
+      const end = recomputeSnapshotCursor(state.end, filters, state.orders, 'endAt', 'endBefore');
+      return clone({ filters, start, end });
     },
     orderBy(field: string, direction: OrderDirection = 'asc'): Query {
-      return clone({ orders: [...state.orders, { field, direction }] });
+      const normalizedField = validateOrderField(field);
+      if (direction !== 'asc' && direction !== 'desc') {
+        throw invalidArgument("orderBy() direction must be 'asc' or 'desc'.");
+      }
+      const orders = [...state.orders, { field: normalizedField, direction }];
+      const start = recomputeSnapshotCursor(state.start, state.filters, orders, 'startAt', 'startAfter');
+      const end = recomputeSnapshotCursor(state.end, state.filters, orders, 'endAt', 'endBefore');
+      return clone({ orders, start, end });
     },
     limit(n: number): Query {
+      assertValidLimit(n);
       return clone({ limitCount: n, limitFromEnd: false });
     },
     limitToLast(n: number): Query {
+      assertValidLimit(n);
       return clone({ limitCount: n, limitFromEnd: true });
     },
     startCursor(values: unknown[], inclusive: boolean): Query {
@@ -192,18 +327,24 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
       return clone({ end: { values: [...values], inclusive } });
     },
     startCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
+      const method = inclusive ? 'startAt' : 'startAfter';
       return clone({
         start: {
-          values: cursorValuesFromSnapshot(snapshot, state.orders, inclusive ? 'startAt' : 'startAfter'),
+          values: cursorValuesFromSnapshot(snapshot, state.filters, state.orders, method),
           inclusive,
+          snapshot,
+          method,
         },
       });
     },
     endCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
+      const method = inclusive ? 'endAt' : 'endBefore';
       return clone({
         end: {
-          values: cursorValuesFromSnapshot(snapshot, state.orders, inclusive ? 'endAt' : 'endBefore'),
+          values: cursorValuesFromSnapshot(snapshot, state.filters, state.orders, method),
           inclusive,
+          snapshot,
+          method,
         },
       });
     },
@@ -219,33 +360,7 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
 
     async aggregate(spec: AggregateSpec): Promise<AggregateQuerySnapshot> {
       validateExecutable(state);
-      const wireSpec: Record<string, { kind: 'count' } | { kind: 'sum' | 'average'; field: string; path?: string[] }> = {};
-      for (const [alias, entry] of Object.entries(spec)) {
-        if (entry.kind === 'count') {
-          wireSpec[alias] = { kind: 'count' };
-          continue;
-        }
-        if (typeof entry.field === 'string') {
-          const normalized: { kind: 'sum' | 'average'; field: string; path?: string[] } = {
-            kind: entry.kind,
-            field: entry.field,
-          };
-          if (entry.path !== undefined) normalized.path = [...entry.path];
-          wireSpec[alias] = normalized;
-          continue;
-        }
-        const segments = fieldPathArgumentSegments(entry.field) ?? [];
-        const normalized: { kind: 'sum' | 'average'; field: string; path?: string[] } = {
-          kind: entry.kind,
-          field: segments.join('.'),
-        };
-        if (entry.path !== undefined) {
-          normalized.path = [...entry.path];
-        } else if (segments.some((s) => s.includes('.'))) {
-          normalized.path = segments;
-        }
-        wireSpec[alias] = normalized;
-      }
+      const wireSpec = normalizeWireAggregateSpec(spec);
       const wire = (await armOp(arm, {
         method: 'aggregate',
         source: buildDescriptor(state),

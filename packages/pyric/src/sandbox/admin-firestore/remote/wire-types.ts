@@ -30,10 +30,10 @@ export type WireConstraint =
   | { kind: 'orderBy'; field: string; direction?: 'asc' | 'desc' }
   | { kind: 'limit'; n: number }
   | { kind: 'limitToLast'; n: number }
-  | { kind: 'startAt'; values: unknown[] }
-  | { kind: 'startAfter'; values: unknown[] }
-  | { kind: 'endAt'; values: unknown[] }
-  | { kind: 'endBefore'; values: unknown[] };
+  | { kind: 'startAt'; values: unknown[]; fromSnapshot?: boolean }
+  | { kind: 'startAfter'; values: unknown[]; fromSnapshot?: boolean }
+  | { kind: 'endAt'; values: unknown[]; fromSnapshot?: boolean }
+  | { kind: 'endBefore'; values: unknown[]; fromSnapshot?: boolean };
 
 /** Mirrors the protocol's `WriteDescriptor`. */
 export type WireWrite =

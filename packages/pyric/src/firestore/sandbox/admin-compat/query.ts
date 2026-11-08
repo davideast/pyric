@@ -27,7 +27,11 @@ import {
 // rule-enforced read paths so the query-proof gate ("rules are not
 // filters") can discharge per-doc rule predicates from the query's
 // equality constraints.
-import type { QueryConstraintPlan } from '../snapshot-listeners.js';
+import {
+  computeDocumentChanges,
+  createDocChanges,
+  type QueryConstraintPlan,
+} from '../snapshot-listeners.js';
 import {
   normalizedQueryOrders,
   type QueryExecutionSpec,
@@ -535,11 +539,19 @@ export class QueryImpl implements Query {
         get: (fieldPath) => getSnapshotField(translated, fieldPath),
       };
     });
+    const changes = computeDocumentChanges(
+      undefined,
+      rows,
+      docs,
+      () => false,
+      () => docs[0]!,
+    );
     return {
       size: docs.length,
       empty: docs.length === 0,
       docs,
       forEach: forEachDocument(docs),
+      docChanges: createDocChanges(changes, false),
     };
   }
 
