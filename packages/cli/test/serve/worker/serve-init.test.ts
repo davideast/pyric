@@ -929,6 +929,9 @@ service firebase.storage {
 
     const fixture = buildVerifyFixture({ sandbox: source.sandbox, storageRules, capturedBy: 'inst-A' });
     expect(fixture.storageDeniedWrites).toBeDefined();
+    const [deniedEntry] = Object.values(fixture.storageDeniedWrites ?? {});
+    expect(deniedEntry?.redacted).toBe(true);
+    expect(deniedEntry?.redactedFields).toEqual(['request.resource.metadata']);
 
     const restored = { ...(await makeCtx()), instanceId: 'inst-A' };
     await hydrateEventHistory(restored, { fetch: captureFetch(JSON.stringify(fixture)) });

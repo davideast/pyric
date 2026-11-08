@@ -1,5 +1,8 @@
 /** Diagnostic previews are bounded and omit credential fields at every depth. */
 const secretField = /password|credential|secret|token|authorization|cookie|api[-_]?key/i;
+export function isSecretObservationKey(key: string): boolean {
+  return secretField.test(key);
+}
 export function observationText(text: string): string {
   return text
     .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [redacted]')
@@ -9,7 +12,7 @@ export function observationText(text: string): string {
 export function observationPayload(value: unknown, limit = 16384): { text: string; truncated: boolean } | undefined {
   try {
     const text = JSON.stringify(value, (key, item) => {
-      if (secretField.test(key)) return '[redacted]';
+      if (isSecretObservationKey(key)) return '[redacted]';
       return typeof item === 'string' ? observationText(item) : item;
     }, 2);
     if (text === undefined) return;

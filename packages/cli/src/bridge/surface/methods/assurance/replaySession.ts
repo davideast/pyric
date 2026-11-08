@@ -152,6 +152,8 @@ export default {
     const verdictCount = verdicts.length + redecided.length;
     const divergences = [...verdicts, ...redecided, ...state];
     const skippedInstances = replayed.services[service]?.skippedInstances ?? [];
+    const unevaluatedEvents = replayed.services[service]?.unevaluatedEvents ?? [];
+    const notes = replayed.services[service]?.notes ?? [];
     const found =
       divergences.length === 0
         ? `Replaying '${named}' under the candidate rules changed no recorded verdict.`
@@ -162,7 +164,8 @@ export default {
       skippedInstances.length === 0
         ? ''
         : ` Not checked: the session also used database instance(s) ${skippedInstances.join(', ')}; run \`pyric verify --rules rtdb:<instance>=<path>\` to check them.`;
-    const summary = found + skipped;
+    const unevaluated = notes.length === 0 ? '' : ` ${notes.join(' ')}`;
+    const summary = found + skipped + unevaluated;
     // The read succeeded whatever it found, so a replay that reports what
     // breaks is not an error. What broke is in the data, and a caller that
     // asks what breaks is asking for exactly that.
@@ -175,6 +178,8 @@ export default {
         checkedEvents: replayed.services[service]?.checkedEvents ?? 0,
         divergences,
         ...(skippedInstances.length > 0 ? { skippedInstances } : {}),
+        ...(unevaluatedEvents.length > 0 ? { unevaluatedEvents } : {}),
+        ...(notes.length > 0 ? { notes } : {}),
       },
     };
   },

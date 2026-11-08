@@ -719,3 +719,158 @@ function resolveFunctions(
   }
   for (const child of block.children) resolveFunctions(child, map, captures);
 }
+
+function projectedPropertyOf(expr: Expr): { target: Expr; prop: string } | undefined {
+  if (expr.kind === 'member') return { target: expr.target, prop: expr.name };
+  if (expr.kind === 'index' && expr.index.kind === 'literal' && typeof expr.index.value === 'string') {
+    return { target: expr.target, prop: expr.index.value };
+  }
+  return undefined;
+}
+
+function isRequestResourceProjection(expr: Expr): boolean {
+  const proj = projectedPropertyOf(expr);
+  return proj !== undefined && proj.prop === 'resource' && proj.target.kind === 'ident' && proj.target.name === 'request';
+}
+
+function isNullCheckOnResource(expr: Expr): boolean {
+  if (expr.kind !== 'binary' || (expr.op !== '==' && expr.op !== '!=')) return false;
+  const isResourceRef = (node: Expr): boolean =>
+    (node.kind === 'ident' && node.name === 'resource') || isRequestResourceProjection(node);
+  return (
+    (isResourceRef(expr.left) && expr.right.kind === 'literal' && expr.right.value === null) ||
+    (isResourceRef(expr.right) && expr.left.kind === 'literal' && expr.left.value === null)
+  );
+}
+
+function exprMayReadRedactedProps(
+  expr: Expr,
+  requestResourceProps: ReadonlySet<string>,
+  resourceProps: ReadonlySet<string>,
+): boolean {
+  if (isNullCheckOnResource(expr)) return false;
+  const proj = projectedPropertyOf(expr);
+  if (proj !== undefined) {
+    if (isRequestResourceProjection(proj.target)) {
+      return requestResourceProps.has(proj.prop);
+    }
+    if (proj.target.kind === 'ident' && proj.target.name === 'request') {
+      return proj.prop === 'resource' ? requestResourceProps.size > 0 : false;
+    }
+    if (proj.target.kind === 'ident' && proj.target.name === 'resource') {
+      return resourceProps.has(proj.prop);
+    }
+  }
+  switch (expr.kind) {
+    case 'literal':
+      return false;
+    case 'ident':
+      if (expr.name === 'request') return requestResourceProps.size > 0;
+      if (expr.name === 'resource') return resourceProps.size > 0;
+      return false;
+    case 'member':
+      return exprMayReadRedactedProps(expr.target, requestResourceProps, resourceProps);
+    case 'index':
+      return (
+        exprMayReadRedactedProps(expr.target, requestResourceProps, resourceProps) ||
+        exprMayReadRedactedProps(expr.index, requestResourceProps, resourceProps)
+      );
+    case 'slice':
+      return (
+        exprMayReadRedactedProps(expr.target, requestResourceProps, resourceProps) ||
+        exprMayReadRedactedProps(expr.start, requestResourceProps, resourceProps) ||
+        exprMayReadRedactedProps(expr.end, requestResourceProps, resourceProps)
+      );
+    case 'unary':
+      return exprMayReadRedactedProps(expr.arg, requestResourceProps, resourceProps);
+    case 'ternary':
+      return (
+        exprMayReadRedactedProps(expr.cond, requestResourceProps, resourceProps) ||
+        exprMayReadRedactedProps(expr.then, requestResourceProps, resourceProps) ||
+        exprMayReadRedactedProps(expr.else, requestResourceProps, resourceProps)
+      );
+    case 'in':
+      return (
+        exprMayReadRedactedProps(expr.element, requestResourceProps, resourceProps) ||
+        exprMayReadRedactedProps(expr.collection, requestResourceProps, resourceProps)
+      );
+    case 'is':
+      return exprMayReadRedactedProps(expr.value, requestResourceProps, resourceProps);
+    case 'list':
+      return expr.elements.some((el) => exprMayReadRedactedProps(el, requestResourceProps, resourceProps));
+    case 'map':
+      return expr.entries.some(
+        (entry) =>
+          exprMayReadRedactedProps(entry.key, requestResourceProps, resourceProps) ||
+          exprMayReadRedactedProps(entry.value, requestResourceProps, resourceProps),
+      );
+    case 'binary':
+      return (
+        exprMayReadRedactedProps(expr.left, requestResourceProps, resourceProps) ||
+        exprMayReadRedactedProps(expr.right, requestResourceProps, resourceProps)
+      );
+    case 'call':
+      return expr.args.some((arg) => exprMayReadRedactedProps(arg, requestResourceProps, resourceProps));
+    case 'methodcall':
+      return (
+        exprMayReadRedactedProps(expr.target, requestResourceProps, resourceProps) ||
+        expr.args.some((arg) => exprMayReadRedactedProps(arg, requestResourceProps, resourceProps))
+      );
+    case 'path':
+      return expr.segments.some(
+        (seg) =>
+          seg.kind === 'interp' &&
+          exprMayReadRedactedProps(seg.expr, requestResourceProps, resourceProps),
+      );
+  }
+}
+
+function functionMayReadRedactedProps(
+  fn: FunctionDef,
+  requestResourceProps: ReadonlySet<string>,
+  resourceProps: ReadonlySet<string>,
+): boolean {
+  for (const binding of fn.lets) {
+    if (exprMayReadRedactedProps(binding.value, requestResourceProps, resourceProps)) return true;
+  }
+  return exprMayReadRedactedProps(fn.body, requestResourceProps, resourceProps);
+}
+
+function matchBlockMayReadRedactedProps(
+  block: MatchBlock,
+  requestResourceProps: ReadonlySet<string>,
+  resourceProps: ReadonlySet<string>,
+): boolean {
+  for (const allow of block.allows) {
+    if (
+      allow.condition !== null &&
+      exprMayReadRedactedProps(allow.condition, requestResourceProps, resourceProps)
+    ) {
+      return true;
+    }
+  }
+  for (const fn of block.functions) {
+    if (functionMayReadRedactedProps(fn, requestResourceProps, resourceProps)) return true;
+  }
+  return block.children.some((child) =>
+    matchBlockMayReadRedactedProps(child, requestResourceProps, resourceProps),
+  );
+}
+
+/**
+ * Conservative check whether any rule or helper function in `rules` may read
+ * any of the redacted properties on `request.resource` or `resource` (including
+ * indirect access through `let` bindings, function arguments, map methods, or
+ * dynamic bracket keys).
+ */
+export function storageRulesMayReadRedactedProps(
+  rules: StorageRules,
+  requestResourceProps: ReadonlySet<string>,
+  resourceProps: ReadonlySet<string>,
+): boolean {
+  if (requestResourceProps.size === 0 && resourceProps.size === 0) return false;
+  for (const fn of rules._root.visibleFuncs?.values() ?? []) {
+    if (functionMayReadRedactedProps(fn, requestResourceProps, resourceProps)) return true;
+  }
+  return matchBlockMayReadRedactedProps(rules._root, requestResourceProps, resourceProps);
+}
