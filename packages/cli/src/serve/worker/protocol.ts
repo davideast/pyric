@@ -38,7 +38,8 @@ import type {
   ObservedCall,
 } from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
-import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
+import { redactDiagnosticEmails, type NodeUnobservedLists } from 'pyric/sandbox/internal';
+import { stripWireTokenClaims } from '../repro/token-claims.js';
 import type {
   BrokerMessage,
   ClientVisibilityState,
@@ -654,6 +655,12 @@ export interface SerializedError {
   message: string;
   /** Structured rules denial frame; `engine` tells an RTDB frame from a Firestore one. */
   denialContext?: AnyDenialContext;
+  remediation?: string;
+  queryProof?: unknown;
+  rule?: unknown;
+  request?: unknown;
+  resource?: unknown;
+  query?: unknown;
   aiEnvelope?: AiErrorEnvelopeWire;
   envelope?: FcmErrorEnvelope;
 }
@@ -663,6 +670,119 @@ export function serializeError(err: unknown): SerializedError {
   const evidence = err && typeof err === 'object' ? getAiEvidence(err) : undefined;
   return evidence ? { ...base, aiEvidence: evidence } : base;
 }
+const FIXTURE_CASE_PREFIX = '  Fixture case: ';
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function scrubDiagnosticValue(value: unknown): unknown {
+  if (typeof value === 'string') return redactDiagnosticEmails(value);
+  if (Array.isArray(value)) return value.map((item) => scrubDiagnosticValue(item));
+  if (isPlainRecord(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      out[key] = scrubDiagnosticValue(entry);
+    }
+    return out;
+  }
+  return value;
+}
+
+function scrubWireAuth(
+  auth: unknown,
+  options?: { promoteTenant?: boolean },
+): unknown {
+  if (auth === null || auth === undefined) return auth;
+  if (!isPlainRecord(auth)) return scrubDiagnosticValue(auth);
+  const rawToken = isPlainRecord(auth.token) ? auth.token : undefined;
+  const rawFirebase = rawToken && isPlainRecord(rawToken.firebase) ? rawToken.firebase : undefined;
+  const promotedTenant =
+    options?.promoteTenant !== false &&
+    auth.tenant === undefined &&
+    typeof rawFirebase?.tenant === 'string'
+      ? redactDiagnosticEmails(rawFirebase.tenant)
+      : undefined;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(auth)) {
+    if (key === 'tenant' && entry === undefined) continue;
+    if (key === 'token') {
+      if (promotedTenant !== undefined) {
+        out.tenant = promotedTenant;
+      }
+      if (rawToken !== undefined) {
+        const wireToken = stripWireTokenClaims(rawToken);
+        if (wireToken !== undefined) {
+          out.token = scrubDiagnosticValue(wireToken);
+        }
+      }
+      continue;
+    }
+    out[key] = scrubDiagnosticValue(entry);
+  }
+  return out;
+}
+
+function scrubWireRequest(request: unknown): unknown {
+  if (!isPlainRecord(request)) return scrubDiagnosticValue(request);
+  const { auth: _auth, ...rest } = request;
+  return scrubDiagnosticValue(rest);
+}
+
+function scrubWireRepro(repro: unknown): unknown {
+  if (!isPlainRecord(repro)) return scrubDiagnosticValue(repro);
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(repro)) {
+    if (key === 'testCase' && isPlainRecord(entry)) {
+      const scrubbedCase = scrubDiagnosticValue(entry) as Record<string, unknown>;
+      if ('auth' in entry) {
+        scrubbedCase.auth = scrubWireAuth(entry.auth, { promoteTenant: false });
+      }
+      out.testCase = scrubbedCase;
+      continue;
+    }
+    out[key] = scrubDiagnosticValue(entry);
+  }
+  return out;
+}
+
+function scrubWireDenialContext(denialContext: Record<string, unknown>): AnyDenialContext {
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(denialContext)) {
+    if (key === 'auth') {
+      out.auth = scrubWireAuth(entry);
+    } else if (key === 'request') {
+      out.request = scrubWireRequest(entry);
+    } else if (key === 'repro') {
+      out.repro = scrubWireRepro(entry);
+    } else {
+      out[key] = scrubDiagnosticValue(entry);
+    }
+  }
+  return out as unknown as AnyDenialContext;
+}
+
+function scrubWireRemediation(remediation: string): string {
+  const lines = remediation.split('\n').map((line) => {
+    if (!line.startsWith(FIXTURE_CASE_PREFIX)) return line;
+    try {
+      const parsed = JSON.parse(line.slice(FIXTURE_CASE_PREFIX.length)) as unknown;
+      if (!isPlainRecord(parsed)) return line;
+      const scrubbed = scrubDiagnosticValue(parsed) as Record<string, unknown>;
+      if ('auth' in parsed) {
+        scrubbed.auth = scrubWireAuth(parsed.auth, { promoteTenant: false });
+      }
+      return `${FIXTURE_CASE_PREFIX}${JSON.stringify(scrubbed)}`;
+    } catch {
+      return line;
+    }
+  });
+  return redactDiagnosticEmails(lines.join('\n'));
+}
+
 function serializeErrorValue(err: unknown): SerializedError {
   if (err !== null && typeof err === 'object') {
     const envelope = (err as { envelope?: AiErrorEnvelopeWire }).envelope;
@@ -679,19 +799,45 @@ function serializeErrorValue(err: unknown): SerializedError {
         aiEnvelope: envelope,
       };
     }
-    const e = err as { code?: unknown; message?: unknown; denialContext?: unknown };
+    const e = err as {
+      code?: unknown;
+      message?: unknown;
+      denialContext?: unknown;
+      remediation?: unknown;
+      queryProof?: unknown;
+      rule?: unknown;
+      request?: unknown;
+      resource?: unknown;
+      query?: unknown;
+    };
     // A denied RTDB transaction and an unindexed RTDB query reject with a
     // codeless Error, as production does; the page rebuilds it without a
     // `code`. A denial still carries the sandbox's denial context.
-    const denial = e.denialContext !== null && typeof e.denialContext === 'object'
-      ? { denialContext: e.denialContext as AnyDenialContext }
+    const hasDenialDiagnostics =
+      isPlainRecord(e.denialContext) ||
+      typeof e.remediation === 'string' ||
+      e.queryProof !== undefined ||
+      e.rule !== undefined ||
+      e.request !== undefined;
+    const scrubMessage = (msg: string): string =>
+      hasDenialDiagnostics ? scrubWireRemediation(msg) : msg;
+    const denial = isPlainRecord(e.denialContext)
+      ? { denialContext: scrubWireDenialContext(e.denialContext) }
       : {};
+    const extras = {
+      ...(typeof e.remediation === 'string' ? { remediation: scrubWireRemediation(e.remediation) } : {}),
+      ...(e.queryProof !== undefined ? { queryProof: scrubDiagnosticValue(e.queryProof) } : {}),
+      ...(e.rule !== undefined ? { rule: scrubDiagnosticValue(e.rule) } : {}),
+      ...(e.request !== undefined ? { request: scrubWireRequest(e.request) } : {}),
+      ...(e.resource !== undefined ? { resource: scrubDiagnosticValue(e.resource) } : {}),
+      ...(e.query !== undefined ? { query: scrubDiagnosticValue(e.query) } : {}),
+    };
     if (typeof e.code === 'string' && typeof e.message === 'string') {
-      return { code: e.code, message: e.message, ...denial };
+      return { code: e.code, message: scrubMessage(e.message), ...denial, ...extras };
     }
     if (err instanceof Error) {
       const codeless = e.code === undefined ? { codeless: true as const } : {};
-      return { code: 'unknown', ...codeless, message: err.message, ...denial };
+      return { code: 'unknown', ...codeless, message: scrubMessage(err.message), ...denial, ...extras };
     }
   }
   return { code: 'unknown', message: String(err) };

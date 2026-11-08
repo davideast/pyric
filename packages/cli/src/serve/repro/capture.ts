@@ -16,11 +16,7 @@ import { portSession } from '../worker/host-auth.js';
 import { rtdbInstances } from '../worker/host/rtdb-instances.js';
 import { REPRO_SCHEMA, redactSecrets, type ReproBase, type ReproDatabaseRules, type ReproEntry, type ReproFile, type ReproPortSession } from './format.js';
 import type { ReproLog } from './recorder.js';
-
-const STANDARD_TOKEN_CLAIMS = new Set([
-  'firebase', 'uid', 'user_id', 'sub', 'iss', 'aud', 'iat', 'exp',
-  'auth_time', 'email', 'email_verified', 'phone_number', 'name', 'picture', 'nonce',
-]);
+import { stripStandardTokenClaims } from './token-claims.js';
 
 /** The ruleset an instance or service enforces: the active one, or the last good one when a deploy was refused. */
 function enforced(rules: { status: 'active' | 'error'; source: unknown; lastKnownGood?: unknown } | undefined): unknown {
@@ -56,17 +52,12 @@ export async function captureReproBase(
       const token = session.state.token as Record<string, unknown> | undefined;
       const firebaseClaim = token?.firebase as { sign_in_provider?: unknown } | undefined;
       const signInProvider = typeof firebaseClaim?.sign_in_provider === 'string' ? firebaseClaim.sign_in_provider : undefined;
-      const customClaims: Record<string, unknown> = {};
-      if (token) {
-        for (const [claim, val] of Object.entries(token)) {
-          if (!STANDARD_TOKEN_CLAIMS.has(claim)) customClaims[claim] = val;
-        }
-      }
+      const customClaims = stripStandardTokenClaims(token);
       sessions[id] = {
         uid: session.user.uid,
         tenantId: session.state.tenant ?? null,
         ...(signInProvider !== undefined ? { signInProvider } : {}),
-        ...(Object.keys(customClaims).length > 0 ? { customClaims } : {}),
+        ...(customClaims !== undefined ? { customClaims } : {}),
       };
     }
   }

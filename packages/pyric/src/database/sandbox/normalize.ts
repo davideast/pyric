@@ -51,6 +51,8 @@ export { errorPrefix, validateWrite } from '../../rules/rtdb/data/write-validati
 /** The start of the SDK's error for a refused transaction result. */
 export const TRANSACTION_ERROR_PREFIX = 'transaction failed: Data returned ';
 
+const PRIORITY_RULE = 'must be a valid Firebase priority (a string, finite number, server value, or null).';
+
 /** Whether the SDK accepts `value` as a priority: null, a string, a finite
  *  number, or a server value (`isValidPriority`). */
 function isValidPriority(value: unknown): boolean {
@@ -59,15 +61,25 @@ function isValidPriority(value: unknown): boolean {
   return typeof value === 'object' && Object.hasOwn(value, '.sv');
 }
 
+export function validatePriorityArg(fnName: string, priority: unknown): void {
+  const prefix = errorPrefix(fnName, 'priority');
+  if (isInvalidJSONNumber(priority)) {
+    throw new Error(`${prefix}is ${String(priority)}, but ${PRIORITY_RULE}`);
+  }
+  if (!isValidPriority(priority)) {
+    throw new Error(`${prefix}${PRIORITY_RULE}`);
+  }
+}
+
 /**
  * Validate `update()` values as the SDK does before sending them
  * (`validateFirebaseMergeDataArg`): an object, each value valid at its path,
  * a valid priority under each key ending in `.priority`, then valid and
  * non-overlapping keys. Returns the values.
  */
-export function validateUpdate(values: unknown, path: string): Record<string, unknown> {
-  const prefix = errorPrefix('update', 'values');
-  if (values === null || typeof values !== 'object') {
+export function validateUpdate(values: unknown, path: string, fnName = 'update'): Record<string, unknown> {
+  const prefix = errorPrefix(fnName, 'values');
+  if (values === null || typeof values !== 'object' || Array.isArray(values)) {
     throw new Error(`${prefix} must be an object containing the children to replace.`);
   }
   const patch = values as Record<string, unknown>;
@@ -77,12 +89,11 @@ export function validateUpdate(values: unknown, path: string): Record<string, un
     const isPriorityKey = keySegments[keySegments.length - 1] === '.priority';
     if (isPriorityKey && !isValidPriority(value)) {
       throw new Error(
-        `${prefix}contains an invalid value for '/${keySegments.join('/')}', which must be a valid ` +
-          'Firebase priority (a string, finite number, server value, or null).',
+        `${prefix}contains an invalid value for '/${keySegments.join('/')}', which ${PRIORITY_RULE}`,
       );
     }
   }
-  validateUpdatePaths(patch);
+  validateUpdatePaths(patch, pathSegments, fnName);
   return patch;
 }
 

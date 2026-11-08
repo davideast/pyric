@@ -160,6 +160,13 @@ export function validateRtdbValue(fnName: string, value: unknown, path: string, 
   checkData(value, startPath(argumentPrefix(fnName, 'value'), pathSegments(path)));
 }
 
+const TRANSACTION_ERROR_PREFIX = 'transaction failed: Data returned ';
+
+/** `validateFirebaseData` for the return value of `runTransaction`'s update callback. */
+export function validateRtdbTransactionValue(value: unknown, path: string): void {
+  checkData(value, startPath(TRANSACTION_ERROR_PREFIX, pathSegments(path)));
+}
+
 /** `validatePriority`: a string, finite number, server value or null. */
 export function validateRtdbPriority(fnName: string, priority: unknown): void {
   const prefix = argumentPrefix(fnName, 'priority');

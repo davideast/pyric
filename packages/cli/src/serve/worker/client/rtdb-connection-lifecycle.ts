@@ -1,5 +1,5 @@
 /** Per-port RTDB disconnect registration and explicit connection lifecycle. */
-import { validateWritablePath } from 'pyric/database/internal';
+import { validateUpdatePaths, validateWritablePath } from 'pyric/database/internal';
 import { nextId } from './core.js';
 import type { ClientPort, ClientRtdb, ClientRtdbInstance, RtdbRefHandle } from './handles.js';
 import { rtdbRpc } from './rtdb-references.js';
@@ -104,6 +104,7 @@ export class RtdbOnDisconnect {
   update(values: Record<string, unknown>): Promise<void> {
     validateWritablePath('OnDisconnect.update', this._path);
     validateRtdbUpdateValues('OnDisconnect.update', values, this._path);
+    validateUpdatePaths(values, undefined, 'OnDisconnect.update');
     return rtdbRpc(this._repo, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectUpdate', path: this._path, values,
     }).then(() => undefined);

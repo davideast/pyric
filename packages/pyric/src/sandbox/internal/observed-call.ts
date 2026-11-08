@@ -81,6 +81,20 @@ export function redactEmails(text: string): string {
   return text.replace(EMAIL_ANYWHERE, '[email]');
 }
 
+/**
+ * Bounded email pattern for structured rule-denial diagnostics and remediation
+ * text: requires an alphanumeric local-part start and an alphabetic TLD of two
+ * or more letters while preserving surrounding punctuation, JSON escapes, regex
+ * wildcards (`.matches('.*@example.com')`), version strings (`pkg@1.2.3`), and
+ * stack frames (`render@app.bundle.js:10:2`).
+ */
+export const DIAGNOSTIC_EMAIL_RE =
+  /(?<![A-Za-z0-9._%*+-])[A-Za-z0-9][A-Za-z0-9._%+-]*@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?![A-Za-z0-9_-]|\.[A-Za-z0-9]|:\d)/g;
+
+export function redactDiagnosticEmails(text: string): string {
+  return text.replace(DIAGNOSTIC_EMAIL_RE, '[email]');
+}
+
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
 /** The services the Admin SDK rows observe. AI Logic and Messaging calls come only from a client SDK. */
 const ADMIN_SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'rtdb', 'storage', 'auth', 'messaging']);

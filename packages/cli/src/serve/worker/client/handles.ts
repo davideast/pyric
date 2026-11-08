@@ -8,6 +8,7 @@ import type {
   DocRef,
   CollRef,
   QueryDescriptor,
+  RtdbQuerySpec,
   InboundMessage,
   OutboundMessage,
   OpMessage,
@@ -80,10 +81,12 @@ export interface RtdbRefHandle {
   readonly path: string;
   /** Firebase-mirror internal path consumed by the pure query builder. */
   readonly _path: string;
+  readonly _spec: RtdbQuerySpec;
+  readonly ref: RtdbRefHandle;
   readonly key: string | null;
   readonly parent: RtdbRefHandle | null;
   readonly root: RtdbRefHandle;
-  isEqual(other: RtdbRefHandle | null): boolean;
+  isEqual(other: RtdbRefHandle | { readonly ref: RtdbRefHandle; readonly _spec: RtdbQuerySpec } | null): boolean;
   toJSON(): string;
   toString(): string;
 }
