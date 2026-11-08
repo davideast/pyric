@@ -25,6 +25,62 @@ describe('runSeedFromLive', () => {
     expect(stderrFalse).toContain('--confirm');
   });
 
+  it('rejects --mode in any form and names --replace, before looking for a host', async () => {
+    for (const args of [['--mode', 'replace'], ['--mode=merge'], ['--mode', 'bogus']]) {
+      let stderr = '';
+      let discovered = false;
+      const code = await runSeedFromLive(parseArgs(['sandbox', 'seed-from-live', '--confirm', ...args]), {
+        discover: async () => { discovered = true; return null; },
+        stderr: { write: (s) => { stderr += s; } },
+        stdout: { write: () => {} },
+      });
+      expect(code).toBe(1);
+      expect(stderr).toContain('--replace');
+      expect(discovered).toBe(false);
+    }
+  });
+
+  it('rejects a non-boolean --replace value', async () => {
+    let stderr = '';
+    const code = await runSeedFromLive(parseArgs(['sandbox', 'seed-from-live', '--confirm', '--replace', 'merge']), {
+      discover: async () => null,
+      stderr: { write: (s) => { stderr += s; } },
+      stdout: { write: () => {} },
+    });
+    expect(code).toBe(1);
+    expect(stderr).toContain('--replace');
+  });
+
+  it('merges by default and replaces only with --replace', async () => {
+    const host = {
+      url: 'http://localhost:4111',
+      base: 'http://127.0.0.1:4111',
+      mcpUrl: 'http://127.0.0.1:4111/__pyric/mcp',
+      instanceId: 'inst-1',
+      source: 'pointer',
+    };
+    const postedModes: unknown[] = [];
+    const fetchMock = (async (_url: URL | string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { mode: unknown };
+      postedModes.push(body.mode);
+      return new Response(
+        JSON.stringify({ ok: true, mode: body.mode, seededFirestoreDocs: 0, seededRtdbInstances: [] }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    for (const args of [[], ['--replace'], ['--replace', 'false']]) {
+      const code = await runSeedFromLive(parseArgs(['sandbox', 'seed-from-live', '--confirm', ...args, '--json']), {
+        cwd: tmpdir(),
+        discover: async () => host,
+        fetchImpl: fetchMock,
+        stderr: { write: () => {} },
+        stdout: { write: () => {} },
+      });
+      expect(code).toBe(0);
+    }
+    expect(postedModes).toEqual(['merge', 'replace', 'merge']);
+  });
+
   it('exports portable seed JSON via --out, refuses overwriting without --force, and posts confirmed seed requests', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-seed-cli-'));
     try {
@@ -111,10 +167,10 @@ describe('runSeedFromLive', () => {
       expect(code2).toBe(2);
       expect(stderr).toContain('--force');
 
-      // Confirmed CLI invocation posts confirm:true + mode:replace to /__pyric/live/seed-sandbox.
+      // Confirmed CLI invocation with --replace posts confirm:true + mode:replace to /__pyric/live/seed-sandbox.
       let seedOut = '';
       const code3 = await runSeedFromLive(
-        parseArgs(['sandbox', 'seed-from-live', '--confirm', '--mode', 'replace', '--json']),
+        parseArgs(['sandbox', 'seed-from-live', '--confirm', '--replace', '--json']),
         {
           cwd: dir,
           discover: async () => discoveredHost,

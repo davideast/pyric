@@ -88,7 +88,7 @@ USAGE
   pyric run [--sandbox URL] [--wait[=SECONDS]] -- <command...>
   pyric init [dir] [--template=web|node]
   pyric sandbox salvage --source=DIR --out=NEW_DIR
-  pyric sandbox seed-from-live --confirm [--mode=merge|replace] | --out=FILE
+  pyric sandbox seed-from-live --confirm [--replace] | --out=FILE
   pyric snapshot [--out=DIR]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|staging|both]
   pyric can-i-use <feature> [--json]
