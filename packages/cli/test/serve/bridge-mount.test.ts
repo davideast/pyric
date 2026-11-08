@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { WebSocket } from 'ws';
@@ -10,6 +10,7 @@ import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { createBridgeMount } from '../../src/serve/bridge-mount.js';
 import { silentServeLogger } from '../../src/serve/server.js';
 import { BRIDGE_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
+import { closedPort } from '../closed-port.js';
 
 function fixtureProject(): string {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-bridge-'));
@@ -258,15 +259,60 @@ describe('hosted bridge lifecycle', () => {
     };
   }
 
+  /** A loopback server that answers `/__pyric/health` as the sandbox `instanceId`. */
+  async function answeringHost(instanceId: string): Promise<{ port: number; close: () => Promise<void> }> {
+    const server = createServer((_req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ mode: 'sandbox', instanceId }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address !== null ? address.port : 0;
+    return { port, close: () => new Promise((resolve) => server.close(() => resolve())) };
+  }
+
+  /** Waits for the mount's verdict on a held pointer, which follows a health probe. */
+  async function settled(warnings: string[]): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (warnings.length === 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
   it('leaves a running host\'s pointer in place, warns, and keeps it after closing', async () => {
-    const live = { url: 'http://localhost:3473', port: 3473, pid: process.ppid, instanceId: 'running-host' };
+    const host = await answeringHost('running-host');
+    const live = { url: `http://localhost:${host.port}`, port: host.port, pid: process.ppid, instanceId: 'running-host' };
     const { pointer, warnings, close, cleanup } = attachOver(live);
+    await settled(warnings);
     expect(JSON.parse(readFileSync(pointer, 'utf8'))).toEqual(live);
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('http://localhost:3473');
+    expect(warnings[0]).toContain(`http://localhost:${host.port}`);
     expect(warnings[0]).toContain('http://localhost:4322');
     await close();
     expect(JSON.parse(readFileSync(pointer, 'utf8'))).toEqual(live);
+    await host.close();
+    cleanup();
+  });
+
+  // An orphaned sandbox can keep running after it stops listening (#1641).
+  it('replaces a running process\'s pointer when nothing answers on its port', async () => {
+    const port = await closedPort();
+    const orphan = { url: `http://localhost:${port}`, port, pid: process.ppid, instanceId: 'orphaned-host' };
+    const { pointer, warnings, close, cleanup } = attachOver(orphan);
+    await settled(warnings);
+    expect(JSON.parse(readFileSync(pointer, 'utf8'))).toMatchObject({ url: 'http://localhost:4322', pid: process.pid });
+    expect(warnings).toHaveLength(1);
+    await close();
+    expect(existsSync(pointer)).toBe(false);
+    cleanup();
+  });
+
+  it('replaces a running process\'s pointer when another sandbox answers on its port', async () => {
+    const host = await answeringHost('a-different-host');
+    const named = { url: `http://localhost:${host.port}`, port: host.port, pid: process.ppid, instanceId: 'running-host' };
+    const { pointer, warnings, close, cleanup } = attachOver(named);
+    await settled(warnings);
+    expect(JSON.parse(readFileSync(pointer, 'utf8'))).toMatchObject({ url: 'http://localhost:4322', pid: process.pid });
+    await close();
+    await host.close();
     cleanup();
   });
 
