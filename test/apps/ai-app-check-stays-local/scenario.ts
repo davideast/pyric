@@ -37,6 +37,8 @@ const PYRIC_WORKER_PATH = '/__pyric/sdk/worker.js';
 const CONTROL_WORKER_PATH = '/control-worker.js';
 /** How long a worker may take to start before the watch gives up on it. */
 const WORKER_START_MS = 10_000;
+/** How long the watch may take to report a request the page already heard back from. */
+const REQUEST_REPORT_MS = 5_000;
 
 interface GateCapture { behavior: { noHeader: { httpStatus: number; messageText: string } } }
 
@@ -79,6 +81,18 @@ interface TargetInfo { type: string; url: string }
 /** A step waiting for the watch to record a worker's requests. */
 interface WorkerWaiter { path: string; resolve: () => void }
 
+/** A step waiting for the watch to report a request to `url`. */
+interface RequestWaiter { url: string; resolve: () => void }
+
+/** Resolves with `promise`, or rejects with `message` after `ms`. */
+function within<T>(promise: Promise<T>, ms: number, message: () => string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const gaveUp = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message())), ms);
+  });
+  return Promise.race([promise, gaveUp]).finally(() => clearTimeout(timer));
+}
+
 /**
  * A CDP client on the browser's debugging port. It auto-attaches to every
  * target and records every request and WebSocket once Network is enabled on
@@ -90,6 +104,12 @@ interface WorkerWaiter { path: string; resolve: () => void }
  * client has enabled Network. A request the worker sends in that window is
  * never reported (#2154). So a step that needs a worker's requests waits for
  * `watching` before it asks the worker to send.
+ *
+ * Its events arrive on its own connection, and Chromium doesn't order them
+ * against the replies Playwright gets on another one. A page can hear that a
+ * worker's request failed before this client hears the request was sent
+ * (#2507). So a step that checks a request the page made waits for
+ * `requested` first.
  */
 class RequestWatch {
   readonly seen: Seen[] = [];
@@ -99,6 +119,7 @@ class RequestWatch {
   private readonly sessionTypes = new Map<string, string>();
   private readonly watchedPaths = new Set<string>();
   private readonly waiters: WorkerWaiter[] = [];
+  private readonly requestWaiters: RequestWaiter[] = [];
 
   private constructor(private readonly socket: WebSocket) {
     socket.addEventListener('message', (event) => this.receive(JSON.parse(String(event.data)) as CdpMessage));
@@ -145,6 +166,7 @@ class RequestWatch {
     if (message.method === 'Network.requestWillBeSent') {
       const request = (message.params as { request: { url: string } }).request;
       this.seen.push({ targetType, kind: 'request', url: request.url });
+      for (const waiter of this.requestWaiters.filter((entry) => entry.url === request.url)) waiter.resolve();
     }
     if (message.method === 'Network.webSocketCreated') {
       this.seen.push({ targetType, kind: 'websocket', url: (message.params as { url: string }).url });
@@ -158,11 +180,14 @@ class RequestWatch {
   watching(path: string): Promise<void> {
     if (this.watchedPaths.has(path)) return Promise.resolve();
     const recorded = new Promise<void>((resolve) => this.waiters.push({ path, resolve }));
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const gaveUp = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`no SharedWorker at ${path} started within ${WORKER_START_MS / 1000}s; targets: ${[...this.targetTypes].join(', ')}`)), WORKER_START_MS);
-    });
-    return Promise.race([recorded, gaveUp]).finally(() => clearTimeout(timer));
+    return within(recorded, WORKER_START_MS, () => `no SharedWorker at ${path} started within ${WORKER_START_MS / 1000}s; targets: ${[...this.targetTypes].join(', ')}`);
+  }
+
+  /** Resolves once the watch has recorded a request to `url`. */
+  requested(url: string): Promise<void> {
+    if (this.seen.some((entry) => entry.kind === 'request' && entry.url === url)) return Promise.resolve();
+    const recorded = new Promise<void>((resolve) => this.requestWaiters.push({ url, resolve }));
+    return within(recorded, REQUEST_REPORT_MS, () => `the watch saw no request to ${url} within ${REQUEST_REPORT_MS / 1000}s; seen:\n${JSON.stringify(this.seen, null, 2)}`);
   }
 
   private markWatched(targetInfo: TargetInfo): void {
@@ -238,6 +263,7 @@ export default scenario(async (app) => {
       await page.evaluate(() => openEgressControl());
       await watch.watching(CONTROL_WORKER_PATH);
       const outcome = await page.evaluate((url) => runEgressControl(url), CONTROL_URL);
+      await watch.requested(CONTROL_URL);
       assert.equal(outcome, 'failed');
       assert.deepEqual(watch.offMachine(), [{ targetType: 'shared_worker', kind: 'request', url: CONTROL_URL }]);
     });
