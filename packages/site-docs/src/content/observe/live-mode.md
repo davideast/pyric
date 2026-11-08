@@ -49,7 +49,16 @@ npx pyric-live
 
 ## Check which project it's on
 
-The project comes from your project settings: `--project` (or the plugin's `project` option), `PYRIC_PROJECT`, `pyric.json`, `firebase use` or `.firebaserc`. Pyric holds no production credential. Your app's own Firebase config decides where its calls go.
+The project is the first of these that is set:
+
+1. `--project`, or the plugin's `project` option.
+2. The `PYRIC_PROJECT` environment variable.
+3. The project `firebase use` made active for your Firebase project folder or a folder above it.
+4. The only `.firebaserc` alias, else `.firebaserc` `projects.default`.
+
+A value that names a `.firebaserc` alias resolves to that alias's project id. Live mode doesn't read the `project` in `pyric.json`. When none of these is set, live mode doesn't start and says how to set one.
+
+Pyric holds no production credential. Your app's own Firebase config decides where its calls go.
 
 Every start prints a line that names the project:
 
