@@ -50,6 +50,8 @@ export interface ChipTabSignals {
   /** An executed query is missing an index in local configuration. */
   missingIndex?: boolean;
   rateThreshold?: boolean;
+  /** The host restarted since this page loaded, leaving a stale tab bundle. */
+  hostBundleStale?: boolean;
 }
 
 /** `true` when this string names a view. */
@@ -59,9 +61,10 @@ export function isChipTab(value: unknown): value is ChipTab {
 
 /**
  * The view an open should land on. A fresh failure outranks a duplicate
- * listener, which outranks a pending update, because a failure is the page
- * failing now, a duplicate is the page wasting work, and an update is only an
- * offer. With none of the three, the remembered view wins, and Identity is the
+ * listener, which outranks a missing index or a crossed threshold. A tab left
+ * stale by a host restart comes next and opens the Sandbox (or Live) view
+ * that holds its Reload page action. A pending update is only an offer, so it
+ * comes last. With no signal, the remembered view wins, and Identity is the
  * first-time default.
  */
 export function openingChipTab(
@@ -71,6 +74,7 @@ export function openingChipTab(
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
   if (signals.missingIndex || signals.rateThreshold) return 'traffic';
+  if (signals.hostBundleStale) return 'sandbox';
   if (signals.updatePending) return 'identity';
   return remembered ?? DEFAULT_CHIP_TAB;
 }
@@ -80,8 +84,34 @@ export function problemTab(signals: ChipTabSignals): ChipTab | null {
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
   if (signals.missingIndex || signals.rateThreshold) return 'traffic';
+  if (signals.hostBundleStale) return 'sandbox';
   if (signals.updatePending) return 'identity';
   return null;
+}
+
+/**
+ * The collapsed pill's tooltip: the strongest signal, in the order
+ * `problemTab` ranks them, or `''` on a clean page.
+ */
+export function chipTitleFor(signals: ChipTabSignals): string {
+  if (signals.failedRecently) return 'A request failed in the last minute';
+  if (signals.duplicateListener) return 'A listener is attached twice';
+  if (signals.missingIndex) return 'A query is missing an index in local configuration';
+  if (signals.rateThreshold) return 'Activity exceeded a threshold. Open Traffic to review.';
+  if (signals.hostBundleStale) return 'Host restarted — reload page';
+  if (signals.updatePending) return 'New worker available';
+  return '';
+}
+
+/**
+ * The collapsed pill's border class. The error colour outranks the warning
+ * colour because a failure is about the page as it is running.
+ */
+export function chipToneFor(signals: ChipTabSignals): '' | ' error' | ' warning' {
+  if (signals.failedRecently || signals.duplicateListener) return ' error';
+  if (signals.missingIndex || signals.rateThreshold) return ' warning';
+  if (signals.hostBundleStale || signals.updatePending) return ' warning';
+  return '';
 }
 
 /** The remembered view, or `null` when nothing readable was kept. */

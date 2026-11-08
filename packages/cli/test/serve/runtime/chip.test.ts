@@ -52,6 +52,7 @@ function setup(options: {
   liveStatus?: PyricRuntimeChipOptions['liveStatus'];
   liveStatusTimers?: PyricRuntimeChipOptions['liveStatusTimers'];
   liveIdentity?: PyricRuntimeChipOptions['liveIdentity'];
+  reloadPage?: () => void;
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
   const runtime = createPyricRuntimeStatus(options.manifest ?? manifest);
@@ -108,6 +109,7 @@ function setup(options: {
   if (options.liveStatus) chipOptions.liveStatus = options.liveStatus;
   if (options.liveStatusTimers) chipOptions.liveStatusTimers = options.liveStatusTimers;
   if (options.liveIdentity) chipOptions.liveIdentity = options.liveIdentity;
+  if (options.reloadPage) chipOptions.reloadPage = options.reloadPage;
   if (options.clipboard) {
     chipOptions.clipboard = options.clipboard;
   }
@@ -1451,5 +1453,68 @@ service firebase.storage {
     await expect(uploadBytes(target, new Uint8Array([1, 2, 3]))).rejects.toThrow();
     const badge = page.document.querySelector('[data-pyric-denials] [data-pyric-listener-badge]');
     expect(badge?.textContent).toBe(`⚠ Write denied — related region: gs://${APP_BUCKET}/avatars/bob.png`);
+  });
+});
+
+describe('a page whose host restarted', () => {
+  const restart = { initialHostInstanceId: 'boot-1', currentHostInstanceId: 'boot-2' };
+  const liveStatus = async () => ({
+    projectId: 'my-project',
+    configProjectId: 'my-project',
+    configSource: '.firebaserc',
+    appProjectIds: ['my-project'],
+    billed: { reads: 0, writes: 0, deliveries: 0 },
+  });
+
+  function silenceWarnings(): void {
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    cleanups.push(() => { console.warn = originalWarn; });
+  }
+
+  it('turns the collapsed chip to a warning titled for the reload', () => {
+    silenceWarnings();
+    const page = setup();
+    page.runtime.setWorker({ mode: 'hosted' });
+    page.runtime.reportHostRestarted(restart);
+    const chipButton = page.root.querySelector<HTMLButtonElement>('[data-expand]')!;
+    expect(chipButton.classList.contains('warning')).toBe(true);
+    expect(chipButton.getAttribute('title')).toBe('Host restarted — reload page');
+  });
+
+  it('reloads the page from the hosted Sandbox view', () => {
+    silenceWarnings();
+    const reloads: number[] = [];
+    const page = setup({ reloadPage: () => reloads.push(1) });
+    page.runtime.setWorker({ mode: 'hosted' });
+    page.runtime.reportHostRestarted(restart);
+    page.root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
+    page.showTab('sandbox');
+    expect(page.root.querySelector('[data-host-bundle-stale]')).not.toBeNull();
+    page.root.querySelector<HTMLButtonElement>('[data-reload-page]')!.click();
+    expect(reloads).toHaveLength(1);
+  });
+
+  it('reloads the page from the Live view', async () => {
+    silenceWarnings();
+    const reloads: number[] = [];
+    const page = setup({ initiallyOpen: true, liveStatus, reloadPage: () => reloads.push(1) });
+    page.runtime.setWorker({ mode: 'hosted' });
+    page.runtime.reportHostRestarted(restart);
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    page.showTab('sandbox');
+    expect(page.root.querySelector('[data-live-view] [data-host-bundle-stale]')).not.toBeNull();
+    page.root.querySelector<HTMLButtonElement>('[data-live-view] [data-reload-page]')!.click();
+    expect(reloads).toHaveLength(1);
+  });
+
+  it('shows no reload row on a page that is not hosted', () => {
+    silenceWarnings();
+    const page = setup();
+    page.runtime.setWorker({ mode: 'in-page' });
+    page.runtime.reportHostRestarted(restart);
+    page.root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
+    page.showTab('sandbox');
+    expect(page.root.querySelector('[data-host-bundle-stale]')).toBeNull();
   });
 });

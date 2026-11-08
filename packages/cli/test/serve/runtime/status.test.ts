@@ -15,6 +15,24 @@ const manifest: PyricRuntimeManifest = {
 };
 
 describe('Pyric runtime status', () => {
+  it('marks the page stale and warns once, however many detectors report the same restart', () => {
+    const runtime = createPyricRuntimeStatus(manifest);
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args); };
+    try {
+      // The health poll and the socket's attach-ack each see the new boot.
+      runtime.reportHostRestarted({ initialHostInstanceId: 'boot-1', currentHostInstanceId: 'boot-2' });
+      runtime.reportHostRestarted({ initialHostInstanceId: 'boot-1', currentHostInstanceId: 'boot-2' });
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(runtime.getSnapshot().hostBundleStale).toBe(true);
+    expect(warnings).toEqual([[
+      '[pyric] The host restarted since this page loaded (host boot-1 -> boot-2). Reload this page to load the updated bundle and rules.',
+    ]]);
+  });
+
   it('marks a different running worker epoch as an available update', () => {
     const runtime = createPyricRuntimeStatus(manifest);
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'running-1' });
