@@ -109,17 +109,28 @@ semantics.addOperation<any>('toAST', {
   RulesVersion(_kw, _eq, str, _semi) {
     return str.toAST().value;
   },
-  ServiceBlock(_kw, name, _lb, fnsBefore, docMatch, fnsAfter, _rb) {
-    const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
-    return {
+  ServiceBlock(_kw, name, _lb, fnsBefore, docMatches, fnsAfter, _rb) {
+    const { lineNum, colNum } = (_kw.source as { getLineAndColumn(): { lineNum: number; colNum: number } }).getLineAndColumn();
+    const matches = docMatches.children.map((c) => c.toAST() as MatchBlock);
+    const functions: FunctionDef[] = [];
+    for (const c of fnsBefore.children) {
+      functions.push(c.toAST() as FunctionDef);
+    }
+    for (const iter of fnsAfter.children) {
+      for (const c of iter.children) {
+        functions.push(c.toAST() as FunctionDef);
+      }
+    }
+    const block: ServiceBlock = {
       name: name.sourceString,
-      functions: [
-        ...fnsBefore.children.map((c: any) => c.toAST()),
-        ...fnsAfter.children.map((c: any) => c.toAST()),
-      ],
-      match: docMatch.toAST(),
+      functions,
+      match: matches[0]!,
       loc: { line: lineNum, col: colNum },
-    } as ServiceBlock;
+    };
+    if (matches.length > 1) {
+      block.matches = matches;
+    }
+    return block;
   },
   DocumentsMatch(_kw, path, _lb, body, _rb) {
     const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
@@ -192,13 +203,13 @@ semantics.addOperation<any>('toAST', {
   LogicalOr_or(left, _op, right) { return placedAt({ type: 'binaryOp', op: '||', left: left.toAST(), right: right.toAST() }, _op); },
   LogicalAnd_and(left, _op, right) { return completesAt(placedAt({ type: 'binaryOp', op: '&&', left: left.toAST(), right: right.toAST() }, _op), this); },
   InIsExpr_in(left, _op, right) { return placedAt({ type: 'inExpr', element: left.toAST(), collection: right.toAST() }, _op); },
-  InIsExpr_is(left, _op, typeName) { return placedAt({ type: 'isExpr', value: left.toAST(), typeName: typeName.sourceString }, _op); },
   Equality_eq(left, _op, right) { return placedAt({ type: 'binaryOp', op: '==', left: left.toAST(), right: right.toAST() }, _op); },
   Equality_neq(left, _op, right) { return placedAt({ type: 'binaryOp', op: '!=', left: left.toAST(), right: right.toAST() }, _op); },
   Comparison_gte(left, _op, right) { return placedAt({ type: 'binaryOp', op: '>=', left: left.toAST(), right: right.toAST() }, _op); },
   Comparison_lte(left, _op, right) { return placedAt({ type: 'binaryOp', op: '<=', left: left.toAST(), right: right.toAST() }, _op); },
   Comparison_gt(left, _op, right) { return placedAt({ type: 'binaryOp', op: '>', left: left.toAST(), right: right.toAST() }, _op); },
   Comparison_lt(left, _op, right) { return placedAt({ type: 'binaryOp', op: '<', left: left.toAST(), right: right.toAST() }, _op); },
+  Comparison_is(left, _op, typeName) { return placedAt({ type: 'isExpr', value: left.toAST(), typeName: typeName.sourceString }, _op); },
   Additive_add(left, _op, right) { return placedAt({ type: 'binaryOp', op: '+', left: left.toAST(), right: right.toAST() }, _op); },
   Additive_sub(left, _op, right) { return placedAt({ type: 'binaryOp', op: '-', left: left.toAST(), right: right.toAST() }, _op); },
   Multiplicative_mul(left, _op, right) { return placedAt({ type: 'binaryOp', op: '*', left: left.toAST(), right: right.toAST() }, _op); },
@@ -576,7 +587,8 @@ function shiftAstLines(ast: FirestoreRules, offset: number): void {
 function shiftServiceLines(service: ServiceBlock, offset: number): void {
   shiftSourceLoc(service.loc, offset);
   for (const fn of service.functions ?? []) shiftFunctionLocs(fn, offset);
-  const stack: MatchBlock[] = [service.match];
+  const roots = service.matches ?? [service.match];
+  const stack: MatchBlock[] = [...roots];
   while (stack.length > 0) {
     const block = stack.pop()!;
     shiftSourceLoc(block.loc, offset);

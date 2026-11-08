@@ -33,19 +33,21 @@ export function getFunctionScope(fn: FunctionDef): NameScope | undefined {
 export function getValidFunctionLexicalScope(
   fn: FunctionDef,
   fallbackFunctions: ReadonlyMap<string, FunctionDef>,
-): Map<string, FunctionDef> | null {
+): ReadonlyMap<string, FunctionDef> | null {
   const scope = functionScopes.get(fn);
-  if (!scope) return fallbackFunctions as Map<string, FunctionDef>;
+  if (!scope) return fallbackFunctions;
   const refs = functionReferences({ ...scope, fn });
   if (refs.undefinedCalls.length > 0 || refs.unboundVariables.length > 0) {
     return null;
   }
-  return scope.functions as Map<string, FunctionDef>;
+  return scope.functions;
 }
 
 export interface MatchResult {
   block: MatchBlock;
   pathVariables: Record<string, string>;
+  /** Recursive wildcard names (`{name=**}`) bound in `pathVariables`, exposed as `Path` values in rules expressions. */
+  recursiveVariables?: string[];
   /** Wildcards whose value includes the final candidate-document segment. */
   candidateVariables: string[];
   /** Global, service, root, ancestor, and matched-block helpers in scope. */
@@ -93,6 +95,7 @@ export function collectMatches(
   const allFunctions = [...parentFunctions, ...block.functions];
   const pattern = block.path.segments;
   const bindings: Record<string, string> = {};
+  const recursiveVariables: string[] = [];
   const candidateVariables: string[] = [];
   let consumed = 0;
   let failureReason: PathResolutionEntry['reason'] | undefined;
@@ -126,6 +129,7 @@ export function collectMatches(
         break;
       }
       bindings[segment.name] = pathSegments.slice(consumed, consumed + length).join('/');
+      recursiveVariables.push(segment.name);
       if (trailing === 0) {
         finalRecursive = { name: segment.name, start: consumed };
         if (length > 0) candidateVariables.push(segment.name);
@@ -150,9 +154,14 @@ export function collectMatches(
   }
 
   if (finalRecursive) {
+    const childMatches = collectBelowRecursive(block, pathSegments, allFunctions, bindings, finalRecursive, rulesVersion, recorder);
+    for (const childResult of childMatches) {
+      const childRec = childResult.recursiveVariables ?? [];
+      childResult.recursiveVariables = [...recursiveVariables, ...childRec];
+    }
     const results = [
-      { block, pathVariables: bindings, candidateVariables, functions: allFunctions },
-      ...collectBelowRecursive(block, pathSegments, allFunctions, bindings, finalRecursive, rulesVersion, recorder),
+      { block, pathVariables: bindings, recursiveVariables, candidateVariables, functions: allFunctions },
+      ...childMatches,
     ];
     recorder?.push(entry({ matched: true }));
     return results;
@@ -167,11 +176,13 @@ export function collectMatches(
     ? block.children
     : block.children.filter((child) => child.path.segments.every((segment) => segment.type === 'recursive'));
   if (remaining.length === 0) {
-    results.push({ block, pathVariables: bindings, candidateVariables, functions: allFunctions });
+    results.push({ block, pathVariables: bindings, recursiveVariables, candidateVariables, functions: allFunctions });
   }
   for (const child of children) {
     for (const childResult of collectMatches(child, remaining, allFunctions, rulesVersion, recorder)) {
+      const childRec = childResult.recursiveVariables ?? [];
       childResult.pathVariables = { ...bindings, ...childResult.pathVariables };
+      childResult.recursiveVariables = [...recursiveVariables, ...childRec];
       childResult.candidateVariables = [...candidateVariables, ...childResult.candidateVariables];
       results.push(childResult);
     }

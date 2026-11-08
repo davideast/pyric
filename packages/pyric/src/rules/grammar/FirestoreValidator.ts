@@ -4,6 +4,7 @@ import type {
 import { countDocumentAccessCalls } from './document-access-count.js';
 import { compileLimitViolations } from './compile-limits.js';
 import { recursiveScope } from './recursive-scope.js';
+import { isStorageServiceName, topLevelMatches } from './service-blocks.js';
 import {
   collectRulesetScopes, expandFunctionBody, exprContains, exprDepth,
   functionReferences, ruleReferences, walkExpr,
@@ -34,8 +35,8 @@ const IMPORTED_AUTH_HELPERS: ReadonlySet<string> = new Set([
 
 export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[] {
   const findings: ValidationFinding[] = [];
-  const rootMatch = ast.service.match;
-  const isStorage = ast.service?.name === 'firebase.storage';
+  const rootMatches = topLevelMatches(ast.service);
+  const isStorage = isStorageServiceName(ast.service?.name);
 
   const importedAuthFns = new Set<string>();
   for (const imp of ast.imports ?? []) {
@@ -53,7 +54,7 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   );
 
   // SEC-4: Check for default deny
-  checkDefaultDeny(rootMatch, findings);
+  checkDefaultDeny(rootMatches, findings);
 
   // QUA-3: Duplicate function names in one scope (production compile
   // rejection, so critical). Nested shadowing is legal and is not flagged.
@@ -63,10 +64,14 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   checkNameResolution(scopes, findings);
 
   // STR-3: Overlapping match paths
-  checkOverlappingPaths(rootMatch.children, findings);
+  for (const rootMatch of rootMatches) {
+    checkOverlappingPaths(rootMatch.children, findings);
+  }
 
   // Walk all match blocks
-  walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage, importedAuthFns);
+  for (const rootMatch of rootMatches) {
+    walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage, importedAuthFns);
+  }
 
   return findings;
 }
@@ -175,7 +180,7 @@ function walkMatch(
     // and 2 firestore.get/firestore.exists reads in Storage; the next one
     // fails, so the finding fires only ABOVE the limit.
     const maxDocReads = isStorage ? 2 : 10;
-    const docReads = countDocumentAccessCalls(allow.condition, fnMap, new Set(), fnScopes);
+    const docReads = countDocumentAccessCalls(allow.condition, fnMap, new Set(), fnScopes, isStorage);
     if (docReads > maxDocReads) {
       findings.push({
         code: 'SEM-3', severity: 'high', path: pathStr, operation: opStr,
@@ -238,7 +243,7 @@ function walkMatch(
 
 // ---- SEC-4: Default deny ----
 
-function checkDefaultDeny(rootMatch: MatchBlock, findings: ValidationFinding[]) {
+function checkDefaultDeny(rootMatches: readonly MatchBlock[], findings: ValidationFinding[]) {
   const coversDeny = (block: MatchBlock): boolean => {
     if (block.allows.length === 0) return false;
     const deniedOps = new Set<Operation>();
@@ -254,19 +259,21 @@ function checkDefaultDeny(rootMatch: MatchBlock, findings: ValidationFinding[]) 
     return coversRead && coversWrite;
   };
 
-  const isRootWithTrailingRecursive =
-    ((rootMatch.path.raw.includes('databases') && rootMatch.path.raw.includes('documents')) ||
-      (rootMatch.path.raw.includes('/b/') && rootMatch.path.raw.includes('/o'))) &&
-    rootMatch.path.segments.length > 0 &&
-    rootMatch.path.segments[rootMatch.path.segments.length - 1]?.type === 'recursive';
-
-  const hasDefaultDeny =
-    (isRootWithTrailingRecursive && coversDeny(rootMatch)) ||
-    rootMatch.children.some(child => {
-      const isWholeDbWildcard =
-        child.path.segments.length === 1 && child.path.segments[0].type === 'recursive';
-      return isWholeDbWildcard && coversDeny(child);
-    });
+  const hasDefaultDeny = rootMatches.some((rootMatch) => {
+    const isRootWithTrailingRecursive =
+      ((rootMatch.path.raw.includes('databases') && rootMatch.path.raw.includes('documents')) ||
+        (rootMatch.path.raw.includes('/b/') && rootMatch.path.raw.includes('/o'))) &&
+      rootMatch.path.segments.length > 0 &&
+      rootMatch.path.segments[rootMatch.path.segments.length - 1]?.type === 'recursive';
+    return (
+      (isRootWithTrailingRecursive && coversDeny(rootMatch)) ||
+      rootMatch.children.some(child => {
+        const isWholeDbWildcard =
+          child.path.segments.length === 1 && child.path.segments[0].type === 'recursive';
+        return isWholeDbWildcard && coversDeny(child);
+      })
+    );
+  });
 
   if (!hasDefaultDeny) {
     findings.push({

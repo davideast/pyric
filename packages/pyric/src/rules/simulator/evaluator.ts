@@ -156,7 +156,10 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
       // `t.year()` goes through callMethod. The base default returns null.
       // A path reads its bound names through `readMember` below, which
       // errors on an unbound name as production does.
-      if (obj instanceof RulesValue && obj.typeName !== 'path') return obj.field(expr.property);
+      if (obj instanceof RulesValue && obj.typeName === 'reference') {
+        const val = obj.field(expr.property);
+        if (val !== null) return val;
+      }
       // RULES-B2: reading a key that does not exist on a map is a runtime
       // ERROR in Firestore rules (`resource.data.typo` denies the request),
       // not the silent null this path used to return — that inversion made

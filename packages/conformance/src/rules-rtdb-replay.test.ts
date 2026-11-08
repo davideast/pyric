@@ -172,13 +172,7 @@ type DeployVerdict = 'ACCEPTED' | 'REJECTED';
  * fails the moment either side moves. Each fix removes its pin, watches the
  * case go red, then makes it agree. Keyed by `${scenarioId} :: ${caseDescription}`.
  */
-const KNOWN_DEPLOY_DIVERGENCES: Record<string, { production: DeployVerdict; local: DeployVerdict; reason: string }> = {
-  'r62-deploy-ternary-snapshot-member :: (true ? data.parent() : null).exists()': {
-    production: 'REJECTED',
-    local: 'ACCEPTED',
-    reason: 'the validator allows a member access on a Snapshot | Null ternary; production refuses it at deploy (#1820)',
-  },
-};
+const KNOWN_DEPLOY_DIVERGENCES: Record<string, { production: DeployVerdict; local: DeployVerdict; reason: string }> = {};
 
 /**
  * Each deploy scenario is synchronous parse-and-check work with nothing to wait

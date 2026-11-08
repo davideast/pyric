@@ -158,4 +158,29 @@ describe('discoverOnValueCreated', () => {
       { exportName: 'explicitSingle', reference: 'messages/{id=*}' },
     ]);
   });
+
+  test('reports dynamic/expression ref or instance options in unsupported instead of silently dropping them', () => {
+    const { onValueCreated } = databaseFunctions;
+    const dynamicRef = onValueCreated('/messages/{id}', () => undefined);
+    (dynamicRef.__endpoint.eventTrigger.eventFilterPathPatterns as Record<string, unknown>).ref = {
+      expression: 'REF_PARAM',
+    };
+    const dynamicInstance = onValueCreated('/messages/{id}', () => undefined);
+    (dynamicInstance.__endpoint.eventTrigger.eventFilters as Record<string, unknown>).instance = {
+      expression: 'INSTANCE_PARAM',
+    };
+
+    const inspected = inspectOnValueCreated({ dynamicRef, dynamicInstance });
+    expect(inspected.triggers).toEqual([]);
+    expect(inspected.unsupported).toEqual([
+      {
+        exportName: 'dynamicRef',
+        eventType: 'google.firebase.database.ref.v1.created (unsupported dynamic ref option)',
+      },
+      {
+        exportName: 'dynamicInstance',
+        eventType: 'google.firebase.database.ref.v1.created (unsupported dynamic instance option)',
+      },
+    ]);
+  });
 });

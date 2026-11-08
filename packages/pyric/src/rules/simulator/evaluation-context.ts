@@ -79,7 +79,7 @@ export interface SimulationContext {
    *  before the outer path string is built. */
   getDoc?: (path: string) => Record<string, unknown> | null;
   /** Path variable bindings from match block, e.g. { gameId: 'game1' } */
-  pathVariables: Record<string, string>;
+  pathVariables: Record<string, string | Path>;
   /** Function definitions available in scope */
   functions: Map<string, FunctionDef>;
   /** Database name for path resolution */

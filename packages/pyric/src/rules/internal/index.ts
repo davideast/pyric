@@ -39,6 +39,7 @@ export {
 export type { ParseError, ParseResult } from '../grammar/FirestoreParser.js';
 export { assembleRules, assembleExpression as printExpression } from '../grammar/FirestoreAssembler.js';
 export { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
+export { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 export { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
 export {
   checkRulesSource,
@@ -81,10 +82,16 @@ export { parseErrorWording } from '../grammar/parse-error-wording.js';
 export type { ParseFailurePosition } from '../grammar/parse-error-wording.js';
 export {
   collectMatches,
+  indexRulesetScopes,
   renderMatchBlockPath,
 } from '../simulator/match-resolution.js';
 export type { MatchResult } from '../simulator/match-resolution.js';
-export { collectRootMatches, resolveRootMatch, rootGovernsEveryDocument } from '../simulator/root-match.js';
+export {
+  collectRootMatches,
+  resolveRootMatch,
+  rootBlockGovernsEveryDocument,
+  rootGovernsEveryDocument,
+} from '../simulator/root-match.js';
 export type { RootMatch } from '../simulator/root-match.js';
 export { evaluateQueryProof } from '../simulator/query-proof.js';
 export type {

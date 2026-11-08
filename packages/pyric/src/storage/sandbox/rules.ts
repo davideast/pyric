@@ -246,6 +246,20 @@ export interface StorageResource {
   generation?: number;
   /** Metadata generation (production types it `int`). */
   metageneration?: number;
+  /** Base64-encoded MD5 digest. */
+  md5Hash?: string;
+  /** Base64-encoded CRC32C checksum. */
+  crc32c?: string;
+  /** HTTP entity tag. */
+  etag?: string;
+  /** Content-Disposition header value. */
+  contentDisposition?: string;
+  /** Content-Encoding header value. */
+  contentEncoding?: string;
+  /** Content-Language header value. */
+  contentLanguage?: string;
+  /** Cache-Control header value. */
+  cacheControl?: string;
 }
 
 export interface EvaluationInput {
@@ -550,7 +564,7 @@ export function parseStorageRules(source: string): StorageRules {
     throw new SyntaxError(`Storage rules do not compile: ${DUPLICATE_SERVICE_REASON}`);
   }
   const storageService = (parsed.ast.services ?? [parsed.ast.service]).find(
-    (block) => block.name === 'firebase.storage',
+    (block) => block.name === 'firebase.storage' || block.name === 'cloud.storage',
   );
   if (!storageService) {
     throw new SyntaxError(
@@ -606,7 +620,7 @@ export function parseStorageRules(source: string): StorageRules {
 
   const root: MatchBlock = {
     segments: [],
-    children: [convertMatch(ast.service.match)],
+    children: (ast.service.matches ?? [ast.service.match]).map(convertMatch),
     allows: [],
     functions: [...importStubs, ...globalFuncs, ...serviceFuncs],
     visibleFuncs: serviceScope,

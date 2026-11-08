@@ -31,11 +31,18 @@ const DOCUMENT_ACCESS_BUILTINS = new Set(['get', 'exists', 'getAfter', 'existsAf
 export function countDocumentAccessCalls(
   expr: Expression,
   functions: ReadonlyMap<string, FunctionDef>,
-  callStack: Set<string> = new Set<string>(),
+  callStack: ReadonlySet<string> = new Set<string>(),
   fnScopes?: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  isStorage = false,
 ): number {
   const cleanMemo = new Map<FunctionDef, number>();
   const activeFns = new Set<FunctionDef>();
+  for (const blockedName of callStack) {
+    const blockedFn = functions.get(blockedName);
+    if (blockedFn !== undefined) {
+      activeFns.add(blockedFn);
+    }
+  }
   return visitExpr(expr, functions).count;
 
   function visitFn(
@@ -44,10 +51,9 @@ export function countDocumentAccessCalls(
   ): { count: number; hitStack: boolean } {
     const cached = cleanMemo.get(fn);
     if (cached !== undefined) return { count: cached, hitStack: false };
-    if (activeFns.has(fn) || callStack.has(fn.name)) return { count: 0, hitStack: true };
+    if (activeFns.has(fn)) return { count: 0, hitStack: true };
     const scope = fnScopes?.get(fn) ?? fallbackScope;
     activeFns.add(fn);
-    callStack.add(fn.name);
     let total = 0;
     let hitStack = false;
     for (const binding of fn.lets) {
@@ -58,7 +64,6 @@ export function countDocumentAccessCalls(
     const bodyRes = visitExpr(fn.body, scope);
     total += bodyRes.count;
     if (bodyRes.hitStack) hitStack = true;
-    callStack.delete(fn.name);
     activeFns.delete(fn);
     if (!hitStack) cleanMemo.set(fn, total);
     return { count: total, hitStack };
@@ -77,19 +82,18 @@ export function countDocumentAccessCalls(
     };
 
     switch (node.type) {
-      case 'functionCall':
-        if (DOCUMENT_ACCESS_BUILTINS.has(node.name)) {
+      case 'functionCall': {
+        const fn = scope.get(node.name);
+        if (fn !== undefined) {
+          const sub = visitFn(fn, scope);
+          count += sub.count;
+          if (sub.hitStack) hitStack = true;
+        } else if (!isStorage && DOCUMENT_ACCESS_BUILTINS.has(node.name)) {
           count++;
-        } else {
-          const fn = scope.get(node.name);
-          if (fn !== undefined) {
-            const sub = visitFn(fn, scope);
-            count += sub.count;
-            if (sub.hitStack) hitStack = true;
-          }
         }
         node.args.forEach(visit);
         break;
+      }
       case 'binaryOp': visit(node.left); visit(node.right); break;
       case 'unaryOp': visit(node.operand); break;
       case 'ternary': visit(node.condition); visit(node.consequent); visit(node.alternate); break;

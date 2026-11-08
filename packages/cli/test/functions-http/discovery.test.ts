@@ -92,6 +92,17 @@ describe('inspectOnRequest', () => {
     expect(findUnsupportedTriggers(exported, [rtdbCreatedFamily, httpOnRequestFamily])).toEqual([]);
   });
 
+  test('skips onRequest exports with omit: true and reports them as omitted', () => {
+    const exported = {
+      active: https.onRequest(handler),
+      omitted: https.onRequest({ omit: true }, handler),
+    };
+    expect(inspectOnRequest(exported).map((fn) => fn.exportName)).toEqual(['active']);
+    expect(findUnsupportedTriggers(exported, [httpOnRequestFamily])).toEqual([
+      { exportName: 'omitted', eventType: 'https (omitted from emulation)' },
+    ]);
+  });
+
   // Last: setGlobalOptions is process-wide state in firebase-functions.
   test('takes the region from setGlobalOptions when the options name none', () => {
     v2.setGlobalOptions({ region: 'europe-west2' });

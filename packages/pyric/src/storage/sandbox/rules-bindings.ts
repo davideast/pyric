@@ -34,6 +34,13 @@ export function buildResourceObject(resource: StorageResource): Record<string, u
     metageneration: resource.metageneration,
     timeCreated: isoToTimestamp(resource.timeCreated),
     updated: isoToTimestamp(resource.updated),
+    md5Hash: resource.md5Hash,
+    crc32c: resource.crc32c,
+    etag: resource.etag,
+    contentDisposition: resource.contentDisposition,
+    contentEncoding: resource.contentEncoding,
+    contentLanguage: resource.contentLanguage,
+    cacheControl: resource.cacheControl,
   });
 }
 
@@ -61,7 +68,12 @@ export function buildRequestObject(input: EvaluationInput, now: number): Record<
     // cross-surface rule about an identity, not a Storage rules concern, so
     // the sandbox context owns it and every surface reads the same shape.
     // Claims type as ints by `typeClaimNumbers`, shared with Firestore.
-    requestAuth = typeClaimNumbers(normalizeAuthState(auth));
+    const normalized = normalizeAuthState(auth);
+    if (normalized === null) {
+      requestAuth = new RuleError('Property auth is undefined on object.');
+    } else {
+      requestAuth = typeClaimNumbers({ ...normalized, token: normalized.token ?? {} });
+    }
   }
   const request: Record<string, unknown> = {
     auth: requestAuth,

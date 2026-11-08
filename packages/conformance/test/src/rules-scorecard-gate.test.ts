@@ -32,11 +32,10 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).not.toContain('[diverged] rtdb.binding.query ');
     expect(out).not.toContain('[diverged] rtdb.binding.query.orderByKey');
     expect(out).not.toContain('[diverged] rtdb.rule-kind.location-wildcard');
-    // The 2026-10-26 hunt's findings (#1247) are all fixed. The one RTDB construct
-    // that diverges is the deploy verdict in row rtdb-rules#196 (#1820).
     expect(out).not.toContain('[diverged] rtdb.method.string.matches');
     expect(out).not.toContain('[diverged] rtdb.semantic.regex-literal');
     const rtdbBreakdown = out.slice(out.indexOf('--- RTDB Rules Breakdown ---'));
-    expect(rtdbBreakdown.match(/\[diverged\] rtdb\.\S+/g)).toEqual(['[diverged] rtdb.method.snapshot.parent']);
+    expect(rtdbBreakdown).toContain('All constructs conform cleanly.');
+    expect(rtdbBreakdown.match(/\[diverged\] rtdb\.\S+/g)).toBeNull();
   }, GATE_TIMEOUT_MS);
 });

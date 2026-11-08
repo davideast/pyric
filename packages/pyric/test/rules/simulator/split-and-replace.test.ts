@@ -155,7 +155,7 @@ describe('escapes and classes are not backreferences or lookarounds', () => {
  * pinned in `packages/conformance/firestore-rules-exceptions/` under ST-H1-3, whose
  * `matches()` half is #1332; that item flips these assertions.
  */
-describe('Kelvin sign under (?i): production folds it, pyric does not yet (#1332)', () => {
+describe('Kelvin sign under (?i): production and pyric both fold U+212A to k (#1332)', () => {
   const kelvin: readonly CapturedGuard[] = [
     ['split (?i)k splits on the Kelvin sign', "'a\\u212ab'.split('(?i)k') == ['a', 'b']"],
     ['replace (?i)k replaces the Kelvin sign', "'\\u212a'.replace('(?i)k', '_') == '_'"],
@@ -163,8 +163,8 @@ describe('Kelvin sign under (?i): production folds it, pyric does not yet (#1332
   for (const [description, guard] of kelvin) {
     test(description, () => {
       expect(production[description]).toBe('ALLOW');
-      expect(firestoreVerdict(guard)).toBe('DENY');
-      expect(storageVerdict(guard)).toBe('DENY');
+      expect(firestoreVerdict(guard)).toBe('ALLOW');
+      expect(storageVerdict(guard)).toBe('ALLOW');
     });
   }
 });

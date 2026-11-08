@@ -34,13 +34,33 @@ type Verdict = 'ALLOW' | 'DENY';
 
 const KNOWN_EXCEPTIONS = loadStorageRulesExceptions();
 
+function decodeMockWireValue(val: unknown): unknown {
+  if (typeof val === 'string' && val.startsWith('/databases/')) {
+    return { __type: 'path', path: val };
+  }
+  if (Array.isArray(val)) return val.map(decodeMockWireValue);
+  if (typeof val !== 'object' || val === null) return val;
+  const record = val as Record<string, unknown>;
+  if (typeof record.__type === 'string' || typeof record.__type__ === 'string') return val;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(record)) {
+    Object.defineProperty(out, k, {
+      value: decodeMockWireValue(v),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return out;
+}
+
 function lookupFromCase(tc: StorageTestCase): FirestoreLookup | undefined {
   if (!tc.functionMocks || tc.functionMocks.length === 0) return undefined;
   const gets = new Map<string, Record<string, unknown>>();
   const exists = new Set<string>();
   for (const m of tc.functionMocks) {
     if (m.function === 'get' && typeof m.result === 'object' && m.result !== null) {
-      gets.set(m.path, m.result as Record<string, unknown>);
+      gets.set(m.path, decodeMockWireValue(m.result) as Record<string, unknown>);
     } else if (m.function === 'exists' && m.result === true) {
       exists.add(m.path);
     }
@@ -60,23 +80,40 @@ function toEvaluationInput(tc: StorageTestCase): EvaluationInput {
   };
   if (tc.resource) {
     request.resource = {
-      ...tc.resource,
       size: tc.resource.size ?? 0,
+      contentType: tc.resource.contentType,
+      metadata: tc.resource.metadata,
+      name: tc.resource.name,
+      bucket: tc.resource.bucket,
+      contentDisposition: tc.resource.contentDisposition,
+      contentEncoding: tc.resource.contentEncoding,
+      contentLanguage: tc.resource.contentLanguage,
+      cacheControl: tc.resource.cacheControl,
+      generation: tc.resource.generation,
+      metageneration: tc.resource.metageneration,
     };
   }
-  const existing = tc.existingResource
-    ? {
-        size: tc.existingResource.size ?? 0,
-        contentType: tc.existingResource.contentType,
-        metadata: tc.existingResource.metadata,
-        name: tc.existingResource.name,
-        bucket: tc.existingResource.bucket,
-        timeCreated: tc.existingResource.timeCreated,
-        updated: tc.existingResource.updated,
-        generation: tc.existingResource.generation,
-        metageneration: tc.existingResource.metageneration,
-      }
-    : null;
+  let existing: EvaluationInput['resource'] = null;
+  if (tc.existingResource) {
+    existing = {
+      size: tc.existingResource.size ?? 0,
+      contentType: tc.existingResource.contentType,
+      metadata: tc.existingResource.metadata,
+      name: tc.existingResource.name,
+      bucket: tc.existingResource.bucket,
+      timeCreated: tc.existingResource.timeCreated,
+      updated: tc.existingResource.updated,
+      generation: tc.existingResource.generation,
+      metageneration: tc.existingResource.metageneration,
+      md5Hash: tc.existingResource.md5Hash,
+      crc32c: tc.existingResource.crc32c,
+      etag: tc.existingResource.etag,
+      contentDisposition: tc.existingResource.contentDisposition,
+      contentEncoding: tc.existingResource.contentEncoding,
+      contentLanguage: tc.existingResource.contentLanguage,
+      cacheControl: tc.existingResource.cacheControl,
+    };
+  }
   return { request, resource: existing };
 }
 

@@ -100,7 +100,6 @@ function patchProblem(c: RtdbCase): string | null {
     return "an 'update' case needs newData to be an object keyed by the paths it writes.";
   }
   const keys = Object.keys(c.newData);
-  if (keys.length === 0) return "an 'update' case needs newData to name at least one path.";
   return writtenPathsProblem(keys);
 }
 

@@ -307,6 +307,7 @@ function buildContext(
   lookupBudget?: LookupBudget,
   expressionBudget?: ExpressionBudget,
   revive: CaseReviver = reviveFirestoreNumbers,
+  recursiveVariables?: readonly string[],
 ): SimulationContext {
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
@@ -368,7 +369,15 @@ function buildContext(
     : revive(tc.resource) as Record<string, unknown>;
   let afterState: Record<string, unknown> | null;
   let existsAfter: boolean;
-  if (tc.writeMode) {
+  if (batchProjection?.has(relPath)) {
+    const projectedTarget = batchProjection.get(relPath) ?? null;
+    if (projectedTarget !== null) {
+      afterState = revive(projectedTarget) as Record<string, unknown>;
+    } else {
+      afterState = null;
+    }
+    existsAfter = afterState !== null;
+  } else if (tc.writeMode) {
     afterState = projectAfterState(tc.writeMode, existing, payload);
     existsAfter = afterState !== null;
   } else {
@@ -431,6 +440,16 @@ function buildContext(
     request.resource = reqResource;
   }
 
+  const recSet = new Set(recursiveVariables ?? []);
+  const boundPathVariables: Record<string, string | Path> = Object.create(null);
+  for (const [k, v] of Object.entries(pathVariables)) {
+    if (recSet.has(k)) {
+      boundPathVariables[k] = Path.fromString(v);
+    } else {
+      boundPathVariables[k] = v;
+    }
+  }
+
   return {
     request,
     // `resource` is the PRE-WRITE stored document. When the request target does
@@ -458,7 +477,7 @@ function buildContext(
     identitylessFunctionMocks,
     existsMocks,
     getDoc,
-    pathVariables,
+    pathVariables: boundPathVariables,
     functions: fnMap,
     database: '(default)',
     // Item 7 — projected post-write state for the request target.
@@ -724,7 +743,6 @@ export class SimulateFirestoreRulesHandler {
       const rootFunctions = [
         ...(evalAst.functions ?? []),
         ...(evalAst.service.functions ?? []),
-        ...evalAst.service.match.functions,
       ];
       // Collect EVERY match block that resolves this path (not just the
       // first). Production OR-combines allows across all overlapping
@@ -832,7 +850,7 @@ export class SimulateFirestoreRulesHandler {
       const expressionBudget = new ExpressionBudget((message, position) => new ExpressionLimitError(message, position));
       for (const match of matches) {
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget, revive);
+        const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget, revive, match.recursiveVariables);
 
         const blockPath = renderMatchBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx, sourceMap);

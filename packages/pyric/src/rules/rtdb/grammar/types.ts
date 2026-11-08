@@ -247,8 +247,7 @@ export function memberOf(receiver: RtdbStaticType, name: string): RtdbMember {
   switch (receiver) {
     case 'Error':
       return { kind: 'error', error: null };
-    case 'Snapshot':
-    case 'NullableSnapshot': {
+    case 'Snapshot': {
       const method = SNAPSHOT_METHODS.get(name);
       return method ? { kind: 'method', method } : noSuchMember();
     }

@@ -110,4 +110,73 @@ describe('projectValueCreates', () => {
       },
     ]);
   });
+
+  test('treats empty objects as non-existent in RTDB snapshot projection', () => {
+    expect(
+      projectValueCreates('/items/{id}', {
+        path: '/',
+        before: null,
+        after: { items: { a: {} } },
+      }),
+    ).toEqual([]);
+
+    expect(
+      projectValueCreates('/items/{id}', {
+        path: '/',
+        before: { items: { a: {} } },
+        after: { items: { a: { name: 'created' } } },
+      }),
+    ).toEqual([
+      {
+        ref: 'items/a',
+        params: { id: 'a' },
+        value: { name: 'created' },
+      },
+    ]);
+
+    expect(
+      projectValueCreates('/items/{id}', {
+        path: '/',
+        before: null,
+        after: {
+          items: {
+            a: {
+              kept: 'ok',
+              removedNull: null,
+              removedEmpty: {},
+              nested: { innerNull: null, innerKept: 1 },
+            },
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        ref: 'items/a',
+        params: { id: 'a' },
+        value: {
+          kept: 'ok',
+          nested: { innerKept: 1 },
+        },
+      },
+    ]);
+  });
+
+  test('drops null elements from arrays using RTDB child semantics', () => {
+    expect(
+      projectValueCreates('/items/{id}', {
+        path: '/',
+        before: null,
+        after: {
+          items: {
+            trailing: [1, null],
+            leading: [null, 1],
+            allNull: [null, null],
+          },
+        },
+      }),
+    ).toEqual([
+      { ref: 'items/leading', params: { id: 'leading' }, value: { '1': 1 } },
+      { ref: 'items/trailing', params: { id: 'trailing' }, value: [1] },
+    ]);
+  });
 });

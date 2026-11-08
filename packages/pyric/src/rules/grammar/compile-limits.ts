@@ -118,7 +118,7 @@ export interface CompileLimitViolation {
 export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolation[] {
   const graph = buildCallGraph(ast);
   const out: CompileLimitViolation[] = [];
-  const isFirestore = ast.service.name !== 'firebase.storage';
+  const isFirestore = ast.service.name !== 'firebase.storage' && ast.service.name !== 'cloud.storage';
   if (ast.version !== '1' && ast.version !== '2' && ast.version !== '2+modules') {
     out.push({ code: 'UNSUPPORTED_RULES_VERSION', message: `Unsupported rules version ${ast.version}.`, line: ast.loc?.line ?? 1 });
   } else if (isFirestore && (ast.version === '2+modules' || (ast.imports?.length ?? 0) > 0)) {
@@ -151,10 +151,14 @@ export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolati
     }
     for (const child of match.children) visitRules(child);
   };
-  visitRules(ast.service.match);
+  for (const root of ast.service.matches ?? [ast.service.match]) {
+    visitRules(root);
+  }
   out.push(...callDepthViolations(graph));
   out.push(...redefinedFunctions(ast));
-  out.push(...secondGlobMatches(ast.service.match, 0));
+  for (const root of ast.service.matches ?? [ast.service.match]) {
+    out.push(...secondGlobMatches(root, 0));
+  }
   return out.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
 }
 
@@ -197,7 +201,9 @@ function redefinedFunctions(ast: FirestoreRules): CompileLimitViolation[] {
   };
   inScope(ast.functions ?? [], 'global scope');
   inScope(ast.service.functions ?? [], `service ${ast.service.name}`);
-  inMatch(ast.service.match);
+  for (const root of ast.service.matches ?? [ast.service.match]) {
+    inMatch(root);
+  }
   return out;
 }
 
@@ -553,7 +559,9 @@ function buildCallGraph(ast: FirestoreRules): CallNode[] {
     const scope = declare(match.functions, parent);
     for (const child of match.children) walk(child, scope);
   };
-  walk(ast.service.match, serviceScope);
+  for (const root of ast.service.matches ?? [ast.service.match]) {
+    walk(root, serviceScope);
+  }
 
   for (const { node, scope } of pending) {
     const seen = new Set<CallNode>();

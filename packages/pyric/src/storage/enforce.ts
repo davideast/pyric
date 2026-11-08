@@ -101,6 +101,10 @@ const KNOWN_REDACTED_FIELD_NAMES: ReadonlySet<string> = new Set([
   'request.resource.cacheControl',
   'resource.metadata',
   'resource.contentType',
+  'resource.contentDisposition',
+  'resource.contentEncoding',
+  'resource.contentLanguage',
+  'resource.cacheControl',
 ]);
 
 const globalDeniedWrites = globalThis as {
@@ -156,6 +160,26 @@ function sanitizeStorageMetadata(
   return { value: out, redacted };
 }
 
+function sanitizeOptionalHeader(
+  rawValue: unknown,
+  fieldPath: string,
+  redactedFields: string[],
+): string | undefined {
+  if (typeof rawValue !== 'string') return undefined;
+  const checked = sanitizeCapturedText(rawValue);
+  if (checked.redacted) redactedFields.push(fieldPath);
+  return checked.value;
+}
+
+function sanitizeNullableHeader(
+  rawValue: unknown,
+  fieldPath: string,
+  redactedFields: string[],
+): string | null | undefined {
+  if (rawValue === null) return null;
+  return sanitizeOptionalHeader(rawValue, fieldPath, redactedFields);
+}
+
 function sanitizeStorageRequestResource(
   raw: unknown,
 ): { resource: StorageRequestResource | undefined; redactedFields: string[] } {
@@ -170,39 +194,16 @@ function sanitizeStorageRequestResource(
   if (typeof raw.name === 'string') out.name = raw.name;
   if (typeof raw.bucket === 'string') out.bucket = raw.bucket;
 
-  if (typeof raw.contentType === 'string') {
-    const checked = sanitizeCapturedText(raw.contentType);
-    out.contentType = checked.value;
-    if (checked.redacted) redactedFields.push('request.resource.contentType');
-  }
-  if (raw.contentDisposition === null) {
-    out.contentDisposition = null;
-  } else if (typeof raw.contentDisposition === 'string') {
-    const checked = sanitizeCapturedText(raw.contentDisposition);
-    out.contentDisposition = checked.value;
-    if (checked.redacted) redactedFields.push('request.resource.contentDisposition');
-  }
-  if (raw.contentEncoding === null) {
-    out.contentEncoding = null;
-  } else if (typeof raw.contentEncoding === 'string') {
-    const checked = sanitizeCapturedText(raw.contentEncoding);
-    out.contentEncoding = checked.value;
-    if (checked.redacted) redactedFields.push('request.resource.contentEncoding');
-  }
-  if (raw.contentLanguage === null) {
-    out.contentLanguage = null;
-  } else if (typeof raw.contentLanguage === 'string') {
-    const checked = sanitizeCapturedText(raw.contentLanguage);
-    out.contentLanguage = checked.value;
-    if (checked.redacted) redactedFields.push('request.resource.contentLanguage');
-  }
-  if (raw.cacheControl === null) {
-    out.cacheControl = null;
-  } else if (typeof raw.cacheControl === 'string') {
-    const checked = sanitizeCapturedText(raw.cacheControl);
-    out.cacheControl = checked.value;
-    if (checked.redacted) redactedFields.push('request.resource.cacheControl');
-  }
+  const contentType = sanitizeOptionalHeader(raw.contentType, 'request.resource.contentType', redactedFields);
+  if (contentType !== undefined) out.contentType = contentType;
+  const contentDisposition = sanitizeNullableHeader(raw.contentDisposition, 'request.resource.contentDisposition', redactedFields);
+  if (contentDisposition !== undefined) out.contentDisposition = contentDisposition;
+  const contentEncoding = sanitizeNullableHeader(raw.contentEncoding, 'request.resource.contentEncoding', redactedFields);
+  if (contentEncoding !== undefined) out.contentEncoding = contentEncoding;
+  const contentLanguage = sanitizeNullableHeader(raw.contentLanguage, 'request.resource.contentLanguage', redactedFields);
+  if (contentLanguage !== undefined) out.contentLanguage = contentLanguage;
+  const cacheControl = sanitizeNullableHeader(raw.cacheControl, 'request.resource.cacheControl', redactedFields);
+  if (cacheControl !== undefined) out.cacheControl = cacheControl;
   if (raw.metadata === null || isPlainRecord(raw.metadata)) {
     const checked = sanitizeStorageMetadata(raw.metadata);
     if (checked.value !== undefined) out.metadata = checked.value;
@@ -232,11 +233,8 @@ function sanitizeStorageResource(
 
   if (typeof raw.name === 'string') out.name = raw.name;
   if (typeof raw.bucket === 'string') out.bucket = raw.bucket;
-  if (typeof raw.contentType === 'string') {
-    const checked = sanitizeCapturedText(raw.contentType);
-    out.contentType = checked.value;
-    if (checked.redacted) redactedFields.push('resource.contentType');
-  }
+  const contentType = sanitizeOptionalHeader(raw.contentType, 'resource.contentType', redactedFields);
+  if (contentType !== undefined) out.contentType = contentType;
   if (isPlainRecord(raw.metadata)) {
     const checked = sanitizeStorageMetadata(raw.metadata);
     if (checked.value !== null && checked.value !== undefined) out.metadata = checked.value;
@@ -250,6 +248,17 @@ function sanitizeStorageResource(
   if (typeof raw.metageneration === 'number' && Number.isFinite(raw.metageneration)) {
     out.metageneration = raw.metageneration;
   }
+  if (typeof raw.md5Hash === 'string') out.md5Hash = raw.md5Hash;
+  if (typeof raw.crc32c === 'string') out.crc32c = raw.crc32c;
+  if (typeof raw.etag === 'string') out.etag = raw.etag;
+  const contentDisposition = sanitizeOptionalHeader(raw.contentDisposition, 'resource.contentDisposition', redactedFields);
+  if (contentDisposition !== undefined) out.contentDisposition = contentDisposition;
+  const contentEncoding = sanitizeOptionalHeader(raw.contentEncoding, 'resource.contentEncoding', redactedFields);
+  if (contentEncoding !== undefined) out.contentEncoding = contentEncoding;
+  const contentLanguage = sanitizeOptionalHeader(raw.contentLanguage, 'resource.contentLanguage', redactedFields);
+  if (contentLanguage !== undefined) out.contentLanguage = contentLanguage;
+  const cacheControl = sanitizeOptionalHeader(raw.cacheControl, 'resource.cacheControl', redactedFields);
+  if (cacheControl !== undefined) out.cacheControl = cacheControl;
   return { resource: out, redactedFields };
 }
 

@@ -55,6 +55,7 @@ service cloud.firestore {
     await setDoc(doc(db, 'users', 'alice'), { role: 'editor' });
     await setDoc(doc(db, 'items', 'item1'), {
       ownerRef: doc(db, 'users', 'alice'),
+      note: '/databases/(default)/documents/users/alice',
     });
 
     const storageRulesSource = `rules_version = '2';
@@ -62,6 +63,8 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /files/{itemId} {
       allow write: if firestore.get(/databases/(default)/documents/items/$(itemId)).data.ownerRef is path
+        && firestore.get(/databases/(default)/documents/items/$(itemId)).data.note is string
+        && !(firestore.get(/databases/(default)/documents/items/$(itemId)).data.note is path)
         && firestore.get(/databases/(default)/documents/items/$(itemId)).data.ownerRef
            == /databases/(default)/documents/users/$(request.auth.uid)
         && firestore.get(
@@ -88,7 +91,7 @@ service firebase.storage {
     ]) {
       const docs: Record<string, Record<string, unknown>> = {
         'users/alice': { role: 'editor' },
-        'items/item1': { ownerRef },
+        'items/item1': { ownerRef, note: '/databases/(default)/documents/users/alice' },
       };
       const verdict = evaluateStorageRules(
         parsed,
@@ -162,7 +165,8 @@ service firebase.storage {
 }`);
     for (const defaultRefWithTrailingSlash of [
       { __type: 'ref', path: '/databases/(default)/documents/users/alice/' },
-      { path: '/databases/(default)/documents/users/alice/' },
+      { __type: 'reference', path: '/databases/(default)/documents/users/alice/' },
+      reference('/databases/(default)/documents/users/alice/'),
     ]) {
       const verdict = evaluateStorageRules(
         parsedTrailingSlashDefault,
@@ -172,12 +176,49 @@ service firebase.storage {
         },
         new Date('2026-01-01T00:00:00.000Z'),
         {
-          get: (p) => (p === 'items/item1' ? { ownerRef: defaultRefWithTrailingSlash } : null),
+          get: (p) => {
+            if (p === 'items/item1') return { ownerRef: defaultRefWithTrailingSlash };
+            return null;
+          },
           exists: (p) => p === 'items/item1',
         },
       );
       expect(verdict.allowed).toBe(true);
     }
+
+    const parsedUntaggedPathMap = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{itemId} {
+      allow get: if firestore.get(/databases/(default)/documents/items/$(itemId)).data.ownerRef is map
+        && firestore.get(/databases/(default)/documents/items/$(itemId)).data.ownerRef.path
+          == /databases/(default)/documents/users/alice
+        && firestore.get(/databases/(default)/documents/items/$(itemId)).data.note is string
+        && !(firestore.get(/databases/(default)/documents/items/$(itemId)).data.note is path);
+    }
+  }
+}`);
+    const mapVerdict = evaluateStorageRules(
+      parsedUntaggedPathMap,
+      {
+        request: { auth: { uid: 'alice' }, method: 'get', path: '/b/default-bucket/o/files/item1' },
+        resource: null,
+      },
+      new Date('2026-01-01T00:00:00.000Z'),
+      {
+        get: (p) => {
+          if (p === 'items/item1') {
+            return {
+              ownerRef: { path: reference('/databases/(default)/documents/users/alice/') },
+              note: '/databases/(default)/documents/users/alice',
+            };
+          }
+          return null;
+        },
+        exists: (p) => p === 'items/item1',
+      },
+    );
+    expect(mapVerdict.allowed).toBe(true);
 
     const parsedSlashedPathLookup = parseStorageRules(`rules_version = '2';
 service firebase.storage {

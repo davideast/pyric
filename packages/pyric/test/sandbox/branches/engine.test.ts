@@ -21,6 +21,7 @@ import {
   promote,
   type LocalSandbox,
 } from '../../../src/sandbox/index.js';
+import { getClock } from '../../../src/sandbox/clock.js';
 import { getInternalEnv } from '../../../src/sandbox/internal/sandbox-impl.js';
 import { getAdminStorageSandbox, getStorageRulesResolution } from '../../../src/storage/internal.js';
 import { getBytes, ref as storageRef, uploadBytes } from '../../../src/storage/index.js';
@@ -358,5 +359,85 @@ describe('the branch engine, across every service', () => {
     expect(forService(divergences, 'firestore').map((d) => 'path' in d && d.path)).toContain(
       'things/a',
     );
+  });
+
+  it('applies batch writes atomically so mutual existsAfter() succeeds and partial denials roll back', async () => {
+    const mutualRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read, create: if existsAfter(/databases/$(database)/documents/docs/$(id));
+    }
+    match /docs/{id} {
+      allow read, create: if existsAfter(/databases/$(database)/documents/items/$(id));
+    }
+  }
+}`;
+    const live = initializeSandbox();
+    getInternalEnv(live).seed({ rules: mutualRules, documents: {} });
+    const branchSameRules = await forkOf(live);
+    const branchDenySecond = await fork(
+      await captureFullState(live),
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} { allow read, create: if true; }
+    match /docs/{id} { allow read, create: if false; }
+  }
+}`,
+    );
+
+    const res = getInternalEnv(live).batch(
+      [
+        { method: 'set', path: 'items/i1', data: { count: 50 } },
+        { method: 'set', path: 'docs/i1', data: { active: true } },
+      ],
+      { uid: 'u1' },
+    );
+    expect(res.allowed).toBe(true);
+
+    apply(branchSameRules, live.history());
+    expect(getInternalEnv(branchSameRules.sandbox).snapshot()['items/i1']).toEqual({ count: 50 });
+    expect(getInternalEnv(branchSameRules.sandbox).snapshot()['docs/i1']).toEqual({ active: true });
+
+    apply(branchDenySecond, live.history());
+    expect(getInternalEnv(branchDenySecond.sandbox).snapshot()['items/i1']).toBeUndefined();
+    expect(getInternalEnv(branchDenySecond.sandbox).snapshot()['docs/i1']).toBeUndefined();
+  });
+
+  it('pins request.time on auto-ID creates during apply and remaps follow-up updates to the minted path', async () => {
+    const timeGatedRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if true;
+      allow create: if request.time < timestamp.date(2025, 6, 1);
+      allow update: if true;
+    }
+  }
+}`;
+    const live = initializeSandbox();
+    getInternalEnv(live).seed({ rules: timeGatedRules, documents: {} });
+    const branch = await forkOf(live);
+
+    getClock(live).set(Date.parse('2025-01-15T00:00:00Z'));
+    const created = getInternalEnv(live).createWithAutoId(
+      'items',
+      { status: 'draft' },
+      { uid: 'u1' },
+    );
+    expect(created.result.allowed).toBe(true);
+    getInternalEnv(live).execute({
+      method: 'update',
+      path: created.path,
+      data: { status: 'published' },
+      auth: { uid: 'u1' },
+    });
+
+    getClock(branch.sandbox).set(Date.parse('2027-01-01T00:00:00Z'));
+    apply(branch, live.history());
+
+    const docs = Object.values(getInternalEnv(branch.sandbox).snapshot());
+    expect(docs).toEqual([{ status: 'published' }]);
   });
 });

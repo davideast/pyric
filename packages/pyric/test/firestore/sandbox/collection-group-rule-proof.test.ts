@@ -124,4 +124,40 @@ describe('proveCollectionGroupRules', () => {
       allow list: if allowsSyntheticRoot();
     }`))).toBeNull();
   });
+
+  test('does not retain an unused shadowed path-dependent helper in a sibling block when another block calls an outer helper of the same name', () => {
+    const result = project(rules(`
+      function sharedHelper() { return request.auth != null; }
+      match /{document=**} {
+        allow list: if sharedHelper();
+      }
+      match /{path=**}/items/{id} {
+        function sharedHelper() { return path == 'users/u1'; }
+        allow list: if true;
+      }
+    `))!;
+
+    expect(result).not.toBeNull();
+    expect(result.service.match.functions.map((fn) => fn.name)).toEqual(['sharedHelper']);
+    expect(result.service.match.children[1]?.functions).toEqual([]);
+  });
+
+  test('projects collection-group rules from a second top-level match block that governs every document', () => {
+    const result = project(`rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents/tenants/t1 {
+          match /users/{uid} { allow read: if false; }
+        }
+        match /databases/{database}/documents {
+          function rootAllowed() { return request.auth != null; }
+          match /{path=**}/items/{id} {
+            allow list: if rootAllowed();
+          }
+        }
+      }`);
+
+    expect(result).not.toBeNull();
+    expect(result?.service.match.children[0]?.path.raw).toBe('/{path=**}/items/{id}');
+    expect(result?.service.match.functions.map((fn) => fn.name)).toEqual(['rootAllowed']);
+  });
 });

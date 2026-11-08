@@ -89,7 +89,7 @@ export interface RulesetScopes {
 /** Every function declaration and allow rule, each with the names its scope makes visible. */
 export function collectRulesetScopes(ast: FirestoreRules): RulesetScopes {
   const out: RulesetScopes = { functions: [], rules: [] };
-  const isStorage = ast.service?.name === 'firebase.storage';
+  const isStorage = ast.service?.name === 'firebase.storage' || ast.service?.name === 'cloud.storage';
   const globalFunctions = new Set(isStorage ? STORAGE_GLOBAL_FUNCTIONS : FIRESTORE_GLOBAL_FUNCTIONS);
   for (const imp of ast.imports ?? []) {
     const names = imp.functions ?? (imp as { names?: string[] }).names ?? [];
@@ -122,7 +122,9 @@ export function collectRulesetScopes(ast: FirestoreRules): RulesetScopes {
     }
     for (const child of match.children) walk(child, functions, captures);
   };
-  walk(ast.service.match, serviceScope, none);
+  for (const root of ast.service.matches ?? [ast.service.match]) {
+    walk(root, serviceScope, none);
+  }
   return out;
 }
 

@@ -1,6 +1,7 @@
 import type { FirestoreRules, FunctionDef, MatchBlock, PathSegment } from '../grammar/FirestoreAST.js';
 import type { PathResolutionEntry } from '../test/spec.js';
 import { recursiveWildcardMinimum } from '../grammar/recursive-wildcard-minimum.js';
+import { topLevelMatches } from '../grammar/service-blocks.js';
 import { collectMatches, renderMatchBlockPath, type MatchResult } from './match-resolution.js';
 import { DOCUMENT_PATH_FORM } from './request-path.js';
 
@@ -22,6 +23,8 @@ export function requestResourceName(documentPath: string): string {
 export interface RootMatch {
   /** The root's wildcard bindings, such as `database: '(default)'`. */
   bindings: Record<string, string>;
+  /** Recursive wildcard names (`{name=**}`) bound in `bindings`. */
+  recursiveVariables?: string[];
   /** The request segments the root's children match. */
   remaining: string[];
   /** Set when the root ends in a recursive wildcard. Its children then
@@ -39,9 +42,21 @@ export interface RootMatch {
  * version 1. Returns null when the root does not
  * apply to the request.
  */
-export function resolveRootMatch(ast: FirestoreRules, documentPath: string): RootMatch | null {
+export function resolveRootBlockMatch(
+  rootBlock: MatchBlock,
+  rulesVersion: string,
+  documentPath: string,
+): RootMatch | null {
   const request = [...REQUEST_PREFIX, ...splitPath(documentPath)];
-  return resolveRootSegments(ast.service.match.path.segments, request, recursiveWildcardMinimum(ast.version));
+  return resolveRootSegments(rootBlock.path.segments, request, recursiveWildcardMinimum(rulesVersion));
+}
+
+export function resolveRootMatch(ast: FirestoreRules, documentPath: string): RootMatch | null {
+  for (const rootBlock of topLevelMatches(ast.service)) {
+    const matched = resolveRootBlockMatch(rootBlock, ast.version, documentPath);
+    if (matched !== null) return matched;
+  }
+  return null;
 }
 
 function resolveRootSegments(
@@ -85,13 +100,26 @@ function resolveInnerRecursive(
   for (let end = start + minimum; end <= request.length; end++) {
     const tail = resolveRootSegments(rest, request.slice(end), minimum);
     if (tail) {
+      const tailRec = tail.recursiveVariables ?? [];
       return {
         ...tail,
         bindings: { ...bindings, [name]: request.slice(start, end).join('/'), ...tail.bindings },
+        recursiveVariables: [name, ...tailRec],
       };
     }
   }
   return null;
+}
+
+function collectRootRecursiveNames(root: RootMatch): string[] {
+  const names: string[] = [];
+  if (root.recursiveVariables !== undefined) {
+    names.push(...root.recursiveVariables);
+  }
+  if (root.recursiveTail !== undefined) {
+    names.push(root.recursiveTail.name);
+  }
+  return names;
 }
 
 /**
@@ -100,23 +128,54 @@ function resolveInnerRecursive(
  * full resource name, then the blocks under it. Returns an empty list when
  * the root does not apply, so the request is denied as production denies it.
  */
+function mergeRootFunctions(
+  enclosing: readonly FunctionDef[],
+  rootFunctions: readonly FunctionDef[],
+): FunctionDef[] {
+  const merged = [...enclosing];
+  for (const fn of rootFunctions) {
+    if (!merged.includes(fn)) {
+      merged.push(fn);
+    }
+  }
+  return merged;
+}
+
 export function collectRootMatches(
   ast: FirestoreRules,
   documentPath: string,
   functions: FunctionDef[],
   recorder?: { push(entry: PathResolutionEntry): void },
 ): MatchResult[] {
-  const root = resolveRootMatch(ast, documentPath);
-  if (!root) return [];
-  const tail = root.recursiveTail;
-  const children = tail
-    ? collectBelowRootRecursive(ast.service.match, tail.name, root.remaining, functions, ast.version, recorder)
-    : ast.service.match.children.flatMap((child) => collectMatches(child, root.remaining, functions, ast.version, recorder));
-  for (const result of children) {
-    result.pathVariables = { ...root.bindings, ...result.pathVariables };
+  const allMatches: MatchResult[] = [];
+  for (const rootBlock of topLevelMatches(ast.service)) {
+    const root = resolveRootBlockMatch(rootBlock, ast.version, documentPath);
+    if (!root) continue;
+    const blockFunctions = mergeRootFunctions(functions, rootBlock.functions);
+    const tail = root.recursiveTail;
+    let children: MatchResult[];
+    if (tail) {
+      children = collectBelowRootRecursive(rootBlock, tail.name, root.remaining, blockFunctions, ast.version, recorder);
+    } else {
+      children = rootBlock.children.flatMap((child) =>
+        collectMatches(child, root.remaining, blockFunctions, ast.version, recorder),
+      );
+    }
+    const rootRecVars = collectRootRecursiveNames(root);
+    for (const result of children) {
+      result.pathVariables = { ...root.bindings, ...result.pathVariables };
+      if (rootRecVars.length > 0) {
+        const childRec = result.recursiveVariables ?? [];
+        result.recursiveVariables = [...rootRecVars, ...childRec];
+      }
+    }
+    const own = rootBlockMatch(rootBlock, ast.version, root, blockFunctions);
+    if (own) {
+      allMatches.push(own);
+    }
+    allMatches.push(...children);
   }
-  const own = rootBlockMatch(ast, root, functions);
-  return own ? [own, ...children] : children;
+  return allMatches;
 }
 
 /**
@@ -131,15 +190,33 @@ export function collectRootMatches(
  * its children, and its own rules grant nothing (capture
  * `c4b-root-documents-own-allow`).
  */
-function rootBlockMatch(ast: FirestoreRules, root: RootMatch, functions: FunctionDef[]): MatchResult | null {
+function rootBlockMatch(
+  block: MatchBlock,
+  rulesVersion: string,
+  root: RootMatch,
+  functions: FunctionDef[],
+): MatchResult | null {
   const tail = root.recursiveTail;
-  const reachesTheDocument = tail
-    ? root.remaining.length >= recursiveWildcardMinimum(ast.version)
-    : root.remaining.length === 0;
+  let reachesTheDocument = root.remaining.length === 0;
+  if (tail) {
+    reachesTheDocument = root.remaining.length >= recursiveWildcardMinimum(rulesVersion);
+  }
   if (!reachesTheDocument) return null;
-  const pathVariables = tail ? { ...root.bindings, [tail.name]: root.remaining.join('/') } : root.bindings;
-  const block = ast.service.match;
-  return { block, pathVariables, candidateVariables: rootCandidateVariables(block, root), functions };
+  let pathVariables: Record<string, string> = root.bindings;
+  if (tail) {
+    pathVariables = { ...root.bindings, [tail.name]: root.remaining.join('/') };
+  }
+  const recursiveVariables = collectRootRecursiveNames(root);
+  const result: MatchResult = {
+    block,
+    pathVariables,
+    candidateVariables: rootCandidateVariables(block, root),
+    functions,
+  };
+  if (recursiveVariables.length > 0) {
+    result.recursiveVariables = recursiveVariables;
+  }
+  return result;
 }
 
 /** The root wildcard that binds the request's last segment, the candidate
@@ -190,16 +267,22 @@ function collectBelowRootRecursive(
  * version 1 a recursive wildcard needs a segment, so one right after
  * `documents` misses the top-level documents and does not govern them all.
  */
-export function rootGovernsEveryDocument(ast: FirestoreRules): boolean {
-  const root = resolveRootMatch(ast, '');
+export function rootBlockGovernsEveryDocument(rootBlock: MatchBlock, rulesVersion: string): boolean {
+  const root = resolveRootBlockMatch(rootBlock, rulesVersion, '');
   if (!root) return false;
   const endsAtDocuments = root.recursiveTail === undefined && root.remaining.length === 0;
   // `remaining` is what the empty document path leaves the tail: under
   // `/databases/{db}/{rest=**}` it is `documents`, under
   // `/databases/{db}/documents/{rest=**}` nothing.
-  const tailHasItsSegments = root.remaining.length >= recursiveWildcardMinimum(ast.version);
+  const tailHasItsSegments = root.remaining.length >= recursiveWildcardMinimum(rulesVersion);
   const tailReachesEveryDocument = root.recursiveTail !== undefined && tailHasItsSegments;
   return endsAtDocuments || tailReachesEveryDocument;
+}
+
+export function rootGovernsEveryDocument(ast: FirestoreRules): boolean {
+  return topLevelMatches(ast.service).some((rootBlock) =>
+    rootBlockGovernsEveryDocument(rootBlock, ast.version),
+  );
 }
 
 /** The notes for a request no match block resolves: the root names the
@@ -209,8 +292,13 @@ export function noMatchNotes(ast: FirestoreRules, documentPath: string): string[
   if (rootApplies) {
     return [`No match block found for path '${documentPath}', so the request is denied by default.`, DOCUMENT_PATH_FORM];
   }
-  const rootPath = renderMatchBlockPath(ast.service.match);
-  return [`The root match '${rootPath}' does not match '${requestResourceName(documentPath)}', so no match block applies and the request is denied.`];
+  const roots = topLevelMatches(ast.service);
+  if (roots.length <= 1) {
+    const rootPath = renderMatchBlockPath(ast.service.match);
+    return [`The root match '${rootPath}' does not match '${requestResourceName(documentPath)}', so no match block applies and the request is denied.`];
+  }
+  const rootPaths = roots.map((r) => `'${renderMatchBlockPath(r)}'`).join(', ');
+  return [`None of the root matches (${rootPaths}) match '${requestResourceName(documentPath)}', so no match block applies and the request is denied.`];
 }
 
 function splitPath(path: string): string[] {

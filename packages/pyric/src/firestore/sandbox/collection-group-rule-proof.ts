@@ -3,7 +3,12 @@ import type {
   FunctionDef,
   MatchBlock,
 } from 'pyric/rules/internal';
-import { rootGovernsEveryDocument } from 'pyric/rules/internal';
+import {
+  indexRulesetScopes,
+  rootBlockGovernsEveryDocument,
+  rootGovernsEveryDocument,
+  topLevelMatches,
+} from 'pyric/rules/internal';
 import {
   analyzeListRulePathInvariance,
   buildListRuleFunctionScope,
@@ -32,21 +37,35 @@ export function proveCollectionGroupRules(
 ): FirestoreRules | null {
   if (!ast) return null;
   if (!rootGovernsEveryDocument(ast)) return null;
+  indexRulesetScopes(ast);
 
-  const outerFunctions = [
+  const serviceFunctions = [
     ...(ast.functions ?? []),
     ...(ast.service.functions ?? []),
-    ...ast.service.match.functions,
   ];
-  const requiredFunctions = new Set<string>();
-  const children = ast.service.match.children.flatMap((block) => {
-    const projected = projectGroupBlock(block, collectionId, outerFunctions, requiredFunctions);
-    return projected ? [projected] : [];
-  });
-  if (children.length === 0) return null;
-
+  const requiredFunctionDefs = new Set<FunctionDef>();
   const retainRequired = (functions: readonly FunctionDef[] | undefined): FunctionDef[] | undefined =>
-    functions?.filter((fn) => requiredFunctions.has(fn.name));
+    functions?.filter((fn) => requiredFunctionDefs.has(fn));
+
+  const projectedRoots: MatchBlock[] = [];
+  for (const rootBlock of topLevelMatches(ast.service)) {
+    if (!rootBlockGovernsEveryDocument(rootBlock, ast.version)) continue;
+    const outerFunctions = [...serviceFunctions, ...rootBlock.functions];
+    const children: MatchBlock[] = [];
+    for (const block of rootBlock.children) {
+      const projected = projectGroupBlock(block, collectionId, outerFunctions, requiredFunctionDefs);
+      if (projected) {
+        children.push(projected);
+      }
+    }
+    if (children.length === 0) continue;
+    projectedRoots.push({
+      ...rootBlock,
+      functions: retainRequired(rootBlock.functions) ?? [],
+      children,
+    });
+  }
+  if (projectedRoots.length === 0) return null;
 
   return {
     ...ast,
@@ -54,11 +73,8 @@ export function proveCollectionGroupRules(
     service: {
       ...ast.service,
       functions: retainRequired(ast.service.functions),
-      match: {
-        ...ast.service.match,
-        functions: retainRequired(ast.service.match.functions) ?? [],
-        children,
-      },
+      match: projectedRoots[0]!,
+      matches: projectedRoots,
     },
   };
 }
@@ -82,12 +98,13 @@ function projectGroupBlock(
   block: MatchBlock,
   collectionId: string,
   outerFunctions: readonly FunctionDef[],
-  requiredFunctions: Set<string>,
+  requiredFunctionDefs: Set<FunctionDef>,
 ): MatchBlock | null {
   const bound = groupBindings(block, collectionId);
   if (!bound) return null;
 
   const functionScope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
+  const blockRequiredDefs = new Set<FunctionDef>();
 
   const allows = block.allows.filter((rule) => {
     if (!rule.operations.some((operation) => operation === 'list' || operation === 'read')) {
@@ -100,7 +117,13 @@ function projectGroupBlock(
       functionScope.ambiguousNames,
     );
     if (analysis.pathInvariant) {
-      for (const name of analysis.requiredFunctions) requiredFunctions.add(name);
+      for (const fnDef of analysis.requiredFunctionDefs) {
+        if (block.functions.includes(fnDef)) {
+          blockRequiredDefs.add(fnDef);
+        } else {
+          requiredFunctionDefs.add(fnDef);
+        }
+      }
     }
     return analysis.pathInvariant;
   });
@@ -108,7 +131,7 @@ function projectGroupBlock(
 
   return {
     ...block,
-    functions: block.functions.filter((fn) => requiredFunctions.has(fn.name)),
+    functions: block.functions.filter((fn) => blockRequiredDefs.has(fn)),
     allows,
     children: [],
   };

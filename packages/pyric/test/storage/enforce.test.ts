@@ -6,7 +6,7 @@ import {
   getStorageSandbox, ref, uploadBytes, getBlob, deleteObject,
   getMetadata, updateMetadata,
 } from '../../src/storage/index.js';
-import { getAdminStorageSandbox } from '../../src/storage/internal.js';
+import { getAdminStorageSandbox, normalizeRecordedStorageDeniedWrite } from '../../src/storage/internal.js';
 
 function uniqueDbName(label: string): string {
   return `pyric-storage-test-${label}-${Math.random().toString(36).slice(2, 10)}`;
@@ -760,5 +760,31 @@ service firebase.storage {
     const message = await denial(storage);
     expect(message).toEndWith('No Storage rules configured; default deny.');
     expect(message).not.toContain('..');
+  });
+});
+
+describe('resource content header PII redaction', () => {
+  it('redacts email addresses in resource content headers and records redactedFields', () => {
+    const sanitized = normalizeRecordedStorageDeniedWrite({
+      resource: {
+        size: 12,
+        contentDisposition: 'attachment; filename="bob@example.com"',
+        contentEncoding: 'identity; bob@example.com',
+        contentLanguage: 'en; bob@example.com',
+        cacheControl: 'private, comment="bob@example.com"',
+      },
+    });
+    expect(sanitized).toBeDefined();
+    expect(sanitized!.redacted).toBe(true);
+    expect(sanitized!.resource?.contentDisposition).toBe('attachment; filename="[email]"');
+    expect(sanitized!.resource?.contentEncoding).toBe('identity; [email]');
+    expect(sanitized!.resource?.contentLanguage).toBe('en; [email]');
+    expect(sanitized!.resource?.cacheControl).toBe('private, comment="[email]"');
+    expect(sanitized!.redactedFields).toEqual([
+      'resource.contentDisposition',
+      'resource.contentEncoding',
+      'resource.contentLanguage',
+      'resource.cacheControl',
+    ]);
   });
 });

@@ -36,6 +36,8 @@ export interface ServiceBlock {
    *  programmatically. */
   functions?: FunctionDef[];
   match: MatchBlock;
+  /** All top-level match blocks in source order (`match` is `matches[0]`). */
+  matches?: MatchBlock[];
   loc?: SourceLoc;
 }
 

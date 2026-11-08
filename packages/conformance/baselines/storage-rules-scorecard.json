@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 122,
+    "numerator": 127,
     "denominator": 140,
-    "ratio": 0.8714285714285714,
-    "percent": 87.1
+    "ratio": 0.9071428571428571,
+    "percent": 90.7
   },
   "axes": {
     "productionAcceptance": {
@@ -174,19 +174,19 @@
       "unprobeable": 11
     },
     "productionEvidence": {
-      "verified": 122,
-      "diverged": 14,
+      "verified": 134,
+      "diverged": 2,
       "unverified": 4
     }
   },
   "counts": {
-    "conformant": 122,
-    "diverged": 14,
+    "conformant": 127,
+    "diverged": 2,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
     "local-error": 0,
-    "unprobeable": 4
+    "unprobeable": 11
   },
   "constructs": {
     "storage.binding.request": {
@@ -212,6 +212,7 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "h1-auth-token-default",
+        "h1-in-is-precedence-deploy",
         "h1-int64-precision",
         "h1-lookup-interpolated-slash",
         "in-membership-and-proto-keys",
@@ -307,19 +308,18 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "common-auth-membership",
         "h1-auth-token-default",
         "metadata-verbs-and-arithmetic"
       ],
       "verifiedByRows": [
-        "storage-rules#125"
-      ],
-      "divergedByRows": [
+        "storage-rules#125",
         "storage-rules#210"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.binding.request.resource": {
       "productionAcceptance": "accepted",
@@ -339,6 +339,7 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-in-is-precedence-deploy",
         "h1-int64-precision",
         "h1-lookup-interpolated-slash",
         "in-membership-and-proto-keys",
@@ -374,6 +375,7 @@
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "functions-let-scope",
+        "h1-in-is-precedence-deploy",
         "in-membership-and-proto-keys",
         "metadata-verbs-and-arithmetic",
         "stdlib-storage-modules",
@@ -656,7 +658,9 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "h1-auth-token-default",
+        "h1-deploy-cloud-storage-service",
         "h1-in-is-precedence",
+        "h1-in-is-precedence-deploy",
         "h1-int64-precision",
         "h1-lookup-interpolated-slash",
         "h1-regex-re2-classes",
@@ -682,6 +686,7 @@
         "stdlib-timestamp-duration",
         "storage-lookup-path-interpolation",
         "storage-named-bucket-binding",
+        "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "type-checks-is",
@@ -827,105 +832,105 @@
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "unprobeable",
       "verifiedBy": [
         "h1-resource-unmodeled-fields"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#205"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.binding.resource.crc32c": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "unprobeable",
       "verifiedBy": [
         "h1-resource-unmodeled-fields"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#205"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.binding.resource.etag": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "unprobeable",
       "verifiedBy": [
         "h1-resource-unmodeled-fields"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#205"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.binding.resource.contentDisposition": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "unprobeable",
       "verifiedBy": [
         "h1-resource-unmodeled-fields"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#205"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.binding.resource.contentEncoding": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "unprobeable",
       "verifiedBy": [
         "h1-resource-unmodeled-fields"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#205"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.binding.resource.contentLanguage": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "unprobeable",
       "verifiedBy": [
         "h1-resource-unmodeled-fields"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#205"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.binding.resource.cacheControl": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "unprobeable",
       "verifiedBy": [
         "h1-resource-unmodeled-fields"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#205"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.function.timestamp.date": {
       "productionAcceptance": "accepted",
@@ -1429,8 +1434,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "h1-regex-re2-classes",
         "matches-regex",
@@ -1442,11 +1447,10 @@
       "verifiedByRows": [
         "storage-rules#126",
         "storage-rules#132",
-        "storage-rules#storage.stdlib.string-methods"
-      ],
-      "divergedByRows": [
+        "storage-rules#storage.stdlib.string-methods",
         "storage-rules#204"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.method.size": {
       "productionAcceptance": "accepted",
@@ -2339,6 +2343,7 @@
         "functions-let-scope",
         "h1-auth-token-default",
         "h1-in-is-precedence",
+        "h1-in-is-precedence-deploy",
         "h1-int64-precision",
         "h1-lookup-interpolated-slash",
         "h1-resource-unmodeled-fields",
@@ -2762,6 +2767,7 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "h1-auth-token-default",
+        "h1-in-is-precedence-deploy",
         "h1-int64-precision",
         "h1-lookup-interpolated-slash",
         "h1-resource-unmodeled-fields",
@@ -2839,14 +2845,15 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
         "bytes-literal",
         "conversion-functions",
         "h1-auth-token-default",
+        "h1-in-is-precedence-deploy",
         "h1-v1-recursive-wildcard",
         "math-namespace",
         "st3-case-mapping",
@@ -2859,11 +2866,10 @@
         "storage-rules#121",
         "storage-rules#126",
         "storage-rules#132",
-        "storage-rules#storage.stdlib.timestamp-duration"
-      ],
-      "divergedByRows": [
+        "storage-rules#storage.stdlib.timestamp-duration",
         "storage-rules#208"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.in": {
       "productionAcceptance": "accepted",
@@ -2874,13 +2880,14 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "bytes-literal",
         "common-auth-membership",
         "error-absorption-and-direction",
         "h1-in-is-precedence",
+        "h1-in-is-precedence-deploy",
         "in-membership-and-proto-keys",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -2890,11 +2897,10 @@
         "storage-rules#120",
         "storage-rules#125",
         "storage-rules#132",
-        "storage-rules#storage.stdlib.sets"
-      ],
-      "divergedByRows": [
+        "storage-rules#storage.stdlib.sets",
         "storage-rules#208"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.ternary": {
       "productionAcceptance": "accepted",
@@ -2985,12 +2991,14 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-deploy-cloud-storage-service",
         "h1-v1-recursive-wildcard",
         "list-map-literals-and-slice",
         "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "storage-named-bucket-binding",
+        "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "verbs-umbrella-granular",
@@ -3097,6 +3105,7 @@
         "functions-let-scope",
         "h1-auth-token-default",
         "h1-in-is-precedence",
+        "h1-in-is-precedence-deploy",
         "h1-int64-precision",
         "h1-lookup-interpolated-slash",
         "h1-regex-re2-classes",
@@ -3184,8 +3193,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
@@ -3199,7 +3208,9 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "h1-auth-token-default",
+        "h1-deploy-cloud-storage-service",
         "h1-in-is-precedence",
+        "h1-in-is-precedence-deploy",
         "h1-int64-precision",
         "h1-lookup-interpolated-slash",
         "h1-regex-re2-classes",
@@ -3225,6 +3236,7 @@
         "stdlib-timestamp-duration",
         "storage-lookup-path-interpolation",
         "storage-named-bucket-binding",
+        "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "type-checks-is",
@@ -3233,11 +3245,11 @@
         "xref-root-literal-bucket",
         "xref-shared-language-semantics"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#214",
         "storage-rules#217"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.rule-kind.function": {
       "productionAcceptance": "accepted",
@@ -3308,7 +3320,9 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "h1-auth-token-default",
+        "h1-deploy-cloud-storage-service",
         "h1-in-is-precedence",
+        "h1-in-is-precedence-deploy",
         "h1-int64-precision",
         "h1-lookup-interpolated-slash",
         "h1-regex-re2-classes",
@@ -3333,6 +3347,7 @@
         "stdlib-timestamp-duration",
         "storage-lookup-path-interpolation",
         "storage-named-bucket-binding",
+        "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "type-checks-is",
@@ -3363,12 +3378,14 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-deploy-cloud-storage-service",
         "h1-v1-recursive-wildcard",
         "list-map-literals-and-slice",
         "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "storage-named-bucket-binding",
+        "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "verbs-umbrella-granular",
@@ -3415,6 +3432,7 @@
         "h1-v1-recursive-wildcard",
         "metadata-verbs-and-arithmetic",
         "storage-lookup-path-interpolation",
+        "storage-two-top-level-bucket-matches",
         "xref-root-literal-bucket"
       ],
       "verifiedByRows": [

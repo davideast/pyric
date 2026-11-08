@@ -47,6 +47,19 @@ function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateRe
     path: absolutePath([...base, ...rtdbPathSegments(key)]),
     value,
   }));
+  if (updates.length === 0) {
+    return {
+      success: true,
+      data: {
+        allowed: true,
+        matchedPath: absolutePath(base),
+        matchedRule: '',
+        reason: 'An empty update writes no paths and resolves without evaluating rules.',
+        pathVariableBindings: {},
+        trace: [],
+      },
+    };
+  }
 
   let allowed: Extract<SimulateResult, { success: true }> | undefined;
   let validateDeny: { result: Extract<SimulateResult, { success: true }>; validates: RtdbRuleEvaluation[] } | undefined;

@@ -33,6 +33,7 @@ type MethodCall = Extract<Expr, { kind: 'methodcall' }>;
  */
 function wrapFirestoreValue(val: unknown): unknown {
   if (val === null || val === undefined) return val;
+  if (typeof val === 'string') return val;
   if (typeof val === 'number') return hostNumber(val);
   if (val instanceof Date) {
     return Timestamp.fromMillis(val.getTime());
@@ -96,9 +97,6 @@ function wrapFirestoreValue(val: unknown): unknown {
       (keys.length === 2 && typeof lat === 'number' && typeof lng === 'number')
     ) {
       return new StorageLatLng(lat, lng);
-    }
-    if (keys.length === 1 && typeof obj.path === 'string' && obj.path.startsWith('/databases/')) {
-      return new StoragePath(obj.path.length > 1 ? obj.path.replace(/\/+$/, '') : obj.path);
     }
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj)) {
