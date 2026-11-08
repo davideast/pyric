@@ -7,7 +7,7 @@ import { builtinCall } from './builtins.js';
 import type { Evaluator } from './evaluator.js';
 import { typeofLeaf, unwrapExpr } from './operators.js';
 import { expressionName, functionName } from './paths.js';
-import { apiCall } from './sdk-models.js';
+import { apiCall, apiNew } from './sdk-models.js';
 import {
   alternatives,
   definiteTruthiness,
@@ -26,6 +26,17 @@ export type FunctionLike = ts.SignatureDeclaration & { body?: ts.ConciseBody };
 function sameCallArgs(a: AVal[], b: AVal[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((x, i) => x === b[i]);
+}
+
+function markCallerHandles(v: AVal): AVal {
+  if (v.k === 'db') {
+    if (v.fromCallers) return v;
+    return { ...v, fromCallers: true };
+  }
+  if (v.k === 'union') {
+    return union(v.alts.map(markCallerHandles));
+  }
+  return v;
 }
 
 export class CallInliner {
@@ -64,6 +75,7 @@ export class CallInliner {
   evalNew(node: ts.NewExpression, env: Env | undefined): AVal {
     const callee = this.ev.force(this.ev.eval(node.expression, env));
     if (callee.k === 'class') return { k: 'instance', decl: callee.decl };
+    if (callee.k === 'api') return apiNew(this.ev, callee, node, env);
     const builtin = builtinCall(this.ev, node, env);
     return builtin ?? unknown(`new ${expressionName(node.expression)}()`);
   }
@@ -84,7 +96,8 @@ export class CallInliner {
 
   private bindValues(fn: Extract<AVal, { k: 'fn' }>, args: AVal[]): Env {
     const bindings = new Map<ts.Symbol, AVal>();
-    const env: Env = { bindings, parent: fn.env };
+    const initialBindings = new Map<ts.Symbol, AVal>();
+    const env: Env = { bindings, parent: fn.env, initialBindings };
     fn.decl.parameters.forEach((p, i) => {
       let v: AVal;
       if (p.dotDotDotToken) {
@@ -99,8 +112,11 @@ export class CallInliner {
       this.ev.assignments.bindName(p.name, v, bindings);
     });
     for (const [sym, boundVal] of [...bindings.entries()]) {
+      const callerVal = markCallerHandles(boundVal);
+      initialBindings.set(sym, callerVal);
       const decl = sym.valueDeclaration ?? sym.declarations?.[0];
-      if (decl) bindings.set(sym, this.ev.assignments.applyReassignments(sym, decl, boundVal, env));
+      if (decl) bindings.set(sym, this.ev.assignments.applyReassignments(sym, decl, callerVal, env));
+      else bindings.set(sym, callerVal);
     }
     return env;
   }

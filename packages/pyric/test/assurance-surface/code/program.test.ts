@@ -48,4 +48,28 @@ describe('buildPrograms', () => {
     const scanned = programs.flatMap((p) => p.files.map((f) => f.fileName));
     expect(scanned.filter((f) => f.endsWith('shared/s.ts'))).toHaveLength(1);
   });
+
+  test('builds in-memory programs with tsconfig path aliases when globalThis.process is undefined', () => {
+    const holder = globalThis as Record<string, unknown>;
+    const savedProcess = holder.process;
+    delete holder.process;
+    try {
+      const programs = buildPrograms('app', {
+        'tsconfig.json': JSON.stringify({
+          compilerOptions: { baseUrl: '.', paths: { '@lib/*': ['src/lib/*'] } },
+          include: ['src'],
+        }),
+        'src/lib/org.ts': `export const ORG = 'orgs';`,
+        'src/entry.ts': `import { ORG } from '@lib/org'; export const target = ORG;`,
+      }, []);
+      expect(programs).toHaveLength(1);
+      expect(programs[0].config).toBe('tsconfig.json');
+      const entry = programs[0].program.getSourceFile('/app/src/entry.ts')!;
+      const importDecl = entry.statements[0] as ts.ImportDeclaration;
+      const sym = programs[0].checker.getSymbolAtLocation(importDecl.moduleSpecifier);
+      expect(sym?.valueDeclaration?.getSourceFile().fileName).toBe('/app/src/lib/org.ts');
+    } finally {
+      holder.process = savedProcess;
+    }
+  });
 });

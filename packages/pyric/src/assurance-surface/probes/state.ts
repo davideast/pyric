@@ -4,13 +4,13 @@
  * users already sign their records with.
  */
 import { isWriteOp } from '../code/operation-specs.js';
-import type { AccessSite, PayloadField } from '../code/types.js';
+import type { AccessService, AccessSite, PayloadField } from '../code/types.js';
 import {
   coversPattern,
   matchesConcrete,
   parseResourcePattern,
   resourceShapeKey,
-} from '../../sandbox/internal/index.js';
+} from '../../sandbox/internal/resource-pattern.js';
 import { attributionFields, uidFields } from './fixtures.js';
 import type { WorldState } from './world.js';
 
@@ -20,8 +20,8 @@ export interface StateRecord {
 }
 
 /** Records in the seed whose path matches a template (variables match any key). */
-export function recordsAt(service: 'firestore' | 'rtdb', template: string, state: WorldState | undefined): StateRecord[] {
-  if (!state) return [];
+export function recordsAt(service: AccessService, template: string, state: WorldState | undefined): StateRecord[] {
+  if (!state || service === 'storage') return [];
   const pattern = parseResourcePattern(service, template);
   if (service === 'firestore') {
     const out: StateRecord[] = [];
@@ -115,7 +115,7 @@ export function attributionValuesAt(site: AccessSite, field: string, state: Worl
     .filter((v): v is string => typeof v === 'string');
 }
 
-function kindOf(v: unknown): import('../code/types.js').PayloadField['kind'] {
+function kindOf(v: unknown): PayloadField['kind'] {
   if (v === null) return 'null';
   if (Array.isArray(v)) return 'array';
   if (typeof v === 'string') return 'string';
@@ -170,7 +170,7 @@ export function sitesFromState(state: WorldState | undefined, uids: string[]): A
     entry.docs++;
     for (const [name, v] of Object.entries(data as Record<string, unknown>)) {
       if (!entry.site.payload!.fields.some(f => f.name === name)) {
-         const f: import('../code/types.js').PayloadField = { name, kind: kindOf(v) };
+         const f: PayloadField = { name, kind: kindOf(v) };
          if (typeof v === 'string' && users.has(v)) f.auth = [{ source: 'auth.uid', certainty: 'exact' }];
          entry.site.payload!.fields.push(f);
       }
@@ -271,13 +271,14 @@ export function rtdbReadOnlySitesFromState(sites: AccessSite[], state: WorldStat
       }
     }
 
+    const priorVars = s.pathVariables ?? [];
     out.push({
       path: itemTemplate,
       service: 'rtdb',
       op: 'set',
       source: `seed:${records[0].path}`,
       resolution: 'resolved',
-      pathVariables: [...(s.pathVariables ?? []), { name: 'itemId' }],
+      pathVariables: [...priorVars, { name: 'itemId' }],
       payload: { kind: 'object', fields, open: false },
     });
   }

@@ -53,10 +53,10 @@ export function typeofLeaf(a: AVal): AVal {
     case 'db':
     case 'auth':
     case 'authUser':
+    case 'authTokenResult':
+    case 'authClaims':
     case 'credential':
-    case 'batch':
-    case 'tx':
-    case 'onDisconnect':
+    case 'receiver':
     case 'constraint':
     case 'ns':
       return lit('object');
@@ -230,10 +230,10 @@ function jsEqKind(a: AVal): JsEqKind {
     case 'db':
     case 'auth':
     case 'authUser':
+    case 'authTokenResult':
+    case 'authClaims':
     case 'credential':
-    case 'batch':
-    case 'tx':
-    case 'onDisconnect':
+    case 'receiver':
     case 'constraint':
     case 'ns':
       return 'obj';

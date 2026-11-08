@@ -8,10 +8,12 @@
  * is. Nothing is dropped: a call the extractor recognises but can't trace
  * is reported with `resolution: 'unresolved'` and a reason.
  */
+import type { AssuranceService } from '../../sandbox/internal/resource-pattern.js';
 import type { EmbeddedRules } from './embedded-rules.js';
+import type { SdkServiceModel } from './service-models/types.js';
 
-/** Which database a site touches. */
-export type AccessService = 'firestore' | 'rtdb';
+/** Which service a site touches. */
+export type AccessService = AssuranceService;
 
 /**
  * How completely the extractor traced a site.
@@ -36,7 +38,8 @@ export type AuthSource =
   | 'auth.displayName'
   | 'auth.email'
   | 'auth.photoURL'
-  | 'auth.phoneNumber';
+  | 'auth.phoneNumber'
+  | `auth.token.${string}`;
 
 /**
  * Provenance attached to a path variable or a payload field.
@@ -178,6 +181,8 @@ export interface ExtractAccessSitesOptions {
   serverRoots?: string[];
   /** Presets to apply on top of the built-in Firebase Web preset. */
   presets?: AccessPreset[];
+  /** Additional declarative SDK service models registered alongside Firestore and RTDB. */
+  serviceModels?: readonly SdkServiceModel[];
   /** Include read sites (`get`, `query`, listeners). Defaults to true. */
   includeReads?: boolean;
 }

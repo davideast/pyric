@@ -1,135 +1,78 @@
 /**
- * Recognised Firestore and Realtime Database SDK operations, batch/transaction
- * methods, and `onDisconnect` methods, plus call-name helpers.
+ * Declarative operation index derived from registered {@link SdkServiceModel}s,
+ * plus call-name and write-classification helpers.
  */
 import ts from 'typescript';
+import { DEFAULT_SERVICE_MODELS } from './sdk-imports.js';
+import type { OpSpec, SdkServiceModel } from './service-models/types.js';
+import type { AccessService } from './types.js';
 
-export interface OpSpec {
-  op: string;
-  /** Index of the written value, if any. */
-  data?: number;
-  /** Index of an options argument (`setDoc(ref, data, { merge })`). */
-  options?: number;
-  /** `get` that becomes `query` for collection refs and queries. */
-  readKind?: boolean;
-  listen?: boolean;
-  /** Segment appended to the ref (`addDoc`, `push`). */
-  append?: string;
-  /** Minimum argument count for the call to be a write (`push(ref)` alone only makes a key). */
-  minArgs?: number;
-}
+export type { OpSpec } from './service-models/types.js';
 
 /** One recognised SDK operation call and how to re-evaluate it. */
 export interface OpCall {
   call: ts.CallExpression;
-  service: import('./types.js').AccessService;
+  service: AccessService;
   spec: OpSpec;
   via?: 'batch' | 'transaction';
-  /** For `onDisconnect(ref).set(...)`: the receiver whose value carries the ref. */
-  disconnectReceiver?: ts.Expression;
+  /** For receiver-bound operations (`onDisconnect(ref).set(...)`): the receiver whose value carries the ref. */
+  receiverExpr?: ts.Expression;
 }
 
-export const FIRESTORE_OPS: Record<string, OpSpec> = {
-  setDoc: { op: 'setDoc', data: 1, options: 2 },
-  addDoc: { op: 'addDoc', data: 1, append: 'autoId' },
-  updateDoc: { op: 'updateDoc', data: 1 },
-  deleteDoc: { op: 'deleteDoc' },
-  getDoc: { op: 'get', readKind: true },
-  getDocFromCache: { op: 'get', readKind: true },
-  getDocFromServer: { op: 'get', readKind: true },
-  getDocs: { op: 'query', readKind: true },
-  getDocsFromCache: { op: 'query', readKind: true },
-  getDocsFromServer: { op: 'query', readKind: true },
-  getCountFromServer: { op: 'query', readKind: true },
-  getAggregateFromServer: { op: 'query', readKind: true },
-  getCount: { op: 'query', readKind: true },
-  getAggregate: { op: 'query', readKind: true },
-  onSnapshot: { op: 'get', readKind: true, listen: true },
-};
+export interface TransactionMethodEntry {
+  readonly service: AccessService;
+  readonly spec: OpSpec;
+}
 
-export const RTDB_OPS: Record<string, OpSpec> = {
-  set: { op: 'set', data: 1 },
-  setWithPriority: { op: 'set', data: 1 },
-  update: { op: 'update', data: 1 },
-  remove: { op: 'remove' },
-  push: { op: 'push', data: 1, append: 'pushId', minArgs: 2 },
-  setPriority: { op: 'setPriority' },
-  runTransaction: { op: 'transaction' },
-  get: { op: 'get', readKind: true },
-  onValue: { op: 'get', readKind: true, listen: true },
-  onChildAdded: { op: 'get', readKind: true, listen: true },
-  onChildChanged: { op: 'get', readKind: true, listen: true },
-  onChildRemoved: { op: 'get', readKind: true, listen: true },
-  onChildMoved: { op: 'get', readKind: true, listen: true },
-};
+export interface OperationIndex {
+  readonly apiNames: ReadonlySet<string>;
+  readonly methodNames: ReadonlySet<string>;
+  readonly transactionMethods: ReadonlyMap<string, readonly TransactionMethodEntry[]>;
+  readonly writeOps: ReadonlySet<string>;
+}
 
-export const BATCH_METHODS: Record<string, OpSpec> = {
-  set: { op: 'setDoc', data: 1, options: 2 },
-  update: { op: 'updateDoc', data: 1 },
-  delete: { op: 'deleteDoc' },
-};
+/** Build fast call-site filter sets from declarative service models. */
+export function buildOperationIndex(models: readonly SdkServiceModel[]): OperationIndex {
+  const apiNames = new Set<string>();
+  const methodNames = new Set<string>();
+  const transactionMethods = new Map<string, TransactionMethodEntry[]>();
+  const writeOps = new Set<string>();
 
-export const TX_METHODS: Record<string, OpSpec> = {
-  ...BATCH_METHODS,
-  get: { op: 'get', readKind: true },
-};
+  for (const model of models) {
+    for (const [name, spec] of Object.entries(model.operations)) {
+      apiNames.add(name);
+      if (spec.write) writeOps.add(spec.op);
+    }
+    for (const name of Object.keys(model.refConstructors)) {
+      apiNames.add(name);
+    }
+    if (model.queryBuilder) {
+      apiNames.add(model.queryBuilder);
+    }
+    for (const [receiverKind, methods] of Object.entries(model.receiverMethods ?? {})) {
+      for (const [methodName, spec] of Object.entries(methods)) {
+        methodNames.add(methodName);
+        if (spec.write) writeOps.add(spec.op);
+        if (receiverKind === 'transaction') {
+          const list = transactionMethods.get(methodName) ?? [];
+          list.push({ service: model.service, spec });
+          transactionMethods.set(methodName, list);
+        }
+      }
+    }
+  }
 
-export const DISCONNECT_METHODS: Record<string, OpSpec> = {
-  set: { op: 'onDisconnect.set', data: 0 },
-  setWithPriority: { op: 'onDisconnect.set', data: 0 },
-  update: { op: 'onDisconnect.update', data: 0 },
-  remove: { op: 'onDisconnect.remove' },
-};
+  return { apiNames, methodNames, transactionMethods, writeOps };
+}
 
-export const CONSTRUCTIONS: Record<string, Set<string>> = {
-  firestore: new Set(['doc', 'collection', 'collectionGroup', 'query']),
-  rtdb: new Set(['ref', 'child', 'query', 'push']),
-};
-
-export const API_NAMES = new Set([
-  ...Object.keys(FIRESTORE_OPS),
-  ...Object.keys(RTDB_OPS),
-  ...CONSTRUCTIONS.firestore,
-  ...CONSTRUCTIONS.rtdb,
-]);
-
-export const METHOD_NAMES = new Set([
-  ...Object.keys(TX_METHODS),
-  ...Object.keys(DISCONNECT_METHODS),
-]);
+const DEFAULT_OP_INDEX = buildOperationIndex(DEFAULT_SERVICE_MODELS);
 
 /** Evaluation steps allowed per call site before its trace stops as `unknown`. */
 export const STEP_BUDGET = 100_000;
 
-const WRITE_OPS = new Set([
-  'set',
-  'update',
-  'remove',
-  'push',
-  'transaction',
-  'setPriority',
-  'onDisconnect.set',
-  'onDisconnect.update',
-  'onDisconnect.remove',
-  'setDoc',
-  'addDoc',
-  'updateDoc',
-  'deleteDoc',
-]);
-
-export function isWriteOp(op: string): boolean {
-  return WRITE_OPS.has(op);
-}
-
-export function isDocWrite(op: string): boolean {
-  return op === 'setDoc' || op === 'updateDoc' || op === 'deleteDoc';
-}
-
-export function txMethodSpecs(name: 'set' | 'update' | 'delete' | 'get'): { firestore: OpSpec; rtdb: OpSpec } {
-  if (name === 'set') return { firestore: FIRESTORE_OPS.setDoc, rtdb: RTDB_OPS.set };
-  if (name === 'update') return { firestore: FIRESTORE_OPS.updateDoc, rtdb: RTDB_OPS.update };
-  if (name === 'delete') return { firestore: FIRESTORE_OPS.deleteDoc, rtdb: RTDB_OPS.remove };
-  return { firestore: FIRESTORE_OPS.getDoc, rtdb: RTDB_OPS.get };
+export function isWriteOp(op: string, extraWriteOps?: ReadonlySet<string>): boolean {
+  if (DEFAULT_OP_INDEX.writeOps.has(op)) return true;
+  return extraWriteOps?.has(op) ?? false;
 }
 
 export function calleeName(call: ts.CallExpression): string | undefined {

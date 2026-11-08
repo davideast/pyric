@@ -32,11 +32,15 @@ export class CallerTracer {
     const fn = param.parent as FunctionLike;
     const index = fn.parameters.indexOf(param);
     const values = this.argumentsFor(fn, index);
-    if (param.initializer) values.push(this.ev.eval(param.initializer));
     if (values.length === 0) {
       const fnName = functionName(fn);
-      return unknown(`no in-project caller of ${fnName} supplies parameter '${expressionName(param.name)}'`);
+      const uncalled = unknown(`no in-project caller of ${fnName} supplies parameter '${expressionName(param.name)}'`);
+      if (param.initializer) {
+        return union([this.ev.eval(param.initializer), uncalled]);
+      }
+      return uncalled;
     }
+    if (param.initializer) values.push(this.ev.eval(param.initializer));
     return union(values);
   }
 
@@ -105,7 +109,7 @@ export class CallerTracer {
     const callee = this.ev.force(this.ev.eval(call.expression));
     const out: AVal[] = [];
     for (const c of alternatives(callee)) {
-      if (c.k === 'api') out.push(apiCallbackParameter(c, paramIndex));
+      if (c.k === 'api') out.push(apiCallbackParameter(this.ev, c, paramIndex));
       else if (c.k === 'fn') {
         const p = c.decl.parameters[argIndex];
         if (!p || !ts.isIdentifier(p.name)) {

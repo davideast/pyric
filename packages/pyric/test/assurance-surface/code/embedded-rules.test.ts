@@ -42,4 +42,20 @@ describe('findEmbeddedRules', () => {
     });
     expect(findEmbeddedRules(h.ev, [h.file('x.ts')], ROOT)).toEqual([]);
   });
+
+  test('preserves __proto__ keys as own properties when materializing RTDB rules objects', () => {
+    const h = harness({
+      'proto.ts': `
+        import { setRules } from 'pyric/sandbox/database';
+        const dbRules = { rules: { ['__proto__']: { '.read': true } } };
+        setRules({}, dbRules);
+      `,
+    });
+    const found = findEmbeddedRules(h.ev, [h.file('proto.ts')], ROOT);
+    expect(found).toHaveLength(1);
+    const rulesRoot = (found[0]!.rules as { rules: Record<string, unknown> }).rules;
+    expect(Object.getPrototypeOf(rulesRoot)).toBe(Object.prototype);
+    expect(Object.hasOwn(rulesRoot, '__proto__')).toBe(true);
+    expect(rulesRoot['__proto__']).toEqual({ '.read': true });
+  });
 });

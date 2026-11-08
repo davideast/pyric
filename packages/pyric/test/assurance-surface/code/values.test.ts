@@ -1,5 +1,16 @@
 import { describe, expect, test } from 'bun:test';
-import { alternatives, authMarksOf, concatParts, literalText, MAX_UNION, union, unknown, type AVal } from '../../../src/assurance-surface/code/values.js';
+import {
+  alternatives,
+  authMarksOf,
+  concatParts,
+  constraintKey,
+  literalText,
+  MAX_UNION,
+  ownRecordValue,
+  union,
+  unknown,
+  type AVal,
+} from '../../../src/assurance-surface/code/values.js';
 
 const str = (text: string): AVal => ({ k: 'str', parts: [{ kind: 'lit', text }] });
 const uid = (exact = true): AVal => ({ k: 'str', parts: [{ kind: 'hole', name: 'uid', auth: [{ source: 'auth.uid', exact }] }] });
@@ -55,5 +66,29 @@ describe('authMarksOf', () => {
       { source: 'auth.displayName', exact: false },
       { source: 'auth.email', exact: false },
     ]);
+  });
+});
+
+describe('ownRecordValue', () => {
+  test('returns own keys and ignores Object.prototype properties', () => {
+    const table: Readonly<Record<string, string>> = { doc: 'docSpec' };
+    expect(ownRecordValue(table, 'doc')).toBe('docSpec');
+    expect(ownRecordValue(table, 'toString')).toBeUndefined();
+    expect(ownRecordValue(table, 'constructor')).toBeUndefined();
+    expect(ownRecordValue(undefined, 'doc')).toBeUndefined();
+  });
+});
+
+describe('constraintKey', () => {
+  test('distinguishes runtime literal types across null, number, boolean, and string operands', () => {
+    const keys = [
+      constraintKey({ kind: 'where', field: 'v', op: '==', operand: { kind: 'literal', literal: null } }),
+      constraintKey({ kind: 'where', field: 'v', op: '==', operand: { kind: 'literal', literal: 'null' } }),
+      constraintKey({ kind: 'where', field: 'v', op: '==', operand: { kind: 'literal', literal: 5 } }),
+      constraintKey({ kind: 'where', field: 'v', op: '==', operand: { kind: 'literal', literal: '5' } }),
+      constraintKey({ kind: 'where', field: 'v', op: '==', operand: { kind: 'literal', literal: true } }),
+      constraintKey({ kind: 'where', field: 'v', op: '==', operand: { kind: 'literal', literal: 'true' } }),
+    ];
+    expect(new Set(keys).size).toBe(6);
   });
 });

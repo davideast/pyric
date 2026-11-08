@@ -47,6 +47,14 @@ export function builtinCall(ev: Evaluator, node: ts.CallExpression | ts.NewExpre
   }
   if (!ts.isPropertyAccessExpression(callee)) return undefined;
   const method = callee.name.text;
+  if (method === 'getIdTokenResult') {
+    const recvAlts = alternatives(ev.force(ev.eval(callee.expression, env)));
+    const authUsers = recvAlts.filter((a): a is Extract<AVal, { k: 'authUser' }> => a.k === 'authUser');
+    if (authUsers.length > 0) {
+      const exact = authUsers.length === recvAlts.length && authUsers.every((u) => u.exact);
+      return { k: 'authTokenResult', exact };
+    }
+  }
   if (ts.isIdentifier(callee.expression) && callee.expression.text === 'Array' && method === 'isArray' && args[0]) {
     return arrayIsArray(ev, args[0], env);
   }
@@ -368,7 +376,10 @@ function objectAssign(ev: Evaluator, args: readonly ts.Expression[], env: Env | 
   }
   return union(
     alternatives(target).map((t) => {
-      if (t.k === 'fn') return { ...t, props: new Map([...(t.props ?? []), ...extra]) };
+      if (t.k === 'fn') {
+        const prev = t.props ?? new Map<string, AVal>();
+        return { ...t, props: new Map([...prev, ...extra]) };
+      }
       if (t.k === 'obj') return { ...t, props: new Map([...t.props, ...extra]) };
       return t;
     }),

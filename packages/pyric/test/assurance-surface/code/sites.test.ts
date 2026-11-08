@@ -158,4 +158,19 @@ describe('SiteCollector', () => {
       source: 'owned.ts:5',
     });
   });
+
+  test('does not treat Object.prototype keys imported from SDK modules as operations or ref constructors', () => {
+    const sites = collect({
+      'proto.ts': `
+        // @ts-nocheck
+        import { constructor, toString } from 'firebase/firestore';
+        import * as fs from 'firebase/firestore';
+        constructor();
+        toString();
+        fs.toString();
+        fs.constructor();
+      `,
+    });
+    expect(sites).toEqual([]);
+  });
 });

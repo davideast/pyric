@@ -138,6 +138,10 @@
       "types": "./dist/rules/internal/rtdb.d.ts",
       "import": "./dist/rules/internal/rtdb.js"
     },
+    "./rules/internal/usage": {
+      "types": "./dist/assurance-surface/usage.d.ts",
+      "import": "./dist/assurance-surface/usage.js"
+    },
     "./sandbox": {
       "types": "./dist/sandbox/index.d.ts",
       "import": "./dist/sandbox/index.js"

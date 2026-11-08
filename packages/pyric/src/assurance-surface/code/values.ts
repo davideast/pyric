@@ -8,7 +8,15 @@
  * with the reason the trace stopped.
  */
 import type ts from 'typescript';
+import type {
+  ConstraintOperand,
+  FieldValueName,
+  RefKind,
+  SdkQueryConstraint,
+} from './service-models/types.js';
 import type { AccessService, AuthSource } from './types.js';
+
+export type { RefKind } from './service-models/types.js';
 
 /** A piece of a string value: literal text, or a named hole. */
 export type StrPart =
@@ -25,14 +33,7 @@ export interface AuthMark {
 export type Segment = StrPart[];
 
 /** A query constraint captured while evaluating `query(...)`. */
-export interface ConstraintValue {
-  kind: string;
-  field?: string;
-  op?: string;
-  direction?: 'asc' | 'desc';
-}
-
-export type RefKind = 'doc' | 'collection' | 'collectionGroup' | 'node';
+export type ConstraintValue = SdkQueryConstraint;
 
 export type AVal =
   | { k: 'unknown'; reason: string }
@@ -43,13 +44,22 @@ export type AVal =
   | { k: 'bool'; value?: boolean }
   | { k: 'null' }
   | { k: 'undefined' }
-  | { k: 'db'; service: AccessService }
+  | {
+      k: 'db';
+      service: AccessService;
+      resourceId: string;
+      notes?: string[];
+      fromCallers?: boolean;
+    }
   | { k: 'auth' }
   | { k: 'authUser'; exact: boolean }
+  | { k: 'authTokenResult'; exact: boolean }
+  | { k: 'authClaims'; exact: boolean }
   | { k: 'credential' }
   | {
       k: 'ref';
       service: AccessService;
+      resourceId: string;
       refKind: RefKind;
       segments: Segment[];
       /** Construction calls that built this ref, outermost last. */
@@ -59,14 +69,16 @@ export type AVal =
       constraints?: ConstraintValue[];
       /** True when part of the path was expanded from the values callers pass for a parameter. */
       fromCallers?: boolean;
-      /** The query() call, when this ref is a query. */
+      /** Underlying base ref when this ref was produced by `query(...)`. */
+      baseRef?: Extract<AVal, { k: 'ref' }>;
+      /** First `query()` call in a chained `query(query(base, ...), ...)` sequence. */
+      firstQueryCall?: ts.CallExpression;
+      /** Outermost `query()` call, when this ref is a query. */
       queryCall?: ts.CallExpression;
     }
   | { k: 'constraint'; value: ConstraintValue }
-  | { k: 'batch' }
-  | { k: 'tx' }
-  | { k: 'onDisconnect'; ref: AVal }
-  | { k: 'fieldValue'; name: 'serverTimestamp' | 'increment' | 'arrayUnion' | 'arrayRemove' | 'deleteField' }
+  | { k: 'receiver'; service: AccessService; receiverKind: string; ref?: AVal }
+  | { k: 'fieldValue'; name: FieldValueName }
   | { k: 'obj'; props: Map<string, AVal>; computed: { key: AVal; value: AVal }[]; open: boolean; optional: Set<string> }
   | { k: 'arr'; items: AVal[] }
   /** A function value; `props` holds properties assigned onto it (`Object.assign(fn, {...})`). */
@@ -82,18 +94,36 @@ export type AVal =
   | { k: 'union'; alts: AVal[] };
 
 /** Which SDK an `api`/`ns` value belongs to. */
-export type ApiModule = 'firestore' | 'rtdb' | 'auth' | 'react' | 'auth-hooks' | 'sandbox-firestore' | 'sandbox-rtdb' | 'rules-testing';
+export type ApiModule =
+  | AccessService
+  | 'auth'
+  | 'react'
+  | 'auth-hooks'
+  | 'sandbox-firestore'
+  | 'sandbox-rtdb'
+  | 'rules-testing';
 
 /** Lexical bindings for parameters of an inlined call. */
 export interface Env {
   bindings: Map<ts.Symbol, AVal>;
   parent: Env | undefined;
+  stepSymbol?: ts.Symbol;
+  initialBindings?: ReadonlyMap<ts.Symbol, AVal>;
 }
 
-export const MAX_UNION = 24;
+export const MAX_UNION = 64;
 
 export function unknown(reason: string): AVal {
   return { k: 'unknown', reason };
+}
+
+/** Prototype-safe lookup on a plain string-keyed record. */
+export function ownRecordValue<T>(
+  record: Readonly<Record<string, T>> | undefined,
+  key: string,
+): T | undefined {
+  if (!record || !Object.hasOwn(record, key)) return undefined;
+  return record[key];
 }
 
 export const NEVER: AVal = { k: 'never' };
@@ -148,6 +178,29 @@ export function alternatives(v: AVal): AVal[] {
   return [v];
 }
 
+function literalOperandKey(value: string | number | boolean | null | undefined): string {
+  if (value === null) return 'lit:null:null';
+  return `lit:${typeof value}:${String(value)}`;
+}
+
+function operandKey(op: ConstraintOperand | undefined): string {
+  if (!op) return '';
+  if (op.kind === 'literal') return literalOperandKey(op.literal);
+  if (op.kind === 'auth') {
+    return `auth:${(op.auth ?? []).map((a) => `${a.source}:${a.certainty}`).join(',')}`;
+  }
+  if (op.kind === 'array') {
+    return `arr:[${(op.items ?? []).map(operandKey).join(',')}]`;
+  }
+  return op.kind;
+}
+
+export function constraintKey(c: ConstraintValue): string {
+  let kids = '';
+  if (c.children) kids = `(${c.children.map(constraintKey).join(';')})`;
+  return `${c.kind}:${c.field ?? ''}:${c.op ?? ''}:${c.direction ?? ''}:${operandKey(c.operand)}${kids}`;
+}
+
 /** A dedupe key for leaves that compare by content; null for identity-only values. */
 function leafKey(v: AVal): string | null {
   switch (v.k) {
@@ -156,22 +209,34 @@ function leafKey(v: AVal): string | null {
     case 'null':
     case 'undefined':
     case 'auth':
-    case 'batch':
-    case 'tx':
     case 'credential':
       return v.k;
+    case 'receiver':
+      if (v.ref !== undefined) return null;
+      return `receiver:${v.service}:${v.receiverKind}`;
     case 'num':
       return `num:${v.value ?? '?'}`;
     case 'bool':
       return `bool:${v.value ?? '?'}`;
-    case 'db':
-      return `db:${v.service}`;
+    case 'db': {
+      let callerTag = '';
+      if (v.fromCallers) callerTag = 'c';
+      return `db:${v.service}:${v.resourceId}:${(v.notes ?? []).join(';')}:${callerTag}`;
+    }
     case 'authUser':
-      return `authUser:${v.exact}`;
+    case 'authTokenResult':
+    case 'authClaims':
+      return `${v.k}:${v.exact}`;
+    case 'constraint':
+      return `constraint:${constraintKey(v.value)}`;
     case 'unknown':
       return `unknown:${v.reason}`;
-    case 'ref':
-      return `ref:${v.service}:${v.refKind}:${v.segments.map(renderParts).join('/')}:${v.constraints?.length ?? 0}:${v.built.map(nodeId).join(',')}:${v.notes.join(';')}`;
+    case 'ref': {
+      const cKey = (v.constraints ?? []).map(constraintKey).join('|');
+      let callerTag = '';
+      if (v.fromCallers) callerTag = 'c';
+      return `ref:${v.service}:${v.resourceId}:${v.refKind}:${v.segments.map(renderParts).join('/')}:${cKey}:${v.built.map(nodeId).join(',')}:${v.notes.join(';')}:${callerTag}`;
+    }
     default:
       return null;
   }
@@ -182,10 +247,18 @@ export function nodeId(node: ts.Node): string {
   return `${node.getSourceFile().fileName}:${node.pos}:${node.end}`;
 }
 
+function formatAuthMark(mark: AuthMark): string {
+  const suffix = mark.exact ? '!' : '?';
+  return `${mark.source}${suffix}`;
+}
+
+function partAuthKey(part: StrPart): string {
+  if (part.kind !== 'hole') return '';
+  return part.auth.map(formatAuthMark).join(',');
+}
+
 function authKey(parts: StrPart[]): string {
-  return parts
-    .map((p) => (p.kind === 'hole' ? p.auth.map((a) => `${a.source}${a.exact ? '!' : '?'}`).join(',') : ''))
-    .join('|');
+  return parts.map(partAuthKey).join('|');
 }
 
 /** Render string parts with `{name}` holes (used for keys and dedupe). */
@@ -212,7 +285,8 @@ function leafTruthiness(a: AVal): boolean | undefined {
     case 'undefined':
       return false;
     case 'num':
-      return a.value === undefined ? undefined : a.value !== 0 && !Number.isNaN(a.value);
+      if (a.value === undefined) return undefined;
+      return a.value !== 0 && !Number.isNaN(a.value);
     case 'str': {
       const t = literalText(a);
       if (t !== null) return t.length > 0;
@@ -228,10 +302,10 @@ function leafTruthiness(a: AVal): boolean | undefined {
     case 'db':
     case 'auth':
     case 'authUser':
+    case 'authTokenResult':
+    case 'authClaims':
     case 'credential':
-    case 'batch':
-    case 'tx':
-    case 'onDisconnect':
+    case 'receiver':
     case 'fieldValue':
     case 'api':
     case 'ns':
