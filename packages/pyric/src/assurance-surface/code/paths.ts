@@ -284,7 +284,7 @@ export function renderPath(service: AccessService, segments: Segment[], force?: 
   const rendered = segments.map((seg) => {
     if (seg.every((p) => p.kind === 'lit')) return seg.map((p) => (p.kind === 'lit' ? p.text : '')).join('');
     if (seg.length === 1 && seg[0].kind === 'hole' && seg[0].name.endsWith('=**')) {
-      return service === 'firestore' ? `{${seg[0].name}}` : `$${seg[0].name}`;
+      return service === 'rtdb' ? `$${seg[0].name}` : `{${seg[0].name}}`;
     }
     const holes = seg.filter((p): p is Extract<StrPart, { kind: 'hole' }> => p.kind === 'hole');
     let name = holes.map((h) => h.name).join('_');
@@ -297,7 +297,7 @@ export function renderPath(service: AccessService, segments: Segment[], force?: 
     const pattern = auth.some((a) => a.source === 'auth.uid') && force ? uidPattern(seg, force, 0) : undefined;
     if (pattern && pattern !== '{auth.uid}') variable.pattern = pattern;
     variables.push(variable);
-    return service === 'firestore' ? `{${name}}` : `$${name}`;
+    return service === 'rtdb' ? `$${name}` : `{${name}}`;
   });
   return { path: rendered.join('/'), variables };
 }

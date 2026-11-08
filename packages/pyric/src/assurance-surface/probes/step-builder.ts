@@ -9,7 +9,7 @@ import {
   parseResourcePattern,
   resourceShapeKey,
   type PatternSegment,
-} from '../../sandbox/internal/index.js';
+} from '../../sandbox/internal/resource-pattern.js';
 import type { OwnerCondition } from '../rules/types.js';
 import type { ValueHint } from '../rules/value-hints.js';
 import { concretePath, concretePayload, uidFields } from './fixtures.js';
@@ -58,7 +58,7 @@ export function hintOverrides(site: AccessSite, hints: ValueHint[]): Record<stri
 
 /** Probes need a resolved client write with a concrete-able path. */
 export function probeable(s: AccessSite): boolean {
-  if (!isWriteOp(s.op) || s.resolution === 'unresolved' || !s.path || s.path.includes('=**') || s.op === 'transaction') {
+  if (s.service === 'storage' || !isWriteOp(s.op) || s.resolution === 'unresolved' || !s.path || s.path.includes('=**') || s.op === 'transaction') {
     return false;
   }
   // A path with no literal segment (a bare parameter) can't be addressed.

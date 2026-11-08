@@ -263,9 +263,26 @@ export class Evaluator {
     const target = this.refs.resolveAlias(sym);
     if (!target) return unknown(`'${id.text}' is imported from outside the project`);
     for (let e = env; e; e = e.parent) {
+      if (e.stepSymbol === target) {
+        return e.bindings.get(target)!;
+      }
       const bound = e.bindings.get(target);
-      if (bound) return bound;
+      if (bound) {
+        const paramInit = e.initialBindings?.get(target);
+        if (paramInit !== undefined) {
+          const atPos = this.assignments.identifierValue(target, id, env, paramInit);
+          if (atPos !== undefined) return atPos;
+        }
+        return bound;
+      }
     }
+    const decl = target.valueDeclaration ?? target.declarations?.[0];
+    let useEnv: Env | undefined;
+    if (env && decl && isInsideFunction(decl)) {
+      useEnv = env;
+    }
+    const atPos = this.assignments.identifierValue(target, id, useEnv);
+    if (atPos !== undefined) return atPos;
     return this.symbolValue(target, env);
   }
 

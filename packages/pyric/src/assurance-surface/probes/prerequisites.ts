@@ -3,15 +3,24 @@
  * tripping an unrelated gate: membership and participant records the rules
  * look up under `auth.uid`, seeded for both actors.
  */
-import type { AccessSite } from '../code/types.js';
+import type { AccessService, AccessSite } from '../code/types.js';
 import type { OwnerCondition } from '../rules/types.js';
-import { coversPattern, parseResourcePattern, unifyPatterns } from '../../sandbox/internal/index.js';
+import { coversPattern, parseResourcePattern, unifyPatterns } from '../../sandbox/internal/resource-pattern.js';
 import { concretePayload, fillTemplate } from './fixtures.js';
 import type { ProbeActor, ProbeStep } from './types.js';
 
+function setOwnProperty<T>(target: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 /** Values of a rule template's variables, unified against a concrete path. */
 function bindRuleVars(
-  service: 'firestore' | 'rtdb',
+  service: AccessService,
   ruleTemplate: string,
   concrete: string,
 ): Record<string, string> {
@@ -28,20 +37,20 @@ function bindRuleVars(
   const out: Record<string, string> = {};
   if (unified !== null) {
     for (const [name, seg] of unified) {
-      if (seg.kind === 'lit') out[name] = seg.text;
+      if (seg.kind === 'lit') setOwnProperty(out, name, seg.text);
     }
     return out;
   }
   rulePattern.segments.forEach((seg, i) => {
     const target = concreteSegs[i];
-    if (seg.kind === 'var' && target !== undefined) out[seg.name] = target.text;
+    if (seg.kind === 'var' && target !== undefined) setOwnProperty(out, seg.name, target.text);
   });
   return out;
 }
 
 /** A client write site whose template is the lookup's record, for the record's shape. */
 function recordSite(
-  service: 'firestore' | 'rtdb',
+  service: AccessService,
   lookup: string,
   sites: AccessSite[],
 ): AccessSite | undefined {
@@ -53,12 +62,12 @@ function recordSite(
   });
 }
 
-function separatorFor(service: 'firestore' | 'rtdb'): string {
+function separatorFor(service: AccessService): string {
   if (service === 'firestore') return '.';
   return '/';
 }
 
-function fallbackLookupValue(service: 'firestore' | 'rtdb'): unknown {
+function fallbackLookupValue(service: AccessService): unknown {
   if (service === 'firestore') return { member: true };
   return true;
 }
@@ -68,13 +77,14 @@ function fallbackLookupValue(service: 'firestore' | 'rtdb'): unknown {
  * conditions cascade to deeper paths), filled for each actor.
  */
 export function lookupSeeds(
-  service: 'firestore' | 'rtdb',
+  service: AccessService,
   template: string,
   concrete: string,
   conditions: OwnerCondition[],
   sites: AccessSite[],
   actors: ProbeActor[],
 ): ProbeStep[] {
+  if (service === 'storage') return [];
   const out: ProbeStep[] = [];
   const seen = new Set<string>();
   const site = parseResourcePattern(service, template);
@@ -99,16 +109,21 @@ export function lookupSeeds(
       continue;
     }
     for (const actor of actors) {
-      const path = fillTemplate(lookupPath, { ...vars, 'auth.uid': actor.uid }, (n) => `v-${n}`, service);
+      const filledVars: Record<string, string> = {};
+      for (const [k, v] of Object.entries(vars)) setOwnProperty(filledVars, k, v);
+      setOwnProperty(filledVars, 'auth.uid', actor.uid);
+      const path = fillTemplate(lookupPath, filledVars, (n) => `v-${n}`, service);
       if (seen.has(path)) continue;
       seen.add(path);
       let data: unknown;
       if (service === 'firestore' && field) {
+        const docData: Record<string, unknown> = {};
         if (c.relation === 'contains') {
-          data = { [field]: actors.map((a) => a.uid) };
+          setOwnProperty(docData, field, actors.map((a) => a.uid));
         } else {
-          data = { [field]: actor.uid };
+          setOwnProperty(docData, field, actor.uid);
         }
+        data = docData;
       } else {
         const shapeSite = recordSite(service, lookupPath, sites);
         if (shapeSite) {

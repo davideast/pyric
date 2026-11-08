@@ -4,9 +4,10 @@
  */
 import ts from 'typescript';
 import type { Evaluator } from './evaluator.js';
-import { calleeName, FIRESTORE_OPS, RTDB_OPS, STEP_BUDGET, type OpCall, type OpSpec } from './operation-specs.js';
-import type { AccessSite } from './types.js';
-import { alternatives, nodeId, type AVal, type Env } from './values.js';
+import { calleeName, STEP_BUDGET, type OpCall } from './operation-specs.js';
+import type { AccessService, AccessSite } from './types.js';
+import { mergeSiteUsage, type ProgramUsageRecords } from './usage-records.js';
+import { alternatives, nodeId, ownRecordValue, type AVal, type Env } from './values.js';
 
 /** Sites whose path shape came from callers' arguments (specialization attributes them to the callers). */
 export const CALLER_SHAPED = new WeakSet<AccessSite>();
@@ -51,6 +52,7 @@ export interface CollectorResult {
   specialized: Map<string, AccessSite[]>;
   consumed: Set<string>;
   unconsumed: UnconsumedCandidate[];
+  usage?: ProgramUsageRecords;
 }
 
 interface SpecTarget {
@@ -66,23 +68,18 @@ function bindHelperCallEnv(ev: Evaluator, target: SpecTarget, env: Env): Env {
   return env;
 }
 
-function txRefSpec(service: 'firestore' | 'rtdb', name: string): OpSpec | undefined {
-  if (service === 'firestore') {
-    if (name === 'set') return FIRESTORE_OPS.setDoc;
-    if (name === 'update') return FIRESTORE_OPS.updateDoc;
-    if (name === 'delete') return FIRESTORE_OPS.deleteDoc;
-    if (name === 'get') return FIRESTORE_OPS.getDoc;
-    return undefined;
-  }
-  if (name === 'set') return RTDB_OPS.set;
-  if (name === 'update') return RTDB_OPS.update;
-  if (name === 'delete') return RTDB_OPS.remove;
-  if (name === 'get') return RTDB_OPS.get;
-  return undefined;
-}
-
 function isTxRunnerName(name: string): boolean {
   return name === 'transaction' || name === 'withTransaction' || name === 'runTransaction';
+}
+
+function collectTxMethodNames(ev: Evaluator): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const model of ev.sdk.serviceModels()) {
+    for (const methodName of Object.keys(model.receiverMethods?.transaction ?? {})) {
+      out.add(methodName);
+    }
+  }
+  return out;
 }
 
 /**
@@ -125,11 +122,12 @@ export function specializeOperations(host: SpecializationHost): Map<OpCall, Acce
   const out = new Map<OpCall, AccessSite[]>();
   const hasTxParamOps = host.ops.some((o) => o.op.via === 'transaction' && o.generic.length === 0);
   if (byFunction.size === 0 && !hasTxParamOps) return out;
+  const txMethodNames = collectTxMethodNames(host.ev);
   const newOps: RecordedOp[] = [];
   const baseOps = [...host.ops];
   for (const call of host.calls) {
     const name = calleeName(call)!;
-    if (name === 'set' || name === 'update' || name === 'delete' || name === 'get' || isTxRunnerName(name)) {
+    if (txMethodNames.has(name) || isTxRunnerName(name)) {
       if (call.arguments.length >= 1) {
         const targetExpr = call.arguments[0];
         let shouldEvaluate = false;
@@ -146,7 +144,11 @@ export function specializeOperations(host: SpecializationHost): Map<OpCall, Acce
           for (const t of targetAlt) {
             if (t.k === 'ref') {
               if (isTxRunnerName(name)) continue;
-              const spec = txRefSpec(t.service, name);
+              const txMethods = ownRecordValue(
+                host.ev.sdk.serviceModel(t.service)?.receiverMethods,
+                'transaction',
+              );
+              const spec = ownRecordValue(txMethods, name);
               if (spec && newOps.length < MAX_SPECIALIZATIONS) {
                 const transOp: OpCall = { call, service: t.service, spec, via: 'transaction' };
                 newOps.push({ op: transOp, generic: host.sitesFor(transOp, undefined, call, undefined), owned: true });
@@ -219,21 +221,31 @@ export function specializeOperations(host: SpecializationHost): Map<OpCall, Acce
   for (const { op, generic } of newOps) {
     if (generic.length > 0) coveredCallIds.add(nodeId(op.call));
   }
-  for (const { op, generic, owned } of baseOps) {
-    if (!owned || generic.length > 0 || op.via !== 'transaction' || op.service !== 'firestore') continue;
-    const id = nodeId(op.call);
+  const placeholderGroups = new Map<string, RecordedOp[]>();
+  for (const entry of baseOps) {
+    if (!entry.owned || entry.generic.length > 0 || entry.op.via !== 'transaction') continue;
+    const id = nodeId(entry.op.call);
     if (coveredCallIds.has(id)) continue;
+    const list = placeholderGroups.get(id) ?? [];
+    list.push(entry);
+    placeholderGroups.set(id, list);
+  }
+  for (const [id, candidates] of placeholderGroups) {
     coveredCallIds.add(id);
-    const sf = op.call.getSourceFile();
-    const usesOnlyRtdb =
-      baseOps.some((o) => o.generic.length > 0 && o.op.call.getSourceFile() === sf && o.op.service === 'rtdb') &&
-      !baseOps.some((o) => o.generic.length > 0 && o.op.call.getSourceFile() === sf && o.op.service === 'firestore');
-    let fallbackOp = op;
-    if (usesOnlyRtdb) {
-      const rtdbMatch = baseOps.find((o) => o.op.call === op.call && o.op.service === 'rtdb');
-      if (rtdbMatch) fallbackOp = rtdbMatch.op;
+    const sf = candidates[0]!.op.call.getSourceFile();
+    const sfServices = new Set<AccessService>();
+    for (const entry of baseOps) {
+      if (entry.generic.length > 0 && entry.op.call.getSourceFile() === sf) {
+        sfServices.add(entry.op.service);
+      }
     }
-    newOps.push({ op: fallbackOp, generic: host.sitesFor(fallbackOp, undefined, op.call, undefined), owned: true });
+    const matchingService = candidates.filter((c) => sfServices.has(c.op.service));
+    const chosen = matchingService.length === 1 ? matchingService[0]! : candidates[0]!;
+    newOps.push({
+      op: chosen.op,
+      generic: host.sitesFor(chosen.op, undefined, chosen.op.call, undefined),
+      owned: true,
+    });
   }
   host.ops.push(...newOps);
   return out;
@@ -283,11 +295,15 @@ export function mergeResults(results: CollectorResult[]): AccessSite[] {
     for (const k of r.consumed) consumed.add(k);
   }
   const out: AccessSite[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, AccessSite>();
   const add = (site: AccessSite): void => {
     const key = `${site.source}|${site.through ?? ''}|${site.op}|${site.path}|${site.resolution}|${site.multiPath ? 'm' : ''}|${site.via ?? ''}`;
-    if (seen.has(key)) return;
-    seen.add(key);
+    const existing = seen.get(key);
+    if (existing) {
+      mergeSiteUsage(existing, site);
+      return;
+    }
+    seen.set(key, site);
     out.push(site);
   };
   for (const r of results) {

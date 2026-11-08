@@ -1,25 +1,24 @@
 /**
- * Recognises SDK imports: which identifiers in the app are the Firebase
- * modular API (`doc`, `setDoc`, `ref`, `onAuthStateChanged`, ...) or a
- * React hook the evaluator models.
+ * Recognises SDK imports: which identifiers in the app are modular service
+ * APIs (`doc`, `setDoc`, `ref`, `onAuthStateChanged`, ...) or a React hook
+ * the evaluator models.
  *
- * Recognition is by import specifier, followed through in-project
- * re-exports, so it works without the app's dependencies installed and
- * whatever local names the app gives its imports (`ref as dbRef`,
- * `import * as fs from 'firebase/firestore'`).
+ * Service module specifiers come from registered {@link SdkServiceModel}
+ * tables so adding a service requires no changes here.
  */
 import ts from 'typescript';
+import { FIRESTORE_SERVICE_MODEL } from './service-models/firestore.js';
+import { RTDB_SERVICE_MODEL } from './service-models/rtdb.js';
+import type { SdkServiceModel } from './service-models/types.js';
 import type { AccessPreset } from './types.js';
 import type { ApiModule, AVal } from './values.js';
 
-const BUILTIN_MODULES: Record<string, ApiModule> = {
-  'firebase/firestore': 'firestore',
-  'firebase/firestore/lite': 'firestore',
-  '@firebase/firestore': 'firestore',
-  'pyric/firestore': 'firestore',
-  'firebase/database': 'rtdb',
-  '@firebase/database': 'rtdb',
-  'pyric/database': 'rtdb',
+export const DEFAULT_SERVICE_MODELS: readonly SdkServiceModel[] = [
+  FIRESTORE_SERVICE_MODEL,
+  RTDB_SERVICE_MODEL,
+];
+
+const NON_SERVICE_MODULES: Readonly<Record<string, ApiModule>> = {
   'firebase/auth': 'auth',
   '@firebase/auth': 'auth',
   'pyric/auth': 'auth',
@@ -33,12 +32,28 @@ const BUILTIN_MODULES: Record<string, ApiModule> = {
 /** Sentinel export name for a preset function that returns the signed-in user. */
 export const AUTH_USER_FUNCTION = '<auth-user>';
 
-/** Module table built from the built-in preset plus any app presets. */
+/** Module and service-model table built from registered service models plus app presets. */
 export class SdkTable {
-  private readonly modules = new Map<string, ApiModule>(Object.entries(BUILTIN_MODULES));
+  private readonly modules = new Map<string, ApiModule>(Object.entries(NON_SERVICE_MODULES));
+  private readonly modelsByService = new Map<string, SdkServiceModel>();
   private readonly authUserFns = new Map<string, Set<string>>();
+  private readonly writeOps = new Set<string>();
 
-  constructor(presets: AccessPreset[]) {
+  constructor(presets: AccessPreset[], extraModels: readonly SdkServiceModel[] = []) {
+    for (const model of [...DEFAULT_SERVICE_MODELS, ...extraModels]) {
+      this.modelsByService.set(model.service, model);
+      for (const spec of model.modules) {
+        this.modules.set(spec, model.service);
+      }
+      for (const op of Object.values(model.operations)) {
+        if (op.write) this.writeOps.add(op.op);
+      }
+      for (const methods of Object.values(model.receiverMethods ?? {})) {
+        for (const op of Object.values(methods)) {
+          if (op.write) this.writeOps.add(op.op);
+        }
+      }
+    }
     for (const p of presets) {
       for (const m of p.firestoreModules ?? []) this.modules.set(m, 'firestore');
       for (const m of p.rtdbModules ?? []) this.modules.set(m, 'rtdb');
@@ -55,6 +70,18 @@ export class SdkTable {
 
   moduleOf(specifier: string): ApiModule | undefined {
     return this.modules.get(specifier);
+  }
+
+  serviceModel(module: string): SdkServiceModel | undefined {
+    return this.modelsByService.get(module);
+  }
+
+  serviceModels(): readonly SdkServiceModel[] {
+    return [...this.modelsByService.values()];
+  }
+
+  isWriteOp(op: string): boolean {
+    return this.writeOps.has(op);
   }
 
   isAuthUserFunction(specifier: string, name: string): boolean {

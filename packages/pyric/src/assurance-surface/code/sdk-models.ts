@@ -1,26 +1,46 @@
 /**
- * Models of the SDK calls the evaluator understands: how `doc`,
- * `collection`, `ref`, `child`, `query`, `push`, `onDisconnect`,
- * `getAuth`, sign-in calls, and a few React hooks transform their
- * arguments into abstract values.
+ * Evaluates SDK exports against registered {@link SdkServiceModel} tables,
+ * plus Firebase Auth, auth hooks, and React state/memo/context helpers.
  */
 import ts from 'typescript';
+import type { AssuranceService } from '../../sandbox/internal/resource-pattern.js';
+import { DEFAULT_RESOURCE_ID } from '../../sandbox/internal/resource-pattern-header.js';
 import type { Evaluator } from './evaluator.js';
 import { expressionName, hole, segmentsOf } from './paths.js';
+import { evalConstraintCall, evalQueryCall } from './query-constraints.js';
+import {
+  containsCallerSymbol,
+  evalHandleFactory,
+  splitHeaderAlternatives,
+  type HeaderAlternative,
+} from './resource-headers.js';
 import { AUTH_USER_FUNCTION } from './sdk-imports.js';
-import { alternatives, literalText, union, unknown, type AVal, type ConstraintValue, type Env, type RefKind, type Segment } from './values.js';
+import type { RefConstructorSpec, SdkServiceModel } from './service-models/types.js';
+import {
+  alternatives,
+  lit,
+  literalText,
+  ownRecordValue,
+  union,
+  unknown,
+  type AVal,
+  type Env,
+  type RefKind,
+  type Segment,
+} from './values.js';
 
 type Api = Extract<AVal, { k: 'api' }>;
 type RefVal = Extract<AVal, { k: 'ref' }>;
 
-const FIRESTORE_FIELD_VALUES = new Set(['serverTimestamp', 'increment', 'arrayUnion', 'arrayRemove', 'deleteField']);
-const FIRESTORE_CONSTRAINTS = new Set([
-  'where', 'orderBy', 'limit', 'limitToLast', 'startAt', 'startAfter', 'endAt', 'endBefore', 'and', 'or',
-]);
-const RTDB_CONSTRAINTS = new Set([
-  'orderByChild', 'orderByKey', 'orderByValue', 'orderByPriority', 'equalTo', 'startAt', 'startAfter', 'endAt', 'endBefore',
-  'limitToFirst', 'limitToLast',
-]);
+interface BaseRefOrigin {
+  prefix: Segment[];
+  resourceId: string;
+  built: ts.Node[];
+  notes: string[];
+  refKind?: RefKind;
+  fromCallers?: boolean;
+}
+
 const SIGN_IN_CALLS = /^(?:signIn\w*|createUserWithEmailAndPassword|getRedirectResult|link\w*|reauthenticate\w*)$/;
 
 /** Evaluate a call to an SDK export. */
@@ -31,24 +51,40 @@ export function apiCall(ev: Evaluator, api: Api, call: ts.CallExpression, env: E
     if (ts.isSpreadElement(a)) return unknown('spread argument');
     return ev.eval(a, env);
   };
+  const serviceModel = ev.sdk.serviceModel(api.module);
+  if (serviceModel !== undefined) {
+    return serviceCall(ev, serviceModel, api.name, call, arg, env);
+  }
   switch (api.module) {
-    case 'firestore':
-      return firestoreCall(ev, api.name, call, arg);
-    case 'rtdb':
-      return rtdbCall(ev, api.name, call, arg);
-    case 'auth':
+    case 'auth': {
       if (api.name === 'getAuth' || api.name === 'initializeAuth') return { k: 'auth' };
+      if (api.name === 'getIdTokenResult') {
+        const userAlts = alternatives(ev.force(arg(0)));
+        const authUsers = userAlts.filter(
+          (a): a is Extract<AVal, { k: 'authUser' }> => a.k === 'authUser',
+        );
+        let exact = true;
+        if (authUsers.length > 0) {
+          exact = authUsers.every((u) => u.exact);
+        }
+        return { k: 'authTokenResult', exact };
+      }
       if (SIGN_IN_CALLS.test(api.name)) return { k: 'credential' };
       return unknown(`result of ${api.name}()`);
+    }
     case 'auth-hooks':
       if (api.name === AUTH_USER_FUNCTION) return { k: 'authUser', exact: true };
-      if (api.name === 'useAuthState' || api.name === 'useIdToken') return { k: 'arr', items: [{ k: 'authUser', exact: true }, { k: 'bool' }, unknown('auth error')] };
+      if (api.name === 'useAuthState' || api.name === 'useIdToken') {
+        return { k: 'arr', items: [{ k: 'authUser', exact: true }, { k: 'bool' }, unknown('auth error')] };
+      }
       return unknown(`result of ${api.name}()`);
     case 'react':
       return reactCall(ev, api.name, call, arg);
     case 'sandbox-firestore':
     case 'sandbox-rtdb':
     case 'rules-testing':
+      return unknown(`result of ${api.name}()`);
+    default:
       return unknown(`result of ${api.name}()`);
   }
 }
@@ -57,7 +93,8 @@ function reactCall(ev: Evaluator, name: string, call: ts.CallExpression, arg: (i
   switch (name) {
     case 'useMemo': {
       const fn = ev.force(arg(0));
-      return fn.k === 'fn' ? ev.callFunction(fn, []) : unknown('useMemo factory not traced');
+      if (fn.k === 'fn') return ev.callFunction(fn, []);
+      return unknown('useMemo factory not traced');
     }
     case 'useCallback':
     case 'memo':
@@ -75,28 +112,106 @@ function reactCall(ev: Evaluator, name: string, call: ts.CallExpression, arg: (i
   }
 }
 
-/** Root of a ref built from a base argument: a parent ref, or the database root. */
-function baseRefs(ev: Evaluator, base: AVal, service: 'firestore' | 'rtdb', fnName: string): { prefix: Segment[]; built: ts.Node[]; notes: string[]; refKind?: RefKind; fromCallers?: boolean }[] {
-  const out: { prefix: Segment[]; built: ts.Node[]; notes: string[]; refKind?: RefKind; fromCallers?: boolean }[] = [];
-  for (const b of alternatives(ev.force(base))) {
-    if (b.k === 'ref' && b.service === service) out.push({ prefix: b.segments, built: b.built, notes: b.notes, refKind: b.refKind, fromCallers: b.fromCallers });
-    else if (b.k === 'db' || b.k === 'instance') out.push({ prefix: [], built: [], notes: [] });
-    else if (b.k === 'unknown') out.push({ prefix: [], built: [], notes: [`first argument of ${fnName}() was not traced (${b.reason}); assumed to be the database`] });
-    // null, undefined, or a value of another kind: infeasible alternative.
+/** Root of a ref built from a base argument: a parent ref, or a service handle. */
+function baseRefs(
+  ev: Evaluator,
+  base: AVal,
+  service: AssuranceService,
+  fnName: string,
+): BaseRefOrigin[] {
+  const callerBase = containsCallerSymbol(base);
+  const forcedAlts = alternatives(ev.force(base));
+  const hasConcreteBase = forcedAlts.some(
+    (b) =>
+      (b.k === 'ref' && b.service === service)
+      || (b.k === 'db' && b.service === service)
+      || b.k === 'instance',
+  );
+  const out: BaseRefOrigin[] = [];
+  for (const b of forcedAlts) {
+    if (b.k === 'ref' && b.service === service) {
+      out.push({
+        prefix: b.segments,
+        resourceId: b.resourceId,
+        built: b.built,
+        notes: b.notes,
+        refKind: b.refKind,
+        fromCallers: Boolean(b.fromCallers || callerBase),
+      });
+    } else if (b.k === 'db' && b.service === service) {
+      out.push({
+        prefix: [],
+        resourceId: b.resourceId,
+        built: [],
+        notes: b.notes ?? [],
+        fromCallers: Boolean(b.fromCallers || callerBase),
+      });
+    } else if (b.k === 'instance') {
+      out.push({ prefix: [], resourceId: DEFAULT_RESOURCE_ID, built: [], notes: [] });
+    } else if (b.k === 'unknown') {
+      if (hasConcreteBase && b.reason.startsWith('no in-project caller of ')) {
+        continue;
+      }
+      out.push({
+        prefix: [],
+        resourceId: DEFAULT_RESOURCE_ID,
+        built: [],
+        notes: [`first argument of ${fnName}() was not traced (${b.reason}); assumed to be the database`],
+      });
+    }
   }
   return out;
 }
 
-/** Cartesian product of the segment alternatives of several path arguments. */
-function pathProducts(ev: Evaluator, call: ts.CallExpression, from: number, to: number, arg: (i: number) => AVal): { segments: Segment[]; notes: string[]; fromCallers?: boolean }[] {
-  let acc: { segments: Segment[]; notes: string[]; fromCallers?: boolean }[] = [{ segments: [], notes: [] }];
+function pathProducts(
+  ev: Evaluator,
+  service: AssuranceService,
+  fnName: string,
+  baseResourceId: string,
+  isRootBase: boolean,
+  forceUrlHeader: boolean,
+  call: ts.CallExpression,
+  from: number,
+  to: number,
+  arg: (i: number) => AVal,
+): { resourceId: string; segments: Segment[]; notes: string[]; fromCallers?: boolean }[] {
+  let acc: { resourceId: string; segments: Segment[]; notes: string[]; fromCallers?: boolean }[] = [
+    { resourceId: baseResourceId, segments: [], notes: [] },
+  ];
   const count = to - from;
   for (let i = from; i < to; i++) {
-    const alts = segmentsOf(arg(i), call.arguments[i], count === 1, (v) => ev.force(v));
-    const next: { segments: Segment[]; notes: string[]; fromCallers?: boolean }[] = [];
+    const next: { resourceId: string; segments: Segment[]; notes: string[]; fromCallers?: boolean }[] = [];
     for (const a of acc) {
-      for (const s of alts) {
-        next.push({ segments: [...a.segments, ...s.segments], notes: s.note ? [...a.notes, s.note] : a.notes, fromCallers: a.fromCallers || s.fromCallers });
+      const checkHeader = (isRootBase && i === from) || forceUrlHeader;
+      let splitInputs: HeaderAlternative[];
+      if (checkHeader) {
+        splitInputs = splitHeaderAlternatives(
+          service,
+          fnName,
+          arg(i),
+          a.resourceId,
+          (v) => ev.force(v),
+          forceUrlHeader,
+        );
+      } else {
+        splitInputs = [{ resourceId: a.resourceId, value: arg(i) }];
+      }
+      for (const input of splitInputs) {
+        const alts = segmentsOf(input.value, call.arguments[i], count === 1, (v) => ev.force(v));
+        for (const s of alts) {
+          let notes = a.notes;
+          if (input.note !== undefined || s.note !== undefined) {
+            notes = [...a.notes];
+            if (input.note !== undefined) notes.push(input.note);
+            if (s.note !== undefined) notes.push(s.note);
+          }
+          next.push({
+            resourceId: input.resourceId,
+            segments: [...a.segments, ...s.segments],
+            notes,
+            fromCallers: a.fromCallers || s.fromCallers || input.fromCallers,
+          });
+        }
       }
     }
     acc = next.slice(0, 32);
@@ -104,127 +219,186 @@ function pathProducts(ev: Evaluator, call: ts.CallExpression, from: number, to: 
   return acc;
 }
 
-function makeRefs(
+function buildRefsFromBases(
   ev: Evaluator,
-  service: 'firestore' | 'rtdb',
+  bases: readonly BaseRefOrigin[],
+  service: AssuranceService,
   refKind: RefKind,
   call: ts.CallExpression,
   arg: (i: number) => AVal,
   fnName: string,
+  fromArg: number,
+  pathArgsEnd: number,
+  forceUrlHeader: boolean,
   append?: Segment,
-  pathArgsEnd: number = call.arguments.length,
 ): AVal {
   const out: AVal[] = [];
-  for (const base of baseRefs(ev, arg(0), service, fnName)) {
-    for (const p of pathProducts(ev, call, 1, pathArgsEnd, arg)) {
+  for (const base of bases) {
+    const products = pathProducts(
+      ev,
+      service,
+      fnName,
+      base.resourceId,
+      base.prefix.length === 0,
+      forceUrlHeader,
+      call,
+      fromArg,
+      pathArgsEnd,
+      arg,
+    );
+    for (const p of products) {
       const segments = [...base.prefix, ...p.segments];
       if (append) segments.push(append);
-      const ref: Extract<AVal, { k: 'ref' }> = { k: 'ref', service, refKind, segments, built: [...base.built, call], notes: [...base.notes, ...p.notes] };
+      const ref: RefVal = {
+        k: 'ref',
+        service,
+        resourceId: p.resourceId,
+        refKind,
+        segments,
+        built: [...base.built, call],
+        notes: [...base.notes, ...p.notes],
+      };
       if (p.fromCallers || base.fromCallers) ref.fromCallers = true;
       out.push(ref);
     }
   }
-  if (out.length === 0) return unknown(`${fnName}() on a value that is not a ${service === 'rtdb' ? 'database ref' : 'Firestore ref'}`);
+  if (out.length === 0) return unknown(`${fnName}() on a value that is not a ${service} ref`);
   return union(out);
 }
 
-function firestoreCall(ev: Evaluator, name: string, call: ts.CallExpression, arg: (i: number) => AVal): AVal {
-  switch (name) {
-    case 'getFirestore':
-    case 'initializeFirestore':
-      return { k: 'db', service: 'firestore' };
-    case 'collection':
-      return makeRefs(ev, 'firestore', 'collection', call, arg, name);
-    case 'doc': {
-      // doc(collectionRef) creates a ref with a generated id.
-      if (call.arguments.length === 1) return makeRefs(ev, 'firestore', 'doc', call, arg, name, [hole('autoId')]);
-      return makeRefs(ev, 'firestore', 'doc', call, arg, name);
+function evalRefConstructor(
+  ev: Evaluator,
+  service: AssuranceService,
+  name: string,
+  spec: RefConstructorSpec,
+  call: ts.CallExpression,
+  arg: (i: number) => AVal,
+): AVal {
+  if (spec.mode === 'collectionGroup') {
+    const bases = baseRefs(ev, arg(0), service, name);
+    const rawId = arg(1);
+    const idFromCallers = containsCallerSymbol(rawId);
+    const idVal = ev.force(rawId);
+    const litId = literalText(idVal);
+    const id = litId ?? expressionName(call.arguments[1]);
+    const segments: Segment[] = [[hole('path=**')], [{ kind: 'lit', text: id }]];
+    const out: AVal[] = [];
+    for (const base of bases) {
+      const notes = [...base.notes];
+      if (litId === null) notes.push(`collection group id '${id}' was not traced`);
+      const ref: RefVal = {
+        k: 'ref',
+        service,
+        resourceId: base.resourceId,
+        refKind: spec.refKind,
+        segments,
+        built: [...base.built, call],
+        notes,
+      };
+      if (base.fromCallers || idFromCallers) ref.fromCallers = true;
+      out.push(ref);
     }
-    case 'collectionGroup': {
-      const idVal = ev.force(arg(1));
-      const id = literalText(idVal) ?? expressionName(call.arguments[1]);
-      const segments: Segment[] = [[hole('path=**')], [{ kind: 'lit', text: id }]];
-      return { k: 'ref', service: 'firestore', refKind: 'collectionGroup', segments, built: [call], notes: literalText(idVal) === null ? [`collection group id '${id}' was not traced`] : [] };
-    }
-    case 'query':
-      return queryOf(ev, 'firestore', call, arg);
-    case 'addDoc':
-      return makeRefs(ev, 'firestore', 'doc', call, arg, name, [hole('autoId')], 1);
-    case 'writeBatch':
-      return { k: 'batch' };
-    case 'documentId':
-      return { k: 'str', parts: [{ kind: 'lit', text: '__name__' }] };
-    default:
-      if (FIRESTORE_FIELD_VALUES.has(name)) return { k: 'fieldValue', name: name as 'serverTimestamp' };
-      if (FIRESTORE_CONSTRAINTS.has(name)) return { k: 'constraint', value: constraintOf(ev, name, arg) };
-      return unknown(`result of Firestore ${name}()`);
+    if (out.length === 0) return unknown(`${name}() on a value that is not a ${service} handle`);
+    return union(out);
   }
+  if (spec.mode === 'url') {
+    if (call.arguments.length === 1) {
+      const defaultBase: BaseRefOrigin = { prefix: [], resourceId: DEFAULT_RESOURCE_ID, built: [], notes: [] };
+      return buildRefsFromBases(ev, [defaultBase], service, spec.refKind, call, arg, name, 0, 1, true);
+    }
+    const bases = baseRefs(ev, arg(0), service, name);
+    return buildRefsFromBases(ev, bases, service, spec.refKind, call, arg, name, 1, Math.min(2, call.arguments.length), true);
+  }
+  const bases = baseRefs(ev, arg(0), service, name);
+  if (call.arguments.length === 1 && spec.singleArgAppendHole) {
+    return buildRefsFromBases(ev, bases, service, spec.refKind, call, arg, name, 1, 1, false, [hole(spec.singleArgAppendHole)]);
+  }
+  let append: Segment | undefined;
+  if (spec.appendHole) {
+    append = [hole(spec.appendHole)];
+  }
+  let end = call.arguments.length;
+  if (spec.pathArgsEnd !== undefined) {
+    end = Math.min(call.arguments.length, spec.pathArgsEnd);
+  }
+  return buildRefsFromBases(ev, bases, service, spec.refKind, call, arg, name, 1, end, false, append);
 }
 
-function rtdbCall(ev: Evaluator, name: string, call: ts.CallExpression, arg: (i: number) => AVal): AVal {
-  switch (name) {
-    case 'getDatabase':
-      return { k: 'db', service: 'rtdb' };
-    case 'ref':
-    case 'child':
-      return makeRefs(ev, 'rtdb', 'node', call, arg, name);
-    case 'push':
-      return makeRefs(ev, 'rtdb', 'node', call, arg, name, [hole('pushId')], 1);
-    case 'query':
-      return queryOf(ev, 'rtdb', call, arg);
-    case 'onDisconnect':
-      return { k: 'onDisconnect', ref: arg(0) };
-    case 'serverTimestamp':
-      return { k: 'fieldValue', name: 'serverTimestamp' };
-    case 'increment':
-      return { k: 'fieldValue', name: 'increment' };
-    default:
-      if (RTDB_CONSTRAINTS.has(name)) return { k: 'constraint', value: constraintOf(ev, name, arg) };
-      return unknown(`result of Realtime Database ${name}()`);
+/** Evaluate `new Export(...)` on an SDK export (such as `new FieldPath('a', 'b')`). */
+export function apiNew(ev: Evaluator, api: Api, node: ts.NewExpression, env: Env | undefined): AVal {
+  if (api.name === 'FieldPath' && node.arguments && node.arguments.length > 0) {
+    const segments: string[] = [];
+    for (const argExpr of node.arguments) {
+      if (ts.isSpreadElement(argExpr)) return unknown('new FieldPath(...spread)');
+      const text = literalText(ev.force(ev.eval(argExpr, env)));
+      if (text === null) return unknown('new FieldPath() segment not literal');
+      segments.push(text);
+    }
+    return lit(segments.join('.'));
   }
+  return unknown(`new ${api.name}()`);
 }
 
-function queryOf(ev: Evaluator, service: 'firestore' | 'rtdb', call: ts.CallExpression, arg: (i: number) => AVal): AVal {
-  const constraints: ConstraintValue[] = [];
-  for (let i = 1; i < call.arguments.length; i++) {
-    for (const c of alternatives(ev.force(arg(i)))) {
-      if (c.k === 'constraint') constraints.push(c.value);
-      else constraints.push({ kind: 'unknown' });
-    }
+function serviceCall(
+  ev: Evaluator,
+  model: SdkServiceModel,
+  name: string,
+  call: ts.CallExpression,
+  arg: (i: number) => AVal,
+  env: Env | undefined,
+): AVal {
+  const handleSpec = ownRecordValue(model.handleFactories, name);
+  if (handleSpec) {
+    return evalHandleFactory(ev, model.service, name, handleSpec, call, arg);
   }
-  const out: AVal[] = [];
-  for (const b of alternatives(ev.force(arg(0)))) {
-    if (b.k === 'ref' && b.service === service) {
-      out.push({ ...b, built: [...b.built, call], constraints: [...(b.constraints ?? []), ...constraints], queryCall: call } satisfies RefVal);
-    } else if (b.k === 'unknown') {
-      out.push(unknown(`query() base was not traced: ${b.reason}`));
-    }
+  const refSpec = ownRecordValue(model.refConstructors, name);
+  if (refSpec) {
+    return evalRefConstructor(ev, model.service, name, refSpec, call, arg);
   }
-  if (out.length === 0) return unknown('query() on a value that is not a ref');
-  return union(out);
-}
-
-function constraintOf(ev: Evaluator, name: string, arg: (i: number) => AVal): ConstraintValue {
-  const field = literalText(ev.force(arg(0))) ?? undefined;
-  if (name === 'where') {
-    const op = literalText(ev.force(arg(1))) ?? undefined;
-    return { kind: name, field, op };
+  if (model.queryBuilder === name) {
+    return evalQueryCall(ev, model.service, call, arg, env);
   }
-  if (name === 'orderBy') {
-    const dir = literalText(ev.force(arg(1)));
-    return { kind: name, field, direction: dir === 'desc' ? 'desc' : 'asc' };
+  const receiverSpec = ownRecordValue(model.receiverFactories, name);
+  if (receiverSpec) {
+    let ref: AVal | undefined;
+    if (receiverSpec.refArgIndex !== undefined) ref = arg(receiverSpec.refArgIndex);
+    return { k: 'receiver', service: model.service, receiverKind: receiverSpec.receiverKind, ref };
   }
-  if (name === 'orderByChild') return { kind: name, field };
-  return { kind: name };
+  const fieldValue = ownRecordValue(model.fieldValues, name);
+  if (fieldValue) {
+    return { k: 'fieldValue', name: fieldValue };
+  }
+  const special = ownRecordValue(model.specialStrings, name);
+  if (special !== undefined) {
+    return { k: 'str', parts: [{ kind: 'lit', text: special }] };
+  }
+  const constraintSpec = ownRecordValue(model.constraints, name);
+  if (constraintSpec) {
+    return evalConstraintCall(ev, constraintSpec, call, arg, env);
+  }
+  return unknown(`result of ${model.service} ${name}()`);
 }
 
 /** The value an SDK passes to a callback's parameter. */
-export function apiCallbackParameter(api: Api, paramIndex: number): AVal {
-  if (api.module === 'auth' && /^(?:onAuthStateChanged|onIdTokenChanged|beforeAuthStateChanged)$/.test(api.name) && paramIndex === 0) {
+export function apiCallbackParameter(ev: Evaluator, api: Api, paramIndex: number): AVal {
+  if (
+    api.module === 'auth'
+    && /^(?:onAuthStateChanged|onIdTokenChanged|beforeAuthStateChanged)$/.test(api.name)
+    && paramIndex === 0
+  ) {
     return { k: 'authUser', exact: true };
   }
-  if (api.module === 'firestore' && api.name === 'runTransaction' && paramIndex === 0) return { k: 'tx' };
-  if (api.module === 'rtdb' && api.name === 'runTransaction') return unknown('current value inside a transaction');
+  const model = ev.sdk.serviceModel(api.module);
+  if (model !== undefined) {
+    const callbackSpecs = ownRecordValue(model.callbackReceivers, api.name);
+    if (callbackSpecs && Object.hasOwn(callbackSpecs, paramIndex)) {
+      const receiverKind = callbackSpecs[paramIndex];
+      if (receiverKind !== undefined) {
+        return { k: 'receiver', service: model.service, receiverKind };
+      }
+    }
+    if (api.name === 'runTransaction') return unknown('current value inside a transaction');
+  }
   if (api.module === 'react') return unknown(`argument React passes to a ${api.name} callback`);
   return unknown(`argument ${api.name} passes to its callback`);
 }

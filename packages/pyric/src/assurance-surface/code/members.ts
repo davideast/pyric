@@ -6,7 +6,7 @@
 import ts from 'typescript';
 import type { Evaluator } from './evaluator.js';
 import { expressionName, hole } from './paths.js';
-import { alternatives, literalText, NEVER, union, unknown, type AVal, type Env } from './values.js';
+import { alternatives, literalText, NEVER, ownRecordValue, union, unknown, type AVal, type Env } from './values.js';
 
 const AUTH_USER_FIELDS: Record<string, 'auth.uid' | 'auth.displayName' | 'auth.email' | 'auth.photoURL' | 'auth.phoneNumber'> = {
   uid: 'auth.uid',
@@ -57,6 +57,8 @@ export class MemberResolver {
     switch (v.k) {
       case 'ns':
         return { k: 'api', module: v.module, name };
+      case 'api':
+        return { k: 'api', module: v.module, name: `${v.name}.${name}` };
       case 'auth':
         if (name === 'currentUser') return { k: 'authUser', exact: true };
         return unknown(`auth.${name}`);
@@ -64,10 +66,15 @@ export class MemberResolver {
         if (name === 'user') return { k: 'authUser', exact: true };
         return unknown(`credential.${name}`);
       case 'authUser': {
-        const source = AUTH_USER_FIELDS[name];
+        const source = ownRecordValue(AUTH_USER_FIELDS, name);
         if (source) return { k: 'str', parts: [hole(name, [{ source, exact: v.exact }])] };
         return unknown(`user.${name}`);
       }
+      case 'authTokenResult':
+        if (name === 'claims') return { k: 'authClaims', exact: v.exact };
+        return unknown(`idTokenResult.${name}`);
+      case 'authClaims':
+        return { k: 'str', parts: [hole(name, [{ source: `auth.token.${name}`, exact: v.exact }])] };
       case 'obj': {
         if (v.props.has(name)) return v.props.get(name)!;
         if (v.open || v.computed.length > 0) return unknown(`property '${name}' of an object with spread or computed keys`);

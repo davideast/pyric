@@ -7,8 +7,8 @@
  * literal, a constant or an object literal all work.
  */
 import ts from 'typescript';
-import { relative, sep } from 'node:path';
 import type { Evaluator } from './evaluator.js';
+import { posixRelative } from './posix-path.js';
 import { alternatives, literalText, type AVal } from './values.js';
 
 /** Rules found in code. */
@@ -58,7 +58,7 @@ function inspectCall(ev: Evaluator, call: ts.CallExpression, root: string, out: 
 function sourceOf(node: ts.Node, root: string): string {
   const sf = node.getSourceFile();
   const { line } = sf.getLineAndCharacterOfPosition(node.getStart());
-  return `${relative(root, sf.fileName).split(sep).join('/')}:${line + 1}`;
+  return `${posixRelative(root, sf.fileName)}:${line + 1}`;
 }
 
 /** Firestore rules must be a literal string; RTDB rules a literal object or a JSON string. */
@@ -104,7 +104,12 @@ function toJson(ev: Evaluator, v: AVal): unknown {
       for (const [k, val] of f.props) {
         const j = toJson(ev, val);
         if (j === undefined) return undefined;
-        out[k] = j;
+        Object.defineProperty(out, k, {
+          value: j,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
       return out;
     }

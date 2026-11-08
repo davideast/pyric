@@ -98,4 +98,32 @@ describe('lookupSeeds', () => {
     const rtdbSeeds = lookupSeeds('rtdb', 'teams/$teamId/docs/$docId', 'teams/t-1/docs/d-1', conditions, [], ACTORS);
     expect(rtdbSeeds).toEqual([]);
   });
+
+  test('binds __proto__ rule variables as own properties without dropping them', () => {
+    const conditions: OwnerCondition[] = [
+      {
+        service: 'rtdb',
+        path: 'teams/$__proto__',
+        ops: ['write'],
+        kind: 'lookup',
+        field: 'teams/$__proto__/members/{auth.uid}',
+        relation: 'exists',
+        required: true,
+        source: 'database.rules.json#/rules/teams/$__proto__/.write',
+        expression: 'root.child(...).exists()',
+      },
+    ];
+    const seeds = lookupSeeds(
+      'rtdb',
+      'teams/$__proto__/items/$itemId',
+      'teams/t-9/items/i-1',
+      conditions,
+      [],
+      ACTORS,
+    );
+    expect(seeds.map((s) => s.path)).toEqual([
+      'teams/t-9/members/u-owner',
+      'teams/t-9/members/u-peer',
+    ]);
+  });
 });

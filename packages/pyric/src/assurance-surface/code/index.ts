@@ -1,11 +1,31 @@
 /**
- * Access-site extraction: what a client app reads and writes in Firestore
- * and the Realtime Database, read from its source with the TypeScript
- * checker. Internal module; not part of the package exports yet.
+ * Static SDK usage and access-site extraction over client TypeScript and
+ * JavaScript sources.
  */
 export { extractAccessSites, countSites } from './extractor.js';
 export { isWriteOp } from './operation-specs.js';
+export { FIRESTORE_SERVICE_MODEL } from './service-models/firestore.js';
+export { RTDB_SERVICE_MODEL } from './service-models/rtdb.js';
+export { extractSdkUsage } from './usage-index.js';
 export type { EmbeddedRules } from './embedded-rules.js';
+export type {
+  AssuranceService,
+  ConstraintOperand,
+  ConstraintSpec,
+  ExtractSdkUsageOptions,
+  FieldValueName,
+  HandleFactorySpec,
+  OpSpec,
+  ReceiverFactorySpec,
+  RefConstructorSpec,
+  RefKind,
+  SdkQuery,
+  SdkQueryConstraint,
+  SdkRef,
+  SdkServiceModel,
+  SdkUsageIndex,
+  SdkUsagePass,
+} from './usage-index.js';
 export type {
   AccessPreset,
   AccessResolution,

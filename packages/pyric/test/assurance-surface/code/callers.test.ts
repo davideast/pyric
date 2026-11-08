@@ -52,6 +52,14 @@ describe('CallerTracer', () => {
     expect(v).toEqual({ k: 'unknown', reason: "no in-project caller of 'lonely' supplies parameter 'p'" });
   });
 
+  test('an uncalled parameter with a default initializer keeps both the default and an uncalled unknown arm', () => {
+    const h = harness({
+      'a.ts': `export function listItems(filters: { category?: string } = {}) { return filters; }`,
+    });
+    const alts = alternatives(h.ev.force(h.ev.eval(h.ident('a.ts', 'filters', 1))));
+    expect(alts.map((a) => a.k)).toEqual(['obj', 'unknown']);
+  });
+
   test('a React context value comes from its providers and default', () => {
     const h = harness({
       'a.tsx': `

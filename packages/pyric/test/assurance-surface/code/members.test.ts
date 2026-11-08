@@ -18,6 +18,19 @@ describe('MemberResolver', () => {
     expect(JSON.stringify(h.ev.eval(h.expr('a.ts', 'u?.email')))).toContain('auth.email');
   });
 
+  test('Object.prototype member names on authUser resolve to unknown instead of auth provenance', () => {
+    const h = harness({
+      'a.ts': `
+        import { getAuth } from 'firebase/auth';
+        const user = getAuth().currentUser!;
+        user.toString;
+        user.valueOf;
+      `,
+    });
+    expect(h.ev.eval(h.expr('a.ts', 'user.toString'))).toEqual({ k: 'unknown', reason: 'user.toString' });
+    expect(h.ev.eval(h.expr('a.ts', 'user.valueOf'))).toEqual({ k: 'unknown', reason: 'user.valueOf' });
+  });
+
   test('class fields: initializer, constructor parameter property, and assignments', () => {
     const h = harness({
       'a.ts': `

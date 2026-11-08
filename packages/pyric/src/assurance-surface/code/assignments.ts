@@ -7,7 +7,13 @@ import type { Evaluator } from './evaluator.js';
 import { applyObjectLoopAssignments, findEnclosingObjectLoop, mergeProp, type ObjectLoopSpec } from './loop-unroller.js';
 import { hole } from './paths.js';
 import { propertyNameText } from './references.js';
-import { alternatives, definiteTruthiness, literalText, union, unknown, type AVal, type Env } from './values.js';
+import {
+  combineAssignmentValue,
+  evalWithBinding,
+  identifierSequentialValue,
+  trySequentialReassignments,
+} from './sequential-assignments.js';
+import { alternatives, literalText, union, unknown, type AVal, type Env } from './values.js';
 
 type FunctionLike = ts.SignatureDeclaration & { body?: ts.ConciseBody };
 
@@ -47,27 +53,51 @@ export class AssignmentResolver {
   applyReassignments(sym: ts.Symbol, decl: ts.Declaration, initial: AVal, env: Env | undefined): AVal {
     const assigns = this.ev.refs.assignmentsTo(sym);
     if (assigns.length === 0) return initial;
+    const flowed = trySequentialReassignments(this.ev, sym, decl, assigns, initial, env);
+    if (flowed !== undefined) return flowed;
     const declFn = ts.findAncestor(decl, ts.isFunctionLike);
     let cur = initial;
     for (const a of assigns) {
-      const rhsVal = this.pathInto(this.ev.eval(a.rhs, env), a.path);
+      const rhsVal = this.pathInto(evalWithBinding(this.ev, sym, cur, a.rhs, env), a.path);
       const stmtParent = a.binary.parent;
       let isTopLevelStmt = false;
       if (a.path.length === 0 && ts.isExpressionStatement(stmtParent)) {
         if (declFn) isTopLevelStmt = stmtParent.parent === (declFn as FunctionLike).body;
         else isTopLevelStmt = ts.isSourceFile(stmtParent.parent);
       }
-      if (isTopLevelStmt && a.operator === ts.SyntaxKind.BarBarEqualsToken) {
-        const kept = alternatives(this.ev.force(cur)).filter((alt) => definiteTruthiness(alt) !== false);
-        cur = union([...kept, rhsVal]);
-      } else if (isTopLevelStmt && a.operator === ts.SyntaxKind.QuestionQuestionEqualsToken) {
-        const kept = alternatives(this.ev.force(cur)).filter((alt) => alt.k !== 'null' && alt.k !== 'undefined');
-        cur = union([...kept, rhsVal]);
-      } else {
-        cur = union([cur, rhsVal]);
-      }
+      cur = combineAssignmentValue(this.ev, cur, rhsVal, a.operator, isTopLevelStmt);
     }
     return cur;
+  }
+
+  private initialValueForSequential(
+    decl: ts.Declaration,
+    env: Env | undefined,
+    paramInitial: AVal | undefined,
+  ): AVal | undefined {
+    if (paramInitial !== undefined) return paramInitial;
+    if (ts.isParameter(decl)) return this.ev.callers.parameterValue(decl);
+    if (ts.isVariableDeclaration(decl)) {
+      const list = decl.parent;
+      if ((list.flags & ts.NodeFlags.Const) !== 0) return undefined;
+      const loop = list.parent;
+      if (ts.isForOfStatement(loop) || ts.isForInStatement(loop)) return undefined;
+      if (decl.initializer) return this.ev.eval(decl.initializer, env);
+      return { k: 'undefined' };
+    }
+    if (ts.isBindingElement(decl)) return this.initialBindingElementValue(decl, env);
+    return undefined;
+  }
+
+  identifierValue(
+    sym: ts.Symbol,
+    id: ts.Identifier,
+    env: Env | undefined,
+    paramInitial?: AVal,
+  ): AVal | undefined {
+    return identifierSequentialValue(this.ev, sym, id, env, (decl) =>
+      this.initialValueForSequential(decl, env, paramInitial),
+    );
   }
 
   variableValue(sym: ts.Symbol, decl: ts.VariableDeclaration, env: Env | undefined): AVal {
@@ -83,7 +113,14 @@ export class AssignmentResolver {
     }
     const isConst = (list.flags & ts.NodeFlags.Const) !== 0;
     if (!decl.initializer) {
-      for (const a of this.ev.refs.assignmentsTo(sym)) values.push(this.pathInto(this.ev.eval(a.rhs, env), a.path));
+      const assigns = this.ev.refs.assignmentsTo(sym);
+      if (!isConst && assigns.length > 0) {
+        const flowed = trySequentialReassignments(this.ev, sym, decl, assigns, { k: 'undefined' }, env);
+        if (flowed !== undefined) values.push(flowed);
+      }
+      if (values.length === 0) {
+        for (const a of assigns) values.push(this.pathInto(this.ev.eval(a.rhs, env), a.path));
+      }
     }
     if (values.length === 0) return unknown(`'${sym.name}' is declared without a value`);
     let v = union(values);
@@ -178,7 +215,7 @@ export class AssignmentResolver {
     return cur;
   }
 
-  bindingElementValue(be: ts.BindingElement, env: Env | undefined): AVal {
+  private initialBindingElementValue(be: ts.BindingElement, env: Env | undefined): AVal {
     const pattern = be.parent;
     const root = pattern.parent;
     if (ts.isObjectBindingPattern(pattern) && be.dotDotDotToken) return unknown('rest element');
@@ -202,8 +239,15 @@ export class AssignmentResolver {
     } else {
       return unknown('destructuring source not traced');
     }
-    let v = typeof key === 'number' ? this.ev.members.indexOf(source, key) : this.ev.members.memberOf(source, key, undefined);
+    let v: AVal;
+    if (typeof key === 'number') v = this.ev.members.indexOf(source, key);
+    else v = this.ev.members.memberOf(source, key, undefined);
     if (be.initializer) v = union([v, this.ev.eval(be.initializer, env)]);
+    return v;
+  }
+
+  bindingElementValue(be: ts.BindingElement, env: Env | undefined): AVal {
+    let v = this.initialBindingElementValue(be, env);
     if (ts.isIdentifier(be.name)) {
       const sym = this.ev.checker.getSymbolAtLocation(be.name);
       if (sym) v = this.applyReassignments(sym, be, v, env);
@@ -219,7 +263,11 @@ export class AssignmentResolver {
     const values: AVal[] = [];
     if (init.arguments[0]) {
       const first = this.ev.force(this.ev.eval(init.arguments[0], env));
-      values.push(first.k === 'fn' ? this.ev.callFunction(first, []) : first);
+      if (first.k === 'fn') {
+        values.push(this.ev.callFunction(first, []));
+      } else {
+        values.push(first);
+      }
     } else {
       values.push({ k: 'undefined' });
     }
