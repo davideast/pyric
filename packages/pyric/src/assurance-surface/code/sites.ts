@@ -47,6 +47,7 @@ export interface RecordedConstruction {
   readonly name: string;
   readonly isQuery: boolean;
   readonly reportUnconsumed: boolean;
+  readonly admin?: boolean;
 }
 
 /**
@@ -124,10 +125,11 @@ export class SiteCollector {
                 name: c.name,
                 isQuery: false,
                 reportUnconsumed: refSpec.reportUnconsumed !== false,
+                admin: c.admin,
               });
             }
           } else {
-            this.record({ call, service: model.service, spec }, owned);
+            this.record({ call, service: model.service, spec, admin: c.admin }, owned);
           }
         } else if (owned) {
           const refSpec = ownRecordValue(model.refConstructors, c.name);
@@ -138,6 +140,7 @@ export class SiteCollector {
               name: c.name,
               isQuery: false,
               reportUnconsumed: refSpec.reportUnconsumed !== false,
+              admin: c.admin,
             });
           } else if (model.queryBuilder === c.name) {
             this.constructions.push({
@@ -146,6 +149,7 @@ export class SiteCollector {
               name: c.name,
               isQuery: true,
               reportUnconsumed: true,
+              admin: c.admin,
             });
           }
         }
@@ -178,7 +182,14 @@ export class SiteCollector {
           const refMethodSpec = ownRecordValue(this.ev.sdk.serviceModel(r.service)?.refMethods, name);
           if (refMethodSpec) {
             this.record(
-              { call, service: r.service, spec: refMethodSpec, via: refMethodSpec.via, receiverExpr },
+              {
+                call,
+                service: r.service,
+                spec: refMethodSpec,
+                via: refMethodSpec.via,
+                admin: Boolean(r.admin || refMethodSpec.admin),
+                receiverExpr,
+              },
               owned,
             );
             continue;
@@ -193,6 +204,7 @@ export class SiteCollector {
               name,
               isQuery: false,
               reportUnconsumed: refSpec.reportUnconsumed !== false,
+              admin: r.admin,
             });
           }
         }
@@ -258,6 +270,7 @@ export class SiteCollector {
     if (through) base.through = through;
     if (op.via) base.via = op.via;
     if (spec.listen) base.listen = true;
+    if (op.admin || spec.admin) base.admin = true;
 
     if (refs.length === 0) {
       let reason = 'no value reaches the ref argument';
@@ -285,6 +298,7 @@ export class SiteCollector {
       const resolution = notes.length > 0 ? 'partial' : 'resolved';
       const site: AccessSite = { ...base, op: opName, path, resolution };
       if (ref.resourceId !== '(default)') site.resourceId = ref.resourceId;
+      if (ref.admin) site.admin = true;
       if (ref.fromCallers) CALLER_SHAPED.add(site);
       if (notes.length > 0) site.reason = notes.join('; ');
       if (variables.length > 0) site.pathVariables = variables;
@@ -361,6 +375,7 @@ export class SiteCollector {
         resolution: 'unresolved',
         reason: `${c.name}() result never reaches a recognised read or write in the project${consumerHint(c.call)}`,
       };
+      if (ref?.admin || c.admin) site.admin = true;
       if (ref?.constraints?.length) site.query = ref.constraints.map(toConstraint);
       out.push({ key: nodeId(c.call), site, covers, report: c.reportUnconsumed });
     }

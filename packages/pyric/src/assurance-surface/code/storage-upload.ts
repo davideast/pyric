@@ -146,6 +146,18 @@ function exactStringProp(
   return undefined;
 }
 
+function definedStringProp(
+  obj: Extract<AVal, { k: 'obj' }>,
+  prop: string,
+  force: (v: AVal) => AVal,
+): string | undefined {
+  const raw = obj.props.get(prop);
+  if (!raw) return undefined;
+  const text = literalText(force(raw));
+  if (text !== null) return text;
+  return undefined;
+}
+
 function extractDataFacts(
   call: ts.CallExpression,
   spec: UploadPayloadSpec,
@@ -199,23 +211,27 @@ function extractMetadataFacts(
   customMetadataKeys?: readonly string[];
   customMetadata?: Readonly<Record<string, PayloadField>>;
   customMetadataOpen?: boolean;
+  customMetadataUnresolved?: boolean;
   metadataPayload?: PayloadShape;
 } {
   if (spec.metadataArg === undefined) return {};
   const metaExpr = call.arguments[spec.metadataArg];
-  if (!metaExpr || ts.isSpreadElement(metaExpr)) return {};
+  if (!metaExpr) return {};
+  if (ts.isSpreadElement(metaExpr)) return { customMetadataUnresolved: true };
 
-  const metaAlts = alternatives(force(ev.eval(metaExpr, env))).filter(
-    (a) => a.k !== 'undefined' && a.k !== 'null',
-  );
-  const metaObjects = metaAlts.filter((a): a is Extract<AVal, { k: 'obj' }> => a.k === 'obj');
-  if (metaObjects.length === 0) return {};
+  const rawAlts = alternatives(force(ev.eval(metaExpr, env)));
+  const nonNullAlts = rawAlts.filter((a) => a.k !== 'undefined' && a.k !== 'null');
+  if (nonNullAlts.length === 0) return {};
+
+  const metaObjects = nonNullAlts.filter((a): a is Extract<AVal, { k: 'obj' }> => a.k === 'obj');
+  const hasUnresolvedMeta = metaObjects.length !== nonNullAlts.length;
+  if (metaObjects.length === 0) return { customMetadataUnresolved: true };
 
   let contentType: string | undefined;
   const contentTypes = new Set<string>();
-  let allHaveContentType = true;
+  let allHaveContentType = !hasUnresolvedMeta && rawAlts.length === nonNullAlts.length;
   for (const obj of metaObjects) {
-    const ct = exactStringProp(obj, 'contentType', force);
+    const ct = definedStringProp(obj, 'contentType', force);
     if (ct === undefined) {
       allHaveContentType = false;
     } else {
@@ -226,24 +242,66 @@ function extractMetadataFacts(
     contentType = [...contentTypes][0];
   }
 
-  const customProp = spec.customMetadataProp ?? 'customMetadata';
-  const customVals: AVal[] = [];
-  for (const obj of metaObjects) {
-    const rawCustom = obj.props.get(customProp);
-    if (rawCustom) customVals.push(force(rawCustom));
-  }
-  if (customVals.length === 0) {
-    const out: { contentType?: string } = {};
+  if (hasUnresolvedMeta) {
+    const out: { contentType?: string; customMetadataUnresolved: boolean } = {
+      customMetadataUnresolved: true,
+    };
     if (contentType !== undefined) out.contentType = contentType;
     return out;
+  }
+
+  const customProp = spec.customMetadataProp ?? 'customMetadata';
+  let metaSpreadWithoutCustom = false;
+  let customUnresolved = false;
+  const rawCustomValues: (AVal | undefined)[] = [];
+  for (const obj of metaObjects) {
+    const rawCustom = obj.props.get(customProp);
+    if (rawCustom) {
+      const forcedCustom = force(rawCustom);
+      const customAlts = alternatives(forcedCustom).filter(
+        (a) => a.k !== 'undefined' && a.k !== 'null',
+      );
+      if (customAlts.some((a) => a.k !== 'obj')) {
+        customUnresolved = true;
+      }
+      rawCustomValues.push(forcedCustom);
+    } else {
+      if (obj.open || obj.computed.length > 0) metaSpreadWithoutCustom = true;
+      rawCustomValues.push(undefined);
+    }
+  }
+
+  if (customUnresolved) {
+    const out: { contentType?: string; customMetadataUnresolved: boolean } = {
+      customMetadataUnresolved: true,
+    };
+    if (contentType !== undefined) out.contentType = contentType;
+    return out;
+  }
+
+  const presentCustom = rawCustomValues.filter((v): v is AVal => v !== undefined);
+  if (presentCustom.length === 0) {
+    const out: { contentType?: string; customMetadataOpen?: boolean } = {};
+    if (contentType !== undefined) out.contentType = contentType;
+    if (metaSpreadWithoutCustom) out.customMetadataOpen = true;
+    return out;
+  }
+
+  const customVals: AVal[] = rawCustomValues.map((v) => {
+    if (v !== undefined) return v;
+    return { k: 'obj', props: new Map(), computed: [], open: false, optional: new Set() };
+  });
+  if (rawAlts.length > nonNullAlts.length) {
+    customVals.push({ k: 'obj', props: new Map(), computed: [], open: false, optional: new Set() });
   }
 
   const customObjects = customVals.flatMap((v) =>
     alternatives(v).filter((a): a is Extract<AVal, { k: 'obj' }> => a.k === 'obj'),
   );
   if (customObjects.length === 0) {
-    const out: { contentType?: string } = {};
+    const out: { contentType?: string; customMetadataOpen?: boolean } = {};
     if (contentType !== undefined) out.contentType = contentType;
+    if (metaSpreadWithoutCustom) out.customMetadataOpen = true;
     return out;
   }
 
@@ -277,7 +335,7 @@ function extractMetadataFacts(
     metadataPayload: shape,
   };
   if (contentType !== undefined) out.contentType = contentType;
-  if (shape.open) out.customMetadataOpen = true;
+  if (shape.open || metaSpreadWithoutCustom) out.customMetadataOpen = true;
   return out;
 }
 
@@ -297,7 +355,8 @@ export function extractStorageUpload(
     contentType !== undefined
     || dataFacts.sizeBytes !== undefined
     || metaFacts.customMetadataKeys !== undefined
-    || metaFacts.customMetadataOpen === true;
+    || metaFacts.customMetadataOpen === true
+    || metaFacts.customMetadataUnresolved === true;
 
   if (!hasAny) {
     return {};
@@ -309,12 +368,14 @@ export function extractStorageUpload(
     customMetadataKeys?: readonly string[];
     customMetadata?: Readonly<Record<string, PayloadField>>;
     customMetadataOpen?: boolean;
+    customMetadataUnresolved?: boolean;
   } = {};
   if (contentType !== undefined) upload.contentType = contentType;
   if (dataFacts.sizeBytes !== undefined) upload.sizeBytes = dataFacts.sizeBytes;
   if (metaFacts.customMetadataKeys !== undefined) upload.customMetadataKeys = metaFacts.customMetadataKeys;
   if (metaFacts.customMetadata !== undefined) upload.customMetadata = metaFacts.customMetadata;
   if (metaFacts.customMetadataOpen) upload.customMetadataOpen = true;
+  if (metaFacts.customMetadataUnresolved) upload.customMetadataUnresolved = true;
 
   const result: { storageUpload?: StorageUploadMetadata; metadataPayload?: PayloadShape } = {
     storageUpload: upload,

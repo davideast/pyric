@@ -8,6 +8,11 @@ import type { AssuranceService, ResourcePattern } from './resource-pattern.js';
 export type DiagnosticCertainty = 'proven-counterexample' | 'static-proof' | 'heuristic';
 export type DiagnosticSeverity = 'critical' | 'high' | 'medium' | 'low';
 
+export interface DiagnosticRuntimeSite {
+  readonly source: string;
+  readonly concretePath?: string;
+}
+
 export interface AssuranceDiagnostic {
   readonly id: string;
   readonly code: string;
@@ -19,6 +24,7 @@ export interface AssuranceDiagnostic {
   readonly resource?: ResourcePattern;
   readonly codeSite?: { readonly source: string; readonly through?: string };
   readonly ruleSite?: { readonly source: string; readonly expression?: string };
+  readonly runtimeSite?: DiagnosticRuntimeSite;
   readonly witness?: readonly unknown[];
   readonly remediation?: string;
 }
@@ -69,6 +75,29 @@ function compareAssuranceDiagnostics(a: AssuranceDiagnostic, b: AssuranceDiagnos
   if (sourceDiff !== 0) return sourceDiff;
 
   return compareLexicographic(a.id, b.id);
+}
+
+export function allocateDiagnosticId(baseId: string, usedIds: Set<string>): string {
+  if (!usedIds.has(baseId)) {
+    usedIds.add(baseId);
+    return baseId;
+  }
+  let suffix = 2;
+  while (usedIds.has(`${baseId}#${suffix}`)) {
+    suffix += 1;
+  }
+  const id = `${baseId}#${suffix}`;
+  usedIds.add(id);
+  return id;
+}
+
+export function buildCodeSite(
+  source: string,
+  through?: string,
+): { source: string; through?: string } {
+  const codeSite: { source: string; through?: string } = { source };
+  if (through !== undefined) codeSite.through = through;
+  return codeSite;
 }
 
 export function sortAssuranceDiagnostics(

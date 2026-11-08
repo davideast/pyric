@@ -29,8 +29,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'verifyCases(fixture?, candidateRules?, service?: firestore)',
-  description:
-    "Decide a capture's cases locally.",
+  description: 'Check capture.',
   args: z.object({
     fixture: z
       .string()

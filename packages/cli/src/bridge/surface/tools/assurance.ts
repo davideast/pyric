@@ -3,6 +3,5 @@ import type { ToolRecord } from '../method-types.js';
 
 export default {
   order: 70,
-  intro:
-    'Judge rules before they ship.',
+  intro: 'Audit rules.',
 } satisfies ToolRecord;

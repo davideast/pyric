@@ -373,6 +373,7 @@ export {
   type AssuranceDiagnostic,
   type DiagnosticCertainty,
   type DiagnosticFailPolicy,
+  type DiagnosticRuntimeSite,
   type DiagnosticSeverity,
 } from './assurance-diagnostic.js';
 export {

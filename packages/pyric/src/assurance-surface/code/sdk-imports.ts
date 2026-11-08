@@ -38,6 +38,7 @@ export const AUTH_USER_FUNCTION = '<auth-user>';
 /** Module and service-model table built from registered service models plus app presets. */
 export class SdkTable {
   private readonly modules = new Map<string, ApiModule>(Object.entries(NON_SERVICE_MODULES));
+  private readonly adminModules = new Set<string>();
   private readonly modelsByService = new Map<string, SdkServiceModel>();
   private readonly authUserFns = new Map<string, Set<string>>();
   private readonly writeOps = new Set<string>();
@@ -47,6 +48,9 @@ export class SdkTable {
       this.modelsByService.set(model.service, model);
       for (const spec of model.modules) {
         this.modules.set(spec, model.service);
+      }
+      for (const adminSpec of model.adminModules ?? []) {
+        this.adminModules.add(adminSpec);
       }
       for (const op of Object.values(model.operations)) {
         if (op.write) this.writeOps.add(op.op);
@@ -77,6 +81,10 @@ export class SdkTable {
 
   moduleOf(specifier: string): ApiModule | undefined {
     return this.modules.get(specifier);
+  }
+
+  isAdminModule(specifier: string): boolean {
+    return this.adminModules.has(specifier);
   }
 
   serviceModel(module: string): SdkServiceModel | undefined {
@@ -134,8 +142,12 @@ function bindingFromDeclaration(decl: ts.Declaration, table: SdkTable): AVal | u
   }
   if (ts.isNamespaceImport(decl)) {
     const spec = moduleSpecifierText(decl.parent.parent.moduleSpecifier);
-    const mod = spec ? table.moduleOf(spec) : undefined;
-    return mod ? { k: 'ns', module: mod } : undefined;
+    let mod: ApiModule | undefined;
+    if (spec !== undefined) mod = table.moduleOf(spec);
+    if (!mod) return undefined;
+    const out: Extract<AVal, { k: 'ns' }> = { k: 'ns', module: mod };
+    if (spec !== undefined && table.isAdminModule(spec)) out.admin = true;
+    return out;
   }
   if (ts.isImportClause(decl)) {
     // Default import: only React's default export is modelled (`React.useState`).
@@ -156,7 +168,10 @@ function namedExport(spec: string | undefined, name: string, table: SdkTable): A
   if (spec === undefined) return undefined;
   if (table.isAuthUserFunction(spec, name)) return { k: 'api', module: 'auth-hooks', name: AUTH_USER_FUNCTION };
   const mod = table.moduleOf(spec);
-  return mod ? { k: 'api', module: mod, name } : undefined;
+  if (!mod) return undefined;
+  const out: Extract<AVal, { k: 'api' }> = { k: 'api', module: mod, name };
+  if (table.isAdminModule(spec)) out.admin = true;
+  return out;
 }
 
 /**

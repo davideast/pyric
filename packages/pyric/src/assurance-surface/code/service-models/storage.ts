@@ -10,6 +10,7 @@ const ADMIN_FILE_METHODS: Readonly<Record<string, OpSpec>> = {
     op: 'uploadBytes',
     write: true,
     usesReceiverRef: true,
+    admin: true,
     uploadPayload: {
       dataArg: 0,
       metadataArg: 1,
@@ -21,11 +22,13 @@ const ADMIN_FILE_METHODS: Readonly<Record<string, OpSpec>> = {
     op: 'deleteObject',
     write: true,
     usesReceiverRef: true,
+    admin: true,
   },
   setMetadata: {
     op: 'updateMetadata',
     write: true,
     usesReceiverRef: true,
+    admin: true,
     uploadPayload: {
       metadataArg: 0,
       customMetadataProp: 'metadata',
@@ -35,11 +38,13 @@ const ADMIN_FILE_METHODS: Readonly<Record<string, OpSpec>> = {
     op: 'getBytes',
     read: true,
     usesReceiverRef: true,
+    admin: true,
   },
   getMetadata: {
     op: 'getMetadata',
     read: true,
     usesReceiverRef: true,
+    admin: true,
   },
 };
 
@@ -52,6 +57,7 @@ export const STORAGE_SERVICE_MODEL: SdkServiceModel = {
     'firebase-admin/storage',
     'pyric-admin/storage',
   ],
+  adminModules: ['firebase-admin/storage', 'pyric-admin/storage'],
   handleFactories: {
     getStorage: { resourceArgIndex: 1, singleStringArgIsResource: true },
     getAdminStorage: { resourceArgIndex: 1, singleStringArgIsResource: true },

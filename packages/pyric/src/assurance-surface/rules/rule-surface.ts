@@ -21,6 +21,8 @@ import {
   isOverbroadAuthOnlyRtdbExpr,
   isOverbroadAuthOnlyRulesExpr,
   parseRulesAstWithMultiMatch,
+  summarizeRtdbGuard,
+  summarizeRulesGuard,
   type RuleAstScope,
 } from './rules-ast-utils.js';
 import { projectStorageRulesSource } from './storage-owners.js';
@@ -61,6 +63,7 @@ export interface RuleSurfaceEntry {
   readonly crossServiceReads: readonly CrossServiceLookup[];
   readonly overbroadAuthOnlyWrite?: boolean;
   readonly wildcardBucket?: boolean;
+  readonly alwaysDeny?: boolean;
   readonly source: string;
 }
 
@@ -73,6 +76,7 @@ export interface FirestoreSurfaceSource {
   readonly source?: string;
   readonly text: string;
   readonly databaseId?: string;
+  readonly database?: string;
 }
 
 export interface RtdbSurfaceSource {
@@ -228,7 +232,8 @@ function projectFirestoreSource(item: FirestoreSurfaceSource): RuleSurfaceEntry[
     }
     const scopeFns = [...functions, match.functions];
     const rawRulePath = `/${fullPath.join('/')}`;
-    const pattern = parseResourcePattern('firestore', rawRulePath, item.databaseId);
+    const targetDatabase = item.databaseId ?? item.database;
+    const pattern = parseResourcePattern('firestore', rawRulePath, targetDatabase);
     const docPath = pattern.segments
       .map((seg) => {
         if (seg.kind === 'lit') return seg.text;
@@ -264,6 +269,7 @@ function projectFirestoreSource(item: FirestoreSurfaceSource): RuleSurfaceEntry[
         valueHints: readonly ValueHint[];
         crossServiceReads: readonly CrossServiceLookup[];
         overbroadAuthOnlyWrite?: boolean;
+        alwaysDeny?: boolean;
         source: string;
       } = {
         pattern,
@@ -275,6 +281,9 @@ function projectFirestoreSource(item: FirestoreSurfaceSource): RuleSurfaceEntry[
       };
       if (ops.some((op) => WRITE_OPS.has(op))) {
         entry.overbroadAuthOnlyWrite = isOverbroadAuthOnlyRulesExpr(allow.condition, scope);
+      }
+      if (summarizeRulesGuard(allow.condition, scope, false) === 'impossible') {
+        entry.alwaysDeny = true;
       }
       out.push(entry);
     }
@@ -351,8 +360,12 @@ function projectRtdbSource(item: RtdbSurfaceSource): RuleSurfaceEntry[] {
       let ownerConditions: OwnerCondition[] = [];
       let valueHints: ValueHint[] = [];
       let overbroad: boolean | undefined;
+      let alwaysDeny: boolean | undefined;
 
       if (parsed.ok) {
+        if (summarizeRtdbGuard(parsed.tree, false) === 'impossible') {
+          alwaysDeny = true;
+        }
         ownerConditions = rtdbExpressionOwnerConditions(parsed.tree, path, opName, entrySource);
         if (opName === 'write') {
           valueHints = dedupeValueHints([
@@ -375,6 +388,7 @@ function projectRtdbSource(item: RtdbSurfaceSource): RuleSurfaceEntry[] {
         declaredIndexes?: readonly string[];
         crossServiceReads: readonly CrossServiceLookup[];
         overbroadAuthOnlyWrite?: boolean;
+        alwaysDeny?: boolean;
         source: string;
       } = {
         pattern,
@@ -386,6 +400,7 @@ function projectRtdbSource(item: RtdbSurfaceSource): RuleSurfaceEntry[] {
       };
       if (declaredIndexes !== undefined) entry.declaredIndexes = declaredIndexes;
       if (overbroad !== undefined) entry.overbroadAuthOnlyWrite = overbroad;
+      if (alwaysDeny !== undefined) entry.alwaysDeny = alwaysDeny;
       out.push(entry);
       emittedRuleOnNode = true;
     }

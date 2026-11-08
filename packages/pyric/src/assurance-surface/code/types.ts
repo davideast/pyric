@@ -120,8 +120,10 @@ export interface StorageUploadMetadata {
   readonly customMetadataKeys?: readonly string[];
   /** Per-key value shape and auth provenance for `customMetadata` entries. */
   readonly customMetadata?: Readonly<Record<string, PayloadField>>;
-  /** True when `customMetadata` has spread or dynamic computed keys. */
+  /** True when `customMetadata` or the enclosing metadata object has spread or dynamic computed keys. */
   readonly customMetadataOpen?: boolean;
+  /** True when an explicit metadata argument or `customMetadata` value could not be statically resolved. */
+  readonly customMetadataUnresolved?: boolean;
 }
 
 /** One access site. */
@@ -134,6 +136,8 @@ export interface AccessSite {
   service: AccessService;
   /** Non-default service resource identifier (named database, RTDB instance, or Storage bucket), when known. */
   resourceId?: string;
+  /** True when invoked via an Admin SDK handle (`firebase-admin/*`, `pyric-admin/*`). */
+  admin?: boolean;
   /**
    * Operation, named after the SDK call: `set`, `update`, `remove`,
    * `push`, `transaction`, `onDisconnect.set`, `setDoc`, `addDoc`,

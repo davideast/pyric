@@ -430,6 +430,11 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
     return runSeedFromLive(parsed);
   }
 
+  if (parsed.subcommand === 'assurance' && parsed.positional[0] === 'derive') {
+    const { runAssuranceDerive } = await import('./assurance.js');
+    return runAssuranceDerive(parsed);
+  }
+
   const serviceCommand = await dispatchServiceCommand(parsed);
   const isServiceCommand = serviceCommand !== null;
   if (isServiceCommand) return serviceCommand;

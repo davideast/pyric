@@ -84,6 +84,13 @@ export const ASSURANCE_ROUTES: DiscriminatorRoute[] = [
   },
   {
     tool: 'judge_authorization_risk',
+    action: 'derive',
+    selects: on('action', 'derive'),
+    operation: 'derive_assurance_campaign',
+    translate: campaign,
+  },
+  {
+    tool: 'judge_authorization_risk',
     action: 'start',
     selects: on('action', 'start'),
     operation: 'start_assurance_campaign',

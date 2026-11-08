@@ -13,6 +13,7 @@
   "deleteCapture",
   "deleteCheckpoint",
   "deliveries",
+  "derive",
   "diff",
   "discard",
   "discoverPaths",

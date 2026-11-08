@@ -241,24 +241,41 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   const { owner, peer } = probeActors({}, selectedUsers, names);
   const actors = [owner, peer];
   const storageSources = input.sources.storage ?? [];
+  const defaultFirestoreSources = input.sources.firestore.filter(
+    (source) => source.database === undefined || source.database === '(default)',
+  );
+  const defaultRtdbSources = input.sources.rtdb.filter(
+    (source) => source.instance === undefined || source.instance === '(default)',
+  );
+  const scopedSources: RuleSources = {
+    firestore: defaultFirestoreSources,
+    rtdb: defaultRtdbSources,
+    storage: storageSources,
+    problems: input.sources.problems,
+  };
   const rules: ProbeRules = {
-    firestore: input.sources.firestore[0]?.text,
-    rtdb: input.sources.rtdb.map((source) => source.json),
+    firestore: defaultFirestoreSources[0]?.text,
+    rtdb: defaultRtdbSources.map((source) => source.json),
     storage: buildProbeStorageRules(storageSources, input.state),
   };
   const hints = [
-    ...input.sources.rtdb.flatMap((source) => rtdbValueHints(source.json)),
-    ...input.sources.firestore.flatMap((source) => firestoreValueHints(source.text)),
+    ...defaultRtdbSources.flatMap((source) => rtdbValueHints(source.json)),
+    ...defaultFirestoreSources.flatMap((source) => firestoreValueHints(source.text)),
     ...storageSources.flatMap((source) => storageValueHints(source.text, source.bucket)),
   ];
   const surface = projectRuleSurface({
-    firestore: input.sources.firestore,
-    rtdb: input.sources.rtdb,
+    firestore: defaultFirestoreSources,
+    rtdb: defaultRtdbSources,
     storage: storageSources,
   });
   const knownUids = allUsers.map((user) => user.uid);
 
-  let sites = input.accessSites;
+  let sites = input.accessSites.filter(
+    (site) =>
+      site.service === 'storage'
+      || site.resourceId === undefined
+      || site.resourceId === '(default)',
+  );
   const hasFirestoreClientWrite = sites.some((site) => site.service === 'firestore' && isWriteOp(site.op));
   if (rules.firestore && !hasFirestoreClientWrite) {
     sites = [...sites, ...sitesFromState(input.state, knownUids)];
@@ -283,7 +300,7 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
 
   const results: ProbeResult[] = [];
   for (const probe of probes) {
-    const scopedActors = actorsForProbe(probe, owner, peer, selectedUsers, input.sources, input.state);
+    const scopedActors = actorsForProbe(probe, owner, peer, selectedUsers, scopedSources, input.state);
     const result = await runProbe(probe, rules, scopedActors, input.state ?? {});
     if (result) results.push(result);
   }

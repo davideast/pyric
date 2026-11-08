@@ -62,6 +62,7 @@ export interface SdkRef {
   readonly reason?: string;
   readonly pathVariables: readonly PathVariable[];
   readonly consumedBy: readonly string[];
+  readonly admin?: boolean;
   readonly source: string;
   readonly through?: string;
 }
@@ -73,6 +74,7 @@ export interface SdkQuery {
   /** Enumerated branch alternatives when a query variable is conditionally reassigned (`if (filter) q = query(q, ...)`). */
   readonly branches?: readonly (readonly SdkQueryConstraint[])[];
   readonly consumedBy: readonly string[];
+  readonly admin?: boolean;
   readonly source: string;
   readonly through?: string;
 }
@@ -320,6 +322,7 @@ function assembleRefsAndQueries(
       reason?: string;
       pathVariables: readonly PathVariable[];
       consumedBy: readonly string[];
+      admin?: boolean;
       source: string;
       through?: string;
     } = {
@@ -333,6 +336,7 @@ function assembleRefsAndQueries(
     };
     if (rec.reason !== undefined) out.reason = rec.reason;
     if (rec.through !== undefined) out.through = rec.through;
+    if (rec.admin) out.admin = true;
     builtRefsByKey.set(key, out);
     refs.push(out);
   }
@@ -356,6 +360,7 @@ function assembleRefsAndQueries(
       constraints: readonly SdkQueryConstraint[];
       branches?: readonly (readonly SdkQueryConstraint[])[];
       consumedBy: readonly string[];
+      admin?: boolean;
       source: string;
       through?: string;
     } = {
@@ -367,6 +372,7 @@ function assembleRefsAndQueries(
     };
     if (branchList.length > 1) out.branches = branchList;
     if (acc.through !== undefined) out.through = acc.through;
+    if (baseRef.admin) out.admin = true;
     queries.push(out);
   }
 

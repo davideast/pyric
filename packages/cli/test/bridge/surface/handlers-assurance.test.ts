@@ -8,7 +8,9 @@
  * shared fixture, built so the run loop has a real counterexample to find.
  */
 import { afterAll, expect, it } from 'bun:test';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { get, getAdminDatabase, getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
 import { initializeSandbox } from 'pyric/sandbox';
@@ -35,6 +37,7 @@ import { validateArguments } from '../../../src/bridge/surface/method-validation
 import startRecord from '../../../src/bridge/surface/methods/assurance/start.js';
 import mapRecord from '../../../src/bridge/surface/methods/assurance/map.js';
 import proposeRecord from '../../../src/bridge/surface/methods/assurance/propose.js';
+import deriveRecord from '../../../src/bridge/surface/methods/assurance/derive.js';
 
 afterAll(() => finishHandlerSuite('assurance'));
 
@@ -190,6 +193,96 @@ it('drives a campaign from attach through export and finds a real counterexample
   expect(bundle.redactions).toContain('campaign.target.state.auth.users[].password');
   expect(bundle.campaign.target.state.auth?.users[0]).not.toHaveProperty('password');
   expect((exported.data as { path: string }).path).toBe('.pyric/assurance/orders.json');
+});
+
+it('derives static proof and counterexample diagnostics into a registered campaign', async () => {
+  const subDir = join(projectDir, 'derive-fixture');
+  mkdirSync(join(subDir, 'src'), { recursive: true });
+  writeFileSync(
+    join(subDir, 'firestore.rules'),
+    `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{itemId} {
+      allow get, list: if resource.data.ownerId == request.auth.uid;
+      allow create, update: if request.auth != null;
+    }
+  }
+}
+`,
+    'utf8',
+  );
+  writeFileSync(
+    join(subDir, 'src', 'app.ts'),
+    `import { getFirestore, collection, doc, setDoc, getDocs } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+
+export async function runFlow() {
+  const db = getFirestore();
+  const auth = getAuth();
+  await setDoc(doc(db, 'items', 'i-1'), { ownerId: auth.currentUser!.uid, title: 'draft' });
+  await getDocs(collection(db, 'items'));
+}
+`,
+    'utf8',
+  );
+
+  const derived = await run('assurance.derive', {
+    root: 'derive-fixture',
+    campaignId: 'derived-items',
+  });
+  expect(derived.ok).toBe(true);
+  const data = derived.data as {
+    campaignId: string;
+    counts: { byCertainty: Record<string, number> };
+    diagnostics: Array<{ code: string }>;
+  };
+  expect(data.campaignId).toBe('derived-items');
+  expect(data.counts.byCertainty['static-proof']).toBeGreaterThanOrEqual(1);
+  expect(data.diagnostics.some((d) => d.code === 'firestore-unprovable-list-query')).toBe(true);
+
+  expect(
+    validateArguments(deriveRecord, {
+      url: 'http://127.0.0.1:3473',
+      campaignId: 'loopback-derive',
+    }),
+  ).toBeNull();
+
+  const nonLoopback = await run('assurance.derive', {
+    url: 'https://evil.example.test',
+  });
+  expect(nonLoopback.ok).toBe(false);
+  expect(nonLoopback.summary).toContain('loopback');
+
+  const server = createServer((req, res) => {
+    if (req.url === '/__pyric/init.json') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ sessionToken: 'tok-live', instanceId: 'inst-live' }));
+      return;
+    }
+    if (req.url === '/__pyric/state') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ version: 1, firestore: null, auth: null }));
+      return;
+    }
+    res.writeHead(404);
+    res.end('not found');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const liveDerived = await run('assurance.derive', {
+      root: 'derive-fixture',
+      url: `http://127.0.0.1:${port}`,
+      campaignId: 'loopback-derived',
+    });
+    expect(liveDerived.ok).toBe(true);
+    expect((liveDerived.data as { studioUrl?: string }).studioUrl).toContain(
+      `http://127.0.0.1:${port}/`,
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 it('refuses the hosted rules test on a server that did not opt in to production', async () => {

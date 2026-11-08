@@ -27,8 +27,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'production',
   signature: 'testRulesHosted(service: firestore, rules, cases, confirm)',
-  description:
-    'Decide cases on the hosted Rules Test API.',
+  description: 'Hosted rules test.',
   args: z.object({
     service: z
       .enum(CASE_SERVICES)

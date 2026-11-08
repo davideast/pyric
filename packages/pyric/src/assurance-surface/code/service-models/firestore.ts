@@ -71,6 +71,7 @@ export const FIRESTORE_SERVICE_MODEL: SdkServiceModel = {
     'firebase-admin/firestore',
     'pyric-admin/firestore',
   ],
+  adminModules: ['firebase-admin/firestore', 'pyric-admin/firestore'],
   handleFactories: {
     getFirestore: { resourceArgIndex: 1, singleStringArgIsResource: true },
     getAdminFirestore: { resourceArgIndex: 1, singleStringArgIsResource: true },

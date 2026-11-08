@@ -76,6 +76,7 @@ function buildDbHandle(
   resourceId: string,
   note: string | undefined,
   fromCallers: boolean,
+  admin: boolean,
 ): AVal {
   const out: Extract<AVal, { k: 'db' }> = {
     k: 'db',
@@ -84,6 +85,7 @@ function buildDbHandle(
   };
   if (note !== undefined) out.notes = [note];
   if (fromCallers) out.fromCallers = true;
+  if (admin) out.admin = true;
   return out;
 }
 
@@ -92,21 +94,23 @@ function dbHandleFromExplicitAlternative(
   fnName: string,
   alt: AVal,
   fromCallers: boolean,
+  admin: boolean,
 ): AVal {
   if (alt.k === 'undefined') {
-    return buildDbHandle(service, DEFAULT_RESOURCE_ID, undefined, fromCallers);
+    return buildDbHandle(service, DEFAULT_RESOURCE_ID, undefined, fromCallers, admin);
   }
   const text = literalText(alt);
   if (text !== null) {
     const normalized = normalizeExplicitResourceId(service, text);
     if (normalized !== undefined) {
-      return buildDbHandle(service, normalized, undefined, fromCallers);
+      return buildDbHandle(service, normalized, undefined, fromCallers, admin);
     }
     return buildDbHandle(
       service,
       DEFAULT_RESOURCE_ID,
       `resource argument of ${fnName}() was not valid`,
       fromCallers,
+      admin,
     );
   }
   if (alt.k === 'str') {
@@ -115,6 +119,7 @@ function dbHandleFromExplicitAlternative(
       DEFAULT_RESOURCE_ID,
       `resource argument of ${fnName}() was not literal`,
       fromCallers,
+      admin,
     );
   }
   if (alt.k === 'unknown') {
@@ -123,6 +128,7 @@ function dbHandleFromExplicitAlternative(
       DEFAULT_RESOURCE_ID,
       `resource argument of ${fnName}() was not traced (${alt.reason})`,
       fromCallers,
+      admin,
     );
   }
   return buildDbHandle(
@@ -130,6 +136,7 @@ function dbHandleFromExplicitAlternative(
     DEFAULT_RESOURCE_ID,
     `resource argument of ${fnName}() was not traced`,
     fromCallers,
+    admin,
   );
 }
 
@@ -141,6 +148,7 @@ export function evalHandleFactory(
   spec: HandleFactorySpec,
   call: ts.CallExpression,
   arg: (i: number) => AVal,
+  admin = false,
 ): AVal {
   if (spec.resourceArgIndex !== undefined && call.arguments.length > spec.resourceArgIndex) {
     const rawArg = arg(spec.resourceArgIndex);
@@ -152,10 +160,11 @@ export function evalHandleFactory(
         DEFAULT_RESOURCE_ID,
         `resource argument of ${fnName}() was not traced`,
         fromCallers,
+        admin,
       );
     }
     const handles = alts.map((alt) =>
-      dbHandleFromExplicitAlternative(service, fnName, alt, fromCallers),
+      dbHandleFromExplicitAlternative(service, fnName, alt, fromCallers, admin),
     );
     return union(handles);
   }
@@ -165,20 +174,20 @@ export function evalHandleFactory(
     const fromCallers = containsCallerSymbol(rawArg);
     const alts = alternatives(ev.force(rawArg));
     if (alts.length === 0) {
-      return buildDbHandle(service, DEFAULT_RESOURCE_ID, undefined, fromCallers);
+      return buildDbHandle(service, DEFAULT_RESOURCE_ID, undefined, fromCallers, admin);
     }
     const handles: AVal[] = [];
     for (const alt of alts) {
       if (alt.k === 'str') {
-        handles.push(dbHandleFromExplicitAlternative(service, fnName, alt, fromCallers));
+        handles.push(dbHandleFromExplicitAlternative(service, fnName, alt, fromCallers, admin));
       } else {
-        handles.push(buildDbHandle(service, DEFAULT_RESOURCE_ID, undefined, false));
+        handles.push(buildDbHandle(service, DEFAULT_RESOURCE_ID, undefined, false, admin));
       }
     }
     return union(handles);
   }
 
-  return buildDbHandle(service, DEFAULT_RESOURCE_ID, undefined, false);
+  return buildDbHandle(service, DEFAULT_RESOURCE_ID, undefined, false, admin);
 }
 
 function patternSegmentRawText(seg: PatternSegment): string {

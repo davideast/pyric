@@ -47,7 +47,7 @@ interface PyricInitPayload {
   bridgeUrl?: string | null;
 }
 
-function isLoopbackHostname(hostname: string): boolean {
+export function isLoopbackHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/\.$/, "");
   if (
     normalized === "localhost" ||
@@ -77,7 +77,7 @@ function parseLocalOrigin(rawUrl: string, runtimeOrigin: string): URL {
   }
   if (
     (requested.protocol !== "http:" && requested.protocol !== "https:") ||
-    !isLoopbackHostname(requested.hostname) ||
+    !isLoopbackHost(requested.hostname) ||
     requested.username ||
     requested.password
   ) {

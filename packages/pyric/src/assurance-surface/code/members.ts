@@ -55,10 +55,16 @@ export class MemberResolver {
 
   private memberOfLeaf(v: AVal, name: string, node: ts.PropertyAccessExpression | ts.ElementAccessExpression | undefined): AVal {
     switch (v.k) {
-      case 'ns':
-        return { k: 'api', module: v.module, name };
-      case 'api':
-        return { k: 'api', module: v.module, name: `${v.name}.${name}` };
+      case 'ns': {
+        const out: Extract<AVal, { k: 'api' }> = { k: 'api', module: v.module, name };
+        if (v.admin) out.admin = true;
+        return out;
+      }
+      case 'api': {
+        const out: Extract<AVal, { k: 'api' }> = { k: 'api', module: v.module, name: `${v.name}.${name}` };
+        if (v.admin) out.admin = true;
+        return out;
+      }
       case 'auth':
         if (name === 'currentUser') return { k: 'authUser', exact: true };
         return unknown(`auth.${name}`);

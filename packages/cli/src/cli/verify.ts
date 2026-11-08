@@ -126,6 +126,11 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   const cwd = process.cwd();
   const json = parsed.flags.get('json') === true;
 
+  if (parsed.flags.get('static') === true || parsed.flags.get('static') === 'true') {
+    const { runVerifyStatic } = await import('./verify-static.js');
+    return runVerifyStatic(parsed, { cwd });
+  }
+
   if (parsed.positional[0] === 'cases') {
     return runVerifyCases(parsed, cwd);
   }

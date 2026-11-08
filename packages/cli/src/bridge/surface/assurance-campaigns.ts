@@ -69,6 +69,8 @@ export function sandboxRules(ctx: SurfaceContext): LocalFirebaseTarget['rules'] 
 function assuranceTools(ctx: SurfaceContext) {
   return createAssuranceTools({
     store: campaignStore(ctx.sandbox),
+    sandbox: ctx.sandbox,
+    projectDir: ctx.projectDir,
     attachmentProvider: createOwnedSandboxAttachmentProvider(
       ctx.sandbox,
       sandboxRules(ctx),
@@ -88,7 +90,18 @@ export async function callAssuranceOperation(
   name: AssuranceToolName,
   args: Args,
 ): Promise<OperationResult> {
-  const tool = assuranceTools(ctx).find((candidate) => candidate.name === name);
+  const usesExternalLoopbackUrl =
+    name === 'firebase_assurance_derive'
+    && typeof args.url === 'string'
+    && args.url !== OWNED_SANDBOX_URL;
+  let tools = assuranceTools(ctx);
+  if (usesExternalLoopbackUrl) {
+    tools = createAssuranceTools({
+      store: campaignStore(ctx.sandbox),
+      projectDir: ctx.projectDir,
+    });
+  }
+  const tool = tools.find((candidate) => candidate.name === name);
   if (tool === undefined) throw new Error(`the assurance library has no tool '${name}'`);
   // The library's tools read nothing off the context but cancellation, and
   // nothing here cancels, so the signal of a controller nobody aborts is the
@@ -98,6 +111,8 @@ export async function callAssuranceOperation(
     const result = await tool.execute(args, toolContext);
     return { ok: result.ok, summary: result.summary, data: result.data };
   } catch (error) {
-    return operationFailure(error instanceof Error ? error.message : String(error));
+    let message = String(error);
+    if (error instanceof Error) message = error.message;
+    return operationFailure(message);
   }
 }

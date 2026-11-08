@@ -1,6 +1,7 @@
 /** Lightweight tool-name contract used by browser bridge discovery. */
 export const ASSURANCE_TOOL_NAMES = [
   "firebase_assurance_attach",
+  "firebase_assurance_derive",
   "firebase_assurance_start",
   "firebase_assurance_map",
   "firebase_assurance_define",

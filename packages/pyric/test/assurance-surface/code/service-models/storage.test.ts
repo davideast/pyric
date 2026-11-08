@@ -222,6 +222,8 @@ describe('STORAGE_SERVICE_MODEL', () => {
       'exports-bucket:orgs/{orgId}/summary.csv',
       'default-exports:orgs/{orgId}/old.csv',
     ]);
+    expect(usage.refs.every((r) => r.admin === true)).toBe(true);
+    expect(usage.operations.every((op) => op.admin === true)).toBe(true);
     expect(usage.operations.map((op) => ({ op: op.op, path: op.path, size: op.storageUpload?.sizeBytes, mime: op.storageUpload?.contentType }))).toEqual([
       { op: 'uploadBytes', path: 'orgs/{orgId}/summary.csv', size: 14, mime: 'text/csv' },
       { op: 'deleteObject', path: 'orgs/{orgId}/old.csv', size: undefined, mime: undefined },

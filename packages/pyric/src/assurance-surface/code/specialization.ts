@@ -297,7 +297,11 @@ export function mergeResults(results: CollectorResult[]): AccessSite[] {
   const out: AccessSite[] = [];
   const seen = new Map<string, AccessSite>();
   const add = (site: AccessSite): void => {
-    const key = `${site.source}|${site.through ?? ''}|${site.op}|${site.path}|${site.resolution}|${site.multiPath ? 'm' : ''}|${site.via ?? ''}`;
+    let multiTag = '';
+    if (site.multiPath) multiTag = 'm';
+    let adminTag = '';
+    if (site.admin) adminTag = 'a';
+    const key = `${site.source}|${site.through ?? ''}|${site.op}|${site.path}|${site.resolution}|${multiTag}|${site.via ?? ''}|${adminTag}`;
     const existing = seen.get(key);
     if (existing) {
       mergeSiteUsage(existing, site);
