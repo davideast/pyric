@@ -31,11 +31,14 @@ import {
   type ViteFunctionsDevelopmentAttachment,
   type ViteFunctionsDevelopmentOptions,
 } from './vite-functions-development.js';
-import type { ResolvedViteAiConfig } from './vite-ai-config.js';
+import {
+  browserAiEngineWire,
+  viteWorkerEpochSalt,
+  type ResolvedViteAiConfig,
+} from './vite-ai-config.js';
 import { resolveAvatarsConfig, type PyricAvatarsOptions } from './avatars-config.js';
 import { resolveViteRulesConfig } from './vite-rules-source.js';
 import type { ViteWorkerRuntime, ViteWorkerRuntimeStatus } from './vite-worker-runtime.js';
-import { viteWorkerEpochSalt } from './vite-ai-config.js';
 import { geminiProxyConfig } from './gemini-proxy.js';
 import {
   attachViteGenerationBridge,
@@ -204,10 +207,11 @@ export async function createViteSandboxGeneration(
     // avatars-config.ts.
     const avatarsConfig = dependencies.resolveAvatarsConfig(options.avatars, process.env, cwd);
 
+    const browserEngine = browserAiEngineWire(ai.engineWire);
     const usesBrowserSandbox = !usesHostedSandbox;
     if (usesBrowserSandbox) {
       try {
-        const epochSalt = viteWorkerEpochSalt(cwd, ai.engineWire, ai.mode);
+        const epochSalt = viteWorkerEpochSalt(cwd, browserEngine, ai.mode);
         await dependencies.prepareWorker(workerRuntime, epochSalt);
       } catch (error) {
         const isError = error instanceof Error;
@@ -274,8 +278,8 @@ export async function createViteSandboxGeneration(
     const sdk = { dir: sdkDir, workerVersion: workerVersion ?? undefined };
     const persistence = persistsState ? { fresh: options.fresh } : undefined;
     const studio = mountsStudio ? { siteUiDir } : false;
-    const hasAiEngine = ai.engineWire !== undefined;
-    const aiOptions = hasAiEngine ? { engine: ai.engineWire } : null;
+    const hasBrowserAiEngine = browserEngine !== undefined;
+    const aiOptions = hasBrowserAiEngine ? { engine: browserEngine } : null;
     const bridgeUrl = (): string | null => {
       const activeBridge = bridge;
       const hasNoBridge = activeBridge === null;
@@ -368,7 +372,10 @@ export async function createViteSandboxGeneration(
         if (isNotListening) throw new Error('The Vite sandbox server is not listening.');
         return url;
       };
-      await bridge?.startHostedSandbox(session.payload(), baseUrl, {
+      const hostedPayload = ai.engineWire === undefined
+        ? session.payload()
+        : { ...session.payload(), ai: { engine: ai.engineWire } };
+      await bridge?.startHostedSandbox(hostedPayload, baseUrl, {
         proxyUpstream: ai.proxyUpstream, logger: sessionOptions.logger,
         persistence: session.hostedPersistence,
         ownWriteRefusal: options.ownWriteRefusal,

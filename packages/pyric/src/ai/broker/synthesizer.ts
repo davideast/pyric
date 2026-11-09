@@ -131,7 +131,7 @@ const SENSITIVE_URL_PARAM_PATTERN = /([?&](?:key|apiKey|api_key|access_token)=)[
  * and at a space or a URL delimiter. The exact userinfo of a configured base
  * URL is masked first, by `redactUpstreamText` with `urlCredentials`.
  */
-const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:[/\\]{1,4})[^\s/\\?#"']*@/gi;
+const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:[/\\]+)[^\s/\\?#"']*@/gi;
 
 /**
  * Redacts credential-bearing query-string VALUES from a URL (or any string

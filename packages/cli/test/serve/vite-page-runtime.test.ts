@@ -81,6 +81,37 @@ describe('Vite page runtime', () => {
     page.config({}, { command: 'serve', mode: 'development' } as never);
     expect(page.ai()).toEqual({ mode: 'sandbox', engineWire: undefined, proxyUpstream: undefined });
   });
+
+  it('never injects engine baseUrl userinfo into served page HTML (#1766)', () => {
+    const geminiPage = runtime({
+      ai: {
+        engine: {
+          kind: 'gemini',
+          baseUrl: `http://gateway-user:gateway-secret-1766 "q'@127.0.0.1:9999`,
+        },
+      },
+    });
+    const geminiHtml = geminiPage.transformIndexHtml('<html><head></head></html>');
+    expect(geminiHtml).toContain('__PYRIC_AI_ENGINE__={"kind":"gemini"}');
+    expect(geminiHtml).not.toContain('gateway-user');
+    expect(geminiHtml).not.toContain('gateway-secret-1766');
+    expect(geminiHtml).not.toContain('127.0.0.1:9999');
+
+    const openaiPage = runtime({
+      hosted: true,
+      ai: {
+        engine: {
+          kind: 'openai',
+          baseUrl: `http://gateway-user:gateway-secret-1766 "q'@127.0.0.1:9999/v1`,
+          model: 'llama3.2',
+        },
+      },
+    });
+    const openaiHtml = openaiPage.transformIndexHtml('<html><head></head></html>');
+    expect(openaiHtml).not.toContain('gateway-user');
+    expect(openaiHtml).not.toContain('gateway-secret-1766');
+    expect(openaiHtml).toContain('http://127.0.0.1:9999/v1');
+  });
 });
 
 describe('Vite page runtime: a Gemini key Vite would serve to the browser (#1632, #1659)', () => {

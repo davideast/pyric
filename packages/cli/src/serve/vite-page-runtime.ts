@@ -2,6 +2,7 @@ import { REACT_BOOTSTRAP } from './react-bootstrap.js';
 import type { ConfigEnv, ResolvedConfig, UserConfig } from 'vite';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
 import {
+  browserAiEngineWire,
   loadViteAiEnv,
   refuseBrowserServedGeminiKey,
   resolveViteAiConfig,
@@ -117,9 +118,10 @@ export function createVitePageRuntime(input: {
       }
       if (html.includes(marker)) return html;
       const head = options.hosted ? '' : workerRuntime.headTag(marker);
+      const browserEngine = browserAiEngineWire(resolvedAi.engineWire);
       let aiEngineTag = '';
-      if (resolvedAi.engineWire) {
-        aiEngineTag = `<script ${marker}>globalThis.__PYRIC_AI_ENGINE__=${JSON.stringify(resolvedAi.engineWire).replace(/</g, '\\u003c')};</script>`;
+      if (browserEngine) {
+        aiEngineTag = `<script ${marker}>globalThis.__PYRIC_AI_ENGINE__=${JSON.stringify(browserEngine).replace(/</g, '\\u003c')};</script>`;
       }
       const tag = REACT_BOOTSTRAP + head + aiEngineTag + runtimeChipTag +
         `<script type="module" src="/@fs/${initEntry}" ${marker}></script>`;

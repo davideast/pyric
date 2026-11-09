@@ -101,6 +101,10 @@ function isAnswerEngine(value: EngineConfig | AnswerEngine): value is AnswerEngi
 /** What Studio's stream (and the construction log line) name the engine. */
 type EngineKind = 'scripted' | 'openai' | 'gemini' | 'custom';
 
+function redactOptionalBaseUrl(baseUrl: string | undefined): string | undefined {
+  return baseUrl === undefined ? undefined : redactUpstreamUrl(baseUrl);
+}
+
 /**
  * What a status read reports about the resolved engine: the mode it is
  * running in, the model and upstream it answers through when it has one, and
@@ -134,12 +138,12 @@ export class AiBroker {
     } else if (engine.kind === 'gemini') {
       this.engine = new GeminiEngine(engine);
       this.engineKind = 'gemini';
-      this.engineBaseUrl = engine.baseUrl === undefined ? undefined : redactUpstreamUrl(engine.baseUrl);
+      this.engineBaseUrl = redactOptionalBaseUrl(engine.baseUrl);
     } else {
       this.engine = new OpenAiEngine(engine);
       this.engineKind = 'openai';
       this.engineModel = engine.model;
-      this.engineBaseUrl = engine.baseUrl === undefined ? undefined : redactUpstreamUrl(engine.baseUrl);
+      this.engineBaseUrl = redactOptionalBaseUrl(engine.baseUrl);
     }
     console.info(this.describeEngine());
   }

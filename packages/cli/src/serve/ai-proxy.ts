@@ -10,7 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ServeLogger } from './server.js';
-import { redactUpstreamText, redactUrl, urlCredentials } from 'pyric/ai/internal';
+import { redactUpstreamText, redactUpstreamUrl, urlCredentials } from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
 import { answerAndClose, collectRawBody, isBodyTooLarge } from '../bridge/server/peer.js';
@@ -116,7 +116,7 @@ function safeUpstreamText(text: string, credentials: readonly string[] = []): st
  * exactly like a denied listener that re-fires.
  */
 function aiProxyThrottleKey(failure: AiProxyFailure): string {
-  const target = redactUrl(failure.target);
+  const target = redactUpstreamUrl(failure.target);
   if (failure.kind === 'status') return `ai-proxy status ${failure.status} ${target}`;
   return `ai-proxy ${failure.kind} ${target}`;
 }
@@ -269,8 +269,14 @@ export async function fetchAiUpstream(
   const failed = !upstream.ok;
   if (failed) {
     const retryAfter = upstream.headers.get('retry-after');
-    note({ kind: 'status', target, latencyMs: Date.now() - startedAt, status: upstream.status,
-      ...(retryAfter !== null ? { retryAfter, credentials: requestCredentials(input, init) } : {}) });
+    note({
+      kind: 'status',
+      target,
+      latencyMs: Date.now() - startedAt,
+      status: upstream.status,
+      credentials: requestCredentials(input, init),
+      ...(retryAfter !== null ? { retryAfter } : {}),
+    });
   }
   const body = upstream.body;
   const hasNoBody = body === null;
@@ -382,7 +388,7 @@ export async function handleAiProxy(
     // The 502 body quotes the same two strings the terminal block does, so it
     // gets the same masking: the target carries the page's own query string,
     // a fetch error routinely echoes the URL back, and it can quote a header.
-    const credentials = requestCredentials(target, { headers });
+    const credentials = [...urlCredentials(upstreamBase), ...requestCredentials(target, { headers })];
     res.writeHead(502, { 'content-type': 'text/plain' });
     res.end(
       `pyric dev ai-proxy: upstream ${redactUpstreamText(target, credentials)} unreachable: ${redactUpstreamText(cause, credentials)}\n` +

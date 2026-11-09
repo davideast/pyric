@@ -260,7 +260,7 @@ function assertNoUserinfo(texts: string[], host: string): void {
   assert.ok(texts[0]!.includes(`http://${host}/v1beta/models/`), texts[0]);
 }
 
-/** A dev server whose gemini base URL carries userinfo: the page, the proxy's 502 and the terminal drop it. */
+/** A dev server whose gemini base URL carries userinfo: served assets, the page, the proxy's 502 and the terminal drop it. */
 async function assertUserinfoDropped(app: App, standInUrl: string, name: string, hosted: boolean): Promise<void> {
   const env = { GEMINI_API_KEY: SERVER_KEY, GEMINI_STAND_IN_URL: withUserinfo(standInUrl), ...(hosted ? { HOSTED: '1' } : {}) };
   const server = await app.devServer({ name, env });
@@ -277,7 +277,9 @@ async function assertUserinfoDropped(app: App, standInUrl: string, name: string,
     assert.equal(answer.status, 502, answer.text);
     texts.push(answer.text);
   }
-  assertNoUserinfo([...texts, server.process.output], new URL(standInUrl).host);
+  const paths = hosted ? ['/', '/main.js', '/__pyric/init.json'] : SERVED_PATHS;
+  const served = await Promise.all(paths.map((path) => servedText(server, path)));
+  assertNoUserinfo([...texts, ...served, server.process.output], new URL(standInUrl).host);
 }
 
 async function openPage(app: App, host: DevServer) {

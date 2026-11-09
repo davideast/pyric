@@ -498,21 +498,23 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
   for (const { password, error } of [
     { password: "pw'secret-1766", error: 'Request cannot be constructed from a URL that includes credentials:' },
     { password: 'pw secret-1766', error: 'Request cannot be constructed from a URL that includes credentials:' },
+    { password: 'pw:secret-1766', error: 'Request cannot be constructed from a URL that includes credentials:' },
+    { password: ':/secret-1766', error: 'Request cannot be constructed from a URL that includes credentials:' },
     { password: 'pw/secret-1766', error: 'Failed to parse URL from' },
     { password: 'pw#secret-1766', error: 'Failed to parse URL from' },
   ]) {
-    it(`drops a password holding ${JSON.stringify(password.slice(2, 3))} from the 502 body and the log (#1766)`, async () => {
+    it(`drops a password holding ${JSON.stringify(password)} from the 502 body and the log (#1766)`, async () => {
       const realFetch = globalThis.fetch;
       const failing = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
         const url = String(input instanceof Request ? input.url : input);
-        if (!url.includes('@')) return realFetch(input, init);
+        if (!url.includes('gateway-user')) return realFetch(input, init);
         throw new TypeError(`${error} ${url}`);
       };
       globalThis.fetch = Object.assign(failing, { preconnect: realFetch.preconnect });
       try {
         const { logger, notes } = recordingLogger();
         const h = await startServe(`http://gateway-user:${password}@127.0.0.1:9/v1`, logger);
-        const res = await realFetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+        const res = await realFetch(`${h.url}/__pyric/ai-proxy/chat/completions?user=alice@example.com`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: '{}',
@@ -523,13 +525,43 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
         for (const shown of [text, notes[0]!]) {
           expect(shown).not.toContain('secret-1766');
           expect(shown).not.toContain('gateway-user');
-          expect(shown).toContain('127.0.0.1:9/v1/chat/completions');
+          expect(shown).toContain('http://127.0.0.1:9/v1/chat/completions?user=alice@example.com');
         }
       } finally {
         globalThis.fetch = realFetch;
       }
     });
   }
+
+  it('drops userinfo from a failed-status terminal warning without Retry-After and from its throttle key (#1766)', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = Object.assign(
+      async () => new Response('unauthorized', { status: 401 }),
+      { preconnect: realFetch.preconnect },
+    );
+    try {
+      const { logger, notes } = recordingLogger();
+      const throttleKeys: string[] = [];
+      const throttle = {
+        shouldPrint(key: string) {
+          throttleKeys.push(key);
+          return true;
+        },
+      };
+      const target = `http://gateway-user:gateway-secret-1766 "q'/extra@up.example/v1/chat/completions`;
+      const res = await fetchAiUpstream(target, { method: 'POST' }, throttle, logger);
+      expect(res.status).toBe(401);
+      expect(notes.length).toBe(1);
+      expect(throttleKeys.length).toBe(1);
+      for (const shown of [notes[0]!, throttleKeys[0]!]) {
+        expect(shown).not.toContain('gateway-secret-1766');
+        expect(shown).not.toContain('gateway-user');
+        expect(shown).toContain('http://up.example/v1/chat/completions');
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 
   it('masks a bearer token that a real fetch error quotes from the Authorization header (#1737)', async () => {
     // fetch refuses a header value with a line break before it sends, and its

@@ -1,4 +1,5 @@
 import type { AIOptions } from 'pyric/ai';
+import { redactUpstreamUrl } from 'pyric/ai/internal';
 import path from 'node:path';
 import { loadEnv } from 'vite';
 import type { AiEngineConfigWire } from './worker/protocol.js';
@@ -159,6 +160,30 @@ export function engineConfigToWire(engine: PyricAiEngineConfig): AiEngineConfigW
     result.script = engine.script as unknown as Array<Record<string, unknown>>;
   }
   return result as AiEngineConfigWire;
+}
+
+/**
+ * The engine wire shape served to the browser (`globalThis.__PYRIC_AI_ENGINE__`
+ * and `/__pyric/init.json`): never carries upstream URL userinfo (#1766). A
+ * keyless gemini engine omits `baseUrl` altogether, because the browser engine
+ * always routes through `/__pyric/ai-proxy/gemini` while the server keeps the
+ * upstream `baseUrl` for that route and for `hosted: true`.
+ */
+export function browserAiEngineWire(
+  wire: AiEngineConfigWire | undefined,
+): AiEngineConfigWire | undefined {
+  if (wire === undefined || wire.kind === 'scripted') return wire;
+  if (wire.kind === 'gemini') {
+    if (wire.apiKey === undefined) return { kind: 'gemini' };
+    return {
+      ...wire,
+      ...(wire.baseUrl !== undefined ? { baseUrl: redactUpstreamUrl(wire.baseUrl) } : {}),
+    };
+  }
+  return {
+    ...wire,
+    ...(wire.baseUrl !== undefined ? { baseUrl: redactUpstreamUrl(wire.baseUrl) } : {}),
+  };
 }
 
 /** Resolve the plugin's explicit-options-over-Vite-env AI convention. */
