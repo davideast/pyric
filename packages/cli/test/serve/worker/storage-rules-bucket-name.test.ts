@@ -113,4 +113,46 @@ describe('worker Storage rules see the bucket by its name', () => {
     const meta = (await opOk(makeCtx(BOUND_RULES), put('wildcard/d.txt'))) as { bucket: string };
     expect(meta.bucket).toBe(BUCKET);
   });
+
+  it('keeps a secondary defaultBucket isolated once the host already has a primary default bucket', async () => {
+    const openAll = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{file=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+    const ctx = makeCtx(openAll, undefined);
+    await opOk(ctx, {
+      method: 'storage.putBytes',
+      path: 'docs/doc-1.txt',
+      bucket: 'bucket-alpha',
+      defaultBucket: 'bucket-alpha',
+      dataB64: bytesToBase64(new TextEncoder().encode('alpha-payload')),
+    });
+    await opOk(ctx, {
+      method: 'storage.putBytes',
+      path: 'docs/doc-1.txt',
+      bucket: 'bucket-beta',
+      defaultBucket: 'bucket-beta',
+      dataB64: bytesToBase64(new TextEncoder().encode('beta-payload')),
+    });
+
+    const alpha = (await opOk(ctx, {
+      method: 'storage.getBytes',
+      path: 'docs/doc-1.txt',
+      bucket: 'bucket-alpha',
+      defaultBucket: 'bucket-alpha',
+    })) as { dataB64: string };
+    const beta = (await opOk(ctx, {
+      method: 'storage.getBytes',
+      path: 'docs/doc-1.txt',
+      bucket: 'bucket-beta',
+      defaultBucket: 'bucket-beta',
+    })) as { dataB64: string };
+
+    expect(Buffer.from(alpha.dataB64, 'base64').toString('utf8')).toBe('alpha-payload');
+    expect(Buffer.from(beta.dataB64, 'base64').toString('utf8')).toBe('beta-payload');
+  });
 });

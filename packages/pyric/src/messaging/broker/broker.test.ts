@@ -154,13 +154,22 @@ describe('messaging broker — intake validation (captured envelopes, byte-match
     expect(dry.name).toMatch(/^projects\/pyric-sandbox\/messages\/\d+$/);
   });
 
-  it('parses the captured-valid condition grammar and rejects dangling operators', () => {
+  it('parses the captured-valid condition grammar and rejects dangling operators or /topics/ prefixes', () => {
     expect(parseCondition("'a' in topics && 'b' in topics")).toEqual({ topics: ['a', 'b'] });
     expect(parseCondition("'a' in topics || ('b' in topics && !('c' in topics))")).toEqual({
       topics: ['a', 'b', 'c'],
     });
     expect(parseCondition("'a' in topics &&")).toBeNull();
     expect(parseCondition('a in topics')).toBeNull();
+    expect(parseCondition("'/topics/alpha' in topics")).toBeNull();
+  });
+
+  it('rejects /topics/-prefixed condition topic literals with invalid-condition envelope', () => {
+    const broker = new MessagingBroker();
+    const captured = capturedEnvelope('messaging-send-invalid-condition-error-envelope');
+    const err = rejectionOf(() => broker.send({ condition: "'/topics/alpha' in topics", data: { k: 'v' } }));
+    expect(err.envelope.status).toBe(captured.status);
+    expect(err.envelope.error).toEqual(captured.error as any);
   });
 });
 
@@ -219,6 +228,31 @@ describe('messaging broker — delivery routing (the captured visibility rule)',
     // Condition matches the token's topic set.
     broker.send({ condition: "'news' in topics && !('other' in topics)", data: { k: 'v' } });
     expect(received.length).toBe(2);
+  });
+
+  it('evaluates condition operators with ! tighter than && and && tighter than ||', () => {
+    const broker = new MessagingBroker();
+    const token = broker.getTokenFor('reg-1');
+    broker.subscribeToTopic([token], 'alpha');
+    const deliveredIds: string[] = [];
+    broker.onBackgroundMessage((p) => {
+      if (p.data?.id) deliveredIds.push(p.data.id);
+    });
+
+    broker.send({
+      condition: "'alpha' in topics || 'beta' in topics && 'gamma' in topics",
+      data: { id: 'or-before-and' },
+    });
+    broker.send({
+      condition: "('alpha' in topics || 'beta' in topics && 'gamma' in topics) && 'delta' in topics",
+      data: { id: 'grouped-then-false-and' },
+    });
+    broker.send({
+      condition: "!'beta' in topics && 'gamma' in topics || 'alpha' in topics",
+      data: { id: 'not-and-or' },
+    });
+
+    expect(deliveredIds).toEqual(['or-before-and', 'not-and-or']);
   });
 });
 

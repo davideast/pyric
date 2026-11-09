@@ -404,6 +404,8 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireRecord(message.request, 'request');
       return;
     case 'auth.adminDeleteUser':
+    case 'auth.adminGetAccountStanding':
+    case 'auth.adminRevokeRefreshTokens':
       requireString(message.uid, 'uid');
       return;
     case 'auth.restorePortSession':

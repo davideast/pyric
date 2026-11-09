@@ -72,10 +72,12 @@ function dataBytes(data: Record<string, string> | undefined): number {
 
 /** Strip an optional `/topics/` prefix (accepted by the admin SDK) before charset validation. */
 export function canonicalTopicName(topic: string): string {
+  if (typeof topic !== 'string') return '';
   return topic.startsWith('/topics/') ? topic.slice('/topics/'.length) : topic;
 }
 
 export function isValidTopicName(topic: string): boolean {
+  if (typeof topic !== 'string') return false;
   const name = canonicalTopicName(topic);
   return name.length > 0 && TOPIC_NAME_RE.test(name);
 }
@@ -108,12 +110,12 @@ export function parseCondition(condition: string): { topics: string[] } | null {
     return false;
   }
 
-  // primary := "'" name "' in topics" | "(" expr ")" | "!" primary
+  // primary := "'" name "' in topics" | "(" orExpr ")" | "!" primary
   function primary(): boolean {
     ws();
     if (expectLiteral('!')) return primary();
     if (expectLiteral('(')) {
-      if (!expr()) return false;
+      if (!orExpr()) return false;
       return expectLiteral(')');
     }
     ws();
@@ -126,17 +128,17 @@ export function parseCondition(condition: string): { topics: string[] } | null {
     pos++; // closing quote
     if (!expectLiteral('in')) return false;
     if (!expectLiteral('topics')) return false;
-    if (!isValidTopicName(name)) return false;
+    if (name.length === 0 || !TOPIC_NAME_RE.test(name)) return false;
     topics.push(name);
     return true;
   }
 
-  // expr := primary (('&&' | '||') primary)*
-  function expr(): boolean {
+  // andExpr := primary ('&&' primary)*
+  function andExpr(): boolean {
     if (!primary()) return false;
     for (;;) {
       ws();
-      if (expectLiteral('&&') || expectLiteral('||')) {
+      if (expectLiteral('&&')) {
         if (!primary()) return false;
         continue;
       }
@@ -144,7 +146,20 @@ export function parseCondition(condition: string): { topics: string[] } | null {
     }
   }
 
-  if (!expr()) return null;
+  // orExpr := andExpr ('||' andExpr)*
+  function orExpr(): boolean {
+    if (!andExpr()) return false;
+    for (;;) {
+      ws();
+      if (expectLiteral('||')) {
+        if (!andExpr()) return false;
+        continue;
+      }
+      return true;
+    }
+  }
+
+  if (!orExpr()) return null;
   ws();
   if (pos !== src.length) return null;
   return { topics };

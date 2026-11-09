@@ -175,6 +175,10 @@ interface OpenStorageService {
   readonly rulesResolution: StorageRulesResolution | null;
   /** The cross-service IAM mode it was opened with. */
   readonly crossServiceIam: CrossServiceIam;
+  /** Whether a client or explicit rules configuration has locked `rulesSource`. */
+  readonly rulesLocked: boolean;
+  /** Whether a client or explicit IAM configuration has locked `crossServiceIam`. */
+  readonly crossServiceIamLocked: boolean;
 }
 
 /**
@@ -357,6 +361,8 @@ export async function replaceStorageRules(
     compiledRules: compiled.rules,
     rulesResolution: compiled.resolution,
     crossServiceIam: open.crossServiceIam,
+    rulesLocked: true,
+    crossServiceIamLocked: open.crossServiceIamLocked,
   });
   const root = await open.service;
   root.rules = compiled.rules;
@@ -536,6 +542,8 @@ export async function replaceCrossServiceIam(
     compiledRules: open.compiledRules,
     rulesResolution: open.rulesResolution,
     crossServiceIam: mode,
+    rulesLocked: open.rulesLocked,
+    crossServiceIamLocked: true,
   });
   const root = await open.service;
   root.crossServiceIam = mode;
@@ -557,24 +565,93 @@ function ensureService(
   options: StorageOptions,
   caller: string,
 ): Promise<StorageService> {
+  const isAdminCaller = caller === 'getAdminStorageSandbox';
   const existing = OPEN_SERVICES.get(sandbox);
   const alreadyOpen = existing !== undefined;
   if (alreadyOpen) {
-    rejectDifferingLateConfig(
-      'rules',
-      'rules source',
-      options.rules,
-      existing.rulesSource,
-      caller,
-    );
-    rejectDifferingLateConfig(
-      'crossServiceIam',
-      'crossServiceIam mode',
-      options.crossServiceIam,
-      existing.crossServiceIam,
-      caller,
-    );
-    return existing.service;
+    if (existing.rulesLocked) {
+      rejectDifferingLateConfig(
+        'rules',
+        'rules source',
+        options.rules,
+        existing.rulesSource,
+        caller,
+      );
+    }
+    if (existing.crossServiceIamLocked) {
+      rejectDifferingLateConfig(
+        'crossServiceIam',
+        'crossServiceIam mode',
+        options.crossServiceIam,
+        existing.crossServiceIam,
+        caller,
+      );
+    }
+
+    const adoptRules = !existing.rulesLocked && options.rules !== undefined;
+    const adoptIam = !existing.crossServiceIamLocked && options.crossServiceIam !== undefined;
+    const nextRulesLocked = existing.rulesLocked || !isAdminCaller || options.rules !== undefined;
+    const nextIamLocked =
+      existing.crossServiceIamLocked || !isAdminCaller || options.crossServiceIam !== undefined;
+
+    if (
+      !adoptRules &&
+      !adoptIam &&
+      nextRulesLocked === existing.rulesLocked &&
+      nextIamLocked === existing.crossServiceIamLocked
+    ) {
+      return existing.service;
+    }
+
+    let nextRules = existing.compiledRules;
+    let nextResolution = existing.rulesResolution;
+    let nextRulesSource = existing.rulesSource;
+    if (adoptRules) {
+      const hasSuppliedRules = typeof options.rules === 'string' && options.rules.length > 0;
+      if (hasSuppliedRules) {
+        const compiled = compileStorageRules(options.rules!);
+        nextRules = compiled.rules;
+        nextResolution = compiled.resolution;
+      } else {
+        nextRules = null;
+        nextResolution = null;
+      }
+      nextRulesSource = options.rules ?? null;
+    }
+    const nextIam = adoptIam ? options.crossServiceIam! : existing.crossServiceIam;
+
+    let nextService = existing.service;
+    if (adoptRules || adoptIam) {
+      nextService = existing.service.then((root) => {
+        root.rules = nextRules;
+        root.crossServiceIam = nextIam;
+        return root;
+      });
+      const bucketMap = SCOPED_SERVICES.get(sandbox);
+      if (bucketMap) {
+        for (const [bucketKey, scopedPromise] of bucketMap.entries()) {
+          bucketMap.set(
+            bucketKey,
+            Promise.all([nextService, scopedPromise]).then(([, scoped]) => {
+              scoped.rules = nextRules;
+              scoped.crossServiceIam = nextIam;
+              return scoped;
+            }),
+          );
+        }
+      }
+    }
+
+    OPEN_SERVICES.set(sandbox, {
+      service: nextService,
+      rulesSource: nextRulesSource,
+      compiledRules: nextRules,
+      rulesResolution: nextResolution,
+      crossServiceIam: nextIam,
+      rulesLocked: nextRulesLocked,
+      crossServiceIamLocked: nextIamLocked,
+    });
+    return nextService;
   }
   let rules: StorageRules | null = null;
   let resolution: StorageRulesResolution | null = null;
@@ -607,6 +684,8 @@ function ensureService(
     compiledRules: rules,
     rulesResolution: resolution,
     crossServiceIam,
+    rulesLocked: !isAdminCaller || options.rules !== undefined,
+    crossServiceIamLocked: !isAdminCaller || options.crossServiceIam !== undefined,
   });
   // Join the sandbox's persistable-service REGISTRY so `sandbox.resetAll()`
   // reaches storage (issue #359: Studio's reset cleared Firestore + auth but

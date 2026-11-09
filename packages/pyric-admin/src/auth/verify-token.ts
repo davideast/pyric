@@ -18,6 +18,7 @@ type AccountFailureCode =
   | 'uid-already-exists'
   | 'invalid-password'
   | 'invalid-email'
+  | 'invalid-page-token'
   | 'claims-too-large';
 
 /**

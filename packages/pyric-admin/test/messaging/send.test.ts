@@ -67,6 +67,40 @@ describe('send — accept shapes', () => {
     });
     expect(NUMERIC_NAME.test(name)).toBe(true);
   });
+
+  it('uses the bound app projectId in returned FCM message resource names', async () => {
+    const sandbox = initializeSandbox();
+    const broker = getMessagingBroker(sandbox);
+    const token = broker.getTokenFor('reg-proj');
+    const app = initializeApp({ sandbox, projectId: 'proj-alpha' }, `send-proj-${Math.random().toString(36).slice(2)}`);
+    const svc = getMessaging(app);
+
+    const topicName = await svc.send({ topic: 'news', data: { id: '1' } });
+    expect(topicName).toMatch(/^projects\/proj-alpha\/messages\/\d+$/);
+
+    const tokenName = await svc.send({ token, data: { id: '2' } });
+    expect(tokenName).toMatch(/^projects\/proj-alpha\/messages\/[0-9a-f-]{36}$/);
+
+    const batch = await svc.sendEach([{ topic: 'news', data: { id: '3' } }]);
+    expect(batch.responses[0]?.messageId).toMatch(/^projects\/proj-alpha\/messages\/\d+$/);
+  });
+
+  it('rejects operations on a retained Messaging handle after deleteApp(app)', async () => {
+    const sandbox = initializeSandbox();
+    const app = initializeApp({ sandbox }, 'messaging-deleted-app');
+    const svc = getMessaging(app);
+    await deleteApp(app);
+
+    await expect(svc.send({ topic: 'news', data: { id: '1' } })).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(svc.sendEach([{ topic: 'news', data: { id: '1' } }])).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(svc.subscribeToTopic('tok', 'news')).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+  });
 });
 
 describe('send — dryRun vs real parity', () => {
@@ -159,6 +193,27 @@ describe('send — wrapped rejection envelopes', () => {
   it('malformed condition → invalid-argument', async () => {
     const err = await rejectionOf({ condition: "'a' in topics &&", data: { k: 'v' } });
     expect(err.code).toBe('messaging/invalid-argument');
+  });
+
+  it('/topics/-prefixed literal in condition → invalid-argument', async () => {
+    const err = await rejectionOf({ condition: "'/topics/alpha' in topics", data: { k: 'v' } });
+    expect(err.code).toBe('messaging/invalid-argument');
+  });
+
+  it('routes condition messages with && higher precedence than ||', async () => {
+    const { svc, broker } = freshMessaging();
+    const token = broker.getTokenFor('reg-cond');
+    await svc.subscribeToTopic(token, 'alpha');
+    const ids: string[] = [];
+    broker.onBackgroundMessage((payload) => {
+      if (payload.data?.id) ids.push(payload.data.id);
+    });
+
+    await svc.send({
+      condition: "'alpha' in topics || 'beta' in topics && 'gamma' in topics",
+      data: { id: 'precedence' },
+    });
+    expect(ids).toEqual(['precedence']);
   });
 
   it('non-numeric webpush TTL → invalid-argument', async () => {

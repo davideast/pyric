@@ -78,6 +78,8 @@ export const operationPersistence = {
   'auth.adminCreateUser': true,
   'auth.adminUpdateUser': true,
   'auth.adminDeleteUser': true,
+  'auth.adminGetAccountStanding': false,
+  'auth.adminRevokeRefreshTokens': true,
   'auth.adminClearUsers': true,
   'auth.getProviderConfig': false,
   'auth.setProviderConfig': true,

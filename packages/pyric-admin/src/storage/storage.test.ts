@@ -15,6 +15,8 @@ import { initializeSandbox } from 'pyric/sandbox';
 
 import {
   ADMIN_APP_TARGET,
+  deleteApp,
+  initializeApp,
   type PyricAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
@@ -218,6 +220,40 @@ describe('pyric-admin/storage — sandbox backend', () => {
     expect(getStorage(sandboxAdminApp()).bucket().name).toBe('pyric-default');
   });
 
+  it('isolates distinct storageBucket names across multiple admin apps and shares named buckets with pyric/storage', async () => {
+    const { getStorageSandbox, listAll, ref } = await import('pyric/storage');
+
+    const sandbox = initializeSandbox();
+    getStorageSandbox(sandbox, {
+      dbName: `pyric-admin-multi-app-buckets-${Date.now()}`,
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`,
+    });
+
+    const appAlpha = initializeApp({ sandbox, storageBucket: 'bucket-alpha' }, 'multi-bucket-alpha');
+    const appBeta = initializeApp({ sandbox, storageBucket: 'bucket-beta' }, 'multi-bucket-beta');
+
+    await getStorage(appAlpha).bucket().file('docs/doc-1.txt').save('alpha-payload');
+    await getStorage(appBeta).bucket().file('docs/doc-1.txt').save('beta-payload');
+
+    const [alphaBytes] = await getStorage(appAlpha).bucket().file('docs/doc-1.txt').download();
+    const [betaBytes] = await getStorage(appBeta).bucket().file('docs/doc-1.txt').download();
+    const [betaViaAlpha] = await getStorage(appAlpha).bucket('bucket-beta').file('docs/doc-1.txt').download();
+    expect(alphaBytes.toString('utf8')).toBe('alpha-payload');
+    expect(betaBytes.toString('utf8')).toBe('beta-payload');
+    expect(betaViaAlpha.toString('utf8')).toBe('beta-payload');
+
+    const clientBeta = getStorageSandbox(sandbox, { bucket: 'bucket-beta' });
+    const listedBeta = await listAll(ref(clientBeta, 'docs'));
+    expect(listedBeta.items.map((item) => item.fullPath)).toEqual(['docs/doc-1.txt']);
+  });
+
   it('copy() copies an object with its metadata, within a bucket and across buckets', async () => {
     const storage = getStorage(sandboxAdminApp({ storageBucket: 'demo-app.appspot.com' }));
     const staged = storage.bucket('demo-app-upload-staging').file('staging/u1/upload-1');
@@ -294,6 +330,55 @@ service firebase.storage {
 
     await uploadBytes(ref(clientStorage, 'uploaded-by-client.txt'), new Uint8Array([1, 2, 3]));
     expect(await adminBucket.file('uploaded-by-client.txt').exists()).toEqual([true]);
+  });
+
+  it('allows seeding via pyric-admin/storage before opening client getStorageSandbox with rules', async () => {
+    const { getBytes, getStorageSandbox, ref } = await import('pyric/storage');
+
+    const sandbox = initializeSandbox();
+    const adminApp = initializeApp({ sandbox, storageBucket: 'pyric-default' }, 'seed-before-rules');
+    await getStorage(adminApp).bucket().file('items/item-1.txt').save('seeded-content', {
+      contentType: 'text/plain',
+    });
+
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /items/{id} {
+      allow read: if request.auth != null;
+    }
+  }
+}
+`;
+    const anonClient = getStorageSandbox(sandbox, { rules });
+    await expect(getBytes(ref(anonClient, 'items/item-1.txt'))).rejects.toMatchObject({
+      code: 'storage/unauthorized',
+    });
+
+    const authedClient = getStorageSandbox(sandbox.withAuth({ uid: 'reader-1' }), { rules });
+    const bytes = await getBytes(ref(authedClient, 'items/item-1.txt'));
+    expect(new TextDecoder().decode(bytes)).toBe('seeded-content');
+  });
+
+  it('rejects operations on retained Storage, Bucket, and File handles after deleteApp(app)', async () => {
+    const app = initializeApp({ sandbox: initializeSandbox() }, 'storage-deleted-app');
+    const storage = getStorage(app);
+    const bucket = storage.bucket();
+    const file = bucket.file('docs/item-1.txt');
+    await deleteApp(app);
+
+    await expect(Promise.resolve().then(() => storage.bucket())).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(Promise.resolve().then(() => bucket.getFiles())).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(Promise.resolve().then(() => file.save('payload'))).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(Promise.resolve().then(() => file.exists())).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
   });
 });
 

@@ -276,8 +276,15 @@ export class MessagingBroker {
    * `realSendEnvelopeIdentical` on every rejection observation). It skips
    * only the delivery side effects.
    */
-  send(message: BrokerMessage, options: { validateOnly?: boolean } = {}): AcceptedSend {
+  send(
+    message: BrokerMessage,
+    options: { validateOnly?: boolean; projectId?: string } = {},
+  ): AcceptedSend {
     const validateOnly = options.validateOnly === true;
+    const projectId =
+      typeof options.projectId === 'string' && options.projectId.length > 0
+        ? options.projectId
+        : this.projectId;
     let target: ResolvedTarget;
     try {
       target = validateMessage(message);
@@ -304,7 +311,7 @@ export class MessagingBroker {
 
     const messageId = target.kind === 'token' ? crypto.randomUUID() : this.mintNumericId();
     const accepted: AcceptedSend = {
-      name: `projects/${this.projectId}/messages/${messageId}`,
+      name: `projects/${projectId}/messages/${messageId}`,
       messageId,
       target,
       validateOnly,
@@ -534,7 +541,7 @@ export function evaluateCondition(condition: string, topics: ReadonlySet<string>
     ws();
     if (lit('!')) return !primary();
     if (lit('(')) {
-      const v = expr();
+      const v = orExpr();
       lit(')');
       return v;
     }
@@ -548,7 +555,7 @@ export function evaluateCondition(condition: string, topics: ReadonlySet<string>
     lit('topics');
     return topics.has(name);
   }
-  function expr(): boolean {
+  function andExpr(): boolean {
     let value = primary();
     for (;;) {
       ws();
@@ -557,13 +564,20 @@ export function evaluateCondition(condition: string, topics: ReadonlySet<string>
         value = value && rhs;
         continue;
       }
+      return value;
+    }
+  }
+  function orExpr(): boolean {
+    let value = andExpr();
+    for (;;) {
+      ws();
       if (lit('||')) {
-        const rhs = primary();
+        const rhs = andExpr();
         value = value || rhs;
         continue;
       }
       return value;
     }
   }
-  return expr();
+  return orExpr();
 }

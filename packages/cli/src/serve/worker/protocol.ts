@@ -258,6 +258,8 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.adminCreateUser'; request: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'auth.adminUpdateUser'; uid: string; request: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'auth.adminDeleteUser'; uid: string }
+  | { t: 'op'; id: string; method: 'auth.adminGetAccountStanding'; uid: string }
+  | { t: 'op'; id: string; method: 'auth.adminRevokeRefreshTokens'; uid: string }
   | { t: 'op'; id: string; method: 'auth.adminClearUsers' }
   | { t: 'op'; id: string; method: 'auth.getProviderConfig' }
   | { t: 'op'; id: string; method: 'auth.setProviderConfig'; providerId: string; enabled: boolean }

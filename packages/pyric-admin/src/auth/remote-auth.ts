@@ -4,11 +4,9 @@
  */
 import type { RemoteSandbox } from 'pyric/sandbox';
 import type { AuthAccountStanding } from 'pyric/sandbox/internal';
-import type {
-  AuthUserRecord,
-  UpdateUserRequest as SandboxUpdateUserRequest,
-} from 'pyric/auth';
+import type { AuthUserRecord } from 'pyric/auth';
 import type { PyricAdminApp } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 import type {
   Auth,
   CreateRequest,
@@ -23,10 +21,13 @@ import {
   fromAuthUserRecord,
   idTokenProjectId,
   mintSandboxCustomToken,
+  paginateUserRecords,
+  prepareSandboxUpdateRequest,
   toSandboxCreateRequest,
   translateAdminBackendError,
   validateAdminEmail,
   validateAdminPassword,
+  validateListUsersArguments,
 } from './validation.js';
 import {
   assertIdTokenArgument,
@@ -35,14 +36,6 @@ import {
   invalidUid,
   verifySandboxIdToken,
 } from './verify-token.js';
-
-const UNSUPPORTED_UPDATE_KEYS = [
-  'photoURL',
-  'phoneNumber',
-  'multiFactor',
-  'providerToLink',
-  'providersToUnlink',
-] as const;
 
 function notImplemented(method: string): Error {
   return new Error(
@@ -62,24 +55,22 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
   const sandboxNow = async (): Promise<number> =>
     ((await channel.op({ method: 'sandbox.clock' })) as { now: number }).now;
 
-  const relayedStanding = async (uid: string): Promise<AuthAccountStanding> => {
-    const record = (await listRecords()).find((u) => u.uid === uid);
-    if (record === undefined) return { kind: 'unrecorded' };
-    if (record.disabled) return { kind: 'disabled' };
-    return { kind: 'active', tokensValidAfterMs: null };
-  };
+  const relayedStanding = async (uid: string): Promise<AuthAccountStanding> =>
+    (await channel.op({ method: 'auth.adminGetAccountStanding', uid })) as AuthAccountStanding;
 
   const handle: Auth = {
     get app(): PyricAdminApp {
-      throw notImplemented('auth.app');
+      return app;
     },
 
     createCustomToken(uid: string, developerClaims?: object): Promise<string> {
+      assertAdminAppActive(app);
       assertCustomTokenArguments(uid, developerClaims);
       return sandboxNow().then((nowMs) => mintSandboxCustomToken(app, nowMs, uid, developerClaims));
     },
 
     verifyIdToken(idToken: string, checkRevoked = false): Promise<DecodedIdToken> {
+      assertAdminAppActive(app);
       assertIdTokenArgument(idToken);
       const projectId = idTokenProjectId(app);
       const verified = sandboxNow().then((nowMs) => verifySandboxIdToken(idToken, { projectId, nowMs }));
@@ -90,6 +81,7 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
     },
 
     async createUser(properties: CreateRequest): Promise<UserRecord> {
+      assertAdminAppActive(app);
       if (properties.uid !== undefined) {
         const uidErr = invalidUid(properties.uid);
         if (uidErr !== null) throw uidErr;
@@ -114,6 +106,9 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
     },
 
     async getUser(uid: string): Promise<UserRecord> {
+      assertAdminAppActive(app);
+      const uidErr = invalidUid(uid);
+      if (uidErr !== null) throw uidErr;
       const record = (await listRecords()).find((u) => u.uid === uid);
       if (!record) {
         throw new FirebaseAuthError(
@@ -125,6 +120,7 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
     },
 
     async getUserByEmail(email: string): Promise<UserRecord> {
+      assertAdminAppActive(app);
       const emailErr = validateAdminEmail(email);
       if (emailErr !== null) throw emailErr;
       const targetEmail = email.toLowerCase();
@@ -140,35 +136,16 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
       return fromAuthUserRecord(record);
     },
 
-    async listUsers(maxResults?: number, _pageToken?: string): Promise<ListUsersResult> {
-      let records = await listRecords();
-      if (maxResults !== undefined) records = records.slice(0, maxResults);
-      return { users: records.map(fromAuthUserRecord) };
+    async listUsers(maxResults?: number, pageToken?: string): Promise<ListUsersResult> {
+      assertAdminAppActive(app);
+      validateListUsersArguments(maxResults, pageToken);
+      const records = await listRecords();
+      return paginateUserRecords(records, maxResults, pageToken);
     },
 
     async updateUser(uid: string, properties: UpdateRequest): Promise<UserRecord> {
-      const propRecord = properties as Record<string, unknown>;
-      const unsupported = UNSUPPORTED_UPDATE_KEYS.filter(
-        (key) => Object.hasOwn(propRecord, key) && propRecord[key] !== undefined,
-      );
-      if (unsupported.length > 0) {
-        throw notImplemented(`updateUser({ ${unsupported.join(', ')} })`);
-      }
-      if (properties.email !== undefined) {
-        const emailErr = validateAdminEmail(properties.email);
-        if (emailErr !== null) throw emailErr;
-      }
-      if (properties.password !== undefined) {
-        const pwErr = validateAdminPassword(properties.password);
-        if (pwErr !== null) throw pwErr;
-      }
-      const request: SandboxUpdateUserRequest = {
-        displayName: properties.displayName,
-        email: properties.email,
-        password: properties.password,
-        disabled: properties.disabled,
-        emailVerified: properties.emailVerified,
-      };
+      assertAdminAppActive(app);
+      const request = prepareSandboxUpdateRequest(uid, properties, notImplemented);
       try {
         const record = await channel.op({
           method: 'auth.adminUpdateUser',
@@ -182,75 +159,112 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
     },
 
     async deleteUser(uid: string): Promise<void> {
-      await channel.op({ method: 'auth.adminDeleteUser', uid });
+      assertAdminAppActive(app);
+      const uidErr = invalidUid(uid);
+      if (uidErr !== null) throw uidErr;
+      try {
+        await channel.op({ method: 'auth.adminDeleteUser', uid });
+      } catch (err) {
+        throw translateAdminBackendError(err);
+      }
     },
 
     async setCustomUserClaims(uid: string, customUserClaims: object | null): Promise<void> {
+      assertAdminAppActive(app);
+      const uidErr = invalidUid(uid);
+      if (uidErr !== null) throw uidErr;
       assertValidCustomUserClaims(customUserClaims);
-      await channel.op({
-        method: 'auth.adminUpdateUser',
-        uid,
-        request: { customClaims: customUserClaims ?? {} },
-      });
+      try {
+        await channel.op({
+          method: 'auth.adminUpdateUser',
+          uid,
+          request: { customClaims: customUserClaims ?? {} },
+        });
+      } catch (err) {
+        throw translateAdminBackendError(err);
+      }
     },
 
     getUserByPhoneNumber(): Promise<UserRecord> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('getUserByPhoneNumber'));
     },
     getUserByProviderUid(): Promise<UserRecord> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('getUserByProviderUid'));
     },
     getUsers(): Promise<unknown> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('getUsers'));
     },
     deleteUsers(): Promise<unknown> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('deleteUsers'));
     },
     importUsers(): Promise<unknown> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('importUsers'));
     },
-    revokeRefreshTokens(uid: string): Promise<void> {
+    async revokeRefreshTokens(uid: string): Promise<void> {
+      assertAdminAppActive(app);
       const uidError = invalidUid(uid);
-      if (uidError !== null) return Promise.reject(uidError);
-      return Promise.reject(notImplemented('revokeRefreshTokens'));
+      if (uidError !== null) throw uidError;
+      try {
+        await channel.op({ method: 'auth.adminRevokeRefreshTokens', uid });
+      } catch (err) {
+        throw translateAdminBackendError(err);
+      }
     },
     createSessionCookie(): Promise<string> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('createSessionCookie'));
     },
     verifySessionCookie(): Promise<DecodedIdToken> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('verifySessionCookie'));
     },
     generatePasswordResetLink(): Promise<string> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('generatePasswordResetLink'));
     },
     generateEmailVerificationLink(): Promise<string> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('generateEmailVerificationLink'));
     },
     generateSignInWithEmailLink(): Promise<string> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('generateSignInWithEmailLink'));
     },
     generateVerifyAndChangeEmailLink(): Promise<string> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('generateVerifyAndChangeEmailLink'));
     },
     createProviderConfig(): Promise<unknown> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('createProviderConfig'));
     },
     getProviderConfig(): Promise<unknown> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('getProviderConfig'));
     },
     listProviderConfigs(): Promise<unknown> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('listProviderConfigs'));
     },
     updateProviderConfig(): Promise<unknown> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('updateProviderConfig'));
     },
     deleteProviderConfig(): Promise<void> {
+      assertAdminAppActive(app);
       return Promise.reject(notImplemented('deleteProviderConfig'));
     },
     get tenantManager(): never {
+      assertAdminAppActive(app);
       throw notImplemented('tenantManager');
     },
     get projectConfigManager(): never {
+      assertAdminAppActive(app);
       throw notImplemented('projectConfigManager');
     },
   };

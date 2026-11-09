@@ -11,8 +11,9 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../src/app/internal.js';
-import { getStorage, ref as storageRef, uploadBytes } from '../../src/storage/index.js';
+import { getStorage, getBytes, ref as storageRef, uploadBytes } from '../../src/storage/index.js';
 import {
+  getAdminStorageSandbox,
   getStorageCrossServiceIam,
   getStorageSandbox,
   getStorageService,
@@ -243,6 +244,52 @@ service firebase.storage {
     expect(resolution?.modules).toEqual(['auth']);
     expect(resolution?.source).toContain("rules_version = '2';");
     expect(resolution?.source).not.toContain('import ');
+  });
+
+  it('installs client rules and crossServiceIam when admin storage seeded the sandbox first, then locks against later differing config', async () => {
+    const sandbox = initializeSandbox({});
+    const admin = getAdminStorageSandbox(sandbox, { dbName: uniqueDbName('admin-seed-first') });
+    await uploadBytes(storageRef(admin, 'items/item-1.txt'), new TextEncoder().encode('seeded-content'), {
+      contentType: 'text/plain',
+    });
+
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /items/{id} {
+      allow read: if request.auth != null;
+    }
+  }
+}
+`;
+    const anonStorage = getStorageSandbox(sandbox, { rules, crossServiceIam: 'denied' });
+    expect(getStorageCrossServiceIam(sandbox)).toBe('denied');
+    expect(getStorageRulesResolution(anonStorage)?.source).toBe(rules);
+
+    await expect(getBytes(storageRef(anonStorage, 'items/item-1.txt'))).rejects.toMatchObject({
+      code: 'storage/unauthorized',
+    });
+
+    const authedStorage = getStorageSandbox(sandbox.withAuth({ uid: 'reader-1' }), {
+      rules,
+      crossServiceIam: 'denied',
+    });
+    const bytes = await getBytes(storageRef(authedStorage, 'items/item-1.txt'));
+    expect(new TextDecoder().decode(bytes)).toBe('seeded-content');
+
+    expect(() =>
+      getStorageSandbox(sandbox, {
+        rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read: if true;
+    }
+  }
+}
+`,
+      }),
+    ).toThrow(/already open with a different rules source/);
   });
 
 });

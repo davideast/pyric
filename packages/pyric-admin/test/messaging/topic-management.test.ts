@@ -122,4 +122,17 @@ describe('topic management — rejections', () => {
     expect((err as FirebaseMessagingError).code).toBe('messaging/invalid-argument');
     expect((err as Error).message).toMatch(/non-empty/);
   });
+
+  it('non-string or empty topic rejects with FirebaseMessagingError invalid-argument', async () => {
+    const { svc, broker } = freshMessaging();
+    const token = broker.getTokenFor('reg-non-str');
+    for (const badTopic of [null, undefined, 123, '', {}]) {
+      await expect(svc.subscribeToTopic(token, badTopic as never)).rejects.toMatchObject({
+        code: 'messaging/invalid-argument',
+      });
+      await expect(svc.unsubscribeFromTopic(token, badTopic as never)).rejects.toMatchObject({
+        code: 'messaging/invalid-argument',
+      });
+    }
+  });
 });
