@@ -156,7 +156,7 @@ describe('a Messaging row in Studio lists its requests', () => {
   });
 });
 
-describe('an observed RTDB row in Studio preserves its database instance', () => {
+describe('an observed RTDB row in Studio preserves its database instance and listener correlation', () => {
   test('carries a non-default instance onto StudioTrafficEvent', () => {
     const event = observedCallEvent({
       service: 'rtdb',
@@ -169,5 +169,22 @@ describe('an observed RTDB row in Studio preserves its database instance', () =>
     });
     const row = studioTrafficEvents([event])[0];
     expect(row?.instance).toBe('demo-app-secondary');
+  });
+
+  test('preserves detail.listenerId on adapted observed RTDB delivery rows', () => {
+    const d1 = {
+      ...observedCallEvent({
+        service: 'rtdb',
+        method: 'onValue',
+        path: '/items/list',
+        listenerId: 'l-a1b2c3d4-1',
+        at: 1000,
+        outcome: { status: 'ok' },
+      }),
+      production: { outcome: { status: 'ok' as const }, local: { result: 'allow' as const } },
+    };
+
+    const [row] = studioTrafficEvents([d1]) as Array<{ detail?: { listenerId?: string } }>;
+    expect(row?.detail?.listenerId).toBe('l-a1b2c3d4-1');
   });
 });

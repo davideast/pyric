@@ -20,6 +20,12 @@ import { activeListeners, isOperationEvent, toOperationRecord } from 'pyric/sand
 import { messagingRequestsLine, storageGsPath } from 'pyric/sandbox/internal';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { foldSessionEventLog } from '../events/fold.js';
+import {
+  EMPTY_TRAFFIC_FEED_SNAPSHOT,
+  foldTrafficFeedSnapshot,
+  retainTrafficEvents,
+  type TrafficFeedSnapshot,
+} from './traffic-retention.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
 import {
@@ -43,19 +49,18 @@ export function useStudioEventFeed(): EventFeed {
   const seed = useDevSeed();
   const env = useEnvironment();
   const liveFeed = env.status === 'ready' ? env.env.live?.feed : undefined;
-  return useMemo<EventFeed>(
-    () =>
-      seed.status === 'ready'
-        ? feedFromSandboxLike(seed.handles.sandbox)
-        : liveFeed ?? emptyEventFeed(),
-    [seed, liveFeed],
-  );
+  return useMemo<EventFeed>(() => {
+    if (seed.status === 'ready') return feedFromSandboxLike(seed.handles.sandbox);
+    return liveFeed ?? emptyEventFeed();
+  }, [seed, liveFeed]);
 }
 
 /**
- * Hard cap on the events any Studio surface accumulates (L6): a long-running
- * session must not grow render/memory cost without bound. Newest-retained;
- * `TrafficSurface` surfaces an explicit "showing latest N" line when hit.
+ * Per-lane / per-surface retention cap (L6): a long-running session must not
+ * grow render/memory cost without bound. `useStudioEvents` retains the newest
+ * `STUDIO_EVENT_CAP` events; `useStudioTrafficFeed` bounds each Traffic lane
+ * (`client`, `listenerVerdicts`, `deliveries`, `bypassed`) at `STUDIO_EVENT_CAP`
+ * and surfaces explicit rolling-cap state when hit.
  */
 export const STUDIO_EVENT_CAP = 500;
 
@@ -77,47 +82,58 @@ function capNewest(events: readonly SandboxEvent[], retention: EventRetention): 
   return [...registrations, ...recent];
 }
 
-/**
- * The unified `SandboxEvent` array every activity surface (Session, Traffic)
- * reads, dev-seed first. The seed's `events` array is already reactive; in
- * served mode it accumulates the live worker feed (the backlog seeds it, then
- * each live event appends). Empty when neither source is present.
- *
- * The feed delivers its history batch to the FIRST subscriber (see
- * `workerEventFeed`), so a fresh subscription receives the backlog even though
- * `history()` reads empty at subscribe time: hence we seed from `history()` AND
- * accumulate via `subscribe`, which folds each event exactly once.
- */
-export function useStudioEvents(retention: EventRetention = 'recent'): readonly SandboxEvent[] {
+function useAccumulatedFeed<State>(
+  emptyState: State,
+  fromHistory: (events: readonly SandboxEvent[]) => State,
+  foldEvent: (prev: State, event: SandboxEvent) => State,
+): State {
   const seed = useDevSeed();
   const env = useEnvironment();
   const liveFeed = env.status === 'ready' ? env.env.live?.feed : undefined;
   const seedReady = seed.status === 'ready';
 
-  const [liveEvents, setLiveEvents] = useState<readonly SandboxEvent[]>([]);
+  const [liveState, setLiveState] = useState<State>(emptyState);
   useEffect(() => {
-    if (seedReady || !liveFeed) {
-      setLiveEvents([]);
+    if (seedReady) {
+      setLiveState(emptyState);
       return;
     }
-    // Cap BOTH accumulation paths (the history seed and the live appends).
-    // Live appends fold through the session rule: a reset boundary drops the
-    // wiped session's events (see `events/fold.ts`) so Traffic/Session read
-    // (near-)empty after Settings then Reset, which is issue #359's extension.
-    setLiveEvents(capNewest(liveFeed.history(), retention));
+    if (!liveFeed) {
+      setLiveState(emptyState);
+      return;
+    }
+    setLiveState(fromHistory(liveFeed.history()));
     const unsub = liveFeed.subscribe((event) =>
-      setLiveEvents((prev) => capNewest(foldSessionEventLog(prev, event), retention)),
+      setLiveState((prev) => foldEvent(prev, event)),
     );
     return unsub;
-  }, [seedReady, liveFeed, retention]);
+  }, [seedReady, liveFeed, emptyState, fromHistory, foldEvent]);
 
-  // The dev-seed path reads the sandbox's own reactive array, capped at the
-  // read (same reference under the cap, so no memo churn).
-  const cappedSeedEvents = useMemo(
-    () => (seedReady ? capNewest(seed.events, retention) : []),
-    [seedReady, seed, retention],
+  const seedState = useMemo<State>(() => {
+    if (!seedReady) return emptyState;
+    return fromHistory(seed.events);
+  }, [seedReady, seed, emptyState, fromHistory]);
+
+  return seedReady ? seedState : liveState;
+}
+
+const EMPTY_EVENTS: readonly SandboxEvent[] = [];
+
+/**
+ * The unified `SandboxEvent` array every activity surface (Session, Listeners)
+ * reads, dev-seed first.
+ */
+export function useStudioEvents(retention: EventRetention = 'recent'): readonly SandboxEvent[] {
+  const fromHistory = useMemo(
+    () => (events: readonly SandboxEvent[]) => capNewest(events, retention),
+    [retention],
   );
-  return seedReady ? cappedSeedEvents : liveEvents;
+  const foldEvent = useMemo(
+    () => (prev: readonly SandboxEvent[], event: SandboxEvent) =>
+      capNewest(foldSessionEventLog(prev, event), retention),
+    [retention],
+  );
+  return useAccumulatedFeed(EMPTY_EVENTS, fromHistory, foldEvent);
 }
 
 function isTrafficEvent(
@@ -136,6 +152,10 @@ function isPermissionDeniedErrorCode(code: unknown): boolean {
     normalized === 'auth/permission-denied'
   );
 }
+
+type StudioTrafficEventWithDetail = StudioTrafficEvent & {
+  detail?: Readonly<Record<string, unknown>>;
+};
 
 function toTrafficEvent(
   e: (RequestEvent | SandboxOperationEvent | SandboxListenerEvent) & EventProvenance,
@@ -210,7 +230,7 @@ function toTrafficEvent(
   if (e.reasons !== undefined) {
     reasonsVal = e.reasons;
   }
-  const adapted: StudioTrafficEvent = {
+  const adapted: StudioTrafficEventWithDetail = {
     kind: 'operation',
     service: e.service,
     id: e.id,
@@ -235,6 +255,7 @@ function toTrafficEvent(
   if (e.caller !== undefined) adapted.caller = e.caller;
   if (e.instance !== undefined) adapted.instance = e.instance;
   if (e.production !== undefined) adapted.production = e.production;
+  if (e.detail !== undefined) adapted.detail = e.detail;
   return adapted;
 }
 
@@ -243,14 +264,58 @@ function callerOf(e: EventProvenance): Pick<StudioTrafficEvent, 'caller'> {
   return e.caller === undefined ? {} : { caller: e.caller };
 }
 
+export interface StudioTrafficFeed {
+  readonly events: StudioTrafficEvent[];
+  readonly capped: boolean;
+  readonly clientCapped: boolean;
+  readonly uncoveredBeforeAt: number | null;
+  readonly rulesUncoveredBeforeAt: number | null;
+}
+
+function retainDefaultTrafficEvents(events: readonly SandboxEvent[]): TrafficFeedSnapshot {
+  return retainTrafficEvents(events, STUDIO_EVENT_CAP);
+}
+
+function foldDefaultTrafficSnapshot(
+  prev: TrafficFeedSnapshot,
+  event: SandboxEvent,
+): TrafficFeedSnapshot {
+  return foldTrafficFeedSnapshot(prev, event, STUDIO_EVENT_CAP);
+}
+
+function useRetainedTrafficSnapshot(): TrafficFeedSnapshot {
+  return useAccumulatedFeed(
+    EMPTY_TRAFFIC_FEED_SNAPSHOT,
+    retainDefaultTrafficEvents,
+    foldDefaultTrafficSnapshot,
+  );
+}
+
+/**
+ * The bounded Traffic feed with per-lane retention (`client`, `listenerVerdicts`,
+ * `deliveries`, `bypassed`) and explicit rolling-cap state.
+ */
+export function useStudioTrafficFeed(): StudioTrafficFeed {
+  const snapshot = useRetainedTrafficSnapshot();
+  return useMemo<StudioTrafficFeed>(
+    () => ({
+      events: studioTrafficEvents(snapshot.events),
+      capped: snapshot.capped,
+      clientCapped: snapshot.clientCapped,
+      uncoveredBeforeAt: snapshot.uncoveredBeforeAt,
+      rulesUncoveredBeforeAt: snapshot.rulesUncoveredBeforeAt,
+    }),
+    [snapshot],
+  );
+}
+
 /**
  * The traffic feed. Firestore still emits legacy `request` events; RTDB and
  * other services can emit canonical `operation` events. Adapt both into the
  * headless `@pyric/ui/traffic` shape.
  */
 export function useStudioTraffic(): StudioTrafficEvent[] {
-  const events = useStudioEvents();
-  return useMemo<StudioTrafficEvent[]>(() => studioTrafficEvents(events), [events]);
+  return useStudioTrafficFeed().events;
 }
 
 /** The traffic rows {@link useStudioTraffic} reads, from any event array. */
@@ -260,13 +325,13 @@ export function studioTrafficEvents(events: readonly SandboxEvent[]): StudioTraf
 
 /** The denied ops (rules-failure debugging), derived from the live stream. */
 export function useStudioDenials(): Denial[] {
-  const events = useStudioEvents();
-  return useMemo<Denial[]>(() => selectDenials(events), [events]);
+  const snapshot = useRetainedTrafficSnapshot();
+  return useMemo<Denial[]>(() => selectDenials(snapshot.events), [snapshot.events]);
 }
 
 /** ALL rules-evaluated ops (allow AND deny/unsupported), derived from the live
  *  stream: the Traffic rules inspector's feed (`selectRuleEvaluations`). */
 export function useStudioRuleEvaluations(): Denial[] {
-  const events = useStudioEvents();
-  return useMemo<Denial[]>(() => selectRuleEvaluations(events), [events]);
+  const snapshot = useRetainedTrafficSnapshot();
+  return useMemo<Denial[]>(() => selectRuleEvaluations(snapshot.events), [snapshot.events]);
 }

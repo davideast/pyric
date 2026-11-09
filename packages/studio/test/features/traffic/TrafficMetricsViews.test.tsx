@@ -416,7 +416,7 @@ describe('<RulesMetricsView>', () => {
     expect(getByText('Advisory local rules')).toBeTruthy();
     expect(
       getByText(
-        'Local rules would deny 67% of evaluated requests in this window · 1 disagreed with production.',
+        'Local rules would deny 67% of evaluated requests in this window · 1 disagreed with production (3 evaluated · 1 unevaluated · 1 Admin-bypassed).',
       ),
     ).toBeTruthy();
     expect(
@@ -435,14 +435,83 @@ describe('<RulesMetricsView>', () => {
       container.querySelector('[data-pyric-metric-key="denies"] [data-pyric-metric-value]')
         ?.textContent,
     ).toBe('2');
-    expect(container.textContent).toContain('Drift with production: 1');
+    expect(container.textContent).toContain('Evaluated locally: 3');
     expect(container.textContent).toContain('Unevaluated locally: 1');
+    expect(container.textContent).toContain('Admin-bypassed: 1');
+    expect(container.textContent).toContain('Drift with production: 1');
     expect(container.textContent).toContain('Denied by production: 1');
     expect(getByText('When local rules evaluated requests')).toBeTruthy();
     expect(container.textContent).toContain(
       'Source: observed live requests · Local rules evaluated against observed traffic (advisory)',
     );
     expect(container.textContent).not.toContain('Pyric sandbox events');
+  });
+
+  it('retains pre-window listener evaluations inside a brushed sub-interval and renders interval + rolling-cap disclosures', async () => {
+    installLiveHostHealth();
+
+    let cleared = 0;
+    const liveEvents: StudioTrafficEvent[] = [
+      {
+        ...operation('rtdb-early', 'onValue', 500),
+        service: 'rtdb',
+        path: '/items/list',
+        detail: { listenerId: 'page:tab-1:l-items' },
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: {
+          outcome: { status: 'ok' },
+          local: { result: 'allow' },
+        },
+      } as StudioTrafficEvent,
+      {
+        ...operation('rtdb-brushed-1', 'onValue', 2_500),
+        service: 'rtdb',
+        path: '/items/list',
+        detail: { listenerId: 'page:tab-1:l-items' },
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: {
+          outcome: { status: 'ok' },
+          local: { result: 'allow' },
+        },
+      } as StudioTrafficEvent,
+      {
+        ...operation('rtdb-brushed-2', 'onValue', 3_000),
+        service: 'rtdb',
+        path: '/items/list',
+        detail: { listenerId: 'page:tab-1:l-items' },
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: {
+          outcome: { status: 'ok' },
+          local: { result: 'allow' },
+        },
+      } as StudioTrafficEvent,
+    ];
+
+    const brushedWindow = { start: 2_000, end: 4_000 };
+    const { container, getByText } = render(
+      <RulesMetricsView
+        events={liveEvents}
+        window={brushedWindow}
+        capped
+        focusedInterval={{
+          window: brushedWindow,
+          finding: '2 requests occurred in this interval; none were denied.',
+          onClear: () => {
+            cleared += 1;
+          },
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(getByText('1 advisory local Rules evaluation')).toBeTruthy();
+    });
+    expect(container.querySelector('[data-pyric-traffic-capped]')?.textContent).toContain(
+      'Showing latest 500 retained client requests',
+    );
+    expect(getByText('Selected interval')).toBeTruthy();
+    fireEvent.click(getByText('Show all traffic'));
+    expect(cleared).toBe(1);
   });
 
   it('surfaces unevaluated live requests honestly when no local verdict could be decided', async () => {
