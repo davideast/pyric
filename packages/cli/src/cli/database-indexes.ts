@@ -15,7 +15,7 @@ import {
   type RtdbIndexWarning,
 } from 'pyric/rules/internal/usage';
 import type { FirebaseJson, FirebaseRc } from './firebase-json.js';
-import type { FlagValue, ParsedArgs } from './parse-args.js';
+import { findMissingValueFlag, type FlagValue, type ParsedArgs } from './parse-args.js';
 import { errorMessage } from '../rtdb/error-message.js';
 import {
   extractRtdbIndexesFromPaths,
@@ -67,6 +67,16 @@ export async function runDatabaseIndexesGenerate(
   const err = deps.stderr ?? process.stderr;
   const cwd = deps.cwd ?? process.cwd();
   const jsonOutput = parsed.flags.get('json') === true;
+
+  const missingFlag = findMissingValueFlag(parsed.flags, [
+    'out',
+    'rules',
+    'instance',
+  ]);
+  if (missingFlag !== undefined) {
+    err.write(`pyric database indexes generate: missing value for --${missingFlag}\n`);
+    return 2;
+  }
 
   const { check, positional } = readCheckFlagAndPositionals(parsed);
   if (positional.length === 0) {

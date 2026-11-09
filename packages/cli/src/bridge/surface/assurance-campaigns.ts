@@ -90,14 +90,29 @@ export async function callAssuranceOperation(
   name: AssuranceToolName,
   args: Args,
 ): Promise<OperationResult> {
+  const store = campaignStore(ctx.sandbox);
   const usesExternalLoopbackUrl =
     name === 'firebase_assurance_derive'
     && typeof args.url === 'string'
     && args.url !== OWNED_SANDBOX_URL;
+  let preservesStoredNonSandboxCampaign = false;
+  if (
+    name === 'firebase_assurance_derive'
+    && args.url === undefined
+    && typeof args.campaignId === 'string'
+  ) {
+    try {
+      const existing = store.get(args.campaignId);
+      preservesStoredNonSandboxCampaign =
+        existing.context?.attachment?.source.transport !== 'in-process-sandbox';
+    } catch {
+      preservesStoredNonSandboxCampaign = false;
+    }
+  }
   let tools = assuranceTools(ctx);
-  if (usesExternalLoopbackUrl) {
+  if (usesExternalLoopbackUrl || preservesStoredNonSandboxCampaign) {
     tools = createAssuranceTools({
-      store: campaignStore(ctx.sandbox),
+      store,
       projectDir: ctx.projectDir,
     });
   }

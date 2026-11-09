@@ -38,6 +38,7 @@ import {
   cloneLiveRuntime,
   loadAssuranceProject,
   resolveDeriveRoot,
+  targetRulesFromSnapshot,
   type LiveRuntimeClone,
   type LoadedAssuranceProject,
 } from "./derive-project.js";
@@ -81,7 +82,11 @@ function mergeRuntimeFallbackRules(
   project: LoadedAssuranceProject,
   runtime: LiveRuntimeClone,
 ): LoadedAssuranceProject {
-  const tr = runtime.targetRules;
+  const snapshotRules =
+    runtime.snapshot !== undefined
+      ? targetRulesFromSnapshot(runtime.snapshot)
+      : undefined;
+  const tr = runtime.targetRules ?? snapshotRules;
   if (!tr) return project;
 
   const firestore = [...project.sources.firestore];
@@ -90,13 +95,36 @@ function mergeRuntimeFallbackRules(
   }
 
   const rtdb = [...project.sources.rtdb];
-  if (rtdb.length === 0 && tr.rtdb !== undefined) {
+  const hasDefaultRtdb = rtdb.some(
+    (s) => s.instance === undefined || s.instance === DEFAULT_SNAPSHOT_RESOURCE,
+  );
+  if (!hasDefaultRtdb && tr.rtdb !== undefined) {
     rtdb.push({ source: "live:database.rules.json", json: tr.rtdb });
   }
 
   const storage = [...(project.sources.storage ?? [])];
-  if (storage.length === 0 && typeof tr.storage === "string") {
+  const hasDefaultStorage = storage.some(
+    (s) => s.bucket === undefined || s.bucket === DEFAULT_SNAPSHOT_RESOURCE,
+  );
+  if (!hasDefaultStorage && typeof tr.storage === "string") {
     storage.push({ source: "live:storage.rules", text: tr.storage });
+  }
+  const configuredBuckets = [...project.configuredBuckets];
+  const mergedStorageBuckets = {
+    ...(snapshotRules?.storageBuckets ?? {}),
+    ...(tr.storageBuckets ?? {}),
+  };
+  for (const [bucketId, rulesText] of Object.entries(mergedStorageBuckets)) {
+    if (!storage.some((s) => s.bucket === bucketId)) {
+      storage.push({
+        source: `live:storage:${bucketId}`,
+        bucket: bucketId,
+        text: rulesText,
+      });
+    }
+    if (!configuredBuckets.includes(bucketId)) {
+      configuredBuckets.push(bucketId);
+    }
   }
 
   const mergedSources: RuleSources = {
@@ -106,6 +134,7 @@ function mergeRuntimeFallbackRules(
     problems: [...project.sources.problems],
   };
   const mergedInstances = {
+    ...(snapshotRules?.rtdbInstances ?? {}),
     ...(tr.rtdbInstances ?? {}),
     ...project.rtdbInstances,
   };
@@ -114,6 +143,7 @@ function mergeRuntimeFallbackRules(
   return {
     ...project,
     sources: mergedSources,
+    configuredBuckets,
     rtdbInstances: mergedInstances,
     ruleSurface,
   };
@@ -242,16 +272,24 @@ function buildProbeSeedInput(runtime: LiveRuntimeClone): {
 } {
   if (runtime.snapshot === undefined) return {};
   const state: WorldState = { snapshot: runtime.snapshot };
-  const users: ProbeUser[] = runtime.snapshot.auth.users.map((u) => {
-    const entry: ProbeUser = { uid: u.uid };
-    if (u.email !== undefined) entry.email = u.email;
-    if (u.displayName !== undefined) entry.displayName = u.displayName;
-    if (u.emailVerified !== undefined) entry.emailVerified = u.emailVerified;
-    if (u.customClaims !== undefined) {
-      entry.customClaims = { ...u.customClaims };
+  const users: ProbeUser[] = runtime.snapshot.auth.users
+    .filter((u) => u.disabled !== true)
+    .map((u) => {
+      const entry: ProbeUser = { uid: u.uid, emailVerified: u.emailVerified === true };
+      if (u.email !== undefined) entry.email = u.email;
+      if (u.displayName !== undefined) entry.displayName = u.displayName;
+      if (u.customClaims !== undefined) {
+        entry.customClaims = { ...u.customClaims };
+      }
+      return entry;
+    });
+  if (users.length === 1) {
+    let syntheticPeerUid = "probe-peer";
+    if (users[0]!.uid === syntheticPeerUid) {
+      syntheticPeerUid = "probe-peer-2";
     }
-    return entry;
-  });
+    users.push({ uid: syntheticPeerUid, displayName: "Probe Peer" });
+  }
   if (users.length > 0) {
     return { state, users };
   }
@@ -274,6 +312,8 @@ export async function deriveAssurance(
     attachmentProvider?: AssuranceAttachmentProvider;
     fetchImpl?: typeof fetch;
     projectDir?: string;
+    configuredBuckets?: readonly string[];
+    defaultBucket?: string;
   } = { store };
   if (input.url !== undefined) cloneOpts.url = input.url;
   if (input.campaignId !== undefined) cloneOpts.campaignId = input.campaignId;
@@ -283,6 +323,12 @@ export async function deriveAssurance(
   }
   if (deps.fetchImpl !== undefined) cloneOpts.fetchImpl = deps.fetchImpl;
   cloneOpts.projectDir = deps.projectDir ?? absRoot;
+  if (diskProject.configuredBuckets.length > 0) {
+    cloneOpts.configuredBuckets = diskProject.configuredBuckets;
+  }
+  if (diskProject.defaultBucket !== undefined) {
+    cloneOpts.defaultBucket = diskProject.defaultBucket;
+  }
 
   const runtime = await cloneLiveRuntime(cloneOpts);
   const project = mergeRuntimeFallbackRules(diskProject, runtime);

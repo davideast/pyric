@@ -256,6 +256,9 @@ export function stepToFirebaseOperation(
     method,
     path: step.path,
   };
+  if (step.resourceId !== undefined && step.resourceId !== DEFAULT_SNAPSHOT_RESOURCE) {
+    op.instance = step.resourceId;
+  }
   if (method === "upload") {
     op.dataBase64 = encodeStorageStepBytes(step);
   }
@@ -346,10 +349,25 @@ export function applyStepToTargetState(
   }
 
   if (step.service === "rtdb") {
-    if (!state.rtdb || typeof state.rtdb !== "object" || Array.isArray(state.rtdb)) {
-      state.rtdb = {};
+    let rtdbRoot: Record<string, unknown>;
+    if (
+      step.resourceId !== undefined &&
+      step.resourceId !== DEFAULT_SNAPSHOT_RESOURCE &&
+      !isUnsafeObjectKey(step.resourceId)
+    ) {
+      if (!state.rtdbInstances) state.rtdbInstances = {};
+      let instTree = getOwn(state.rtdbInstances, step.resourceId);
+      if (!instTree || typeof instTree !== "object" || Array.isArray(instTree)) {
+        instTree = {};
+        defineOwn(state.rtdbInstances, step.resourceId, instTree);
+      }
+      rtdbRoot = instTree as Record<string, unknown>;
+    } else {
+      if (!state.rtdb || typeof state.rtdb !== "object" || Array.isArray(state.rtdb)) {
+        state.rtdb = {};
+      }
+      rtdbRoot = state.rtdb as Record<string, unknown>;
     }
-    const rtdbRoot = state.rtdb as Record<string, unknown>;
     if (step.method === "remove" || step.method === "delete") {
       setRtdbPath(rtdbRoot, step.path, null, false);
       return;
@@ -359,20 +377,39 @@ export function applyStepToTargetState(
     return;
   }
 
-  if (!state.storage) state.storage = [];
+  let bucketObjects: StorageObjectFixture[];
+  if (
+    step.resourceId !== undefined &&
+    step.resourceId !== DEFAULT_SNAPSHOT_RESOURCE &&
+    !isUnsafeObjectKey(step.resourceId)
+  ) {
+    if (!state.storageBuckets) state.storageBuckets = {};
+    let namedList = getOwn(state.storageBuckets, step.resourceId);
+    if (!namedList) {
+      namedList = [];
+      defineOwn(state.storageBuckets, step.resourceId, namedList);
+    }
+    bucketObjects = namedList;
+  } else {
+    if (!state.storage) state.storage = [];
+    bucketObjects = state.storage;
+  }
+
   if (step.method === "delete" || step.method === "remove") {
-    state.storage = state.storage.filter((item) => item.path !== step.path);
+    const remaining = bucketObjects.filter((item) => item.path !== step.path);
+    bucketObjects.length = 0;
+    bucketObjects.push(...remaining);
     return;
   }
-  const existingIdx = state.storage.findIndex((item) => item.path === step.path);
+  const existingIdx = bucketObjects.findIndex((item) => item.path === step.path);
   if (step.method === "update" && existingIdx >= 0) {
-    const prev = state.storage[existingIdx]!;
+    const prev = bucketObjects[existingIdx]!;
     const updated: StorageObjectFixture = { ...prev };
     if (step.contentType !== undefined) updated.contentType = step.contentType;
     if (step.customMetadata !== undefined) {
       updated.customMetadata = { ...step.customMetadata };
     }
-    state.storage[existingIdx] = updated;
+    bucketObjects[existingIdx] = updated;
     return;
   }
   const entry: StorageObjectFixture = {
@@ -384,9 +421,9 @@ export function applyStepToTargetState(
     entry.customMetadata = { ...step.customMetadata };
   }
   if (existingIdx >= 0) {
-    state.storage[existingIdx] = entry;
+    bucketObjects[existingIdx] = entry;
   } else {
-    state.storage.push(entry);
+    bucketObjects.push(entry);
   }
 }
 
@@ -412,6 +449,40 @@ export function initializeTargetState(
     rtdb = structuredClone(snapshot.rtdb[DEFAULT_SNAPSHOT_RESOURCE]);
   }
 
+  const rtdbInstances: Record<string, Record<string, unknown>> = {};
+  for (const [instKey, instVal] of Object.entries(snapshot?.rtdb ?? {})) {
+    if (
+      instKey === DEFAULT_SNAPSHOT_RESOURCE ||
+      isUnsafeObjectKey(instKey) ||
+      !instVal ||
+      typeof instVal !== "object" ||
+      Array.isArray(instVal)
+    ) {
+      continue;
+    }
+    defineOwn(
+      rtdbInstances,
+      instKey,
+      structuredClone(instVal) as Record<string, unknown>,
+    );
+  }
+  for (const [instKey, instVal] of Object.entries(baseState?.rtdbInstances ?? {})) {
+    if (
+      instKey === DEFAULT_SNAPSHOT_RESOURCE ||
+      isUnsafeObjectKey(instKey) ||
+      !instVal ||
+      typeof instVal !== "object" ||
+      Array.isArray(instVal)
+    ) {
+      continue;
+    }
+    defineOwn(
+      rtdbInstances,
+      instKey,
+      structuredClone(instVal) as Record<string, unknown>,
+    );
+  }
+
   const storage: StorageObjectFixture[] = [];
   for (const item of snapshot?.storage[DEFAULT_SNAPSHOT_RESOURCE] ?? []) {
     const entry: StorageObjectFixture = {
@@ -430,12 +501,57 @@ export function initializeTargetState(
     }
   }
 
+  const storageBuckets: Record<string, StorageObjectFixture[]> = {};
+  for (const [bucketKey, items] of Object.entries(snapshot?.storage ?? {})) {
+    if (bucketKey === DEFAULT_SNAPSHOT_RESOURCE || isUnsafeObjectKey(bucketKey)) {
+      continue;
+    }
+    const list: StorageObjectFixture[] = [];
+    for (const item of items) {
+      const entry: StorageObjectFixture = {
+        path: item.path,
+        dataBase64: item.contentBase64,
+      };
+      if (item.contentType !== undefined) entry.contentType = item.contentType;
+      if (item.customMetadata !== undefined) {
+        entry.customMetadata = { ...item.customMetadata };
+      }
+      list.push(entry);
+    }
+    if (list.length > 0) {
+      defineOwn(storageBuckets, bucketKey, list);
+    }
+  }
+  for (const [bucketKey, items] of Object.entries(baseState?.storageBuckets ?? {})) {
+    if (bucketKey === DEFAULT_SNAPSHOT_RESOURCE || isUnsafeObjectKey(bucketKey)) {
+      continue;
+    }
+    let list = getOwn(storageBuckets, bucketKey);
+    if (list === undefined) {
+      list = [];
+      defineOwn(storageBuckets, bucketKey, list);
+    }
+    for (const item of items) {
+      if (!list.some((s) => s.path === item.path)) {
+        list.push({ ...item });
+      }
+    }
+  }
+
   const usersByUid = new Map<string, AuthFixtureUser>();
   for (const u of snapshot?.auth.users ?? []) {
-    const rec: AuthFixtureUser = { uid: u.uid };
+    const rec: AuthFixtureUser = {
+      uid: u.uid,
+      emailVerified: u.emailVerified === true,
+    };
     if (u.email !== undefined) rec.email = u.email;
+    if (u.password !== undefined) rec.password = u.password;
     if (u.displayName !== undefined) rec.displayName = u.displayName;
-    if (u.emailVerified !== undefined) rec.emailVerified = u.emailVerified;
+    if (u.photoUrl !== undefined) rec.photoUrl = u.photoUrl;
+    if (u.phoneNumber !== undefined) rec.phoneNumber = u.phoneNumber;
+    if (u.disabled !== undefined) rec.disabled = u.disabled;
+    if (u.tenantId !== undefined) rec.tenantId = u.tenantId;
+    if (u.providerId !== undefined) rec.providerId = u.providerId;
     if (u.customClaims !== undefined) rec.customClaims = { ...u.customClaims };
     usersByUid.set(u.uid, rec);
   }
@@ -450,12 +566,21 @@ export function initializeTargetState(
         defineOwn(claims, k, v);
       }
     }
+    let emailVerified = true;
+    if (existing !== undefined) {
+      emailVerified = existing.emailVerified === true;
+    } else if (typeof actor.token.email_verified === "boolean") {
+      emailVerified = actor.token.email_verified;
+    }
     const merged: AuthFixtureUser = {
       ...(existing ?? { uid: actor.uid }),
       uid: actor.uid,
-      email: existing?.email ?? actor.email,
+      email:
+        existing !== undefined && existing.email !== undefined
+          ? existing.email
+          : actor.email,
       displayName: existing?.displayName ?? actor.displayName,
-      emailVerified: true,
+      emailVerified,
     };
     if (Object.keys(claims).length > 0) merged.customClaims = claims;
     usersByUid.set(actor.uid, merged);
@@ -466,6 +591,8 @@ export function initializeTargetState(
   };
   if (Object.keys(firestore).length > 0) out.firestore = firestore;
   if (rtdb !== undefined) out.rtdb = rtdb;
+  if (Object.keys(rtdbInstances).length > 0) out.rtdbInstances = rtdbInstances;
   if (storage.length > 0) out.storage = storage;
+  if (Object.keys(storageBuckets).length > 0) out.storageBuckets = storageBuckets;
   return out;
 }

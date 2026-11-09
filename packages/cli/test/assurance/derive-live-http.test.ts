@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -69,7 +70,8 @@ describe("derive-live-http", () => {
       1_700_000_000_000,
     );
     const v3FirestoreSection = JSON.parse(bundleRecords(records)) as unknown;
-    const validSha = "a".repeat(64);
+    const objectBytes = new Uint8Array([9, 8, 7]);
+    const validSha = createHash("sha256").update(objectBytes).digest("hex");
     const calls: string[] = [];
     let postedMethodBody: Record<string, unknown> | undefined;
 
@@ -122,7 +124,7 @@ describe("derive-live-http", () => {
         );
       }
       if (urlStr.endsWith(`/__pyric/state/objects/${validSha}`)) {
-        return new Response(new Uint8Array([9, 8, 7]), { status: 200 });
+        return new Response(objectBytes, { status: 200 });
       }
       if (urlStr.endsWith(HOSTED_METHOD_PATH)) {
         postedMethodBody = JSON.parse(String(init?.body ?? "{}")) as Record<
