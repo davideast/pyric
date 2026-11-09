@@ -9,9 +9,13 @@
 import { describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isLiveSessionRoute, serveLiveSessionRoute } from '../../src/serve/live-session-routes.js';
+import { createObservedSessionDataStore } from '../../src/serve/observed-session/store.js';
+import { LIVE_SEED_SANDBOX_PATH, LIVE_SESSION_DATA_PATH } from '../../src/serve/observed-session/wire.js';
 
 const cliDist = resolve(import.meta.dir, '../../dist');
 const liveDist = resolve(import.meta.dir, '../../../live/dist');
@@ -352,5 +356,33 @@ describe('Live host observed-session-data & opt-in seeding end-to-end (Node sqli
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('matches live-session routes and answers GET session-data directly', async () => {
+    expect(isLiveSessionRoute(LIVE_SESSION_DATA_PATH)).toBe(true);
+    expect(isLiveSessionRoute(LIVE_SEED_SANDBOX_PATH)).toBe(true);
+    expect(isLiveSessionRoute('/__pyric/health')).toBe(false);
+
+    const store = createObservedSessionDataStore({ projectId: 'demo-unit' });
+    let statusCode = 0;
+    let body = '';
+    const res = {
+      writeHead(code: number) {
+        statusCode = code;
+        return this;
+      },
+      end(chunk?: string) {
+        body = chunk ?? '';
+      },
+    } as unknown as ServerResponse;
+
+    await serveLiveSessionRoute(
+      LIVE_SESSION_DATA_PATH,
+      { method: 'GET' } as IncomingMessage,
+      res,
+      { sessionData: store, runtime: undefined, instanceId: 'inst-1' },
+    );
+    expect(statusCode).toBe(200);
+    expect(JSON.parse(body).projectId).toBe('demo-unit');
   });
 });

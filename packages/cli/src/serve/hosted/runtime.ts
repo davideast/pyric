@@ -54,10 +54,9 @@ import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { observedPortInterrupted, observedPortResumed } from '../worker/host/observe.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
 import { rtdbInstance } from '../worker/host/rtdb-instances.js';
-import { ensureGitignored } from '../capture-store.js';
 import { isPathInside } from '../path-inside.js';
 import type { LiveSeedMode, ObservedSessionDataSnapshot } from '../observed-session/wire.js';
-import { seedFromObservedSession, type ObservedSeedResult } from './seed-from-observed-session.js';
+import { createObservedSeedRunner, type ObservedSeedResult } from './seed-from-observed-session.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, hostedStateDirectory, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
@@ -313,9 +312,17 @@ export async function createHostedRuntime(
   const closingPorts = new Set<Promise<void>>();
   const methodWork = new Map<object, OperationQueue>();
   const toolWork = new Map<string, OperationQueue>();
-  let seedWork = Promise.resolve();
   let closed = false;
   let closePromise: Promise<void> | undefined;
+  const seedRunner = createObservedSeedRunner({
+    ctx,
+    ownedProjectDir,
+    isClosed: () => closed,
+    isInOwnedProject,
+    requireHealthyPersistence,
+    restoreFirestoreSubscriptions,
+    flushPersistence,
+  });
 
   /** The log records an MCP caller's tool calls as a port of its own. */
   function toolSession(message: ToolCallRequest): string {
@@ -710,23 +717,7 @@ export async function createHostedRuntime(
       snapshot: ObservedSessionDataSnapshot,
       options: { mode?: LiveSeedMode; callerProjectDir?: string } = {},
     ): Promise<ObservedSeedResult> {
-      if (closed) return Promise.reject(new Error('The hosted sandbox is closed.'));
-      const callerProjectDir = options.callerProjectDir ?? ownedProjectDir;
-      if (!isInOwnedProject(callerProjectDir)) {
-        return Promise.reject(new Error('The discovered host belongs to another project.'));
-      }
-      const mode = options.mode ?? 'merge';
-      const run = seedWork.then(async () => {
-        if (closed) throw new Error('The hosted sandbox is closed.');
-        requireHealthyPersistence();
-        ensureGitignored(ownedProjectDir);
-        const seeded = await seedFromObservedSession(ctx, snapshot, mode);
-        restoreFirestoreSubscriptions(ctx);
-        await flushPersistence();
-        return seeded;
-      });
-      seedWork = run.then(() => {}, () => {});
-      return run;
+      return seedRunner.run(snapshot, options);
     },
     /** The admitted transport connection owns command ordering; JSON cannot choose another caller. */
     runMethod(call: HostedMethodRequest, connection: object): Promise<OperationResult> {
@@ -884,7 +875,7 @@ export async function createHostedRuntime(
         try {
           const pendingCalls = [...methodWork.values(), ...toolWork.values()].map(queue => queue.pending);
           const portClosures = [...ports.keys()].map(closePort);
-          await Promise.all([...pendingCalls, ...portClosures, ...closingPorts, seedWork]);
+          await Promise.all([...pendingCalls, ...portClosures, ...closingPorts, seedRunner.pending()]);
           await persistenceWork;
           const healthy = persistenceIsHealthy();
           if (healthy) await flushPersistence();
