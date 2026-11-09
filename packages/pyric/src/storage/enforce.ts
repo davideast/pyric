@@ -47,7 +47,6 @@ import {
   isSecretObservationKey,
   makeSandboxOperationEvent,
   observationText,
-  redactEmails,
 } from 'pyric/sandbox/internal';
 import type { EventProvenance, Sandbox } from 'pyric/sandbox';
 import { getAuthLens } from '../sandbox/internal/auth-lens.js';
@@ -127,7 +126,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function sanitizeCapturedText(value: string): { value: string; redacted: boolean } {
-  const next = redactEmails(observationText(value));
+  const next = observationText(value);
   return { value: next, redacted: next !== value };
 }
 

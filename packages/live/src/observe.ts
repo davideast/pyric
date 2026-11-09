@@ -96,8 +96,7 @@ export interface LiveCallRecord {
   /**
    * On `threw`, `rejected` and `listener-error`: production's own message, as
    * the SDK's error held it (`Missing or insufficient permissions.`), at most
-   * {@link MAX_MESSAGE_LENGTH} characters, with each email address written
-   * `[email]`. Absent when the error had none.
+   * {@link MAX_MESSAGE_LENGTH} characters. Absent when the error had none.
    */
   readonly message?: string;
   /**
@@ -245,7 +244,7 @@ export interface LiveUsage {
 /** Measures a resolved call from its value, as the senders' `measureObservedUsage` does. Undefined measures nothing. */
 export type LiveMeasure = (module: string, name: string, value: unknown) => LiveUsage | undefined;
 
-/** The account a call ran as: the uid, its token's claim names and their values with emails left out, never the token. */
+/** The account a call ran as: the uid, its token's claim names and their values, never the token. */
 export interface LiveAccount {
   readonly uid: string;
   readonly claimNames?: readonly string[];
@@ -466,13 +465,6 @@ export interface ObservedSite extends ObservedHooks {
 
 /** The longest message a record carries, as long as a host takes. */
 export const MAX_MESSAGE_LENGTH = 500;
-/**
- * Each email address in a message, which may sit between the segments of a
- * path. The host's reader applies the same pattern (`redactEmails` in
- * `pyric/sandbox/internal`); this file runs in the page, which imports no
- * runtime code from `pyric` or `@pyric/cli`, so it keeps its own copy.
- */
-const EMAIL_ANYWHERE = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
 
 const FAILURE_OUTCOMES: ReadonlySet<LiveCallOutcome> = new Set(['threw', 'rejected', 'listener-error']);
 const LIFECYCLE_OUTCOMES: ReadonlySet<LiveCallOutcome> = new Set(['attached', 'detached']);
@@ -505,15 +497,15 @@ export function noMessage(): undefined {
 }
 
 /**
- * The record's `message` field: what `messageOf` read, each email address
- * written `[email]`, cut to {@link MAX_MESSAGE_LENGTH}. Nothing when there is
- * no message or reading it threw.
+ * The record's `message` field: what `messageOf` read, cut to
+ * {@link MAX_MESSAGE_LENGTH}. Nothing when there is no message or reading it
+ * threw.
  */
 function messageField(site: ObservedSite, error: unknown): { message?: string } {
   try {
     const read = (site.messageOf ?? errorMessage)(error)?.trim();
     if (read === undefined || read === '') return {};
-    return { message: read.replace(EMAIL_ANYWHERE, '[email]').slice(0, MAX_MESSAGE_LENGTH) };
+    return { message: read.slice(0, MAX_MESSAGE_LENGTH) };
   } catch {
     return {};
   }

@@ -4,9 +4,8 @@
  * The host runs the call through the deployed rules' simulator with the
  * claim values, written data and stored document the call carries. A
  * Firestore verdict keeps the simulator's trace, as a sandbox request's
- * `rulesEvidence` does, with every email address left out. `pyric verify`
- * replays captured live calls through `evaluateFirestoreCall` with candidate
- * rules.
+ * `rulesEvidence` does. `pyric verify` replays captured live calls through
+ * `evaluateFirestoreCall` with candidate rules.
  */
 import { projectEvaluatedRule, type TestCase, type TestResult } from 'pyric/rules/internal';
 import { captureRulesEvidence, getInternalEnv, type ObservedMethod } from 'pyric/sandbox/internal';
@@ -16,10 +15,8 @@ import {
   ALWAYS_OPEN,
   authOf,
   definedOnly,
-  emailsOf,
   gapsIn,
   givenBy,
-  holdsEmail,
   isPlainRecord,
   unionOf,
   verdictOf,
@@ -27,7 +24,6 @@ import {
   type GapPattern,
   type Given,
   type LocalVerdict,
-  type Trace,
 } from './observe-local-evaluation.js';
 
 /** The trace's rules version: the host's loaded rules, which a sandbox request's random id does not name. */
@@ -47,44 +43,9 @@ const FIRESTORE_GAPS: readonly GapPattern[] = [
   // An update's incoming document merges the written fields onto the stored one.
   ['stored-document', WRITE_READ, (given) => given.writeData && !given.wholeWrite],
   ['claim-values', /\brequest\.auth\.token\b/, (given) => !given.claims],
-  // Emails are left out of the claims a call keeps.
   ['claim-values', EMAIL_CLAIM, (given) => !given.emails],
   ['query', /\brequest\.query\b/, ALWAYS_OPEN],
 ];
-
-/** A value the trace capture records as `unavailable`, as it does any non-scalar. */
-const WITHHELD = Object.freeze({});
-
-type TraceRule = TestResult['trace'][number];
-type TraceEntry = NonNullable<TraceRule['expressionTrace']>[number];
-
-/** One evaluated expression with its value or error withheld when it holds an email. */
-function entryWithoutEmail(entry: TraceEntry, emails: string[]): TraceEntry {
-  const text = typeof entry.value === 'string' ? entry.value : entry.error;
-  if (!holdsEmail(text, emails)) return entry;
-  const { error: _error, ...withoutError } = entry;
-  return { ...withoutError, value: WITHHELD };
-}
-
-/** One evaluated rule with its email-holding values and message left out. */
-function ruleWithoutEmail(rule: TraceRule, emails: string[]): TraceRule {
-  const { message, ...rest } = rule;
-  const kept = holdsEmail(message, emails) ? rest : rule;
-  const entries = rule.expressionTrace;
-  if (entries === undefined) return kept;
-  return { ...kept, expressionTrace: entries.map((entry) => entryWithoutEmail(entry, emails)) };
-}
-
-/**
- * A simulator result's trace as the event may hold it: every value, error
- * or message that holds an email address withheld before the capture
- * truncates its text, so a cut-off address cannot pass.
- */
-function traceOf(result: TestResult, call: ObservedCall): Trace {
-  const emails = emailsOf(call);
-  const trace = result.trace.map((rule) => ruleWithoutEmail(rule, emails));
-  return captureRulesEvidence({ ...result, trace }, LOCAL_TRACE_VERSION);
-}
 
 /** A write's incoming data and a read's stored document, as a simulator case names them. */
 function caseData(call: ObservedCall, method: Exclude<ObservedMethod, 'set'>): { data?: Record<string, unknown>; resource?: Record<string, unknown> } {
@@ -146,7 +107,7 @@ function evaluateFirestore(simulate: FirestoreSimulate, call: ObservedCall, path
   const needs = looked ? unionOf(['stored-document'], gaps) : gaps;
   const deciding = projectEvaluatedRule(result);
   const rule = deciding === undefined ? undefined : definedOnly({ line: deciding.line, expression: deciding.expression });
-  return { allowed, rule, needs, trace: traceOf(result, call) };
+  return { allowed, rule, needs, trace: captureRulesEvidence(result, LOCAL_TRACE_VERSION) };
 }
 
 /**

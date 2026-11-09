@@ -666,6 +666,20 @@ service cloud.firestore {
     const differs = await verifyFixture(liveCapture(write, { writeData: { owner: 'bob' } }, OWNER_WRITES), { rules: { firestore: OWNER_WRITES } });
     expect(differs.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'set' }]);
   });
+
+  it('evaluates live calls whose rules read request.auth.token.email when email claims are captured', async () => {
+    const allowed = liveCapture(read({ status: 'ok' }), { claims: { email: 'alice@example.com' } }, EMAIL_READS);
+    const agrees = await verifyFixture(allowed, { rules: { firestore: EMAIL_READS } });
+    expect(agrees.services.firestore?.checkedEvents).toBe(1);
+    expect(agrees.services.firestore?.divergences).toEqual([]);
+
+    const differs = await verifyFixture(
+      liveCapture(read({ status: 'ok' }), { claims: { email: 'bob@example.com' } }, EMAIL_READS),
+      { rules: { firestore: EMAIL_READS } },
+    );
+    expect(differs.services.firestore?.checkedEvents).toBe(1);
+    expect(differs.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'get' }]);
+  });
 });
 
 // ─── Storage rules — capture / restore round-trip ───────────────────────
@@ -1339,7 +1353,7 @@ service firebase.storage {
       storageRules,
     });
     const serializedFixture = JSON.stringify(rawFixture);
-    expect(serializedFixture).not.toContain('alice@example.com');
+    expect(serializedFixture).toContain('alice@example.com');
     expect(serializedFixture).not.toContain('secret-download-token-123');
 
     const persistedFixture = JSON.parse(serializedFixture) as PyricVerifyFixture;
@@ -1363,7 +1377,7 @@ service firebase.storage {
       requestResource: {
         metadata: {
           note: 'blocked',
-          contact: '[email]',
+          contact: 'alice@example.com',
           firebaseStorageDownloadTokens: '[redacted]',
         },
       },
@@ -1413,6 +1427,7 @@ service firebase.storage {
     match /plain/{file} {
       allow create: if request.auth != null
         && request.resource.metadata != null
+        && request.resource.metadata.ownerEmail == 'bob@example.com'
         && request.resource.metadata.category == 'published';
     }
   }
@@ -1457,13 +1472,13 @@ service firebase.storage {
       }),
     ).rejects.toThrow();
 
-    // Case 3: Unredacted denied upload (ordinary metadata values, zero redaction).
+    // Case 3: Unredacted denied upload with email metadata (emails are preserved verbatim, zero redaction).
     await expect(
       uploadBytes(
         storageRef(storage, 'plain/draft.txt'),
         new Blob(['draft'], { type: 'text/plain' }),
         {
-          customMetadata: { category: 'draft', reviewer: 'team-alpha' },
+          customMetadata: { category: 'draft', reviewer: 'team-alpha', ownerEmail: 'bob@example.com' },
         },
       ),
     ).rejects.toThrow();
@@ -1474,7 +1489,7 @@ service firebase.storage {
     });
     const persistedFixture = JSON.parse(JSON.stringify(rawFixture)) as PyricVerifyFixture;
 
-    // Verify `name` and metadata keys were not rewritten on Case 1, while values were redacted.
+    // Verify `name`, metadata keys, and email values were preserved on Case 1 while secret `syncToken` was redacted.
     const case1Event = persistedFixture.events.find(
       (event) =>
         event.kind === 'operation' &&
@@ -1487,7 +1502,7 @@ service firebase.storage {
     expect(case1Denied?.redactedFields).toEqual(['request.resource.metadata']);
     expect(case1Denied?.requestResource?.name).toBe('uploads/alice@example.com/report.txt');
     expect(case1Denied?.requestResource?.metadata).toEqual({
-      owner: '[email]',
+      owner: 'alice@example.com',
       syncToken: '[redacted]',
       'ack:alice@example.com': 'yes',
       'ack:bob@example.com': 'yes',

@@ -68,34 +68,6 @@ export const OBSERVED_ADMIN_DISPOSITION: RulesDisposition = Object.freeze({
   reason: 'admin',
 });
 
-/** An email address anywhere in a text: another person's from a document or a field path, or the account's own. */
-export const EMAIL_SHAPE = /[^\s@"']+@[^\s@"']+\.[^\s@"']+/;
-/** Each email address in a text, which may sit between the segments of a path. */
-const EMAIL_ANYWHERE = /[^\s@"'/]+@[^\s@"'/]+\.[^\s@"'/]+/g;
-
-/**
- * A text with each email address written `[email]`, one between the segments
- * of a path (`users/ada@example.com/a.png`) included. The reader applies it to
- * production's message, and a live host's terminal to a path it prints.
- */
-export function redactEmails(text: string): string {
-  return text.replace(EMAIL_ANYWHERE, '[email]');
-}
-
-/**
- * Bounded email pattern for structured rule-denial diagnostics and remediation
- * text: requires an alphanumeric local-part start and an alphabetic TLD of two
- * or more letters while preserving surrounding punctuation, JSON escapes, regex
- * wildcards (`.matches('.*@example.com')`), version strings (`pkg@1.2.3`), and
- * stack frames (`render@app.bundle.js:10:2`).
- */
-export const DIAGNOSTIC_EMAIL_RE =
-  /(?<![A-Za-z0-9._%*+-])[A-Za-z0-9][A-Za-z0-9._%+-]*@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?![A-Za-z0-9_-]|\.[A-Za-z0-9]|:\d)/g;
-
-export function redactDiagnosticEmails(text: string): string {
-  return text.replace(DIAGNOSTIC_EMAIL_RE, '[email]');
-}
-
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
 /** The services the Admin SDK rows observe. AI Logic and Messaging calls come only from a client SDK. */
 const ADMIN_SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'rtdb', 'storage', 'auth', 'messaging']);
@@ -260,15 +232,14 @@ function isTime(value: unknown): value is number {
 }
 
 /**
- * Production's message as a record may carry it: an email address in it reads
- * `[email]`. A message that is not a string of 1 to 500 characters, or that is
- * shaped like a token, is dropped and the call kept, so a bad message never
- * costs the call its event, its billed count or its terminal block.
+ * Production's message as a record may carry it. A message that is not a
+ * string of 1 to 500 characters, or that is shaped like a token, is dropped
+ * and the call kept, so a bad message never costs the call its event, its
+ * billed count or its terminal block.
  */
 function readOutcomeMessage(value: unknown): { message?: string } {
   if (!isBoundedString(value, MAX_OUTCOME_MESSAGE_LENGTH)) return {};
-  const message = redactEmails(value);
-  return isTokenShaped(message) ? {} : { message };
+  return isTokenShaped(value) ? {} : { message: value };
 }
 
 /** Production's own words for a query whose index it lacks, from the client SDK and the Admin SDK alike. */
@@ -581,10 +552,10 @@ function readRequests(value: unknown): ObservedRequest[] {
   return value.map(readRequest);
 }
 
-/** A field path a query names: bounded, and never shaped like a token, a key or an email address a value could be. */
+/** A field path a query names: bounded, and never shaped like a token or a key. */
 function readQueryField(value: unknown, field: string): string {
   const bounded = isBoundedString(value, MAX_PATH_LENGTH);
-  requireField(bounded && !isTokenShaped(value) && !EMAIL_SHAPE.test(value), field);
+  requireField(bounded && !isTokenShaped(value), field);
   return value;
 }
 

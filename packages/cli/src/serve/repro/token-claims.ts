@@ -22,13 +22,12 @@ export const STANDARD_TOKEN_CLAIMS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Profile and decoded JWT envelope claims stripped from rule-denial `auth.token`
- * payloads on the worker wire while preserving custom claims and sanitized
- * `token.firebase` (`tenant` and `sign_in_provider`).
+ * Non-email profile and decoded JWT envelope claims stripped from rule-denial
+ * `auth.token` payloads on the worker wire while preserving custom claims,
+ * email claims (`email`, `email_verified`), and sanitized `token.firebase`
+ * (`tenant`, `sign_in_provider`, and `identities.email`).
  */
 export const WIRE_STRIPPED_TOKEN_CLAIMS: ReadonlySet<string> = new Set([
-  'email',
-  'email_verified',
   'phone_number',
   'name',
   'picture',
@@ -57,10 +56,32 @@ export function stripStandardTokenClaims(
   return Object.keys(customClaims).length > 0 ? customClaims : undefined;
 }
 
+function stripWireFirebaseClaim(val: unknown): Record<string, unknown> | undefined {
+  if (val === null || typeof val !== 'object' || Array.isArray(val)) return undefined;
+  const wireFirebase: Record<string, unknown> = {};
+  for (const [fbKey, fbVal] of Object.entries(val as Record<string, unknown>)) {
+    if ((fbKey === 'tenant' || fbKey === 'sign_in_provider') && typeof fbVal === 'string') {
+      wireFirebase[fbKey] = fbVal;
+      continue;
+    }
+    if (fbKey === 'identities' && fbVal !== null && typeof fbVal === 'object' && !Array.isArray(fbVal)) {
+      const rawEmail = (fbVal as Record<string, unknown>).email;
+      if (Array.isArray(rawEmail)) {
+        const emails = rawEmail.filter((item): item is string => typeof item === 'string');
+        if (emails.length > 0) {
+          wireFirebase.identities = { email: emails };
+        }
+      }
+    }
+  }
+  return Object.keys(wireFirebase).length > 0 ? wireFirebase : undefined;
+}
+
 /**
- * Strip profile and JWT envelope claims from a wire `auth.token` object while
- * preserving custom claims and string `tenant` / `sign_in_provider` inside
- * `token.firebase` (dropping `identities` and omitting `firebase` if empty).
+ * Strip non-email profile and JWT envelope claims from a wire `auth.token`
+ * object while preserving custom claims, `email` / `email_verified`, and
+ * `tenant` / `sign_in_provider` / `identities.email` inside `token.firebase`
+ * (omitting `firebase` if empty).
  */
 export function stripWireTokenClaims(
   token: Record<string, unknown> | undefined,
@@ -70,16 +91,9 @@ export function stripWireTokenClaims(
   for (const [claim, val] of Object.entries(token)) {
     if (WIRE_STRIPPED_TOKEN_CLAIMS.has(claim)) continue;
     if (claim === 'firebase') {
-      if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
-        const wireFirebase: Record<string, unknown> = {};
-        for (const [fbKey, fbVal] of Object.entries(val as Record<string, unknown>)) {
-          if ((fbKey === 'tenant' || fbKey === 'sign_in_provider') && typeof fbVal === 'string') {
-            wireFirebase[fbKey] = fbVal;
-          }
-        }
-        if (Object.keys(wireFirebase).length > 0) {
-          wireClaims.firebase = wireFirebase;
-        }
+      const wireFirebase = stripWireFirebaseClaim(val);
+      if (wireFirebase !== undefined) {
+        wireClaims.firebase = wireFirebase;
       }
       continue;
     }

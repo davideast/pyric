@@ -514,16 +514,22 @@ function isLiveFirestoreCall(event: PyricVerifyFixture['events'][number]): event
 /** A captured live call as the host observed it: its event, with the values the capture kept beside it. */
 function observedCallOf(event: SandboxOperationEvent & { path: string }, values: VerifyObservedCallValues | undefined): ObservedCall {
   const uid = event.auth?.uid;
-  return {
+  const claimNames = event.production?.claimNames;
+  const call: ObservedCall = {
     service: 'firestore',
     method: event.method,
     path: event.path,
     at: event.at,
     outcome: event.production!.outcome,
-    ...(uid === undefined ? {} : { account: { uid, ...(values?.claims === undefined ? {} : { claims: values.claims }) } }),
-    ...(values?.writeData === undefined ? {} : { writeData: values.writeData }),
-    ...(values?.document === undefined ? {} : { document: values.document }),
   };
+  if (uid !== undefined) {
+    call.account = { uid };
+    if (claimNames !== undefined) call.account.claimNames = claimNames;
+    if (values?.claims !== undefined) call.account.claims = values.claims;
+  }
+  if (values?.writeData !== undefined) call.writeData = values.writeData;
+  if (values?.document !== undefined) call.document = values.document;
+  return call;
 }
 
 /**
@@ -532,8 +538,8 @@ function observedCallOf(event: SandboxOperationEvent & { path: string }, values:
  * each one the rules now answer differently from production: a call
  * production allowed is `now-denied`, one it denied is `now-allowed`. A
  * call whose answer rests on data the capture lacks (a stored document, the
- * written data, a claim's value or an email, a query), and a call
- * production failed for another reason, is not checked.
+ * written data, a claim's value, a query), and a call production failed for
+ * another reason, is not checked.
  */
 function verifyLiveFirestoreCalls(fixture: PyricVerifyFixture, rules: string): { checkedEvents: number; divergences: VerifyDivergence[] } {
   const simulator = new SimulateFirestoreRulesHandler();

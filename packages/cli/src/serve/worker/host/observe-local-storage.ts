@@ -25,9 +25,7 @@ import type { HostCtx } from '../host-context.js';
 import {
   authOf,
   definedOnly,
-  emailsOf,
   givenBy,
-  holdsEmail,
   isPlainRecord,
   unionOf,
   verdictOf,
@@ -153,14 +151,13 @@ function storageGaps(observation: StorageEvaluationObservation, method: StorageM
   return unionOf(gaps, []);
 }
 
-/** The Storage record a verdict carries: the matched rule and the evaluator's reasons, emails left out. */
-function storageRecordOf(observation: StorageEvaluationObservation, reasons: readonly string[], emails: string[]): StorageLocal | undefined {
+/** The Storage record a verdict carries: the matched rule and the evaluator's reasons. */
+function storageRecordOf(observation: StorageEvaluationObservation, reasons: readonly string[]): StorageLocal | undefined {
   const record: StorageLocal = {};
   const matched = observation.matchedRule;
   if (matched !== undefined) record.matchedPath = matched.path;
   if (matched?.line !== undefined) record.matchedLine = matched.line;
-  const kept = reasons.filter((reason) => !holdsEmail(reason, emails));
-  if (kept.length > 0) record.reasons = kept;
+  if (reasons.length > 0) record.reasons = [...reasons];
   if (Object.keys(record).length === 0) return undefined;
   return record;
 }
@@ -194,6 +191,6 @@ export function storageVerdict(ctx: HostCtx, call: ObservedCall, method: Observe
     allowed: evaluated.allowed,
     rule,
     needs: storageGaps(observation, method, givenBy(call, method)),
-    storage: storageRecordOf(observation, evaluated.reasons, emailsOf(call)),
+    storage: storageRecordOf(observation, evaluated.reasons),
   });
 }

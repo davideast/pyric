@@ -59,15 +59,14 @@ describe('the production denial block', () => {
     ].join('\n'));
   });
 
-  it("flattens production's message, leaves an email in it out and masks a URL's key", () => {
+  it("flattens production's message, preserves an email in it and masks a URL's key", () => {
     const message = "User does not have permission to access 'users/ann@example.com/a.png'.\n\u001b[31m forged https://x.example/a?key=AIzaSecret";
     const block = formatProductionDenial(call({ service: 'storage', method: 'getBytes', path: 'a.png', bucket: 'b', outcome: { status: 'error', code: 'storage/unauthorized', message } }), undefined, RULES);
     const line = block.split('\n')[1]!;
     expect(block.split('\n')).toHaveLength(3);
     expect(line).not.toMatch(/[\u0000-\u001f\u007f]/);
-    expect(line).not.toContain('ann@example.com');
+    expect(line).toContain("users/ann@example.com/a.png");
     expect(line).not.toContain('AIzaSecret');
-    expect(line).toContain("users/[email]/a.png");
   });
 
   it('names each service\'s own rules file', () => {
@@ -90,16 +89,15 @@ describe('the production denial block', () => {
     expect(from({ kind: 'browser' })).toBe('      from: browser tab');
   });
 
-  it('flattens control characters from every field and leaves an email in a path out', () => {
+  it('flattens control characters from every field and preserves an email in a path', () => {
     const block = formatProductionDenial(
       call({ method: 'getDoc', path: 'users/ann@example.com/x\u001b[31m', outcome: denied, account: { uid: 'u\nforged' } }),
       { kind: 'browser', label: '/a\u001b]0;title\u0007' },
       { firestore: ['rules/\u001bfs.rules'], rtdb: [], storage: [] },
     );
     expect(block).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f]/);
-    expect(block).not.toContain('ann@example.com');
     expect(block.split('\n')).toHaveLength(5);
-    expect(block).toContain('users/[email]/x');
+    expect(block).toContain('users/ann@example.com/x');
   });
 });
 

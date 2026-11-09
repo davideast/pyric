@@ -23,9 +23,9 @@ export type ProductionOutcome =
  * What production answered, as a client reports it: a {@link ProductionOutcome}
  * whose error may also carry production's own message, as the SDK's error
  * held it (`Missing or insufficient permissions.`). The message is at most
- * 500 characters, an email address in it reads `[email]`, and one shaped like
- * a token is dropped. Only the host's terminal prints it: the event's
- * `production.outcome` holds the status and code alone.
+ * 500 characters, and one shaped like a token is dropped. Only the host's
+ * terminal prints it: the event's `production.outcome` holds the status and
+ * code alone.
  *
  * `failure` is the reader's, never a client's: `missing-index` when the code
  * is `failed-precondition` and the message says the query requires an index.
@@ -40,8 +40,8 @@ export type ObservedOutcome =
 /**
  * The signed-in account a call ran as: the account id, the names of its
  * token claims, and their values. Never the token. The values stay in the
- * host's memory, emails left out, so the local rules can read
- * `request.auth.token`; no event holds them.
+ * host's memory so the local rules can read `request.auth.token`; no event
+ * holds them.
  */
 export interface ObservedAccount {
   uid: string;
@@ -263,13 +263,13 @@ export interface ObservedCall {
    * `setWithPriority`, `update`, `push`), or `storage` (`uploadBytes`,
    * `uploadString`, `uploadBytesResumable`, `updateMetadata`): the written
    * JSON value or object metadata so local rules can inspect `request.resource`
-   * / `newData`. Memory only, emails left out; no event holds them.
+   * / `newData`. Memory only; no event holds them.
    */
   writeData?: ObservedWriteValue;
   /**
    * `firestore` or `storage` (`getMetadata`): the fields or metadata of the
    * stored document/object an allowed read returned, so local rules can inspect
-   * `resource.data` or `resource`. Memory only, emails left out; no event holds them.
+   * `resource.data` or `resource`. Memory only; no event holds them.
    */
   document?: Record<string, unknown>;
   /**
@@ -331,8 +331,8 @@ export interface LocalRule {
  * The bounded Realtime Database local evaluation record on a live verdict:
  * the rule node path and expression, `$variable` bindings along the path,
  * the engine's reason or implicit-deny code, and (on a decided verdict) the
- * root-first rule trace, with every email address left out. Absent for other
- * services and when the record was too large to keep.
+ * root-first rule trace. Absent for other services and when the record was
+ * too large to keep.
  */
 export interface LocalRtdbEvaluation {
   matchedPath?: string;
@@ -346,7 +346,7 @@ export interface LocalRtdbEvaluation {
 /**
  * The bounded Cloud Storage local evaluation record on a live verdict:
  * the matched `match` block path and `allow` line, and per-rule evaluation
- * reasons with every email address left out.
+ * reasons.
  */
 export interface LocalStorageEvaluation {
   matchedPath?: string;
@@ -358,11 +358,10 @@ export interface LocalStorageEvaluation {
  * The local rules' answer to an observed call. `drift` marks an answer
  * that disagrees with production's allow or deny. `trace` is the same
  * bounded evaluation record a sandbox Firestore request carries as
- * `rulesEvidence`, with every email address left out; `rtdb` carries the
- * bounded Realtime Database rule context and trace; `storage` carries the
- * bounded Cloud Storage match context and evaluation reasons. An `unevaluated`
- * verdict preserves `rule` / `rtdb` / `storage` rule-node context when
- * determinable, without a decided trace.
+ * `rulesEvidence`; `rtdb` carries the bounded Realtime Database rule context
+ * and trace; `storage` carries the bounded Cloud Storage match context and
+ * evaluation reasons. An `unevaluated` verdict preserves `rule` / `rtdb` /
+ * `storage` rule-node context when determinable, without a decided trace.
  */
 export type LocalVerdict =
   | {

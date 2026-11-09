@@ -366,7 +366,7 @@ service cloud.firestore {
     }
   });
 
-  it('scrubs emails and profile/envelope token claims from wire error frames and repro captures while preserving firebase tenant/provider, non-email @ tokens, and valid JSON', async () => {
+  it('preserves email claims, paths, and query values in wire error frames while stripping non-email profile/envelope token claims and standard session claims', async () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -453,18 +453,24 @@ service cloud.firestore {
         ".matches('.*@example.com')",
       );
       expect((readErr!.denialContext as { rule?: { expression?: string } })?.rule?.expression).toContain(
-        "'[email]'",
+        "'blocked@example.com'",
       );
+      const expectedWireToken = {
+        email: 'ada@example.com',
+        email_verified: true,
+        role: 'member',
+        pkgVersion: 'pkg@1.2.3',
+        schemaTag: 'v1@2.0',
+        firebase: {
+          identities: { email: ['ada@example.com'] },
+          sign_in_provider: 'password',
+        },
+      };
       expect(
         (readErr!.denialContext as { auth?: { uid?: string; token?: Record<string, unknown> } })?.auth,
       ).toEqual({
         uid: 'user-42',
-        token: {
-          role: 'member',
-          pkgVersion: 'pkg@1.2.3',
-          schemaTag: 'v1@2.0',
-          firebase: { sign_in_provider: 'password' },
-        },
+        token: expectedWireToken,
       });
       expect(
         (
@@ -474,12 +480,7 @@ service cloud.firestore {
         )?.repro?.testCase?.auth,
       ).toEqual({
         uid: 'user-42',
-        token: {
-          role: 'member',
-          pkgVersion: 'pkg@1.2.3',
-          schemaTag: 'v1@2.0',
-          firebase: { sign_in_provider: 'password' },
-        },
+        token: expectedWireToken,
       });
 
       const snapErrors: Record<string, unknown>[] = [];
@@ -505,7 +506,7 @@ service cloud.firestore {
         },
       });
 
-      // Verify path email redaction and escaped JSON inside --query '...' and Fixture case: in remediation.
+      // Verify path emails and escaped JSON inside --query '...' and Fixture case: stay intact in remediation.
       const pathEmailErrors: Record<string, unknown>[] = [];
       const stopEmailPath = client.onSnapshot(
         client.doc(db, 'users/ada@example.com/notes/1'),
@@ -536,11 +537,11 @@ service cloud.firestore {
       };
       expect(parsedCliQuery).toEqual({
         where: [
-          { field: 'ownerEmail', op: '==', value: '[email]' },
-          { field: 'escapedJson', op: '==', value: '{"contact":"[email]"}' },
+          { field: 'ownerEmail', op: '==', value: 'ada@example.com' },
+          { field: 'escapedJson', op: '==', value: '{"contact":"ada@example.com"}' },
         ],
       });
-      expect(JSON.parse(parsedCliQuery.where[1]!.value)).toEqual({ contact: '[email]' });
+      expect(JSON.parse(parsedCliQuery.where[1]!.value)).toEqual({ contact: 'ada@example.com' });
       const fixtureLine = queryRemediation
         .split('\n')
         .find((line) => line.startsWith('  Fixture case: '));
@@ -551,23 +552,18 @@ service cloud.firestore {
       };
       expect(parsedFixture.query).toEqual({
         where: [
-          { field: 'ownerEmail', op: '==', value: '[email]' },
-          { field: 'escapedJson', op: '==', value: '{"contact":"[email]"}' },
+          { field: 'ownerEmail', op: '==', value: 'ada@example.com' },
+          { field: 'escapedJson', op: '==', value: '{"contact":"ada@example.com"}' },
         ],
       });
       expect(parsedFixture.auth).toEqual({
         uid: 'user-42',
-        token: {
-          role: 'member',
-          pkgVersion: 'pkg@1.2.3',
-          schemaTag: 'v1@2.0',
-          firebase: { sign_in_provider: 'password' },
-        },
+        token: expectedWireToken,
       });
 
       expect(snapErrors[0]!.request).toEqual({ method: 'list', path: 'items' });
       expect(snapErrors[0]!.queryProof).toBeDefined();
-      expect((snapErrors[0]!.rule as { expression?: string })?.expression).toContain("'[email]'");
+      expect((snapErrors[0]!.rule as { expression?: string })?.expression).toContain("'blocked@example.com'");
       expect((snapErrors[0]!.rule as { expression?: string })?.expression).toContain(
         ".matches('.*@example.com')",
       );
@@ -576,21 +572,14 @@ service cloud.firestore {
         (snapErrors[0]!.denialContext as { auth?: { uid?: string; token?: Record<string, unknown> } })?.auth,
       ).toEqual({
         uid: 'user-42',
-        token: {
-          role: 'member',
-          pkgVersion: 'pkg@1.2.3',
-          schemaTag: 'v1@2.0',
-          firebase: { sign_in_provider: 'password' },
-        },
+        token: expectedWireToken,
       });
       expect(pathEmailErrors[0]!.request).toEqual({
         method: 'get',
-        path: 'users/[email]/notes/1',
+        path: 'users/ada@example.com/notes/1',
       });
 
-      // Verify bounded diagnostic redaction + tenanted token promotion directly on serializeError:
-      // preserves pkg@1.2.3, v1@2.0, .matches('.*@example.com'), render@app.bundle.js:10:2,
-      // surrounding parentheses around (contact ops@example.com), and promotes token.firebase.tenant.
+      // Verify tenanted token promotion and email preservation directly on serializeError:
       const syntheticSerialized = serializeError(
         Object.assign(new Error('Denied (contact ops@example.com) at render@app.bundle.js:10:2 for pkg@1.2.3 / v1@2.0'), {
           code: 'permission-denied',
@@ -615,7 +604,7 @@ service cloud.firestore {
                 nonce: 'n-1',
                 role: 'viewer',
                 firebase: {
-                  identities: { email: ['ada@example.com'] },
+                  identities: { email: ['ada@example.com'], 'google.com': ['g-1'] },
                   sign_in_provider: 'password',
                   tenant: 'tenant-west',
                 },
@@ -628,7 +617,7 @@ service cloud.firestore {
         }),
       );
       expect(syntheticSerialized.message).toBe(
-        'Denied (contact [email]) at render@app.bundle.js:10:2 for pkg@1.2.3 / v1@2.0',
+        'Denied (contact ops@example.com) at render@app.bundle.js:10:2 for pkg@1.2.3 / v1@2.0',
       );
       expect(syntheticSerialized.denialContext).toEqual({
         engine: 'firestore',
@@ -636,34 +625,34 @@ service cloud.firestore {
           uid: 'user-99',
           tenant: 'tenant-west',
           token: {
+            email: 'ada@example.com',
+            email_verified: true,
             role: 'viewer',
             firebase: {
+              identities: { email: ['ada@example.com'] },
               sign_in_provider: 'password',
               tenant: 'tenant-west',
             },
           },
         },
         reasons: [
-          "rule request.auth.token.email.matches('.*@example.com') failed (contact [email]) at render@app.bundle.js:10:2 [pkg@1.2.3, v1@2.0]",
+          "rule request.auth.token.email.matches('.*@example.com') failed (contact ops@example.com) at render@app.bundle.js:10:2 [pkg@1.2.3, v1@2.0]",
         ],
       } as unknown as typeof syntheticSerialized.denialContext);
 
       const wireText = JSON.stringify(outboundFrames);
       expect(() => JSON.parse(wireText)).not.toThrow();
-      expect(wireText).not.toContain('ada@example.com');
-      expect(wireText).not.toContain('blocked@example.com');
+      expect(wireText).toContain('ada@example.com');
+      expect(wireText).toContain('blocked@example.com');
       expect(wireText).toContain('pkg@1.2.3');
       expect(wireText).toContain('v1@2.0');
       expect(wireText).toContain(".matches('.*@example.com')");
       expect(wireText).toContain('"sign_in_provider":"password"');
       for (const claim of [
-        'email',
-        'email_verified',
         'phone_number',
         'name',
         'picture',
         'auth_time',
-        'identities',
         'user_id',
         'sub',
         'iss',
@@ -676,15 +665,10 @@ service cloud.firestore {
         expect(wireText).not.toContain(`\\"${claim}\\":`);
       }
 
-      const sessionsAndEntriesText = JSON.stringify({
-        sessions: reproFile.base.sessions,
-        entries: reproFile.entries,
-      });
-      expect(sessionsAndEntriesText).not.toContain('ada@example.com');
-      expect(sessionsAndEntriesText).not.toContain('blocked@example.com');
-      expect(sessionsAndEntriesText).toContain('pkg@1.2.3');
-      expect(sessionsAndEntriesText).toContain('v1@2.0');
-      expect(sessionsAndEntriesText).toContain(".matches('.*@example.com')");
+      const sessionsText = JSON.stringify(reproFile.base.sessions);
+      expect(sessionsText).not.toContain('ada@example.com');
+      expect(sessionsText).toContain('pkg@1.2.3');
+      expect(sessionsText).toContain('v1@2.0');
       for (const claim of [
         'email',
         'email_verified',
@@ -701,8 +685,8 @@ service cloud.firestore {
         'exp',
         'nonce',
       ]) {
-        expect(sessionsAndEntriesText).not.toContain(`"${claim}":`);
-        expect(sessionsAndEntriesText).not.toContain(`\\"${claim}\\":`);
+        expect(sessionsText).not.toContain(`"${claim}":`);
+        expect(sessionsText).not.toContain(`\\"${claim}\\":`);
       }
     } finally {
       getInternalEnv(ctx.sandbox).dispose();

@@ -379,7 +379,7 @@ describe('host: the local evaluation trace of an observed call', () => {
     });
   });
 
-  it('keeps the account email out of the trace', async () => {
+  it('evaluates and preserves the account email in the trace, and evaluates anonymous calls without email', async () => {
     const ctx = ctxWithFirestoreRules(EMAIL_OWNER);
     const call = { ...getDoc(DENIED), account: { uid: 'alice', claims: { email: 'alice@example.com' } } };
     const event = await observedEvent(ctx, call);
@@ -387,14 +387,24 @@ describe('host: the local evaluation trace of an observed call', () => {
       production: {
         local: {
           result: 'deny',
-          trace: { rules: [{ checks: expect.arrayContaining([expect.objectContaining({ expression: 'request.auth.token.email', state: 'unavailable' })]) }] },
+          trace: {
+            rules: [{
+              checks: expect.arrayContaining([
+                expect.objectContaining({ expression: 'request.auth.token.email', state: 'value', value: 'alice@example.com' }),
+              ]),
+            }],
+          },
         },
       },
     });
-    expect(JSON.stringify(event)).not.toContain('alice@example.com');
+
+    const anon = { ...getDoc(DENIED), account: { uid: 'anon-1', claimNames: ['sub'], claims: { sub: 'anon-1' } } };
+    expect(await observedEvent(ctx, anon)).toMatchObject({
+      production: { local: { result: 'deny' } },
+    });
   });
 
-  it('keeps an address from a returned document out of the trace', async () => {
+  it('preserves an email address from a returned document in the trace', async () => {
     const ctx = ctxWithFirestoreRules(INVITEE_ONLY);
     const call = { ...getDoc(DENIED), account: { uid: 'alice', claims: { email: 'alice@example.com' } }, document: { inviteeEmail: 'bob@example.com' } };
     const event = await observedEvent(ctx, call);
@@ -402,12 +412,17 @@ describe('host: the local evaluation trace of an observed call', () => {
       production: {
         local: {
           result: 'deny',
-          trace: { rules: [{ checks: expect.arrayContaining([expect.objectContaining({ expression: 'resource.data.inviteeEmail', state: 'unavailable' })]) }] },
+          trace: {
+            rules: [{
+              checks: expect.arrayContaining([
+                expect.objectContaining({ expression: 'resource.data.inviteeEmail', state: 'value', value: 'bob@example.com' }),
+                expect.objectContaining({ expression: 'request.auth.token.email', state: 'value', value: 'alice@example.com' }),
+              ]),
+            }],
+          },
         },
       },
     });
-    expect(JSON.stringify(event)).not.toContain('bob@example.com');
-    expect(JSON.stringify(event)).not.toContain('alice@example.com');
   });
 
   it('drops a trace past the size cap and keeps the verdict', async () => {
@@ -721,7 +736,7 @@ describe('host: RTDB local evaluation trace, listeners, and unevaluated context'
     expect(tx).not.toHaveProperty('production.local');
   });
 
-  it('withholds account email addresses from RTDB trace and path bindings', async () => {
+  it('preserves account email addresses in RTDB trace and path bindings', async () => {
     const ctx = ctxWithRtdbRules({
       rules: {
         invites: {
@@ -745,12 +760,11 @@ describe('host: RTDB local evaluation trace, listeners, and unevaluated context'
           result: 'deny',
           rtdb: {
             matchedPath: '/invites/$email',
+            pathVariableBindings: { $email: 'alice@example.com' },
           },
         },
       },
     });
-    expect(JSON.stringify(event.production?.local)).not.toContain('alice@example.com');
-    expect(JSON.stringify(event.production?.local)).not.toContain('bob@example.com');
   });
 
   it('evaluates RTDB set, push, and update writes when bounded writeData is supplied, and reports .validate gaps without writeData', async () => {

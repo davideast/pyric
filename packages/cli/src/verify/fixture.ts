@@ -29,8 +29,8 @@ export interface VerifyStorageRulesBlock {
 
 /**
  * What one live call carried for the local rules, kept beside its event
- * rather than on it: the token's claim values (emails left out), the data a
- * Firestore write sent, and the document a Firestore read returned.
+ * rather than on it: the token's claim values, the data a Firestore write
+ * sent, and the document a Firestore read returned.
  */
 export interface VerifyObservedCallValues {
   claims?: Record<string, unknown>;

@@ -7,8 +7,7 @@
  * Storage and Messaging only. A call that returned synchronously, such as a
  * listener's subscribe, has no production answer and is not sent. A call
  * that ran signed in names its account: the uid, the claim names and, for
- * the host's local rules only, the claim values with emails left out; never
- * the token. A Firestore call also carries, for the same rules only, the data
+ * the host's local rules only, the claim values; never the token. A Firestore call also carries, for the same rules only, the data
  * a write sent and the document a `getDoc` returned. Those values go to the
  * host's memory, and to the live capture file once capture writes live
  * calls (#2305), nowhere else: no event, chip view or repro log holds

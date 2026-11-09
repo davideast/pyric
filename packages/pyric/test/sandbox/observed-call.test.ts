@@ -417,9 +417,15 @@ describe('readObservedCall', () => {
     const operators = ['<', '<=', '==', '!=', '>=', '>', 'array-contains', 'in', 'not-in', 'array-contains-any'];
     const filters = operators.map((op) => ({ field: 'a.b', op }));
     expect(readObservedCall({ ...LISTED_ROOMS, query: { scope: 'collection', filters } }).query?.filters).toEqual(filters as never);
+    const emailKeyed = {
+      scope: 'collection',
+      filters: [{ field: 'members.alice@example.com', op: '==' }],
+      orderBy: [{ field: 'scores.`bob@corp.io`', direction: 'asc' }],
+    };
+    expect(readObservedCall({ ...LISTED_ROOMS, query: emailKeyed }).query).toEqual(emailKeyed as never);
   });
 
-  it('refuses a query with a value, an unknown key, a bad operator or fingerprint, or a value-shaped field', () => {
+  it('refuses a query with a value, an unknown key, a bad operator or fingerprint, or a token-shaped field', () => {
     const shape = LISTED_ROOMS.query;
     const filter = { field: 'owner', op: '==' };
     const cases: Array<[unknown, string]> = [
@@ -435,8 +441,6 @@ describe('readObservedCall', () => {
       [{ ...shape, filters: [{ ...filter, field: FIS_AUTH_TOKEN }] }, 'query.filters.field'],
       [{ ...shape, filters: [{ ...filter, field: VAPID_KEY }] }, 'query.filters.field'],
       [{ ...shape, orderBy: [{ field: FCM_TOKEN, direction: 'asc' }] }, 'query.orderBy.field'],
-      [{ ...shape, filters: [{ ...filter, field: 'members.alice@example.com' }] }, 'query.filters.field'],
-      [{ ...shape, orderBy: [{ field: 'scores.`bob@corp.io`', direction: 'asc' }] }, 'query.orderBy.field'],
       [{ ...shape, orderBy: [{ field: 'createdAt', direction: 'up' }] }, 'query.orderBy.direction'],
       [{ ...shape, filters: filter }, 'query.filters'],
       [{ ...shape, filters: Array.from({ length: 65 }, () => filter) }, 'query.filters'],
@@ -516,13 +520,13 @@ describe("production's message and an AI block", () => {
     expect(() => readObservedCall({ ...DENIED_READ, outcome: { status: 'ok', message: MESSAGE } })).toThrow('Invalid observed call field: outcome.message.');
   });
 
-  it('leaves an email out of the message and drops a message shaped like a token', () => {
+  it('keeps an email in the message and drops a message shaped like a token', () => {
     const message = "User does not have permission to access 'users/ada@example.com/a.png'.";
     const withEmail = { ...UPLOAD, outcome: { status: 'error', code: 'storage/unauthorized', message } };
     expect(readObservedCall(withEmail).outcome).toEqual({
       status: 'error',
       code: 'storage/unauthorized',
-      message: "User does not have permission to access 'users/[email]/a.png'.",
+      message,
     });
     const withToken = { ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: `bad token ${FIS_AUTH_TOKEN}` } };
     expect(readObservedCall(withToken).outcome).toEqual({ status: 'error', code: 'permission-denied' });
