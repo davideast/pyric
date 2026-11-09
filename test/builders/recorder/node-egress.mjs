@@ -13,8 +13,7 @@
 //
 // For a Google host or the GCE metadata server it writes the line first and
 // then refuses: the query fails and the socket is destroyed before it
-// connects, so a run fails closed. It does not use pyric's net guard, which is
-// part of what the builders test (#1475), and it never reads PYRIC_GUARD.
+// connects, so a run fails closed independently of Pyric's module hooks.
 //
 // Without PYRIC_BUILDER_NETWORK_LOG it throws, so a process the harness meant
 // to record never runs unrecorded.

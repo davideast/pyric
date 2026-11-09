@@ -217,16 +217,21 @@ Browser development:
 Node development:
 
 - `pyric sandbox` runs the child command with `PYRIC_SANDBOX` set and
-  `@pyric/cli/register` preloaded through `NODE_OPTIONS`.
+  `@pyric/cli/register` preloaded through `NODE_OPTIONS`. Unsupported child
+  runtimes (`bun`, `bunx`, `deno`) are refused upfront with
+  `PYRIC_UNSUPPORTED_RUNTIME`.
 - The active resolver maps `firebase/*` to `pyric/*` and `firebase-admin/*` to
-  `pyric-admin/*` across both ESM `import` and CJS `require()` (via
-  `module.registerHooks` on Node 22.15+), and emits a handshake beacon to
-  `/__pyric/beacon`.
-- Activation also installs the runtime network guard (`packages/cli/src/register/net-guard.ts`)
-  over undici's global dispatcher and Node socket/agent connection primitives.
-  `PYRIC_GUARD=warn|block|off` defaults to `warn`, reporting any live
-  Google/Firebase egress from a sandboxed process and blocking it when set to
-  `block`.
+  `pyric-admin/*` across both ESM `import` and CJS `require()` via synchronous
+  `module.registerHooks` on Node `>= 22.15` (throwing
+  `PYRIC_UNSUPPORTED_NODE_VERSION` when `module.registerHooks` is absent), stops
+  any unmapped import into a real Firebase SDK with `PYRIC_REAL_SDK_STOPPED`,
+  and emits a handshake beacon to `/__pyric/beacon`.
+- Pyric installs no runtime socket, DNS, TLS, or HTTP network guard (ADR 0023).
+  Legacy `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` environment variables are
+  deprecated no-ops that print a one-line notice when set. In Next.js sandbox
+  development, `withPyric` stops upfront with `PYRIC_EDGE_RUNTIME_UNSUPPORTED`
+  when Edge runtime routes or middleware are detected (unless bypassed with
+  `PYRIC_ALLOW_UNSWAPPED_EDGE=1`).
 - Without `PYRIC_SANDBOX`, the register module is inert. Normal resolution
   loads Firebase directly.
 - `PYRIC_SANDBOX=remote` (what `pyric sandbox` prints for commands started by

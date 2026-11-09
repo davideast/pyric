@@ -16,8 +16,10 @@
  * Vite config's own static imports.
  */
 import Module from 'node:module';
+import { UNSUPPORTED_RUNTIME_CODE } from '../cli/unsupported-runtime.js';
 import { isRegisterActive } from '../register/activation.js';
 import { canonicalFirebaseSpecifier } from '../register/mapping.js';
+import { requireRegisterHooks } from '../register/node-version-stop.js';
 import { packageNameOf } from '../register/package-identity.js';
 import { createStopReporter, stopFor } from '../register/swap-or-stop.js';
 import type { AiMode } from './firebase-module-swap.js';
@@ -116,6 +118,26 @@ export interface ViteProcessStopInput {
   registerHooks?: RegisterHooks;
   /** Defaults to the register's activation mark. */
   registerActive?: () => boolean;
+  /** Defaults to `process.versions.node`. */
+  nodeVersion?: string;
+}
+
+const BUN_TEST_ENTRYPOINT = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+
+function isInProcessBunTestRunner(): boolean {
+  const bunGlobal = (globalThis as { Bun?: { main?: unknown } }).Bun;
+  return typeof bunGlobal?.main === 'string' && BUN_TEST_ENTRYPOINT.test(bunGlobal.main);
+}
+
+function createViteBunUnsupportedError(bunVersion: string): Error & { code: string } {
+  const message =
+    `pyric() Vite plugin: Bun ${bunVersion} does not run Node module.registerHooks [${UNSUPPORTED_RUNTIME_CODE}].\n` +
+    "  Without synchronous module.registerHooks, externalized server imports of firebase and firebase-admin cannot be swapped or stopped and would reach live Firebase.\n" +
+    '  Run Vite under Node >= 22.15 (for example `npx vite dev`).\n' +
+    `  code: ${UNSUPPORTED_RUNTIME_CODE}`;
+  const error = new Error(message) as Error & { code: string };
+  error.code = UNSUPPORTED_RUNTIME_CODE;
+  return error;
 }
 
 /**
@@ -134,13 +156,25 @@ export function installViteProcessStop(input: ViteProcessStopInput = {}): boolea
     installed.getAiMode = getAiMode;
     return true;
   }
-  const registerHooks = 'registerHooks' in input ? input.registerHooks : moduleApi.registerHooks?.bind(Module);
-  if (typeof registerHooks !== 'function') return false;
+  const write = input.write ?? ((line) => void process.stderr.write(line));
+  const hasExplicitHooks = 'registerHooks' in input;
+  if (!hasExplicitHooks && typeof process.versions.bun === 'string') {
+    if (isInProcessBunTestRunner()) return false;
+    const error = createViteBunUnsupportedError(process.versions.bun);
+    write(`${error.message}\n`);
+    throw error;
+  }
+  const registerHooks = requireRegisterHooks(
+    hasExplicitHooks ? input.registerHooks : moduleApi.registerHooks?.bind(Module),
+    'pyric() Vite plugin',
+    input.nodeVersion ?? process.versions.node,
+    write,
+  );
   const state: StopState = { getAiMode };
   registerHooks({
     resolve: viteProcessStopHook({
       getAiMode: () => state.getAiMode(),
-      write: input.write ?? ((line) => void process.stderr.write(line)),
+      write,
     }),
   });
   slot[VITE_PROCESS_STOP] = state;

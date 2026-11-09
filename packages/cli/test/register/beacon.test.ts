@@ -30,7 +30,6 @@ import { closedPort } from '../closed-port.js';
 
 const report: BeaconReport = {
   pid: 4242,
-  guard: 'warn',
   hooks: true,
   sandbox: 'remote:http://127.0.0.1:5000',
 };
@@ -70,7 +69,7 @@ describe('beaconEndpoint', () => {
 describe('formatBeaconLine', () => {
   it('leads with fixed machine-parseable fields', () => {
     const line = formatBeaconLine(report, `http://127.0.0.1:5000${BEACON_PATH}`);
-    expect(line.startsWith('@pyric/cli/register: beacon ACTIVE pid=4242 guard=warn hooks=1 ')).toBe(
+    expect(line.startsWith('@pyric/cli/register: beacon ACTIVE pid=4242 hooks=1 ')).toBe(
       true,
     );
     expect(line).toContain('bridge=http://127.0.0.1:5000/__pyric/beacon');
@@ -78,8 +77,7 @@ describe('formatBeaconLine', () => {
   });
 
   it('reports hooks=0 and bridge=none honestly', () => {
-    const line = formatBeaconLine({ ...report, hooks: false, guard: 'off' }, null);
-    expect(line).toContain('guard=off');
+    const line = formatBeaconLine({ ...report, hooks: false }, null);
     expect(line).toContain('hooks=0');
     expect(line).toContain('bridge=none');
   });
@@ -93,13 +91,9 @@ describe('formatBeaconLine', () => {
 describe('beaconLineIsPrinted', () => {
   it('is silent for a healthy child under the default env', () => {
     expect(beaconLineIsPrinted(report, {})).toBe(false);
-    expect(beaconLineIsPrinted(report, { PYRIC_GUARD: '' })).toBe(false);
-    expect(beaconLineIsPrinted(report, { PYRIC_GUARD: '   ' })).toBe(false);
   });
 
   it('prints when the developer asked for detail', () => {
-    expect(beaconLineIsPrinted(report, { PYRIC_GUARD: 'block' })).toBe(true);
-    expect(beaconLineIsPrinted(report, { PYRIC_GUARD: 'warn' })).toBe(true);
     expect(beaconLineIsPrinted(report, { PYRIC_DEBUG: '1' })).toBe(true);
     expect(beaconLineIsPrinted(report, { PYRIC_VERBOSE: '1' })).toBe(true);
   });
@@ -125,7 +119,6 @@ describe('emitBeacon', () => {
     expect(sent[0]!.token).toBe('launch-secret');
     expect(JSON.parse(sent[0]!.body)).toMatchObject({
       pid: 4242,
-      guard: 'warn',
       hooks: true,
       sandbox: 'remote:http://127.0.0.1:5000',
     });

@@ -77,7 +77,6 @@ const liveHost = createLiveHostState({
   configSource: 'firebaserc',
   optionName: '--project',
   warn: () => {},
-  unobserved: () => [],
 });
 
 const mount = createBridgeMount({

@@ -2,14 +2,10 @@
  * The single shared source of Google/Firebase production endpoint hosts.
  *
  * The throwing frontend build check (`cli/inlined-sdk-scanner.ts`) greps
- * served assets for the narrower SDK fingerprint subset below. The runtime
- * network guard doesn't read this table: it refuses only token sources
- * (`google-token-endpoints.ts`, ADR 0022). It shares `normalizeHostname`, so
- * both compare hosts in one spelling.
+ * served assets for the narrower SDK fingerprint subset below.
  *
- * It lives at the package root, not under `cli/` or `register/`, so both
- * import it without a cycle, and it has zero imports so the `--import`ed
- * register entry stays cheap.
+ * It lives at the package root, not under `cli/` or `register/`, so callers
+ * import it without a cycle, and it has zero imports so it stays cheap.
  *
  * Membership rule: a host belongs here only if it is real-SDK-only, meaning it
  * can never legitimately be contacted by a sandbox-clean app (whose Firebase
@@ -36,7 +32,7 @@ export interface GoogleEndpoint {
 }
 
 /** The host the Firebase AI Logic SDK (`firebase/ai`) calls. */
-export const FIREBASE_AI_LOGIC_HOST = 'firebasevertexai.googleapis.com';
+const FIREBASE_AI_LOGIC_HOST = 'firebasevertexai.googleapis.com';
 
 export const GOOGLE_ENDPOINT_CATALOG: readonly GoogleEndpoint[] = [
   // Identity. Both are reached by the Auth SDK and by nothing else.
@@ -111,7 +107,7 @@ const CATALOG_BY_SPECIFICITY: readonly GoogleEndpoint[] = [...GOOGLE_ENDPOINT_CA
 
 /**
  * Trim, lowercase, drop a trailing root dot, and write an IP address in one
- * form. The one spelling of a hostname that every comparison in the guard and
+ * form. The one spelling of a hostname that every comparison in the scanner and
  * the catalog uses.
  *
  * The system resolver connects to `2852039166`, `0xa9fea9fe`, `169.254.43518`

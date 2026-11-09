@@ -1,9 +1,9 @@
 /**
- * ADR 0022, swap or stop, in registered child processes. An import that
- * resolves into the real `firebase-admin`, or into the real client SDK where
- * the swap table didn't choose it, fails with `PYRIC_REAL_SDK_STOPPED` before
- * the file loads, whatever `PYRIC_GUARD` says. The real SDK still loads where
- * the table chooses it: production AI mode's `firebase/ai`.
+ * ADR 0022 and ADR 0023, swap or stop, in registered child processes. An import
+ * that resolves into the real `firebase-admin`, or into the real client SDK
+ * where the swap table didn't choose it, fails with `PYRIC_REAL_SDK_STOPPED`
+ * before the file loads. The real SDK still loads where the table chooses it:
+ * production AI mode's `firebase/ai`.
  *
  * Nothing leaves the machine. A `--require` preload, which Node runs before
  * the register's `--import`, sends every connection to a host other than
@@ -320,14 +320,13 @@ afterAll(async () => {
 });
 
 describe('@pyric/cli/register stops the real firebase-admin (child process)', () => {
-  it('stops an import by absolute file URL, even under PYRIC_GUARD=warn, and writes the stop once', async () => {
-    const res = await runProbe('probe.mjs', { LOAD_SPECIFIER: pathToFileURL(realAdminFile).href, PYRIC_GUARD: 'warn' });
+  it('stops an import by absolute file URL and writes the stop once', async () => {
+    const res = await runProbe('probe.mjs', { LOAD_SPECIFIER: pathToFileURL(realAdminFile).href });
     expect(res.status, res.stderr).toBe(0);
     expect(res.outcome).toEqual({ load: 'PYRIC_REAL_SDK_STOPPED', escaped: [] });
     expect(stopLines(res.stderr), res.stderr).toEqual(['@pyric/cli/register: stopped loading the real firebase-admin']);
     expect(res.stderr).toContain(`found  ${pathToFileURL(realpathSync(realAdminFile)).href}`);
     expect(res.stderr).toContain('code: PYRIC_REAL_SDK_STOPPED');
-    expect(res.stderr).not.toContain('escalated to block');
   }, 30_000);
 
   it('stops a CommonJS require by absolute path', async () => {
@@ -346,42 +345,43 @@ describe('@pyric/cli/register stops the real firebase-admin (child process)', ()
     expect([plain.outcome.load, preserved.outcome.load]).toEqual(['PYRIC_REAL_SDK_STOPPED', 'PYRIC_REAL_SDK_STOPPED']);
   }, 30_000);
 
-  it('still stops under PYRIC_GUARD=off, which only turns off the network guard', async () => {
+  it('still stops and logs a deprecation notice when legacy PYRIC_GUARD=off is set', async () => {
     const res = await runProbe('probe.mjs', { LOAD_SPECIFIER: 'admin/app', PYRIC_GUARD: 'off' });
     expect(res.outcome.load).toBe('PYRIC_REAL_SDK_STOPPED');
+    expect(res.stderr).toContain('PYRIC_GUARD is deprecated');
   }, 30_000);
 
-  it('stops it in an eval CommonJS worker under PYRIC_GUARD=off, with the register in NODE_OPTIONS', async () => {
-    const res = await runProbe('worker.mjs', { WORKER_KIND: 'eval-cjs', PYRIC_GUARD: 'off' }, [], { registerInNodeOptions: true });
+  it('stops it in an eval CommonJS worker, with the register in NODE_OPTIONS', async () => {
+    const res = await runProbe('worker.mjs', { WORKER_KIND: 'eval-cjs' }, [], { registerInNodeOptions: true });
     expect(res.outcome.load, res.stderr).toBe('PYRIC_REAL_SDK_STOPPED');
   }, 30_000);
 
-  it('stops it in a worker given its own execArgv under PYRIC_GUARD=off, with the register on the command line', async () => {
-    const res = await runProbe('worker.mjs', { WORKER_KIND: 'exec-argv', PYRIC_GUARD: 'off' });
+  it('stops it in a worker given its own execArgv, with the register on the command line', async () => {
+    const res = await runProbe('worker.mjs', { WORKER_KIND: 'exec-argv' });
     expect(res.outcome.load, res.stderr).toBe('PYRIC_REAL_SDK_STOPPED');
   }, 30_000);
 });
 
 describe('@pyric/cli/register keeps the real firebase-admin out of a createRequire forge of the importer (child process)', () => {
   it('stops a forged firebase-admin importer', async () => {
-    const res = await runProbe('forge.mjs', { FORGE: 'admin-importer', PYRIC_GUARD: 'warn' });
+    const res = await runProbe('forge.mjs', { FORGE: 'admin-importer' });
     expect(res.outcome, res.stderr).toEqual({ load: 'PYRIC_REAL_SDK_STOPPED', realAdmin: false, escaped: [] });
   }, 30_000);
 
   it('stops a forged firebase importer reaching firebase-admin', async () => {
-    const res = await runProbe('forge.mjs', { FORGE: 'client-importer', PYRIC_GUARD: 'warn' });
+    const res = await runProbe('forge.mjs', { FORGE: 'client-importer' });
     expect(res.outcome, res.stderr).toEqual({ load: 'PYRIC_REAL_SDK_STOPPED', realAdmin: false, escaped: [] });
   }, 30_000);
 
   it('swaps firebase-admin for a forged importer named like a shadow module, in either AI mode', async () => {
-    const sandbox = await runProbe('forge.mjs', { FORGE: 'shadow-name', PYRIC_GUARD: 'warn' });
-    const production = await runProbe('forge.mjs', { FORGE: 'shadow-name', PYRIC_GUARD: 'warn', PYRIC_AI_MODE: 'production' });
+    const sandbox = await runProbe('forge.mjs', { FORGE: 'shadow-name' });
+    const production = await runProbe('forge.mjs', { FORGE: 'shadow-name', PYRIC_AI_MODE: 'production' });
     expect(sandbox.outcome, sandbox.stderr).toEqual({ load: 'loaded', realAdmin: false, escaped: [] });
     expect(production.outcome, production.stderr).toEqual({ load: 'loaded', realAdmin: false, escaped: [] });
   }, 30_000);
 
   it("stops a second forge from the firebase-admin file the verifier bridge's pair allowed, in production AI mode", async () => {
-    const res = await runProbe('forge-two-steps.mjs', { FORGE: 'admin-pair', PYRIC_GUARD: 'warn', PYRIC_AI_MODE: 'production' });
+    const res = await runProbe('forge-two-steps.mjs', { FORGE: 'admin-pair', PYRIC_AI_MODE: 'production' });
     expect(res.outcome, res.stderr).toEqual({
       first: 'loaded',
       firestore: 'PYRIC_REAL_SDK_STOPPED',
@@ -391,7 +391,7 @@ describe('@pyric/cli/register keeps the real firebase-admin out of a createRequi
   }, 30_000);
 
   it('stops a second forge from the firebase/ai file production AI mode allowed', async () => {
-    const res = await runProbe('forge-two-steps.mjs', { FORGE: 'client-ai', PYRIC_GUARD: 'warn', PYRIC_AI_MODE: 'production' });
+    const res = await runProbe('forge-two-steps.mjs', { FORGE: 'client-ai', PYRIC_AI_MODE: 'production' });
     expect(res.outcome, res.stderr).toEqual({
       first: 'loaded',
       firestore: 'PYRIC_REAL_SDK_STOPPED',
@@ -401,7 +401,7 @@ describe('@pyric/cli/register keeps the real firebase-admin out of a createRequi
   }, 30_000);
 
   it('swaps firebase-admin for the App Check verifier bridge in sandbox AI mode', async () => {
-    const res = await runProbe('forge.mjs', { FORGE: 'admin-bridge', PYRIC_GUARD: 'warn' });
+    const res = await runProbe('forge.mjs', { FORGE: 'admin-bridge' });
     expect(res.outcome, res.stderr).toEqual({ load: 'loaded', realAdmin: false, escaped: [] });
   }, 30_000);
 });
@@ -411,7 +411,6 @@ describe("@pyric/cli/register lets production AI mode's App Check verifier bridg
     const res = await runProbe('bridge-then-app.mjs', {
       LOAD_SPECIFIER: pathToFileURL(realAdminFile).href,
       PYRIC_AI_MODE: 'production',
-      PYRIC_GUARD: 'warn',
     });
     expect(res.outcome, res.stderr).toEqual({ bridge: 'loaded', load: 'PYRIC_REAL_SDK_STOPPED', escaped: [] });
     expect(stopLines(res.stderr), res.stderr).toHaveLength(1);

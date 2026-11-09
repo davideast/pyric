@@ -45,7 +45,6 @@ export const slowFiles: Record<keyof typeof shardedPackages, Readonly<Record<str
     './test/serve/vite-plugin-generation.test.ts': 10,
     './test/cli/ledger/i18-hosted-launcher-messages.test.ts': 10,
     './test/serve/vite-plugin-restart.test.ts': 8,
-    './test/register/net-guard.test.ts': 8,
     './test/serve/runtime/chip.test.ts': 7,
     './test/serve/persist.test.ts': 6,
     './test/serve/worker/hosted-host-move.test.ts': 6,

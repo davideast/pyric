@@ -37,7 +37,7 @@ import {
   type ProcessActivation,
 } from 'pyric/sandbox/internal';
 import { connectRemoteSandbox, createLazyRemoteSandbox, type LazyRemoteSandbox } from '../remote/index.js';
-import { VITE_SSR_ISSUE_URL } from './vite-net-guard.js';
+import { VITE_SSR_ISSUE_URL } from './vite-ssr-routing.js';
 
 const LABEL = "the Vite dev server's server-rendered modules";
 

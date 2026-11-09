@@ -4,6 +4,12 @@ Status: Accepted
 
 Date: 2026-10-28
 
+Superseded in part: 2026-11-09. [ADR 0023](./0023-pure-swap-or-stop-baseline.md)
+removes the runtime socket/network guard (`net-guard.ts`, `vite-net-guard.ts`,
+and `live-net-guard.ts`) and tightens module-resolution swap-or-stop to fail
+fast on unsupported runtimes (`bun`/`deno` children, Node `< 22.15`, and
+Next.js Edge runtime).
+
 Amended: 2026-11-06. Under `@pyric/live/register`, the real `firebase-admin`
 loads with the process's own credential when the live host passes it through
 or the Admin rows serve it, and the choke point lets its own files reach their

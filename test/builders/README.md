@@ -1078,8 +1078,8 @@ reachable for builder processes. The recorders alone are not enough.
 
 ## The network recorder
 
-Pyric's own net guard (`packages/cli/src/register/net-guard.ts`) is part of
-what builders test (#1475), so the recorder does not use it.
+The builder harness installs its own independent network recorder so every
+outbound attempt is logged and refused regardless of how Pyric is configured.
 
 **Node** (`recorder/node-egress.mjs`). The harness puts
 `NODE_OPTIONS=--import <node-egress.mjs>` and `PYRIC_BUILDER_NETWORK_LOG` in

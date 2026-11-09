@@ -176,15 +176,14 @@ describe('the live host clients', () => {
 
   it("lists what a Node process left unobserved under its client, follows each change, and drops it with the client", () => {
     const { live, tick } = host();
-    live.inbound(unobserved('s-node', 'node', { unobserved: ['cloudtrace.googleapis.com'] }));
+    live.inbound(unobserved('s-node', 'node', { unobservedAdmin: ['firebase-admin/remote-config'] }));
     live.readClientIds((session) => (session === 's-node' ? 'page-2' : undefined));
     expect(live.report().clients).toEqual([
-      { kind: 'node', clientId: 'page-2', user: null, lastSeen: 1000, unobserved: ['cloudtrace.googleapis.com'] },
+      { kind: 'node', clientId: 'page-2', user: null, lastSeen: 1000, unobservedAdmin: ['firebase-admin/remote-config'] },
     ]);
     tick(5);
     const lists = {
-      unobserved: ['cloudtrace.googleapis.com', 'us-central1-aiplatform.googleapis.com'],
-      unobservedAdmin: ['firebase-admin/remote-config'],
+      unobservedAdmin: ['firebase-admin/remote-config', 'firebase-admin/security-rules'],
       gatedAdmin: ['firebase-admin/app-check'],
     };
     live.inbound(unobserved('s-node', 'node', lists));
@@ -195,19 +194,19 @@ describe('the live host clients', () => {
 
   it('keeps no list that is not names in its shape, and none from a page', () => {
     const { live } = host();
-    live.inbound(unobserved('s-node', 'node', { unobserved: ['cloudtrace.googleapis.com'] }));
+    live.inbound(unobserved('s-node', 'node', { unobservedAdmin: ['firebase-admin/remote-config'] }));
     const malformed = [
-      { unobserved: ['https://user:secret@cloudtrace.googleapis.com/v2?key=k'] },
-      { unobserved: ['cloudtrace.googleapis.com/v2/projects/p/traces'] },
-      { unobserved: ['cloudtrace.googleapis.com', 'cloudtrace.googleapis.com'] },
-      { unobserved: Array.from({ length: 65 }, (_, index) => `host-${index}.googleapis.com`) },
+      { unobservedAdmin: ['https://user:secret@cloudtrace.googleapis.com/v2?key=k'] },
+      { unobservedAdmin: ['firebase-admin/remote-config/../../etc'] },
+      { unobservedAdmin: ['firebase-admin/remote-config', 'firebase-admin/remote-config'] },
+      { unobservedAdmin: Array.from({ length: 65 }, (_, index) => `firebase-admin/service-${index}`) },
       { unobservedAdmin: ['remote-config'] },
       { gatedAdmin: 'firebase-admin/app-check' },
     ];
     for (const lists of malformed) live.inbound(unobserved('s-node', 'node', lists));
-    expect(live.report().clients?.[0]?.unobserved).toEqual(['cloudtrace.googleapis.com']);
-    live.inbound(unobserved('s-page', 'browser', { unobserved: ['cloudtrace.googleapis.com'] }));
-    expect(live.report().clients?.[1]).not.toHaveProperty('unobserved');
+    expect(live.report().clients?.[0]?.unobservedAdmin).toEqual(['firebase-admin/remote-config']);
+    live.inbound(unobserved('s-page', 'browser', { unobservedAdmin: ['firebase-admin/remote-config'] }));
+    expect(live.report().clients?.[1]).not.toHaveProperty('unobservedAdmin');
   });
 
   it('labels a service worker and a Node process by the script their observed calls name', () => {

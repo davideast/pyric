@@ -13,23 +13,21 @@
  * happens). Under `NODE_ENV=production` it REFUSES with one stderr line
  * unless `PYRIC_SANDBOX_FORCE=1`. On activation it logs one stderr line.
  *
- * Hooks API: `module.registerHooks` (sync, Node ≥ 22.15) intercepts BOTH
- * `require()` and `import`. On older 22.x it falls back to
- * `module.register()` (ESM-only) with a warning that CJS require() is not
- * rewritten.
+ * Hooks API: `module.registerHooks` (sync, Node >= 22.15) intercepts BOTH
+ * `require()` and `import`. On older Node versions without `module.registerHooks`,
+ * activation throws `PYRIC_UNSUPPORTED_NODE_VERSION` rather than running with
+ * unswapped CommonJS `require('firebase-admin')` (ADR 0023).
  *
- * Swap or stop (ADR 0022, `./swap-or-stop.js`): an import that resolves into
- * the real `firebase-admin`, or into the real client SDK where the swap table
- * didn't choose it, throws `PYRIC_REAL_SDK_STOPPED` before the file loads.
+ * Swap or stop (ADR 0022, ADR 0023, `./swap-or-stop.js`): an import that
+ * resolves into the real `firebase-admin`, or into the real client SDK where
+ * the swap table didn't choose it, throws `PYRIC_REAL_SDK_STOPPED` before the
+ * file loads.
  *
- * On activation it also installs the NETWORK GUARD (`./net-guard.js`), which
- * refuses every request from this process for a server-side Google access
- * token, unless `PYRIC_GUARD=off`. See that module for the policy. Whatever the guard mode, it
- * wraps `worker_threads.Worker` (`./worker-guard.js`) so every worker thread
- * loads this module as well, including those Node starts without preloads,
- * and gets the swap and the stop. It also wraps `child_process`
- * (`./child-process-guard.js`), so every child process starts with this
- * module in its `NODE_OPTIONS` and in this process's sandbox.
+ * On activation it wraps `worker_threads.Worker` (`./worker-guard.js`) so
+ * every worker thread loads this module as well, including those Node starts
+ * without preloads, and gets the swap and the stop. It also wraps
+ * `child_process` (`./child-process-guard.js`), so every child process starts
+ * with this module in its `NODE_OPTIONS` and in this process's sandbox.
  *
  * Its HTTP servers answer a loopback process-health request on
  * `/__pyric/health` as a sandbox process (`./process-health.js`), unless
@@ -50,7 +48,8 @@ import { resolvesIntoPackage } from './package-identity.js';
 import { isLiveRegisterActive, markRegisterActive } from './activation.js';
 import { createStopReporter, stopFor } from './swap-or-stop.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
-import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
+import { warnDeprecatedGuardEnvOnce } from './deprecated-guard-env.js';
+import { requireRegisterHooks } from './node-version-stop.js';
 import { emitBeacon } from './beacon.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { installChildProcessGuard } from './child-process-guard.js';
@@ -82,11 +81,10 @@ type SyncResolve = (
   nextResolve: (specifier: string, context?: SyncResolveContext) => SyncResolveResult,
 ) => SyncResolveResult;
 
-/** `module.registerHooks` landed in Node 22.15 / 23.5 — feature-detect
+/** `module.registerHooks` landed in Node 22.15 / 23.5 -- feature-detect
  *  (typed locally: the repo's ambient node types predate it). */
 const moduleApi = Module as unknown as {
   registerHooks?: (hooks: { resolve: SyncResolve }) => void;
-  register?: (specifier: string | URL) => void;
   findPackageJSON?: (specifier: string, base: string | URL) => string | undefined;
 };
 
@@ -170,8 +168,7 @@ const resolveFirebase: SyncResolve = (specifier, context, nextResolve) => {
 /**
  * Swap or stop (ADR 0022): a resolve that lands in the real `firebase-admin`,
  * or in the real client SDK where the swap table didn't choose it, throws
- * before the file loads, and the stop is written to stderr once per file. It
- * does not depend on the network guard, so `PYRIC_GUARD=off` keeps it.
+ * before the file loads, and the stop is written to stderr once per file.
  */
 function withSwapOrStop(resolve: SyncResolve): SyncResolve {
   const report = createStopReporter((line) => void process.stderr.write(line));
@@ -191,31 +188,16 @@ function withSwapOrStop(resolve: SyncResolve): SyncResolve {
 }
 
 function activate(): void {
-  // FIRST, before any hook or global: the network guard.
-  //
-  // Order matters in one direction only. Everything after this line makes the
-  // process load MORE code (the resolution hooks pull in the pyric mirrors,
-  // the factory global pulls in the remote sandbox) and any of it could open
-  // a socket. Installing the guard first leaves no window in which
-  // sandbox-substituted code runs unguarded. The reverse ordering buys
-  // nothing: the guard mutates globals only (`undici.globalDispatcher.*`,
-  // `net`/`tls` connect, the Agent and Socket prototypes) and depends on
-  // nothing the hooks establish.
-  //
-  // It stays BELOW the NODE_ENV=production refusal, deliberately. A refused
-  // process is a real production run that we declined to touch, and warning
-  // about its perfectly legitimate Google traffic, let alone blocking it,
-  // would be actively harmful. `PYRIC_SANDBOX` plus no refusal is the only
-  // state in which "traffic to live Google is a bug" is a true statement.
-  const guard = installNetGuard();
-  // Published so code that learns a destination later, such as the Vite
-  // plugin's configured AI upstream, can permit it (`permitGuardHost`).
-  if (guard !== null) (globalThis as unknown as Record<symbol, unknown>)[NET_GUARD_GLOBAL] = guard;
+  warnDeprecatedGuardEnvOnce(process.env);
+  const registerHooks = requireRegisterHooks(
+    moduleApi.registerHooks?.bind(Module),
+    '@pyric/cli/register',
+    process.versions.node,
+    (line) => void process.stderr.write(line),
+  );
   // Built-ins and resolve hooks are per thread: every worker this process
   // starts loads this module too, including the kinds Node starts without
-  // running preloads. Whatever PYRIC_GUARD says, since the worker's swap and
-  // stop come from this module; the worker installs its own network guard, or
-  // none under `off`, exactly as this thread does.
+  // running preloads, so the worker gets the swap and the stop.
   installWorkerGuard(import.meta.url);
   // Child processes too (#1618): every child starts with this module in its
   // NODE_OPTIONS and with this process's PYRIC_* variables it lacks, so a
@@ -230,27 +212,11 @@ function activate(): void {
     host: sandboxHost(process.env.PYRIC_SANDBOX),
   }));
 
-  // Whether module resolution is actually being intercepted. Both branches
-  // below install SOMETHING, but a runtime with neither API installs nothing,
-  // which is precisely the state the beacon exists to make visible.
-  let hooksInstalled = false;
+  registerHooks({
+    resolve: withSwapOrStop(resolveFirebase),
+  });
 
-  if (typeof moduleApi.registerHooks === 'function') {
-    hooksInstalled = true;
-    moduleApi.registerHooks({
-      resolve: withSwapOrStop(resolveFirebase),
-    });
-  } else {
-    process.stderr.write(
-      '@pyric/cli/register: this Node version lacks module.registerHooks (needs >= 22.15). ' +
-        'Falling back to module.register: ESM imports of firebase-admin/firebase are rewritten, ' +
-        "but CJS require('firebase-admin') is NOT intercepted. Upgrade Node to >= 22.15 for full coverage.\n",
-    );
-    hooksInstalled = typeof moduleApi.register === 'function';
-    moduleApi.register?.(new URL('./hooks.js', import.meta.url));
-  }
-
-  // The factory global — exact contract shared with pyric-admin's ambient
+  // The factory global -- exact contract shared with pyric-admin's ambient
   // init: synchronous, returns the lazy branded handle. The url comes from
   // PYRIC_SANDBOX=remote:<url> and may be stale, so it is checked against
   // this project's host. A launcher that sets the url also pins the identity
@@ -265,14 +231,13 @@ function activate(): void {
       `pyric sandbox (PYRIC_SANDBOX=${process.env.PYRIC_SANDBOX}).\n`,
   );
 
-  // LAST: the handshake beacon, after the guard, the hooks and the factory
-  // global are all in place. Its whole claim is "interception is live in this
-  // process", so it must not be able to run before that is true. See
-  // `./beacon.js` for the two channels and why the POST is fire-and-forget.
+  // LAST: the handshake beacon, after the hooks and the factory global are all
+  // in place. Its whole claim is "interception is live in this process", so it
+  // must not be able to run before that is true. See `./beacon.js` for the two
+  // channels and why the POST is fire-and-forget.
   emitBeacon({
     pid: process.pid,
-    guard: installedGuardMode(guard),
-    hooks: hooksInstalled,
+    hooks: true,
     sandbox: process.env.PYRIC_SANDBOX ?? '',
   });
 }
@@ -292,20 +257,6 @@ function installAppCheckVerifier(): void {
     const bridge = await import('./app-bridge-admin-app-check.js');
     return bridge.verifyFirebaseAppCheckToken(token, projectId);
   };
-}
-
-/**
- * The net-guard mode actually in force, for the beacon to report.
- *
- * Policy: the installed guard is the authority when there is one. There is no
- * guard object in exactly one case, `PYRIC_GUARD=off` (the `PYRIC_SANDBOX`
- * gate `installNetGuard` shares with this module has already passed by the
- * time it runs), and re-parsing the env is how that case names itself rather
- * than guessing a default.
- */
-function installedGuardMode(guard: { mode: GuardMode } | null): GuardMode {
-  if (guard !== null) return guard.mode;
-  return parseGuardMode(process.env.PYRIC_GUARD);
 }
 
 /** Whether this process's firebase-admin/firebase imports are being rewritten

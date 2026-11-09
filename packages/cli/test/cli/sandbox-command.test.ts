@@ -198,10 +198,9 @@ describe('pyric sandbox command execution', () => {
 
 /**
  * The launcher makes no claim about the child's build output. `withPyric`
- * externalizes firebase and firebase-admin, the backend-bundler docs say to
- * mark them external, and the net guard reports real egress at runtime with
- * attribution. Grepping .next/server or dist at launch only warned about
- * production or stale artifacts the child never loads.
+ * externalizes firebase and firebase-admin, and the backend-bundler docs say
+ * to mark them external. Grepping .next/server or dist at launch only warned
+ * about production or stale artifacts the child never loads.
  */
 describe('pyric sandbox does not scan build output', () => {
   it('says nothing about an inlined-SDK artifact under .next/server', () => {
@@ -227,8 +226,8 @@ describe('pyric sandbox does not scan build output', () => {
   }, 60_000);
 });
 
-describe('pyric sandbox unsupported-runtime warning', () => {
-  it('warns that interception is unsupported under bun and still launches', () => {
+describe('pyric sandbox unsupported-runtime stop', () => {
+  it('refuses to spawn a bun child command and exits non-zero with PYRIC_UNSUPPORTED_RUNTIME', () => {
     const { code, stdout, stderr } = runCli([
       'sandbox',
       '--no-open',
@@ -238,18 +237,63 @@ describe('pyric sandbox unsupported-runtime warning', () => {
       '-e',
       'console.log("BUN_CHILD")',
     ]);
-    const all = stdout + stderr;
-    expect(all).toContain('⚠ runtime');
-    expect(all).toContain('bun');
-    expect(all).toContain('not supported');
-    expect(all).toContain('LIVE Firebase');
-    // The net-guard backstop is Node-only, and the warning has to say so.
-    expect(all).toContain('net-guard');
-    expect(stdout).toContain('BUN_CHILD');
-    expect(code).toBe(0);
+    expect(code).not.toBe(0);
+    expect(stdout).not.toContain('BUN_CHILD');
+    expect(stderr).toContain('PYRIC_UNSUPPORTED_RUNTIME');
+    expect(stderr).toContain('bun');
+    expect(stderr).toContain('node');
+    expect(stderr).toContain('npx tsx');
   }, 60_000);
 
-  it('stays silent for a node child', () => {
+  it('refuses a deno command configured in pyric.json before spawning it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-deno-stop-'));
+    try {
+      writeFileSync(
+        join(dir, 'pyric.json'),
+        JSON.stringify({ command: 'deno run server.ts' }),
+      );
+      const { code, stderr } = runCli(['sandbox', '--no-open'], dir);
+      expect(code).not.toBe(0);
+      expect(stderr).toContain('PYRIC_UNSUPPORTED_RUNTIME');
+      expect(stderr).toContain('deno');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('refuses quoted env assignments, attached shell operators, subshells, and env/sh wrappers invoking bun', () => {
+    for (const command of [
+      'FOO="bar baz" bun -e "console.log(\'BYPASS_4A\')" && true',
+      'true && (bun -e "console.log(\'BYPASS_4B\')")',
+      'echo a && echo b; bun -e "console.log(\'BYPASS_4C\')"',
+    ]) {
+      const dir = mkdtempSync(join(tmpdir(), 'pyric-bypass-stop-'));
+      try {
+        writeFileSync(join(dir, 'pyric.json'), JSON.stringify({ command }));
+        const { code, stdout, stderr } = runCli(['sandbox', '--no-open'], dir);
+        expect(code).toBe(1);
+        expect(stdout).not.toContain('BYPASS_');
+        expect(stderr).toContain('PYRIC_UNSUPPORTED_RUNTIME');
+        expect(stderr).toContain('bun');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+
+    for (const argv of [
+      ['sandbox', '--no-open', '--', '/usr/bin/env', 'FOO=1', 'bun', '-e', 'console.log("BYPASS_ENV")'],
+      ['sandbox', '--no-open', '--', 'npx', 'bun', '-e', 'console.log("BYPASS_NPX")'],
+      ['sandbox', '--no-open', '--', 'sh', '-c', 'echo ok; bun -e "console.log(\'BYPASS_SH\')"'],
+    ]) {
+      const { code, stdout, stderr } = runCli(argv);
+      expect(code).toBe(1);
+      expect(stdout).not.toContain('BYPASS_');
+      expect(stderr).toContain('PYRIC_UNSUPPORTED_RUNTIME');
+      expect(stderr).toContain('bun');
+    }
+  }, 60_000);
+
+  it('launches a node child normally', () => {
     const { code, stdout, stderr } = runCli([
       'sandbox',
       '--no-open',
@@ -259,75 +303,33 @@ describe('pyric sandbox unsupported-runtime warning', () => {
       '-e',
       'console.log("NODE_CHILD")',
     ]);
-    expect(stdout + stderr).not.toContain('⚠ runtime');
+    expect(stdout + stderr).not.toContain('PYRIC_UNSUPPORTED_RUNTIME');
     expect(stdout).toContain('NODE_CHILD');
     expect(code).toBe(0);
   }, 60_000);
 });
 
-/**
- * The child's guard refuses only token sources (ADR 0022), so the AI upstream
- * `pyric sandbox` resolves and a Firebase data host both get through, and a
- * token request is refused. The child dials each with a resolver of its own,
- * so a connection the guard lets through stops there instead of reaching DNS.
- */
-describe('pyric sandbox and the AI upstream', () => {
-  it("lets the configured AI upstream through the child's guard and refuses a token request", () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-ai-upstream-'));
+describe('pyric sandbox deprecated PYRIC_GUARD warning', () => {
+  it('prints a deprecation notice and does not crash when PYRIC_GUARD is set', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-deprecated-guard-'));
     try {
-      writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
-      // The child script names Google hosts, so it stays out of the served
-      // directory, which `pyric sandbox` checks for bundled Firebase SDKs.
-      writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ hosting: { public: 'public' } }));
-      mkdirSync(join(dir, 'public'));
-      writeFileSync(join(dir, 'public', 'index.html'), '<!doctype html><title>ai upstream</title>');
-      writeFileSync(
-        join(dir, 'dial.mjs'),
-        `import net from 'node:net';
-const lookup = (hostname, _options, done) =>
-  process.nextTick(() => done(Object.assign(new Error('fixture resolver'), { code: 'FIXTURE_NO_DNS' })));
-function dial(host) {
-  let socket;
-  try {
-    socket = net.connect({ host, port: 443, lookup });
-  } catch (e) {
-    return Promise.resolve(e.code);
-  }
-  return new Promise((resolve) => socket.once('error', (e) => resolve(e.code)));
-}
-const upstream = await dial('aiplatform.googleapis.com');
-const firestore = await dial('firestore.googleapis.com');
-const token = await dial('oauth2.googleapis.com');
-console.log('DIAL ' + JSON.stringify({ upstream, firestore, token }));
-`,
-      );
       const result = spawnSync(
         'bun',
-        [CLI_ENTRY, 'sandbox', '--no-open', '--port', '4947', 'node', 'dial.mjs'],
+        [CLI_ENTRY, 'sandbox', '--no-open', '--port', '4947', 'node', '-e', 'console.log("GUARD_COMPAT_OK")'],
         {
           cwd: dir,
           encoding: 'utf8',
           timeout: 30_000,
           env: {
             ...process.env,
-            PYRIC_GUARD: undefined,
-            PYRIC_GUARD_ALLOW: undefined,
-            PYRIC_AI_PROXY_UPSTREAM:
-              'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi',
+            PYRIC_GUARD: 'warn',
           },
         },
       );
-      const all = (result.stdout ?? '') + (result.stderr ?? '');
-      const dialLine = /DIAL (\{.*\})/.exec(result.stdout ?? '');
-      expect(dialLine).not.toBeNull();
-      expect(JSON.parse(dialLine![1]!)).toEqual({
-        upstream: 'FIXTURE_NO_DNS',
-        firestore: 'FIXTURE_NO_DNS',
-        token: 'PYRIC_GUARD_BLOCKED',
-      });
-      expect(all).toContain('net-guard BLOCK oauth2.googleapis.com');
-      expect(all).not.toContain('net-guard BLOCK firestore.googleapis.com');
       expect(result.status).toBe(0);
+      expect(result.stdout).toContain('GUARD_COMPAT_OK');
+      expect(result.stderr).toContain('PYRIC_GUARD');
+      expect(result.stderr).toContain('deprecated');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

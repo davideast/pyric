@@ -3,10 +3,8 @@
  *
  * Only the fingerprint subset feeds the throwing frontend build check, because
  * that check fails a build outright and must not fire on a host an ordinary
- * app can carry without any Firebase SDK. The network guard doesn't read the
- * catalog: it refuses only token sources (`google-token-endpoints.ts`). Both
- * sets are pinned literally below, so widening either one is a deliberate
- * edit to this file.
+ * app can carry without any Firebase SDK. Both sets are pinned literally below,
+ * so widening either one is a deliberate edit to this file.
  */
 import { describe, expect, it } from 'bun:test';
 import {

@@ -478,7 +478,6 @@ export default scenario(async (app) => {
     // Google's server Firestore client stops at import.
     assert.match(outcomes.cloudFirestore!, /^PYRIC_REAL_SDK_STOPPED: @pyric\/live\/register: stopped loading @google-cloud\/firestore/);
     assert.match(outcomes.cloudFirestore!, /only the installed Firebase SDK reaches production, through @pyric\/live's rows/);
-    assert.doesNotMatch(run.output, /PYRIC_GUARD_BLOCKED|net-guard BLOCK/);
   });
 
   await app.step('stop the dev server', async () => {

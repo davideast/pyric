@@ -4,11 +4,10 @@
 // as one signed-in SSR session under the host's rules, firebase-admin as
 // admin. Every call is driven through both of Vite's SSR loaders and through
 // the externalization settings frameworks use (`ssr.noExternal`). The
-// SharedWorker dev server refuses them, naming `hosted: true`. The network
-// guard stays on underneath: nothing in this scenario reaches Google. In
-// production AI mode the guard permits Firebase AI Logic; egress-stand-in.mjs,
-// preloaded into that dev server, stands in for the network beneath the guard
-// and refuses what it permits. SSR's config holds the host: a page whose
+// SharedWorker dev server refuses them, naming `hosted: true`. Nothing in this
+// scenario reaches Google. In production AI mode egress-stand-in.mjs,
+// preloaded into that dev server, stands in for the network and refuses
+// outbound AI fetches. SSR's config holds the host: a page whose
 // config only adds measurementId is accepted, a page with another storage
 // bucket is refused, and SSR keeps working after both load.
 //
@@ -37,15 +36,6 @@ type Outcomes = Record<string, Outcome>;
 interface Run { uid?: string; outcomes: Outcomes }
 interface Repro { writeAndRead(tag: string): Promise<{ rtdb: unknown; firestore: unknown }> }
 declare const repro: Repro;
-
-/** Production hosts the swapped SDKs would dial, as the guard names them. */
-const PRODUCTION_HOSTS = [
-  'identitytoolkit.googleapis.com',
-  'demo-app-default-rtdb.firebaseio.com',
-  'firestore.googleapis.com',
-  'firebasestorage.googleapis.com',
-  'firebasevertexai.googleapis.com',
-];
 
 /** What the dev server log shows when a live Firebase backend answered. */
 const PRODUCTION_ANSWERS = [
@@ -110,10 +100,9 @@ async function trappedHosts(server: DevServer): Promise<string[]> {
   return trapped;
 }
 
-/** Nothing in the dev server log since `since` shows live Firebase traffic or an answer from it. */
+/** Nothing in the dev server log since `since` shows an answer from a live Firebase backend. */
 function assertNoProductionTraffic(server: DevServer, since: number): void {
   const log = server.process.output.slice(since);
-  for (const host of PRODUCTION_HOSTS) assert.doesNotMatch(log, new RegExp(`net-guard BLOCK ${host.replaceAll('.', '\\.')} `), log);
   for (const answer of PRODUCTION_ANSWERS) assert.doesNotMatch(log, answer, log);
 }
 
@@ -318,7 +307,6 @@ export default scenario(async (app) => {
     const log = production.process.output.slice(since);
     const refused = [...log.matchAll(/\[egress stand-in\] refused fetch to (\S+)/g)].map((match) => match[1]!);
     assert.deepEqual(refused, ['firebasevertexai.googleapis.com'], `dev server log:\n${log}`);
-    assert.doesNotMatch(log, /net-guard BLOCK/);
   });
   await app.step('stop the production AI mode dev server', () => production.process.stop());
 

@@ -16,7 +16,7 @@ import bridgeImportLoader from '../../../src/next/bridge-import-loader.js';
 type Config = Record<string, any>;
 
 const REGISTER_ACTIVE = Symbol.for('pyric.register.active');
-const SAVED = ['PYRIC_SANDBOX', 'PYRIC_AI_MODE', 'PYRIC_AI_PASSTHROUGH', 'PYRIC_GUARD'] as const;
+const SAVED = ['PYRIC_SANDBOX', 'PYRIC_AI_MODE', 'PYRIC_AI_PASSTHROUGH'] as const;
 const temp = mkdtempSync(join(tmpdir(), 'pyric-1637-bridge-'));
 
 async function devConfig(config: Config = {}): Promise<Config> {

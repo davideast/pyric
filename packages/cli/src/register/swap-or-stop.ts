@@ -22,10 +22,9 @@
  * `firebase-admin` is never chosen, with one exception: the App Check verifier
  * bridge that production AI mode loads on pyric's behalf (#1552), whose
  * firebase-admin app holds no credentials. An app's own import of the real
- * package still stops. `PYRIC_GUARD` does not change any of this: the stop
- * belongs to the swap, not to the network guard.
+ * package still stops.
  *
- * Loaded by both resolve hooks, including the loader-thread one, so it imports
+ * Runs inside synchronous module.registerHooks resolve callbacks, so it imports
  * node built-ins and side-effect-free modules only.
  */
 import { fileURLToPath } from 'node:url';
@@ -333,14 +332,11 @@ interface ServerSdkStop {
 }
 
 /**
- * The Google server SDKs whose calls would read as a live row's: an app's
- * own import of either would reach production with no row observing it.
- * `@google-cloud/firestore` speaks gRPC to `firestore.googleapis.com`, as the
- * live rows' Firestore does, so the network report cannot tell its sockets
- * from the rows' (`live-net-guard.ts`). `@google-cloud/storage` reaches
- * `storage.googleapis.com`, which the report reads as the Admin Storage
- * row's. A passed-through `firebase-admin` still loads both, from its own
- * tree.
+ * The Google server SDKs whose calls would bypass live rows: an app's own
+ * import of either would reach production with no row observing it.
+ * `@google-cloud/firestore` speaks gRPC to `firestore.googleapis.com` and
+ * `@google-cloud/storage` reaches `storage.googleapis.com` directly. A
+ * passed-through `firebase-admin` still loads both, from its own tree.
  */
 const LIVE_HOST_SERVER_SDKS: Readonly<Record<string, ServerSdkStop>> = {
   '@google-cloud/firestore': {

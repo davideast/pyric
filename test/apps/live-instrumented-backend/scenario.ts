@@ -15,16 +15,14 @@
  * - a firebase-admin service no row serves loads;
  * - a Messaging send on the live project goes out, observed by its row.
  *
- * Each Google host no row observes gets one "unobserved" line, and the
- * process health lists it, with the Admin subpath no row serves and App
- * Check, whose row gates its calls but records none. The process sends the
- * same lists to the live host, whose health lists them under the process's
- * client while it runs. The project gate still
- * holds: the live project's regional Realtime Database instance and the
- * instance firebase.json names open, and `<project>-prod-default-rtdb`,
- * another project's instance, an instance firebase.json doesn't name, and
- * another project's Admin calls, App Check's among them, are refused before
- * any request.
+ * The process health lists the Admin subpath no row serves and App Check,
+ * whose row gates its calls but records none. The process sends the same
+ * lists to the live host, whose health lists them under the process's client
+ * while it runs (ADR 0023). The project gate still holds: the live project's
+ * regional Realtime Database instance and the instance firebase.json names
+ * open, and `<project>-prod-default-rtdb`, another project's instance, an
+ * instance firebase.json doesn't name, and another project's Admin calls, App
+ * Check's among them, are refused before any request.
  *
  * The Admin SDK's Agent sends its requests to a local stand-in for Google.
  * Every other connection reaches the scenario's trap (`trap.mjs`), which
@@ -39,16 +37,6 @@ const ENTRY = '@pyric/live/register';
 /** Node 23 or later serves the Admin rows; on Node 22 every firebase-admin import is refused, so the backend's steps don't apply. */
 const NODE_VERSION = spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' }).stdout.trim();
 const ADMIN_ROWS_ON = Number(NODE_VERSION.split('.')[0]) >= 23;
-
-/** The Google hosts the backend calls that no row observes. */
-const UNOBSERVED = [
-  'cloudtrace.googleapis.com',
-  'firebaseappcheck.googleapis.com',
-  'iamcredentials.googleapis.com',
-  'oauth2.googleapis.com',
-  'us-central1-aiplatform.googleapis.com',
-  'www.googleapis.com',
-];
 
 /** A live call's event, as the host's capture holds it. */
 interface CapturedEvent {
@@ -95,11 +83,6 @@ function jobOutcome(output: string): Record<string, unknown> {
   return JSON.parse(line.slice('OUTCOME '.length)) as Record<string, unknown>;
 }
 
-/** How many times the output names `host` as unobserved. */
-function unobservedLines(output: string, host: string): number {
-  return output.split(`${ENTRY}: unobserved call to ${host} (`).length - 1;
-}
-
 /** Runs the backend under the live register, from the app's project, with its instrumentation installed as `instrument` says. */
 function runBackend(app: App, hostUrl: string, instrument: 'assign' | 'define') {
   return app.command('node', ['--import', ENTRY, 'server.mjs'], { env: { INSTRUMENT: instrument, LIVE_HOST_URL: hostUrl }, timeoutMs: 90_000 });
@@ -108,21 +91,20 @@ function runBackend(app: App, hostUrl: string, instrument: 'assign' | 'define') 
 /** A Node client as the live host's health lists it. */
 interface HostNodeClient {
   clientId?: string;
-  unobserved?: string[];
   unobservedAdmin?: string[];
   gatedAdmin?: string[];
 }
 
 /**
- * One run's checks: everything goes out, each unobserved host is named once,
- * the project gate holds, and the host captures the run's Messaging send.
- * `sendsBefore` is how many the host held before this run.
+ * One run's checks: everything goes out, Admin module coverage lists are
+ * reported, the project gate holds, and the host captures the run's Messaging
+ * send. `sendsBefore` is how many the host held before this run.
  */
 async function checkBackend(app: App, hostUrl: string, instrument: 'assign' | 'define', sendsBefore: number): Promise<void> {
   const run = await runBackend(app, hostUrl, instrument);
   assert.equal(run.code, 0, run.output);
   assert.match(run.output, new RegExp(`${ENTRY}: live mode for the Firebase project ${PROJECT}\\.`));
-  assert.doesNotMatch(run.output, /PYRIC_GUARD_BLOCKED|net-guard BLOCK/);
+  assert.doesNotMatch(run.output, /unobserved call to/);
   const { trapped, health, callbackRequests, hostNodeClients: listedByHost, ...outcome } = jobOutcome(run.output);
   assert.deepEqual(outcome, {
     instrument,
@@ -153,24 +135,20 @@ async function checkBackend(app: App, hostUrl: string, instrument: 'assign' | 'd
   for (const refused of [`${PROJECT}-prod-default-rtdb.firebaseio.com`, `${PROJECT}-shard-02.firebaseio.com`]) {
     assert.ok(!trappedHosts.includes(refused), `the refused instance ${refused} opened no connection`);
   }
-  for (const host of UNOBSERVED) assert.equal(unobservedLines(run.output, host), 1, `one line for ${host}:\n${run.output}`);
-  assert.equal(unobservedLines(run.output, 'identitytoolkit.googleapis.com'), 0, 'the Auth row observes its lookups');
-  assert.equal(unobservedLines(run.output, 'fcm.googleapis.com'), 0, 'the Messaging row observes its sends');
   assert.match(run.output, new RegExp(`${ENTRY}: firebase-admin/remote-config loads unobserved\\.`));
   for (const served of ['messaging', 'app-check']) {
     assert.doesNotMatch(run.output, new RegExp(`firebase-admin/${served} loads unobserved`), `a row serves firebase-admin/${served}`);
   }
-  const { unobserved, unobservedAdmin, gatedAdmin, ...process } = health as { unobserved: string[]; unobservedAdmin: string[]; gatedAdmin: string[] };
+  const { unobservedAdmin, gatedAdmin, ...process } = health as { unobservedAdmin: string[]; gatedAdmin: string[] };
   assert.deepEqual(process, { mode: 'live', projectId: PROJECT });
-  assert.deepEqual([...unobserved].sort(), UNOBSERVED);
   assert.deepEqual(unobservedAdmin, ['firebase-admin/remote-config']);
   assert.deepEqual(gatedAdmin, ['firebase-admin/app-check']);
-  // While the backend ran, the live host's health listed the same lists under its client: hosts and subpath names only.
-  const withLists = (listedByHost as HostNodeClient[]).filter((client) => client.unobserved !== undefined);
+  // While the backend ran, the live host's health listed the Admin module lists under its client.
+  const withLists = (listedByHost as HostNodeClient[]).filter((client) => client.unobservedAdmin !== undefined || client.gatedAdmin !== undefined);
   assert.equal(withLists.length, 1, `one Node client of this run lists them: ${JSON.stringify(listedByHost)}`);
   const [listed] = withLists;
   assert.ok(typeof listed!.clientId === 'string' && listed!.clientId !== '', 'named by its client id');
-  assert.deepEqual([...listed!.unobserved!].sort(), UNOBSERVED);
+  assert.equal('unobserved' in listed!, false);
   assert.deepEqual(listed!.unobservedAdmin, ['firebase-admin/remote-config']);
   assert.deepEqual(listed!.gatedAdmin, ['firebase-admin/app-check']);
   // The Messaging row recorded the send, and the host captured it as an Admin call, as it does a Firestore or Auth call.

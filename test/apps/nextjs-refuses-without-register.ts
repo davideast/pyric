@@ -36,7 +36,7 @@ interface Started {
   stop(): Promise<void>;
 }
 
-/** Reports the `firebase-admin/app` a route handler got, and the guard. */
+/** Reports the `firebase-admin/app` a route handler got. */
 export const PROBE_ROUTE = `import * as admin from 'firebase-admin/app';
 
 export const dynamic = 'force-dynamic';
@@ -44,7 +44,6 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   return Response.json({
     real: !('ADMIN_APP_TARGET' in admin),
-    guard: globalThis[Symbol.for('pyric.netGuard')]?.mode ?? null,
   });
 }
 `;

@@ -39,4 +39,32 @@ describe('Vite plugin', () => {
     expect(result.server?.fs?.deny).toEqual(['**/.pyric/**']);
     expect(mergeConfig(project, result).server?.fs?.deny).toEqual(['secrets/**', '**/.pyric/**']);
   });
+
+  it('emits a one-time deprecation warning when PYRIC_GUARD is set in standalone Vite config', () => {
+    const warnedKey = Symbol.for('pyric.deprecatedGuardEnvWarned');
+    const savedGuard = process.env.PYRIC_GUARD;
+    const savedWarned = (globalThis as Record<symbol, unknown>)[warnedKey];
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    const lines: string[] = [];
+    process.env.PYRIC_GUARD = 'off';
+    delete (globalThis as Record<symbol, unknown>)[warnedKey];
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      lines.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const plugin = pyric();
+      const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config!.handler;
+      configHook({}, { command: 'serve', mode: 'development' });
+      configHook({}, { command: 'serve', mode: 'development' });
+    } finally {
+      process.stderr.write = originalWrite;
+      if (savedGuard === undefined) delete process.env.PYRIC_GUARD;
+      else process.env.PYRIC_GUARD = savedGuard;
+      if (savedWarned === undefined) delete (globalThis as Record<symbol, unknown>)[warnedKey];
+      else (globalThis as Record<symbol, unknown>)[warnedKey] = savedWarned;
+    }
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('PYRIC_GUARD is deprecated and ignored');
+  });
 });

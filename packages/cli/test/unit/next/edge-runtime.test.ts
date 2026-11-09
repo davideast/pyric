@@ -27,19 +27,69 @@ describe('Edge runtime detection', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('names files that export runtime = edge, relative to the project root', () => {
+  it('names files that export runtime = edge or config = { runtime: edge }, relative to the project root', () => {
     write('app/api/ping/route.ts', "export const runtime = 'edge';\nexport function GET() { return new Response('ok'); }\n");
-    write('src/pages/api/hello.ts', 'export const runtime = "edge"\n');
+    write('src/pages/api/hello.ts', 'export const runtime = "experimental-edge"\n');
+    write('pages/api/items.ts', "export const config = {\n  api: { bodyParser: false },\n  runtime: 'edge',\n};\n");
+    write('src/pages/feed.tsx', 'export const config = { runtime: "experimental-edge" };\n');
     write('app/page.tsx', 'export default function Page() { return null; }\n');
     write('app/api/node/route.ts', "export const runtime = 'nodejs';\n");
-    expect(findEdgeRuntimeFiles(root).sort()).toEqual(['app/api/ping/route.ts', 'src/pages/api/hello.ts']);
+    write('pages/api/node.ts', "export const config = { runtime: 'nodejs' };\n");
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual([
+      'app/api/ping/route.ts',
+      'pages/api/items.ts',
+      'src/pages/api/hello.ts',
+      'src/pages/feed.tsx',
+    ]);
   });
 
-  it('names a middleware file unless it opts into the Node.js runtime', () => {
+  it('names a middleware file unless it opts into the Node.js runtime via runtime = nodejs or config = { runtime: nodejs }', () => {
     write('middleware.ts', 'export function middleware() {}\n');
     expect(findEdgeRuntimeFiles(root)).toEqual(['middleware.ts']);
-    write('middleware.ts', "export const config = { runtime: 'nodejs' };\nexport function middleware() {}\n");
+
+    write('middleware.ts', "export const runtime = 'nodejs';\nexport function middleware() {}\n");
     expect(findEdgeRuntimeFiles(root)).toEqual([]);
+
+    write('middleware.ts', "export const config = {\n  matcher: ['/items/:path*'],\n  runtime: 'nodejs',\n};\nexport function middleware() {}\n");
+    expect(findEdgeRuntimeFiles(root)).toEqual([]);
+
+    write('src/middleware.ts', 'export function middleware() {}\n');
+    expect(findEdgeRuntimeFiles(root)).toEqual(['src/middleware.ts']);
+
+    write('src/middleware.ts', 'export const runtime = "nodejs";\nexport function middleware() {}\n');
+    expect(findEdgeRuntimeFiles(root)).toEqual([]);
+  });
+
+  it('treats Next.js 16 proxy.ts and src/proxy.ts as Node.js by default unless explicitly set to edge', () => {
+    write('proxy.ts', 'export function proxy() { return Response.next(); }\n');
+    write('src/proxy.ts', 'export function proxy() { return Response.next(); }\n');
+    expect(findEdgeRuntimeFiles(root)).toEqual([]);
+
+    write('proxy.ts', "export const runtime = 'edge';\nexport function proxy() {}\n");
+    write('src/proxy.ts', "export const config = { runtime: 'edge' };\nexport function proxy() {}\n");
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual(['proxy.ts', 'src/proxy.ts']);
+  });
+
+  it('ignores commented-out runtime declarations while preserving URLs and globs inside string and template literals', () => {
+    write(
+      'app/api/commented/route.ts',
+      "// export const runtime = 'edge';\n/* export const config = { runtime: 'edge' }; */\nexport function GET() { return new Response('ok'); }\n",
+    );
+    write(
+      'app/api/active/route.ts',
+      "const endpoint = 'https://example.com//v1/*not-a-comment';\nconst tpl = `https://example.com//items`;\nexport const runtime = 'edge';\n",
+    );
+    write(
+      'middleware.ts',
+      "// TODO: export const runtime = 'nodejs'\n/* runtime: 'nodejs' */\nexport function middleware() {}\n",
+    );
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual(['app/api/active/route.ts', 'middleware.ts']);
+
+    write(
+      'middleware.ts',
+      "const origin = 'https://example.com//auth';\nexport const config = {\n  matcher: ['/items/*', '*/admin'],\n  runtime: 'nodejs',\n};\n",
+    );
+    expect(findEdgeRuntimeFiles(root)).toEqual(['app/api/active/route.ts']);
   });
 
   it('skips node_modules and returns nothing for a missing project', () => {
@@ -49,21 +99,22 @@ describe('Edge runtime detection', () => {
   });
 });
 
-describe('withPyric Edge runtime warning', () => {
+describe('withPyric Edge runtime stop (PYRIC_EDGE_RUNTIME_UNSUPPORTED)', () => {
   const savedCwd = process.cwd();
   const savedSandbox = process.env.PYRIC_SANDBOX;
-  const savedGuard = process.env.PYRIC_GUARD;
+  const savedAllowEdge = process.env.PYRIC_ALLOW_UNSWAPPED_EDGE;
   let root: string;
   let warnings: string[];
   const originalWarn = console.warn;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'pyric-edge-warn-'));
+    root = mkdtempSync(join(tmpdir(), 'pyric-edge-stop-'));
     mkdirSync(join(root, 'app/api/ping'), { recursive: true });
     writeFileSync(join(root, 'app/api/ping/route.ts'), "export const runtime = 'edge';\n");
     writeFileSync(join(root, 'next.config.mjs'), 'export default {};\n');
     process.chdir(root);
     process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
+    delete process.env.PYRIC_ALLOW_UNSWAPPED_EDGE;
     markRegisterActive();
     warnings = [];
     console.warn = (...args: unknown[]) => {
@@ -77,13 +128,29 @@ describe('withPyric Edge runtime warning', () => {
     rmSync(root, { recursive: true, force: true });
     if (savedSandbox === undefined) delete process.env.PYRIC_SANDBOX;
     else process.env.PYRIC_SANDBOX = savedSandbox;
-    // Kept out of other suites in case a test sets it.
-    if (savedGuard === undefined) delete process.env.PYRIC_GUARD;
-    else process.env.PYRIC_GUARD = savedGuard;
+    if (savedAllowEdge === undefined) delete process.env.PYRIC_ALLOW_UNSWAPPED_EDGE;
+    else process.env.PYRIC_ALLOW_UNSWAPPED_EDGE = savedAllowEdge;
     delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
   });
 
-  it('warns in the development server phase and names the Edge file', async () => {
+  it('throws PYRIC_EDGE_RUNTIME_UNSUPPORTED in the development server phase and names the Edge file', async () => {
+    const wrapped = withPyric({}) as (phase: string, defaults: Record<string, any>) => Promise<Record<string, any>>;
+    let caught: (Error & { code?: string }) | undefined;
+    try {
+      await wrapped('phase-development-server', {});
+    } catch (err) {
+      caught = err as Error & { code?: string };
+    }
+    expect(caught).toBeDefined();
+    expect(caught!.code).toBe('PYRIC_EDGE_RUNTIME_UNSUPPORTED');
+    expect(caught!.message).toContain('app/api/ping/route.ts');
+    expect(caught!.message).toContain("export const runtime = 'nodejs'");
+    expect(caught!.message).toContain('PYRIC_ALLOW_UNSWAPPED_EDGE=1');
+    expect(warnings).toEqual([]);
+  });
+
+  it('warns instead of throwing when PYRIC_ALLOW_UNSWAPPED_EDGE=1 is set', async () => {
+    process.env.PYRIC_ALLOW_UNSWAPPED_EDGE = '1';
     const wrapped = withPyric({}) as (phase: string, defaults: Record<string, any>) => Promise<Record<string, any>>;
     const config = await wrapped('phase-development-server', {});
     expect(config.serverExternalPackages).toContain('firebase');
@@ -92,9 +159,18 @@ describe('withPyric Edge runtime warning', () => {
     expect(warnings[0]).toContain('Edge');
   });
 
-  it('does not warn in a production build phase', async () => {
+  it('does not throw or warn in a production build phase', async () => {
     const wrapped = withPyric({}) as (phase: string, defaults: Record<string, any>) => Promise<Record<string, any>>;
     await wrapped('phase-production-build', {});
+    expect(warnings).toEqual([]);
+  });
+
+  it('allows a Next.js 16 proxy.ts in the development server phase without throwing', async () => {
+    rmSync(join(root, 'app/api/ping/route.ts'));
+    writeFileSync(join(root, 'proxy.ts'), 'export function proxy() { return Response.next(); }\n');
+    const wrapped = withPyric({}) as (phase: string, defaults: Record<string, any>) => Promise<Record<string, any>>;
+    const config = await wrapped('phase-development-server', {});
+    expect(config.serverExternalPackages).toContain('firebase');
     expect(warnings).toEqual([]);
   });
 });

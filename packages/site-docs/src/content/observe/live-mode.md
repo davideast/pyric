@@ -79,14 +79,14 @@ When a call that wasn't checked names another project, such as one from a Node p
 
 ## Live mode observes, it doesn't block
 
-In live mode your app talks to production as it would without pyric. Pyric never stops a request at the network. It records the calls its rows serve, and it names the Google calls it can't record. Live mode is never riskier than running the same app without pyric.
+In live mode your app talks to production as it would without pyric. Pyric never intercepts or blocks requests at the socket or HTTP layer. It records the calls its SDK rows serve, and it reports module-level pass-through and unobserved `firebase-admin` subpaths. Live mode is never riskier than running the same app without pyric.
 
 What you see for each kind of call:
 
 | Call | What happens | What you see |
 |---|---|---|
 | A call a live row serves, from a page, a Node process or `firebase-admin` | Goes to production | A row in Traffic, Studio and the terminal |
-| Any other Google or Firebase call from a Node process or the dev server | Goes to production | One "unobserved" line per host in the terminal, and the host in the health report |
+| Any non-SDK HTTP or Google API call from a Node process or the dev server | Goes to production unimpeded | No row (outside the Firebase SDK module boundary) |
 | A `firebase-admin` service no row serves | Loads from your installed SDK and goes to production | One line when it loads, and the service in the process health |
 | A call from a page or a Node process whose app's config, or the instance or bucket it reaches, names another project | Refused before your SDK runs it | `PYRIC_LIVE_REFUSED`, naming the field and both projects |
 | An Admin call whose app names another project | Refused before any request | `PYRIC_LIVE_REFUSED`, and one line in the terminal |
@@ -94,12 +94,12 @@ What you see for each kind of call:
 
 The last three are the only calls live mode refuses because of where they go. See [Check which project it's on](#check-which-project-its-on). Live mode also refuses Firebase imports it doesn't serve, and pyric's own writes. See [What it refuses](#what-it-refuses).
 
-Two health reports list what pyric didn't observe:
+Two health reports list module-level coverage for services pyric doesn't observe:
 
-- **The live host.** `GET <url>/__pyric/health` on the dev server or `pyric-live` has a `live` field. Its `unobserved` list names the hosts the host process called that no row observed.
-- **A Node process under `@pyric/live/register`.** Its own servers answer a process health request. The answer lists `unobserved` hosts, `unobservedAdmin` for the `firebase-admin` services no row serves, and `gatedAdmin` for the services checked against your project but not recorded. See [Process health on registered processes](../reference/cli.md#process-health-on-registered-processes).
+- **The live host.** `GET <url>/__pyric/health` on the dev server or `pyric-live` has a `live` field, including `passThrough` when imports are passed through.
+- **A Node process under `@pyric/live/register`.** Its own servers answer a process health request. The answer lists `unobservedAdmin` for the `firebase-admin` services no row serves, and `gatedAdmin` for the services checked against your project but not recorded. See [Process health on registered processes](../reference/cli.md#process-health-on-registered-processes).
 
-Each list is absent when it is empty. A Node process also sends its lists to the live host. While it is connected, the host's `live.clients` entry for it (`kind: "node"`) carries the same `unobserved`, `unobservedAdmin` and `gatedAdmin` lists, named by the client id its events carry. The lists hold host and service names only, and they go when the host drops the client.
+Each list is absent when it is empty. A Node process also sends its lists to the live host. While it is connected, the host's `live.clients` entry for it (`kind: "node"`) carries the same `unobservedAdmin` and `gatedAdmin` lists, named by the client id its events carry. The lists hold service names only, and they go when the host drops the client.
 
 ## What it forwards
 
@@ -274,7 +274,7 @@ The process health lists each one in `unobservedAdmin`.
 
 ### Calls that go out unobserved
 
-These calls go to production with no row, and the project check doesn't see them. Most print no "unobserved" line, because they reach the same hosts as observed calls. Treat them as a gap in what pyric shows, not as checked:
+These calls go to production with no row, and the project check doesn't see them. Treat them as a gap in what pyric shows, not as checked:
 
 - Firestore's `Query.stream`, `BulkWriter` and `recursiveDelete`.
 - Cloud Storage's `File.createReadStream`.
@@ -282,15 +282,7 @@ These calls go to production with no row, and the project check doesn't see them
 
 ## Calls that skip your Firebase SDK
 
-Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore`, `firebase/database`, `firebase/storage`, `firebase/ai` or `firebase/app-check`, or through the parts of `firebase-admin` live mode observes.
-
-A Node process under `@pyric/live/register`, or the dev server, names each Google or Firebase host it calls that pyric doesn't observe, once, in the terminal:
-
-```text
-@pyric/live/register: unobserved call to cloudtrace.googleapis.com (Google APIs). Live mode lets it through, and no row records it. Later calls to this host are not listed.
-```
-
-These are calls such as a token request, Vertex AI, Cloud Trace or a public key fetch. The dev server prints the same line with `@pyric/live/vite`. Later calls to the same host go out with no line.
+Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore`, `firebase/database`, `firebase/storage`, `firebase/ai` or `firebase/app-check`, or through the parts of `firebase-admin` live mode observes. Direct HTTP calls (`fetch`, `https.request`) to Google or third-party APIs bypass the Firebase SDK module boundary and go out unimpeded with no row or terminal notice.
 
 Live mode still refuses these:
 

@@ -174,8 +174,7 @@ comes after a call has already reached it. Check before starting:
    is made, that label is also the settings project.
 3. `GET <url>/__pyric/health` has a `live` field: `projectId`, `configProjectId`, `configSource`,
    `appProjectIds`, the `billed` counts (`reads`, `writes`, `deliveries`), `admin`, `passThrough`
-   when the host passes imports through, `unobserved` when the host process called a Google
-   host no row observed, and `clients` while a page or Node process is connected. A sandbox host
+   when the host passes imports through, and `clients` while a page or Node process is connected. A sandbox host
    has no `live` field. When the dev server has
    `server.proxy` targets on this machine, `proxyTargets` lists a verdict for each.
 4. A Node backend that uses `firebase-admin` prints its own start lines. On Node 23 or later with
@@ -263,10 +262,8 @@ Work through these and record the observed result for each. Each line states wha
    with no live host, or under `pyric-live`, which takes no list, still refuses them.
 10. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
    `PYRIC_REAL_SDK_STOPPED`.
-11. **Unobserved calls go out.** A Node process's own `fetch` to a Google host no row observes,
-    such as `cloudtrace.googleapis.com`, goes through. Its stderr prints one `unobserved call to
-    <host>` line for that host, and the process health lists the host in `unobserved`. Nothing
-    is refused.
+11. **Non-SDK calls go out unimpeded.** A Node process's own `fetch` to a Google or third-party
+    host, such as `cloudtrace.googleapis.com`, goes through unimpeded with no socket interception.
 12. **Mode mismatch.** A request to the live backend that carries an ID token from a pyric
     sandbox makes `verifyIdToken` reject with `code: 'auth/argument-error'` and
     `pyricCode: 'PYRIC_MODE_MISMATCH'`, with no row.
@@ -276,30 +273,24 @@ Work through these and record the observed result for each. Each line states wha
 
 Live mode can't see some calls, so a missing row for one of these is not a finding: an `import()`
 of the exact URL of an SDK file the page already loaded, or that URL with a fragment; the page's
-own `fetch` to the Firestore REST API, Auth, App Check, AI Logic or a Storage download URL; and, in a Node
-process, the process's own request to a host a row's SDK reaches, such as `firestore.googleapis.com`,
-which reads as observed with no line. A host also names at most eight projects in its label and warning.
+own `fetch` to the Firestore REST API, Auth, App Check, AI Logic or a Storage download URL; and a Node
+process's own direct `fetch` or `https.request` outside the Firebase SDK. A host also names at most eight projects in its label and warning.
 
-## Read the unobserved lines and health
+## Read the module-coverage lines and health
 
-- `@pyric/live/register: unobserved call to <host> (<service>).` or the same line from
-  `@pyric/live/vite`: the process called a Google or Firebase host no row observes. The call went
-  to production. Only the first call to each host prints a line. Report the hosts, since each is
-  a call pyric can't show.
 - `@pyric/live/register: firebase-admin/<service> loads unobserved.`: the backend loaded an Admin
   service no row serves, such as Remote Config. Its calls go to production with the backend's
   credential and make no row.
-- The live host's `GET <url>/__pyric/health` lists its own process's hosts in `live.unobserved`.
-  Each connected Node backend's entry in `live.clients` (`kind: "node"`) carries the backend's
-  own `unobserved`, `unobservedAdmin` and `gatedAdmin` lists, each absent when empty. The backend
-  sends them as they change, so they arrive a moment after its calls. You can also ask the
+- Each connected Node backend's entry in `live.clients` (`kind: "node"`) carries the backend's
+  `unobservedAdmin` and `gatedAdmin` lists, each absent when empty. The backend
+  sends them as they change, so they arrive a moment after its loads. You can also ask the
   backend itself, from this machine, with the process health header:
 
   ```sh
   curl -s -H 'x-pyric-process-health: 1' http://localhost:<backend port>/__pyric/health
   ```
 
-  The answer is `{ "pyricProcess": { "mode": "live", "projectId": ..., "unobserved": [...],
+  The answer is `{ "pyricProcess": { "mode": "live", "projectId": ...,
   "unobservedAdmin": [...], "gatedAdmin": [...] } }`, each list absent when empty. A backend with
   `PYRIC_PROCESS_HEALTH=off` doesn't answer, and the request reaches the app.
 

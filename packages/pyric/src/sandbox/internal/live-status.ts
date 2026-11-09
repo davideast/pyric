@@ -57,12 +57,6 @@ export interface LiveHostStatus {
    */
   readonly observed?: readonly string[];
   /**
-   * The Google and Firebase hosts the host process called that no live row
-   * observed, in first-call order. Live mode lets each call through and only
-   * names it (ADR 0022, amendment 2026-11-07). Absent when there are none.
-   */
-  readonly unobserved?: readonly string[];
-  /**
    * The Admin SDK a Node process under the live register loads: its calls
    * are observed and bypass Security Rules. A live host always reports it;
    * absent only in a report a reader could not read it from.
@@ -230,17 +224,6 @@ function readClients(value: unknown): { clients?: LiveClient[] } {
   return clients.length === 0 ? {} : { clients };
 }
 
-/** A host name as a report lists it: a nonempty string with no whitespace. */
-function isHostName(value: unknown): value is string {
-  return typeof value === 'string' && value !== '' && !/\s/.test(value);
-}
-
-/** The unobserved field: a nonempty list of host names, else absent; a malformed one never loses the status. */
-function readUnobserved(value: unknown): { unobserved?: string[] } {
-  const isList = Array.isArray(value) && value.length > 0 && value.every(isHostName);
-  return isList ? { unobserved: [...(value as string[])] } : {};
-}
-
 /** The admin field: the observed Admin SDK, else absent; a malformed one never loses the status. */
 function readAdmin(value: unknown): { admin?: LiveAdminStatus } {
   const isObject = typeof value === 'object' && value !== null;
@@ -271,8 +254,7 @@ export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   if (!hasFields || !hasLists) return null;
   const admin = readAdmin(Reflect.get(live, 'admin'));
   const clients = readClients(Reflect.get(live, 'clients'));
-  const unobserved = readUnobserved(Reflect.get(live, 'unobserved'));
-  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough, ...observed, ...unobserved, ...admin, ...clients };
+  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough, ...observed, ...admin, ...clients };
 }
 
 const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, BilledCallKind>([

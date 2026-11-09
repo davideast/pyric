@@ -16,6 +16,5 @@ import { productionAiCases } from '../nextjs-production-ai.ts';
 export default scenario((app) => runFirebaseImports(app, [
   { name: 'pyric sandbox -- next dev', nextFlags: [], hosted: false },
   { name: 'pyric sandbox --hosted -- next dev', nextFlags: [], hosted: true },
-  // #1475: warn no longer opens a token endpoint or lets a real SDK load.
-  { name: 'PYRIC_GUARD=warn pyric sandbox -- next dev --webpack', nextFlags: ['--webpack'], hosted: false, guard: 'warn' },
+  { name: 'pyric sandbox -- next dev --webpack', nextFlags: ['--webpack'], hosted: false },
 ], { refusals: true, extraCases: productionAiCases([[], ['--webpack']]) }));

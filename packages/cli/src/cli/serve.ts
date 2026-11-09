@@ -30,7 +30,6 @@ import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketSuf
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
-import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
 import { liveHostPageImportMap } from '../serve/live-host-pages.js';
 import { requireLiveProject } from '../serve/live-project.js';
@@ -65,10 +64,12 @@ import {
   type SandboxChildHandle,
 } from './sandbox-runner.js';
 import {
-  reportLaunchChecks,
+  describeInterlock,
+  formatInterlockLine,
   startBeaconWatchdog,
   type BeaconWatchdog,
 } from './sandbox-interlock.js';
+import { checkSandboxChildLaunch } from './unsupported-runtime.js';
 import { scanForInlinedFirebase } from './inlined-sdk-scanner.js';
 import {
   createFunctionsDevelopmentRuntime,
@@ -1031,6 +1032,7 @@ export interface ServeRunHost {
 }
 
 export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): Promise<number> {
+  checkSandboxChildLaunch(null);
   const cwd = process.cwd();
   let pyricConfig: PyricConfig = {};
   try {
@@ -1102,6 +1104,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     noRun: Boolean(parsed.flags.get('no-run')),
     json,
   });
+  if (checkSandboxChildLaunch(plan)) return 1;
   const bridgeOn = bridgeEnabledFor(parsed.flags, plan, functionsProject);
 
   let runtime: ServeRuntime;
@@ -1390,27 +1393,16 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     info.write(
       `✔ run      \`${plan.label}\` — firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
     );
-    // `pyric sandbox` has no AI option, so the upstream comes from
-    // `PYRIC_AI_PROXY_UPSTREAM`. The child inherits that variable, and
-    // anything in it that forwards AI traffic (a Vite dev server running the
-    // pyric plugin, for one) dials that host, so the child's guard permits it.
-    const aiGuardAllow = aiUpstreamGuardAllowance(undefined);
     const childEnv = buildChildEnv(process.env, {
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
       beaconToken: runtime.beaconToken,
       instanceId: runtime.instanceId,
-      guardAllow: aiGuardAllow,
       workerInit: runtime.workerInit,
     });
-    // What we are handing the child, stated before it starts: the interlock
-    // line and the unsupported-runtime check.
-    const interlock = reportLaunchChecks({
-      childEnv,
-      registerUrl: registerModuleUrl(),
-      argv: plan.argv,
-      write: (line) => info.write(line),
-    });
+    // What we are handing the child, stated before it starts.
+    const interlock = describeInterlock(childEnv, registerModuleUrl());
+    info.write(formatInterlockLine(interlock));
 
     devChild = spawnSandboxChild(plan, { cwd, json, env: childEnv });
     // A child still alive well after launch that never posted a beacon is very

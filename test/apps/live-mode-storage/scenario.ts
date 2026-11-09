@@ -394,7 +394,6 @@ export default scenario(async (app) => {
     assert.equal(run.code, 0, run.output);
     assert.match(run.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${PROJECT}\\.`));
     assert.match(run.output, /@pyric\/live\/register: reporting calls to the live host at /);
-    assert.doesNotMatch(run.output, /net-guard BLOCK/);
     assert.deepEqual(resultOf(run.output), expectedResults('node'));
     assert.deepEqual(await nodeReplay.unmatched(), []);
   });

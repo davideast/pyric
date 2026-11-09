@@ -20,16 +20,11 @@ describe('withPyric webpack ordering', () => {
     markRegisterActive();
   });
 
-  // Kept out of other suites in case a test sets it.
-  const savedGuard = process.env.PYRIC_GUARD;
-
   afterEach(() => {
     delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
     process.env.NODE_ENV = savedNodeEnv;
     if (saved === undefined) delete process.env.PYRIC_SANDBOX;
     else process.env.PYRIC_SANDBOX = saved;
-    if (savedGuard === undefined) delete process.env.PYRIC_GUARD;
-    else process.env.PYRIC_GUARD = savedGuard;
   });
 
   it('applies the Pyric aliases after the user webpack function, so the user cannot erase them', async () => {

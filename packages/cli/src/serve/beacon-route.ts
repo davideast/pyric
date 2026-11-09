@@ -2,7 +2,7 @@
  * `POST /__pyric/beacon`, the host half of the interception handshake.
  *
  * `@pyric/cli/register` posts here once per activated child, after its module
- * hooks and net-guard are installed. Receiving it is the only positive proof
+ * hooks are installed. Receiving it is the only positive proof
  * the dev server has that `NODE_OPTIONS=--import @pyric/cli/register` actually
  * reached that process; everything else about the launch is an assumption. See
  * `register/beacon.ts` for why the child reports on two channels.
@@ -76,12 +76,9 @@ export function parseBeaconReport(value: unknown): BeaconReport | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Record<string, unknown>;
   if (typeof raw.pid !== 'number' || !Number.isFinite(raw.pid)) return null;
-  const guard = raw.guard;
-  if (guard !== 'warn' && guard !== 'block' && guard !== 'off') return null;
   if (typeof raw.hooks !== 'boolean') return null;
   return {
     pid: raw.pid,
-    guard,
     hooks: raw.hooks,
     sandbox: typeof raw.sandbox === 'string' ? raw.sandbox : '',
   };
@@ -95,10 +92,10 @@ export function formatBeaconReceipt(report: BeaconReport): string {
     return (
       `  ⚠ interlock pid=${report.pid}: register loaded but module hooks did NOT install. ` +
       `That process's firebase-admin/firebase imports are NOT routed to the sandbox ` +
-      `(Node >= 22.15 is required for full coverage). Net-guard mode ${report.guard}.`
+      `(Node >= 22.15 is required for full coverage).`
     );
   }
-  return `  ⓘ interlock pid=${report.pid}: sandbox interception confirmed live (guard=${report.guard})`;
+  return `  ⓘ interlock pid=${report.pid}: sandbox interception confirmed live (swap-or-stop)`;
 }
 
 /** Handle `POST /__pyric/beacon`. */

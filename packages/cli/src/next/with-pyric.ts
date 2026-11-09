@@ -9,17 +9,10 @@ import { augmentWebpackConfig } from './webpack-config.js';
 import { augmentTurbopackConfig } from './turbopack-config.js';
 import { augmentDevRewrites } from './dev-rewrites.js';
 import { augmentRuntimeEnv } from './runtime-env.js';
-import { findEdgeRuntimeFiles, formatEdgeRuntimeWarning } from './edge-runtime.js';
+import { enforceNoEdgeRuntime } from './edge-runtime.js';
 
 function isFunctionConfig(config: NextConfig): config is NextConfigFunction {
   return typeof config === 'function';
-}
-
-function warnAboutEdgeRuntime(): void {
-  const warning = formatEdgeRuntimeWarning(findEdgeRuntimeFiles(process.cwd()));
-  if (warning !== null) {
-    console.warn(warning);
-  }
 }
 
 function warnAboutProjectDir(): void {
@@ -69,9 +62,9 @@ export function withPyric(config: NextConfig = {}, options?: PyricNextOptions): 
     }
 
     enforceSandboxGuard(options);
-    // The rewrite below forwards to the host, also when the guard is turned off and the preload is absent.
+    // The rewrite below forwards to the host, also when the preload is absent.
     installRemotePeerMark();
-    warnAboutEdgeRuntime();
+    enforceNoEdgeRuntime(process.cwd());
     warnAboutProjectDir();
 
     const resolvedConfig = isFunctionConfig(config) ? await config(phase, defaults) : config;

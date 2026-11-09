@@ -150,7 +150,7 @@ async function processHealth() {
 
 /** The lists a health entry carries, in one spelling, to compare this process's with the host's. */
 function listsOf(entry) {
-  return JSON.stringify({ unobserved: [...(entry.unobserved ?? [])].sort(), unobservedAdmin: entry.unobservedAdmin ?? [], gatedAdmin: entry.gatedAdmin ?? [] });
+  return JSON.stringify({ unobservedAdmin: entry.unobservedAdmin ?? [], gatedAdmin: entry.gatedAdmin ?? [] });
 }
 
 /** The Node clients the live host's health lists. */

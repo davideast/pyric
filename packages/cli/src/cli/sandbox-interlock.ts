@@ -3,22 +3,18 @@
  * is about to start, plus the warn-only watchdog for the child's answer.
  *
  * The status line is knowable synchronously from the env `pyric sandbox` just
- * assembled: guard mode, whether NODE_OPTIONS really carries the register
- * import, and where the child's handshake beacon will land. The watchdog is
- * the other half: a child still alive well after launch that never posted a
- * beacon is probably not intercepted.
+ * assembled: whether NODE_OPTIONS really carries the register import, and
+ * where the child's handshake beacon will land. The watchdog is the other
+ * half: a child still alive well after launch that never posted a beacon is
+ * probably not intercepted.
  */
 import { beaconEndpoint } from '../register/beacon.js';
-import { parseGuardMode, type GuardMode } from '../register/net-guard.js';
-import { detectUnsupportedRuntime, formatUnsupportedRuntimeWarning } from './unsupported-runtime.js';
 
 /**
  * What `pyric sandbox` can say about the interception it is about to hand the
  * child, entirely from the env it just assembled: no waiting, no round trip.
  */
 export interface InterlockStatus {
-  /** Net-guard mode the child will run under (`PYRIC_GUARD`, default block). */
-  readonly guard: GuardMode;
   /** Whether `NODE_OPTIONS` actually carries the register `--import`. */
   readonly registerImported: boolean;
   /** Where the child's handshake beacon will land, or null when the
@@ -36,7 +32,6 @@ export function describeInterlock(
   registerUrl: string,
 ): InterlockStatus {
   return {
-    guard: parseGuardMode(childEnv.PYRIC_GUARD),
     registerImported: (childEnv.NODE_OPTIONS ?? '').includes(`--import ${registerUrl}`),
     beacon: beaconEndpoint(childEnv.PYRIC_SANDBOX),
   };
@@ -52,37 +47,11 @@ export function describeInterlock(
 export function formatInterlockLine(status: InterlockStatus): string {
   if (!status.registerImported) {
     return (
-      `⚠ interlock guard=${status.guard}, register is NOT in the child's NODE_OPTIONS. ` +
+      `⚠ interlock register is NOT in the child's NODE_OPTIONS. ` +
       `Its firebase-admin/firebase imports will NOT be rewritten and would reach LIVE Firebase.\n`
     );
   }
-  return `✔ interlock guard=${status.guard}, register loaded via NODE_OPTIONS\n`;
-}
-
-export interface LaunchCheckOptions {
-  /** The environment the child is about to receive. */
-  readonly childEnv: NodeJS.ProcessEnv;
-  /** Absolute `file:` URL of the register module, to look for in NODE_OPTIONS. */
-  readonly registerUrl: string;
-  /** The child's argv, for the unsupported-runtime check. */
-  readonly argv: readonly string[];
-  readonly write: (line: string) => void;
-}
-
-/**
- * Every statement the launcher makes about the child, printed in one block
- * before the spawn, and the interlock status it derived on the way.
- *
- * Two checks: the interlock status line, from the env alone, and the
- * unsupported-runtime warning for the other way interception can be absent, a
- * child runtime that never evaluates Node loader hooks at all.
- */
-export function reportLaunchChecks(opts: LaunchCheckOptions): InterlockStatus {
-  const interlock = describeInterlock(opts.childEnv, opts.registerUrl);
-  opts.write(formatInterlockLine(interlock));
-  const unsupportedRuntime = detectUnsupportedRuntime(opts.argv);
-  if (unsupportedRuntime !== null) opts.write(formatUnsupportedRuntimeWarning(unsupportedRuntime));
-  return interlock;
+  return `✔ interlock swap-or-stop loaded via NODE_OPTIONS\n`;
 }
 
 /** How long a child may live without its beacon before we say something. */

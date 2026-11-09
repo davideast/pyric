@@ -2,7 +2,7 @@
  * The interlock status line and the warn-only beacon watchdog.
  *
  * Everything the status line reports is knowable synchronously from the env
- * `pyric sandbox` is about to hand the child: the guard mode, whether
+ * `pyric sandbox` is about to hand the child: whether
  * NODE_OPTIONS actually carries the register import, and the beacon endpoint
  * the child will post to. It is a statement about the launch, printed before
  * anything can have gone wrong at runtime.
@@ -22,25 +22,23 @@ import {
 const REGISTER_URL = 'file:///usr/local/pyric/dist/register/index.js';
 
 describe('describeInterlock', () => {
-  it('reads the guard mode, the register import and the beacon off the child env', () => {
+  it('reads the register import and the beacon off the child env', () => {
     const env = buildChildEnv(
-      { PYRIC_GUARD: 'warn' } as NodeJS.ProcessEnv,
+      {} as NodeJS.ProcessEnv,
       { serveUrl: 'http://localhost:3473', registerUrl: REGISTER_URL, beaconToken: 't' },
     );
     expect(describeInterlock(env, REGISTER_URL)).toEqual({
-      guard: 'warn',
       registerImported: true,
       beacon: 'http://localhost:3473/__pyric/beacon',
     });
   });
 
-  it('defaults the guard to block and survives a user NODE_OPTIONS prefix', () => {
+  it('survives a user NODE_OPTIONS prefix', () => {
     const env = buildChildEnv(
       { NODE_OPTIONS: '--max-old-space-size=4096' } as NodeJS.ProcessEnv,
       { serveUrl: 'http://localhost:3473', registerUrl: REGISTER_URL, beaconToken: 't' },
     );
     const status = describeInterlock(env, REGISTER_URL);
-    expect(status.guard).toBe('block');
     expect(status.registerImported).toBe(true);
   });
 
@@ -55,14 +53,13 @@ describe('describeInterlock', () => {
 });
 
 describe('formatInterlockLine', () => {
-  it('is one short ✔ line naming the guard mode and the loader', () => {
+  it('is one short ✔ line naming swap-or-stop and the loader', () => {
     const line = formatInterlockLine({
-      guard: 'warn',
       registerImported: true,
       beacon: 'http://localhost:3473/__pyric/beacon',
     });
     expect(line.startsWith('✔ interlock')).toBe(true);
-    expect(line).toContain('guard=warn');
+    expect(line).toContain('swap-or-stop');
     expect(line).toContain('NODE_OPTIONS');
     expect(line.endsWith('\n')).toBe(true);
     // Quiet by default: one line, and no beacon URL the reader has to skim past.
@@ -71,9 +68,8 @@ describe('formatInterlockLine', () => {
   });
 
   it('degrades to ⚠ and says what is lost when the register import is missing', () => {
-    const line = formatInterlockLine({ guard: 'off', registerImported: false, beacon: null });
+    const line = formatInterlockLine({ registerImported: false, beacon: null });
     expect(line.startsWith('⚠ interlock')).toBe(true);
-    expect(line).toContain('guard=off');
     expect(line).toContain('NOT');
     expect(line).toContain('LIVE Firebase');
   });

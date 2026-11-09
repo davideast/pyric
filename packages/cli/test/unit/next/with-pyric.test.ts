@@ -22,8 +22,6 @@ describe('withPyric Next.js configuration wrapper', () => {
   const origPyricSandbox = process.env.PYRIC_SANDBOX;
   const origPyricSandboxForce = process.env.PYRIC_SANDBOX_FORCE;
   const origPyricSandboxPort = process.env.PYRIC_SANDBOX_PORT;
-  // Kept out of other suites in case a test sets it.
-  const origPyricGuard = process.env.PYRIC_GUARD;
 
   beforeEach(() => {
     process.env.NODE_ENV = 'development';
@@ -50,11 +48,6 @@ describe('withPyric Next.js configuration wrapper', () => {
       process.env.PYRIC_SANDBOX_PORT = origPyricSandboxPort;
     } else {
       delete process.env.PYRIC_SANDBOX_PORT;
-    }
-    if (origPyricGuard !== undefined) {
-      process.env.PYRIC_GUARD = origPyricGuard;
-    } else {
-      delete process.env.PYRIC_GUARD;
     }
   });
 
@@ -398,58 +391,5 @@ describe('withPyric Next.js configuration wrapper', () => {
     delete process.env.PYRIC_WORKER_INIT;
     const res = await resolveWith({});
     expect('NEXT_PUBLIC_PYRIC_WORKER_INIT' in (res.env ?? {})).toBe(false);
-  });
-});
-
-/**
- * ADR 0022: the credential choke point is the default in every registered
- * process, so withPyric no longer touches PYRIC_GUARD or the guard the
- * register published. Before, it set `block` and escalated the guard (#1443).
- */
-describe('withPyric leaves the network guard alone', () => {
-  const NET_GUARD = Symbol.for('pyric.netGuard');
-  const slot = globalThis as unknown as Record<symbol, unknown>;
-  const saved = { guard: process.env.PYRIC_GUARD, sandbox: process.env.PYRIC_SANDBOX, published: slot[NET_GUARD] };
-  let published: { mode: string };
-
-  beforeEach(() => {
-    process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
-    markRegisterActive();
-    delete process.env.PYRIC_GUARD;
-    published = Object.freeze({ mode: 'block' });
-    slot[NET_GUARD] = published;
-  });
-
-  afterEach(() => {
-    const restore = (key: 'PYRIC_GUARD' | 'PYRIC_SANDBOX', value: string | undefined) => {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    };
-    restore('PYRIC_GUARD', saved.guard);
-    restore('PYRIC_SANDBOX', saved.sandbox);
-    delete slot[REGISTER_ACTIVE];
-    if (saved.published === undefined) delete slot[NET_GUARD];
-    else slot[NET_GUARD] = saved.published;
-  });
-
-  it('sets no PYRIC_GUARD in the dev server, and keeps the published guard as it is', async () => {
-    await resolveWith({});
-    expect(process.env.PYRIC_GUARD).toBeUndefined();
-    expect(slot[NET_GUARD]).toBe(published);
-  });
-
-  it('leaves an explicit PYRIC_GUARD alone', async () => {
-    for (const mode of ['warn', 'off', 'block']) {
-      process.env.PYRIC_GUARD = mode;
-      await resolveWith({});
-      expect(process.env.PYRIC_GUARD).toBe(mode);
-    }
-  });
-
-  it('changes nothing in production phases', async () => {
-    for (const phase of ['phase-production-build', 'phase-production-server', 'phase-export']) {
-      await resolveWith({}, undefined, phase);
-    }
-    expect(process.env.PYRIC_GUARD).toBeUndefined();
   });
 });

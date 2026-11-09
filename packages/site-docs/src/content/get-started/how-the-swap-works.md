@@ -45,7 +45,7 @@ Server code has one signed-in user for the whole dev server process, shared by e
 
 Vite's default externalization and `ssr.noExternal` both work for `firebase/*` and `firebase-admin`. Under `vite dev`, every other name a Firebase SDK is installed under, such as a direct `@firebase/firestore` import or an npm alias of `firebase-admin`, stays external even with `ssr.noExternal: true`, so it stops with `PYRIC_REAL_SDK_STOPPED` like the imports below. A server environment Vite does not run in its own Node process, such as a Cloudflare Workers runtime, gets a module that throws when it loads.
 
-An import the swap doesn't serve stops instead of loading the real Firebase SDK: another `firebase/*` subpath, `firebase-admin` in browser code, or an installed package that imports `firebase` or `firebase-admin` itself. It fails with `PYRIC_REAL_SDK_STOPPED`, in the browser and in the dev server process. Your Vite config's own imports load before the plugin does, so the stop can't see them. The dev server's network guard refuses requests for a server-side Google access token, so code the swap misses can't act with your machine's Google credentials. The dev server log names each refused host.
+An import the swap doesn't serve stops instead of loading the real Firebase SDK: another `firebase/*` subpath, `firebase-admin` in browser code, or an installed package that imports `firebase` or `firebase-admin` itself. It fails with `PYRIC_REAL_SDK_STOPPED`, in the browser and in the dev server process. Your Vite config's own imports load before the plugin does, so the stop can't see them.
 
 `pyric sandbox` does the same swap for a static page or a Node process. The served page carries an import map, so the browser makes the same substitution without Vite.
 

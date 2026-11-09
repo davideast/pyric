@@ -13,7 +13,7 @@
  * real SDKs and reach live Firebase.
  *
  * The beacon closes that gap the only honest way: the child says so itself,
- * after the hooks and the net-guard are actually installed.
+ * after the module hooks are actually installed.
  *
  * Two channels, on purpose
  * ------------------------
@@ -51,12 +51,8 @@
  * around after finishing its work just to deliver a diagnostic. A child that
  * exits before the beacon lands simply loses the machine channel, which is
  * exactly why the watchdog on the other end is warn-only.
- *
- * The POST targets loopback, which is no token source, so it passes the
- * net-guard installed moments earlier without a verdict.
  */
 import { boundedRequest } from '../bounded-request.js';
-import type { GuardMode } from './net-guard.js';
 import { parsePyricSandbox, type PyricSandboxActivation } from 'pyric/sandbox/internal';
 
 /** The dev server route that receives beacons (`serve/beacon-route.ts`). */
@@ -73,8 +69,6 @@ const LOG_PREFIX = '@pyric/cli/register: beacon';
 export interface BeaconReport {
   /** The child's own pid, the only durable handle a parent has on it. */
   readonly pid: number;
-  /** Net-guard mode actually in force in this process. */
-  readonly guard: GuardMode;
   /** Whether module resolution hooks were installed. `false` means imports
    *  are NOT being rewritten, which is the whole thing worth knowing. */
   readonly hooks: boolean;
@@ -152,13 +146,12 @@ export function beaconEndpoint(sandbox: string | undefined): string | null {
 }
 
 /**
- * One stderr line, structured the way net-guard's verdict lines are: fixed
- * leading fields first so it is greppable (`beacon ACTIVE pid= guard= hooks=
- * bridge=`), then the explanation.
+ * One stderr line: fixed leading fields first so it is greppable (`beacon
+ * ACTIVE pid= hooks= bridge=`), then the explanation.
  */
 export function formatBeaconLine(report: BeaconReport, endpoint: string | null): string {
   const head =
-    `${LOG_PREFIX} ACTIVE pid=${report.pid} guard=${report.guard} ` +
+    `${LOG_PREFIX} ACTIVE pid=${report.pid} ` +
     `hooks=${report.hooks ? 1 : 0} bridge=${endpoint ?? 'none'}`;
   let hooksNote: string;
   if (report.hooks) {
@@ -167,7 +160,7 @@ export function formatBeaconLine(report: BeaconReport, endpoint: string | null):
     hooksNote =
       'module hooks did NOT install, so firebase-admin/firebase imports in this process are NOT rewritten';
   }
-  return `${head}: ${hooksNote}, net-guard mode ${report.guard}.\n`;
+  return `${head}: ${hooksNote}.\n`;
 }
 
 /**
@@ -175,17 +168,15 @@ export function formatBeaconLine(report: BeaconReport, endpoint: string | null):
  *
  * Quiet by default: a healthy first run should not carry a line per launched
  * process, and the POST already tells the dev server what happened. The line
- * prints when the developer asked for detail (`PYRIC_GUARD` set explicitly,
- * `PYRIC_DEBUG`, or `PYRIC_VERBOSE`), and always when the report itself is bad
- * news, since a child whose hooks did not install may have no other way to say
- * so.
+ * prints when the developer asked for detail (`PYRIC_DEBUG` or
+ * `PYRIC_VERBOSE`), and always when the report itself is bad news, since a
+ * child whose hooks did not install may have no other way to say so.
  */
 export function beaconLineIsPrinted(
   report: BeaconReport,
   env: Record<string, string | undefined>,
 ): boolean {
   if (!report.hooks) return true;
-  if ((env.PYRIC_GUARD ?? '').trim().length > 0) return true;
   if (env.PYRIC_DEBUG) return true;
   return Boolean(env.PYRIC_VERBOSE);
 }
