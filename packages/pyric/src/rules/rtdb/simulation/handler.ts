@@ -6,6 +6,19 @@ import { normalizeAuthState } from '../../auth/auth-state.js';
 import { withIdTokenClaims } from '../../auth/token-claims.js';
 import { projectPostWriteTree } from './post-write-tree.js';
 import type { RtdbRuleEvaluation, SimulateResult } from './spec.js';
+import {
+  childFor,
+  findFailingValidate,
+  toValidateFailureResult,
+  traceEntry,
+  wildcardChildOf,
+  type ContextBuilder,
+  type RuleOutcome,
+  type TracedRuleEvaluator,
+  type ValidateWalkInput,
+} from './validate-walk.js';
+
+export { wildcardChildOf };
 
 /** One rule node on the way from the root to a path, with the `$variable` bindings that reach it. */
 export interface AncestorMatch {
@@ -15,36 +28,6 @@ export interface AncestorMatch {
    *  i.e. this ancestor's own location, used to root `data`/`newData` at
    *  the rule's location rather than at the operation's target path. */
   depth: number;
-}
-
-/** Builds the evaluation context for a rule at a given node — supplied by
- *  `execute` so it can close over `auth` / `root` / the requested op. */
-type ContextBuilder = (
-  data: DataSnapshot,
-  newData: DataSnapshot,
-  bindings: Record<string, string>,
-) => EvalContext;
-
-interface ValidateFailure {
-  node: RtdbNode;
-  rule: RtdbRuleExpression;
-  bindings: Record<string, string>;
-  /** True when this "failure" is a simulator gap (the grammar could not
-   *  parse the `.validate` expression) rather than a genuine `false`
-   *  evaluation. A real failure found anywhere in the tree always takes
-   *  priority over an unsupported one (AND-semantics: a confirmed DENY
-   *  is stronger evidence than an abstention). */
-  unsupported?: boolean;
-  /** The runtime error the rule raised, when it failed by raising one
-   *  rather than by evaluating to false. */
-  runtimeError?: string;
-}
-
-/** The outcome of evaluating one rule: whether it holds, and the runtime
- *  error it raised when it failed that way. */
-interface RuleOutcome {
-  holds: boolean;
-  runtimeError?: string;
 }
 
 /**
@@ -68,45 +51,6 @@ function evaluateRule(rule: RtdbRuleExpression, ctx: EvalContext): RuleOutcome {
 }
 
 /**
- * The trace entry for one rule at `node`. `outcome` is absent for a rule the
- * simulator cannot evaluate, which is recorded as `UNSUPPORTED`.
- */
-function traceEntry(
-  node: RtdbNode,
-  kind: RtdbRuleEvaluation['kind'],
-  rule: RtdbRuleExpression,
-  bindings: Record<string, string>,
-  outcome: RuleOutcome | undefined,
-): RtdbRuleEvaluation {
-  const entry: RtdbRuleEvaluation = {
-    path: node.path,
-    kind,
-    conditionText: rule.raw,
-    verdict: 'UNSUPPORTED',
-    pathVariableBindings: { ...bindings },
-  };
-  if (outcome === undefined) {
-    const details = rule.parsed.errors.map((e) => e.message).join('; ');
-    entry.message = details === ''
-      ? 'The simulator cannot evaluate this expression'
-      : `The simulator cannot evaluate this expression: ${details}`;
-  } else if (outcome.runtimeError !== undefined) {
-    entry.verdict = 'ERROR';
-    entry.message = outcome.runtimeError;
-  } else {
-    entry.verdict = outcome.holds ? 'ALLOW' : 'DENY';
-  }
-  return entry;
-}
-
-/** Own-enumerable keys of a snapshot's object value; empty for non-objects. */
-function snapshotChildKeys(snap: DataSnapshot): string[] {
-  const value = snap.val();
-  if (value === null || typeof value !== 'object') return [];
-  return Object.keys(value as object);
-}
-
-/**
  * The rules `auth` variable for a signed-in request: the uid, the ID token
  * claims with the tenant folded in by the shared normalizer, and `provider`,
  * which production reads as the token's `firebase.sign_in_provider`. There is
@@ -123,119 +67,12 @@ export function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>, nowM
   return simulated;
 }
 
-/**
- * `.validate` enforcement for a write. RTDB evaluates every rule on the path
- * from the root to each write location (every path of a multi-path update),
- * then every descendant rule present in the written value, whether or not
- * that value differs from the stored one. A sibling node the write does not
- * carry is not validated, even when its stored value fails its rule. Each
- * rule sees the merged post-write snapshot rooted at its own location.
- * Unlike `.read`/`.write`, validation never grants: ALL applicable rules must
- * evaluate true. Null proposed values are skipped.
- *
- * An unparseable `.validate` expression is a simulator gap, not a pass:
- * production would still evaluate it and may reject the write, so treating
- * it as "no rule" would be a fidelity lie. It is reported as `unsupported`
- * (an abstention) rather than fabricated as either ALLOW or DENY — mirrors
- * the Firestore simulator's posture where an `UnsupportedError` never
- * counts as a real evaluation. A genuine `false` found anywhere in the
- * tree still wins over an unsupported node elsewhere (a confirmed DENY is
- * stronger evidence than an abstention). Returns the first real failure, else
- * the first unsupported node, else `null` when every applicable `.validate`
- * passes. Every `.validate` the walk reaches is appended to `trace`.
- */
-function findFailingValidate(
-  node: RtdbNode,
-  data: DataSnapshot,
-  newData: DataSnapshot,
-  bindings: Record<string, string>,
-  buildContext: ContextBuilder,
-  trace: RtdbRuleEvaluation[],
-  pathToWrite: string[],
-  updates?: readonly { path: string; value?: unknown }[],
-): ValidateFailure | null {
-  let firstUnsupported: ValidateFailure | null = null;
-
-  const writePathStrings = new Set<string>();
-  if (updates && updates.length > 0) {
-    for (const u of updates) {
-      const segs = u.path.split('/').filter(Boolean);
-      const effective = segs[segs.length - 1] === '.priority' ? segs.slice(0, -1) : segs;
-      writePathStrings.add(effective.join('/'));
-    }
-  } else {
-    const effective = pathToWrite[pathToWrite.length - 1] === '.priority'
-      ? pathToWrite.slice(0, -1)
-      : pathToWrite;
-    writePathStrings.add(effective.filter(Boolean).join('/'));
-  }
-  const allWritePaths = Array.from(writePathStrings).map((p) => p.split('/').filter(Boolean));
-
-  function walk(
-    node: RtdbNode,
-    data: DataSnapshot,
-    newData: DataSnapshot,
-    bindings: Record<string, string>,
-    currentSegments: string[],
-  ): ValidateFailure | null {
-    if (newData.exists()) {
-      const rule = node.validate;
-      if (rule) {
-        if (!rule.parsed.valid) {
-          trace.push(traceEntry(node, 'validate', rule, bindings, undefined));
-          if (!firstUnsupported) {
-            firstUnsupported = { node, rule, bindings, unsupported: true };
-          }
-        } else {
-          const outcome = evaluateRule(rule, buildContext(data, newData, bindings));
-          trace.push(traceEntry(node, 'validate', rule, bindings, outcome));
-          if (!outcome.holds) return { node, rule, bindings, runtimeError: outcome.runtimeError };
-        }
-      }
-    }
-
-    // At or below a write location the written value is present in full, so
-    // every child it carries is visited. Above one, only the children on a
-    // write path are: a sibling the write does not carry is never validated.
-    const isAtOrBelowWriteTarget = allWritePaths.some(
-      (wp) => wp.length <= currentSegments.length && wp.every((seg, idx) => seg === currentSegments[idx]),
-    );
-    const childKeys = isAtOrBelowWriteTarget
-      ? snapshotChildKeys(newData)
-      : writeKeysBelow(currentSegments);
-
-    for (const key of childKeys) {
-      const matched = childFor(node, key);
-      if (matched === undefined) continue;
-      const childBindings = matched.variable === undefined
-        ? bindings
-        : { ...bindings, [matched.variable]: key };
-      const failure = walk(
-        matched.child,
-        data.child(key),
-        newData.child(key),
-        childBindings,
-        [...currentSegments, key],
-      );
-      if (failure) return failure;
-    }
-
-    return null;
-  }
-
-  /** The next key of every write path that passes through `currentSegments`. */
-  function writeKeysBelow(currentSegments: readonly string[]): Set<string> {
-    const keys = new Set<string>();
-    for (const wp of allWritePaths) {
-      const passesThrough = wp.length > currentSegments.length &&
-        currentSegments.every((seg, idx) => seg === wp[idx]);
-      if (passesThrough) keys.add(wp[currentSegments.length]);
-    }
-    return keys;
-  }
-
-  const realFailure = walk(node, data, newData, bindings, []);
-  return realFailure ?? firstUnsupported;
+function createTracedEvaluator(trace: RtdbRuleEvaluation[]): TracedRuleEvaluator {
+  return (node, kind, rule, bindings, ctx) => {
+    const outcome = evaluateRule(rule, ctx);
+    trace.push(traceEntry(node, kind, rule, bindings, outcome));
+    return outcome;
+  };
 }
 
 /**
@@ -254,67 +91,13 @@ export function collectAncestors(
 
   if (pathSegments.length === 0) return ancestors;
 
-  const matched = childFor(node, pathSegments[0]);
+  const matched = childFor(node, pathSegments[0]!);
   if (matched === undefined) return ancestors;
   const newBindings = matched.variable === undefined
     ? { ...bindings }
-    : { ...bindings, [matched.variable]: pathSegments[0] };
+    : { ...bindings, [matched.variable]: pathSegments[0]! };
   ancestors.push(...collectAncestors(matched.child, pathSegments.slice(1), newBindings, depth + 1));
   return ancestors;
-}
-
-/** The last segment of a rule node's path: its key, or `$name` for a wildcard. */
-function keyOf(node: RtdbNode): string | undefined {
-  const segments = node.path.split('/').filter(Boolean);
-  return segments[segments.length - 1];
-}
-
-/**
- * The child rule node that applies to `key`: the literal child that names it,
- * else the `$wildcard` child, bound to it. Production applies a wildcard only
- * to keys no literal sibling names, whichever is declared first.
- */
-function childFor(node: RtdbNode, key: string): { child: RtdbNode; variable?: string } | undefined {
-  let wildcard: { child: RtdbNode; variable: string } | undefined;
-  for (const child of node.children) {
-    const childKey = keyOf(child);
-    if (childKey === undefined) continue;
-    if (childKey === key) return { child };
-    const isWildcard = childKey.startsWith('$');
-    if (isWildcard && wildcard === undefined) wildcard = { child, variable: childKey };
-  }
-  return wildcard;
-}
-
-/** The `$wildcard` child rule node, which applies to a key no literal sibling names (a `push` id), with its variable. */
-export function wildcardChildOf(node: RtdbNode): { child: RtdbNode; variable: string } | undefined {
-  for (const child of node.children) {
-    const childKey = keyOf(child);
-    if (childKey !== undefined && childKey.startsWith('$')) return { child, variable: childKey };
-  }
-  return undefined;
-}
-
-/** The denial result for a failing `.validate` rule. */
-function toValidateFailureResult(failure: ValidateFailure, trace: RtdbRuleEvaluation[]): SimulateResult {
-  let reason = 'Validation rule evaluated to false';
-  if (failure.unsupported) {
-    reason = `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw}. It was not evaluated; production may reject this write.`;
-  } else if (failure.runtimeError !== undefined) {
-    reason = `Validation rule at '${failure.node.path}' failed at evaluation: ${failure.runtimeError}`;
-  }
-  return {
-    success: true,
-    data: {
-      allowed: false,
-      unsupported: failure.unsupported === true,
-      matchedPath: failure.node.path,
-      matchedRule: failure.rule.raw,
-      reason,
-      pathVariableBindings: failure.bindings,
-      trace,
-    },
-  };
 }
 
 /**
@@ -384,6 +167,7 @@ export class SimulateHandler {
       // path instead makes ancestor rules see "no data" (since the
       // deepest path usually doesn't exist yet), which silently satisfies
       // `!data.exists()`-style escape hatches and produces a false ALLOW.
+      const evaluateTracedRule = createTracedEvaluator(trace);
       const rootData = new DataSnapshot(mockData, '/');
       // Post-write tree: mockData with the proposed write merged in. Reads
       // don't have a "post-write" state, so leave it as-is. For an atomic
@@ -413,12 +197,22 @@ export class SimulateHandler {
           query: contextQuery,
         };
       };
+      const validateInput: ValidateWalkInput = {
+        rootNode,
+        rootData,
+        mergedRootData,
+        buildContext,
+        evaluateTracedRule,
+        trace,
+        pathToWrite: pathSegments,
+        updates,
+      };
 
       // The validate operation runs only the `.validate` phase: every
       // `.validate` rule from the root through the write location and its
       // written descendants must pass, whatever `.write` grants.
       if (operation === 'validate') {
-        const failure = findFailingValidate(rootNode, rootData, mergedRootData, {}, buildContext, trace, pathSegments, updates);
+        const failure = findFailingValidate(validateInput);
         if (failure) return toValidateFailureResult(failure, trace);
         const lastValidated = trace[trace.length - 1];
         const deepestValidate = [...ancestors].reverse().find((a) => a.node.validate !== undefined);
@@ -467,11 +261,13 @@ export class SimulateHandler {
         const dataAtAncestor = rootData.child(ancestorSegments);
         const newDataAtAncestor = mergedRootData.child(ancestorSegments);
 
-        const outcome = evaluateRule(
+        const outcome = evaluateTracedRule(
+          ancestor.node,
+          operation,
           ruleExpr,
+          ancestor.pathVariableBindings,
           buildContext(dataAtAncestor, newDataAtAncestor, ancestor.pathVariableBindings),
         );
-        trace.push(traceEntry(ancestor.node, operation, ruleExpr, ancestor.pathVariableBindings, outcome));
         if (outcome.runtimeError !== undefined) runtimeErrors.set(ancestor, outcome.runtimeError);
 
         if (outcome.holds) {
@@ -482,16 +278,7 @@ export class SimulateHandler {
           // pass (a single failure denies the write). Read ops have no
           // validate phase.
           if (operation === 'write') {
-            const failure = findFailingValidate(
-              rootNode,
-              rootData,
-              mergedRootData,
-              {},
-              buildContext,
-              trace,
-              pathSegments,
-              updates,
-            );
+            const failure = findFailingValidate(validateInput);
             if (failure) return toValidateFailureResult(failure, trace);
           }
           return {
@@ -542,7 +329,7 @@ export class SimulateHandler {
             matchedPath: '',
             matchedRule: '',
             reason: `No '${operation}' rule on '${path}' or its ancestors grants access; denied by default`,
-            pathVariableBindings: ancestors[ancestors.length - 1].pathVariableBindings,
+            pathVariableBindings: ancestors[ancestors.length - 1]!.pathVariableBindings,
             trace,
           },
         };

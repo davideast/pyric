@@ -37,17 +37,14 @@ import {
   defaultFormatTime,
   type TimeWindow,
 } from '@pyric/ui/traffic';
-import { callerSource, callerSourceLabelOutsidePage } from 'pyric/sandbox/internal';
 import { useStudioTrafficFeed, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
 import { useLiveHost } from '../../shell/live-status.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
   filterByVerdict,
   filterStudioTraffic,
-  localDrift,
   opensLiveRulesInspector,
   opensRulesInspector,
-  productionLabel,
   rowNavigationTarget,
   verdictFor,
   verdictLabel,
@@ -71,8 +68,15 @@ import {
 import { TRAFFIC_TABS, trafficTabForView, type TrafficTab } from './traffic-tabs.js';
 import { computeTrafficWindow } from './traffic-window.js';
 import { trafficTimeFocus, toggleTimeFocus } from './timeline-focus.js';
-import { FromSelect, LiveRowDetail, OutcomeCell, TargetCell, useFromScope } from './TrafficLiveRow.js';
-import { inFromScope, methodLabel } from './live-row.js';
+import {
+  FromSelect,
+  LiveRowDetail,
+  LiveTrafficRow,
+  StandaloneDetail,
+  VerdictCell,
+  useFromScope,
+} from './TrafficLiveRow.js';
+import { inFromScope } from './live-row.js';
 import './traffic.css';
 
 export type { TrafficTab } from './traffic-tabs.js';
@@ -159,74 +163,6 @@ function relAgo(at: number, now: number): string {
   return `${Math.round(m / 60)}h ago`;
 }
 
-/** Which connection sent the row's op: a page, server code, admin code, MCP or Studio. */
-function SourceCell({ event }: { event: StudioTrafficEvent }) {
-  const source = callerSource(event.caller);
-  return (
-    <span className="traffic__source" data-source={source}>
-      {callerSourceLabelOutsidePage(source)}
-    </span>
-  );
-}
-
-/** What production answered an op it served; stands in for the Rules verdict. */
-function ProductionCell({ production }: { production: NonNullable<StudioTrafficEvent['production']> }) {
-  return (
-    <span className="traffic__production" data-production={production.outcome.status}>
-      {productionLabel(production)}
-    </span>
-  );
-}
-
-const DRIFT_TITLE = 'Local rules disagree with production';
-
-/** The one mark on a production row whose local rules disagree with production's answer. */
-function DriftMarker() {
-  return (
-    <span className="traffic__drift" data-drift="" title={DRIFT_TITLE} aria-label={DRIFT_TITLE} role="img">
-      <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
-        <path d="M12 3 2 21h20L12 3Z" />
-        <path d="M12 9v5m0 3v1" />
-      </svg>
-    </span>
-  );
-}
-
-/** On a live host, marks a row the local sandbox served: only Production rows went to the real project. */
-function SandboxServedCell() {
-  return (
-    <span className="traffic__production" data-sandbox-served title="Served by the local sandbox, not your Firebase project">
-      Sandbox
-    </span>
-  );
-}
-
-/** The per-row source and verdict cells (the verdict is blank for non-rule ops). */
-function VerdictCell({ event }: { event: StudioTrafficEvent }) {
-  const isLiveHost = useLiveHost() !== null;
-  if (event.production !== undefined) {
-    return (
-      <>
-        <SourceCell event={event} />
-        {localDrift(event) === undefined ? null : <DriftMarker />}
-        <ProductionCell production={event.production} />
-      </>
-    );
-  }
-  const v = verdictFor(event);
-  return (
-    <>
-      {isLiveHost ? <SandboxServedCell /> : null}
-      <SourceCell event={event} />
-      {v ? (
-        <span className="traffic__verdict" data-verdict={v}>
-          {verdictLabel(v)}
-        </span>
-      ) : null}
-    </>
-  );
-}
-
 /** Whether a row's click opens the rules view in place: a sandbox rules decision, or a live op with a decided or unevaluated local verdict. */
 function opensDetail(event: StudioTrafficEvent): boolean {
   return opensRulesInspector(event) || opensLiveRulesInspector(event);
@@ -234,26 +170,6 @@ function opensDetail(event: StudioTrafficEvent): boolean {
 
 function isRowInteractive(event: StudioTrafficEvent): boolean {
   return opensDetail(event) || rowNavigationTarget(event) !== null;
-}
-
-/**
- * An inspected op with no visible row, above the log: on a live host the
- * row's own detail when the op is in the buffer, else the inspected detail.
- */
-function StandaloneDetail({
-  eventId,
-  events,
-  live,
-  onClose,
-}: {
-  eventId: string;
-  events: readonly StudioTrafficEvent[];
-  live: ReturnType<typeof useLiveHost>;
-  onClose: () => void;
-}) {
-  const event = live === null ? undefined : events.find((candidate) => candidate.id === eventId);
-  if (event !== undefined) return <LiveRowDetail event={event} live={live} onClose={onClose} />;
-  return <TrafficInspectedDetail eventId={eventId} events={events} onClose={onClose} />;
 }
 
 /** The URL-driven inspector focus (`?inspect=<id>`): the inspected op's id, or
@@ -361,8 +277,6 @@ export function TrafficSurface() {
   const denied = events.filter((e) => e.result === 'deny').length;
 
   const verdictBadge = (event: StudioTrafficEvent) => <VerdictCell event={event} />;
-  const outcomeCell = (event: StudioTrafficEvent) => <OutcomeCell event={event} />;
-  const targetCell = (event: StudioTrafficEvent) => <TargetCell event={event} />;
 
   // The row's navigation semantic: a RULES-EVALUATED row (allow or deny)
   // expands in place into the rules inspector — the rules decision IS
@@ -566,15 +480,11 @@ export function TrafficSurface() {
                       data-verdict={verdictFor(item.event as StudioTrafficEvent) ?? undefined}
                     >
                       {isLiveHost ? (
-                        <TrafficRow
-                          event={item.event}
+                        <LiveTrafficRow
+                          event={item.event as StudioTrafficEvent}
                           selected={item.event.id === expandedId}
                           expanded={item.event.id === expandedId}
-                          onSelect={(e) => onRowSelect(e as StudioTrafficEvent)}
-                          renderLead={(event) => targetCell(event as StudioTrafficEvent)}
-                          formatMethod={methodLabel}
-                          renderClassification={(event) => outcomeCell(event as StudioTrafficEvent)}
-                          formatTime={defaultFormatTime}
+                          onSelect={onRowSelect}
                         />
                       ) : (
                         <TrafficRow

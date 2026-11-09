@@ -871,15 +871,7 @@ function reportRejected(site: ObservedSite, error: unknown): void {
 function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): LiveCallRecord | undefined {
   try {
     const record = buildRecord(site, outcome, value);
-    if (outcome === 'resolved') {
-      attachSessionData(record, site.sessionData);
-    } else if (outcome === 'delivered' && site.deliveryOf !== undefined) {
-      try {
-        attachSessionData(record, site.deliveryOf(site, value));
-      } catch {
-        // A delivery hook failure never drops the record.
-      }
-    }
+    attachOutcomeSessionData(record, site, outcome, value);
     ignoreRejection(site.observer(record));
     return record;
   } catch {

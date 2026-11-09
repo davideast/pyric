@@ -14,7 +14,18 @@ import { answerAndClose, collectBody, isBodyTooLarge } from '../bridge/server/pe
 import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
 import type { ObservedSeedResult } from './hosted/seed-from-observed-session.js';
 import type { ObservedSessionDataStore } from './observed-session/store.js';
-import type { LiveSeedMode, LiveSeedSandboxResult, ObservedSessionDataSnapshot } from './observed-session/wire.js';
+import {
+  LIVE_SEED_SANDBOX_PATH,
+  LIVE_SESSION_DATA_PATH,
+  type LiveSeedMode,
+  type LiveSeedSandboxResult,
+  type ObservedSessionDataSnapshot,
+} from './observed-session/wire.js';
+
+/** Whether `pathname` targets one of the live observed-session HTTP routes. */
+export function isLiveSessionRoute(pathname: string): boolean {
+  return pathname === LIVE_SESSION_DATA_PATH || pathname === LIVE_SEED_SANDBOX_PATH;
+}
 
 /** The hosted runtime's seeding, as the seed route calls it. */
 export interface ObservedSessionSeeder {
@@ -120,4 +131,16 @@ export async function serveLiveSeedSandbox(
     res.writeHead(400, JSON_HEADERS).end(payload);
     return true;
   }
+}
+
+export function serveLiveSessionRoute(
+  pathname: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+  context: LiveSessionRouteContext,
+): true | Promise<true> {
+  if (pathname === LIVE_SESSION_DATA_PATH) {
+    return serveLiveSessionData(req, res, context);
+  }
+  return serveLiveSeedSandbox(req, res, context);
 }
