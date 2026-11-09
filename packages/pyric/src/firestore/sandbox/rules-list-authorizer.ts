@@ -8,7 +8,7 @@ import type {
 import { projectEvaluatedRule,renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
 import { proveCollectionGroupRules } from './collection-group-rule-proof.js';
 import type { FirestoreEventBus } from './event-bus.js';
-import { makeError, type FirestoreSimError } from './errors.js';
+import { makeError, type FirestoreSimError, type QueryDenialDescriptor } from './errors.js';
 import {
   buildQueryRepro,
   proveListQuery,
@@ -125,7 +125,7 @@ export class RulesListAuthorizer {
       });
       const error = makeError('permission-denied', message, {
         request: { method: 'list', path, auth },
-        query: constraints,
+        query: toDenialQueryDescriptor(constraints),
       });
       this.emitUserDenial(origin, error);
       return { allowed: false, error };
@@ -267,7 +267,7 @@ export class RulesListAuthorizer {
       : (narrowingRemediation ?? reproText);
     const error = makeError('permission-denied', message, {
       request: { method: 'list', path: request.path, auth: request.auth },
-      query: request.constraints,
+      query: toDenialQueryDescriptor(request.constraints),
       queryProof,
       ...(remediation ? { remediation } : {}),
       ...(repro ? { repro } : {}),
@@ -310,4 +310,28 @@ export class RulesListAuthorizer {
   private emitUserDenial(origin: ListAuthorizationRequest['origin'], error: FirestoreSimError): void {
     if (origin === 'user') this.events.denial.emit(error);
   }
+}
+
+function toDenialQueryDescriptor(constraints: QueryConstraints): QueryDenialDescriptor {
+  let orderBy: string | null | undefined;
+  if (constraints.orderBy === null || constraints.orderBy === undefined) {
+    orderBy = constraints.orderBy;
+  } else if (typeof constraints.orderBy === 'string') {
+    orderBy = constraints.orderBy;
+  } else {
+    const entries = Object.entries(constraints.orderBy);
+    if (entries.length === 0) {
+      orderBy = null;
+    } else {
+      orderBy = entries
+        .map(([field, dir]) => (dir === 'DESC' ? `${field} DESC` : field))
+        .join(', ');
+    }
+  }
+  const descriptor: { -readonly [K in keyof QueryDenialDescriptor]: QueryDenialDescriptor[K] } = {};
+  if (constraints.where !== undefined) descriptor.where = constraints.where;
+  if (constraints.limit !== undefined) descriptor.limit = constraints.limit;
+  if (constraints.offset !== undefined) descriptor.offset = constraints.offset;
+  if (orderBy !== undefined) descriptor.orderBy = orderBy;
+  return descriptor;
 }

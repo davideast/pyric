@@ -3,7 +3,35 @@
  * classifiers for Firestore `list` query proofs.
  */
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
-import { getValidFunctionLexicalScope } from './match-resolution.js';
+import {
+  getFunctionScope,
+  getValidFunctionLexicalScope,
+  type FunctionScopeBindings,
+} from './match-resolution.js';
+
+export function lexicalCaptureLiteralBindings(
+  fn: FunctionDef,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
+): Map<string, Expression> {
+  const bindings = new Map<string, Expression>();
+  const scope = functionScopes?.get(fn);
+  if (!scope) return bindings;
+  const candSet = new Set(scope.candidateVariables);
+  const recSet = new Set(scope.recursiveVariables);
+  const declaredCaptures = getFunctionScope(fn)?.captures;
+  for (const [k, v] of Object.entries(scope.pathVariables)) {
+    if (declaredCaptures && !declaredCaptures.has(k)) continue;
+    if (!candSet.has(k)) {
+      if (recSet.has(k)) {
+        const segments = v.split('/').filter(Boolean);
+        bindings.set(k, { type: 'pathLiteral', raw: `/${segments.join('/')}`, segments });
+      } else {
+        bindings.set(k, { type: 'literal', value: v, raw: JSON.stringify(v) });
+      }
+    }
+  }
+  return bindings;
+}
 
 function memberStep(
   expr: Expression,
@@ -115,6 +143,7 @@ export function inlineFunctionsInExpr(
   expr: Expression,
   functions: ReadonlyMap<string, FunctionDef>,
   visiting: ReadonlySet<FunctionDef> = new Set(),
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): Expression | null {
   let budget = 500;
   const inline = (
@@ -129,7 +158,7 @@ export function inlineFunctionsInExpr(
       if (fn.parameters.length !== e.args.length) return null;
       const nextFunctions = getValidFunctionLexicalScope(fn, currentFunctions);
       if (!nextFunctions) return null;
-      const bindings = new Map<string, Expression>();
+      const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
       for (let i = 0; i < fn.parameters.length; i++) {
         const inlinedArg = inline(e.args[i]!, currentFunctions, seen);
         if (!inlinedArg) return null;
@@ -255,9 +284,10 @@ export function inlineIfNeeded(
   expr: Expression,
   functions: ReadonlyMap<string, FunctionDef>,
   visiting?: ReadonlySet<FunctionDef>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): Expression | null {
   if (functions.size === 0) return expr;
-  return inlineFunctionsInExpr(expr, functions, visiting);
+  return inlineFunctionsInExpr(expr, functions, visiting, functionScopes);
 }
 
 export function callsResolveInOuterScope(

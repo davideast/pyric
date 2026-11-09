@@ -2,7 +2,13 @@ import type { FirestoreRules, FunctionDef, MatchBlock, PathSegment } from '../gr
 import type { PathResolutionEntry } from '../test/spec.js';
 import { recursiveWildcardMinimum } from '../grammar/recursive-wildcard-minimum.js';
 import { topLevelMatches } from '../grammar/service-blocks.js';
-import { collectMatches, renderMatchBlockPath, type MatchResult } from './match-resolution.js';
+import {
+  collectMatches,
+  prependMatchScope,
+  renderMatchBlockPath,
+  type FunctionScopeBindings,
+  type MatchResult,
+} from './match-resolution.js';
 import { DOCUMENT_PATH_FORM } from './request-path.js';
 
 /**
@@ -156,17 +162,25 @@ export function collectRootMatches(
     let children: MatchResult[];
     if (tail) {
       children = collectBelowRootRecursive(rootBlock, tail.name, root.remaining, blockFunctions, ast.version, recorder);
+      const rootPrefixScope: FunctionScopeBindings = {
+        pathVariables: root.bindings,
+        recursiveVariables: root.recursiveVariables ?? [],
+        candidateVariables: [],
+      };
+      for (const result of children) {
+        prependMatchScope([], rootPrefixScope, result);
+      }
     } else {
       children = rootBlock.children.flatMap((child) =>
         collectMatches(child, root.remaining, blockFunctions, ast.version, recorder),
       );
-    }
-    const rootRecVars = collectRootRecursiveNames(root);
-    for (const result of children) {
-      result.pathVariables = { ...root.bindings, ...result.pathVariables };
-      if (rootRecVars.length > 0) {
-        const childRec = result.recursiveVariables ?? [];
-        result.recursiveVariables = [...rootRecVars, ...childRec];
+      const rootPrefixScope: FunctionScopeBindings = {
+        pathVariables: root.bindings,
+        recursiveVariables: collectRootRecursiveNames(root),
+        candidateVariables: [],
+      };
+      for (const result of children) {
+        prependMatchScope(rootBlock.functions, rootPrefixScope, result);
       }
     }
     const own = rootBlockMatch(rootBlock, ast.version, root, blockFunctions);
@@ -207,11 +221,22 @@ function rootBlockMatch(
     pathVariables = { ...root.bindings, [tail.name]: root.remaining.join('/') };
   }
   const recursiveVariables = collectRootRecursiveNames(root);
+  const candidateVariables = rootCandidateVariables(block, root);
+  const ownScope: FunctionScopeBindings = {
+    pathVariables,
+    recursiveVariables,
+    candidateVariables,
+  };
+  const fnScopes = new Map<FunctionDef, FunctionScopeBindings>();
+  for (const fn of block.functions) {
+    fnScopes.set(fn, ownScope);
+  }
   const result: MatchResult = {
     block,
     pathVariables,
-    candidateVariables: rootCandidateVariables(block, root),
+    candidateVariables,
     functions,
+    functionScopes: fnScopes,
   };
   if (recursiveVariables.length > 0) {
     result.recursiveVariables = recursiveVariables;
@@ -245,7 +270,7 @@ function collectBelowRootRecursive(
   const standInPath = `/{${name}=**}`;
   const standIn: MatchBlock = {
     path: { raw: standInPath, segments: [{ type: 'recursive', name }] },
-    functions: [],
+    functions: rootBlock.functions,
     allows: [],
     children: rootBlock.children,
   };

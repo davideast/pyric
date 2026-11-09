@@ -54,8 +54,14 @@ function recursiveMerge(existing: DocState, payload: DocState): DocState {
   for (const [k, v] of Object.entries(payload)) {
     assertSafeSegment(k);
     const cur = Object.hasOwn(out, k) ? out[k] : undefined;
-    if (isRulesMap(v) && isRulesMap(cur)) {
-      out[k] = recursiveMerge(cur as DocState, v as DocState);
+    if (isRulesMap(v)) {
+      if (Object.keys(v).length === 0) {
+        out[k] = {};
+      } else if (isRulesMap(cur)) {
+        out[k] = recursiveMerge(cur as DocState, v as DocState);
+      } else {
+        out[k] = recursiveMerge({}, v as DocState);
+      }
     } else {
       out[k] = v;
     }

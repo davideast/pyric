@@ -92,21 +92,26 @@ export type ListQueryWhereConstraint = z.infer<typeof ListQueryWhereConstraintSc
  * provability, #371) — only populated for `list` operations. Production exposes:
  *   - limit:   the requested page size
  *   - offset:  the start offset within the result set
- *   - orderBy: the orderBy clause as a string (field name with optional direction)
+ *   - orderBy: Map<string, 'ASC' | 'DESC'> mapping ordered field names to directions
+ *              (legacy bare field string inputs are normalized to a Map at evaluation time)
  *
  * `where` models query filter clauses (`where(field, op, value)`) used by
  * `proveListQuery` / `evaluateQueryProof` to check whether the rules can
  * statically prove every returnable document is readable ("rules are not filters").
  *
- * Unset fields read as `null` from rules. Tests SHOULD set this whenever the
+ * Unset `limit`/`offset` read as `null` from rules, and unset `orderBy` reads as `{}`.
+ * Tests SHOULD set this whenever the
  * rule under evaluation references `request.query.<x>` or per-document fields
  * on a `list` query.
  */
+export const ListQueryOrderDirectionSchema = z.enum(['ASC', 'DESC']);
+export type ListQueryOrderDirection = z.infer<typeof ListQueryOrderDirectionSchema>;
+
 export const ListQuerySchema = z.object({
   where: z.array(ListQueryWhereConstraintSchema).optional(),
   limit: z.number().optional(),
   offset: z.number().optional(),
-  orderBy: z.string().optional(),
+  orderBy: z.union([z.record(ListQueryOrderDirectionSchema), z.string()]).optional(),
 });
 
 export type ListQuery = z.infer<typeof ListQuerySchema>;

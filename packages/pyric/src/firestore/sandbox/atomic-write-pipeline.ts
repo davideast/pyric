@@ -152,17 +152,32 @@ export class AtomicWritePipeline {
   ): AtomicDecision {
     const { context, resolvedOps, serverTime } = prepared;
     const projection = this.runtime.buildBatchProjection(resolvedOps, existingProjection);
+    const intraBatchExists = new Map<string, boolean>();
     const inputs = prepared.inputs.map((input) => {
-      const hasExplicitRuleMethod = input.method !== 'set';
-      if (hasExplicitRuleMethod) return input;
+      const existedPreCommit = this.runtime.state.get(input.path) !== null;
+      const existsBeforeOp = intraBatchExists.get(input.path) ?? existedPreCommit;
       const deletesDocument = projection.get(input.path) === null;
-      let ruleMethod: AtomicRuleMethod;
-      if (deletesDocument) {
-        ruleMethod = 'delete';
-      } else {
-        const documentExists = this.runtime.state.get(input.path) !== null;
-        ruleMethod = documentExists ? 'update' : 'create';
+
+      let ruleMethod = input.ruleMethod;
+      if (input.method === 'set') {
+        if (deletesDocument) {
+          ruleMethod = 'delete';
+        } else if (existedPreCommit) {
+          ruleMethod = 'update';
+        } else {
+          ruleMethod = 'create';
+        }
+        intraBatchExists.set(input.path, true);
+      } else if (input.method === 'create') {
+        if (!existsBeforeOp) intraBatchExists.set(input.path, true);
+      } else if (input.method === 'update') {
+        if (existsBeforeOp && !existedPreCommit && !deletesDocument) {
+          ruleMethod = 'create';
+        }
+      } else if (input.method === 'delete') {
+        intraBatchExists.set(input.path, false);
       }
+      if (ruleMethod === input.ruleMethod) return input;
       return { ...input, ruleMethod };
     });
     const testCases = resolvedOps.map((operation, index) => {

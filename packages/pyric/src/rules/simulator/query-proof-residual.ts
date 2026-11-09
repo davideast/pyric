@@ -5,7 +5,12 @@
 import type { Expression, FunctionDef } from "../grammar/FirestoreAST.js";
 import type { SimulationContext } from "./evaluation-context.js";
 import { evaluate, requireBoolean } from "./evaluator.js";
-import { getValidFunctionLexicalScope } from "./match-resolution.js";
+import { attachOrBudgetStep } from "./list-proof-budget.js";
+import { analyzeListRulePathInvariance } from "./list-rule-path-proof.js";
+import {
+  getValidFunctionLexicalScope,
+  type FunctionScopeBindings,
+} from "./match-resolution.js";
 import type { QueryConstraints } from "./query-proof.js";
 import {
   callsResolveInOuterScope,
@@ -14,6 +19,7 @@ import {
   inlineIfNeeded,
   isProvablyDocIndependent,
   isRequestAuthUid,
+  lexicalCaptureLiteralBindings,
   substituteIdentifiers,
 } from "./query-proof-scope.js";
 import { hostNumber, inInt64, isHostIntNumber } from "./rules-int.js";
@@ -158,8 +164,9 @@ export function resolveStaticRulesOperand(
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
   pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): RulesScalar | undefined {
-  const inlined = inlineIfNeeded(expr, userFunctions);
+  const inlined = inlineIfNeeded(expr, userFunctions, undefined, functionScopes);
   if (!inlined) return undefined;
   if (
     inlined.type === "identifier" &&
@@ -179,6 +186,33 @@ export function resolveStaticRulesOperand(
   return undefined;
 }
 
+function resolveGuaranteedArrayContains(
+  arrayField: string,
+  element: Expression,
+  constraints: QueryConstraints,
+  userFunctions: ReadonlyMap<string, FunctionDef>,
+  authUid?: string,
+  pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
+): RulesScalar | undefined {
+  const ruleVal = resolveStaticRulesOperand(
+    element,
+    userFunctions,
+    authUid,
+    pathVariables,
+    functionScopes,
+  );
+  if (ruleVal === undefined) return undefined;
+  const matched = (constraints.where ?? []).some(
+    (filter) =>
+      filter.field === arrayField &&
+      filter.op === "array-contains" &&
+      isScalar(filter.value) &&
+      listElementsEqual(ruleVal, toRulesQueryScalar(filter.value)),
+  );
+  return matched ? ruleVal : undefined;
+}
+
 function isGuaranteedByArrayContains(
   arrayField: string,
   element: Expression,
@@ -186,15 +220,18 @@ function isGuaranteedByArrayContains(
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
   pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): boolean {
-  const ruleVal = resolveStaticRulesOperand(element, userFunctions, authUid, pathVariables);
-  if (ruleVal === undefined) return false;
-  return (constraints.where ?? []).some(
-    (filter) =>
-      filter.field === arrayField &&
-      filter.op === "array-contains" &&
-      isScalar(filter.value) &&
-      listElementsEqual(ruleVal, toRulesQueryScalar(filter.value)),
+  return (
+    resolveGuaranteedArrayContains(
+      arrayField,
+      element,
+      constraints,
+      userFunctions,
+      authUid,
+      pathVariables,
+      functionScopes,
+    ) !== undefined
   );
 }
 
@@ -205,13 +242,20 @@ function isEqualityImpliedByFilterSet(
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
   pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): boolean {
   const checkSide = (dataExpr: Expression, valueExpr: Expression): boolean => {
     const field = dataFieldPath(dataExpr);
     if (field === null) return false;
     const sets = filterSetsByField.get(field);
     if (!sets) return false;
-    const target = resolveStaticRulesOperand(valueExpr, userFunctions, authUid, pathVariables);
+    const target = resolveStaticRulesOperand(
+      valueExpr,
+      userFunctions,
+      authUid,
+      pathVariables,
+      functionScopes,
+    );
     if (target === undefined || !isSafePrecisionRulesScalar(target)) return false;
     return sets.some(
       (set) =>
@@ -229,6 +273,7 @@ function isInImpliedByFilterSet(
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
   pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): boolean {
   const field = dataFieldPath(element);
   if (field === null || collection.type !== "listLiteral") return false;
@@ -236,7 +281,13 @@ function isInImpliedByFilterSet(
   if (!sets) return false;
   const allowedValues: RulesScalar[] = [];
   for (const el of collection.elements) {
-    const resolved = resolveStaticRulesOperand(el, userFunctions, authUid, pathVariables);
+    const resolved = resolveStaticRulesOperand(
+      el,
+      userFunctions,
+      authUid,
+      pathVariables,
+      functionScopes,
+    );
     if (resolved === undefined) return false;
     allowedValues.push(resolved);
   }
@@ -398,6 +449,20 @@ function int64LiteralExpr(value: bigint): Expression {
   };
 }
 
+function rulesScalarExpression(value: RulesScalar): Expression {
+  if (typeof value === "bigint") return int64LiteralExpr(value);
+  if (value instanceof RulesFloat) {
+    if (Object.is(value.value, -0)) return { type: "literal", value: -0, raw: "-0.0" };
+    const serialized = JSON.stringify(value.value);
+    let raw = serialized;
+    if (!serialized.includes(".") && !serialized.includes("e") && !serialized.includes("E")) {
+      raw = `${serialized}.0`;
+    }
+    return { type: "literal", value: value.value, raw };
+  }
+  return literal(value);
+}
+
 function pinCandidateExpressions(value: Scalar): Expression[] {
   const primary = literal(value);
   if (
@@ -412,12 +477,19 @@ function pinCandidateExpressions(value: Scalar): Expression[] {
   return [primary];
 }
 
+export interface PathInvarianceContext {
+  readonly candidateVariables: ReadonlySet<string>;
+  readonly ambiguousNames: ReadonlySet<string>;
+}
+
 export function queryResidual(
   condition: Expression,
   constraints: QueryConstraints,
   functions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
   pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
+  pathInvariance?: PathInvarianceContext,
 ): { condition: Expression; partial: boolean } | undefined {
   let partial = false;
   const filterSetsByField = computeFieldFilterSets(constraints);
@@ -436,7 +508,9 @@ export function queryResidual(
     );
   }
   const residuals: Expression[] = [];
+  let variantIndex = 0;
   for (const pins of variants) {
+    const includeBudgetBranches = variantIndex++ === 0;
     let budget = 2000;
     function rewrite(
       expr: Expression,
@@ -470,7 +544,7 @@ export function queryResidual(
             currentFunctions !== nextFunctions &&
             !callsResolveInOuterScope(rewrittenArg, currentFunctions, nextFunctions)
           ) {
-            const expandedArg = inlineFunctionsInExpr(rewrittenArg, currentFunctions, visiting);
+            const expandedArg = inlineFunctionsInExpr(rewrittenArg, currentFunctions, visiting, functionScopes);
             if (
               !expandedArg ||
               !callsResolveInOuterScope(expandedArg, currentFunctions, nextFunctions) ||
@@ -482,9 +556,10 @@ export function queryResidual(
           }
           return rewrittenArg;
         });
-        const bindings = new Map(
-          fn.parameters.map((name, i) => [name, rewrittenArgs[i]!]),
-        );
+        const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
+        for (let i = 0; i < fn.parameters.length; i++) {
+          bindings.set(fn.parameters[i]!, rewrittenArgs[i]!);
+        }
         const nextVisiting = new Set([...visiting, fn]);
         for (const binding of fn.lets)
           bindings.set(
@@ -514,6 +589,7 @@ export function queryResidual(
             currentFunctions,
             authUid,
             pathVariables,
+            functionScopes,
           )
         ) {
           return literal(true);
@@ -526,6 +602,7 @@ export function queryResidual(
             currentFunctions,
             authUid,
             pathVariables,
+            functionScopes,
           )
         ) {
           return literal(true);
@@ -576,6 +653,7 @@ export function queryResidual(
               currentFunctions,
               authUid,
               pathVariables,
+              functionScopes,
             )
           ) {
             return literal(true);
@@ -604,36 +682,52 @@ export function queryResidual(
             args[0]!.elements.every((el) => isProvablyDocIndependent(el, currentFunctions))
           ) {
             const elements = args[0]!.elements;
-            if (
-              expr.method === "hasAny" &&
-              elements.some((el) =>
-                isGuaranteedByArrayContains(
+            if (expr.method === "hasAny") {
+              for (const el of elements) {
+                const matched = resolveGuaranteedArrayContains(
                   arrayField,
                   el,
                   constraints,
                   currentFunctions,
                   authUid,
                   pathVariables,
-                ),
-              )
-            ) {
-              return literal(true);
+                  functionScopes,
+                );
+                if (matched !== undefined) {
+                  return {
+                    ...expr,
+                    object: { type: "listLiteral", elements: [rulesScalarExpression(matched)] },
+                    args,
+                  };
+                }
+              }
             }
-            if (
-              expr.method === "hasAll" &&
-              elements.length > 0 &&
-              elements.every((el) =>
-                isGuaranteedByArrayContains(
+            if (expr.method === "hasAll" && elements.length > 0) {
+              const matchedElements: Expression[] = [];
+              let allMatched = true;
+              for (const el of elements) {
+                const matched = resolveGuaranteedArrayContains(
                   arrayField,
                   el,
                   constraints,
                   currentFunctions,
                   authUid,
                   pathVariables,
-                ),
-              )
-            ) {
-              return literal(true);
+                  functionScopes,
+                );
+                if (matched === undefined) {
+                  allMatched = false;
+                  break;
+                }
+                matchedElements.push(rulesScalarExpression(matched));
+              }
+              if (allMatched) {
+                return {
+                  ...expr,
+                  object: { type: "listLiteral", elements: matchedElements },
+                  args,
+                };
+              }
             }
           }
           return {
@@ -709,12 +803,37 @@ export function queryResidual(
           return isConstRefuted(combined, functions) ? undefined : combined;
         }
         if (expr.op === "||") {
+          if (!left && !right) return undefined;
           partial = true;
-          return left ?? right;
+          if (!includeBudgetBranches) return left ?? right;
+          if (!left && right) {
+            return attachOrBudgetStep(right, {
+              operator: expr,
+              side: "before",
+              branch: expr.left,
+            });
+          }
+          if (left && !right) {
+            return attachOrBudgetStep(left, {
+              operator: expr,
+              side: "after",
+              branch: expr.right,
+            });
+          }
         }
         return undefined;
       }
-      if (isProvablyDocIndependent(expr, functions)) {
+      if (
+        isProvablyDocIndependent(expr, functions) &&
+        (!pathInvariance ||
+          analyzeListRulePathInvariance(
+            expr,
+            pathInvariance.candidateVariables,
+            functions,
+            pathInvariance.ambiguousNames,
+            functionScopes,
+          ).pathInvariant)
+      ) {
         return isConstRefuted(expr, functions) ? undefined : expr;
       }
       return undefined;

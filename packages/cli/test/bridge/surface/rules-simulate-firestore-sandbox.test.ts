@@ -108,6 +108,41 @@ describe('rules.simulate for firestore takes a list query', () => {
     expect(allowed(await call(ctx, 'simulate', { operation: 'list', path: 'posts', uid: 'alice', query: { limit: 50 } }))).toBe(false);
   });
 
+  it('evaluates Map-shaped request.query.orderBy through rules.simulate and rules.explainDenial', async () => {
+    const sandbox = initializeSandbox();
+    setRules(
+      sandbox,
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow list: if request.query.orderBy.score == 'DESC' && request.query.limit <= 10;
+    }
+  }
+}`,
+    );
+    seedDocuments(sandbox, { 'items/item-1': { score: 10 } });
+    const ctx = createSurfaceContext(sandbox);
+
+    const allowedSim = await call(ctx, 'simulate', {
+      operation: 'list',
+      path: 'items',
+      uid: 'alice',
+      query: { orderBy: { score: 'DESC' }, limit: 5 },
+    });
+    expect(allowedSim.ok).toBe(true);
+    expect(allowed(allowedSim)).toBe(true);
+
+    const deniedExplain = await call(ctx, 'explainDenial', {
+      operation: 'list',
+      path: 'items',
+      uid: 'alice',
+      query: { orderBy: { score: 'ASC' }, limit: 5 },
+    });
+    expect(deniedExplain.ok).toBe(true);
+    expect(allowed(deniedExplain)).toBe(false);
+  });
+
   it('evaluates static list-query provability with query.where and reports queryProof alongside allowed (#371)', async () => {
     const sandbox = initializeSandbox();
     setRules(sandbox, `rules_version = '2';

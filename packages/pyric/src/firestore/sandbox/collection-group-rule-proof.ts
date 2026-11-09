@@ -1,4 +1,6 @@
 import type {
+  AllowRule,
+  Expression,
   FirestoreRules,
   FunctionDef,
   MatchBlock,
@@ -94,6 +96,69 @@ function groupBindings(block: MatchBlock, collectionId: string): Set<string> | n
   return null;
 }
 
+function projectPathInvariantCondition(
+  expr: Expression,
+  bound: ReadonlySet<string>,
+  functions: ReadonlyMap<string, FunctionDef>,
+  ambiguousNames: ReadonlySet<string>,
+): { condition: Expression; requiredFunctionDefs: ReadonlySet<FunctionDef> } | null {
+  const analysis = analyzeListRulePathInvariance(expr, bound, functions, ambiguousNames);
+  if (analysis.pathInvariant) {
+    return { condition: expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
+  }
+  if (expr.type === 'unaryOp' && expr.op === '!') {
+    const inner = expr.operand;
+    if (inner.type === 'binaryOp' && inner.op === '&&') {
+      return projectPathInvariantCondition(
+        {
+          type: 'binaryOp',
+          op: '||',
+          left: { type: 'unaryOp', op: '!', operand: inner.left },
+          right: { type: 'unaryOp', op: '!', operand: inner.right },
+        },
+        bound,
+        functions,
+        ambiguousNames,
+      );
+    }
+    if (inner.type === 'binaryOp' && inner.op === '||') {
+      return projectPathInvariantCondition(
+        {
+          type: 'binaryOp',
+          op: '&&',
+          left: { type: 'unaryOp', op: '!', operand: inner.left },
+          right: { type: 'unaryOp', op: '!', operand: inner.right },
+        },
+        bound,
+        functions,
+        ambiguousNames,
+      );
+    }
+    if (inner.type === 'unaryOp' && inner.op === '!') {
+      const sub = projectPathInvariantCondition(inner.operand, bound, functions, ambiguousNames);
+      if (!sub) return null;
+      return {
+        condition: { type: 'unaryOp', op: '!', operand: { type: 'unaryOp', op: '!', operand: sub.condition } },
+        requiredFunctionDefs: sub.requiredFunctionDefs,
+      };
+    }
+  }
+  if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
+    const left = projectPathInvariantCondition(expr.left, bound, functions, ambiguousNames);
+    const right = projectPathInvariantCondition(expr.right, bound, functions, ambiguousNames);
+    if (left && right) {
+      return {
+        condition: { ...expr, left: left.condition, right: right.condition },
+        requiredFunctionDefs: new Set([...left.requiredFunctionDefs, ...right.requiredFunctionDefs]),
+      };
+    }
+    if (expr.op === '||') {
+      return left ?? right;
+    }
+  }
+  return null;
+}
+
 function projectGroupBlock(
   block: MatchBlock,
   collectionId: string,
@@ -105,28 +170,32 @@ function projectGroupBlock(
 
   const functionScope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
   const blockRequiredDefs = new Set<FunctionDef>();
+  const allows: AllowRule[] = [];
 
-  const allows = block.allows.filter((rule) => {
+  for (const rule of block.allows) {
     if (!rule.operations.some((operation) => operation === 'list' || operation === 'read')) {
-      return false;
+      continue;
     }
-    const analysis = analyzeListRulePathInvariance(
+    const projected = projectPathInvariantCondition(
       rule.condition,
       bound,
       functionScope.functions,
       functionScope.ambiguousNames,
     );
-    if (analysis.pathInvariant) {
-      for (const fnDef of analysis.requiredFunctionDefs) {
-        if (block.functions.includes(fnDef)) {
-          blockRequiredDefs.add(fnDef);
-        } else {
-          requiredFunctionDefs.add(fnDef);
-        }
+    if (!projected) continue;
+    for (const fnDef of projected.requiredFunctionDefs) {
+      if (block.functions.includes(fnDef)) {
+        blockRequiredDefs.add(fnDef);
+      } else {
+        requiredFunctionDefs.add(fnDef);
       }
     }
-    return analysis.pathInvariant;
-  });
+    if (projected.condition === rule.condition) {
+      allows.push(rule);
+    } else {
+      allows.push({ ...rule, condition: projected.condition });
+    }
+  }
   if (allows.length === 0) return null;
 
   return {

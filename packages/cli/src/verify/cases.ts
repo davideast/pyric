@@ -616,6 +616,15 @@ function isFunctionMock(value: unknown): value is FunctionMock {
   return typeof value.path === 'string' && 'result' in value;
 }
 
+function isListQueryOrderBy(value: unknown): boolean {
+  if (typeof value === 'string') return true;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  for (const direction of Object.values(value)) {
+    if (direction !== 'ASC' && direction !== 'DESC') return false;
+  }
+  return true;
+}
+
 function isListQuery(value: unknown): value is NonNullable<TestCase['query']> {
   if (!isListQueryCandidate(value)) return false;
   if ('where' in value && value.where !== undefined) {
@@ -628,7 +637,7 @@ function isListQuery(value: unknown): value is NonNullable<TestCase['query']> {
   }
   if ('limit' in value && value.limit !== undefined && typeof value.limit !== 'number') return false;
   if ('offset' in value && value.offset !== undefined && typeof value.offset !== 'number') return false;
-  if ('orderBy' in value && value.orderBy !== undefined && typeof value.orderBy !== 'string') return false;
+  if ('orderBy' in value && value.orderBy !== undefined && !isListQueryOrderBy(value.orderBy)) return false;
   return true;
 }
 

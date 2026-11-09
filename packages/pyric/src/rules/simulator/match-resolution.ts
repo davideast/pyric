@@ -43,6 +43,12 @@ export function getValidFunctionLexicalScope(
   return scope.functions;
 }
 
+export interface FunctionScopeBindings {
+  pathVariables: Record<string, string>;
+  recursiveVariables: string[];
+  candidateVariables: string[];
+}
+
 export interface MatchResult {
   block: MatchBlock;
   pathVariables: Record<string, string>;
@@ -52,6 +58,68 @@ export interface MatchResult {
   candidateVariables: string[];
   /** Global, service, root, ancestor, and matched-block helpers in scope. */
   functions: FunctionDef[];
+  /** Per-function lexical wildcard bindings captured at each helper's declaring match block. */
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>;
+}
+
+/**
+ * Combine an enclosing match block's wildcard bindings with a nested block's
+ * bindings. Any wildcard rebound by the child overrides the parent's value as
+ * well as its recursive (`{id=**}` vs `{id}`) and candidate-document status.
+ */
+export function mergeScopeBindings(
+  parent: FunctionScopeBindings,
+  child: FunctionScopeBindings,
+): FunctionScopeBindings {
+  const childKeys = new Set(Object.keys(child.pathVariables));
+  const childRec = new Set(child.recursiveVariables);
+  const childCand = new Set(child.candidateVariables);
+  return {
+    pathVariables: { ...parent.pathVariables, ...child.pathVariables },
+    recursiveVariables: [
+      ...parent.recursiveVariables.filter((k) => !childKeys.has(k) || childRec.has(k)),
+      ...child.recursiveVariables.filter((k) => !parent.recursiveVariables.includes(k)),
+    ],
+    candidateVariables: [
+      ...parent.candidateVariables.filter((k) => !childKeys.has(k) || childCand.has(k)),
+      ...child.candidateVariables.filter((k) => !parent.candidateVariables.includes(k)),
+    ],
+  };
+}
+
+export function prependMatchScope(
+  parentBlockFunctions: readonly FunctionDef[],
+  parentScope: FunctionScopeBindings,
+  childResult: MatchResult,
+): void {
+  const merged = mergeScopeBindings(parentScope, {
+    pathVariables: childResult.pathVariables,
+    recursiveVariables: childResult.recursiveVariables ?? [],
+    candidateVariables: childResult.candidateVariables,
+  });
+  childResult.pathVariables = merged.pathVariables;
+  childResult.recursiveVariables = merged.recursiveVariables;
+  childResult.candidateVariables = merged.candidateVariables;
+
+  const nextFnScopes = new Map<FunctionDef, FunctionScopeBindings>();
+  for (const fn of parentBlockFunctions) {
+    nextFnScopes.set(fn, parentScope);
+  }
+  for (const [fn, scope] of childResult.functionScopes ?? []) {
+    nextFnScopes.set(fn, mergeScopeBindings(parentScope, scope));
+  }
+  childResult.functionScopes = nextFnScopes;
+}
+
+function ownFunctionScopes(
+  blockFunctions: readonly FunctionDef[],
+  scope: FunctionScopeBindings,
+): Map<FunctionDef, FunctionScopeBindings> {
+  const map = new Map<FunctionDef, FunctionScopeBindings>();
+  for (const fn of blockFunctions) {
+    map.set(fn, scope);
+  }
+  return map;
 }
 
 type Recorder = { push(entry: PathResolutionEntry): void };
@@ -119,6 +187,10 @@ export function collectMatches(
         break;
       }
       bindings[segment.name] = pathSegments[consumed]!;
+      const prevRecIdx = recursiveVariables.indexOf(segment.name);
+      if (prevRecIdx >= 0) recursiveVariables.splice(prevRecIdx, 1);
+      const prevCandIdx = candidateVariables.indexOf(segment.name);
+      if (prevCandIdx >= 0) candidateVariables.splice(prevCandIdx, 1);
       if (consumed === pathSegments.length - 1) candidateVariables.push(segment.name);
       consumed++;
     } else {
@@ -129,7 +201,9 @@ export function collectMatches(
         break;
       }
       bindings[segment.name] = pathSegments.slice(consumed, consumed + length).join('/');
-      recursiveVariables.push(segment.name);
+      if (!recursiveVariables.includes(segment.name)) recursiveVariables.push(segment.name);
+      const prevCandIdx = candidateVariables.indexOf(segment.name);
+      if (prevCandIdx >= 0) candidateVariables.splice(prevCandIdx, 1);
       if (trailing === 0) {
         finalRecursive = { name: segment.name, start: consumed };
         if (length > 0) candidateVariables.push(segment.name);
@@ -153,14 +227,23 @@ export function collectMatches(
     return [];
   }
 
+  const ownScope: FunctionScopeBindings = {
+    pathVariables: bindings,
+    recursiveVariables,
+    candidateVariables,
+  };
+
   if (finalRecursive) {
-    const childMatches = collectBelowRecursive(block, pathSegments, allFunctions, bindings, finalRecursive, rulesVersion, recorder);
-    for (const childResult of childMatches) {
-      const childRec = childResult.recursiveVariables ?? [];
-      childResult.recursiveVariables = [...recursiveVariables, ...childRec];
-    }
-    const results = [
-      { block, pathVariables: bindings, recursiveVariables, candidateVariables, functions: allFunctions },
+    const childMatches = collectBelowRecursive(block, pathSegments, allFunctions, bindings, recursiveVariables, finalRecursive, rulesVersion, recorder);
+    const results: MatchResult[] = [
+      {
+        block,
+        pathVariables: bindings,
+        recursiveVariables,
+        candidateVariables,
+        functions: allFunctions,
+        functionScopes: ownFunctionScopes(block.functions, ownScope),
+      },
       ...childMatches,
     ];
     recorder?.push(entry({ matched: true }));
@@ -176,14 +259,18 @@ export function collectMatches(
     ? block.children
     : block.children.filter((child) => child.path.segments.every((segment) => segment.type === 'recursive'));
   if (remaining.length === 0) {
-    results.push({ block, pathVariables: bindings, recursiveVariables, candidateVariables, functions: allFunctions });
+    results.push({
+      block,
+      pathVariables: bindings,
+      recursiveVariables,
+      candidateVariables,
+      functions: allFunctions,
+      functionScopes: ownFunctionScopes(block.functions, ownScope),
+    });
   }
   for (const child of children) {
     for (const childResult of collectMatches(child, remaining, allFunctions, rulesVersion, recorder)) {
-      const childRec = childResult.recursiveVariables ?? [];
-      childResult.pathVariables = { ...bindings, ...childResult.pathVariables };
-      childResult.recursiveVariables = [...recursiveVariables, ...childRec];
-      childResult.candidateVariables = [...candidateVariables, ...childResult.candidateVariables];
+      prependMatchScope(block.functions, ownScope, childResult);
       results.push(childResult);
     }
   }
@@ -203,6 +290,7 @@ function collectBelowRecursive(
   pathSegments: string[],
   functions: FunctionDef[],
   bindings: Record<string, string>,
+  recursiveVariables: string[],
   recursive: { name: string; start: number },
   rulesVersion: string,
   recorder: Recorder | undefined,
@@ -215,6 +303,11 @@ function collectBelowRecursive(
   for (let end = pathSegments.length - 1; end >= shortestEnd; end--) {
     const remaining = pathSegments.slice(end);
     const prefix = { ...bindings, [recursive.name]: pathSegments.slice(recursive.start, end).join('/') };
+    const prefixScope: FunctionScopeBindings = {
+      pathVariables: prefix,
+      recursiveVariables,
+      candidateVariables: [],
+    };
     const attempts: PathResolutionEntry[] = [];
     let produced = false;
     for (const child of block.children) {
@@ -222,7 +315,7 @@ function collectBelowRecursive(
         if (resolved.has(childResult.block)) continue;
         resolved.add(childResult.block);
         produced = true;
-        childResult.pathVariables = { ...prefix, ...childResult.pathVariables };
+        prependMatchScope(block.functions, prefixScope, childResult);
         results.push(childResult);
       }
     }

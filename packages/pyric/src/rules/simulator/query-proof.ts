@@ -31,7 +31,8 @@
  */
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import type { Expression, FunctionDef, SourceLoc } from '../grammar/FirestoreAST.js';
-import { getValidFunctionLexicalScope } from './match-resolution.js';
+import { analyzeListRulePathInvariance } from './list-rule-path-proof.js';
+import { getValidFunctionLexicalScope, type FunctionScopeBindings } from './match-resolution.js';
 import {
   computeFieldFilterSets,
   computeWhereDomains,
@@ -41,6 +42,7 @@ import {
   resolveStaticRulesOperand,
   rulesScalarToJsScalar,
   toRulesQueryScalar,
+  type PathInvarianceContext,
   type RulesScalar,
   type Scalar,
 } from './query-proof-residual.js';
@@ -50,6 +52,7 @@ import {
   inlineFunctionsInExpr,
   isProvablyDocIndependent,
   isRequestAuthUid,
+  lexicalCaptureLiteralBindings,
   substituteIdentifiers,
 } from './query-proof-scope.js';
 import { rulesValuesEqual } from './value-equality.js';
@@ -68,7 +71,7 @@ export interface QueryConstraints {
   readonly where?: readonly QueryWhereConstraint[];
   readonly limit?: number | null;
   readonly offset?: number | null;
-  readonly orderBy?: string | null;
+  readonly orderBy?: Readonly<Record<string, 'ASC' | 'DESC'>> | string | null;
 }
 
 /** A per-doc equality the rule requires that no query `where` guarantees. */
@@ -110,14 +113,14 @@ export type QueryProofResult =
       reason: string;
       residualCondition?: Expression;
       proofFailure?: {
-        kind: 'unsupported-predicate' | 'constraints-not-satisfied';
+        kind: 'unsupported-predicate' | 'constraints-not-satisfied' | 'unsupported-path';
         reason: string;
         residual: QueryProofResidual;
       };
     }
   | {
       provable: false;
-      kind: 'unsupported-predicate' | 'constraints-not-satisfied';
+      kind: 'unsupported-predicate' | 'constraints-not-satisfied' | 'unsupported-path';
       reason: string;
       residual: QueryProofResidual;
     };
@@ -132,10 +135,61 @@ export function evaluateQueryProof(
   functions: ReadonlyMap<string, FunctionDef> = new Map(),
   authUid?: string,
   pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
+  pathInvariance?: PathInvarianceContext,
 ): QueryProofResult {
-  const equality = evaluateEqualityQueryProof(condition, constraints, functions, authUid, pathVariables);
+  const wholeRulePathInvariant =
+    !pathInvariance ||
+    analyzeListRulePathInvariance(
+      condition,
+      pathInvariance.candidateVariables,
+      functions,
+      pathInvariance.ambiguousNames,
+      functionScopes,
+    ).pathInvariant;
+  if (!wholeRulePathInvariant) {
+    const pathFailure: Extract<QueryProofResult, { provable: false }> = {
+      provable: false,
+      kind: 'unsupported-path',
+      reason: 'list rule depends on the candidate document path',
+      residual: { missing: [], mismatched: [] },
+    };
+    const residual = queryResidual(
+      condition,
+      constraints,
+      functions,
+      authUid,
+      pathVariables,
+      functionScopes,
+      pathInvariance,
+    );
+    if (!residual) return pathFailure;
+    const result: QueryProofResult = {
+      provable: true,
+      reason: 'query-guaranteed facts reduce every candidate alternative to a document-independent residual',
+      residualCondition: residual.condition,
+    };
+    if (residual.partial) result.proofFailure = pathFailure;
+    return result;
+  }
+  const equality = evaluateEqualityQueryProof(
+    condition,
+    constraints,
+    functions,
+    authUid,
+    pathVariables,
+    functionScopes,
+  );
   if (equality.provable || equality.kind === 'constraints-not-satisfied') return equality;
-  const residual = queryResidual(condition, constraints, functions, authUid, pathVariables);
+  const residual = queryResidual(
+    condition,
+    constraints,
+    functions,
+    authUid,
+    pathVariables,
+    functionScopes,
+    pathInvariance,
+  );
   if (residual) {
     const result: QueryProofResult = {
       provable: true,
@@ -156,6 +210,7 @@ function evaluateEqualityQueryProof(
   fnMap: ReadonlyMap<string, FunctionDef> = new Map(),
   authUid?: string,
   pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): QueryProofResult {
   // 1. Doc-independent rule -> any query is provable.
   if (isProvablyDocIndependent(listCondition, fnMap)) {
@@ -167,7 +222,13 @@ function evaluateEqualityQueryProof(
 
   // 2. Doc-dependent rule: walk the full inlined `&&` spine and verify every
   //    conjunct is either doc-independent or an extracted equality.
-  const extraction = extractRequiredDataEqualities(listCondition, fnMap, authUid, pathVariables);
+  const extraction = extractRequiredDataEqualities(
+    listCondition,
+    fnMap,
+    authUid,
+    pathVariables,
+    functionScopes,
+  );
   if (!extraction.ok || extraction.required.length === 0) {
     const outOfScope =
       'list rule depends on per-document data through a predicate the query cannot discharge ' +
@@ -283,6 +344,7 @@ function extractRequiredDataEqualities(
   fnMap: ReadonlyMap<string, FunctionDef>,
   authUid: string | undefined,
   pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): ExtractionResult {
   const required: RequiredEquality[] = [];
   let predicate = expr;
@@ -313,12 +375,12 @@ function extractRequiredDataEqualities(
         predicateLoc = e.loc ?? enclosingLoc;
         return null;
       }
-      const bindings = new Map<string, Expression>();
+      const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
       for (let i = 0; i < fn.parameters.length; i++) {
         const arg = e.args[i]!;
         let callerExpandedArg = arg;
         if (currentFnMap !== nextFnMap && !callsResolveInOuterScope(arg, currentFnMap, nextFnMap)) {
-          const inlinedArg = inlineFunctionsInExpr(arg, currentFnMap, visited);
+          const inlinedArg = inlineFunctionsInExpr(arg, currentFnMap, visited, functionScopes);
           if (!inlinedArg || !callsResolveInOuterScope(inlinedArg, currentFnMap, nextFnMap)) {
             predicate = e;
             predicateLoc = e.loc ?? enclosingLoc;
@@ -333,14 +395,14 @@ function extractRequiredDataEqualities(
       const nextVisited = new Set(visited).add(fn);
       return walkAnd(inlined, nextFnMap, nextVisited, fn.loc ?? enclosingLoc);
     }
-    const eq = asDataEquality(e, currentFnMap, authUid, visited, pathVariables);
+    const eq = asDataEquality(e, currentFnMap, authUid, visited, pathVariables, functionScopes);
     if (eq) {
       required.push(eq);
       return { type: 'literal', value: true, raw: 'true' };
     }
     let residualLeaf = e;
     if (currentFnMap !== fnMap && !callsResolveInOuterScope(e, currentFnMap, fnMap)) {
-      const inlinedLeaf = inlineFunctionsInExpr(e, currentFnMap, visited);
+      const inlinedLeaf = inlineFunctionsInExpr(e, currentFnMap, visited, functionScopes);
       if (!inlinedLeaf || !callsResolveInOuterScope(inlinedLeaf, currentFnMap, fnMap)) {
         predicate = e;
         predicateLoc = e.loc ?? enclosingLoc;
@@ -369,8 +431,9 @@ function asDataEquality(
   authUid: string | undefined,
   visited: ReadonlySet<FunctionDef>,
   pathVariables?: Readonly<Record<string, string>>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): RequiredEquality | null {
-  const e = inlineFunctionsInExpr(rawExpr, fnMap, visited);
+  const e = inlineFunctionsInExpr(rawExpr, fnMap, visited, functionScopes);
   if (!e || e.type !== 'binaryOp' || e.op !== '==') return null;
   const fromSide = (data: Expression, other: Expression): RequiredEquality | null => {
     const field = dataFieldPath(data);
@@ -379,7 +442,7 @@ function asDataEquality(
       if (authUid === undefined) return null;
       return { field, value: authUid, rulesValue: authUid, fromAuthUid: true };
     }
-    const resolved = resolveStaticRulesOperand(other, fnMap, authUid, pathVariables);
+    const resolved = resolveStaticRulesOperand(other, fnMap, authUid, pathVariables, functionScopes);
     if (resolved === undefined || !isSafePrecisionRulesScalar(resolved)) return null;
     return {
       field,

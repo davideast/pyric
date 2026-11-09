@@ -28,6 +28,7 @@ import { topLevelMatches } from '../grammar/service-blocks.js';
 import { resolveAuthoredSourceLoc } from '../modules/resolver-core.js';
 import type { EvaluatedRuleInfo, ListQuery } from '../test/spec.js';
 import { indexRulesetScopes, type MatchResult } from './match-resolution.js';
+import { setListBlockSteps, type ListBlockStep } from './list-proof-budget.js';
 import { collectRootMatches } from './root-match.js';
 import {
   evaluateQueryProof,
@@ -36,10 +37,7 @@ import {
   type QueryWhereConstraint,
 } from './query-proof.js';
 import { computeWhereDomains } from './query-proof-residual.js';
-import {
-  analyzeListRulePathInvariance,
-  buildListRuleFunctionScope,
-} from './list-rule-path-proof.js';
+import { buildListRuleFunctionScope } from './list-rule-path-proof.js';
 
 export type { QueryConstraints, QueryProofResidual, QueryWhereConstraint };
 
@@ -162,14 +160,19 @@ export function proveListQuery(
 
   // OR semantics across allow rules: ANY provable rule makes the query
   // provable. Residual simulation receives ONLY those provable rules, so an
-  // unprovable sibling cannot grant from a concrete placeholder document.
+  // unprovable sibling cannot grant from a concrete placeholder document,
+  // while preceding unprovable rules still charge the per-request expression
+  // and lookup budgets via `ListBlockStep`.
   const failures: QueryProofFailure[] = [];
   const provableRules = new Map<AllowRule, AllowRule>();
+  const evaluatedBlocks = new Map<MatchBlock, ListBlockStep[]>();
   let applicableRuleCount = 0;
   for (const match of matches) {
     const functionScope = buildListRuleFunctionScope(match.functions);
     const fnMap = functionScope.functions;
-    for (const rule of match.block.allows) {
+    const blockSteps: ListBlockStep[] = [];
+    for (let ruleIndex = 0; ruleIndex < match.block.allows.length; ruleIndex++) {
+      const rule = match.block.allows[ruleIndex]!;
       const hasListOrRead = rule.operations.some((op) => {
         const isList = op === 'list';
         if (isList) {
@@ -183,22 +186,6 @@ export function proveListQuery(
       }
       applicableRuleCount++;
       const candidateVariables = new Set(match.candidateVariables);
-      const pathAnalysis = analyzeListRulePathInvariance(
-        rule.condition,
-        candidateVariables,
-        fnMap,
-        functionScope.ambiguousNames,
-      );
-      const isInvariant = pathAnalysis.pathInvariant === true;
-      if (isInvariant === false) {
-        failures.push({
-          kind: 'unsupported-path',
-          reason: 'list rule depends on the candidate document path',
-          residual: { missing: [], mismatched: [] },
-          rule: proofRuleInfo(rule, sourceString),
-        });
-        continue;
-      }
       const recursiveVariables = new Set(match.recursiveVariables ?? []);
       const parentPathVariables: Record<string, string> = Object.create(null);
       for (const [k, v] of Object.entries(match.pathVariables)) {
@@ -209,10 +196,25 @@ export function proveListQuery(
       // `auth.uid` is threaded into the proof so the canonical owner pattern
       // can be discharged by a matching query equality. Residual simulation
       // still evaluates the real auth value against the synthetic resource.
-      const result = evaluateQueryProof(rule.condition, constraints, fnMap, auth?.uid, parentPathVariables);
+      const result = evaluateQueryProof(
+        rule.condition,
+        constraints,
+        fnMap,
+        auth?.uid,
+        parentPathVariables,
+        match.functionScopes,
+        {
+          candidateVariables,
+          ambiguousNames: functionScope.ambiguousNames,
+        },
+      );
       const isProvable = result.provable === true;
       if (isProvable) {
-        provableRules.set(rule, result.residualCondition ? { ...rule, condition: result.residualCondition } : rule);
+        const projectedRule = result.residualCondition ? { ...rule, condition: result.residualCondition } : rule;
+        provableRules.set(rule, projectedRule);
+        blockSteps.push({ kind: 'grant', rule: projectedRule, index: ruleIndex });
+      } else {
+        blockSteps.push({ kind: 'budget', rule, index: ruleIndex });
       }
       const failure = result.provable ? result.proofFailure : result;
       if (failure) {
@@ -224,6 +226,9 @@ export function proveListQuery(
           ) } : {}),
         });
       }
+    }
+    if (!evaluatedBlocks.has(match.block)) {
+      evaluatedBlocks.set(match.block, blockSteps);
     }
   }
   const isAppCountZero = applicableRuleCount === 0;
@@ -245,7 +250,7 @@ export function proveListQuery(
   return {
     kind: 'provable',
     failures,
-    evaluationAst: projectRules(ast!, provableRules),
+    evaluationAst: projectRules(ast!, provableRules, evaluatedBlocks),
     syntheticResource: syntheticResourceFromWheres(constraints),
   };
 }
@@ -269,12 +274,23 @@ function proofSourceInfo(expression: string, loc: AllowRule['loc'], source = '')
 /** Preserve match paths and helper scopes while removing every rule the
  * static proof did not approve. This keeps residual execution and proof on
  * the exact same set of potentially granting rules. */
-function projectRules(ast: FirestoreRules, retained: ReadonlyMap<AllowRule, AllowRule>): FirestoreRules {
-  const projectBlock = (block: MatchBlock): MatchBlock => ({
-    ...block,
-    allows: block.allows.filter((rule) => retained.has(rule)).map((rule) => retained.get(rule)!),
-    children: block.children.map(projectBlock),
-  });
+function projectRules(
+  ast: FirestoreRules,
+  retained: ReadonlyMap<AllowRule, AllowRule>,
+  evaluatedBlocks: ReadonlyMap<MatchBlock, readonly ListBlockStep[]>,
+): FirestoreRules {
+  const projectBlock = (block: MatchBlock): MatchBlock => {
+    const projected: MatchBlock = {
+      ...block,
+      allows: block.allows.filter((rule) => retained.has(rule)).map((rule) => retained.get(rule)!),
+      children: block.children.map(projectBlock),
+    };
+    const steps = evaluatedBlocks.get(block);
+    if (steps && steps.some((step) => step.kind === 'budget')) {
+      setListBlockSteps(projected, steps);
+    }
+    return projected;
+  };
   const projectedRoots = topLevelMatches(ast.service).map(projectBlock);
   return {
     ...ast,

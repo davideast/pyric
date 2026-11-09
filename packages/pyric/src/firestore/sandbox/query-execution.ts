@@ -210,11 +210,19 @@ export function queryConstraintsForProof(execution: QueryExecutionSpec): QueryCo
     // OR branches guarantee no individual predicate for every result.
   };
   execution.filters.forEach(visit);
+  let orderBy: Readonly<Record<string, 'ASC' | 'DESC'>> | null = null;
+  if (execution.orders.length > 0) {
+    const orderMap: Record<string, 'ASC' | 'DESC'> = {};
+    for (const order of execution.orders) {
+      orderMap[order.field] = order.direction === 'desc' ? 'DESC' : 'ASC';
+    }
+    orderBy = Object.freeze(orderMap);
+  }
   return Object.freeze({
     where: Object.freeze(where),
     limit: execution.limitCount ?? null,
     offset: null,
-    orderBy: execution.orders.length > 0 ? execution.orders[0]!.field : null,
+    orderBy,
   });
 }
 

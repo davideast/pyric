@@ -31,7 +31,9 @@ import {
   getDocs as fsGetDocs,
   getFirestore as getClientFirestore,
   increment as fsIncrement,
+  limit as fsLimit,
   onSnapshot as fsOnSnapshot,
+  orderBy as fsOrderBy,
   query as fsQuery,
   runTransaction as fsRunTransaction,
   serverTimestamp as fsServerTimestamp,
@@ -1914,5 +1916,46 @@ service cloud.firestore {
     const protoDerived = deriveRulesTestCases(protoFixture);
     expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
     expect(Object.getPrototypeOf(protoDerived.testCases[0]?.data ?? {})).toBe(Object.prototype);
+  });
+
+  it('preserves Map-shaped request.query.orderBy from ordered Firestore list queries during deriveRulesTestCases and verifyFixture', async () => {
+    const orderedRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow list: if request.query.orderBy.score == 'DESC' && request.query.limit <= 10;
+    }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    const adminDb = getAdminFirestore(sandbox);
+    await adminDb.doc('items/item-1').set({ score: 10 });
+    setFirestoreRules(sandbox, orderedRules);
+
+    const db = getClientFirestore(sandbox.withAuth({ uid: 'alice' }));
+    const snap = await fsGetDocs(
+      fsQuery(fsCollection(db, 'items'), fsOrderBy('score', 'desc'), fsLimit(5)),
+    );
+    expect(snap.docs.map((d) => d.id)).toEqual(['item-1']);
+
+    const fixture = JSON.parse(
+      JSON.stringify(buildVerifyFixture({ sandbox, firestoreRules: orderedRules })),
+    ) as PyricVerifyFixture;
+
+    const derived = deriveRulesTestCases(fixture);
+    const listCase = derived.testCases.find((tc) => tc.method === 'list');
+    expect(listCase?.query?.orderBy).toEqual({ score: 'DESC' });
+    expect(listCase?.query?.limit).toBe(5);
+
+    const sameVerify = await verifyFixture(fixture, { rules: { firestore: orderedRules } });
+    expect(sameVerify.ok).toBe(true);
+    expect(sameVerify.services.firestore?.divergences).toEqual([]);
+
+    const ascOnlyRules = orderedRules.replace("== 'DESC'", "== 'ASC'");
+    const ascVerify = await verifyFixture(fixture, { rules: { firestore: ascOnlyRules } });
+    expect(ascVerify.ok).toBe(false);
+    expect(ascVerify.services.firestore?.divergences).toEqual([
+      expect.objectContaining({ service: 'firestore', kind: 'now-denied', method: 'list' }),
+    ]);
   });
 });

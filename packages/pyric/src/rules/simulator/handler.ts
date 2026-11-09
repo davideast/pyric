@@ -43,9 +43,11 @@ import { caseShapeRefusal } from '../test/case-shape.js';
 import { requestTimeRefusal } from '../test/case-refusals.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
 import { collectRootMatches, noMatchNotes } from './root-match.js';
+import { getListBlockSteps, type ListBlockStep } from './list-proof-budget.js';
 import {
   indexRulesetScopes,
   renderMatchBlockPath,
+  type FunctionScopeBindings,
   type MatchResult,
 } from './match-resolution.js';
 import {
@@ -144,13 +146,16 @@ function evaluateRules(
   const trace: RuleEvaluation[] = [];
   const notes: string[] = [];
 
+  const listSteps = operation === 'list' ? getListBlockSteps(block) : undefined;
   // Find allow rules that match this operation
-  const matchingRules: { rule: AllowRule; index: number }[] = [];
-  for (let i = 0; i < block.allows.length; i++) {
-    const rule = block.allows[i]!;
-    const hasOp = rule.operations.some((op) => ops.includes(op));
-    if (hasOp) {
-      matchingRules.push({ rule, index: i });
+  const matchingRules: ListBlockStep[] = listSteps ? [...listSteps] : [];
+  if (!listSteps) {
+    for (let i = 0; i < block.allows.length; i++) {
+      const rule = block.allows[i]!;
+      const hasOp = rule.operations.some((op) => ops.includes(op));
+      if (hasOp) {
+        matchingRules.push({ kind: 'grant', rule, index: i });
+      }
     }
   }
 
@@ -174,7 +179,42 @@ function evaluateRules(
     if (ctx.expressionBudget) entry.evaluatedExpressions = ctx.expressionBudget.evaluated;
     trace.push(entry);
   };
-  for (const { rule, index } of matchingRules) {
+  const abortOnResourceLimit = (err: ResourceLimitError, entry: RuleEvaluation): RuleBlockOutcome => {
+    entry.verdict = 'ERROR';
+    entry.message = err.message;
+    record(entry);
+    ctx.trace = priorRecorder;
+    const resourceLimit = describeResourceLimit(err);
+    // Production reports the expression limit at the expression the
+    // budget ran out on, so the note cites that position.
+    let position: { line: number; column: number } | undefined;
+    if (resourceLimit.line !== undefined && resourceLimit.column !== undefined) {
+      position = { line: resourceLimit.line, column: resourceLimit.column };
+    }
+    const cited = describeExpressionLimit(resourceLimit.message, position);
+    notes.push(
+      `Request denied by a rules resource limit: ${cited.endsWith('.') ? cited : `${cited}.`} `
+      + 'The limit is per request, so no other allow rule or match block was evaluated.',
+    );
+    return {
+      decision: 'DENY',
+      trace,
+      notes,
+      resourceLimit,
+    };
+  };
+  for (const { kind, rule, index } of matchingRules) {
+    if (kind === 'budget') {
+      ctx.trace = undefined;
+      try {
+        evaluate(rule.condition, ctx);
+      } catch (e) {
+        if (e instanceof ResourceLimitError) {
+          return abortOnResourceLimit(e, newEntry(rule, index, sourceMap));
+        }
+      }
+      continue;
+    }
     const entry = newEntry(rule, index, sourceMap);
     const recorder = new TraceRecorder();
     ctx.trace = recorder;
@@ -197,29 +237,8 @@ function evaluateRules(
       // failure of THIS rule: production stops the whole request there, so
       // no sibling allow rule and no other match block gets a chance to
       // grant. Abandon the loop and report the limit up to the caller.
-      const isResourceLimit = e instanceof ResourceLimitError;
-      if (isResourceLimit) {
-        entry.verdict = 'ERROR';
-        entry.message = (e as ResourceLimitError).message;
-        record(entry);
-        ctx.trace = priorRecorder;
-        const resourceLimit = describeResourceLimit(e as ResourceLimitError);
-        // Production reports the expression limit at the expression the
-        // budget ran out on, so the note cites that position.
-        const position = resourceLimit.line === undefined || resourceLimit.column === undefined
-          ? undefined
-          : { line: resourceLimit.line, column: resourceLimit.column };
-        const cited = describeExpressionLimit(resourceLimit.message, position);
-        notes.push(
-          `Request denied by a rules resource limit: ${cited.endsWith('.') ? cited : `${cited}.`} `
-          + 'The limit is per request, so no other allow rule or match block was evaluated.',
-        );
-        return {
-          decision: 'DENY',
-          trace,
-          notes,
-          resourceLimit,
-        };
+      if (e instanceof ResourceLimitError) {
+        return abortOnResourceLimit(e, entry);
       }
       const isUnsupported = e instanceof UnsupportedError;
       if (isUnsupported) {
@@ -298,6 +317,22 @@ function newEntry(rule: AllowRule, index: number, sourceMap?: AuthoredSourceMap)
 /** Reads a case's values into the simulator's value model. */
 type CaseReviver = (value: unknown) => unknown;
 
+function bindPathVariables(
+  pathVariables: Record<string, string>,
+  recursiveVariables?: readonly string[],
+): Record<string, string | Path> {
+  const recSet = new Set(recursiveVariables ?? []);
+  const boundPathVariables: Record<string, string | Path> = Object.create(null);
+  for (const [k, v] of Object.entries(pathVariables)) {
+    if (recSet.has(k)) {
+      boundPathVariables[k] = Path.fromString(v);
+    } else {
+      boundPathVariables[k] = v;
+    }
+  }
+  return boundPathVariables;
+}
+
 function buildContext(
   tc: TestCase,
   functions: FunctionDef[],
@@ -308,6 +343,8 @@ function buildContext(
   expressionBudget?: ExpressionBudget,
   revive: CaseReviver = reviveFirestoreNumbers,
   recursiveVariables?: readonly string[],
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
+  rootBindings?: Readonly<Record<string, string>>,
 ): SimulationContext {
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
@@ -440,17 +477,20 @@ function buildContext(
     request.resource = reqResource;
   }
 
-  const recSet = new Set(recursiveVariables ?? []);
-  const boundPathVariables: Record<string, string | Path> = Object.create(null);
-  for (const [k, v] of Object.entries(pathVariables)) {
-    if (recSet.has(k)) {
-      boundPathVariables[k] = Path.fromString(v);
-    } else {
-      boundPathVariables[k] = v;
+  const boundPathVariables = bindPathVariables(pathVariables, recursiveVariables);
+  let functionPathVariables: Map<FunctionDef, Record<string, string | Path>> | undefined;
+  if (functionScopes && functionScopes.size > 0) {
+    functionPathVariables = new Map();
+    for (const [fn, fnScope] of functionScopes) {
+      let mergedVars = fnScope.pathVariables;
+      if (rootBindings) {
+        mergedVars = { ...rootBindings, ...fnScope.pathVariables };
+      }
+      functionPathVariables.set(fn, bindPathVariables(mergedVars, fnScope.recursiveVariables));
     }
   }
 
-  return {
+  const context: SimulationContext = {
     request,
     // `resource` is the PRE-WRITE stored document. When the request target does
     // not exist, production makes `resource` a null error value — reading or
@@ -499,6 +539,10 @@ function buildContext(
     // Per-request expression budget (1000 expressions), shared the same way.
     expressionBudget,
   };
+  if (functionPathVariables !== undefined) {
+    context.functionPathVariables = functionPathVariables;
+  }
+  return context;
 }
 
 // ═══ Main handler ═══
@@ -700,7 +744,8 @@ export class SimulateFirestoreRulesHandler {
               [{ ...tc, path: proofPath, resource: rawProof.syntheticResource, expectation: 'ALLOW' }],
               { ...opts, sourceMap, skipQueryProof: true },
             );
-            if (residualCheck.success && residualCheck.data.results[0]?.decision !== 'ALLOW') {
+            const residualResult = residualCheck.success ? residualCheck.data.results[0] : undefined;
+            if (residualResult && residualResult.decision !== 'ALLOW' && residualResult.resourceLimit === undefined) {
               fallbackDenied = true;
             }
           }
@@ -850,7 +895,7 @@ export class SimulateFirestoreRulesHandler {
       const expressionBudget = new ExpressionBudget((message, position) => new ExpressionLimitError(message, position));
       for (const match of matches) {
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget, revive, match.recursiveVariables);
+        const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget, revive, match.recursiveVariables, match.functionScopes, rootBindings);
 
         const blockPath = renderMatchBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx, sourceMap);
