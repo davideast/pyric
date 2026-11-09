@@ -303,12 +303,6 @@ function observationMatchesScope(
 ): boolean {
   if (pattern.service !== obs.service) return false;
   if (pattern.resourceId === obs.resourceId) return true;
-  if (
-    pattern.service === 'storage'
-    && (pattern.resourceId === DEFAULT_RESOURCE_ID || obs.resourceId === DEFAULT_RESOURCE_ID)
-  ) {
-    return true;
-  }
   if (allowDefaultFallback && pattern.resourceId === DEFAULT_RESOURCE_ID) {
     return true;
   }

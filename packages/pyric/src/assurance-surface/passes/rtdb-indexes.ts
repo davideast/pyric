@@ -3,6 +3,7 @@
  */
 import {
   parseResourcePattern,
+  resourceShapeKey,
   type PatternSegment,
   type ResourcePattern,
 } from '../../sandbox/internal/resource-pattern.js';
@@ -52,6 +53,20 @@ export function sanitizeWildcardName(rawName: string): string {
   return 'id';
 }
 
+export function literalMatchesRtdbVarSegment(
+  seg: Extract<PatternSegment, { kind: 'var' }>,
+  litName: string,
+): boolean {
+  const prefix = seg.prefix ?? '';
+  const suffix = seg.suffix ?? '';
+  if (prefix.length === 0 && suffix.length === 0) return true;
+  return (
+    litName.length >= prefix.length + suffix.length
+    && litName.startsWith(prefix)
+    && litName.endsWith(suffix)
+  );
+}
+
 export function normalizeIndexTarget(rawTarget: string): string {
   if (rawTarget === '.value') return '.value';
   return rawTarget.split('/').filter((seg) => seg.length > 0).join('/');
@@ -81,13 +96,26 @@ function canonicalRtdbSegments(segments: readonly PatternSegment[]): {
   const pathParts: string[] = [];
   for (const seg of segments) {
     if (seg.kind === 'lit') {
-      shapeParts.push(`L:${seg.text}`);
+      shapeParts.push(`L:${encodeURIComponent(seg.text)}`);
       normalizedSegments.push({ kind: 'lit', text: seg.text });
       pathParts.push(seg.text);
     } else {
       const cleanName = sanitizeWildcardName(seg.name);
-      shapeParts.push('V');
-      normalizedSegments.push({ kind: 'var', name: cleanName });
+      const prefix = seg.kind === 'var' ? (seg.prefix ?? '') : '';
+      const suffix = seg.kind === 'var' ? (seg.suffix ?? '') : '';
+      if (prefix.length === 0 && suffix.length === 0) {
+        shapeParts.push('V');
+        normalizedSegments.push({ kind: 'var', name: cleanName });
+      } else {
+        shapeParts.push(`V:${encodeURIComponent(prefix)}:${encodeURIComponent(suffix)}`);
+        const varSeg: { kind: 'var'; name: string; prefix?: string; suffix?: string } = {
+          kind: 'var',
+          name: cleanName,
+        };
+        if (prefix.length > 0) varSeg.prefix = prefix;
+        if (suffix.length > 0) varSeg.suffix = suffix;
+        normalizedSegments.push(varSeg);
+      }
       pathParts.push(`$${cleanName}`);
     }
   }
@@ -192,7 +220,12 @@ export function rtdbIndexPass(
       indexOn: [...acc.indexOn].sort(),
       sources: [...acc.sources].sort(),
     }))
-    .sort((a, b) => a.resourceId.localeCompare(b.resourceId) || a.path.localeCompare(b.path));
+    .sort(
+      (a, b) =>
+        a.resourceId.localeCompare(b.resourceId)
+        || a.path.localeCompare(b.path)
+        || resourceShapeKey(a.pattern).localeCompare(resourceShapeKey(b.pattern)),
+    );
 
   const byInstance: Record<string, RtdbIndexRequirement[]> = Object.create(null) as Record<
     string,

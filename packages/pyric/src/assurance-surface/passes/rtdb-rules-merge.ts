@@ -4,6 +4,7 @@
  */
 import type { PatternSegment } from '../../sandbox/internal/resource-pattern.js';
 import {
+  literalMatchesRtdbVarSegment,
   normalizeIndexTarget,
   sanitizeWildcardName,
   type RtdbIndexRequirement,
@@ -222,6 +223,7 @@ function mergeSegmentsIntoNode(
     );
   }
   for (const litKey of literalChildKeys) {
+    if (seg.kind === 'var' && !literalMatchesRtdbVarSegment(seg, litKey)) continue;
     added += mergeSegmentsIntoNode(ensureChildObject(node, litKey), segments, segIndex + 1, requiredEntries);
   }
   return added;
@@ -235,6 +237,13 @@ function compareWildcardFirst(a: RtdbIndexRequirement, b: RtdbIndexRequirement):
     if (segA.kind !== segB.kind) {
       if (segA.kind === 'var') return -1;
       if (segB.kind === 'var') return 1;
+    }
+    if (segA.kind === 'var' && segB.kind === 'var') {
+      const aAffixed = Boolean(segA.prefix || segA.suffix);
+      const bAffixed = Boolean(segB.prefix || segB.suffix);
+      if (aAffixed !== bAffixed) {
+        return aAffixed ? 1 : -1;
+      }
     }
     if (segA.kind === 'lit' && segB.kind === 'lit' && segA.text !== segB.text) {
       return segA.text.localeCompare(segB.text);

@@ -13,7 +13,11 @@ import {
   parseResourcePattern,
   type PatternSegment,
 } from '../../sandbox/internal/resource-pattern.js';
-import { sanitizeWildcardName, type RtdbIndexRequirement } from './rtdb-indexes.js';
+import {
+  literalMatchesRtdbVarSegment,
+  sanitizeWildcardName,
+  type RtdbIndexRequirement,
+} from './rtdb-indexes.js';
 import { parseOrCloneRulesRoot } from './rtdb-rules-merge.js';
 
 const MAX_CANDIDATE_PROBES = 64;
@@ -24,9 +28,17 @@ interface ProbeCandidate {
   readonly shadowedByLiteral: string | undefined;
 }
 
-function chooseWildcardProbeToken(literalChildren: ReadonlySet<string>): string {
-  let token = '__pyric_wildcard__';
-  while (literalChildren.has(token)) token = `${token}_`;
+function chooseWildcardProbeToken(
+  literalChildren: ReadonlySet<string>,
+  prefix = '',
+  suffix = '',
+): string {
+  let core = '__pyric_wildcard__';
+  let token = `${prefix}${core}${suffix}`;
+  while (literalChildren.has(token)) {
+    core = `${core}_`;
+    token = `${prefix}${core}${suffix}`;
+  }
   return token;
 }
 
@@ -64,12 +76,15 @@ function collectProbeCandidates(
       }
       const sortedWildcards = [...wildcardNames].sort();
       const displayWildcard = sortedWildcards[0] ?? `$${sanitizeWildcardName(seg.name)}`;
+      const prefix = seg.kind === 'var' ? (seg.prefix ?? '') : '';
+      const suffix = seg.kind === 'var' ? (seg.suffix ?? '') : '';
       next.push({
-        probeSegments: [...cand.probeSegments, chooseWildcardProbeToken(literalNames)],
+        probeSegments: [...cand.probeSegments, chooseWildcardProbeToken(literalNames, prefix, suffix)],
         displaySegments: [...cand.displaySegments, displayWildcard],
         shadowedByLiteral: cand.shadowedByLiteral,
       });
       for (const litName of [...literalNames].sort()) {
+        if (seg.kind === 'var' && !literalMatchesRtdbVarSegment(seg, litName)) continue;
         if (next.length >= MAX_CANDIDATE_PROBES) break;
         const shadowPath = [...cand.displaySegments, litName].join('/');
         next.push({

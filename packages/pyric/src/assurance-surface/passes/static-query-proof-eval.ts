@@ -25,12 +25,14 @@ import {
   type UnresolvedWhereSlot,
 } from './static-query-proof-args.js';
 import {
+  collectClaimCandidateScalars,
   collectOptimisticFieldScalars,
   inspectRetainedRules,
   projectCollectionGroupAst,
 } from './static-query-proof-rules.js';
 
 const MAX_OPTIMISTIC_COMBINATIONS = 12;
+const MAX_UNIFIED_ACTORS = 12;
 
 export interface ResolvedDatabaseRules {
   readonly source: string;
@@ -119,6 +121,66 @@ function buildUnprovableFailure(
   return out;
 }
 
+function defineOwn<V>(target: Record<string, V>, key: string, value: V): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function replaceTokenInConstraints(
+  constraints: QueryConstraints,
+  fromToken: string,
+  toValue: ScalarValue,
+): QueryConstraints {
+  if (!constraints.where) return constraints;
+  let changed = false;
+  const mappedWhere: QueryWhereConstraint[] = constraints.where.map((w) => {
+    if (Array.isArray(w.value)) {
+      let arrChanged = false;
+      const nextArr = w.value.map((item) => {
+        if (item === fromToken) {
+          arrChanged = true;
+          return toValue;
+        }
+        return item;
+      });
+      if (!arrChanged) return w;
+      changed = true;
+      return { ...w, value: nextArr };
+    }
+    if (w.value === fromToken) {
+      changed = true;
+      return { ...w, value: toValue };
+    }
+    return w;
+  });
+  if (!changed) return constraints;
+  return { ...constraints, where: mappedWhere };
+}
+
+function replaceTokenInSyntheticResource(
+  syntheticResource: Record<string, unknown>,
+  fromToken: string,
+  toValue: ScalarValue,
+): Record<string, unknown> {
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const key of Object.keys(syntheticResource)) {
+    if (!Object.hasOwn(syntheticResource, key)) continue;
+    const raw = syntheticResource[key];
+    if (raw === fromToken) {
+      defineOwn(next, key, toValue);
+      changed = true;
+    } else {
+      defineOwn(next, key, raw);
+    }
+  }
+  return changed ? next : syntheticResource;
+}
+
 function allowsResidualForAnyActor(
   simulator: SimulateFirestoreRulesHandler,
   evaluationAst: FirestoreRules,
@@ -175,22 +237,167 @@ function allowsResidualForAnyActor(
     return false;
   }
   if (target.nonAuthSegmentValues.length > 0) {
-    let alignedPath = placeholderPath;
     for (const segToken of target.nonAuthSegmentValues) {
-      alignedPath = alignedPath.split(segToken).join(SYNTH_UID);
+      const singleAligned = placeholderPath.split(segToken).join(projected.auth.uid);
+      if (
+        simulateResidualDecision(
+          simulator,
+          evaluationAst,
+          rulesSource,
+          singleAligned,
+          projected.auth,
+          syntheticResource,
+          constraints,
+        )
+      ) {
+        return true;
+      }
     }
-    if (
-      simulateResidualDecision(
-        simulator,
-        evaluationAst,
-        rulesSource,
-        alignedPath,
-        projected.auth,
+    if (target.nonAuthSegmentValues.length > 1) {
+      let alignedPath = placeholderPath;
+      for (const segToken of target.nonAuthSegmentValues) {
+        alignedPath = alignedPath.split(segToken).join(projected.auth.uid);
+      }
+      if (
+        simulateResidualDecision(
+          simulator,
+          evaluationAst,
+          rulesSource,
+          alignedPath,
+          projected.auth,
+          syntheticResource,
+          constraints,
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  if (target.literalDocIdValues.length > 0) {
+    for (const litDocId of target.literalDocIdValues) {
+      const alignedPath = placeholderPath.split(projected.auth.uid).join(litDocId);
+      const alignedResource = replaceTokenInSyntheticResource(
         syntheticResource,
+        projected.auth.uid,
+        litDocId,
+      );
+      const alignedConstraints = replaceTokenInConstraints(
         constraints,
-      )
-    ) {
-      return true;
+        projected.auth.uid,
+        litDocId,
+      );
+      if (
+        simulateResidualDecision(
+          simulator,
+          evaluationAst,
+          rulesSource,
+          alignedPath,
+          { uid: litDocId, token: projected.auth.token },
+          alignedResource,
+          alignedConstraints,
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function tryUnifiedActorAndClaimProofs(
+  simulator: SimulateFirestoreRulesHandler,
+  evaluationAst: FirestoreRules,
+  rulesSource: string,
+  placeholderPath: string,
+  target: ConcretizedQueryTarget,
+  projected: ProjectedQueryArm,
+  constraints: QueryConstraints,
+): boolean {
+  const uidCandidates: string[] = [projected.auth.uid];
+  if (projected.usesSynthUidInWhere || placeholderPath.includes(SYNTH_UID)) {
+    for (const litDocId of target.literalDocIdValues) {
+      if (!uidCandidates.includes(litDocId)) uidCandidates.push(litDocId);
+    }
+    for (const segToken of target.nonAuthSegmentValues) {
+      if (!uidCandidates.includes(segToken)) uidCandidates.push(segToken);
+    }
+  }
+
+  let claimAssignments: Array<Array<readonly [string, ScalarValue]>> = [[]];
+  for (const claimKey of Object.keys(projected.auth.token)) {
+    if (!Object.hasOwn(projected.auth.token, claimKey)) continue;
+    const rawVal = projected.auth.token[claimKey];
+    const synthClaim = `__pyric_claim_${claimKey}__`;
+    if (rawVal !== synthClaim) continue;
+    const scalars = collectClaimCandidateScalars(evaluationAst, placeholderPath, claimKey);
+    if (scalars.length === 0) continue;
+
+    const next: Array<Array<readonly [string, ScalarValue]>> = [];
+    for (const prefix of claimAssignments) {
+      next.push(prefix);
+      for (const scalar of scalars) {
+        if (next.length >= MAX_UNIFIED_ACTORS) break;
+        next.push([...prefix, [claimKey, scalar] as const]);
+      }
+      if (next.length >= MAX_UNIFIED_ACTORS) break;
+    }
+    claimAssignments = next;
+  }
+
+  let attempts = 0;
+  for (const uidCand of uidCandidates) {
+    for (const assignment of claimAssignments) {
+      if (uidCand === projected.auth.uid && assignment.length === 0) continue;
+      if (attempts >= MAX_UNIFIED_ACTORS) return false;
+      attempts += 1;
+
+      let unifiedPath = placeholderPath;
+      let unifiedConstraints = constraints;
+      if (uidCand !== projected.auth.uid) {
+        unifiedPath = unifiedPath.split(SYNTH_UID).join(uidCand);
+        unifiedConstraints = replaceTokenInConstraints(unifiedConstraints, SYNTH_UID, uidCand);
+      }
+
+      const unifiedToken: Record<string, unknown> = {};
+      for (const existingKey of Object.keys(projected.auth.token)) {
+        if (!Object.hasOwn(projected.auth.token, existingKey)) continue;
+        defineOwn(unifiedToken, existingKey, projected.auth.token[existingKey]);
+      }
+      for (const [claimKey, claimScalar] of assignment) {
+        defineOwn(unifiedToken, claimKey, claimScalar);
+        unifiedConstraints = replaceTokenInConstraints(
+          unifiedConstraints,
+          `__pyric_claim_${claimKey}__`,
+          claimScalar,
+        );
+      }
+
+      const unifiedProjected: ProjectedQueryArm = {
+        ...projected,
+        auth: { uid: uidCand, token: unifiedToken },
+      };
+      const unifiedProof = proveListQuery(
+        evaluationAst,
+        unifiedPath,
+        unifiedProjected.auth,
+        unifiedConstraints,
+        rulesSource,
+      );
+      if (unifiedProof.kind !== 'provable') continue;
+      if (
+        allowsResidualForAnyActor(
+          simulator,
+          unifiedProof.evaluationAst,
+          rulesSource,
+          unifiedPath,
+          target,
+          unifiedProjected,
+          unifiedProof.syntheticResource,
+          unifiedConstraints,
+        )
+      ) {
+        return true;
+      }
     }
   }
   return false;
@@ -224,6 +431,19 @@ function checkProofAndResidual(
     };
   }
   if (proof.kind === 'unprovable') {
+    if (
+      tryUnifiedActorAndClaimProofs(
+        simulator,
+        evaluationAst,
+        rulesSource,
+        placeholderPath,
+        target,
+        projected,
+        constraints,
+      )
+    ) {
+      return { failed: false };
+    }
     return buildUnprovableFailure(proof.failures, false);
   }
   if (
@@ -235,6 +455,19 @@ function checkProofAndResidual(
       target,
       projected,
       proof.syntheticResource,
+      constraints,
+    )
+  ) {
+    return { failed: false };
+  }
+  if (
+    tryUnifiedActorAndClaimProofs(
+      simulator,
+      evaluationAst,
+      rulesSource,
+      placeholderPath,
+      target,
+      projected,
       constraints,
     )
   ) {

@@ -324,7 +324,31 @@ export function segmentsToResourcePattern(
     const n = (used.get(name) ?? 0) + 1;
     used.set(name, n);
     if (n > 1) name = `${name}${n}`;
-    out.push({ kind: 'var', name });
+    const firstHoleIdx = seg.findIndex((p) => p.kind === 'hole');
+    let lastHoleIdx = firstHoleIdx;
+    for (let idx = seg.length - 1; idx > firstHoleIdx; idx -= 1) {
+      if (seg[idx]!.kind === 'hole') {
+        lastHoleIdx = idx;
+        break;
+      }
+    }
+    const prefix = seg
+      .slice(0, firstHoleIdx)
+      .map((p) => (p.kind === 'lit' ? p.text : ''))
+      .join('');
+    const suffix = seg
+      .slice(lastHoleIdx + 1)
+      .map((p) => (p.kind === 'lit' ? p.text : ''))
+      .join('');
+    if (prefix.length > 0 && suffix.length > 0) {
+      out.push({ kind: 'var', name, prefix, suffix });
+    } else if (prefix.length > 0) {
+      out.push({ kind: 'var', name, prefix });
+    } else if (suffix.length > 0) {
+      out.push({ kind: 'var', name, suffix });
+    } else {
+      out.push({ kind: 'var', name });
+    }
   }
   return { service, resourceId: resolvedResourceId, segments: out };
 }
