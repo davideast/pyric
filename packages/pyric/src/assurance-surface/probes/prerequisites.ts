@@ -100,10 +100,30 @@ export function lookupSeeds(
   const out: ProbeStep[] = [];
   const seen = new Set<string>();
   const site = parseResourcePattern(service, template);
-  for (const c of conditions) {
-    if (c.service !== service || c.kind !== 'lookup') continue;
+  const matchingLookups = conditions.filter((c) => {
+    if (c.service !== service || c.kind !== 'lookup') return false;
     const rule = parseResourcePattern(service, c.path);
-    if (!coversPattern(rule, site, { cascade: service === 'rtdb' })) continue;
+    return coversPattern(rule, site, { cascade: service === 'rtdb' });
+  });
+
+  const hintedByLookupPath = new Map<string, { exact?: string | number | boolean; lower?: number; upper?: number }>();
+  for (const c of matchingLookups) {
+    if (c.seedValue === undefined) continue;
+    const [lp] = c.field.split('#');
+    const cur = hintedByLookupPath.get(lp) ?? {};
+    if (c.comparisonOp !== undefined && typeof c.seedValue === 'number') {
+      if (c.comparisonOp === '>' || c.comparisonOp === '>=') {
+        cur.lower = cur.lower === undefined ? c.seedValue : Math.max(cur.lower, c.seedValue);
+      } else {
+        cur.upper = cur.upper === undefined ? c.seedValue : Math.min(cur.upper, c.seedValue);
+      }
+    } else if (cur.exact === undefined) {
+      cur.exact = c.seedValue;
+    }
+    hintedByLookupPath.set(lp, cur);
+  }
+
+  for (const c of matchingLookups) {
     const [lookupPath, field] = c.field.split('#');
     const lookup = parseResourcePattern(service, lookupPath).segments;
     const authIndex = lookup.findIndex((s) => s.kind === 'var' && s.name === 'auth.uid');
@@ -142,7 +162,16 @@ export function lookupSeeds(
           data = concretePayload(shapeSite.payload, actor, separatorFor(service));
         }
         if (data === null || data === undefined) {
-          data = fallbackLookupValue(service);
+          const hinted = hintedByLookupPath.get(lookupPath);
+          if (hinted?.exact !== undefined) {
+            data = hinted.exact;
+          } else if (hinted?.lower !== undefined) {
+            data = hinted.lower;
+          } else if (hinted?.upper !== undefined) {
+            data = hinted.upper;
+          } else {
+            data = fallbackLookupValue(service);
+          }
         }
       }
       out.push({ actor: 'admin', service, method: 'set', path, data });
@@ -192,6 +221,12 @@ function isListLikeLookup(lookup: CrossServiceLookup): boolean {
   return MEMBERSHIP_LIST_FIELD_RE.test(lookup.field);
 }
 
+function isReadonlyScalarList(
+  value: CrossServiceLookup['expectedValue'],
+): value is readonly (string | number | boolean)[] {
+  return Array.isArray(value);
+}
+
 function lookupSatisfiedByDoc(
   docData: Record<string, unknown> | undefined,
   lookup: CrossServiceLookup,
@@ -200,7 +235,21 @@ function lookupSatisfiedByDoc(
   if (!docData) return false;
   if (lookup.kind === 'exists' || lookup.field === undefined) return true;
   const actual = fieldOf(docData, lookup.field, '.');
-  if (lookup.expectedValue !== undefined) return actual === lookup.expectedValue;
+  if (lookup.expectedValue !== undefined) {
+    if (isReadonlyScalarList(lookup.expectedValue)) {
+      if (!Array.isArray(actual)) return false;
+      if (lookup.expectedValue.length === 0) return actual.length === 0;
+      return lookup.expectedValue.every((expected) => actual.includes(expected));
+    }
+    if (lookup.comparisonOp !== undefined && typeof lookup.expectedValue === 'number') {
+      if (typeof actual !== 'number') return false;
+      if (lookup.comparisonOp === '>' || lookup.comparisonOp === '>=') {
+        return actual >= lookup.expectedValue;
+      }
+      return actual <= lookup.expectedValue;
+    }
+    return actual === lookup.expectedValue;
+  }
   if (lookup.expectedAuth === 'uid') return actual === actor.uid;
   if (lookup.expectedAuth === 'uid-not-in-list') {
     return Array.isArray(actual) && !actual.includes(actor.uid);
@@ -344,10 +393,53 @@ export function crossServiceLookupSeeds(options: CrossServiceSeedOptions): Probe
       }
     }
 
+    const numericBounds = new Map<string, { lower?: number; upper?: number }>();
+    for (const { lookup } of items) {
+      if (
+        lookup.field !== undefined
+        && lookup.comparisonOp !== undefined
+        && typeof lookup.expectedValue === 'number'
+      ) {
+        const cur = numericBounds.get(lookup.field) ?? {};
+        if (lookup.comparisonOp === '>' || lookup.comparisonOp === '>=') {
+          cur.lower = cur.lower === undefined ? lookup.expectedValue : Math.max(cur.lower, lookup.expectedValue);
+        } else {
+          cur.upper = cur.upper === undefined ? lookup.expectedValue : Math.min(cur.upper, lookup.expectedValue);
+        }
+        numericBounds.set(lookup.field, cur);
+      }
+    }
+
     for (const { lookup, actor } of items) {
       if (lookup.field !== undefined) {
         if (lookup.expectedValue !== undefined) {
-          setDottedField(docData, lookup.field, lookup.expectedValue);
+          if (isReadonlyScalarList(lookup.expectedValue)) {
+            if (lookup.expectedValue.length === 0) {
+              const existingVal = fieldOf(docData, lookup.field, '.');
+              if (!Array.isArray(existingVal)) {
+                setDottedField(docData, lookup.field, []);
+              }
+            } else {
+              const existingVal = fieldOf(docData, lookup.field, '.');
+              const nextList: unknown[] = [];
+              if (Array.isArray(existingVal)) nextList.push(...existingVal);
+              for (const item of lookup.expectedValue) {
+                if (!nextList.includes(item)) nextList.push(item);
+              }
+              setDottedField(docData, lookup.field, nextList);
+            }
+          } else if (lookup.comparisonOp !== undefined && typeof lookup.expectedValue === 'number') {
+            const bounds = numericBounds.get(lookup.field);
+            let resolvedNum = lookup.expectedValue;
+            if (bounds?.lower !== undefined) {
+              resolvedNum = bounds.lower;
+            } else if (bounds?.upper !== undefined) {
+              resolvedNum = bounds.upper;
+            }
+            setDottedField(docData, lookup.field, resolvedNum);
+          } else {
+            setDottedField(docData, lookup.field, lookup.expectedValue);
+          }
         } else if (lookup.expectedAuth === 'uid') {
           setDottedField(docData, lookup.field, actor.uid);
         } else if (lookup.expectedAuth === 'uid-not-in-list') {

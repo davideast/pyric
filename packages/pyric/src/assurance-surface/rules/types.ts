@@ -45,6 +45,10 @@ export interface OwnerCondition {
   expression: string;
   /** True when projected from an unscoped Storage ruleset (`bucket === undefined`) under wildcard `match /b/{bucket}/o`. */
   wildcardBucket?: boolean;
+  /** Optional scalar hint value satisfying a lookup comparison (`val() < 5`, `val() == 'editor'`). */
+  seedValue?: string | number | boolean;
+  /** Optional relational operator when `seedValue` comes from a numeric bound. */
+  comparisonOp?: '<' | '<=' | '>' | '>=';
 }
 
 /** Which side supports a binding. */

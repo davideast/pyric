@@ -16,7 +16,7 @@ import { concretePath, concretePayload, uidFields } from './fixtures.js';
 import type { FindingOp, ProbeActor, ProbeStep } from './types.js';
 import type { WorldState } from './world.js';
 
-export interface StepOptions {
+interface StepOptions {
   keyActor?: ProbeActor;
   variant?: string;
   overrides?: Record<string, unknown>;
@@ -155,24 +155,192 @@ export function same(a: AccessSite, b: AccessSite): boolean {
   );
 }
 
-export function findCreateCondition(site: AccessSite, conditions: OwnerCondition[]): string | undefined {
-  const sitePattern = parseResourcePattern(site.service, site.path);
-  for (const c of conditions) {
-    if (
-      c.service === site.service
-      && c.ops
-      && c.ops.includes('create')
-      && coversPattern(parseResourcePattern(c.service, c.path), sitePattern, { cascade: true })
-    ) {
-      return c.field.replace(/^\.\.\//, '');
+function setOwnOverride(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function normalizeConditionFieldPath(fieldPath: string, separator: string): string {
+  if (fieldPath === '.') return '.';
+  return fieldPath
+    .split(/[/.]/)
+    .filter((seg) => seg.length > 0)
+    .join(separator);
+}
+
+function hasExplicitPayloadField(payload: AccessSite['payload'], normField: string, separator: string): boolean {
+  if (!payload) return false;
+  if (normField === '.') {
+    if (payload.kind !== 'object') {
+      return payload.literal !== undefined || (payload.auth?.length ?? 0) > 0;
     }
+    return payload.fields.some((f) => !f.optional);
   }
-  return undefined;
+  if (payload.kind !== 'object') return true;
+  for (const f of payload.fields) {
+    if (f.optional) continue;
+    const fNorm = normalizeConditionFieldPath(f.name, separator);
+    if (fNorm === normField) return true;
+    if (fNorm.startsWith(`${normField}${separator}`)) return true;
+    if (normField.startsWith(`${fNorm}${separator}`) && f.kind !== 'object') return true;
+  }
+  return false;
+}
+
+function isPartialCreatorSite(make: AccessSite): boolean {
+  if (make.op === 'updateDoc' || make.op === 'update' || make.op === 'onDisconnect.update') return true;
+  if (make.op === 'setDoc' && Boolean(make.payload?.merge)) return true;
+  return false;
+}
+
+function conditionAppliesToCreatorSetup(
+  site: AccessSite,
+  c: OwnerCondition,
+  sitePattern: ReturnType<typeof parseResourcePattern>,
+  partialMake: boolean,
+): boolean {
+  if (c.service !== site.service || !c.ops || c.ops.length === 0) return false;
+  const cascade = c.service === 'rtdb' && !c.ops.every((op) => op === 'validate');
+  if (!coversPattern(parseResourcePattern(c.service, c.path), sitePattern, { cascade })) return false;
+
+  if (c.service === 'firestore') {
+    if (c.kind !== 'incomingField' && c.kind !== 'storedField') return false;
+    if (c.ops.includes('create')) return true;
+    if (!partialMake) return false;
+    if (opOf(site) === 'update' && c.ops.includes('update')) return true;
+    if (isCleanup(site) && c.ops.includes('delete')) return true;
+    return false;
+  }
+
+  if (c.service === 'rtdb') {
+    if (!c.ops.includes('write') && !c.ops.includes('validate')) return false;
+    if (c.kind === 'incomingField') return true;
+    if (c.kind === 'storedField') return partialMake;
+    if (c.kind === 'lookup') return partialMake || c.expression.includes('newData');
+  }
+
+  return false;
+}
+
+function extractSetupOverride(
+  site: AccessSite,
+  make: AccessSite,
+  c: OwnerCondition,
+  ownerUid: string,
+  separator: string,
+): { fieldPath: string; value: unknown } | null {
+  const buildKeyedMap = (seedVal: unknown = true): Record<string, unknown> => {
+    const mapVal: Record<string, unknown> = {};
+    setOwnOverride(mapVal, ownerUid, seedVal);
+    return mapVal;
+  };
+
+  if (c.kind === 'lookup') {
+    if (c.service !== 'rtdb') return null;
+    const makePattern = parseResourcePattern('rtdb', make.path);
+    const lookupPattern = parseResourcePattern('rtdb', c.field.split('#')[0]!);
+    const lastSeg = lookupPattern.segments.at(-1);
+    if (
+      lookupPattern.segments.length <= makePattern.segments.length
+      || !lastSeg
+      || lastSeg.kind !== 'var'
+      || lastSeg.name !== 'auth.uid'
+      || !coversPattern(makePattern, lookupPattern, { cascade: true })
+    ) {
+      return null;
+    }
+    const relSegs = lookupPattern.segments.slice(makePattern.segments.length, -1);
+    if (relSegs.some((seg) => seg.kind !== 'lit')) return null;
+    const fieldPath = relSegs.length === 0 ? '.' : relSegs.map((seg) => (seg as { kind: 'lit'; text: string }).text).join(separator);
+    return { fieldPath, value: buildKeyedMap(c.seedValue ?? true) };
+  }
+
+  if (c.kind !== 'incomingField' && c.kind !== 'storedField') return null;
+
+  let rawField: string;
+  if (c.service === 'rtdb' && c.location) {
+    const makePattern = parseResourcePattern('rtdb', make.path);
+    const locPattern = parseResourcePattern('rtdb', c.location);
+    if (locPattern.segments.length === makePattern.segments.length && coversPattern(makePattern, locPattern)) {
+      rawField = '.';
+    } else if (
+      locPattern.segments.length > makePattern.segments.length
+      && coversPattern(makePattern, locPattern, { cascade: true })
+    ) {
+      const relSegs = locPattern.segments.slice(makePattern.segments.length);
+      if (relSegs.some((seg) => seg.kind !== 'lit')) return null;
+      rawField = relSegs.map((seg) => (seg as { kind: 'lit'; text: string }).text).join('/');
+    } else {
+      return null;
+    }
+  } else {
+    if (c.field.startsWith('../') && same(make, site)) return null;
+    rawField = c.field.replace(/^(?:\.\.\/)+/, '');
+  }
+
+  let forceKeyedMap = false;
+  if (rawField.endsWith('/{auth.uid}') || rawField.endsWith('.{auth.uid}')) {
+    rawField = rawField.slice(0, -'/{auth.uid}'.length);
+    forceKeyedMap = true;
+  }
+
+  const fieldPath = normalizeConditionFieldPath(rawField, separator);
+  if (!fieldPath) return null;
+
+  let value: unknown;
+  if (forceKeyedMap || c.relation === 'exists' || (c.relation === 'contains' && c.expression.includes('.keys()'))) {
+    value = buildKeyedMap(c.seedValue ?? true);
+  } else if (c.relation === 'contains') {
+    value = [ownerUid];
+  } else {
+    value = ownerUid;
+  }
+
+  return { fieldPath, value };
+}
+
+/**
+ * Synthesize missing owner-condition field overrides needed for `make` to seed
+ * a valid owned record for `site`, without overwriting explicit fields already
+ * present on `make.payload`.
+ */
+export function setupConditionOverrides(
+  site: AccessSite,
+  make: AccessSite,
+  conditions: OwnerCondition[],
+  ownerUid: string,
+): Record<string, unknown> {
+  const sitePattern = parseResourcePattern(site.service, site.path);
+  const separator = sep(make);
+  const partialMake = isPartialCreatorSite(make);
+  const overrides: Record<string, unknown> = {};
+
+  for (const c of conditions) {
+    if (!conditionAppliesToCreatorSetup(site, c, sitePattern, partialMake)) continue;
+    const extracted = extractSetupOverride(site, make, c, ownerUid, separator);
+    if (!extracted) continue;
+    const { fieldPath, value } = extracted;
+    if (Object.hasOwn(overrides, fieldPath)) continue;
+    if (hasExplicitPayloadField(make.payload, fieldPath, separator)) continue;
+    const conflictsExistingOverride = Object.keys(overrides).some(
+      (existing) =>
+        existing.startsWith(`${fieldPath}${separator}`)
+        || fieldPath.startsWith(`${existing}${separator}`),
+    );
+    if (conflictsExistingOverride) continue;
+    setOwnOverride(overrides, fieldPath, value);
+  }
+
+  return overrides;
 }
 
 /** The write that best creates a record at a site's template: the non-cleanup write with the most fields. */
 export function creator(site: AccessSite, sites: AccessSite[]): AccessSite | undefined {
-  let candidates = sites.filter((s) => probeable(s) && same(s, site) && !isCleanup(s) && s.op !== 'updateDoc' && s.op !== 'update');
+  let candidates = sites.filter((s) => probeable(s) && same(s, site) && !isCleanup(s) && s.op !== 'updateDoc' && s.op !== 'update' && s.op !== 'onDisconnect.update');
   if (candidates.length === 0) candidates = sites.filter((s) => probeable(s) && same(s, site) && !isCleanup(s));
   if (candidates.length === 0) {
     const sitePattern = parseResourcePattern(site.service, site.path);

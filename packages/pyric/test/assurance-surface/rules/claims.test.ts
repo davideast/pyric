@@ -49,30 +49,31 @@ service cloud.firestore {
     });
   });
 
-  test('does not inline parameterized helpers as parameterless and isolates match-scoped functions', () => {
+  test('inlines literal-argument parameterized helpers, skips dynamic arguments and wrong arity, and isolates match-scoped functions', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function checkRole(expected) {
-      return request.auth.token.role == 'admin' && expected != '';
+      return request.auth.token.role == expected;
     }
     match /alpha/{docId} {
       function gate() {
         return request.auth.token.alphaMember == true;
       }
-      allow create: if gate() && checkRole('reader');
+      allow create: if gate() && checkRole('reader') && checkRole(resource.data.requiredRole);
     }
     match /beta/{docId} {
       function gate() {
         return request.auth.token.betaMember == true;
       }
-      allow create: if gate();
+      allow create: if gate() && checkRole();
     }
   }
 }`;
 
     expect(firestoreRequiredClaims(rules, { path: 'alpha/a1', op: 'create' })).toEqual({
       alphaMember: true,
+      role: 'reader',
     });
     expect(firestoreRequiredClaims(rules, { path: 'beta/b1', op: 'create' })).toEqual({
       betaMember: true,

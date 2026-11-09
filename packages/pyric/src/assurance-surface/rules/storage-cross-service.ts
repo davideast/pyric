@@ -8,6 +8,7 @@
  * negated ban-list checks (`!firestore.exists(...)`, `firestore.get(...) == null`).
  */
 import type { Expression } from '../../rules/internal/index.js';
+import { extractServiceHeader } from '../../sandbox/internal/resource-pattern-header.js';
 import {
   parseResourcePattern,
   renderResourcePattern,
@@ -15,12 +16,18 @@ import {
 } from '../../sandbox/internal/resource-pattern.js';
 import type { CrossServiceLookup } from './rule-surface.js';
 import {
+  classifyTernaryBranches,
+  flipRelationalSides,
   inlineRuleCall,
+  isRelationalOp,
   isRequestMemberChain,
+  negateRelationalOp,
   resolveRuleExpr,
+  satisfyingRelationalValue,
+  type RelationalOp,
   type RuleAstScope,
 } from './rules-ast-utils.js';
-import { isUnshadowedIdent, scalarLiteral } from './storage-constraints.js';
+import { evalNumericExpr, isUnshadowedIdent, scalarLiteral } from './storage-constraints.js';
 
 function parseFirestoreLookupPattern(
   argExpr: Expression,
@@ -59,7 +66,16 @@ function parseFirestoreLookupPattern(
     }
     parts.push('{*}');
   }
-  return parseResourcePattern('firestore', `/${parts.join('/')}`);
+  const rawPath = `/${parts.join('/')}`;
+  const header = extractServiceHeader('firestore', rawPath);
+  if (header.headerKind !== 'concrete' || header.headerResourceId !== '(default)') {
+    return undefined;
+  }
+  const pattern = parseResourcePattern('firestore', rawPath);
+  if (pattern.resourceId !== '(default)' || pattern.segments.length === 0) {
+    return undefined;
+  }
+  return pattern;
 }
 
 function directFirestoreLookup(
@@ -176,6 +192,43 @@ function collectCrossServiceReads(
   }
 
   if (e.type === 'binaryOp') {
+    if (isRelationalOp(e.op)) {
+      const leftField = firestoreGetFieldRead(e.left, s);
+      const rightField = firestoreGetFieldRead(e.right, s);
+      if (leftField && !rightField) {
+        const bound = evalNumericExpr(e.right, s);
+        if (bound !== undefined) {
+          let effOp: RelationalOp = e.op;
+          if (negated) effOp = negateRelationalOp(effOp);
+          rawOut.push({
+            targetService: 'firestore',
+            kind: 'get',
+            pattern: leftField.pattern,
+            field: leftField.field,
+            expectedValue: satisfyingRelationalValue(effOp, bound),
+            comparisonOp: effOp,
+          });
+          collectCrossServiceReads(e.right, s, false, rawOut);
+          return;
+        }
+      } else if (rightField && !leftField) {
+        const bound = evalNumericExpr(e.left, s);
+        if (bound !== undefined) {
+          let effOp = flipRelationalSides(e.op);
+          if (negated) effOp = negateRelationalOp(effOp);
+          rawOut.push({
+            targetService: 'firestore',
+            kind: 'get',
+            pattern: rightField.pattern,
+            field: rightField.field,
+            expectedValue: satisfyingRelationalValue(effOp, bound),
+            comparisonOp: effOp,
+          });
+          collectCrossServiceReads(e.left, s, false, rawOut);
+          return;
+        }
+      }
+    }
     if (e.op === '==' || e.op === '!=') {
       const leftLit = scalarLiteral(e.left, s);
       const rightLit = scalarLiteral(e.right, s);
@@ -228,9 +281,17 @@ function collectCrossServiceReads(
   }
 
   if (e.type === 'ternary') {
-    collectCrossServiceReads(e.condition, s, false, rawOut);
-    collectCrossServiceReads(e.consequent, s, negated, rawOut);
-    collectCrossServiceReads(e.alternate, s, negated, rawOut);
+    const rawCons = scalarLiteral(e.consequent, s);
+    const rawAlt = scalarLiteral(e.alternate, s);
+    const plan = classifyTernaryBranches(
+      typeof rawCons === 'boolean' ? rawCons : undefined,
+      typeof rawAlt === 'boolean' ? rawAlt : undefined,
+      negated,
+    );
+    if (plan.conditionNegated === undefined) return;
+    collectCrossServiceReads(e.condition, s, plan.conditionNegated, rawOut);
+    if (plan.visitConsequent) collectCrossServiceReads(e.consequent, s, negated, rawOut);
+    if (plan.visitAlternate) collectCrossServiceReads(e.alternate, s, negated, rawOut);
     return;
   }
 
@@ -267,6 +328,65 @@ function collectCrossServiceReads(
   }
 
   if (e.type === 'methodCall') {
+    if ((e.method === 'hasAny' || e.method === 'hasAll') && e.args[0]) {
+      const objField = firestoreGetFieldRead(e.object, s);
+      const argRes = resolveRuleExpr(e.args[0], s);
+      if (objField && argRes.expr.type === 'listLiteral') {
+        const hasUid = argRes.expr.elements.some((el) =>
+          isRequestMemberChain(el, argRes.scope, ['request', 'auth', 'uid']),
+        );
+        const scalars: (string | number | boolean)[] = [];
+        for (const el of argRes.expr.elements) {
+          const lit = scalarLiteral(el, argRes.scope);
+          if (lit !== undefined && lit !== null) scalars.push(lit);
+        }
+        if (hasUid) {
+          let expectedAuth: 'uid-list' | 'uid-not-in-list' = 'uid-list';
+          if (negated) expectedAuth = 'uid-not-in-list';
+          rawOut.push({
+            targetService: 'firestore',
+            kind: 'get',
+            pattern: objField.pattern,
+            field: objField.field,
+            expectedAuth,
+          });
+          if (!negated && e.method === 'hasAll' && scalars.length > 0) {
+            rawOut.push({
+              targetService: 'firestore',
+              kind: 'get',
+              pattern: objField.pattern,
+              field: objField.field,
+              expectedValue: scalars,
+            });
+          }
+          return;
+        }
+        if (negated) {
+          rawOut.push({
+            targetService: 'firestore',
+            kind: 'get',
+            pattern: objField.pattern,
+            field: objField.field,
+            expectedValue: [],
+          });
+          return;
+        }
+        if (scalars.length > 0 || argRes.expr.elements.length === 0) {
+          let listVal: readonly (string | number | boolean)[] = [];
+          if (scalars.length > 0) {
+            listVal = e.method === 'hasAll' ? scalars : [scalars[0]!];
+          }
+          rawOut.push({
+            targetService: 'firestore',
+            kind: 'get',
+            pattern: objField.pattern,
+            field: objField.field,
+            expectedValue: listVal,
+          });
+          return;
+        }
+      }
+    }
     collectCrossServiceReads(e.object, s, false, rawOut);
     for (const arg of e.args) collectCrossServiceReads(arg, s, false, rawOut);
   } else if (e.type === 'memberAccess') {
@@ -291,6 +411,19 @@ function collectCrossServiceReads(
         expectedAuth,
       });
       return;
+    }
+    if (colField) {
+      const elemLit = scalarLiteral(e.element, s);
+      if (elemLit !== undefined && elemLit !== null) {
+        rawOut.push({
+          targetService: 'firestore',
+          kind: 'get',
+          pattern: colField.pattern,
+          field: colField.field,
+          expectedValue: negated ? [] : [elemLit],
+        });
+        return;
+      }
     }
     if (!negated) {
       const elemField = firestoreGetFieldRead(e.element, s);
@@ -355,7 +488,7 @@ export function extractStorageCrossServiceReads(
     if (item.kind === 'get' && item.field === undefined && getPatternsWithFields.has(pid)) {
       continue;
     }
-    const key = `${item.kind}|${pid}|${item.field ?? ''}|${String(item.expectedValue ?? '')}|${item.expectedAuth ?? ''}`;
+    const key = `${item.kind}|${pid}|${item.field ?? ''}|${JSON.stringify(item.expectedValue ?? null)}|${item.comparisonOp ?? ''}|${item.expectedAuth ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(item);

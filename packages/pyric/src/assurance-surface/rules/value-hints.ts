@@ -4,18 +4,19 @@
  * `request.resource.data.status == 'open'`), so synthesized probe payloads
  * pass validation and probes test authorization instead.
  */
-import {
-  parseToAST,
-  topLevelMatches,
-  type Expression,
-  type FunctionDef,
-  type MatchBlock,
-  type PathSegment,
-} from '../../rules/internal/index.js';
+import type { Expression, FunctionDef, MatchBlock } from '../../rules/internal/index.js';
 import { parseRtdbExpressionTree, type RtdbExpressionTree } from '../../rules/internal/rtdb.js';
+import { extractServiceHeader } from '../../sandbox/internal/resource-pattern-header.js';
 import type { AccessService } from '../code/types.js';
-
-const MAX_INLINE_DEPTH = 8;
+import {
+  classifyTernaryBranches,
+  formatMatchSegment,
+  inlineRuleCall,
+  isRequestMemberChain,
+  parseRulesAstWithMultiMatch,
+  resolveRuleExpr,
+  type RuleAstScope,
+} from './rules-ast-utils.js';
 
 /** A hinted value for a field at a rule path. `field` is `.` for the node's own value. */
 export interface ValueHint {
@@ -73,6 +74,11 @@ function rtdbLiteral(t: RtdbExpressionTree): string | number | boolean | undefin
   return undefined;
 }
 
+function rtdbBooleanLiteral(t: RtdbExpressionTree): boolean | undefined {
+  if (t.type === 'boolean') return t.value;
+  return undefined;
+}
+
 function collectRtdb(t: RtdbExpressionTree, path: string, negated: boolean, out: ValueHint[]): void {
   if (t.type === 'unary') {
     if (t.operator === '!') {
@@ -123,45 +129,16 @@ function collectRtdb(t: RtdbExpressionTree, path: string, negated: boolean, out:
   }
 
   if (t.type === 'ternary') {
-    collectRtdb(t.test, path, negated, out);
-    collectRtdb(t.consequent, path, negated, out);
-    collectRtdb(t.alternate, path, negated, out);
+    const plan = classifyTernaryBranches(
+      rtdbBooleanLiteral(t.consequent),
+      rtdbBooleanLiteral(t.alternate),
+      negated,
+    );
+    if (plan.conditionNegated === undefined) return;
+    collectRtdb(t.test, path, plan.conditionNegated, out);
+    if (plan.visitConsequent) collectRtdb(t.consequent, path, negated, out);
+    if (plan.visitAlternate) collectRtdb(t.alternate, path, negated, out);
   }
-}
-
-interface Bound {
-  expr: Expression;
-  scope: Scope;
-}
-
-interface Scope {
-  vars: Map<string, Bound>;
-  functions: FunctionDef[][];
-  depth: number;
-}
-
-function formatSegment(seg: PathSegment): string {
-  if (seg.type === 'literal') return seg.value;
-  if (seg.type === 'wildcard') return `{${seg.name}}`;
-  return `{${seg.name}=**}`;
-}
-
-function findFunction(scope: Scope, name: string): FunctionDef | undefined {
-  for (let i = scope.functions.length - 1; i >= 0; i--) {
-    const fn = scope.functions[i].find((f) => f.name === name);
-    if (fn) return fn;
-  }
-  return undefined;
-}
-
-function resolve(expr: Expression, scope: Scope): { expr: Expression; scope: Scope } {
-  let cur = { expr, scope };
-  for (let i = 0; i < 16 && cur.expr.type === 'identifier'; i++) {
-    const bound = cur.scope.vars.get(cur.expr.name);
-    if (!bound) break;
-    cur = { expr: bound.expr, scope: bound.scope };
-  }
-  return cur;
 }
 
 /** Hints from a single Firestore `allow` condition at `docPath`. */
@@ -169,11 +146,13 @@ export function firestoreAllowValueHints(
   condition: Expression,
   functions: readonly (readonly FunctionDef[])[],
   docPath: string,
+  wildcards: ReadonlySet<string> = new Set(),
 ): ValueHint[] {
   const out: ValueHint[] = [];
-  const scope: Scope = {
+  const scope: RuleAstScope = {
     vars: new Map(),
-    functions: functions.map((group) => [...group]),
+    functions,
+    wildcards,
     depth: 0,
   };
   collectFs(condition, scope, docPath, false, out);
@@ -182,57 +161,66 @@ export function firestoreAllowValueHints(
 
 /** Hints from Firestore rules: positive `request.resource.data.x == literal` checks. */
 export function firestoreValueHints(source: string): ValueHint[] {
-  const ast = parseToAST(source);
-  if (!ast) return [];
+  const services = parseRulesAstWithMultiMatch(source);
   const out: ValueHint[] = [];
-  let services = [ast.service];
-  if (ast.services && ast.services.length > 0) services = ast.services;
 
-  const walk = (match: MatchBlock, parent: string[], functions: FunctionDef[][]): void => {
-    const path = [...parent, ...match.path.segments.map(formatSegment)];
+  const walk = (
+    match: MatchBlock,
+    parent: readonly string[],
+    functions: readonly (readonly FunctionDef[])[],
+    wildcards: ReadonlySet<string>,
+  ): void => {
+    const path = [...parent];
+    const nextWildcards = new Set(wildcards);
+    for (const seg of match.path.segments) {
+      path.push(formatMatchSegment(seg));
+      if (seg.type !== 'literal') nextWildcards.add(seg.name);
+    }
     let docPath = path;
     if (path[0] === 'databases') docPath = path.slice(3);
     const scopeFns = [...functions, match.functions];
-    for (const allow of match.allows) {
-      const scope: Scope = { vars: new Map(), functions: scopeFns, depth: 0 };
-      collectFs(allow.condition, scope, docPath.join('/'), false, out);
+    const header = extractServiceHeader('firestore', `/${path.join('/')}`);
+    const hasValidHeader = header.headerKind === 'concrete' || header.headerKind === 'wildcard';
+    if (hasValidHeader && docPath.length > 0) {
+      for (const allow of match.allows) {
+        const scope: RuleAstScope = {
+          vars: new Map(),
+          functions: scopeFns,
+          wildcards: nextWildcards,
+          depth: 0,
+        };
+        collectFs(allow.condition, scope, docPath.join('/'), false, out);
+      }
     }
-    for (const child of match.children) walk(child, path, scopeFns);
+    for (const child of match.children) walk(child, path, scopeFns, nextWildcards);
   };
 
   for (const service of services) {
     if (!/firestore/.test(service.name)) continue;
-    const baseFns: FunctionDef[][] = [ast.functions ?? [], service.functions ?? []];
-    for (const topMatch of topLevelMatches(service)) {
-      walk(topMatch, [], baseFns);
+    for (const topMatch of service.matches) {
+      walk(topMatch, [], service.functions, new Set());
     }
   }
   return out;
 }
 
-function incomingField(expr: Expression, scope: Scope): string | undefined {
+function incomingField(expr: Expression, scope: RuleAstScope): string | undefined {
   const fields: string[] = [];
-  let cur = resolve(expr, scope);
+  let cur = resolveRuleExpr(expr, scope);
   for (let i = 0; i < 16; i++) {
     const e = cur.expr;
     if (e.type === 'memberAccess') {
       if (e.property === 'data') {
-        const res = resolve(e.object, cur.scope);
-        if (
-          res.expr.type === 'memberAccess' &&
-          res.expr.property === 'resource' &&
-          resolve(res.expr.object, res.scope).expr.type === 'identifier' &&
-          (resolve(res.expr.object, res.scope).expr as { name: string }).name === 'request'
-        ) {
+        if (isRequestMemberChain(e.object, cur.scope, ['request', 'resource'])) {
           if (fields.length === 0) return undefined;
           return fields.reverse().join('.');
         }
       }
       fields.push(e.property);
-      cur = resolve(e.object, cur.scope);
+      cur = resolveRuleExpr(e.object, cur.scope);
     } else if (e.type === 'bracketAccess' && e.index.type === 'literal' && typeof e.index.value === 'string') {
       fields.push(e.index.value);
-      cur = resolve(e.object, cur.scope);
+      cur = resolveRuleExpr(e.object, cur.scope);
     } else {
       return undefined;
     }
@@ -240,8 +228,8 @@ function incomingField(expr: Expression, scope: Scope): string | undefined {
   return undefined;
 }
 
-function fsScalarLiteral(expr: Expression, scope: Scope): string | number | boolean | undefined {
-  const resolved = resolve(expr, scope).expr;
+function fsScalarLiteral(expr: Expression, scope: RuleAstScope): string | number | boolean | undefined {
+  const resolved = resolveRuleExpr(expr, scope).expr;
   if (resolved.type !== 'literal') return undefined;
   if (typeof resolved.value === 'string' || typeof resolved.value === 'number' || typeof resolved.value === 'boolean') {
     return resolved.value;
@@ -249,8 +237,8 @@ function fsScalarLiteral(expr: Expression, scope: Scope): string | number | bool
   return undefined;
 }
 
-function collectFs(expr: Expression, scope: Scope, path: string, negated: boolean, out: ValueHint[]): void {
-  const { expr: e, scope: s } = resolve(expr, scope);
+function collectFs(expr: Expression, scope: RuleAstScope, path: string, negated: boolean, out: ValueHint[]): void {
+  const { expr: e, scope: s } = resolveRuleExpr(expr, scope);
   if (e.type === 'unaryOp') {
     let nextNegated = negated;
     if (e.op === '!') nextNegated = !negated;
@@ -298,22 +286,23 @@ function collectFs(expr: Expression, scope: Scope, path: string, negated: boolea
   }
 
   if (e.type === 'ternary') {
-    collectFs(e.condition, s, path, negated, out);
-    collectFs(e.consequent, s, path, negated, out);
-    collectFs(e.alternate, s, path, negated, out);
+    const rawCons = fsScalarLiteral(e.consequent, s);
+    const rawAlt = fsScalarLiteral(e.alternate, s);
+    const plan = classifyTernaryBranches(
+      typeof rawCons === 'boolean' ? rawCons : undefined,
+      typeof rawAlt === 'boolean' ? rawAlt : undefined,
+      negated,
+    );
+    if (plan.conditionNegated === undefined) return;
+    collectFs(e.condition, s, path, plan.conditionNegated, out);
+    if (plan.visitConsequent) collectFs(e.consequent, s, path, negated, out);
+    if (plan.visitAlternate) collectFs(e.alternate, s, path, negated, out);
     return;
   }
 
-  if (e.type === 'functionCall' && s.depth < MAX_INLINE_DEPTH) {
-    const fn = findFunction(s, e.name);
-    if (!fn) return;
-    const vars = new Map<string, Bound>();
-    fn.parameters.forEach((param, i) => {
-      const arg = e.args[i];
-      if (arg) vars.set(param, { expr: arg, scope: s });
-    });
-    const inner: Scope = { vars, functions: s.functions, depth: s.depth + 1 };
-    for (const letBinding of fn.lets) inner.vars.set(letBinding.name, { expr: letBinding.value, scope: inner });
-    collectFs(fn.body, inner, path, negated, out);
+  if (e.type === 'functionCall') {
+    const inlined = inlineRuleCall(e, s);
+    if (!inlined) return;
+    collectFs(inlined.expr, inlined.scope, path, negated, out);
   }
 }

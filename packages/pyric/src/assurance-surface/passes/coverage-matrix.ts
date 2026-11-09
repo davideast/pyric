@@ -21,7 +21,7 @@ import {
   type ResourcePattern,
 } from '../../sandbox/internal/resource-pattern.js';
 import { isWriteOp } from '../code/operation-specs.js';
-import type { AccessSite } from '../code/types.js';
+import type { AccessSite, PayloadField, PayloadShape } from '../code/types.js';
 import type { SdkUsageIndex } from '../code/usage-index.js';
 import {
   projectRuleSurface,
@@ -61,6 +61,47 @@ function isRuleSurface(input: CoverageMatrixRuleInput): input is RuleSurface {
 function resolveRuleSurface(input: CoverageMatrixRuleInput): RuleSurface {
   if (isRuleSurface(input)) return input;
   return projectRuleSurface(input);
+}
+
+const RTDB_VALIDATE_GATED_WRITE_OPS = new Set([
+  'set',
+  'push',
+  'update',
+  'onDisconnect.set',
+  'onDisconnect.update',
+]);
+
+const GUARANTEED_NON_NULL_LEAF_KINDS = new Set<PayloadField['kind']>([
+  'string',
+  'number',
+  'boolean',
+  'serverTimestamp',
+  'increment',
+]);
+
+function hasGuaranteedNonNullRtdbPayload(payload: PayloadShape | undefined): boolean {
+  if (payload === undefined || payload.literal === null) return false;
+  if (GUARANTEED_NON_NULL_LEAF_KINDS.has(payload.kind)) {
+    return true;
+  }
+  if (payload.kind === 'object') {
+    return payload.fields.some(
+      (field) =>
+        !field.optional
+        && field.literal !== null
+        && GUARANTEED_NON_NULL_LEAF_KINDS.has(field.kind),
+    );
+  }
+  return false;
+}
+
+function effectiveClientOp(site: AccessSite): string {
+  if (site.service === 'rtdb' && RTDB_VALIDATE_GATED_WRITE_OPS.has(site.op)) {
+    if (!hasGuaranteedNonNullRtdbPayload(site.payload)) {
+      return 'remove';
+    }
+  }
+  return site.op;
 }
 
 function matchingEntriesForClientOp(
@@ -181,9 +222,10 @@ export function coverageMatrixPass(
 
     const rawPattern = normalizeSitePattern(site, defaultBucket);
     const hasPatternVars = rawPattern.segments.some((seg) => seg.kind !== 'lit');
+    const clientOp = effectiveClientOp(site);
 
     if (site.resolution === 'resolved') {
-      const staticMatches = matchingEntriesForClientOp(surface, rawPattern, site.op, defaultBucket);
+      const staticMatches = matchingEntriesForClientOp(surface, rawPattern, clientOp, defaultBucket);
       const staticPermissive = staticMatches.filter((entry) => !entry.alwaysDeny);
       if (staticPermissive.length === 0) {
         emitUncoveredDiagnostic(
@@ -203,7 +245,7 @@ export function coverageMatrixPass(
         const concretized = concretizeSitePatterns(rawPattern, observations, false);
         for (const cand of concretized) {
           if (!cand.runtimeSite) continue;
-          const candMatches = matchingEntriesForClientOp(surface, cand.pattern, site.op, defaultBucket);
+          const candMatches = matchingEntriesForClientOp(surface, cand.pattern, clientOp, defaultBucket);
           const candPermissive = candMatches.filter((entry) => !entry.alwaysDeny);
           if (candPermissive.length === 0) {
             emitUncoveredDiagnostic(
@@ -237,7 +279,7 @@ export function coverageMatrixPass(
     const candidates = concretizeSitePatterns(rawPattern, observations, Boolean(site.reason));
     let emittedUncovered = false;
     for (const cand of candidates) {
-      const candMatches = matchingEntriesForClientOp(surface, cand.pattern, site.op, defaultBucket);
+      const candMatches = matchingEntriesForClientOp(surface, cand.pattern, clientOp, defaultBucket);
       const candPermissive = candMatches.filter((entry) => !entry.alwaysDeny);
       if (candPermissive.length === 0 && !emittedUncovered) {
         emittedUncovered = true;

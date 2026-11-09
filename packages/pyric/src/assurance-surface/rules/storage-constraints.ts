@@ -10,6 +10,7 @@
 import type { Expression } from '../../rules/internal/index.js';
 import type { StorageMetadataConstraint } from './rule-surface.js';
 import {
+  classifyTernaryBranches,
   inlineRuleCall,
   isRequestMemberChain,
   resolveRuleExpr,
@@ -55,19 +56,18 @@ function formatContentTypePatterns(patterns: readonly string[]): string {
   return `^(?:${patterns.map(stripOuterAnchors).join('|')})$`;
 }
 
-function isExactAnchoredPattern(patterns: readonly string[]): boolean {
-  return patterns.length === 1 && patterns[0]!.startsWith('^') && patterns[0]!.endsWith('$');
+function conjoinContentTypePatterns(left: readonly string[], right: readonly string[]): string[] {
+  const leftPattern = formatContentTypePatterns(left);
+  const rightPattern = formatContentTypePatterns(right);
+  if (leftPattern === rightPattern) return [leftPattern];
+  return [`^(?=(?:${stripOuterAnchors(leftPattern)})$)(?:${stripOuterAnchors(rightPattern)})$`];
 }
 
 function andSummary(left: ConstraintSummary, right: ConstraintSummary): ConstraintSummary {
   if (left.impossible || right.impossible) return impossibleSummary();
   let contentTypes: string[] | undefined;
   if (left.contentTypes && right.contentTypes) {
-    if (isExactAnchoredPattern(right.contentTypes) && !isExactAnchoredPattern(left.contentTypes)) {
-      contentTypes = [...right.contentTypes];
-    } else {
-      contentTypes = [...left.contentTypes];
-    }
+    contentTypes = conjoinContentTypePatterns(left.contentTypes, right.contentTypes);
   } else if (left.contentTypes) {
     contentTypes = [...left.contentTypes];
   } else if (right.contentTypes) {
@@ -216,7 +216,7 @@ function stringListElements(expr: Expression, scope: RuleAstScope): string[] | u
   return out;
 }
 
-function evalNumericExpr(expr: Expression, scope: RuleAstScope): number | undefined {
+export function evalNumericExpr(expr: Expression, scope: RuleAstScope): number | undefined {
   const r = resolveRuleExpr(expr, scope);
   const e = r.expr;
   const s = r.scope;
@@ -580,9 +580,17 @@ export function extractStorageAllowValueHints(
       return;
     }
     if (e.type === 'ternary') {
-      walk(e.condition, rs, false);
-      walk(e.consequent, rs, negated);
-      walk(e.alternate, rs, negated);
+      const rawCons = scalarLiteral(e.consequent, rs);
+      const rawAlt = scalarLiteral(e.alternate, rs);
+      const plan = classifyTernaryBranches(
+        typeof rawCons === 'boolean' ? rawCons : undefined,
+        typeof rawAlt === 'boolean' ? rawAlt : undefined,
+        negated,
+      );
+      if (plan.conditionNegated === undefined) return;
+      walk(e.condition, rs, plan.conditionNegated);
+      if (plan.visitConsequent) walk(e.consequent, rs, negated);
+      if (plan.visitAlternate) walk(e.alternate, rs, negated);
       return;
     }
     if (e.type === 'functionCall') {
