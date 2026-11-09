@@ -52,6 +52,7 @@ import {
   invalidSystemInstruction,
   missingThoughtSignature,
 } from './synthesizer.js';
+import { redactUpstreamUrl } from './upstream-error-redaction.js';
 import { ScriptedEngine } from './scripted-engine.js';
 import { OpenAiEngine } from './openai-engine.js';
 import { GeminiEngine, GEMINI_DEFAULT_BASE_URL } from './gemini-engine.js';
@@ -100,6 +101,10 @@ function isAnswerEngine(value: EngineConfig | AnswerEngine): value is AnswerEngi
 /** What Studio's stream (and the construction log line) name the engine. */
 type EngineKind = 'scripted' | 'openai' | 'gemini' | 'custom';
 
+function redactOptionalBaseUrl(baseUrl: string | undefined): string | undefined {
+  return baseUrl === undefined ? undefined : redactUpstreamUrl(baseUrl);
+}
+
 /**
  * What a status read reports about the resolved engine: the mode it is
  * running in, the model and upstream it answers through when it has one, and
@@ -118,6 +123,7 @@ export class AiBroker {
   private readonly sandbox: Sandbox | undefined;
   private readonly engineKind: EngineKind;
   private readonly engineModel: string | undefined;
+  /** The configured base URL as it is shown: in the info line, events and status reads. Never its userinfo (#1766). */
   private readonly engineBaseUrl: string | undefined;
 
   constructor(options: AiBrokerOptions = {}) {
@@ -132,12 +138,12 @@ export class AiBroker {
     } else if (engine.kind === 'gemini') {
       this.engine = new GeminiEngine(engine);
       this.engineKind = 'gemini';
-      this.engineBaseUrl = engine.baseUrl;
+      this.engineBaseUrl = redactOptionalBaseUrl(engine.baseUrl);
     } else {
       this.engine = new OpenAiEngine(engine);
       this.engineKind = 'openai';
       this.engineModel = engine.model;
-      this.engineBaseUrl = engine.baseUrl;
+      this.engineBaseUrl = redactOptionalBaseUrl(engine.baseUrl);
     }
     console.info(this.describeEngine());
   }

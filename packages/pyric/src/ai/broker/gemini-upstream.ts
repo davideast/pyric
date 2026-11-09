@@ -14,7 +14,7 @@
  */
 
 import { AiBrokerError, errorEnvelope } from './synthesizer.js';
-import { redactUpstreamText } from './upstream-error-redaction.js';
+import { redactUpstreamText, urlCredentials } from './upstream-error-redaction.js';
 
 /** Where the gemini engine talks when no `baseUrl` overrides it. Published
  *  through `pyric/ai/internal` so the CLI's startup banner can name the same
@@ -153,6 +153,8 @@ export class GeminiUpstream {
   private readonly now: () => number;
   private adcToken: { token: string; expiresAt: number } | undefined;
   private adcLookup: Promise<string> | undefined;
+  /** The base URL's username and password, masked like a key (#1766). */
+  private readonly baseUrlCredentials: string[];
 
   constructor(options?: GeminiUpstreamOptions) {
     this.baseUrl = (options?.baseUrl ?? GEMINI_DEFAULT_BASE_URL).replace(/\/$/, '');
@@ -161,6 +163,7 @@ export class GeminiUpstream {
     this.printAdcToken = options?.printAdcToken ?? printAdcTokenWithGcloud;
     this.now = options?.now ?? Date.now;
     this.serverAttachesAuth = options?.serverAttachesAuth === true;
+    this.baseUrlCredentials = urlCredentials(this.baseUrl);
   }
 
   /**
@@ -186,7 +189,7 @@ export class GeminiUpstream {
 
   /**
    * {@link send}, also returning the credentials the request carried: the
-   * static key or the ADC tokens, as sent. A caller that relays the
+   * static key or the ADC tokens, as sent, and the base URL's userinfo. A caller that relays the
    * upstream's answer removes them from any text it passes on, whatever
    * form the upstream quotes them in.
    */
@@ -196,7 +199,7 @@ export class GeminiUpstream {
     body: string | Uint8Array<ArrayBuffer>,
   ): Promise<{ response: Response; credentials: string[] }> {
     const auth = await this.resolveAuthToken();
-    const credentials = credentialsOf(auth);
+    const credentials = [...this.baseUrlCredentials, ...credentialsOf(auth)];
     const first = this.formatUpstreamRequest(resource, action, auth);
     const response = await this.post(first.url, first.headers, body, credentials);
     if (response.status === 401 && auth.isAdc) {

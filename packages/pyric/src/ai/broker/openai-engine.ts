@@ -30,9 +30,9 @@ import {
   Synthesizer,
   errorEnvelope,
   estimateTokens,
-  redactUrl,
   resolveModelVersion,
 } from './synthesizer.js';
+import { redactUpstreamText, urlCredentials } from './upstream-error-redaction.js';
 import { promptTextOf } from './scripted-engine.js';
 import type {
   AnswerEngine,
@@ -464,6 +464,8 @@ export interface OpenAiEngineOptions {
 
 export class OpenAiEngine implements AnswerEngine {
   private readonly baseUrl: string;
+  /** The base URL's username and password, masked in upstream error text (#1766). */
+  private readonly baseUrlCredentials: readonly string[];
   private readonly defaultModel: string | undefined;
   private readonly modelMap: Record<string, string>;
   /** Call-signature only (not `typeof fetch`): the wrapper below carries none
@@ -475,6 +477,7 @@ export class OpenAiEngine implements AnswerEngine {
 
   constructor(options: OpenAiEngineOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
+    this.baseUrlCredentials = urlCredentials(this.baseUrl);
     this.defaultModel = options.model;
     this.modelMap = options.modelMap ?? {};
     // Wrapped, not stored bare: `this.fetchImpl(...)` would otherwise invoke
@@ -542,6 +545,7 @@ export class OpenAiEngine implements AnswerEngine {
     const opts = { model, promptText: promptTextOf(req) };
     const synth = this.synth;
     const post = () => this.post(body);
+    const readStream = (reader: ReadableStreamDefaultReader<Uint8Array>) => this.readStream(reader);
 
     return (async function* stream(): AsyncGenerator<WireChunk> {
       const res = await post();
@@ -600,7 +604,7 @@ export class OpenAiEngine implements AnswerEngine {
       const reader = res.body.getReader();
       try {
         for (;;) {
-          const { done, value } = await reader.read();
+          const { done, value } = await readStream(reader);
           const payloads = done
             ? parser.push('\n\n') // flush any trailing buffered event
             : parser.push(decoder.decode(value, { stream: true }));
@@ -659,6 +663,24 @@ export class OpenAiEngine implements AnswerEngine {
     return this.synth.countTokens(promptTextOf(req));
   }
 
+  private async readStream(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+  ): ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']> {
+    try {
+      return await reader.read();
+    } catch (err) {
+      if (err instanceof AiBrokerError) throw err;
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      throw new AiBrokerError(
+        errorEnvelope(
+          502,
+          `openai engine: upstream stream aborted mid-response: ${redactUpstreamText(rawMessage, this.baseUrlCredentials)}`,
+          'UNAVAILABLE',
+        ),
+      );
+    }
+  }
+
   private async post(body: OpenAIRequest): Promise<Response> {
     let res: Response;
     try {
@@ -670,23 +692,24 @@ export class OpenAiEngine implements AnswerEngine {
     } catch (err) {
       // The openai engine has no key-in-URL auth mechanism today
       // (`OpenAiEngineOptions` carries no `apiKey`), but a caller-supplied
-      // `baseUrl` could embed a credential in its query string, and some
-      // fetch implementations echo the request URL into their error text —
-      // redact defensively at this choke point (T1.7).
+      // `baseUrl` could embed a credential in its query string or userinfo, and
+      // some fetch implementations echo the request URL into their error text —
+      // redact defensively at this choke point (T1.7, #1766).
       throw new AiBrokerError(
         errorEnvelope(
           502,
-          `openai engine: upstream fetch failed: ${redactUrl(String(err))}`,
+          `openai engine: upstream fetch failed: ${redactUpstreamText(String(err), this.baseUrlCredentials)}`,
           'UNAVAILABLE',
         ),
       );
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
+      const masked = redactUpstreamText(text, this.baseUrlCredentials).slice(0, 500);
       throw new AiBrokerError(
         errorEnvelope(
           res.status,
-          `openai engine: upstream ${res.status}: ${text.slice(0, 500)}`,
+          `openai engine: upstream ${res.status}: ${masked}`,
           res.status === 404 ? 'NOT_FOUND' : 'INVALID_ARGUMENT',
         ),
       );

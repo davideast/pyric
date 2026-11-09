@@ -9,7 +9,7 @@ import {
 import type { BridgeMount, BridgeMountOptions } from '../../src/serve/bridge-mount.js';
 import type { ServedFirebaseSpecifier } from '../../src/serve/firebase-module-swap.js';
 import { SandboxSeedError, type SandboxSession, type SandboxSessionOptions } from '../../src/serve/sandbox-session.js';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -241,6 +241,81 @@ describe('active Vite sandbox generation', () => {
         'http://127.0.0.1:9999/v1 (ai.proxyUpstream)',
     );
     await generation.close();
+  });
+
+  it('keeps upstream userinfo on server routes while omitting it from browser init.json and epoch salt (#1766)', async () => {
+    const upstreamWithUserinfo = `http://gateway-user:gateway-secret-1766 "q'@127.0.0.1:9999`;
+    const h = harness();
+    let capturedSessionOptions: SandboxSessionOptions | undefined;
+    let capturedEpochSalt: string | undefined;
+    let capturedHostedPayload: unknown;
+    const baseCreateSession = h.dependencies.createSession!;
+    h.dependencies.createSession = async (sessionOptions) => {
+      capturedSessionOptions = sessionOptions;
+      const created = await baseCreateSession(sessionOptions);
+      return {
+        ...created,
+        payload: () => ({ ai: sessionOptions.ai ?? null }) as ReturnType<SandboxSession['payload']>,
+      };
+    };
+    h.dependencies.prepareWorker = async (_runtime, salt) => {
+      capturedEpochSalt = salt;
+    };
+    h.input.ai = {
+      mode: 'sandbox',
+      engineWire: { kind: 'gemini', baseUrl: upstreamWithUserinfo },
+      proxyUpstream: undefined,
+    };
+
+    const workerGeneration = await createViteSandboxGeneration(h.input, h.dependencies);
+    expect(capturedSessionOptions?.ai).toEqual({ engine: { kind: 'gemini' } });
+    expect(capturedSessionOptions?.aiGemini).toEqual({ baseUrl: upstreamWithUserinfo });
+    expect(capturedEpochSalt).not.toContain('gateway-user');
+    expect(capturedEpochSalt).not.toContain('gateway-secret-1766');
+    await workerGeneration.close();
+
+    const hostedDir = mkdtempSync(join(tmpdir(), 'pyric-vite-hosted-1766-'));
+    try {
+      const hosted = harness();
+      hosted.input.projectDir = hostedDir;
+      hosted.input.options.hosted = true;
+      hosted.input.ai = {
+        mode: 'sandbox',
+        engineWire: { kind: 'gemini', baseUrl: upstreamWithUserinfo },
+        proxyUpstream: undefined,
+      };
+      hosted.input.server.resolvedUrls = { local: ['http://127.0.0.1:5173/'], network: [] } as never;
+      const baseHostedCreate = hosted.dependencies.createSession!;
+      let hostedInitPayload: unknown;
+      hosted.dependencies.createSession = async (sessionOptions) => {
+        const created = await baseHostedCreate(sessionOptions);
+        const sessionWithPayload: SandboxSession = {
+          ...created,
+          payload: () => ({ ai: sessionOptions.ai ?? null }) as ReturnType<SandboxSession['payload']>,
+        };
+        hostedInitPayload = sessionWithPayload.payload();
+        return sessionWithPayload;
+      };
+      const baseCreateBridge = hosted.dependencies.createBridge!;
+      hosted.dependencies.createBridge = (opts) => {
+        const created = baseCreateBridge(opts);
+        return {
+          ...created,
+          startHostedSandbox: async (payload) => {
+            capturedHostedPayload = payload;
+          },
+        };
+      };
+
+      const hostedGeneration = await createViteSandboxGeneration(hosted.input, hosted.dependencies);
+      expect(hostedInitPayload).toEqual({ ai: { engine: { kind: 'gemini' } } });
+      expect(capturedHostedPayload).toEqual({
+        ai: { engine: { kind: 'gemini', baseUrl: upstreamWithUserinfo } },
+      });
+      await hostedGeneration.close();
+    } finally {
+      rmSync(hostedDir, { recursive: true, force: true });
+    }
   });
 
   it('watches the configured Realtime Database rules file in Vite dev server', async () => {

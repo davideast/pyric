@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  browserAiEngineWire,
   engineConfigToWire,
   loadViteAiEnv,
   refuseBrowserServedGeminiKey,
@@ -156,6 +157,42 @@ describe('Vite AI configuration', () => {
     expect(openai).not.toBe(scripted);
     expect(prod).not.toBe(scripted);
     expect(viteWorkerEpochSalt('/other-app', undefined)).not.toBe(scripted);
+  });
+
+  it('strips upstream userinfo from browser-served engine wire values (#1766)', () => {
+    expect(browserAiEngineWire(undefined)).toBeUndefined();
+    expect(browserAiEngineWire({ kind: 'scripted', script: [{ respond: { text: 'hi' } }] })).toEqual({
+      kind: 'scripted',
+      script: [{ respond: { text: 'hi' } }],
+    });
+    expect(
+      browserAiEngineWire({
+        kind: 'gemini',
+        baseUrl: `http://gateway-user:gateway-secret-1766 "q'@127.0.0.1:9999`,
+      }),
+    ).toEqual({ kind: 'gemini' });
+    expect(
+      browserAiEngineWire({
+        kind: 'gemini',
+        apiKey: 'explicit-key',
+        baseUrl: `http://gateway-user:gateway-secret-1766 "q'@127.0.0.1:9999`,
+      }),
+    ).toEqual({
+      kind: 'gemini',
+      apiKey: 'explicit-key',
+      baseUrl: 'http://127.0.0.1:9999',
+    });
+    expect(
+      browserAiEngineWire({
+        kind: 'openai',
+        baseUrl: `http://gateway-user:gateway-secret-1766 "q'@127.0.0.1:9999/v1`,
+        model: 'llama3.2',
+      }),
+    ).toEqual({
+      kind: 'openai',
+      baseUrl: 'http://127.0.0.1:9999/v1',
+      model: 'llama3.2',
+    });
   });
 });
 
