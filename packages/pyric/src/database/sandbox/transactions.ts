@@ -4,7 +4,7 @@ import type { ChildListeners } from './child-listeners.js';
 import { cloneJson, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import { coerceArrays, normalizeWrite, TRANSACTION_ERROR_PREFIX, withPriorities, writePriority, type InlinePriority } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
-import { validatePriority } from './priority-state.js';
+import { validatePriority, type PriorityRecord } from './priority-state.js';
 import { withDenialContext } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import type { ValueListeners } from './value-listeners.js';
@@ -14,6 +14,44 @@ import { captureRewindDetail, WritePlane } from './write-plane.js';
  *  whose message is `permission_denied`. */
 function transactionPermissionDenied(context: RtdbDenialContext): Error {
   return withDenialContext(new Error('permission_denied'), context);
+}
+
+function readSubtree(root: JsonValue, segments: readonly string[]): JsonValue {
+  let current: JsonValue = root;
+  for (const segment of segments) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current) || !Object.hasOwn(current, segment)) {
+      return null;
+    }
+    current = (current as Record<string, JsonValue>)[segment] ?? null;
+  }
+  return current;
+}
+
+function callerVisibleCommit(
+  path: string,
+  proposed: JsonValue | undefined,
+  now: number,
+): { val: JsonValue; priorities: PriorityRecord } {
+  const resolvedInput = resolveSentinels(proposed, now, null);
+  const val = normalizeWrite(
+    resolvedInput,
+    path === '/' ? '' : path,
+    TRANSACTION_ERROR_PREFIX,
+  );
+  if (val === null) return { val: null, priorities: {} };
+  const written = writePriority(resolvedInput, null);
+  const priorities: PriorityRecord = {};
+  const baseSegments = pathSegments(path);
+  if (written.inline && written.priority !== null) {
+    priorities[joinPath(baseSegments)] = written.priority;
+  }
+  for (const entry of written.nested) {
+    if (entry.priority === null) continue;
+    if (readSubtree(val, entry.segments) !== null) {
+      priorities[joinPath([...baseSegments, ...entry.segments])] = entry.priority;
+    }
+  }
+  return { val, priorities };
 }
 
 export class Transactions {
@@ -34,12 +72,55 @@ export class Transactions {
     updateFn: (current: JsonValue) => JsonValue | undefined,
     options?: { applyLocally?: boolean; admin?: boolean },
   ): { committed: boolean; val: JsonValue; key: string | null } {
+    const { committed, val, key } = this.execute(auth, path, updateFn, options);
+    return { committed, val, key };
+  }
+
+  runClient(
+    auth: AuthState,
+    path: string,
+    updateFn: (current: JsonValue) => JsonValue | undefined,
+    options?: { applyLocally?: boolean; admin?: boolean },
+  ): { committed: boolean; val: JsonValue; key: string | null; priorities?: PriorityRecord } {
+    const outcome = this.execute(auth, path, updateFn, options);
+    if (!outcome.committed) {
+      return {
+        committed: false,
+        val: outcome.val,
+        key: outcome.key,
+        priorities: outcome.val === null ? {} : undefined,
+      };
+    }
+    if (options?.admin === true || this.canRead(auth, path)) {
+      return {
+        committed: true,
+        val: outcome.val,
+        key: outcome.key,
+        priorities: outcome.val === null ? {} : undefined,
+      };
+    }
+    const redacted = callerVisibleCommit(path, outcome.proposed, outcome.now);
+    return {
+      committed: true,
+      val: redacted.val,
+      key: outcome.key,
+      priorities: redacted.priorities,
+    };
+  }
+
+  private execute(
+    auth: AuthState,
+    path: string,
+    updateFn: (current: JsonValue) => JsonValue | undefined,
+    options?: { applyLocally?: boolean; admin?: boolean },
+  ): { committed: boolean; val: JsonValue; key: string | null; proposed: JsonValue | undefined; now: number } {
     const applyLocally = options?.applyLocally !== false;
     const isAdmin = options?.admin === true;
     const segments = pathSegments(path);
     const key = segments.length === 0 ? null : segments[segments.length - 1]!;
     let current: JsonValue = null;
     let visible: JsonValue = null;
+    let readable = false;
     let proposed: JsonValue | undefined;
     let attempts = 0;
     let settled = false;
@@ -47,7 +128,8 @@ export class Transactions {
       attempts += 1;
       const version = this.state.mutations.begin();
       current = this.state.tree.read(path);
-      visible = isAdmin || this.canRead(auth, path) ? current : null;
+      readable = isAdmin || this.canRead(auth, path);
+      visible = readable ? current : null;
       const input = visible === null ? null : coerceArrays(cloneJson(visible)) as JsonValue;
       let conflicted = false;
       try {
@@ -70,17 +152,18 @@ export class Transactions {
         resourceBefore: { data: visible, exists: visible !== null },
         detail: { committed: false, aborted: true },
       });
-      return { committed: false, val: visible, key };
+      return { committed: false, val: visible, key, proposed: undefined, now: this.state.clock.now() };
     }
 
     const now = this.state.clock.now();
+    const currentPriority = this.state.priorities.get(path);
+    const resolvedInput = resolveSentinels(proposed, now, this.state.rulesSnapshotAt(path));
     const resolved = normalizeWrite(
-      resolveSentinels(proposed, now, current) as JsonValue,
+      resolvedInput,
       path === '/' ? '' : path,
       TRANSACTION_ERROR_PREFIX,
     );
-    const currentPriority = this.state.priorities.get(path);
-    const written = writePriority(proposed, currentPriority);
+    const written = writePriority(resolvedInput, currentPriority);
     validatePriority(written.priority);
     const effectivePriority = resolved === null ? null : written.priority;
     const at = this.state.clock.now();
@@ -119,13 +202,14 @@ export class Transactions {
       groupId, groupKind: 'transaction',
     });
     const childPriors = this.children.snapshotParents();
+    this.state.clearPromotedAncestorPriorities(path, resolved);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, effectivePriority, hasNode);
     this.storeNestedPriorities(segments, written.nested, hasNode);
     this.writes.changed([path], childPriors);
     this.finishEvents(auth, path, proposed, current, resolved, groupId, now, applyLocally, isAdmin, rewindDetail);
     this.state.notifyWrite();
-    return { committed: true, val: resolved, key };
+    return { committed: true, val: resolved, key, proposed, now };
   }
 
   private storeNestedPriorities(

@@ -16,6 +16,7 @@ import {
   compileRtdbRules,
   simulateRtdbRules,
 } from '../../src/rules/rtdb/compiled-rules.js';
+import { rtdbRules } from 'pyric/rules';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/database';
 
@@ -205,5 +206,61 @@ describe('RTDB priority and increment invariants (#1014)', () => {
     const snap = await get(ref(db, 'n'));
     expect(snap.val()).toBe(14);
     expect(snap.priority).toBe(3);
+  });
+
+  test('ENF-3a: child writes promoting a prioritized primitive leaf clear ancestor .priority in sandbox across set, update, and runTransaction while preserving object .priority', async () => {
+    const nullPriorityRules = {
+      rules: {
+        items: {
+          $id: {
+            '.read': true,
+            '.write': 'auth != null',
+            '.validate': 'newData.getPriority() === null',
+          },
+        },
+        keepObj: {
+          $id: {
+            '.read': true,
+            '.write': 'auth != null',
+            '.validate': 'newData.getPriority() === 7',
+          },
+        },
+      },
+    };
+
+    const sim = rtdbRules(nullPriorityRules).explain({
+      operation: 'write',
+      path: '/items/i1/title',
+      auth: { uid: 'u1', token: {} },
+      data: { items: { i1: { '.value': 'leaf', '.priority': 50 } } },
+      newData: 'alpha',
+      expectation: 'ALLOW',
+    });
+    expect(sim.decision).toBe('ALLOW');
+
+    const box = initializeSandbox();
+    const db = getDatabase(box.withAuth({ uid: 'u1' }));
+    const admin = getAdminDatabase(box);
+    setRules(box, nullPriorityRules);
+
+    await setWithPriority(ref(admin, 'items/i1'), 'leaf', 50);
+    await set(ref(db, 'items/i1/title'), 'alpha');
+    expect((await get(ref(admin, 'items/i1'))).priority).toBeNull();
+    await set(ref(db, 'items/i1/owner'), 'u1');
+    expect((await get(ref(admin, 'items/i1'))).exportVal()).toEqual({ title: 'alpha', owner: 'u1' });
+
+    await setWithPriority(ref(admin, 'items/i2'), 'leaf', 60);
+    await update(ref(db, 'items/i2'), { title: 'beta' });
+    expect((await get(ref(admin, 'items/i2'))).priority).toBeNull();
+    await set(ref(db, 'items/i2/owner'), 'u1');
+
+    await setWithPriority(ref(admin, 'items/i3'), 'leaf', 70);
+    await runTransaction(ref(db, 'items/i3/title'), () => 'gamma');
+    expect((await get(ref(admin, 'items/i3'))).priority).toBeNull();
+    await set(ref(db, 'items/i3/owner'), 'u1');
+
+    await setWithPriority(ref(admin, 'keepObj/o1'), { existing: true }, 7);
+    await set(ref(db, 'keepObj/o1/added'), 'still-7');
+    expect((await get(ref(admin, 'keepObj/o1'))).priority).toBe(7);
   });
 });
