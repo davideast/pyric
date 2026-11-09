@@ -28,6 +28,7 @@ import {
   type StudioTrafficEvent,
 } from './verdict.js';
 import {
+  liveBypassedCount,
   liveRulesDecisionEvents,
   localDriftCount,
   localUnevaluatedCount,
@@ -48,6 +49,11 @@ import {
   type JournalPanelCopy,
   type TrafficHostMode,
 } from './traffic-panel-copy.js';
+import {
+  TrafficCapNotice,
+  TrafficTimeFocusBanner,
+  type TrafficFocusedInterval,
+} from './TrafficNotices.js';
 import { useLiveHost } from '../../shell/live-status.js';
 
 const metricNumberFormatter = new Intl.NumberFormat();
@@ -85,29 +91,39 @@ function isRtdbTransferService(event: StudioTrafficEvent): boolean {
 
 function RulesSummaryLine({
   mode,
+  evaluatedCount,
   driftCount,
   unevaluatedCount,
+  bypassedCount,
   deniedByProduction,
   unsupportedCount,
 }: {
   mode: TrafficHostMode;
+  evaluatedCount: number;
   driftCount: number;
   unevaluatedCount: number;
+  bypassedCount: number;
   deniedByProduction: number;
   unsupportedCount: number;
 }) {
   if (mode === 'sandbox') {
-    return <p>Query proof unsupported: {unsupportedCount}</p>;
+    return <p className="traffic__rules-summary">Query proof unsupported: {unsupportedCount}</p>;
   }
   const parts = [
-    `Drift with production: ${formatMetricNumber(driftCount)}`,
+    `Evaluated locally: ${formatMetricNumber(evaluatedCount)}`,
     `Unevaluated locally: ${formatMetricNumber(unevaluatedCount)}`,
+    `Admin-bypassed: ${formatMetricNumber(bypassedCount)}`,
+    `Drift with production: ${formatMetricNumber(driftCount)}`,
     `Denied by production: ${formatMetricNumber(deniedByProduction)}`,
   ];
   if (unsupportedCount > 0) {
     parts.push(`Query proof unsupported: ${formatMetricNumber(unsupportedCount)}`);
   }
-  return <p data-pyric-live-rules-summary="">{parts.join(' · ')}</p>;
+  return (
+    <p className="traffic__rules-summary" data-pyric-live-rules-summary="">
+      {parts.join(' · ')}
+    </p>
+  );
 }
 
 /** Shared data-journal composition: observed story, direct totals, evidence,
@@ -200,9 +216,13 @@ function JournalMetricPanel({
 export function BillableMetricsView({
   events,
   window,
+  focusedInterval,
+  capped,
 }: {
   events: StudioTrafficEvent[];
   window: TimeWindow;
+  focusedInterval?: TrafficFocusedInterval | null;
+  capped?: boolean;
 }) {
   const mode: TrafficHostMode = useLiveHost() !== null ? 'live' : 'sandbox';
   const operationEvents = useMemo(
@@ -213,10 +233,10 @@ export function BillableMetricsView({
       }),
     [events, mode],
   );
-  const rtdbEvents = useMemo(
-    () => (mode === 'live' ? events.filter(isRtdbTransferService) : []),
-    [events, mode],
-  );
+  const rtdbEvents = useMemo(() => {
+    if (mode !== 'live') return [];
+    return events.filter(isRtdbTransferService);
+  }, [events, mode]);
   const operationMetrics = useBillableMetrics({
     events: operationEvents,
     window,
@@ -236,9 +256,13 @@ export function BillableMetricsView({
     [rtdbMetrics.series],
   );
 
+  const isCapped = capped === true;
+
   if (mode === 'sandbox') {
     return (
       <div className="traffic__metrics" data-pyric-ui="traffic-billable-view">
+        {focusedInterval ? <TrafficTimeFocusBanner focus={focusedInterval} /> : null}
+        <TrafficCapNotice capped={isCapped} scope="all" />
         <JournalMetricPanel
           copy={BILLABLE_OPERATION_COPY.sandbox}
           story={operationStory}
@@ -252,6 +276,8 @@ export function BillableMetricsView({
 
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-billable-view">
+      {focusedInterval ? <TrafficTimeFocusBanner focus={focusedInterval} /> : null}
+      <TrafficCapNotice capped={isCapped} scope="all" />
       <JournalMetricPanel
         panelKey="operation"
         copy={BILLABLE_OPERATION_COPY.live}
@@ -276,49 +302,63 @@ export function BillableMetricsView({
 export function RulesMetricsView({
   events,
   window,
+  focusedInterval,
+  capped,
 }: {
   events: StudioTrafficEvent[];
   window: TimeWindow;
+  focusedInterval?: TrafficFocusedInterval | null;
+  capped?: boolean;
 }) {
   const mode: TrafficHostMode = useLiveHost() !== null ? 'live' : 'sandbox';
-  const evaluatedEvents = useMemo(
-    () => (mode === 'live' ? liveRulesDecisionEvents(events) : rulesDecisionEvents(events)),
-    [events, mode],
-  );
+  const evaluatedEvents = useMemo(() => {
+    if (mode === 'live') return liveRulesDecisionEvents(events, window);
+    return rulesDecisionEvents(events);
+  }, [events, window, mode]);
   const rules = useRulesMetrics({ events: evaluatedEvents, window });
   const decisionSeries = useMemo(
     () => rulesDecisionSeriesForMode(rules.series, mode),
     [rules.series, mode],
   );
-  const driftCount = useMemo(
-    () => (mode === 'live' ? localDriftCount(events, window) : 0),
-    [events, window, mode],
-  );
-  const unevaluatedCount = useMemo(
-    () => (mode === 'live' ? localUnevaluatedCount(events, window) : 0),
-    [events, window, mode],
-  );
-  const deniedByProduction = useMemo(
-    () => (mode === 'live' ? productionDeniedCount(events, window) : 0),
-    [events, window, mode],
-  );
+  const driftCount = useMemo(() => {
+    if (mode !== 'live') return 0;
+    return localDriftCount(events, window);
+  }, [events, window, mode]);
+  const unevaluatedCount = useMemo(() => {
+    if (mode !== 'live') return 0;
+    return localUnevaluatedCount(events, window);
+  }, [events, window, mode]);
+  const bypassedCount = useMemo(() => {
+    if (mode !== 'live') return 0;
+    return liveBypassedCount(events, window);
+  }, [events, window, mode]);
+  const deniedByProduction = useMemo(() => {
+    if (mode !== 'live') return 0;
+    return productionDeniedCount(events, window);
+  }, [events, window, mode]);
   const unsupportedCount = useMemo(
     () => queryProofUnsupportedCount(events, window),
     [events, window],
   );
   const story = useMemo(() => {
     if (mode === 'live') {
-      return liveRulesStory(decisionSeries, { driftCount, unevaluatedCount });
+      return liveRulesStory(decisionSeries, { driftCount, unevaluatedCount, bypassedCount });
     }
     return rulesStory(decisionSeries);
-  }, [decisionSeries, mode, driftCount, unevaluatedCount]);
+  }, [decisionSeries, mode, driftCount, unevaluatedCount, bypassedCount]);
+
+  const isCapped = capped === true;
 
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-rules-view">
+      {focusedInterval ? <TrafficTimeFocusBanner focus={focusedInterval} /> : null}
+      <TrafficCapNotice capped={isCapped} scope="rules" />
       <RulesSummaryLine
         mode={mode}
+        evaluatedCount={story.total}
         driftCount={driftCount}
         unevaluatedCount={unevaluatedCount}
+        bypassedCount={bypassedCount}
         deniedByProduction={deniedByProduction}
         unsupportedCount={unsupportedCount}
       />

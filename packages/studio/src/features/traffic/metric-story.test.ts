@@ -69,21 +69,47 @@ describe('liveRulesStory', () => {
     { key: 'denies', label: 'Would deny', values: [], total: denies },
   ];
 
-  it('uses advisory wording and surfaces drift disagreements', () => {
-    expect(liveRulesStory(rulesSeries(3, 1), { driftCount: 1, unevaluatedCount: 0 })).toEqual({
+  it('uses advisory wording and surfaces drift disagreements and window breakdowns', () => {
+    expect(
+      liveRulesStory(rulesSeries(3, 1), { driftCount: 1, unevaluatedCount: 0, bypassedCount: 0 }),
+    ).toEqual({
       total: 4,
       headline: '4 advisory local Rules evaluations',
       finding: 'Local rules would allow 75% of evaluated requests in this window · 1 disagreed with production.',
     });
+    expect(
+      liveRulesStory(rulesSeries(11, 10), {
+        driftCount: 9,
+        unevaluatedCount: 224,
+        bypassedCount: 5,
+      }),
+    ).toEqual({
+      total: 21,
+      headline: '21 advisory local Rules evaluations',
+      finding:
+        'Local rules would allow 52% of evaluated requests in this window · 9 disagreed with production (21 evaluated · 224 unevaluated · 5 Admin-bypassed).',
+    });
   });
 
-  it('distinguishes unevaluated live requests from an idle window', () => {
-    expect(liveRulesStory(rulesSeries(0, 0), { driftCount: 0, unevaluatedCount: 2 })).toEqual({
+  it('distinguishes unevaluated and Admin-bypassed live requests from an idle window', () => {
+    expect(
+      liveRulesStory(rulesSeries(0, 0), { driftCount: 0, unevaluatedCount: 2, bypassedCount: 0 }),
+    ).toEqual({
       total: 0,
       headline: 'No decided local Rules evaluations',
       finding: '2 observed requests could not be evaluated locally in this window.',
     });
-    expect(liveRulesStory(rulesSeries(0, 0), { driftCount: 0, unevaluatedCount: 0 })).toEqual({
+    expect(
+      liveRulesStory(rulesSeries(0, 0), { driftCount: 0, unevaluatedCount: 0, bypassedCount: 3 }),
+    ).toEqual({
+      total: 0,
+      headline: 'No client Rules evaluations in this window',
+      finding:
+        '3 Admin SDK requests bypassed client Security Rules in this window (0 evaluated · 0 unevaluated · 3 Admin-bypassed).',
+    });
+    expect(
+      liveRulesStory(rulesSeries(0, 0), { driftCount: 0, unevaluatedCount: 0, bypassedCount: 0 }),
+    ).toEqual({
       total: 0,
       headline: 'No local Rules evaluations observed',
       finding: 'What your local rules would allow or would deny will appear here as live requests arrive.',

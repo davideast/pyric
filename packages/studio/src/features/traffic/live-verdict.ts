@@ -9,13 +9,14 @@
  *   `production.local` verdict because single-path host evaluation lacks full
  *   query-proof and uncaptured stored-document state (`observe-local-verdict.ts`).
  * - Realtime Database `.read` rules evaluate at the watched node path, so each
- *   `onValue` / `onChild*` delivery carries `production.local`. Deduplicating by
- *   `(listenerId, local.result, Boolean(local.drift))` counts steady-state pushes
- *   once per subscription while preserving any later transition to `deny` or
- *   `drift` when local rules or auth change mid-subscription.
+ *   `onValue` / `onChild*` delivery carries `production.local`. Filtering to
+ *   `[window.start, window.end)` FIRST and then deduplicating by
+ *   {@link observedListenerVerdictKey} counts steady-state pushes once per
+ *   subscription within the active window while preserving brushed-interval
+ *   evaluations and mid-subscription verdict transitions.
  */
 import type { TimeWindow } from '@pyric/ui/traffic';
-import type { ObservedProduction } from 'pyric/sandbox';
+import type { ObservedProduction, RulesDisposition } from 'pyric/sandbox';
 import { observedDetailListenerId, productionVerdict } from 'pyric/sandbox/internal';
 import {
   localDrift,
@@ -30,25 +31,54 @@ type WindowedTrafficEvent = {
   readonly production?: ObservedProduction;
 };
 
+function eventsInWindow<T extends { readonly at: number }>(
+  events: readonly T[],
+  window: TimeWindow,
+): T[] {
+  return events.filter((event) => event.at >= window.start && event.at < window.end);
+}
+
 /**
- * For events tied to a live listener subscription (`detail.listenerId`),
- * selects the earliest event for each distinct `(result, drift)` state so
- * steady-state push deliveries do not inflate counts while mid-subscription
- * transitions to `deny` or `drift` still register.
+ * Canonical deduplication key (`listenerId:result:drifted`) for an observed
+ * listener delivery carrying a local advisory Rules verdict. Shared with
+ * `shell/traffic-retention.ts` so retention and aggregation agree on verdict
+ * transitions.
+ */
+export function observedListenerVerdictKey(event: {
+  readonly detail?: unknown;
+  readonly production?: ObservedProduction;
+}): string | undefined {
+  const local = event.production?.local;
+  if (local === undefined) return undefined;
+  const listenerId = observedDetailListenerId(event.detail);
+  if (listenerId === undefined) return undefined;
+  const drifted = localDrift(event) !== undefined;
+  return `${listenerId}:${local.result}:${drifted}`;
+}
+
+function isEarlierObservation<T extends { readonly at: number }>(
+  at: number,
+  existing: T | undefined,
+): boolean {
+  if (existing === undefined) return true;
+  return at < existing.at;
+}
+
+/**
+ * For events tied to a live listener subscription (`detail.listenerId`) inside
+ * the active window, selects the earliest event for each distinct `(result, drift)`
+ * state so steady-state push deliveries do not inflate counts while brushed
+ * intervals and mid-subscription transitions to `deny` or `drift` still register.
  */
 function distinctListenerEvaluations<T extends WindowedTrafficEvent>(
   events: readonly T[],
 ): ReadonlySet<T> {
   const earliestByVerdict = new Map<string, T>();
   for (const event of events) {
-    const local = event.production?.local;
-    if (local === undefined) continue;
-    const listenerId = observedDetailListenerId(event.detail);
-    if (listenerId === undefined) continue;
-    const drifted = localDrift(event) !== undefined;
-    const key = `${listenerId}:${local.result}:${drifted}`;
+    const key = observedListenerVerdictKey(event);
+    if (key === undefined) continue;
     const existing = earliestByVerdict.get(key);
-    if (existing === undefined || event.at < existing.at) {
+    if (isEarlierObservation(event.at, existing)) {
       earliestByVerdict.set(key, event);
     }
   }
@@ -64,35 +94,68 @@ function isCountedEvaluation<T extends WindowedTrafficEvent>(
   return countedListeners.has(event);
 }
 
-function countInWindow<T extends { readonly at: number }>(
+function countWindowedEvents<T extends { readonly at: number }>(
   events: readonly T[],
   window: TimeWindow,
   predicate: (event: T) => boolean,
 ): number {
+  const scoped = eventsInWindow(events, window);
   let count = 0;
-  for (const event of events) {
-    if (event.at >= window.start && event.at < window.end && predicate(event)) {
+  for (const event of scoped) {
+    if (predicate(event)) {
       count += 1;
     }
   }
   return count;
 }
 
+function countDistinctWindowedEvaluations(
+  events: readonly WindowedTrafficEvent[],
+  window: TimeWindow,
+  predicate: (event: WindowedTrafficEvent) => boolean,
+): number {
+  const scoped = eventsInWindow(events, window);
+  const countedListeners = distinctListenerEvaluations(scoped);
+  let count = 0;
+  for (const event of scoped) {
+    if (!isCountedEvaluation(event, countedListeners)) continue;
+    if (predicate(event)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function isDecidedLocalVerdict(
+  local: ObservedProduction['local'],
+): local is { readonly result: 'allow' | 'deny' } {
+  if (local === undefined) return false;
+  return local.result === 'allow' || local.result === 'deny';
+}
+
+function isProductionDenial(event: { readonly production?: ObservedProduction }): boolean {
+  if (event.production === undefined) return false;
+  return productionVerdict(event.production.outcome) === 'denied';
+}
+
 /**
- * Live-mode advisory Rules evaluations: observed requests whose local rules
- * produced a decided `allow` or `deny` verdict (plus any sandbox-evaluated
- * events in a mixed stream), projected onto `result` for `useRulesMetrics`.
+ * Live-mode advisory Rules evaluations: observed requests inside `window`
+ * whose local rules produced a decided `allow` or `deny` verdict (plus any
+ * sandbox-evaluated events in a mixed stream), projected onto `result` for
+ * `useRulesMetrics`.
  */
 export function liveRulesDecisionEvents(
   events: readonly StudioTrafficEvent[],
+  window: TimeWindow,
 ): StudioTrafficEvent[] {
-  const countedListeners = distinctListenerEvaluations(events);
+  const scoped = eventsInWindow(events, window);
+  const countedListeners = distinctListenerEvaluations(scoped);
   const decided: StudioTrafficEvent[] = [];
-  for (const event of events) {
+  for (const event of scoped) {
     if (event.production !== undefined) {
       if (!isCountedEvaluation(event, countedListeners)) continue;
       const local = event.production.local;
-      if (local !== undefined && (local.result === 'allow' || local.result === 'deny')) {
+      if (isDecidedLocalVerdict(local)) {
         decided.push({ ...event, origin: 'user', result: local.result });
       }
       continue;
@@ -109,11 +172,10 @@ export function localDriftCount(
   events: readonly WindowedTrafficEvent[],
   window: TimeWindow,
 ): number {
-  const countedListeners = distinctListenerEvaluations(events);
-  return countInWindow(
+  return countDistinctWindowedEvaluations(
     events,
     window,
-    (event) => isCountedEvaluation(event, countedListeners) && localDrift(event) !== undefined,
+    (event) => localDrift(event) !== undefined,
   );
 }
 
@@ -121,13 +183,21 @@ export function localUnevaluatedCount(
   events: readonly WindowedTrafficEvent[],
   window: TimeWindow,
 ): number {
-  const countedListeners = distinctListenerEvaluations(events);
-  return countInWindow(
+  return countDistinctWindowedEvaluations(
     events,
     window,
-    (event) =>
-      isCountedEvaluation(event, countedListeners) &&
-      event.production?.local?.result === 'unevaluated',
+    (event) => event.production?.local?.result === 'unevaluated',
+  );
+}
+
+export function liveBypassedCount(
+  events: readonly { readonly at: number; readonly rulesDisposition: RulesDisposition }[],
+  window: TimeWindow,
+): number {
+  return countWindowedEvents(
+    events,
+    window,
+    (event) => event.rulesDisposition.kind === 'bypassed',
   );
 }
 
@@ -135,10 +205,5 @@ export function productionDeniedCount(
   events: readonly { readonly at: number; readonly production?: ObservedProduction }[],
   window: TimeWindow,
 ): number {
-  return countInWindow(
-    events,
-    window,
-    (event) =>
-      event.production !== undefined && productionVerdict(event.production.outcome) === 'denied',
-  );
+  return countWindowedEvents(events, window, isProductionDenial);
 }

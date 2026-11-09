@@ -121,22 +121,51 @@ export function rulesStory(series: readonly MetricSeries[]): MetricStory {
   });
 }
 
+function formatLiveWindowBreakdown(
+  evaluated: number,
+  unevaluated: number,
+  bypassed: number,
+): string {
+  const parts = [
+    `${numberFormatter.format(evaluated)} evaluated`,
+    `${numberFormatter.format(unevaluated)} unevaluated`,
+    `${numberFormatter.format(bypassed)} Admin-bypassed`,
+  ];
+  return parts.join(' · ');
+}
+
+function hasNonDecidedTraffic(unevaluatedCount: number, bypassedCount: number): boolean {
+  return unevaluatedCount > 0 || bypassedCount > 0;
+}
+
 export function liveRulesStory(
   series: readonly MetricSeries[],
-  counts: { driftCount: number; unevaluatedCount: number },
+  counts: { driftCount: number; unevaluatedCount: number; bypassedCount: number },
 ): MetricStory {
   const allows = series.find((item) => item.key === 'allows')?.total ?? 0;
   const denies = series.find((item) => item.key === 'denies')?.total ?? 0;
   const total = allows + denies;
-  const { driftCount, unevaluatedCount } = counts;
+  const { driftCount, unevaluatedCount, bypassedCount } = counts;
 
   if (total === 0) {
     if (unevaluatedCount > 0) {
       const unevaluatedNoun = unevaluatedCount === 1 ? 'request' : 'requests';
+      let breakdown = '';
+      if (bypassedCount > 0) {
+        breakdown = ` (${formatLiveWindowBreakdown(0, unevaluatedCount, bypassedCount)})`;
+      }
       return {
         total,
         headline: 'No decided local Rules evaluations',
-        finding: `${numberFormatter.format(unevaluatedCount)} observed ${unevaluatedNoun} could not be evaluated locally in this window.`,
+        finding: `${numberFormatter.format(unevaluatedCount)} observed ${unevaluatedNoun} could not be evaluated locally in this window${breakdown}.`,
+      };
+    }
+    if (bypassedCount > 0) {
+      const bypassedNoun = bypassedCount === 1 ? 'request' : 'requests';
+      return {
+        total,
+        headline: 'No client Rules evaluations in this window',
+        finding: `${numberFormatter.format(bypassedCount)} Admin SDK ${bypassedNoun} bypassed client Security Rules in this window (${formatLiveWindowBreakdown(0, 0, bypassedCount)}).`,
       };
     }
     return {
@@ -154,12 +183,16 @@ export function liveRulesStory(
   if (driftCount > 0) {
     driftSuffix = ` · ${numberFormatter.format(driftCount)} disagreed with production`;
   }
+  let breakdownSuffix = '';
+  if (hasNonDecidedTraffic(unevaluatedCount, bypassedCount)) {
+    breakdownSuffix = ` (${formatLiveWindowBreakdown(total, unevaluatedCount, bypassedCount)})`;
+  }
 
   if (allows === denies) {
     return {
       total,
       headline,
-      finding: `Evaluations were split evenly between local would-allow and would-deny verdicts${driftSuffix}.`,
+      finding: `Evaluations were split evenly between local would-allow and would-deny verdicts${driftSuffix}${breakdownSuffix}.`,
     };
   }
 
@@ -168,14 +201,14 @@ export function liveRulesStory(
       return {
         total,
         headline,
-        finding: `Local rules would allow all ${numberFormatter.format(total)} evaluated ${requestNoun} in this window${driftSuffix}.`,
+        finding: `Local rules would allow all ${numberFormatter.format(total)} evaluated ${requestNoun} in this window${driftSuffix}${breakdownSuffix}.`,
       };
     }
     const share = Math.round((allows / total) * 100);
     return {
       total,
       headline,
-      finding: `Local rules would allow ${share}% of evaluated requests in this window${driftSuffix}.`,
+      finding: `Local rules would allow ${share}% of evaluated requests in this window${driftSuffix}${breakdownSuffix}.`,
     };
   }
 
@@ -183,6 +216,6 @@ export function liveRulesStory(
   return {
     total,
     headline,
-    finding: `Local rules would deny ${share}% of evaluated requests in this window${driftSuffix}.`,
+    finding: `Local rules would deny ${share}% of evaluated requests in this window${driftSuffix}${breakdownSuffix}.`,
   };
 }
