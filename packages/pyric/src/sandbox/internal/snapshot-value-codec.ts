@@ -318,6 +318,21 @@ export function encodeSnapshotValue(value: unknown): unknown {
   return fields;
 }
 
+function isEscapedMapEnvelope(
+  record: Readonly<Record<string, unknown>>,
+): record is { readonly type: 'pyric/map/1.0'; readonly fields: Readonly<Record<string, unknown>> } {
+  const innerFields = ownField(record, 'fields');
+  if (innerFields === null || typeof innerFields !== 'object' || Array.isArray(innerFields)) {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(innerFields);
+  return (
+    (proto === Object.prototype || proto === null) &&
+    Object.keys(record).length === 2 &&
+    ownField(record, 'type') === 'pyric/map/1.0'
+  );
+}
+
 /** Encode a Firestore document map into a pure JSON-safe `EncodedMap`. */
 export function encodeSnapshotMap(map: Readonly<Record<string, unknown>>): EncodedMap {
   const encoded: Record<string, unknown> = {};
@@ -325,13 +340,7 @@ export function encodeSnapshotMap(map: Readonly<Record<string, unknown>>): Encod
     if (value === undefined) continue;
     defineOwnProperty(encoded, key, encodeSnapshotValue(value));
   }
-  const innerFields = ownField(encoded, 'fields');
-  if (
-    ownField(encoded, 'type') === 'pyric/map/1.0' &&
-    innerFields !== null &&
-    typeof innerFields === 'object' &&
-    !Array.isArray(innerFields)
-  ) {
+  if (isEscapedMapEnvelope(encoded)) {
     return { type: 'pyric/map/1.0', fields: encoded };
   }
   return encoded;
@@ -367,10 +376,9 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
     if (numValue === '-0') return -0;
   }
   if (tagType === 'pyric/map/1.0') {
-    const inner = ownField(record, 'fields');
-    if (inner !== null && typeof inner === 'object' && !Array.isArray(inner)) {
+    if (isEscapedMapEnvelope(record)) {
       const nextInner: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(inner as Record<string, unknown>)) {
+      for (const [k, v] of Object.entries(record.fields)) {
         defineOwnProperty(nextInner, k, guardMalformedHandAuthoredMarkers(v, mode));
       }
       return { type: 'pyric/map/1.0', fields: nextInner };
@@ -467,14 +475,8 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
 }
 
 function unwrapTopLevelFields(encoded: EncodedMap): Readonly<Record<string, unknown>> {
-  const innerFields = ownField(encoded, 'fields');
-  if (
-    ownField(encoded, 'type') === 'pyric/map/1.0' &&
-    innerFields !== null &&
-    typeof innerFields === 'object' &&
-    !Array.isArray(innerFields)
-  ) {
-    return innerFields as Readonly<Record<string, unknown>>;
+  if (isEscapedMapEnvelope(encoded)) {
+    return encoded.fields;
   }
   return encoded;
 }

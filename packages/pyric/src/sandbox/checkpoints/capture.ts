@@ -28,10 +28,24 @@ function isCountableTree(value: unknown): value is Record<string, unknown> {
  * the backend's persistence envelope, whose `data` key is the tree itself, so
  * the count is taken there rather than over the envelope's own keys.
  */
+function countDatabaseTree(tree: unknown): number {
+  if (tree === null || tree === undefined) return 0;
+  if (isCountableTree(tree)) return Object.keys(tree).length;
+  if (Array.isArray(tree)) return tree.length;
+  return 1;
+}
+
 function databaseEntryCount(database: FullSandboxState['database']): number {
-  if (!isCountableTree(database)) return 0;
-  const tree = isCountableTree(database.data) ? database.data : database;
-  return Object.keys(tree).length;
+  if (isCountableTree(database) && '.pyricRtdbPersistence' in database) {
+    let total = countDatabaseTree(database.data);
+    if (isCountableTree(database.instances)) {
+      for (const inst of Object.values(database.instances)) {
+        total += databaseEntryCount(inst as FullSandboxState['database']);
+      }
+    }
+    return total;
+  }
+  return countDatabaseTree(database);
 }
 
 /** How much each service holds in one state. */

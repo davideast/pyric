@@ -155,4 +155,10 @@ export interface SandboxSnapshot {
    * returned. May be `{}` when no services are registered.
    */
   services: Record<string, unknown>;
+  /**
+   * Deployed Firestore Security Rules source when non-default rules are active.
+   * Restored by {@link Sandbox.loadSnapshot} so clobber-restoring a snapshot
+   * does not silently revert Firestore rules to default open rules.
+   */
+  firestoreRules?: string;
 }

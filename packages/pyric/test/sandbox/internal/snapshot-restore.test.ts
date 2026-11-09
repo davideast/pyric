@@ -184,4 +184,59 @@ describe('snapshot-restore', () => {
     expect((await getDoc(doc(getAdminFirestore(target), 'constructor/doc-1'))).data()).toEqual({ ok: true });
     expect((await getDoc(doc(getAdminFirestore(target), 'toString/doc-2'))).data()).toEqual({ ok: true });
   });
+
+  it('preserves Storage generation, metageneration, downloadTokens, md5Hash, and blobType across capture and restore', async () => {
+    const { getBlob, getDownloadURL, getMetadata, updateMetadata } = await import('pyric/storage');
+    const { getClock } = await import('pyric/sandbox');
+    const { replaceStorageRules } = await import('pyric/storage/internal');
+
+    const source = initializeSandbox();
+    getClock(source).set(1_700_000_000_000);
+    const adminStorage = getAdminStorageSandbox(source, {
+      dbName: `pyric-restore-meta-src:${nextRestoreDb++}`,
+    });
+    const objRef = storageRef(adminStorage, 'items/u1/doc.txt');
+    await uploadBytes(objRef, new Blob(['hello'], { type: 'text/markdown' }));
+    const downloadUrl = await getDownloadURL(objRef);
+    getClock(source).set(1_700_000_060_000);
+    await updateMetadata(objRef, {
+      contentType: 'text/plain',
+      customMetadata: { stage: 'reviewed' },
+    });
+
+    const beforeMeta = await getMetadata(objRef);
+    expect(beforeMeta.metageneration).toBe('2');
+
+    await replaceStorageRules(
+      source,
+      `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /items/{uid}/{file} {
+      allow read: if resource.metageneration == 2 && resource.generation == int(${beforeMeta.generation});
+    }
+  }
+}`,
+    );
+
+    const snapshot = await captureSandboxSnapshot(source);
+    const target = initializeSandbox();
+    getAdminStorageSandbox(target, {
+      dbName: `pyric-restore-meta-dst:${nextRestoreDb++}`,
+    });
+    const { refusals } = await restoreSandboxSnapshot(target, snapshot);
+    expect(refusals).toEqual([]);
+
+    const targetAdmin = getAdminStorageSandbox(target);
+    const targetAdminRef = storageRef(targetAdmin, 'items/u1/doc.txt');
+    const afterMeta = await getMetadata(targetAdminRef);
+    expect(afterMeta.generation).toBe(beforeMeta.generation);
+    expect(afterMeta.metageneration).toBe('2');
+    expect(afterMeta.md5Hash).toBe(beforeMeta.md5Hash);
+    expect(await getDownloadURL(targetAdminRef)).toBe(downloadUrl);
+
+    const clientStorage = getStorageSandbox(target);
+    const restoredBlob = await getBlob(storageRef(clientStorage, 'items/u1/doc.txt'));
+    expect(restoredBlob.type).toBe('text/markdown');
+  });
 });

@@ -35,6 +35,8 @@
  */
 
 import { getOrCreateBackend } from '../../database/sandbox/backend-for.js';
+import type { JsonValue } from '../../database/sandbox/data-tree.js';
+import type { Priority } from '../../database/sandbox/query.js';
 import { toStrictRulesJson } from '../../rules/rtdb/rules-text.js';
 import { getAdminStorageSandbox, replaceStorageRules } from '../../storage/internal.js';
 import { Timestamp } from 'pyric/rules/internal';
@@ -47,9 +49,10 @@ import {
   type DatabaseRuleset,
   type FullSandboxState,
 } from '../full-state.js';
+import { databaseInstanceNamed } from '../internal/instances.js';
 import { initializeSandbox } from '../index.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
-import type { SandboxEvent, WriteSandboxEvent } from '../types/events.js';
+import type { SandboxCommitEvent, SandboxEvent, WriteSandboxEvent } from '../types/events.js';
 import type { LocalSandbox } from '../types/service.js';
 import { promoteFullState } from './promotion.js';
 import { diffFullStates, type BranchDivergence } from './state-diff.js';
@@ -196,13 +199,19 @@ export async function fork(
  *
  * @returns the same branch, mutated in place, for chaining.
  */
+type ReplayableBranchEvent = WriteSandboxEvent | (SandboxCommitEvent & { service: 'rtdb' });
+
+function isReplayableBranchEvent(event: SandboxEvent): event is ReplayableBranchEvent {
+  return event.kind === 'write' || (event.kind === 'commit' && event.service === 'rtdb');
+}
+
 export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
   assertLive(branch);
   const env = getInternalEnv(branch.sandbox);
   const clock = getClock(branch.sandbox);
   const priorClock = clock.capture();
   let clockPinned = false;
-  const writes = events.filter((event): event is WriteSandboxEvent => event.kind === 'write');
+  const replayable = events.filter(isReplayableBranchEvent);
   const consumedRequestIndices = new Set<number>();
   const pathAliases = new Map<string, string>();
   const remap = (path: string): string => {
@@ -214,9 +223,12 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
     }
     return path;
   };
-  const pinClockTo = (write: WriteSandboxEvent): void => {
-    clock.set(write.requestTime.seconds * 1000 + Math.floor(write.requestTime.nanoseconds / 1e6));
+  const pinClockMs = (ms: number): void => {
+    clock.set(ms);
     clockPinned = true;
+  };
+  const pinClockTo = (write: WriteSandboxEvent): void => {
+    pinClockMs(write.requestTime.seconds * 1000 + Math.floor(write.requestTime.nanoseconds / 1e6));
   };
   const dataFor = (write: WriteSandboxEvent): DocData | undefined => {
     const rawData =
@@ -227,9 +239,16 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
   };
 
   try {
-    for (let index = 0; index < writes.length;) {
-      const write = writes[index]!;
-      const group = groupAt(writes, index);
+    for (let index = 0; index < replayable.length;) {
+      const current = replayable[index]!;
+      if (current.kind === 'commit') {
+        replayRtdbCommit(branch.sandbox, current, pinClockMs);
+        index += 1;
+        continue;
+      }
+
+      const write = current;
+      const group = groupAt(replayable, index);
       if (group.length > 0) {
         pinClockTo(write);
         const operations: BatchOperationInput[] = group.map((event) => {
@@ -261,8 +280,16 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
 
       if (write.autoId) {
         const targetPath = remap(write.path);
-        const collection = targetPath.slice(0, targetPath.lastIndexOf('/'));
         pinClockTo(write);
+        if (!(targetPath in env.snapshot())) {
+          try {
+            env.execute(executionFor(write, targetPath, data, requestTime));
+          } catch {
+            // Keep applying subsequent writes so diff() surfaces the divergence.
+          }
+          continue;
+        }
+        const collection = targetPath.slice(0, targetPath.lastIndexOf('/'));
         try {
           const { path: mintedPath, result } = env.createWithAutoId(
             collection,
@@ -294,13 +321,77 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
   return branch;
 }
 
+/** Replay one committed Realtime Database mutation against the branch's active rules and clock. */
+function replayRtdbCommit(
+  sandbox: LocalSandbox,
+  commit: SandboxCommitEvent & { service: 'rtdb' },
+  pinClockMs: (ms: number) => void,
+): void {
+  const instance = commit.instance === undefined
+    ? undefined
+    : databaseInstanceNamed(commit.instance);
+  const backend = getOrCreateBackend(sandbox, instance);
+  const requestTimeMs = commit.replay?.requestTime ?? commit.at;
+  if (typeof requestTimeMs === 'number' && Number.isFinite(requestTimeMs)) {
+    pinClockMs(requestTimeMs);
+  }
+  const rawPath = commit.path ?? '/';
+  const path = rawPath === '' || rawPath === '/' ? '/' : rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  const isAdmin = commit.detail?.admin === true;
+
+  try {
+    if (commit.method === 'remove') {
+      if (isAdmin) backend.adminRemove(path);
+      else backend.remove(commit.auth, path);
+      return;
+    }
+    if (commit.method === 'update') {
+      const patch = structuredClone((commit.data ?? {}) as Record<string, JsonValue>);
+      if (isAdmin) backend.adminUpdate(path, patch);
+      else backend.update(commit.auth, path, patch);
+      return;
+    }
+    if (commit.method === 'setPriority') {
+      const priority = structuredClone((commit.data ?? null) as Priority);
+      if (isAdmin) backend.adminSetPriority(path, priority);
+      else backend.setPriority(commit.auth, path, priority);
+      return;
+    }
+    if (commit.method === 'transaction') {
+      const proposed = structuredClone((commit.data ?? null) as JsonValue);
+      backend.runTransaction(commit.auth, path, () => proposed, isAdmin ? { admin: true } : undefined);
+      return;
+    }
+    if (commit.method === 'set') {
+      const payload = structuredClone((commit.data ?? null) as JsonValue);
+      const carriesInlinePriority =
+        payload !== null && typeof payload === 'object' && !Array.isArray(payload) && '.priority' in payload;
+      const detailPriority = commit.detail?.priority;
+      const hasExplicitPriority =
+        !carriesInlinePriority && (typeof detailPriority === 'string' || typeof detailPriority === 'number');
+      if (hasExplicitPriority) {
+        if (isAdmin) backend.adminSetWithPriority(path, payload, detailPriority);
+        else backend.setWithPriority(commit.auth, path, payload, detailPriority);
+        return;
+      }
+      if (isAdmin) backend.adminSet(path, payload);
+      else backend.set(commit.auth, path, payload);
+    }
+  } catch {
+    // A denied or failed re-issue surfaces later as state divergence in diff().
+  }
+}
+
 /** The writes of the batch or transaction starting at `index`, or `[]` when single. */
-function groupAt(writes: readonly WriteSandboxEvent[], index: number): WriteSandboxEvent[] {
-  const groupId = writes[index]?.groupId;
-  if (groupId === undefined) return [];
+function groupAt(events: readonly ReplayableBranchEvent[], index: number): WriteSandboxEvent[] {
+  const first = events[index];
+  if (first === undefined || first.kind !== 'write' || first.groupId === undefined) return [];
+  const groupId = first.groupId;
   const group: WriteSandboxEvent[] = [];
-  for (let at = index; at < writes.length && writes[at]!.groupId === groupId; at++) {
-    group.push(writes[at]!);
+  for (let at = index; at < events.length; at++) {
+    const entry = events[at]!;
+    if (entry.kind !== 'write' || entry.groupId !== groupId) break;
+    group.push(entry);
   }
   return group;
 }

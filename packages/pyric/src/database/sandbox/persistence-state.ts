@@ -170,6 +170,7 @@ export class PersistenceState {
   }
 
   restore(root: JsonValue): void {
+    this.state.resetGeneration += 1;
     const priors = this.children.snapshotParents();
     const persisted = decode(root);
 

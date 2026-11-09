@@ -80,13 +80,18 @@ export interface SnapshotStorageObject {
   readonly path: string;
   readonly contentBase64: string;
   readonly size: number;
+  readonly generation?: string;
+  readonly metageneration?: string;
   readonly contentType?: string;
+  readonly blobType?: string;
   readonly cacheControl?: string;
   readonly contentDisposition?: string;
   readonly contentEncoding?: string;
   readonly contentLanguage?: string;
   readonly timeCreated?: string;
   readonly updated?: string;
+  readonly downloadTokens?: string;
+  readonly md5Hash?: string;
   readonly customMetadata?: Readonly<Record<string, string>>;
 }
 
@@ -308,21 +313,31 @@ async function captureStorageBuckets(
         path: string;
         contentBase64: string;
         size: number;
+        generation?: string;
+        metageneration?: string;
         contentType?: string;
+        blobType?: string;
         cacheControl?: string;
         contentDisposition?: string;
         contentEncoding?: string;
         contentLanguage?: string;
         timeCreated?: string;
         updated?: string;
+        downloadTokens?: string;
+        md5Hash?: string;
         customMetadata?: Record<string, string>;
       } = {
         path,
         contentBase64: encodeBytesToBase64(bytes),
         size: bytes.byteLength,
+        generation: stored.metadata.generation,
+        metageneration: stored.metadata.metageneration,
       };
       if (stored.metadata.contentType !== undefined) {
         record.contentType = stored.metadata.contentType;
+      }
+      if (stored.blob.type !== (stored.metadata.contentType ?? '')) {
+        record.blobType = stored.blob.type;
       }
       if (stored.metadata.cacheControl !== undefined) {
         record.cacheControl = stored.metadata.cacheControl;
@@ -341,6 +356,12 @@ async function captureStorageBuckets(
       }
       if (stored.metadata.updated !== undefined) {
         record.updated = stored.metadata.updated;
+      }
+      if (stored.metadata.downloadTokens !== undefined) {
+        record.downloadTokens = stored.metadata.downloadTokens;
+      }
+      if (stored.metadata.md5Hash !== undefined) {
+        record.md5Hash = stored.metadata.md5Hash;
       }
       const custom = extractCustomMetadata(stored.metadata.customMetadata);
       if (custom !== undefined) {

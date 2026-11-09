@@ -96,4 +96,67 @@ describe('sandbox.loadSnapshot (clobber-restore)', () => {
     await expect(signInWithEmailAndPassword(auth, 'kept@b.com', 'pw123456')).resolves.toBeDefined();
     await expect(signInWithEmailAndPassword(auth, 'gone@b.com', 'pw123456')).rejects.toThrow();
   });
+
+  it('deep-clones nested Firestore maps and arrays across snapshot() and loadSnapshot()', () => {
+    const sandbox = initializeSandbox();
+    sandbox.admin.setDocument('items/i1', {
+      meta: { count: 1, labels: { env: 'prod' } },
+      tags: ['alpha', 'beta'],
+    });
+
+    const snap = sandbox.snapshot();
+    (snap.firestore['items/i1']!.meta as { count: number }).count = 999;
+    (snap.firestore['items/i1']!.tags as string[]).push('corrupted');
+
+    expect(sandbox.admin.getDocument('items/i1')).toEqual({
+      meta: { count: 1, labels: { env: 'prod' } },
+      tags: ['alpha', 'beta'],
+    });
+
+    const cleanSnap = sandbox.snapshot();
+    const target = initializeSandbox();
+    target.loadSnapshot(cleanSnap);
+    (cleanSnap.firestore['items/i1']!.meta as { count: number }).count = 555;
+    expect(target.admin.getDocument('items/i1')).toEqual({
+      meta: { count: 1, labels: { env: 'prod' } },
+      tags: ['alpha', 'beta'],
+    });
+  });
+
+  it('preserves deployed Firestore security rules across snapshot() and loadSnapshot()', async () => {
+    const { doc, getDoc, getFirestore } = await import('../../src/firestore/index.js');
+    const { getInternalEnv } = await import('../../src/sandbox/internal/sandbox-impl.js');
+
+    const ownerOnlyRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.ownerId;
+    }
+  }
+}`;
+
+    const sandbox = initializeSandbox();
+    const initialRules = getInternalEnv(sandbox).getRules();
+    const defaultSnap = sandbox.snapshot();
+
+    getInternalEnv(sandbox).deployRules(ownerOnlyRules);
+    sandbox.admin.setDocument('items/i1', { ownerId: 'u1', title: 'secret' });
+    const securedSnap = sandbox.snapshot();
+
+    sandbox.currentUser = { uid: 'u2' };
+    const db = getFirestore(sandbox);
+    await expect(getDoc(doc(db, 'items/i1'))).rejects.toThrow();
+
+    sandbox.admin.setDocument('items/i2', { ownerId: 'u2', title: 'extra' });
+    sandbox.loadSnapshot(securedSnap);
+
+    sandbox.currentUser = { uid: 'u2' };
+    await expect(getDoc(doc(db, 'items/i1'))).rejects.toThrow();
+    sandbox.currentUser = { uid: 'u1' };
+    expect((await getDoc(doc(db, 'items/i1'))).data()).toEqual({ ownerId: 'u1', title: 'secret' });
+
+    sandbox.loadSnapshot(defaultSnap);
+    expect(getInternalEnv(sandbox).getRules()).toBe(initialRules);
+  });
 });

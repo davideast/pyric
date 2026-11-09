@@ -440,4 +440,116 @@ service cloud.firestore {
     const docs = Object.values(getInternalEnv(branch.sandbox).snapshot());
     expect(docs).toEqual([{ status: 'published' }]);
   });
+
+  it('replays auto-ID creates at their recorded document path so diff is clean and promote does not duplicate documents', async () => {
+    const live = initializeSandbox();
+    getInternalEnv(live).seed({ rules: FIRESTORE_RULES, documents: {} });
+    const branch = await forkOf(live);
+
+    const created = getInternalEnv(live).createWithAutoId(
+      'items',
+      { title: 'alpha' },
+      { uid: 'u1' },
+    );
+    expect(created.result.allowed).toBe(true);
+
+    apply(branch, live.history());
+    expect(getInternalEnv(branch.sandbox).snapshot()[created.path]).toEqual({ title: 'alpha' });
+    expect(await diff(branch, live)).toEqual([]);
+
+    await promote(branch, live);
+    expect(Object.keys(getInternalEnv(live).snapshot())).toEqual([created.path]);
+  });
+
+  it('replays Realtime Database commit events synchronously against branch rules and pinned requestTime', async () => {
+    const {
+      apply: pkgApply,
+      captureFullState: pkgCaptureFullState,
+      diff: pkgDiff,
+      fork: pkgFork,
+      getClock: pkgGetClock,
+      initializeSandbox: pkgInitializeSandbox,
+    } = await import('pyric/sandbox');
+    const {
+      get: dbGet,
+      getAdminDatabase,
+      getDatabase,
+      ref: dbRef,
+      sandbox: rtdbSandbox,
+      set: dbSet,
+      setPriority: dbSetPriority,
+      update: dbUpdate,
+    } = await import('pyric/database');
+
+    const rtdbRules = {
+      rules: {
+        items: {
+          $id: {
+            '.read': 'auth != null',
+            '.write': "auth != null && (newData.child('owner').val() === auth.uid || !newData.exists())",
+          },
+        },
+      },
+    };
+    const stricterRules = {
+      rules: {
+        items: {
+          $id: {
+            '.read': 'auth != null',
+            '.write': "auth != null && newData.child('owner').val() === auth.uid && newData.child('approved').val() === true",
+          },
+        },
+      },
+    };
+
+    const live = pkgInitializeSandbox();
+    const liveClientDb = getDatabase(live.withAuth({ uid: 'u1', token: {} }));
+    rtdbSandbox.setRules(liveClientDb, rtdbRules);
+    const baseState = await pkgCaptureFullState(live);
+
+    pkgGetClock(live).set(1_700_000_000_000);
+    await dbSet(dbRef(liveClientDb, 'items/i1'), {
+      owner: 'u1',
+      approved: true,
+      createdAt: { '.sv': 'timestamp' },
+    });
+    await dbUpdate(dbRef(liveClientDb, 'items'), {
+      i2: { owner: 'u1', approved: false, title: 'draft' },
+    });
+    await dbSetPriority(dbRef(liveClientDb, 'items/i1'), 10);
+
+    const sameRulesBranch = await pkgFork(baseState, { database: rtdbRules });
+    pkgGetClock(sameRulesBranch.sandbox).set(1_800_000_000_000);
+    pkgApply(sameRulesBranch, live.history());
+
+    const replayedAdmin = getAdminDatabase(sameRulesBranch.sandbox);
+    const replayedI1 = await dbGet(dbRef(replayedAdmin, 'items/i1'));
+    expect(replayedI1.val()).toEqual({
+      owner: 'u1',
+      approved: true,
+      createdAt: 1_700_000_000_000,
+    });
+    expect(replayedI1.priority).toBe(10);
+    expect((await dbGet(dbRef(replayedAdmin, 'items/i2'))).val()).toEqual({
+      owner: 'u1',
+      approved: false,
+      title: 'draft',
+    });
+    expect(await pkgDiff(sameRulesBranch, live)).toEqual([]);
+
+    const stricterBranch = await pkgFork(baseState, { database: stricterRules });
+    pkgApply(stricterBranch, live.history());
+    const stricterAdmin = getAdminDatabase(stricterBranch.sandbox);
+    expect((await dbGet(dbRef(stricterAdmin, 'items/i1'))).val()).toEqual({
+      owner: 'u1',
+      approved: true,
+      createdAt: 1_700_000_000_000,
+    });
+    expect((await dbGet(dbRef(stricterAdmin, 'items/i2'))).val()).toBeNull();
+    const divergences = await pkgDiff(stricterBranch, live);
+    expect(divergences.map((d) => ({ service: d.service, path: d.path }))).toContainEqual({
+      service: 'database',
+      path: 'items/i2',
+    });
+  });
 });

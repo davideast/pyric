@@ -290,4 +290,125 @@ describe('promoteFullState lands the divergences the diff reports', () => {
     expect(calls).toEqual([]);
     expect(await captureFullState(target)).toEqual(before);
   });
+
+  it('preserves concurrent target siblings under a newly created Realtime Database parent and from an empty root', async () => {
+    const source = await populatedSandbox();
+    const base = await captureFullState(source);
+    const next = await branchFrom(base, (sandbox) => {
+      getOrCreateBackend(sandbox).adminSet('items/branchItem', { owner: 'branch' });
+    });
+
+    const target = await targetOn(base);
+    getOrCreateBackend(target).adminSet('items/liveItem', { owner: 'live' });
+
+    await promoteFullState(target, base, next);
+    expect(getOrCreateBackend(target).adminGet('items/liveItem')).toEqual({ owner: 'live' });
+    expect(getOrCreateBackend(target).adminGet('items/branchItem')).toEqual({ owner: 'branch' });
+
+    const emptyBase = await captureFullState(initializeSandbox());
+    const emptyNext = await branchFrom(emptyBase, (sandbox) => {
+      getOrCreateBackend(sandbox).adminSet('orgs/branchOrg', { tier: 'pro' });
+    });
+    const emptyTarget = initializeSandbox();
+    getOrCreateBackend(emptyTarget).adminSet('orgs/liveOrg', { tier: 'starter' });
+
+    await promoteFullState(emptyTarget, emptyBase, emptyNext);
+    expect(getOrCreateBackend(emptyTarget).adminGet('orgs/liveOrg')).toEqual({ tier: 'starter' });
+    expect(getOrCreateBackend(emptyTarget).adminGet('orgs/branchOrg')).toEqual({ tier: 'pro' });
+  });
+
+  it('preserves unchanged Realtime Database .priority metadata when promoting a value update on the same node', async () => {
+    const source = initializeSandbox();
+    getOrCreateBackend(source).adminSetWithPriority('ranked/a', 'v1', 10);
+    const base = await captureFullState(source);
+    const next = await branchFrom(base, (sandbox) => {
+      getOrCreateBackend(sandbox).adminSetWithPriority('ranked/a', 'v2', 10);
+    });
+
+    const target = initializeSandbox();
+    await applyFullState(target, base);
+    await promoteFullState(target, base, next);
+
+    expect(getOrCreateBackend(target).adminGet('ranked/a')).toBe('v2');
+    expect(getOrCreateBackend(target).getPriority('ranked/a')).toBe(10);
+  });
+
+  it('applies Auth provider config changes as a per-provider delta without clobbering concurrent target provider changes', async () => {
+    const source = initializeSandbox();
+    const base = await captureFullState(source);
+    const next = await branchFrom(base, (sandbox) => {
+      authDriver.setAuthProviderConfig(getAuth(sandbox), 'google.com', false);
+    });
+
+    const target = initializeSandbox();
+    await applyFullState(target, base);
+    authDriver.setAuthProviderConfig(getAuth(target), 'github.com', false);
+
+    await promoteFullState(target, base, next);
+    const providers = authDriver.exportProviderConfig(getAuth(target));
+    expect(providers['google.com']).toBe(false);
+    expect(providers['github.com']).toBe(false);
+  });
+
+  it('preserves concurrent writes on a target secondary Realtime Database instance when the branch only opened it for a read', async () => {
+    const { diff, fork, promote } = await import('../../../src/sandbox/branches/engine.js');
+    const { databaseInstanceNamed } = await import('../../../src/sandbox/internal/instances.js');
+
+    const live = initializeSandbox();
+    const branch = await fork(await captureFullState(live));
+
+    // Read-only access on the branch opens `side-db` with an empty `{}` tree
+    const branchSideDb = getOrCreateBackend(branch.sandbox, databaseInstanceNamed('side-db'));
+    expect(branchSideDb.adminGet('/')).toBeNull();
+
+    // Concurrent write on `live`'s `side-db` after the fork
+    const liveSideDb = getOrCreateBackend(live, databaseInstanceNamed('side-db'));
+    liveSideDb.adminSet('orgs/o1', { plan: 'pro' });
+
+    expect(await diff(branch, branch.base)).toEqual([]);
+    await promote(branch, live);
+    expect(liveSideDb.adminGet('orgs/o1')).toEqual({ plan: 'pro' });
+  });
+
+  it('preserves concurrent sibling keys on default and secondary Realtime Database instances when a branch deletes the last key', async () => {
+    const { diff, fork, promote } = await import('../../../src/sandbox/branches/engine.js');
+    const { databaseInstanceNamed } = await import('../../../src/sandbox/internal/instances.js');
+
+    const live = initializeSandbox();
+    const liveDefaultDb = getOrCreateBackend(live);
+    const liveSideDb = getOrCreateBackend(live, databaseInstanceNamed('side-db'));
+    liveDefaultDb.adminSet('a', 1);
+    liveDefaultDb.adminSet('groups/g1', { name: 'alpha' });
+    liveSideDb.adminSet('a', 1);
+    liveSideDb.adminSet('groups/g1', { name: 'alpha' });
+
+    const branch = await fork(await captureFullState(live));
+    const branchDefaultDb = getOrCreateBackend(branch.sandbox);
+    const branchSideDb = getOrCreateBackend(branch.sandbox, databaseInstanceNamed('side-db'));
+    branchDefaultDb.adminSet('a', null);
+    branchDefaultDb.adminSet('groups/g1', null);
+    branchSideDb.adminSet('a', null);
+    branchSideDb.adminSet('groups/g1', null);
+
+    // Concurrent writes on `live` after the fork (root sibling `b` + nested sibling `groups/g2`)
+    liveDefaultDb.adminSet('b', 2);
+    liveDefaultDb.adminSet('groups/g2', { name: 'beta' });
+    liveSideDb.adminSet('b', 2);
+    liveSideDb.adminSet('groups/g2', { name: 'beta' });
+
+    const divergences = await diff(branch, branch.base);
+    expect(divergences.some((d) => d.service === 'database' && d.path === '/')).toBe(false);
+
+    await promote(branch, live);
+
+    expect(liveDefaultDb.adminGet('a')).toBeNull();
+    expect(liveDefaultDb.adminGet('groups/g1')).toBeNull();
+    expect(liveDefaultDb.adminGet('b')).toBe(2);
+    expect(liveDefaultDb.adminGet('groups/g2')).toEqual({ name: 'beta' });
+
+    expect(liveSideDb.adminGet('a')).toBeNull();
+    expect(liveSideDb.adminGet('groups/g1')).toBeNull();
+    expect(liveSideDb.adminGet('b')).toBe(2);
+    expect(liveSideDb.adminGet('groups/g2')).toEqual({ name: 'beta' });
+  });
 });

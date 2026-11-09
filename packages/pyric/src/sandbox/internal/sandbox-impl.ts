@@ -69,6 +69,27 @@ function makeSandboxEventId(): string {
   return `sbe-${seq}-${rnd}`;
 }
 
+function cloneFirestoreSnapshotValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(cloneFirestoreSnapshotValue);
+  if (value instanceof Date) return new Date(value.getTime());
+  if (value instanceof Uint8Array) return value.slice();
+  const proto = Object.getPrototypeOf(value);
+  if (proto === Object.prototype || proto === null) {
+    const copy: Record<string, unknown> = proto === null ? Object.create(null) : {};
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      Object.defineProperty(copy, key, {
+        value: cloneFirestoreSnapshotValue((value as Record<string, unknown>)[key]),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return copy;
+  }
+  return value;
+}
+
 /**
  * Concrete `Sandbox`. Holds the live `LocalEnvironment` directly and
  * swaps it on `reset()`. Existing `SandboxContext`s continue to work
@@ -520,7 +541,13 @@ export class SandboxImpl implements LocalSandbox {
     for (const [name, svc] of this.serviceRegistry) {
       services[name] = svc.snapshot();
     }
-    return { firestore: this._env.snapshot(), services };
+    const rawFirestore = this._env.snapshot();
+    const firestore: Record<string, Record<string, unknown>> = {};
+    for (const [path, docData] of Object.entries(rawFirestore)) {
+      firestore[path] = cloneFirestoreSnapshotValue(docData) as Record<string, unknown>;
+    }
+    const firestoreRules = this._env.getRules();
+    return { firestore, services, firestoreRules };
   }
 
   loadSnapshot(data: SandboxSnapshot): void {
@@ -533,8 +560,14 @@ export class SandboxImpl implements LocalSandbox {
     // re-attaches the env; the per-doc writes below re-evaluate live listeners
     // and dirty the controller so the loaded state is flushed.
     this.reset();
+    if (typeof data.firestoreRules === 'string') {
+      this._env.deployRules(data.firestoreRules);
+    }
     for (const [path, docData] of Object.entries(data.firestore)) {
-      this._env.adminSetDocument(path, docData);
+      this._env.adminSetDocument(
+        path,
+        cloneFirestoreSnapshotValue(docData) as Record<string, unknown>,
+      );
     }
     // Only services that are BOTH in the snapshot AND currently registered are
     // restored; each is isolated so one broken service doesn't abort the load.
