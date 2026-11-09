@@ -1196,3 +1196,72 @@ describe('auth.getProviderConfig / auth.setProviderConfig — worker op round-tr
     expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(false);
   });
 });
+
+// ─── auth.adminGetAccountStanding / auth.adminRevokeRefreshTokens ───────────
+
+describe('auth.adminGetAccountStanding / auth.adminRevokeRefreshTokens — admin standing & revocation', () => {
+  it('returns standing across active, disabled, deleted, and unrecorded accounts and revokes refresh tokens', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    expect(
+      okValue<{ kind: string }>(
+        await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.adminGetAccountStanding', uid: 'missing-uid' }),
+      ),
+    ).toEqual({ kind: 'unrecorded' });
+
+    const missingRevoke = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.adminRevokeRefreshTokens', uid: 'missing-uid',
+    });
+    expect(missingRevoke.ok).toBe(false);
+    if (!missingRevoke.ok) expect(missingRevoke.error.code).toBe('auth/user-not-found');
+
+    const cred = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser', email: 'standing@example.com', password: 'password123',
+    }));
+    const uid = cred.user.uid;
+
+    const initialStanding = okValue<{ kind: string; tokensValidAfterMs: number | null }>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.adminGetAccountStanding', uid }),
+    );
+    expect(initialStanding).toEqual({ kind: 'active', tokensValidAfterMs: null });
+
+    getClock(ctx.sandbox).advance(2_000);
+    okValue(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.adminRevokeRefreshTokens', uid,
+    }));
+
+    const revokedStanding = okValue<{ kind: string; tokensValidAfterMs: number | null }>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.adminGetAccountStanding', uid }),
+    );
+    expect(revokedStanding.kind).toBe('active');
+    expect(typeof revokedStanding.tokensValidAfterMs).toBe('number');
+
+    const refreshAfterRevoke = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true,
+    });
+    expect(refreshAfterRevoke.ok).toBe(false);
+    if (!refreshAfterRevoke.ok) expect(refreshAfterRevoke.error.code).toBe('auth/user-token-expired');
+
+    okValue(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.adminUpdateUser', uid, request: { disabled: true },
+    }));
+    const disabledStanding = okValue<{ kind: string; tokensValidAfterMs: number | null }>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.adminGetAccountStanding', uid }),
+    );
+    expect(disabledStanding.kind).toBe('disabled');
+
+    okValue(await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.adminDeleteUser', uid }));
+    const deletedStanding = okValue<{ kind: string }>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.adminGetAccountStanding', uid }),
+    );
+    expect(deletedStanding).toEqual({ kind: 'deleted' });
+
+    const deletedRevoke = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.adminRevokeRefreshTokens', uid,
+    });
+    expect(deletedRevoke.ok).toBe(false);
+    if (!deletedRevoke.ok) expect(deletedRevoke.error.code).toBe('auth/user-not-found');
+  });
+});
+

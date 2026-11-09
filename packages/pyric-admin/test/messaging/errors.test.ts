@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getMessagingBroker } from 'pyric/messaging/internal';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
+import { PrefixedFirebaseError } from '../../src/app/firebase-error.js';
 import {
   FirebaseMessagingError,
   MessagingClientErrorCode,
@@ -42,6 +43,53 @@ describe('MessagingClientErrorCode static members', () => {
     expect(typeof invalid.message).toBe('string');
     expect(unregistered.code).toBe('registration-token-not-registered');
     expect(invalidToken.code).toBe('invalid-registration-token');
+  });
+
+  it('exposes the full upstream MessagingClientErrorCode table', () => {
+    const expectedCodes: Record<string, string> = {
+      INVALID_ARGUMENT: 'invalid-argument',
+      INVALID_RECIPIENT: 'invalid-recipient',
+      INVALID_PAYLOAD: 'invalid-payload',
+      INVALID_DATA_PAYLOAD_KEY: 'invalid-data-payload-key',
+      PAYLOAD_SIZE_LIMIT_EXCEEDED: 'payload-size-limit-exceeded',
+      INVALID_OPTIONS: 'invalid-options',
+      INVALID_REGISTRATION_TOKEN: 'invalid-registration-token',
+      REGISTRATION_TOKEN_NOT_REGISTERED: 'registration-token-not-registered',
+      MISMATCHED_CREDENTIAL: 'mismatched-credential',
+      INVALID_PACKAGE_NAME: 'invalid-package-name',
+      DEVICE_MESSAGE_RATE_EXCEEDED: 'device-message-rate-exceeded',
+      TOPICS_MESSAGE_RATE_EXCEEDED: 'topics-message-rate-exceeded',
+      MESSAGE_RATE_EXCEEDED: 'message-rate-exceeded',
+      THIRD_PARTY_AUTH_ERROR: 'third-party-auth-error',
+      TOO_MANY_TOPICS: 'too-many-topics',
+      AUTHENTICATION_ERROR: 'authentication-error',
+      SERVER_UNAVAILABLE: 'server-unavailable',
+      INTERNAL_ERROR: 'internal-error',
+      UNKNOWN_ERROR: 'unknown-error',
+    };
+    const table = MessagingClientErrorCode as unknown as Record<string, { code: string; message: string }>;
+    for (const [key, code] of Object.entries(expectedCodes)) {
+      expect(table[key]?.code).toBe(code);
+      expect(typeof table[key]?.message).toBe('string');
+      expect(table[key]!.message.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('FirebaseMessagingError — PrefixedFirebaseError inheritance', () => {
+  it('extends PrefixedFirebaseError and implements toJSON() and hasCode()', () => {
+    const err = new FirebaseMessagingError(MessagingClientErrorCode.INVALID_ARGUMENT, 'Bad field');
+    expect(err).toBeInstanceOf(FirebaseMessagingError);
+    expect(err).toBeInstanceOf(PrefixedFirebaseError);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.codePrefix).toBe('messaging');
+    expect(err.code).toBe('messaging/invalid-argument');
+    expect(err.hasCode('invalid-argument')).toBe(true);
+    expect(err.hasCode('unknown-error')).toBe(false);
+    expect(err.toJSON()).toEqual({
+      code: 'messaging/invalid-argument',
+      message: 'Bad field',
+    });
   });
 });
 

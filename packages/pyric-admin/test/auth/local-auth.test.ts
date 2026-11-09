@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
+  browserLocalPersistence,
   createUserWithEmailAndPassword,
   deleteUser,
   getAuth as getClientAuth,
+  sandbox as clientAuthSandbox,
+  setPersistence,
   signInWithEmailAndPassword,
   updateEmail,
   updateProfile,
@@ -139,5 +142,115 @@ service cloud.firestore {
     });
     expect(recreated.uid).toBe('user-del');
     expect(recreated.email).toBe('recreated@example.com');
+  });
+
+  it('rejects operations on a retained Auth handle after deleteApp(app)', async () => {
+    const sandbox = initializeSandbox();
+    const app = initializeApp({ sandbox }, 'local-deleted-app');
+    const adminAuth = getAuth(app);
+    await deleteApp(app);
+
+    await expect(
+      Promise.resolve().then(() => adminAuth.createCustomToken('user-1')),
+    ).rejects.toMatchObject({ code: 'app/app-deleted' });
+    await expect(
+      Promise.resolve().then(() =>
+        adminAuth.createUser({ uid: 'user-1', email: 'u1@example.com', password: 'secret-pw' }),
+      ),
+    ).rejects.toMatchObject({ code: 'app/app-deleted' });
+    await expect(
+      Promise.resolve().then(() => adminAuth.getUser('user-1')),
+    ).rejects.toMatchObject({ code: 'app/app-deleted' });
+  });
+
+  it('preserves client Auth users and persisted session storage on sandbox.dispose()', async () => {
+    const map = new Map<string, string>();
+    const memStorage = {
+      get length() {
+        return map.size;
+      },
+      key: (i: number) => [...map.keys()][i] ?? null,
+      getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+      setItem: (k: string, v: string) => {
+        map.set(k, String(v));
+      },
+      removeItem: (k: string) => {
+        map.delete(k);
+      },
+      clear: () => {
+        map.clear();
+      },
+    };
+    const sandbox = initializeSandbox();
+    await sandbox.enablePersistence({
+      key: 'local-auth-dispose-preserve',
+      backend: 'memory',
+      flushIntervalMs: 5,
+      sessionStorage: { local: memStorage, session: memStorage },
+    });
+    const clientAuth = getClientAuth(sandbox);
+    await setPersistence(clientAuth, browserLocalPersistence);
+    const adminAuth = getAuth(initializeApp({ sandbox }, 'local-dispose-preserve'));
+    await adminAuth.createUser({ uid: 'user-1', email: 'u1@example.com', password: 'secret-pw' });
+    await signInWithEmailAndPassword(clientAuth, 'u1@example.com', 'secret-pw');
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    sandbox.dispose();
+
+    expect(clientAuthSandbox.listUsers(clientAuth)).toHaveLength(1);
+    expect(map.size).toBeGreaterThan(0);
+  });
+
+  it('rejects createUser({ uid, password }) without email with auth/invalid-email instead of dropping password', async () => {
+    const sandbox = initializeSandbox();
+    const adminAuth = getAuth(initializeApp({ sandbox }, 'local-pw-no-email'));
+    await expect(
+      adminAuth.createUser({ uid: 'user-no-email', password: 'secret-pw' }),
+    ).rejects.toMatchObject({
+      code: 'auth/invalid-email',
+    });
+  });
+
+  it('exposes auth.app, supports updateUser and paginated listUsers, and validates uids', async () => {
+    const sandbox = initializeSandbox();
+    const app = initializeApp({ sandbox }, 'local-parity');
+    const adminAuth = getAuth(app);
+
+    expect(adminAuth.app).toBe(app);
+
+    await adminAuth.createUser({ uid: 'user-1', email: 'u1@example.com', password: 'secret-pw' });
+    await adminAuth.createUser({ uid: 'user-2', email: 'u2@example.com', password: 'secret-pw' });
+    await adminAuth.createUser({ uid: 'user-3', email: 'u3@example.com', password: 'secret-pw' });
+
+    const updated = await adminAuth.updateUser('user-1', {
+      displayName: 'User One',
+      emailVerified: true,
+    });
+    expect(updated.displayName).toBe('User One');
+    expect(updated.emailVerified).toBe(true);
+
+    const page1 = await adminAuth.listUsers(2);
+    expect(page1.users.map((u) => u.uid)).toEqual(['user-1', 'user-2']);
+    expect(typeof page1.pageToken).toBe('string');
+
+    const page2 = await adminAuth.listUsers(2, page1.pageToken);
+    expect(page2.users.map((u) => u.uid)).toEqual(['user-3']);
+    expect(page2.pageToken).toBeUndefined();
+
+    await expect(adminAuth.listUsers(0)).rejects.toMatchObject({ code: 'auth/argument-error' });
+    await expect(adminAuth.listUsers(1001)).rejects.toMatchObject({ code: 'auth/argument-error' });
+    await expect(adminAuth.listUsers(1, '')).rejects.toMatchObject({ code: 'auth/invalid-page-token' });
+    await expect(adminAuth.listUsers(1, 'invalid-cursor')).rejects.toMatchObject({
+      code: 'auth/invalid-page-token',
+    });
+
+    await expect(adminAuth.deleteUser('')).rejects.toMatchObject({ code: 'auth/invalid-uid' });
+    await expect(adminAuth.getUser('')).rejects.toMatchObject({ code: 'auth/invalid-uid' });
+    await expect(adminAuth.setCustomUserClaims('', { role: 'member' })).rejects.toMatchObject({
+      code: 'auth/invalid-uid',
+    });
+    await expect(adminAuth.updateUser('', { displayName: 'Nope' })).rejects.toMatchObject({
+      code: 'auth/invalid-uid',
+    });
   });
 });

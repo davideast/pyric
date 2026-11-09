@@ -499,21 +499,11 @@ describe('sandbox backend — reset clears state', () => {
 });
 
 describe('sandbox backend — explicitly-not-implemented surface', () => {
-  it('updateUser throws the canonical not-implemented message', async () => {
-    const sandbox = initializeSandbox();
-    const auth = getAuth(initializeApp({ sandbox }));
-    await expect(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (auth as any).updateUser('alice', { displayName: 'A' }),
-    ).rejects.toThrow(/not implemented in pyric-admin\/auth sandbox backend/);
-  });
-
   it.each([
     'getUserByPhoneNumber',
     'getUserByProviderUid',
     'getUsers',
     'deleteUsers',
-    'listUsers',
     'importUsers',
     'createSessionCookie',
     'verifySessionCookie',

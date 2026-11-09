@@ -7,6 +7,7 @@
 import { afterEach, describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
+import { getMessagingBroker } from 'pyric/messaging/internal';
 
 import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge.js';
 import { createConsumerSession } from '../../../cli/src/bridge/server/peer.js';
@@ -192,6 +193,72 @@ describe('remote messaging dispatch', () => {
     const unsubRes = await messaging.unsubscribeFromTopic([token], 'news');
     expect(unsubRes.successCount).toBe(1);
     expect(unsubRes.failureCount).toBe(0);
+
+    remote.dispose();
+  });
+
+  it('enforces condition precedence and rejects /topics/-prefixed condition literals over remote channel', async () => {
+    const ctx = makeWorkerCtx();
+    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    connectTab(bridge, ctx);
+    const remote = connectRemote(bridge);
+
+    const { token } = (await workerOp(ctx, {
+      method: 'messaging.getToken',
+      registrationId: 'client-sw-cond',
+    })) as { token: string };
+
+    const app = initializeApp({ sandbox: remote });
+    const messaging = getMessaging(app);
+    await messaging.subscribeToTopic([token], 'alpha');
+
+    const deliveredIds: string[] = [];
+    getMessagingBroker(ctx.sandbox).onBackgroundMessage((payload) => {
+      if (payload.data?.id) deliveredIds.push(payload.data.id);
+    });
+
+    await expect(
+      messaging.send({ condition: "'/topics/alpha' in topics", data: { id: 'bad' } }),
+    ).rejects.toMatchObject({ code: 'messaging/invalid-argument' });
+
+    const name = await messaging.send({
+      condition: "'alpha' in topics || 'beta' in topics && 'gamma' in topics",
+      data: { id: 'ok' },
+    });
+    expect(name).toMatch(/^projects\/pyric-sandbox\/messages\/\d+$/);
+    expect(deliveredIds).toEqual(['ok']);
+
+    remote.dispose();
+  });
+
+  it('uses bound app projectId and rejects non-string topics over remote channel', async () => {
+    const ctx = makeWorkerCtx();
+    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    connectTab(bridge, ctx);
+    const remote = connectRemote(bridge);
+
+    const { token } = (await workerOp(ctx, {
+      method: 'messaging.getToken',
+      registrationId: 'client-sw-proj',
+    })) as { token: string };
+
+    const app = initializeApp({ sandbox: remote, projectId: 'proj-remote' });
+    const messaging = getMessaging(app);
+
+    const name = await messaging.send({ topic: 'news', data: { id: '1' } });
+    expect(name).toMatch(/^projects\/proj-remote\/messages\/\d+$/);
+
+    await expect(messaging.subscribeToTopic(token, null as never)).rejects.toMatchObject({
+      code: 'messaging/invalid-argument',
+    });
+    await expect(messaging.unsubscribeFromTopic(token, null as never)).rejects.toMatchObject({
+      code: 'messaging/invalid-argument',
+    });
+
+    await deleteApp(app);
+    await expect(messaging.send({ topic: 'news', data: { id: 'after-delete' } })).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
 
     remote.dispose();
   });

@@ -367,13 +367,17 @@ service firebase.storage {
     ).toThrow(/first storage call/);
   });
 
-  it('admin plane first, rules later → throws (getAdminStorageSandbox opened the service)', async () => {
+  it('admin plane first without rules leaves the client rules slot open for the first getStorageSandbox call, then locks it', async () => {
     const { getAdminStorageSandbox } = await import('../../src/storage/internal.js');
     const sandbox = initializeSandbox({});
-    getAdminStorageSandbox(sandbox, { dbName: uniqueDbName('late-rules-admin') });
+    const admin = getAdminStorageSandbox(sandbox, { dbName: uniqueDbName('late-rules-admin') });
+    await uploadBytes(ref(admin, 'items/item-1.txt'), new Blob(['seeded']));
+
+    const client = getStorageSandbox(sandbox, { rules: DENY_ALL });
+    await expect(getBlob(ref(client, 'items/item-1.txt'))).rejects.toThrow(/unauthorized/);
     expect(() =>
-      getStorageSandbox(sandbox, { rules: DENY_ALL }),
-    ).toThrow(/already open without rules/);
+      getStorageSandbox(sandbox, { rules: SESSION_ARCHIVE_RULES }),
+    ).toThrow(/different rules source/);
   });
 
   it('a DIFFERENT rules source after a rules-configured open → throws', () => {

@@ -27,6 +27,8 @@
 
 import 'fake-indexeddb/auto';
 import { afterEach, describe, it, expect } from 'bun:test';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { initializeSandbox } from 'pyric/sandbox';
@@ -524,6 +526,127 @@ describe('pyric-admin remote dispatch — Storage arm selection', () => {
   it('getStorage(app) reuses one remote Storage per handle', () => {
     const { app } = makeStack();
     expect(getStorage(app)).toBe(getStorage(app));
+  });
+
+  it('isolates distinct storageBucket names across multiple remote admin apps on the same host', async () => {
+    const { remote, ctx } = makeStack();
+    const appAlpha = initializeApp({ sandbox: remote, storageBucket: 'bucket-alpha' }, 'remote-bucket-alpha');
+    const appBeta = initializeApp({ sandbox: remote, storageBucket: 'bucket-beta' }, 'remote-bucket-beta');
+
+    await getStorage(appAlpha).bucket().file('docs/doc-1.txt').save('alpha-payload');
+    await getStorage(appBeta).bucket().file('docs/doc-1.txt').save('beta-payload');
+
+    const [alphaBytes] = await getStorage(appAlpha).bucket().file('docs/doc-1.txt').download();
+    const [betaBytes] = await getStorage(appBeta).bucket().file('docs/doc-1.txt').download();
+    const [betaViaAlpha] = await getStorage(appAlpha).bucket('bucket-beta').file('docs/doc-1.txt').download();
+    expect(alphaBytes.toString('utf8')).toBe('alpha-payload');
+    expect(betaBytes.toString('utf8')).toBe('beta-payload');
+    expect(betaViaAlpha.toString('utf8')).toBe('beta-payload');
+
+    const listedBeta = (await workerOp(ctx, {
+      method: 'storage.listAll',
+      path: 'docs',
+      bucket: 'bucket-beta',
+    })) as { items: Array<{ fullPath: string }> };
+    expect(listedBeta.items.map((item) => item.fullPath)).toEqual(['docs/doc-1.txt']);
+  });
+
+  it('rejects retained remote Storage handles after deleteApp(app) without invalidating sibling apps', async () => {
+    const { app, remote } = makeStack();
+    const sibling = initializeApp({ sandbox: remote }, 'sibling-active');
+    const storage = getStorage(app);
+    const bucket = storage.bucket();
+    const file = bucket.file('docs/item-1.txt');
+    const siblingBucket = getStorage(sibling).bucket();
+
+    await deleteApp(app);
+
+    await expect(Promise.resolve().then(() => storage.bucket())).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(Promise.resolve().then(() => file.save('after-delete'))).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+
+    await siblingBucket.file('docs/item-2.txt').save('still-active');
+    const [bytes] = await siblingBucket.file('docs/item-2.txt').download();
+    expect(bytes.toString('utf8')).toBe('still-active');
+  });
+
+  it('normalizes inverted, negative, and out-of-range download({ start, end }) bounds on byte-routed handles', async () => {
+    const { app, bridge } = makeStack();
+    const payload = Buffer.from('0123456789', 'utf8');
+
+    const httpServer = createServer((req, res) => {
+      const rangeHeader = req.headers.range;
+      const match = rangeHeader === undefined ? null : /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+      if (match && match[1] !== '') {
+        const start = Number(match[1]);
+        if (start >= payload.length) {
+          res.writeHead(416, { 'content-range': `bytes */${payload.length}` }).end();
+          return;
+        }
+        const end = match[2] === '' ? payload.length - 1 : Math.min(Number(match[2]), payload.length - 1);
+        if (end >= start) {
+          const slice = payload.subarray(start, end + 1);
+          res
+            .writeHead(206, {
+              'content-range': `bytes ${start}-${end}/${payload.length}`,
+              'content-length': String(slice.length),
+            })
+            .end(slice);
+          return;
+        }
+      }
+      res.writeHead(200, { 'content-length': String(payload.length) }).end(payload);
+    });
+    await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}`;
+
+    try {
+      let handleMsg: (msg: BridgeMessage) => void = () => {};
+      const session = createConsumerSession(bridge, (msg) => handleMsg(overWire(msg)));
+      const core = createRemoteSandboxCore(
+        { send: (msg) => session.handleMessage(overWire(msg)) },
+        { serveUrl: baseUrl },
+      );
+      handleMsg = core.handleMessage;
+      core.start();
+      const routedHandle = createRemoteSandboxHandle({
+        channel: {
+          ...core.channel,
+          byteRoute: async () => ({
+            baseUrl,
+            sessionToken: async () => 'test-session-token',
+          }),
+        },
+        serveUrl: baseUrl,
+        close: () => core.dispose('closed'),
+      });
+
+      await getStorage(app).bucket().file('items/item-1.txt').save(payload);
+
+      const localApp = initializeApp({ sandbox: initializeSandbox() }, 'range-local');
+      const localBucket = getStorage(localApp).bucket();
+      await localBucket.file('items/item-1.txt').save(payload);
+
+      const remoteApp = initializeApp({ sandbox: routedHandle }, 'range-routed');
+      const remoteBucket = getStorage(remoteApp).bucket();
+
+      for (const options of [
+        { start: 2, end: 5 },
+        { start: 5, end: 2 },
+        { start: -3 },
+        { start: -3, end: -2 },
+        { start: 100 },
+      ]) {
+        const [localSlice] = await localBucket.file('items/item-1.txt').download(options);
+        const [remoteSlice] = await remoteBucket.file('items/item-1.txt').download(options);
+        expect(remoteSlice.toString('utf8')).toBe(localSlice.toString('utf8'));
+      }
+    } finally {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    }
   });
 
   it('still routes a plain in-process sandbox to the local arm', async () => {

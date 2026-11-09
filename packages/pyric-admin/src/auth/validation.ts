@@ -9,11 +9,12 @@ import {
 import type {
   AuthUserRecord,
   CreateUserRequest as SandboxCreateUserRequest,
+  UpdateUserRequest as SandboxUpdateUserRequest,
 } from 'pyric/auth';
 import type { PyricAdminApp } from '../app/index.js';
 import { explicitProjectId } from '../app/project-id.js';
-import type { CreateRequest, UserInfo, UserRecord } from './types.js';
-import { FirebaseAuthError } from './verify-token.js';
+import type { CreateRequest, ListUsersResult, UpdateRequest, UserInfo, UserRecord } from './types.js';
+import { FirebaseAuthError, invalidUid } from './verify-token.js';
 
 const RESERVED_CUSTOM_TOKEN_CLAIMS = new Set([
   'acr',
@@ -34,7 +35,20 @@ const RESERVED_CUSTOM_TOKEN_CLAIMS = new Set([
 ]);
 
 const MAX_CLAIMS_PAYLOAD_SIZE = 1000;
+const MAX_DOWNLOAD_ACCOUNT_PAGE_SIZE = 1000;
 const BASIC_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UNSUPPORTED_UPDATE_KEYS = [
+  'photoURL',
+  'phoneNumber',
+  'multiFactor',
+  'providerToLink',
+  'providersToUnlink',
+] as const;
+
+interface DecodedPageToken {
+  readonly offset: number;
+  readonly uid: string;
+}
 
 export function assertCustomTokenArguments(uid: unknown, developerClaims?: unknown): void {
   if (typeof uid !== 'string' || uid.length === 0) {
@@ -104,7 +118,122 @@ export function translateAdminBackendError(err: unknown): unknown {
   if (code === 'auth/weak-password') {
     return new FirebaseAuthError('invalid-password', message);
   }
+  if (code === 'auth/invalid-email') {
+    return new FirebaseAuthError('invalid-email', message);
+  }
+  if (code === 'auth/user-not-found') {
+    return new FirebaseAuthError('user-not-found', message);
+  }
   return err;
+}
+
+export function prepareSandboxUpdateRequest(
+  uid: unknown,
+  properties: UpdateRequest,
+  notImplemented: (method: string) => Error,
+): SandboxUpdateUserRequest {
+  const uidErr = invalidUid(uid);
+  if (uidErr !== null) throw uidErr;
+  if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) {
+    throw new FirebaseAuthError('argument-error', 'Properties argument must be a non-null object.');
+  }
+  const propRecord = properties as Record<string, unknown>;
+  const unsupported = UNSUPPORTED_UPDATE_KEYS.filter(
+    (key) => Object.hasOwn(propRecord, key) && propRecord[key] !== undefined,
+  );
+  if (unsupported.length > 0) {
+    throw notImplemented(`updateUser({ ${unsupported.join(', ')} })`);
+  }
+  if (properties.email !== undefined) {
+    const emailErr = validateAdminEmail(properties.email);
+    if (emailErr !== null) throw emailErr;
+  }
+  if (properties.password !== undefined) {
+    const pwErr = validateAdminPassword(properties.password);
+    if (pwErr !== null) throw pwErr;
+  }
+  return {
+    displayName: properties.displayName,
+    email: properties.email,
+    password: properties.password,
+    disabled: properties.disabled,
+    emailVerified: properties.emailVerified,
+  };
+}
+
+function encodePageToken(offset: number, uid: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, offset, uid }), 'utf8').toString('base64url');
+}
+
+function decodePageToken(pageToken: string): DecodedPageToken {
+  try {
+    const parsed = JSON.parse(Buffer.from(pageToken, 'base64url').toString('utf8')) as {
+      v?: unknown;
+      offset?: unknown;
+      uid?: unknown;
+    };
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      parsed.v === 1 &&
+      typeof parsed.offset === 'number' &&
+      Number.isInteger(parsed.offset) &&
+      parsed.offset >= 0 &&
+      typeof parsed.uid === 'string' &&
+      parsed.uid.length > 0
+    ) {
+      return { offset: parsed.offset, uid: parsed.uid };
+    }
+  } catch {
+    // Fall through to FirebaseAuthError below.
+  }
+  throw new FirebaseAuthError('invalid-page-token', 'The provided next page token is invalid.');
+}
+
+export function validateListUsersArguments(
+  maxResults = MAX_DOWNLOAD_ACCOUNT_PAGE_SIZE,
+  pageToken?: string,
+): { max: number; cursor: DecodedPageToken | null } {
+  if (pageToken !== undefined && (typeof pageToken !== 'string' || pageToken.length === 0)) {
+    throw new FirebaseAuthError('invalid-page-token', 'The page token must be a valid non-empty string.');
+  }
+  if (
+    typeof maxResults !== 'number' ||
+    !Number.isInteger(maxResults) ||
+    maxResults <= 0 ||
+    maxResults > MAX_DOWNLOAD_ACCOUNT_PAGE_SIZE
+  ) {
+    throw new FirebaseAuthError(
+      'argument-error',
+      `Required "maxResults" must be a positive integer that does not exceed ${MAX_DOWNLOAD_ACCOUNT_PAGE_SIZE}.`,
+    );
+  }
+  return {
+    max: maxResults,
+    cursor: pageToken !== undefined ? decodePageToken(pageToken) : null,
+  };
+}
+
+export function paginateUserRecords(
+  records: readonly AuthUserRecord[],
+  maxResults = MAX_DOWNLOAD_ACCOUNT_PAGE_SIZE,
+  pageToken?: string,
+): ListUsersResult {
+  const { max, cursor } = validateListUsersArguments(maxResults, pageToken);
+  let startIndex = 0;
+  if (cursor !== null) {
+    const idx = records.findIndex((r) => r.uid === cursor.uid);
+    startIndex = idx >= 0 ? idx + 1 : cursor.offset;
+  }
+  const slice = records.slice(startIndex, startIndex + max);
+  const users = slice.map(fromAuthUserRecord);
+  if (slice.length > 0 && startIndex + slice.length < records.length) {
+    return {
+      users,
+      pageToken: encodePageToken(startIndex + slice.length, slice[slice.length - 1]!.uid),
+    };
+  }
+  return { users };
 }
 
 /**

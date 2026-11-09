@@ -610,6 +610,52 @@ describe('pyric-admin remote dispatch — Auth', () => {
     expect(await answers(remoteAuth)).toEqual(await answers(localAuth));
   });
 
+  it('verifyIdToken(token, true) honors password-change and revokeRefreshTokens standing on remote sandboxes', async () => {
+    const { ctx, app } = makeStack();
+    const auth = getAuth(app);
+    await auth.createUser({ uid: 'user-1', email: 'u1@example.com', password: 'password-1' });
+
+    const mintAtCurrentClock = (): string => {
+      const nowSec = Math.floor(getClock(ctx.sandbox).now() / 1000);
+      return mintIdToken({
+        ...idTokenAudience(SANDBOX_PROJECT_ID),
+        sub: 'user-1',
+        user_id: 'user-1',
+        iat: nowSec,
+        auth_time: nowSec,
+        exp: nowSec + 3600,
+        firebase: { identities: {}, sign_in_provider: 'password' },
+      });
+    };
+
+    const tokenBeforePwChange = mintAtCurrentClock();
+    getClock(ctx.sandbox).advance(2000);
+    await auth.updateUser('user-1', { password: 'password-2' });
+
+    await expect(auth.verifyIdToken(tokenBeforePwChange)).resolves.toMatchObject({ uid: 'user-1' });
+    await expect(auth.verifyIdToken(tokenBeforePwChange, true)).rejects.toMatchObject({
+      code: 'auth/id-token-revoked',
+    });
+
+    const tokenAfterPwChange = mintAtCurrentClock();
+    await expect(auth.verifyIdToken(tokenAfterPwChange, true)).resolves.toMatchObject({
+      uid: 'user-1',
+    });
+
+    getClock(ctx.sandbox).advance(2000);
+    await auth.revokeRefreshTokens('user-1');
+
+    await expect(auth.verifyIdToken(tokenAfterPwChange, true)).rejects.toMatchObject({
+      code: 'auth/id-token-revoked',
+    });
+    await expect(auth.revokeRefreshTokens('missing-user')).rejects.toMatchObject({
+      code: 'auth/user-not-found',
+    });
+    await expect(auth.revokeRefreshTokens('')).rejects.toMatchObject({
+      code: 'auth/invalid-uid',
+    });
+  });
+
   it('verifyIdToken still throws synchronously for a token that is not a string', () => {
     const { app } = makeStack();
     expect(() => getAuth(app).verifyIdToken(42 as unknown as string)).toThrow(/must be a Firebase ID token string/);

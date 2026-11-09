@@ -42,7 +42,11 @@ import {
   type PyricAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
+import { PrefixedFirebaseError } from '../app/firebase-error.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import { explicitProjectId } from '../app/project-id.js';
+
+const DEFAULT_MESSAGING_PROJECT_ID = 'pyric-sandbox';
 
 type ErrorCodeInfo = { code: string; message: string };
 export class MessagingClientErrorCode {
@@ -50,23 +54,116 @@ export class MessagingClientErrorCode {
     code: 'invalid-argument',
     message: 'Invalid argument provided.',
   };
+  static readonly INVALID_RECIPIENT = {
+    code: 'invalid-recipient',
+    message: 'Invalid message recipient provided.',
+  };
+  static readonly INVALID_PAYLOAD = {
+    code: 'invalid-payload',
+    message: 'Invalid message payload provided.',
+  };
+  static readonly INVALID_DATA_PAYLOAD_KEY = {
+    code: 'invalid-data-payload-key',
+    message:
+      'The data message payload contains an invalid key. See the reference documentation ' +
+      'for the DataMessagePayload type for restricted keys.',
+  };
+  static readonly PAYLOAD_SIZE_LIMIT_EXCEEDED = {
+    code: 'payload-size-limit-exceeded',
+    message:
+      'The provided message payload exceeds the FCM size limits. See the error documentation ' +
+      'for more details.',
+  };
+  static readonly INVALID_OPTIONS = {
+    code: 'invalid-options',
+    message: 'Invalid message options provided.',
+  };
   static readonly INVALID_REGISTRATION_TOKEN = {
     code: 'invalid-registration-token',
-    message: 'Invalid registration token provided.',
+    message:
+      'Invalid registration token provided. Make sure it matches the registration token ' +
+      'the client app receives from registering with FCM.',
   };
   static readonly REGISTRATION_TOKEN_NOT_REGISTERED = {
     code: 'registration-token-not-registered',
-    message: 'The provided registration token is not registered.',
+    message:
+      'The provided registration token is not registered. A previously valid registration ' +
+      'token can be unregistered for a variety of reasons. See the error documentation for more ' +
+      'details. Remove this registration token and stop using it to send messages.',
+  };
+  static readonly MISMATCHED_CREDENTIAL = {
+    code: 'mismatched-credential',
+    message:
+      'The credential used to authenticate this SDK does not have permission to send ' +
+      'messages to the device corresponding to the provided registration token. Make sure the ' +
+      'credential and registration token both belong to the same Firebase project.',
+  };
+  static readonly INVALID_PACKAGE_NAME = {
+    code: 'invalid-package-name',
+    message:
+      'The message was addressed to a registration token whose package name does not match ' +
+      'the provided "restrictedPackageName" option.',
+  };
+  static readonly DEVICE_MESSAGE_RATE_EXCEEDED = {
+    code: 'device-message-rate-exceeded',
+    message:
+      'The rate of messages to a particular device is too high. Reduce the number of ' +
+      'messages sent to this device and do not immediately retry sending to this device.',
+  };
+  static readonly TOPICS_MESSAGE_RATE_EXCEEDED = {
+    code: 'topics-message-rate-exceeded',
+    message:
+      'The rate of messages to subscribers to a particular topic is too high. Reduce the ' +
+      'number of messages sent for this topic, and do not immediately retry sending to this topic.',
+  };
+  static readonly MESSAGE_RATE_EXCEEDED = {
+    code: 'message-rate-exceeded',
+    message: 'Sending limit exceeded for the message target.',
+  };
+  static readonly THIRD_PARTY_AUTH_ERROR = {
+    code: 'third-party-auth-error',
+    message:
+      'A message targeted to an iOS device could not be sent because the required APNs ' +
+      'SSL certificate was not uploaded or has expired. Check the validity of your development ' +
+      'and production certificates.',
+  };
+  static readonly TOO_MANY_TOPICS = {
+    code: 'too-many-topics',
+    message:
+      'The maximum number of topics the provided registration token can be subscribed to ' +
+      'has been exceeded.',
+  };
+  static readonly AUTHENTICATION_ERROR = {
+    code: 'authentication-error',
+    message:
+      'An error occurred when trying to authenticate to the FCM servers. Make sure the ' +
+      'credential used to authenticate this SDK has the proper permissions. See ' +
+      'https://firebase.google.com/docs/admin/setup for setup instructions.',
+  };
+  static readonly SERVER_UNAVAILABLE = {
+    code: 'server-unavailable',
+    message:
+      'The FCM server could not process the request in time. See the error documentation ' +
+      'for more details.',
+  };
+  static readonly INTERNAL_ERROR = {
+    code: 'internal-error',
+    message: 'An internal error has occurred. Please retry the request.',
+  };
+  static readonly UNKNOWN_ERROR = {
+    code: 'unknown-error',
+    message: 'An unknown server error was returned.',
   };
 }
 
-export class FirebaseMessagingError extends Error {
-  readonly code: string;
-
+export class FirebaseMessagingError extends PrefixedFirebaseError {
   constructor(info: ErrorCodeInfo, message?: string) {
-    super(message ?? info.message);
+    const shortCode = info.code.startsWith('messaging/')
+      ? info.code.slice('messaging/'.length)
+      : info.code;
+    super('messaging', shortCode, message ?? info.message);
     this.name = 'FirebaseMessagingError';
-    this.code = `messaging/${info.code}`;
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
@@ -134,8 +231,13 @@ function invalidArgument(message: string): Error & { readonly code: string } {
   return new MessagingError(ErrorCodes.INVALID_ARGUMENT!, message);
 }
 
+function projectIdFor(app: PyricAdminApp): string {
+  return explicitProjectId(app) ?? DEFAULT_MESSAGING_PROJECT_ID;
+}
+
 async function dispatchSend(
   sandbox: Sandbox,
+  projectId: string,
   message: BrokerMessage,
   validateOnly: boolean,
 ): Promise<string> {
@@ -145,9 +247,9 @@ async function dispatchSend(
       message,
       ...(validateOnly ? { validateOnly } : {}),
     })) as { name: string };
-    return res.name;
+    return res.name.replace(/^projects\/[^/]+\/messages\//, `projects/${projectId}/messages/`);
   }
-  return getMessagingBroker(sandbox).send(message, { validateOnly }).name;
+  return getMessagingBroker(sandbox).send(message, { validateOnly, projectId }).name;
 }
 
 async function dispatchTopicOp(
@@ -195,9 +297,11 @@ export class Messaging {
    * `dryRunSameShapeAsReal` / `realSendEnvelopeIdentical` parity).
    */
   async send(message: Message, dryRun?: boolean): Promise<string> {
+    assertAdminAppActive(this.boundApp);
     try {
       return await dispatchSend(
         this.boundApp.sandbox,
+        projectIdFor(this.boundApp),
         message as BrokerMessage,
         dryRun === true,
       );
@@ -211,17 +315,20 @@ export class Messaging {
    * ordered to match the input, one entry per message.
    */
   async sendEach(messages: Message[], dryRun?: boolean): Promise<BatchResponse> {
+    assertAdminAppActive(this.boundApp);
     if (!Array.isArray(messages) || messages.length === 0) {
       throw invalidArgument('messages must be a non-empty array');
     }
     if (messages.length > 500) {
       throw invalidArgument('messages list must not contain more than 500 items');
     }
+    const projectId = projectIdFor(this.boundApp);
     const responses: SendResponse[] = [];
     for (const message of messages) {
       try {
         const name = await dispatchSend(
           this.boundApp.sandbox,
+          projectId,
           message as BrokerMessage,
           dryRun === true,
         );
@@ -240,6 +347,7 @@ export class Messaging {
 
   /** Fan a `MulticastMessage` (up to 500 tokens) out through {@link sendEach}. */
   async sendEachForMulticast(message: MulticastMessage, dryRun?: boolean): Promise<BatchResponse> {
+    assertAdminAppActive(this.boundApp);
     if (!Array.isArray(message?.tokens) || message.tokens.length === 0) {
       throw invalidArgument('tokens must be a non-empty array');
     }
@@ -274,9 +382,16 @@ export class Messaging {
     topic: string,
     action: 'subscribe' | 'unsubscribe',
   ): Promise<MessagingTopicManagementResponse> {
+    assertAdminAppActive(this.boundApp);
     const tokens = Array.isArray(tokenOrTokens) ? tokenOrTokens : [tokenOrTokens];
     if (tokens.length === 0) {
       throw invalidArgument('registration token(s) must be a non-empty string or a non-empty array');
+    }
+    if (typeof topic !== 'string' || topic.length === 0) {
+      const fnName = action === 'subscribe' ? 'subscribeToTopic' : 'unsubscribeFromTopic';
+      throw invalidArgument(
+        `Topic provided to ${fnName}() must be a string which matches the format "/topics/[a-zA-Z0-9-_.~%]+".`,
+      );
     }
     let outcome: TopicManagementOutcome;
     try {

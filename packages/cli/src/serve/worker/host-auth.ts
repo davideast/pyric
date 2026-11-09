@@ -43,7 +43,7 @@ import {
   serializeSessionUser as serializeUser,
 } from './host/auth-session-seeder.js';
 import { signInWithCredentialPayload, type CredentialPayload } from './host/auth-credential-sign-in.js';
-import { getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
+import { authAccountsFor, getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 import { sessionKeyOf } from 'pyric/auth/internal';
 
 import { linkSessionProvider } from './host/auth-linking.js';
@@ -696,6 +696,31 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.adminDeleteUser': {
       try {
         authSandboxOps.deleteUser(auth, msg.uid);
+        await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.adminGetAccountStanding': {
+      try {
+        ok(port, msg.id, authAccountsFor(ctx.sandbox)?.standing(msg.uid) ?? { kind: 'unrecorded' });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.adminRevokeRefreshTokens': {
+      try {
+        const accounts = authAccountsFor(ctx.sandbox);
+        const standing = accounts?.standing(msg.uid) ?? { kind: 'unrecorded' };
+        const hasRecord = standing.kind === 'active' || standing.kind === 'disabled';
+        if (!hasRecord) {
+          throw Object.assign(
+            new Error('There is no user record corresponding to the provided identifier.'),
+            { code: 'auth/user-not-found' },
+          );
+        }
+        accounts!.revokeRefreshTokens(msg.uid);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }

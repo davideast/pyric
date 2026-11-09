@@ -126,36 +126,34 @@ export function storeBucketOf(ctx: HostCtx, name: string | undefined): string {
   return isDefault ? DEFAULT_BUCKET : name;
 }
 
+function hasPrimaryDefaultBucket(ctx: HostCtx): boolean {
+  const configured = ctx.appOptions?.storageBucket;
+  if (typeof configured === 'string' && configured !== '' && configured !== DEFAULT_BUCKET) {
+    return true;
+  }
+  return (defaultBucketNamesByHost.get(ctx)?.size ?? 0) > 0;
+}
+
 export function defaultBucketNames(ctx: HostCtx): ReadonlySet<string> {
   return defaultBucketNamesByHost.get(ctx) ?? new Set();
 }
 
 export function seedDefaultBucketNames(ctx: HostCtx, names: Iterable<string>): void {
-  let target = defaultBucketNamesByHost.get(ctx);
+  if (hasPrimaryDefaultBucket(ctx)) return;
   for (const name of names) {
     if (name === '' || name === DEFAULT_BUCKET) continue;
-    if (target === undefined) {
-      target = new Set();
-      defaultBucketNamesByHost.set(ctx, target);
-    }
-    target.add(name);
+    defaultBucketNamesByHost.set(ctx, new Set([name]));
+    break;
   }
 }
 
-/** The bucket an op's object is stored in, after noting the caller's name for the default bucket. */
+/** The bucket an op's object is stored in, after noting the host's primary default bucket alias if unset. */
 function bucketOfOp(ctx: HostCtx, msg: StorageBucketWire): string {
   const named = msg.defaultBucket;
   const namesDefault = named !== undefined && named !== '' && named !== DEFAULT_BUCKET;
-  if (namesDefault) {
-    let names = defaultBucketNamesByHost.get(ctx);
-    if (names === undefined) {
-      names = new Set();
-      defaultBucketNamesByHost.set(ctx, names);
-    }
-    if (!names.has(named)) {
-      names.add(named);
-      ctx.onDefaultBucketName?.(named);
-    }
+  if (namesDefault && !hasPrimaryDefaultBucket(ctx)) {
+    defaultBucketNamesByHost.set(ctx, new Set([named]));
+    ctx.onDefaultBucketName?.(named);
   }
   return storeBucketOf(ctx, msg.bucket);
 }
