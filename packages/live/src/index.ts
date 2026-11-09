@@ -12,4 +12,7 @@ export {
   type ObservedRtdbSessionOp,
   type ObservedSessionDelta,
   type ObservedSessionSkipCounts,
+  type ObservedStorageListItem,
+  type ObservedStorageObjectInput,
+  type ObservedStorageSessionOp,
 } from './session-data.js';

@@ -85,6 +85,27 @@ describe('readObservedSessionDelta', () => {
     const ops = Array.from({ length: 501 }, (_, idx) => ({ kind: 'delete', path: `items/${idx}` }));
     expect(rejectionOf({ firestore: ops }).reason).toBe('oversized');
   });
+
+  it('delegates storage ops and counts them toward the per-delta operation cap', () => {
+    const delta = readObservedSessionDelta({
+      storage: [
+        {
+          kind: 'upsert',
+          bucket: 'demo-proj.firebasestorage.app',
+          fullPath: 'items/item-1.png',
+          metadata: { size: 64, contentType: 'image/png', customMetadata: { apiKey: 'secret' } },
+        },
+      ],
+    });
+    expect(delta.storage).toEqual([
+      {
+        kind: 'upsert',
+        bucket: 'demo-proj.firebasestorage.app',
+        fullPath: 'items/item-1.png',
+        metadata: { size: 64, contentType: 'image/png', customMetadata: { apiKey: '[REDACTED]' } },
+      },
+    ]);
+  });
 });
 
 describe('skipReasonOf', () => {

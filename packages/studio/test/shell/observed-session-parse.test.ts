@@ -88,6 +88,35 @@ describe('parseObservedSessionSnapshot', () => {
     });
     expect(both.sources).toEqual({ client: true, admin: true });
   });
+
+  it('parses optional storage catalog with sources/skips preserved and omits storage from seed payloads', () => {
+    const parsed = parseObservedSessionSnapshot({
+      projectId: 'demo-project',
+      defaultStorageBucket: 'demo-project.firebasestorage.app',
+      sources: { client: true, admin: true },
+      skips: { failed: 1 },
+      storage: {
+        'demo-project.firebasestorage.app': {
+          prefixes: ['items'],
+          objects: {
+            'items/a.png': {
+              bucket: 'demo-project.firebasestorage.app',
+              fullPath: 'items/a.png',
+              name: 'a.png',
+              size: 128,
+            },
+          },
+        },
+      },
+    });
+    expect(parsed.sources).toEqual({ client: true, admin: true });
+    expect(parsed.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 0, failed: 1, admin: 0 });
+    expect(parsed.stats.storageBuckets).toBe(1);
+    expect(parsed.stats.storageObjects).toBe(1);
+    expect(parsed.defaultStorageBucket).toBe('demo-project.firebasestorage.app');
+    expect(parsed.storage?.['demo-project.firebasestorage.app']?.objects['items/a.png']?.size).toBe(128);
+    expect(buildObservedSeedPayload(parsed)).toEqual({ firestore: {} });
+  });
 });
 
 describe('buildObservedSeedPayload', () => {

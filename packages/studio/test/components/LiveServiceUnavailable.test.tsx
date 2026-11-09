@@ -19,13 +19,9 @@ import { LiveServiceUnavailable } from '../../src/components/LiveServiceUnavaila
 afterEach(() => cleanup());
 
 describe('LiveServiceUnavailable', () => {
-  it('renders read-only live-mode copy for Auth and Storage', () => {
+  it('renders read-only live-mode copy for Auth', () => {
     const authView = render(<LiveServiceUnavailable view="auth" />);
     expect(authView.container.textContent).toContain('Live mode · Read-only');
     expect(authView.container.textContent).toContain('Auth user listing is unavailable in Live mode');
-    cleanup();
-
-    const storageView = render(<LiveServiceUnavailable view="storage" />);
-    expect(storageView.container.textContent).toContain('Storage object browser is unavailable in Live mode');
   });
 });

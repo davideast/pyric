@@ -35,6 +35,11 @@ export type {
   ObservedSessionSource,
   ObservedSessionSources,
   ObservedSessionStats,
+  ObservedStorageBucketSnapshot,
+  ObservedStorageListItem,
+  ObservedStorageObjectInput,
+  ObservedStorageObjectMetadata,
+  ObservedStorageSessionOp,
 } from './observed-session/wire.js';
 
 /** What the supplier gives: the error for a refused import, where it is installed, and the served specifiers it passes through. */

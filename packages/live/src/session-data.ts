@@ -16,6 +16,9 @@ import type {
   ObservedRtdbSessionOp,
   ObservedSessionDelta,
   ObservedSessionSkipCounts,
+  ObservedStorageListItem,
+  ObservedStorageObjectInput,
+  ObservedStorageSessionOp,
 } from '@pyric/cli/vite/internal/supplied-rows';
 import type { LiveCallRecord } from './observe.js';
 
@@ -24,6 +27,9 @@ export type {
   ObservedRtdbSessionOp,
   ObservedSessionDelta,
   ObservedSessionSkipCounts,
+  ObservedStorageListItem,
+  ObservedStorageObjectInput,
+  ObservedStorageSessionOp,
 };
 
 /** Why an observed value was left out of a delta. */
@@ -33,6 +39,7 @@ export type SessionSkipReason = 'oversized' | 'unsupported' | 'truncated';
 export interface SessionDeltaParts {
   readonly firestore?: readonly ObservedFirestoreSessionOp[];
   readonly rtdb?: readonly ObservedRtdbSessionOp[];
+  readonly storage?: readonly ObservedStorageSessionOp[];
   readonly skipped?: ObservedSessionSkipCounts;
 }
 
@@ -53,10 +60,12 @@ export function sessionDeltaOf(parts: SessionDeltaParts): ObservedSessionDelta |
   const delta: {
     firestore?: readonly ObservedFirestoreSessionOp[];
     rtdb?: readonly ObservedRtdbSessionOp[];
+    storage?: readonly ObservedStorageSessionOp[];
     skipped?: ObservedSessionSkipCounts;
   } = {};
   if (parts.firestore !== undefined && parts.firestore.length > 0) delta.firestore = parts.firestore;
   if (parts.rtdb !== undefined && parts.rtdb.length > 0) delta.rtdb = parts.rtdb;
+  if (parts.storage !== undefined && parts.storage.length > 0) delta.storage = parts.storage;
   if (parts.skipped !== undefined) delta.skipped = parts.skipped;
   if (Object.keys(delta).length === 0) return undefined;
   return delta;
@@ -84,7 +93,12 @@ function mergeSkipCounts(
 
 function hasAnyOps(delta: ObservedSessionDelta | undefined): delta is ObservedSessionDelta {
   if (delta === undefined) return false;
-  return (delta.firestore?.length ?? 0) > 0 || (delta.rtdb?.length ?? 0) > 0 || hasAnySkips(delta.skipped);
+  return (
+    (delta.firestore?.length ?? 0) > 0 ||
+    (delta.rtdb?.length ?? 0) > 0 ||
+    (delta.storage?.length ?? 0) > 0 ||
+    hasAnySkips(delta.skipped)
+  );
 }
 
 export function attachSessionData(
@@ -99,15 +113,26 @@ export function sessionDataOf(record: LiveCallRecord): ObservedSessionDelta | un
   return RECORD_SESSION_DATA.get(record);
 }
 
+function concatLists<T>(first: readonly T[] | undefined, second: readonly T[] | undefined): T[] {
+  const out: T[] = [];
+  if (first !== undefined) out.push(...first);
+  if (second !== undefined) out.push(...second);
+  return out;
+}
+
 export function mergeSessionData(
   first: ObservedSessionDelta | undefined,
   second: ObservedSessionDelta | undefined,
 ): ObservedSessionDelta | undefined {
-  if (!hasAnyOps(first)) return hasAnyOps(second) ? second : undefined;
+  if (!hasAnyOps(first)) {
+    if (hasAnyOps(second)) return second;
+    return undefined;
+  }
   if (!hasAnyOps(second)) return first;
   return sessionDeltaOf({
-    firestore: [...(first.firestore ?? []), ...(second.firestore ?? [])],
-    rtdb: [...(first.rtdb ?? []), ...(second.rtdb ?? [])],
+    firestore: concatLists(first.firestore, second.firestore),
+    rtdb: concatLists(first.rtdb, second.rtdb),
+    storage: concatLists(first.storage, second.storage),
     skipped: mergeSkipCounts(first.skipped, second.skipped),
   });
 }

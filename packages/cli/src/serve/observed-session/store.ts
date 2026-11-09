@@ -11,6 +11,7 @@ import { MAX_SINGLE_ITEM_BYTES } from './delta-validation.js';
 import { deepMergeFirestoreMap, deleteDottedField, setDottedField } from './firestore-fields.js';
 import { byteLengthOf } from './json-values.js';
 import { setRtdbAtSegments } from './rtdb-tree.js';
+import { createObservedStorageCatalog } from './storage-catalog.js';
 import {
   UNREAD_RTDB_INSTANCE,
   type ObservedFirestoreSessionOp,
@@ -31,6 +32,9 @@ export interface ObservedSessionDataStoreOptions {
   readonly maxDocs?: number;
   readonly maxBytes?: number;
   readonly maxRtdbInstances?: number;
+  readonly maxStorageObjects?: number;
+  readonly maxStorageBuckets?: number;
+  readonly maxStorageBytes?: number;
   readonly now?: () => number;
 }
 
@@ -84,6 +88,20 @@ export function createObservedSessionDataStore(
     droppedCount += 1;
     skips[reason] += 1;
   }
+
+  const storageCatalog = createObservedStorageCatalog({
+    maxObjects: options.maxStorageObjects,
+    maxBuckets: options.maxStorageBuckets,
+    maxBytes: options.maxStorageBytes ?? maxBytes,
+    projectId: () => currentProjectId,
+    onDrop: (reason) => {
+      if (reason === 'unsupported') {
+        skips.unsupported += 1;
+        return;
+      }
+      drop(reason);
+    },
+  });
 
   function addSkips(skip: Partial<ObservedSessionSkipStats> | undefined): void {
     if (skip === undefined) return;
@@ -256,9 +274,9 @@ export function createObservedSessionDataStore(
   }
 
   function hasSessionOps(delta: ObservedSessionDelta): boolean {
-    const hasFirestore = delta.firestore !== undefined && delta.firestore.length > 0;
-    const hasRtdb = delta.rtdb !== undefined && delta.rtdb.length > 0;
-    return hasFirestore || hasRtdb;
+    if (delta.firestore !== undefined && delta.firestore.length > 0) return true;
+    if (delta.rtdb !== undefined && delta.rtdb.length > 0) return true;
+    return delta.storage !== undefined && delta.storage.length > 0;
   }
 
   return {
@@ -273,6 +291,7 @@ export function createObservedSessionDataStore(
       for (const op of delta.rtdb ?? []) {
         if (applyRtdbOp(op)) changed = true;
       }
+      if (storageCatalog.applyAll(delta.storage)) changed = true;
       let sourceAdded = false;
       if (source !== undefined && hasSessionOps(delta) && !sources[source]) {
         sources[source] = true;
@@ -312,7 +331,7 @@ export function createObservedSessionDataStore(
       if (recordedSources !== undefined) base.sources = recordedSources;
       const skipped = skipsField();
       if (skipped !== undefined) base.skips = skipped;
-      return base;
+      return storageCatalog.withStorageSnapshot(base);
     },
   };
 }

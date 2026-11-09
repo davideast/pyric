@@ -16,6 +16,8 @@ import { deleteDoc, doc, setDoc } from 'pyric/firestore';
 import type { LiveSeedMode, LiveSeedSandboxResult } from '@pyric/cli/vite/internal/supplied-rows';
 import type { FirestoreApi } from '@pyric/ui/firestore';
 import { normalizeRtdbSnapshotValue, rtdbValueAt, type RtdbApi } from '@pyric/ui/rtdb';
+import type { StorageApi } from '@pyric/ui/storage';
+import type { FirebaseStorage } from 'pyric/storage';
 import type { StudioDataHandles } from '../features/data/sandbox.js';
 import {
   createEphemeralHandles,
@@ -23,6 +25,14 @@ import {
   readOnlyFirestoreApi,
   rehydrateObservedFirestoreDoc,
 } from './observed-session-mirror.js';
+import {
+  createObservedStorageHandle,
+  createReadOnlyStorageApi,
+  selectActiveStorageBucket,
+  summarizeObservedStorageBuckets,
+  type ObservedStorageBucketSnapshot,
+  type ObservedStorageBucketSummary,
+} from './observed-storage-mirror.js';
 import {
   EMPTY_OBSERVED_SNAPSHOT,
   buildObservedSeedPayload,
@@ -61,6 +71,13 @@ export interface ObservedSessionViewState {
   readonly activeRtdbInstance: string;
   readonly setActiveRtdbInstance: (instance: string) => void;
   readonly hasObservedRtdb: boolean;
+  readonly storageApi: StorageApi;
+  readonly storageHandle: FirebaseStorage;
+  readonly storageBucketSummaries: readonly ObservedStorageBucketSummary[];
+  readonly activeStorageBucket: string;
+  readonly setActiveStorageBucket: (bucket: string) => void;
+  readonly activeStorageCatalog: ObservedStorageBucketSnapshot | undefined;
+  readonly hasObservedStorage: boolean;
   readonly refresh: () => Promise<void>;
   readonly seedLocalSandbox: (mode: LiveSeedMode) => Promise<LiveSeedSandboxResult>;
   readonly exportSeedJson: () => string;
@@ -111,6 +128,7 @@ export function useObservedSessionData(
   const [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<ObservedSessionDataSnapshot>(EMPTY_OBSERVED_SNAPSHOT);
   const [selectedRtdbInstance, setSelectedRtdbInstance] = useState<string | null>(null);
+  const [selectedStorageBucket, setSelectedStorageBucket] = useState<string | null>(null);
   const [syncGeneration, setSyncGeneration] = useState(0);
 
   // Purely in-memory sandbox mirror for Firestore reads/queries/phantoms.
@@ -310,6 +328,26 @@ export function useObservedSessionData(
     [],
   );
 
+  const storageBucketSummaries = useMemo(
+    () => summarizeObservedStorageBuckets(snapshot, fallbackProjectId),
+    [snapshot, fallbackProjectId],
+  );
+  const activeStorageBucket = useMemo(
+    () => selectActiveStorageBucket(storageBucketSummaries, selectedStorageBucket),
+    [storageBucketSummaries, selectedStorageBucket],
+  );
+  const activeStorageCatalog = snapshot.storage?.[activeStorageBucket];
+  const latestStorageViewRef = useRef({ bucket: activeStorageBucket, catalog: activeStorageCatalog });
+  latestStorageViewRef.current = { bucket: activeStorageBucket, catalog: activeStorageCatalog };
+  const storageApi = useMemo(
+    () => createReadOnlyStorageApi(() => latestStorageViewRef.current),
+    [],
+  );
+  const storageHandle = useMemo(
+    () => createObservedStorageHandle(activeStorageBucket, snapshot.revision),
+    [activeStorageBucket, snapshot.revision],
+  );
+
   const seedLocalSandbox = useCallback(
     async (mode: LiveSeedMode): Promise<LiveSeedSandboxResult> => {
       const response = await fetch(LIVE_SEED_SANDBOX_URL, {
@@ -370,6 +408,13 @@ export function useObservedSessionData(
     activeRtdbInstance,
     setActiveRtdbInstance: setSelectedRtdbInstance,
     hasObservedRtdb: activeRtdbTree !== null,
+    storageApi,
+    storageHandle,
+    storageBucketSummaries,
+    activeStorageBucket,
+    setActiveStorageBucket: setSelectedStorageBucket,
+    activeStorageCatalog,
+    hasObservedStorage: activeStorageCatalog !== undefined,
     refresh: fetchSnapshot,
     seedLocalSandbox,
     exportSeedJson,

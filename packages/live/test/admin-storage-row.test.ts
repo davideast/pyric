@@ -15,6 +15,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
 import { observedCallOf } from '../src/page-observer.js';
+import { sessionDataOf } from '../src/session-data.js';
 import { adminProjectGate } from '../src/admin/project-gate.js';
 import { ADMIN_STORAGE_MODULE, observeAdminStorage } from '../src/admin/storage.js';
 import type { LiveCallRecord, LiveObserver } from '../src/observe.js';
@@ -138,6 +139,66 @@ test('File and Bucket calls make one record each with the bucket and object name
   ]);
   expect(made.every((record) => record.module === ADMIN_STORAGE_MODULE && record.sdk === 'admin')).toBe(true);
   expect(observedCallOf(made[4]!, 1)).toMatchObject({ service: 'storage', sdk: 'admin', method: 'File.download', bucket: BUCKET, path: 'notes/a.txt', outcome: { status: 'ok' } });
+  expect(sessionDataOf(made[0]!)).toMatchObject({
+    storage: [{ kind: 'upsert', bucket: BUCKET, fullPath: 'notes/a.txt', metadata: { size: 12, contentType: 'text/plain' } }],
+  });
+  expect(sessionDataOf(made[3]!)).toBeUndefined();
+  expect(sessionDataOf(made[4]!)).toBeUndefined();
+  expect(sessionDataOf(made[5]!)).toMatchObject({
+    storage: [{ kind: 'list', bucket: BUCKET, prefix: 'notes', complete: true, recursive: true }],
+  });
+  expect(sessionDataOf(made[6]!)).toMatchObject({
+    storage: [{ kind: 'upsert', bucket: BUCKET, fullPath: 'notes/a.txt', metadata: { customMetadata: { role: 'capture' } } }],
+  });
+  expect(sessionDataOf(made[7]!)).toEqual({
+    storage: [{ kind: 'delete', bucket: BUCKET, fullPath: 'notes/a.txt' }],
+  });
+}, 30_000);
+
+test('File.createWriteStream records one streaming upload with numeric byte length, and refuses wrong-project streams before any request', async () => {
+  const from = records.length;
+  const streamTarget = file('notes/a.txt');
+  await new Promise<void>((resolve, reject) => {
+    const ws = (streamTarget.createWriteStream as AnyFunction).call(streamTarget, {
+      resumable: false,
+      contentType: 'text/plain',
+    }) as NodeJS.WritableStream;
+    ws.on('finish', () => resolve());
+    ws.on('error', reject);
+    ws.end('hello replay');
+  });
+  const made = await recordsSince(from);
+  expect(summary(made)).toEqual([
+    { name: 'File.createWriteStream', outcome: 'resolved', code: undefined, bucket: BUCKET, path: 'notes/a.txt' },
+  ]);
+  expect(made[0]?.usage?.uploadedBytes).toBe(12);
+  expect(sessionDataOf(made[0]!)).toMatchObject({
+    storage: [
+      {
+        kind: 'upsert',
+        bucket: BUCKET,
+        fullPath: 'notes/a.txt',
+        metadata: {
+          size: 12,
+          contentType: 'text/plain',
+        },
+      },
+    ],
+  });
+
+  // Wrong-project stream is refused before any HTTP request leaves.
+  const receivedBefore = (await replay.receivedBy(server.origin)).length;
+  const otherBucket = (new sdk.Storage({ projectId: 'other-project' }).bucket as AnyFunction)(BUCKET) as Instance;
+  const streamErr = await new Promise<{ code?: unknown }>((resolve) => {
+    const ws = (file('notes/elsewhere.txt', otherBucket).createWriteStream as AnyFunction).call(
+      file('notes/elsewhere.txt', otherBucket),
+      { resumable: false },
+    ) as NodeJS.WritableStream;
+    ws.on('error', (err: { code?: unknown }) => resolve(err));
+    ws.end('blocked');
+  });
+  expect(streamErr.code).toBe('PYRIC_LIVE_REFUSED');
+  expect((await replay.receivedBy(server.origin)).length).toBe(receivedBefore);
 }, 30_000);
 
 test('a download of a missing object records storage/object-not-found, and the app gets the SDK error', async () => {

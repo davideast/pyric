@@ -1,9 +1,9 @@
 /**
- * Shared read-only notice rendered when a Studio service surface (Auth or
- * Storage) is opened against a live Firebase host.
+ * Read-only notice rendered when Studio's Auth surface is opened against a live
+ * Firebase host.
  */
 
-export type LiveUnavailableServiceView = 'auth' | 'storage';
+export type LiveUnavailableServiceView = 'auth';
 
 const LIVE_SERVICE_UNAVAILABLE_COPY: Record<
   LiveUnavailableServiceView,
@@ -12,10 +12,6 @@ const LIVE_SERVICE_UNAVAILABLE_COPY: Record<
   auth: {
     title: 'Auth user listing is unavailable in Live mode',
     copy: 'Live mode observes your app’s client SDK traffic without Admin credentials, so it cannot enumerate production Auth users and never mutates local sandbox users implicitly. Inspect observed Auth operations in Traffic.',
-  },
-  storage: {
-    title: 'Storage object browser is unavailable in Live mode',
-    copy: 'Live mode does not retain or persist production Storage object bytes in host memory or .pyric/. Inspect observed Storage metadata, upload, and download calls in Traffic.',
   },
 };
 

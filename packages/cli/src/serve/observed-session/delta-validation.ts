@@ -5,11 +5,13 @@
  * bound, `unsupported` for any other shape the host does not keep.
  */
 import { byteLengthOf, FORBIDDEN_KEYS, isPlainObject } from './json-values.js';
+import { readStorageOp } from './storage-delta-validation.js';
 import type {
   ObservedFirestoreSessionOp,
   ObservedRtdbSessionOp,
   ObservedSessionDelta,
   ObservedSessionSkipCounts,
+  ObservedStorageSessionOp,
 } from './wire.js';
 
 /** The host's per-item cap; `@pyric/live` budgets half of it so an honest client never meets it. */
@@ -269,7 +271,7 @@ function readOps<T>(raw: unknown, service: string, opsSoFar: number, read: (entr
 export function readObservedSessionDelta(raw: unknown): ObservedSessionDelta {
   if (!isPlainObject(raw)) throw unsupported('Invalid sessionData: expected plain object.');
   for (const key of Object.keys(raw)) {
-    const isKnown = key === 'firestore' || key === 'rtdb' || key === 'skipped';
+    const isKnown = key === 'firestore' || key === 'rtdb' || key === 'storage' || key === 'skipped';
     if (!isKnown) throw unsupported(`Invalid sessionData.${key}: unexpected field.`);
   }
   if (byteLengthOf(raw) > MAX_SESSION_DELTA_BYTES) {
@@ -278,12 +280,17 @@ export function readObservedSessionDelta(raw: unknown): ObservedSessionDelta {
   const delta: {
     firestore?: ObservedFirestoreSessionOp[];
     rtdb?: ObservedRtdbSessionOp[];
+    storage?: ObservedStorageSessionOp[];
     skipped?: ObservedSessionSkipCounts;
   } = {};
   const firestore = readOps(raw.firestore, 'firestore', 0, readFirestoreOp);
+  const firestoreCount = firestore?.length ?? 0;
   if (firestore !== undefined) delta.firestore = firestore;
-  const rtdb = readOps(raw.rtdb, 'rtdb', firestore?.length ?? 0, readRtdbOp);
+  const rtdb = readOps(raw.rtdb, 'rtdb', firestoreCount, readRtdbOp);
+  const rtdbCount = rtdb?.length ?? 0;
   if (rtdb !== undefined) delta.rtdb = rtdb;
+  const storage = readOps(raw.storage, 'storage', firestoreCount + rtdbCount, readStorageOp);
+  if (storage !== undefined) delta.storage = storage;
   const skipped = readObservedSkipCounts(raw.skipped);
   if (skipped !== undefined) delta.skipped = skipped;
   return delta;

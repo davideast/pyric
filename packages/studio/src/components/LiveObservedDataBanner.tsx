@@ -75,6 +75,21 @@ function seededRtdbClause(result: LiveSeedSandboxResult): string {
   return ` and RTDB (${result.seededRtdbInstances.join(', ')})`;
 }
 
+function observedStorageClause(storageBuckets: number, storageObjects: number): string {
+  if (storageObjects > 0) {
+    return ` · ${countOf(storageObjects, 'Storage object', 'Storage objects')}`;
+  }
+  if (storageBuckets > 0) {
+    return ` · ${countOf(storageBuckets, 'Storage bucket', 'Storage buckets')}`;
+  }
+  return '';
+}
+
+function observedStorageSeedNote(hasCounts: boolean): string {
+  if (!hasCounts) return '';
+  return ' Observed Storage metadata stays in session memory only (placeholder 0-byte blobs are never written to .pyric/state/hosted).';
+}
+
 export interface LiveObservedDataBannerProps {
   observed: ObservedSessionViewState;
 }
@@ -82,6 +97,9 @@ export interface LiveObservedDataBannerProps {
 export function LiveObservedDataBanner({ observed }: LiveObservedDataBannerProps) {
   const { snapshot, seedLocalSandbox, downloadSeedJson } = observed;
   const { firestoreDocs, rtdbInstances, truncated, droppedCount } = snapshot.stats;
+  const storageBuckets = snapshot.stats.storageBuckets ?? 0;
+  const storageObjects = snapshot.stats.storageObjects ?? 0;
+  const hasObservedStorageCounts = storageBuckets > 0 || storageObjects > 0;
   const skipParts = skipSummaryParts(snapshot.skips);
   const hasAnyObservedData = firestoreDocs > 0 || rtdbInstances > 0;
 
@@ -121,6 +139,7 @@ export function LiveObservedDataBanner({ observed }: LiveObservedDataBannerProps
           <span className="text-xs text-muted" data-live-observed-counts="">
             {firestoreDocs} Firestore {firestoreDocs === 1 ? 'doc' : 'docs'} · {rtdbInstances} RTDB{' '}
             {rtdbInstances === 1 ? 'instance' : 'instances'}
+            {observedStorageClause(storageBuckets, storageObjects)}
           </span>
         </div>
 
@@ -186,7 +205,7 @@ export function LiveObservedDataBanner({ observed }: LiveObservedDataBannerProps
             {rtdbInstances === 1 ? 'instance' : 'instances'} to <code>.pyric/state/hosted</code>{' '}
             (and ensures <code>.pyric/</code> is listed in <code>.gitignore</code>) for offline use
             with <code>pyric sandbox</code>. Live mode stays read-only and never modifies
-            production.
+            production.{observedStorageSeedNote(hasObservedStorageCounts)}
           </p>
 
           <div className="mt-2.5 flex flex-wrap items-center gap-3">

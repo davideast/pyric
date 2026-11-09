@@ -27,6 +27,7 @@
 import assert from 'node:assert/strict';
 import type { Locator, Page } from 'playwright';
 import { scenario, sleep, type App } from '../driver.ts';
+import { verifyObservedStorageBrowser } from './verify-observed-browser.ts';
 
 const PROJECT = 'demo-live-storage';
 const BUCKETS = { default: `${PROJECT}.firebasestorage.app`, second: `${PROJECT}-live-second` } as const;
@@ -439,6 +440,10 @@ export default scenario(async (app) => {
 
     await studio.close();
     await context.unroute(fontHosts);
+  });
+
+  await app.step("Studio's Storage surface browses read-only observed client and Admin object metadata across buckets with secrets redacted and zero bytes buffered, while Auth stays gated", async () => {
+    await verifyObservedStorageBrowser(app, host.url, page);
   });
 
   await app.step('nothing reached any host but loopback', async () => {

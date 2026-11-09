@@ -32,7 +32,18 @@
  * these shapes gives a record without its project, account or path, and with
  * the unread bucket. This file imports no Firebase SDK.
  */
+import {
+  FORBIDDEN_STORAGE_KEYS,
+  isValidStorageBucketName,
+  sanitizeStorageMetadataEntry,
+} from '@pyric/cli/bridge/client';
 import { observedCall, type CallContext, type ObservedSite, type ResultReading } from './observe.js';
+import type { ObservedSessionDelta } from './session-data.js';
+import {
+  attachStorageCallHint,
+  storageSessionContext,
+  storageSessionResult,
+} from './storage-session-capture.js';
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
 type Fields = Record<string, unknown>;
@@ -52,9 +63,6 @@ export const STORAGE_CALLS = [
   'listAll',
   'deleteObject',
 ] as const;
-
-/** The bucket names a host takes: a bare name, never a `gs://` URL, as `readObservedCall` checks it. */
-const BUCKET_NAME = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
 
 /**
  * The bucket a record names when the reference does not say, or names one a
@@ -87,7 +95,7 @@ function stringAt(value: unknown, keys: readonly string[]): string | undefined {
 /** The bucket a reference names, or the unread bucket. */
 function bucketOf(ref: unknown): string {
   const bucket = stringAt(ref, ['bucket']);
-  const isTaken = bucket !== undefined && BUCKET_NAME.test(bucket);
+  const isTaken = bucket !== undefined && isValidStorageBucketName(bucket);
   return isTaken ? bucket : UNREAD_BUCKET;
 }
 
@@ -104,10 +112,11 @@ function copyCustomMetadata(value: unknown, budget: { left: number }): Record<st
   if (!isObject(value) || Array.isArray(value)) return undefined;
   const copy: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry !== 'string') continue;
-    budget.left -= key.length + entry.length + 6;
+    if (typeof entry !== 'string' || FORBIDDEN_STORAGE_KEYS.has(key)) continue;
+    const sanitized = sanitizeStorageMetadataEntry(key, entry);
+    budget.left -= key.length + sanitized.length + 6;
     if (budget.left < 0) return undefined;
-    copy[key] = entry;
+    copy[key] = sanitized;
   }
   return copy;
 }
@@ -248,24 +257,40 @@ export function storageContext(name: string, args: readonly unknown[]): CallCont
     const app = valueAt(ref, ['storage', 'app']);
     const projectId = stringAt(app, ['options', 'projectId']);
     const path = stringAt(ref, ['fullPath']);
-    const context: CallContext = {
-      ...(isObject(app) ? { subject: app } : {}),
-      ...(projectId === undefined ? {} : { projectId }),
-      bucket: bucketOf(ref),
-      ...(path === undefined ? {} : { path }),
-    };
+    const bucket = bucketOf(ref);
+    const context: {
+      subject?: unknown;
+      projectId?: string;
+      bucket: string;
+      path?: string;
+      writeData?: Record<string, unknown>;
+      sessionData?: ObservedSessionDelta;
+    } = { bucket };
+    if (isObject(app)) context.subject = app;
+    if (projectId !== undefined) context.projectId = projectId;
+    if (path !== undefined) context.path = path;
     const writeData = storageWriteDataOf(name, args);
-    if (writeData === undefined) return context;
-    return { ...context, writeData };
+    if (writeData !== undefined) context.writeData = writeData;
+    const sessionData = storageSessionContext(name, bucket, path);
+    if (sessionData !== undefined) context.sessionData = sessionData;
+    attachStorageCallHint(context, name, args);
+    return context;
   } catch {
     // A reference that throws on read is still recorded, without its context.
     return { bucket: UNREAD_BUCKET };
   }
 }
 
-/** Extracts bounded `FullMetadata` fields from a resolved `getMetadata` call. */
+/** Extracts bounded `FullMetadata` fields and session metadata deltas from a resolved Storage call. */
 export function storageResult(site: ObservedSite, result: unknown): ResultReading {
-  if (site.name !== 'getMetadata' || !isObject(result) || Array.isArray(result)) return {};
+  const reading: {
+    document?: Readonly<Record<string, unknown>>;
+    sessionData?: ObservedSessionDelta;
+  } = {};
+  const sessionData = storageSessionResult(site, result);
+  if (sessionData !== undefined) reading.sessionData = sessionData;
+  const isGetMetadataObject = site.name === 'getMetadata' && isObject(result) && !Array.isArray(result);
+  if (!isGetMetadataObject) return reading;
   const meta = copyUploadMetadata(result);
   const doc: Record<string, unknown> = { ...meta };
   if (typeof result.size === 'number' && Number.isFinite(result.size) && result.size >= 0) {
@@ -275,7 +300,8 @@ export function storageResult(site: ObservedSite, result: unknown): ResultReadin
     const val = result[field];
     if (typeof val === 'string') doc[field] = val;
   }
-  return Object.keys(doc).length > 0 ? { document: doc } : {};
+  if (Object.keys(doc).length > 0) reading.document = doc;
+  return reading;
 }
 
 /** A stream that hands the app the SDK's chunks, and a promise that settles when the SDK's stream ends or errors. */

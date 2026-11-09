@@ -14,6 +14,7 @@ import type {
   ObservedSessionSources,
   ObservedSessionStats,
 } from '@pyric/cli/vite/internal/supplied-rows';
+import { withObservedStorageSection } from './observed-storage-parse.js';
 
 export type {
   ObservedSessionDataSnapshot,
@@ -154,7 +155,7 @@ export function parseObservedSessionSnapshot(raw: unknown): ObservedSessionDataS
   if (hasSkippedItems(skips)) {
     snapshot.skips = skips;
   }
-  return snapshot;
+  return withObservedStorageSection(snapshot, raw);
 }
 
 /**
