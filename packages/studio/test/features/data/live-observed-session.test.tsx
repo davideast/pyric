@@ -44,9 +44,19 @@ interface MockLiveServerState {
     firestore: Record<string, Record<string, unknown>>;
     rtdb: Record<string, unknown>;
     defaultRtdbInstance: string | null;
+    storage?: Record<
+      string,
+      {
+        prefixes: string[];
+        objects: Record<string, Record<string, unknown>>;
+      }
+    >;
+    defaultStorageBucket?: string | null;
     stats: {
       firestoreDocs: number;
       rtdbInstances: number;
+      storageBuckets?: number;
+      storageObjects?: number;
       byteEstimate: number;
       truncated: boolean;
       droppedCount: number;
@@ -328,7 +338,7 @@ describe('Studio Live-mode Observed Session Data & Opt-in Seeding', () => {
     expect(serverState.seedRequests).toEqual([{ confirm: true, mode: 'replace' }]);
   });
 
-  it('shows the Live-mode Auth and Storage placeholders instead of the sandbox panes', async () => {
+  it('keeps Auth gated behind LiveServiceUnavailable while mounting the read-only Observed Storage browser', async () => {
     window.history.replaceState(null, '', '/auth');
     const authView = render(
       <EnvironmentProvider>
@@ -347,21 +357,99 @@ describe('Studio Live-mode Observed Session Data & Opt-in Seeding', () => {
     expect(authView.container.querySelector('[data-live-observed-badge]')).not.toBeNull();
     cleanup();
 
-    window.history.replaceState(null, '', '/storage');
+    serverState.snapshot = {
+      ...serverState.snapshot,
+      revision: 5,
+      defaultStorageBucket: 'demo-live.firebasestorage.app',
+      storage: {
+        'demo-live.firebasestorage.app': {
+          prefixes: ['workspaces/ws-1'],
+          objects: {
+            'workspaces/ws-1/cover.png': {
+              bucket: 'demo-live.firebasestorage.app',
+              fullPath: 'workspaces/ws-1/cover.png',
+              name: 'cover.png',
+              size: 1024,
+              contentType: 'image/png',
+              customMetadata: {
+                role: 'hero',
+                firebaseStorageDownloadTokens: '[REDACTED]',
+              },
+              downloadUrl:
+                'https://firebasestorage.googleapis.com/v0/b/demo-live.firebasestorage.app/o/cover.png?alt=media&token=abc',
+            },
+          },
+        },
+      },
+      stats: {
+        ...serverState.snapshot.stats,
+        storageBuckets: 1,
+        storageObjects: 1,
+      },
+    };
+
+    window.history.replaceState(null, '', '/storage/workspaces/ws-1/cover.png');
     const storageView = render(
       <EnvironmentProvider>
         <DataFeature view="storage" />
       </EnvironmentProvider>,
     );
     await waitFor(() =>
-      expect(storageView.container.querySelector('[data-pyric-ui="live-service-unavailable"]')).not.toBeNull(),
+      expect(
+        storageView.container.querySelector('[data-pyric-ui="storage-live-observed"]'),
+      ).not.toBeNull(),
     );
-    const storageNotice = storageView.container.querySelector(
-      '[data-pyric-ui="live-service-unavailable"]',
-    )!;
-    expect(storageNotice.textContent).toContain('Storage object browser is unavailable in Live mode');
-    expect(storageNotice.textContent).toContain(
-      'Live mode does not retain or persist production Storage object bytes in host memory or .pyric/. Inspect observed Storage metadata, upload, and download calls in Traffic.',
+    expect(storageView.container.querySelector('[data-pyric-ui="live-service-unavailable"]')).toBeNull();
+    await waitFor(() =>
+      expect(storageView.container.querySelector('[data-live-storage-no-bytes]')).not.toBeNull(),
+    );
+    expect(storageView.container.querySelector('[data-live-observed-counts]')?.textContent).toContain(
+      '1 Storage object',
+    );
+    expect(
+      storageView.container.querySelector(
+        '[data-pyric-metadata-key="firebaseStorageDownloadTokens"] dd',
+      )?.textContent,
+    ).toBe('[REDACTED]');
+    const downloadAnchor = storageView.container.querySelector(
+      '[data-live-storage-download-url]',
+    ) as HTMLAnchorElement | null;
+    expect(downloadAnchor).not.toBeNull();
+    expect(downloadAnchor?.getAttribute('href')).toBe(
+      'https://firebasestorage.googleapis.com/v0/b/demo-live.firebasestorage.app/o/cover.png?alt=media',
+    );
+    expect(downloadAnchor?.getAttribute('href')).not.toContain('token=');
+    cleanup();
+
+    // Prefix-only bucket shows `1 Storage bucket` rather than `0 Storage objects`.
+    serverState.snapshot = {
+      ...serverState.snapshot,
+      revision: 6,
+      storage: {
+        'demo-live.firebasestorage.app': {
+          prefixes: ['workspaces/ws-1'],
+          objects: {},
+        },
+      },
+      stats: {
+        ...serverState.snapshot.stats,
+        storageBuckets: 1,
+        storageObjects: 0,
+      },
+    };
+    window.history.replaceState(null, '', '/storage');
+    const prefixOnlyView = render(
+      <EnvironmentProvider>
+        <DataFeature view="storage" />
+      </EnvironmentProvider>,
+    );
+    await waitFor(() =>
+      expect(prefixOnlyView.container.querySelector('[data-live-observed-counts]')?.textContent).toContain(
+        '1 Storage bucket',
+      ),
+    );
+    expect(prefixOnlyView.container.querySelector('[data-live-observed-counts]')?.textContent).not.toContain(
+      '0 Storage objects',
     );
   });
 

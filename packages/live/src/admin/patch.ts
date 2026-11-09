@@ -69,6 +69,16 @@ const PATCHED = Symbol.for('pyric.live.admin.patched');
 /** Set while an observed Admin call runs, so the SDK's own nested calls make no record. */
 const observing = new AsyncLocalStorage<true>();
 
+/** True while an outer observed Admin call is executing on the current async context. */
+export function isObservingAdminCall(): boolean {
+  return observing.getStore() === true;
+}
+
+/** Runs `fn` inside the observed Admin call scope so nested SDK calls make no duplicate record. */
+export function runInsideAdminCall<T>(fn: () => T): T {
+  return observing.run(true, fn);
+}
+
 /** Gives `wrapper` the real method's `name` and `length`. */
 export function keepShape(wrapper: Method, real: Method): Method {
   Object.defineProperty(wrapper, 'name', { value: real.name, configurable: true });

@@ -25,6 +25,7 @@ import * as realApp from 'firebase/app';
 import * as realAuth from 'firebase/auth';
 import type { FirebaseStorage, StorageReference, UploadTask } from 'firebase/storage';
 import { observedCallOf } from '../src/page-observer.js';
+import { sessionDataOf } from '../src/session-data.js';
 import { wrapLiveModule, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
 import { storageContext, storageResult, UNREAD_BUCKET } from '../src/storage.js';
 import { UNREAD_BUCKET as HOST_UNREAD_BUCKET } from '@pyric/cli/vite/internal/supplied-rows';
@@ -385,6 +386,7 @@ describe('upload tasks and streams the app does not await', () => {
     expect(records.slice(before).map(shape)).toEqual([
       { name: 'uploadBytesResumable', outcome: 'rejected', code: 'storage/canceled', projectId: PROJECT, bucket: BUCKETS.default, path: `${RUN_PATH}/canceled.bin`, account: 'user-1' },
     ]);
+    expect(sessionDataOf(records[before]!)).toBeUndefined();
     expect(server.unmatched).toEqual([]);
   });
 
@@ -438,18 +440,62 @@ describe('the observed call a record becomes', () => {
 });
 
 describe('the metadata a Storage call sent or read', () => {
-  test('an upload or metadata update sends its metadata and size, never its bytes, and getMetadata its returned metadata', () => {
+  test('an upload or metadata update scrubs secret customMetadata on both Traffic writeData/document and sessionData, never sending bytes', () => {
     const fakeRef = { bucket: 'demo.appspot.com', fullPath: 'uploads/a.txt', storage: { app: { options: { projectId: 'demo' } } } };
     const bytes = new Uint8Array([1, 2, 3, 4]);
-    const uploadCtx = storageContext('uploadBytes', [fakeRef, bytes, { contentType: 'text/plain', customMetadata: { owner: 'alice' } }]);
-    expect(uploadCtx.writeData).toEqual({ contentType: 'text/plain', customMetadata: { owner: 'alice' }, size: 4 });
+    const uploadCtx = storageContext('uploadBytes', [
+      fakeRef,
+      bytes,
+      {
+        contentType: 'text/plain',
+        customMetadata: { owner: 'alice', apiKey: 'must-be-redacted', firebaseStorageDownloadTokens: 'tok-1' },
+      },
+    ]);
+    expect(uploadCtx.writeData).toEqual({
+      contentType: 'text/plain',
+      customMetadata: { owner: 'alice', apiKey: '[REDACTED]', firebaseStorageDownloadTokens: '[REDACTED]' },
+      size: 4,
+    });
     const stringCtx = storageContext('uploadString', [fakeRef, 'data:image/png;base64,AQIDBA==', 'data_url']);
     expect(stringCtx.writeData).toEqual({ contentType: 'image/png', size: 4 });
     const updateCtx = storageContext('updateMetadata', [fakeRef, { cacheControl: 'max-age=60', contentType: null }]);
     expect(updateCtx.writeData).toEqual({ cacheControl: 'max-age=60', contentType: null });
-    const metaResult = storageResult({ name: 'getMetadata' } as Parameters<typeof storageResult>[0], { size: 42, contentType: 'image/png', customMetadata: { role: 'avatar' }, fullPath: 'uploads/a.png', bucket: 'demo.appspot.com', ignoredBlob: new Uint8Array([9]) });
-    const expectedDoc = { size: 42, contentType: 'image/png', customMetadata: { role: 'avatar' }, fullPath: 'uploads/a.png', bucket: 'demo.appspot.com' };
-    expect(metaResult).toEqual({ document: expectedDoc });
+    const metaResult = storageResult(
+      { name: 'getMetadata' } as Parameters<typeof storageResult>[0],
+      {
+        size: 42,
+        contentType: 'image/png',
+        customMetadata: { role: 'avatar', apiKey: 'must-be-redacted' },
+        fullPath: 'uploads/a.png',
+        bucket: 'demo.appspot.com',
+        ignoredBlob: new Uint8Array([9]),
+      },
+    );
+    const expectedDoc = {
+      size: 42,
+      contentType: 'image/png',
+      customMetadata: { role: 'avatar', apiKey: '[REDACTED]' },
+      fullPath: 'uploads/a.png',
+      bucket: 'demo.appspot.com',
+    };
+    expect(metaResult).toEqual({
+      document: expectedDoc,
+      sessionData: {
+        storage: [
+          {
+            kind: 'upsert',
+            bucket: 'demo.appspot.com',
+            fullPath: 'uploads/a.png',
+            replaceMetadata: true,
+            metadata: {
+              size: 42,
+              contentType: 'image/png',
+              customMetadata: { role: 'avatar', apiKey: '[REDACTED]' },
+            },
+          },
+        ],
+      },
+    });
     expect(observedCallOf({ module: 'firebase/storage', name: 'getMetadata', outcome: 'resolved', bucket: 'demo.appspot.com', path: 'uploads/a.png', document: expectedDoc }, 1)?.document).toEqual(expectedDoc);
   });
 });

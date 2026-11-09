@@ -263,4 +263,108 @@ describe('the live host state\'s observed session data', () => {
     expect(snapshot.sources).toEqual({ client: true, admin: true });
     expect(snapshot.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 0, failed: 2, admin: 0 });
   });
+
+  it('accepts client and Admin Storage metadata deltas with SDK provenance while ignoring non-session services and counting failed Storage calls', () => {
+    const { live } = state('demo-live');
+    sendThroughValidation(
+      live,
+      'storage-client',
+      { service: 'storage', method: 'uploadBytes', bucket: 'demo-live.firebasestorage.app', path: 'items/a.png' },
+      {
+        storage: [
+          {
+            kind: 'upsert',
+            bucket: 'demo-live.firebasestorage.app',
+            fullPath: 'items/a.png',
+            metadata: { size: 256, contentType: 'image/png' },
+          },
+        ],
+      },
+    );
+    expect(live.sessionData.snapshot().sources).toEqual({ client: true, admin: false });
+
+    sendThroughValidation(
+      live,
+      'storage-admin',
+      { service: 'storage', sdk: 'admin', method: 'File.save', bucket: 'demo-live-secondary', path: 'items/b.txt' },
+      {
+        storage: [
+          {
+            kind: 'upsert',
+            bucket: 'demo-live-secondary',
+            fullPath: 'items/b.txt',
+            metadata: { size: 32, contentType: 'text/plain' },
+          },
+        ],
+      },
+    );
+    sendThroughValidation(
+      live,
+      'auth-admin-with-synthetic-delta',
+      { service: 'auth', sdk: 'admin', method: 'Auth.getUser' },
+      {
+        storage: [
+          {
+            kind: 'upsert',
+            bucket: 'demo-live-secondary',
+            fullPath: 'items/from-admin-auth.txt',
+            metadata: { size: 1 },
+          },
+        ],
+      },
+    );
+    sendThroughValidation(
+      live,
+      'auth-with-synthetic-delta',
+      { service: 'auth', method: 'signInAnonymously' },
+      {
+        storage: [
+          {
+            kind: 'upsert',
+            bucket: 'demo-live.firebasestorage.app',
+            fullPath: 'items/from-auth.png',
+            metadata: { size: 1 },
+          },
+        ],
+      },
+    );
+    sendThroughValidation(live, 'storage-denied', {
+      service: 'storage',
+      method: 'getMetadata',
+      bucket: 'demo-live.firebasestorage.app',
+      path: 'items/secret.png',
+      outcome: { status: 'error', code: 'storage/unauthorized' },
+    });
+    sendThroughValidation(
+      live,
+      'storage-admin-failed',
+      {
+        service: 'storage',
+        sdk: 'admin',
+        method: 'File.save',
+        bucket: 'demo-live-secondary',
+        path: 'items/failed.txt',
+        outcome: { status: 'error', code: '503' },
+      },
+      {
+        storage: [
+          {
+            kind: 'upsert',
+            bucket: 'demo-live-secondary',
+            fullPath: 'items/failed.txt',
+            metadata: { size: 99 },
+          },
+        ],
+      },
+    );
+
+    const snapshot = live.sessionData.snapshot();
+    expect(snapshot.firestore).toEqual({});
+    expect(snapshot.sources).toEqual({ client: true, admin: true });
+    expect(snapshot.stats.storageBuckets).toBe(2);
+    expect(snapshot.stats.storageObjects).toBe(2);
+    expect(snapshot.storage?.['demo-live.firebasestorage.app']?.objects['items/a.png']?.size).toBe(256);
+    expect(snapshot.storage?.['demo-live-secondary']?.objects['items/b.txt']?.size).toBe(32);
+    expect(snapshot.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 0, failed: 2, admin: 0 });
+  });
 });

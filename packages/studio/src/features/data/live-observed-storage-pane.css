@@ -1,0 +1,125 @@
+/**
+ * Token-driven styles for `LiveObservedStoragePane` (read-only Live mode
+ * Storage metadata browser). Extends `storage.css` without raw hex values.
+ */
+.storage--readonly .storage__lhead,
+.storage--readonly [data-pyric-entry-select] {
+  padding-left: var(--storage-gutter);
+}
+.storage__buckets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 0 10px;
+}
+.storage__bucket-pill {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+.storage__bucket-pill:hover,
+.storage__bucket-pill--active {
+  border-color: var(--accent);
+}
+.storage__bucket-pill--active {
+  background: var(--accent-tint);
+}
+.storage__bucket-pill--idle {
+  opacity: 0.72;
+}
+.storage__bucket-name {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+.storage__bucket-badge,
+.storage__readonly-pill {
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  padding: 1px 8px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.storage__bucket-meta {
+  color: var(--muted);
+}
+.storage__live-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  background: var(--elevated);
+  width: 100%;
+}
+.storage__live-preview-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.storage__live-preview-note,
+.storage__live-download-warning {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.storage__live-copy-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.storage__live-copy-btn {
+  appearance: none;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 3px 8px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  cursor: pointer;
+}
+.storage__live-copy-btn:hover {
+  border-color: var(--accent);
+}
+.storage__live-download-link {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.storage__deleted-tombstones {
+  border-top: 1px solid var(--line-2);
+  padding: 8px var(--storage-gutter);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.storage__deleted-heading {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.storage__deleted-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.storage__deleted-list code {
+  font-family: var(--font-mono);
+  text-decoration: line-through;
+}

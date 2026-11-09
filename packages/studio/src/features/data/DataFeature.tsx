@@ -20,12 +20,16 @@ import { FirestoreApiProvider } from '@pyric/ui/firestore';
 import { StorageApiProvider } from '@pyric/ui/storage';
 import { LiveFirestorePane } from './FirestorePane.js';
 import { LiveAuthPane } from './AuthPane.js';
+import { LiveObservedStoragePane } from './LiveObservedStoragePane.js';
 import { LiveStoragePane } from './StoragePane.js';
-import { useDataNav, type DataView } from './navigation.js';
+import { useDataNav, type DataTarget, type DataView } from './navigation.js';
 import { LiveObservedDataBanner } from '../../components/LiveObservedDataBanner.js';
 import { LiveServiceUnavailable } from '../../components/LiveServiceUnavailable.js';
 import { useHostAnswered, useLiveHost } from '../../shell/live-status.js';
-import { useObservedSessionData } from '../../shell/use-observed-session-data.js';
+import {
+  useObservedSessionData,
+  type ObservedSessionViewState,
+} from '../../shell/use-observed-session-data.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
 import './data-feature.css';
 
@@ -48,6 +52,52 @@ function PendingState({ view }: { view: DataView }) {
   );
 }
 
+function LiveModeDataView({
+  view,
+  observed,
+  target,
+}: {
+  view: DataView;
+  observed: ObservedSessionViewState;
+  target: DataTarget | null;
+}) {
+  switch (view) {
+    case 'firestore':
+      return (
+        <FirestoreApiProvider value={observed.firestoreApi}>
+          <LiveFirestorePane
+            handles={observed.handles}
+            readOnly
+            emptyCollectionsMessage="No Firestore reads or writes observed in this live session yet. Interact with your app to inspect observed documents here."
+          />
+        </FirestoreApiProvider>
+      );
+    case 'storage': {
+      let storageFocusTarget: { kind: 'root' } | { kind: 'prefix'; path: string } | { kind: 'object'; path: string } = {
+        kind: 'root',
+      };
+      if (target?.view === 'storage') {
+        storageFocusTarget = target;
+      }
+      return (
+        <StorageApiProvider value={observed.storageApi}>
+          <LiveObservedStoragePane
+            storage={observed.storageHandle}
+            activeBucket={observed.activeStorageBucket}
+            bucketSummaries={observed.storageBucketSummaries}
+            onSelectBucket={observed.setActiveStorageBucket}
+            bucketCatalog={observed.activeStorageCatalog}
+            hasObservedStorage={observed.hasObservedStorage}
+            focusTarget={storageFocusTarget}
+          />
+        </StorageApiProvider>
+      );
+    }
+    case 'auth':
+      return <LiveServiceUnavailable view="auth" />;
+  }
+}
+
 export function DataFeature({ view }: { view: DataView }) {
   const { target } = useDataNav();
   const liveHost = useLiveHost();
@@ -65,17 +115,7 @@ export function DataFeature({ view }: { view: DataView }) {
     return (
       <div data-pyric-ui="data-feature" data-live-mode="">
         <LiveObservedDataBanner observed={observed} />
-        {view === 'firestore' ? (
-          <FirestoreApiProvider value={observed.firestoreApi}>
-            <LiveFirestorePane
-              handles={observed.handles}
-              readOnly
-              emptyCollectionsMessage="No Firestore reads or writes observed in this live session yet. Interact with your app to inspect observed documents here."
-            />
-          </FirestoreApiProvider>
-        ) : (
-          <LiveServiceUnavailable view={view} />
-        )}
+        <LiveModeDataView view={view} observed={observed} target={target} />
       </div>
     );
   }

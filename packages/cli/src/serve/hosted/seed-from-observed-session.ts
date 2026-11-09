@@ -19,6 +19,10 @@
  *   deleted stays in the local copy.
  * - `replace` clears every local document and RTDB instance first, then
  *   writes the observed data as it is.
+ *
+ * Observed Cloud Storage entries (`snapshot.storage`) hold object metadata and
+ * folder prefixes only (zero raw binary bytes), so seeding never fabricates
+ * 0-byte placeholder blobs in `.pyric/state/hosted`.
  */
 import { sdkActivity } from 'pyric/sandbox/internal';
 import { deleteDoc, doc, getAdminFirestore, setDoc, type Firestore } from 'pyric/firestore';

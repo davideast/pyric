@@ -10,6 +10,20 @@
  * `POST /__pyric/live/seed-sandbox` and `{ confirm: true }`, or runs
  * `pyric sandbox seed-from-live --confirm` or `--out <file>`.
  */
+import type {
+  ObservedStorageBucketSnapshot,
+  ObservedStorageSessionOp,
+} from './storage-policy.js';
+
+export type {
+  ObservedStorageBucketSnapshot,
+  ObservedStorageListItem,
+  ObservedStorageObjectInput,
+  ObservedStorageObjectMetadata,
+  ObservedStorageSessionOp,
+} from './storage-policy.js';
+export { UNREAD_BUCKET } from 'pyric/sandbox/internal';
+
 export const LIVE_SESSION_DATA_PATH = '/__pyric/live/session-data';
 export const LIVE_SEED_SANDBOX_PATH = '/__pyric/live/seed-sandbox';
 
@@ -63,6 +77,7 @@ export interface ObservedSessionSkipCounts {
 export interface ObservedSessionDelta {
   readonly firestore?: readonly ObservedFirestoreSessionOp[];
   readonly rtdb?: readonly ObservedRtdbSessionOp[];
+  readonly storage?: readonly ObservedStorageSessionOp[];
   readonly skipped?: ObservedSessionSkipCounts;
 }
 
@@ -71,13 +86,15 @@ export interface ObservedSessionSkipStats {
   readonly unsupported: number;
   readonly truncated: number;
   readonly failed: number;
-  /** Retained for wire compatibility with older live-host snapshots and any session-data service without Admin capture; always 0 for Firestore and RTDB. */
+  /** Retained for wire compatibility with older live-host snapshots and any session-data service without Admin capture; always 0 for Firestore, RTDB, and Storage. */
   readonly admin: number;
 }
 
 export interface ObservedSessionStats {
   readonly firestoreDocs: number;
   readonly rtdbInstances: number;
+  readonly storageBuckets?: number;
+  readonly storageObjects?: number;
   readonly byteEstimate: number;
   readonly truncated: boolean;
   readonly droppedCount: number;
@@ -98,6 +115,9 @@ export interface ObservedSessionDataSnapshot {
   /** Per-instance RTDB root value (usually an object tree). Empty instances are omitted. */
   readonly rtdb: Record<string, unknown>;
   readonly defaultRtdbInstance: string | null;
+  /** Per-bucket observed Storage metadata catalog (omitted until a Storage call is observed). */
+  readonly storage?: Record<string, ObservedStorageBucketSnapshot>;
+  readonly defaultStorageBucket?: string | null;
   readonly stats: ObservedSessionStats;
   /** Which SDK planes have contributed observed session data (omitted when neither has). */
   readonly sources?: ObservedSessionSources;

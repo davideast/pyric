@@ -222,7 +222,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   };
 
   const isSessionDataService = (service: ObservedCall['service']): boolean =>
-    service === 'firestore' || service === 'rtdb';
+    service === 'firestore' || service === 'rtdb' || service === 'storage';
 
   const sessionSourceOf = (call: ObservedCall): ObservedSessionSource => {
     if (call.sdk === 'admin') return 'admin';

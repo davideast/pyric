@@ -16,6 +16,7 @@ import {
 
 const SET_ITEM = { kind: 'set', path: 'items/a', data: { n: 1 } } as const;
 const REMOVE_ROOM = { kind: 'remove', instance: 'demo-default-rtdb', path: '/rooms/r1' } as const;
+const DELETE_BLOB = { kind: 'delete', bucket: 'demo.firebasestorage.app', fullPath: 'items/a.png' } as const;
 
 describe('skipCountsOf', () => {
   test('is undefined when every count is zero', () => {
@@ -65,10 +66,15 @@ describe('mergeSessionData', () => {
 
   test('concatenates ops and sums skip counts', () => {
     const merged = mergeSessionData(
-      { firestore: [SET_ITEM], skipped: { oversized: 1 } },
+      { firestore: [SET_ITEM], storage: [DELETE_BLOB], skipped: { oversized: 1 } },
       { rtdb: [REMOVE_ROOM], skipped: { oversized: 1, truncated: 2 } },
     );
-    expect(merged).toEqual({ firestore: [SET_ITEM], rtdb: [REMOVE_ROOM], skipped: { oversized: 2, truncated: 2 } });
+    expect(merged).toEqual({
+      firestore: [SET_ITEM],
+      rtdb: [REMOVE_ROOM],
+      storage: [DELETE_BLOB],
+      skipped: { oversized: 2, truncated: 2 },
+    });
   });
 });
 

@@ -131,6 +131,7 @@ Each Cloud Storage call is a row in Traffic. The row names the call with its ser
 - **One row per upload task.** An `uploadBytesResumable` task is one row however many chunks it sends, and a pause and resume stay on that row. The row appears when the task finishes, fails or is canceled. Progress isn't shown.
 - **Denials.** A call the project's rules deny shows `storage/unauthorized`, and the row reads "Production denied".
 - **Download URLs.** Fetching the URL `getDownloadURL` returns isn't observed. See [Calls that skip your Firebase SDK](#calls-that-skip-your-firebase-sdk).
+- **Observed Storage browser.** Successful uploads, metadata reads and updates, listings, download URLs and deletes from `firebase/storage` and `firebase-admin/storage` populate a read-only Storage metadata browser in Studio (`/storage`) for the current session under its own bounded LRU budget. Studio shows bucket tabs, folder prefixes, complete-listing pruning, session delete tombstones, object metadata and scrubbed `customMetadata` (`firebaseStorageDownloadTokens` and secret-looking keys/values show `[REDACTED]`), plus `Copy gs:// URI` / `Copy path` controls and a token-free Storage URL link when `getDownloadURL` returned an allowlisted Firebase/GCS URL (`token=` and signed query credentials are stripped at capture time). Live mode retains zero raw object bytes in host memory or `.pyric/`, and seeding `.pyric/state/hosted` never fabricates placeholder blobs.
 - **Not counted.** Cloud Storage calls don't add to the billed-call count.
 
 ## AI Logic calls
@@ -221,13 +222,13 @@ Each observed call is a row in Traffic, marked as an Admin call that bypassed Se
 - **Firestore.** `DocumentReference` `get`, `set`, `update`, `delete`, `create`, `listCollections` and `onSnapshot`. `CollectionReference` `add` and `listDocuments`. `Query` `get` and `onSnapshot`, and a count query's `get`. `WriteBatch.commit`. `Firestore` `getAll` and `runTransaction`.
 - **Auth.** `verifyIdToken`, `getUser`, `getUserByEmail`, `getUserByPhoneNumber`, `getUsers`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `deleteUsers`, `setCustomUserClaims` and `revokeRefreshTokens`.
 - **Realtime Database.** `get`, `once` and `on`, and `set`, `update`, `remove`, `transaction`, `setWithPriority` and `push`.
-- **Cloud Storage.** `File` `save`, `download`, `delete`, `exists`, `getMetadata`, `setMetadata`, `copy` and `move`. `Bucket` `getFiles`, `upload` and `deleteFiles`.
+- **Cloud Storage.** `File` `save`, `createWriteStream`, `download`, `delete`, `exists`, `getMetadata`, `setMetadata`, `copy` and `move`. `Bucket` `getFiles`, `upload` and `deleteFiles`.
 - **Cloud Messaging.** `send`, `sendEach`, `sendEachForMulticast`, `subscribeToTopic` and `unsubscribeFromTopic`.
 - **App Check.** `verifyToken` and `createToken` are checked against your project, but make no row yet. The process health lists `firebase-admin/app-check` in `gatedAdmin`.
 
 Beyond the path a call targets, an Admin row in Traffic and in terminal or repro logs never records a document value, a Realtime Database value, an object's bytes, a metadata value, a token, a password, an account email, a phone number or a message.
 
-Successful Admin Firestore reads, listener deliveries, writes, `WriteBatch.commit`, `Firestore.getAll` and committed `Firestore.runTransaction` calls, and successful Admin Realtime Database reads, listener deliveries, writes, `push` and committed `transaction` calls, also send bounded deltas to the live host's in-memory session store (`8 MiB` and `2,000` Firestore documents) while stripping `sessionData` from Traffic events, terminal output and repro files. Studio's Data and Realtime Database views show those observed documents and paths read-only alongside the SDK source badge (`Observed · Admin` or `Observed · Client + Admin`). Calls using custom converters, `Query.select()` projections, `getAll` field masks or server-transform sentinels (`FieldValue.serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, or Realtime Database `ServerValue` transforms) count as `unsupported`, failed or rolled-back calls are never added, and nothing is written to `.pyric/` unless you explicitly click **Seed local sandbox…** or **Export seed JSON** (or run `pyric sandbox seed-from-live`).
+Successful Admin Firestore reads, listener deliveries, writes, `WriteBatch.commit`, `Firestore.getAll` and committed `Firestore.runTransaction` calls, successful Admin Realtime Database reads, listener deliveries, writes, `push` and committed `transaction` calls, and successful Admin Cloud Storage uploads, metadata calls, listings and deletes also send bounded deltas to the live host's in-memory session store (`8 MiB` and `2,000` Firestore documents, plus an isolated `8 MiB`, `2,000`-object, `32`-bucket Storage metadata catalog that retains zero object bytes) while stripping `sessionData` from Traffic events, terminal output and repro files. Studio's Data, Realtime Database and Storage views show those observed entries read-only alongside the SDK source badge (`Observed · Admin` or `Observed · Client + Admin`). Calls using custom converters, `Query.select()` projections, `getAll` field masks or server-transform sentinels (`FieldValue.serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, or Realtime Database `ServerValue` transforms) count as `unsupported`, failed or rolled-back calls are never added, and nothing is written to `.pyric/` unless you explicitly click **Seed local sandbox…** or **Export seed JSON** (or run `pyric sandbox seed-from-live`).
 
 ### Which project it reaches
 
@@ -276,7 +277,7 @@ The process health lists each one in `unobservedAdmin`.
 These calls go to production with no row, and the project check doesn't see them. Most print no "unobserved" line, because they reach the same hosts as observed calls. Treat them as a gap in what pyric shows, not as checked:
 
 - Firestore's `Query.stream`, `BulkWriter` and `recursiveDelete`.
-- Cloud Storage's `File.createReadStream` and `File.createWriteStream`.
+- Cloud Storage's `File.createReadStream`.
 - Any other method of a served service that the lists above don't name, such as `createCustomToken`, `createSessionCookie` and `verifySessionCookie` in Auth, or `getSignedUrl` in Cloud Storage.
 
 ## Calls that skip your Firebase SDK

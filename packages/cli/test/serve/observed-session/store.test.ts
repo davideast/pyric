@@ -142,7 +142,7 @@ describe('createObservedSessionDataStore', () => {
     expect(snap.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 0, failed: 1, admin: 2 });
   });
 
-  it('tracks contributing SDK sources on data and absence-only deltas, omitting sources when empty, skip-only, or unspecified', () => {
+  it('tracks contributing SDK sources on data and absence-only deltas, including Storage ops, omitting sources when empty, skip-only, or unspecified', () => {
     const store = createObservedSessionDataStore({ projectId: 'demo' });
     expect(store.snapshot().sources).toBeUndefined();
 
@@ -153,11 +153,62 @@ describe('createObservedSessionDataStore', () => {
     expect(store.snapshot().sources).toBeUndefined();
 
     const revBeforeAbsence = store.snapshot().revision;
-    store.apply({ firestore: [{ kind: 'delete', path: 'items/never-seen' }] }, undefined, 'admin');
+    store.apply(
+      { storage: [{ kind: 'delete', bucket: 'demo.firebasestorage.app', fullPath: 'items/never-seen.png' }] },
+      undefined,
+      'admin',
+    );
     expect(store.snapshot().sources).toEqual({ client: false, admin: true });
     expect(store.snapshot().revision).toBe(revBeforeAbsence + 1);
 
     store.apply({ rtdb: [{ kind: 'set', instance: 'demo-default-rtdb', path: '/flags/beta', value: true }] }, undefined, 'client');
     expect(store.snapshot().sources).toEqual({ client: true, admin: true });
+  });
+
+  it('folds Storage metadata ops into snapshot.storage with isolated LRU eviction that never evicts Firestore documents', () => {
+    const store = createObservedSessionDataStore({
+      projectId: 'demo-proj',
+      maxBytes: 4096,
+      maxStorageObjects: 2,
+    });
+    store.apply(
+      {
+        firestore: [{ kind: 'set', path: 'rooms/recent', data: { title: 'Keep me' } }],
+        storage: [
+          {
+            kind: 'upsert',
+            bucket: 'demo-proj.firebasestorage.app',
+            fullPath: 'workspaces/ws-1/items/a.png',
+            metadata: { size: 120, contentType: 'image/png' },
+          },
+          {
+            kind: 'upsert',
+            bucket: 'demo-proj.firebasestorage.app',
+            fullPath: 'workspaces/ws-1/items/b.png',
+            metadata: { size: 240, contentType: 'image/png' },
+          },
+          {
+            kind: 'upsert',
+            bucket: 'demo-proj.firebasestorage.app',
+            fullPath: 'workspaces/ws-1/items/c.png',
+            metadata: { size: 360, contentType: 'image/png', customMetadata: { note: 'x'.repeat(2000) } },
+          },
+        ],
+      },
+      undefined,
+      'client',
+    );
+    const snap = store.snapshot();
+    expect(snap.firestore['rooms/recent']).toEqual({ title: 'Keep me' });
+    expect(snap.sources).toEqual({ client: true, admin: false });
+    expect(snap.defaultStorageBucket).toBe('demo-proj.firebasestorage.app');
+    expect(snap.stats.storageBuckets).toBe(1);
+    expect(snap.stats.storageObjects).toBe(2);
+    expect(snap.stats.truncated).toBe(true);
+    expect(snap.stats.droppedCount).toBe(1);
+    expect(Object.keys(snap.storage?.['demo-proj.firebasestorage.app']?.objects ?? {})).toEqual([
+      'workspaces/ws-1/items/b.png',
+      'workspaces/ws-1/items/c.png',
+    ]);
   });
 });

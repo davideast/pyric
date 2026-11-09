@@ -158,9 +158,34 @@ async function uploadNote(path) {
   return uploadBytes(ref(storage, path), SIX_BYTES).then((uploaded) => uploaded.metadata.bucket, (error) => error.code);
 }
 
+/** Upload a nested item with secret customMetadata and read its download URL for Studio's observed Storage browser. */
+async function seedCatalogFromPage(replayOrigin) {
+  const catalogApp = initializeApp(config, "catalog-page");
+  const replayUrl = new URL(replayOrigin);
+  const auth = getAuth(catalogApp);
+  connectAuthEmulator(auth, replayUrl.origin, { disableWarnings: true });
+  await signInWithCustomToken(auth, "client-1");
+  const storage = getStorage(catalogApp);
+  connectStorageEmulator(storage, replayUrl.hostname, Number(replayUrl.port));
+  const coverRef = ref(storage, "workspaces/ws-1/items/cover.png");
+  await uploadBytes(coverRef, SIX_BYTES, {
+    contentType: "image/png",
+    cacheControl: "public, max-age=3600",
+    customMetadata: {
+      owner: "user-1",
+      apiKey: "client-upload-secret",
+    },
+  });
+  const url = await getDownloadURL(coverRef);
+  await signOut(auth);
+  await deleteApp(catalogApp);
+  return url;
+}
+
 if (isPage) {
   window.runApp = () => runApp().then((run) => run.results, (error) => `failed: ${error.code ?? ""} ${error.message}`);
   window.uploadNote = uploadNote;
+  window.seedCatalogFromPage = seedCatalogFromPage;
   document.querySelector("#status").textContent = "Ready";
 } else {
   const { results, clients } = await runApp();
