@@ -5,8 +5,18 @@ import { captureIndexQuery } from '../../../indexes/query-analysis.js';
  * structure. Query equality uses construction-time operand snapshots. */
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
-import { translateReadData } from './snapshots.js';
-import { getSnapshotField } from './field-path.js';
+import { cloneSnapshotValue, translateReadData } from './snapshots.js';
+import {
+  FieldPath,
+  fieldPathSegments,
+  getSnapshotField,
+  type SnapshotFieldPath,
+} from './field-path.js';
+import {
+  decodeEncodedFieldPath,
+  fieldPathKey,
+  fieldPathKeySegments,
+} from '../update-fields.js';
 import { forEachDocument } from '../for-each-document.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
 import { activityDisplayValue } from '../../../firestore/sandbox/activity-query-display.js';
@@ -32,9 +42,15 @@ import {
   createDocChanges,
   type QueryConstraintPlan,
 } from '../snapshot-listeners.js';
+import { LocalState, type DocStore } from '../local-state.js';
 import {
+  captureQueryExecutionSpec,
+  captureQueryScope,
+  executeQuery,
+  gatherQueryRows,
   normalizedQueryOrders,
   type QueryExecutionSpec,
+  type QueryFilter,
   type QueryOrderClause,
   type QueryScope,
 } from '../query-execution.js';
@@ -111,6 +127,7 @@ const KEY_FIELD = '__name__';
 function cursorValuesFromSnapshot(
   snapshot: DocumentSnapshot,
   orders: readonly OrderClause[],
+  documentRef: DocumentRefFactory,
 ): unknown[] {
   const data = snapshot.data();
   if (data === undefined) {
@@ -128,7 +145,16 @@ function cursorValuesFromSnapshot(
   // `__name__` clause), so a `startAt(snapshot)` with no explicit orderBy
   // is legal in prod: it positions on the document key. `__name__` reads
   // the snapshot's ref path; data fields read positionally.
-  return orders.map((o) => o.field === KEY_FIELD ? snapshot.ref : getSnapshotField(data, o.field));
+  return orders.map((o) => {
+    if (o.field === KEY_FIELD) {
+      const refPath = snapshot.ref?.path;
+      return typeof refPath === 'string' ? documentRef(refPath) : snapshot.ref;
+    }
+    const lookupField = o.field.includes('`')
+      ? new FieldPath(...fieldPathKeySegments(o.field))
+      : o.field;
+    return getSnapshotField(data, lookupField);
+  });
 }
 
 type CursorInput =
@@ -180,8 +206,12 @@ export class QueryImpl implements Query {
     this.bypassRules = state.bypassRules ?? false;
   }
 
-  where(field: string, op: WhereFilterOp, value: unknown): Query {
-    const clauses = [...this.clauses, snapshotFilter({ kind: 'where', field, op, value })];
+  where(field: SnapshotFieldPath, op: WhereFilterOp, value: unknown): Query {
+    const normalizedField = normalizeQueryField(field);
+    const clauses = [
+      ...this.clauses,
+      snapshotFilter({ kind: 'where', field: normalizedField, op, value }),
+    ];
     return this.clone({
       clauses,
       ...this.recomputeCursors(clauses, this.orders),
@@ -189,21 +219,22 @@ export class QueryImpl implements Query {
   }
 
   applyFilter(filter: Filter): Query {
-    const clauses = [...this.clauses, snapshotFilter(filter)];
+    const clauses = [...this.clauses, snapshotFilter(normalizeFilterFields(filter))];
     return this.clone({
       clauses,
       ...this.recomputeCursors(clauses, this.orders),
     });
   }
 
-  orderBy(field: string, direction: OrderDirection = 'asc'): Query {
+  orderBy(field: SnapshotFieldPath, direction: OrderDirection = 'asc'): Query {
+    const normalizedField = normalizeQueryField(field);
     const hasInvalidDirection = direction !== 'asc' && direction !== 'desc';
     if (hasInvalidDirection) {
       throw new FirestoreCompatError({
         code: 'invalid-argument', message: "orderBy() direction must be 'asc' or 'desc'.",
       });
     }
-    const orders = [...this.orders, { field, direction }];
+    const orders = [...this.orders, { field: normalizedField, direction }];
     return this.clone({
       orders,
       ...this.recomputeCursors(this.clauses, orders),
@@ -434,7 +465,7 @@ export class QueryImpl implements Query {
         limitFromEnd: this.limitFromEnd,
       });
       const built = snapshotCursor(
-        cursorValuesFromSnapshot(cursorInput.snapshot, normalized),
+        cursorValuesFromSnapshot(cursorInput.snapshot, normalized, this.documentRef),
         cursorInput.inclusive,
         true,
       );
@@ -514,16 +545,7 @@ export class QueryImpl implements Query {
     });
   }
 
-  async get(opts?: OperationOptions): Promise<QuerySnapshot> {
-    // Query reads enforce security rules (FS-B1) under the query-proof
-    // model (RULES-B11): a deny-all rule set throws `permission-denied`,
-    // and a doc-data-dependent `list` rule the query's `where()`
-    // equalities can't discharge denies the WHOLE query — never a
-    // silently filtered subset. The `opts.auth` override threads through
-    // to the rule eval the same way the single-doc/write paths use it.
-    // Phantom parent docs are a discover-crawler affordance. The engine's
-    // candidate gatherer strips them before rule proof and execution.
-    const rows = this.readQueryRows(opts);
+  private buildQuerySnapshot(rows: { path: string; data: DocumentData }[]): QuerySnapshot {
     const docs: QueryDocumentSnapshot[] = rows.map((d) => {
       const ref = this.documentRef(d.path);
       // Translate timestamps + future typed values on the read path.
@@ -536,8 +558,8 @@ export class QueryImpl implements Query {
         id: ref.id,
         ref,
         exists: true,
-        data: () => translated,
-        get: (fieldPath) => getSnapshotField(translated, fieldPath),
+        data: () => cloneSnapshotValue(translated),
+        get: (fieldPath) => cloneSnapshotValue(getSnapshotField(translated, fieldPath)),
       };
     });
     const changes = computeDocumentChanges(
@@ -554,6 +576,46 @@ export class QueryImpl implements Query {
       forEach: forEachDocument(docs),
       docChanges: createDocChanges(changes, false),
     };
+  }
+
+  async getInTransaction(
+    pinnedStore: DocStore,
+    onExecuted: (
+      checkLiveConflict: () => string[] | null,
+      matchedPaths: readonly string[],
+    ) => void,
+    opts?: OperationOptions,
+  ): Promise<QuerySnapshot> {
+    // Enforce list-rule proof and residual authorization identically to get().
+    this.readQueryRows(opts);
+    const scope = captureQueryScope(this.queryScope());
+    const execution = captureQueryExecutionSpec(this.executionSpec());
+    const rows = executeQuery(gatherQueryRows(pinnedStore, scope), execution);
+    const matchedPaths = rows.map((row) => row.path);
+    onExecuted(() => {
+      const liveStore = new LocalState({}, new Map(Object.entries(this.env.snapshot())));
+      const livePaths = executeQuery(gatherQueryRows(liveStore, scope), execution).map(
+        (row) => row.path,
+      );
+      const unchanged =
+        livePaths.length === matchedPaths.length
+        && livePaths.every((path, idx) => path === matchedPaths[idx]);
+      return unchanged ? null : livePaths;
+    }, matchedPaths);
+    return this.buildQuerySnapshot(rows);
+  }
+
+  async get(opts?: OperationOptions): Promise<QuerySnapshot> {
+    // Query reads enforce security rules (FS-B1) under the query-proof
+    // model (RULES-B11): a deny-all rule set throws `permission-denied`,
+    // and a doc-data-dependent `list` rule the query's `where()`
+    // equalities can't discharge denies the WHOLE query — never a
+    // silently filtered subset. The `opts.auth` override threads through
+    // to the rule eval the same way the single-doc/write paths use it.
+    // Phantom parent docs are a discover-crawler affordance. The engine's
+    // candidate gatherer strips them before rule proof and execution.
+    const rows = this.readQueryRows(opts);
+    return this.buildQuerySnapshot(rows);
   }
 
   async aggregate(spec: AggregateSpec, opts?: OperationOptions): Promise<AggregateQuerySnapshot> {
@@ -577,6 +639,36 @@ export class QueryImpl implements Query {
       data[alias] = computeAggregate(spec[alias], scopedRows);
     }
     return { data: () => data };
+  }
+}
+
+function normalizeFilterFields(filter: Filter): QueryFilter {
+  if (filter.kind === 'where') {
+    return {
+      kind: 'where',
+      field: normalizeQueryField(filter.field),
+      op: filter.op,
+      value: filter.value,
+    };
+  }
+  return {
+    kind: filter.kind,
+    filters: filter.filters.map(normalizeFilterFields),
+  };
+}
+
+function normalizeQueryField(field: SnapshotFieldPath): string {
+  if (typeof field === 'string') {
+    const decoded = decodeEncodedFieldPath(field);
+    if (decoded !== undefined) return fieldPathKey(decoded);
+  }
+  try {
+    return fieldPathKey(fieldPathSegments(field));
+  } catch (error) {
+    throw new FirestoreCompatError({
+      code: 'invalid-argument',
+      message: (error as Error).message,
+    });
   }
 }
 

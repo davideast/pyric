@@ -12,13 +12,19 @@ import type {
   OperationOptions,
   SetOptions,
 } from 'pyric/sandbox/admin-compat';
+import { Reference as InternalReference } from 'pyric/rules/internal';
 import {
   isCollectionPath,
   isDocumentPath,
   lastSegment,
   parentCollectionPath,
 } from '../../../firestore/sandbox/admin-compat/paths.js';
+import {
+  boundedActivityIdentity,
+  registerActivityValue,
+} from '../../../firestore/sandbox/activity-value-registry.js';
 import { generateAutoId } from '../../../firestore/sandbox/auto-id.js';
+import { registerReferenceQueryValue } from '../../../firestore/sandbox/query-value-registry.js';
 import { armOp, type RemoteArm } from './channel.js';
 import { invalidArgument } from './errors.js';
 import { encodeUpdateFields, encodeWriteData } from './value-codec.js';
@@ -125,6 +131,8 @@ export function makeDocRef(arm: RemoteArm, path: string): DocumentReference {
       registerRemoteListener(arm, { __ref: 'doc', path }, options, onNext, onError),
     onSnapshot: chainableOnSnapshot,
   };
+  registerActivityValue(ref, boundedActivityIdentity('reference', path));
+  registerReferenceQueryValue(ref, path, arm.sandbox, new InternalReference(path));
   return ref;
 }
 

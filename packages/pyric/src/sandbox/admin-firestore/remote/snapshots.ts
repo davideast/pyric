@@ -14,6 +14,7 @@ import { decodeDocData } from './value-codec.js';
 import { makeDocRef } from './doc-ref.js';
 import type { WireDocSnap, WireQuerySnap } from './wire-types.js';
 import { getSnapshotField } from '../../../firestore/sandbox/admin-compat/field-path.js';
+import { cloneSnapshotValue } from '../../../firestore/sandbox/admin-compat/read-translation.js';
 import { forEachDocument } from '../../../firestore/sandbox/for-each-document.js';
 import {
   computeDocumentChanges,
@@ -26,8 +27,8 @@ export function makeDocumentSnapshot(ref: DocumentReference, wire: WireDocSnap):
     id: ref.id,
     ref,
     exists: wire.exists,
-    data: () => data,
-    get: (fieldPath) => getSnapshotField(data, fieldPath),
+    data: () => (data !== undefined ? cloneSnapshotValue(data) : undefined),
+    get: (fieldPath) => cloneSnapshotValue(getSnapshotField(data, fieldPath)),
   };
 }
 
@@ -45,8 +46,8 @@ export function makeQuerySnapshot(
       id: ref.id,
       ref,
       exists: true,
-      data: () => data,
-      get: (fieldPath) => getSnapshotField(data, fieldPath),
+      data: () => cloneSnapshotValue(data),
+      get: (fieldPath) => cloneSnapshotValue(getSnapshotField(data, fieldPath)),
     };
   });
   const changes = computeDocumentChanges(

@@ -38,6 +38,7 @@ export interface Reference {
   readonly database: Database;
   readonly ref: Reference;
   toString(): string;
+  toJSON(): string;
   get(): Promise<DataSnapshot>;
   once<T = unknown>(
     eventType: EventType,

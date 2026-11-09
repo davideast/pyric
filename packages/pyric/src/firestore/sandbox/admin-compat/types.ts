@@ -125,12 +125,12 @@ export type OrderDirection = QueryOrderDirection;
  * field; ours is the `kind` discriminant).
  */
 export type Filter =
-  | { kind: 'where'; field: string; op: WhereFilterOp; value: unknown }
+  | { kind: 'where'; field: SnapshotFieldPath; op: WhereFilterOp; value: unknown }
   | { kind: 'and'; filters: Filter[] }
   | { kind: 'or'; filters: Filter[] };
 
 export interface Query {
-  where(field: string, op: WhereFilterOp, value: unknown): Query;
+  where(field: SnapshotFieldPath, op: WhereFilterOp, value: unknown): Query;
   /**
    * Add a composite filter (leaf, AND, or OR) to the query's filter
    * stack. Each `applyFilter` call AND-s with whatever filters are
@@ -140,7 +140,7 @@ export interface Query {
    * modular `or()` / `and()` constraints in `pyric/firestore`.
    */
   applyFilter(filter: Filter): Query;
-  orderBy(field: string, direction?: OrderDirection): Query;
+  orderBy(field: SnapshotFieldPath, direction?: OrderDirection): Query;
   limit(n: number): Query;
   /**
    * Limit from the END of the ordered result. Equivalent to reversing

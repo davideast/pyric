@@ -21,7 +21,6 @@ export function buildSandboxSnap(
   const key = segs.length === 0 ? null : segs[segs.length - 1]!;
   const exists = stored !== null;
   const children = valueChildren(stored);
-  const val = coerceArrays(stored);
   const exportedChild = (childSegs: readonly string[]): unknown =>
     exported === undefined ? undefined : valueAtChildPath(exported, childSegs);
 
@@ -34,7 +33,7 @@ export function buildSandboxSnap(
       return exists;
     },
     val(): unknown {
-      return val;
+      return coerceArrays(structuredClone(stored));
     },
     child(p: string): DataSnapshot {
       const childSegs = pathSegments(p);
@@ -71,9 +70,21 @@ export function buildSandboxSnap(
       return snap.exportVal();
     },
     getPriority(): string | number | null {
-      return null;
+      if (
+        !exists ||
+        exported === undefined ||
+        exported === null ||
+        typeof exported !== 'object' ||
+        Array.isArray(exported) ||
+        !Object.hasOwn(exported, '.priority')
+      ) {
+        return null;
+      }
+      const priority = (exported as Record<string, unknown>)['.priority'];
+      return typeof priority === 'string' || typeof priority === 'number' ? priority : null;
     },
     exportVal(): unknown {
+      if (!exists) return null;
       return structuredClone(exported === undefined ? stored : exported);
     },
   };

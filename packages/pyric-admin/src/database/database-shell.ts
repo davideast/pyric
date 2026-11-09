@@ -5,31 +5,47 @@
 import {
   isCustomDatabaseHost,
   parseDatabaseLocationUrl,
-  type DatabaseInstance,
 } from 'pyric/sandbox/internal';
+import type { PyricAdminApp } from '../app/index.js';
 import type { Database, Reference } from './types.js';
 
+export interface DatabaseUrlMetadata {
+  expectedHost: string | undefined;
+  originUrl: string;
+}
+
+export function originOfDatabaseUrl(rootUrl: string): string {
+  const withoutQuery = rootUrl.split('?')[0]!;
+  return withoutQuery.endsWith('/') ? withoutQuery.slice(0, -1) : withoutQuery;
+}
+
+export function formatReferenceUrl(originUrl: string, segs: readonly string[]): string {
+  if (segs.length === 0) return `${originUrl}/`;
+  return `${originUrl}/${segs.map((segment) => encodeURIComponent(segment)).join('/')}`;
+}
+
 export function buildDatabaseShell(
-  instance: DatabaseInstance | undefined,
-  refFactory: (db: Database, path: string) => Reference,
+  app: PyricAdminApp,
+  urlMeta: DatabaseUrlMetadata,
+  refFactory: (db: Database, path: string, urlMeta: DatabaseUrlMetadata) => Reference,
 ): Database {
   const db = {
     ref(path?: string): Reference {
-      return refFactory(db as unknown as Database, path ?? '/');
+      return refFactory(db as unknown as Database, path ?? '/', urlMeta);
     },
     /** As the SDK parses it: the URL names a location, and for a
      *  `firebaseio.com` database its host must be this database's host. */
     refFromURL(url: string): Reference {
       const location = parseDatabaseLocationUrl(url);
-      if (instance !== undefined) {
-        const expectedHost = parseDatabaseLocationUrl(instance.url).host;
+      const expectedHost = urlMeta.expectedHost;
+      if (expectedHost !== undefined) {
         if (!isCustomDatabaseHost(expectedHost) && location.host !== expectedHost) {
           throw new Error(
             `FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found ${location.host} but expected ${expectedHost}) `,
           );
         }
       }
-      return refFactory(db as unknown as Database, location.path);
+      return refFactory(db as unknown as Database, location.path, urlMeta);
     },
     getRules(): Promise<string> {
       throw new Error('pyric-admin/database sandbox: getRules not implemented');
@@ -49,7 +65,7 @@ export function buildDatabaseShell(
     goOnline(): void {
       // No-op: sandbox has no network connection to reopen.
     },
-    app: undefined,
+    app,
   };
   return db as unknown as Database;
 }

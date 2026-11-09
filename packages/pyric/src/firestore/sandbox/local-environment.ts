@@ -451,6 +451,24 @@ export class LocalEnvironment {
     return this.state.snapshot();
   }
 
+  /**
+   * Evaluate a synchronous read callback against a pinned point-in-time
+   * keyspace snapshot (`OverlayBacking(pinnedSnapshot)`), restoring live
+   * keyspace state immediately on return.
+   */
+  withPinnedSnapshot<R>(
+    pinnedSnapshot: Record<string, DocumentData>,
+    fn: () => R,
+  ): R {
+    const liveState = this.state;
+    this.state = new LocalState({}, new Map(Object.entries(pinnedSnapshot)));
+    try {
+      return fn();
+    } finally {
+      this.state = liveState;
+    }
+  }
+
 
   // ═══ Write operations (bypass rules — admin access) ═══
 

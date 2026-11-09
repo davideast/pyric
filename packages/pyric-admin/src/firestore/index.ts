@@ -40,7 +40,7 @@ import {
   getAdminFirestore as baseGetAdminFirestore,
   type SandboxFirestore,
 } from 'pyric/sandbox/admin-firestore';
-import type { SandboxContext } from 'pyric/sandbox';
+import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import {
   ADMIN_APP_TARGET,
   getApp,
@@ -49,6 +49,7 @@ import {
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { defineDeferredMembers, deferredExport, type DeferredMembers } from 'pyric/app/internal';
+import { adminOnSnapshot, wrapAdminFirestoreHandle } from './admin-value-adapter.js';
 
 // ─── Deferred surface ─────────────────────────────────────────────────────
 //
@@ -73,7 +74,7 @@ const FIRESTORE_DEFERRED_MEMBERS: DeferredMembers = {
 /** Define the deferred `Firestore` methods on a handle either arm built. */
 function withDeferredMembers(db: SandboxFirestore): SandboxFirestore {
   defineDeferredMembers(db, SUBPATH, 'Firestore', FIRESTORE_DEFERRED_MEMBERS);
-  return db;
+  return wrapAdminFirestoreHandle(db);
 }
 
 /** Narrow a `PyricAdminApp` to the {@link SandboxContext} the admin
@@ -125,3 +126,11 @@ export function getFirestore(
   }
   return withDeferredMembers(baseGetFirestore(target as SandboxContext));
 }
+
+export function getAdminFirestore(ctx: SandboxContext): SandboxFirestore;
+export function getAdminFirestore(sandbox: Sandbox): SandboxFirestore;
+export function getAdminFirestore(target: SandboxContext | Sandbox): SandboxFirestore {
+  return withDeferredMembers(baseGetAdminFirestore(target as SandboxContext));
+}
+
+export { adminOnSnapshot as onSnapshot };

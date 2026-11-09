@@ -45,7 +45,7 @@ export function snapshotFilter(
       : captureQueryOperand(filter.value, owner, usesListOperand);
     return Object.freeze({
       kind: 'where',
-      field: filter.field,
+      field: typeof filter.field === 'string' ? filter.field : filter.field.toString(),
       op: filter.op,
       value: comparisonValue.executionValue,
       comparisonValue,

@@ -30,7 +30,10 @@
  * back to capture the right auth at listener registration.
  */
 
-import { FirestoreCompatError } from 'pyric/sandbox/admin-compat';
+import {
+  FirestoreCompatError,
+  copyAdminReferenceRegistration,
+} from 'pyric/sandbox/admin-compat';
 import type { SandboxContext } from 'pyric/sandbox';
 import {
   SandboxError,
@@ -231,7 +234,7 @@ export function wrapWithErrorTranslation<T extends object>(
   ctx: SandboxContext,
   bypassRules = false,
 ): T {
-  return new Proxy(target, {
+  const proxy = new Proxy(target, {
     get(t, prop, receiver) {
       // Hidden context recovery — must come before any other property
       // resolution. Symbol-keyed so it can't collide with real props.
@@ -293,4 +296,6 @@ export function wrapWithErrorTranslation<T extends object>(
       };
     },
   });
+  copyAdminReferenceRegistration(target, proxy);
+  return proxy;
 }

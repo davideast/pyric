@@ -15,6 +15,7 @@ import { sdkActivity } from 'pyric/sandbox/internal';
 import {
   doc as pyricDoc,
   collection as pyricCollection,
+  getDocs,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -29,6 +30,7 @@ import {
   FieldPath,
   type Firestore,
   type DocumentReference,
+  type Query,
   type SetOptions,
   type Transaction as ModularTransaction,
   type WriteBatch,
@@ -46,7 +48,7 @@ import {
 } from 'pyric/rules/internal';
 import { FirebaseError } from 'pyric/app';
 
-import type { OpMessage, WriteDescriptor, SentinelMarker, UpdatePayload } from '../protocol.js';
+import type { OpMessage, TargetDescriptor, WriteDescriptor, SentinelMarker, UpdatePayload } from '../protocol.js';
 import { isSentinelMarker } from '../protocol.js';
 import {
   assertAtomicList,
@@ -56,6 +58,29 @@ import {
   requireUpdateFields,
 } from '../protocol/firestore-validation.js';
 import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from '../host-context.js';
+import { releasePinnedTxnSnapshot } from './firestore-txn-snapshots.js';
+import { resolveTarget } from './core.js';
+
+const txnCommitLocks = new WeakMap<object, Promise<void>>();
+
+async function withTxnCommitLock<T>(key: object, fn: () => Promise<T>): Promise<T> {
+  const prev = txnCommitLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const next = prev.then(() => gate);
+  txnCommitLocks.set(key, next);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    if (txnCommitLocks.get(key) === next) {
+      txnCommitLocks.delete(key);
+    }
+    release();
+  }
+}
 
 // ─── Sentinel resolution ──────────────────────────────────────────────────
 
@@ -437,9 +462,19 @@ export async function handleFirestoreWriteOp(
       };
 
       try {
+        if (typeof msg.txnId === 'string' && msg.txnId.length > 0) {
+          releasePinnedTxnSnapshot(ctx.sandbox, msg.txnId);
+        }
+        if (msg.abortOnly === true) {
+          ok(port, msg.id, null);
+          break;
+        }
         assertAtomicList(msg.writes, 'write');
         assertAtomicList(msg.reads, 'read');
-        await sdkActivity.silence(() => runTransaction(db, async (tx) => {
+        if (msg.queryReads !== undefined && !Array.isArray(msg.queryReads)) {
+          throw new FirebaseError('invalid-argument', 'Firestore atomic queryRead lists must be arrays.');
+        }
+        await withTxnCommitLock(ctx.sandbox, () => sdkActivity.silence(() => runTransaction(db, async (tx) => {
           // ── Step 1: validate the read-set ──────────────────────────────
           // Re-read each doc the client touched and compare its live hydrated
           // AST against the client's recorded snapshot AST.
@@ -474,11 +509,53 @@ export async function handleFirestoreWriteOp(
             if (hasChangedData) throw TXN_ABORT;
           }
 
+          if (msg.queryReads !== undefined) {
+            for (const queryRead of msg.queryReads) {
+              const isInvalidQueryRead =
+                queryRead === null || typeof queryRead !== 'object' || Array.isArray(queryRead);
+              if (isInvalidQueryRead) {
+                throw new FirebaseError(
+                  'invalid-argument',
+                  'Firestore transaction query reads must be objects.',
+                );
+              }
+              const rawTarget = (queryRead as { target?: unknown }).target;
+              const rawDocPaths = (queryRead as { docPaths?: unknown }).docPaths;
+              if (!Array.isArray(rawDocPaths)) {
+                throw new FirebaseError(
+                  'invalid-argument',
+                  'Firestore transaction query read docPaths must be an array.',
+                );
+              }
+              if (
+                rawTarget === null
+                || typeof rawTarget !== 'object'
+                || (rawTarget as { __ref?: unknown }).__ref === 'doc'
+              ) {
+                throw new FirebaseError(
+                  'invalid-argument',
+                  'Firestore transaction query read target must be a collection, group, or query.',
+                );
+              }
+              const expectedPaths = rawDocPaths.map((p) => requireFirestorePath(p));
+              const source = resolveTarget(db, rawTarget as TargetDescriptor);
+              const currentQuerySnap = await getDocs(source as Query);
+              const livePaths = currentQuerySnap.docs.map((d) => {
+                const snap = d as { path?: string; ref?: { path?: string } };
+                return snap.path ?? snap.ref?.path ?? '';
+              });
+              const hasQueryMismatch =
+                livePaths.length !== expectedPaths.length
+                || livePaths.some((p, idx) => p !== expectedPaths[idx]);
+              if (hasQueryMismatch) throw TXN_ABORT;
+            }
+          }
+
           // ── Step 2: apply the queued writes ────────────────────────────
           for (const write of msg.writes) {
             applyAtomicWrite(db, tx, write);
           }
-        }));
+        })));
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) {

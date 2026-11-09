@@ -25,6 +25,9 @@
  */
 import { FIRESTORE_ERROR_CODES, type FirestoreSimError } from '../../firestore/sandbox/errors.js';
 import { FirestoreCompatError } from '../../firestore/sandbox/firestore-compat-error.js';
+import { getSnapshotField } from '../../firestore/sandbox/admin-compat/field-path.js';
+import { cloneSnapshotValue } from '../../firestore/sandbox/admin-compat/read-translation.js';
+import { forEachDocument } from '../../firestore/sandbox/for-each-document.js';
 
 import { SandboxError, type SandboxContext } from 'pyric/sandbox';
 import type {
@@ -293,6 +296,10 @@ export function onSnapshot(
   // observer registers purely to receive errors — `onNext` stays undefined
   // and `addSnapshotListener` only fires the error path.
 
+  const safeOnNext = onNext
+    ? (snapshot: unknown) => onNext(wrapLiveSnapshotForImmutability(snapshot))
+    : undefined;
+
   // ── REMOTE ARM: refs minted by the channel-backed handle carry their
   // own listener registrar — dispatch on it BEFORE any local-engine
   // resolution (`getInternalEnv` rejects remote handles). The registrar
@@ -312,7 +319,7 @@ export function onSnapshot(
           'context that created the ref.',
       );
     }
-    return remoteRegistrar(options, onNext, onError);
+    return remoteRegistrar(options, safeOnNext, onError);
   }
 
   // ── Resolve the context + target from the ref. ──
@@ -371,7 +378,7 @@ export function onSnapshot(
   // denials still route to `onError` (FS-B14).
   const register = (): Unsubscribe => env.addSnapshotListener(
     target,
-    onNext ?? (() => {}),
+    safeOnNext ?? (() => {}),
     options,
     ctx.auth,
     onError ? (error) => onError(translateListenerError(error, ctx)) : undefined,
@@ -461,4 +468,60 @@ function translateListenerError(error: unknown, ctx: SandboxContext): unknown {
     }
   }
   return translated;
+}
+
+function wrapLiveSnapshotForImmutability(snapshot: unknown): unknown {
+  if (snapshot === null || typeof snapshot !== 'object') return snapshot;
+  const candidate = snapshot as {
+    docs?: unknown;
+    data?: unknown;
+    get?: unknown;
+    docChanges?: (options?: { includeMetadataChanges?: boolean }) => Array<{
+      type: 'added' | 'modified' | 'removed';
+      doc: unknown;
+      oldIndex: number;
+      newIndex: number;
+    }>;
+  };
+  if (Array.isArray(candidate.docs)) {
+    const wrappedByRaw = new Map<object, import('pyric/sandbox/admin-compat').LiveQueryDocumentSnapshot>();
+    const wrapQueryDoc = (
+      rawDoc: import('pyric/sandbox/admin-compat').LiveQueryDocumentSnapshot,
+    ): import('pyric/sandbox/admin-compat').LiveQueryDocumentSnapshot => {
+      const cached = wrappedByRaw.get(rawDoc);
+      if (cached !== undefined) return cached;
+      const baseData = cloneSnapshotValue(rawDoc.data());
+      const wrapped: import('pyric/sandbox/admin-compat').LiveQueryDocumentSnapshot = {
+        ...rawDoc,
+        data: () => cloneSnapshotValue(baseData),
+        get: (fieldPath) => cloneSnapshotValue(getSnapshotField(baseData, fieldPath)),
+      };
+      wrappedByRaw.set(rawDoc, wrapped);
+      return wrapped;
+    };
+    const wrappedDocs = (
+      candidate.docs as import('pyric/sandbox/admin-compat').LiveQueryDocumentSnapshot[]
+    ).map(wrapQueryDoc);
+    return {
+      ...(snapshot as import('pyric/sandbox/admin-compat').LiveQuerySnapshot),
+      docs: wrappedDocs,
+      forEach: forEachDocument(wrappedDocs),
+      docChanges: (opts?: { includeMetadataChanges?: boolean }) =>
+        candidate.docChanges!(opts).map((change) => ({
+          ...change,
+          doc: wrapQueryDoc(change.doc as import('pyric/sandbox/admin-compat').LiveQueryDocumentSnapshot),
+        })),
+    };
+  }
+  if (typeof candidate.data === 'function') {
+    const rawDoc = snapshot as import('pyric/sandbox/admin-compat').LiveDocumentSnapshot;
+    const baseData = cloneSnapshotValue(rawDoc.data());
+    return {
+      ...rawDoc,
+      data: () => (baseData !== undefined ? cloneSnapshotValue(baseData) : undefined),
+      get: (fieldPath: import('pyric/sandbox/admin-compat').SnapshotFieldPath) =>
+        cloneSnapshotValue(getSnapshotField(baseData, fieldPath)),
+    };
+  }
+  return snapshot;
 }

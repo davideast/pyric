@@ -16,11 +16,31 @@
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import type { EventProvenance } from '../../../sandbox/types/events.js';
+import {
+  registerActivityValue,
+  registeredActivityValue,
+} from '../activity-value-registry.js';
+import {
+  copyQueryValueRegistration,
+  registeredReferenceQueryValuePath,
+} from '../query-value-registry.js';
 import { FirestoreImpl } from './firestore.js';
 import {
   type AuthContext,
   type Firestore,
 } from './types.js';
+
+export function copyAdminReferenceRegistration(source: object, target: object): void {
+  copyQueryValueRegistration(source, target);
+  const activity = registeredActivityValue(source);
+  if (activity !== undefined) {
+    registerActivityValue(target, activity);
+  }
+}
+
+export function registeredAdminReferencePath(value: object): string | undefined {
+  return registeredReferenceQueryValuePath(value);
+}
 
 export {
   FirestoreCompatError,

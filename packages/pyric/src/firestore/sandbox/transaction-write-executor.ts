@@ -84,6 +84,9 @@ export class TransactionWriteExecutor {
     try {
       callbackResult = fn(context);
     } catch (error) {
+      if (error instanceof RetryableTransactionConflictError) {
+        return this.retryOrThrow(error, fn, options, attempt);
+      }
       if (error instanceof TransactionReadDeniedError) {
         return this.buildReadDeniedResult(context, options, error.simError);
       }
@@ -116,6 +119,9 @@ export class TransactionWriteExecutor {
           }
         },
         (error) => {
+          if (error instanceof RetryableTransactionConflictError) {
+            return this.retryOrThrow(error, fn, options, attempt);
+          }
           if (error instanceof TransactionReadDeniedError) {
             return this.buildReadDeniedResult(context, options, error.simError);
           }

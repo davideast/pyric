@@ -279,7 +279,8 @@ describe('pyric-admin remote dispatch — RTDB', () => {
     expect(ref.key).toBe('c');
     expect(ref.parent!.key).toBe('b');
     expect(ref.root.key).toBeNull();
-    expect(ref.toString()).toBe('sandbox://rtdb/a/b/c');
+    expect(ref.toString()).toBe('https://pyric-sandbox-default-rtdb.firebaseio.com/a/b/c');
+    expect(db.refFromURL(ref.toString()).key).toBe('c');
   });
 
   it('push() has a synchronous 20-char .key and commits the value remotely', async () => {
