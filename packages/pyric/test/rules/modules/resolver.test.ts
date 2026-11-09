@@ -260,7 +260,7 @@ describe('transitive dependencies', () => {
     });
   });
 
-  test('rejects colliding private helper names from distinct module paths', () => {
+  test('isolates private helper names across distinct module paths so incompatible helpers are not overwritten', () => {
     const result = resolveModules(
       makeStorageSource(
         "import { allowedA } from './a-b';\nimport { allowedB } from './a/b';",
@@ -280,10 +280,9 @@ describe('transitive dependencies', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.code).toBe('DUPLICATE_FUNCTION');
-      expect(result.error.message).toContain("'./a-b'");
-      expect(result.error.message).toContain("'./a/b'");
+      expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
       expect(result.error.message).toContain('a_b__helper');
+      expect(result.error.message).toContain("binding 'resource.data");
     }
   });
 

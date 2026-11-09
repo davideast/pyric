@@ -179,7 +179,14 @@ class DocumentRtdbRuleset implements RtdbRuleset {
   }
 
   coverage(results: readonly RtdbCaseResult[], options?: RtdbCoverageOptions): RtdbCoverageSummary {
-    if (this.placement.kind === 'every-instance') return fileCoverage(this.doc, results, options);
+    if (this.placement.kind === 'every-instance') {
+      const { source } = this.placement.rules;
+      const mergedOptions =
+        source === undefined
+          ? options
+          : { ...options, source: options?.source ?? source };
+      return fileCoverage(this.doc, results, mergedOptions);
+    }
     const { defaultInstance, instances } = this.placement;
     const files = [...new Set(instances.values())];
     const summaries = files.map((rules) => {
@@ -255,8 +262,11 @@ function fileCoverage(
 }
 
 /** A handle whose one ruleset applies on whichever instance a case names. */
-function everyInstance(doc: RtdbRulesDocumentInternal): RtdbRuleset {
-  return new DocumentRtdbRuleset({ kind: 'every-instance', rules: { doc } });
+function everyInstance(doc: RtdbRulesDocumentInternal, source?: string): RtdbRuleset {
+  return new DocumentRtdbRuleset({
+    kind: 'every-instance',
+    rules: source === undefined ? { doc } : { doc, source },
+  });
 }
 
 /** Internal document adapter for already-compiled Firebase rules JSON. */
@@ -323,7 +333,9 @@ function rulesTextError(message: string): RulesCompileError {
 }
 
 function buildRtdbRules(input: RtdbRulesInput | string): RtdbRuleset {
-  if (typeof input === 'string') input = parseRulesText(input);
+  if (typeof input === 'string') {
+    return everyInstance(new CompiledRtdbRulesDocument(parseRulesText(input)), input);
+  }
   if (isDocument(input)) return everyInstance(input);
   if (isCompiledJson(input)) {
     return everyInstance(new CompiledRtdbRulesDocument(input));

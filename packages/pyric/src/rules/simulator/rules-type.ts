@@ -151,7 +151,11 @@ function re2PatternCompileError(pattern: string): string | null {
   const normalized = normalizeRe2ForJsRegExp(pattern);
   const codeUnitError = jsRegExpError(`^(?:${normalized})$`, '');
   if (codeUnitError === null) return null;
-  if (jsRegExpError(`^(?:${spellRe2UnicodeClasses(normalized)})$`, 'u') === null) return null;
+  const unicodeSource = spellRe2SpaceClasses(
+    spellRe2UnicodeClasses(spellRe2PosixClasses(normalized, true)),
+    true,
+  );
+  if (jsRegExpError(`^(?:${unicodeSource})$`, 'u') === null) return null;
   return codeUnitError;
 }
 

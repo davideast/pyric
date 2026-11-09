@@ -102,8 +102,12 @@ export function rewriteCalls(expr: Expression, renames: Map<string, string>): Ex
   }
 }
 
-export function prefixPrivateFunctions(functions: FunctionDef[], moduleName: string): FunctionDef[] {
-  const prefix = sanitizeModuleName(moduleName);
+export function prefixPrivateFunctions(
+  functions: FunctionDef[],
+  moduleName: string,
+  prefixOverride?: string,
+): FunctionDef[] {
+  const prefix = prefixOverride ?? sanitizeModuleName(moduleName);
   const renames = new Map<string, string>();
 
   for (const fn of functions) {

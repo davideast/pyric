@@ -1,7 +1,24 @@
 import { STORAGE_BINDING_PATHS } from './rules-capabilities.generated.js';
 import type { RulesServiceName } from './stdlib-service-compatibility.js';
 
-const STORAGE_BINDINGS = new Set<string>(STORAGE_BINDING_PATHS);
+const PRODUCTION_VERIFIED_REQUEST_RESOURCE_PATHS = [
+  'request.resource.bucket',
+  'request.resource.cacheControl',
+  'request.resource.contentDisposition',
+  'request.resource.contentEncoding',
+  'request.resource.contentLanguage',
+  'request.resource.crc32c',
+  'request.resource.etag',
+  'request.resource.generation',
+  'request.resource.md5Hash',
+  'request.resource.metageneration',
+  'request.resource.storageClass',
+] as const;
+
+const STORAGE_BINDINGS = new Set<string>([
+  ...STORAGE_BINDING_PATHS,
+  ...PRODUCTION_VERIFIED_REQUEST_RESOURCE_PATHS,
+]);
 const STORAGE_DYNAMIC_BINDING_PREFIXES = [
   'request.auth.token',
   'request.resource.metadata',
@@ -33,7 +50,10 @@ export function bindingHasFixedFields(service: RulesServiceName, path: readonly 
   const binding = path.join('.');
   if (service === 'cloud.firestore') return FIRESTORE_FIXED_FIELD_BINDINGS.has(binding);
   if (allowsDynamicAmbientAccess(service, path)) return false;
-  return STORAGE_BINDING_PATHS.some((candidate) => candidate.startsWith(`${binding}.`));
+  for (const candidate of STORAGE_BINDINGS) {
+    if (candidate.startsWith(`${binding}.`)) return true;
+  }
+  return false;
 }
 
 export function allowsDynamicAmbientAccess(

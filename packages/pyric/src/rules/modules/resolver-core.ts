@@ -18,6 +18,8 @@ import {
 } from './service-compatibility.js';
 import {
   prefixPrivateFunctions,
+  rewriteCalls,
+  sanitizeModuleName,
 } from './resolver-transform.js';
 import {
   collectFunctionCalls,
@@ -101,13 +103,63 @@ function functionCallSites(
 // ---- Module loading ----
 
 const MODULE_TRIVIA = /^(?:\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/)/;
-const MODULE_VERSION = /^rules_version\s*=\s*(['"])([^'"]*)\1\s*;/;
-const MODULE_IMPORT = /^import\s*\{([^}]*)\}\s*from\s*(['"])([^'"]+)\2\s*;/;
-const MISPLACED_DECLARATION = /^\s*(?:import\s*\{|rules_version\b)/m;
+const MODULE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*/;
+const MODULE_STRING = /^(['"])([^'"]*)\1/;
+const MISPLACED_DECLARATION = /^\s*(?:import(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*\{|rules_version\b)/m;
 
 /** Replace every character except newlines with a space, so source locations stay put. */
 function blankOut(text: string): string {
   return text.replace(/[^\n]/g, ' ');
+}
+
+function skipModuleTrivia(text: string, start: number): number {
+  let pos = start;
+  while (pos < text.length) {
+    const trivia = MODULE_TRIVIA.exec(text.slice(pos));
+    if (!trivia || trivia[0].length === 0) break;
+    pos += trivia[0].length;
+  }
+  return pos;
+}
+
+function scanModuleVersion(text: string, start: number): { end: number; version: string } | null {
+  if (!/^rules_version\b/.test(text.slice(start))) return null;
+  let pos = skipModuleTrivia(text, start + 'rules_version'.length);
+  if (text[pos] !== '=') return null;
+  pos = skipModuleTrivia(text, pos + 1);
+  const str = MODULE_STRING.exec(text.slice(pos));
+  if (!str) return null;
+  pos = skipModuleTrivia(text, pos + str[0].length);
+  if (text[pos] !== ';') return null;
+  return { end: pos + 1, version: str[2] };
+}
+
+function scanModuleImport(text: string, start: number): { end: number; module: string; functions: string[] } | null {
+  if (!/^import\b/.test(text.slice(start))) return null;
+  let pos = skipModuleTrivia(text, start + 'import'.length);
+  if (text[pos] !== '{') return null;
+  pos = skipModuleTrivia(text, pos + 1);
+  const functions: string[] = [];
+  while (pos < text.length && text[pos] !== '}') {
+    const ident = MODULE_IDENT.exec(text.slice(pos));
+    if (!ident) return null;
+    functions.push(ident[0]);
+    pos = skipModuleTrivia(text, pos + ident[0].length);
+    if (text[pos] === ',') {
+      pos = skipModuleTrivia(text, pos + 1);
+    } else {
+      break;
+    }
+  }
+  if (text[pos] !== '}') return null;
+  pos = skipModuleTrivia(text, pos + 1);
+  if (!/^from\b/.test(text.slice(pos))) return null;
+  pos = skipModuleTrivia(text, pos + 'from'.length);
+  const str = MODULE_STRING.exec(text.slice(pos));
+  if (!str || str[2] === '') return null;
+  pos = skipModuleTrivia(text, pos + str[0].length);
+  if (text[pos] !== ';') return null;
+  return { end: pos + 1, module: str[2], functions };
 }
 
 /**
@@ -123,33 +175,27 @@ function splitModuleHeader(
   let body = content;
   let cursor = 0;
   for (;;) {
-    const rest = content.slice(cursor);
-    const trivia = MODULE_TRIVIA.exec(rest);
-    if (trivia) {
-      cursor += trivia[0].length;
-      continue;
-    }
-    const version = MODULE_VERSION.exec(rest);
+    cursor = skipModuleTrivia(content, cursor);
+    const version = scanModuleVersion(content, cursor);
     if (version) {
-      if (version[2] !== '2+modules') {
+      if (version.version !== '2+modules') {
         return {
           success: false,
           error: {
             code: 'NOT_MODULE_SOURCE',
-            message: `Module '${moduleName}' declares rules_version '${version[2]}'; a module's version is '2+modules'`,
+            message: `Module '${moduleName}' declares rules_version '${version.version}'; a module's version is '2+modules'`,
           },
         };
       }
-      body = body.slice(0, cursor) + blankOut(version[0]) + body.slice(cursor + version[0].length);
-      cursor += version[0].length;
+      body = body.slice(0, cursor) + blankOut(content.slice(cursor, version.end)) + body.slice(version.end);
+      cursor = version.end;
       continue;
     }
-    const declaration = MODULE_IMPORT.exec(rest);
+    const declaration = scanModuleImport(content, cursor);
     if (declaration) {
-      const functions = declaration[1].split(',').map((name) => name.trim()).filter((name) => name !== '');
-      imports.push({ module: declaration[3], functions });
-      body = body.slice(0, cursor) + blankOut(declaration[0]) + body.slice(cursor + declaration[0].length);
-      cursor += declaration[0].length;
+      imports.push({ module: declaration.module, functions: declaration.functions });
+      body = body.slice(0, cursor) + blankOut(content.slice(cursor, declaration.end)) + body.slice(declaration.end);
+      cursor = declaration.end;
       continue;
     }
     return { success: true, body, imports };
@@ -197,19 +243,51 @@ function conventionalStdlibKey(moduleName: string): string | null {
     .exec(moduleName)?.[1] ?? null;
 }
 
+function stripRulesExtension(moduleName: string): string {
+  return moduleName.endsWith('.rules') ? moduleName.slice(0, -'.rules'.length) : moduleName;
+}
+
+function findExplicitModuleEntry(
+  modules: Record<string, string>,
+  moduleName: string,
+): { canonicalKey: string; lookupKey: string } | null {
+  const hasExact = Object.prototype.hasOwnProperty.call(modules, moduleName);
+  if (isRelativeImport(moduleName) && !conventionalStdlibKey(moduleName)) {
+    const withoutExt = stripRulesExtension(moduleName);
+    const withExt = `${withoutExt}.rules`;
+    const hasWithout = Object.prototype.hasOwnProperty.call(modules, withoutExt);
+    const hasWith = Object.prototype.hasOwnProperty.call(modules, withExt);
+    if (hasWithout && hasWith && modules[withoutExt] !== modules[withExt]) {
+      return hasExact ? { canonicalKey: moduleName, lookupKey: moduleName } : null;
+    }
+    if (hasExact) {
+      return { canonicalKey: withoutExt, lookupKey: moduleName };
+    }
+    const alt = moduleName.endsWith('.rules') ? withoutExt : withExt;
+    if (Object.prototype.hasOwnProperty.call(modules, alt)) {
+      return { canonicalKey: withoutExt, lookupKey: alt };
+    }
+    return null;
+  }
+  return hasExact ? { canonicalKey: moduleName, lookupKey: moduleName } : null;
+}
+
 function canonicalModuleKey(
   reader: ModuleFileReader | null,
   moduleName: string,
   options?: ResolveOptions,
   bundledSuppliedModules: ReadonlySet<string> = new Set(),
 ): string {
-  if (options?.modules && Object.prototype.hasOwnProperty.call(options.modules, moduleName)) {
-    if (!bundledSuppliedModules.has(moduleName)) return moduleName;
-    return conventionalStdlibKey(moduleName) ?? moduleName;
+  if (options?.modules) {
+    const explicit = findExplicitModuleEntry(options.modules, moduleName);
+    if (explicit) {
+      if (!bundledSuppliedModules.has(explicit.lookupKey)) return explicit.canonicalKey;
+      return conventionalStdlibKey(moduleName) ?? explicit.canonicalKey;
+    }
   }
   if (isRelativeImport(moduleName) && options?.basePath) {
     if ((reader?.readRelative(options.basePath, moduleName) ?? null) !== null) {
-      return moduleName;
+      return stripRulesExtension(moduleName);
     }
   }
   return conventionalStdlibKey(moduleName) ?? moduleName;
@@ -222,10 +300,15 @@ export function loadModuleWith(
   bundledSuppliedModules: ReadonlySet<string> = new Set(),
 ): LoadResult {
   // Priority 1: explicit modules map
-  if (options?.modules && Object.prototype.hasOwnProperty.call(options.modules, moduleName)) {
-    return loadModuleFromContent(
-      options.modules[moduleName], moduleName, bundledSuppliedModules.has(moduleName),
-    );
+  if (options?.modules) {
+    const explicit = findExplicitModuleEntry(options.modules, moduleName);
+    if (explicit) {
+      return loadModuleFromContent(
+        options.modules[explicit.lookupKey],
+        moduleName,
+        bundledSuppliedModules.has(explicit.lookupKey),
+      );
+    }
   }
 
   // Priority 2: relative path from basePath
@@ -410,6 +493,8 @@ export function resolveModulesWith(
   const modulesUsed: string[] = [];
   const bundledModulesUsed: string[] = [];
   const privateNamesPerModule = new Map<string, Set<string>>();
+  const usedModulePrefixes = new Set<string>();
+  const modulePrefixPerModule = new Map<string, string>();
 
   // Imports written in the source come first. A module's own imports are
   // queued when its file loads, and each module file loads once.
@@ -480,7 +565,25 @@ export function resolveModulesWith(
       }
       privateNamesPerModule.set(modKey, privateNames);
 
-      const prefixed = prefixPrivateFunctions(loaded.functions, imp.module);
+      const basePrefix = sanitizeModuleName(imp.module);
+      let modulePrefix = basePrefix;
+      let prefixIndex = 2;
+      while (
+        usedModulePrefixes.has(modulePrefix)
+        || loaded.functions.some((fn) =>
+          !fn.exported
+          && (
+            sourceFnNames.has(`${modulePrefix}__${fn.name}`)
+            || anyModuleFunctionOrigin.has(`${modulePrefix}__${fn.name}`)
+          ))
+      ) {
+        modulePrefix = `${basePrefix}_${prefixIndex}`;
+        prefixIndex += 1;
+      }
+      usedModulePrefixes.add(modulePrefix);
+      modulePrefixPerModule.set(modKey, modulePrefix);
+
+      const prefixed = prefixPrivateFunctions(loaded.functions, imp.module, modulePrefix);
       const namesInModule = new Map<string, FunctionDef>();
       for (const fn of prefixed) {
         if (namesInModule.has(fn.name)) {
@@ -560,7 +663,8 @@ export function resolveModulesWith(
 
   const requestedNames = new Set(ast.imports.flatMap((imp) => imp.functions));
   // 4. Validate the reachable call graph while building dependency-first order.
-  const injected: FunctionDef[] = [];
+  const injectedEntries: Array<{ modKey: string; fn: FunctionDef }> = [];
+  const visitedNodes = new Set<string>();
   const visiting: Array<{ modKey: string; fnName: string }> = [];
   const traversal: {
     cycle: string[] | null;
@@ -574,15 +678,8 @@ export function resolveModulesWith(
       traversal.cycle = [...visiting.slice(cycleStart).map((v) => v.fnName), fnName];
       return;
     }
-    const existingOrigin = functionOrigin.get(fnName);
-    if (existingOrigin !== undefined) {
-      if (existingOrigin === modKey) return;
-      traversal.error = {
-        code: 'DUPLICATE_FUNCTION',
-        message: `Function '${fnName}' from module '${displayNamePerModule.get(modKey)}' conflicts with module '${displayNamePerModule.get(existingOrigin)}'`,
-      };
-      return;
-    }
+    const nodeKey = `${modKey}\0${fnName}`;
+    if (visitedNodes.has(nodeKey)) return;
     const fn = functionsPerModule.get(modKey)?.get(fnName);
     if (!fn) return;
     visiting.push({ modKey, fnName });
@@ -610,16 +707,9 @@ export function resolveModulesWith(
     }
     visiting.pop();
     if (traversal.cycle || traversal.error) return;
-    const afterDepsOrigin = functionOrigin.get(fnName);
-    if (afterDepsOrigin !== undefined && afterDepsOrigin !== modKey) {
-      traversal.error = {
-        code: 'DUPLICATE_FUNCTION',
-        message: `Function '${fnName}' from module '${displayNamePerModule.get(modKey)}' conflicts with module '${displayNamePerModule.get(afterDepsOrigin)}'`,
-      };
-      return;
-    }
+    visitedNodes.add(nodeKey);
     functionOrigin.set(fnName, modKey);
-    injected.push({ ...fn, exported: false });
+    injectedEntries.push({ modKey, fn: { ...fn, exported: false } });
   }
 
   for (const imp of ast.imports) {
@@ -643,6 +733,62 @@ export function resolveModulesWith(
       error: traversal.error,
     };
   }
+
+  // Prefix any reachable non-root-imported module export whose bare name would
+  // collide with a source function declaration or another injected function.
+  const claimedInjectedNames = new Set<string>(requestedNames);
+  const mangledNameByNode = new Map<string, string>();
+  for (const { modKey, fn } of injectedEntries) {
+    if (rootImports.get(fn.name) === modKey) {
+      continue;
+    }
+    if (sourceFnNames.has(fn.name) || claimedInjectedNames.has(fn.name)) {
+      const basePrefix = modulePrefixPerModule.get(modKey) ?? sanitizeModuleName(modKey);
+      let candidate = `${basePrefix}__${fn.name}`;
+      let suffix = 2;
+      while (
+        sourceFnNames.has(candidate)
+        || claimedInjectedNames.has(candidate)
+        || anyModuleFunctionOrigin.has(candidate)
+      ) {
+        candidate = `${basePrefix}_${suffix}__${fn.name}`;
+        suffix += 1;
+      }
+      claimedInjectedNames.add(candidate);
+      mangledNameByNode.set(`${modKey}\0${fn.name}`, candidate);
+      anyModuleFunctionOrigin.set(candidate, displayNamePerModule.get(modKey) ?? modKey);
+    } else {
+      claimedInjectedNames.add(fn.name);
+    }
+  }
+
+  const injected: FunctionDef[] = mangledNameByNode.size === 0
+    ? injectedEntries.map(({ fn }) => fn)
+    : injectedEntries.map(({ modKey, fn }) => {
+      const ownFunctions = functionsPerModule.get(modKey);
+      const ownImports = importsPerModule.get(modKey);
+      const callRenames = new Map<string, string>();
+      for (const [nodeKey, newName] of mangledNameByNode) {
+        const sep = nodeKey.indexOf('\0');
+        const targetMod = nodeKey.slice(0, sep);
+        const origName = nodeKey.slice(sep + 1);
+        if (targetMod === modKey && ownFunctions?.has(origName)) {
+          callRenames.set(origName, newName);
+        } else if (!ownFunctions?.has(origName) && ownImports?.get(origName) === targetMod) {
+          callRenames.set(origName, newName);
+        }
+      }
+      const newName = mangledNameByNode.get(`${modKey}\0${fn.name}`) ?? fn.name;
+      if (callRenames.size === 0 && newName === fn.name) return fn;
+      const newBody = callRenames.size === 0 ? fn.body : rewriteCalls(fn.body, callRenames);
+      const newLets = callRenames.size === 0
+        ? fn.lets
+        : fn.lets.map((binding) => {
+          const newValue = rewriteCalls(binding.value, callRenames);
+          return newValue === binding.value ? binding : { ...binding, value: newValue };
+        });
+      return { ...fn, name: newName, body: newBody, lets: newLets };
+    });
 
   // 5. Validate source/module scope boundaries and call-site compatibility.
   const injectedNames = new Set(injected.map((fn) => fn.name));

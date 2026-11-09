@@ -1,3 +1,6 @@
+const JS_CLASS_METACHAR = /^[\\\^\-\[\]]$/;
+const JS_SYNTAX_CHAR = /^[\^$\\.*+?()[\]{}|]$/;
+
 /**
  * Normalize RE2-specific syntax (`(?i)`, `(?i:...)`, `(?P<name>...)`, `\A`,
  * `\z`, `\x{...}`, and leading `]` inside `[...]`) into a form JS `new RegExp`
@@ -16,6 +19,15 @@ export function normalizeRe2ForJsRegExp(source: string): string {
         out += '\\';
         break;
       }
+      if (!inClass && next === 'Q') {
+        const close = source.indexOf('\\E', i + 2);
+        const end = close === -1 ? source.length : close;
+        for (const literal of source.slice(i + 2, end)) {
+          out += JS_SYNTAX_CHAR.test(literal) ? `\\${literal}` : literal;
+        }
+        i = close === -1 ? source.length : close + 2;
+        continue;
+      }
       if (!inClass && next === 'A') {
         out += '^';
         i += 2;
@@ -31,12 +43,22 @@ export function normalizeRe2ForJsRegExp(source: string): string {
         if (close !== -1) {
           const hex = source.slice(i + 3, close);
           if (/^[0-9A-Fa-f]+$/.test(hex)) {
-            out += String.fromCodePoint(parseInt(hex, 16));
+            const decoded = String.fromCodePoint(parseInt(hex, 16));
+            const needsEscape = inClass ? JS_CLASS_METACHAR.test(decoded) : JS_SYNTAX_CHAR.test(decoded);
+            out += needsEscape ? `\\${decoded}` : decoded;
             i = close + 1;
             classStart = false;
             continue;
           }
         }
+      }
+      if (/^[0-3][0-7]{2}/.test(source.slice(i + 1))) {
+        const decoded = String.fromCodePoint(parseInt(source.slice(i + 1, i + 4), 8));
+        const needsEscape = inClass ? JS_CLASS_METACHAR.test(decoded) : JS_SYNTAX_CHAR.test(decoded);
+        out += needsEscape ? `\\${decoded}` : decoded;
+        i += 4;
+        classStart = false;
+        continue;
       }
       out += source.slice(i, i + 2);
       i += 2;
@@ -168,6 +190,16 @@ export function scanRe2Pattern(pattern: string): {
     const ch = pattern[i]!;
     if (ch === '\\') {
       const next = pattern[i + 1];
+      if (!inClass && next === 'Q') {
+        const close = pattern.indexOf('\\E', i + 2);
+        i = close === -1 ? pattern.length : close + 2;
+        continue;
+      }
+      if (/^[0-3][0-7]{2}/.test(pattern.slice(i + 1))) {
+        i += 4;
+        classStart = false;
+        continue;
+      }
       if (!inClass && next !== undefined && next >= '1' && next <= '9') {
         return { unsupported: 'backreference', inlineFlags: '' };
       }
