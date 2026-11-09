@@ -1,7 +1,8 @@
-import type { LocalSandbox, Sandbox } from "pyric/sandbox";
+import { getClock, type LocalSandbox, type Sandbox } from "pyric/sandbox";
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
   captureSandboxSnapshot,
+  type SnapshotStorageObject,
 } from "pyric/sandbox/internal";
 import {
   ASSURANCE_TARGET_SCHEMA,
@@ -185,6 +186,100 @@ export function createOwnedSandboxAttachmentProvider(
     });
 }
 
+function setOwn(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function cloneOwnRecord<V>(source: Record<string, V>): Record<string, V> {
+  const copy: Record<string, V> = {};
+  for (const [key, value] of Object.entries(source)) {
+    Object.defineProperty(copy, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return copy;
+}
+
+function parseSnapshotRtdbRules(
+  raw: string | undefined,
+): { rules: Record<string, unknown> } | undefined {
+  if (typeof raw !== "string" || raw.trim().length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as { rules?: unknown };
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      parsed.rules &&
+      typeof parsed.rules === "object" &&
+      !Array.isArray(parsed.rules)
+    ) {
+      return {
+        rules: cloneOwnRecord(parsed.rules as Record<string, unknown>),
+      };
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function mapStorageObjectEntry(
+  item: SnapshotStorageObject,
+  preserveTimestamps: boolean,
+): StorageObjectFixture {
+  const entry: StorageObjectFixture & {
+    cacheControl?: string;
+    contentDisposition?: string;
+    contentEncoding?: string;
+    contentLanguage?: string;
+    timeCreated?: string;
+    updated?: string;
+  } = {
+    path: item.path,
+    dataBase64: item.contentBase64,
+  };
+  if (item.contentType !== undefined) {
+    entry.contentType = item.contentType;
+  }
+  if (item.customMetadata !== undefined) {
+    entry.customMetadata = cloneOwnRecord(item.customMetadata);
+  }
+  if (item.cacheControl !== undefined) {
+    entry.cacheControl = item.cacheControl;
+  }
+  if (item.contentDisposition !== undefined) {
+    entry.contentDisposition = item.contentDisposition;
+  }
+  if (item.contentEncoding !== undefined) {
+    entry.contentEncoding = item.contentEncoding;
+  }
+  if (item.contentLanguage !== undefined) {
+    entry.contentLanguage = item.contentLanguage;
+  }
+  if (preserveTimestamps || item.timeCreated !== item.updated) {
+    if (item.timeCreated !== undefined) {
+      entry.timeCreated = item.timeCreated;
+    }
+    if (item.updated !== undefined) {
+      entry.updated = item.updated;
+    }
+  }
+  return entry;
+}
+
 /** The campaign target, inventory, and coverage gaps one sandbox's state produces. */
 async function cloneSandboxTarget(
   sandbox: Sandbox,
@@ -192,16 +287,76 @@ async function cloneSandboxTarget(
   source: AssuranceAttachmentSource,
 ): Promise<AssuranceAttachment> {
   const snapshot = await captureSandboxSnapshot(sandbox as LocalSandbox);
+  let manualClock = false;
+  try {
+    manualClock = getClock(sandbox as LocalSandbox).mode !== "wall";
+  } catch {
+    manualClock = false;
+  }
+
   const rawFirestoreDocs = snapshot.firestore[DEFAULT_SNAPSHOT_RESOURCE] ?? {};
   const firestoreDocs: Record<string, Record<string, unknown>> = {};
   for (const [docPath, encodedData] of Object.entries(rawFirestoreDocs)) {
-    firestoreDocs[docPath] = { ...encodedData };
+    setOwn(firestoreDocs, docPath, cloneOwnRecord(encodedData));
   }
   const rtdbState = snapshot.rtdb[DEFAULT_SNAPSHOT_RESOURCE] ?? null;
   const rawStorageObjects = snapshot.storage[DEFAULT_SNAPSHOT_RESOURCE] ?? [];
 
-  const effectiveRules: LocalFirebaseTarget["rules"] = { ...rules };
-  const activeStorageRules = snapshot.rules.storage?.[DEFAULT_SNAPSHOT_RESOURCE];
+  const effectiveRules: LocalFirebaseTarget["rules"] & {
+    storageBuckets?: Record<string, string>;
+  } = { ...rules };
+
+  const activeFirestoreRules =
+    snapshot.rules.firestore?.[DEFAULT_SNAPSHOT_RESOURCE];
+  if (
+    !effectiveRules.firestore &&
+    typeof activeFirestoreRules === "string" &&
+    activeFirestoreRules.trim().length > 0
+  ) {
+    effectiveRules.firestore = activeFirestoreRules;
+  }
+
+  const activeRtdbRules = parseSnapshotRtdbRules(
+    snapshot.rules.rtdb?.[DEFAULT_SNAPSHOT_RESOURCE],
+  );
+  if (!effectiveRules.rtdb && activeRtdbRules) {
+    effectiveRules.rtdb = activeRtdbRules;
+  }
+
+  const mergedRtdbInstances: Record<
+    string,
+    { rules: Record<string, unknown> }
+  > = effectiveRules.rtdbInstances
+    ? cloneOwnRecord(effectiveRules.rtdbInstances)
+    : {};
+  for (const [instanceKey, rawRules] of Object.entries(
+    snapshot.rules.rtdb ?? {},
+  )) {
+    if (instanceKey === DEFAULT_SNAPSHOT_RESOURCE) continue;
+    if (Object.hasOwn(mergedRtdbInstances, instanceKey)) continue;
+    const parsedRtdb = parseSnapshotRtdbRules(rawRules);
+    if (parsedRtdb) {
+      setOwn(mergedRtdbInstances, instanceKey, parsedRtdb);
+    }
+  }
+  if (Object.keys(mergedRtdbInstances).length > 0) {
+    effectiveRules.rtdbInstances = mergedRtdbInstances;
+  }
+
+  const namedRtdbState: Record<string, unknown> = {};
+  let unruledNamedRtdbHasState = false;
+  for (const [instanceKey, tree] of Object.entries(snapshot.rtdb ?? {})) {
+    if (instanceKey === DEFAULT_SNAPSHOT_RESOURCE) continue;
+    if (!hasRtdbState(tree)) continue;
+    if (Object.hasOwn(mergedRtdbInstances, instanceKey)) {
+      setOwn(namedRtdbState, instanceKey, tree);
+    } else {
+      unruledNamedRtdbHasState = true;
+    }
+  }
+
+  const activeStorageRules =
+    snapshot.rules.storage?.[DEFAULT_SNAPSHOT_RESOURCE];
   if (
     !effectiveRules.storage &&
     typeof activeStorageRules === "string" &&
@@ -210,19 +365,37 @@ async function cloneSandboxTarget(
     effectiveRules.storage = activeStorageRules;
   }
 
-  const storageEntries: StorageObjectFixture[] = rawStorageObjects.map((item) => {
-    const entry: StorageObjectFixture = {
-      path: item.path,
-      dataBase64: item.contentBase64,
-    };
-    if (item.contentType !== undefined) {
-      entry.contentType = item.contentType;
+  const mergedStorageBucketRules: Record<string, string> =
+    effectiveRules.storageBuckets
+      ? cloneOwnRecord(effectiveRules.storageBuckets)
+      : {};
+  for (const [bucketKey, rawRules] of Object.entries(
+    snapshot.rules.storage ?? {},
+  )) {
+    if (bucketKey === DEFAULT_SNAPSHOT_RESOURCE) continue;
+    if (Object.hasOwn(mergedStorageBucketRules, bucketKey)) continue;
+    if (typeof rawRules === "string" && rawRules.trim().length > 0) {
+      setOwn(mergedStorageBucketRules, bucketKey, rawRules);
     }
-    if (item.customMetadata !== undefined) {
-      entry.customMetadata = { ...item.customMetadata };
-    }
-    return entry;
-  });
+  }
+  if (Object.keys(mergedStorageBucketRules).length > 0) {
+    effectiveRules.storageBuckets = mergedStorageBucketRules;
+  }
+
+  const storageEntries: StorageObjectFixture[] = rawStorageObjects.map((item) =>
+    mapStorageObjectEntry(item, manualClock),
+  );
+  const namedStorageBuckets: Record<string, StorageObjectFixture[]> = {};
+  let namedStorageObjectCount = 0;
+  for (const [bucketKey, items] of Object.entries(snapshot.storage ?? {})) {
+    if (bucketKey === DEFAULT_SNAPSHOT_RESOURCE || items.length === 0) continue;
+    namedStorageObjectCount += items.length;
+    setOwn(
+      namedStorageBuckets,
+      bucketKey,
+      items.map((item) => mapStorageObjectEntry(item, manualClock)),
+    );
+  }
 
   const authUsers: AuthFixtureUser[] = snapshot.auth.users.map((user) => {
     const entry: AuthFixtureUser = { uid: user.uid };
@@ -248,10 +421,10 @@ async function cloneSandboxTarget(
       entry.providerId = user.providerId;
     }
     if (user.customClaims !== undefined) {
-      entry.customClaims = { ...user.customClaims };
+      entry.customClaims = cloneOwnRecord(user.customClaims);
     }
-    if (user.emailVerified === true) {
-      entry.emailVerified = true;
+    if (user.emailVerified !== undefined) {
+      entry.emailVerified = user.emailVerified;
     }
     if (user.disabled === true) {
       entry.disabled = true;
@@ -268,7 +441,10 @@ async function cloneSandboxTarget(
         "The running sandbox has Firestore data but no explicit project rules source.",
     });
   }
-  if (!effectiveRules.rtdb && hasRtdbState(rtdbState)) {
+  if (
+    (!effectiveRules.rtdb && hasRtdbState(rtdbState)) ||
+    unruledNamedRtdbHasState
+  ) {
     coverageGaps.push({
       service: "rtdb",
       code: "rtdb-rules-unavailable",
@@ -285,16 +461,45 @@ async function cloneSandboxTarget(
     });
   }
 
-  const state: LocalFirebaseTarget["state"] = {
+  const hasDisabledProvider = snapshot.auth.providers
+    ? Object.values(snapshot.auth.providers).some((enabled) => enabled === false)
+    : false;
+  const authState: {
+    users: AuthFixtureUser[];
+    providers?: Record<string, boolean>;
+  } = { users: authUsers };
+  if (hasDisabledProvider && snapshot.auth.providers) {
+    authState.providers = cloneOwnRecord(snapshot.auth.providers);
+  }
+
+  const state: LocalFirebaseTarget["state"] & {
+    storageBuckets?: Record<string, StorageObjectFixture[]>;
+    storageConfig?: {
+      crossServiceIam?: "granted" | "denied";
+      undeployedBucketPolicy?: "allow" | "deny";
+    };
+  } = {
     firestore: firestoreDocs,
-    auth: { users: authUsers },
+    auth: authState,
   };
   if (effectiveRules.rtdb || hasRtdbState(rtdbState)) {
     state.rtdb = rtdbState;
   }
+  if (Object.keys(namedRtdbState).length > 0) {
+    state.rtdbInstances = namedRtdbState;
+  }
   if (storageEntries.length > 0) {
     state.storage = storageEntries;
   }
+  if (Object.keys(namedStorageBuckets).length > 0) {
+    state.storageBuckets = namedStorageBuckets;
+  }
+  if (snapshot.storageConfig !== undefined) {
+    state.storageConfig = { ...snapshot.storageConfig };
+  }
+
+  const anyRtdbState =
+    hasRtdbState(rtdbState) || Object.values(namedRtdbState).some(hasRtdbState);
 
   return {
     target: {
@@ -306,9 +511,9 @@ async function cloneSandboxTarget(
     source,
     inventory: {
       firestoreDocuments: Object.keys(firestoreDocs).length,
-      rtdbPresent: hasRtdbState(rtdbState),
+      rtdbPresent: anyRtdbState,
       authUsers: authUsers.length,
-      storageObjects: storageEntries.length,
+      storageObjects: storageEntries.length + namedStorageObjectCount,
     },
     coverageGaps,
   };

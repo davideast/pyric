@@ -60,6 +60,12 @@ export interface StorageObjectFixture {
   path: string;
   dataBase64: string;
   contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+  timeCreated?: string;
+  updated?: string;
   customMetadata?: Record<string, string>;
 }
 
@@ -79,7 +85,14 @@ export interface LocalFirebaseTarget {
     rtdbInstances?: Record<string, unknown>;
     storage?: StorageObjectFixture[];
     storageBuckets?: Record<string, StorageObjectFixture[]>;
-    auth?: { users: AuthFixtureUser[] };
+    storageConfig?: {
+      crossServiceIam?: "granted" | "denied";
+      undeployedBucketPolicy?: "allow" | "deny";
+    };
+    auth?: {
+      users: AuthFixtureUser[];
+      providers?: Record<string, boolean>;
+    };
   };
 }
 

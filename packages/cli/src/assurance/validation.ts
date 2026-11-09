@@ -296,6 +296,9 @@ function assertOperation(
     }
   }
   if (operation.service === "storage") {
+    if ((operation as { instance?: unknown }).instance !== undefined) {
+      requiredString((operation as { instance?: unknown }).instance, where, "instance");
+    }
     if (operation.method === "upload") {
       requiredString(operation.dataBase64, where, "dataBase64");
     }
@@ -324,6 +327,13 @@ function assertOperation(
 
 function stableValue(value: unknown): string {
   if (value === undefined) return "undefined";
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return '"__pyric_num__:NaN"';
+    if (value === Number.POSITIVE_INFINITY) return '"__pyric_num__:Infinity"';
+    if (value === Number.NEGATIVE_INFINITY) return '"__pyric_num__:-Infinity"';
+    if (Object.is(value, -0)) return '"__pyric_num__:-0"';
+    return JSON.stringify(value);
+  }
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableValue).join(",")}]`;
   const record = value as Record<string, unknown>;
@@ -332,6 +342,43 @@ function stableValue(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableValue(record[key])}`)
     .join(",")}}`;
+}
+
+function operationResourceKey(operation: FirebaseOperation): string {
+  if (operation.service === "rtdb") {
+    if (
+      !operation.instance ||
+      operation.instance === "default" ||
+      operation.instance === "(default)"
+    ) {
+      return "(default)";
+    }
+    try {
+      return resolveDatabaseInstance(operation.instance)?.name ?? operation.instance;
+    } catch {
+      return operation.instance;
+    }
+  }
+  if (operation.service === "storage") {
+    const rawBucket =
+      (operation as { instance?: string; bucket?: string }).instance ??
+      (operation as { instance?: string; bucket?: string }).bucket;
+    if (!rawBucket) return "(default)";
+    const trimmed = rawBucket
+      .trim()
+      .replace(/^gs:\/\//i, "")
+      .replace(/\/+$/, "");
+    if (
+      !trimmed ||
+      trimmed === "default" ||
+      trimmed === "(default)" ||
+      trimmed === "pyric-default"
+    ) {
+      return "(default)";
+    }
+    return trimmed;
+  }
+  return "(default)";
 }
 
 function payload(operation: FirebaseOperation): unknown {
@@ -356,7 +403,12 @@ export function changedDimensions(
 ): MutationDimension[] {
   const changed: MutationDimension[] = [];
   if (control.method !== mutation.method) changed.push("operation");
-  if (control.path !== mutation.path) changed.push("path");
+  if (
+    control.path !== mutation.path ||
+    operationResourceKey(control) !== operationResourceKey(mutation)
+  ) {
+    changed.push("path");
+  }
   if (stableValue(queryShape(control)) !== stableValue(queryShape(mutation))) {
     changed.push("query");
   }

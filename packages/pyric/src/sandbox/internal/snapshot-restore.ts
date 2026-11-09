@@ -20,17 +20,27 @@ import {
   rtdbRulesSourceRejection,
   toStrictRulesJson,
 } from '../../rules/internal/rtdb.js';
-import type { FirebaseStorage } from '../../storage/index.js';
+import {
+  ref as storageRef,
+  type FirebaseStorage,
+} from '../../storage/index.js';
 import {
   DEFAULT_BUCKET,
   deployStorageBucketRules,
+  generationIssuer,
   getAdminStorageSandbox,
+  getStorageCrossServiceIam,
+  getStorageService,
+  lockUndeployedStorageBuckets,
   pruneStorageBucketRules,
+  replaceCrossServiceIam,
   replaceStorageRules,
   resetStorageState,
-  seedStorageObject,
   storageBucketsWithRules,
+  targetOf,
+  type StoredMetadata,
 } from '../../storage/internal.js';
+import { getClock } from '../clock.js';
 import type { LocalSandbox } from '../types/service.js';
 import { authAccountsFor } from './auth-accounts.js';
 import { databaseInstanceNamed } from './instances.js';
@@ -113,6 +123,75 @@ function toSeedUser(user: SnapshotUserRecord): SeedUser {
   return seed;
 }
 
+function cloneCustomMetadataSafe(
+  raw: Readonly<Record<string, string>> | undefined,
+): Record<string, string> | undefined {
+  if (raw === undefined) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    Object.defineProperty(out, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+}
+
+async function restoreStorageObject(
+  handle: FirebaseStorage,
+  item: SnapshotStorageObject,
+): Promise<void> {
+  const objectRef = storageRef(handle, item.path);
+  if (objectRef.fullPath === '') {
+    throw new Error('Cannot seed a Storage object at the bucket root.');
+  }
+  const bytes = decodeBase64ToBytes(item.contentBase64);
+  const blob = new Blob([bytes as BlobPart], { type: item.contentType ?? '' });
+  const target = targetOf(handle);
+  const fallbackDate = getClock(target.sandbox).date();
+  const timeCreated = item.timeCreated ?? fallbackDate.toISOString();
+  const updated = item.updated ?? timeCreated;
+  const parsedMs = Date.parse(updated);
+  const generationMs = Number.isFinite(parsedMs) ? parsedMs : fallbackDate.getTime();
+  const contentType =
+    item.contentType !== undefined && item.contentType.length > 0
+      ? item.contentType
+      : 'application/octet-stream';
+  const stored: StoredMetadata = {
+    fullPath: objectRef.fullPath,
+    name: objectRef.name,
+    bucket: objectRef.bucket,
+    generation: '1',
+    metageneration: '1',
+    timeCreated,
+    updated,
+    size: blob.size,
+    contentType,
+  };
+  if (item.cacheControl !== undefined) stored.cacheControl = item.cacheControl;
+  if (item.contentDisposition !== undefined) {
+    stored.contentDisposition = item.contentDisposition;
+  }
+  if (item.contentEncoding !== undefined) {
+    stored.contentEncoding = item.contentEncoding;
+  }
+  if (item.contentLanguage !== undefined) {
+    stored.contentLanguage = item.contentLanguage;
+  }
+  const customMetadata = cloneCustomMetadataSafe(item.customMetadata);
+  if (customMetadata !== undefined) {
+    stored.customMetadata = customMetadata;
+  }
+  const service = await getStorageService(handle);
+  await service.backend.put(
+    objectRef.fullPath,
+    blob,
+    stored,
+    generationIssuer(generationMs),
+  );
+}
 /** Restore a `SandboxSnapshot` onto `sandbox`, returning any rule load refusals. */
 export async function restoreSandboxSnapshot(
   sandbox: LocalSandbox,
@@ -166,9 +245,11 @@ export async function restoreSandboxSnapshot(
   const hasStorageRules = Object.keys(storageRulesMap).length > 0;
   const hasStorageObjects = Object.values(snapshot.storage).some((items) => items.length > 0);
   const hasDeployedBucketRules = storageBucketsWithRules(sandbox).length > 0;
+  const hasStorageConfig = snapshot.storageConfig !== undefined;
   const shouldTouchStorage =
     hasStorageRules ||
     hasStorageObjects ||
+    hasStorageConfig ||
     hasOpenStorage(sandbox) ||
     hasDeployedBucketRules;
 
@@ -187,6 +268,12 @@ export async function restoreSandboxSnapshot(
       if (hasOpenStorage(sandbox) && !hasDefaultRuleInSnapshot) {
         await replaceStorageRules(sandbox, null);
       }
+      const nextCrossServiceIam = snapshot.storageConfig?.crossServiceIam ?? 'granted';
+      if (nextCrossServiceIam !== getStorageCrossServiceIam(sandbox)) {
+        await replaceCrossServiceIam(sandbox, nextCrossServiceIam);
+      }
+    } else if (snapshot.storageConfig?.crossServiceIam !== undefined) {
+      await replaceCrossServiceIam(sandbox, snapshot.storageConfig.crossServiceIam);
     }
     for (const [bucketKey, source] of Object.entries(storageRulesMap)) {
       try {
@@ -199,12 +286,28 @@ export async function restoreSandboxSnapshot(
         refusals.push(errorMessage(error));
       }
     }
+    if (snapshot.storageConfig?.undeployedBucketPolicy !== undefined) {
+      lockUndeployedStorageBuckets(
+        sandbox,
+        snapshot.storageConfig.undeployedBucketPolicy,
+      );
+    }
   }
 
   const auth = getAuth(sandbox);
   if (!merge) {
     authSandbox.clearUsers(auth);
     authAccountsFor(sandbox)?.forgetHistory();
+    if (snapshot.auth.providers !== undefined) {
+      authSandbox.restoreProviderConfig(auth, { ...snapshot.auth.providers });
+    } else {
+      authSandbox.restoreProviderConfig(auth, { password: true, anonymous: true });
+    }
+  } else if (snapshot.auth.providers !== undefined) {
+    authSandbox.restoreProviderConfig(auth, {
+      ...authSandbox.exportProviderConfig(auth),
+      ...snapshot.auth.providers,
+    });
   }
   if (snapshot.auth.users.length > 0) {
     authSandbox.seedUsers(auth, snapshot.auth.users.map(toSeedUser));
@@ -300,13 +403,7 @@ export async function restoreSandboxSnapshot(
         objects = snapshot.storage[bucketKey] ?? [];
       }
       for (const item of objects) {
-        const bytes = decodeBase64ToBytes(item.contentBase64);
-        const metadata: { contentType?: string; customMetadata?: Record<string, string> } = {};
-        if (item.contentType !== undefined) metadata.contentType = item.contentType;
-        if (item.customMetadata !== undefined) {
-          metadata.customMetadata = { ...item.customMetadata };
-        }
-        await seedStorageObject(handle, item.path, bytes, metadata);
+        await restoreStorageObject(handle, item);
       }
     }
   }

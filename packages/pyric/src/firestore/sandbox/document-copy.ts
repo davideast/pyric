@@ -7,7 +7,12 @@ import { registeredReferenceQueryValuePath } from './query-value-registry.js';
 export function cloneDoc(data: DocumentData): DocumentData {
   const copy: DocumentData = {};
   for (const [field, value] of Object.entries(data)) {
-    copy[field] = cloneValue(value);
+    Object.defineProperty(copy, field, {
+      value: cloneValue(value),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return copy;
 }

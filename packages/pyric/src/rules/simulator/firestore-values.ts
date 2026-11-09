@@ -67,7 +67,12 @@ export function resolveServerTimestamps(
 ): Record<string, unknown> {
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
-    resolved[key] = resolveServerTimestampValue(value, serverTime);
+    Object.defineProperty(resolved, key, {
+      value: resolveServerTimestampValue(value, serverTime),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return resolved;
 }

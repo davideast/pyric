@@ -390,59 +390,98 @@ function firestoreRequirements(
   return requirements;
 }
 
+function resolveRtdbRulesForOperation(
+  target: LocalFirebaseTarget,
+  operation: AssuranceProbe["control"],
+): { rules: Record<string, unknown> } | undefined {
+  if (operation.service !== "rtdb") return undefined;
+  if (
+    !operation.instance ||
+    operation.instance === "default" ||
+    operation.instance === "(default)"
+  ) {
+    return target.rules.rtdb;
+  }
+  let resolvedName: string | undefined;
+  try {
+    resolvedName = resolveDatabaseInstance(operation.instance)?.name;
+  } catch {
+    return undefined;
+  }
+  if (!resolvedName || !target.rules.rtdbInstances) return undefined;
+  const declaredEntry = Object.entries(target.rules.rtdbInstances).find(
+    ([key]) => {
+      try {
+        return resolveDatabaseInstance(key)?.name === resolvedName;
+      } catch {
+        return false;
+      }
+    },
+  );
+  return declaredEntry
+    ? (declaredEntry[1] as { rules: Record<string, unknown> })
+    : undefined;
+}
+
 function rtdbRequirements(
   target: LocalFirebaseTarget,
   probe: AssuranceProbe,
 ): CapabilityRequirement[] {
-  let rules = target.rules.rtdb;
-  if (probe.control.service === "rtdb" && probe.control.instance && probe.control.instance !== "default") {
-    const resolvedName = resolveDatabaseInstance(probe.control.instance)?.name;
-    if (resolvedName && target.rules.rtdbInstances) {
-      const declaredEntry = Object.entries(target.rules.rtdbInstances).find(([k]) => resolveDatabaseInstance(k)?.name === resolvedName);
-      if (declaredEntry) {
-        rules = declaredEntry[1] as any;
-      }
-    }
-  }
-  const operations = [probe.control, probe.mutation.operation];
-  const ruleSources = rules
-    ? collectRtdbRuleSources(rules.rules).filter((rule) =>
-        operations.some((operation) =>
-          rtdbRuleAppliesToOperation(rule, operation),
-        ),
-      )
-    : [];
-  const parsedRules = ruleSources.map((rule) => ({
-    rule,
-    parsed: rule.source ? parseRtdbExpression(rule.source) : undefined,
+  const operations = [probe.control, probe.mutation.operation].filter(
+    (op) => op.service === "rtdb",
+  );
+  const operationRules = operations.map((operation) => ({
+    operation,
+    rules: resolveRtdbRulesForOperation(target, operation),
   }));
-  const invalidExpressions = parsedRules
-    .filter(({ parsed }) => !parsed || !parsed.valid)
-    .map(({ rule }) => rule.path);
-  const queryDependent = parsedRules.some(
+  const allRulesPresent =
+    operationRules.length > 0 &&
+    operationRules.every((entry) => Boolean(entry.rules));
+  const anyRulesPresent = operationRules.some((entry) => Boolean(entry.rules));
+
+  const applicableRules = operationRules.flatMap(({ operation, rules }) =>
+    rules
+      ? collectRtdbRuleSources(rules.rules)
+          .filter((rule) => rtdbRuleAppliesToOperation(rule, operation))
+          .map((rule) => ({
+            operation,
+            rule,
+            parsed: rule.source ? parseRtdbExpression(rule.source) : undefined,
+          }))
+      : [],
+  );
+
+  const invalidExpressions = [
+    ...new Set(
+      applicableRules
+        .filter(({ parsed }) => !parsed || !parsed.valid)
+        .map(({ rule }) => rule.path),
+    ),
+  ];
+  const queryDependent = applicableRules.some(
     ({ parsed }) => parsed?.referencedIdentifiers.includes("query") ?? false,
   );
-  const ancestorDataDependent = parsedRules.some(({ rule, parsed }) => {
-    const usesDataOrNewData =
-      (parsed?.referencedIdentifiers.includes("data") ?? false) ||
-      (parsed?.referencedIdentifiers.includes("newData") ?? false);
-    if (!usesDataOrNewData) return false;
-    return operations.some((operation) => {
-      if (!rtdbRuleAppliesToOperation(rule, operation)) return false;
+  const ancestorDataDependent = applicableRules.some(
+    ({ operation, rule, parsed }) => {
+      const usesDataOrNewData =
+        (parsed?.referencedIdentifiers.includes("data") ?? false) ||
+        (parsed?.referencedIdentifiers.includes("newData") ?? false);
+      if (!usesDataOrNewData) return false;
       return rtdbOperationTargetSegmentLists(operation).some(
         (opSegments) => rule.segments.length < opSegments.length,
       );
-    });
-  });
+    },
+  );
   const ancestorDataVerdict = verdictOf("rtdb-rules#8");
-  const ancestorDataSupported = !ancestorDataDependent || ancestorDataVerdict === "supported";
+  const ancestorDataSupported =
+    !ancestorDataDependent || ancestorDataVerdict === "supported";
   const requirements = [
     requirement(
       "rtdb.rules-present",
-      !!rules,
+      allRulesPresent,
       "RTDB probes require an explicit rules JSON document.",
     ),
-    ...(rules ? [rulesLoadRequirement(target, "rtdb")] : []),
+    ...(anyRulesPresent ? [rulesLoadRequirement(target, "rtdb")] : []),
     requirement(
       "rtdb.rules-parse",
       invalidExpressions.length === 0,
@@ -489,14 +528,55 @@ function rtdbRequirements(
   return requirements;
 }
 
+function resolveStorageRulesForOperation(
+  target: LocalFirebaseTarget,
+  operation: AssuranceProbe["control"],
+): string | undefined {
+  if (operation.service !== "storage") return undefined;
+  const rawBucket =
+    (operation as { instance?: string; bucket?: string }).instance ??
+    (operation as { instance?: string; bucket?: string }).bucket;
+  if (!rawBucket) return target.rules.storage;
+  const normalized = rawBucket
+    .trim()
+    .replace(/^gs:\/\//i, "")
+    .replace(/\/+$/, "");
+  if (
+    !normalized ||
+    normalized === "default" ||
+    normalized === "(default)" ||
+    normalized === "pyric-default"
+  ) {
+    return target.rules.storage;
+  }
+  const bucketRules = (
+    target.rules as { storageBuckets?: Record<string, string> }
+  ).storageBuckets;
+  if (bucketRules && Object.hasOwn(bucketRules, normalized)) {
+    return bucketRules[normalized];
+  }
+  return target.rules.storage;
+}
+
 function storageRequirements(
   target: LocalFirebaseTarget,
+  probe: AssuranceProbe,
 ): CapabilityRequirement[] {
-  const rules = target.rules.storage;
+  const operations = [probe.control, probe.mutation.operation].filter(
+    (op) => op.service === "storage",
+  );
+  const resolvedSources = operations.map((op) =>
+    resolveStorageRulesForOperation(target, op),
+  );
+  const allPresent =
+    resolvedSources.length > 0 &&
+    resolvedSources.every(
+      (source) => typeof source === "string" && source.trim().length > 0,
+    );
   const requirements = [
     requirement(
       "storage.rules-present",
-      typeof rules === "string" && rules.trim().length > 0,
+      allPresent,
       "Storage probes require an explicit rules source.",
     ),
     requirement(
@@ -507,12 +587,19 @@ function storageRequirements(
         : "The local Storage sandbox requires IndexedDB.",
     ),
   ];
-  if (!rules) return requirements;
+  if (!allPresent) return requirements;
   const load = rulesLoadRequirement(target, "storage");
   requirements.push(load);
   if (!load.supported) return requirements;
+  const distinctSources = [
+    ...new Set(
+      resolvedSources.filter((s): s is string => typeof s === "string"),
+    ),
+  ];
   try {
-    compileStorageRules(rules);
+    for (const rules of distinctSources) {
+      compileStorageRules(rules);
+    }
     requirements.push(
       requirement(
         "storage.rules-subset",
@@ -542,7 +629,7 @@ export function qualifyProbe(
       ? firestoreRequirements(target, probe)
       : service === "rtdb"
         ? rtdbRequirements(target, probe)
-        : storageRequirements(target);
+        : storageRequirements(target, probe);
 
   // A probe names the graph nodes its verdict depends on, and each resolves
   // against the node's DERIVED verdict in the same pass as the structural

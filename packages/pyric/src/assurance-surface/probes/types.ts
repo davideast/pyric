@@ -11,6 +11,10 @@ export interface ProbeActor {
   email: string;
   displayName: string;
   token: Record<string, unknown>;
+  /** True when the underlying seeded Auth account is disabled and cannot authenticate. */
+  disabled?: boolean;
+  /** True when the actor identity was synthesized rather than backed by a seeded Auth user. */
+  synthetic?: boolean;
 }
 
 /** Placeholder for SDK sentinels in synthesized payloads; the executor turns it into the real one. */

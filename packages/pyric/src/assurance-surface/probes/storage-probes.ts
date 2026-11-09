@@ -6,6 +6,7 @@
  *   4. `metadata-owner-forge` on `customMetadata` owner fields (create forge + `updateMetadata` hijack)
  *   5. Cross-service non-member upload and read denial (`firestore.get()` / `firestore.exists()`)
  */
+import type { SnapshotStorageObject } from 'pyric/sandbox/internal';
 import { parseResourcePattern, resourceShapeKey } from '../../sandbox/internal/resource-pattern.js';
 import type { RuleSurfaceEntry, StorageMetadataConstraint } from '../rules/rule-surface.js';
 import { uidFields } from './fixtures.js';
@@ -28,6 +29,7 @@ import {
   buildCompliantUpdateStep,
   buildCompliantUploadStep,
   compliantByteSize,
+  contentTypeMatchesPattern,
   dedupeStorageSites,
   isExactUidAuth,
   isProbeableStorageSite,
@@ -40,6 +42,58 @@ import {
   synthesizeMatchingContentType,
 } from './storage-step-builder.js';
 import type { Probe, ProbeStep } from './types.js';
+import type { WorldState } from './world.js';
+import { normalizeStorageBucketKey } from './world-storage.js';
+
+function hasCompatibleSeededStorageObject(
+  state: WorldState | undefined,
+  resourceId: string | undefined,
+  objectPath: string,
+  ownerUid: string,
+  constraint: StorageMetadataConstraint,
+  payloadOwnerFields: Iterable<string>,
+): boolean {
+  if (!state) return false;
+  const bucketKey = normalizeStorageBucketKey(resourceId) ?? '(default)';
+  const candidates: SnapshotStorageObject[] = [];
+  const snapshotBucket = state.snapshot?.storage[bucketKey];
+  if (snapshotBucket) candidates.push(...snapshotBucket);
+  if (bucketKey === '(default)' && state.storage) {
+    candidates.push(...state.storage);
+  }
+  const cleanTarget = objectPath.replace(/^\/+|\/+$/g, '');
+  const existing = candidates.find(
+    (obj) => obj.path.replace(/^\/+|\/+$/g, '') === cleanTarget,
+  );
+  if (!existing) return false;
+  if (constraint.maxSizeBytes !== undefined && existing.size > constraint.maxSizeBytes) {
+    return false;
+  }
+  if (
+    constraint.contentTypePattern !== undefined &&
+    !contentTypeMatchesPattern(
+      existing.contentType ?? 'application/octet-stream',
+      constraint.contentTypePattern,
+    )
+  ) {
+    return false;
+  }
+  for (const reqKey of constraint.requiredCustomMetadataKeys ?? []) {
+    if (!existing.customMetadata || !Object.hasOwn(existing.customMetadata, reqKey)) {
+      return false;
+    }
+  }
+  const ownerKeys = new Set<string>(payloadOwnerFields);
+  if (constraint.ownerMetadataKey !== undefined) {
+    ownerKeys.add(constraint.ownerMetadataKey);
+  }
+  for (const key of ownerKeys) {
+    if (existing.customMetadata?.[key] !== ownerUid) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /** Plan Cloud Storage assurance probes from extracted Storage sites and projected `RuleSurface`. */
 export function planStorageProbes(
@@ -121,6 +175,11 @@ export function planStorageProbes(
         };
         if (clientMeta.openMap) {
           mustAllowUpload.inconclusiveOnDeny = 'client customMetadata map is open and may carry required keys at runtime';
+        } else if (
+          site.storageUpload?.contentType === undefined &&
+          !contentTypeMatchesPattern(contentType, opConstraint.contentTypePattern)
+        ) {
+          mustAllowUpload.inconclusiveOnDeny = 'client upload contentType is supplied at runtime and could not be synthesized for rule regex';
         }
         add(mustAllowUpload);
       } else {
@@ -134,9 +193,24 @@ export function planStorageProbes(
         if (seedMimePattern !== undefined && createConstraint.contentTypePattern === undefined) {
           opSeedConstraint = { ...createConstraint, contentTypePattern: seedMimePattern };
         }
-        const adminSeedObj = buildCompliantUploadStep(
-          site, sitePattern, 'admin', owner, seedObjectPath, opSeedConstraint, hints, {}, surface,
-        );
+        const reuseSeededObject =
+          !STORAGE_LIST_OPS.has(site.op) &&
+          hasCompatibleSeededStorageObject(
+            input.state,
+            site.resourceId,
+            seedObjectPath,
+            owner.uid,
+            opSeedConstraint,
+            uidFields(site.payload),
+          );
+        const seedSteps: ProbeStep[] = [...ownerCrossSeeds];
+        if (!reuseSeededObject) {
+          seedSteps.push(
+            buildCompliantUploadStep(
+              site, sitePattern, 'admin', owner, seedObjectPath, opSeedConstraint, hints, {}, surface,
+            ),
+          );
+        }
 
         let attackMethod: ProbeStep['method'] = 'get';
         if (STORAGE_LIST_OPS.has(site.op)) attackMethod = 'list';
@@ -167,7 +241,7 @@ export function planStorageProbes(
           service: 'storage',
           template: site.path,
           status: 'proven',
-          seed: [...ownerCrossSeeds, adminSeedObj],
+          seed: seedSteps,
           setup: [],
           attack: attackStep,
           expect: 'allow',
@@ -243,9 +317,22 @@ export function planStorageProbes(
     if (shouldPlanForeignDelete) {
       const ownerMetaOverrides: Record<string, string> = {};
       for (const k of metadataOwnerKeys) setStorageOwn(ownerMetaOverrides, k, owner.uid);
-      const adminSeedOwnerObj = buildCompliantUploadStep(
-        site, sitePattern, 'admin', owner, ownerPath, createConstraint, hints, ownerMetaOverrides, surface,
+      const reuseSeededForDelete = hasCompatibleSeededStorageObject(
+        input.state,
+        site.resourceId,
+        ownerPath,
+        owner.uid,
+        createConstraint,
+        metadataOwnerKeys,
       );
+      const foreignDeleteSeeds: ProbeStep[] = [...bothCrossSeeds];
+      if (!reuseSeededForDelete) {
+        foreignDeleteSeeds.push(
+          buildCompliantUploadStep(
+            site, sitePattern, 'admin', owner, ownerPath, createConstraint, hints, ownerMetaOverrides, surface,
+          ),
+        );
+      }
       const peerDeleteAttack = attachResourceId(
         { actor: 'peer', service: 'storage', method: 'delete', path: ownerPath },
         site.resourceId,
@@ -263,7 +350,7 @@ export function planStorageProbes(
         service: 'storage',
         template: site.path,
         status: deleteStatus,
-        seed: [...bothCrossSeeds, adminSeedOwnerObj],
+        seed: foreignDeleteSeeds,
         setup: [],
         attack: peerDeleteAttack,
         expect: 'deny',
@@ -323,9 +410,22 @@ export function planStorageProbes(
       if (STORAGE_UPDATE_OPS.has(site.op) || (STORAGE_UPLOAD_OPS.has(site.op) && !hasSiblingUpdateSite && rulesAllowUpdate)) {
         const ownerMetaOverrides: Record<string, string> = {};
         for (const k of metadataOwnerKeys) setStorageOwn(ownerMetaOverrides, k, owner.uid);
-        const adminSeedOwnerObj = buildCompliantUploadStep(
-          site, sitePattern, 'admin', owner, ownerPath, createConstraint, hints, ownerMetaOverrides, surface,
+        const reuseSeededForHijack = hasCompatibleSeededStorageObject(
+          input.state,
+          site.resourceId,
+          ownerPath,
+          owner.uid,
+          createConstraint,
+          metadataOwnerKeys,
         );
+        const hijackSeeds: ProbeStep[] = [...bothCrossSeeds];
+        if (!reuseSeededForHijack) {
+          hijackSeeds.push(
+            buildCompliantUploadStep(
+              site, sitePattern, 'admin', owner, ownerPath, createConstraint, hints, ownerMetaOverrides, surface,
+            ),
+          );
+        }
         const hijackOverrides: Record<string, string> = {};
         for (const k of metadataOwnerKeys) setStorageOwn(hijackOverrides, k, peer.uid);
         const hijackMeta = buildCompliantCustomMetadata(
@@ -342,7 +442,7 @@ export function planStorageProbes(
           service: 'storage',
           template: site.path,
           status: metaStatus,
-          seed: [...bothCrossSeeds, adminSeedOwnerObj],
+          seed: hijackSeeds,
           setup: [],
           attack: peerHijackStep,
           expect: 'deny',

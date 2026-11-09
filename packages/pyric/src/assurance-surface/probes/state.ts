@@ -3,8 +3,18 @@
  * attack can target another user's real record) and the display names
  * users already sign their records with.
  */
-import { Timestamp as SdkTimestamp } from 'pyric/firestore';
-import { Timestamp as RulesTimestamp } from 'pyric/rules/internal';
+import {
+  Bytes as SdkBytes,
+  GeoPoint as SdkGeoPoint,
+  Timestamp as SdkTimestamp,
+  VectorValue as SdkVectorValue,
+  vector as sdkVector,
+} from 'pyric/firestore';
+import {
+  Reference as RulesReference,
+  Timestamp as RulesTimestamp,
+} from 'pyric/rules/internal';
+import { decodeBase64ToBytes } from 'pyric/sandbox/internal';
 import { isWriteOp } from '../code/operation-specs.js';
 import type { AccessService, AccessSite, PayloadField } from '../code/types.js';
 import {
@@ -23,10 +33,57 @@ export interface StateRecord {
 
 const DEFAULT_RESOURCE_KEY = '(default)';
 
+const siteComplexFieldDefaults = new WeakMap<AccessSite, Readonly<Record<string, unknown>>>();
+
+export function seedComplexFieldDefaults(site: AccessSite): Readonly<Record<string, unknown>> {
+  return siteComplexFieldDefaults.get(site) ?? {};
+}
+
+export function preserveComplexFieldDefaults(from: AccessSite, to: AccessSite): void {
+  const existing = siteComplexFieldDefaults.get(from);
+  if (existing !== undefined) {
+    siteComplexFieldDefaults.set(to, existing);
+  }
+}
+
+function defineOwnStateField<T>(target: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
+}
+
+function decodeBase64Flexible(encoded: string): Uint8Array {
+  const standard = encoded.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  const remainder = standard.length % 4;
+  const padded = remainder === 0 ? standard : standard + '='.repeat(4 - remainder);
+  return decodeBase64ToBytes(padded);
+}
+
+function containsRichFirestoreInstance(value: unknown): boolean {
+  if (
+    value instanceof SdkGeoPoint
+    || value instanceof SdkBytes
+    || value instanceof SdkVectorValue
+    || value instanceof RulesReference
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => containsRichFirestoreInstance(item));
+  }
+  if (isPlainObject(value)) {
+    return Object.values(value).some((entry) => containsRichFirestoreInstance(entry));
+  }
+  return false;
 }
 
 function decodeStateField(value: unknown): unknown {
@@ -42,7 +99,7 @@ function decodeStateField(value: unknown): unknown {
   ) {
     const unwrapped: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value.fields)) {
-      unwrapped[key] = decodeStateField(entry);
+      defineOwnStateField(unwrapped, key, decodeStateField(entry));
     }
     return unwrapped;
   }
@@ -74,9 +131,76 @@ function decodeStateField(value: unknown): unknown {
     if (typeof value.nanos === 'number') nanos = value.nanos;
     return new RulesTimestamp(value.seconds, nanos);
   }
+  if (
+    Object.hasOwn(value, 'type') &&
+    value.type === 'firestore/geoPoint/1.0' &&
+    typeof value.latitude === 'number' &&
+    typeof value.longitude === 'number' &&
+    Object.keys(value).length === 3
+  ) {
+    return new SdkGeoPoint(value.latitude, value.longitude);
+  }
+  if (
+    Object.hasOwn(value, '__type') &&
+    value.__type === 'latlng' &&
+    typeof value.lat === 'number' &&
+    typeof value.lng === 'number' &&
+    Object.keys(value).length === 3
+  ) {
+    return new SdkGeoPoint(value.lat, value.lng);
+  }
+  if (
+    Object.hasOwn(value, 'type') &&
+    value.type === 'firestore/bytes/1.0' &&
+    typeof value.bytes === 'string' &&
+    Object.keys(value).length === 2
+  ) {
+    return SdkBytes.fromUint8Array(decodeBase64Flexible(value.bytes));
+  }
+  if (
+    Object.hasOwn(value, '__type') &&
+    value.__type === 'bytes' &&
+    (typeof value.base64 === 'string' || typeof value.value === 'string') &&
+    Object.keys(value).length === 2
+  ) {
+    const rawB64 = typeof value.base64 === 'string' ? value.base64 : (value.value as string);
+    return SdkBytes.fromUint8Array(decodeBase64Flexible(rawB64));
+  }
+  const vectorList = Array.isArray(value.vectorValues)
+    ? value.vectorValues
+    : Array.isArray(value.values)
+      ? value.values
+      : undefined;
+  if (
+    Object.hasOwn(value, 'type') &&
+    value.type === 'firestore/vectorValue/1.0' &&
+    vectorList !== undefined &&
+    vectorList.every((n) => typeof n === 'number') &&
+    Object.keys(value).length === 2
+  ) {
+    return sdkVector(vectorList as number[]);
+  }
+  if (
+    Object.hasOwn(value, '__type__') &&
+    value.__type__ === '__vector__' &&
+    Array.isArray(value.value) &&
+    value.value.every((n) => typeof n === 'number') &&
+    Object.keys(value).length === 2
+  ) {
+    return sdkVector(value.value as number[]);
+  }
+  if (
+    Object.hasOwn(value, '__type') &&
+    value.__type === 'reference' &&
+    typeof value.path === 'string' &&
+    (Object.keys(value).length === 2 ||
+      (Object.keys(value).length === 3 && typeof value.databaseId === 'string'))
+  ) {
+    return new RulesReference(value.path);
+  }
   const next: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
-    next[key] = decodeStateField(entry);
+    defineOwnStateField(next, key, decodeStateField(entry));
   }
   return next;
 }
@@ -93,7 +217,7 @@ function decodeFirestoreRecord(raw: Readonly<Record<string, unknown>>): Record<s
   }
   const decoded: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(topLevel)) {
-    decoded[key] = decodeStateField(entry);
+    defineOwnStateField(decoded, key, decodeStateField(entry));
   }
   return decoded;
 }
@@ -107,7 +231,7 @@ export function effectiveFirestoreDocs(
     for (const [rawPath, docData] of Object.entries(state.firestore)) {
       const cleanPath = rawPath.replace(/^\/+|\/+$/g, '');
       if (cleanPath.length === 0) continue;
-      out[cleanPath] = decodeFirestoreRecord(docData);
+      defineOwnStateField(out, cleanPath, decodeFirestoreRecord(docData));
     }
     return out;
   }
@@ -117,7 +241,7 @@ export function effectiveFirestoreDocs(
   for (const [rawPath, encoded] of Object.entries(snapshotDocs)) {
     const cleanPath = rawPath.replace(/^\/+|\/+$/g, '');
     if (cleanPath.length === 0) continue;
-    out[cleanPath] = decodeFirestoreRecord(encoded);
+    defineOwnStateField(out, cleanPath, decodeFirestoreRecord(encoded));
   }
   return out;
 }
@@ -131,7 +255,7 @@ function unwrapRtdbPriorities(node: unknown): unknown {
   const clean: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
     if (key === '.priority') continue;
-    clean[key] = unwrapRtdbPriorities(value);
+    defineOwnStateField(clean, key, unwrapRtdbPriorities(value));
   }
   return clean;
 }
@@ -273,7 +397,15 @@ function kindOf(v: unknown): PayloadField['kind'] {
  * what rules validate.
  */
 export function sitesFromState(state: WorldState | undefined, uids: string[]): AccessSite[] {
-  const byTemplate = new Map<string, { site: AccessSite; docs: number; fieldValues: Map<string, Set<unknown>> }>();
+  const byTemplate = new Map<
+    string,
+    {
+      site: AccessSite;
+      docs: number;
+      fieldValues: Map<string, Set<unknown>>;
+      complexDefaults: Record<string, unknown>;
+    }
+  >();
   const users = new Set(uids);
   for (const [rawPath, data] of Object.entries(effectiveFirestoreDocs(state))) {
     const segs = rawPath.replace(/^\/+/, '').split('/');
@@ -291,7 +423,7 @@ export function sitesFromState(state: WorldState | undefined, uids: string[]): A
         return `{${name}}`;
       })
       .join('/');
-    
+
     let entry = byTemplate.get(template);
     if (!entry) {
       entry = {
@@ -305,40 +437,47 @@ export function sitesFromState(state: WorldState | undefined, uids: string[]): A
           payload: { kind: 'object', fields: [], open: false },
         },
         docs: 0,
-        fieldValues: new Map()
+        fieldValues: new Map(),
+        complexDefaults: {},
       };
       byTemplate.set(template, entry);
     }
-    
+
     entry.docs++;
     for (const [name, v] of Object.entries(data as Record<string, unknown>)) {
-      if (!entry.site.payload!.fields.some(f => f.name === name)) {
-         const f: PayloadField = { name, kind: kindOf(v) };
-         if (typeof v === 'string' && users.has(v)) f.auth = [{ source: 'auth.uid', certainty: 'exact' }];
-         entry.site.payload!.fields.push(f);
+      if (!entry.site.payload!.fields.some((f) => f.name === name)) {
+        const f: PayloadField = { name, kind: kindOf(v) };
+        if (typeof v === 'string' && users.has(v)) f.auth = [{ source: 'auth.uid', certainty: 'exact' }];
+        entry.site.payload!.fields.push(f);
+      }
+      if (!Object.hasOwn(entry.complexDefaults, name) && containsRichFirestoreInstance(v)) {
+        defineOwnStateField(entry.complexDefaults, name, v);
       }
       if (!entry.fieldValues.has(name)) entry.fieldValues.set(name, new Set());
       const setV = entry.fieldValues.get(name)!;
       if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null) {
-         setV.add(v);
+        setV.add(v);
       } else {
-         setV.add(Symbol('complex'));
+        setV.add(Symbol('complex'));
       }
     }
   }
-  
+
   for (const entry of byTemplate.values()) {
-     for (const f of entry.site.payload!.fields) {
-        const vals = entry.fieldValues.get(f.name);
-        if (entry.docs > 1 && vals && vals.size === 1) {
-           const val = [...vals][0];
-           if (typeof val !== 'symbol') f.literal = val as string | number | boolean | null;
-        } else {
-           f.literal = undefined;
-        }
-     }
+    for (const f of entry.site.payload!.fields) {
+      const vals = entry.fieldValues.get(f.name);
+      if (entry.docs > 1 && vals && vals.size === 1) {
+        const val = [...vals][0];
+        if (typeof val !== 'symbol') f.literal = val as string | number | boolean | null;
+      } else {
+        f.literal = undefined;
+      }
+    }
+    if (Object.keys(entry.complexDefaults).length > 0) {
+      siteComplexFieldDefaults.set(entry.site, entry.complexDefaults);
+    }
   }
-  return [...byTemplate.values()].map(e => e.site);
+  return [...byTemplate.values()].map((e) => e.site);
 }
 
 /**
