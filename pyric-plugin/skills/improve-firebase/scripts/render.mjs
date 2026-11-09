@@ -759,44 +759,10 @@ export async function renderEvidenceBundle({
   const activePresentation = (scenario.stage.layout === 'split-actors' || !scenario.app) && timeline.presentation ? timeline.presentation : null;
   const renderTotalSec = activePresentation ? activePresentation.totalSec : timeline.totalSec;
   const totalFrames = Math.max(1, Math.round(renderTotalSec * fps));
-  const { reproPass, externalFilesMap } = await buildReproducePass({
-    captureArtifact,
-    evidenceDir,
-    timeline,
-    presentation: activePresentation,
-    fps,
-    ffmpegPath: tools.ffmpegPath,
-    log,
-  });
-
-  const payload = buildStagePayload({
-    scenario,
-    fps,
-    beats: timeline.beats,
-    slides: activePresentation ? activePresentation.slides : undefined,
-    passes: { repro: reproPass },
-    evidence,
-    provenanceText,
-  });
-
   const layout = (!scenario.app && scenario.stage.layout !== 'split-actors') ? 'split-actors' : scenario.stage.layout;
-  const stageHtmlPath = resolveStageHtmlPath(layout, stagePath);
-  const { server, origin } = await startStageHttpServer({ evidenceDir, stageHtmlPath, externalFilesMap });
-
   const wantMp4 = formats.includes('mp4');
   const wantGif = formats.includes('gif');
   const finalMp4Path = outPath || path.join(evidenceDir, 'video.mp4');
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-render-mp4-'));
-  const workingMp4Path = path.join(tempDir, 'temp-video.mp4');
-  const workingGifPath = path.join(tempDir, 'temp-preview.gif');
-
-  const storyboardDir = path.join(evidenceDir, 'storyboard');
-  fs.mkdirSync(storyboardDir, { recursive: true });
-  for (const existingFile of fs.readdirSync(storyboardDir)) {
-    if (/^beat-\d+-.*\.png$/i.test(existingFile)) {
-      fs.unlinkSync(path.join(storyboardDir, existingFile));
-    }
-  }
 
   const eventList = Array.isArray(eventsData)
     ? eventsData
@@ -868,6 +834,8 @@ export async function renderEvidenceBundle({
     beatMidpointMap.set(midFrame, list);
   });
 
+  let server = null;
+  let tempDir = null;
   let browser = null;
   let encoder = null;
   const storyboardRelPaths = [];
@@ -876,6 +844,43 @@ export async function renderEvidenceBundle({
   let domProvenanceText = provenanceText;
 
   try {
+    const stageHtmlPath = resolveStageHtmlPath(layout, stagePath);
+    const { reproPass, externalFilesMap } = await buildReproducePass({
+      captureArtifact,
+      evidenceDir,
+      timeline,
+      presentation: activePresentation,
+      fps,
+      ffmpegPath: tools.ffmpegPath,
+      log,
+    });
+
+    const payload = buildStagePayload({
+      scenario,
+      fps,
+      beats: timeline.beats,
+      slides: activePresentation ? activePresentation.slides : undefined,
+      passes: { repro: reproPass },
+      evidence,
+      provenanceText,
+    });
+
+    const started = await startStageHttpServer({ evidenceDir, stageHtmlPath, externalFilesMap });
+    server = started.server;
+    const { origin } = started;
+
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-render-mp4-'));
+    const workingMp4Path = path.join(tempDir, 'temp-video.mp4');
+    const workingGifPath = path.join(tempDir, 'temp-preview.gif');
+
+    const storyboardDir = path.join(evidenceDir, 'storyboard');
+    fs.mkdirSync(storyboardDir, { recursive: true });
+    for (const existingFile of fs.readdirSync(storyboardDir)) {
+      if (/^beat-\d+-.*\.png$/i.test(existingFile)) {
+        fs.unlinkSync(path.join(storyboardDir, existingFile));
+      }
+    }
+
     browser = await chromium.launch({
       executablePath,
       headless: true,
@@ -1141,12 +1146,18 @@ export async function renderEvidenceBundle({
     if (browser) {
       await browser.close().catch(() => {});
     }
-    if (typeof server.closeAllConnections === 'function') {
-      server.closeAllConnections();
+    if (server) {
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
+      await new Promise((resolve) => server.close(() => resolve()));
     }
-    await new Promise((resolve) => server.close(() => resolve()));
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    const extractedFramesDir = path.join(evidenceDir, 'raw', 'extracted');
+    if (fs.existsSync(extractedFramesDir)) {
+      fs.rmSync(extractedFramesDir, { recursive: true, force: true });
     }
   }
 }
