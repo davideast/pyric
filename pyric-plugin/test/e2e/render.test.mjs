@@ -1388,3 +1388,210 @@ test('split-actors stage shows the assurance note as plain monochrome text and k
   assert.equal(verified.fixSlide.visible, false);
   assert.equal(verified.fixVideo.visible, false);
 });
+
+async function writeSyntheticVideoBundle(bundleDir) {
+  const tools = probeSystemTools();
+  const rawDir = path.join(bundleDir, 'raw');
+  fs.mkdirSync(rawDir, { recursive: true });
+
+  const captureVideoPath = path.join(rawDir, 'capture.mp4');
+  let encoder = createH264PipeEncoder({
+    ffmpegPath: tools.ffmpegPath,
+    width: 640,
+    height: 360,
+    fps: 10,
+    outMp4Path: captureVideoPath,
+  });
+  try {
+    for (let i = 0; i < 4; i++) {
+      await encoder.writeFrame(generateSyntheticPng(640, 360, i + 1));
+    }
+    await encoder.finish();
+    encoder = null;
+  } finally {
+    encoder?.abort();
+  }
+
+  const scenario = validateScenario({
+    schema: SCENARIO_SCHEMA,
+    finding: {
+      campaign: 'camp-items-01',
+      probe: 'probe-items-write-01',
+    },
+    app: { dist: './dist' },
+    actors: {
+      owner: { uid: 'u-alice', name: 'Alice', view: '/items/i1' },
+      peer: { uid: 'u-bob', name: 'Bob', view: '/items/i1' },
+    },
+    copy: {
+      title: 'Cross-user item overwrite',
+      baseline: 'Alice creates item i1',
+      summary: 'Bob overwrites item i1 directly',
+      fixed: 'Write rule checks ownerUid matches auth.uid',
+      why: 'Write rule on /items/$itemId only checked auth != null',
+      severity: 'HIGH',
+    },
+    stage: {
+      layout: 'single-hero',
+      aspect: '16:9',
+      slots: { showTitleCard: false, showOutroCard: false },
+    },
+    fixRules: {
+      before: '".write": "auth != null"',
+      after: '".write": "auth != null && data.child(\'ownerUid\').val() == auth.uid"',
+    },
+  });
+  fs.writeFileSync(path.join(bundleDir, 'scenario.json'), JSON.stringify(scenario, null, 2));
+
+  const capture = {
+    schema: RAW_CAPTURE_SCHEMA,
+    backend: 'x11-xvfb',
+    platform: process.platform,
+    actorRoles: ['owner', 'peer'],
+    durationMs: 400,
+    fps: 10,
+    mode: 'video',
+    videoPath: 'raw/capture.mp4',
+    cropRects: {
+      owner: { x: 0, y: 0, width: 320, height: 360 },
+      peer: { x: 320, y: 0, width: 320, height: 360 },
+    },
+    packetTimestampsMs: [0, 100, 200, 300],
+  };
+  fs.writeFileSync(path.join(rawDir, 'capture.json'), JSON.stringify(capture, null, 2));
+
+  const events = [
+    {
+      tMs: 400,
+      phase: 'repro',
+      actorLabel: 'u-bob',
+      service: 'database',
+      method: 'set',
+      path: '/items/i1',
+      data: { ownerUid: 'u-alice', label: 'overwritten' },
+      decision: 'ALLOW',
+      matchedRule: '".write": "auth != null"',
+    },
+    {
+      tMs: 900,
+      phase: 'fix',
+      actorLabel: 'u-bob',
+      service: 'database',
+      method: 'set',
+      path: '/items/i1',
+      decision: 'DENY',
+      matchedRule: '".write": "auth != null && data.child(\'ownerUid\').val() == auth.uid"',
+    },
+  ];
+  fs.writeFileSync(path.join(bundleDir, 'events.json'), JSON.stringify(events, null, 2));
+}
+
+test('renderEvidenceBundle prunes raw/extracted in finally on completion and mid-render failure while preserving deliverables', async () => {
+  const tmpRoot = createTempRenderDir();
+  try {
+    // 1. Normal completion: raw/extracted is used during rendering and pruned in finally
+    const okDir = path.join(tmpRoot, 'ok-bundle');
+    await writeSyntheticVideoBundle(okDir);
+
+    const result = await renderEvidenceBundle({
+      evidenceDir: okDir,
+      formats: ['mp4'],
+      fps: 10,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(fs.existsSync(path.join(okDir, 'raw', 'extracted')), false, 'raw/extracted must be removed after render completes');
+    assert.equal(fs.existsSync(path.join(okDir, 'raw', 'capture.json')), true, 'raw/capture.json must be preserved');
+    assert.equal(fs.existsSync(path.join(okDir, 'raw', 'capture.mp4')), true, 'raw/capture.mp4 must be preserved');
+    assert.equal(fs.existsSync(path.join(okDir, 'video.mp4')), true, 'video.mp4 deliverable must exist');
+    assertNonBlankPng(path.join(okDir, 'poster.png'), 1920, 1080);
+    assert.equal(fs.existsSync(path.join(okDir, 'share.md')), true, 'share.md deliverable must exist');
+    assert.ok(result.artifacts.storyboard.length >= 2, 'storyboard keyframes must be generated');
+    for (const relKeyframe of result.artifacts.storyboard) {
+      assertNonBlankPng(path.join(okDir, relKeyframe), 1920, 1080);
+    }
+    const okManifest = validateBundleManifest(JSON.parse(fs.readFileSync(path.join(okDir, 'manifest.json'), 'utf8')));
+    assert.equal(okManifest.status, 'reproduced');
+    assert.equal(okManifest.gates.g6, true);
+
+    // 2. Mid-render error: stage fetches extracted frame on frame 0, then fails provenance verification
+    const errDir = path.join(tmpRoot, 'err-bundle');
+    await writeSyntheticVideoBundle(errDir);
+    const failingStagePath = path.join(tmpRoot, 'missing-provenance-stage.html');
+    fs.writeFileSync(
+      failingStagePath,
+      [
+        '<!DOCTYPE html><html><body><div id="probe"></div><script>',
+        'window.setFrame = async () => {',
+        '  const frameUrl = window.__PYRIC_EVIDENCE__?.passes?.repro?.frames?.[0]?.files?.owner;',
+        '  if (!frameUrl || !frameUrl.startsWith("/raw/extracted/")) {',
+        '    throw new Error("Expected extracted frame URL, got " + String(frameUrl));',
+        '  }',
+        '  const res = await fetch(frameUrl);',
+        '  if (!res.ok) {',
+        '    throw new Error("Expected extracted frame HTTP 200 during render, got " + res.status);',
+        '  }',
+        '};',
+        '</script></body></html>',
+      ].join('\n'),
+      'utf8',
+    );
+
+    await assert.rejects(
+      () =>
+        renderEvidenceBundle({
+          evidenceDir: errDir,
+          stagePath: failingStagePath,
+          formats: ['mp4'],
+          fps: 10,
+        }),
+      (err) => err instanceof EvidenceRenderError && err.code === 'PROVENANCE_MISSING_OR_HIDDEN',
+    );
+
+    assert.equal(fs.existsSync(path.join(errDir, 'raw', 'extracted')), false, 'raw/extracted must be removed when render throws mid-flight');
+    assert.equal(fs.existsSync(path.join(errDir, 'raw', 'capture.json')), true, 'raw/capture.json must be preserved on render failure');
+    assert.equal(fs.existsSync(path.join(errDir, 'raw', 'capture.mp4')), true, 'raw/capture.mp4 must be preserved on render failure');
+    const failedManifest = JSON.parse(fs.readFileSync(path.join(errDir, 'manifest.json'), 'utf8'));
+    assert.equal(failedManifest.status, 'not-reproduced');
+    assert.equal(failedManifest.failedGate, 'G6');
+
+    // 3. Pre-browser error (missing custom stage or mid-extraction ffmpeg failure) also prunes raw/extracted
+    const missingStageDir = path.join(tmpRoot, 'missing-stage-bundle');
+    await writeSyntheticVideoBundle(missingStageDir);
+    fs.mkdirSync(path.join(missingStageDir, 'raw', 'extracted', 'owner'), { recursive: true });
+    fs.writeFileSync(path.join(missingStageDir, 'raw', 'extracted', 'owner', 'frame-00001.png'), 'stale', 'utf8');
+    await assert.rejects(
+      () =>
+        renderEvidenceBundle({
+          evidenceDir: missingStageDir,
+          stagePath: path.join(tmpRoot, 'does-not-exist.html'),
+          formats: ['mp4'],
+          fps: 10,
+        }),
+      (err) => err instanceof EvidenceRenderError && err.code === 'MISSING_STAGE_TEMPLATE',
+    );
+    assert.equal(
+      fs.existsSync(path.join(missingStageDir, 'raw', 'extracted')),
+      false,
+      'raw/extracted must not remain on disk when stage resolution fails',
+    );
+
+    const corruptVideoDir = path.join(tmpRoot, 'corrupt-video-bundle');
+    await writeSyntheticVideoBundle(corruptVideoDir);
+    fs.writeFileSync(path.join(corruptVideoDir, 'raw', 'capture.mp4'), 'not-an-mp4', 'utf8');
+    await assert.rejects(() =>
+      renderEvidenceBundle({
+        evidenceDir: corruptVideoDir,
+        formats: ['mp4'],
+        fps: 10,
+      }),
+    );
+    assert.equal(
+      fs.existsSync(path.join(corruptVideoDir, 'raw', 'extracted')),
+      false,
+      'raw/extracted must be removed when frame extraction fails midway',
+    );
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
