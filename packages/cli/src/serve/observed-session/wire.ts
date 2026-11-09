@@ -82,6 +82,13 @@ export interface ObservedSessionStats {
   readonly droppedCount: number;
 }
 
+export type ObservedSessionSource = 'client' | 'admin';
+
+export interface ObservedSessionSources {
+  readonly client: boolean;
+  readonly admin: boolean;
+}
+
 export interface ObservedSessionDataSnapshot {
   readonly revision: number;
   readonly updatedAt: number | null;
@@ -91,6 +98,8 @@ export interface ObservedSessionDataSnapshot {
   readonly rtdb: Record<string, unknown>;
   readonly defaultRtdbInstance: string | null;
   readonly stats: ObservedSessionStats;
+  /** Which SDK planes have contributed observed session data (omitted when neither has). */
+  readonly sources?: ObservedSessionSources;
   /** Counts of calls or items omitted from this snapshot (omitted when all 0). */
   readonly skips?: ObservedSessionSkipStats;
 }

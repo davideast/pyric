@@ -225,7 +225,9 @@ Each observed call is a row in Traffic, marked as an Admin call that bypassed Se
 - **Cloud Messaging.** `send`, `sendEach`, `sendEachForMulticast`, `subscribeToTopic` and `unsubscribeFromTopic`.
 - **App Check.** `verifyToken` and `createToken` are checked against your project, but make no row yet. The process health lists `firebase-admin/app-check` in `gatedAdmin`.
 
-Beyond the path a call targets, an Admin row never records a document value, a Realtime Database value, an object's bytes, a metadata value, a token, a password, an account email, a phone number or a message.
+Beyond the path a call targets, an Admin row in Traffic and in terminal or repro logs never records a document value, a Realtime Database value, an object's bytes, a metadata value, a token, a password, an account email, a phone number or a message.
+
+Successful Admin Firestore reads, listener deliveries, writes, `WriteBatch.commit`, `Firestore.getAll` and committed `Firestore.runTransaction` calls, and successful Admin Realtime Database reads, listener deliveries, writes, `push` and committed `transaction` calls, also send bounded deltas to the live host's in-memory session store (`8 MiB` and `2,000` Firestore documents) while stripping `sessionData` from Traffic events, terminal output and repro files. Studio's Data and Realtime Database views show those observed documents and paths read-only alongside the SDK source badge (`Observed · Admin` or `Observed · Client + Admin`). Calls using custom converters or server-transform sentinels (`FieldValue.serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, or Realtime Database `ServerValue` transforms) count as `unsupported`, failed or rolled-back calls are never added, and nothing is written to `.pyric/` unless you explicitly click **Seed local sandbox…** or **Export seed JSON** (or run `pyric sandbox seed-from-live`).
 
 ### Which project it reaches
 

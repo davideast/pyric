@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'bun:test';
 import { firestoreListener } from '../src/firestore.js';
 import { MAX_MESSAGE_LENGTH, noMessage, observedCall, observedListener, type LiveCallRecord, type LiveListenerJournal, type LiveObserver, type ObservedSite } from '../src/observe.js';
+import { sessionDataOf } from '../src/session-data.js';
 
 const OBSERVE_URL = new URL('../src/observe.ts', import.meta.url).href;
 
@@ -717,5 +718,56 @@ describe('a listener whose module names what it watches', () => {
     const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer: direct.observer, listenerOf: firestoreListener }, standInListener().real);
     subscribe(lobby, () => undefined);
     expect(lifecycleOf(direct.records)[0]![2]).toBe(resumed[2]);
+  });
+
+  test('attaches non-enumerable sessionData on resolved and delivered Admin calls without putting values on records', async () => {
+    const { records, observer } = collector();
+    const resolvedDelta = { firestore: [{ kind: 'set' as const, path: 'items/i1', data: { secret: 'admin-doc' } }] };
+    const deliveredDelta = { rtdb: [{ kind: 'set' as const, instance: 'demo-default-rtdb', path: '/items/i1', value: 'admin-rtdb' }] };
+    const adminRead = observedCall(
+      {
+        module: '@google-cloud/firestore',
+        name: 'DocumentReference.get',
+        sdk: 'admin',
+        observer,
+        resultOf: () => ({ sessionData: resolvedDelta }),
+      },
+      async () => ({ ok: true }),
+    );
+    await adminRead();
+
+    const adminFail = observedCall(
+      {
+        module: '@google-cloud/firestore',
+        name: 'DocumentReference.set',
+        sdk: 'admin',
+        observer,
+        context: () => ({ sessionData: resolvedDelta }),
+      },
+      async () => {
+        throw new CodedError('unavailable');
+      },
+    );
+    await (adminFail() as Promise<unknown>).catch(() => undefined);
+
+    const sdk = standInListener();
+    const adminListen = observedListener(
+      {
+        module: '@firebase/database-compat/standalone',
+        name: 'Query.on',
+        sdk: 'admin',
+        observer,
+        deliveryOf: () => deliveredDelta,
+      },
+      sdk.real,
+    );
+    adminListen('ref', () => undefined);
+    sdk.next()({ val: () => 'admin-rtdb' });
+
+    expect(sessionDataOf(records[0]!)).toEqual(resolvedDelta);
+    expect(sessionDataOf(records[1]!)).toBeUndefined();
+    expect(sessionDataOf(records.find((r) => r.outcome === 'delivered')!)).toEqual(deliveredDelta);
+    expect(JSON.stringify(records)).not.toContain('admin-doc');
+    expect(JSON.stringify(records)).not.toContain('admin-rtdb');
   });
 });

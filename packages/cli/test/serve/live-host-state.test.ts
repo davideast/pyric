@@ -211,7 +211,7 @@ describe('the live host state\'s observed session data', () => {
     expect(live.sessionData.snapshot().firestore).toEqual({});
   });
 
-  it('keeps valid session data, counts failed and Admin calls, and counts no skip for a listener attach', () => {
+  it('keeps valid client and Admin session data with SDK provenance, counts failed calls, and counts no skip for a listener attach', () => {
     const { live } = state('demo-live');
     sendThroughValidation(live, 'attach', {
       service: 'rtdb',
@@ -227,7 +227,20 @@ describe('the live host state\'s observed session data', () => {
       path: '/secret',
       outcome: { status: 'error', code: 'permission-denied' },
     });
-    sendThroughValidation(live, 'admin', { method: 'DocumentReference.get', sdk: 'admin', path: 'rooms/admin-read' });
+    sendThroughValidation(
+      live,
+      'admin-failed',
+      { method: 'DocumentReference.set', sdk: 'admin', path: 'rooms/admin-failed', outcome: { status: 'error', code: 'unavailable' } },
+      { firestore: [{ kind: 'set', path: 'rooms/admin-failed', data: { shouldNotApply: true } }] },
+    );
+    sendThroughValidation(
+      live,
+      'admin-read',
+      { method: 'DocumentReference.get', sdk: 'admin', path: 'rooms/admin-read' },
+      { firestore: [{ kind: 'set', path: 'rooms/admin-read', data: { seededBy: 'admin' } }] },
+    );
+    expect(live.sessionData.snapshot().sources).toEqual({ client: false, admin: true });
+
     const valid = sendThroughValidation(
       live,
       'read',
@@ -237,7 +250,11 @@ describe('the live host state\'s observed session data', () => {
 
     expect(valid.refused).toBe(false);
     const snapshot = live.sessionData.snapshot();
-    expect(snapshot.firestore).toEqual({ 'rooms/r1': { title: 'One' } });
-    expect(snapshot.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 0, failed: 1, admin: 1 });
+    expect(snapshot.firestore).toEqual({
+      'rooms/admin-read': { seededBy: 'admin' },
+      'rooms/r1': { title: 'One' },
+    });
+    expect(snapshot.sources).toEqual({ client: true, admin: true });
+    expect(snapshot.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 0, failed: 2, admin: 0 });
   });
 });

@@ -17,7 +17,16 @@
  * fields, no filter value.
  */
 import Module, { createRequire } from 'node:module';
-import type { CallContext, LiveObserver, ResultReading } from '../observe.js';
+import type { CallContext, LiveObserver } from '../observe.js';
+import {
+  adminFirestoreDelivery,
+  adminFirestoreResult,
+  adminFirestoreSessionContext,
+} from './firestore-session-capture.js';
+import {
+  patchAdminFirestoreTransaction,
+  patchAdminFirestoreWriteBatch,
+} from './firestore-session-staging.js';
 import { patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import type { AdminApp, AdminProjectGate } from './project-gate.js';
 
@@ -84,33 +93,43 @@ function pathOf(self: unknown): string | undefined {
   return queryPath(aggregated ?? self);
 }
 
-/** One call's context, read off the SDK's own objects: its project and path. */
-function contextOf(_name: string, _args: readonly unknown[], self: unknown): CallContext {
+/** One call's context, read off the SDK's own objects: its project, path, and session delta. */
+function contextOf(name: string, args: readonly unknown[], self: unknown): CallContext {
   const projectId = projectIdOf(self);
   const path = pathOf(self);
-  const project = projectId === undefined ? {} : { projectId };
-  return path === undefined ? project : { ...project, path };
+  const session = adminFirestoreSessionContext(name, args, self, path);
+  const context: { -readonly [K in keyof CallContext]: CallContext[K] } = {};
+  if (projectId !== undefined) context.projectId = projectId;
+  if (path !== undefined) context.path = path;
+  if (session.subject !== undefined) context.subject = session.subject;
+  if (session.sessionData !== undefined) context.sessionData = session.sessionData;
+  if (session.pendingAddDocFields !== undefined) context.pendingAddDocFields = session.pendingAddDocFields;
+  return context;
 }
 
-/** A resolved `Query.get`'s billed documents: its size, at least 1. */
-function queryBilled(_site: unknown, value: unknown): ResultReading {
-  const size: unknown = isObject(value) ? Reflect.get(value, 'size') : undefined;
-  return typeof size === 'number' ? { billedDocuments: Math.max(size, 1) } : {};
-}
-
-const HOOKS = { context: contextOf, codeOf: adminCodeOf, throwsLocally: true } as const;
+const HOOKS = {
+  context: contextOf,
+  codeOf: adminCodeOf,
+  resultOf: adminFirestoreResult,
+  throwsLocally: true,
+} as const;
 
 function calls(...names: string[]): AdminMethod[] {
   return names.map((name) => ({ name, ...HOOKS }));
 }
 
-const LISTENER: AdminMethod = { name: 'onSnapshot', listener: true, ...HOOKS };
+const LISTENER: AdminMethod = {
+  name: 'onSnapshot',
+  listener: true,
+  deliveryOf: adminFirestoreDelivery,
+  ...HOOKS,
+};
 
 /** The classes the row patches, the methods of each, and the file that defines it. */
 const CLASSES: readonly { readonly className: string; readonly methods: readonly AdminMethod[] }[] = [
   { className: 'DocumentReference', methods: [...calls('get', 'set', 'update', 'delete', 'create', 'listCollections'), LISTENER] },
   { className: 'CollectionReference', methods: calls('add', 'listDocuments') },
-  { className: 'Query', methods: [{ name: 'get', ...HOOKS, resultOf: queryBilled }, LISTENER] },
+  { className: 'Query', methods: [...calls('get'), LISTENER] },
   { className: 'AggregateQuery', methods: calls('get') },
   { className: 'WriteBatch', methods: calls('commit') },
   { className: 'Firestore', methods: calls('getAll', 'runTransaction') },
@@ -199,6 +218,8 @@ function prototypeOf(sdk: unknown, className: string, entryFile: string): object
  * `entryFile`, once. Later calls change nothing.
  */
 export function observeAdminFirestore(sdk: unknown, entryFile: string, row: AdminFirestoreRow): void {
+  patchAdminFirestoreWriteBatch(prototypeOf(sdk, 'WriteBatch', entryFile));
+  patchAdminFirestoreTransaction(prototypeOf(sdk, 'Transaction', entryFile));
   const adminRow: AdminRow = { module: ADMIN_FIRESTORE_MODULE, observer: row.observer, gate: row.gate, appOf };
   for (const { className, methods } of CLASSES) patchAdminClass(prototypeOf(sdk, className, entryFile), className, methods, adminRow);
 }

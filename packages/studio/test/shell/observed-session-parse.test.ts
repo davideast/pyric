@@ -68,6 +68,26 @@ describe('parseObservedSessionSnapshot', () => {
     const some = parseObservedSessionSnapshot({ skips: { truncated: 2 } });
     expect(some.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 2, failed: 0, admin: 0 });
   });
+
+  it('keeps sources only when client or admin has contributed', () => {
+    const emptySources = parseObservedSessionSnapshot({
+      sources: { client: false, admin: false },
+    });
+    expect('sources' in emptySources).toBe(false);
+
+    const malformed = parseObservedSessionSnapshot({ sources: 'admin' });
+    expect('sources' in malformed).toBe(false);
+
+    const adminOnly = parseObservedSessionSnapshot({
+      sources: { client: false, admin: true },
+    });
+    expect(adminOnly.sources).toEqual({ client: false, admin: true });
+
+    const both = parseObservedSessionSnapshot({
+      sources: { client: true, admin: true },
+    });
+    expect(both.sources).toEqual({ client: true, admin: true });
+  });
 });
 
 describe('buildObservedSeedPayload', () => {

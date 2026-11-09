@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Orders</title>
+  </head>
+  <body>
+    <h1>Orders</h1>
+    <output id="status">Starting</output>
+    <script>
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+    </script>
+    <script type="module">
+      import { initializeApp } from "firebase/app";
+      import { connectFirestoreEmulator, doc, getDoc, getFirestore } from "firebase/firestore";
+
+      const PROJECT = "demo-live-admin-session";
+      const app = initializeApp({
+        projectId: PROJECT,
+        apiKey: "demo-live-admin-session-key",
+        appId: "1:1:web:live-admin-session",
+      });
+      const db = getFirestore(app);
+      const backend = new URLSearchParams(location.search).get("backend");
+      if (backend) {
+        const url = new URL(backend);
+        connectFirestoreEmulator(db, url.hostname, Number(url.port));
+      }
+
+      window.readCatalogItem = () =>
+        getDoc(doc(db, "catalog", "cat-1")).then(
+          (snapshot) => snapshot.data() ?? null,
+          (error) => error.code ?? String(error),
+        );
+
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>

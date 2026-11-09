@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
 import { observedCallOf } from '../src/page-observer.js';
+import { sessionDataOf } from '../src/session-data.js';
 import { adminProjectGate } from '../src/admin/project-gate.js';
 import { ADMIN_FIRESTORE_MODULE, observeAdminFirestore } from '../src/admin/firestore.js';
 import type { LiveCallRecord, LiveObserver } from '../src/observe.js';
@@ -281,5 +282,119 @@ test('no record carries document data, and nested SDK calls make no record of th
   expect(text).not.toContain('first');
   expect(records.some((record) => record.writeData !== undefined || record.document !== undefined)).toBe(false);
   expect(records.some((record) => record.name === 'Firestore.getAll' || record.name === 'WriteBatch.commit')).toBe(false);
+  expect(state.unmatched).toEqual([]);
+});
+
+test('captures sessionData across real gRPC reads, listeners, writes, add, getAll, WriteBatch, and committed vs rolled-back runTransaction without leaking into records', async () => {
+  const firstGet = records.find((record) => record.name === 'DocumentReference.get' && record.outcome === 'resolved');
+  expect(sessionDataOf(firstGet!)).toEqual({
+    firestore: [{ kind: 'set', path: 'notes/a', data: { n: 1, title: 'first' } }],
+  });
+
+  const deliveries = records.filter((record) => record.name === 'Query.onSnapshot' && record.outcome === 'delivered');
+  expect(deliveries.map((record) => sessionDataOf(record))).toEqual([
+    { firestore: [{ kind: 'set', path: 'notes/b', data: { n: 5 } }] },
+    { firestore: [{ kind: 'set', path: 'notes/d', data: { n: 6 } }] },
+  ]);
+
+  const rejectedUpdate = records.find((record) => record.name === 'DocumentReference.update' && record.outcome === 'rejected');
+  expect(sessionDataOf(rejectedUpdate!)).toBeUndefined();
+
+  const from = records.length;
+  await doc('notes/a').set!({ n: 1, title: 'first' });
+  await doc('notes/missing').get!();
+  await doc('notes/a').update!({ n: 2 });
+  const notes = (db.collection as AnyFunction).call(db, 'notes') as Instance;
+  const added = (await notes.add!({ n: 4 })) as { path: string };
+
+  const batch = (db.batch as AnyFunction).call(db) as Instance;
+  batch.set!(doc('notes/b'), { n: 5 });
+  batch.delete!(doc('notes/c'));
+  await batch.commit!();
+
+  await (db.getAll as AnyFunction).call(db, doc('notes/a'), doc('notes/missing'));
+
+  await (db.runTransaction as AnyFunction).call(db, async (tx: Instance) => {
+    await tx.get!(doc('notes/a'));
+    tx.update!(doc('notes/a'), { n: 3 });
+  });
+
+  const rollbackOutcome = await codeOf(
+    (db.runTransaction as AnyFunction).call(db, async (tx: Instance) => {
+      await tx.get!(doc('notes/b'));
+      tx.set!(doc('notes/b'), { n: 99 });
+      throw new Error('abort-tx');
+    }),
+  );
+  expect(rollbackOutcome).not.toBe('ok');
+
+  await doc('notes/a').delete!();
+
+  const made = await recordsSince(from);
+  expect(made.map((record) => ({ name: record.name, outcome: record.outcome, session: sessionDataOf(record) }))).toEqual([
+    {
+      name: 'DocumentReference.set',
+      outcome: 'resolved',
+      session: { firestore: [{ kind: 'set', path: 'notes/a', data: { n: 1, title: 'first' } }] },
+    },
+    {
+      name: 'DocumentReference.get',
+      outcome: 'resolved',
+      session: { firestore: [{ kind: 'delete', path: 'notes/missing' }] },
+    },
+    {
+      name: 'DocumentReference.update',
+      outcome: 'resolved',
+      session: { firestore: [{ kind: 'update', path: 'notes/a', data: { n: 2 } }] },
+    },
+    {
+      name: 'CollectionReference.add',
+      outcome: 'resolved',
+      session: { firestore: [{ kind: 'set', path: added.path, data: { n: 4 } }] },
+    },
+    {
+      name: 'WriteBatch.commit',
+      outcome: 'resolved',
+      session: {
+        firestore: [
+          { kind: 'set', path: 'notes/b', data: { n: 5 } },
+          { kind: 'delete', path: 'notes/c' },
+        ],
+      },
+    },
+    {
+      name: 'Firestore.getAll',
+      outcome: 'resolved',
+      session: {
+        firestore: [
+          { kind: 'set', path: 'notes/a', data: { n: 2 } },
+          { kind: 'delete', path: 'notes/missing' },
+        ],
+      },
+    },
+    {
+      name: 'Firestore.runTransaction',
+      outcome: 'resolved',
+      session: {
+        firestore: [
+          { kind: 'set', path: 'notes/a', data: { n: 2 } },
+          { kind: 'update', path: 'notes/a', data: { n: 3 } },
+        ],
+      },
+    },
+    {
+      name: 'Firestore.runTransaction',
+      outcome: 'rejected',
+      session: undefined,
+    },
+    {
+      name: 'DocumentReference.delete',
+      outcome: 'resolved',
+      session: { firestore: [{ kind: 'delete', path: 'notes/a' }] },
+    },
+  ]);
+
+  expect(JSON.stringify(records)).not.toContain('first');
+  expect(records.some((record) => record.writeData !== undefined || record.document !== undefined)).toBe(false);
   expect(state.unmatched).toEqual([]);
 });

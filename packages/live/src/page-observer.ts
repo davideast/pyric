@@ -242,7 +242,7 @@ export function pageObserver(send: ObservedCallSend, now: () => number = Date.no
   return (record) => {
     const call = observedCallOf(record, now());
     if (call === null) return undefined;
-    if (call.outcome.status === 'ok' && call.sdk !== 'admin') {
+    if (call.outcome.status === 'ok') {
       const sessionData = sessionDataOf(record);
       if (sessionData !== undefined) return send(call, sessionData);
     }

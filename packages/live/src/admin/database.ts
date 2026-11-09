@@ -28,9 +28,14 @@
  *
  * A record never carries a data value: no write data and no returned value.
  */
-import { databaseCode, databaseContext } from '../database.js';
+import { databaseCode, databaseContext, UNREAD_INSTANCE } from '../database.js';
 import { databaseListenerArguments, databaseListenerCallback, offByCallback } from '../database-listeners.js';
-import { observedCall, observedListener, UNOBSERVED, type CallContext, type LiveObserver } from '../observe.js';
+import { observedCall, observedListener, UNOBSERVED, type CallContext, type LiveObserver, type ObservedSite } from '../observe.js';
+import {
+  adminDatabaseDelivery,
+  adminDatabaseResult,
+  adminDatabaseSessionContext,
+} from './database-session-capture.js';
 import { keepShape, outsideScope, patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import { liveAdminInstanceRefusal, liveAdminInstanceUnreadable, liveAdminProjectRefusal, type AdminProjectSource } from '../refusal.js';
 import type { AdminApp, AdminProjectGate } from './project-gate.js';
@@ -83,16 +88,28 @@ function adminAppOf(app: unknown): AdminApp {
   return adminApp;
 }
 
-/** One call's context: the client row's instance and path, read from the delegate, and the app's project. */
-function contextOf(_name: string, _args: readonly unknown[], self: unknown): CallContext | typeof UNOBSERVED {
+/** One call's context: the client row's instance and path, read from the delegate, the app's project, and its session delta. */
+function contextOf(name: string, args: readonly unknown[], self: unknown): CallContext | typeof UNOBSERVED {
   const context = databaseContext('get', [delegateOf(self)], undefined);
   if (context === UNOBSERVED) return context;
-  const { subject: _subject, ...place } = context;
+  const instance = context.instance ?? UNREAD_INSTANCE;
+  const session = adminDatabaseSessionContext(name, args, instance, context.path);
   const projectId = appOf(self).options.projectId;
-  return projectId === undefined ? place : { ...place, projectId };
+  const result: { -readonly [K in keyof CallContext]: CallContext[K] } = { instance };
+  if (context.path !== undefined) result.path = context.path;
+  if (context.rtdbFilteredQuery === true) result.rtdbFilteredQuery = true;
+  if (projectId !== undefined) result.projectId = projectId;
+  if (session.subject !== undefined) result.subject = session.subject;
+  if (session.sessionData !== undefined) result.sessionData = session.sessionData;
+  return result;
 }
 
-const HOOKS = { context: contextOf, codeOf: databaseCode, throwsLocally: true } as const;
+const HOOKS = {
+  context: contextOf,
+  codeOf: databaseCode,
+  resultOf: adminDatabaseResult,
+  throwsLocally: true,
+} as const;
 
 type RefusalCallback = AdminMethod['refusalCallback'];
 
@@ -185,6 +202,7 @@ function gatedOn(row: AdminRow, real: Method): Method {
     pending.add(listen);
     const site = {
       ...siteOf(row, 'Query.on'),
+      deliveryOf: (deliverySite: ObservedSite, value: unknown) => adminDatabaseDelivery(deliverySite, eventType as string, value),
       listenerArguments: databaseListenerArguments,
       listenerCallback: (_name: string, _args: readonly unknown[], _appCallback: Method, make: () => Method) => databaseListenerCallback(listener, [delegate], callback as Method, make),
     };

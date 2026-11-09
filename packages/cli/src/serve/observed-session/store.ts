@@ -18,6 +18,8 @@ import {
   type ObservedSessionDataSnapshot,
   type ObservedSessionDelta,
   type ObservedSessionSkipStats,
+  type ObservedSessionSource,
+  type ObservedSessionSources,
 } from './wire.js';
 
 const DEFAULT_MAX_SESSION_DOCS = 2000;
@@ -33,7 +35,7 @@ export interface ObservedSessionDataStoreOptions {
 }
 
 export interface ObservedSessionDataStore {
-  apply(delta: ObservedSessionDelta, projectIdHint?: string): void;
+  apply(delta: ObservedSessionDelta, projectIdHint?: string, source?: ObservedSessionSource): void;
   recordSkip(skip: Partial<ObservedSessionSkipStats>): void;
   snapshot(): ObservedSessionDataSnapshot;
 }
@@ -68,6 +70,7 @@ export function createObservedSessionDataStore(
   let firestoreBytes = 0;
   let rtdbBytes = 0;
   const skips: Record<SkipKey, number> = { oversized: 0, unsupported: 0, truncated: 0, failed: 0, admin: 0 };
+  const sources: { client: boolean; admin: boolean } = { client: false, admin: false };
 
   const docs = new Map<string, { data: Record<string, unknown>; bytes: number }>();
   const rtdb = new Map<string, { tree: unknown; bytes: number }>();
@@ -246,8 +249,14 @@ export function createObservedSessionDataStore(
     return { ...skips };
   }
 
+  function sourcesField(): ObservedSessionSources | undefined {
+    const hasContributingSource = sources.client || sources.admin;
+    if (!hasContributingSource) return undefined;
+    return { client: sources.client, admin: sources.admin };
+  }
+
   return {
-    apply(delta, projectIdHint) {
+    apply(delta, projectIdHint, source = 'client') {
       if (projectIdHint) currentProjectId = projectIdHint;
       let changed = false;
       const beforeDropped = droppedCount;
@@ -258,6 +267,7 @@ export function createObservedSessionDataStore(
       for (const op of delta.rtdb ?? []) {
         if (applyRtdbOp(op)) changed = true;
       }
+      if (changed) sources[source] = true;
       addSkips(delta.skipped);
       if (changed || droppedCount !== beforeDropped || skipTotal() !== beforeSkips) touch();
     },
@@ -273,7 +283,7 @@ export function createObservedSessionDataStore(
       for (const [path, entry] of docs) firestore[path] = structuredClone(entry.data);
       const trees: Record<string, unknown> = {};
       for (const [instance, entry] of rtdb) trees[instance] = structuredClone(entry.tree);
-      const snapshot: ObservedSessionDataSnapshot = {
+      const base: { -readonly [K in keyof ObservedSessionDataSnapshot]: ObservedSessionDataSnapshot[K] } = {
         revision,
         updatedAt,
         projectId: currentProjectId,
@@ -288,9 +298,11 @@ export function createObservedSessionDataStore(
           droppedCount,
         },
       };
+      const recordedSources = sourcesField();
+      if (recordedSources !== undefined) base.sources = recordedSources;
       const skipped = skipsField();
-      if (skipped === undefined) return snapshot;
-      return { ...snapshot, skips: skipped };
+      if (skipped !== undefined) base.skips = skipped;
+      return base;
     },
   };
 }

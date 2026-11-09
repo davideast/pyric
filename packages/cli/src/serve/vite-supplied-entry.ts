@@ -32,6 +32,8 @@ export type {
   ObservedSessionDelta,
   ObservedSessionSkipCounts,
   ObservedSessionSkipStats,
+  ObservedSessionSource,
+  ObservedSessionSources,
   ObservedSessionStats,
 } from './observed-session/wire.js';
 

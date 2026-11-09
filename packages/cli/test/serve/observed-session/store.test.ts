@@ -141,4 +141,18 @@ describe('createObservedSessionDataStore', () => {
     expect(snap.revision).toBe(2);
     expect(snap.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 0, failed: 1, admin: 2 });
   });
+
+  it('tracks contributing SDK sources only when deltas apply data, omitting sources when empty or skip-only', () => {
+    const store = createObservedSessionDataStore({ projectId: 'demo' });
+    expect(store.snapshot().sources).toBeUndefined();
+
+    store.apply({ skipped: { unsupported: 1 } }, undefined, 'admin');
+    expect(store.snapshot().sources).toBeUndefined();
+
+    store.apply({ firestore: [{ kind: 'set', path: 'items/a1', data: { title: 'Admin item' } }] }, undefined, 'admin');
+    expect(store.snapshot().sources).toEqual({ client: false, admin: true });
+
+    store.apply({ rtdb: [{ kind: 'set', instance: 'demo-default-rtdb', path: '/flags/beta', value: true }] }, undefined, 'client');
+    expect(store.snapshot().sources).toEqual({ client: true, admin: true });
+  });
 });
