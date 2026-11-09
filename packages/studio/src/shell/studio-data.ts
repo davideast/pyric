@@ -28,6 +28,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
+import { useHostAnswered } from './live-status.js';
+import { useIsSandboxWorkerAllowed, useSandboxWorkerLive } from './use-sandbox-worker-gate.js';
 import type { WorkerLivePlane } from '../env.js';
 import {
   listDocumentsForBrowse,
@@ -72,15 +74,23 @@ function handlesFromSeed(seed: {
 export function useStudioDataSource(): StudioDataState {
   const seed = useDevSeed();
   const env = useEnvironment();
+  const hostAnswered = useHostAnswered();
+  const sandboxWorkerAllowed = useIsSandboxWorkerAllowed();
+  const sandboxWorkerLive = useSandboxWorkerLive();
 
-  // Env path always runs (rules of hooks); only consulted when the seed is off.
-  const backend = env.status === 'ready' ? env.env.persistence : undefined;
+  // Wait for `/__pyric/health` before consulting sandbox data sources in served
+  // mode, and keep sandbox worker RPCs off while attached to a live host.
+  const isServedSandbox = seed.status === 'disabled' && sandboxWorkerAllowed;
+  const live = isServedSandbox ? sandboxWorkerLive : undefined;
+
+  // Env path always runs (rules of hooks); HTTP persistence hydrates only when
+  // served in sandbox mode without a SharedWorker plane.
+  let backend: Parameters<typeof useStudioData>[0];
+  const usesHttpPersistence = isServedSandbox && !live && env.status === 'ready';
+  if (usesHttpPersistence) {
+    backend = env.env.persistence;
+  }
   const envData = useStudioData(backend, env.status);
-
-  // The live SharedWorker plane (served mode). When present, Studio's Firestore
-  // grid reads the SAME worker sandbox the app + agent use (Wave 2.5b), not the
-  // separate HTTP-hydrated mirror. Null in dev-seed / no-SharedWorker.
-  const live = env.status === 'ready' ? env.env.live : undefined;
   const workerRoots = useWorkerRootCollections(live);
 
   return useMemo<StudioDataState>(() => {
@@ -92,10 +102,13 @@ export function useStudioDataSource(): StudioDataState {
       case 'error':
         return { status: 'error', handles: null, error: seed.error };
       case 'disabled': {
-        // Served mode: route Firestore (data ops + collection browse) to the
-        // live worker when a SharedWorker is reachable. Auth/Storage stay on the
-        // in-process env handles (empty in served mode) until M-B/M-C, which
-        // keeps DataFeature's eager useAuthUsers safe.
+        if (!hostAnswered) {
+          return { status: 'pending', handles: null };
+        }
+        // Served sandbox mode: route Firestore/Auth/Storage to the live worker
+        // when a SharedWorker is reachable. On a live host (`live` gated off
+        // above), fall through to the inert in-page handles so shell chrome
+        // and Settings stay ready without issuing sandbox worker RPCs.
         if (live && envData.status === 'ready') {
           const liveDb = live.db as unknown as StudioDataHandles['firestore'];
           return {
@@ -118,7 +131,7 @@ export function useStudioDataSource(): StudioDataState {
         return envData;
       }
     }
-  }, [seed, envData, live, workerRoots]);
+  }, [seed, hostAnswered, envData, live, workerRoots]);
 }
 
 /**

@@ -36,15 +36,15 @@ import {
   useRtdbTree,
   type RtdbApi,
 } from '@pyric/ui/rtdb';
-import { useEnvironment } from '../../shell/environment.js';
 import { LiveObservedDataBanner } from '../../components/LiveObservedDataBanner.js';
-import { useHostAnswered, useLiveHost } from '../../shell/live-status.js';
+import { useLiveHost } from '../../shell/live-status.js';
 import {
   useObservedSessionData,
   type ObservedRtdbInstanceSummary,
   type ObservedSessionViewState,
 } from '../../shell/use-observed-session-data.js';
 import { useSandboxInstanceId } from '../../shell/studio-saved-states.js';
+import { useSandboxWorkerLive } from '../../shell/use-sandbox-worker-gate.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import type { WorkerLivePlane } from '../../clients/worker-live.js';
 import { useRoutedRtdbPath } from './routed-path.js';
@@ -55,13 +55,11 @@ const LIVE_RTDB_COPY =
 const SANDBOX_RTDB_COPY = 'Browse and edit RTDB data in the shared sandbox.';
 
 export function RtdbSurface() {
-  const env = useEnvironment();
   const liveHost = useLiveHost();
   const observed = useObservedSessionData(liveHost !== null, liveHost?.projectId);
   // The sandbox viewer subscribes to the sandbox's data, so it waits until the
   // host has said whether it is live: on a live host it never mounts.
-  const hostAnswered = useHostAnswered();
-  const live = env.status === 'ready' && hostAnswered ? env.env.live : undefined;
+  const live = useSandboxWorkerLive();
   const isLiveMode = liveHost !== null;
 
   return (

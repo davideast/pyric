@@ -6,6 +6,7 @@
     "@pyric/live": "*",
     "firebase": "12.12.0",
     "firebase-admin": "13.6.0",
+    "require-in-the-middle": "8.0.1",
     "vite": "7.3.2"
   }
 }

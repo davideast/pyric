@@ -38,6 +38,15 @@ function browserPlatform(): string {
   return isServiceWorkerRealm() ? SERVICE_WORKER_TAB_ID : 'browser';
 }
 
+function resolveConnectionPlatform(
+  realm: HostedSocketRealm | undefined,
+  targetPlatform: 'studio' | undefined,
+): string {
+  if (realm !== undefined) return realm.platform;
+  if (targetPlatform !== undefined) return targetPlatform;
+  return browserPlatform();
+}
+
 const utf8 = new TextEncoder();
 
 export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed';
@@ -75,6 +84,8 @@ export function getHostedFirestore(target: {
   sessionToken?: () => Promise<string | null>;
   /** Present outside a page; see {@link HostedSocketRealm}. */
   realm?: HostedSocketRealm;
+  /** Identifies Studio's own UI tab so the host never lists it as an app client or routes tab reads to it. */
+  platform?: 'studio';
   /** Host boot identity baked into the served HTML / module at compile time. */
   initialHostInstanceId?: string;
   /**
@@ -114,7 +125,7 @@ export function getHostedFirestore(target: {
   let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   let hostSilence = watchHostSilence(0);
   const realm = target.realm;
-  const isPageRealm = realm === undefined && !isServiceWorkerRealm();
+  const isPageRealm = realm === undefined && target.platform !== 'studio' && !isServiceWorkerRealm();
   /** A page tab announces the live reads it answers (`tab-reads.ts`); a Node process or service worker does not. */
   const answersReads = isPageRealm;
   let stopAnnouncingReads: (() => void) | undefined;
@@ -435,7 +446,8 @@ export function getHostedFirestore(target: {
         // A grant from another boot cannot resume on this one; attach for a fresh session.
         const presentsOtherBoot = presented !== hostInstanceId;
         if (presentsOtherBoot) resumeToken = undefined;
-        send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId: presented, clientInfo: { platform: realm?.platform ?? browserPlatform() } });
+        const platform = resolveConnectionPlatform(realm, target.platform);
+        send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId: presented, clientInfo: { platform } });
       });
     });
     connection.addEventListener('message', (event: MessageEvent<string>) => {

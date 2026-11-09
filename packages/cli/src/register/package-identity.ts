@@ -19,10 +19,36 @@
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+/**
+ * Strips query and hash parameters (such as `?iitm=true`) from a `file:` URL.
+ * Non-`file:` URLs and unparseable file URLs are returned unchanged.
+ */
+export function canonicalFileUrl(url: string): string {
+  if (!url.startsWith('file:')) return url;
+  try {
+    return pathToFileURL(fileURLToPath(url)).href;
+  } catch {
+    return url;
+  }
+}
+
+/** Whether two `file:` URLs name the same local file path, ignoring query or hash suffixes. */
+export function isSameLocalFile(first: string, second: string): boolean {
+  if (!first.startsWith('file:') || !second.startsWith('file:')) return false;
+  try {
+    return fileURLToPath(first) === fileURLToPath(second);
+  } catch {
+    return false;
+  }
+}
 
 /** Package name per directory, `null` for a directory with no named manifest. */
 const namesByDirectory = new Map<string, string | null>();
+
+/** Package root directory per directory, `null` for a directory outside any named package. */
+const rootDirsByDirectory = new Map<string, string | null>();
 
 /** `firebase/firestore` → `firebase`; `@scope/pkg/sub` → `@scope/pkg`. */
 function packageRoot(name: string): string {
@@ -75,6 +101,35 @@ export function packageNameOf(url: string): string | null {
   const isFileUrl = url.startsWith('file:');
   if (!isFileUrl) return null;
   return nameFromDirectory(dirname(fileURLToPath(url)));
+}
+
+function rootDirFromDirectory(directory: string, packageName: string): string | null {
+  const cached = rootDirsByDirectory.get(directory);
+  if (cached !== undefined) return cached;
+  if (writtenManifestName(directory) === packageName) {
+    rootDirsByDirectory.set(directory, directory);
+    return directory;
+  }
+  const parent = dirname(directory);
+  if (parent === directory) {
+    rootDirsByDirectory.set(directory, null);
+    return null;
+  }
+  const resolved = rootDirFromDirectory(parent, packageName);
+  rootDirsByDirectory.set(directory, resolved);
+  return resolved;
+}
+
+/**
+ * The installed root directory of the package a resolved module URL belongs
+ * to, skipping subpath manifests (`"name": "firebase/ai"`), or `null` for a
+ * URL outside any named package.
+ */
+export function packageRootDirOf(url: string): string | null {
+  if (!url.startsWith('file:')) return null;
+  const name = packageNameOf(url);
+  if (name === null) return null;
+  return rootDirFromDirectory(dirname(fileURLToPath(url)), name);
 }
 
 /**

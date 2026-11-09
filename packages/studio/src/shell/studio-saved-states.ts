@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SandboxSnapshot } from 'pyric/sandbox';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
-import { useEnvironment } from './environment.js';
+import { useSandboxWorkerLive } from './use-sandbox-worker-gate.js';
 
 /**
  * A getter for the current sandbox snapshot (Pyric Studio rules re-run): the
@@ -24,8 +24,7 @@ import { useEnvironment } from './environment.js';
  */
 export function useStudioSnapshot(): () => Promise<SandboxSnapshot | null> {
   const seed = useDevSeed();
-  const env = useEnvironment();
-  const live = env.status === 'ready' ? env.env.live : undefined;
+  const live = useSandboxWorkerLive();
   const seedSandbox = seed.status === 'ready' ? seed.handles.sandbox : null;
   return useCallback(async () => {
     if (seedSandbox) return seedSandbox.snapshot();
@@ -36,13 +35,11 @@ export function useStudioSnapshot(): () => Promise<SandboxSnapshot | null> {
 
 /**
  * The live sandbox's stable instance id (Phase 1: instance identity). Empty in
- * dev-seed / review (no live worker). Studio renders it as a slug so a user can
- * tell WHICH sandbox instance they're looking at: the same `localhost:<port>`
- * in another browser profile is a separate instance.
+ * dev-seed / review (no live worker) or on a live Firebase host. Studio renders
+ * it as a slug so a user can tell WHICH sandbox instance they're looking at.
  */
 export function useSandboxInstanceId(): string {
-  const env = useEnvironment();
-  const live = env.status === 'ready' ? env.env.live : undefined;
+  const live = useSandboxWorkerLive();
   const [id, setId] = useState('');
   useEffect(() => {
     if (!live) {
@@ -65,8 +62,7 @@ export function useSandboxInstanceId(): string {
  * string. Returns null in dev-seed / review (no live worker).
  */
 export function useStudioExport(): () => Promise<string | null> {
-  const env = useEnvironment();
-  const live = env.status === 'ready' ? env.env.live : undefined;
+  const live = useSandboxWorkerLive();
   return useCallback(async () => {
     if (!live) return null;
     return live.exportState();
@@ -78,8 +74,7 @@ export function useStudioExport(): () => Promise<string | null> {
  * Returns false in dev-seed / review (no live worker to clobber).
  */
 export function useStudioImport(): (bundle: string) => Promise<boolean> {
-  const env = useEnvironment();
-  const live = env.status === 'ready' ? env.env.live : undefined;
+  const live = useSandboxWorkerLive();
   return useCallback(async (bundle: string) => {
     if (!live) return false;
     await live.importState(bundle);
@@ -103,8 +98,7 @@ export interface StudioSavedStates {
  * and review, which have no live worker to hold one.
  */
 export function useSavedStates(): StudioSavedStates {
-  const env = useEnvironment();
-  const live = env.status === 'ready' ? env.env.live : undefined;
+  const live = useSandboxWorkerLive();
   const [names, setNames] = useState<string[]>([]);
   const refresh = useCallback(async () => {
     if (!live) {

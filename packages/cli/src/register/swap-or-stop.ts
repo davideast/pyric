@@ -29,7 +29,7 @@
  * node built-ins and side-effect-free modules only.
  */
 import { fileURLToPath } from 'node:url';
-import { packageNameOf, pathInPackageOf } from './package-identity.js';
+import { canonicalFileUrl, isSameLocalFile, packageNameOf, pathInPackageOf } from './package-identity.js';
 import { choosesRealFirebase } from './mapping.js';
 import { usesCommonJs } from '../functions/module-loader.js';
 import {
@@ -306,7 +306,8 @@ function isPassThroughEntry(load: ResolvedLoad): boolean {
 /**
  * Whether a load under live rows may reach the installed client SDK: an ESM
  * import, either a row module's own import of `firebase/*`, the app's import
- * of a passed-through entry, or an allowed client SDK file's import of a
+ * of a passed-through entry, an ESM wrapper shim (`?iitm=true`) re-importing
+ * the exact allowed file it wraps, or an allowed client SDK file's import of a
  * package the live rows' entries or a passed-through one load. A
  * `createRequire` call can name any file as its importer, but it resolves
  * with the `require` condition, so it never passes.
@@ -316,9 +317,12 @@ function isAllowedLiveRowLoad(load: ResolvedLoad, packageName: string, allowedUr
   if (grant.isRowImport) return packageName === 'firebase';
   if (grant.isPassThroughImport === true) return packageName === 'firebase' && isPassThroughEntry(load);
   const importer = load.importer;
-  const isFromAllowedFile = importer !== undefined && allowedUrls.has(importer);
+  const isFromAllowedFile =
+    importer !== undefined && (allowedUrls.has(importer) || allowedUrls.has(canonicalFileUrl(importer)));
+  if (!isFromAllowedFile) return false;
+  if (importer !== undefined && isSameLocalFile(importer, load.url)) return true;
   const isLoadedPackage = LIVE_ROW_SDK_PACKAGES.has(packageName) || (grant.passThroughPackages?.has(packageName) ?? false);
-  return isFromAllowedFile && isLoadedPackage;
+  return isLoadedPackage;
 }
 
 /** Why a server SDK stops under live rows, and what the app imports instead. */
@@ -397,6 +401,7 @@ export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>
   if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;
   if (family === 'client' && isAllowedLiveRowLoad(load, packageName, allowedUrls, grant)) {
     allowedUrls.add(load.url);
+    allowedUrls.add(canonicalFileUrl(load.url));
     return null;
   }
   const error = new Error(liveStopMessage(load, family, packageName));

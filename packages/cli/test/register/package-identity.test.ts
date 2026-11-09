@@ -12,7 +12,12 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { packageNameOf } from '../../src/register/package-identity.js';
+import {
+  canonicalFileUrl,
+  isSameLocalFile,
+  packageNameOf,
+  packageRootDirOf,
+} from '../../src/register/package-identity.js';
 
 const repoRoot = resolve(import.meta.dir, '../../../..');
 const requireFromRepo = createRequire(join(repoRoot, 'package.json'));
@@ -83,5 +88,30 @@ describe('packageNameOf', () => {
     expect(packageNameOf('node:fs')).toBeNull();
     expect(packageNameOf('data:text/javascript,export{}')).toBeNull();
     expect(packageNameOf(pathToFileURL('/no-package-here/index.js').href)).toBeNull();
+  });
+});
+
+describe('packageRootDirOf', () => {
+  it('returns the installed package root directory, skipping subpath and nameless manifests', () => {
+    writeJson(join(root, 'pkg-root/package.json'), { name: '@scope/pkg-root' });
+    writeJson(join(root, 'pkg-root/standalone/package.json'), { name: '@scope/pkg-root/standalone' });
+    writeJson(join(root, 'pkg-root/lib/esm/package.json'), { type: 'module' });
+    const subUrl = writeModule(join(root, 'pkg-root/standalone/index.js'));
+    const esmUrl = writeModule(join(root, 'pkg-root/lib/esm/index.js'));
+    expect(packageRootDirOf(subUrl)).toBe(join(root, 'pkg-root'));
+    expect(packageRootDirOf(esmUrl)).toBe(join(root, 'pkg-root'));
+    expect(packageRootDirOf('node:fs')).toBeNull();
+  });
+});
+
+describe('canonicalFileUrl and isSameLocalFile', () => {
+  it('strips query parameters from file URLs while leaving non-file URLs untouched', () => {
+    const plain = 'file:///work/app/node_modules/firebase/firestore/dist/index.mjs';
+    const shimmed = `${plain}?iitm=true`;
+    expect(canonicalFileUrl(shimmed)).toBe(plain);
+    expect(canonicalFileUrl('node:fs')).toBe('node:fs');
+    expect(isSameLocalFile(shimmed, plain)).toBe(true);
+    expect(isSameLocalFile(shimmed, 'file:///work/app/node_modules/firebase/auth/dist/index.mjs')).toBe(false);
+    expect(isSameLocalFile('node:fs', 'node:fs')).toBe(false);
   });
 });

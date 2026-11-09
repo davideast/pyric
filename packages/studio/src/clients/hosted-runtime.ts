@@ -15,6 +15,7 @@ export function connectHostedStudio(target: { url: string; projectKey: string })
   }
   const db = getHostedFirestore({
     ...target,
+    platform: 'studio',
     // Studio reads object bytes for previews over the host's byte route.
     sessionToken: () => resolveSessionToken(location.origin),
     onConnection(state) {

@@ -44,8 +44,12 @@ import { ConfirmProvider } from '@pyric/ui/primitives';
 import { FEDERATED_PROVIDER_IDS } from 'pyric/auth';
 import type { Auth, AuthUserRecord, CreateUserRequest, ProviderUserInfo } from 'pyric/auth';
 import { useDevSeed } from '../../dev/DevSeedProvider.js';
+import { LiveObservedDataBanner } from '../../components/LiveObservedDataBanner.js';
+import { LiveServiceUnavailable } from '../../components/LiveServiceUnavailable.js';
 import { useDataNav } from '../data/navigation.js';
+import { useHostAnswered, useLiveHost } from '../../shell/live-status.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
+import { useObservedSessionData } from '../../shell/use-observed-session-data.js';
 import { DeleteSelectedUsers, useVisibleUserSelection } from './auth-bulk-delete.js';
 import './auth.css';
 
@@ -89,8 +93,11 @@ function renderIdentifier(user: AuthUserRecord) {
 }
 
 export interface AuthSurfaceProps {
-  /** Override the seeded handle (tests / a wired live env). Defaults to the
-   *  dev-seed context's `Auth`. */
+  /**
+   * Explicit `Auth` handle override for isolated component tests and standalone
+   * fixtures. When passed, bypasses hosted live-mode and health-gate checks;
+   * `App.tsx` mounts `<AuthSurface />` with no `auth` prop.
+   */
   auth?: Auth;
 }
 
@@ -100,18 +107,38 @@ export interface AuthSurfaceProps {
  */
 export function AuthSurface({ auth: authProp }: AuthSurfaceProps = {}) {
   const seed = useDevSeed();
+  const liveHost = useLiveHost();
+  const hostAnswered = useHostAnswered();
+  const isLiveHostAuthUnavailable = authProp === undefined && liveHost !== null;
+  const observed = useObservedSessionData(isLiveHostAuthUnavailable, liveHost?.projectId);
   // Source the Auth handle + ops from the unified data bridge: the dev-seed Auth
   // in review, or the live worker Auth under `pyric dev --ui`. `authApi` is
   // present only in served mode (the worker auth bundle); dev-seed leaves it
   // undefined so the default in-process `pyric/auth` API is used.
   const data = useStudioDataSource();
-  const auth = authProp ?? (data.status === 'ready' ? data.handles.auth : null);
-  const authApi = data.status === 'ready' ? data.authApi : undefined;
+  let auth: Auth | null = authProp ?? null;
+  if (auth === null && data.status === 'ready') {
+    auth = data.handles.auth;
+  }
+  let authApi: Extract<typeof data, { status: 'ready' }>['authApi'];
+  if (authProp === undefined && data.status === 'ready') {
+    authApi = data.authApi;
+  }
 
-  if (!auth) {
+  if (isLiveHostAuthUnavailable) {
+    return (
+      <div className="auth-surface" data-pyric-ui="auth-surface" data-live-mode="">
+        <LiveObservedDataBanner observed={observed} />
+        <LiveServiceUnavailable view="auth" />
+      </div>
+    );
+  }
+
+  const isWaitingForHost = authProp === undefined && seed.status === 'disabled' && !hostAnswered;
+  if (!auth || isWaitingForHost) {
     return (
       <div className="auth-surface" data-pyric-ui="auth-surface">
-        <AuthEmpty status={seed.status} />
+        <AuthEmpty status={seed.status} pending={isWaitingForHost} />
       </div>
     );
   }
@@ -517,13 +544,24 @@ function UserDetail({
   );
 }
 
-function AuthEmpty({ status }: { status: ReturnType<typeof useDevSeed>['status'] }) {
-  const label =
-    status === 'pending'
-      ? 'Seeding the sandbox…'
-      : status === 'error'
-        ? 'The dev-seed failed. Check the console.'
-        : 'No sandbox Auth handle. Run with the dev-seed (DEV) or a live env.';
+function authEmptyLabel(
+  status: ReturnType<typeof useDevSeed>['status'],
+  pending: boolean,
+): string {
+  if (pending) return 'Local backend pending…';
+  if (status === 'pending') return 'Seeding the sandbox…';
+  if (status === 'error') return 'The dev-seed failed. Check the console.';
+  return 'No sandbox Auth handle. Run with the dev-seed (DEV) or a live env.';
+}
+
+function AuthEmpty({
+  status,
+  pending = false,
+}: {
+  status: ReturnType<typeof useDevSeed>['status'];
+  pending?: boolean;
+}) {
+  const label = authEmptyLabel(status, pending);
   return (
     <div className="auth-detail__empty" data-pyric-ui="auth-surface-empty">
       <p className="auth-zero">{label}</p>
