@@ -13,7 +13,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { isLiveSessionRoute, serveLiveSessionRoute } from '../../src/serve/live-session-routes.js';
+import {
+  isLiveSessionRoute,
+  serveLiveSessionRoute,
+  withLiveObservedSession,
+} from '../../src/serve/live-session-routes.js';
 import { createObservedSessionDataStore } from '../../src/serve/observed-session/store.js';
 import { LIVE_SEED_SANDBOX_PATH, LIVE_SESSION_DATA_PATH } from '../../src/serve/observed-session/wire.js';
 
@@ -358,12 +362,20 @@ describe('Live host observed-session-data & opt-in seeding end-to-end (Node sqli
     }
   });
 
-  it('matches live-session routes and answers GET session-data directly', async () => {
+  it('matches live-session routes, merges observedSession without mutating options, and answers GET session-data directly', async () => {
     expect(isLiveSessionRoute(LIVE_SESSION_DATA_PATH)).toBe(true);
     expect(isLiveSessionRoute(LIVE_SEED_SANDBOX_PATH)).toBe(true);
     expect(isLiveSessionRoute('/__pyric/health')).toBe(false);
 
     const store = createObservedSessionDataStore({ projectId: 'demo-unit' });
+    const baseOptions = Object.freeze({ liveRefusal: { projectId: 'demo-unit' } });
+    expect(withLiveObservedSession(baseOptions, undefined)).toBe(baseOptions);
+    expect(withLiveObservedSession(undefined, store)).toEqual({ observedSession: store });
+    expect(withLiveObservedSession(baseOptions, store)).toEqual({
+      liveRefusal: { projectId: 'demo-unit' },
+      observedSession: store,
+    });
+
     let statusCode = 0;
     let body = '';
     const res = {

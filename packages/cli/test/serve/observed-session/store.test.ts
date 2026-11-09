@@ -211,4 +211,70 @@ describe('createObservedSessionDataStore', () => {
       'workspaces/ws-1/items/c.png',
     ]);
   });
+
+  it('exposes getFirestoreDoc and getRtdbInstance lookups and handles partial writes, invalidate ops, and explicit invalidations', () => {
+    const store = createObservedSessionDataStore({ projectId: 'demo', maxRtdbInstances: 1 });
+
+    store.apply({
+      firestore: [
+        { kind: 'set', path: 'spaces/s1', data: { members: ['u-1', 'u-2'], title: 'Alpha' } },
+        {
+          kind: 'update',
+          path: 'spaces/s1',
+          data: { title: 'Beta' },
+          deleteFields: ['members'],
+          partial: true,
+        },
+      ],
+      rtdb: [
+        { kind: 'set', instance: 'demo-default-rtdb', path: '/rooms/r1', value: { name: 'Lobby', closedAt: 10 } },
+        { kind: 'invalidate', instance: 'demo-default-rtdb', path: '/rooms/r1/closedAt' },
+      ],
+    });
+
+    expect(store.getFirestoreDoc('spaces/s1')).toEqual({
+      status: 'partial',
+      data: { title: 'Beta' },
+    });
+    const rtdbLookup = store.getRtdbInstance('demo-default-rtdb');
+    expect(rtdbLookup.mockData).toEqual({ rooms: { r1: { name: 'Lobby', closedAt: 10 } } });
+    expect(rtdbLookup.isPathKnown('/rooms/r1')).toBe(false);
+    expect(rtdbLookup.isPathKnown('/rooms/r1/name')).toBe(false);
+    expect(rtdbLookup.isPathKnown('/rooms/r1/closedAt')).toBe(false);
+
+    // A remove on a second RTDB instance beyond maxRtdbInstances=1 is dropped without evicting the active instance.
+    store.apply({ rtdb: [{ kind: 'set', instance: 'demo-default-rtdb', path: '/rooms/r1/name', value: 'Lobby' }] });
+    store.apply({ rtdb: [{ kind: 'remove', instance: 'other-rtdb', path: '/y' }] });
+    expect(store.getRtdbInstance('other-rtdb').isPathKnown('/y')).toBe(false);
+    expect(store.getRtdbInstance('demo-default-rtdb').isPathKnown('/rooms/r1/name')).toBe(true);
+
+    // Explicit invalidation clears document, collection absence, or RTDB path state.
+    store.apply({ firestore: [{ kind: 'delete', path: 'spaces/absent-1' }] });
+    expect(store.getFirestoreDoc('spaces/absent-1')).toEqual({ status: 'absent' });
+    store.invalidateFirestore('spaces');
+    expect(store.getFirestoreDoc('spaces/absent-1')).toEqual({ status: 'unobserved' });
+
+    // Firestore `invalidate` delta op clears both absent tombstones and complete document coverage (#2540 N2).
+    store.apply({ firestore: [{ kind: 'delete', path: 'spaces/absent-2' }] });
+    expect(store.getFirestoreDoc('spaces/absent-2')).toEqual({ status: 'absent' });
+    store.apply({ firestore: [{ kind: 'invalidate', path: 'spaces/absent-2' }] });
+    expect(store.getFirestoreDoc('spaces/absent-2')).toEqual({ status: 'unobserved' });
+
+    store.apply({ firestore: [{ kind: 'set', path: 'spaces/readded', data: { a: 1, b: 2 } }] });
+    expect(store.getFirestoreDoc('spaces/readded')).toEqual({ status: 'complete', data: { a: 1, b: 2 } });
+    store.apply({ firestore: [{ kind: 'invalidate', path: 'spaces/readded' }] });
+    expect(store.getFirestoreDoc('spaces/readded')).toEqual({ status: 'unobserved' });
+    store.apply({ firestore: [{ kind: 'update', path: 'spaces/readded', data: { a: 9 } }] });
+    expect(store.getFirestoreDoc('spaces/readded')).toEqual({ status: 'partial', data: { a: 9 } });
+
+    store.invalidateFirestore('spaces/s1');
+    expect(store.getFirestoreDoc('spaces/s1')).toEqual({ status: 'unobserved' });
+    store.invalidateFirestore('/');
+    expect(store.getFirestoreDoc('spaces/readded')).toEqual({ status: 'unobserved' });
+    expect(store.snapshot().firestore).toEqual({ 'spaces/readded': { a: 9 } });
+
+    store.invalidateRtdb('demo-default-rtdb', '/rooms/r1');
+    expect(store.getRtdbInstance('demo-default-rtdb').isPathKnown('/rooms/r1/name')).toBe(false);
+    expect(store.snapshot().rtdb).toEqual({});
+  });
 });

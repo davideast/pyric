@@ -2,16 +2,24 @@
  * The local RTDB rules' verdict on an observed Realtime Database call.
  *
  * The host simulates the call against the rules the app deployed to the
- * call's instance. A write is checked as production checks it: a `set` or a
- * `push` at its one location with the value it sent, and an `update` at each
- * location it names (a key holding `/` names a deeper one), every location
- * seeing the whole update. A remove is a write of `null`.
+ * call's instance, supplying `ctx.observedSession`'s pre-operation tree as
+ * `mockData`. A write is checked as production checks it: a `set` or `push` at
+ * its one location with the value it sent, and an `update` at each location it
+ * names, every location seeing the whole update. A remove is a write of `null`.
  *
- * The host never holds the stored tree, so the simulation runs over an empty
- * one. A verdict that read stored data is `unevaluated`: a rule reading
- * `data` or `root`, a server increment checked through `newData`, and any
- * rule above a written location that reads `newData` (there `newData` holds
- * the stored siblings the write left in place) or reads `newData.parent()`.
+ * Soundness is fail-closed per dereferenced path: any deciding rule or
+ * `.validate` entry that inspects a `data`, `root`, or sibling `newData` path
+ * whose existence/value `observedSession` has not authoritatively captured
+ * abstains as `unevaluated` with `needs: ['stored-document']` and normalized
+ * `missingPaths`.
+ *
+ * In-flight write ordering: when a client or Admin one-shot read (`get`,
+ * `once`) or listener delivery overlaps an in-flight RTDB write, `@pyric/live`
+ * emits an `invalidate` op rather than an optimistic `set`, clearing prior
+ * coverage at that path until a confirmed read, rollback delivery, or resolved
+ * write re-establishes it. External writes performed outside observed SDK
+ * handles remain unseen until read or delivered to an observed listener, so a
+ * previously captured snapshot can go stale relative to newer server state.
  */
 import type { RtdbRulesJson } from 'pyric/rules';
 import {
@@ -25,6 +33,8 @@ import {
 import { getActiveRules } from 'pyric/sandbox/database';
 import { LOCKED_DATABASE_RULES, type ObservedMethod } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';
+import type { ObservedRtdbLookup } from '../../observed-session/coverage.js';
+import { canonicalRtdbPath, joinRtdbPath, rtdbPathSegments, toRtdbMockData } from '../../observed-session/rtdb-tree.js';
 import type { HostCtx, HostRtdbInstance } from '../host-context.js';
 import { rtdbInstance } from './rtdb-instances.js';
 import {
@@ -35,6 +45,7 @@ import {
   givenBy,
   isPlainRecord,
   unionOf,
+  unionPaths,
   verdictOf,
   type Gap,
   type GapPattern,
@@ -44,15 +55,16 @@ import {
 
 const RTDB_EMAIL_CLAIM = /\bauth\.token\.(?:email\b|firebase\.identities\b)/;
 const RTDB_NEW_DATA = /(?<![\w.])newData\b/;
-/** `newData.parent()` reaches the written location's siblings, which the stored tree holds. */
-const RTDB_NEW_DATA_PARENT = /(?<![\w.])newData\s*\.\s*parent\s*\(/;
 const RTDB_PUSH_PLACEHOLDER = '-O_pyric_push';
 
-/** What each gap looks like in an RTDB rule expression. */
+const EMPTY_RTDB_LOOKUP: ObservedRtdbLookup = {
+  mockData: {},
+  isPathKnown: () => false,
+};
+
+/** Non-snapshot gaps checked over resting rule expressions. */
 const RTDB_GAPS: readonly GapPattern[] = [
-  ['stored-document', /(?<![\w.])(?:data|root)\b/, ALWAYS_OPEN],
   ['claim-values', /\bauth\.token\b/, (given) => !given.claims],
-  // Legacy captures and calls without claimNames cannot tell whether the token carried an email.
   ['claim-values', RTDB_EMAIL_CLAIM, (given) => !given.emailKnown],
   ['query', /(?<![\w.])query\./, ALWAYS_OPEN],
 ];
@@ -71,42 +83,38 @@ type SimulationInput = Parameters<typeof simulateRtdbRules>[1];
 type Simulated = ReturnType<typeof simulateRtdbRules>;
 type Simulation = Extract<Simulated, { success: true }>['data'];
 
-/** One written location: its absolute path and the value the write leaves there. */
 interface RtdbWrite {
   path: string;
   value: unknown;
 }
 
-/**
- * How one call is simulated: each location production checks it at, and the
- * value it wrote there, when the call carried it.
- */
 interface RtdbPlan {
   operation: 'read' | 'write';
-  /** The locations production checks the call's rules at; one but for a multi-location update. */
   targets: string[];
-  /** The value a single-location write leaves (`null` for a remove). */
   newData?: unknown;
-  /** Every location an update writes, each seeing all of them. */
   updates?: RtdbWrite[];
-  /** Whether the call carried the value its write rules check. */
   hasWriteData: boolean;
-  /** Whether the value holds a server increment, whose result rests on the stored value. */
   hasIncrement: boolean;
   isPush: boolean;
   isRemove: boolean;
 }
 
-/** One target's simulation. */
+interface RuleReads {
+  stored: string[];
+  postWrite: string[];
+}
+
 interface TargetSimulation {
   target: string;
   data: Simulation;
+  readsByEntry: Map<number, RuleReads>;
 }
 
-/** Each instance's compiled rules, kept while the deployed source is the same: a large ruleset takes long to parse, and every observed call reads it. */
-const COMPILED_BY_INSTANCE = new WeakMap<HostRtdbInstance, { state: unknown; source: unknown; compiled: CompiledRtdbRules }>();
+const COMPILED_BY_INSTANCE = new WeakMap<
+  HostRtdbInstance,
+  { state: unknown; source: unknown; compiled: CompiledRtdbRules }
+>();
 
-/** The compiled rules the app deployed to an RTDB instance, or `null` for none or the locked stand-in. */
 function appRtdbRules(ctx: HostCtx, instance: string | undefined): CompiledRtdbRules | null {
   const entry = rtdbInstance(ctx, instance);
   const deployed = entry.rules?.source;
@@ -122,17 +130,8 @@ function appRtdbRules(ctx: HostCtx, instance: string | undefined): CompiledRtdbR
   return compiled;
 }
 
-function segmentsOf(path: string): string[] {
-  return path.split('/').filter(Boolean);
-}
-
-/** The absolute path of `relative` under `base`, as an update's key names a location below its reference. */
-function joinRtdbPath(base: string, relative: string): string {
-  return `/${[...segmentsOf(base), ...segmentsOf(relative)].join('/')}`;
-}
-
 function depthOf(path: string): number {
-  return segmentsOf(path).length;
+  return rtdbPathSegments(path).length;
 }
 
 function collectDescendantValidates(node: RtdbNode, out: string[]): void {
@@ -140,7 +139,6 @@ function collectDescendantValidates(node: RtdbNode, out: string[]): void {
   for (const child of node.children) collectDescendantValidates(child, out);
 }
 
-/** A written value with server timestamps resolved to `now` and increments to zero, noting any increment. */
 function scrubRtdbWriteValue(
   value: unknown,
   now: number,
@@ -176,20 +174,42 @@ function stripPushPlaceholder(
   return filtered;
 }
 
-/** The location a push writes: a new child of the reference, under a placeholder key. */
+function sanitizePushPath(
+  readPath: string,
+  bindings: Record<string, string>,
+  omitPushPlaceholder: boolean,
+): string {
+  const hasPushPlaceholder = omitPushPlaceholder && readPath.includes(RTDB_PUSH_PLACEHOLDER);
+  if (!hasPushPlaceholder) return readPath;
+  let placeholderName = '$pushId';
+  for (const [key, val] of Object.entries(bindings)) {
+    if (val === RTDB_PUSH_PLACEHOLDER) {
+      placeholderName = key;
+      break;
+    }
+  }
+  return readPath
+    .split('/')
+    .map((seg) => (seg === RTDB_PUSH_PLACEHOLDER ? placeholderName : seg))
+    .join('/');
+}
+
 function pushTarget(path: string): string {
   return joinRtdbPath(path, RTDB_PUSH_PLACEHOLDER);
 }
 
-/**
- * How the call is simulated, or `null` for an empty update, which the SDK
- * resolves without asking production.
- */
 function rtdbPlan(call: ObservedCall, method: ObservedMethod, path: string): RtdbPlan | null {
   const operation = RTDB_OPERATION[method];
   const isPush = call.method === 'push';
   const isRemove = method === 'delete' || (method === 'set' && call.writeData === null);
-  const plan: RtdbPlan = { operation, targets: [path], hasWriteData: false, hasIncrement: false, isPush, isRemove };
+  const plan: RtdbPlan = {
+    operation,
+    targets: [path],
+    hasWriteData: false,
+    hasIncrement: false,
+    isPush,
+    isRemove,
+  };
   if (isPush) plan.targets = [pushTarget(path)];
   if (operation === 'read') return plan;
   if (isRemove) {
@@ -206,7 +226,6 @@ function rtdbPlan(call: ObservedCall, method: ObservedMethod, path: string): Rtd
     plan.hasIncrement = state.hasIncrement;
     return plan;
   }
-  // An update's value is a map of locations; any other value is not one production would take.
   if (!isPlainRecord(written)) return plan;
   const entries = Object.entries(written);
   if (entries.length === 0) return null;
@@ -220,13 +239,18 @@ function rtdbPlan(call: ObservedCall, method: ObservedMethod, path: string): Rtd
   return plan;
 }
 
-/** The simulator's input for one target of `plan`. */
-function simulationInputAt(call: ObservedCall, plan: RtdbPlan, target: string, index: number): SimulationInput {
+function simulationInputAt(
+  call: ObservedCall,
+  plan: RtdbPlan,
+  target: string,
+  index: number,
+  mockData: unknown,
+): SimulationInput {
   const input: SimulationInput = {
     operation: plan.operation,
     path: target,
     auth: authOf(call),
-    mockData: {},
+    mockData: toRtdbMockData(mockData),
     now: call.at,
   };
   if (plan.updates !== undefined) {
@@ -238,30 +262,71 @@ function simulationInputAt(call: ObservedCall, plan: RtdbPlan, target: string, i
   return input;
 }
 
-/** Every target's simulation, or `undefined` when the simulator fails or abstains on any. */
-function simulateTargets(compiled: CompiledRtdbRules, call: ObservedCall, plan: RtdbPlan): TargetSimulation[] | undefined {
+function simulateTargets(
+  compiled: CompiledRtdbRules,
+  call: ObservedCall,
+  plan: RtdbPlan,
+  mockData: unknown,
+): TargetSimulation[] | undefined {
   const simulations: TargetSimulation[] = [];
   for (const [index, target] of plan.targets.entries()) {
-    const simulated = simulateRtdbRules(compiled, simulationInputAt(call, plan, target, index));
+    const readsByEntry = new Map<number, RuleReads>();
+    const simulated = simulateRtdbRules(
+      compiled,
+      simulationInputAt(call, plan, target, index, mockData),
+      {
+        onRuleRead(traceIndex, source, readPath) {
+          let record = readsByEntry.get(traceIndex);
+          if (record === undefined) {
+            record = { stored: [], postWrite: [] };
+            readsByEntry.set(traceIndex, record);
+          }
+          if (source === 'stored') record.stored.push(readPath);
+          else record.postWrite.push(readPath);
+        },
+      },
+    );
     if (!simulated.success || simulated.data.unsupported) return undefined;
-    simulations.push({ target, data: simulated.data });
+    simulations.push({ target, data: simulated.data, readsByEntry });
   }
   return simulations;
 }
 
-/** The expressions one simulation's answer rests on: the granting rule and its validates for an allow, every rule for a deny. */
-function restingExpressions(data: Simulation): string[] {
-  if (!data.allowed) return data.trace.map((entry) => entry.conditionText);
-  const validates = data.trace.filter((entry) => entry.kind === 'validate').map((entry) => entry.conditionText);
-  return [data.matchedRule, ...validates];
+/** Trace indices whose evaluation outcome the target simulation's verdict rests on. */
+function restingTraceIndices(data: Simulation): number[] {
+  if (data.allowed) {
+    const indices: number[] = [];
+    const granting = data.trace.findIndex((entry) => entry.kind !== 'validate' && entry.verdict === 'ALLOW');
+    if (granting !== -1) indices.push(granting);
+    for (let i = 0; i < data.trace.length; i++) {
+      if (data.trace[i]?.kind === 'validate') indices.push(i);
+    }
+    return indices;
+  }
+  const failingValidate = data.trace.findIndex(
+    (entry) => entry.kind === 'validate' && (entry.verdict === 'DENY' || entry.verdict === 'ERROR'),
+  );
+  if (failingValidate !== -1) return [failingValidate];
+  return data.trace.map((_, index) => index);
 }
 
-/**
- * The validates a write that carried no value would have been checked
- * against: every one from the root to the target, and below it for an allow.
- */
+function isWrittenPathCover(readPath: string, writtenPath: string): boolean {
+  if (writtenPath.endsWith('/.priority')) return readPath === writtenPath;
+  if (writtenPath === '/') return true;
+  return readPath === writtenPath || readPath.startsWith(`${writtenPath}/`);
+}
+
+function isCoveredByWrite(readPath: string, target: string, updates: readonly RtdbWrite[] | undefined): boolean {
+  if (updates === undefined) return isWrittenPathCover(readPath, target);
+  return updates.some((update) => isWrittenPathCover(readPath, update.path));
+}
+
+function resolvedEntryDataPath(target: string, entryPath: string): string {
+  return canonicalRtdbPath(rtdbPathSegments(target).slice(0, depthOf(entryPath)));
+}
+
 function unwrittenValidates(compiled: CompiledRtdbRules, target: string, allowed: boolean): string[] {
-  const segments = segmentsOf(target);
+  const segments = rtdbPathSegments(target);
   const steps = collectRtdbRuleAncestors(compiled, segments);
   const validates = steps
     .map((step) => step.node.validate?.raw)
@@ -274,41 +339,131 @@ function unwrittenValidates(compiled: CompiledRtdbRules, target: string, allowed
   return validates;
 }
 
-/** Whether a rule above `target` read `newData`, which there holds the stored siblings the write left in place. */
-function readsNewDataAbove(simulation: TargetSimulation): boolean {
-  const targetDepth = depthOf(simulation.target);
-  return simulation.data.trace.some((entry) => depthOf(entry.path) < targetDepth && RTDB_NEW_DATA.test(entry.conditionText));
-}
-
-/** Whether a remove's location sits under a `.validate`, which production runs on the siblings it leaves and the empty local tree skips. */
-function removeUnderValidate(compiled: CompiledRtdbRules, target: string): boolean {
-  const targetDepth = depthOf(target);
-  const ancestors = collectRtdbRuleAncestors(compiled, segmentsOf(target)).filter((step) => step.depth < targetDepth);
-  return ancestors.some((step) => step.node.validate !== undefined);
-}
-
-/** The data a write's answer rested on that the call did not carry, beyond what its expressions name. */
-function writeGaps(compiled: CompiledRtdbRules, plan: RtdbPlan, resting: TargetSimulation[], expressions: string[]): Gap[] {
-  const gaps: Gap[] = [];
-  if (plan.isRemove) {
-    if (removeUnderValidate(compiled, plan.targets[0] ?? '/')) gaps.push('stored-document');
-    return gaps;
+function uncapturedAncestorValidatePaths(
+  compiled: CompiledRtdbRules,
+  target: string,
+  lookup: ObservedRtdbLookup,
+): string[] {
+  const targetSegments = rtdbPathSegments(target);
+  const targetDepth = targetSegments.length;
+  const missing: string[] = [];
+  for (const step of collectRtdbRuleAncestors(compiled, targetSegments)) {
+    if (step.depth >= targetDepth || step.node.validate === undefined) continue;
+    const ancestorPath = canonicalRtdbPath(targetSegments.slice(0, step.depth));
+    if (!lookup.isPathKnown(ancestorPath)) missing.push(ancestorPath);
   }
-  if (!plan.hasWriteData) {
-    const allowed = resting.every((simulation) => simulation.data.allowed);
-    const validates = unwrittenValidates(compiled, plan.targets[0] ?? '/', allowed);
-    expressions.push(...validates);
-    const readsWrite = validates.length > 0 || expressions.some((expr) => RTDB_NEW_DATA.test(expr));
-    if (readsWrite) gaps.push('write-data');
-    return gaps;
-  }
-  const readsIncrement = plan.hasIncrement && expressions.some((expr) => RTDB_NEW_DATA.test(expr));
-  const readsSiblings = resting.some(readsNewDataAbove) || expressions.some((expr) => RTDB_NEW_DATA_PARENT.test(expr));
-  if (readsIncrement || readsSiblings) gaps.push('stored-document');
-  return gaps;
+  return missing;
 }
 
-/** The trace a verdict shows: every target's for an allow, the denying target's for a deny. */
+interface SimulationGapCollector {
+  gaps: Gap[];
+  missingPaths: string[];
+  expressions: string[];
+  markUncapturedPath(rawPath: string, bindings: Record<string, string>, isPush: boolean): void;
+}
+
+function createSimulationGapCollector(): SimulationGapCollector {
+  const collector: SimulationGapCollector = {
+    gaps: [],
+    missingPaths: [],
+    expressions: [],
+    markUncapturedPath(rawPath, bindings, isPush) {
+      collector.gaps.push('stored-document');
+      const clean = sanitizePushPath(rawPath, bindings, isPush);
+      collector.missingPaths = unionPaths(collector.missingPaths, [clean]);
+    },
+  };
+  return collector;
+}
+
+function collectEntryReadGaps(
+  collector: SimulationGapCollector,
+  plan: RtdbPlan,
+  simulation: TargetSimulation,
+  entry: RtdbRuleEvaluation,
+  reads: RuleReads,
+  lookup: ObservedRtdbLookup,
+): void {
+  for (const readPath of reads.stored) {
+    if (!lookup.isPathKnown(readPath)) {
+      collector.markUncapturedPath(readPath, entry.pathVariableBindings, plan.isPush);
+    }
+  }
+  const inspectsPostWrite =
+    plan.operation === 'write' && plan.hasWriteData && reads.postWrite.length > 0;
+  if (!inspectsPostWrite) return;
+  if (plan.hasIncrement) collector.gaps.push('stored-document');
+  const ancestorPath = resolvedEntryDataPath(simulation.target, entry.path);
+  const isUncapturedAncestor =
+    depthOf(entry.path) < depthOf(simulation.target) && !lookup.isPathKnown(ancestorPath);
+  if (isUncapturedAncestor) {
+    collector.markUncapturedPath(ancestorPath, entry.pathVariableBindings, plan.isPush);
+  }
+  for (const readPath of reads.postWrite) {
+    const covered = isCoveredByWrite(readPath, simulation.target, plan.updates);
+    const isUncapturedPostWriteRead = !covered && !lookup.isPathKnown(readPath);
+    if (isUncapturedPostWriteRead) {
+      collector.markUncapturedPath(readPath, entry.pathVariableBindings, plan.isPush);
+    }
+  }
+}
+
+function collectTargetSimulationGaps(
+  collector: SimulationGapCollector,
+  plan: RtdbPlan,
+  simulation: TargetSimulation,
+  lookup: ObservedRtdbLookup,
+): void {
+  for (const index of restingTraceIndices(simulation.data)) {
+    const entry = simulation.data.trace[index];
+    if (entry === undefined) continue;
+    collector.expressions.push(entry.conditionText);
+    const reads = simulation.readsByEntry.get(index);
+    if (reads !== undefined) {
+      collectEntryReadGaps(collector, plan, simulation, entry, reads, lookup);
+    }
+  }
+}
+
+function collectSimulationGaps(
+  compiled: CompiledRtdbRules,
+  plan: RtdbPlan,
+  resting: TargetSimulation[],
+  lookup: ObservedRtdbLookup,
+): { gaps: Gap[]; missingPaths: string[]; expressions: string[] } {
+  const collector = createSimulationGapCollector();
+  for (const simulation of resting) {
+    collectTargetSimulationGaps(collector, plan, simulation, lookup);
+  }
+
+  if (plan.operation === 'write') {
+    const clearsSubtree = plan.isRemove || (plan.updates?.some((u) => u.value === null) ?? false);
+    if (clearsSubtree) {
+      for (const target of plan.targets) {
+        const uncapturedAncestors = uncapturedAncestorValidatePaths(compiled, target, lookup);
+        if (uncapturedAncestors.length > 0) {
+          collector.gaps.push('stored-document');
+          collector.missingPaths = unionPaths(collector.missingPaths, uncapturedAncestors);
+        }
+      }
+    }
+    if (!plan.isRemove && !plan.hasWriteData) {
+      const allowed = resting.every((simulation) => simulation.data.allowed);
+      const validates = unwrittenValidates(compiled, plan.targets[0] ?? '/', allowed);
+      collector.expressions.push(...validates);
+      const readsWrite =
+        validates.length > 0 || collector.expressions.some((expr) => RTDB_NEW_DATA.test(expr));
+      if (readsWrite) collector.gaps.push('write-data');
+    }
+  }
+
+  return {
+    gaps: unionOf(collector.gaps, []),
+    missingPaths: collector.missingPaths,
+    expressions: collector.expressions,
+  };
+}
+
 function shownTrace(resting: TargetSimulation[], plan: RtdbPlan): RtdbRuleEvaluation[] {
   return resting.flatMap((simulation) => simulation.data.trace).map((entry) => ({
     ...entry,
@@ -316,7 +471,6 @@ function shownTrace(resting: TargetSimulation[], plan: RtdbPlan): RtdbRuleEvalua
   }));
 }
 
-/** The RTDB record a verdict carries, from the deciding target's simulation. */
 function rtdbRecordOf(deciding: Simulation, trace: RtdbRuleEvaluation[], plan: RtdbPlan): RtdbLocal {
   const rtdb: RtdbLocal = {
     matchedPath: deciding.matchedPath,
@@ -330,28 +484,33 @@ function rtdbRecordOf(deciding: Simulation, trace: RtdbRuleEvaluation[], plan: R
   return rtdb;
 }
 
-/** The app's RTDB rules' verdict on an observed RTDB call, or `undefined` when the app deployed none to its instance. */
 export function rtdbVerdict(ctx: HostCtx, call: ObservedCall, method: ObservedMethod): LocalVerdict | undefined {
   const compiled = appRtdbRules(ctx, call.instance);
   const path = call.path;
   if (compiled === null || path === undefined) return undefined;
   const plan = rtdbPlan(call, method, joinRtdbPath('/', path));
   if (plan === null) return undefined;
-  const simulations = simulateTargets(compiled, call, plan);
+  const lookup = ctx.observedSession?.getRtdbInstance(call.instance) ?? EMPTY_RTDB_LOOKUP;
+  const simulations = simulateTargets(compiled, call, plan, lookup.mockData);
   if (simulations === undefined || simulations.length === 0) return undefined;
   const denied = simulations.find((simulation) => !simulation.data.allowed);
   const allowed = denied === undefined;
-  // An allow rests on every location's; a deny on the location that denied.
   let resting = simulations;
   if (denied !== undefined) resting = [denied];
   const deciding = resting[0]!.data;
-  const expressions = resting.flatMap((simulation) => restingExpressions(simulation.data));
-  let extraGaps: Gap[] = [];
-  if (plan.operation === 'write') extraGaps = writeGaps(compiled, plan, resting, expressions);
+  const collected = collectSimulationGaps(compiled, plan, resting, lookup);
   const given = { ...givenBy(call, method), writeData: plan.hasWriteData };
-  const needs = unionOf(gapsIn(expressions, RTDB_GAPS, given), extraGaps);
+  const needs = unionOf(gapsIn(collected.expressions, RTDB_GAPS, given), collected.gaps);
   let rule: LocalVerdict['rule'];
-  if (deciding.matchedRule !== '') rule = definedOnly({ path: deciding.matchedPath, expression: deciding.matchedRule });
+  if (deciding.matchedRule !== '') {
+    rule = definedOnly({ path: deciding.matchedPath, expression: deciding.matchedRule });
+  }
   const rtdb = rtdbRecordOf(deciding, shownTrace(resting, plan), plan);
-  return verdictOf(call, { allowed, rule, needs, rtdb });
+  return verdictOf(call, {
+    allowed,
+    rule,
+    needs,
+    missingPaths: collected.missingPaths,
+    rtdb,
+  });
 }

@@ -161,7 +161,8 @@ export function LiveTrafficRow({
 
 /**
  * An inspected op with no visible row, above the log: on a live host the
- * row's own detail when the op is in the buffer, else the inspected detail.
+ * row's own collapsible header and detail when the op is in the buffer, else
+ * the inspected detail.
  */
 export function StandaloneDetail({
   eventId,
@@ -175,7 +176,18 @@ export function StandaloneDetail({
   onClose: () => void;
 }) {
   const event = live === null ? undefined : events.find((candidate) => candidate.id === eventId);
-  if (event !== undefined) return <LiveRowDetail event={event} live={live} onClose={onClose} />;
+  if (event !== undefined) {
+    return (
+      <div
+        className="traffic__standalone-live"
+        data-pyric-ui="traffic-standalone-detail"
+        data-pyric-traffic-standalone-live=""
+      >
+        <LiveTrafficRow event={event} selected expanded onSelect={onClose} />
+        <LiveRowDetail event={event} live={live} onClose={onClose} />
+      </div>
+    );
+  }
   return <TrafficInspectedDetail eventId={eventId} events={events} onClose={onClose} />;
 }
 

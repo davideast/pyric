@@ -1,3 +1,4 @@
+import type { SnapshotReadObserver } from '../grammar/data-snapshot.js';
 import { DataSnapshot, RtdbRuleRuntimeError, evaluateRtdbRule } from '../grammar/simulator.js';
 import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
@@ -5,7 +6,7 @@ import { SimulationInputSchema, simulationQueryProblem, type SimulationInput } f
 import { normalizeAuthState } from '../../auth/auth-state.js';
 import { withIdTokenClaims } from '../../auth/token-claims.js';
 import { projectPostWriteTree } from './post-write-tree.js';
-import type { RtdbRuleEvaluation, SimulateResult } from './spec.js';
+import type { RtdbRuleEvaluation, SimulateResult, SimulateRtdbOptions } from './spec.js';
 import {
   childFor,
   findFailingValidate,
@@ -67,12 +68,47 @@ export function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>, nowM
   return simulated;
 }
 
-function createTracedEvaluator(trace: RtdbRuleEvaluation[]): TracedRuleEvaluator {
-  return (node, kind, rule, bindings, ctx) => {
-    const outcome = evaluateRule(rule, ctx);
+interface RecordedRuleRead {
+  readonly source: 'stored' | 'postWrite';
+  readonly path: string;
+}
+
+function createTracedEvaluator(
+  trace: RtdbRuleEvaluation[],
+  onRuleRead: SimulateRtdbOptions['onRuleRead'],
+): {
+  evaluateTracedRule: TracedRuleEvaluator;
+  observerFor: (source: 'stored' | 'postWrite') => SnapshotReadObserver | undefined;
+} {
+  let activeReads: RecordedRuleRead[] | null = null;
+  const observerFor = (source: 'stored' | 'postWrite'): SnapshotReadObserver | undefined => {
+    if (onRuleRead === undefined) return undefined;
+    return (readPath) => {
+      if (activeReads !== null) {
+        activeReads.push({ source, path: readPath });
+      }
+    };
+  };
+  const evaluateTracedRule: TracedRuleEvaluator = (node, kind, rule, bindings, ctx) => {
+    const readsForRule: RecordedRuleRead[] = [];
+    const previousReads = activeReads;
+    activeReads = readsForRule;
+    let outcome: RuleOutcome;
+    try {
+      outcome = evaluateRule(rule, ctx);
+    } finally {
+      activeReads = previousReads;
+    }
+    const entryIndex = trace.length;
     trace.push(traceEntry(node, kind, rule, bindings, outcome));
+    if (onRuleRead !== undefined) {
+      for (const read of readsForRule) {
+        onRuleRead(entryIndex, read.source, read.path);
+      }
+    }
     return outcome;
   };
+  return { evaluateTracedRule, observerFor };
 }
 
 /**
@@ -123,7 +159,7 @@ function buildSimulatedQueryContext(operation: string, readQuery: SimulationInpu
 }
 
 export class SimulateHandler {
-  execute(compiled: RtdbNode, rawInput: unknown): SimulateResult {
+  execute(compiled: RtdbNode, rawInput: unknown, options?: SimulateRtdbOptions): SimulateResult {
     const parsed = SimulationInputSchema.safeParse(rawInput);
     if (!parsed.success) {
       return {
@@ -167,8 +203,8 @@ export class SimulateHandler {
       // path instead makes ancestor rules see "no data" (since the
       // deepest path usually doesn't exist yet), which silently satisfies
       // `!data.exists()`-style escape hatches and produces a false ALLOW.
-      const evaluateTracedRule = createTracedEvaluator(trace);
-      const rootData = new DataSnapshot(mockData, '/');
+      const { evaluateTracedRule, observerFor } = createTracedEvaluator(trace, options?.onRuleRead);
+      const rootData = new DataSnapshot(mockData, '/', undefined, observerFor('stored'));
       // Post-write tree: mockData with the proposed write merged in. Reads
       // don't have a "post-write" state, so leave it as-is. For an atomic
       // multi-path `update()` (`updates` present) the projection reflects
@@ -178,7 +214,7 @@ export class SimulateHandler {
       if (operation !== 'read') {
         mergedRoot = projectPostWriteTree(mockData, path, rawPathSegments, newData, updates, evaluationNow);
       }
-      const mergedRootData = new DataSnapshot(mergedRoot, '/');
+      const mergedRootData = new DataSnapshot(mergedRoot, '/', undefined, observerFor('postWrite'));
 
       let contextAuth: SimulatedAuth | null = null;
       if (auth) contextAuth = simulatedAuthOf(auth, evaluationNow);

@@ -18,7 +18,7 @@ import { ROUTE_IDS, ROUTES, findRoute, type RouteId } from './shell/routes.js';
 import { StatusCluster } from './shell/StatusCluster.js';
 import { FirestorePane, StoragePane } from './components/panes.js';
 import { AuthSurface } from './features/auth/index.js';
-import { TrafficSurface } from './features/traffic/index.js';
+import { TrafficSurface, resetTrafficSubrouteQuery } from './features/traffic/index.js';
 import { HomeSurface } from './features/home/HomeSurface.js';
 import { RtdbSurface } from './features/rtdb/RtdbSurface.js';
 import { SettingsSurface } from './features/settings/SettingsSurface.js';
@@ -138,7 +138,7 @@ function Surface({ id }: { id: string }) {
 }
 
 function Shell() {
-  const [active, navigateRoute] = useRoute(ROUTE_IDS, 'home');
+  const [active, navigateRoute] = useRoute(ROUTE_IDS, 'home', resetTrafficSubrouteQuery);
   const navigate = (id: RouteId) => navigateRoute(id);
   const [commandOpen, setCommandOpen] = useState(false);
   const docsAvailable = useDocsAvailable();

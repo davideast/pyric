@@ -8,6 +8,7 @@ import type { LiveCallRecord } from '../src/observe.js';
 import {
   attachOutcomeSessionData,
   attachSessionData,
+  finishWithLease,
   mergeSessionData,
   sessionDataOf,
   sessionDeltaOf,
@@ -94,7 +95,7 @@ describe('attachSessionData', () => {
   });
 });
 
-describe('attachOutcomeSessionData', () => {
+describe('attachOutcomeSessionData and finishWithLease', () => {
   test('attaches resolved and delivered deltas and swallows delivery hook throws', () => {
     const resolved = { module: 'firebase/firestore', name: 'getDoc', outcome: 'resolved' } as LiveCallRecord;
     attachOutcomeSessionData(resolved, { sessionData: { firestore: [SET_ITEM] } }, 'resolved');
@@ -129,5 +130,21 @@ describe('attachOutcomeSessionData', () => {
       ),
     ).not.toThrow();
     expect(sessionDataOf(throwingDelivery)).toBeUndefined();
+  });
+
+  test('finishWithLease releases the lease before running settlement even if release throws', () => {
+    const order: string[] = [];
+    finishWithLease(
+      {
+        onReturn() {},
+        release() {
+          order.push('release');
+        },
+      },
+      () => {
+        order.push('settle');
+      },
+    );
+    expect(order).toEqual(['release', 'settle']);
   });
 });

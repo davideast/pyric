@@ -8,8 +8,11 @@ import { dirname, join } from 'node:path';
 import { WebSocket } from 'ws';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { createBridgeMount } from '../../src/serve/bridge-mount.js';
+import { createLiveHostState } from '../../src/serve/live-host-state.js';
 import { silentServeLogger } from '../../src/serve/server.js';
 import { BRIDGE_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
+import { createMemoryBackend } from 'pyric/sandbox';
+import { openStorageBackend } from '../../../pyric/src/storage/persistence.js';
 import { closedPort } from '../closed-port.js';
 
 function fixtureProject(): string {
@@ -459,5 +462,74 @@ describe('hosted bridge lifecycle', () => {
     expect(warnings).toHaveLength(0);
     await mount.close();
     rmSync(projectDir, { recursive: true, force: true });
+  });
+
+  it('threads liveHost.sessionData into startHostedSandbox so observed live calls evaluate local rules (#2540)', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-bridge-live-session-'));
+    const liveHost = createLiveHostState({
+      configProjectId: 'demo-project',
+      configSource: 'option',
+      optionName: '--project',
+      warn: () => {},
+      unobserved: () => [],
+    });
+    const mount = createBridgeMount({
+      project: 'demo-project',
+      projectKey: projectDir,
+      liveHost,
+      disableAuditLog: true,
+    });
+    const persistence = {
+      backend: createMemoryBackend(),
+      storage: await openStorageBackend(`mem-bridge-live-${Math.random()}`),
+      checkpoints: {},
+      state: { seed: async () => false },
+      repairedObjects: [],
+      sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
+      close() {},
+      status: () => ({ state: 'healthy' as const }),
+      onFailure: () => () => {},
+      markUnhealthy() {},
+    };
+
+    try {
+      await mount.startHostedSandbox(
+        {
+          rules: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /groups/{g}/posts/{p} {
+      allow create: if request.auth != null
+        && request.auth.uid in get(/databases/$(database)/documents/groups/$(g)).data.members;
+    }
+  }
+}`,
+          rulesHash: null,
+          bridgeUrl: null,
+          seed: null,
+          capture: false,
+          hosted: true,
+          permissive: false,
+          projectKey: projectDir,
+          sessionToken: 'tok-bridge-live',
+          appOptions: { projectId: 'demo-project' },
+        },
+        'http://127.0.0.1:4321',
+        { persistence: persistence as never, record: false },
+      );
+
+      liveHost.sessionData.apply(
+        { firestore: [{ kind: 'set', path: 'groups/g-1', data: { members: ['u-1'] } }] },
+        'demo-project',
+        'client',
+      );
+      expect(liveHost.sessionData.getFirestoreDoc('groups/g-1')).toEqual({
+        status: 'complete',
+        data: { members: ['u-1'] },
+      });
+    } finally {
+      await mount.close();
+      rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 });

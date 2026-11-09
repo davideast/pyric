@@ -8,7 +8,7 @@
  * failed or rolled-back attempts never leak into session memory.
  */
 import { isObject } from '../database.js';
-import { changedDocuments, DeltaOps } from '../firestore-session-capture.js';
+import { DeltaOps, querySnapshotChanges } from '../firestore-session-capture.js';
 import { isValidDocPath, normalizeDocPath, type SessionCopyResult } from '../firestore-session-values.js';
 import { isPlainObject } from '../json-copy.js';
 import type { SessionBudget } from '../session-budget.js';
@@ -202,9 +202,23 @@ export function addAdminQuerySnapshot(
     collector.skip('unsupported');
     return;
   }
-  let documents: unknown;
-  if (useChanges) documents = changedDocuments(snap);
-  if (documents === undefined) documents = Reflect.get(snap, 'docs');
+  let changes: ReturnType<typeof querySnapshotChanges>;
+  if (useChanges) changes = querySnapshotChanges(snap);
+  if (changes !== undefined) {
+    for (const item of changes) {
+      if (collector.refusesMore()) continue;
+      if (item.kind === 'removed') {
+        let path: string | undefined;
+        if (isObject(item.doc)) path = docSnapPathOf(item.doc);
+        if (path === undefined) collector.skip('unsupported');
+        else collector.add(() => ({ ok: true, value: { kind: 'invalidate', path } }));
+        continue;
+      }
+      addAdminDocSnapshot(collector, item.doc);
+    }
+    return;
+  }
+  const documents: unknown = Reflect.get(snap, 'docs');
   if (!Array.isArray(documents)) return;
   addAdminSnapshotBatch(collector, documents);
 }

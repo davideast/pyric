@@ -23,6 +23,12 @@ export interface SimRequest {
   time: Timestamp; // request.time as Timestamp wrapper (Item 1.3 flip — was ISO string)
 }
 
+/** Optional lookup metadata recorded when a rule calls `get()` or `exists()`. */
+export interface DocumentLookupMeta {
+  readonly kind: 'get' | 'exists';
+  readonly trace?: TraceRecorder;
+}
+
 // A document value in rules: `data` plus, WHERE PRODUCTION EXPOSES IT, the
 // document identity.
 //
@@ -77,7 +83,7 @@ export interface SimulationContext {
    *  avoid dumping the whole keyspace into every simulate(); naturally transitive
    *  for data-dependent get() chains, since the inner get() faults its doc in
    *  before the outer path string is built. */
-  getDoc?: (path: string) => Record<string, unknown> | null;
+  getDoc?: (path: string, lookup?: DocumentLookupMeta) => Record<string, unknown> | null;
   /** Path variable bindings from match block, e.g. { gameId: 'game1' } */
   pathVariables: Record<string, string | Path>;
   /** Function definitions available in scope */

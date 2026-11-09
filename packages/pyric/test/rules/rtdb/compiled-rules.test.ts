@@ -3,6 +3,7 @@ import {
   buildRuleExpression,
   compileRtdbRules,
   serializeRtdbRules,
+  simulateRtdbRules,
 } from '../../../src/rules/rtdb/compiled-rules.js';
 
 describe('compileRtdbRules', () => {
@@ -115,5 +116,34 @@ describe('serializeRtdbRules', () => {
     };
 
     expect(serializeRtdbRules(compileRtdbRules(original))).toEqual(original);
+  });
+});
+
+describe('simulateRtdbRules', () => {
+  test('forwards simulation options to the underlying handler', () => {
+    const compiled = compileRtdbRules({
+      rules: {
+        items: {
+          $id: {
+            '.read': "auth != null && root.child('members/' + auth.uid).val() === true",
+          },
+        },
+      },
+    });
+    const reads: Array<{ traceIndex: number; source: 'stored' | 'postWrite'; path: string }> = [];
+    const simulated = simulateRtdbRules(
+      compiled,
+      {
+        operation: 'read',
+        path: '/items/i-1',
+        auth: { uid: 'u-1' },
+        mockData: { members: { 'u-1': true } },
+      },
+      {
+        onRuleRead: (traceIndex, source, path) => reads.push({ traceIndex, source, path }),
+      },
+    );
+    expect(simulated.success && simulated.data.allowed).toBe(true);
+    expect(reads).toEqual([{ traceIndex: 0, source: 'stored', path: '/members/u-1' }]);
   });
 });

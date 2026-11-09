@@ -101,6 +101,7 @@ function contextOf(name: string, args: readonly unknown[], self: unknown): CallC
   if (projectId !== undefined) result.projectId = projectId;
   if (session.subject !== undefined) result.subject = session.subject;
   if (session.sessionData !== undefined) result.sessionData = session.sessionData;
+  if (session.onCallStart !== undefined) result.onCallStart = session.onCallStart;
   return result;
 }
 

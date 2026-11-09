@@ -16,25 +16,32 @@ function rejectionOf(raw: unknown): SessionDeltaRejected {
 }
 
 describe('readObservedSessionDelta', () => {
-  it('accepts valid Firestore and RTDB session deltas', () => {
+  it('accepts valid Firestore and RTDB session deltas including partial flags and RTDB invalidations', () => {
     const delta = readObservedSessionDelta({
       firestore: [
-        { kind: 'set', path: 'users/ada', data: { name: 'Ada' }, merge: true, deleteFields: ['old'] },
-        { kind: 'update', path: 'users/ada', data: { 'profile.role': 'admin' } },
+        { kind: 'set', path: 'users/ada', data: { name: 'Ada' }, merge: true, deleteFields: ['old'], partial: true },
+        { kind: 'update', path: 'users/ada', data: { 'profile.role': 'admin' }, partial: false },
         { kind: 'delete', path: 'users/gone' },
       ],
       rtdb: [
         { kind: 'set', instance: 'demo-default-rtdb', path: '/rooms/r1', value: { open: true } },
         { kind: 'update', instance: 'demo-default-rtdb', path: '/rooms', value: { 'r2/open': false } },
         { kind: 'remove', instance: 'demo-default-rtdb', path: '/rooms/r3' },
+        { kind: 'invalidate', instance: 'demo-default-rtdb', path: '/rooms/r1/closedAt' },
       ],
     });
     expect(delta.firestore).toEqual([
-      { kind: 'set', path: 'users/ada', data: { name: 'Ada' }, merge: true, deleteFields: ['old'] },
+      { kind: 'set', path: 'users/ada', data: { name: 'Ada' }, merge: true, deleteFields: ['old'], partial: true },
       { kind: 'update', path: 'users/ada', data: { 'profile.role': 'admin' } },
       { kind: 'delete', path: 'users/gone' },
     ]);
-    expect(delta.rtdb).toHaveLength(3);
+    expect(delta.rtdb).toHaveLength(4);
+    expect(rejectionOf({ firestore: [{ kind: 'update', path: 'users/ada', data: {}, partial: 'yes' }] }).reason).toBe(
+      'unsupported',
+    );
+    expect(rejectionOf({ rtdb: [{ kind: 'invalidate', instance: 'demo', path: '/bad.key/a' }] }).reason).toBe(
+      'unsupported',
+    );
   });
 
   it('leaves out empty op lists, an empty deleteFields, and zero skip counts', () => {

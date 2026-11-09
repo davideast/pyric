@@ -6,11 +6,17 @@
  * It lives only as long as the live host process and is never written to disk
  * by itself (`wire.ts` states the contract).
  */
-import { defaultDatabaseInstanceName } from 'pyric/sandbox/internal';
+import { normalizeDocumentPath } from 'pyric/rules/internal';
+import { defaultDatabaseInstanceName, isFirestoreDocumentPath } from 'pyric/sandbox/internal';
+import {
+  createObservedSessionCoverage,
+  type ObservedFirestoreDocLookup,
+  type ObservedRtdbLookup,
+} from './coverage.js';
 import { MAX_SINGLE_ITEM_BYTES } from './delta-validation.js';
 import { deepMergeFirestoreMap, deleteDottedField, setDottedField } from './firestore-fields.js';
 import { byteLengthOf } from './json-values.js';
-import { setRtdbAtSegments } from './rtdb-tree.js';
+import { rtdbPathSegments, setRtdbAtSegments, toRtdbMockData } from './rtdb-tree.js';
 import { createObservedStorageCatalog } from './storage-catalog.js';
 import {
   UNREAD_RTDB_INSTANCE,
@@ -41,21 +47,22 @@ export interface ObservedSessionDataStoreOptions {
 export interface ObservedSessionDataStore {
   apply(delta: ObservedSessionDelta, projectIdHint?: string, source?: ObservedSessionSource): void;
   recordSkip(skip: Partial<ObservedSessionSkipStats>): void;
+  invalidateFirestore(path?: string): void;
+  invalidateRtdb(instance: string | undefined, path?: string, projectIdHint?: string): void;
   snapshot(): ObservedSessionDataSnapshot;
+  getFirestoreDoc(path: string): ObservedFirestoreDocLookup;
+  getRtdbInstance(instance?: string): ObservedRtdbLookup;
 }
 
 type SkipKey = keyof ObservedSessionSkipStats;
+type ValueRtdbOp = Extract<ObservedRtdbSessionOp, { kind: 'set' | 'update' }>;
 const SKIP_KEYS: readonly SkipKey[] = ['oversized', 'unsupported', 'truncated', 'failed', 'admin'];
 
-function segmentsOf(path: string): string[] {
-  return path.split('/').filter((seg) => seg.length > 0);
-}
-
-/** Every path an RTDB op writes, as segments from the instance root. */
-function writtenSegments(op: Exclude<ObservedRtdbSessionOp, { kind: 'remove' }>): string[][] {
-  const base = segmentsOf(op.path);
+/** Every path an RTDB value op writes, as segments from the instance root. */
+function writtenSegments(op: ValueRtdbOp): string[][] {
+  const base = rtdbPathSegments(op.path);
   if (op.kind === 'set') return [base];
-  return Object.keys(op.value).map((relPath) => [...base, ...segmentsOf(relPath)]);
+  return Object.keys(op.value).map((relPath) => [...base, ...rtdbPathSegments(relPath)]);
 }
 
 export function createObservedSessionDataStore(
@@ -78,6 +85,7 @@ export function createObservedSessionDataStore(
 
   const docs = new Map<string, { data: Record<string, unknown>; bytes: number }>();
   const rtdb = new Map<string, { tree: unknown; bytes: number }>();
+  const coverage = createObservedSessionCoverage({ maxDocs, maxRtdbInstances });
 
   const totalBytes = (): number => firestoreBytes + rtdbBytes;
   const skipTotal = (): number => SKIP_KEYS.reduce((sum, key) => sum + skips[key], 0);
@@ -108,8 +116,12 @@ export function createObservedSessionDataStore(
     for (const key of SKIP_KEYS) skips[key] += skip[key] ?? 0;
   }
 
-  function resolveInstanceName(rawInstance: string): string {
-    if (rawInstance !== UNREAD_RTDB_INSTANCE) return rawInstance;
+  function resolveInstanceName(rawInstance: string | undefined): string {
+    const hasExplicitInstance =
+      rawInstance !== undefined && rawInstance !== '' && rawInstance !== UNREAD_RTDB_INSTANCE;
+    if (hasExplicitInstance) {
+      return rawInstance;
+    }
     if (currentProjectId) return defaultDatabaseInstanceName(currentProjectId);
     return 'default';
   }
@@ -119,6 +131,7 @@ export function createObservedSessionDataStore(
     if (oldestKey === undefined) return;
     const evicted = docs.get(oldestKey);
     docs.delete(oldestKey);
+    coverage.evictFirestoreDoc(oldestKey);
     firestoreBytes = Math.max(0, firestoreBytes - (evicted?.bytes ?? 0));
     drop('truncated');
   }
@@ -138,17 +151,20 @@ export function createObservedSessionDataStore(
   }
 
   /** Writes a document's next data; one that does not fit drops it, so no stale copy stays. */
-  function writeFirestoreDoc(path: string, nextData: Record<string, unknown>): boolean {
+  function writeFirestoreDoc(
+    path: string,
+    nextData: Record<string, unknown>,
+  ): { changed: boolean; wrote: boolean } {
     const existing = docs.get(path);
     if (existing !== undefined) {
       docs.delete(path);
       firestoreBytes = Math.max(0, firestoreBytes - existing.bytes);
     }
     const bytes = byteLengthOf(path) + byteLengthOf(nextData);
-    if (!evictFirestoreToFit(bytes)) return existing !== undefined;
+    if (!evictFirestoreToFit(bytes)) return { changed: existing !== undefined, wrote: false };
     docs.set(path, { data: nextData, bytes });
     firestoreBytes += bytes;
-    return true;
+    return { changed: true, wrote: true };
   }
 
   function deleteFieldsFrom(base: Record<string, unknown>, deleteFields: readonly string[] | undefined): void {
@@ -156,14 +172,24 @@ export function createObservedSessionDataStore(
   }
 
   function applyFirestoreOp(op: ObservedFirestoreSessionOp): boolean {
-    if (op.kind === 'delete') {
-      const existing = docs.get(op.path);
+    const normPath = normalizeDocumentPath(op.path);
+    if (op.kind === 'invalidate') {
+      coverage.invalidateFirestoreDoc(normPath);
+      const existing = docs.get(normPath);
       if (existing === undefined) return false;
-      docs.delete(op.path);
+      docs.delete(normPath);
       firestoreBytes = Math.max(0, firestoreBytes - existing.bytes);
       return true;
     }
-    const existing = docs.get(op.path)?.data;
+    if (op.kind === 'delete') {
+      coverage.recordFirestoreDelete(normPath);
+      const existing = docs.get(normPath);
+      if (existing === undefined) return false;
+      docs.delete(normPath);
+      firestoreBytes = Math.max(0, firestoreBytes - existing.bytes);
+      return true;
+    }
+    const existing = docs.get(normPath)?.data;
     let base: Record<string, unknown>;
     if (op.kind === 'set') {
       const mergesExisting = op.merge === true && existing !== undefined;
@@ -174,7 +200,9 @@ export function createObservedSessionDataStore(
       for (const [fieldPath, val] of Object.entries(op.data)) setDottedField(base, fieldPath, val);
     }
     deleteFieldsFrom(base, op.deleteFields);
-    return writeFirestoreDoc(op.path, base);
+    const outcome = writeFirestoreDoc(normPath, base);
+    coverage.recordFirestoreWrite(normPath, op, outcome.wrote);
+    return outcome.changed;
   }
 
   function storeTree(instance: string, tree: unknown, previousBytes: number, bytes: number): void {
@@ -187,24 +215,27 @@ export function createObservedSessionDataStore(
     rtdbBytes = Math.max(0, rtdbBytes - previousBytes + bytes);
   }
 
+  function pruneRtdbSegments(instance: string, segmentsList: readonly (readonly string[])[]): boolean {
+    coverage.invalidateRtdbSegments(instance, segmentsList);
+    const existing = rtdb.get(instance);
+    if (existing === undefined) return false;
+    let tree = existing.tree;
+    for (const segments of segmentsList) tree = setRtdbAtSegments(tree, segments, null);
+    if (tree === existing.tree) return false;
+    let nextBytes = 0;
+    if (tree !== null) nextBytes = byteLengthOf(instance) + byteLengthOf(tree);
+    storeTree(instance, tree, existing.bytes, nextBytes);
+    return true;
+  }
+
   /**
    * Skips an RTDB write the store cannot keep. The paths it wrote are removed
    * as a remove would, since production's value there is no longer the one
    * the store holds, and a stale value must never show as current.
    */
-  function rejectRtdbWrite(
-    instance: string,
-    existing: { tree: unknown; bytes: number } | undefined,
-    op: Exclude<ObservedRtdbSessionOp, { kind: 'remove' }>,
-    reason: 'oversized' | 'truncated',
-  ): boolean {
+  function rejectRtdbWrite(instance: string, op: ValueRtdbOp, reason: 'oversized' | 'truncated'): boolean {
     drop(reason);
-    if (existing === undefined) return false;
-    let tree = existing.tree;
-    for (const segments of writtenSegments(op)) tree = setRtdbAtSegments(tree, segments, null);
-    if (tree === existing.tree) return false;
-    storeTree(instance, tree, existing.bytes, byteLengthOf(instance) + byteLengthOf(tree));
-    return true;
+    return pruneRtdbSegments(instance, writtenSegments(op));
   }
 
   /** Room for `deltaBytes` more under the shared cap, evicting the oldest documents first. */
@@ -216,35 +247,48 @@ export function createObservedSessionDataStore(
 
   function applyRtdbOp(op: ObservedRtdbSessionOp): boolean {
     const instance = resolveInstanceName(op.instance);
+    if (op.kind === 'invalidate') {
+      return coverage.invalidateRtdbSegments(instance, [rtdbPathSegments(op.path)]);
+    }
     const existing = rtdb.get(instance);
-    if (existing === undefined && op.kind === 'remove') return false;
     if (existing === undefined && rtdb.size >= maxRtdbInstances) {
       drop('truncated');
+      coverage.invalidateRtdbInstance(instance);
+      return false;
+    }
+    if (existing === undefined && op.kind === 'remove') {
+      coverage.recordRtdbCoveredSegments(instance, [rtdbPathSegments(op.path)]);
       return false;
     }
     const baseTree = existing?.tree ?? null;
     let nextTree: unknown;
+    let coveredSegments: string[][];
     if (op.kind === 'remove') {
-      nextTree = setRtdbAtSegments(baseTree, segmentsOf(op.path), null);
+      const targetSegments = rtdbPathSegments(op.path);
+      coveredSegments = [targetSegments];
+      nextTree = setRtdbAtSegments(baseTree, targetSegments, null);
     } else {
-      if (byteLengthOf(op.value) > MAX_SINGLE_ITEM_BYTES) return rejectRtdbWrite(instance, existing, op, 'oversized');
+      if (byteLengthOf(op.value) > MAX_SINGLE_ITEM_BYTES) return rejectRtdbWrite(instance, op, 'oversized');
       nextTree = baseTree;
+      coveredSegments = writtenSegments(op);
       const values = op.kind === 'set' ? [op.value] : Object.values(op.value);
-      writtenSegments(op).forEach((segments, idx) => {
+      coveredSegments.forEach((segments, idx) => {
         nextTree = setRtdbAtSegments(nextTree, segments, values[idx]);
       });
     }
     const previousBytes = existing?.bytes ?? 0;
     if (nextTree === null) {
+      coverage.recordRtdbCoveredSegments(instance, coveredSegments);
       if (existing === undefined) return false;
       storeTree(instance, null, previousBytes, 0);
       return true;
     }
     const nextBytes = byteLengthOf(instance) + byteLengthOf(nextTree);
     if (op.kind !== 'remove' && !makeRoomFor(nextBytes - previousBytes)) {
-      return rejectRtdbWrite(instance, existing, op, 'truncated');
+      return rejectRtdbWrite(instance, op, 'truncated');
     }
     storeTree(instance, nextTree, previousBytes, nextBytes);
+    coverage.recordRtdbCoveredSegments(instance, coveredSegments);
     return true;
   }
 
@@ -307,6 +351,43 @@ export function createObservedSessionDataStore(
       if (skipTotal() !== before) touch();
     },
 
+    invalidateFirestore(path) {
+      if (path === undefined) {
+        coverage.invalidateAllFirestore();
+        return;
+      }
+      const norm = normalizeDocumentPath(path);
+      if (norm.length === 0) {
+        coverage.invalidateAllFirestore();
+        return;
+      }
+      if (isFirestoreDocumentPath(norm)) {
+        coverage.invalidateFirestoreDoc(norm);
+        const existing = docs.get(norm);
+        if (existing === undefined) return;
+        docs.delete(norm);
+        firestoreBytes = Math.max(0, firestoreBytes - existing.bytes);
+        touch();
+        return;
+      }
+      coverage.invalidateFirestoreCollection(norm);
+    },
+
+    invalidateRtdb(rawInstance, path, projectIdHint) {
+      if (projectIdHint) currentProjectId = projectIdHint;
+      const instance = resolveInstanceName(rawInstance);
+      if (path === undefined) {
+        coverage.invalidateRtdbInstance(instance);
+        const existing = rtdb.get(instance);
+        if (existing !== undefined) {
+          storeTree(instance, null, existing.bytes, 0);
+          touch();
+        }
+        return;
+      }
+      if (pruneRtdbSegments(instance, [rtdbPathSegments(path)])) touch();
+    },
+
     snapshot(): ObservedSessionDataSnapshot {
       const firestore: Record<string, Record<string, unknown>> = {};
       for (const [path, entry] of docs) firestore[path] = structuredClone(entry.data);
@@ -332,6 +413,19 @@ export function createObservedSessionDataStore(
       const skipped = skipsField();
       if (skipped !== undefined) base.skips = skipped;
       return storageCatalog.withStorageSnapshot(base);
+    },
+
+    getFirestoreDoc(path) {
+      const norm = normalizeDocumentPath(path);
+      return coverage.lookupFirestoreDoc(norm, docs.get(norm)?.data);
+    },
+
+    getRtdbInstance(rawInstance) {
+      const instance = resolveInstanceName(rawInstance);
+      return {
+        mockData: toRtdbMockData(rtdb.get(instance)?.tree),
+        isPathKnown: (path) => coverage.isRtdbPathKnown(instance, path),
+      };
     },
   };
 }
