@@ -71,6 +71,7 @@ export interface ObservedSessionSkipStats {
   readonly unsupported: number;
   readonly truncated: number;
   readonly failed: number;
+  /** Retained for wire compatibility with older live-host snapshots and any session-data service without Admin capture; always 0 for Firestore and RTDB. */
   readonly admin: number;
 }
 

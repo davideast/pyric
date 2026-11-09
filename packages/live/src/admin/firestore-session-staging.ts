@@ -7,15 +7,12 @@
  * attempt-scoped collector recreated on every `runTransactionOnce` retry so
  * failed or rolled-back attempts never leak into session memory.
  */
+import { isObject } from '../database.js';
+import { changedDocuments, DeltaOps } from '../firestore-session-capture.js';
 import { isValidDocPath, normalizeDocPath, type SessionCopyResult } from '../firestore-session-values.js';
 import { isPlainObject } from '../json-copy.js';
-import { MAX_SESSION_DELTA_BYTES, MAX_SESSION_ITEM_BYTES, type SessionBudget } from '../session-budget.js';
-import {
-  sessionDeltaOf,
-  skipCountsOf,
-  type ObservedFirestoreSessionOp,
-  type ObservedSessionDelta,
-} from '../session-data.js';
+import type { SessionBudget } from '../session-budget.js';
+import type { ObservedFirestoreSessionOp, ObservedSessionDelta } from '../session-data.js';
 import {
   adminCreateDocOp,
   adminDocFields,
@@ -24,7 +21,6 @@ import {
 } from './firestore-session-values.js';
 import { keepShape } from './patch.js';
 
-const MAX_SESSION_DOCS = 250;
 const BATCH_PATCHED = Symbol.for('pyric.live.admin.firestore.batchSessionPatched');
 const TX_PATCHED = Symbol.for('pyric.live.admin.firestore.txSessionPatched');
 
@@ -39,89 +35,23 @@ export interface AdminGetAllCall {
 
 export interface AdminTransactionSession {
   readonly kind: 'admin-tx-session';
-  currentAttempt: AdminDeltaCollector | undefined;
-}
-
-/** Collects ops for one delta under the 250-doc and 512-KiB session bounds. */
-export class AdminDeltaCollector {
-  readonly ops: ObservedFirestoreSessionOp[] = [];
-  private readonly budget: SessionBudget = { left: MAX_SESSION_DELTA_BYTES };
-  private oversized = 0;
-  private unsupported = 0;
-  private truncated = 0;
-  private isCutOff = false;
-
-  refusesMore(): boolean {
-    const isFull = this.isCutOff || this.ops.length >= MAX_SESSION_DOCS || this.budget.left <= 0;
-    if (isFull) {
-      this.truncated += 1;
-      this.isCutOff = true;
-    }
-    return isFull;
-  }
-
-  add(copy: (budget: SessionBudget) => SessionCopyResult<ObservedFirestoreSessionOp>): boolean {
-    const cap = Math.min(MAX_SESSION_ITEM_BYTES, this.budget.left);
-    const itemBudget: SessionBudget = { left: cap };
-    const op = copy(itemBudget);
-    this.budget.left -= Math.max(0, cap - Math.max(0, itemBudget.left));
-    if (op.ok) {
-      this.ops.push(op.value);
-      return true;
-    }
-    if (op.reason === 'oversized' && cap < MAX_SESSION_ITEM_BYTES) {
-      this.truncated += 1;
-      this.isCutOff = true;
-      return false;
-    }
-    this.skip(op.reason);
-    return true;
-  }
-
-  skip(reason: 'oversized' | 'unsupported'): void {
-    if (reason === 'oversized') this.oversized += 1;
-    else this.unsupported += 1;
-  }
-
-  truncateRemaining(count: number): void {
-    if (count > 0) {
-      this.truncated += count;
-      this.isCutOff = true;
-    }
-  }
-
-  delta(): ObservedSessionDelta | undefined {
-    return sessionDeltaOf({
-      firestore: [...this.ops],
-      skipped: skipCountsOf(this.oversized, this.unsupported, this.truncated),
-    });
-  }
+  currentAttempt: DeltaOps | undefined;
 }
 
 const defaultConverters = new WeakMap<object, unknown>();
-const batchCollectors = new WeakMap<object, AdminDeltaCollector>();
+const batchCollectors = new WeakMap<object, DeltaOps>();
 const txOwnedBatches = new WeakSet<object>();
 const txSessionsByCallback = new WeakMap<Function, AdminTransactionSession>();
-const txAttempts = new WeakMap<object, AdminDeltaCollector>();
-
-function isObject(value: unknown): value is object {
-  return (typeof value === 'object' || typeof value === 'function') && value !== null;
-}
+const txAttempts = new WeakMap<object, DeltaOps>();
 
 function ownerFirestoreOf(target: unknown): object | undefined {
   if (!isObject(target)) return undefined;
-  const direct: unknown = Reflect.get(target, '_firestore');
+  const direct: unknown = target._firestore;
   if (isObject(direct)) return direct;
-  const ref: unknown = Reflect.get(target, 'ref');
-  if (isObject(ref)) {
-    const fromRef: unknown = Reflect.get(ref, '_firestore');
-    if (isObject(fromRef)) return fromRef;
-  }
-  const query: unknown = Reflect.get(target, 'query');
-  if (isObject(query)) {
-    const fromQuery: unknown = Reflect.get(query, '_firestore');
-    if (isObject(fromQuery)) return fromQuery;
-  }
+  const ref: unknown = target.ref;
+  if (isObject(ref) && isObject(ref._firestore)) return ref._firestore;
+  const query: unknown = target.query;
+  if (isObject(query) && isObject(query._firestore)) return query._firestore;
   return undefined;
 }
 
@@ -131,11 +61,11 @@ function defaultConverterOf(firestore: object | undefined): unknown {
   const docFn: unknown = Reflect.get(firestore, 'doc');
   if (typeof docFn !== 'function') return undefined;
   try {
-    const probeRef: unknown = Reflect.apply(docFn, firestore, ['__pyric_default__/probe']);
-    if (!isObject(probeRef)) return undefined;
-    const def: unknown = Reflect.get(probeRef, '_converter');
-    defaultConverters.set(firestore, def);
-    return def;
+    const probe: unknown = Reflect.apply(docFn, firestore, ['__pyric_probe__/doc']);
+    if (!isObject(probe)) return undefined;
+    const converter = probe._converter;
+    defaultConverters.set(firestore, converter);
+    return converter;
   } catch {
     return undefined;
   }
@@ -143,22 +73,14 @@ function defaultConverterOf(firestore: object | undefined): unknown {
 
 function rawConverterOf(target: unknown): unknown {
   if (!isObject(target)) return undefined;
-  const queryOpts: unknown = Reflect.get(target, '_queryOptions');
-  if (isObject(queryOpts) && Reflect.get(queryOpts, 'converter') !== undefined) {
-    return Reflect.get(queryOpts, 'converter');
+  if (target._converter !== undefined) return target._converter;
+  if (isObject(target._queryOptions) && target._queryOptions.converter !== undefined) {
+    return target._queryOptions.converter;
   }
-  const direct: unknown = Reflect.get(target, '_converter');
-  if (direct !== undefined) return direct;
-  const ref: unknown = Reflect.get(target, 'ref');
-  if (isObject(ref) && Reflect.get(ref, '_converter') !== undefined) {
-    return Reflect.get(ref, '_converter');
-  }
-  const query: unknown = Reflect.get(target, 'query');
-  if (isObject(query)) {
-    const snapQueryOpts: unknown = Reflect.get(query, '_queryOptions');
-    if (isObject(snapQueryOpts) && Reflect.get(snapQueryOpts, 'converter') !== undefined) {
-      return Reflect.get(snapQueryOpts, 'converter');
-    }
+  if (isObject(target.ref) && target.ref._converter !== undefined) return target.ref._converter;
+  if (isObject(target.query)) {
+    if (target.query._converter !== undefined) return target.query._converter;
+    if (isObject(target.query._queryOptions)) return target.query._queryOptions.converter;
   }
   return undefined;
 }
@@ -171,9 +93,24 @@ export function hasAdminCustomConverter(target: unknown): boolean {
   return converter !== defaultConverter;
 }
 
+function rawProjectionOf(target: unknown): unknown {
+  if (!isObject(target)) return undefined;
+  if (isObject(target._queryOptions)) return target._queryOptions.projection;
+  if (isObject(target.query) && isObject(target.query._queryOptions)) {
+    return target.query._queryOptions.projection;
+  }
+  return undefined;
+}
+
+/** Whether an Admin query or query snapshot applies a `select(...)` field projection. */
+export function hasAdminQueryProjection(target: unknown): boolean {
+  const projection = rawProjectionOf(target);
+  return projection !== undefined && projection !== null;
+}
+
 export function docPathOfAdminRef(ref: unknown): string | undefined {
   if (!isObject(ref)) return undefined;
-  const rawPath: unknown = Reflect.get(ref, 'path');
+  const rawPath = ref.path;
   if (!isValidDocPath(rawPath as string | undefined)) return undefined;
   return normalizeDocPath(rawPath as string);
 }
@@ -194,9 +131,8 @@ export function adminSnapshotExists(snap: object): boolean {
 
 export function isAdminDocumentSnapshot(value: unknown): value is object {
   if (!isObject(value)) return false;
-  if (typeof Reflect.get(value, 'data') !== 'function') return false;
-  const existsProp: unknown = Reflect.get(value, 'exists');
-  return typeof existsProp === 'boolean' || typeof existsProp === 'function';
+  if (typeof value.data !== 'function') return false;
+  return typeof value.exists === 'boolean' || typeof value.exists === 'function';
 }
 
 export function parseAdminGetAllCall(args: readonly unknown[]): AdminGetAllCall {
@@ -209,73 +145,68 @@ export function parseAdminGetAllCall(args: readonly unknown[]): AdminGetAllCall 
   return { kind: 'admin-get-all', hasFieldMask: false, docRefs: [...args] };
 }
 
-export function addAdminDocSnapshot(
-  collector: AdminDeltaCollector,
+function isUnsupportedAdminDocSnapshot(docSnap: unknown, sourceRef?: unknown): boolean {
+  return !isObject(docSnap) || hasAdminCustomConverter(sourceRef) || hasAdminCustomConverter(docSnap);
+}
+
+/** Appends a slice of document snapshots to `collector`, counting remaining entries if cut off. */
+export function addAdminSnapshotBatch(
+  collector: DeltaOps,
+  snapshots: readonly unknown[],
+  refs?: readonly unknown[],
+): void {
+  for (let i = 0; i < snapshots.length; i++) {
+    if (collector.refusesMore()) continue;
+    const ref = refs?.[i];
+    addAdminDocSnapshot(collector, snapshots[i], docPathOfAdminRef(ref), ref);
+  }
+}
+
+function addAdminDocSnapshot(
+  collector: DeltaOps,
   docSnap: unknown,
   fallbackPath?: string,
   sourceRef?: unknown,
 ): boolean {
-  if (!isObject(docSnap) || hasAdminCustomConverter(sourceRef) || hasAdminCustomConverter(docSnap)) {
+  if (isUnsupportedAdminDocSnapshot(docSnap, sourceRef)) {
     collector.skip('unsupported');
     return true;
   }
-  const path = docSnapPathOf(docSnap, fallbackPath);
+  const snapObj = docSnap as object;
+  const path = docSnapPathOf(snapObj, fallbackPath);
   if (path === undefined) {
     collector.skip('unsupported');
     return true;
   }
-  if (!adminSnapshotExists(docSnap)) {
+  if (!adminSnapshotExists(snapObj)) {
     return collector.add(() => ({ ok: true, value: { kind: 'delete', path } }));
   }
-  const dataFn: unknown = Reflect.get(docSnap, 'data');
+  const dataFn: unknown = Reflect.get(snapObj, 'data');
   if (typeof dataFn !== 'function') {
     collector.skip('unsupported');
     return true;
   }
   return collector.add((budget) => {
-    const fields = adminDocFields(Reflect.apply(dataFn, docSnap, []), budget);
+    const fields = adminDocFields(Reflect.apply(dataFn, snapObj, []), budget);
     if (!fields.ok) return fields;
     return { ok: true, value: { kind: 'set', path, data: fields.value } };
   });
 }
 
-function changedQueryDocuments(snap: object): unknown[] | undefined {
-  const docChangesFn: unknown = Reflect.get(snap, 'docChanges');
-  if (typeof docChangesFn !== 'function') return undefined;
-  const changes: unknown = Reflect.apply(docChangesFn, snap, []);
-  if (!Array.isArray(changes)) return undefined;
-  const docs: unknown[] = [];
-  for (const change of changes) {
-    if (!isObject(change)) continue;
-    const changeType: unknown = Reflect.get(change, 'type');
-    if (changeType === 'added' || changeType === 'modified') docs.push(Reflect.get(change, 'doc'));
-  }
-  return docs;
-}
-
 export function addAdminQuerySnapshot(
-  collector: AdminDeltaCollector,
+  collector: DeltaOps,
   snap: object,
   useChanges: boolean,
 ): void {
-  if (hasAdminCustomConverter(snap)) {
+  if (hasAdminCustomConverter(snap) || hasAdminQueryProjection(snap)) {
     collector.skip('unsupported');
     return;
   }
   let documents: unknown;
-  if (useChanges) documents = changedQueryDocuments(snap);
+  if (useChanges) documents = changedDocuments(snap);
   if (documents === undefined) documents = Reflect.get(snap, 'docs');
   if (!Array.isArray(documents)) return;
-  for (let i = 0; i < documents.length; i++) {
-    if (collector.refusesMore()) {
-      collector.truncateRemaining(documents.length - i - 1);
-      break;
-    }
-    if (!addAdminDocSnapshot(collector, documents[i])) {
-      collector.truncateRemaining(documents.length - i - 1);
-      break;
-    }
-  }
+  addAdminSnapshotBatch(collector, documents);
 }
 
 function stagedWriteOp(
@@ -297,7 +228,7 @@ function stagedWriteOp(
   }
 }
 
-function recordStagedWrite(collector: AdminDeltaCollector, method: WriteMethodName, args: readonly unknown[]): void {
+function recordStagedWrite(collector: DeltaOps, method: WriteMethodName, args: readonly unknown[]): void {
   if (collector.refusesMore()) return;
   collector.add((budget) => stagedWriteOp(method, args, budget));
 }
@@ -327,8 +258,8 @@ export function beginAdminTransactionSession(callback: unknown): AdminTransactio
 
 /** Reads the winning attempt's delta after `Firestore.runTransaction` commits `ok`. */
 export function commitAdminTransactionDelta(subject: unknown): ObservedSessionDelta | undefined {
-  if (!isObject(subject) || Reflect.get(subject, 'kind') !== 'admin-tx-session') return undefined;
-  const session = subject as AdminTransactionSession;
+  if (!isObject(subject) || subject.kind !== 'admin-tx-session') return undefined;
+  const session = subject as unknown as AdminTransactionSession;
   return session.currentAttempt?.delta();
 }
 
@@ -342,7 +273,7 @@ export function patchAdminFirestoreWriteBatch(prototype: object | undefined): vo
       if (isObject(this) && !txOwnedBatches.has(this)) {
         let collector = batchCollectors.get(this);
         if (collector === undefined) {
-          collector = new AdminDeltaCollector();
+          collector = new DeltaOps();
           batchCollectors.set(this, collector);
         }
         recordStagedWrite(collector, method, args);
@@ -358,8 +289,8 @@ export function patchAdminFirestoreWriteBatch(prototype: object | undefined): vo
   Object.defineProperty(prototype, BATCH_PATCHED, { value: true });
 }
 
-function recordAttemptGet(collector: AdminDeltaCollector, target: unknown, snap: unknown): void {
-  if (hasAdminCustomConverter(target)) {
+function recordAttemptGet(collector: DeltaOps, target: unknown, snap: unknown): void {
+  if (hasAdminCustomConverter(target) || hasAdminQueryProjection(target)) {
     if (!collector.refusesMore()) collector.skip('unsupported');
     return;
   }
@@ -368,32 +299,22 @@ function recordAttemptGet(collector: AdminDeltaCollector, target: unknown, snap:
     addAdminDocSnapshot(collector, snap, docPathOfAdminRef(target), target);
     return;
   }
-  if (isObject(snap) && Array.isArray(Reflect.get(snap, 'docs'))) {
+  if (isObject(snap) && Array.isArray(snap.docs)) {
     addAdminQuerySnapshot(collector, snap, false);
   }
 }
 
-function recordAttemptGetAll(collector: AdminDeltaCollector, args: readonly unknown[], snaps: unknown): void {
+function recordAttemptGetAll(collector: DeltaOps, args: readonly unknown[], snaps: unknown): void {
   const parsed = parseAdminGetAllCall(args);
   if (parsed.hasFieldMask) {
     if (!collector.refusesMore()) collector.skip('unsupported');
     return;
   }
   if (!Array.isArray(snaps)) return;
-  for (let i = 0; i < snaps.length; i++) {
-    if (collector.refusesMore()) {
-      collector.truncateRemaining(snaps.length - i - 1);
-      break;
-    }
-    const ref = parsed.docRefs[i];
-    if (!addAdminDocSnapshot(collector, snaps[i], docPathOfAdminRef(ref), ref)) {
-      collector.truncateRemaining(snaps.length - i - 1);
-      break;
-    }
-  }
+  addAdminSnapshotBatch(collector, snaps, parsed.docRefs);
 }
 
-function attemptOf(tx: unknown): AdminDeltaCollector | undefined {
+function attemptOf(tx: unknown): DeltaOps | undefined {
   if (!isObject(tx)) return undefined;
   return txAttempts.get(tx);
 }
@@ -414,9 +335,9 @@ export function patchAdminFirestoreTransaction(prototype: object | undefined): v
   patchMethod(prototype, 'runTransactionOnce', (real) => function trackedAttempt(this: unknown, ...args: unknown[]): unknown {
     const session = sessionOfCallback(args[0]);
     if (session !== undefined && isObject(this)) {
-      const innerBatch: unknown = Reflect.get(this, '_writeBatch');
+      const innerBatch = this._writeBatch;
       if (isObject(innerBatch)) txOwnedBatches.add(innerBatch);
-      const attempt = new AdminDeltaCollector();
+      const attempt = new DeltaOps();
       session.currentAttempt = attempt;
       txAttempts.set(this, attempt);
     }

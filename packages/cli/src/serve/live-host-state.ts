@@ -235,8 +235,8 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     billed.addCall(call);
     const source: LiveCallSource | undefined = clients.sourceOf(clientSessionId);
     terminal.accepted(call, source);
-    if (call.listener !== undefined) return;
-    if (isSessionDataService(call.service) && call.outcome.status !== 'ok') {
+    if (call.listener !== undefined || !isSessionDataService(call.service)) return;
+    if (call.outcome.status !== 'ok') {
       sessionData.recordSkip({ failed: 1 });
       return;
     }

@@ -10,48 +10,72 @@ export const SECRET_VALUE = 'secret-order-key';
 
 const DATABASE = `projects/${PROJECT}/databases/(default)`;
 const DOCUMENTS = `${DATABASE}/documents`;
+const COMMIT_TIME = { $: 'commitTime' };
+const READ_TIME = { $: 'readTime' };
+const RESUME_TOKEN = { $: 'resumeToken' };
+const TRANSACTION = { $: 'transaction' };
+const TARGET_IDS = [{ $: 'targetId' }];
+
+function commitExchange(
+  id: string,
+  writes: readonly Record<string, unknown>[],
+  writeResults: readonly Record<string, unknown>[],
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    kind: 'admin-firestore',
+    id,
+    rpc: 'Commit',
+    request: { database: DATABASE, writes, ...extra },
+    responses: [{ writeResults, commitTime: COMMIT_TIME }],
+  };
+}
+
+function rtdbExchange(
+  id: string,
+  action: string,
+  body: Record<string, unknown>,
+  reply: Record<string, unknown> = { s: 'ok', d: '' },
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    kind: 'rtdb',
+    id,
+    instance: INSTANCE,
+    as: 'owner',
+    request: { a: action, b: body },
+    reply,
+    ...extra,
+  };
+}
 
 export function buildRecording(format: string): Record<string, unknown> {
-  const commitTime = { $: 'commitTime' };
-  const readTime = { $: 'readTime' };
-  const resumeToken = { $: 'resumeToken' };
-  const transaction = { $: 'transaction' };
-  const targetIds = [{ $: 'targetId' }];
-
   return {
     format,
     project: PROJECT,
     source: 'hand-written from google.firestore.v1 gRPC, RTDB v5, and WebChannel Listen wire formats',
     exchanges: [
-      {
-        kind: 'admin-firestore',
-        id: 'set-ord-1',
-        rpc: 'Commit',
-        request: {
-          database: DATABASE,
-          writes: [
-            {
-              update: {
-                name: `${DOCUMENTS}/orders/ord-1`,
-                fields: {
-                  apiKey: { stringValue: SECRET_VALUE },
-                  status: { stringValue: 'queued' },
-                  total: { integerValue: '42' },
-                },
+      commitExchange(
+        'set-ord-1',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-1`,
+              fields: {
+                apiKey: { stringValue: SECRET_VALUE },
+                status: { stringValue: 'queued' },
+                total: { integerValue: '42' },
               },
             },
-          ],
-        },
-        responses: [{ writeResults: [{ updateTime: commitTime }], commitTime }],
-      },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
       {
         kind: 'admin-firestore',
         id: 'get-ord-1',
         rpc: 'BatchGetDocuments',
-        request: {
-          database: DATABASE,
-          documents: [`${DOCUMENTS}/orders/ord-1`],
-        },
+        request: { database: DATABASE, documents: [`${DOCUMENTS}/orders/ord-1`] },
         responses: [
           {
             found: {
@@ -64,7 +88,7 @@ export function buildRecording(format: string): Record<string, unknown> {
               createTime: '2026-11-01T08:00:00.000001Z',
               updateTime: '2026-11-01T08:00:00.000001Z',
             },
-            readTime,
+            readTime: READ_TIME,
           },
         ],
       },
@@ -72,34 +96,87 @@ export function buildRecording(format: string): Record<string, unknown> {
         kind: 'admin-firestore',
         id: 'get-ord-missing',
         rpc: 'BatchGetDocuments',
-        request: {
-          database: DATABASE,
-          documents: [`${DOCUMENTS}/orders/ord-missing`],
-        },
-        responses: [{ missing: `${DOCUMENTS}/orders/ord-missing`, readTime }],
+        request: { database: DATABASE, documents: [`${DOCUMENTS}/orders/ord-missing`] },
+        responses: [{ missing: `${DOCUMENTS}/orders/ord-missing`, readTime: READ_TIME }],
       },
-      {
-        kind: 'admin-firestore',
-        id: 'update-ord-1',
-        rpc: 'Commit',
-        request: {
-          database: DATABASE,
-          writes: [
-            {
-              update: {
-                name: `${DOCUMENTS}/orders/ord-1`,
-                fields: {
-                  priority: { integerValue: '2' },
-                  status: { stringValue: 'processing' },
-                },
-              },
-              updateMask: { fieldPaths: ['priority', 'status'] },
-              currentDocument: { exists: true },
+      commitExchange(
+        'create-ord-created',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-created`,
+              fields: { status: { stringValue: 'created' }, total: { integerValue: '12' } },
             },
-          ],
-        },
-        responses: [{ writeResults: [{ updateTime: commitTime }], commitTime }],
-      },
+            currentDocument: { exists: false },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
+      commitExchange(
+        'set-ord-merge-base',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-merge`,
+              fields: { status: { stringValue: 'base' }, total: { integerValue: '20' } },
+            },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
+      commitExchange(
+        'set-ord-merge-true',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-merge`,
+              fields: { tier: { stringValue: 'gold' } },
+            },
+            updateMask: { fieldPaths: ['tier'] },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
+      commitExchange(
+        'set-ord-merge-fields',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-merge`,
+              fields: { status: { stringValue: 'merged' } },
+            },
+            updateMask: { fieldPaths: ['status'] },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
+      commitExchange(
+        'set-ord-temp',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-temp`,
+              fields: { status: { stringValue: 'temp' }, total: { integerValue: '5' } },
+            },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
+      commitExchange('delete-ord-temp', [{ delete: `${DOCUMENTS}/orders/ord-temp` }], [{}]),
+      commitExchange(
+        'update-ord-1',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-1`,
+              fields: { priority: { integerValue: '2' }, status: { stringValue: 'processing' } },
+            },
+            updateMask: { fieldPaths: ['priority', 'status'] },
+            currentDocument: { exists: true },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
       {
         kind: 'admin-firestore',
         id: 'update-ord-missing',
@@ -123,27 +200,19 @@ export function buildRecording(format: string): Record<string, unknown> {
           message: `No document to update: ${DOCUMENTS}/orders/ord-missing`,
         },
       },
-      {
-        kind: 'admin-firestore',
-        id: 'add-order',
-        rpc: 'Commit',
-        request: {
-          database: DATABASE,
-          writes: [
-            {
-              update: {
-                name: { $: 'autoId', name: 'addedOrder', parent: `${DOCUMENTS}/orders` },
-                fields: {
-                  status: { stringValue: 'added' },
-                  total: { integerValue: '15' },
-                },
-              },
-              currentDocument: { exists: false },
+      commitExchange(
+        'add-order',
+        [
+          {
+            update: {
+              name: { $: 'autoId', name: 'addedOrder', parent: `${DOCUMENTS}/orders` },
+              fields: { status: { stringValue: 'added' }, total: { integerValue: '15' } },
             },
-          ],
-        },
-        responses: [{ writeResults: [{ updateTime: commitTime }], commitTime }],
-      },
+            currentDocument: { exists: false },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
       {
         kind: 'admin-firestore',
         id: 'get-all-orders',
@@ -156,39 +225,28 @@ export function buildRecording(format: string): Record<string, unknown> {
           {
             found: {
               name: `${DOCUMENTS}/orders/ord-2`,
-              fields: {
-                status: { stringValue: 'shipped' },
-                total: { integerValue: '80' },
-              },
+              fields: { status: { stringValue: 'shipped' }, total: { integerValue: '80' } },
               createTime: '2026-11-01T08:00:01.000001Z',
               updateTime: '2026-11-01T08:00:01.000001Z',
             },
-            readTime,
+            readTime: READ_TIME,
           },
-          { missing: `${DOCUMENTS}/orders/ord-stale`, readTime },
+          { missing: `${DOCUMENTS}/orders/ord-stale`, readTime: READ_TIME },
         ],
       },
-      {
-        kind: 'admin-firestore',
-        id: 'batch-orders',
-        rpc: 'Commit',
-        request: {
-          database: DATABASE,
-          writes: [
-            {
-              update: {
-                name: `${DOCUMENTS}/orders/ord-batch`,
-                fields: {
-                  status: { stringValue: 'batched' },
-                  total: { integerValue: '10' },
-                },
-              },
+      commitExchange(
+        'batch-orders',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-batch`,
+              fields: { status: { stringValue: 'batched' }, total: { integerValue: '10' } },
             },
-            { delete: `${DOCUMENTS}/orders/ord-stale` },
-          ],
-        },
-        responses: [{ writeResults: [{ updateTime: commitTime }, {}], commitTime }],
-      },
+          },
+          { delete: `${DOCUMENTS}/orders/ord-stale` },
+        ],
+        [{ updateTime: COMMIT_TIME }, {}],
+      ),
       {
         kind: 'admin-firestore',
         id: 'query-orders',
@@ -210,17 +268,88 @@ export function buildRecording(format: string): Record<string, unknown> {
           {
             document: {
               name: `${DOCUMENTS}/orders/ord-extra`,
-              fields: {
-                status: { stringValue: 'indexed' },
-                total: { integerValue: '30' },
-              },
+              fields: { status: { stringValue: 'indexed' }, total: { integerValue: '30' } },
               createTime: '2026-11-01T08:00:02.000001Z',
               updateTime: '2026-11-01T08:00:02.000001Z',
             },
-            readTime,
+            readTime: READ_TIME,
           },
         ],
       },
+      {
+        kind: 'admin-firestore',
+        id: 'listen-live-orders',
+        rpc: 'Listen',
+        request: {
+          query: {
+            parent: DOCUMENTS,
+            structuredQuery: {
+              from: [{ collectionId: 'orders' }],
+              where: {
+                fieldFilter: {
+                  field: { fieldPath: 'status' },
+                  op: 'EQUAL',
+                  value: { stringValue: 'live' },
+                },
+              },
+            },
+          },
+        },
+        batches: [
+          {
+            messages: [
+              { targetChange: { targetChangeType: 'ADD', targetIds: TARGET_IDS } },
+              {
+                documentChange: {
+                  document: {
+                    name: `${DOCUMENTS}/orders/ord-live-1`,
+                    fields: { status: { stringValue: 'live' }, total: { integerValue: '25' } },
+                    createTime: '2026-11-01T08:00:03.000001Z',
+                    updateTime: '2026-11-01T08:00:03.000001Z',
+                  },
+                  targetIds: TARGET_IDS,
+                },
+              },
+              {
+                targetChange: {
+                  targetChangeType: 'CURRENT',
+                  targetIds: TARGET_IDS,
+                  resumeToken: RESUME_TOKEN,
+                  readTime: READ_TIME,
+                },
+              },
+            ],
+          },
+          {
+            after: 'set-ord-live-2',
+            messages: [
+              {
+                documentChange: {
+                  document: {
+                    name: `${DOCUMENTS}/orders/ord-live-2`,
+                    fields: { status: { stringValue: 'live' }, total: { integerValue: '35' } },
+                    createTime: COMMIT_TIME,
+                    updateTime: COMMIT_TIME,
+                  },
+                  targetIds: TARGET_IDS,
+                },
+              },
+            ],
+          },
+        ],
+      },
+      commitExchange(
+        'set-ord-live-2',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-live-2`,
+              fields: { status: { stringValue: 'live' }, total: { integerValue: '35' } },
+            },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
       {
         kind: 'admin-firestore',
         id: 'tx-get-ord-1',
@@ -231,7 +360,7 @@ export function buildRecording(format: string): Record<string, unknown> {
           newTransaction: { readWrite: {} },
         },
         responses: [
-          { transaction },
+          { transaction: TRANSACTION },
           {
             found: {
               name: `${DOCUMENTS}/orders/ord-1`,
@@ -244,32 +373,50 @@ export function buildRecording(format: string): Record<string, unknown> {
               createTime: '2026-11-01T08:00:00.000001Z',
               updateTime: '2026-11-01T08:00:00.000002Z',
             },
-            readTime,
+            readTime: READ_TIME,
           },
         ],
       },
+      commitExchange(
+        'tx-commit-ord-1',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-1`,
+              fields: {
+                previousStatus: { stringValue: 'processing' },
+                status: { stringValue: 'fulfilled' },
+              },
+            },
+            updateMask: { fieldPaths: ['previousStatus', 'status'] },
+            currentDocument: { exists: true },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+        { transaction: TRANSACTION },
+      ),
       {
         kind: 'admin-firestore',
-        id: 'tx-commit-ord-1',
-        rpc: 'Commit',
+        id: 'query-orders-projected',
+        rpc: 'RunQuery',
         request: {
-          database: DATABASE,
-          writes: [
-            {
-              update: {
-                name: `${DOCUMENTS}/orders/ord-1`,
-                fields: {
-                  previousStatus: { stringValue: 'processing' },
-                  status: { stringValue: 'fulfilled' },
-                },
-              },
-              updateMask: { fieldPaths: ['previousStatus', 'status'] },
-              currentDocument: { exists: true },
-            },
-          ],
-          transaction,
+          parent: DOCUMENTS,
+          structuredQuery: {
+            from: [{ collectionId: 'orders' }],
+            select: { fields: [{ fieldPath: 'status' }] },
+          },
         },
-        responses: [{ writeResults: [{ updateTime: commitTime }], commitTime }],
+        responses: [
+          {
+            document: {
+              name: `${DOCUMENTS}/orders/ord-1`,
+              fields: { status: { stringValue: 'fulfilled' } },
+              createTime: '2026-11-01T08:00:00.000001Z',
+              updateTime: '2026-11-01T08:00:04.000001Z',
+            },
+            readTime: READ_TIME,
+          },
+        ],
       },
       {
         kind: 'admin-firestore',
@@ -281,18 +428,15 @@ export function buildRecording(format: string): Record<string, unknown> {
           newTransaction: { readWrite: {} },
         },
         responses: [
-          { transaction },
+          { transaction: TRANSACTION },
           {
             found: {
               name: `${DOCUMENTS}/orders/ord-2`,
-              fields: {
-                status: { stringValue: 'shipped' },
-                total: { integerValue: '80' },
-              },
+              fields: { status: { stringValue: 'shipped' }, total: { integerValue: '80' } },
               createTime: '2026-11-01T08:00:01.000001Z',
               updateTime: '2026-11-01T08:00:01.000001Z',
             },
-            readTime,
+            readTime: READ_TIME,
           },
         ],
       },
@@ -300,10 +444,7 @@ export function buildRecording(format: string): Record<string, unknown> {
         kind: 'admin-firestore',
         id: 'tx-rollback-ord-2',
         rpc: 'Rollback',
-        request: {
-          database: DATABASE,
-          transaction,
-        },
+        request: { database: DATABASE, transaction: TRANSACTION },
         responses: [{}],
       },
       {
@@ -325,77 +466,70 @@ export function buildRecording(format: string): Record<string, unknown> {
           },
         ],
       },
-      {
-        kind: 'rtdb',
-        id: 'rtdb-set-q1',
-        instance: INSTANCE,
-        as: 'owner',
-        request: { a: 'p', b: { p: '/queues/q-1', d: { state: 'ready', workers: 2 } } },
-        reply: { s: 'ok', d: '' },
-      },
-      {
-        kind: 'rtdb',
-        id: 'rtdb-update-q1',
-        instance: INSTANCE,
-        as: 'owner',
-        request: { a: 'm', b: { p: '/queues/q-1', d: { region: 'us', workers: 3 } } },
-        reply: { s: 'ok', d: '' },
-      },
-      {
-        kind: 'rtdb',
-        id: 'rtdb-push-item',
-        instance: INSTANCE,
-        as: 'owner',
-        request: {
-          a: 'p',
-          b: {
-            p: { $: 'pushId', name: 'pushedQueueItem', parent: '/queues/items' },
-            d: { job: 'sync' },
-          },
+      rtdbExchange('rtdb-set-q1', 'p', { p: '/queues/q-1', d: { state: 'ready', workers: 2 } }),
+      rtdbExchange('rtdb-update-q1', 'm', { p: '/queues/q-1', d: { region: 'us', workers: 3 } }),
+      rtdbExchange('rtdb-set-with-priority', 'p', {
+        p: '/queues/priority-q',
+        d: { '.priority': 10, state: 'prio' },
+      }),
+      rtdbExchange('rtdb-set-temp-q', 'p', { p: '/queues/temp-q', d: { state: 'ephemeral' } }),
+      rtdbExchange('rtdb-remove-temp-q', 'p', { p: '/queues/temp-q', d: null }),
+      rtdbExchange('rtdb-push-item', 'p', {
+        p: { $: 'pushId', name: 'pushedQueueItem', parent: '/queues/items' },
+        d: { job: 'sync' },
+      }),
+      rtdbExchange('rtdb-get-extra', 'g', { p: '/queues/extra', q: {} }, { s: 'ok', d: { state: 'loaded' } }),
+      rtdbExchange('rtdb-set-regions', 'p', {
+        p: '/queues/by-region',
+        d: { east: { region: 'east' }, west: { region: 'west' } },
+      }),
+      rtdbExchange(
+        'rtdb-filtered-get',
+        'g',
+        {
+          p: '/queues/by-region',
+          q: { sp: 'west', sin: true, ep: 'west', ein: true, i: 'region' },
         },
-        reply: { s: 'ok', d: '' },
-      },
-      {
-        kind: 'rtdb',
-        id: 'rtdb-get-extra',
-        instance: INSTANCE,
-        as: 'owner',
-        request: { a: 'g', b: { p: '/queues/extra', q: {} } },
-        reply: { s: 'ok', d: { state: 'loaded' } },
-      },
-      {
-        kind: 'rtdb',
-        id: 'rtdb-listen-counter',
-        instance: INSTANCE,
-        as: 'owner',
-        request: { a: 'q', b: { p: '/counters/processed', h: { $: 'any' } } },
-        events: [{ t: 'd', d: { a: 'd', b: { p: '/counters/processed', d: 4 } } }],
-        reply: { s: 'ok', d: {} },
-      },
-      {
-        kind: 'rtdb',
-        id: 'rtdb-tx-counter-stale',
-        instance: INSTANCE,
-        as: 'owner',
-        request: { a: 'p', b: { p: '/counters/processed', d: 1, h: '' } },
-        reply: { s: 'datastale', d: 'Transaction hash does not match' },
-      },
-      {
-        kind: 'rtdb',
-        id: 'rtdb-tx-counter',
-        instance: INSTANCE,
-        as: 'owner',
-        request: { a: 'p', b: { p: '/counters/processed', d: 5, h: { $: 'any' } } },
-        reply: { s: 'ok', d: '' },
-      },
-      {
-        kind: 'rtdb',
-        id: 'rtdb-listen-aborted',
-        instance: INSTANCE,
-        as: 'owner',
-        request: { a: 'q', b: { p: '/counters/aborted', h: { $: 'any' } } },
-        reply: { s: 'ok', d: {} },
-      },
+        { s: 'ok', d: { west: { region: 'synced-west' } } },
+      ),
+      rtdbExchange(
+        'rtdb-once-q',
+        'q',
+        { p: '/queues/once-q', h: { $: 'any' } },
+        { s: 'ok', d: {} },
+        { events: [{ t: 'd', d: { a: 'd', b: { p: '/queues/once-q', d: { state: 'once-read' } } } }] },
+      ),
+      rtdbExchange(
+        'rtdb-on-watch-q',
+        'q',
+        { p: '/queues/watch-q', h: { $: 'any' } },
+        { s: 'ok', d: {} },
+        {
+          events: [{ t: 'd', d: { a: 'd', b: { p: '/queues/watch-q', d: { step: 1 } } } }],
+          later: [
+            {
+              after: 'rtdb-set-watch-q',
+              events: [{ t: 'd', d: { a: 'd', b: { p: '/queues/watch-q', d: { step: 2 } } } }],
+            },
+          ],
+        },
+      ),
+      rtdbExchange('rtdb-set-watch-q', 'p', { p: '/queues/watch-q', d: { step: 2 } }),
+      rtdbExchange(
+        'rtdb-listen-counter',
+        'q',
+        { p: '/counters/processed', h: { $: 'any' } },
+        { s: 'ok', d: {} },
+        { events: [{ t: 'd', d: { a: 'd', b: { p: '/counters/processed', d: 4 } } }] },
+      ),
+      rtdbExchange(
+        'rtdb-tx-counter-stale',
+        'p',
+        { p: '/counters/processed', d: 1, h: '' },
+        { s: 'datastale', d: 'Transaction hash does not match' },
+      ),
+      rtdbExchange('rtdb-tx-counter', 'p', { p: '/counters/processed', d: 5, h: { $: 'any' } }),
+      rtdbExchange('rtdb-listen-aborted', 'q', { p: '/counters/aborted', h: { $: 'any' } }, { s: 'ok', d: {} }),
       {
         kind: 'listen',
         id: 'client-read-catalog',
@@ -403,7 +537,7 @@ export function buildRecording(format: string): Record<string, unknown> {
         batches: [
           {
             messages: [
-              { targetChange: { targetChangeType: 'ADD', targetIds } },
+              { targetChange: { targetChangeType: 'ADD', targetIds: TARGET_IDS } },
               {
                 documentChange: {
                   document: {
@@ -412,11 +546,18 @@ export function buildRecording(format: string): Record<string, unknown> {
                     createTime: '2026-11-01T08:05:00.000000Z',
                     updateTime: '2026-11-01T08:05:00.000000Z',
                   },
-                  targetIds,
+                  targetIds: TARGET_IDS,
                 },
               },
-              { targetChange: { targetChangeType: 'CURRENT', targetIds, resumeToken, readTime } },
-              { targetChange: { targetChangeType: 'NO_CHANGE', resumeToken, readTime } },
+              {
+                targetChange: {
+                  targetChangeType: 'CURRENT',
+                  targetIds: TARGET_IDS,
+                  resumeToken: RESUME_TOKEN,
+                  readTime: READ_TIME,
+                },
+              },
+              { targetChange: { targetChangeType: 'NO_CHANGE', resumeToken: RESUME_TOKEN, readTime: READ_TIME } },
             ],
           },
         ],

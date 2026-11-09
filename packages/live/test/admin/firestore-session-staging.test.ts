@@ -4,13 +4,28 @@
  * retry-attempt isolation and `ReadOptions.fieldMask` skips).
  */
 import { describe, expect, test } from 'bun:test';
+import { createRequire } from 'node:module';
 import {
   beginAdminTransactionSession,
   commitAdminBatchDelta,
   commitAdminTransactionDelta,
+  hasAdminQueryProjection,
   patchAdminFirestoreTransaction,
   patchAdminFirestoreWriteBatch,
 } from '../../src/admin/firestore-session-staging.js';
+
+interface AdminFirestorePkg {
+  Firestore: new (settings: { projectId: string }) => {
+    collection(path: string): {
+      select(...fields: string[]): unknown;
+      where(field: string, op: string, value: unknown): unknown;
+    };
+    terminate(): Promise<void>;
+  };
+}
+
+const fromAdmin = createRequire(createRequire(import.meta.url).resolve('firebase-admin/firestore'));
+const sdk = fromAdmin('@google-cloud/firestore') as AdminFirestorePkg;
 
 function makeDocSnap(path: string, data: Record<string, unknown> | undefined) {
   const parts = path.split('/');
@@ -104,6 +119,7 @@ describe('admin/firestore-session-staging', () => {
       }
       await tx.get({ path: 'items/read-doc' });
       await tx.get({ docs: [makeDocSnap('items/query-doc', { q: 1 })] });
+      await tx.get({ _queryOptions: { projection: { fields: ['q'] } }, docs: [makeDocSnap('items/projected-doc', { q: 1 })] } as unknown as { docs: unknown[] });
       await tx.get({ aggregate: true });
       await tx.getAll({ path: 'items/batch-found' }, { path: 'items/batch-missing' });
       await tx.getAll({ path: 'items/masked' }, { fieldMask: ['loaded'] });
@@ -130,7 +146,21 @@ describe('admin/firestore-session-staging', () => {
         { kind: 'update', path: 'items/read-doc', data: { version: 2 } },
         { kind: 'delete', path: 'items/tx-deleted' },
       ],
-      skipped: { unsupported: 1 },
+      skipped: { unsupported: 2 },
     });
+  });
+
+  test('detects real @google-cloud/firestore Query.select() projections including empty select()', async () => {
+    const db = new sdk.Firestore({ projectId: 'demo-projections' });
+    try {
+      const col = db.collection('items');
+      expect(hasAdminQueryProjection(col)).toBe(false);
+      expect(hasAdminQueryProjection(col.where('active', '==', true))).toBe(false);
+      expect(hasAdminQueryProjection(col.select('title'))).toBe(true);
+      expect(hasAdminQueryProjection(col.select())).toBe(true);
+      expect(hasAdminQueryProjection({ query: col.select('title') })).toBe(true);
+    } finally {
+      await db.terminate();
+    }
   });
 });

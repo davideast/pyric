@@ -185,6 +185,10 @@ function cancelOf(args: readonly unknown[]): (error: unknown) => void {
   return (error) => Reflect.apply(cancel, self, [error]);
 }
 
+function isCompatListenEvent(value: unknown): value is string {
+  return typeof value === 'string' && LISTENER_OF_EVENT[value] !== undefined;
+}
+
 /**
  * `Query.on`: returns the app's callback at once, as the SDK does, and
  * listens once the gate passes, with recording callbacks the client row's
@@ -194,15 +198,16 @@ function cancelOf(args: readonly unknown[]): (error: unknown) => void {
 function gatedOn(row: AdminRow, real: Method): Method {
   return keepShape(function on(this: unknown, ...args: unknown[]): unknown {
     const [eventType, callback] = args;
-    const listener = typeof eventType === 'string' ? LISTENER_OF_EVENT[eventType] : undefined;
-    const isListen = listener !== undefined && typeof callback === 'function';
-    if (!isListen) return Reflect.apply(real, this, args);
+    if (!isCompatListenEvent(eventType) || typeof callback !== 'function') {
+      return Reflect.apply(real, this, args);
+    }
+    const listener = LISTENER_OF_EVENT[eventType]!;
     const delegate = delegateOf(this);
-    const listen: PendingListen = { delegate, eventType: eventType as string, callback, stopped: false };
+    const listen: PendingListen = { delegate, eventType, callback, stopped: false };
     pending.add(listen);
     const site = {
       ...siteOf(row, 'Query.on'),
-      deliveryOf: (deliverySite: ObservedSite, value: unknown) => adminDatabaseDelivery(deliverySite, eventType as string, value),
+      deliveryOf: (deliverySite: ObservedSite, value: unknown) => adminDatabaseDelivery(deliverySite, eventType, value),
       listenerArguments: databaseListenerArguments,
       listenerCallback: (_name: string, _args: readonly unknown[], _appCallback: Method, make: () => Method) => databaseListenerCallback(listener, [delegate], callback as Method, make),
     };

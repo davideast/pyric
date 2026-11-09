@@ -11,42 +11,38 @@
  * `arrayUnion`, `arrayRemove`) are never approximated locally and count as
  * `unsupported`. Never calls the app's code.
  */
-import { Buffer } from 'node:buffer';
+import { isObject } from '../database.js';
 import {
+  charged,
+  DELETE_FIELD_SENTINEL,
   FORBIDDEN_SESSION_KEYS,
+  isUnsafeFieldPath,
   isValidDocPath,
   itemBudget,
+  MAX_FIELD_PATH_LENGTH,
+  MAX_SESSION_DEPTH,
+  mergeFieldsOf,
   normalizeDocPath,
+  noteDeleteField,
+  OVER_BUDGET,
+  OVERSIZED_RESULT,
+  readNestedAtFieldPath,
+  resultOf,
+  serializedBuiltIn,
+  serializedSdkValue,
+  UNSUPPORTED,
+  UNSUPPORTED_RESULT,
   type SessionCopyResult,
   type SessionWriteFields,
 } from '../firestore-session-values.js';
 import { isPlainObject } from '../json-copy.js';
 import {
   chargeContainer,
-  chargeJson,
   chargeScalar,
   chargeString,
   type SessionBudget,
 } from '../session-budget.js';
 import type { ObservedFirestoreSessionOp } from '../session-data.js';
-
-const MAX_SESSION_DEPTH = 20;
-const MAX_FIELD_PATH_LENGTH = 512;
-
-const DELETE_FIELD_SENTINEL: unique symbol = Symbol('admin-delete-field-sentinel');
-const OVER_BUDGET: unique symbol = Symbol('admin-over-budget');
-const UNSUPPORTED: unique symbol = Symbol('admin-unsupported');
-
-const OVERSIZED_RESULT = { ok: false, reason: 'oversized' } as const;
-const UNSUPPORTED_RESULT = { ok: false, reason: 'unsupported' } as const;
-
-function isObject(value: unknown): value is object {
-  return (typeof value === 'object' || typeof value === 'function') && value !== null;
-}
-
-function hasUnsafeFieldSegment(fieldPath: string): boolean {
-  return fieldPath.split('.').some((seg) => seg.length === 0 || FORBIDDEN_SESSION_KEYS.has(seg));
-}
 
 function isAdminFieldPathObject(value: unknown): value is object {
   if (!isObject(value) || Array.isArray(value) || isPlainObject(value)) return false;
@@ -63,7 +59,7 @@ function isAdminFieldPathObject(value: unknown): value is object {
 export function adminFieldPathString(raw: unknown): string | undefined {
   if (typeof raw === 'string') {
     const withinBounds = raw.length > 0 && raw.length <= MAX_FIELD_PATH_LENGTH;
-    if (!withinBounds || hasUnsafeFieldSegment(raw)) return undefined;
+    if (!withinBounds || isUnsafeFieldPath(raw)) return undefined;
     return raw;
   }
   if (!isAdminFieldPathObject(raw)) return undefined;
@@ -84,92 +80,15 @@ export function adminFieldPathString(raw: unknown): string | undefined {
   return joined;
 }
 
-function isTimestampObject(value: object): boolean {
-  const seconds: unknown = Reflect.get(value, 'seconds');
-  const nanoseconds: unknown = Reflect.get(value, 'nanoseconds');
-  const hasFiniteParts =
-    typeof seconds === 'number' &&
-    Number.isFinite(seconds) &&
-    typeof nanoseconds === 'number' &&
-    Number.isFinite(nanoseconds);
-  if (!hasFiniteParts) return false;
-  return typeof Reflect.get(value, 'toMillis') === 'function' || typeof Reflect.get(value, 'toDate') === 'function';
-}
-
-function isGeoPointObject(value: object): boolean {
-  if (isPlainObject(value)) return false;
-  const latitude: unknown = Reflect.get(value, 'latitude');
-  const longitude: unknown = Reflect.get(value, 'longitude');
-  return (
-    typeof latitude === 'number' &&
-    Number.isFinite(latitude) &&
-    typeof longitude === 'number' &&
-    Number.isFinite(longitude)
-  );
-}
-
-function isVectorValueObject(value: object): boolean {
-  if (Array.isArray(value) || isPlainObject(value)) return false;
-  if (typeof Reflect.get(value, 'toArray') !== 'function') return false;
-  if (Array.isArray(Reflect.get(value, '_values'))) return true;
-  const ctor: unknown = Reflect.get(value, 'constructor');
-  return isObject(ctor) && Reflect.get(ctor, 'name') === 'VectorValue';
-}
-
-function isAdminDocumentReferenceObject(value: object): boolean {
-  if (Reflect.get(value, 'type') === 'document') return true;
+function serializedAdminDocRef(value: object): unknown {
   const internalPath: unknown = Reflect.get(value, '_path');
-  return isObject(internalPath) && Reflect.get(internalPath, 'isDocument') === true;
-}
-
-function serializedSdkValue(value: object): unknown {
-  if (isTimestampObject(value)) {
-    const seconds = Reflect.get(value, 'seconds') as number;
-    const nanoseconds = Reflect.get(value, 'nanoseconds') as number;
-    return { seconds: Math.trunc(seconds), nanoseconds: Math.trunc(nanoseconds) };
+  if (!isObject(internalPath) || Reflect.get(internalPath, 'isDocument') !== true) return undefined;
+  const refPath: unknown = Reflect.get(value, 'path');
+  const refId: unknown = Reflect.get(value, 'id');
+  if (isValidDocPath(refPath as string | undefined) && typeof refId === 'string') {
+    return { type: 'document', path: normalizeDocPath(refPath as string), id: refId };
   }
-  if (isGeoPointObject(value)) {
-    const latitude = Reflect.get(value, 'latitude') as number;
-    const longitude = Reflect.get(value, 'longitude') as number;
-    return { latitude, longitude };
-  }
-  const toBase64: unknown = Reflect.get(value, 'toBase64');
-  if (typeof toBase64 === 'function' && typeof Reflect.get(value, 'toUint8Array') === 'function') {
-    const encoded: unknown = Reflect.apply(toBase64, value, []);
-    if (typeof encoded !== 'string') return UNSUPPORTED;
-    return { type: 'firestore/bytes/1.0', bytes: encoded };
-  }
-  if (isVectorValueObject(value)) {
-    const toArray = Reflect.get(value, 'toArray') as () => unknown;
-    const numbers: unknown = Reflect.apply(toArray, value, []);
-    const allFiniteNumbers =
-      Array.isArray(numbers) && numbers.every((entry) => typeof entry === 'number' && Number.isFinite(entry));
-    if (!allFiniteNumbers) return UNSUPPORTED;
-    return { __type__: '__vector__', value: [...(numbers as number[])] };
-  }
-  if (isAdminDocumentReferenceObject(value)) {
-    const refPath: unknown = Reflect.get(value, 'path');
-    const refId: unknown = Reflect.get(value, 'id');
-    if (isValidDocPath(refPath as string | undefined) && typeof refId === 'string') {
-      return { type: 'document', path: normalizeDocPath(refPath as string), id: refId };
-    }
-    return UNSUPPORTED;
-  }
-  return undefined;
-}
-
-function serializedBuiltIn(value: object): unknown {
-  if (value instanceof Date) {
-    const ms = value.getTime();
-    if (!Number.isFinite(ms)) return UNSUPPORTED;
-    const seconds = Math.floor(ms / 1000);
-    const nanoseconds = (ms - seconds * 1000) * 1_000_000;
-    return { seconds, nanoseconds };
-  }
-  if (value instanceof Uint8Array) {
-    return { type: 'firestore/bytes/1.0', bytes: Buffer.from(value).toString('base64') };
-  }
-  return undefined;
+  return UNSUPPORTED;
 }
 
 function adminFieldValueSentinel(value: object): typeof DELETE_FIELD_SENTINEL | typeof UNSUPPORTED | undefined {
@@ -178,17 +97,6 @@ function adminFieldValueSentinel(value: object): typeof DELETE_FIELD_SENTINEL | 
   if (typeof methodName !== 'string') return undefined;
   if (methodName === 'FieldValue.delete' || methodName === 'deleteField') return DELETE_FIELD_SENTINEL;
   return UNSUPPORTED;
-}
-
-function charged(budget: SessionBudget, value: unknown): unknown {
-  if (!chargeJson(budget, value)) return OVER_BUDGET;
-  return value;
-}
-
-function noteDeleteField(deleteFields: string[] | undefined, fieldPath: string, budget: SessionBudget): void {
-  if (deleteFields === undefined) return;
-  chargeString(budget, fieldPath);
-  deleteFields.push(fieldPath);
 }
 
 function isScalarJsonValue(value: unknown): value is null | boolean | number {
@@ -221,6 +129,7 @@ function copyAdminValue(
 
   let serialized = serializedBuiltIn(value);
   if (serialized === undefined) serialized = serializedSdkValue(value);
+  if (serialized === undefined) serialized = serializedAdminDocRef(value);
   if (serialized === UNSUPPORTED) return UNSUPPORTED;
   if (serialized !== undefined) return charged(budget, serialized);
 
@@ -267,19 +176,13 @@ function copyAdminEntries(
   return out;
 }
 
-function copyResultOf<T>(copied: unknown, budget: SessionBudget): SessionCopyResult<T> {
-  if (copied === OVER_BUDGET || budget.left < 0) return OVERSIZED_RESULT;
-  if (copied === UNSUPPORTED) return UNSUPPORTED_RESULT;
-  return { ok: true, value: copied as T };
-}
-
 /** Bounded copy of a read document's stored fields. */
 export function adminDocFields(
   value: unknown,
   budget: SessionBudget = itemBudget(),
 ): SessionCopyResult<Record<string, unknown>> {
   if (!isPlainObject(value)) return UNSUPPORTED_RESULT;
-  return copyResultOf(copyAdminValue(value, 0, budget, false), budget);
+  return resultOf(copyAdminValue(value, 0, budget, false), budget);
 }
 
 function adminWriteFields(
@@ -289,7 +192,7 @@ function adminWriteFields(
 ): SessionCopyResult<SessionWriteFields> {
   if (!isPlainObject(value)) return UNSUPPORTED_RESULT;
   const deleteFields: string[] = [];
-  const copied = copyResultOf<Record<string, unknown>>(
+  const copied = resultOf<Record<string, unknown>>(
     copyAdminValue(value, 0, budget, allowDeleteSentinel, deleteFields),
     budget,
   );
@@ -326,18 +229,6 @@ export function adminCreateDocOp(
   };
 }
 
-function readNestedAtFieldPath(source: object, dottedPath: string): { found: boolean; value: unknown } {
-  const parts = dottedPath.split('.');
-  let cursor: unknown = source;
-  for (const part of parts) {
-    if (!isObject(cursor) || !Object.prototype.hasOwnProperty.call(cursor, part)) {
-      return { found: false, value: undefined };
-    }
-    cursor = Reflect.get(cursor, part);
-  }
-  return { found: true, value: cursor };
-}
-
 interface AdminUpdateAccumulator {
   readonly data: Record<string, unknown>;
   readonly deleteFields: string[];
@@ -353,7 +244,7 @@ function addUpdateField(
   fieldPath: string,
   rawValue: unknown,
 ): SessionCopyResult<never> | undefined {
-  if (hasUnsafeFieldSegment(fieldPath)) return UNSUPPORTED_RESULT;
+  if (isUnsafeFieldPath(fieldPath)) return UNSUPPORTED_RESULT;
   if (!chargeString(acc.budget, fieldPath)) return OVERSIZED_RESULT;
   const copied = copyAdminValue(rawValue, 0, acc.budget, true, acc.deleteFields, fieldPath);
   if (copied === DELETE_FIELD_SENTINEL) {
@@ -378,13 +269,6 @@ function finalizeUpdateOp(
   };
   if (acc.deleteFields.length > 0) op.deleteFields = acc.deleteFields;
   return { ok: true, value: op };
-}
-
-function mergeFieldsOf(rawOptions: unknown): unknown[] | undefined {
-  if (!isObject(rawOptions)) return undefined;
-  const mergeFields: unknown = Reflect.get(rawOptions, 'mergeFields');
-  if (!Array.isArray(mergeFields)) return undefined;
-  return mergeFields;
 }
 
 function adminMergeFieldsOp(

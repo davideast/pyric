@@ -209,18 +209,28 @@ export default scenario(async (app) => {
         'firestore.set': 'ok',
         'firestore.get': 'ok',
         'firestore.get-missing': 'ok',
+        'firestore.create': 'ok',
+        'firestore.merge': 'ok',
+        'firestore.delete': 'ok',
         'firestore.update': 'ok',
         'firestore.update-missing': '5',
         'firestore.add': 'ok',
         'firestore.getAll': 'ok',
         'firestore.batch': 'ok',
         'firestore.query': 'ok',
+        'firestore.onSnapshot': 'ok',
         'firestore.tx-commit': 'ok',
+        'firestore.select': 'ok',
         'firestore.tx-rollback': 'abort-tx',
         'rtdb.set': 'ok',
         'rtdb.update': 'ok',
+        'rtdb.setWithPriority': 'ok',
+        'rtdb.remove': 'ok',
         'rtdb.push': 'ok',
         'rtdb.get': 'ok',
+        'rtdb.filtered-get': 'ok',
+        'rtdb.once': 'ok',
+        'rtdb.on': 'ok',
         'rtdb.tx-commit': 'ok',
         'rtdb.tx-abort': 'ok',
       });
@@ -235,12 +245,13 @@ export default scenario(async (app) => {
     async () => {
       const snapshot = await eventually(
         () => hostJson<SessionSnapshot>(`${host.url}/__pyric/live/session-data`),
-        (snap) => Object.keys(snap.firestore).length >= 5 && INSTANCE in snap.rtdb,
+        (snap) => Object.keys(snap.firestore).length >= 9 && INSTANCE in snap.rtdb,
         'Admin session-data snapshot',
       );
 
       assert.deepEqual(snapshot.sources, { client: false, admin: true });
       assert.equal(snapshot.skips?.admin ?? 0, 0, `expected skips.admin === 0: ${JSON.stringify(snapshot.skips)}`);
+      assert.equal(snapshot.skips?.unsupported, 1, 'projected Query.select() read counts as unsupported');
       assert.equal(snapshot.skips?.failed, 2, 'failed update and rolled-back transaction count as failed skips');
 
       assert.deepEqual(snapshot.firestore['orders/ord-1'], {
@@ -249,6 +260,15 @@ export default scenario(async (app) => {
         priority: 2,
         status: 'fulfilled',
         total: 42,
+      });
+      assert.deepEqual(snapshot.firestore['orders/ord-created'], {
+        status: 'created',
+        total: 12,
+      });
+      assert.deepEqual(snapshot.firestore['orders/ord-merge'], {
+        status: 'merged',
+        tier: 'gold',
+        total: 20,
       });
       assert.deepEqual(snapshot.firestore['orders/ord-2'], {
         status: 'shipped',
@@ -266,14 +286,30 @@ export default scenario(async (app) => {
         status: 'indexed',
         total: 30,
       });
+      assert.deepEqual(snapshot.firestore['orders/ord-live-1'], {
+        status: 'live',
+        total: 25,
+      });
+      assert.deepEqual(snapshot.firestore['orders/ord-live-2'], {
+        status: 'live',
+        total: 35,
+      });
+      assert.equal('orders/ord-temp' in snapshot.firestore, false);
       assert.equal('orders/ord-missing' in snapshot.firestore, false);
       assert.equal('orders/ord-stale' in snapshot.firestore, false);
 
       assert.deepEqual(snapshot.rtdb[INSTANCE], {
         queues: {
           'q-1': { region: 'us', state: 'ready', workers: 3 },
+          'priority-q': { state: 'prio' },
           items: { [jobOutcome.pushedKey]: { job: 'sync' } },
           extra: { state: 'loaded' },
+          'by-region': {
+            east: { region: 'east' },
+            west: { region: 'synced-west' },
+          },
+          'once-q': { state: 'once-read' },
+          'watch-q': { step: 2 },
         },
         counters: {
           processed: 5,
@@ -282,7 +318,7 @@ export default scenario(async (app) => {
 
       const captured = await eventually(
         () => adminCaptureEvents(host.url),
-        (c) => c.events.length >= 17,
+        (c) => c.events.length >= 28,
         'Admin capture events',
       );
       assert.equal(captured.raw.includes(SECRET_VALUE), false, 'capture events leaked secret value');

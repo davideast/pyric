@@ -255,8 +255,14 @@ export function createObservedSessionDataStore(
     return { client: sources.client, admin: sources.admin };
   }
 
+  function hasSessionOps(delta: ObservedSessionDelta): boolean {
+    const hasFirestore = delta.firestore !== undefined && delta.firestore.length > 0;
+    const hasRtdb = delta.rtdb !== undefined && delta.rtdb.length > 0;
+    return hasFirestore || hasRtdb;
+  }
+
   return {
-    apply(delta, projectIdHint, source = 'client') {
+    apply(delta, projectIdHint, source) {
       if (projectIdHint) currentProjectId = projectIdHint;
       let changed = false;
       const beforeDropped = droppedCount;
@@ -267,9 +273,13 @@ export function createObservedSessionDataStore(
       for (const op of delta.rtdb ?? []) {
         if (applyRtdbOp(op)) changed = true;
       }
-      if (changed) sources[source] = true;
+      let sourceAdded = false;
+      if (source !== undefined && hasSessionOps(delta) && !sources[source]) {
+        sources[source] = true;
+        sourceAdded = true;
+      }
       addSkips(delta.skipped);
-      if (changed || droppedCount !== beforeDropped || skipTotal() !== beforeSkips) touch();
+      if (changed || sourceAdded || droppedCount !== beforeDropped || skipTotal() !== beforeSkips) touch();
     },
 
     recordSkip(skip) {

@@ -31,6 +31,7 @@ interface DocRefLike {
 
 interface QueryLike {
   where(field: string, op: string, value: unknown): QueryLike;
+  select(...fields: string[]): QueryLike;
   withConverter(converter: unknown): QueryLike;
 }
 
@@ -181,6 +182,16 @@ describe('admin/firestore-session-capture', () => {
     expect(queryRes.sessionData?.firestore).toHaveLength(250);
     expect(queryRes.sessionData?.skipped).toEqual({ truncated: 2 });
 
+    const heavyPayload = 'x'.repeat(200 * 1024);
+    const heavyDocs = Array.from({ length: 4 }, (_, idx) => makeDocSnap(`items/heavy-${idx}`, { body: heavyPayload }));
+    const heavyRes = adminFirestoreResult(makeFakeSite('Query.get', { path: 'items' }), {
+      size: heavyDocs.length,
+      docs: heavyDocs,
+    });
+    if (typeof heavyRes === 'symbol') throw new Error('expected ResultReading');
+    expect(heavyRes.sessionData?.firestore).toHaveLength(2);
+    expect(heavyRes.sessionData?.skipped).toEqual({ truncated: 2 });
+
     const delivery = adminFirestoreDelivery(makeFakeSite('Query.onSnapshot', { path: 'items' }), {
       docs: [makeDocSnap('items/a', { v: 1 })],
       docChanges: () => [
@@ -231,5 +242,51 @@ describe('admin/firestore-session-capture', () => {
     expect(adminFirestoreResult(makeFakeSite('Firestore.getAll', emptyMaskCtx), [makeDocSnap('items/a', {})])).toEqual({
       sessionData: { skipped: { unsupported: 1 } },
     });
+  });
+
+  test('skips Query.select() projections on Query.get and Query.onSnapshot so partial fields never overwrite whole documents', async () => {
+    const db = new sdk.Firestore({ projectId: 'demo-select-projection' });
+    try {
+      const projectedQuery = db.collection('items').select('title');
+      const emptyProjectedQuery = db.collection('items').select();
+      const partialSnap = {
+        size: 1,
+        query: projectedQuery,
+        docs: [makeDocSnap('items/a', { title: 'Only projected' })],
+        docChanges: () => [{ type: 'added', doc: makeDocSnap('items/a', { title: 'Only projected' }) }],
+      };
+
+      expect(
+        adminFirestoreResult(makeFakeSite('Query.get', { subject: projectedQuery, path: 'items' }), partialSnap),
+      ).toEqual({
+        billedDocuments: 1,
+        sessionData: { skipped: { unsupported: 1 } },
+      });
+
+      expect(
+        adminFirestoreResult(makeFakeSite('Query.get', { subject: emptyProjectedQuery, path: 'items' }), {
+          size: 1,
+          query: emptyProjectedQuery,
+          docs: [makeDocSnap('items/a', {})],
+        }),
+      ).toEqual({
+        billedDocuments: 1,
+        sessionData: { skipped: { unsupported: 1 } },
+      });
+
+      expect(
+        adminFirestoreDelivery(makeFakeSite('Query.onSnapshot', { subject: projectedQuery, path: 'items' }), partialSnap),
+      ).toEqual({
+        skipped: { unsupported: 1 },
+      });
+
+      expect(
+        adminFirestoreDelivery(makeFakeSite('Query.onSnapshot', { path: 'items' }), partialSnap),
+      ).toEqual({
+        skipped: { unsupported: 1 },
+      });
+    } finally {
+      await db.terminate();
+    }
   });
 });

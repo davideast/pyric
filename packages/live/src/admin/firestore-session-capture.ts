@@ -5,17 +5,14 @@
  * calls into bounded `ObservedSessionDelta` sidecars while keeping
  * `LiveCallRecord` completely free of document values.
  */
-import { isValidDocPath, normalizeDocPath, type SessionCopyResult } from '../firestore-session-values.js';
+import { isObject } from '../database.js';
+import { copiedOpDelta, DeltaOps, opDelta } from '../firestore-session-capture.js';
+import { isValidDocPath, normalizeDocPath } from '../firestore-session-values.js';
 import type { CallContext, ObservedSite, ResultReading } from '../observe.js';
+import { skipDeltaOf, type ObservedSessionDelta } from '../session-data.js';
 import {
-  skipDeltaOf,
-  type ObservedFirestoreSessionOp,
-  type ObservedSessionDelta,
-} from '../session-data.js';
-import {
-  AdminDeltaCollector,
-  addAdminDocSnapshot,
   addAdminQuerySnapshot,
+  addAdminSnapshotBatch,
   adminSnapshotExists,
   beginAdminTransactionSession,
   commitAdminBatchDelta,
@@ -23,6 +20,7 @@ import {
   docPathOfAdminRef,
   docSnapPathOf,
   hasAdminCustomConverter,
+  hasAdminQueryProjection,
   isAdminDocumentSnapshot,
   parseAdminGetAllCall,
   type AdminGetAllCall,
@@ -35,21 +33,8 @@ import {
   adminUpdateDocOp,
 } from './firestore-session-values.js';
 
-function isObject(value: unknown): value is object {
-  return (typeof value === 'object' || typeof value === 'function') && value !== null;
-}
-
-function opDelta(op: ObservedFirestoreSessionOp): ObservedSessionDelta {
-  return { firestore: [op] };
-}
-
-function copiedOpDelta(op: SessionCopyResult<ObservedFirestoreSessionOp>): ObservedSessionDelta {
-  if (op.ok) return opDelta(op.value);
-  return skipDeltaOf(op.reason);
-}
-
 function isGetAllCall(subject: unknown): subject is AdminGetAllCall {
-  return isObject(subject) && Reflect.get(subject, 'kind') === 'admin-get-all';
+  return isObject(subject) && subject.kind === 'admin-get-all';
 }
 
 function isConvertedWriteMethod(name: string): boolean {
@@ -60,6 +45,26 @@ function isConvertedWriteMethod(name: string): boolean {
     name === 'DocumentReference.delete' ||
     name === 'CollectionReference.add'
   );
+}
+
+function isUnsupportedQueryRead(query: unknown, snap?: unknown): boolean {
+  if (hasAdminCustomConverter(query) || hasAdminQueryProjection(query)) return true;
+  if (!isObject(snap)) return false;
+  return hasAdminCustomConverter(snap) || hasAdminQueryProjection(snap);
+}
+
+function isUnsupportedDocumentRead(docRef: unknown, snap: unknown): snap is never {
+  return hasAdminCustomConverter(docRef) || !isObject(snap) || hasAdminCustomConverter(snap);
+}
+
+function isUnsupportedDelivery(site: ObservedSite, value: unknown): value is never {
+  if (hasAdminCustomConverter(site.subject) || hasAdminQueryProjection(site.subject)) return true;
+  if (!isObject(value)) return true;
+  return hasAdminCustomConverter(value) || hasAdminQueryProjection(value);
+}
+
+function isDocumentDelivery(site: ObservedSite, value: object): boolean {
+  return site.name === 'DocumentReference.onSnapshot' || isAdminDocumentSnapshot(value);
 }
 
 /** Session context extracted before an Admin Firestore method executes. */
@@ -112,8 +117,8 @@ export function adminFirestoreSessionContext(
 }
 
 function querySnapshotDelta(snap: object, useChanges: boolean): ObservedSessionDelta | undefined {
-  if (hasAdminCustomConverter(snap)) return skipDeltaOf('unsupported');
-  const collector = new AdminDeltaCollector();
+  if (hasAdminCustomConverter(snap) || hasAdminQueryProjection(snap)) return skipDeltaOf('unsupported');
+  const collector = new DeltaOps();
   addAdminQuerySnapshot(collector, snap, useChanges);
   return collector.delta();
 }
@@ -147,18 +152,8 @@ function addedAdminDocDelta(site: ObservedSite, value: object): ObservedSessionD
 function getAllResultDelta(subject: AdminGetAllCall, value: unknown): ObservedSessionDelta | undefined {
   if (subject.hasFieldMask) return skipDeltaOf('unsupported');
   if (!Array.isArray(value)) return undefined;
-  const collector = new AdminDeltaCollector();
-  for (let i = 0; i < value.length; i++) {
-    if (collector.refusesMore()) {
-      collector.truncateRemaining(value.length - i - 1);
-      break;
-    }
-    const ref = subject.docRefs[i];
-    if (!addAdminDocSnapshot(collector, value[i], docPathOfAdminRef(ref), ref)) {
-      collector.truncateRemaining(value.length - i - 1);
-      break;
-    }
-  }
+  const collector = new DeltaOps();
+  addAdminSnapshotBatch(collector, value, subject.docRefs);
   return collector.delta();
 }
 
@@ -167,10 +162,10 @@ export function adminFirestoreResult(site: ObservedSite, value: unknown): Result
   if (site.name === 'Query.get') {
     const reading: { billedDocuments?: number; sessionData?: ObservedSessionDelta } = {};
     if (isObject(value)) {
-      const size: unknown = Reflect.get(value, 'size');
+      const size = value.size;
       if (typeof size === 'number') reading.billedDocuments = Math.max(size, 1);
     }
-    if (hasAdminCustomConverter(site.subject)) {
+    if (isUnsupportedQueryRead(site.subject, value)) {
       reading.sessionData = skipDeltaOf('unsupported');
       return reading;
     }
@@ -182,10 +177,10 @@ export function adminFirestoreResult(site: ObservedSite, value: unknown): Result
   }
 
   if (site.name === 'DocumentReference.get') {
-    if (hasAdminCustomConverter(site.subject) || !isObject(value)) {
+    if (isUnsupportedDocumentRead(site.subject, value)) {
       return { sessionData: skipDeltaOf('unsupported') };
     }
-    return { sessionData: documentSnapshotDelta(value, site.path) };
+    return { sessionData: documentSnapshotDelta(value as object, site.path) };
   }
 
   if (site.name === 'CollectionReference.add') {
@@ -212,11 +207,12 @@ export function adminFirestoreResult(site: ObservedSite, value: unknown): Result
 
 /** Listener delivery extractor for Admin `DocumentReference.onSnapshot` and `Query.onSnapshot`. */
 export function adminFirestoreDelivery(site: ObservedSite, value: unknown): ObservedSessionDelta | undefined {
-  if (hasAdminCustomConverter(site.subject) || !isObject(value) || hasAdminCustomConverter(value)) {
+  if (isUnsupportedDelivery(site, value)) {
     return skipDeltaOf('unsupported');
   }
-  if (site.name === 'DocumentReference.onSnapshot' || isAdminDocumentSnapshot(value)) {
-    return documentSnapshotDelta(value, site.path);
+  const snapObj = value as object;
+  if (isDocumentDelivery(site, snapObj)) {
+    return documentSnapshotDelta(snapObj, site.path);
   }
-  return querySnapshotDelta(value, true);
+  return querySnapshotDelta(snapObj, true);
 }

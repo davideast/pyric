@@ -8,27 +8,25 @@
  * completely free of data values.
  */
 import { isObject, pathOf, queryIdOf, UNREAD_INSTANCE } from '../database.js';
+import {
+  copyRtdbSessionValue,
+  INVALID_RTDB_SESSION,
+  isForbiddenRtdbKey,
+  isValidRtdbSessionPath,
+  opDelta,
+  OVERSIZED_RTDB_SESSION,
+} from '../database-session-capture.js';
 import { isPlainObject } from '../json-copy.js';
 import type { CallContext, ObservedSite, ResultReading } from '../observe.js';
 import {
   chargeContainer,
-  chargeScalar,
   chargeString,
   MAX_SESSION_ITEM_BYTES,
   type SessionBudget,
 } from '../session-budget.js';
-import {
-  skipDeltaOf,
-  type ObservedRtdbSessionOp,
-  type ObservedSessionDelta,
-} from '../session-data.js';
+import { skipDeltaOf, type ObservedSessionDelta } from '../session-data.js';
 
-const MAX_RTDB_SESSION_DEPTH = 20;
-const MAX_RTDB_SESSION_PATH_LENGTH = 1024;
-const INVALID_RTDB_SESSION: unique symbol = Symbol('admin-invalid-rtdb-session');
-const OVERSIZED_RTDB_SESSION: unique symbol = Symbol('admin-oversized-rtdb-session');
-const FORBIDDEN_RTDB_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
-const FORBIDDEN_RTDB_PATH_CHARS = /[.#$[\]]/;
+const MAX_SENTINEL_SCAN_DEPTH = 20;
 const ADMIN_RTDB_WRITES: ReadonlySet<string> = new Set([
   'Reference.remove',
   'Reference.set',
@@ -44,96 +42,33 @@ interface AdminOnceSubject {
   readonly eventType: string;
 }
 
-function isForbiddenRtdbKey(key: string): boolean {
-  return FORBIDDEN_RTDB_KEYS.has(key) || FORBIDDEN_RTDB_PATH_CHARS.test(key);
-}
-
-function namesRtdbSessionPath(path: string | undefined): path is string {
-  if (typeof path !== 'string' || path.length > MAX_RTDB_SESSION_PATH_LENGTH) return false;
-  const segments = path.split('/').filter((seg) => seg.length > 0);
-  return segments.every((seg) => !isForbiddenRtdbKey(seg));
-}
-
-function copyRtdbSessionValue(
-  value: unknown,
-  depth: number,
-  budget: SessionBudget,
-): unknown {
-  if (value === null || typeof value === 'boolean') {
-    if (!chargeScalar(budget, value)) return OVERSIZED_RTDB_SESSION;
-    return value;
-  }
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) return INVALID_RTDB_SESSION;
-    if (!chargeScalar(budget, value)) return OVERSIZED_RTDB_SESSION;
-    return value;
-  }
-  if (typeof value === 'string') {
-    if (!chargeString(budget, value)) return OVERSIZED_RTDB_SESSION;
-    return value;
-  }
-  if (depth >= MAX_RTDB_SESSION_DEPTH) return INVALID_RTDB_SESSION;
+function containsRtdbServerSentinel(value: unknown, depth = 0): boolean {
+  if (depth > MAX_SENTINEL_SCAN_DEPTH) return false;
   if (Array.isArray(value)) {
-    if (!chargeContainer(budget)) return OVERSIZED_RTDB_SESSION;
-    return copyRtdbItems(value, depth, budget);
+    return value.some((item) => containsRtdbServerSentinel(item, depth + 1));
   }
-  if (!isPlainObject(value)) return INVALID_RTDB_SESSION;
-  if (!chargeContainer(budget)) return OVERSIZED_RTDB_SESSION;
-  return copyRtdbEntries(value, depth, budget);
+  if (!isPlainObject(value)) return false;
+  if (Object.prototype.hasOwnProperty.call(value, '.sv')) return true;
+  return Object.values(value).some((entry) => containsRtdbServerSentinel(entry, depth + 1));
 }
 
-function copyRtdbItems(
-  items: readonly unknown[],
-  depth: number,
-  budget: SessionBudget,
-): unknown {
-  const out: unknown[] = [];
-  for (const item of items) {
-    if (item === undefined) {
-      out.push(null);
-      continue;
-    }
-    const copied = copyRtdbSessionValue(item, depth + 1, budget);
-    if (copied === OVERSIZED_RTDB_SESSION || budget.left < 0) return OVERSIZED_RTDB_SESSION;
-    if (copied === INVALID_RTDB_SESSION) return INVALID_RTDB_SESSION;
-    out.push(copied);
-  }
-  return out;
-}
-
-function copyRtdbEntries(
-  fields: Fields,
-  depth: number,
-  budget: SessionBudget,
-): unknown {
-  const out: Fields = {};
-  for (const [key, entry] of Object.entries(fields)) {
-    if (isForbiddenRtdbKey(key)) return INVALID_RTDB_SESSION;
-    if (entry === undefined) continue;
-    if (!chargeString(budget, key)) return OVERSIZED_RTDB_SESSION;
-    const copied = copyRtdbSessionValue(entry, depth + 1, budget);
-    if (copied === OVERSIZED_RTDB_SESSION) return OVERSIZED_RTDB_SESSION;
-    if (copied === INVALID_RTDB_SESSION) return INVALID_RTDB_SESSION;
-    out[key] = copied;
-  }
-  return out;
-}
-
-function copiedValue(
+function copiedAdminRtdbValue(
   value: unknown,
+  rejectServerSentinels: boolean,
 ): { value: unknown } | { skipped: ObservedSessionDelta } {
-  const copied = copyRtdbSessionValue(value, 0, { left: MAX_SESSION_ITEM_BYTES });
+  if (rejectServerSentinels && containsRtdbServerSentinel(value)) {
+    return { skipped: skipDeltaOf('unsupported') };
+  }
+  const copied = copyRtdbSessionValue(value, 0, { left: MAX_SESSION_ITEM_BYTES }, false);
   if (copied === OVERSIZED_RTDB_SESSION) return { skipped: skipDeltaOf('oversized') };
   if (copied === INVALID_RTDB_SESSION) return { skipped: skipDeltaOf('unsupported') };
   return { value: copied };
 }
 
-function opDelta(op: ObservedRtdbSessionOp): ObservedSessionDelta {
-  return { rtdb: [op] };
-}
-
-function updateDelta(rawPatch: unknown, instance: string, path: string): ObservedSessionDelta | undefined {
-  if (!isPlainObject(rawPatch)) return skipDeltaOf('unsupported');
+function adminUpdateDelta(rawPatch: unknown, instance: string, path: string): ObservedSessionDelta | undefined {
+  if (!isPlainObject(rawPatch) || containsRtdbServerSentinel(rawPatch)) {
+    return skipDeltaOf('unsupported');
+  }
   const budget: SessionBudget = { left: MAX_SESSION_ITEM_BYTES };
   const patch: Fields = {};
   let hasEntry = false;
@@ -143,7 +78,7 @@ function updateDelta(rawPatch: unknown, instance: string, path: string): Observe
     const relSegments = relKey.split('/').filter((seg) => seg.length > 0);
     if (relSegments.length === 0 || relSegments.some(isForbiddenRtdbKey)) return skipDeltaOf('unsupported');
     if (!chargeString(budget, relKey)) return skipDeltaOf('oversized');
-    const copied = copyRtdbSessionValue(rawVal, 0, budget);
+    const copied = copyRtdbSessionValue(rawVal, 0, budget, false);
     if (copied === OVERSIZED_RTDB_SESSION) return skipDeltaOf('oversized');
     if (copied === INVALID_RTDB_SESSION) return skipDeltaOf('unsupported');
     patch[relSegments.join('/')] = copied;
@@ -156,18 +91,18 @@ function updateDelta(rawPatch: unknown, instance: string, path: string): Observe
 function compatPathOf(target: unknown): string | undefined {
   if (!isObject(target)) return undefined;
   const fromDelegate = pathOf(target._delegate);
-  if (namesRtdbSessionPath(fromDelegate)) return fromDelegate;
+  if (isValidRtdbSessionPath(fromDelegate)) return fromDelegate;
   const direct = pathOf(target);
-  if (namesRtdbSessionPath(direct)) return direct;
+  if (isValidRtdbSessionPath(direct)) return direct;
   return undefined;
 }
 
 function childPathUnder(parentPath: string | undefined, childKey: unknown): string | undefined {
   if (typeof childKey !== 'string' || childKey.length === 0) return undefined;
-  if (!namesRtdbSessionPath(parentPath)) return undefined;
+  if (!isValidRtdbSessionPath(parentPath)) return undefined;
   let candidate = `${parentPath}/${childKey}`;
   if (parentPath === '/') candidate = `/${childKey}`;
-  if (!namesRtdbSessionPath(candidate)) return undefined;
+  if (!isValidRtdbSessionPath(candidate)) return undefined;
   return candidate;
 }
 
@@ -191,7 +126,7 @@ export function adminDatabaseSessionContext(
     const subject: AdminOnceSubject = { kind: 'admin-rtdb-once', eventType };
     return { subject };
   }
-  if (!namesRtdbSessionPath(path)) {
+  if (!isValidRtdbSessionPath(path)) {
     if (ADMIN_RTDB_WRITES.has(name)) return { sessionData: skipDeltaOf('unsupported') };
     return {};
   }
@@ -199,19 +134,19 @@ export function adminDatabaseSessionContext(
     return { sessionData: opDelta({ kind: 'remove', instance, path }) };
   }
   if (name === 'Reference.set' || name === 'Reference.setWithPriority') {
-    const copied = copiedValue(args[0]);
+    const copied = copiedAdminRtdbValue(args[0], true);
     if ('skipped' in copied) return { sessionData: copied.skipped };
     return { sessionData: opDelta({ kind: 'set', instance, path, value: copied.value }) };
   }
   if (name === 'Reference.update') {
-    const sessionData = updateDelta(args[0], instance, path);
+    const sessionData = adminUpdateDelta(args[0], instance, path);
     if (sessionData === undefined) return {};
     return { sessionData };
   }
   if (name === 'Reference.push') {
     const childPath = pushChildPath(path, args[0]);
     if (childPath === undefined) return { sessionData: skipDeltaOf('unsupported') };
-    const copied = copiedValue(args[1]);
+    const copied = copiedAdminRtdbValue(args[1], true);
     if ('skipped' in copied) return { sessionData: copied.skipped };
     return { sessionData: opDelta({ kind: 'set', instance, path: childPath, value: copied.value }) };
   }
@@ -227,9 +162,9 @@ function snapshotPathOf(snap: Fields, fallbackPath?: string): string | undefined
   if (fromRef !== undefined) return fromRef;
   if (isObject(snap._delegate)) {
     const fromSnapDelegate = pathOf(snap._delegate.ref);
-    if (namesRtdbSessionPath(fromSnapDelegate)) return fromSnapDelegate;
+    if (isValidRtdbSessionPath(fromSnapDelegate)) return fromSnapDelegate;
   }
-  if (namesRtdbSessionPath(fallbackPath)) return fallbackPath;
+  if (isValidRtdbSessionPath(fallbackPath)) return fallbackPath;
   return undefined;
 }
 
@@ -247,7 +182,7 @@ function valueSnapshotDelta(
   const instance = site.instance ?? UNREAD_INSTANCE;
   const path = snapshotPathOf(snap, site.path);
   if (path === undefined) return skipDeltaOf('unsupported');
-  const copied = copiedValue(Reflect.apply(snap.val, snap, []));
+  const copied = copiedAdminRtdbValue(Reflect.apply(snap.val, snap, []), false);
   if ('skipped' in copied) return copied.skipped;
   if (forceUnfiltered || !isFilteredSnap(site, snap)) {
     return opDelta({ kind: 'set', instance, path, value: copied.value });
@@ -271,7 +206,7 @@ function childEventDelta(
     if (isFilteredSnap(site, snap)) return undefined;
     return opDelta({ kind: 'remove', instance, path: childPath });
   }
-  const copied = copiedValue(Reflect.apply(snap.val, snap, []));
+  const copied = copiedAdminRtdbValue(Reflect.apply(snap.val, snap, []), false);
   if ('skipped' in copied) return copied.skipped;
   return opDelta({ kind: 'set', instance, path: childPath, value: copied.value });
 }
@@ -285,11 +220,20 @@ function isChildEventType(eventType: string): boolean {
   );
 }
 
+function isOnceSubject(subject: unknown): subject is AdminOnceSubject {
+  return isObject(subject) && subject.kind === 'admin-rtdb-once' && typeof subject.eventType === 'string';
+}
+
 function onceEventTypeOf(subject: unknown): string {
-  if (isObject(subject) && subject.kind === 'admin-rtdb-once' && typeof subject.eventType === 'string') {
-    return subject.eventType;
-  }
+  if (isOnceSubject(subject)) return subject.eventType;
   return 'value';
+}
+
+function isCommittedTransactionResult(
+  site: ObservedSite,
+  value: unknown,
+): value is Fields & { committed: true; snapshot: unknown } {
+  return site.name === 'Reference.transaction' && isObject(value) && value.committed === true;
 }
 
 /** Extracts bounded session-observed RTDB values from resolved `Query.get`, `Query.once`, and `Reference.transaction` calls. */
@@ -307,7 +251,7 @@ export function adminDatabaseResult(site: ObservedSite, value: unknown): ResultR
     if (sessionData === undefined) return {};
     return { sessionData };
   }
-  if (site.name === 'Reference.transaction' && isObject(value) && value.committed === true) {
+  if (isCommittedTransactionResult(site, value)) {
     const snap = value.snapshot;
     if (!isSnapshot(snap)) return {};
     const sessionData = valueSnapshotDelta(site, snap, true);

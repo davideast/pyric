@@ -50,6 +50,7 @@ function skipSummaryParts(skips: ObservedSessionSkipStats | undefined): string[]
     parts.push(`${skips.failed} failed/denied ${skips.failed === 1 ? 'call' : 'calls'}`);
   }
   if (skips.admin > 0) {
+    // Retained for wire compatibility with snapshots that report uncaptured Admin calls.
     parts.push(`${skips.admin} Admin SDK ${skips.admin === 1 ? 'call' : 'calls'}`);
   }
   if (skips.oversized > 0) {
@@ -58,7 +59,7 @@ function skipSummaryParts(skips: ObservedSessionSkipStats | undefined): string[]
   }
   if (skips.unsupported > 0) {
     parts.push(
-      `${countOf(skips.unsupported, 'uncaptured op', 'uncaptured ops')} (sentinels, converters, field masks, or client transactions)`,
+      `${countOf(skips.unsupported, 'uncaptured op', 'uncaptured ops')} (sentinels, converters, projections, field masks, or client transactions)`,
     );
   }
   if (skips.truncated > 0) {

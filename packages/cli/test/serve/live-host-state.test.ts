@@ -235,6 +235,12 @@ describe('the live host state\'s observed session data', () => {
     );
     sendThroughValidation(
       live,
+      'auth-admin-ignored',
+      { service: 'auth', method: 'Auth.getUser', sdk: 'admin' },
+      { firestore: [{ kind: 'set', path: 'rooms/forged-from-auth', data: { bad: true } }] },
+    );
+    sendThroughValidation(
+      live,
       'admin-read',
       { method: 'DocumentReference.get', sdk: 'admin', path: 'rooms/admin-read' },
       { firestore: [{ kind: 'set', path: 'rooms/admin-read', data: { seededBy: 'admin' } }] },

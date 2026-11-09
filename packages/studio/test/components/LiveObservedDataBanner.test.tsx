@@ -148,7 +148,7 @@ describe('LiveObservedDataBanner', () => {
     );
     const skipsText = view.container.querySelector('[data-live-observed-skips]')?.textContent ?? '';
     expect(skipsText).toContain(
-      '2 uncaptured ops (sentinels, converters, field masks, or client transactions)',
+      '2 uncaptured ops (sentinels, converters, projections, field masks, or client transactions)',
     );
     expect(skipsText).not.toContain('Admin SDK');
   });
