@@ -54,6 +54,14 @@ describe('merge queue workflow contract', () => {
     expect(build.concurrency?.group).toBe('build-${{ github.workflow }}-${{ github.ref }}');
   });
 
+  test('a run on main is never cancelled, so every merge is checked against its parent', () => {
+    // The coverage gate compares each commit on main with its first parent's
+    // report. A cancelled main run would leave that merge unchecked, and its
+    // regression would become the next commit's base instead of turning main
+    // red. Pull request and group runs on the same ref still cancel.
+    expect(build.concurrency?.['cancel-in-progress']).toBe("${{ github.ref != 'refs/heads/main' }}");
+  });
+
   test('the plan receives the event name, so a group selects the full proof', () => {
     const select = build.jobs.plan?.steps?.find((step) => step.name === 'Select proof');
     expect(select?.env?.CI_EVENT_NAME).toBe('${{ github.event_name }}');
