@@ -43,6 +43,7 @@ import {
 } from '../grammar/function-scopes.js';
 import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
 import { ruleLibraryCalls } from './library-calls.js';
+import { resolveBundledModulesForAnalysis } from '../modules/resolver-browser.js';
 import {
   CALL_DEPTH_LIMIT,
   LET_LIMIT,
@@ -1005,7 +1006,8 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
     return { warnings, metrics: sourceOnlyMetrics(source), parseError: parsed.error };
   }
   try {
-    return analyzeParsedRules(parsed.ast, source, options, warnings);
+    const astForAnalysis = resolveBundledModulesForAnalysis(parsed.ast, source);
+    return analyzeParsedRules(astForAnalysis, source, options, warnings);
   } catch (error) {
     // The checks walk each expression recursively, following the functions
     // it calls. A chain the parser reads can still be deeper, through those
@@ -1145,7 +1147,8 @@ function analyzeParsedRules(
   if (options.previousSource) {
     const prev = parseToASTOrError(options.previousSource);
     if (prev.ok) {
-      checkRulesWeakened(topLevelMatches(ast.service), topLevelMatches(prev.ast.service), warnings);
+      const prevAst = resolveBundledModulesForAnalysis(prev.ast, options.previousSource);
+      checkRulesWeakened(topLevelMatches(ast.service), topLevelMatches(prevAst.service), warnings);
     }
   }
 

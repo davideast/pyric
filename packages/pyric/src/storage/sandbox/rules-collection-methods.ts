@@ -9,7 +9,7 @@ import {
 } from '../../rules/simulator/list-methods.js';
 import { MapMethodFailure, mapList, type MapListMethod } from '../../rules/simulator/map-keys.js';
 import { MapDiff } from '../../rules/simulator/mapdiff.js';
-import type { EvalCtx } from './rules-evaluator.js';
+import { noteMapEnumerationRead, noteMapGetRead, type EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {
   evalArguments,
@@ -35,7 +35,10 @@ function evalSize(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   if (receiver instanceof FirestoreSet) return evalSetMethod(receiver, expr, ctx);
   expectNoArguments(expr);
   if (typeof receiver === 'string' || Array.isArray(receiver)) return receiver.length;
-  if (isRulesMap(receiver)) return Object.keys(receiver).length;
+  if (isRulesMap(receiver)) {
+    noteMapEnumerationRead(ctx, receiver);
+    return Object.keys(receiver).length;
+  }
   return evalValueMethod(receiver, expr);
 }
 
@@ -49,6 +52,7 @@ function evalMapList(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown
   if (isErr(args)) return args;
   const result = mapList(expr.method as MapListMethod, receiver, args);
   if (result instanceof MapMethodFailure) throw new RuleEvalError(result.message);
+  noteMapEnumerationRead(ctx, receiver);
   return result;
 }
 
@@ -91,6 +95,7 @@ function evalMapGet(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown 
   if (isErr(args)) return args;
   const [key, fallback] = args;
   if (typeof key === 'string') {
+    noteMapGetRead(ctx, receiver, key);
     return Object.hasOwn(receiver, key) && receiver[key] !== undefined ? receiver[key] : fallback;
   }
   if (Array.isArray(key)) {
@@ -99,6 +104,7 @@ function evalMapGet(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown 
         throw new RuleEvalError(`get() key list elements must be strings`);
       }
     }
+    noteMapGetRead(ctx, receiver, key as string[]);
     let current: unknown = receiver;
     for (const part of key) {
       if (!isRulesMap(current) || !Object.hasOwn(current, part) || current[part] === undefined) {
@@ -160,6 +166,8 @@ function evalMapDiff(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown
   if (!isRulesMap(before)) {
     throw new RuleEvalError(`diff() argument must be a map, got ${describeType(before)}`);
   }
+  noteMapEnumerationRead(ctx, receiver);
+  noteMapEnumerationRead(ctx, before);
   return new MapDiff(before, receiver);
 }
 

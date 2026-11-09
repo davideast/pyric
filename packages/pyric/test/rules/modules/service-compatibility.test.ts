@@ -109,14 +109,43 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
     }
   });
+  test('admits all production-verified Storage request.resource fields in imported modules', () => {
+    for (const field of [
+      'cacheControl',
+      'contentDisposition',
+      'contentEncoding',
+      'contentLanguage',
+      'bucket',
+      'generation',
+      'metageneration',
+      'etag',
+      'md5Hash',
+      'crc32c',
+      'storageClass',
+    ]) {
+      const result = resolveModules(
+        makeStorageSource("import { checkField } from './policy';", 'checkField()'),
+        {
+          modules: {
+            './policy': `
+              export function checkField() {
+                return request.resource.${field} == null || request.resource.${field} != null;
+              }
+            `,
+          },
+        },
+      );
+      expect(result.success, field).toBe(true);
+    }
+  });
   test('fails closed on an unclassified Storage ambient object field', () => {
     const result = resolveModules(
-      makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
+      makeStorageSource("import { hasCreated } from './policy';", 'hasCreated()'),
       {
         modules: {
           './policy': `
-            export function hasDigest() {
-              return request.resource.md5Hash != null;
+            export function hasCreated() {
+              return request.resource.timeCreated != null;
             }
           `,
         },
@@ -125,7 +154,7 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
-      expect(result.error.message).toContain("binding 'request.resource.md5Hash'");
+      expect(result.error.message).toContain("binding 'request.resource.timeCreated'");
       expect(result.error.message).toContain("service 'firebase.storage'");
     }
   });
@@ -169,10 +198,10 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
   });
   test('does not let literal bracket notation bypass ambient binding checks', () => {
     const storage = resolveModules(
-      makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
+      makeStorageSource("import { hasCreated } from './policy';", 'hasCreated()'),
       { modules: { './policy': `
-        export function hasDigest() {
-          return request.resource['md5Hash'] != null;
+        export function hasCreated() {
+          return request.resource['timeCreated'] != null;
         }
       ` } },
     );
@@ -186,7 +215,7 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     );
     expect(storage.success).toBe(false);
     expect(firestore.success).toBe(false);
-    if (!storage.success) expect(storage.error.message).toContain("binding 'request.resource.md5Hash'");
+    if (!storage.success) expect(storage.error.message).toContain("binding 'request.resource.timeCreated'");
     if (!firestore.success) expect(firestore.error.message).toContain("binding 'request.resource.size'");
   });
   test('fails closed on dynamic access to a closed ambient object', () => {
@@ -204,7 +233,7 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
   test('does not let collection operations bypass closed Storage object fields', () => {
     for (const expression of [
       "request.resource.get('md5Hash', null) != null",
-      "'md5Hash' in request.resource",
+      "'timeCreated' in request.resource",
       "'storageClass' in resource",
       "resource.keys().hasAll(['md5Hash'])",
     ]) {
@@ -341,11 +370,11 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
   });
   test('does not let a local alias launder an incompatible ambient binding', () => {
     const storage = resolveModules(
-      makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
+      makeStorageSource("import { hasCreated } from './policy';", 'hasCreated()'),
       { modules: { './policy': `
-        export function hasDigest() {
+        export function hasCreated() {
           let incoming = request.resource;
-          return incoming.md5Hash != null;
+          return incoming.timeCreated != null;
         }
       ` } },
     );
@@ -363,11 +392,11 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
   });
   test('does not let an identity helper launder an incompatible ambient binding', () => {
     const result = resolveModules(
-      makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
+      makeStorageSource("import { hasCreated } from './policy';", 'hasCreated()'),
       { modules: { './policy': `
         function identity(value) { return value; }
-        export function hasDigest() {
-          return identity(request.resource).md5Hash != null;
+        export function hasCreated() {
+          return identity(request.resource).timeCreated != null;
         }
       ` } },
     );
@@ -411,11 +440,11 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
   });
   test('propagates ambient provenance into helper parameters', () => {
     const result = resolveModules(
-      makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
+      makeStorageSource("import { hasCreated } from './policy';", 'hasCreated()'),
       { modules: { './policy': `
-        function hasMd5(value) { return value.md5Hash != null; }
-        export function hasDigest() {
-          return hasMd5(request.resource);
+        function hasTimeCreated(value) { return value.timeCreated != null; }
+        export function hasCreated() {
+          return hasTimeCreated(request.resource);
         }
       ` } },
     );

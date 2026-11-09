@@ -164,7 +164,7 @@ service firebase.storage {
     function gate() { let incoming = value(); return bad(incoming); }
     match /{file} { allow write: if gate(); }
   }
-}`, { modules: { './policy': 'export function bad(value) { return value.md5Hash != null; }' } });
+}`, { modules: { './policy': 'export function bad(value) { return value.timeCreated != null; }' } });
     expect(result.success).toBe(false);
   });
 

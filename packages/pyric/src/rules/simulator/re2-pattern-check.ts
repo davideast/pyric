@@ -8,12 +8,13 @@
  * a construct RE2 lacks (backreferences, lookaround), or when it does not
  * compile at all.
  */
+import { scanRe2Pattern } from '../grammar/re2-pattern.js';
 import { invalidPatternMessage, parseRe2Ast, re2PatternCompiles, re2SizeRefusal } from './rules-type.js';
 
 /** Why production would refuse `pattern` at compile, as its message, or null. */
 export function re2PatternProblem(pattern: string): string | null {
   const invalid = invalidPatternMessage(pattern);
-  if (/\\[1-9]/.test(pattern) || /\(\?<?[=!]/.test(pattern)) return invalid;
+  if (scanRe2Pattern(pattern).unsupported !== null) return invalid;
   try {
     const sizeRefusal = re2SizeRefusal(pattern, parseRe2Ast(pattern));
     if (sizeRefusal !== null) return sizeRefusal;

@@ -35,6 +35,10 @@
  * itself.
  */
 
+import { assembleRules } from '../grammar/FirestoreAssembler.js';
+import type { FirestoreRules } from '../grammar/FirestoreAST.js';
+import { parseToAST } from '../grammar/FirestoreParser.js';
+import { isLocalRelativeModuleSpecifier } from '../grammar/function-scopes.js';
 import { resolveModulesWith, type ModuleFileReader, type ResolveOptions, type ResolveResult } from './resolver-core.js';
 import { STDLIB_INLINE } from './stdlib-content.js';
 
@@ -81,6 +85,46 @@ export function resolveModulesBrowser(
   options?: ResolveOptions,
 ): ResolveResult {
   return resolveWithInlinedStdlib(null, source, options);
+}
+
+export { isLocalRelativeModuleSpecifier };
+
+/**
+ * Pre-resolve bundled stdlib imports on a `2+modules` AST for static analysis
+ * (`lint()`, `lintFirestoreRules()`, `validateFirestoreRules()`). Preserves any
+ * local relative imports (`./...`, `../...`) when no filesystem reader is
+ * available, and leaves the input AST untouched when stdlib resolution fails
+ * so invalid/unexported module imports surface as unresolved symbols.
+ */
+export function resolveBundledModulesForAnalysis(
+  ast: FirestoreRules,
+  rawSource?: string,
+): FirestoreRules {
+  if (ast.version !== '2+modules' || !ast.imports || ast.imports.length === 0) {
+    return ast;
+  }
+  const localRelativeImports = ast.imports.filter((imp) => isLocalRelativeModuleSpecifier(imp.module));
+  const bundledImports = ast.imports.filter((imp) => !isLocalRelativeModuleSpecifier(imp.module));
+  if (bundledImports.length === 0) {
+    return ast;
+  }
+  const candidateSource =
+    localRelativeImports.length === 0 && rawSource !== undefined
+      ? rawSource
+      : assembleRules({ ...ast, imports: bundledImports });
+  const resolved = resolveModulesBrowser(candidateSource);
+  if (!resolved.success) {
+    return ast;
+  }
+  const resolvedAst = parseToAST(resolved.data.resolved);
+  if (!resolvedAst) {
+    return ast;
+  }
+  if (localRelativeImports.length > 0) {
+    resolvedAst.version = '2+modules';
+    resolvedAst.imports = localRelativeImports;
+  }
+  return resolvedAst;
 }
 
 /**

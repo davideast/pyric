@@ -10,6 +10,7 @@ import {
   functionReferences, ruleReferences, walkExpr,
   type NameReferences, type RulesetScopes,
 } from './function-scopes.js';
+import { resolveBundledModulesForAnalysis } from '../modules/resolver-browser.js';
 
 export interface ValidationFinding {
   code: string;
@@ -23,28 +24,11 @@ const WRITE_OPS: Set<Operation> = new Set(['write', 'create', 'update', 'delete'
 const READ_OPS: Set<Operation> = new Set(['read', 'get', 'list']);
 const DATA_WRITE_OPS: Set<Operation> = new Set(['write', 'create', 'update']);
 
-const IMPORTED_AUTH_HELPERS: ReadonlySet<string> = new Set([
-  'isAuthenticated',
-  'isSignedIn',
-  'isOwner',
-  'isVerified',
-  'hasClaim',
-  'hasRole',
-  'hasAnyRole',
-]);
-
-export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[] {
+export function validateFirestoreRules(inputAst: FirestoreRules): ValidationFinding[] {
+  const ast = resolveBundledModulesForAnalysis(inputAst);
   const findings: ValidationFinding[] = [];
   const rootMatches = topLevelMatches(ast.service);
   const isStorage = isStorageServiceName(ast.service?.name);
-
-  const importedAuthFns = new Set<string>();
-  for (const imp of ast.imports ?? []) {
-    const names = imp.functions ?? (imp as { names?: string[] }).names ?? [];
-    for (const name of names) {
-      if (IMPORTED_AUTH_HELPERS.has(name)) importedAuthFns.add(name);
-    }
-  }
 
   // Global and service scope functions are visible in every match block.
   const outerScope = [...(ast.functions ?? []), ...(ast.service.functions ?? [])];
@@ -70,7 +54,7 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
 
   // Walk all match blocks
   for (const rootMatch of rootMatches) {
-    walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage, importedAuthFns);
+    walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage);
   }
 
   return findings;
@@ -85,7 +69,6 @@ function walkMatch(
    *  null for the documents root itself. */
   parentSegments: readonly PathSegment[] | null = null,
   isStorage = false,
-  importedAuthFns: ReadonlySet<string> = new Set(),
 ) {
   const segments = parentSegments === null ? [] : [...parentSegments, ...match.path.segments];
   // SEC-2 and SEC-5 concern a recursive wildcard in the last position, which
@@ -141,7 +124,7 @@ function walkMatch(
 
     // SEC-3: No auth check on write (follows function calls transitively)
     const fnMap = new Map(localScope.map(f => [f.name, f]));
-    if (isWrite && !isLiteralTrue && !isLiteralFalse && !guardsAuthTransitive(cond, fnMap, fnScopes, importedAuthFns)) {
+    if (isWrite && !isLiteralTrue && !isLiteralFalse && !guardsAuthTransitive(cond, fnMap, fnScopes)) {
       findings.push({
         code: 'SEC-3', severity: 'high', path: pathStr, operation: opStr,
         message: `Write rule (${opStr}) at ${pathStr} does not check request.auth`,
@@ -237,7 +220,7 @@ function walkMatch(
 
   // Recurse into children
   for (const child of match.children) {
-    walkMatch(child, findings, localScope, fnScopes, segments, isStorage, importedAuthFns);
+    walkMatch(child, findings, localScope, fnScopes, segments, isStorage);
   }
 }
 
@@ -434,11 +417,7 @@ function guardsConditionTransitive(
   return found;
 }
 
-function checkAuthAtom(
-  expr: Expression,
-  fns: ReadonlyMap<string, FunctionDef>,
-  importedAuthFns: ReadonlySet<string>,
-): boolean | null {
+function checkAuthAtom(expr: Expression): boolean | null {
   if (expr.type === 'unaryOp' && expr.op === '!') {
     if (isAuthComparisonWithNull(expr.operand, '==')) return true;
     if (isAuthComparisonWithNull(expr.operand, '!=')) return false;
@@ -446,12 +425,6 @@ function checkAuthAtom(
   }
   if (isAuthComparisonWithNull(expr, '==')) return false;
   if (exprContains(expr, isRequestAuth)) return true;
-  if (
-    importedAuthFns.size > 0 &&
-    exprContains(expr, e => e.type === 'functionCall' && !fns.has(e.name) && importedAuthFns.has(e.name))
-  ) {
-    return true;
-  }
   return null;
 }
 
@@ -464,9 +437,8 @@ function guardsAuthTransitive(
   expr: Expression,
   fns: ReadonlyMap<string, FunctionDef>,
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  importedAuthFns: ReadonlySet<string> = new Set(),
 ): boolean {
-  return guardsConditionTransitive(expr, e => checkAuthAtom(e, fns, importedAuthFns), fns, fnScopes);
+  return guardsConditionTransitive(expr, checkAuthAtom, fns, fnScopes);
 }
 
 function validatesRequestDataTransitive(

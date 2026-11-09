@@ -86,7 +86,7 @@ function mergeObservation(into: StorageEvaluationObservation, run: StorageEvalua
   if (run.matchedRule !== undefined) into.matchedRule = run.matchedRule;
 }
 
-type TrackedRoot = 'request' | 'auth' | 'token';
+type TrackedRoot = 'request' | 'auth' | 'token' | 'firebase' | 'identities';
 
 export function evaluateStorageRules(
   rules: StorageRules,
@@ -453,6 +453,48 @@ function notePropertyRead(ctx: EvalCtx, target: unknown, name: string, result: u
     }
   } else if (kind === 'token') {
     if (name === 'email') obs.readAuthTokenEmail = true;
+    else if (name === 'firebase') trackObject(ctx, result, 'firebase');
+  } else if (kind === 'firebase') {
+    if (name === 'identities') trackObject(ctx, result, 'identities');
+  } else if (kind === 'identities') {
+    if (name === 'email') obs.readAuthTokenEmail = true;
+  }
+}
+
+export function noteMapGetRead(ctx: EvalCtx, receiver: unknown, key: string | readonly string[]): void {
+  const obs = ctx.observation;
+  const tracked = ctx.trackedRoots;
+  if (!obs || !tracked || receiver === null || typeof receiver !== 'object') return;
+  if (typeof key === 'string') {
+    const next = isRulesMap(receiver) && Object.hasOwn(receiver, key) ? receiver[key] : undefined;
+    notePropertyRead(ctx, receiver, key, next);
+    return;
+  }
+  const kind = tracked.get(receiver);
+  if (
+    (kind === 'token' && key[0] === 'firebase' && key[1] === 'identities' && key[2] === 'email') ||
+    (kind === 'firebase' && key[0] === 'identities' && key[1] === 'email') ||
+    (kind === 'identities' && key[0] === 'email')
+  ) {
+    obs.readAuthTokenEmail = true;
+  }
+  let current: unknown = receiver;
+  for (const part of key) {
+    if (!isRulesMap(current)) break;
+    const next = Object.hasOwn(current, part) ? current[part] : undefined;
+    notePropertyRead(ctx, current, part, next);
+    if (next === undefined) break;
+    current = next;
+  }
+}
+
+export function noteMapEnumerationRead(ctx: EvalCtx, receiver: unknown): void {
+  const obs = ctx.observation;
+  const tracked = ctx.trackedRoots;
+  if (!obs || !tracked || receiver === null || typeof receiver !== 'object') return;
+  const kind = tracked.get(receiver);
+  if (kind === 'token' || kind === 'identities') {
+    obs.readAuthTokenEmail = true;
   }
 }
 
@@ -658,8 +700,15 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       switch (expr.op) {
         // Lists and maps compare structurally (production `[a] == [a]` is
         // true), each element by its numeric type as well as its value.
-        case '==': return rulesValuesEqual(l, r);
-        case '!=': return !rulesValuesEqual(l, r);
+        case '==':
+        case '!=': {
+          if (isRulesMap(l) && isRulesMap(r)) {
+            noteMapEnumerationRead(ctx, l);
+            noteMapEnumerationRead(ctx, r);
+          }
+          const equal = rulesValuesEqual(l, r);
+          return expr.op === '==' ? equal : !equal;
+        }
         case '<':
         case '>':
         case '<=':
@@ -812,6 +861,8 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
     firestoreLookup: ctx.firestoreLookup,
     firestoreAccesses: ctx.firestoreAccesses,
     expressionBudget: ctx.expressionBudget,
+    observation: ctx.observation,
+    trackedRoots: ctx.trackedRoots,
   };
   // `let` bindings evaluated in order; each is visible to the next and
   // to the return expression (they share the `locals` object). A binding
