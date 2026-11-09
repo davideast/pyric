@@ -406,9 +406,19 @@ function compareSites(a: AccessSite, b: AccessSite): number {
   const [fb, lb] = splitSource(b.source);
   if (fa !== fb) return fa < fb ? -1 : 1;
   if (la !== lb) return la - lb;
+  if (a.service !== b.service) return a.service < b.service ? -1 : 1;
+  const ra = a.resourceId ?? '(default)';
+  const rb = b.resourceId ?? '(default)';
+  if (ra !== rb) return ra < rb ? -1 : 1;
   if (a.op !== b.op) return a.op < b.op ? -1 : 1;
   if (a.path < b.path) return -1;
   if (a.path > b.path) return 1;
+  const aa = a.admin ? 1 : 0;
+  const ab = b.admin ? 1 : 0;
+  if (aa !== ab) return aa - ab;
+  const ta = a.through ?? '';
+  const tb = b.through ?? '';
+  if (ta !== tb) return ta < tb ? -1 : 1;
   return 0;
 }
 

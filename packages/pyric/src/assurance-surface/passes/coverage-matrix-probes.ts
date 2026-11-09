@@ -12,6 +12,7 @@ import {
 import { isWriteOp } from '../code/operation-specs.js';
 import type { AccessSite } from '../code/types.js';
 import type { SdkUsageIndex } from '../code/usage-index.js';
+import { siteResourcePattern } from '../code/usage-records.js';
 import type { RuleSurface, RuleSurfaceEntry } from '../rules/rule-surface.js';
 import {
   concretizeSitePatterns,
@@ -44,7 +45,7 @@ export function normalizeSitePattern(
   site: AccessSite,
   defaultBucket: string | undefined,
 ): ResourcePattern {
-  const parsed = parseResourcePattern(site.service, site.path, site.resourceId);
+  const parsed = siteResourcePattern(site);
   if (
     site.service === 'storage'
     && parsed.resourceId === DEFAULT_RESOURCE_ID

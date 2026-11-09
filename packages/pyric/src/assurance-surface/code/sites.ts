@@ -13,7 +13,14 @@ import {
   type OperationIndex,
   type OpSpec,
 } from './operation-specs.js';
-import { expressionName, functionName, hole, partsToSegmentAlternatives, renderPath } from './paths.js';
+import {
+  expressionName,
+  functionName,
+  hole,
+  partsToSegmentAlternatives,
+  renderPath,
+  segmentsToResourcePattern,
+} from './paths.js';
 import { payloadShape } from './payload.js';
 import { posixRelative } from './posix-path.js';
 import {
@@ -27,7 +34,13 @@ import {
 } from './specialization.js';
 import { extractStorageUpload, type ExtractedUploadInfo } from './storage-upload.js';
 import type { AccessService, AccessSite, PayloadShape, QueryConstraint } from './types.js';
-import { attachSiteUsage, collectProgramUsage, mergeSiteUsage } from './usage-records.js';
+import {
+  attachSitePattern,
+  attachSiteUsage,
+  collectProgramUsage,
+  mergeSiteUsage,
+  siteDedupeKey,
+} from './usage-records.js';
 import {
   alternatives,
   literalText,
@@ -91,7 +104,6 @@ export class SiteCollector {
 
   private scanCall(call: ts.CallExpression, owned: boolean): void {
     this.ev.startBudget(STEP_BUDGET);
-    if (ts.isIdentifier(call.expression) && !this.isImportedName(call.expression)) return;
     const name = calleeName(call);
     if (name === undefined) return;
     const txCandidates = this.opIndex.transactionMethods.get(name);
@@ -157,7 +169,13 @@ export class SiteCollector {
     }
     if (
       ts.isPropertyAccessExpression(call.expression)
-      && (this.opIndex.methodNames.has(name) || (owned && this.opIndex.handleRefMethodNames.has(name)))
+      && (
+        this.opIndex.methodNames.has(name)
+        || (
+          owned
+          && (this.opIndex.handleRefMethodNames.has(name) || this.opIndex.chainedConstraintNames.has(name))
+        )
+      )
     ) {
       const receiverExpr = call.expression.expression;
       const receiver = this.force(this.ev.eval(receiverExpr));
@@ -172,7 +190,14 @@ export class SiteCollector {
             let boundReceiver: ts.Expression | undefined;
             if (methodSpec.usesReceiverRef) boundReceiver = receiverExpr;
             this.record(
-              { call, service: r.service, spec: methodSpec, via: methodSpec.via, receiverExpr: boundReceiver },
+              {
+                call,
+                service: r.service,
+                spec: methodSpec,
+                via: methodSpec.via,
+                admin: Boolean(r.admin || methodSpec.admin),
+                receiverExpr: boundReceiver,
+              },
               owned,
             );
           }
@@ -180,7 +205,10 @@ export class SiteCollector {
         }
         if (r.k === 'ref' && this.opIndex.methodNames.has(name)) {
           const refMethodSpec = ownRecordValue(this.ev.sdk.serviceModel(r.service)?.refMethods, name);
-          if (refMethodSpec) {
+          if (
+            refMethodSpec
+            && (refMethodSpec.minArgs === undefined || call.arguments.length >= refMethodSpec.minArgs)
+          ) {
             this.record(
               {
                 call,
@@ -195,9 +223,27 @@ export class SiteCollector {
             continue;
           }
         }
+        if (owned && r.k === 'ref' && this.opIndex.chainedConstraintNames.has(name)) {
+          const model = this.ev.sdk.serviceModel(r.service);
+          const constraintSpec = model?.chainedConstraints ? ownRecordValue(model.constraints, name) : undefined;
+          if (constraintSpec && !name.includes('.')) {
+            this.constructions.push({
+              call,
+              service: r.service,
+              name,
+              isQuery: true,
+              reportUnconsumed: true,
+              admin: r.admin,
+            });
+            continue;
+          }
+        }
         if (owned && (r.k === 'db' || r.k === 'ref') && this.opIndex.handleRefMethodNames.has(name)) {
           const refSpec = ownRecordValue(this.ev.sdk.serviceModel(r.service)?.handleRefMethods, name);
-          if (refSpec) {
+          const allowed =
+            refSpec !== undefined
+            && (r.k === 'db' ? refSpec.allowOnHandle !== false : refSpec.allowOnRef !== false);
+          if (refSpec && allowed) {
             this.constructions.push({
               call,
               service: r.service,
@@ -216,11 +262,6 @@ export class SiteCollector {
     this.ops.push({ op, generic: this.sitesFor(op, env, op.call, undefined), owned });
   }
 
-  private isImportedName(id: ts.Identifier): boolean {
-    const sym = this.ev.refs.symbolOf(id);
-    return sym !== undefined && (sym.flags & ts.SymbolFlags.Alias) !== 0;
-  }
-
   private source(node: ts.Node): string {
     const sf = node.getSourceFile();
     const { line } = sf.getLineAndCharacterOfPosition(node.getStart());
@@ -228,7 +269,7 @@ export class SiteCollector {
   }
 
   private push(site: AccessSite): void {
-    const key = `${site.source}|${site.through ?? ''}|${site.op}|${site.path}|${site.resolution}|${site.multiPath ? 'm' : ''}|${site.via ?? ''}`;
+    const key = siteDedupeKey(site);
     const existing = this.seenSites.get(key);
     if (existing) {
       mergeSiteUsage(existing, site);
@@ -297,6 +338,7 @@ export class SiteCollector {
       const { path, variables } = renderPath(service, segments, this.force);
       const resolution = notes.length > 0 ? 'partial' : 'resolved';
       const site: AccessSite = { ...base, op: opName, path, resolution };
+      attachSitePattern(site, segmentsToResourcePattern(service, segments, ref.resourceId));
       if (ref.resourceId !== '(default)') site.resourceId = ref.resourceId;
       if (ref.admin) site.admin = true;
       if (ref.fromCallers) CALLER_SHAPED.add(site);
@@ -305,7 +347,7 @@ export class SiteCollector {
       if (ref.constraints?.length) site.query = ref.constraints.map(toConstraint);
       if (uploadInfo?.storageUpload) site.storageUpload = uploadInfo.storageUpload;
       if (payload && spec.multiPathUpdate) {
-        for (const expanded of expandMultiPathSites(this.force, service, fieldSep, site, segments, payload.value)) {
+        for (const expanded of expandMultiPathSites(this.force, service, fieldSep, site, segments, payload.value, ref.resourceId)) {
           attachSiteUsage(expanded, ref, refs, refExpr, sourceNode, through, this.ev, this.force, (n) => this.source(n));
           out.push(expanded);
         }
@@ -365,16 +407,22 @@ export class SiteCollector {
         for (const b of a.built) if (b !== c.call) covers.push(nodeId(b));
       }
       const ref = alternatives(v).find((a): a is Extract<AVal, { k: 'ref' }> => a.k === 'ref');
+      const effectiveIsQuery = c.isQuery || Boolean(ref?.constraints?.length || ref?.queryCall);
+      if (effectiveIsQuery && !this.includeReads) continue;
       let sitePath = '';
       if (ref) sitePath = renderPath(c.service, ref.segments).path;
       const site: AccessSite = {
         path: sitePath,
         service: c.service,
-        op: c.isQuery ? 'query' : 'ref',
+        op: effectiveIsQuery ? 'query' : 'ref',
         source: this.source(c.call),
         resolution: 'unresolved',
         reason: `${c.name}() result never reaches a recognised read or write in the project${consumerHint(c.call)}`,
       };
+      if (ref) {
+        attachSitePattern(site, segmentsToResourcePattern(c.service, ref.segments, ref.resourceId));
+        if (ref.resourceId !== '(default)') site.resourceId = ref.resourceId;
+      }
       if (ref?.admin || c.admin) site.admin = true;
       if (ref?.constraints?.length) site.query = ref.constraints.map(toConstraint);
       out.push({ key: nodeId(c.call), site, covers, report: c.reportUnconsumed });
@@ -402,7 +450,14 @@ function evaluateCallPayload(
   const dataExpr = call.arguments[spec.data!];
   if (!dataExpr) return undefined;
   let value = ev.eval(dataExpr, env);
-  const isVariadicUpdate = Boolean(spec.variadicFieldPairs) && (call.arguments.length >= 3 || literalText(force(value)) !== null);
+  const forcedData = force(value);
+  const isVariadicUpdate =
+    Boolean(spec.variadicFieldPairs)
+    && (
+      call.arguments.length >= spec.data! + 3
+      || literalText(forcedData) !== null
+      || (call.arguments.length >= spec.data! + 2 && !alternatives(forcedData).some((a) => a.k === 'obj'))
+    );
   if (isVariadicUpdate) {
     const props = new Map<string, AVal>();
     let open = false;
@@ -433,6 +488,7 @@ function expandMultiPathSites(
   site: AccessSite,
   baseSegments: Segment[],
   value: AVal,
+  resourceId: string,
 ): AccessSite[] {
   const out: AccessSite[] = [];
   for (const alt of alternatives(force(value))) {
@@ -446,8 +502,10 @@ function expandMultiPathSites(
       const key = force(e.key);
       if (key.k !== 'str') continue;
       for (const segs of partsToSegmentAlternatives(key.parts, force)) {
-        const { path, variables } = renderPath(service, [...baseSegments, ...segs], force);
+        const fullSegments = [...baseSegments, ...segs];
+        const { path, variables } = renderPath(service, fullSegments, force);
         const sub: AccessSite = { ...site, path, multiPath: true, payload: payloadShape(e.value, force, fieldSeparator) };
+        attachSitePattern(sub, segmentsToResourcePattern(service, fullSegments, resourceId));
         if (variables.length > 0) sub.pathVariables = variables;
         else delete sub.pathVariables;
         out.push(sub);

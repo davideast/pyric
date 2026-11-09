@@ -18,6 +18,19 @@ const TRANSACTION_METHODS: Readonly<Record<string, OpSpec>> = {
   get: { op: 'get', readKind: true, via: 'transaction' },
 };
 
+const REF_METHODS: Readonly<Record<string, OpSpec>> = {
+  set: { op: 'set', write: true, data: 0, usesReceiverRef: true },
+  setWithPriority: { op: 'set', write: true, data: 0, usesReceiverRef: true },
+  setPriority: { op: 'setPriority', write: true, data: 0, usesReceiverRef: true },
+  update: { op: 'update', write: true, data: 0, multiPathUpdate: true, usesReceiverRef: true },
+  remove: { op: 'remove', write: true, usesReceiverRef: true },
+  push: { op: 'push', write: true, data: 0, append: 'pushId', minArgs: 1, usesReceiverRef: true },
+  transaction: { op: 'transaction', write: true, usesReceiverRef: true },
+  get: { op: 'get', readKind: true, usesReceiverRef: true },
+  once: { op: 'get', readKind: true, usesReceiverRef: true },
+  on: { op: 'get', readKind: true, listen: true, usesReceiverRef: true },
+};
+
 export const RTDB_SERVICE_MODEL: SdkServiceModel = {
   service: 'rtdb',
   modules: [
@@ -33,6 +46,12 @@ export const RTDB_SERVICE_MODEL: SdkServiceModel = {
     getDatabaseWithUrl: { resourceArgIndex: 0 },
     getAdminDatabase: { resourceArgIndex: 1, singleStringArgIsResource: true },
   },
+  handleRefMethods: {
+    ref: { refKind: 'node', allowOnRef: false },
+    refFromURL: { refKind: 'node', mode: 'url', allowOnRef: false },
+    child: { refKind: 'node', allowOnHandle: false },
+    push: { refKind: 'node', pathArgsEnd: 0, appendHole: 'pushId', reportUnconsumed: false, allowOnHandle: false },
+  },
   refConstructors: {
     ref: { refKind: 'node' },
     child: { refKind: 'node' },
@@ -40,6 +59,7 @@ export const RTDB_SERVICE_MODEL: SdkServiceModel = {
     push: { refKind: 'node', pathArgsEnd: 1, appendHole: 'pushId', reportUnconsumed: false },
   },
   queryBuilder: 'query',
+  chainedConstraints: true,
   constraints: {
     orderByChild: { kind: 'orderByChild', fieldArg: 0 },
     orderByKey: { kind: 'orderByKey' },
@@ -71,6 +91,10 @@ export const RTDB_SERVICE_MODEL: SdkServiceModel = {
   receiverFactories: {
     onDisconnect: { receiverKind: 'onDisconnect', refArgIndex: 0 },
   },
+  handleReceiverMethods: {
+    onDisconnect: { receiverKind: 'onDisconnect' },
+  },
+  refMethods: REF_METHODS,
   receiverMethods: {
     onDisconnect: DISCONNECT_METHODS,
     transaction: TRANSACTION_METHODS,

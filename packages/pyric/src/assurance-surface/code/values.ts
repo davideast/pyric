@@ -80,10 +80,10 @@ export type AVal =
       queryCall?: ts.CallExpression;
     }
   | { k: 'constraint'; value: ConstraintValue }
-  | { k: 'receiver'; service: AccessService; receiverKind: string; ref?: AVal }
+  | { k: 'receiver'; service: AccessService; receiverKind: string; ref?: AVal; admin?: boolean }
   | { k: 'fieldValue'; name: FieldValueName }
   | { k: 'obj'; props: Map<string, AVal>; computed: { key: AVal; value: AVal }[]; open: boolean; optional: Set<string> }
-  | { k: 'arr'; items: AVal[] }
+  | { k: 'arr'; items: AVal[]; open?: boolean }
   /** A function value; `props` holds properties assigned onto it (`Object.assign(fn, {...})`). */
   | { k: 'fn'; decl: ts.SignatureDeclaration; env: Env | undefined; props?: Map<string, AVal> }
   | { k: 'class'; decl: ts.ClassLikeDeclaration }
@@ -180,6 +180,26 @@ export function alternatives(v: AVal): AVal[] {
   if (v.k === 'union') return v.alts.flatMap(alternatives);
   if (v.k === 'never') return [];
   return [v];
+}
+
+/**
+ * Apply a parameter or destructuring default initializer only when the
+ * supplied value can evaluate to `undefined` (or comes from an optional slot).
+ */
+export function withDefaultInitializer(
+  val: AVal,
+  evalInit: () => AVal,
+  force: (v: AVal) => AVal,
+  isOptionalProp = false,
+): AVal {
+  const alts = alternatives(force(val));
+  const canBeUndefined =
+    isOptionalProp
+    || alts.length === 0
+    || alts.some((a) => a.k === 'undefined' || a.k === 'unknown');
+  if (!canBeUndefined) return val;
+  const nonUndefined = alts.filter((a) => a.k !== 'undefined');
+  return union([...nonUndefined, evalInit()]);
 }
 
 function literalOperandKey(value: string | number | boolean | null | undefined): string {

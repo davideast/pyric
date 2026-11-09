@@ -7,12 +7,13 @@ import ts from 'typescript';
 import {
   parseResourcePattern,
   renderResourcePattern,
+  resourceShapeKey,
   type AssuranceService,
   type ResourcePattern,
 } from '../../sandbox/internal/resource-pattern.js';
 import type { Evaluator } from './evaluator.js';
 import { STEP_BUDGET } from './operation-specs.js';
-import { renderPath } from './paths.js';
+import { renderPath, segmentsToResourcePattern } from './paths.js';
 import type { RefKind, SdkQueryConstraint } from './service-models/types.js';
 import type { RecordedConstruction } from './sites.js';
 import type { AccessResolution, AccessSite, PathVariable } from './types.js';
@@ -57,6 +58,31 @@ export interface ProgramUsageRecords {
 
 /** Per-site ref/query lineage, keyed by winning AccessSite instances. */
 export const SITE_USAGE = new WeakMap<AccessSite, readonly SiteUsageEntry[]>();
+
+/** Per-site evaluated resource pattern preserving literal `$`/`{...}` segments. */
+export const SITE_PATTERNS = new WeakMap<AccessSite, ResourcePattern>();
+
+export function attachSitePattern(site: AccessSite, pattern: ResourcePattern): void {
+  SITE_PATTERNS.set(site, pattern);
+}
+
+/** Resolve the {@link ResourcePattern} for an {@link AccessSite}, preserving literal segments when traced. */
+export function siteResourcePattern(site: AccessSite): ResourcePattern {
+  const attached = SITE_PATTERNS.get(site);
+  if (attached !== undefined) return attached;
+  return parseResourcePattern(site.service, site.path, site.resourceId);
+}
+
+/** Canonical deduplication key for an {@link AccessSite} across services, resources, and privilege planes. */
+export function siteDedupeKey(site: AccessSite): string {
+  const shapeKey = resourceShapeKey(siteResourcePattern(site));
+  const resourceId = site.resourceId ?? '(default)';
+  let multiTag = '';
+  if (site.multiPath) multiTag = 'm';
+  let adminTag = '';
+  if (site.admin) adminTag = 'a';
+  return `${site.service}|${resourceId}|${adminTag}|${shapeKey}|${site.source}|${site.through ?? ''}|${site.op}|${site.path}|${site.resolution}|${multiTag}|${site.via ?? ''}`;
+}
 
 export function constraintListKey(list: readonly SdkQueryConstraint[]): string {
   return list.map(constraintKey).join('&&');
@@ -109,8 +135,8 @@ function materializeRefRecord(
   sourceOf: (node: ts.Node) => string,
 ): TracedRefRecord {
   const baseTarget = ref.baseRef ?? ref;
-  const { path, variables } = renderPath(baseTarget.service, baseTarget.segments, force);
-  const pattern = parseResourcePattern(baseTarget.service, path, baseTarget.resourceId);
+  const { variables } = renderPath(baseTarget.service, baseTarget.segments, force);
+  const pattern = segmentsToResourcePattern(baseTarget.service, baseTarget.segments, baseTarget.resourceId);
   const resolution: AccessResolution = baseTarget.notes.length > 0 ? 'partial' : 'resolved';
   const attr = resolveRefAttribution(baseTarget, fallbackNode, callerThrough, sourceOf);
   const out: {
@@ -161,6 +187,10 @@ function resolveIdentifierDecl(
 
 export function mergeSiteUsage(target: AccessSite, source: AccessSite): void {
   if (target === source) return;
+  if (!SITE_PATTERNS.has(target)) {
+    const srcPat = SITE_PATTERNS.get(source);
+    if (srcPat !== undefined) SITE_PATTERNS.set(target, srcPat);
+  }
   const extra = SITE_USAGE.get(source);
   if (!extra || extra.length === 0) return;
   const prev = SITE_USAGE.get(target) ?? [];

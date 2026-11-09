@@ -25,7 +25,7 @@ export interface HandleFactorySpec {
 
 export interface RefConstructorSpec {
   readonly refKind: RefKind;
-  readonly mode?: 'segments' | 'collectionGroup' | 'url';
+  readonly mode?: 'segments' | 'collectionGroup' | 'url' | 'passthrough';
   /** Exclusive end index of path arguments when trailing arguments carry write data (`addDoc`, `push`). */
   readonly pathArgsEnd?: number;
   /** Variable hole appended unconditionally (`'autoId'` for `addDoc`, `'pushId'` for `push`). */
@@ -34,6 +34,10 @@ export interface RefConstructorSpec {
   readonly singleArgAppendHole?: string;
   /** False when a standalone call only mints a key (`push(ref)`) and should not emit an unresolved site. */
   readonly reportUnconsumed?: boolean;
+  /** False when this method cannot be invoked on a root service handle (`r.k === 'db'`). */
+  readonly allowOnHandle?: boolean;
+  /** False when this method cannot be invoked on a resource ref (`r.k === 'ref'`). */
+  readonly allowOnRef?: boolean;
 }
 
 export interface ConstraintSpec {
@@ -107,12 +111,16 @@ export interface SdkServiceModel {
   readonly handleRefMethods?: Readonly<Record<string, RefConstructorSpec>>;
   readonly refConstructors: Readonly<Record<string, RefConstructorSpec>>;
   readonly queryBuilder?: string;
+  /** True when query constraints may be chained directly as methods on refs/queries (`col.where(...).orderBy(...)`). */
+  readonly chainedConstraints?: boolean;
   readonly constraints: Readonly<Record<string, ConstraintSpec>>;
   readonly operations: Readonly<Record<string, OpSpec>>;
   /** Operations invoked directly as methods on a resource ref (`file.save(...)`, `file.delete()`). */
   readonly refMethods?: Readonly<Record<string, OpSpec>>;
   readonly receiverMethods?: Readonly<Record<string, Readonly<Record<string, OpSpec>>>>;
   readonly receiverFactories?: Readonly<Record<string, ReceiverFactorySpec>>;
+  /** Methods on a service handle or ref that construct an operation receiver (`db.batch()`, `ref.onDisconnect()`). */
+  readonly handleReceiverMethods?: Readonly<Record<string, ReceiverFactorySpec>>;
   readonly callbackReceivers?: Readonly<Record<string, Readonly<Record<number, string>>>>;
   readonly fieldValues?: Readonly<Record<string, FieldValueName>>;
   readonly specialStrings?: Readonly<Record<string, string>>;

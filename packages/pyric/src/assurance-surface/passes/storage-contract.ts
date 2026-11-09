@@ -17,12 +17,12 @@ import {
   normalizeExplicitResourceId,
 } from '../../sandbox/internal/resource-pattern-header.js';
 import {
-  parseResourcePattern,
   renderResourcePattern,
   type ResourcePattern,
 } from '../../sandbox/internal/resource-pattern.js';
 import type { AccessSite, PayloadField } from '../code/types.js';
 import type { SdkUsageIndex } from '../code/usage-index.js';
+import { siteResourcePattern } from '../code/usage-records.js';
 import {
   projectRuleSurface,
   type RuleSurface,
@@ -437,7 +437,7 @@ export function storageContractPass(
     if (site.service !== 'storage') continue;
     if (site.admin) continue;
     if (site.op === 'ref' && site.resolution === 'unresolved') continue;
-    const pattern = parseResourcePattern('storage', site.path, site.resourceId);
+    const pattern = siteResourcePattern(site);
     let effectiveBucket = pattern.resourceId;
     if (effectiveBucket === DEFAULT_RESOURCE_ID && defaultBucket !== undefined) {
       effectiveBucket = defaultBucket;
@@ -465,7 +465,11 @@ export function storageContractPass(
       );
       if (activeEntries.length === 0) continue;
 
-      const contentType = site.storageUpload?.contentType;
+      const rawContentType = site.storageUpload?.contentType;
+      const contentType =
+        rawContentType === '' && site.op !== 'updateMetadata'
+          ? 'application/octet-stream'
+          : rawContentType;
       const sizeBytes = site.storageUpload?.sizeBytes;
       const shouldCheckCustomMeta =
         !site.storageUpload?.customMetadataUnresolved

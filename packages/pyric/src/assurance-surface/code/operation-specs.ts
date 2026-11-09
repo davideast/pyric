@@ -29,6 +29,7 @@ export interface OperationIndex {
   readonly apiNames: ReadonlySet<string>;
   readonly methodNames: ReadonlySet<string>;
   readonly handleRefMethodNames: ReadonlySet<string>;
+  readonly chainedConstraintNames: ReadonlySet<string>;
   readonly transactionMethods: ReadonlyMap<string, readonly TransactionMethodEntry[]>;
   readonly writeOps: ReadonlySet<string>;
   readonly readOps: ReadonlySet<string>;
@@ -39,6 +40,7 @@ export function buildOperationIndex(models: readonly SdkServiceModel[]): Operati
   const apiNames = new Set<string>();
   const methodNames = new Set<string>();
   const handleRefMethodNames = new Set<string>();
+  const chainedConstraintNames = new Set<string>();
   const transactionMethods = new Map<string, TransactionMethodEntry[]>();
   const writeOps = new Set<string>();
   const readOps = new Set<string>(['get', 'query']);
@@ -54,6 +56,11 @@ export function buildOperationIndex(models: readonly SdkServiceModel[]): Operati
     }
     for (const name of Object.keys(model.handleRefMethods ?? {})) {
       handleRefMethodNames.add(name);
+    }
+    if (model.chainedConstraints) {
+      for (const name of Object.keys(model.constraints)) {
+        if (!name.includes('.')) chainedConstraintNames.add(name);
+      }
     }
     if (model.queryBuilder) {
       apiNames.add(model.queryBuilder);
@@ -77,7 +84,15 @@ export function buildOperationIndex(models: readonly SdkServiceModel[]): Operati
     }
   }
 
-  return { apiNames, methodNames, handleRefMethodNames, transactionMethods, writeOps, readOps };
+  return {
+    apiNames,
+    methodNames,
+    handleRefMethodNames,
+    chainedConstraintNames,
+    transactionMethods,
+    writeOps,
+    readOps,
+  };
 }
 
 const DEFAULT_OP_INDEX = buildOperationIndex(DEFAULT_SERVICE_MODELS);

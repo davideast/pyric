@@ -7,8 +7,8 @@
 import ts from 'typescript';
 import type { Evaluator } from './evaluator.js';
 import { expressionName, functionName } from './paths.js';
-import { apiCallbackParameter } from './sdk-models.js';
-import { alternatives, union, unknown, type AVal } from './values.js';
+import { apiCallbackParameter, memberCallbackParameter } from './sdk-models.js';
+import { alternatives, union, unknown, withDefaultInitializer, type AVal } from './values.js';
 
 type FunctionLike = ts.SignatureDeclaration & { body?: ts.ConciseBody };
 
@@ -40,8 +40,15 @@ export class CallerTracer {
       }
       return uncalled;
     }
-    if (param.initializer) values.push(this.ev.eval(param.initializer));
-    return union(values);
+    const combined = union(values);
+    if (param.initializer) {
+      return withDefaultInitializer(
+        combined,
+        () => this.ev.eval(param.initializer!),
+        (v) => this.ev.force(v),
+      );
+    }
+    return combined;
   }
 
   /** Values passed for parameter `index` of a function, from every place the function is invoked. */
@@ -106,6 +113,8 @@ export class CallerTracer {
 
   /** The value a callback receives as parameter `paramIndex`, when passed as argument `argIndex` of `call`. */
   private callbackArgument(call: ts.CallExpression, argIndex: number, paramIndex: number): AVal {
+    const viaMember = memberCallbackParameter(this.ev, call, argIndex, paramIndex);
+    if (viaMember !== undefined) return viaMember;
     const callee = this.ev.force(this.ev.eval(call.expression));
     const out: AVal[] = [];
     for (const c of alternatives(callee)) {

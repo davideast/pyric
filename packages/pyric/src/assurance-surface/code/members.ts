@@ -100,7 +100,34 @@ export class MemberResolver {
           const last = v.segments[v.segments.length - 1];
           return last ? { k: 'str', parts: last } : unknown('id of a root ref');
         }
-        if (name === 'parent' && v.segments.length > 0) return { ...v, segments: v.segments.slice(0, -1) };
+        if (name === 'parent') {
+          if (v.service === 'firestore') {
+            if (v.queryCall !== undefined || v.refKind === 'collectionGroup') {
+              return unknown('ref.parent');
+            }
+            if (v.refKind === 'doc') {
+              if (v.segments.length >= 2) {
+                return { ...v, segments: v.segments.slice(0, -1), refKind: 'collection' };
+              }
+              if (v.segments.length === 1 && v.notes.length > 0) {
+                return { ...v, refKind: 'collection' };
+              }
+              return { k: 'null' };
+            }
+            if (v.refKind === 'collection') {
+              if (v.segments.length >= 2) {
+                return { ...v, segments: v.segments.slice(0, -1), refKind: 'doc' };
+              }
+              if (v.segments.length === 1 && v.notes.length > 0) {
+                return union([{ k: 'null' }, { ...v, refKind: 'doc' }]);
+              }
+              return { k: 'null' };
+            }
+            return unknown('ref.parent');
+          }
+          if (v.segments.length === 0) return { k: 'null' };
+          return { ...v, segments: v.segments.slice(0, -1) };
+        }
         return unknown(`ref.${name}`);
       case 'fn': {
         const own = this.functionProperty(v, name);
@@ -186,8 +213,10 @@ export class MemberResolver {
   indexOf(v: AVal, index: number): AVal {
     const out: AVal[] = [];
     for (const alt of alternatives(this.ev.force(v))) {
-      if (alt.k === 'arr') out.push(alt.items[index] ?? { k: 'undefined' });
-      else if (alt.k === 'unknown') out.push(alt);
+      if (alt.k === 'arr') {
+        if (alt.open) out.push(this.elementOf(alt), { k: 'undefined' });
+        else out.push(alt.items[index] ?? { k: 'undefined' });
+      } else if (alt.k === 'unknown') out.push(alt);
       else if (alt.k !== 'null' && alt.k !== 'undefined') out.push(unknown(`element ${index} of a ${alt.k}`));
     }
     return union(out);

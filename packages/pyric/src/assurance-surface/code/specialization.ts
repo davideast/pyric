@@ -6,7 +6,7 @@ import ts from 'typescript';
 import type { Evaluator } from './evaluator.js';
 import { calleeName, STEP_BUDGET, type OpCall } from './operation-specs.js';
 import type { AccessService, AccessSite } from './types.js';
-import { mergeSiteUsage, type ProgramUsageRecords } from './usage-records.js';
+import { mergeSiteUsage, siteDedupeKey, type ProgramUsageRecords } from './usage-records.js';
 import { alternatives, nodeId, ownRecordValue, type AVal, type Env } from './values.js';
 
 /** Sites whose path shape came from callers' arguments (specialization attributes them to the callers). */
@@ -297,11 +297,7 @@ export function mergeResults(results: CollectorResult[]): AccessSite[] {
   const out: AccessSite[] = [];
   const seen = new Map<string, AccessSite>();
   const add = (site: AccessSite): void => {
-    let multiTag = '';
-    if (site.multiPath) multiTag = 'm';
-    let adminTag = '';
-    if (site.admin) adminTag = 'a';
-    const key = `${site.source}|${site.through ?? ''}|${site.op}|${site.path}|${site.resolution}|${multiTag}|${site.via ?? ''}|${adminTag}`;
+    const key = siteDedupeKey(site);
     const existing = seen.get(key);
     if (existing) {
       mergeSiteUsage(existing, site);
