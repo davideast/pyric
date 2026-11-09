@@ -680,6 +680,43 @@ service cloud.firestore {
     expect(differs.services.firestore?.checkedEvents).toBe(1);
     expect(differs.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'get' }]);
   });
+
+  it('evaluates request.auth.token.email rules when claimNames show the token has no email claim', async () => {
+    const anonDenied = liveCapture(
+      { service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: 1, outcome: { status: 'error', code: 'permission-denied' }, account: { uid: 'anon-1', claimNames: ['sub'] } },
+      { claims: { sub: 'anon-1' } },
+      EMAIL_READS,
+    );
+    const agrees = await verifyFixture(anonDenied, { rules: { firestore: EMAIL_READS } });
+    expect(agrees.services.firestore?.checkedEvents).toBe(1);
+    expect(agrees.services.firestore?.divergences).toEqual([]);
+
+    const anonAllowed = liveCapture(
+      { service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: 1, outcome: { status: 'ok' }, account: { uid: 'anon-1', claimNames: ['sub'] } },
+      { claims: { sub: 'anon-1' } },
+      EMAIL_READS,
+    );
+    const differs = await verifyFixture(anonAllowed, { rules: { firestore: EMAIL_READS } });
+    expect(differs.services.firestore?.checkedEvents).toBe(1);
+    expect(differs.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'get' }]);
+  });
+
+  it('evaluates rules reading request.auth.token.firebase.identities.email from captured claims', async () => {
+    const identityEmailRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow read: if 'alice@example.com' in request.auth.token.firebase.identities.email; }
+  }
+}`;
+    const captured = liveCapture(
+      read({ status: 'ok' }),
+      { claims: { email: 'alice@example.com', firebase: { identities: { email: ['alice@example.com'] } } } },
+      identityEmailRules,
+    );
+    const agrees = await verifyFixture(captured, { rules: { firestore: identityEmailRules } });
+    expect(agrees.services.firestore?.checkedEvents).toBe(1);
+    expect(agrees.services.firestore?.divergences).toEqual([]);
+  });
 });
 
 // ─── Storage rules — capture / restore round-trip ───────────────────────

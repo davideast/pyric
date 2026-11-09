@@ -147,7 +147,7 @@ function storageGaps(observation: StorageEvaluationObservation, method: StorageM
     if (method === 'update' && !given.document) gaps.push('stored-document');
   }
   if (observation.readAuthToken && !given.claims) gaps.push('claim-values');
-  if (observation.readAuthTokenEmail && !given.emails) gaps.push('claim-values');
+  if (observation.readAuthTokenEmail && !given.emailKnown) gaps.push('claim-values');
   return unionOf(gaps, []);
 }
 

@@ -7,13 +7,13 @@
  * Storage and Messaging only. A call that returned synchronously, such as a
  * listener's subscribe, has no production answer and is not sent. A call
  * that ran signed in names its account: the uid, the claim names and, for
- * the host's local rules only, the claim values; never the token. A Firestore call also carries, for the same rules only, the data
- * a write sent and the document a `getDoc` returned. Those values go to the
- * host's memory, and to the live capture file once capture writes live
- * calls (#2305), nowhere else: no event, chip view or repro log holds
- * them. A Firestore list or listener names its query's shape: fields,
- * operators and directions, never a value, only the page's keyed hash of
- * them. A failed call carries production's message, which only the host's
+ * the host's local rules only, the claim values; never the token. A Firestore
+ * call also carries, for the same rules only, the data a write sent and the
+ * document a `getDoc` returned. Those values go to the host's memory, and to
+ * the live capture file once capture writes live calls (#2305), nowhere else:
+ * no event, chip view or repro log holds them. A Firestore list or listener
+ * names its query's shape: fields, operators and directions, never a value,
+ * only the page's keyed hash of them. A failed call carries production's message, which only the host's
  * terminal prints. An RTDB call also names its instance and path, an AI Logic
  * call its model, production's token counts and the reason it withheld an
  * answer, a Storage call its bucket and, below

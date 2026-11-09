@@ -26,6 +26,7 @@ import {
   type RtdbReplayDivergence,
 } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';
+import { definedOnly } from '../serve/worker/host/observe-local-evaluation.js';
 import { evaluateFirestoreCall, type FirestoreSimulate } from '../serve/worker/host/observe-local-firestore.js';
 import {
   rulesSourceRejection,
@@ -511,25 +512,17 @@ function isLiveFirestoreCall(event: PyricVerifyFixture['events'][number]): event
   return isProductionServed(operation.rulesDisposition) && operation.production !== undefined && typeof operation.path === 'string';
 }
 
+function observedAccountOf(uid: string | undefined, claimNames: string[] | undefined, claims: Record<string, unknown> | undefined): ObservedCall['account'] {
+  if (uid === undefined) return undefined;
+  return definedOnly({ uid, claimNames, claims });
+}
 /** A captured live call as the host observed it: its event, with the values the capture kept beside it. */
 function observedCallOf(event: SandboxOperationEvent & { path: string }, values: VerifyObservedCallValues | undefined): ObservedCall {
-  const uid = event.auth?.uid;
-  const claimNames = event.production?.claimNames;
-  const call: ObservedCall = {
-    service: 'firestore',
-    method: event.method,
-    path: event.path,
-    at: event.at,
-    outcome: event.production!.outcome,
-  };
-  if (uid !== undefined) {
-    call.account = { uid };
-    if (claimNames !== undefined) call.account.claimNames = claimNames;
-    if (values?.claims !== undefined) call.account.claims = values.claims;
-  }
-  if (values?.writeData !== undefined) call.writeData = values.writeData;
-  if (values?.document !== undefined) call.document = values.document;
-  return call;
+  return definedOnly({
+    service: 'firestore', method: event.method, path: event.path, at: event.at, outcome: event.production!.outcome,
+    account: observedAccountOf(event.auth?.uid, event.production?.claimNames, values?.claims),
+    writeData: values?.writeData, document: values?.document,
+  });
 }
 
 /**

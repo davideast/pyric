@@ -665,7 +665,33 @@ service cloud.firestore {
         expect(wireText).not.toContain(`\\"${claim}\\":`);
       }
 
-      const sessionsText = JSON.stringify(reproFile.base.sessions);
+      const finalReproFile = await buildReproFile(await recorder.log(), () => undefined);
+      const entriesText = JSON.stringify(finalReproFile.entries);
+      expect(entriesText).toContain('ada@example.com');
+      expect(entriesText).toContain('users/ada@example.com/notes/1');
+      expect(entriesText).toContain('blocked@example.com');
+      expect(entriesText).toContain('pkg@1.2.3');
+      expect(entriesText).toContain('v1@2.0');
+      expect(entriesText).toContain(".matches('.*@example.com')");
+      expect(entriesText).not.toContain('[email]');
+      for (const claim of [
+        'phone_number',
+        'name',
+        'picture',
+        'auth_time',
+        'user_id',
+        'sub',
+        'iss',
+        'aud',
+        'iat',
+        'exp',
+        'nonce',
+      ]) {
+        expect(entriesText).not.toContain(`"${claim}":`);
+        expect(entriesText).not.toContain(`\\"${claim}\\":`);
+      }
+
+      const sessionsText = JSON.stringify(finalReproFile.base.sessions);
       expect(sessionsText).not.toContain('ada@example.com');
       expect(sessionsText).toContain('pkg@1.2.3');
       expect(sessionsText).toContain('v1@2.0');

@@ -56,18 +56,29 @@ export function stripStandardTokenClaims(
   return Object.keys(customClaims).length > 0 ? customClaims : undefined;
 }
 
-function stripWireFirebaseClaim(val: unknown): Record<string, unknown> | undefined {
-  if (val === null || typeof val !== 'object' || Array.isArray(val)) return undefined;
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * Project `auth.token.firebase` for the worker wire, retaining `tenant`,
+ * `sign_in_provider`, and string `identities.email` entries while dropping
+ * non-email identity providers and metadata (or returning `undefined` when empty).
+ */
+function stripWireFirebaseClaim(firebaseClaim: unknown): Record<string, unknown> | undefined {
+  if (!isPlainRecord(firebaseClaim)) return undefined;
   const wireFirebase: Record<string, unknown> = {};
-  for (const [fbKey, fbVal] of Object.entries(val as Record<string, unknown>)) {
-    if ((fbKey === 'tenant' || fbKey === 'sign_in_provider') && typeof fbVal === 'string') {
-      wireFirebase[fbKey] = fbVal;
+  for (const [claimKey, claimValue] of Object.entries(firebaseClaim)) {
+    if ((claimKey === 'tenant' || claimKey === 'sign_in_provider') && typeof claimValue === 'string') {
+      wireFirebase[claimKey] = claimValue;
       continue;
     }
-    if (fbKey === 'identities' && fbVal !== null && typeof fbVal === 'object' && !Array.isArray(fbVal)) {
-      const rawEmail = (fbVal as Record<string, unknown>).email;
-      if (Array.isArray(rawEmail)) {
-        const emails = rawEmail.filter((item): item is string => typeof item === 'string');
+    if (claimKey === 'identities' && isPlainRecord(claimValue)) {
+      const rawEmails = claimValue.email;
+      if (Array.isArray(rawEmails)) {
+        const emails = rawEmails.filter((item): item is string => typeof item === 'string');
         if (emails.length > 0) {
           wireFirebase.identities = { email: emails };
         }

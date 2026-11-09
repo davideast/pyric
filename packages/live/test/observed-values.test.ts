@@ -1,9 +1,9 @@
 /**
  * The values a page sends with each observed call, so the host's local rules
  * can read `request.auth.token`, `request.resource.data` and `resource.data`:
- * the token's claim values, the data a
- * `setDoc`, `updateDoc` or `addDoc` wrote, and the document a `getDoc`
- * returned. They ride the observed call to the host only.
+ * the token's claim values, the data a `setDoc`, `updateDoc` or `addDoc`
+ * wrote, and the document a `getDoc` returned. They ride the observed call to
+ * the host only.
  *
  * The real `firebase/firestore` runs with no backend reachable: its network
  * is disabled before any call, so a read answers from the memory cache.

@@ -68,12 +68,10 @@ export function liveCallValues(sandbox: Sandbox): ReadonlyMap<string, VerifyObse
 
 /** The values a call carried for the local rules, or `undefined` for none. */
 function valuesOf(call: ObservedCall): VerifyObservedCallValues | undefined {
-  const claims = call.account?.claims;
-  const values: VerifyObservedCallValues = {
-    ...(claims === undefined ? {} : { claims }),
-    ...(call.writeData === undefined ? {} : { writeData: call.writeData }),
-    ...(call.document === undefined ? {} : { document: call.document }),
-  };
+  const values: VerifyObservedCallValues = {};
+  if (call.account?.claims !== undefined) values.claims = call.account.claims;
+  if (call.writeData !== undefined) values.writeData = call.writeData;
+  if (call.document !== undefined) values.document = call.document;
   return Object.keys(values).length === 0 ? undefined : values;
 }
 

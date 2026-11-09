@@ -43,7 +43,8 @@ const FIRESTORE_GAPS: readonly GapPattern[] = [
   // An update's incoming document merges the written fields onto the stored one.
   ['stored-document', WRITE_READ, (given) => given.writeData && !given.wholeWrite],
   ['claim-values', /\brequest\.auth\.token\b/, (given) => !given.claims],
-  ['claim-values', EMAIL_CLAIM, (given) => !given.emails],
+  // Legacy captures and calls without claimNames cannot tell whether the token carried an email.
+  ['claim-values', EMAIL_CLAIM, (given) => !given.emailKnown],
   ['query', /\brequest\.query\b/, ALWAYS_OPEN],
 ];
 

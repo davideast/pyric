@@ -52,7 +52,8 @@ const RTDB_PUSH_PLACEHOLDER = '-O_pyric_push';
 const RTDB_GAPS: readonly GapPattern[] = [
   ['stored-document', /(?<![\w.])(?:data|root)\b/, ALWAYS_OPEN],
   ['claim-values', /\bauth\.token\b/, (given) => !given.claims],
-  ['claim-values', RTDB_EMAIL_CLAIM, (given) => !given.emails],
+  // Legacy captures and calls without claimNames cannot tell whether the token carried an email.
+  ['claim-values', RTDB_EMAIL_CLAIM, (given) => !given.emailKnown],
   ['query', /(?<![\w.])query\./, ALWAYS_OPEN],
 ];
 

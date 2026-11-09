@@ -149,9 +149,7 @@ export function claimNamesOf(token: unknown): string[] | undefined {
  * object payload.
  */
 export function claimValuesOf(token: unknown): Record<string, unknown> | undefined {
-  const claims = claimsOf(token);
-  if (claims === undefined) return undefined;
-  return { ...claims };
+  return claimsOf(token);
 }
 
 /**

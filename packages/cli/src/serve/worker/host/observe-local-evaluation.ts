@@ -47,7 +47,7 @@ const GAP_ORDER: readonly Gap[] = ['stored-document', 'write-data', 'claim-value
 export interface Given {
   claims: boolean;
   /** Whether the call's claims establish the account's email (present, or absent from `claimNames`). */
-  emails: boolean;
+  emailKnown: boolean;
   writeData: boolean;
   document: boolean;
   /** Whether the write data is the whole document the write leaves, as a create's or a `setDoc`'s is and an `updateDoc`'s is not. */
@@ -80,7 +80,7 @@ export function givenBy(call: ObservedCall, method: ObservedMethod): Given {
     !call.account.claimNames.includes('email');
   return {
     claims: call.account?.claims !== undefined,
-    emails: hasEmailClaim || tokenHasNoEmail,
+    emailKnown: hasEmailClaim || tokenHasNoEmail,
     writeData: call.writeData !== undefined,
     document: call.document !== undefined,
     wholeWrite: method === 'create' || method === 'set',
