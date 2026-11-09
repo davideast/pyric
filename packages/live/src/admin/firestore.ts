@@ -16,7 +16,7 @@
  * A record never carries a document value: no write data, no returned
  * fields, no filter value.
  */
-import { createRequire } from 'node:module';
+import Module, { createRequire } from 'node:module';
 import type { CallContext, LiveObserver, ResultReading } from '../observe.js';
 import { patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import type { AdminApp, AdminProjectGate } from './project-gate.js';
@@ -163,10 +163,19 @@ function appOf(self: unknown): AdminApp {
   return app;
 }
 
+function entryRequire(entryFile: string): (id: string) => unknown {
+  const cache = (Module as unknown as { _cache?: Record<string, { require?: (id: string) => unknown }> })._cache;
+  const cached = cache?.[entryFile];
+  if (typeof cached?.require === 'function') {
+    return cached.require.bind(cached);
+  }
+  return createRequire(entryFile);
+}
+
 /** `AggregateQuery`, which the package does not export, from the file beside its entry. */
 function aggregateQueryClass(entryFile: string): unknown {
   try {
-    const loaded: unknown = createRequire(entryFile)('./reference/aggregate-query.js');
+    const loaded: unknown = entryRequire(entryFile)('./reference/aggregate-query.js');
     return isObject(loaded) ? Reflect.get(loaded, 'AggregateQuery') : undefined;
   } catch {
     return undefined;

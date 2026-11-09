@@ -15,33 +15,21 @@
  * reads, its class-defining loads go to the Admin rows when they are open,
  * and a service no row serves loads unobserved.
  */
+import { readFileSync, realpathSync } from 'node:fs';
 import Module from 'node:module';
-import { fileURLToPath } from 'node:url';
-import { packageNameOf } from './package-identity.js';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { installCjsResolveState, type CjsResolveState, type CjsResolveTurn, type DirectResolveGuard } from './cjs-resolve-state.js';
+import { canonicalFileUrl, packageNameOf, packageRootDirOf } from './package-identity.js';
 import { liveProjectId } from '../serve/live-project.js';
 import { isLiveRegisterActive, isRegisterActive, markLiveRegisterActive } from './activation.js';
 import { installChildProcessGuard } from './child-process-guard.js';
-import {
-  LIVE_PASS_THROUGH_VARIABLE,
-  LIVE_PROJECT_ROOT_VARIABLE,
-  LIVE_SDK_ROOT_VARIABLE,
-  liveProjectRoot,
-  loadInstalledLiveRegister,
-  recordedPassThrough,
-} from './live-package.js';
+import { LIVE_PASS_THROUGH_VARIABLE, LIVE_PROJECT_ROOT_VARIABLE, LIVE_SDK_ROOT_VARIABLE, liveProjectRoot, loadInstalledLiveRegister, recordedPassThrough } from './live-package.js';
 import { ADMIN_PASS_THROUGH, passThroughSdkPackages, passThroughSet } from '../serve/vite-supplied-rows.js';
 import { createStopReporter, suppliedRowsStopFor } from './swap-or-stop.js';
 import { installLiveNetGuard } from './live-net-guard.js';
 import { isRegisterLiveModule } from './live-row.js';
 import { ADMIN_ROW_LOADS, adminRowOfUrl, isAdminRowUrl } from './admin-row.js';
-import {
-  adminTreeResolution,
-  isImportCondition,
-  registerLiveModuleSource,
-  registerRows,
-  registerRowsResolution,
-  type RegisterRows,
-} from './supplied-rows.js';
+import { adminTreeResolution, isImportCondition, registerLiveModuleSource, registerRows, registerRowsResolution, type RegisterRows } from './supplied-rows.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { installProcessHealth } from './process-health.js';
 import { createUnobservedForwarder, onReattach, type UnobservedForwarder } from './unobserved-forward.js';
@@ -70,13 +58,16 @@ interface ResolveResult {
 type NextResolve = (specifier: string, context?: ResolveContext) => ResolveResult;
 type Resolve = (specifier: string, context: ResolveContext, nextResolve: NextResolve) => ResolveResult;
 
+interface LoadContext {
+  format?: string | null;
+}
 interface LoadResult {
   format?: string | null;
-  source?: string;
+  source?: string | Uint8Array;
   shortCircuit?: boolean;
 }
-type NextLoad = (url: string, context?: unknown) => LoadResult;
-type Load = (url: string, context: unknown, nextLoad: NextLoad) => LoadResult;
+type NextLoad = (url: string, context?: LoadContext) => LoadResult;
+type Load = (url: string, context: LoadContext, nextLoad: NextLoad) => LoadResult;
 
 const moduleApi = Module as unknown as {
   registerHooks?: (hooks: { resolve: Resolve; load: Load }) => void;
@@ -87,12 +78,48 @@ const LOG_PREFIX = '@pyric/live/register';
 /**
  * The files of the passed-through Admin SDK's tree: the entry an app's own
  * `firebase-admin` import resolved to, and every file a file of the tree
- * resolved, directly or not. Built-ins (`node:*`) are not files, so they
- * never join.
+ * resolved, directly or not. Built-ins (`node:*`) and loader instrumentation
+ * packages never join.
  */
 interface AdminTree {
   has(url: string): boolean;
   add(url: string): void;
+  hasPackageDir(directory: string): boolean;
+}
+
+const INSTRUMENTATION_PACKAGES: ReadonlySet<string> = new Set([
+  'require-in-the-middle',
+  'import-in-the-middle',
+]);
+
+function safeRealpath(directory: string): string {
+  try {
+    return realpathSync(directory);
+  } catch {
+    return directory;
+  }
+}
+
+function createAdminTree(): AdminTree {
+  const urls = new Set<string>();
+  const packageDirs = new Set<string>();
+  return {
+    has: (url) => urls.has(url) || urls.has(canonicalFileUrl(url)),
+    add(url) {
+      if (!url.startsWith('file:')) return;
+      const pkg = packageNameOf(url);
+      if (pkg !== null && INSTRUMENTATION_PACKAGES.has(pkg)) return;
+      urls.add(url);
+      urls.add(canonicalFileUrl(url));
+      const dir = packageRootDirOf(url);
+      if (dir !== null) {
+        packageDirs.add(dir);
+        packageDirs.add(safeRealpath(dir));
+      }
+    },
+    hasPackageDir: (directory) =>
+      packageDirs.has(directory) || packageDirs.has(safeRealpath(directory)),
+  };
 }
 
 /** Whether `url` is a file of the tree, as an import made from it names its importer. */
@@ -117,6 +144,32 @@ function joinAdminTree(tree: AdminTree, result: ResolveResult): ResolveResult {
   return result;
 }
 
+function isNodeModulesPath(filePath: string): boolean {
+  return filePath.includes('/node_modules/') || filePath.includes('\\node_modules\\');
+}
+
+function isInstalledNodeModulesUrl(url: string): boolean {
+  return url.startsWith('file:') && isNodeModulesPath(fileURLToPath(url));
+}
+
+/**
+ * True when a cached `node_modules` CJS hook runs `require.resolve(pkgName, { paths })`
+ * on a package directory already loaded by the Admin SDK's tree.
+ */
+function isAdminPackageMainProbe(
+  specifier: string, importer: string | undefined, resolvedUrl: string,
+  isEsmImport: boolean, cjsTurn: CjsResolveTurn | null, adminTree: AdminTree,
+): boolean {
+  if (isEsmImport || cjsTurn === null) return false;
+  if (importer === undefined || !isInstalledNodeModulesUrl(importer)) return false;
+  if (!cjsTurn.isResolveOnlyWithPaths(importer)) return false;
+  const pkgName = packageNameOf(resolvedUrl);
+  if (pkgName === null || specifier !== pkgName) return false;
+  const pkgDir = packageRootDirOf(resolvedUrl);
+  if (pkgDir === null) return false;
+  return adminTree.hasPackageDir(pkgDir);
+}
+
 /**
  * The real file behind each Admin row: where the Admin SDK's own load of it
  * first resolved. A `require()` resolves from its calling module, not from a
@@ -125,24 +178,39 @@ function joinAdminTree(tree: AdminTree, result: ResolveResult): ResolveResult {
  */
 type AdminRowFiles = Map<string, string>;
 
+function adminRowRealPath(realFiles: AdminRowFiles, importer: string, specifier: string): string | null {
+  const row = adminRowOfUrl(importer);
+  if (row === null) return null;
+  const realFile = realFiles.get(importer);
+  if (realFile === undefined) return null;
+  const expectedSpecifier = ADMIN_ROW_LOADS.get(row)?.specifier;
+  const realPath = fileURLToPath(realFile);
+  if (specifier !== expectedSpecifier && specifier !== realPath) return null;
+  return realPath;
+}
+
 /**
- * The real module behind an Admin row: the row's own require of its load's
- * specifier gets the file the Admin SDK's load resolved to, which joins the
- * tree. Null for any other import from a row id.
+ * The real module behind an Admin row: the row's own `require.resolve` of its
+ * load's specifier (and subsequent `require` of that resolved path) gets the
+ * file the Admin SDK's load resolved to, which joins the tree. Null for any
+ * other import from a row id or any uncached `createRequire` caller.
  */
 function resolveAdminRowOwn(
   realFiles: AdminRowFiles,
   adminTree: AdminTree,
+  cjsTurn: CjsResolveTurn | null,
   specifier: string,
   context: ResolveContext,
   nextResolve: NextResolve,
 ): ResolveResult | null {
   const importer = context.parentURL;
-  const row = adminRowOfUrl(importer);
-  const realFile = importer === undefined ? undefined : realFiles.get(importer);
-  const isOwnLoad = row !== null && realFile !== undefined && ADMIN_ROW_LOADS.get(row)?.specifier === specifier;
-  if (!isOwnLoad) return null;
-  return joinAdminTree(adminTree, nextResolve(fileURLToPath(realFile), context));
+  if (importer === undefined || cjsTurn === null) return null;
+  const realPath = adminRowRealPath(realFiles, importer, specifier);
+  if (realPath === null) return null;
+  if (cjsTurn.fromLoad && !cjsTurn.hasCachedModuleImporter(importer)) return null;
+  const resolved = nextResolve(realPath, context);
+  if (!cjsTurn.hasCachedModuleImporter(importer)) return null;
+  return joinAdminTree(adminTree, resolved);
 }
 
 /**
@@ -202,6 +270,69 @@ function adminRowResult(rows: RegisterRows, realFiles: AdminRowFiles, unobserved
   return { url: served.url, format: 'commonjs', shortCircuit: true };
 }
 
+interface SuppliedResolveEnv {
+  readonly rows: RegisterRows;
+  readonly allowedUrls: Set<string>;
+  readonly adminTree: AdminTree;
+  readonly realFiles: AdminRowFiles;
+  readonly report: ReturnType<typeof createStopReporter>;
+}
+
+function isCachedDirectAdminCaller(
+  env: SuppliedResolveEnv,
+  importer: string | undefined,
+  request: string,
+  hasCachedModuleParent: (importerUrl: string) => boolean,
+): boolean {
+  if (importer === undefined || !hasCachedModuleParent(importer)) return false;
+  if (isAdminTreeImporter(env.adminTree, importer)) return true;
+  return adminRowRealPath(env.realFiles, importer, request) !== null;
+}
+
+function canConsultAdminTree(importer: string, isEsmImport: boolean, cjsTurn: CjsResolveTurn | null): boolean {
+  if (isEsmImport || cjsTurn === null) return true;
+  if (!cjsTurn.fromLoad) return true;
+  return cjsTurn.hasCachedModuleImporter(importer);
+}
+
+function hasVerifiedTreeImporter(importer: string, isEsmImport: boolean, cjsTurn: CjsResolveTurn | null): boolean {
+  if (isEsmImport) return true;
+  if (cjsTurn === null) return false;
+  return cjsTurn.hasCachedModuleImporter(importer);
+}
+
+/**
+ * Guards direct `Module._resolveFilename(id, parent)` calls outside
+ * `registerHooks.resolve` (such as `require-in-the-middle`'s pre-load export
+ * cache lookup, or `require.resolve` on Node 22.15) so live rows and installed
+ * row imports pass while stopped SDKs report and throw `PYRIC_REAL_SDK_STOPPED`.
+ */
+function createDirectResolveGuard(env: SuppliedResolveEnv): DirectResolveGuard {
+  const passThroughPackages = passThroughSdkPackages(env.rows.passThrough);
+  return ({ request, resolvedFilename, importerUrl, hasCachedModuleParent }) => {
+    if (!isNodeModulesPath(resolvedFilename)) return;
+    if (isCachedDirectAdminCaller(env, importerUrl, request, hasCachedModuleParent)) return;
+    const resolution = registerRowsResolution(env.rows, {
+      specifier: request,
+      importer: importerUrl,
+      conditions: ['require', 'node'],
+    });
+    if (resolution.kind === 'refused') throw resolution.error;
+    if (resolution.kind === 'module' || resolution.kind === 'installed-sdk') return;
+    const isAdminImport = resolution.kind === 'admin-pass-through';
+    const isPassThroughImport = resolution.kind === 'pass-through';
+    const stop = suppliedRowsStopFor(
+      { specifier: request, importer: importerUrl, url: pathToFileURL(resolvedFilename).href },
+      env.allowedUrls,
+      { isRowImport: false, isEsmImport: false, isPassThroughImport, passThroughPackages, isAdminImport },
+    );
+    if (stop !== null) {
+      env.report(stop);
+      throw stop;
+    }
+  };
+}
+
 /**
  * The resolve hook: rows, the installed SDK for a row's own import and for a
  * passed-through one, the real Admin SDK when it passes through, refusals,
@@ -209,61 +340,108 @@ function adminRowResult(rows: RegisterRows, realFiles: AdminRowFiles, unobserved
  * files it let load, and `adminTree` the passed-through Admin SDK's files;
  * the network guard reads both.
  */
-function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>, adminTree: AdminTree, unobserved: AdminUnobserved): Resolve {
-  const report = createStopReporter((line) => void process.stderr.write(line));
-  const passThroughPackages = passThroughSdkPackages(rows.passThrough);
-  const realFiles: AdminRowFiles = new Map();
+function resolveWithRows(
+  env: SuppliedResolveEnv,
+  unobserved: AdminUnobserved,
+  cjsState: CjsResolveState,
+): Resolve {
+  const passThroughPackages = passThroughSdkPackages(env.rows.passThrough);
   return (specifier, context, nextResolve) => {
-    const importer = context.parentURL;
-    const rowOwn = resolveAdminRowOwn(realFiles, adminTree, specifier, context, nextResolve);
-    if (rowOwn !== null) return rowOwn;
-    // The Admin SDK's own files load whatever it needs, as Node resolves it, and the stop lets it (`isFromAdminTree`),
-    // except where the Admin rows, when on, serve a row or note a service no row serves.
-    if (isAdminTreeImporter(adminTree, importer)) {
-      const fromTree = nextResolve(specifier, context);
-      const rowResult = adminRowResult(rows, realFiles, unobserved, specifier, fromTree.url);
-      if (rowResult !== null) return rowResult;
-      const stop = suppliedRowsStopFor({ specifier, importer, url: fromTree.url }, allowedUrls, { isRowImport: false, isEsmImport: false, isFromAdminTree: true });
-      if (stop !== null) throw stop;
-      return joinAdminTree(adminTree, fromTree);
-    }
-    const request = { specifier, importer, conditions: context.conditions };
-    const resolution = registerRowsResolution(rows, request);
-    if (resolution.kind === 'refused') throw resolution.error;
-    if (resolution.kind === 'module') return { url: resolution.url, format: 'module', shortCircuit: true };
-    const isRowImport = resolution.kind === 'installed-sdk';
-    const isPassThroughImport = resolution.kind === 'pass-through';
-    const isAdminImport = resolution.kind === 'admin-pass-through';
-    // A row resolves its own specifier as the app would: from the project root.
-    // A passed-through import is the app's own, so it resolves as written.
-    const result = isRowImport
-      ? nextResolve(specifier, { ...context, parentURL: resolution.projectUrl })
-      : nextResolve(specifier, context);
-    if (isAdminTreeReload(adminTree, specifier, importer, result.url)) return result;
     const isEsmImport = isImportCondition(context.conditions);
-    const load = { specifier, importer, url: result.url };
-    const grant = { isRowImport, isEsmImport, isPassThroughImport, passThroughPackages, isAdminImport };
-    const stop = suppliedRowsStopFor(load, allowedUrls, grant);
-    if (stop !== null) {
-      report(stop);
-      throw stop;
+    let cjsTurn: CjsResolveTurn | null = null;
+    if (!isEsmImport) cjsTurn = cjsState.enterHookResolve();
+    try {
+      const importer = context.parentURL;
+      const rowOwn = resolveAdminRowOwn(env.realFiles, env.adminTree, cjsTurn, specifier, context, nextResolve);
+      if (rowOwn !== null) return rowOwn;
+
+      let preResolved: ResolveResult | undefined;
+      if (importer !== undefined && env.adminTree.has(importer)) {
+        if (canConsultAdminTree(importer, isEsmImport, cjsTurn)) {
+          const fromTree = nextResolve(specifier, context);
+          if (hasVerifiedTreeImporter(importer, isEsmImport, cjsTurn)) {
+            const rowResult = adminRowResult(env.rows, env.realFiles, unobserved, specifier, fromTree.url);
+            if (rowResult !== null) return rowResult;
+            const stop = suppliedRowsStopFor(
+              { specifier, importer, url: fromTree.url },
+              env.allowedUrls,
+              { isRowImport: false, isEsmImport, isFromAdminTree: true },
+            );
+            if (stop !== null) throw stop;
+            return joinAdminTree(env.adminTree, fromTree);
+          }
+          preResolved = fromTree;
+        }
+      }
+
+      const request = { specifier, importer, conditions: context.conditions };
+      const resolution = registerRowsResolution(env.rows, request);
+      if (resolution.kind === 'refused') throw resolution.error;
+      if (resolution.kind === 'module') return { url: resolution.url, format: 'module', shortCircuit: true };
+      const isRowImport = resolution.kind === 'installed-sdk';
+      const isPassThroughImport = resolution.kind === 'pass-through';
+      const isAdminImport = resolution.kind === 'admin-pass-through';
+      // A row resolves its own specifier as the app would: from the project root.
+      // A passed-through import is the app's own, so it resolves as written.
+      let result: ResolveResult;
+      if (preResolved !== undefined) {
+        result = preResolved;
+      } else if (isRowImport) {
+        result = nextResolve(specifier, { ...context, parentURL: resolution.projectUrl });
+      } else {
+        result = nextResolve(specifier, context);
+      }
+      if (isAdminTreeReload(env.adminTree, specifier, importer, result.url)) return result;
+      const load = { specifier, importer, url: result.url };
+      const grant = { isRowImport, isEsmImport, isPassThroughImport, passThroughPackages, isAdminImport };
+      const stop = suppliedRowsStopFor(load, env.allowedUrls, grant);
+      if (stop !== null) {
+        if (isAdminPackageMainProbe(specifier, importer, result.url, isEsmImport, cjsTurn, env.adminTree)) {
+          return result;
+        }
+        env.report(stop);
+        throw stop;
+      }
+      // Only the real firebase-admin starts the tree, never an alias that lands elsewhere.
+      const isAdminEntry = isAdminImport && packageNameOf(result.url) === 'firebase-admin';
+      if (!isAdminEntry) return result;
+      // An entry of a service the Admin rows do not serve, when on, loads unobserved (the row loads are never entries).
+      adminRowResult(env.rows, env.realFiles, unobserved, specifier, result.url);
+      return joinAdminTree(env.adminTree, result);
+    } finally {
+      cjsTurn?.exit();
     }
-    // Only the real firebase-admin starts the tree, never an alias that lands elsewhere.
-    const isAdminEntry = isAdminImport && packageNameOf(result.url) === 'firebase-admin';
-    if (!isAdminEntry) return result;
-    // An entry of a service the Admin rows do not serve, when on, loads unobserved (the row loads are never entries).
-    adminRowResult(rows, realFiles, unobserved, specifier, result.url);
-    return joinAdminTree(adminTree, result);
   };
 }
 
-/** The load hook: a fixed live module's source, from the installed `@pyric/live`. Admin rows are CommonJS, as the Admin SDK is. */
+function isAsyncCommonJsNullSourceError(error: unknown, url: string, context: LoadContext | undefined): boolean {
+  if (!url.startsWith('file:')) return false;
+  const format = context?.format;
+  const canBeCommonJs = format === 'commonjs' || format == null;
+  if (!canBeCommonJs) return false;
+  if (typeof error !== 'object' || error === null) return false;
+  const err = error as { code?: unknown; message?: unknown };
+  if (err.code !== 'ERR_INVALID_RETURN_PROPERTY_VALUE') return false;
+  const msg = typeof err.message === 'string' ? err.message : '';
+  return msg.endsWith('got null.') || msg.endsWith('got undefined.');
+}
+
+/**
+ * The load hook: serves fixed live and Admin row sources from `@pyric/live`,
+ * falling back to `readFileSync` when Node 22.15's `validateLoad` rejects an
+ * async `module.register()` hook's `{ format: 'commonjs', source: null }`
+ * default step (nodejs/node#57327).
+ */
 function loadWithRows(rows: RegisterRows): Load {
   return (url, context, nextLoad) => {
     if (isAdminRowUrl(url)) return { format: 'commonjs', source: registerLiveModuleSource(rows, url), shortCircuit: true };
-    const isLiveModule = isRegisterLiveModule(url);
-    if (!isLiveModule) return nextLoad(url, context);
-    return { format: 'module', source: registerLiveModuleSource(rows, url), shortCircuit: true };
+    if (isRegisterLiveModule(url)) return { format: 'module', source: registerLiveModuleSource(rows, url), shortCircuit: true };
+    try {
+      return nextLoad(url, context);
+    } catch (error) {
+      if (!isAsyncCommonJsNullSourceError(error, url, context)) throw error;
+      return { format: 'commonjs', source: readFileSync(fileURLToPath(canonicalFileUrl(url))), shortCircuit: true };
+    }
   };
 }
 
@@ -389,7 +567,7 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   // The installed SDK files the stop let load.
   const allowedUrls = new Set<string>();
   // Stays empty unless `firebase-admin` passes through: only an app's own import of it starts the tree.
-  const adminTree = new Set<string>();
+  const adminTree = createAdminTree();
   const adminUnobserved = createAdminUnobserved((line) => void process.stderr.write(line), changed);
   const send = liveHostSender(() => forwarder?.reconnected());
   forwarder = createUnobservedForwarder({ read: () => unobservedFields(network.unobserved(), adminUnobserved), send });
@@ -402,7 +580,10 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   process.env[LIVE_PASS_THROUGH_VARIABLE] = [...passThrough].join(',');
   installWorkerGuard(installed.entryUrl);
   installChildProcessGuard(installed.entryUrl);
-  registerHooks({ resolve: resolveWithRows(rows, allowedUrls, adminTree, adminUnobserved), load: loadWithRows(rows) });
+  const report = createStopReporter((line) => void process.stderr.write(line));
+  const env: SuppliedResolveEnv = { rows, allowedUrls, adminTree, realFiles: new Map(), report };
+  const cjsState = installCjsResolveState({ directResolveGuard: createDirectResolveGuard(env) });
+  registerHooks({ resolve: resolveWithRows(env, adminUnobserved, cjsState), load: loadWithRows(rows) });
   // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it,
   // and list what no row observed.
   const projectId = projectIdOrNull(installed.projectRoot) ?? undefined;

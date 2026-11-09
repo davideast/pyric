@@ -145,19 +145,21 @@ export function observeAdminRow(name: AdminRowName, real: unknown, entryFile: st
 const THIS_FILE = fileURLToPath(import.meta.url);
 
 /**
- * An Admin row's source: the real module at its load, required by its own
- * specifier, patched by {@link observeAdminRow} with the rows' observer, and
- * exported unchanged. The real file is the one the row's require loaded.
+ * An Admin row's source: the real module at its load, resolved through the
+ * register hook (`require.resolve`) and required by its resolved path so
+ * `Module.prototype.require` wrappers (`require-in-the-middle`) see an on-disk
+ * path while still passing exports through `onrequire`, patched by
+ * {@link observeAdminRow} with the rows' observer, and exported as it is.
  */
 function adminRowSource(name: AdminRowName, specifier: string): string {
   return [
     "'use strict';",
-    `const real = require(${JSON.stringify(specifier)});`,
-    'const loaded = module.children.find((child) => child.exports === real);',
+    `const entryFile = require.resolve(${JSON.stringify(specifier)});`,
+    'const real = require(entryFile);',
     `const { observeAdminRow } = require(${JSON.stringify(THIS_FILE)});`,
     `const { observer } = require(${JSON.stringify(REGISTER_OBSERVER_URL)});`,
     'const requiredBy = module.parent ? module.parent.filename : undefined;',
-    `observeAdminRow(${JSON.stringify(name)}, real, loaded === undefined ? __filename : loaded.filename, observer, requiredBy);`,
+    `observeAdminRow(${JSON.stringify(name)}, real, entryFile, observer, requiredBy);`,
     'module.exports = real;',
     '',
   ].join('\n');

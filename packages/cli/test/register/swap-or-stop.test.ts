@@ -238,6 +238,47 @@ describe('suppliedRowsStopFor: @firebase/ai under live rows', () => {
     const required = load({ specifier: '@firebase/ai', url: AT_AI_FILE, importer: FIREBASE_AI_FILE });
     expect(suppliedRowsStopFor(required, new Set([FIREBASE_AI_FILE]), { isRowImport: false, isEsmImport: false })).not.toBeNull();
   });
+
+  it('lets an ?iitm=true ESM wrapper shim re-import its own allowed file and allowed @firebase/* dependencies, while stopping other firebase/* entries and CJS loads', () => {
+    const allowed = noneAllowed();
+    const shimmedEntry = `${FIREBASE_FIRESTORE_FILE}?iitm=true`;
+    expect(
+      suppliedRowsStopFor(
+        load({ specifier: 'firebase/firestore', url: shimmedEntry, importer: 'file:///live/row/firestore.js' }),
+        allowed,
+        { isRowImport: true, isEsmImport: true },
+      ),
+    ).toBeNull();
+    expect(allowed.has(FIREBASE_FIRESTORE_FILE)).toBe(true);
+
+    const selfReimport = load({
+      specifier: `${FIREBASE_FIRESTORE_FILE}?iitm=ignore`,
+      url: FIREBASE_FIRESTORE_FILE,
+      importer: shimmedEntry,
+    });
+    expect(suppliedRowsStopFor(selfReimport, allowed, fromAllowedFile)).toBeNull();
+
+    const childImport = load({
+      specifier: '@firebase/firestore',
+      url: AT_FIRESTORE_FILE,
+      importer: shimmedEntry,
+    });
+    expect(suppliedRowsStopFor(childImport, allowed, fromAllowedFile)).toBeNull();
+
+    const differentFirebaseEntry = load({
+      specifier: 'firebase/auth',
+      url: 'file:///work/app/node_modules/firebase/auth/dist/index.mjs',
+      importer: shimmedEntry,
+    });
+    expect(suppliedRowsStopFor(differentFirebaseEntry, allowed, fromAllowedFile)).not.toBeNull();
+
+    const cjsSelfReimport = load({
+      specifier: FIREBASE_FIRESTORE_FILE,
+      url: FIREBASE_FIRESTORE_FILE,
+      importer: shimmedEntry,
+    });
+    expect(suppliedRowsStopFor(cjsSelfReimport, allowed, { isRowImport: false, isEsmImport: false })).not.toBeNull();
+  });
 });
 
 describe('stopFor: everything else', () => {

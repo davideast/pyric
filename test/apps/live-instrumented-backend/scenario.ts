@@ -60,8 +60,8 @@ interface CapturedEvent {
   production?: { outcome?: { status?: string } };
 }
 
-/** The host's Admin Messaging events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
-async function messagingEvents(base: string): Promise<CapturedEvent[]> {
+/** The host's captured Admin operation events, from `/__pyric/capture`. */
+async function adminOperationEvents(base: string): Promise<CapturedEvent[]> {
   const init = await fetch(`${base}/__pyric/init.json`);
   assert.equal(init.status, 200, `/__pyric/init.json answered ${init.status}`);
   const { sessionToken } = await init.json() as { sessionToken: string };
@@ -69,8 +69,12 @@ async function messagingEvents(base: string): Promise<CapturedEvent[]> {
   if (response.status === 404) return [];
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
   const capture = await response.json() as { events?: CapturedEvent[] };
-  const isAdminMessaging = (event: CapturedEvent) => event.kind === 'operation' && event.detail?.sdk === 'admin' && event.service === 'messaging';
-  return (capture.events ?? []).filter(isAdminMessaging);
+  return (capture.events ?? []).filter((event) => event.kind === 'operation' && event.detail?.sdk === 'admin');
+}
+
+/** The host's Admin Messaging events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
+async function messagingEvents(base: string): Promise<CapturedEvent[]> {
+  return (await adminOperationEvents(base)).filter((event) => event.service === 'messaging');
 }
 
 /** Reads `read` until `check` holds, or fails after `timeoutMs`. */
@@ -195,6 +199,57 @@ export default scenario(async (app) => {
     checkBackend(app, host.url, 'assign', 0));
 
   await app.step('under a wrapper installed with defineProperty, as shimmer installs it, the same holds', () => checkBackend(app, host.url, 'define', 1));
+
+  await app.step('under require-in-the-middle (both --import orders), firebase-admin loads with zero PYRIC_REAL_SDK_STOPPED lines and observes Admin calls', async () => {
+    for (const imports of [
+      ['--import', './ritm-preload.mjs', '--import', ENTRY],
+      ['--import', ENTRY, '--import', './ritm-preload.mjs'],
+    ]) {
+      const beforeCount = (await adminOperationEvents(host.url)).length;
+      const run = await app.command('node', [...imports, 'ritm-check.mjs'], {
+        env: { LIVE_HOST_URL: host.url, BEFORE_ADMIN_EVENTS: String(beforeCount) },
+        timeoutMs: 90_000,
+      });
+      assert.equal(run.code, 0, run.output);
+      assert.doesNotMatch(run.output, /PYRIC_REAL_SDK_STOPPED|stopped loading/);
+      const outcomeLine = run.output.split('\n').find((text) => text.startsWith('RITM_OUTCOME '));
+      assert.ok(outcomeLine, `expected RITM_OUTCOME line:\n${run.output}`);
+      const { hooked } = JSON.parse(outcomeLine.slice('RITM_OUTCOME '.length)) as { hooked: string[] };
+      for (const expectedPkg of ['@google-cloud/firestore', '@google-cloud/storage', '@firebase/util', '@firebase/logger', '@firebase/component']) {
+        assert.ok(hooked.includes(expectedPkg), `expected ${expectedPkg} in hooked packages: ${hooked.join(', ')}`);
+      }
+      const added = await eventually(
+        async () => (await adminOperationEvents(host.url)).slice(beforeCount),
+        (events) =>
+          events.some((e) => e.method === 'Auth.getUser') &&
+          events.some((e) => e.method === 'DocumentReference.get') &&
+          events.some((e) => e.method === 'AggregateQuery.get') &&
+          events.some((e) => e.method === 'File.getMetadata'),
+        'Admin Auth, Firestore, AggregateQuery, and Storage events under require-in-the-middle',
+      );
+      assert.ok(added.length >= 4);
+    }
+  });
+
+  await app.step('under require-in-the-middle, ADR 0022 still stops direct, createRequire, and vm+paths-getter forged SDK loads', async () => {
+    const run = await app.command('node', ['--import', './ritm-preload.mjs', '--import', ENTRY, 'ritm-check.mjs'], {
+      env: { LIVE_HOST_URL: host.url, CHECK_STOPS: '1' },
+      timeoutMs: 90_000,
+    });
+    assert.equal(run.code, 0, run.output);
+    const outcomeLine = run.output.split('\n').find((text) => text.startsWith('RITM_OUTCOME '));
+    assert.ok(outcomeLine, `expected RITM_OUTCOME line:\n${run.output}`);
+    const { stops } = JSON.parse(outcomeLine.slice('RITM_OUTCOME '.length)) as { stops: Record<string, string> };
+    assert.deepEqual(stops, {
+      cjsFirestore: 'PYRIC_REAL_SDK_STOPPED',
+      esmFbUtil: 'PYRIC_REAL_SDK_STOPPED',
+      forgedRitmLoad: 'PYRIC_REAL_SDK_STOPPED',
+      forgedAdminLoad: 'PYRIC_REAL_SDK_STOPPED',
+      getterInnerLoad: 'PYRIC_REAL_SDK_STOPPED',
+      getterOuterResolve: 'PYRIC_REAL_SDK_STOPPED',
+    });
+    assert.match(run.output, /@pyric\/live\/register: stopped loading @google-cloud\/firestore/);
+  });
 
   await app.step('stop the dev server', () => host.process.stop());
 });
