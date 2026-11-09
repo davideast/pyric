@@ -11,13 +11,19 @@ import type {
   MatchBlock,
   PathSegment,
 } from '../../rules/grammar/FirestoreAST.js';
+import { topLevelMatches } from '../../rules/grammar/service-blocks.js';
 import {
   analyzeListRulePathInvariance,
   buildListRuleFunctionScope,
 } from '../../rules/simulator/list-rule-path-proof.js';
 import { indexRulesetScopes } from '../../rules/simulator/match-resolution.js';
 import { substituteIdentifiers } from '../../rules/simulator/query-proof-scope.js';
-import { collectRootMatches, rootGovernsEveryDocument } from '../../rules/simulator/root-match.js';
+import {
+  collectRootMatches,
+  resolveRootBlockMatch,
+  rootBlockGovernsEveryDocument,
+  rootGovernsEveryDocument,
+} from '../../rules/simulator/root-match.js';
 import { SYNTH_UID, type ScalarValue } from './static-query-proof-args.js';
 
 export interface RetainedRulesInspection {
@@ -26,12 +32,8 @@ export interface RetainedRulesInspection {
   readonly primaryRule?: { readonly line?: number; readonly expression: string };
 }
 
-export function normalizeDatabaseRootAst(
-  ast: FirestoreRules,
-  resourceId: string,
-): FirestoreRules {
-  if (resourceId === '(default)') return ast;
-  const segments = ast.service.match.path.segments;
+function normalizeRootMatchBlock(rootBlock: MatchBlock, resourceId: string): MatchBlock {
+  const segments = rootBlock.path.segments;
   const first = segments[0];
   const second = segments[1];
   if (
@@ -40,64 +42,116 @@ export function normalizeDatabaseRootAst(
     || second?.type !== 'literal'
     || second.value !== resourceId
   ) {
-    return ast;
+    return rootBlock;
   }
   const normalizedSegments: PathSegment[] = [...segments];
   normalizedSegments[1] = { type: 'literal', value: '(default)' };
   return {
-    ...ast,
-    service: {
-      ...ast.service,
-      match: {
-        ...ast.service.match,
-        path: {
-          ...ast.service.match.path,
-          segments: normalizedSegments,
-        },
-      },
+    ...rootBlock,
+    path: {
+      ...rootBlock.path,
+      segments: normalizedSegments,
     },
   };
 }
 
-function groupBindings(block: MatchBlock, collectionId: string): Set<string> | null {
+export function normalizeDatabaseRootAst(
+  ast: FirestoreRules,
+  resourceId: string,
+): FirestoreRules {
+  if (resourceId === '(default)') return ast;
+  const roots = topLevelMatches(ast.service);
+  let anyChanged = false;
+  const normalizedRoots = roots.map((rootBlock) => {
+    const next = normalizeRootMatchBlock(rootBlock, resourceId);
+    if (next !== rootBlock) anyChanged = true;
+    return next;
+  });
+  if (!anyChanged) return ast;
+  return {
+    ...ast,
+    service: {
+      ...ast.service,
+      match: normalizedRoots[0]!,
+      matches: normalizedRoots,
+    },
+  };
+}
+
+function groupBindings(
+  block: MatchBlock,
+  collectionId: string,
+  underRecursiveRoot: boolean,
+): Set<string> | null {
   const [first, second, third, ...rest] = block.path.segments;
-  if (first?.type !== 'recursive') return null;
-  if (!second) return new Set([first.name]);
+  if (first?.type === 'recursive') {
+    if (!second) return new Set([first.name]);
+    if (
+      second.type === 'literal'
+      && second.value === collectionId
+      && third?.type === 'wildcard'
+      && rest.length === 0
+    ) {
+      return new Set([first.name, third.name]);
+    }
+    return null;
+  }
   if (
-    second.type === 'literal'
-    && second.value === collectionId
-    && third?.type === 'wildcard'
-    && rest.length === 0
+    underRecursiveRoot
+    && first?.type === 'literal'
+    && first.value === collectionId
+    && second?.type === 'wildcard'
+    && third === undefined
   ) {
-    return new Set([first.name, third.name]);
+    return new Set([second.name]);
   }
   return null;
 }
 
-function projectGroupBlock(
-  block: MatchBlock,
-  collectionId: string,
-  outerFunctions: readonly FunctionDef[],
+function projectInvariantAllows(
+  allows: readonly AllowRule[],
+  bound: ReadonlySet<string>,
+  scopeFunctions: ReadonlyMap<string, FunctionDef>,
+  ambiguousNames: ReadonlySet<string>,
   requiredFunctions: Set<string>,
-): MatchBlock | null {
-  const bound = groupBindings(block, collectionId);
-  if (!bound) return null;
-  const scope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
-  const allows: AllowRule[] = [];
-  for (const rule of block.allows) {
+): AllowRule[] {
+  const retained: AllowRule[] = [];
+  for (const rule of allows) {
     const hasListOrRead = rule.operations.some((op) => op === 'list' || op === 'read');
     if (!hasListOrRead) continue;
     const analysis = analyzeListRulePathInvariance(
       rule.condition,
       bound,
-      scope.functions,
-      scope.ambiguousNames,
+      scopeFunctions,
+      ambiguousNames,
     );
     if (analysis.pathInvariant) {
       for (const fnName of analysis.requiredFunctions) requiredFunctions.add(fnName);
-      allows.push(rule);
+      retained.push(rule);
     }
   }
+  return retained;
+}
+
+function projectGroupBlock(
+  block: MatchBlock,
+  collectionId: string,
+  underRecursiveRoot: boolean,
+  extraBound: ReadonlySet<string>,
+  outerFunctions: readonly FunctionDef[],
+  requiredFunctions: Set<string>,
+): MatchBlock | null {
+  const localBound = groupBindings(block, collectionId, underRecursiveRoot);
+  if (!localBound) return null;
+  const bound = new Set([...extraBound, ...localBound]);
+  const scope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
+  const allows = projectInvariantAllows(
+    block.allows,
+    bound,
+    scope.functions,
+    scope.ambiguousNames,
+    requiredFunctions,
+  );
   if (allows.length === 0) return null;
   return {
     ...block,
@@ -111,34 +165,79 @@ export function projectCollectionGroupAst(
   ast: FirestoreRules,
   collectionId: string,
 ): FirestoreRules | null {
+  indexRulesetScopes(ast);
   if (!rootGovernsEveryDocument(ast)) return null;
-  const outerFunctions = [
-    ...(ast.functions ?? []),
-    ...(ast.service.functions ?? []),
-    ...ast.service.match.functions,
-  ];
-  const requiredFunctions = new Set<string>();
-  const children: MatchBlock[] = [];
-  for (const child of ast.service.match.children) {
-    const projected = projectGroupBlock(child, collectionId, outerFunctions, requiredFunctions);
-    if (projected) children.push(projected);
+
+  const globalRequiredFunctions = new Set<string>();
+  const projectedRoots: MatchBlock[] = [];
+
+  for (const rootBlock of topLevelMatches(ast.service)) {
+    if (!rootBlockGovernsEveryDocument(rootBlock, ast.version)) continue;
+    const rootMatch = resolveRootBlockMatch(rootBlock, ast.version, '');
+    if (!rootMatch) continue;
+
+    const outerFunctions = [
+      ...(ast.functions ?? []),
+      ...(ast.service.functions ?? []),
+      ...rootBlock.functions,
+    ];
+    const blockRequiredFunctions = new Set<string>();
+    const underRecursiveRoot = rootMatch.recursiveTail !== undefined;
+    const extraBound = new Set<string>(rootMatch.recursiveVariables ?? []);
+    if (rootMatch.recursiveTail !== undefined) {
+      extraBound.add(rootMatch.recursiveTail.name);
+    }
+
+    let rootAllows: AllowRule[] = [];
+    if (underRecursiveRoot && rootBlock.allows.length > 0) {
+      const rootScope = buildListRuleFunctionScope(outerFunctions);
+      rootAllows = projectInvariantAllows(
+        rootBlock.allows,
+        extraBound,
+        rootScope.functions,
+        rootScope.ambiguousNames,
+        blockRequiredFunctions,
+      );
+    }
+
+    const children: MatchBlock[] = [];
+    for (const child of rootBlock.children) {
+      const projected = projectGroupBlock(
+        child,
+        collectionId,
+        underRecursiveRoot,
+        extraBound,
+        outerFunctions,
+        blockRequiredFunctions,
+      );
+      if (projected) children.push(projected);
+    }
+
+    if (rootAllows.length === 0 && children.length === 0) continue;
+    for (const fnName of blockRequiredFunctions) {
+      globalRequiredFunctions.add(fnName);
+    }
+    projectedRoots.push({
+      ...rootBlock,
+      functions: rootBlock.functions.filter((fn) => blockRequiredFunctions.has(fn.name)),
+      allows: rootAllows,
+      children,
+    });
   }
-  if (children.length === 0) return null;
-  const retain = (fns: readonly FunctionDef[] | undefined): FunctionDef[] | undefined => {
+
+  if (projectedRoots.length === 0) return null;
+  const retainGlobal = (fns: readonly FunctionDef[] | undefined): FunctionDef[] | undefined => {
     if (!fns) return undefined;
-    return fns.filter((fn) => requiredFunctions.has(fn.name));
+    return fns.filter((fn) => globalRequiredFunctions.has(fn.name));
   };
   return {
     ...ast,
-    functions: retain(ast.functions),
+    functions: retainGlobal(ast.functions),
     service: {
       ...ast.service,
-      functions: retain(ast.service.functions),
-      match: {
-        ...ast.service.match,
-        functions: retain(ast.service.match.functions) ?? [],
-        children,
-      },
+      functions: retainGlobal(ast.service.functions),
+      match: projectedRoots[0]!,
+      matches: projectedRoots,
     },
   };
 }
@@ -169,6 +268,12 @@ function isRequestAuthToken(expr: Expression): boolean {
   return isRequestChain(step.object, 'auth');
 }
 
+function isRequestAuthTokenClaim(expr: Expression, claim: string): boolean {
+  const step = memberStep(expr);
+  if (!step || step.property !== claim) return false;
+  return isRequestAuthToken(step.object);
+}
+
 function isResourceDataField(expr: Expression, field: string): boolean {
   const step = memberStep(expr);
   if (!step || step.property !== field) return false;
@@ -177,65 +282,124 @@ function isResourceDataField(expr: Expression, field: string): boolean {
   return dataStep.object.type === 'identifier' && dataStep.object.name === 'resource';
 }
 
+function isAnyResourceDataAccess(expr: Expression): boolean {
+  let cur: Expression | null = expr;
+  while (cur !== null) {
+    const step = memberStep(cur);
+    if (!step) return false;
+    if (
+      step.property === 'data'
+      && step.object.type === 'identifier'
+      && step.object.name === 'resource'
+    ) {
+      return true;
+    }
+    cur = step.object;
+  }
+  return false;
+}
+
+function seededTokenPlaceholder(claim: string): ScalarValue {
+  if (claim === 'email') return 'synth@example.test';
+  if (claim === 'email_verified') return true;
+  if (claim === 'name') return '__pyric_display_name__';
+  if (claim === 'phone_number') return '+15555550100';
+  if (claim === 'picture') return 'https://example.test/avatar.png';
+  return `__pyric_claim_${claim}__`;
+}
+
+function isSeededTokenDischargedByParent(
+  node: Expression,
+  parent: Expression | null,
+  claim: string,
+): boolean {
+  const placeholder = seededTokenPlaceholder(claim);
+  if (parent?.type === 'binaryOp') {
+    const other = parent.left === node ? parent.right : parent.right === node ? parent.left : null;
+    if (!other) return false;
+    if (parent.op === '==') {
+      if (isAnyResourceDataAccess(other)) return true;
+      const lit = asScalarLiteral(other);
+      return lit.ok && Object.is(lit.value, placeholder);
+    }
+    if (parent.op === '!=') {
+      return other.type === 'literal' && other.value === null;
+    }
+    return false;
+  }
+  if (
+    parent?.type === 'inExpr'
+    && parent.element === node
+    && parent.collection.type === 'listLiteral'
+  ) {
+    return parent.collection.elements.some((el) => {
+      const lit = asScalarLiteral(el);
+      return lit.ok && Object.is(lit.value, placeholder);
+    });
+  }
+  return false;
+}
+
 function walkRuleExpression(
   expr: Expression,
   fnMap: ReadonlyMap<string, FunctionDef>,
   visited: ReadonlySet<string>,
-  onNode: (node: Expression) => void,
+  onNode: (node: Expression, parent: Expression | null) => void,
+  parent: Expression | null = null,
 ): void {
-  onNode(expr);
+  onNode(expr, parent);
   switch (expr.type) {
     case 'memberAccess':
-      walkRuleExpression(expr.object, fnMap, visited, onNode);
+      walkRuleExpression(expr.object, fnMap, visited, onNode, expr);
       return;
     case 'bracketAccess':
-      walkRuleExpression(expr.object, fnMap, visited, onNode);
-      walkRuleExpression(expr.index, fnMap, visited, onNode);
+      walkRuleExpression(expr.object, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.index, fnMap, visited, onNode, expr);
       return;
     case 'sliceAccess':
-      walkRuleExpression(expr.object, fnMap, visited, onNode);
-      walkRuleExpression(expr.start, fnMap, visited, onNode);
-      walkRuleExpression(expr.end, fnMap, visited, onNode);
+      walkRuleExpression(expr.object, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.start, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.end, fnMap, visited, onNode, expr);
       return;
     case 'binaryOp':
-      walkRuleExpression(expr.left, fnMap, visited, onNode);
-      walkRuleExpression(expr.right, fnMap, visited, onNode);
+      walkRuleExpression(expr.left, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.right, fnMap, visited, onNode, expr);
       return;
     case 'unaryOp':
-      walkRuleExpression(expr.operand, fnMap, visited, onNode);
+      walkRuleExpression(expr.operand, fnMap, visited, onNode, expr);
       return;
     case 'ternary':
-      walkRuleExpression(expr.condition, fnMap, visited, onNode);
-      walkRuleExpression(expr.consequent, fnMap, visited, onNode);
-      walkRuleExpression(expr.alternate, fnMap, visited, onNode);
+      walkRuleExpression(expr.condition, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.consequent, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.alternate, fnMap, visited, onNode, expr);
       return;
     case 'inExpr':
-      walkRuleExpression(expr.element, fnMap, visited, onNode);
-      walkRuleExpression(expr.collection, fnMap, visited, onNode);
+      walkRuleExpression(expr.element, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.collection, fnMap, visited, onNode, expr);
       return;
     case 'isExpr':
-      walkRuleExpression(expr.value, fnMap, visited, onNode);
+      walkRuleExpression(expr.value, fnMap, visited, onNode, expr);
       return;
     case 'listLiteral':
-      for (const el of expr.elements) walkRuleExpression(el, fnMap, visited, onNode);
+      for (const el of expr.elements) walkRuleExpression(el, fnMap, visited, onNode, expr);
       return;
     case 'mapLiteral':
       for (const entry of expr.entries) {
-        walkRuleExpression(entry.key, fnMap, visited, onNode);
-        walkRuleExpression(entry.value, fnMap, visited, onNode);
+        walkRuleExpression(entry.key, fnMap, visited, onNode, expr);
+        walkRuleExpression(entry.value, fnMap, visited, onNode, expr);
       }
       return;
     case 'pathLiteral':
       for (const seg of expr.segments) {
-        if (typeof seg !== 'string') walkRuleExpression(seg, fnMap, visited, onNode);
+        if (typeof seg !== 'string') walkRuleExpression(seg, fnMap, visited, onNode, expr);
       }
       return;
     case 'methodCall':
-      walkRuleExpression(expr.object, fnMap, visited, onNode);
-      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode);
+      walkRuleExpression(expr.object, fnMap, visited, onNode, expr);
+      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode, expr);
       return;
     case 'functionCall': {
-      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode);
+      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode, expr);
       const fn = fnMap.get(expr.name);
       if (!fn || visited.has(expr.name)) return;
       const nextVisited = new Set(visited).add(expr.name);
@@ -246,10 +410,10 @@ function walkRuleExpression(
       }
       for (const b of fn.lets) {
         const bound = substituteIdentifiers(b.value, bindings);
-        walkRuleExpression(bound, fnMap, nextVisited, onNode);
+        walkRuleExpression(bound, fnMap, nextVisited, onNode, null);
         bindings.set(b.name, bound);
       }
-      walkRuleExpression(substituteIdentifiers(fn.body, bindings), fnMap, nextVisited, onNode);
+      walkRuleExpression(substituteIdentifiers(fn.body, bindings), fnMap, nextVisited, onNode, null);
       return;
     }
     default:
@@ -268,7 +432,6 @@ export function inspectRetainedRules(
   const rootFunctions = [
     ...(evaluationAst.functions ?? []),
     ...(evaluationAst.service.functions ?? []),
-    ...evaluationAst.service.match.functions,
   ];
   const matches = collectRootMatches(evaluationAst, placeholderPath, rootFunctions);
   let usesUnseededContext = false;
@@ -286,7 +449,7 @@ export function inspectRetainedRules(
         if (rule.loc?.line !== undefined) info.line = rule.loc.line;
         primaryRule = info;
       }
-      walkRuleExpression(rule.condition, scope.functions, new Set(), (node) => {
+      walkRuleExpression(rule.condition, scope.functions, new Set(), (node, parent) => {
         if (
           node.type === 'functionCall'
           && !scope.functions.has(node.name)
@@ -299,7 +462,10 @@ export function inspectRetainedRules(
         }
         const tokenStep = memberStep(node);
         if (tokenStep && isRequestAuthToken(tokenStep.object)) {
-          if (!populatedClaims.has(tokenStep.property)) {
+          if (
+            !populatedClaims.has(tokenStep.property)
+            || !isSeededTokenDischargedByParent(node, parent, tokenStep.property)
+          ) {
             usesUnseededContext = true;
           }
         } else if (node.type === 'bracketAccess' && isRequestAuthToken(node.object)) {
@@ -338,6 +504,53 @@ function asScalarLiteral(expr: Expression): { ok: true; value: ScalarValue } | {
   return { ok: false };
 }
 
+export function collectClaimCandidateScalars(
+  evaluationAst: FirestoreRules,
+  placeholderPath: string,
+  claim: string,
+): ScalarValue[] {
+  indexRulesetScopes(evaluationAst);
+  const rootFunctions = [
+    ...(evaluationAst.functions ?? []),
+    ...(evaluationAst.service.functions ?? []),
+  ];
+  const matches = collectRootMatches(evaluationAst, placeholderPath, rootFunctions);
+  const out: ScalarValue[] = [];
+  const addScalar = (value: ScalarValue): void => {
+    if (!out.some((existing) => Object.is(existing, value))) {
+      out.push(value);
+    }
+  };
+
+  for (const match of matches) {
+    const scope = buildListRuleFunctionScope(match.functions);
+    for (const rule of match.block.allows) {
+      if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
+      walkRuleExpression(rule.condition, scope.functions, new Set(), (node) => {
+        if (node.type === 'binaryOp' && node.op === '==') {
+          if (isRequestAuthTokenClaim(node.left, claim)) {
+            const lit = asScalarLiteral(node.right);
+            if (lit.ok) addScalar(lit.value);
+          } else if (isRequestAuthTokenClaim(node.right, claim)) {
+            const lit = asScalarLiteral(node.left);
+            if (lit.ok) addScalar(lit.value);
+          }
+        } else if (
+          node.type === 'inExpr'
+          && isRequestAuthTokenClaim(node.element, claim)
+          && node.collection.type === 'listLiteral'
+        ) {
+          for (const item of node.collection.elements) {
+            const lit = asScalarLiteral(item);
+            if (lit.ok) addScalar(lit.value);
+          }
+        }
+      });
+    }
+  }
+  return out;
+}
+
 export function collectOptimisticFieldScalars(
   evaluationAst: FirestoreRules,
   placeholderPath: string,
@@ -347,7 +560,6 @@ export function collectOptimisticFieldScalars(
   const rootFunctions = [
     ...(evaluationAst.functions ?? []),
     ...(evaluationAst.service.functions ?? []),
-    ...evaluationAst.service.match.functions,
   ];
   const matches = collectRootMatches(evaluationAst, placeholderPath, rootFunctions);
   const out: ScalarValue[] = [];

@@ -15,7 +15,10 @@ import type {
   SdkRef,
   SdkUsageIndex,
 } from '../code/usage-index.js';
-import { concretizeQueryTarget, expandQueryArms } from './static-query-proof-args.js';
+import {
+  concretizeQueryTarget,
+  expandQueryArmsWithTruncation,
+} from './static-query-proof-args.js';
 import {
   evaluateCandidateArm,
   type ArmFailure,
@@ -37,6 +40,7 @@ interface QueryCandidate {
   readonly id: string;
   readonly baseRef: SdkRef;
   readonly arms: readonly (readonly SdkQueryConstraint[])[];
+  readonly truncated: boolean;
   readonly source: string;
   readonly through?: string;
 }
@@ -126,16 +130,19 @@ function collectQueryCandidates(usage: SdkUsageIndex): QueryCandidate[] {
     for (const consumer of q.consumedBy) {
       coveredRefConsumers.add(`${q.baseRef.id}|${consumer}`);
     }
+    const expanded = expandQueryArmsWithTruncation(q);
     const candidate: {
       id: string;
       baseRef: SdkRef;
       arms: readonly (readonly SdkQueryConstraint[])[];
+      truncated: boolean;
       source: string;
       through?: string;
     } = {
       id: q.id,
       baseRef: q.baseRef,
-      arms: expandQueryArms(q),
+      arms: expanded.arms,
+      truncated: expanded.truncated,
       source: q.source,
     };
     if (q.through !== undefined) candidate.through = q.through;
@@ -164,12 +171,14 @@ function collectQueryCandidates(usage: SdkUsageIndex): QueryCandidate[] {
         id: string;
         baseRef: SdkRef;
         arms: readonly (readonly SdkQueryConstraint[])[];
+        truncated: boolean;
         source: string;
         through?: string;
       } = {
         id: `unwrapped:${ref.id}@${source}`,
         baseRef: ref,
         arms: [[]],
+        truncated: false,
         source,
       };
       if (through !== undefined) candidate.through = through;
@@ -205,6 +214,17 @@ export function staticQueryProofPass(
         chosenFailure = failure;
       } else if (chosenFailure.certainty === 'heuristic' && failure.certainty === 'static-proof') {
         chosenFailure = failure;
+      }
+    }
+    if (!chosenFailure && candidate.truncated) {
+      const unconstrainedFailure = evaluateCandidateArm(simulator, dbRules, target, []);
+      if (unconstrainedFailure) {
+        chosenFailure = {
+          ...unconstrainedFailure,
+          certainty: 'heuristic',
+          reason:
+            `query constraint expansion exceeded static DNF arm budget; unverified arm may fail (${unconstrainedFailure.reason})`,
+        };
       }
     }
     if (!chosenFailure) continue;

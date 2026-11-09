@@ -368,9 +368,16 @@ describe('storageContractPass', () => {
               contentType: 'image/png',
               customMetadata: {},
             });
-            // 6. Concrete bucket rule overrides wildcard bucket rule on media-prod
-            await uploadBytes(ref(mediaBucket, 'managed/' + uid + '/clip.png'), new Uint8Array(8), {
+            // 6. Concrete bucket rule OR-combines with wildcard bucket rule on media-prod
+            await uploadBytes(ref(mediaBucket, 'managed/' + uid + '/ok-wildcard.png'), new Uint8Array(8), {
               contentType: 'image/png',
+              customMetadata: { owner: uid },
+            });
+            await uploadBytes(ref(mediaBucket, 'managed/' + uid + '/ok-concrete.mp4'), new Uint8Array(8), {
+              contentType: 'video/mp4',
+            });
+            await uploadBytes(ref(mediaBucket, 'managed/' + uid + '/clip.txt'), new Uint8Array(8), {
+              contentType: 'text/plain',
             });
           }
         `,
@@ -390,7 +397,7 @@ describe('storageContractPass', () => {
       {
         code: 'storage-content-type-mismatch',
         resourceId: 'media-prod',
-        path: 'managed/{uid}/clip.png',
+        path: 'managed/{uid}/clip.txt',
       },
       {
         code: 'storage-content-type-mismatch',

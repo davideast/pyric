@@ -29,6 +29,7 @@ import {
   type RuleSurfaceEntry,
   type StorageSurfaceInput,
 } from '../rules/rule-surface.js';
+import { splitSourceLocation } from './source-location.js';
 
 const CLIENT_UPLOAD_OPS = new Set([
   'uploadBytes',
@@ -133,6 +134,25 @@ function matchesCelRegex(value: string, rawPattern: string): boolean {
   }
 }
 
+function wildcardBucketAppliesToBucket(
+  surface: RuleSurface,
+  wildcardEntry: RuleSurfaceEntry,
+  bucketId: string,
+): boolean {
+  const explicitFiles = new Set<string>();
+  for (const entry of surface.entries) {
+    if (
+      entry.pattern.service === 'storage'
+      && !entry.wildcardBucket
+      && entry.pattern.resourceId === bucketId
+    ) {
+      explicitFiles.add(splitSourceLocation(entry.source).file);
+    }
+  }
+  if (explicitFiles.size === 0) return true;
+  return explicitFiles.has(splitSourceLocation(wildcardEntry.source).file);
+}
+
 function matchingUploadEntries(
   surface: RuleSurface,
   pattern: ResourcePattern,
@@ -140,22 +160,33 @@ function matchingUploadEntries(
   defaultBucket: string | undefined,
   allowedBuckets: Set<string> | null,
 ): RuleSurfaceEntry[] {
-  let matches = [...surface.matching(pattern, op)];
-  if (matches.length === 0 && pattern.resourceId === DEFAULT_RESOURCE_ID && defaultBucket !== undefined) {
-    matches = [...surface.matching({ ...pattern, resourceId: defaultBucket }, op)];
+  const seen = new Set<RuleSurfaceEntry>();
+  const matches: RuleSurfaceEntry[] = [];
+  const pushAll = (entries: readonly RuleSurfaceEntry[]): void => {
+    for (const entry of entries) {
+      if (!seen.has(entry)) {
+        seen.add(entry);
+        matches.push(entry);
+      }
+    }
+  };
+
+  pushAll(surface.matching(pattern, op));
+  if (pattern.resourceId === DEFAULT_RESOURCE_ID && defaultBucket !== undefined) {
+    pushAll(surface.matching({ ...pattern, resourceId: defaultBucket }, op));
   }
-  if (matches.length === 0 && pattern.resourceId !== DEFAULT_RESOURCE_ID) {
-    const hasExplicitBucketRules = surface.entries.some(
-      (e) =>
-        e.pattern.service === 'storage'
-        && !e.wildcardBucket
-        && e.pattern.resourceId === pattern.resourceId,
-    );
+  if (pattern.resourceId !== DEFAULT_RESOURCE_ID) {
     const isAllowedBucket = allowedBuckets === null || allowedBuckets.has(pattern.resourceId);
-    if (!hasExplicitBucketRules && isAllowedBucket) {
-      matches = surface
-        .matching({ ...pattern, resourceId: DEFAULT_RESOURCE_ID }, op)
-        .filter((e) => e.wildcardBucket === true);
+    if (isAllowedBucket) {
+      pushAll(
+        surface
+          .matching({ ...pattern, resourceId: DEFAULT_RESOURCE_ID }, op)
+          .filter(
+            (e) =>
+              e.wildcardBucket === true
+              && wildcardBucketAppliesToBucket(surface, e, pattern.resourceId),
+          ),
+      );
     }
   }
   return matches.filter((entry) => !entry.alwaysDeny);
@@ -482,38 +513,36 @@ export function storageContractPass(
         continue;
       }
 
-      let emittedAny = false;
-      if (contentType !== undefined && !evals.some((ev) => ev.ctOk)) {
-        emitContentTypeMismatch(
-          site,
-          pattern,
-          effectiveBucket,
-          contentType,
-          evals,
-          usedIds,
-          diagnostics,
-        );
-        emittedAny = true;
-      }
-      if (sizeBytes !== undefined && !evals.some((ev) => ev.sizeOk)) {
-        emitMaxSizeExceeded(
-          site,
-          pattern,
-          effectiveBucket,
-          sizeBytes,
-          evals,
-          usedIds,
-          diagnostics,
-        );
-        emittedAny = true;
-      }
-      if (shouldCheckCustomMeta && !evals.some((ev) => ev.metaOk)) {
-        emitMissingCustomMetadata(site, pattern, effectiveBucket, evals, usedIds, diagnostics);
-        emittedAny = true;
-      }
-      if (!emittedAny) {
-        const ctCompatible = evals.filter((ev) => ev.ctOk);
-        if (sizeBytes !== undefined && !ctCompatible.some((ev) => ev.sizeOk)) {
+      const ctCompatible = evals.filter((ev) => ev.ctOk);
+      if (ctCompatible.length === 0) {
+        if (contentType !== undefined) {
+          emitContentTypeMismatch(
+            site,
+            pattern,
+            effectiveBucket,
+            contentType,
+            evals,
+            usedIds,
+            diagnostics,
+          );
+        }
+        if (sizeBytes !== undefined && !evals.some((ev) => ev.sizeOk)) {
+          emitMaxSizeExceeded(
+            site,
+            pattern,
+            effectiveBucket,
+            sizeBytes,
+            evals,
+            usedIds,
+            diagnostics,
+          );
+        }
+        if (shouldCheckCustomMeta && !evals.some((ev) => ev.metaOk)) {
+          emitMissingCustomMetadata(site, pattern, effectiveBucket, evals, usedIds, diagnostics);
+        }
+      } else {
+        const sizeViolated = sizeBytes !== undefined && !ctCompatible.some((ev) => ev.sizeOk);
+        if (sizeViolated) {
           emitMaxSizeExceeded(
             site,
             pattern,
@@ -523,9 +552,19 @@ export function storageContractPass(
             usedIds,
             diagnostics,
           );
-        } else {
+        }
+        if (shouldCheckCustomMeta && !ctCompatible.some((ev) => ev.metaOk)) {
+          emitMissingCustomMetadata(
+            site,
+            pattern,
+            effectiveBucket,
+            ctCompatible,
+            usedIds,
+            diagnostics,
+          );
+        } else if (!sizeViolated && shouldCheckCustomMeta) {
           const ctSizeCompatible = ctCompatible.filter((ev) => ev.sizeOk);
-          if (shouldCheckCustomMeta && !ctSizeCompatible.some((ev) => ev.metaOk)) {
+          if (ctSizeCompatible.length > 0 && !ctSizeCompatible.some((ev) => ev.metaOk)) {
             emitMissingCustomMetadata(
               site,
               pattern,

@@ -18,6 +18,7 @@ import {
   concretizeSitePatterns,
   type RuntimePathObservation,
 } from './coverage-matrix-runtime.js';
+import { splitSourceLocation } from './source-location.js';
 
 export interface ExercisedProbe {
   readonly pattern: ResourcePattern;
@@ -29,6 +30,9 @@ export interface OwnerSiteEvidence {
   readonly site: AccessSite;
   readonly pathVarName?: string;
   readonly pathVarSegmentIndex?: number;
+  readonly pathVarSegmentPrefix?: string;
+  readonly pathVarSegmentSuffix?: string;
+  readonly pathVarCompositeDynamic?: boolean;
   readonly siteSegmentCount?: number;
   readonly payloadFieldName?: string;
   readonly metadataKeyName?: string;
@@ -70,6 +74,25 @@ export function hasExplicitStorageBucketRules(surface: RuleSurface, bucketId: st
   );
 }
 
+function wildcardBucketAppliesToBucket(
+  surface: RuleSurface,
+  wildcardEntry: RuleSurfaceEntry,
+  bucketId: string,
+): boolean {
+  const explicitFiles = new Set<string>();
+  for (const entry of surface.entries) {
+    if (
+      entry.pattern.service === 'storage'
+      && !entry.wildcardBucket
+      && entry.pattern.resourceId === bucketId
+    ) {
+      explicitFiles.add(splitSourceLocation(entry.source).file);
+    }
+  }
+  if (explicitFiles.size === 0) return true;
+  return explicitFiles.has(splitSourceLocation(wildcardEntry.source).file);
+}
+
 export function matchStorageWithBucketFallback(
   surface: RuleSurface,
   pattern: ResourcePattern,
@@ -91,14 +114,15 @@ export function matchStorageWithBucketFallback(
   if (pattern.resourceId === DEFAULT_RESOURCE_ID && defaultBucket !== undefined) {
     pushAll(surface.matching({ ...pattern, resourceId: defaultBucket }, op));
   }
-  if (
-    pattern.resourceId !== DEFAULT_RESOURCE_ID
-    && !hasExplicitStorageBucketRules(surface, pattern.resourceId)
-  ) {
+  if (pattern.resourceId !== DEFAULT_RESOURCE_ID) {
     pushAll(
       surface
         .matching({ ...pattern, resourceId: DEFAULT_RESOURCE_ID }, op)
-        .filter((entry) => entry.wildcardBucket === true),
+        .filter(
+          (entry) =>
+            entry.wildcardBucket === true
+            && wildcardBucketAppliesToBucket(surface, entry, pattern.resourceId),
+        ),
     );
   }
   return out;
@@ -232,7 +256,7 @@ export function entryMatchesProbe(
     entry.pattern.service === 'storage'
     && entry.wildcardBucket === true
     && probe.pattern.resourceId !== DEFAULT_RESOURCE_ID
-    && !hasExplicitStorageBucketRules(surface, probe.pattern.resourceId)
+    && wildcardBucketAppliesToBucket(surface, entry, probe.pattern.resourceId)
   ) {
     probeForOverlap = { ...probe.pattern, resourceId: DEFAULT_RESOURCE_ID };
   }
@@ -240,21 +264,39 @@ export function entryMatchesProbe(
   return overlapsPattern(entry.pattern, probeForOverlap, { cascadeA, cascadeB });
 }
 
+function parseAuthUidPatternAffixes(
+  pattern: string | undefined,
+):
+  | { readonly kind: 'affix'; readonly prefix: string; readonly suffix: string }
+  | { readonly kind: 'composite' }
+  | undefined {
+  if (!pattern || pattern === '{auth.uid}') return undefined;
+  if (pattern.includes('{*}')) return { kind: 'composite' };
+  const parts = pattern.split('{auth.uid}');
+  if (parts.length !== 2) return { kind: 'composite' };
+  return { kind: 'affix', prefix: parts[0]!, suffix: parts[1]! };
+}
+
 export function extractOwnerWriteEvidence(site: AccessSite): OwnerSiteEvidence | undefined {
   const pathVar = site.pathVariables?.find((v) => v.auth?.some((a) => a.source === 'auth.uid'));
   if (pathVar !== undefined) {
-    const sitePattern = parseResourcePattern(site.service, site.path, site.resourceId);
+    const sitePattern = siteResourcePattern(site);
     const matchingIndices: number[] = [];
+    const matchingVarSegments: Array<Extract<PatternSegment, { kind: 'var' }>> = [];
     for (let i = 0; i < sitePattern.segments.length; i += 1) {
       const seg = sitePattern.segments[i]!;
       if (seg.kind !== 'lit' && seg.name === pathVar.name) {
         matchingIndices.push(i);
+        if (seg.kind === 'var') matchingVarSegments.push(seg);
       }
     }
     const out: {
       site: AccessSite;
       pathVarName: string;
       pathVarSegmentIndex?: number;
+      pathVarSegmentPrefix?: string;
+      pathVarSegmentSuffix?: string;
+      pathVarCompositeDynamic?: boolean;
       siteSegmentCount: number;
     } = {
       site,
@@ -263,6 +305,30 @@ export function extractOwnerWriteEvidence(site: AccessSite): OwnerSiteEvidence |
     };
     if (matchingIndices.length === 1) {
       out.pathVarSegmentIndex = matchingIndices[0]!;
+      const onlyVar = matchingVarSegments[0];
+      if (onlyVar?.prefix) out.pathVarSegmentPrefix = onlyVar.prefix;
+      if (onlyVar?.suffix) out.pathVarSegmentSuffix = onlyVar.suffix;
+    } else if (matchingVarSegments.length > 0) {
+      const firstPrefix = matchingVarSegments[0]!.prefix ?? '';
+      const firstSuffix = matchingVarSegments[0]!.suffix ?? '';
+      const uniformAffixes = matchingVarSegments.every(
+        (s) => (s.prefix ?? '') === firstPrefix && (s.suffix ?? '') === firstSuffix,
+      );
+      if (uniformAffixes) {
+        if (firstPrefix.length > 0) out.pathVarSegmentPrefix = firstPrefix;
+        if (firstSuffix.length > 0) out.pathVarSegmentSuffix = firstSuffix;
+      }
+    }
+    const parsedPattern = parseAuthUidPatternAffixes(pathVar.pattern);
+    if (parsedPattern?.kind === 'composite') {
+      out.pathVarCompositeDynamic = true;
+    } else if (parsedPattern?.kind === 'affix') {
+      if (!out.pathVarSegmentPrefix && parsedPattern.prefix.length > 0) {
+        out.pathVarSegmentPrefix = parsedPattern.prefix;
+      }
+      if (!out.pathVarSegmentSuffix && parsedPattern.suffix.length > 0) {
+        out.pathVarSegmentSuffix = parsedPattern.suffix;
+      }
     }
     return out;
   }
@@ -286,11 +352,26 @@ export function extractOwnerWriteEvidence(site: AccessSite): OwnerSiteEvidence |
   return undefined;
 }
 
+interface BoundRuleOwnerSegment {
+  readonly varName: string;
+  readonly rulePrefix: string;
+  readonly ruleSuffix: string;
+}
+
+function toBoundRuleOwnerSegment(
+  seg: Extract<PatternSegment, { kind: 'var' }>,
+): BoundRuleOwnerSegment {
+  return {
+    varName: seg.name,
+    rulePrefix: seg.prefix ?? '',
+    ruleSuffix: seg.suffix ?? '',
+  };
+}
+
 function findRuleOwnerSegmentVar(
   entryPattern: ResourcePattern,
   evidence: OwnerSiteEvidence,
-): string {
-  const fallbackVar = evidence.pathVarName ?? 'uid';
+): BoundRuleOwnerSegment | undefined {
   const entrySegs = entryPattern.segments;
   const segIdx = evidence.pathVarSegmentIndex;
   if (segIdx !== undefined) {
@@ -300,29 +381,65 @@ function findRuleOwnerSegmentVar(
         const alignedIdx = entrySegs.length - (siteLen - segIdx);
         if (alignedIdx >= 1 && alignedIdx < entrySegs.length) {
           const alignedSeg: PatternSegment = entrySegs[alignedIdx]!;
-          if (alignedSeg.kind === 'var') return alignedSeg.name;
+          if (alignedSeg.kind === 'var') return toBoundRuleOwnerSegment(alignedSeg);
         }
       }
-      return fallbackVar;
+      return undefined;
     }
     if (segIdx >= 0 && segIdx < entrySegs.length) {
       const alignedSeg: PatternSegment = entrySegs[segIdx]!;
-      if (alignedSeg.kind === 'var') return alignedSeg.name;
+      if (alignedSeg.kind === 'var') return toBoundRuleOwnerSegment(alignedSeg);
     }
-    return fallbackVar;
+    return undefined;
   }
 
-  const exactMatch = entrySegs.find(
-    (seg): seg is Extract<PatternSegment, { kind: 'var' }> =>
-      seg.kind === 'var' && seg.name === fallbackVar,
-  );
-  if (exactMatch !== undefined) return exactMatch.name;
+  if (evidence.pathVarName !== undefined) {
+    const exactMatch = entrySegs.find(
+      (seg): seg is Extract<PatternSegment, { kind: 'var' }> =>
+        seg.kind === 'var' && seg.name === evidence.pathVarName,
+    );
+    if (exactMatch !== undefined) return toBoundRuleOwnerSegment(exactMatch);
+  }
 
   const vars = entrySegs.filter(
     (seg): seg is Extract<PatternSegment, { kind: 'var' }> => seg.kind === 'var',
   );
-  if (vars.length === 1) return vars[0]!.name;
-  return fallbackVar;
+  if (vars.length === 1) return toBoundRuleOwnerSegment(vars[0]!);
+  return undefined;
+}
+
+function quoteRulesStringLiteral(raw: string): string {
+  return `'${raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+function formatAffixedAuthUidExpr(
+  authUidExpr: string,
+  prefix: string,
+  suffix: string,
+): string {
+  const parts: string[] = [];
+  if (prefix.length > 0) parts.push(quoteRulesStringLiteral(prefix));
+  parts.push(authUidExpr);
+  if (suffix.length > 0) parts.push(quoteRulesStringLiteral(suffix));
+  return parts.join(' + ');
+}
+
+function remainingAffixes(
+  evidence: OwnerSiteEvidence,
+  bound: BoundRuleOwnerSegment | undefined,
+): { readonly prefix: string; readonly suffix: string } {
+  const sitePrefix = evidence.pathVarSegmentPrefix ?? '';
+  const siteSuffix = evidence.pathVarSegmentSuffix ?? '';
+  if (!bound) return { prefix: sitePrefix, suffix: siteSuffix };
+  const prefix =
+    bound.rulePrefix.length > 0 && sitePrefix.startsWith(bound.rulePrefix)
+      ? sitePrefix.slice(bound.rulePrefix.length)
+      : sitePrefix;
+  const suffix =
+    bound.ruleSuffix.length > 0 && siteSuffix.endsWith(bound.ruleSuffix)
+      ? siteSuffix.slice(0, siteSuffix.length - bound.ruleSuffix.length)
+      : siteSuffix;
+  return { prefix, suffix };
 }
 
 export function formatOverbroadRemediation(
@@ -332,8 +449,25 @@ export function formatOverbroadRemediation(
   const service = entry.pattern.service;
   if (service === 'rtdb') {
     if (evidence.pathVarName !== undefined) {
-      const ruleVar = findRuleOwnerSegmentVar(entry.pattern, evidence);
-      return `Scope ${entry.source} to the authenticated owner, e.g. "auth != null && auth.uid === $${ruleVar}".`;
+      const bound = findRuleOwnerSegmentVar(entry.pattern, evidence);
+      if (evidence.pathVarCompositeDynamic) {
+        return bound !== undefined
+          ? `Scope ${entry.source} by verifying the composite owner key ($${bound.varName}) against auth.uid rather than direct equality.`
+          : `Scope ${entry.source} by moving '.write' under a child branch for the composite owner key and verifying it against auth.uid.`;
+      }
+      const { prefix, suffix } = remainingAffixes(evidence, bound);
+      if (bound !== undefined) {
+        if (prefix.length === 0 && suffix.length === 0) {
+          return `Scope ${entry.source} to the authenticated owner, e.g. "auth != null && auth.uid === $${bound.varName}".`;
+        }
+        const rhs = formatAffixedAuthUidExpr('auth.uid', prefix, suffix);
+        return `Scope ${entry.source} to the authenticated owner, e.g. "auth != null && $${bound.varName} === ${rhs}".`;
+      }
+      const fallbackCheck =
+        prefix.length === 0 && suffix.length === 0
+          ? 'auth.uid === $uid'
+          : `$uid === ${formatAffixedAuthUidExpr('auth.uid', prefix, suffix)}`;
+      return `Scope ${entry.source} by moving '.write' under a '$uid' child branch for the owner key and enforcing "auth != null && ${fallbackCheck}".`;
     }
     if (evidence.payloadFieldName !== undefined) {
       return `Scope ${entry.source} to the authenticated owner, e.g. "auth != null && newData.child('${evidence.payloadFieldName}').val() === auth.uid".`;
@@ -343,8 +477,25 @@ export function formatOverbroadRemediation(
 
   if (service === 'storage') {
     if (evidence.pathVarName !== undefined) {
-      const ruleVar = findRuleOwnerSegmentVar(entry.pattern, evidence);
-      return `Tighten ${entry.source} to verify path ownership: allow write: if request.auth != null && request.auth.uid == ${ruleVar};`;
+      const bound = findRuleOwnerSegmentVar(entry.pattern, evidence);
+      if (evidence.pathVarCompositeDynamic) {
+        return bound !== undefined
+          ? `Tighten ${entry.source} to verify composite path ownership (${bound.varName}) against request.auth.uid rather than direct equality.`
+          : `Tighten ${entry.source} by splitting an explicit match segment for the composite owner path component and verifying it against request.auth.uid.`;
+      }
+      const { prefix, suffix } = remainingAffixes(evidence, bound);
+      if (bound !== undefined) {
+        if (prefix.length === 0 && suffix.length === 0) {
+          return `Tighten ${entry.source} to verify path ownership: allow write: if request.auth != null && request.auth.uid == ${bound.varName};`;
+        }
+        const rhs = formatAffixedAuthUidExpr('request.auth.uid', prefix, suffix);
+        return `Tighten ${entry.source} to verify path ownership: allow write: if request.auth != null && ${bound.varName} == ${rhs};`;
+      }
+      const fallbackCheck =
+        prefix.length === 0 && suffix.length === 0
+          ? 'request.auth.uid == uid'
+          : `uid == ${formatAffixedAuthUidExpr('request.auth.uid', prefix, suffix)}`;
+      return `Tighten ${entry.source} by splitting an explicit '{uid}' match segment for the owner path component and enforcing: allow write: if request.auth != null && ${fallbackCheck};`;
     }
     if (evidence.metadataKeyName !== undefined) {
       return `Tighten ${entry.source} to verify upload owner metadata: allow write: if request.auth != null && request.resource.metadata.${evidence.metadataKeyName} == request.auth.uid;`;
@@ -353,8 +504,25 @@ export function formatOverbroadRemediation(
   }
 
   if (evidence.pathVarName !== undefined) {
-    const ruleVar = findRuleOwnerSegmentVar(entry.pattern, evidence);
-    return `Tighten ${entry.source} to verify document ownership: allow write: if request.auth != null && request.auth.uid == ${ruleVar};`;
+    const bound = findRuleOwnerSegmentVar(entry.pattern, evidence);
+    if (evidence.pathVarCompositeDynamic) {
+      return bound !== undefined
+        ? `Tighten ${entry.source} to verify composite document ownership (${bound.varName}) against request.auth.uid rather than direct equality.`
+        : `Tighten ${entry.source} by splitting an explicit match segment for the composite owner path component and verifying it against request.auth.uid.`;
+    }
+    const { prefix, suffix } = remainingAffixes(evidence, bound);
+    if (bound !== undefined) {
+      if (prefix.length === 0 && suffix.length === 0) {
+        return `Tighten ${entry.source} to verify document ownership: allow write: if request.auth != null && request.auth.uid == ${bound.varName};`;
+      }
+      const rhs = formatAffixedAuthUidExpr('request.auth.uid', prefix, suffix);
+      return `Tighten ${entry.source} to verify document ownership: allow write: if request.auth != null && ${bound.varName} == ${rhs};`;
+    }
+    const fallbackCheck =
+      prefix.length === 0 && suffix.length === 0
+        ? 'request.auth.uid == uid'
+        : `uid == ${formatAffixedAuthUidExpr('request.auth.uid', prefix, suffix)}`;
+    return `Tighten ${entry.source} by splitting an explicit '{uid}' match segment for the owner path component and enforcing: allow write: if request.auth != null && ${fallbackCheck};`;
   }
   if (evidence.payloadFieldName !== undefined) {
     return `Tighten ${entry.source} to verify owner field provenance: if request.auth != null && request.resource.data.${evidence.payloadFieldName} == request.auth.uid;`;

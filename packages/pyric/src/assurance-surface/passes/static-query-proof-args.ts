@@ -17,7 +17,13 @@ import type {
 } from '../code/usage-index.js';
 
 export const SYNTH_UID = '__pyric_synth_uid__';
-const MAX_DNF_ARMS = 32;
+const MAX_BRANCH_DNF_ARMS = 64;
+const MAX_TOTAL_DNF_ARMS = 256;
+
+export interface ExpandedQueryArms {
+  readonly arms: SdkQueryConstraint[][];
+  readonly truncated: boolean;
+}
 
 export type ScalarValue = string | number | boolean | null;
 
@@ -154,61 +160,95 @@ export function concretizeQueryTarget(baseRef: SdkRef): ConcretizedQueryTarget |
   };
 }
 
-function expandSingleConstraint(constraint: SdkQueryConstraint): SdkQueryConstraint[][] {
+function expandSingleConstraint(constraint: SdkQueryConstraint): ExpandedQueryArms {
   if (constraint.kind === 'and') {
     return expandConstraintSequence(constraint.children ?? []);
   }
   if (constraint.kind === 'or') {
     const children = constraint.children ?? [];
-    if (children.length === 0) return [[]];
+    if (children.length === 0) return { arms: [[]], truncated: false };
     const arms: SdkQueryConstraint[][] = [];
+    let truncated = false;
     for (const child of children) {
-      for (const arm of expandSingleConstraint(child)) {
-        if (arms.length >= MAX_DNF_ARMS) break;
+      const expandedChild = expandSingleConstraint(child);
+      if (expandedChild.truncated) truncated = true;
+      for (const arm of expandedChild.arms) {
+        if (arms.length >= MAX_BRANCH_DNF_ARMS) {
+          truncated = true;
+          break;
+        }
         arms.push(arm);
       }
-      if (arms.length >= MAX_DNF_ARMS) break;
     }
-    return arms;
+    return { arms, truncated };
   }
-  return [[constraint]];
+  return { arms: [[constraint]], truncated: false };
 }
 
-function expandConstraintSequence(sequence: readonly SdkQueryConstraint[]): SdkQueryConstraint[][] {
+function expandConstraintSequence(sequence: readonly SdkQueryConstraint[]): ExpandedQueryArms {
   let arms: SdkQueryConstraint[][] = [[]];
+  let truncated = false;
   for (const item of sequence) {
     const choices = expandSingleConstraint(item);
+    if (choices.truncated) truncated = true;
     const next: SdkQueryConstraint[][] = [];
     for (const prefix of arms) {
-      for (const choice of choices) {
-        if (next.length >= MAX_DNF_ARMS) break;
+      for (const choice of choices.arms) {
+        if (next.length >= MAX_BRANCH_DNF_ARMS) {
+          truncated = true;
+          break;
+        }
         next.push([...prefix, ...choice]);
       }
-      if (next.length >= MAX_DNF_ARMS) break;
+      if (next.length >= MAX_BRANCH_DNF_ARMS && choices.arms.length > 0) {
+        // Check whether additional prefixes remained unexpanded
+        if (prefix !== arms[arms.length - 1]) {
+          truncated = true;
+        }
+        break;
+      }
     }
     arms = next;
   }
-  return arms;
+  return { arms, truncated };
 }
 
 function armSignature(arm: readonly SdkQueryConstraint[]): string {
   return JSON.stringify(arm);
 }
 
-export function expandQueryArms(query: SdkQuery): SdkQueryConstraint[][] {
+export function expandQueryArmsWithTruncation(query: SdkQuery): ExpandedQueryArms {
   const branches = query.branches ?? [query.constraints];
+  const expandedBranches = branches.map(expandConstraintSequence);
+  let truncated = expandedBranches.some((b) => b.truncated);
   const seen = new Set<string>();
   const arms: SdkQueryConstraint[][] = [];
-  for (const branch of branches) {
-    for (const arm of expandConstraintSequence(branch)) {
-      const sig = armSignature(arm);
-      if (seen.has(sig)) continue;
-      seen.add(sig);
-      arms.push(arm);
-      if (arms.length >= MAX_DNF_ARMS) return arms;
+
+  const pushUniqueArm = (arm: SdkQueryConstraint[]): void => {
+    const sig = armSignature(arm);
+    if (seen.has(sig)) return;
+    if (arms.length >= MAX_TOTAL_DNF_ARMS) {
+      truncated = true;
+      return;
+    }
+    seen.add(sig);
+    arms.push(arm);
+  };
+
+  for (const expanded of expandedBranches) {
+    const firstArm = expanded.arms[0];
+    if (firstArm !== undefined) pushUniqueArm(firstArm);
+  }
+  for (const expanded of expandedBranches) {
+    for (let i = 1; i < expanded.arms.length; i += 1) {
+      pushUniqueArm(expanded.arms[i]!);
     }
   }
-  return arms;
+  return { arms, truncated };
+}
+
+export function expandQueryArms(query: SdkQuery): SdkQueryConstraint[][] {
+  return expandQueryArmsWithTruncation(query).arms;
 }
 
 function defineOwn<V>(target: Record<string, V>, key: string, value: V): void {
