@@ -1,5 +1,9 @@
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
-import { getFunctionScope, getValidFunctionLexicalScope } from './match-resolution.js';
+import {
+  getFunctionScope,
+  getValidFunctionLexicalScope,
+  type FunctionScopeBindings,
+} from './match-resolution.js';
 
 export interface ListRulePathAnalysis {
   pathInvariant: boolean;
@@ -36,6 +40,7 @@ export function analyzeListRulePathInvariance(
   candidateVariables: ReadonlySet<string>,
   functions: ReadonlyMap<string, FunctionDef>,
   ambiguousFunctions: ReadonlySet<string> = EMPTY_NAMES,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): ListRulePathAnalysis {
   const requiredFunctions = new Set<string>();
   const requiredFunctionDefs = new Set<FunctionDef>();
@@ -48,6 +53,7 @@ export function analyzeListRulePathInvariance(
       new Set(),
       requiredFunctions,
       requiredFunctionDefs,
+      functionScopes,
     ),
     requiredFunctions,
     requiredFunctionDefs,
@@ -62,6 +68,7 @@ function expressionDependsOnPath(
   visiting: ReadonlySet<FunctionDef>,
   requiredFunctions: Set<string>,
   requiredFunctionDefs: Set<FunctionDef>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
 ): boolean {
   const depends = (candidate: Expression): boolean => expressionDependsOnPath(
     candidate,
@@ -71,6 +78,7 @@ function expressionDependsOnPath(
     visiting,
     requiredFunctions,
     requiredFunctionDefs,
+    functionScopes,
   );
 
   switch (expression.type) {
@@ -129,6 +137,11 @@ function expressionDependsOnPath(
       requiredFunctions.add(fn.name);
       requiredFunctionDefs.add(fn);
       if (visiting.has(fn)) return true;
+      const fnLexical = functionScopes?.get(fn);
+      let fnCandidateVariables = candidateVariables;
+      if (fnLexical) {
+        fnCandidateVariables = new Set(fnLexical.candidateVariables);
+      }
       const nextVisiting = new Set(visiting).add(fn);
       const fnBindings = new Map<string, Expression>();
       for (let i = 0; i < fn.parameters.length; i++) {
@@ -138,23 +151,25 @@ function expressionDependsOnPath(
         const boundValue = substituteLocals(binding.value, fnBindings);
         if (!isBareRequestIdentifier(boundValue) && expressionDependsOnPath(
           boundValue,
-          candidateVariables,
+          fnCandidateVariables,
           nextFunctions,
           ambiguousFunctions,
           nextVisiting,
           requiredFunctions,
           requiredFunctionDefs,
+          functionScopes,
         )) return true;
         fnBindings.set(binding.name, boundValue);
       }
       return expressionDependsOnPath(
         substituteLocals(fn.body, fnBindings),
-        candidateVariables,
+        fnCandidateVariables,
         nextFunctions,
         ambiguousFunctions,
         nextVisiting,
         requiredFunctions,
         requiredFunctionDefs,
+        functionScopes,
       );
     }
   }

@@ -55,7 +55,7 @@ describe('query execution', () => {
       where: [{ field: 'owner', op: '==', value: 'alice' }],
       limit: 25,
       offset: null,
-      orderBy: 'createdAt',
+      orderBy: { createdAt: 'DESC' },
     });
   });
 

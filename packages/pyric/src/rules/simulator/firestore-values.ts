@@ -184,12 +184,27 @@ export function reviveCaseLiterals(value: unknown): unknown {
   );
 }
 
-/** Model the nullable query fields exposed only by Firestore list requests. */
+function normalizeOrderByMap(
+  orderBy: Readonly<Record<string, 'ASC' | 'DESC'>> | string | null | undefined,
+): Record<string, 'ASC' | 'DESC'> {
+  if (orderBy == null) return {};
+  if (typeof orderBy === 'string') {
+    const trimmed = orderBy.trim();
+    if (!trimmed) return {};
+    const parts = trimmed.split(/\s+/);
+    const field = parts[0]!;
+    const dir = parts[1]?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+    return { [field]: dir };
+  }
+  return { ...orderBy };
+}
+
+/** Model the query fields exposed only by Firestore list requests. */
 export function requestQuery(tc: TestCase): Record<string, unknown> | undefined {
   if (tc.method !== 'list') return undefined;
   return {
     limit: tc.query?.limit ?? null,
     offset: tc.query?.offset ?? null,
-    orderBy: tc.query?.orderBy ?? null,
+    orderBy: normalizeOrderByMap(tc.query?.orderBy),
   };
 }

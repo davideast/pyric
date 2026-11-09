@@ -49,8 +49,69 @@ export type { ExprTraceEntry } from './trace-recorder.js';
 export { TraceRecorder } from './trace-recorder.js';
 import type { SimulationContext } from './evaluation-context.js';
 import { evaluateFunctionCall, evaluateMethodCall } from './evaluation-builtins.js';
+import { getOrBudgetSteps, type OrBudgetStep } from './list-proof-budget.js';
 
 // ═══ Evaluator ═══
+
+function evaluateBudgetOnly(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): void {
+  const priorTrace = ctx.trace;
+  ctx.trace = undefined;
+  try {
+    evaluate(expr, ctx, scope);
+  } catch (e) {
+    if (e instanceof ResourceLimitError) throw e;
+  } finally {
+    ctx.trace = priorTrace;
+  }
+}
+
+function evaluateCore(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
+  if (!ctx.trace) return evaluateExpr(expr, ctx, scope);
+  return ctx.trace.capture(expr, () => evaluateExpr(expr, ctx, scope));
+}
+
+function runOrBudgetSteps(
+  steps: readonly OrBudgetStep[],
+  idx: number,
+  expr: Expression,
+  ctx: SimulationContext,
+  scope: Record<string, unknown>,
+): unknown {
+  if (idx >= steps.length) {
+    return evaluateCore(expr, ctx, scope);
+  }
+  const step = steps[idx]!;
+  if (step.side === 'before') {
+    evaluateBudgetOnly(step.branch, ctx, scope);
+    ctx.expressionBudget?.logicalRight(step.operator);
+    let rv: unknown, rErr: unknown;
+    try {
+      rv = runOrBudgetSteps(steps, idx + 1, expr, ctx, scope);
+    } catch (e) {
+      rErr = e;
+    }
+    if (rErr instanceof ResourceLimitError) throw rErr;
+    ctx.expressionBudget?.node(step.operator);
+    if (rErr !== undefined) throw rErr;
+    return rv;
+  }
+  let lv: unknown, lErr: unknown;
+  try {
+    lv = requireBoolean(runOrBudgetSteps(steps, idx + 1, expr, ctx, scope), expr);
+  } catch (e) {
+    lErr = e;
+  }
+  if (lErr instanceof ResourceLimitError) throw lErr;
+  if (lErr === undefined && lv === true) {
+    ctx.expressionBudget?.node(step.operator);
+    return true;
+  }
+  ctx.expressionBudget?.logicalRight(step.operator);
+  evaluateBudgetOnly(step.branch, ctx, scope);
+  ctx.expressionBudget?.node(step.operator);
+  if (lErr !== undefined) throw lErr;
+  return false;
+}
 
 /**
  * Evaluate an expression against the simulation context. The public
@@ -59,8 +120,13 @@ import { evaluateFunctionCall, evaluateMethodCall } from './evaluation-builtins.
  * sub-expression.
  */
 export function evaluate(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown> = {}): unknown {
-  if (!ctx.trace) return evaluateExpr(expr, ctx, scope);
-  return ctx.trace.capture(expr, () => evaluateExpr(expr, ctx, scope));
+  if (ctx.expressionBudget || ctx.lookupBudget) {
+    const steps = getOrBudgetSteps(expr);
+    if (steps && steps.length > 0) {
+      return runOrBudgetSteps(steps, 0, expr, ctx, scope);
+    }
+  }
+  return evaluateCore(expr, ctx, scope);
 }
 
 function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {

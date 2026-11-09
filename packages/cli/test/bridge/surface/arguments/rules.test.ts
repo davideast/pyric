@@ -9,6 +9,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   checkOneForm,
   checkOperation,
+  checkRequestShape,
   checkRulesCompile,
   operation,
   RENAMES,
@@ -163,5 +164,56 @@ describe('rulesEngineFor stays the one source of the service and method lists', 
     for (const name of SERVICES) {
       expect(rulesEngineFor(name).requestMethods.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('checkRequestShape on Firestore list query.orderBy', () => {
+  it('accepts an orderBy direction map and legacy field string on a Firestore list', () => {
+    expect(
+      checkRequestShape(
+        {
+          service: 'firestore',
+          operation: 'list',
+          path: 'items',
+          query: { orderBy: { score: 'DESC', tier: 'ASC' }, limit: 5 },
+        },
+        fail,
+      ),
+    ).toBeNull();
+    expect(
+      checkRequestShape(
+        {
+          service: 'firestore',
+          operation: 'list',
+          path: 'items',
+          query: { orderBy: 'score' },
+        },
+        fail,
+      ),
+    ).toBeNull();
+  });
+
+  it('rejects invalid orderBy values on a Firestore list with a verb-first fix', () => {
+    const badDirection = checkRequestShape(
+      {
+        service: 'firestore',
+        operation: 'list',
+        path: 'items',
+        query: { orderBy: { score: 'SIDEWAYS' } },
+      },
+      fail,
+    );
+    expect(badDirection?.data.field).toBe('query.orderBy');
+    expect(badDirection?.data.fix.startsWith('Pass ')).toBe(true);
+
+    const badBatchEntry = checkRequestShape(
+      {
+        service: 'firestore',
+        cases: [{ operation: 'list', path: 'items', query: { orderBy: 42 } }],
+      },
+      fail,
+    );
+    expect(badBatchEntry?.data.field).toBe('cases[0].query.orderBy');
+    expect(badBatchEntry?.data.fix.startsWith('Pass ')).toBe(true);
   });
 });

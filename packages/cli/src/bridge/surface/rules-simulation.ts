@@ -37,7 +37,7 @@ export interface SimulationRequest {
     }>;
     limit?: number;
     offset?: number;
-    orderBy?: string;
+    orderBy?: Record<string, 'ASC' | 'DESC'> | string;
   };
 }
 

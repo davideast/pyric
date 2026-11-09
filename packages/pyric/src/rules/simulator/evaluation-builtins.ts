@@ -211,12 +211,14 @@ function invokeUserFunction(
   // Resolve functions and path captures against the function's lexical
   // declaration scope when indexed (via collectRulesetScopes).
   const fnScopeInfo = getFunctionScope(fn);
+  const lexicalVars = ctx.functionPathVariables?.get(fn);
   let fnCtx = ctx;
   if (fnScopeInfo) {
+    const sourceVars = lexicalVars ?? ctx.pathVariables;
     const scopedVars: Record<string, string | Path> = Object.create(null);
     for (const key of fnScopeInfo.captures) {
-      if (Object.hasOwn(ctx.pathVariables, key)) {
-        scopedVars[key] = ctx.pathVariables[key]!;
+      if (Object.hasOwn(sourceVars, key)) {
+        scopedVars[key] = sourceVars[key]!;
       }
     }
     fnCtx = {
@@ -224,6 +226,11 @@ function invokeUserFunction(
       functions: fnScopeInfo.functions as Map<string, FunctionDef>,
       pathVariables: scopedVars,
       database: fnScopeInfo.captures.has('database') ? ctx.database : '',
+    };
+  } else if (lexicalVars) {
+    fnCtx = {
+      ...ctx,
+      pathVariables: lexicalVars,
     };
   }
 

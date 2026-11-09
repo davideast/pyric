@@ -15,7 +15,7 @@ import type {
 } from './transaction-types.js';
 import { AtomicWritePipeline, type AtomicRuleMethod } from './atomic-write-pipeline.js';
 import { WriteRuntime } from './write-runtime.js';
-import { renderLegacyDebugMessages, projectEvaluatedRule } from 'pyric/rules/internal';
+import { renderLegacyDebugMessages, Timestamp, projectEvaluatedRule } from 'pyric/rules/internal';
 import {
   SimulatorUnsupportedError,
   unsupportedMessage,
@@ -381,7 +381,7 @@ export class TransactionWriteExecutor {
       method: 'get',
       path,
       auth: options.auth,
-    });
+    }, Timestamp.fromMillis(evalAt));
     const simulation = this.runtime.runSimulate(
       [testCase],
       options.bypassRules,

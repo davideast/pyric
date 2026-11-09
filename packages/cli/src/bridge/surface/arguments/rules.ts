@@ -139,13 +139,18 @@ const firestoreWhereClause = z
   })
   .strict();
 
+const firestoreOrderBy = z.union([
+  z.string(),
+  z.record(z.enum(['ASC', 'DESC'])),
+]);
+
 /**
  * The query a Firestore `list` carries, as rules read it through
  * `request.query.*` and as static query-proof checks `where` constraints (#371).
- * Mirrors the simulator's `ListQuerySchema`. `where` is typed as `z.array(z.unknown())`
+ * Mirrors the simulator's `ListQuerySchema`. `where` and `orderBy` use `z.unknown()`
  * in the outer JSON Schema to keep `cases[].query` within the two-object-level
- * argument depth budget, while `checkRequestShape` validates each clause with
- * `firestoreWhereClause`.
+ * argument depth budget, while `checkRequestShape` validates them with
+ * `firestoreWhereClause` and `firestoreOrderBy`.
  */
 const firestoreQuery = z
   .object({
@@ -155,7 +160,10 @@ const firestoreQuery = z
       .describe('Where clauses as { field, op, value } objects.'),
     limit: z.number().int().nonnegative().optional(),
     offset: z.number().int().nonnegative().optional(),
-    orderBy: z.string().optional(),
+    orderBy: z
+      .unknown()
+      .optional()
+      .describe("Order-by map of field names to 'ASC' or 'DESC' (or legacy field string)."),
   })
   .strict();
 
@@ -237,6 +245,14 @@ export function checkRequestShape(args: Args, fail: Fail): InvalidArguments | nu
               );
             }
           }
+        }
+        const orderByValue = (source.query as { orderBy?: unknown }).orderBy;
+        if (orderByValue !== undefined && !firestoreOrderBy.safeParse(orderByValue).success) {
+          return fail(
+            "query.orderBy on a Firestore list must be a map of field names to 'ASC' or 'DESC' (or a bare field string).",
+            "Pass query.orderBy as { '<field>': 'ASC' | 'DESC' }.",
+            at('query.orderBy'),
+          );
         }
         continue;
       }

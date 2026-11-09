@@ -66,18 +66,24 @@ describe('request.query — list ops with populated query', () => {
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test('orderBy can be read', () => {
+  test('orderBy can be read as a direction map', () => {
     const r = sim.simulate(
-      rules("request.query.orderBy == 'createdAt'"),
-      [baseList({ query: { orderBy: 'createdAt' } })],
+      rules("request.query.orderBy.createdAt == 'DESC'"),
+      [baseList({ query: { orderBy: { createdAt: 'DESC' } } })],
     );
     expect(r.success && r.data.passed).toBe(1);
+
+    const legacy = sim.simulate(
+      rules("request.query.orderBy.createdAt == 'ASC'"),
+      [baseList({ query: { orderBy: 'createdAt' } })],
+    );
+    expect(legacy.success && legacy.data.passed).toBe(1);
   });
 
   test('multiple query fields evaluated together', () => {
     const r = sim.simulate(
-      rules("request.query.limit <= 25 && request.query.orderBy == 'name'"),
-      [baseList({ query: { limit: 25, orderBy: 'name' } })],
+      rules("request.query.limit <= 25 && request.query.orderBy.name == 'ASC'"),
+      [baseList({ query: { limit: 25, orderBy: { name: 'ASC' } } })],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
