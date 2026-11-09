@@ -20,7 +20,7 @@ import type {
   ObservedStorageObjectInput,
   ObservedStorageSessionOp,
 } from '@pyric/cli/vite/internal/supplied-rows';
-import type { LiveCallRecord } from './observe.js';
+import type { LiveCallOutcome, LiveCallRecord } from './observe.js';
 
 export type {
   ObservedFirestoreSessionOp,
@@ -34,6 +34,25 @@ export type {
 
 /** Why an observed value was left out of a delta. */
 export type SessionSkipReason = 'oversized' | 'unsupported' | 'truncated';
+
+/** Extracted `addDoc` payload awaiting the resolved `DocumentReference.path`. */
+export interface PendingAddDocFields {
+  readonly data: Record<string, unknown>;
+  readonly deleteFields?: readonly string[];
+  readonly partial?: boolean;
+}
+
+/** Extracted RTDB `push` payload awaiting the resolved `DatabaseReference` path. */
+export interface PendingPushValue {
+  readonly value: unknown;
+  readonly omittedPaths?: readonly (readonly string[])[];
+}
+
+/** Active call lease started right before invoking a real SDK export and released on settlement. */
+export interface CallLifecycleLease {
+  onReturn(returned: unknown): void;
+  release(): void;
+}
 
 /** The parts a delta is assembled from; any may be absent or empty. */
 export interface SessionDeltaParts {
@@ -111,6 +130,35 @@ export function attachSessionData(
 
 export function sessionDataOf(record: LiveCallRecord): ObservedSessionDelta | undefined {
   return RECORD_SESSION_DATA.get(record);
+}
+
+/** Releases an active call lease right before reporting the call's terminal settlement. */
+export function finishWithLease(lease: CallLifecycleLease | undefined, fn: () => void): void {
+  try {
+    lease?.release();
+  } finally {
+    fn();
+  }
+}
+
+/** Attaches resolved or listener-delivered session data onto `record` without failing the observer. */
+export function attachOutcomeSessionData<
+  S extends {
+    readonly sessionData?: ObservedSessionDelta;
+    readonly deliveryOf?: (site: S, value: unknown) => ObservedSessionDelta | undefined;
+  },
+>(record: LiveCallRecord, site: S, outcome: LiveCallOutcome, value?: unknown): void {
+  if (outcome === 'resolved') {
+    attachSessionData(record, site.sessionData);
+    return;
+  }
+  if (outcome === 'delivered' && site.deliveryOf !== undefined) {
+    try {
+      attachSessionData(record, site.deliveryOf(site, value));
+    } catch {
+      // A delivery hook failure never drops the record.
+    }
+  }
 }
 
 function concatLists<T>(first: readonly T[] | undefined, second: readonly T[] | undefined): T[] {

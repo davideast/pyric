@@ -32,6 +32,7 @@ export interface Evaluation {
   allowed: boolean;
   rule: Rule;
   needs: Gap[];
+  missingPaths?: string[];
   trace?: Trace;
   rtdb?: RtdbLocal;
   storage?: StorageLocal;
@@ -39,6 +40,8 @@ export interface Evaluation {
 
 /** The largest trace, in bytes of JSON, a verdict keeps; a larger one is dropped and the verdict kept. */
 const TRACE_LIMIT = 16 * 1024;
+/** Maximum uncaptured resource or document paths attached to an unevaluated verdict. */
+const MAX_MISSING_PATHS = 16;
 
 /** The order a verdict lists its gaps in. */
 const GAP_ORDER: readonly Gap[] = ['stored-document', 'write-data', 'claim-values', 'query'];
@@ -62,6 +65,25 @@ export const ALWAYS_OPEN = (): boolean => true;
 /** The union of two gap lists, in the patterns' order. */
 export function unionOf(first: Gap[], second: Gap[]): Gap[] {
   return GAP_ORDER.filter((gap) => first.includes(gap) || second.includes(gap));
+}
+
+/** Sorted, deduplicated union of missing path lists. */
+export function unionPaths(
+  first: readonly string[] | undefined,
+  second: readonly string[] | undefined,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of [first, second]) {
+    if (list === undefined) continue;
+    for (const item of list) {
+      if (item !== '' && !seen.has(item)) {
+        seen.add(item);
+        out.push(item);
+      }
+    }
+  }
+  return out.sort();
 }
 
 /** The gaps a set of expressions reach that the given data leaves open, each once, in a fixed order. */
@@ -150,6 +172,14 @@ function keptStorage(storage: StorageLocal | undefined): StorageLocal | undefine
   return withinByteCap(withoutReasons) ? withoutReasons : undefined;
 }
 
+function keptMissingPaths(paths: readonly string[] | undefined): string[] | undefined {
+  if (paths === undefined || paths.length === 0) return undefined;
+  const bounded = unionPaths(paths, undefined).slice(0, MAX_MISSING_PATHS);
+  if (bounded.length === 0) return undefined;
+  if (!withinByteCap(bounded)) return undefined;
+  return bounded;
+}
+
 /**
  * An evaluation as a verdict: unevaluated when it needed data, else flagged as
  * drift when it disagrees with production. An unevaluated verdict keeps the
@@ -159,6 +189,8 @@ function keptStorage(storage: StorageLocal | undefined): StorageLocal | undefine
 export function verdictOf(call: ObservedCall, evaluation: Evaluation): LocalVerdict {
   if (evaluation.needs.length > 0) {
     const unevaluated: Unevaluated = { result: 'unevaluated', needs: evaluation.needs };
+    const missingPaths = keptMissingPaths(evaluation.missingPaths);
+    if (missingPaths !== undefined) unevaluated.missingPaths = missingPaths;
     if (evaluation.rule !== undefined) unevaluated.rule = evaluation.rule;
     if (evaluation.rtdb !== undefined) {
       const context = keptRtdb(unevaluatedRtdbOf(evaluation.rtdb));

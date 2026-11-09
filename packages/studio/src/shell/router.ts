@@ -86,12 +86,15 @@ export function subscribeToLocation(cb: () => void): () => void {
 /**
  * Two-way bind a tab id to the URL pathname.
  *
- * @param valid    Known tab ids; an unknown/empty path resolves to `fallback`.
- * @param fallback The default tab when the path is missing or unrecognised.
+ * @param valid               Known tab ids; an unknown/empty path resolves to `fallback`.
+ * @param fallback            The default tab when the path is missing or unrecognised.
+ * @param reselectActiveQuery Optional hook returning the query to push when re-clicking
+ *                            the already-active tab (or `null` to leave the URL as-is).
  */
 export function useRoute(
   valid: readonly string[],
   fallback: string,
+  reselectActiveQuery?: (current: ParsedPath) => Record<string, string | undefined> | null,
 ): readonly [string, (id: string) => void] {
   const resolve = useCallback(
     (raw: string) => (valid.includes(raw) ? raw : fallback),
@@ -138,10 +141,16 @@ export function useRoute(
   const navigate = useCallback(
     (id: string) => {
       const next = resolve(id);
-      if (next === active) return;
+      if (next === active) {
+        if (reselectActiveQuery) {
+          const resetQuery = reselectActiveQuery(currentPath());
+          if (resetQuery !== null) pushPath({ tab: next, query: resetQuery });
+        }
+        return;
+      }
       pushPath({ tab: next });
     },
-    [resolve, active],
+    [resolve, active, reselectActiveQuery],
   );
 
   return [active, navigate] as const;

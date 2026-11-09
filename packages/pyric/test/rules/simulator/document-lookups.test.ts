@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  EXISTS_ONLY_DOC,
   makeGetResource,
   normalizeDocumentPath,
   resolveExists,
@@ -7,6 +8,7 @@ import {
 } from '../../../src/rules/simulator/document-lookups.js';
 import type { SimulationContext } from '../../../src/rules/simulator/evaluation-context.js';
 import { EvalError } from '../../../src/rules/simulator/eval-error.js';
+import { TraceRecorder } from '../../../src/rules/simulator/trace-recorder.js';
 import { RulesFloat } from '../../../src/rules/simulator/wrappers/float.js';
 
 describe('document lookups', () => {
@@ -70,5 +72,26 @@ describe('document lookups', () => {
     expect(() => resolveGet('/databases/(default)/documents/users', context)).toThrow(EvalError);
     expect(() => resolveExists('/databases/(default)/documents/users/{uid}', context)).toThrow(EvalError);
     expect(() => resolveGet('/databases/(default)/documents/users/{uid}', context)).toThrow(EvalError);
+  });
+
+  test('passes lookup kind and active TraceRecorder to getDoc and supports EXISTS_ONLY_DOC without caching fake get() data', () => {
+    const trace = new TraceRecorder();
+    const calls: Array<{ path: string; kind?: 'get' | 'exists'; sameTrace: boolean }> = [];
+    const context = {
+      mockDocuments: new Map<string, Record<string, unknown>>(),
+      trace,
+      getDoc: (path: string, lookup?: { kind: 'get' | 'exists'; trace?: TraceRecorder }) => {
+        calls.push({ path, kind: lookup?.kind, sameTrace: lookup?.trace === trace });
+        if (lookup?.kind === 'exists') return EXISTS_ONLY_DOC as Record<string, unknown>;
+        return null;
+      },
+    } as unknown as SimulationContext;
+
+    expect(resolveExists('/databases/(default)/documents/projects/partial-1', context)).toBe(true);
+    expect(() => resolveGet('/databases/(default)/documents/projects/partial-1', context)).toThrow(EvalError);
+    expect(calls).toEqual([
+      { path: 'projects/partial-1', kind: 'exists', sameTrace: true },
+      { path: 'projects/partial-1', kind: 'get', sameTrace: true },
+    ]);
   });
 });

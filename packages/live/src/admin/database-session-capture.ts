@@ -15,6 +15,7 @@ import {
   isValidRtdbSessionPath,
   opDelta,
   OVERSIZED_RTDB_SESSION,
+  rtdbInFlightWrites,
 } from '../database-session-capture.js';
 import { isPlainObject } from '../json-copy.js';
 import type { CallContext, ObservedSite, ResultReading } from '../observe.js';
@@ -113,44 +114,67 @@ function pushChildPath(parentPath: string | undefined, childRef: unknown): strin
   return undefined;
 }
 
+function withAdminWriteStarter(
+  onCallStart: CallContext['onCallStart'],
+  base: Pick<CallContext, 'subject' | 'sessionData'>,
+): Pick<CallContext, 'subject' | 'sessionData' | 'onCallStart'> {
+  if (onCallStart === undefined) return base;
+  return { ...base, onCallStart };
+}
+
 /** Session context extracted before an Admin RTDB method executes. */
 export function adminDatabaseSessionContext(
   name: string,
   args: readonly unknown[],
   instance: string,
   path: string | undefined,
-): Pick<CallContext, 'subject' | 'sessionData'> {
+): Pick<CallContext, 'subject' | 'sessionData' | 'onCallStart'> {
   if (name === 'Query.once') {
     let eventType = 'value';
     if (typeof args[0] === 'string') eventType = args[0];
     const subject: AdminOnceSubject = { kind: 'admin-rtdb-once', eventType };
     return { subject };
   }
+  const onCallStart = rtdbInFlightWrites().writeLeaseStarter({
+    name,
+    instance,
+    path,
+    patchArg: args[0],
+    adminPushChildPath: pushChildPath(path, args[0]),
+  });
   if (!isValidRtdbSessionPath(path)) {
-    if (ADMIN_RTDB_WRITES.has(name)) return { sessionData: skipDeltaOf('unsupported') };
-    return {};
+    if (ADMIN_RTDB_WRITES.has(name)) {
+      return withAdminWriteStarter(onCallStart, { sessionData: skipDeltaOf('unsupported') });
+    }
+    return withAdminWriteStarter(onCallStart, {});
   }
   if (name === 'Reference.remove') {
-    return { sessionData: opDelta({ kind: 'remove', instance, path }) };
+    return withAdminWriteStarter(onCallStart, { sessionData: opDelta({ kind: 'remove', instance, path }) });
   }
   if (name === 'Reference.set' || name === 'Reference.setWithPriority') {
     const copied = copiedAdminRtdbValue(args[0], true);
-    if ('skipped' in copied) return { sessionData: copied.skipped };
-    return { sessionData: opDelta({ kind: 'set', instance, path, value: copied.value }) };
+    if ('skipped' in copied) return withAdminWriteStarter(onCallStart, { sessionData: copied.skipped });
+    return withAdminWriteStarter(onCallStart, {
+      sessionData: opDelta({ kind: 'set', instance, path, value: copied.value }),
+    });
   }
   if (name === 'Reference.update') {
     const sessionData = adminUpdateDelta(args[0], instance, path);
-    if (sessionData === undefined) return {};
-    return { sessionData };
+    if (sessionData === undefined) return withAdminWriteStarter(onCallStart, {});
+    return withAdminWriteStarter(onCallStart, { sessionData });
   }
   if (name === 'Reference.push') {
     const childPath = pushChildPath(path, args[0]);
-    if (childPath === undefined) return { sessionData: skipDeltaOf('unsupported') };
+    if (childPath === undefined) {
+      return withAdminWriteStarter(onCallStart, { sessionData: skipDeltaOf('unsupported') });
+    }
     const copied = copiedAdminRtdbValue(args[1], true);
-    if ('skipped' in copied) return { sessionData: copied.skipped };
-    return { sessionData: opDelta({ kind: 'set', instance, path: childPath, value: copied.value }) };
+    if ('skipped' in copied) return withAdminWriteStarter(onCallStart, { sessionData: copied.skipped });
+    return withAdminWriteStarter(onCallStart, {
+      sessionData: opDelta({ kind: 'set', instance, path: childPath, value: copied.value }),
+    });
   }
-  return {};
+  return withAdminWriteStarter(onCallStart, {});
 }
 
 function isSnapshot(value: unknown): value is Fields & { val: (...args: unknown[]) => unknown } {
@@ -187,10 +211,19 @@ function valueSnapshotDelta(
   if (forceUnfiltered || !isFilteredSnap(site, snap)) {
     return opDelta({ kind: 'set', instance, path, value: copied.value });
   }
-  if (copied.value === null) return undefined;
+  if (copied.value === null) {
+    return opDelta({ kind: 'invalidate', instance, path });
+  }
   if (!isPlainObject(copied.value)) return skipDeltaOf('unsupported');
-  if (Object.keys(copied.value).length === 0) return undefined;
-  return opDelta({ kind: 'update', instance, path, value: copied.value });
+  if (Object.keys(copied.value).length === 0) {
+    return opDelta({ kind: 'invalidate', instance, path });
+  }
+  return {
+    rtdb: [
+      { kind: 'invalidate', instance, path },
+      { kind: 'update', instance, path, value: copied.value },
+    ],
+  };
 }
 
 function childEventDelta(
@@ -203,7 +236,7 @@ function childEventDelta(
   if (childPath === undefined) childPath = childPathUnder(site.path, snap.key);
   if (childPath === undefined) return skipDeltaOf('unsupported');
   if (eventType === 'child_removed') {
-    if (isFilteredSnap(site, snap)) return undefined;
+    if (isFilteredSnap(site, snap)) return opDelta({ kind: 'invalidate', instance, path: childPath });
     return opDelta({ kind: 'remove', instance, path: childPath });
   }
   const copied = copiedAdminRtdbValue(Reflect.apply(snap.val, snap, []), false);
@@ -239,15 +272,33 @@ function isCommittedTransactionResult(
 /** Extracts bounded session-observed RTDB values from resolved `Query.get`, `Query.once`, and `Reference.transaction` calls. */
 export function adminDatabaseResult(site: ObservedSite, value: unknown): ResultReading {
   if (site.name === 'Query.get' && isSnapshot(value)) {
-    const sessionData = valueSnapshotDelta(site, value);
+    const instance = site.instance ?? UNREAD_INSTANCE;
+    const readPath = snapshotPathOf(value, site.path);
+    if (readPath === undefined) return { sessionData: skipDeltaOf('unsupported') };
+    const sessionData = rtdbInFlightWrites().applyDeliveryGuard(instance, readPath, () =>
+      valueSnapshotDelta(site, value),
+    );
     if (sessionData === undefined) return {};
     return { sessionData };
   }
   if (site.name === 'Query.once' && isSnapshot(value)) {
+    const instance = site.instance ?? UNREAD_INSTANCE;
     const eventType = onceEventTypeOf(site.subject);
     let sessionData: ObservedSessionDelta | undefined;
-    if (isChildEventType(eventType)) sessionData = childEventDelta(site, eventType, value);
-    else sessionData = valueSnapshotDelta(site, value);
+    if (isChildEventType(eventType)) {
+      let childPath = snapshotPathOf(value, undefined);
+      if (childPath === undefined) childPath = childPathUnder(site.path, value.key);
+      if (childPath === undefined) return { sessionData: skipDeltaOf('unsupported') };
+      sessionData = rtdbInFlightWrites().applyDeliveryGuard(instance, childPath, () =>
+        childEventDelta(site, eventType, value),
+      );
+    } else {
+      const readPath = snapshotPathOf(value, site.path);
+      if (readPath === undefined) return { sessionData: skipDeltaOf('unsupported') };
+      sessionData = rtdbInFlightWrites().applyDeliveryGuard(instance, readPath, () =>
+        valueSnapshotDelta(site, value),
+      );
+    }
     if (sessionData === undefined) return {};
     return { sessionData };
   }
@@ -268,7 +319,16 @@ export function adminDatabaseDelivery(
   value: unknown,
 ): ObservedSessionDelta | undefined {
   if (!isSnapshot(value)) return undefined;
-  if (isChildEventType(eventType)) return childEventDelta(site, eventType, value);
-  if (eventType === 'value') return valueSnapshotDelta(site, value);
+  const instance = site.instance ?? UNREAD_INSTANCE;
+  if (isChildEventType(eventType)) {
+    const childPath = snapshotPathOf(value, undefined) ?? childPathUnder(site.path, value.key);
+    if (childPath === undefined) return skipDeltaOf('unsupported');
+    return rtdbInFlightWrites().applyDeliveryGuard(instance, childPath, () => childEventDelta(site, eventType, value));
+  }
+  if (eventType === 'value') {
+    const deliveryPath = snapshotPathOf(value, site.path);
+    if (deliveryPath === undefined) return skipDeltaOf('unsupported');
+    return rtdbInFlightWrites().applyDeliveryGuard(instance, deliveryPath, () => valueSnapshotDelta(site, value));
+  }
   return undefined;
 }

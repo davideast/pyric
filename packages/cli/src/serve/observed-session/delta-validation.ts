@@ -147,34 +147,55 @@ function readFirestoreData(raw: Record<string, unknown>, label: string): Record<
   return sanitizeJsonValue(raw.data, `${label}.data`) as Record<string, unknown>;
 }
 
+function readOptionalBoolean(raw: unknown, label: string): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'boolean') throw unsupported(`Invalid ${label}: expected boolean.`);
+  return raw;
+}
+
 function readFirestoreSet(raw: Record<string, unknown>, label: string, path: string): ObservedFirestoreSessionOp {
   const data = readFirestoreData(raw, label);
-  if (raw.merge !== undefined && typeof raw.merge !== 'boolean') {
-    throw unsupported(`Invalid ${label}.merge: expected boolean.`);
-  }
-  const op: { kind: 'set'; path: string; data: Record<string, unknown>; merge?: boolean; deleteFields?: string[] } = {
+  const merge = readOptionalBoolean(raw.merge, `${label}.merge`);
+  const partial = readOptionalBoolean(raw.partial, `${label}.partial`);
+  const op: {
+    kind: 'set';
+    path: string;
+    data: Record<string, unknown>;
+    merge?: boolean;
+    deleteFields?: string[];
+    partial?: boolean;
+  } = {
     kind: 'set',
     path,
     data,
   };
-  if (raw.merge === true) op.merge = true;
+  if (merge === true) op.merge = true;
   const deleteFields = readDeleteFields(raw.deleteFields, `${label}.deleteFields`);
   if (deleteFields !== undefined) op.deleteFields = deleteFields;
+  if (partial === true) op.partial = true;
   return op;
 }
 
 function readFirestoreUpdate(raw: Record<string, unknown>, label: string, path: string): ObservedFirestoreSessionOp {
   const data = readFirestoreData(raw, label);
+  const partial = readOptionalBoolean(raw.partial, `${label}.partial`);
   for (const fieldPath of Object.keys(data)) {
     if (isBadFieldPath(fieldPath)) throw unsupported(`Invalid ${label}.data: invalid field path '${fieldPath}'.`);
   }
-  const op: { kind: 'update'; path: string; data: Record<string, unknown>; deleteFields?: string[] } = {
+  const op: {
+    kind: 'update';
+    path: string;
+    data: Record<string, unknown>;
+    deleteFields?: string[];
+    partial?: boolean;
+  } = {
     kind: 'update',
     path,
     data,
   };
   const deleteFields = readDeleteFields(raw.deleteFields, `${label}.deleteFields`);
   if (deleteFields !== undefined) op.deleteFields = deleteFields;
+  if (partial === true) op.partial = true;
   return op;
 }
 
@@ -185,12 +206,16 @@ function readFirestoreOp(raw: unknown, index: number): ObservedFirestoreSessionO
   switch (raw.kind) {
     case 'delete':
       return { kind: 'delete', path };
+    case 'invalidate':
+      return { kind: 'invalidate', path };
     case 'set':
       return readFirestoreSet(raw, label, path);
     case 'update':
       return readFirestoreUpdate(raw, label, path);
     default:
-      throw unsupported(`Invalid ${label}.kind: expected 'set', 'update', or 'delete'.`);
+      throw unsupported(
+        `Invalid ${label}.kind: expected 'set', 'update', 'delete', or 'invalidate'.`,
+      );
   }
 }
 
@@ -215,13 +240,15 @@ function readRtdbOp(raw: unknown, index: number): ObservedRtdbSessionOp {
   switch (raw.kind) {
     case 'remove':
       return { kind: 'remove', instance, path };
+    case 'invalidate':
+      return { kind: 'invalidate', instance, path };
     case 'set':
       if (!('value' in raw)) throw unsupported(`Invalid ${label}.value: missing value.`);
       return { kind: 'set', instance, path, value: sanitizeJsonValue(raw.value, `${label}.value`) };
     case 'update':
       return { kind: 'update', instance, path, value: readRtdbPatch(raw.value, label) };
     default:
-      throw unsupported(`Invalid ${label}.kind: expected 'set', 'update', or 'remove'.`);
+      throw unsupported(`Invalid ${label}.kind: expected 'set', 'update', 'remove', or 'invalidate'.`);
   }
 }
 

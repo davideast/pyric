@@ -6,7 +6,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { LiveCallRecord } from '../src/observe.js';
 import {
+  attachOutcomeSessionData,
   attachSessionData,
+  finishWithLease,
   mergeSessionData,
   sessionDataOf,
   sessionDeltaOf,
@@ -90,5 +92,59 @@ describe('attachSessionData', () => {
     const record = { module: 'firebase/firestore', name: 'getDoc', outcome: 'resolved' } as LiveCallRecord;
     attachSessionData(record, { firestore: [], skipped: {} });
     expect(sessionDataOf(record)).toBeUndefined();
+  });
+});
+
+describe('attachOutcomeSessionData and finishWithLease', () => {
+  test('attaches resolved and delivered deltas and swallows delivery hook throws', () => {
+    const resolved = { module: 'firebase/firestore', name: 'getDoc', outcome: 'resolved' } as LiveCallRecord;
+    attachOutcomeSessionData(resolved, { sessionData: { firestore: [SET_ITEM] } }, 'resolved');
+    expect(sessionDataOf(resolved)).toEqual({ firestore: [SET_ITEM] });
+
+    const delivered = { module: 'firebase/database', name: 'onValue', outcome: 'delivered' } as LiveCallRecord;
+    attachOutcomeSessionData(
+      delivered,
+      {
+        deliveryOf: (_site, value) => ({
+          rtdb: [{ kind: 'set', instance: 'demo-default-rtdb', path: '/v', value }],
+        }),
+      },
+      'delivered',
+      42,
+    );
+    expect(sessionDataOf(delivered)).toEqual({
+      rtdb: [{ kind: 'set', instance: 'demo-default-rtdb', path: '/v', value: 42 }],
+    });
+
+    const throwingDelivery = { module: 'firebase/database', name: 'onValue', outcome: 'delivered' } as LiveCallRecord;
+    expect(() =>
+      attachOutcomeSessionData(
+        throwingDelivery,
+        {
+          deliveryOf: () => {
+            throw new Error('boom');
+          },
+        },
+        'delivered',
+        1,
+      ),
+    ).not.toThrow();
+    expect(sessionDataOf(throwingDelivery)).toBeUndefined();
+  });
+
+  test('finishWithLease releases the lease before running settlement even if release throws', () => {
+    const order: string[] = [];
+    finishWithLease(
+      {
+        onReturn() {},
+        release() {
+          order.push('release');
+        },
+      },
+      () => {
+        order.push('settle');
+      },
+    );
+    expect(order).toEqual(['release', 'settle']);
   });
 });

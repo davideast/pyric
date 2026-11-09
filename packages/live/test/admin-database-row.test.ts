@@ -591,6 +591,14 @@ test('attaches bounded sessionData to resolved and delivered Admin RTDB records 
   const onDeliveries = records.filter((record) => record.name === 'Query.on' && record.outcome === 'delivered');
   expect(onDeliveries.map((record) => sessionDataOf(record))).toEqual([
     { rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/b', value: { n: 5, title: 'second' } }] },
-    { rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/b', value: { n: 6, title: 'third' } }] },
+    // Fires optimistically while `Reference.set` on `/notes/b` is still in flight (#2540 F6).
+    { rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/notes/b' }] },
   ]);
+
+  const resolvedNoteBSet = records.find(
+    (record) => record.name === 'Reference.set' && record.outcome === 'resolved' && record.path === '/notes/b',
+  );
+  expect(sessionDataOf(resolvedNoteBSet!)).toEqual({
+    rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/b', value: { n: 6, title: 'third' } }],
+  });
 });

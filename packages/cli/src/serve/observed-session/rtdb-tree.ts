@@ -3,7 +3,27 @@
  * model: a `null` or empty node does not exist, so writes prune emptied
  * ancestors and seeding merges trees key by key.
  */
+import { normalizeRtdbPath } from '../worker/client/rtdb-references.js';
 import { FORBIDDEN_KEYS, isPlainObject } from './json-values.js';
+
+export function rtdbPathSegments(path: string): string[] {
+  return path.split('/').filter((seg) => seg.length > 0);
+}
+
+export function canonicalRtdbPath(pathOrSegments: string | readonly string[]): string {
+  if (typeof pathOrSegments === 'string') return normalizeRtdbPath(pathOrSegments);
+  return normalizeRtdbPath(pathOrSegments.join('/'));
+}
+
+export function joinRtdbPath(base: string, relative: string): string {
+  return canonicalRtdbPath([...rtdbPathSegments(base), ...rtdbPathSegments(relative)]);
+}
+
+export function toRtdbMockData(tree: unknown): Record<string, unknown> {
+  if (tree === null || tree === undefined) return {};
+  if (isPlainObject(tree)) return structuredClone(tree);
+  return { '.value': structuredClone(tree) };
+}
 
 /**
  * Normalize an RTDB JSON subtree: strips `null` values and empty objects, matching

@@ -1598,3 +1598,64 @@ describe('SimulateHandler evaluation errors in rules', () => {
     expect(itemsSnap.exists()).toBe(true);
   });
 });
+
+describe('SimulateHandler — onRuleRead trace attribution (#2540)', () => {
+  const handler = new SimulateHandler();
+
+  test('attributes stored and postWrite snapshot reads to resting trace indices without firing on short-circuited branches or internal validate walks', () => {
+    const compiled = compileRtdbRules({
+      rules: {
+        workspaces: {
+          $workspaceId: {
+            '.read': "root.child('admins/' + auth.uid).val() === true",
+            items: {
+              $itemId: {
+                '.read':
+                  "auth != null && root.child('workspaces/' + $workspaceId + '/members/' + auth.uid).val() === true && !root.child('workspaces/' + $workspaceId + '/archived').exists()",
+                '.write': 'auth != null',
+                '.validate':
+                  "newData.hasChildren(['title']) && !newData.parent().parent().child('archived').exists()",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const recorded: Array<{ traceIndex: number; source: 'stored' | 'postWrite'; path: string }> = [];
+    const unauthRead = handler.execute(
+      compiled,
+      {
+        operation: 'read',
+        path: '/workspaces/ws-1/items/item-1',
+        auth: null,
+        mockData: {},
+      },
+      {
+        onRuleRead: (traceIndex, source, path) => recorded.push({ traceIndex, source, path }),
+      },
+    );
+    expect(unauthRead.success && unauthRead.data.allowed).toBe(false);
+    expect(recorded).toEqual([]);
+
+    recorded.length = 0;
+    const writeRes = handler.execute(
+      compiled,
+      {
+        operation: 'write',
+        path: '/workspaces/ws-1/items/item-1',
+        auth: { uid: 'u-1' },
+        mockData: {},
+        newData: { title: 'Hello' },
+      },
+      {
+        onRuleRead: (traceIndex, source, path) => recorded.push({ traceIndex, source, path }),
+      },
+    );
+    expect(writeRes.success && writeRes.data.allowed).toBe(true);
+    expect(recorded).toEqual([
+      { traceIndex: 1, source: 'postWrite', path: '/workspaces/ws-1/items/item-1/title' },
+      { traceIndex: 1, source: 'postWrite', path: '/workspaces/ws-1/archived' },
+    ]);
+  });
+});

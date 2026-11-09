@@ -49,7 +49,15 @@ import {
   wrapEndingUnsubscribe,
 } from './observe-listener.js';
 import { CALL_TARGET_FIELDS, liveProjectRefusal, type CallTargetField, type LiveClient, type ProjectField } from './refusal.js';
-import { attachSessionData, mergeSessionData, type ObservedSessionDelta } from './session-data.js';
+import {
+  attachOutcomeSessionData,
+  finishWithLease,
+  mergeSessionData,
+  type CallLifecycleLease,
+  type ObservedSessionDelta,
+  type PendingAddDocFields,
+  type PendingPushValue,
+} from './session-data.js';
 
 export type { LiveListener, LiveListenerActivity, LiveListenerJournal } from './listener-journal.js';
 
@@ -306,16 +314,13 @@ export interface CallContext {
   /** Session-scoped observed Firestore/RTDB payloads attached via WeakMap on resolution. */
   readonly sessionData?: ObservedSessionDelta;
   /** Extracted `addDoc` payload awaiting the resolved `DocumentReference.path`. */
-  readonly pendingAddDocFields?: {
-    readonly data: Record<string, unknown>;
-    readonly deleteFields?: readonly string[];
-  };
+  readonly pendingAddDocFields?: PendingAddDocFields;
   /** Extracted RTDB `push` payload awaiting the resolved `DatabaseReference` path. */
-  readonly pendingPushValue?: {
-    readonly value: unknown;
-  };
+  readonly pendingPushValue?: PendingPushValue;
   /** True when an RTDB `get` or `onValue` ran with query constraints rather than on a bare reference. */
   readonly rtdbFilteredQuery?: boolean;
+  /** Optional lifecycle lease started immediately before invoking the SDK call and released on settlement. */
+  readonly onCallStart?: () => CallLifecycleLease | undefined;
 }
 
 /** What a resolved call's value adds to its record, or `UNOBSERVED` when production never answered it. */
@@ -455,16 +460,13 @@ export interface ObservedSite extends ObservedHooks {
   /** Session-scoped observed Firestore/RTDB payloads attached via WeakMap on resolution. */
   readonly sessionData?: ObservedSessionDelta;
   /** Extracted `addDoc` payload awaiting the resolved `DocumentReference.path`. */
-  readonly pendingAddDocFields?: {
-    readonly data: Record<string, unknown>;
-    readonly deleteFields?: readonly string[];
-  };
+  readonly pendingAddDocFields?: PendingAddDocFields;
   /** Extracted RTDB `push` payload awaiting the resolved `DatabaseReference` path. */
-  readonly pendingPushValue?: {
-    readonly value: unknown;
-  };
+  readonly pendingPushValue?: PendingPushValue;
   /** True when an RTDB `get` or `onValue` ran with query constraints rather than on a bare reference. */
   readonly rtdbFilteredQuery?: boolean;
+  /** Starts a lifecycle lease right before calling the real SDK export, released when the call settles. */
+  readonly onCallStart?: () => CallLifecycleLease | undefined;
   /**
    * Whether the export returns a thenable that is not a promise, whose
    * settlement is production's answer, as `push` returns its reference.
@@ -871,15 +873,7 @@ function reportRejected(site: ObservedSite, error: unknown): void {
 function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): LiveCallRecord | undefined {
   try {
     const record = buildRecord(site, outcome, value);
-    if (outcome === 'resolved') {
-      attachSessionData(record, site.sessionData);
-    } else if (outcome === 'delivered' && site.deliveryOf !== undefined) {
-      try {
-        attachSessionData(record, site.deliveryOf(site, value));
-      } catch {
-        // A delivery hook failure never drops the record.
-      }
-    }
+    attachOutcomeSessionData(record, site, outcome, value);
     ignoreRejection(site.observer(record));
     return record;
   } catch {
@@ -895,22 +889,22 @@ function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): 
  * without live mode. Any other result is recorded as returned and passed
  * back unchanged.
  */
-function observeSettlement(site: ObservedSite, result: unknown): unknown {
+function observeSettlement(site: ObservedSite, result: unknown, lease?: CallLifecycleLease): unknown {
   const isPromise = result instanceof Promise;
   const isFollowed = !isPromise && site.followsThenable === true && thenOf(result) !== undefined;
-  if (isFollowed) return followThenable(site, result as object);
+  if (isFollowed) return followThenable(site, result as object, lease);
   if (!isPromise) {
-    report(site, 'returned');
+    finishWithLease(lease, () => report(site, 'returned'));
     return result;
   }
   return Promise.prototype.then.call(
     result,
     (value: unknown) => {
-      reportResolved(site, value);
+      finishWithLease(lease, () => reportResolved(site, value));
       return value;
     },
     (error: unknown) => {
-      reportRejected(site, error);
+      finishWithLease(lease, () => reportRejected(site, error));
       throw error;
     },
   );
@@ -934,12 +928,12 @@ function thenOf(value: unknown): Callback | undefined {
  * own promise's rejection (`swallowsRejection`), the followed promise is
  * handled too, so the app sees no rejection the SDK would not have raised.
  */
-function followThenable(site: ObservedSite, result: object): unknown {
+function followThenable(site: ObservedSite, result: object, lease?: CallLifecycleLease): unknown {
   const then = thenOf(result)!;
   const followed = new Promise<unknown>((resolve, reject) => {
     Reflect.apply(then, result, [resolve, reject]);
   });
-  const settled = observeSettlement({ ...site, followsThenable: false }, followed) as Promise<unknown>;
+  const settled = observeSettlement({ ...site, followsThenable: false }, followed, lease) as Promise<unknown>;
   const settledThen = Promise.prototype.then;
   const isReplaced = Reflect.set(result, 'then', settledThen.bind(settled)) && Reflect.set(result, 'catch', settledThen.bind(settled, undefined));
   const isSwallowed = !isReplaced || site.swallowsRejection === true;
@@ -1078,14 +1072,17 @@ function billedDocuments(): BilledDocuments {
 
 /** Calls the real function as the app called it, records the outcome, and returns or throws what it did. */
 function callReal(site: ObservedSite, real: Callback, self: unknown, args: unknown[]): unknown {
+  const lease = site.onCallStart?.();
   let result: unknown;
   try {
     result = Reflect.apply(real, self, args);
   } catch (error) {
+    lease?.release();
     if (site.throwsLocally !== true) report(site, 'threw', error);
     throw error;
   }
-  return observeSettlement(site, result);
+  lease?.onReturn(result);
+  return observeSettlement(site, result, lease);
 }
 
 /** A wrapper for a one-shot export: reads, writes, sign-in and token calls. */

@@ -17,7 +17,7 @@ export {
   serializeRtdbRules,
   simulateRtdbRules,
 } from '../rtdb/compiled-rules.js';
-export type { CompiledRtdbRules } from '../rtdb/compiled-rules.js';
+export type { CompiledRtdbRules, SimulateRtdbOptions } from '../rtdb/compiled-rules.js';
 
 export { locateRtdbRule, locateRtdbTrace } from '../rtdb/source-locations.js';
 export type {

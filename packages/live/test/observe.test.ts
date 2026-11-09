@@ -770,4 +770,87 @@ describe('a listener whose module names what it watches', () => {
     expect(JSON.stringify(records)).not.toContain('admin-doc');
     expect(JSON.stringify(records)).not.toContain('admin-rtdb');
   });
+
+  test('keeps onCallStart lease active across async and thenable settlement and releases before terminal reporting', async () => {
+    const { records, observer } = collector();
+    const events: string[] = [];
+    let active = false;
+
+    let resolveAsync!: (value: string) => void;
+    const asyncWrite = observedCall(
+      {
+        module: 'firebase/database',
+        name: 'set',
+        observer: (record) => {
+          events.push(`observer:${record.outcome}:active=${String(active)}`);
+          observer(record);
+        },
+        context: () => ({
+          onCallStart: () => {
+            active = true;
+            events.push('start');
+            return {
+              onReturn(returned) {
+                events.push(`onReturn:${typeof returned}`);
+              },
+              release() {
+                active = false;
+                events.push('release');
+              },
+            };
+          },
+        }),
+      },
+      () => {
+        events.push(`inside:active=${String(active)}`);
+        return new Promise<string>((resolve) => {
+          resolveAsync = resolve;
+        });
+      },
+    );
+
+    const pending = asyncWrite() as Promise<unknown>;
+    // Lease MUST remain active after synchronous return while the Promise is still pending (M5).
+    expect(active).toBe(true);
+    expect(events).toEqual(['start', 'inside:active=true', 'onReturn:object']);
+
+    resolveAsync('done');
+    await pending;
+    expect(active).toBe(false);
+    expect(events).toEqual([
+      'start',
+      'inside:active=true',
+      'onReturn:object',
+      'release',
+      'observer:resolved:active=false',
+    ]);
+    expect(records).toHaveLength(1);
+
+    // Synchronous throw releases the lease immediately.
+    let syncThrowActive = false;
+    const syncThrowCall = observedCall(
+      {
+        module: 'firebase/database',
+        name: 'set',
+        observer,
+        context: () => ({
+          onCallStart: () => {
+            syncThrowActive = true;
+            return {
+              onReturn() {},
+              release() {
+                syncThrowActive = false;
+              },
+            };
+          },
+        }),
+      },
+      () => {
+        expect(syncThrowActive).toBe(true);
+        throw new CodedError('invalid-argument');
+      },
+    );
+    expect(() => syncThrowCall()).toThrow('invalid-argument');
+    expect(syncThrowActive).toBe(false);
+  });
 });

@@ -7,15 +7,26 @@
  * trailing edge, scopes the rows by client or user.
  */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { keepChosenOption, type LiveHostStatus, type ScopeOption } from 'pyric/sandbox/internal';
+import { TrafficRow, defaultFormatTime } from '@pyric/ui/traffic';
+import {
+  callerSource,
+  callerSourceLabelOutsidePage,
+  keepChosenOption,
+  type LiveHostStatus,
+  type ScopeOption,
+} from 'pyric/sandbox/internal';
+import { useLiveHost } from '../../shell/live-status.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
   localDrift,
   opensRulesInspector,
+  productionLabel,
   rowNavigationTarget,
+  verdictFor,
+  verdictLabel,
   type StudioTrafficEvent,
 } from './verdict.js';
-import { LiveRulesView } from './TrafficLiveRulesDetail.js';
+import { LiveRulesView, TrafficInspectedDetail } from './TrafficLiveRulesDetail.js';
 import { TrafficRulesInspector } from './TrafficRulesInspector.js';
 import {
   EVERY_CLIENT,
@@ -23,6 +34,7 @@ import {
   fullTime,
   liveIdentity,
   liveSourceLabel,
+  methodLabel,
   outcomeText,
   rowOutcome,
 } from './live-row.js';
@@ -51,6 +63,132 @@ export function OutcomeCell({ event }: { event: StudioTrafficEvent }) {
       {outcome.label}
     </span>
   );
+}
+
+/** Which connection sent the row's op: a page, server code, admin code, MCP or Studio. */
+function SourceCell({ event }: { event: StudioTrafficEvent }) {
+  const source = callerSource(event.caller);
+  return (
+    <span className="traffic__source" data-source={source}>
+      {callerSourceLabelOutsidePage(source)}
+    </span>
+  );
+}
+
+/** What production answered an op it served; stands in for the Rules verdict. */
+function ProductionCell({ production }: { production: NonNullable<StudioTrafficEvent['production']> }) {
+  return (
+    <span className="traffic__production" data-production={production.outcome.status}>
+      {productionLabel(production)}
+    </span>
+  );
+}
+
+const DRIFT_TITLE = 'Local rules disagree with production';
+
+/** The one mark on a production row whose local rules disagree with production's answer. */
+function DriftMarker() {
+  return (
+    <span className="traffic__drift" data-drift="" title={DRIFT_TITLE} aria-label={DRIFT_TITLE} role="img">
+      <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+        <path d="M12 3 2 21h20L12 3Z" />
+        <path d="M12 9v5m0 3v1" />
+      </svg>
+    </span>
+  );
+}
+
+/** On a live host, marks a row the local sandbox served: only Production rows went to the real project. */
+function SandboxServedCell() {
+  return (
+    <span className="traffic__production" data-sandbox-served title="Served by the local sandbox, not your Firebase project">
+      Sandbox
+    </span>
+  );
+}
+
+/** The per-row source and verdict cells (the verdict is blank for non-rule ops). */
+export function VerdictCell({ event }: { event: StudioTrafficEvent }) {
+  const isLiveHost = useLiveHost() !== null;
+  if (event.production !== undefined) {
+    return (
+      <>
+        <SourceCell event={event} />
+        {localDrift(event) === undefined ? null : <DriftMarker />}
+        <ProductionCell production={event.production} />
+      </>
+    );
+  }
+  const v = verdictFor(event);
+  return (
+    <>
+      {isLiveHost ? <SandboxServedCell /> : null}
+      <SourceCell event={event} />
+      {v ? (
+        <span className="traffic__verdict" data-verdict={v}>
+          {verdictLabel(v)}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/** One row on a live host, sharing the exact track layout across list and standalone disclosures. */
+export function LiveTrafficRow({
+  event,
+  selected,
+  expanded,
+  onSelect,
+}: {
+  event: StudioTrafficEvent;
+  selected: boolean;
+  expanded: boolean;
+  onSelect: (event: StudioTrafficEvent) => void;
+}) {
+  return (
+    <TrafficRow
+      event={event}
+      selected={selected}
+      expanded={expanded}
+      onSelect={(e) => onSelect(e as StudioTrafficEvent)}
+      renderLead={(ev) => <TargetCell event={ev as StudioTrafficEvent} />}
+      formatMethod={methodLabel}
+      renderClassification={(ev) => <OutcomeCell event={ev as StudioTrafficEvent} />}
+      formatTime={defaultFormatTime}
+    />
+  );
+}
+
+/**
+ * An inspected op with no visible row, above the log: on a live host the
+ * row's own collapsible header and detail when the op is in the buffer, else
+ * the inspected detail.
+ */
+export function StandaloneDetail({
+  eventId,
+  events,
+  live,
+  onClose,
+}: {
+  eventId: string;
+  events: readonly StudioTrafficEvent[];
+  live: LiveHostStatus | null;
+  onClose: () => void;
+}) {
+  const event = live === null ? undefined : events.find((candidate) => candidate.id === eventId);
+  if (event !== undefined) {
+    return (
+      <div
+        className="traffic__standalone-live"
+        data-pyric-ui="traffic-standalone-detail"
+        data-pyric-traffic-standalone-live=""
+      >
+        <LiveTrafficRow event={event} selected expanded onSelect={onClose} />
+        <LiveRowDetail event={event} live={live} onClose={onClose} />
+      </div>
+    );
+  }
+  return <TrafficInspectedDetail eventId={eventId} events={events} onClose={onClose} />;
 }
 
 type Fact = readonly [label: string, value: string, mono?: boolean];

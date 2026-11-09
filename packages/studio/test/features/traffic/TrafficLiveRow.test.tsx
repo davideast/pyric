@@ -18,10 +18,17 @@ g.IS_REACT_ACT_ENVIRONMENT = true;
 g.fetch = async () => new Response('null', { status: 404 });
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { TrafficRow } from '@pyric/ui/traffic';
 import type { LiveHostStatus } from 'pyric/sandbox/internal';
-import { FromSelect, LiveRowDetail, OutcomeCell, TargetCell } from '../../../src/features/traffic/TrafficLiveRow.js';
+import {
+  FromSelect,
+  LiveRowDetail,
+  LiveTrafficRow,
+  OutcomeCell,
+  StandaloneDetail,
+  TargetCell,
+} from '../../../src/features/traffic/TrafficLiveRow.js';
 import { fromOptions, inFromScope, inRawEventFromScope, methodLabel } from '../../../src/features/traffic/live-row.js';
 import type { StudioTrafficEvent } from '../../../src/features/traffic/verdict.js';
 
@@ -191,6 +198,33 @@ describe("a live row's expansion", () => {
     const sandbox = facts(EVENTS.service!);
     expect(Object.keys(sandbox)).toEqual(['source', 'identity', 'method', 'target', 'path', 'outcome', 'time']);
     expect(sandbox.target).not.toContain('demo-project');
+  });
+
+  it('renders StandaloneDetail with a collapsible LiveTrafficRow header above LiveRowDetail (#2540)', () => {
+    let closed = 0;
+    const { container } = render(
+      <StandaloneDetail
+        eventId="from-b"
+        events={Object.values(EVENTS)}
+        live={LIVE}
+        onClose={() => {
+          closed += 1;
+        }}
+      />,
+    );
+    const wrapper = container.querySelector('[data-pyric-traffic-standalone-live]');
+    expect(wrapper).not.toBeNull();
+    const row = wrapper!.querySelector('[data-pyric-traffic-row]');
+    expect(row).not.toBeNull();
+    expect(row!.getAttribute('aria-expanded')).toBe('true');
+    expect(wrapper!.querySelector('[data-pyric-ui="traffic-row-detail"]')).not.toBeNull();
+    fireEvent.click(row!);
+    expect(closed).toBe(1);
+
+    const singleRow = render(
+      <LiveTrafficRow event={EVENTS.fromA!} selected={false} expanded={false} onSelect={() => {}} />,
+    );
+    expect(singleRow.container.querySelector('[data-pyric-traffic-row]')!.getAttribute('aria-expanded')).toBe('false');
   });
 });
 

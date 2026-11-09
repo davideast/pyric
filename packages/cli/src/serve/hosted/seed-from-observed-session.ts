@@ -36,6 +36,7 @@ import {
 } from 'pyric/database';
 import type { HostCtx } from '../worker/host.js';
 import { rtdbInstance, rtdbInstances } from '../worker/host/rtdb-instances.js';
+import { ensureGitignored } from '../capture-store.js';
 import { rehydrateFirestoreDocData } from '../observed-session/rehydrate.js';
 import { mergeRtdbTrees } from '../observed-session/rtdb-tree.js';
 import type { LiveSeedMode, ObservedSessionDataSnapshot } from '../observed-session/wire.js';
@@ -44,6 +45,24 @@ export interface ObservedSeedResult {
   mode: LiveSeedMode;
   seededFirestoreDocs: number;
   seededRtdbInstances: string[];
+}
+
+export interface ObservedSeedRunnerHooks {
+  readonly ctx: HostCtx;
+  readonly ownedProjectDir: string;
+  readonly isClosed: () => boolean;
+  readonly isInOwnedProject: (callerProjectDir: string) => boolean;
+  readonly requireHealthyPersistence: () => void;
+  readonly restoreFirestoreSubscriptions: (ctx: HostCtx) => void;
+  readonly flushPersistence: () => Promise<void>;
+}
+
+export interface ObservedSeedRunner {
+  readonly pending: () => Promise<void>;
+  run(
+    snapshot: ObservedSessionDataSnapshot,
+    options?: { mode?: LiveSeedMode; callerProjectDir?: string },
+  ): Promise<ObservedSeedResult>;
 }
 
 async function clearLocalData(ctx: HostCtx, adminDb: Firestore): Promise<void> {
@@ -96,4 +115,31 @@ export async function seedFromObservedSession(
     }
   });
   return result;
+}
+
+/** Serializes confirmed observed-session seeds onto one queue for `createHostedRuntime`. */
+export function createObservedSeedRunner(hooks: ObservedSeedRunnerHooks): ObservedSeedRunner {
+  let seedWork = Promise.resolve();
+  return {
+    pending: () => seedWork,
+    run(snapshot, options = {}) {
+      if (hooks.isClosed()) return Promise.reject(new Error('The hosted sandbox is closed.'));
+      const callerProjectDir = options.callerProjectDir ?? hooks.ownedProjectDir;
+      if (!hooks.isInOwnedProject(callerProjectDir)) {
+        return Promise.reject(new Error('The discovered host belongs to another project.'));
+      }
+      const mode = options.mode ?? 'merge';
+      const queued = seedWork.then(async () => {
+        if (hooks.isClosed()) throw new Error('The hosted sandbox is closed.');
+        hooks.requireHealthyPersistence();
+        ensureGitignored(hooks.ownedProjectDir);
+        const seeded = await seedFromObservedSession(hooks.ctx, snapshot, mode);
+        hooks.restoreFirestoreSubscriptions(hooks.ctx);
+        await hooks.flushPersistence();
+        return seeded;
+      });
+      seedWork = queued.then(() => {}, () => {});
+      return queued;
+    },
+  };
 }

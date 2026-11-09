@@ -36,8 +36,7 @@ import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import type { BridgeMessage } from '../bridge/protocol.js';
 import type { LiveHostState } from './live-host-state.js';
-import { LIVE_SEED_SANDBOX_PATH, LIVE_SESSION_DATA_PATH } from './observed-session/wire.js';
-import { serveLiveSeedSandbox, serveLiveSessionData } from './live-session-routes.js';
+import { isLiveSessionRoute, serveLiveSessionRoute, withLiveObservedSession } from './live-session-routes.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { InitPayload, RulesDestination } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
@@ -328,7 +327,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           liveHost?.outbound(message);
           bridge.handleSandboxMessage(message);
         };
-        hostedRuntime = await createHostedRuntime(payload, baseUrl, fromSandbox, opts.projectKey ?? process.cwd(), ai);
+        const hostOptions = withLiveObservedSession(ai, liveHost?.sessionData);
+        hostedRuntime = await createHostedRuntime(payload, baseUrl, fromSandbox, opts.projectKey ?? process.cwd(), hostOptions);
         if (closed) throw new Error('The hosted sandbox closed during startup.');
         liveHost?.readClientIds(hostedRuntime.clientIdOf);
         const receive = hostedRuntime.receive;
@@ -360,9 +360,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const isHostedRepro = url.pathname === HOSTED_REPRO_PATH;
       // The repro route takes the same guards as a direct command.
       const isHostedMethod = url.pathname === HOSTED_METHOD_PATH || isHostedRepro;
-      const isLiveSessionData = url.pathname === LIVE_SESSION_DATA_PATH;
-      const isLiveSeedSandbox = url.pathname === LIVE_SEED_SANDBOX_PATH;
-      const isLiveRoute = isLiveSessionData || isLiveSeedSandbox;
+      const isLiveRoute = isLiveSessionRoute(url.pathname);
       const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
       const isMountRoute = isHealthRequest || isMcpRequest || isHostedMethod || isLiveRoute || isStorageBytes;
       // These run admin commands or hand out data, and a client chooses its own
@@ -442,8 +440,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       }
       if (isLiveRoute) {
         const context = { sessionData: opts.liveHost?.sessionData, runtime: hostedRuntime, instanceId: bridge.instanceId };
-        if (isLiveSessionData) return serveLiveSessionData(req, res, context);
-        return serveLiveSeedSandbox(req, res, context);
+        return serveLiveSessionRoute(url.pathname, req, res, context);
       }
       if (isHostedRepro) {
         const runtime = hostedRuntime;

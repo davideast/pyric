@@ -172,3 +172,9 @@ export type SimulationResult= z.infer<typeof SimulationResultSchema>;
 export type SimulateResult =
   | { success: true; data: SimulationResult }
   | { success: false; error: { code: z.infer<typeof SimulateErrorCode>; message: string; recoverable: boolean } };
+
+/** Optional hooks for observing rule evaluation without changing simulation results. */
+export interface SimulateRtdbOptions {
+  /** Called for each snapshot read performed while evaluating trace entry `traceIndex`. */
+  readonly onRuleRead?: (traceIndex: number, source: 'stored' | 'postWrite', path: string) => void;
+}

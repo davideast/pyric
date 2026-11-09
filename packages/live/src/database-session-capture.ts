@@ -4,12 +4,15 @@
  * `ObservedSessionDelta` per call.
  *
  * - A write (`set`, `setWithPriority`, `update`, `remove`) names its op in
- *   its context, with server-value sentinels (`.sv`) left out; a `push`
- *   holds its value until it resolves with the new child's path.
+ *   its context, emitting `invalidate` ops for server-value sentinels (`.sv`)
+ *   so sentinel-written paths never retain stale authoritative coverage; a
+ *   `push` holds its value until it resolves with the new child's path.
  * - A bare `get` or `onValue` sets the value at its path; a filtered query
  *   updates just the children it returned, so siblings it filtered out stay.
- * - A child listener sets (`onChildAdded`, `onChildChanged`) or removes
- *   (`onChildRemoved`) its child, at `rooms/{id}/{childKey}`.
+ * - A child listener sets (`onChildAdded`, `onChildChanged`) its child; an
+ *   `onChildRemoved` removes the child on an unfiltered reference, or
+ *   invalidates it on a filtered/limited query where leaving the window does
+ *   not prove deletion.
  *
  * Each value spends at most 256 KiB, in UTF-8 bytes of its JSON
  * (`session-budget.ts`); a larger one counts `oversized`, and one that holds
@@ -19,9 +22,19 @@
  */
 import type { CallContext, ObservedSite, ResultReading } from './observe.js';
 import { isObject, pathOf, queryIdOf, UNREAD_INSTANCE } from './database.js';
+import { createInFlightRtdbWriteTracker, type InFlightRtdbWriteTracker } from './database-inflight-writes.js';
+import { joinRtdbSubpath } from './rtdb-write-plan.js';
 import { isPlainObject } from './json-copy.js';
 import { chargeContainer, chargeScalar, chargeString, MAX_SESSION_ITEM_BYTES, type SessionBudget } from './session-budget.js';
 import { skipDeltaOf, type ObservedRtdbSessionOp, type ObservedSessionDelta } from './session-data.js';
+
+let sharedRtdbInFlightTracker: InFlightRtdbWriteTracker | undefined;
+
+/** Returns the process-wide in-flight RTDB write tracker shared by client and Admin capture. */
+export function rtdbInFlightWrites(): InFlightRtdbWriteTracker {
+  sharedRtdbInFlightTracker ??= createInFlightRtdbWriteTracker({ unreadInstance: UNREAD_INSTANCE });
+  return sharedRtdbInFlightTracker;
+}
 
 const MAX_RTDB_SESSION_DEPTH = 20;
 const MAX_RTDB_SESSION_PATH_LENGTH = 1024;
@@ -44,7 +57,14 @@ export function isValidRtdbSessionPath(path: string | undefined): path is string
   return segments.every((seg) => !isForbiddenRtdbKey(seg));
 }
 
-export function copyRtdbSessionValue(value: unknown, depth: number, budget: SessionBudget, stripSentinels: boolean): unknown {
+export function copyRtdbSessionValue(
+  value: unknown,
+  depth: number,
+  budget: SessionBudget,
+  stripSentinels: boolean,
+  omittedOut?: string[][],
+  prefix: readonly string[] = [],
+): unknown {
   if (value === null || typeof value === 'boolean') {
     if (!chargeScalar(budget, value)) return OVERSIZED_RTDB_SESSION;
     return value;
@@ -61,23 +81,33 @@ export function copyRtdbSessionValue(value: unknown, depth: number, budget: Sess
   if (depth >= MAX_RTDB_SESSION_DEPTH) return INVALID_RTDB_SESSION;
   if (Array.isArray(value)) {
     if (!chargeContainer(budget)) return OVERSIZED_RTDB_SESSION;
-    return copyRtdbItems(value, depth, budget, stripSentinels);
+    return copyRtdbItems(value, depth, budget, stripSentinels, omittedOut, prefix);
   }
   if (!isPlainObject(value)) return INVALID_RTDB_SESSION;
   if (stripSentinels && Object.prototype.hasOwnProperty.call(value, '.sv')) return OMIT_RTDB_SENTINEL;
   if (!chargeContainer(budget)) return OVERSIZED_RTDB_SESSION;
-  return copyRtdbEntries(value, depth, budget, stripSentinels);
+  return copyRtdbEntries(value, depth, budget, stripSentinels, omittedOut, prefix);
 }
 
-function copyRtdbItems(items: readonly unknown[], depth: number, budget: SessionBudget, stripSentinels: boolean): unknown {
+function copyRtdbItems(
+  items: readonly unknown[],
+  depth: number,
+  budget: SessionBudget,
+  stripSentinels: boolean,
+  omittedOut: string[][] | undefined,
+  prefix: readonly string[],
+): unknown {
   const out: unknown[] = [];
-  for (const item of items) {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     if (item === undefined) {
       out.push(null);
       continue;
     }
-    const copied = copyRtdbSessionValue(item, depth + 1, budget, stripSentinels);
+    const itemPrefix = [...prefix, String(i)];
+    const copied = copyRtdbSessionValue(item, depth + 1, budget, stripSentinels, omittedOut, itemPrefix);
     if (copied === OMIT_RTDB_SENTINEL) {
+      omittedOut?.push(itemPrefix);
       out.push(null);
       continue;
     }
@@ -88,14 +118,25 @@ function copyRtdbItems(items: readonly unknown[], depth: number, budget: Session
   return out;
 }
 
-function copyRtdbEntries(fields: Fields, depth: number, budget: SessionBudget, stripSentinels: boolean): unknown {
+function copyRtdbEntries(
+  fields: Fields,
+  depth: number,
+  budget: SessionBudget,
+  stripSentinels: boolean,
+  omittedOut: string[][] | undefined,
+  prefix: readonly string[],
+): unknown {
   const out: Fields = {};
   for (const [key, entry] of Object.entries(fields)) {
     if (isForbiddenRtdbKey(key)) return INVALID_RTDB_SESSION;
     if (entry === undefined) continue;
     if (!chargeString(budget, key)) return OVERSIZED_RTDB_SESSION;
-    const copied = copyRtdbSessionValue(entry, depth + 1, budget, stripSentinels);
-    if (copied === OMIT_RTDB_SENTINEL) continue;
+    const entryPrefix = [...prefix, key];
+    const copied = copyRtdbSessionValue(entry, depth + 1, budget, stripSentinels, omittedOut, entryPrefix);
+    if (copied === OMIT_RTDB_SENTINEL) {
+      omittedOut?.push(entryPrefix);
+      continue;
+    }
     if (copied === OVERSIZED_RTDB_SESSION) return OVERSIZED_RTDB_SESSION;
     if (copied === INVALID_RTDB_SESSION) return INVALID_RTDB_SESSION;
     out[key] = copied;
@@ -103,23 +144,46 @@ function copyRtdbEntries(fields: Fields, depth: number, budget: SessionBudget, s
   return out;
 }
 
-/** A copy of one whole value under a fresh item budget, or the skip delta that left it out. */
-function copiedValue(value: unknown, stripSentinels: boolean): { value: unknown } | { skipped: ObservedSessionDelta } {
-  const copied = copyRtdbSessionValue(value, 0, { left: MAX_SESSION_ITEM_BYTES }, stripSentinels);
+type CopiedRtdbValue =
+  | { value: unknown; omittedPaths: string[][] }
+  | { rootSentinel: true }
+  | { skipped: ObservedSessionDelta };
+
+/** A copy of one whole value under a fresh item budget, or why it was omitted/skipped. */
+function copiedValue(value: unknown, stripSentinels: boolean): CopiedRtdbValue {
+  const omittedPaths: string[][] = [];
+  const copied = copyRtdbSessionValue(value, 0, { left: MAX_SESSION_ITEM_BYTES }, stripSentinels, omittedPaths);
   if (copied === OVERSIZED_RTDB_SESSION) return { skipped: skipDeltaOf('oversized') };
-  if (copied === INVALID_RTDB_SESSION || copied === OMIT_RTDB_SENTINEL) return { skipped: skipDeltaOf('unsupported') };
-  return { value: copied };
+  if (copied === OMIT_RTDB_SENTINEL) return { rootSentinel: true };
+  if (copied === INVALID_RTDB_SESSION) return { skipped: skipDeltaOf('unsupported') };
+  return { value: copied, omittedPaths };
 }
 
 export function opDelta(op: ObservedRtdbSessionOp): ObservedSessionDelta {
   return { rtdb: [op] };
 }
 
-/** An `update` patch's op: each defined child copied under its relative path, sentinels left out. */
+function setOpsWithInvalidations(
+  instance: string,
+  path: string,
+  value: unknown,
+  omittedPaths: readonly (readonly string[])[] | undefined,
+): ObservedSessionDelta {
+  const ops: ObservedRtdbSessionOp[] = [{ kind: 'set', instance, path, value }];
+  for (const rel of omittedPaths ?? []) {
+    if (rel.length === 0) return { rtdb: [{ kind: 'invalidate', instance, path }], skipped: { unsupported: 1 } };
+    ops.push({ kind: 'invalidate', instance, path: joinRtdbSubpath(path, rel) });
+  }
+  return { rtdb: ops };
+}
+
+/** An `update` patch's ops: sentinel leaves invalidated, concrete leaves updated. */
 function updateDelta(rawPatch: unknown, instance: string, path: string): ObservedSessionDelta | undefined {
   if (!isPlainObject(rawPatch)) return skipDeltaOf('unsupported');
   const budget: SessionBudget = { left: MAX_SESSION_ITEM_BYTES };
   const patch: Fields = {};
+  const preInvalidations: ObservedRtdbSessionOp[] = [];
+  const postInvalidations: ObservedRtdbSessionOp[] = [];
   let hasEntry = false;
   let hadDefinedEntry = false;
   if (!chargeContainer(budget)) return skipDeltaOf('oversized');
@@ -129,16 +193,44 @@ function updateDelta(rawPatch: unknown, instance: string, path: string): Observe
     const relSegments = relKey.split('/').filter((s) => s.length > 0);
     if (relSegments.length === 0 || relSegments.some(isForbiddenRtdbKey)) return skipDeltaOf('unsupported');
     if (!chargeString(budget, relKey)) return skipDeltaOf('oversized');
-    const copied = copyRtdbSessionValue(rawVal, 0, budget, true);
-    if (copied === OMIT_RTDB_SENTINEL) continue;
+    const nestedOmitted: string[][] = [];
+    const copied = copyRtdbSessionValue(rawVal, 0, budget, true, nestedOmitted);
+    if (copied === OMIT_RTDB_SENTINEL) {
+      preInvalidations.push({ kind: 'invalidate', instance, path: joinRtdbSubpath(path, relSegments) });
+      continue;
+    }
     if (copied === OVERSIZED_RTDB_SESSION) return skipDeltaOf('oversized');
     if (copied === INVALID_RTDB_SESSION) return skipDeltaOf('unsupported');
     patch[relSegments.join('/')] = copied;
     hasEntry = true;
+    for (const nestedRel of nestedOmitted) {
+      postInvalidations.push({
+        kind: 'invalidate',
+        instance,
+        path: joinRtdbSubpath(path, [...relSegments, ...nestedRel]),
+      });
+    }
   }
-  if (hasEntry) return opDelta({ kind: 'update', instance, path, value: patch });
-  if (hadDefinedEntry) return skipDeltaOf('unsupported');
+  if (hasEntry) {
+    return { rtdb: [...preInvalidations, { kind: 'update', instance, path, value: patch }, ...postInvalidations] };
+  }
+  if (hadDefinedEntry) return { rtdb: preInvalidations, skipped: { unsupported: 1 } };
   return undefined;
+}
+
+function resolvePushedChildPath(parentPath: string | undefined, returned: unknown): string | undefined {
+  if (!isObject(returned)) return undefined;
+  const resolved = pathOf(returned) ?? childKeyPathUnder(parentPath, returned);
+  if (!isValidRtdbSessionPath(resolved)) return undefined;
+  return resolved;
+}
+
+function withWriteStarter(
+  onCallStart: CallContext['onCallStart'],
+  base: Pick<CallContext, 'sessionData' | 'pendingPushValue'>,
+): Pick<CallContext, 'sessionData' | 'pendingPushValue' | 'onCallStart'> {
+  if (onCallStart === undefined) return base;
+  return { ...base, onCallStart };
 }
 
 /**
@@ -150,29 +242,57 @@ export function databaseWriteSession(
   args: readonly unknown[],
   instance: string,
   path: string | undefined,
-): Pick<CallContext, 'sessionData' | 'pendingPushValue'> {
-  if (name === 'runTransaction') return { sessionData: skipDeltaOf('unsupported') };
-  if (!isValidRtdbSessionPath(path)) {
-    if (RTDB_WRITES.has(name)) return { sessionData: skipDeltaOf('unsupported') };
-    return {};
+): Pick<CallContext, 'sessionData' | 'pendingPushValue' | 'onCallStart'> {
+  const onCallStart = rtdbInFlightWrites().writeLeaseStarter({
+    name,
+    instance,
+    path,
+    patchArg: args[1],
+    resolveClientPushPath: (returned) => resolvePushedChildPath(path, returned),
+  });
+  if (name === 'runTransaction') {
+    return withWriteStarter(onCallStart, { sessionData: skipDeltaOf('unsupported') });
   }
-  if (name === 'remove') return { sessionData: opDelta({ kind: 'remove', instance, path }) };
+  if (!isValidRtdbSessionPath(path)) {
+    if (RTDB_WRITES.has(name)) {
+      return withWriteStarter(onCallStart, { sessionData: skipDeltaOf('unsupported') });
+    }
+    return withWriteStarter(onCallStart, {});
+  }
+  if (name === 'remove') {
+    return withWriteStarter(onCallStart, { sessionData: opDelta({ kind: 'remove', instance, path }) });
+  }
   if (name === 'set' || name === 'setWithPriority') {
     const copied = copiedValue(args[1], true);
-    if ('skipped' in copied) return { sessionData: copied.skipped };
-    return { sessionData: opDelta({ kind: 'set', instance, path, value: copied.value }) };
+    if ('skipped' in copied) return withWriteStarter(onCallStart, { sessionData: copied.skipped });
+    if ('rootSentinel' in copied) {
+      return withWriteStarter(onCallStart, {
+        sessionData: { rtdb: [{ kind: 'invalidate', instance, path }], skipped: { unsupported: 1 } },
+      });
+    }
+    return withWriteStarter(onCallStart, {
+      sessionData: setOpsWithInvalidations(instance, path, copied.value, copied.omittedPaths),
+    });
   }
   if (name === 'update') {
     const sessionData = updateDelta(args[1], instance, path);
-    if (sessionData === undefined) return {};
-    return { sessionData };
+    if (sessionData === undefined) return withWriteStarter(onCallStart, {});
+    return withWriteStarter(onCallStart, { sessionData });
   }
   if (name === 'push') {
     const copied = copiedValue(args[1], true);
-    if ('skipped' in copied) return { sessionData: copied.skipped };
-    return { pendingPushValue: { value: copied.value } };
+    if ('skipped' in copied) return withWriteStarter(onCallStart, { sessionData: copied.skipped });
+    if ('rootSentinel' in copied) {
+      return withWriteStarter(onCallStart, { pendingPushValue: { value: null, omittedPaths: [[]] } });
+    }
+    if (copied.omittedPaths.length > 0) {
+      return withWriteStarter(onCallStart, {
+        pendingPushValue: { value: copied.value, omittedPaths: copied.omittedPaths },
+      });
+    }
+    return withWriteStarter(onCallStart, { pendingPushValue: { value: copied.value } });
   }
-  return {};
+  return withWriteStarter(onCallStart, {});
 }
 
 /** A snapshot's path: its `ref`'s, else its key under the call's path, else the call's path. */
@@ -188,12 +308,16 @@ function snapshotPathOf(snap: Fields, fallbackPath?: string): string | undefined
   return undefined;
 }
 
+function childKeyPathUnder(parentPath: string | undefined, child: Fields): string | undefined {
+  if (typeof child.key !== 'string' || child.key.length === 0) return undefined;
+  if (!isValidRtdbSessionPath(parentPath)) return undefined;
+  if (parentPath === '/') return `/${child.key}`;
+  return `${parentPath}/${child.key}`;
+}
+
 /** The path of the child a value names under the call's path (`rooms/{id}` and the child's key), or undefined. */
 function keyedChildPath(site: ObservedSite, child: Fields): string | undefined {
-  if (typeof child.key !== 'string' || child.key.length === 0) return undefined;
-  if (!isValidRtdbSessionPath(site.path)) return undefined;
-  if (site.path === '/') return `/${child.key}`;
-  return `${site.path}/${child.key}`;
+  return childKeyPathUnder(site.path, child);
 }
 
 /** Whether a read ran on a filtered query, whose value holds only the children it matched. */
@@ -201,18 +325,31 @@ function isFilteredRead(site: ObservedSite, snap: Fields): boolean {
   return site.rtdbFilteredQuery === true || queryIdOf(snap._query) !== 'default';
 }
 
-/** The delta of a `get` or `onValue` snapshot: `set` of its value, or `update` of a filtered query's children. */
-function valueSnapshotDelta(site: ObservedSite, snap: Fields, read: () => unknown): ObservedSessionDelta | undefined {
+/** The delta of a `get` or `onValue` snapshot: `set` on a bare ref, or `[invalidate, update]` on a filtered query. */
+function valueSnapshotDelta(
+  site: ObservedSite,
+  snap: Fields,
+  read: () => unknown,
+): ObservedSessionDelta | undefined {
   const instance = site.instance ?? UNREAD_INSTANCE;
   const path = snapshotPathOf(snap, site.path);
   if (path === undefined) return skipDeltaOf('unsupported');
   const copied = copiedValue(read(), false);
-  if ('skipped' in copied) return copied.skipped;
+  if ('skipped' in copied || 'rootSentinel' in copied) return skipDeltaOf('unsupported');
   if (!isFilteredRead(site, snap)) return opDelta({ kind: 'set', instance, path, value: copied.value });
-  if (copied.value === null) return undefined;
+  if (copied.value === null) {
+    return opDelta({ kind: 'invalidate', instance, path });
+  }
   if (!isPlainObject(copied.value)) return skipDeltaOf('unsupported');
-  if (Object.keys(copied.value).length === 0) return undefined;
-  return opDelta({ kind: 'update', instance, path, value: copied.value });
+  if (Object.keys(copied.value).length === 0) {
+    return opDelta({ kind: 'invalidate', instance, path });
+  }
+  return {
+    rtdb: [
+      { kind: 'invalidate', instance, path },
+      { kind: 'update', instance, path, value: copied.value },
+    ],
+  };
 }
 
 /** Whether a value is a snapshot this file reads: an object with its own `val()`. */
@@ -226,10 +363,22 @@ export function databaseResult(site: ObservedSite, value: unknown): ResultReadin
     const resolvedPath = pathOf(value) ?? keyedChildPath(site, value);
     if (!isValidRtdbSessionPath(resolvedPath)) return { sessionData: skipDeltaOf('unsupported') };
     const instance = site.instance ?? UNREAD_INSTANCE;
-    return { sessionData: opDelta({ kind: 'set', instance, path: resolvedPath, value: site.pendingPushValue.value }) };
+    return {
+      sessionData: setOpsWithInvalidations(
+        instance,
+        resolvedPath,
+        site.pendingPushValue.value,
+        site.pendingPushValue.omittedPaths,
+      ),
+    };
   }
   if (site.name === 'get' && isSnapshot(value)) {
-    const sessionData = valueSnapshotDelta(site, value, () => Reflect.apply(value.val, value, []));
+    const instance = site.instance ?? UNREAD_INSTANCE;
+    const readPath = snapshotPathOf(value, site.path);
+    if (readPath === undefined) return { sessionData: skipDeltaOf('unsupported') };
+    const sessionData = rtdbInFlightWrites().applyDeliveryGuard(instance, readPath, () =>
+      valueSnapshotDelta(site, value, () => Reflect.apply(value.val, value, [])),
+    );
     if (sessionData === undefined) return {};
     return { sessionData };
   }
@@ -251,11 +400,22 @@ export function databaseDelivery(site: ObservedSite, value: unknown): ObservedSe
   if (isChildListener) {
     const childPath = snapshotPathOf(value, undefined) ?? keyedChildPath(site, value);
     if (!isValidRtdbSessionPath(childPath)) return skipDeltaOf('unsupported');
-    if (site.name === 'onChildRemoved') return opDelta({ kind: 'remove', instance, path: childPath });
-    const copied = copiedValue(Reflect.apply(value.val, value, []), false);
-    if ('skipped' in copied) return copied.skipped;
-    return opDelta({ kind: 'set', instance, path: childPath, value: copied.value });
+    return rtdbInFlightWrites().applyDeliveryGuard(instance, childPath, () => {
+      if (site.name === 'onChildRemoved') {
+        if (isFilteredRead(site, value)) return opDelta({ kind: 'invalidate', instance, path: childPath });
+        return opDelta({ kind: 'remove', instance, path: childPath });
+      }
+      const copied = copiedValue(Reflect.apply(value.val, value, []), false);
+      if ('skipped' in copied || 'rootSentinel' in copied) return skipDeltaOf('unsupported');
+      return opDelta({ kind: 'set', instance, path: childPath, value: copied.value });
+    });
   }
-  if (site.name === 'onValue') return valueSnapshotDelta(site, value, () => Reflect.apply(value.val, value, []));
+  if (site.name === 'onValue') {
+    const deliveryPath = snapshotPathOf(value, site.path);
+    if (deliveryPath === undefined) return skipDeltaOf('unsupported');
+    return rtdbInFlightWrites().applyDeliveryGuard(instance, deliveryPath, () =>
+      valueSnapshotDelta(site, value, () => Reflect.apply(value.val, value, [])),
+    );
+  }
   return undefined;
 }

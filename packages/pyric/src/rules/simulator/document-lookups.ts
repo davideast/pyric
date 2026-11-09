@@ -4,6 +4,16 @@ import { reviveFirestoreNumbers } from './firestore-values.js';
 import { Path } from './wrappers/path.js';
 
 /**
+ * Sentinel returned by `SimulationContext.getDoc` for `exists()` when a document
+ * is known to exist (for instance, from a partial update) while its full field
+ * map was not captured, so `exists()` returns `true` without seeding a fake
+ * document into `mockDocuments` for subsequent `get()` calls.
+ */
+export const EXISTS_ONLY_DOC: Readonly<Record<string, unknown>> = Object.freeze({
+  __pyricExistsOnly: true,
+});
+
+/**
  * Check if a path or segment list points to a document (non-empty, even segment count).
  */
 export function isDocumentPath(segmentsOrPath: string | readonly string[]): boolean {
@@ -63,8 +73,8 @@ export function resolveGet(rawPath: string, context: SimulationContext): SimReso
   }
   let document = context.mockDocuments.get(path);
   if (!document && context.getDoc) {
-    const loaded = context.getDoc(path);
-    if (loaded) {
+    const loaded = context.getDoc(path, { kind: 'get', trace: context.trace });
+    if (loaded && loaded !== EXISTS_ONLY_DOC) {
       const revived = reviveFirestoreNumbers(loaded) as Record<string, unknown>;
       context.mockDocuments.set(path, revived);
       document = revived;
@@ -94,9 +104,11 @@ export function resolveExists(rawPath: string, context: SimulationContext): bool
   if (mocked !== undefined) return mocked;
   if (context.mockDocuments.has(path)) return true;
   if (context.getDoc) {
-    const loaded = context.getDoc(path);
+    const loaded = context.getDoc(path, { kind: 'exists', trace: context.trace });
     if (loaded) {
-      context.mockDocuments.set(path, reviveFirestoreNumbers(loaded) as Record<string, unknown>);
+      if (loaded !== EXISTS_ONLY_DOC) {
+        context.mockDocuments.set(path, reviveFirestoreNumbers(loaded) as Record<string, unknown>);
+      }
       return true;
     }
   }

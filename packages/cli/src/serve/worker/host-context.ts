@@ -19,6 +19,7 @@ import type { Auth, MintedSession } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
 import type { SandboxDispatch } from '../../bridge/client/dispatch.js';
 import type { DatabaseTargetDeploy, PendingDatabaseTargets } from '../database-instance-rules-host.js';
+import type { ObservedSessionDataStore } from '../observed-session/store.js';
 import {
   serializeError,
   type OutboundMessage,
@@ -155,6 +156,8 @@ export interface HostCtx {
   activeRules?: {
     firestore?: ActiveRulesState;
   };
+  /** Live Mode's host-memory observed session store, used as pre-operation state for local rules evaluation. */
+  observedSession?: ObservedSessionDataStore;
   /** Per-port subscription registry. Map<port, Map<subId, unsub>>. */
   subs: Map<PortLike, Map<string, () => void>>;
   /** Ports mirroring the sandbox clock. Created on the first `clock-subscribe`. */
