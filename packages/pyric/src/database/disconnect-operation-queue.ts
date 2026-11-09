@@ -1,3 +1,5 @@
+import { normalizeNode } from './sandbox/normalize.js';
+
 export type DisconnectOperation<TMetadata extends object = Record<never, never>> =
   | ({ kind: 'set'; path: string; value: unknown; priority?: string | number | null; mergeAfterChildRegistration?: boolean } & TMetadata)
   | ({ kind: 'update'; path: string; values: Record<string, unknown> } & TMetadata)
@@ -21,26 +23,48 @@ function replacesDescendants<TMetadata extends object>(operation: DisconnectOper
   return operation.kind === 'set' || operation.kind === 'remove';
 }
 
+function isSentinelLeaf(value: object): boolean {
+  return Object.hasOwn(value, '.sv') || Object.hasOwn(value, '__rtdbSentinel');
+}
+
+function unwrapDotValue(value: unknown): unknown {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value) && Object.hasOwn(value, '.value')) {
+    return (value as Record<string, unknown>)['.value'];
+  }
+  return value;
+}
+
 /**
  * A value with children a cancellation can reach. A server value
- * (`{ ".sv": ... }`) is a leaf, as the SDK holds it, so a path below it names
- * nothing and cancelling that path leaves it whole.
+ * (`{ ".sv": ... }`) or primitive `.value` wrapper is a leaf, as the SDK holds
+ * it, so a path below it names nothing and cancelling that path leaves it whole.
  */
 function hasChildren(value: unknown): value is object {
-  return value !== null && typeof value === 'object' && !Object.hasOwn(value, '.sv');
+  const unwrapped = unwrapDotValue(value);
+  if (unwrapped === null || typeof unwrapped !== 'object') return false;
+  return !isSentinelLeaf(unwrapped);
+}
+
+function hasDataContent(value: unknown): boolean {
+  const unwrapped = unwrapDotValue(value);
+  if (unwrapped === null || unwrapped === undefined) return false;
+  if (typeof unwrapped !== 'object') return true;
+  if (isSentinelLeaf(unwrapped)) return true;
+  return normalizeNode(unwrapped) !== null;
 }
 
 function childRecord(value: unknown): Record<string, unknown> | null {
   if (!hasChildren(value)) return null;
-  if (Array.isArray(value)) {
+  const unwrapped = unwrapDotValue(value) as object;
+  if (Array.isArray(unwrapped)) {
     const entries: Array<[string, unknown]> = [];
-    for (let index = 0; index < value.length; index += 1) {
-      const entry = value[index];
+    for (let index = 0; index < unwrapped.length; index += 1) {
+      const entry = unwrapped[index];
       if (entry != null) entries.push([String(index), entry]);
     }
     return Object.fromEntries(entries);
   }
-  return value as Record<string, unknown>;
+  return unwrapped as Record<string, unknown>;
 }
 
 function isPrefixSegments(prefix: string[], full: string[]): boolean {
@@ -79,22 +103,70 @@ function splitsIntoChildMerge<TMetadata extends object>(
 function effectiveSetPriority(
   value: object,
   priority: string | number | null | undefined,
-): string | number | null | undefined {
+): unknown {
   if (Object.hasOwn(value, '.priority')) {
-    return (value as Record<string, unknown>)['.priority'] as string | number | null;
+    return (value as Record<string, unknown>)['.priority'];
   }
   return priority;
+}
+
+function ownNodePriority(value: unknown): { present: boolean; priority: unknown } {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return { present: false, priority: null };
+  }
+  if (!Object.hasOwn(value, '.priority')) {
+    return { present: false, priority: null };
+  }
+  const raw = (value as Record<string, unknown>)['.priority'];
+  if (raw === undefined) {
+    return { present: false, priority: null };
+  }
+  return { present: true, priority: structuredClone(raw) };
+}
+
+function isPriorityEntryKey(entryKey: string): boolean {
+  const segs = pathSegments(entryKey);
+  return segs.length > 0 && segs[segs.length - 1] === '.priority';
+}
+
+function hasDataUnderPrefix(entries: ReadonlyArray<readonly [string, unknown]>, ownerPrefix: string): boolean {
+  const ownerSegs = pathSegments(ownerPrefix);
+  for (const [entryKey, entryValue] of entries) {
+    if (isPriorityEntryKey(entryKey)) continue;
+    if (!hasDataContent(entryValue)) continue;
+    if (ownerSegs.length === 0) return true;
+    const entrySegs = pathSegments(entryKey);
+    if (entrySegs.length >= ownerSegs.length && isPrefixSegments(ownerSegs, entrySegs)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function pruneOrphanedPriorities(
+  entries: Array<[string, unknown]>,
+  owners: ReadonlySet<string>,
+): Array<[string, unknown]> {
+  if (owners.size === 0) return entries;
+  return entries.filter(([entryKey]) => {
+    if (!isPriorityEntryKey(entryKey)) return true;
+    const ownerPrefix = pathSegments(entryKey).slice(0, -1).join('/');
+    if (!owners.has(ownerPrefix)) return true;
+    return hasDataUnderPrefix(entries, ownerPrefix);
+  });
 }
 
 function unfoldWithoutNestedPath(
   prefix: string,
   value: unknown,
   segments: string[],
+  unfoldedPriorityOwners: Set<string>,
+  includeRootOwnPriority: boolean,
 ): Array<[string, unknown]> {
   if (segments.length === 0) return [];
   const record = childRecord(value);
   if (record === null) return [[prefix, structuredClone(value)]];
-  return Object.entries(record).flatMap(([childKey, childValue]) => {
+  const entries = Object.entries(record).flatMap(([childKey, childValue]): Array<[string, unknown]> => {
     if (childKey.startsWith('.') || childValue == null) return [];
     const keySegs = pathSegments(childKey);
     if (keySegs.length === 0) return [];
@@ -107,13 +179,35 @@ function unfoldWithoutNestedPath(
     if (!isPrefixSegments(keySegs, segments)) {
       return [[childPrefix, structuredClone(childValue)]];
     }
-    return unfoldWithoutNestedPath(childPrefix, childValue, segments.slice(keySegs.length));
+    return unfoldWithoutNestedPath(
+      childPrefix,
+      childValue,
+      segments.slice(keySegs.length),
+      unfoldedPriorityOwners,
+      false,
+    );
   });
+  const ownPriority = ownNodePriority(value);
+  if (ownPriority.present) {
+    if (prefix !== '') {
+      unfoldedPriorityOwners.add(prefix);
+      if (hasDataUnderPrefix(entries, prefix)) {
+        entries.push([`${prefix}/.priority`, ownPriority.priority]);
+      }
+    } else if (includeRootOwnPriority) {
+      const cancelsRootPriority = segments.length === 1 && segments[0] === '.priority';
+      if (!cancelsRootPriority) {
+        entries.push(['.priority', ownPriority.priority]);
+      }
+    }
+  }
+  return entries;
 }
 
 /** Pure Firebase onDisconnect registration/coalescing state, shared by both transports. */
 export class DisconnectOperationQueue<TMetadata extends object = Record<never, never>> {
   private readonly operations = new Map<string, DisconnectOperation<TMetadata>>();
+  private readonly unfoldedPriorityOwners = new Map<string, Set<string>>();
 
   set(operation: DisconnectOperation<TMetadata>): void {
     // The SDK registers nothing for an empty update, so a write queued at the
@@ -123,9 +217,11 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
       for (const queuedPath of [...this.operations.keys()]) {
         if (isAncestorPath(operation.path, queuedPath)) {
           this.operations.delete(queuedPath);
+          this.unfoldedPriorityOwners.delete(queuedPath);
         }
       }
     }
+    this.unfoldedPriorityOwners.delete(operation.path);
     this.operations.set(operation.path, structuredClone(operation));
   }
 
@@ -134,6 +230,7 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
     for (const queuedPath of [...this.operations.keys()]) {
       if (isSameOrDescendantPath(path, queuedPath)) {
         this.operations.delete(queuedPath);
+        this.unfoldedPriorityOwners.delete(queuedPath);
         cancelledQueuedOperation = true;
       }
     }
@@ -142,19 +239,47 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
       const queued = this.operations.get(queuedPath)!;
       const relative = pathSegments(path).slice(pathSegments(queuedPath).length);
       if (splitsIntoChildMerge(queued, relative, cancelledQueuedOperation)) {
+        const owners = new Set<string>();
+        const entries = unfoldWithoutNestedPath('', queued.value, relative, owners, false);
+        if (!hasDataUnderPrefix(entries, '')) {
+          this.operations.delete(queuedPath);
+          this.unfoldedPriorityOwners.delete(queuedPath);
+          continue;
+        }
         const priority = effectiveSetPriority(queued.value, queued.priority);
-        const splitOperation: DisconnectOperation<TMetadata> = {
-          ...queued,
-          value: Object.fromEntries(unfoldWithoutNestedPath('', queued.value, relative)),
-          mergeAfterChildRegistration: true,
-        };
-        if (priority !== undefined) splitOperation.priority = priority;
-        this.operations.set(queuedPath, splitOperation);
+        if (priority !== undefined) {
+          entries.push(['.priority', structuredClone(priority)]);
+          owners.add('');
+        }
+        const pruned = pruneOrphanedPriorities(entries, owners);
+        const {
+          kind: _kind,
+          value: _value,
+          priority: _priority,
+          mergeAfterChildRegistration: _merge,
+          ...metadata
+        } = queued;
+        const mergedOperation = {
+          ...metadata,
+          kind: 'update' as const,
+          path: queued.path,
+          values: Object.fromEntries(pruned),
+        } as DisconnectOperation<TMetadata>;
+        this.operations.set(queuedPath, mergedOperation);
+        this.unfoldedPriorityOwners.set(queuedPath, owners);
       } else if (queued.kind === 'update') {
         const canReachChild = cancelledQueuedOperation || hasNestedPath(queued.values, relative);
         if (!canReachChild) continue;
-        const kept = Object.fromEntries(unfoldWithoutNestedPath('', queued.values, relative));
-        this.operations.set(queuedPath, { ...queued, values: kept });
+        const owners = new Set(this.unfoldedPriorityOwners.get(queuedPath) ?? []);
+        const unfolded = unfoldWithoutNestedPath('', queued.values, relative, owners, true);
+        const pruned = pruneOrphanedPriorities(unfolded, owners);
+        if (pruned.length === 0) {
+          this.operations.delete(queuedPath);
+          this.unfoldedPriorityOwners.delete(queuedPath);
+          continue;
+        }
+        this.operations.set(queuedPath, { ...queued, values: Object.fromEntries(pruned) });
+        this.unfoldedPriorityOwners.set(queuedPath, owners);
       }
     }
   }
@@ -162,10 +287,12 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
   takeAll(): DisconnectOperation<TMetadata>[] {
     const queued = [...this.operations.values()];
     this.operations.clear();
+    this.unfoldedPriorityOwners.clear();
     return queued;
   }
 
   clear(): void {
     this.operations.clear();
+    this.unfoldedPriorityOwners.clear();
   }
 }

@@ -8,6 +8,7 @@ import { BackendState } from './backend-state.js';
 import { ChildListeners } from './child-listeners.js';
 import type { ChildListener, ValueListener, ValueListenerSnapshot } from './listener-types.js';
 import { PersistenceState } from './persistence-state.js';
+import type { PriorityRecord } from './priority-state.js';
 import { generatePushId } from './push-id.js';
 import type { Priority, QueryRow, QuerySpec } from './query.js';
 import { Transactions } from './transactions.js';
@@ -161,9 +162,9 @@ export class RtdbBackend {
     path: string,
     updateFn: (current: JsonValue) => JsonValue | undefined,
     options?: { applyLocally?: boolean; admin?: boolean },
-  ): { committed: boolean; val: JsonValue; key: string | null } {
+  ): { committed: boolean; val: JsonValue; key: string | null; priorities?: PriorityRecord } {
     assertWritable(path);
-    return this.transactions.run(auth, path, updateFn, options);
+    return this.transactions.runClient(auth, path, updateFn, options);
   }
 
   onChild(

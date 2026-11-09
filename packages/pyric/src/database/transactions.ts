@@ -101,8 +101,7 @@ export function runTransaction<T>(
       transactionUpdate as (current: JsonValue) => JsonValue | undefined,
       txOptions,
     );
-    const priorities = result.val === null ? {} : undefined;
-    const snap = buildSandboxSnapFromRaw(target, r, result.val, priorities);
+    const snap = buildSandboxSnapFromRaw(target, r, result.val, result.priorities);
     return new TransactionResult(result.committed, snap) as TransactionResult & {
       committed: boolean;
       snapshot: DataSnapshot;

@@ -92,6 +92,7 @@ export function captureRewindDetail(
 }
 
 const ROOT_IDENTIFIER_PATTERN = /\broot\b/;
+const NOW_IDENTIFIER_PATTERN = /\bnow\b/;
 const DATA_IDENTIFIER_PATTERN = /\bdata\b/;
 const PARENT_IDENTIFIER_PATTERN = /\bparent\b/;
 const CANONICAL_CHILD_EVENTS = ['child_removed', 'child_added', 'child_moved', 'child_changed'] as const;
@@ -117,7 +118,7 @@ function nextRuleNode(node: Record<string, unknown>, segment: string): Record<st
 
 function readRuleDependsOnWrite(rawRule: unknown, ancestorPath: string, changedPaths: readonly string[]): boolean {
   if (typeof rawRule !== 'string') return false;
-  if (ROOT_IDENTIFIER_PATTERN.test(rawRule)) return true;
+  if (ROOT_IDENTIFIER_PATTERN.test(rawRule) || NOW_IDENTIFIER_PATTERN.test(rawRule)) return true;
   if (!DATA_IDENTIFIER_PATTERN.test(rawRule)) return false;
   if (PARENT_IDENTIFIER_PATTERN.test(rawRule) || rawRule.includes('[')) return true;
   return changedPaths.some((changedPath) => pathsTouch(ancestorPath, changedPath));
@@ -149,15 +150,38 @@ export class WritePlane {
     this.priorityWrites = new PriorityWrites(state, children, (paths, priors) => this.changed(paths, priors));
   }
 
+  private resolveSetWrite(path: string, value: unknown, priority: Priority, now: number): {
+    priorNodePriority: Priority;
+    resolved: JsonValue;
+    priority: Priority;
+    inline: boolean;
+    nested: InlinePriority[];
+  } {
+    const priorNodePriority = this.state.priorities.get(path);
+    const resolvedInput = resolveSentinels(value, now, this.state.rulesSnapshotAt(path));
+    const resolved = normalizeWrite(resolvedInput, path === '/' ? '' : path);
+    const resolvedArgPriority = resolveSentinels(priority, now, priorNodePriority) as Priority;
+    validatePriority(resolvedArgPriority);
+    const written = writePriority(resolvedInput, resolvedArgPriority);
+    validatePriority(written.priority);
+    return {
+      priorNodePriority,
+      resolved,
+      priority: written.priority,
+      inline: written.inline,
+      nested: written.nested,
+    };
+  }
+
   setData(seed: Record<string, JsonValue>): void {
     const priors = this.children.snapshotParents();
     this.state.tree.restore({});
     this.state.priorities.clear();
+    const now = this.state.clock.now();
     for (const [path, value] of Object.entries(seed)) {
-      this.state.tree.write(path, normalizeWrite(
-        resolveSentinels(value, this.state.clock.now()) as JsonValue, path === '/' ? '' : path,
-      ));
-      const { priority, nested } = writePriority(value, null);
+      const { resolved, priority, nested } = this.resolveSetWrite(path, value, null, now);
+      this.state.clearPromotedAncestorPriorities(path, resolved);
+      this.state.tree.write(path, resolved);
       this.state.priorities.replace(path, this.state.tree.read(path) === null ? null : priority);
       this.storeNestedPriorities(path, nested);
     }
@@ -238,13 +262,10 @@ export class WritePlane {
   ): void {
     const now = this.state.clock.now();
     const before = this.state.tree.read(path);
-    const resolved = normalizeWrite(
-      resolveSentinels(value, now, before) as JsonValue, path === '/' ? '' : path,
-    );
-    const written = writePriority(value, priority);
+    const written = this.resolveSetWrite(path, value, priority, now);
+    const { priorNodePriority, resolved } = written;
     priority = written.priority;
     prioritySupplied ||= written.inline;
-    validatePriority(priority);
     const method = resolved === null ? 'remove' : 'set';
     this.state.events.operation(null, method, path, 'not-applicable', undefined, {
       at: now,
@@ -253,8 +274,8 @@ export class WritePlane {
       resourceAfter: { data: resolved, exists: resolved !== null },
     });
     const priors = this.children.snapshotParents();
-    const priorNodePriority = this.state.priorities.get(path);
     const rewindDetail = captureRewindDetail(this.state, path, before, priorNodePriority);
+    this.state.clearPromotedAncestorPriorities(path, resolved);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority, (p) => this.state.tree.read(p) !== null);
     this.storeNestedPriorities(path, written.nested);
@@ -277,8 +298,7 @@ export class WritePlane {
     const before = this.state.tree.read(path);
     const priorNodePriority = this.state.priorities.get(path);
     const rewindDetail = captureRewindDetail(this.state, path, before, priorNodePriority, true);
-    const expanded = this.resolvePatch(path, patch, now);
-    const inline = this.patchPriorities(path, patch);
+    const { expanded, inline } = this.resolvePatch(path, patch, now);
     const multiPath = Object.keys(patch).some((key) => key.includes('/'));
     this.state.events.operation(null, 'update', path, 'not-applicable', undefined, {
       at: now,
@@ -354,7 +374,6 @@ export class WritePlane {
   }
 
   setWithPriority(auth: AuthState, path: string, value: JsonValue, priority: Priority): void {
-    validatePriority(priority);
     this.setInternal(auth, path, value, 'set', priority, true);
   }
 
@@ -438,14 +457,9 @@ export class WritePlane {
 
   private setCheck(auth: AuthState, path: string, value: unknown, priority: Priority) {
     const now = this.state.clock.now();
-    const resolved = normalizeWrite(
-      resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
-      path === '/' ? '' : path,
-    );
-    const written = writePriority(value, priority);
-    validatePriority(written.priority);
-    const newData = withPriorities(resolved, [{ segments: [], priority: written.priority }, ...written.nested]);
-    return { evaluation: this.writeEvaluation(auth, path, newData, now), resolved };
+    const written = this.resolveSetWrite(path, value, priority, now);
+    const newData = withPriorities(written.resolved, [{ segments: [], priority: written.priority }, ...written.nested]);
+    return { evaluation: this.writeEvaluation(auth, path, newData, now), resolved: written.resolved };
   }
 
   /** The first path of an update the rules deny, with its evaluation, or null when they allow every path. */
@@ -462,11 +476,11 @@ export class WritePlane {
   private updateEvaluations(auth: AuthState, path: string, patch: Record<string, unknown>) {
     const now = this.state.clock.now();
     const mockData = this.state.rulesSnapshot();
-    const inline = this.patchPriorities(path, patch);
-    const updates = Object.entries(patch).map(([key, value]) => {
-      const [absolute, resolved] = this.resolvePatchEntry(path, key, value, now);
-      return { path: absolute, value: withPriorities(resolved, inline.get(absolute) ?? []) };
-    });
+    const entries = Object.entries(patch).map(([key, value]) => this.resolvePatchEntry(path, key, value, now));
+    const updates = entries.map((entry) => ({
+      path: entry.path,
+      value: withPriorities(entry.value, entry.priorities),
+    }));
     return updates.map((update) => ({
       update,
       evaluation: this.state.rules.evaluate('write', update.path, { auth, mockData, newData: update.value, updates, now }),
@@ -478,8 +492,7 @@ export class WritePlane {
     // rule is evaluated and nothing is written.
     if (Object.keys(patch).length === 0) return;
     const now = this.state.clock.now();
-    const expanded = this.resolvePatch(path, patch, now);
-    const inline = this.patchPriorities(path, patch);
+    const { expanded, inline } = this.resolvePatch(path, patch, now);
     const multiPath = Object.keys(patch).some((key) => key.includes('/'));
     const mockData = this.state.rulesSnapshot();
     const updates = Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value }));
@@ -557,16 +570,11 @@ export class WritePlane {
     op: 'set' | 'remove', priority: Priority, prioritySupplied: boolean,
   ): void {
     const now = this.state.clock.now();
-    const resolved = normalizeWrite(
-      resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
-      path === '/' ? '' : path,
-    );
-    const written = writePriority(value, priority);
+    const before = this.state.tree.read(path);
+    const written = this.resolveSetWrite(path, value, priority, now);
+    const { priorNodePriority, resolved } = written;
     priority = written.priority;
     prioritySupplied ||= written.inline;
-    validatePriority(priority);
-    const before = this.state.tree.read(path);
-    const priorNodePriority = this.state.priorities.get(path);
     const at = this.state.clock.now();
     const newData = withPriorities(resolved, [{ segments: [], priority }, ...written.nested]);
     const evaluation = this.writeEvaluation(auth, path, newData, now);
@@ -585,6 +593,7 @@ export class WritePlane {
     this.state.events.operation(auth, op, path, 'allow', evaluation, common);
     const priors = this.children.snapshotParents();
     const rewindDetail = captureRewindDetail(this.state, path, before, priorNodePriority);
+    this.state.clearPromotedAncestorPriorities(path, resolved);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority, (p) => this.state.tree.read(p) !== null);
     this.storeNestedPriorities(path, written.nested);
@@ -604,22 +613,48 @@ export class WritePlane {
     this.state.notifyWrite();
   }
 
-  private resolvePatchEntry(path: string, key: string, value: unknown, now: number): [string, JsonValue] {
+  private resolvePatchEntry(
+    path: string,
+    key: string,
+    value: unknown,
+    now: number,
+  ): { path: string; value: JsonValue; priorities: InlinePriority[] } {
     const segs = [...pathSegments(path), ...pathSegments(key)];
     const absolute = joinPath(segs);
     const isPriorityWrite = segs.at(-1) === '.priority';
-    const currentVal = isPriorityWrite
-      ? this.state.priorities.get(joinPath(segs.slice(0, -1)))
-      : this.state.tree.read(absolute);
-    const resolved = normalizeWrite(
-      resolveSentinels(value, now, currentVal) as JsonValue, absolute, errorPrefix('update', 'values'),
-    );
-    if (isPriorityWrite) validatePriority(resolved as Priority);
-    return [absolute, resolved];
+    let currentVal: JsonValue;
+    if (isPriorityWrite) {
+      currentVal = this.state.priorities.get(joinPath(segs.slice(0, -1)));
+    } else {
+      currentVal = this.state.rulesSnapshotAt(absolute);
+    }
+    const resolvedInput = resolveSentinels(value, now, currentVal);
+    const resolved = normalizeWrite(resolvedInput, absolute, errorPrefix('update', 'values'));
+    if (isPriorityWrite) {
+      validatePriority(resolved as Priority);
+      return { path: absolute, value: resolved, priorities: [] };
+    }
+    const { priority, inline, nested } = writePriority(resolvedInput, null);
+    validatePriority(priority);
+    const priorities: InlinePriority[] = [];
+    if (inline) priorities.push({ segments: [], priority });
+    priorities.push(...nested);
+    return { path: absolute, value: resolved, priorities };
   }
 
-  private resolvePatch(path: string, patch: Record<string, JsonValue>, now: number): Record<string, JsonValue> {
-    return Object.fromEntries(Object.entries(patch).map(([key, value]) => this.resolvePatchEntry(path, key, value, now)));
+  private resolvePatch(
+    path: string,
+    patch: Record<string, unknown>,
+    now: number,
+  ): { expanded: Record<string, JsonValue>; inline: Map<string, InlinePriority[]> } {
+    const expanded: Record<string, JsonValue> = {};
+    const inline = new Map<string, InlinePriority[]>();
+    for (const [key, value] of Object.entries(patch)) {
+      const entry = this.resolvePatchEntry(path, key, value, now);
+      expanded[entry.path] = entry.value;
+      inline.set(entry.path, entry.priorities);
+    }
+    return { expanded, inline };
   }
 
   private applyExpandedUpdate(
@@ -643,6 +678,9 @@ export class WritePlane {
       }
     }
     if (Object.keys(dataExpanded).length > 0) {
+      for (const [writePath, value] of Object.entries(dataExpanded)) {
+        this.state.clearPromotedAncestorPriorities(writePath, value);
+      }
       if (multiPath) {
         this.state.tree.multiUpdate(dataExpanded);
       } else {
@@ -871,17 +909,6 @@ export class WritePlane {
       const path = joinPath([...pathSegments(base), ...segments]);
       this.state.priorities.set(path, this.state.tree.read(path) === null ? null : priority);
     }
-  }
-
-  /** The `.priority` keys each value of an update patch carries, by absolute write path. */
-  private patchPriorities(path: string, patch: Record<string, unknown>): Map<string, InlinePriority[]> {
-    const byPath = new Map<string, InlinePriority[]>();
-    for (const [key, value] of Object.entries(patch)) {
-      const { priority, inline, nested } = writePriority(value, null);
-      const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
-      byPath.set(absolute, inline ? [{ segments: [], priority }, ...nested] : nested);
-    }
-    return byPath;
   }
 
   /** Store the priorities an update patch carries, after the update is applied. */
