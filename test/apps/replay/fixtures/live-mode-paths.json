@@ -5,6 +5,38 @@
   "exchanges": [
     {
       "kind": "listen",
+      "id": "read-invite-denied-reader",
+      "as": "user-reader",
+      "target": {
+        "documents": {
+          "documents": [
+            "projects/demo-live-traffic/databases/(default)/documents/invites/ada@example.com"
+          ]
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            {
+              "targetChange": {
+                "targetChangeType": "REMOVE",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "cause": {
+                  "code": 7,
+                  "message": "Permission denied for ada@example.com (https://firestore.googleapis.com/v1/projects/demo-live-traffic?key=AIzaSySecretKey123456789)"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "listen",
       "id": "list-open-rooms-by-seats",
       "target": {
         "query": {

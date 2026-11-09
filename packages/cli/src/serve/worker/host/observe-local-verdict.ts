@@ -15,13 +15,12 @@
  * upload's metadata) and what a read returned (a Firestore document, a
  * Storage object's metadata); the host feeds them to the engine from memory
  * and keeps them off the event, except as the scalar check values a Firestore
- * verdict's trace holds, as a sandbox request's `rulesEvidence` does, with
- * every email address left out. It never carries a `get()` or `exists()`
- * document, the stored RTDB tree or a query. A verdict that rests on data the
- * call did not carry is `unevaluated`, naming what it needed, rather than a
- * guess the local rules would not make with the data in hand. A service whose
- * rules file the app did not load gets no verdict: the sandbox's stand-in
- * rules are not the app's.
+ * verdict's trace holds, as a sandbox request's `rulesEvidence` does. It never
+ * carries a `get()` or `exists()` document, the stored RTDB tree or a query. A
+ * verdict that rests on data the call did not carry is `unevaluated`, naming
+ * what it needed, rather than a guess the local rules would not make with the
+ * data in hand. A service whose rules file the app did not load gets no
+ * verdict: the sandbox's stand-in rules are not the app's.
  */
 import { observedMethod, rtdbRulesMethod } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';

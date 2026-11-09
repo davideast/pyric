@@ -57,7 +57,7 @@ export function heldLiveCallValueCount(sandbox: Sandbox): number {
 /**
  * The values each live call in `sandbox` carried, by event id, for the
  * capture file to hold beside the events, pruned to the events the history
- * still holds. Emails are already left out.
+ * still holds.
  */
 export function liveCallValues(sandbox: Sandbox): ReadonlyMap<string, VerifyObservedCallValues> {
   const store = LIVE_CALL_VALUES.get(sandbox);
@@ -66,28 +66,12 @@ export function liveCallValues(sandbox: Sandbox): ReadonlyMap<string, VerifyObse
   return store.byEvent;
 }
 
-/** A token's claims without the account's email, top level or among its sign-in identities. */
-function claimsWithoutEmail(claims: Record<string, unknown>): Record<string, unknown> {
-  const { email: _email, ...rest } = claims;
-  const firebase = rest.firebase;
-  const hasIdentities = isRecord(firebase) && isRecord(firebase.identities);
-  if (!hasIdentities) return rest;
-  const { email: _identityEmail, ...identities } = firebase.identities as Record<string, unknown>;
-  return { ...rest, firebase: { ...firebase, identities } };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /** The values a call carried for the local rules, or `undefined` for none. */
 function valuesOf(call: ObservedCall): VerifyObservedCallValues | undefined {
-  const claims = call.account?.claims;
-  const values: VerifyObservedCallValues = {
-    ...(claims === undefined ? {} : { claims: claimsWithoutEmail(claims) }),
-    ...(call.writeData === undefined ? {} : { writeData: call.writeData }),
-    ...(call.document === undefined ? {} : { document: call.document }),
-  };
+  const values: VerifyObservedCallValues = {};
+  if (call.account?.claims !== undefined) values.claims = call.account.claims;
+  if (call.writeData !== undefined) values.writeData = call.writeData;
+  if (call.document !== undefined) values.document = call.document;
   return Object.keys(values).length === 0 ? undefined : values;
 }
 

@@ -40,9 +40,8 @@ const PRODUCTION_CLAIMS = {
   firebase: { identities: { email: ['alice@example.com'] }, sign_in_provider: 'password' },
 };
 const CLAIM_NAMES = ['admin', 'aud', 'auth_time', 'email', 'email_verified', 'exp', 'firebase', 'iat', 'iss', 'sub', 'user_id'];
-/** The claim values an account carries: every claim but the account's emails. */
-const { email: _email, ...CLAIMS_WITHOUT_EMAIL } = PRODUCTION_CLAIMS;
-const CLAIM_VALUES = { ...CLAIMS_WITHOUT_EMAIL, firebase: { identities: {}, sign_in_provider: 'password' } };
+/** The claim values an account carries: every claim on the decoded ID token. */
+const CLAIM_VALUES = { ...PRODUCTION_CLAIMS };
 
 describe('claim names', () => {
   test('a signed production token and an unsigned emulator token give the same sorted names', () => {

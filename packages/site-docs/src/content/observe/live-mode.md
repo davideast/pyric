@@ -112,7 +112,7 @@ Live mode forwards what your app sends, as it would without pyric:
 - **Auth** calls, including the ones that reach real people: account creation and deletion, password reset and sign-in link emails, and SMS sign-in.
 - **App Check**, on the same app object as Firestore, Realtime Database, Cloud Storage, AI Logic and Auth.
 
-Each call is a row in traffic, marked as served by production. A row shows the method, such as `setDoc` or `sendPasswordResetEmail`, production's answer (success or an error code such as `permission-denied`), the client that made it (this page, another tab or a Node process), and the signed-in account's id and claim names. It never shows the token.
+Each call is a row in traffic, marked as served by production. A row shows the method, such as `setDoc` or `sendPasswordResetEmail`, production's answer (success or an error code such as `permission-denied`), the client that made it (this page, another tab or a Node process), and the signed-in account's id and claim names. It never shows the token. Claim values (including `email` and `firebase.identities.email`), written fields and read documents stay on your machine so the host can check your local rules and `pyric verify` can replay captured live calls.
 
 ## Realtime Database calls
 
@@ -225,7 +225,7 @@ Each observed call is a row in Traffic, marked as an Admin call that bypassed Se
 - **Cloud Messaging.** `send`, `sendEach`, `sendEachForMulticast`, `subscribeToTopic` and `unsubscribeFromTopic`.
 - **App Check.** `verifyToken` and `createToken` are checked against your project, but make no row yet. The process health lists `firebase-admin/app-check` in `gatedAdmin`.
 
-A row never records a document value, a Realtime Database value, an object's bytes, a metadata value, a token, a password, an email address, a phone number or a message.
+Beyond the path a call targets, an Admin row never records a document value, a Realtime Database value, an object's bytes, a metadata value, a token, a password, an account email, a phone number or a message.
 
 ### Which project it reaches
 

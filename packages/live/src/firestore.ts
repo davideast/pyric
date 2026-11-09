@@ -134,16 +134,14 @@ function isTokenShaped(value: string): boolean {
 const UNSENDABLE: unique symbol = Symbol('unsendable');
 
 /**
- * A field path as the SDK keeps it, when the host would take it. Any `@`
- * drops it, wider than the host's email test, so a field the host refuses
- * never reaches it.
+ * A field path as the SDK keeps it, when the host would take it: bounded and
+ * never token-shaped, so a field the host refuses never reaches it.
  */
 function sendableField(field: unknown): string {
   const path = canonicalPath(field);
   const isBounded = typeof path === 'string' && path.length > 0 && path.length <= MAX_FIELD_LENGTH;
   if (!isBounded) throw UNSENDABLE;
-  const isValueShaped = path.includes('@') || isTokenShaped(path);
-  if (isValueShaped) throw UNSENDABLE;
+  if (isTokenShaped(path)) throw UNSENDABLE;
   return path;
 }
 

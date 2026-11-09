@@ -111,8 +111,8 @@ export type {
   ObservedWriteValue,
 } from '../types/observed-call.js';
 export {
-  DIAGNOSTIC_EMAIL_RE, EMAIL_SHAPE, OBSERVED_DISPOSITION, ObservedCallError, UNREAD_BUCKET, isProductionServed, observedCallEvent,
-  observedListenerEvent, productionVerdict, readObservedCall, redactDiagnosticEmails, redactEmails,
+  OBSERVED_DISPOSITION, ObservedCallError, UNREAD_BUCKET, isProductionServed, observedCallEvent,
+  observedListenerEvent, productionVerdict, readObservedCall,
   type ObservedListenerEvent, type ProductionVerdict,
 } from './observed-call.js';
 export { isObservedRtdbListener, observedMethod, rtdbRulesMethod, rulesOperation, type ObservedMethod } from './observed-method.js';

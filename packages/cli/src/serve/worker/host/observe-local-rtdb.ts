@@ -30,12 +30,9 @@ import { rtdbInstance } from './rtdb-instances.js';
 import {
   ALWAYS_OPEN,
   authOf,
-  bindingsWithoutEmail,
   definedOnly,
-  emailsOf,
   gapsIn,
   givenBy,
-  holdsEmail,
   isPlainRecord,
   unionOf,
   verdictOf,
@@ -55,7 +52,8 @@ const RTDB_PUSH_PLACEHOLDER = '-O_pyric_push';
 const RTDB_GAPS: readonly GapPattern[] = [
   ['stored-document', /(?<![\w.])(?:data|root)\b/, ALWAYS_OPEN],
   ['claim-values', /\bauth\.token\b/, (given) => !given.claims],
-  ['claim-values', RTDB_EMAIL_CLAIM, (given) => !given.emails],
+  // Legacy captures and calls without claimNames cannot tell whether the token carried an email.
+  ['claim-values', RTDB_EMAIL_CLAIM, (given) => !given.emailKnown],
   ['query', /(?<![\w.])query\./, ALWAYS_OPEN],
 ];
 
@@ -311,26 +309,23 @@ function writeGaps(compiled: CompiledRtdbRules, plan: RtdbPlan, resting: TargetS
 }
 
 /** The trace a verdict shows: every target's for an allow, the denying target's for a deny. */
-function shownTrace(resting: TargetSimulation[], plan: RtdbPlan, emails: string[]): RtdbRuleEvaluation[] {
-  return resting.flatMap((simulation) => simulation.data.trace).map((entry) => {
-    const bindings = stripPushPlaceholder(entry.pathVariableBindings, plan.isPush);
-    const withBindings = { ...entry, pathVariableBindings: bindingsWithoutEmail(bindings, emails) };
-    if (!holdsEmail(entry.message, emails)) return withBindings;
-    const { message: _message, ...withoutMessage } = withBindings;
-    return withoutMessage;
-  });
+function shownTrace(resting: TargetSimulation[], plan: RtdbPlan): RtdbRuleEvaluation[] {
+  return resting.flatMap((simulation) => simulation.data.trace).map((entry) => ({
+    ...entry,
+    pathVariableBindings: stripPushPlaceholder(entry.pathVariableBindings, plan.isPush),
+  }));
 }
 
 /** The RTDB record a verdict carries, from the deciding target's simulation. */
-function rtdbRecordOf(deciding: Simulation, trace: RtdbRuleEvaluation[], plan: RtdbPlan, emails: string[]): RtdbLocal {
+function rtdbRecordOf(deciding: Simulation, trace: RtdbRuleEvaluation[], plan: RtdbPlan): RtdbLocal {
   const rtdb: RtdbLocal = {
     matchedPath: deciding.matchedPath,
     matchedRule: deciding.matchedRule,
     rtdbTrace: trace,
   };
-  const bindings = bindingsWithoutEmail(stripPushPlaceholder(deciding.pathVariableBindings, plan.isPush), emails);
+  const bindings = stripPushPlaceholder(deciding.pathVariableBindings, plan.isPush);
   if (Object.keys(bindings).length > 0) rtdb.pathVariableBindings = bindings;
-  if (deciding.reason !== '' && !holdsEmail(deciding.reason, emails)) rtdb.reason = deciding.reason;
+  if (deciding.reason !== '') rtdb.reason = deciding.reason;
   if (!deciding.allowed && deciding.matchedPath === '') rtdb.errorCode = 'NO_MATCHING_RULE';
   return rtdb;
 }
@@ -355,9 +350,8 @@ export function rtdbVerdict(ctx: HostCtx, call: ObservedCall, method: ObservedMe
   if (plan.operation === 'write') extraGaps = writeGaps(compiled, plan, resting, expressions);
   const given = { ...givenBy(call, method), writeData: plan.hasWriteData };
   const needs = unionOf(gapsIn(expressions, RTDB_GAPS, given), extraGaps);
-  const emails = emailsOf(call);
   let rule: LocalVerdict['rule'];
   if (deciding.matchedRule !== '') rule = definedOnly({ path: deciding.matchedPath, expression: deciding.matchedRule });
-  const rtdb = rtdbRecordOf(deciding, shownTrace(resting, plan, emails), plan, emails);
+  const rtdb = rtdbRecordOf(deciding, shownTrace(resting, plan), plan);
   return verdictOf(call, { allowed, rule, needs, rtdb });
 }

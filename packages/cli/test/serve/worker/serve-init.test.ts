@@ -544,7 +544,7 @@ describe('applyServeInit — capture (the verify loop)', () => {
     }
   });
 
-  it('captures a live call with both verdicts and the values it carried, emails left out', async () => {
+  it('captures a live call with both verdicts and the values it carried including email claims', async () => {
     const ctx = await makeCtx();
     const fetchSpy = recordingFetch();
     const result = applyServeInit(ctx, { ...basePayload, rules: PERMISSIVE_RULES, capture: true }, { fetch: fetchSpy, captureDebounceMs: 5 });
@@ -573,7 +573,7 @@ describe('applyServeInit — capture (the verify loop)', () => {
       const live = body.events.find((event) => event.production !== undefined)!;
       expect(live.production).toMatchObject({ outcome: { status: 'ok' }, local: { result: 'allow' } });
       expect(body.observedCalls?.[live.id]).toEqual({
-        claims: { admin: true, firebase: { identities: { 'google.com': ['1'] } } },
+        claims: { admin: true, email: 'alice@example.com', firebase: { identities: { email: ['alice@example.com'], 'google.com': ['1'] } } },
         writeData: { owner: 'alice' },
       });
     } finally {
@@ -923,7 +923,7 @@ service firebase.storage {
     await expect(
       uploadBytes(storageRef(storage, 'files/denied.txt'), new Uint8Array([1, 2, 3]), {
         contentType: 'text/plain',
-        customMetadata: { note: 'keep', ownerEmail: 'alice@example.com' },
+        customMetadata: { note: 'keep', ownerEmail: 'alice@example.com', syncToken: 'secret-123' },
       }),
     ).rejects.toThrow();
 
@@ -932,6 +932,11 @@ service firebase.storage {
     const [deniedEntry] = Object.values(fixture.storageDeniedWrites ?? {});
     expect(deniedEntry?.redacted).toBe(true);
     expect(deniedEntry?.redactedFields).toEqual(['request.resource.metadata']);
+    expect(deniedEntry?.requestResource?.metadata).toEqual({
+      note: 'keep',
+      ownerEmail: 'alice@example.com',
+      syncToken: '[redacted]',
+    });
 
     const restored = { ...(await makeCtx()), instanceId: 'inst-A' };
     await hydrateEventHistory(restored, { fetch: captureFetch(JSON.stringify(fixture)) });

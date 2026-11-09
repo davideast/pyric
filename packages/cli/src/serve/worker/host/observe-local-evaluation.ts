@@ -7,11 +7,10 @@
  * rested on that the call did not carry. `verdictOf` turns that into the
  * verdict an event keeps: `unevaluated`, naming the data it needed, when it
  * has any gap, else allow or deny flagged as drift when it disagrees with
- * production's answer. Every engine shares the gap vocabulary, the email
- * scrubbing and the byte caps here.
+ * production's answer. Every engine shares the gap vocabulary and the byte
+ * caps here.
  */
 import {
-  EMAIL_SHAPE,
   productionVerdict,
   type LocalRtdbEvaluation,
   type LocalStorageEvaluation,
@@ -47,8 +46,8 @@ const GAP_ORDER: readonly Gap[] = ['stored-document', 'write-data', 'claim-value
 /** The data one evaluation was given, which fills the gaps it would otherwise leave. */
 export interface Given {
   claims: boolean;
-  /** Whether the claims keep the account's email; a captured call's never do. */
-  emails: boolean;
+  /** Whether the call's claims establish the account's email (present, or absent from `claimNames`). */
+  emailKnown: boolean;
   writeData: boolean;
   document: boolean;
   /** Whether the write data is the whole document the write leaves, as a create's or a `setDoc`'s is and an `updateDoc`'s is not. */
@@ -74,9 +73,14 @@ export function gapsIn(expressions: ReadonlyArray<string | undefined>, patterns:
 
 /** What the call carries for an evaluation of `method`. */
 export function givenBy(call: ObservedCall, method: ObservedMethod): Given {
+  const hasEmailClaim = call.account?.claims?.email !== undefined;
+  const tokenHasNoEmail =
+    call.account?.claims !== undefined &&
+    call.account.claimNames !== undefined &&
+    !call.account.claimNames.includes('email');
   return {
     claims: call.account?.claims !== undefined,
-    emails: call.account?.claims?.email !== undefined,
+    emailKnown: hasEmailClaim || tokenHasNoEmail,
     writeData: call.writeData !== undefined,
     document: call.document !== undefined,
     wholeWrite: method === 'create' || method === 'set',
@@ -86,31 +90,6 @@ export function givenBy(call: ObservedCall, method: ObservedMethod): Given {
 /** Drop the keys whose value is undefined. */
 export function definedOnly<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
-}
-
-/** The email values the call's claims carry, top level or among its sign-in identities. */
-export function emailsOf(call: ObservedCall): string[] {
-  const claims = call.account?.claims;
-  if (claims === undefined) return [];
-  const firebase = claims.firebase as { identities?: { email?: unknown } } | undefined;
-  const identityEmails = firebase?.identities?.email;
-  const listed = Array.isArray(identityEmails) ? identityEmails : [];
-  return [claims.email, ...listed].filter((value): value is string => typeof value === 'string' && value !== '');
-}
-
-/** Whether `text` holds an email address or one of the account's `emails`. */
-export function holdsEmail(text: string | undefined, emails: string[]): boolean {
-  if (text === undefined) return false;
-  return EMAIL_SHAPE.test(text) || emails.some((email) => text.includes(email));
-}
-
-/** Path variable bindings with every email-holding value left out. */
-export function bindingsWithoutEmail(bindings: Record<string, string>, emails: string[]): Record<string, string> {
-  const scrubbed: Record<string, string> = {};
-  for (const [key, value] of Object.entries(bindings)) {
-    if (!holdsEmail(value, emails)) scrubbed[key] = value;
-  }
-  return scrubbed;
 }
 
 function withinByteCap(value: unknown): boolean {

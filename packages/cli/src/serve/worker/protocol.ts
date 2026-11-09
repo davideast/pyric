@@ -38,8 +38,8 @@ import type {
   ObservedCall,
 } from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
-import { redactDiagnosticEmails, type NodeUnobservedLists } from 'pyric/sandbox/internal';
-import { stripWireTokenClaims } from '../repro/token-claims.js';
+import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
+import { isPlainRecord, stripWireTokenClaims } from '../repro/token-claims.js';
 import type { ObservedSessionDelta } from '../observed-session/wire.js';
 import type {
   BrokerMessage,
@@ -685,39 +685,18 @@ export function serializeError(err: unknown): SerializedError {
 }
 const FIXTURE_CASE_PREFIX = '  Fixture case: ';
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function scrubDiagnosticValue(value: unknown): unknown {
-  if (typeof value === 'string') return redactDiagnosticEmails(value);
-  if (Array.isArray(value)) return value.map((item) => scrubDiagnosticValue(item));
-  if (isPlainRecord(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) {
-      out[key] = scrubDiagnosticValue(entry);
-    }
-    return out;
-  }
-  return value;
-}
-
-function scrubWireAuth(
+function wireAuthOf(
   auth: unknown,
   options?: { promoteTenant?: boolean },
 ): unknown {
-  if (auth === null || auth === undefined) return auth;
-  if (!isPlainRecord(auth)) return scrubDiagnosticValue(auth);
+  if (!isPlainRecord(auth)) return auth;
   const rawToken = isPlainRecord(auth.token) ? auth.token : undefined;
   const rawFirebase = rawToken && isPlainRecord(rawToken.firebase) ? rawToken.firebase : undefined;
-  const promotedTenant =
+  const canPromoteTenant =
     options?.promoteTenant !== false &&
     auth.tenant === undefined &&
-    typeof rawFirebase?.tenant === 'string'
-      ? redactDiagnosticEmails(rawFirebase.tenant)
-      : undefined;
+    typeof rawFirebase?.tenant === 'string';
+  const promotedTenant = canPromoteTenant ? rawFirebase.tenant : undefined;
 
   const out: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(auth)) {
@@ -729,71 +708,55 @@ function scrubWireAuth(
       if (rawToken !== undefined) {
         const wireToken = stripWireTokenClaims(rawToken);
         if (wireToken !== undefined) {
-          out.token = scrubDiagnosticValue(wireToken);
+          out.token = wireToken;
         }
       }
       continue;
     }
-    out[key] = scrubDiagnosticValue(entry);
+    out[key] = entry;
   }
   return out;
 }
 
-function scrubWireRequest(request: unknown): unknown {
-  if (!isPlainRecord(request)) return scrubDiagnosticValue(request);
+function wireRequestOf(request: unknown): unknown {
+  if (!isPlainRecord(request)) return request;
   const { auth: _auth, ...rest } = request;
-  return scrubDiagnosticValue(rest);
+  return rest;
 }
 
-function scrubWireRepro(repro: unknown): unknown {
-  if (!isPlainRecord(repro)) return scrubDiagnosticValue(repro);
-  const out: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(repro)) {
-    if (key === 'testCase' && isPlainRecord(entry)) {
-      const scrubbedCase = scrubDiagnosticValue(entry) as Record<string, unknown>;
-      if ('auth' in entry) {
-        scrubbedCase.auth = scrubWireAuth(entry.auth, { promoteTenant: false });
-      }
-      out.testCase = scrubbedCase;
-      continue;
-    }
-    out[key] = scrubDiagnosticValue(entry);
+function wireReproOf(repro: unknown): unknown {
+  if (!isPlainRecord(repro) || !isPlainRecord(repro.testCase)) return repro;
+  const testCase: Record<string, unknown> = { ...repro.testCase };
+  if ('auth' in repro.testCase) {
+    testCase.auth = wireAuthOf(repro.testCase.auth, { promoteTenant: false });
   }
-  return out;
+  return { ...repro, testCase };
 }
 
-function scrubWireDenialContext(denialContext: Record<string, unknown>): AnyDenialContext {
-  const out: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(denialContext)) {
-    if (key === 'auth') {
-      out.auth = scrubWireAuth(entry);
-    } else if (key === 'request') {
-      out.request = scrubWireRequest(entry);
-    } else if (key === 'repro') {
-      out.repro = scrubWireRepro(entry);
-    } else {
-      out[key] = scrubDiagnosticValue(entry);
-    }
-  }
+function wireDenialContextOf(denialContext: Record<string, unknown>): AnyDenialContext {
+  const out: Record<string, unknown> = { ...denialContext };
+  if ('auth' in denialContext) out.auth = wireAuthOf(denialContext.auth);
+  if ('request' in denialContext) out.request = wireRequestOf(denialContext.request);
+  if ('repro' in denialContext) out.repro = wireReproOf(denialContext.repro);
   return out as unknown as AnyDenialContext;
 }
 
-function scrubWireRemediation(remediation: string): string {
+function wireRemediationOf(remediation: string): string {
   const lines = remediation.split('\n').map((line) => {
     if (!line.startsWith(FIXTURE_CASE_PREFIX)) return line;
     try {
       const parsed = JSON.parse(line.slice(FIXTURE_CASE_PREFIX.length)) as unknown;
       if (!isPlainRecord(parsed)) return line;
-      const scrubbed = scrubDiagnosticValue(parsed) as Record<string, unknown>;
+      const wireCase: Record<string, unknown> = { ...parsed };
       if ('auth' in parsed) {
-        scrubbed.auth = scrubWireAuth(parsed.auth, { promoteTenant: false });
+        wireCase.auth = wireAuthOf(parsed.auth, { promoteTenant: false });
       }
-      return `${FIXTURE_CASE_PREFIX}${JSON.stringify(scrubbed)}`;
+      return `${FIXTURE_CASE_PREFIX}${JSON.stringify(wireCase)}`;
     } catch {
       return line;
     }
   });
-  return redactDiagnosticEmails(lines.join('\n'));
+  return lines.join('\n');
 }
 
 function serializeErrorValue(err: unknown): SerializedError {
@@ -832,25 +795,26 @@ function serializeErrorValue(err: unknown): SerializedError {
       e.queryProof !== undefined ||
       e.rule !== undefined ||
       e.request !== undefined;
-    const scrubMessage = (msg: string): string =>
-      hasDenialDiagnostics ? scrubWireRemediation(msg) : msg;
-    const denial = isPlainRecord(e.denialContext)
-      ? { denialContext: scrubWireDenialContext(e.denialContext) }
-      : {};
-    const extras = {
-      ...(typeof e.remediation === 'string' ? { remediation: scrubWireRemediation(e.remediation) } : {}),
-      ...(e.queryProof !== undefined ? { queryProof: scrubDiagnosticValue(e.queryProof) } : {}),
-      ...(e.rule !== undefined ? { rule: scrubDiagnosticValue(e.rule) } : {}),
-      ...(e.request !== undefined ? { request: scrubWireRequest(e.request) } : {}),
-      ...(e.resource !== undefined ? { resource: scrubDiagnosticValue(e.resource) } : {}),
-      ...(e.query !== undefined ? { query: scrubDiagnosticValue(e.query) } : {}),
+    const wireMessage = (msg: string): string => {
+      if (!hasDenialDiagnostics) return msg;
+      return wireRemediationOf(msg);
     };
+    const extras: Partial<SerializedError> = {};
+    if (isPlainRecord(e.denialContext)) extras.denialContext = wireDenialContextOf(e.denialContext);
+    if (typeof e.remediation === 'string') extras.remediation = wireRemediationOf(e.remediation);
+    if (e.queryProof !== undefined) extras.queryProof = e.queryProof;
+    if (e.rule !== undefined) extras.rule = e.rule;
+    if (e.request !== undefined) extras.request = wireRequestOf(e.request);
+    if (e.resource !== undefined) extras.resource = e.resource;
+    if (e.query !== undefined) extras.query = e.query;
     if (typeof e.code === 'string' && typeof e.message === 'string') {
-      return { code: e.code, message: scrubMessage(e.message), ...denial, ...extras };
+      return { code: e.code, message: wireMessage(e.message), ...extras };
     }
     if (err instanceof Error) {
-      const codeless = e.code === undefined ? { codeless: true as const } : {};
-      return { code: 'unknown', ...codeless, message: scrubMessage(err.message), ...denial, ...extras };
+      if (e.code === undefined) {
+        return { code: 'unknown', codeless: true, message: wireMessage(err.message), ...extras };
+      }
+      return { code: 'unknown', message: wireMessage(err.message), ...extras };
     }
   }
   return { code: 'unknown', message: String(err) };

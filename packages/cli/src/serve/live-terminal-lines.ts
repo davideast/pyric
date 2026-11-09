@@ -9,15 +9,14 @@
  * rules file production did not read. An AI rejection's headline ends with
  * production's message. Each field is dropped when the call did not carry
  * it, never filled with a placeholder. Every field comes from a page or a
- * process, so each one is flattened with `sanitizeForTerminal`, and an email
- * address in a path or a message is left out.
+ * process, so each one is flattened with `sanitizeForTerminal`.
  *
  * Both throttle like the sandbox's denial relay (`createDenialThrottle`): an
  * app retrying one denied call prints one block per window.
  */
 import path from 'node:path';
 import { isBlockingFinishReason, redactUrl } from 'pyric/ai/internal';
-import { productionVerdict, redactEmails } from 'pyric/sandbox/internal';
+import { productionVerdict } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';
 import { formatAiBlockedBlock, formatAiRejectionBlock } from './ai-terminal-blocks.js';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
@@ -74,11 +73,11 @@ function text(value: string): string {
   return sanitizeForTerminal(value);
 }
 
-/** Production's message on an error outcome, with each URL's credentials masked and each email address left out. Unsanitized. */
+/** Production's message on an error outcome, with each URL's credentials masked. Unsanitized. */
 function messageOf(call: ObservedCall): string | undefined {
   const outcome = call.outcome;
   const message = outcome.status === 'error' ? outcome.message : undefined;
-  return message === undefined ? undefined : redactEmails(redactUrl(message));
+  return message === undefined ? undefined : redactUrl(message);
 }
 
 /** The `from:` value: the client kind, then its label when it has one. */
@@ -112,7 +111,7 @@ function isRulesDenial(call: ObservedCall): boolean {
 
 /** The block for a call production's Security Rules denied. */
 export function formatProductionDenial(call: ObservedCall, source: LiveCallSource | undefined, rulesFiles: LiveRulesFiles): string {
-  const target = call.path === undefined ? '' : ` ${text(redactEmails(call.path))}`;
+  const target = call.path === undefined ? '' : ` ${text(call.path)}`;
   const lines = [`  ⚠ [pyric] production denied: ${call.service} ${text(call.method)}${target}`];
   if (call.outcome.status === 'error') {
     const message = messageOf(call);

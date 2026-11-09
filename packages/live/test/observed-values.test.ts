@@ -1,9 +1,9 @@
 /**
  * The values a page sends with each observed call, so the host's local rules
  * can read `request.auth.token`, `request.resource.data` and `resource.data`:
- * the token's claim values with its emails left out, the data a
- * `setDoc`, `updateDoc` or `addDoc` wrote, and the document a `getDoc`
- * returned. They ride the observed call to the host only.
+ * the token's claim values, the data a `setDoc`, `updateDoc` or `addDoc`
+ * wrote, and the document a `getDoc` returned. They ride the observed call to
+ * the host only.
  *
  * The real `firebase/firestore` runs with no backend reachable: its network
  * is disabled before any call, so a read answers from the memory cache.
@@ -35,22 +35,15 @@ describe('claim values', () => {
   const app = { name: 'values', options: { projectId: 'values-project' } };
   noteAuth({ app, currentUser: { uid: 'alice', accessToken: idToken(CLAIMS) } });
 
-  test('an account carries its claim values without the email or the identity emails', () => {
+  test('an account carries its claim values including email and identity emails', () => {
     const account = accountOf({ firestore: { app } });
-    expect(account?.claims).toEqual({
-      admin: true,
-      role: 'editor',
-      sub: 'alice',
-      email_verified: true,
-      firebase: { identities: { 'google.com': ['1234'] }, sign_in_provider: 'password' },
-    });
-    expect(JSON.stringify(account)).not.toContain('alice@example.com');
+    expect(account?.claims).toEqual(CLAIMS);
   });
 
-  test('the observed call the host gets carries the claim values', () => {
+  test('the observed call the host gets carries the claim values including email', () => {
     const account = accountOf({ firestore: { app } })!;
     const record: LiveCallRecord = { module: 'firebase/firestore', name: 'getDoc', outcome: 'resolved', account };
-    expect(observedCallOf(record, 1)?.account?.claims).toMatchObject({ admin: true, role: 'editor' });
+    expect(observedCallOf(record, 1)?.account?.claims).toEqual(CLAIMS);
   });
 });
 

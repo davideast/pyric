@@ -666,6 +666,57 @@ service cloud.firestore {
     const differs = await verifyFixture(liveCapture(write, { writeData: { owner: 'bob' } }, OWNER_WRITES), { rules: { firestore: OWNER_WRITES } });
     expect(differs.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'set' }]);
   });
+
+  it('evaluates live calls whose rules read request.auth.token.email when email claims are captured', async () => {
+    const allowed = liveCapture(read({ status: 'ok' }), { claims: { email: 'alice@example.com' } }, EMAIL_READS);
+    const agrees = await verifyFixture(allowed, { rules: { firestore: EMAIL_READS } });
+    expect(agrees.services.firestore?.checkedEvents).toBe(1);
+    expect(agrees.services.firestore?.divergences).toEqual([]);
+
+    const differs = await verifyFixture(
+      liveCapture(read({ status: 'ok' }), { claims: { email: 'bob@example.com' } }, EMAIL_READS),
+      { rules: { firestore: EMAIL_READS } },
+    );
+    expect(differs.services.firestore?.checkedEvents).toBe(1);
+    expect(differs.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'get' }]);
+  });
+
+  it('evaluates request.auth.token.email rules when claimNames show the token has no email claim', async () => {
+    const anonDenied = liveCapture(
+      { service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: 1, outcome: { status: 'error', code: 'permission-denied' }, account: { uid: 'anon-1', claimNames: ['sub'] } },
+      { claims: { sub: 'anon-1' } },
+      EMAIL_READS,
+    );
+    const agrees = await verifyFixture(anonDenied, { rules: { firestore: EMAIL_READS } });
+    expect(agrees.services.firestore?.checkedEvents).toBe(1);
+    expect(agrees.services.firestore?.divergences).toEqual([]);
+
+    const anonAllowed = liveCapture(
+      { service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: 1, outcome: { status: 'ok' }, account: { uid: 'anon-1', claimNames: ['sub'] } },
+      { claims: { sub: 'anon-1' } },
+      EMAIL_READS,
+    );
+    const differs = await verifyFixture(anonAllowed, { rules: { firestore: EMAIL_READS } });
+    expect(differs.services.firestore?.checkedEvents).toBe(1);
+    expect(differs.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'get' }]);
+  });
+
+  it('evaluates rules reading request.auth.token.firebase.identities.email from captured claims', async () => {
+    const identityEmailRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow read: if 'alice@example.com' in request.auth.token.firebase.identities.email; }
+  }
+}`;
+    const captured = liveCapture(
+      read({ status: 'ok' }),
+      { claims: { email: 'alice@example.com', firebase: { identities: { email: ['alice@example.com'] } } } },
+      identityEmailRules,
+    );
+    const agrees = await verifyFixture(captured, { rules: { firestore: identityEmailRules } });
+    expect(agrees.services.firestore?.checkedEvents).toBe(1);
+    expect(agrees.services.firestore?.divergences).toEqual([]);
+  });
 });
 
 // ─── Storage rules — capture / restore round-trip ───────────────────────
@@ -1339,7 +1390,7 @@ service firebase.storage {
       storageRules,
     });
     const serializedFixture = JSON.stringify(rawFixture);
-    expect(serializedFixture).not.toContain('alice@example.com');
+    expect(serializedFixture).toContain('alice@example.com');
     expect(serializedFixture).not.toContain('secret-download-token-123');
 
     const persistedFixture = JSON.parse(serializedFixture) as PyricVerifyFixture;
@@ -1363,7 +1414,7 @@ service firebase.storage {
       requestResource: {
         metadata: {
           note: 'blocked',
-          contact: '[email]',
+          contact: 'alice@example.com',
           firebaseStorageDownloadTokens: '[redacted]',
         },
       },
@@ -1413,6 +1464,7 @@ service firebase.storage {
     match /plain/{file} {
       allow create: if request.auth != null
         && request.resource.metadata != null
+        && request.resource.metadata.ownerEmail == 'bob@example.com'
         && request.resource.metadata.category == 'published';
     }
   }
@@ -1457,13 +1509,13 @@ service firebase.storage {
       }),
     ).rejects.toThrow();
 
-    // Case 3: Unredacted denied upload (ordinary metadata values, zero redaction).
+    // Case 3: Unredacted denied upload with email metadata (emails are preserved verbatim, zero redaction).
     await expect(
       uploadBytes(
         storageRef(storage, 'plain/draft.txt'),
         new Blob(['draft'], { type: 'text/plain' }),
         {
-          customMetadata: { category: 'draft', reviewer: 'team-alpha' },
+          customMetadata: { category: 'draft', reviewer: 'team-alpha', ownerEmail: 'bob@example.com' },
         },
       ),
     ).rejects.toThrow();
@@ -1474,7 +1526,7 @@ service firebase.storage {
     });
     const persistedFixture = JSON.parse(JSON.stringify(rawFixture)) as PyricVerifyFixture;
 
-    // Verify `name` and metadata keys were not rewritten on Case 1, while values were redacted.
+    // Verify `name`, metadata keys, and email values were preserved on Case 1 while secret `syncToken` was redacted.
     const case1Event = persistedFixture.events.find(
       (event) =>
         event.kind === 'operation' &&
@@ -1487,7 +1539,7 @@ service firebase.storage {
     expect(case1Denied?.redactedFields).toEqual(['request.resource.metadata']);
     expect(case1Denied?.requestResource?.name).toBe('uploads/alice@example.com/report.txt');
     expect(case1Denied?.requestResource?.metadata).toEqual({
-      owner: '[email]',
+      owner: 'alice@example.com',
       syncToken: '[redacted]',
       'ack:alice@example.com': 'yes',
       'ack:bob@example.com': 'yes',

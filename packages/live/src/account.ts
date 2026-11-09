@@ -1,8 +1,8 @@
 /**
  * The signed-in account a call ran as, read from the app's own Auth: the
- * account id, the names of its ID token's claims and their values, with the
- * account's emails left out. Never the token. The values go to the host
- * only, for its local rules' `request.auth.token`.
+ * account id, the names of its ID token's claims and their values. Never the
+ * token. The values go to the host only, for its local rules'
+ * `request.auth.token`.
  *
  * The live Auth row notes each Auth instance `getAuth` and `initializeAuth`
  * hand the app, keyed by its app. A call's first argument names its app (a
@@ -144,24 +144,12 @@ export function claimNamesOf(token: unknown): string[] | undefined {
   return names.sort().slice(0, MAX_CLAIM_NAMES);
 }
 
-/** `firebase.identities` without its `email` list, the account's sign-in emails. */
-function withoutIdentityEmails(firebase: unknown): unknown {
-  if (!isObject(firebase) || !isObject(firebase.identities)) return firebase;
-  const { email: _email, ...identities } = firebase.identities;
-  return { ...firebase, identities };
-}
-
 /**
- * An ID token's claim values, with the account's `email` and the emails in
- * `firebase.identities` left out, or undefined when the value is not a JWT
- * with an object payload.
+ * An ID token's claim values, or undefined when the value is not a JWT with an
+ * object payload.
  */
 export function claimValuesOf(token: unknown): Record<string, unknown> | undefined {
-  const claims = claimsOf(token);
-  if (claims === undefined) return undefined;
-  const { email: _email, ...rest } = claims;
-  const hasFirebase = 'firebase' in rest;
-  return hasFirebase ? { ...rest, firebase: withoutIdentityEmails(rest.firebase) } : rest;
+  return claimsOf(token);
 }
 
 /**

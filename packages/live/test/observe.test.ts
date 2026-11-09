@@ -218,9 +218,9 @@ describe("a failure's record carries production's message", () => {
     expect((await rejectedWith(error)).message).toBe('Missing or insufficient permissions.');
   });
 
-  test('an email address in it reads [email], and a long one is cut to the length a host takes', async () => {
+  test('an email address in it stays intact, and a long one is cut to the length a host takes', async () => {
     const withEmail = Object.assign(new Error("User does not have permission to access 'users/ada@example.com/a.png'."), { code: 'storage/unauthorized' });
-    expect((await rejectedWith(withEmail)).message).toBe("User does not have permission to access 'users/[email]/a.png'.");
+    expect((await rejectedWith(withEmail)).message).toBe("User does not have permission to access 'users/ada@example.com/a.png'.");
     const long = Object.assign(new Error('x'.repeat(MAX_MESSAGE_LENGTH + 50)), { code: 'internal' });
     expect((await rejectedWith(long)).message).toHaveLength(MAX_MESSAGE_LENGTH);
   });

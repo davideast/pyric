@@ -447,21 +447,24 @@ describe('a Firestore list or listener names its query shape, never its values',
     expect(read[0]?.query).toBeUndefined();
   });
 
-  test('a field the host would refuse drops the shape and keeps the row', async () => {
+  test('a token-shaped field the host would refuse drops the shape and keeps the row, while an email-keyed field keeps its shape', async () => {
     const { query, collection, where, orderBy } = firestore;
     const emailField = await listed(query(collection(db, 'rooms'), where('alice@example.com', '==', true)));
+    expect(emailField.outcome).toBe('resolved');
+    expect(emailField.path).toBe('rooms');
+    expect(emailField.query?.filters).toHaveLength(1);
+    const readEmail = host.readObservedCall(JSON.parse(JSON.stringify(observedCallOf(emailField, Date.now()))));
+    expect(readEmail.query).toEqual(emailField.query!);
+
     const tokenField = await listed(query(collection(db, 'rooms'), orderBy(`k${'0123456789'.repeat(5)}`)));
     const jwtField = await listed(query(collection(db, 'rooms'), where('eyJhbGciOiJIUzI1NiJ9', '==', true)));
-    for (const record of [emailField, tokenField, jwtField]) {
+    for (const record of [tokenField, jwtField]) {
       expect(record.outcome).toBe('resolved');
       expect(record.path).toBe('rooms');
       expect(record.query).toBeUndefined();
       const read = host.readObservedCall(JSON.parse(JSON.stringify(observedCallOf(record, Date.now()))));
       expect(read.query).toBeUndefined();
     }
-    // The host refuses that field, which is why the page never sends it.
-    const sent = { ...observedCallOf(emailField, Date.now()), query: { scope: 'collection', filters: [{ field: 'alice@example.com', op: '==' }] } };
-    expect(() => host.readObservedCall(sent)).toThrow('query.filters.field');
     const sentJwt = { ...observedCallOf(jwtField, Date.now()), query: { scope: 'collection', filters: [{ field: 'eyJhbGciOiJIUzI1NiJ9', op: '==' }] } };
     expect(() => host.readObservedCall(sentJwt)).toThrow('query.filters.field');
   });

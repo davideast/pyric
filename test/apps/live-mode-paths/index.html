@@ -51,6 +51,8 @@
 
       window.readLobby = () => getDoc(doc(db, "rooms/lobby")).then((snapshot) => snapshot.data(), failure);
 
+      window.readInvite = () => getDoc(doc(db, "invites/ada@example.com")).then((snapshot) => snapshot.data(), failure);
+
       window.listBiggestOpenRooms = () => getDocs(query(collection(db, "rooms"), where("open", "==", true), orderBy("seats", "desc")))
         .then((snapshot) => snapshot.docs.map((room) => room.id), failure);
 

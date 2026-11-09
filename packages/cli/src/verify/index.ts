@@ -26,6 +26,7 @@ import {
   type RtdbReplayDivergence,
 } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';
+import { definedOnly } from '../serve/worker/host/observe-local-evaluation.js';
 import { evaluateFirestoreCall, type FirestoreSimulate } from '../serve/worker/host/observe-local-firestore.js';
 import {
   rulesSourceRejection,
@@ -511,19 +512,17 @@ function isLiveFirestoreCall(event: PyricVerifyFixture['events'][number]): event
   return isProductionServed(operation.rulesDisposition) && operation.production !== undefined && typeof operation.path === 'string';
 }
 
+function observedAccountOf(uid: string | undefined, claimNames: string[] | undefined, claims: Record<string, unknown> | undefined): ObservedCall['account'] {
+  if (uid === undefined) return undefined;
+  return definedOnly({ uid, claimNames, claims });
+}
 /** A captured live call as the host observed it: its event, with the values the capture kept beside it. */
 function observedCallOf(event: SandboxOperationEvent & { path: string }, values: VerifyObservedCallValues | undefined): ObservedCall {
-  const uid = event.auth?.uid;
-  return {
-    service: 'firestore',
-    method: event.method,
-    path: event.path,
-    at: event.at,
-    outcome: event.production!.outcome,
-    ...(uid === undefined ? {} : { account: { uid, ...(values?.claims === undefined ? {} : { claims: values.claims }) } }),
-    ...(values?.writeData === undefined ? {} : { writeData: values.writeData }),
-    ...(values?.document === undefined ? {} : { document: values.document }),
-  };
+  return definedOnly({
+    service: 'firestore', method: event.method, path: event.path, at: event.at, outcome: event.production!.outcome,
+    account: observedAccountOf(event.auth?.uid, event.production?.claimNames, values?.claims),
+    writeData: values?.writeData, document: values?.document,
+  });
 }
 
 /**
@@ -532,8 +531,8 @@ function observedCallOf(event: SandboxOperationEvent & { path: string }, values:
  * each one the rules now answer differently from production: a call
  * production allowed is `now-denied`, one it denied is `now-allowed`. A
  * call whose answer rests on data the capture lacks (a stored document, the
- * written data, a claim's value or an email, a query), and a call
- * production failed for another reason, is not checked.
+ * written data, a claim's value, a query), and a call production failed for
+ * another reason, is not checked.
  */
 function verifyLiveFirestoreCalls(fixture: PyricVerifyFixture, rules: string): { checkedEvents: number; divergences: VerifyDivergence[] } {
   const simulator = new SimulateFirestoreRulesHandler();
