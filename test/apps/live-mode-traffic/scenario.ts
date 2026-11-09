@@ -378,12 +378,45 @@ export default scenario(async (app) => {
       denies: Number(await metricValue('denies')),
     }), ({ allows, denies }) => allows === 4 && denies === 2, 'exact advisory local rules allows (4) and denies (2)');
     const rulesSummary = (await studio.locator('[data-pyric-live-rules-summary]').textContent()) ?? '';
+    assert.match(rulesSummary, /Evaluated locally: 6/);
     assert.match(rulesSummary, /Drift with production: 0/);
     assert.match(rulesSummary, /Denied by production: 2/);
     assert.equal(
       (await studio.locator('.traffic__metric-source').textContent())?.trim(),
       'Source: observed live requests · Local rules evaluated against observed traffic (advisory)',
     );
+
+    await studio.getByRole('tab', { name: 'Timeline' }).click();
+    const activeBucket = studio.locator('[data-pyric-bucket]:not([data-pyric-bucket-count="0"])').last();
+    await activeBucket.waitFor({ timeout: 30_000 });
+    await activeBucket.click();
+    await studio.locator('.traffic__time-focus').waitFor({ timeout: 10_000 });
+    await studio.getByRole('tab', { name: 'Rules' }).click();
+    await studio.locator('[data-pyric-ui="traffic-rules-view"] .traffic__time-focus').waitFor({ timeout: 10_000 });
+    await eventually(async () => ({
+      allows: Number(await metricValue('allows')),
+      denies: Number(await metricValue('denies')),
+    }), ({ allows, denies }) => allows + denies >= 1, 'brushed active interval retains in-window Rules evaluations');
+
+    await studio.getByRole('tab', { name: 'Timeline' }).click();
+    const quietBucket = studio.locator('[data-pyric-bucket][data-pyric-bucket-count="0"]').first();
+    await quietBucket.waitFor({ timeout: 30_000 });
+    await quietBucket.click();
+    await studio.locator('.traffic__time-focus').waitFor({ timeout: 10_000 });
+    await studio.getByRole('tab', { name: 'Billable metrics' }).click();
+    await studio.locator('[data-pyric-ui="traffic-billable-view"] .traffic__time-focus').waitFor({ timeout: 10_000 });
+    await eventually(() => opMetric('writes'), (writes) => writes === '0', 'brushed quiet interval excludes later billable writes');
+    await studio.getByRole('tab', { name: 'Rules' }).click();
+    await studio.locator('[data-pyric-ui="traffic-rules-view"] .traffic__time-focus').waitFor({ timeout: 10_000 });
+    await eventually(async () => ({
+      allows: Number(await metricValue('allows')),
+      denies: Number(await metricValue('denies')),
+    }), ({ allows, denies }) => allows === 0 && denies === 0, 'brushed quiet interval excludes later Rules evaluations');
+    await studio.getByRole('button', { name: 'Show all traffic' }).click();
+    await eventually(async () => ({
+      allows: Number(await metricValue('allows')),
+      denies: Number(await metricValue('denies')),
+    }), ({ allows, denies }) => allows === 4 && denies === 2, 'clearing brushed interval restores full-session Rules counts');
 
     await studio.getByRole('tab', { name: 'Listeners' }).click();
     await studio.locator('[data-pyric-ui="traffic-listeners-view"]').waitFor({ timeout: 30_000 });

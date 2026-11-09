@@ -38,7 +38,7 @@ import {
   type TimeWindow,
 } from '@pyric/ui/traffic';
 import { callerSource, callerSourceLabelOutsidePage } from 'pyric/sandbox/internal';
-import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
+import { useStudioTrafficFeed, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
 import { useLiveHost } from '../../shell/live-status.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
@@ -58,6 +58,11 @@ import {
 import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-selection.js';
 import { TrafficInspectedDetail } from './TrafficLiveRulesDetail.js';
 import { BillableMetricsView, RulesMetricsView } from './TrafficMetricsViews.js';
+import {
+  TrafficTimeFocusBanner,
+  formatTrafficWindowRange,
+  shouldShowCapNotice,
+} from './TrafficNotices.js';
 import {
   ListenerPageSurface,
   ListenersSurface,
@@ -152,10 +157,6 @@ function relAgo(at: number, now: number): string {
   const m = Math.round(s / 60);
   if (m < 60) return `${m}m ago`;
   return `${Math.round(m / 60)}h ago`;
-}
-
-function timelineRangeLabel(window: TimeWindow): string {
-  return `${defaultFormatTime(window.start)}–${defaultFormatTime(window.end)}`;
 }
 
 /** Which connection sent the row's op: a page, server code, admin code, MCP or Studio. */
@@ -273,7 +274,8 @@ function useInspectParam(): string | null {
 const PAGE_SIZE = 100;
 
 export function TrafficSurface() {
-  const allEvents = useStudioTraffic();
+  const trafficFeed = useStudioTrafficFeed();
+  const allEvents = trafficFeed.events;
   const [tab, setTab] = useTrafficTab();
   const drilledListener = useDrilledListener();
   const [hideStudio, toggleHideStudio] = useHideStudio();
@@ -331,11 +333,17 @@ export function TrafficSurface() {
   );
   const now = window.end;
 
-  const focusedTraffic = useMemo(
-    () => (timeFocus ? trafficTimeFocus(events, timeFocus) : null),
-    [events, timeFocus],
-  );
+  const focusedTraffic = useMemo(() => {
+    if (!timeFocus) return null;
+    return trafficTimeFocus(events, timeFocus);
+  }, [events, timeFocus]);
+  const focusedWindow = focusedTraffic?.window ?? null;
   const tableEvents = focusedTraffic?.events ?? events;
+  const metricsWindow = focusedWindow ?? window;
+  let focusedInterval = null;
+  if (focusedTraffic) {
+    focusedInterval = { window: focusedTraffic.window, finding: focusedTraffic.finding, onClear: () => setTimeFocus(null) };
+  }
 
   // Newest-first stream; verdict filter first, then grouping (the volume
   // reducer: storms → one row).
@@ -346,7 +354,9 @@ export function TrafficSurface() {
   const { items } = useTrafficGroups({ events: ordered });
   const visibleItems = items.slice(0, visibleRows);
   const hiddenCount = items.length - visibleItems.length;
-  const atCap = events.length >= STUDIO_EVENT_CAP;
+  const atCap = trafficFeed.capped;
+  const showBillableCapNotice = shouldShowCapNotice(atCap, trafficFeed.uncoveredBeforeAt, focusedWindow);
+  const showRulesCapNotice = shouldShowCapNotice(trafficFeed.clientCapped, trafficFeed.rulesUncoveredBeforeAt, focusedWindow);
 
   const denied = events.filter((e) => e.result === 'deny').length;
 
@@ -417,9 +427,9 @@ export function TrafficSurface() {
       {drilledListener !== undefined ? (
         <ListenerPageSurface listenerId={drilledListener} window={window} hideStudio={hideStudio} fromScope={activeFromScope} />
       ) : tab === 'billable' ? (
-        <BillableMetricsView events={events} window={window} />
+        <BillableMetricsView events={tableEvents} window={metricsWindow} focusedInterval={focusedInterval} capped={showBillableCapNotice} />
       ) : tab === 'rules' ? (
-        <RulesMetricsView events={events} window={window} />
+        <RulesMetricsView events={tableEvents} window={metricsWindow} focusedInterval={focusedInterval} capped={showRulesCapNotice} />
       ) : tab === 'listeners' ? (
         <ListenersSurface window={window} hideStudio={hideStudio} fromScope={activeFromScope} />
       ) : (
@@ -439,7 +449,7 @@ export function TrafficSurface() {
               <div className="traffic__tl-header">
                 <span className="traffic__tl-count">
                   {events.length} requests
-                  {atCap ? ` (showing latest ${STUDIO_EVENT_CAP})` : ''}
+                  {atCap ? ` (capped at ${STUDIO_EVENT_CAP}/lane)` : ''}
                 </span>
                 {denied > 0 ? (
                   <button
@@ -465,7 +475,7 @@ export function TrafficSurface() {
             )}
             renderBucketSummary={(bucket) => (
               <div className="traffic__bucket-summary">
-                <span>{timelineRangeLabel(bucket)}</span>
+                <span>{formatTrafficWindowRange(bucket)}</span>
                 <strong>
                   {bucket.count} {bucket.count === 1 ? 'request' : 'requests'}
                 </strong>
@@ -477,22 +487,7 @@ export function TrafficSurface() {
             }
           />
 
-          {focusedTraffic ? (
-            <section
-              className="traffic__time-focus"
-              aria-label="Selected traffic interval"
-              aria-live="polite"
-            >
-              <div className="traffic__time-focus-story">
-                <p className="traffic__time-focus-eyebrow">Selected interval</p>
-                <h3>{timelineRangeLabel(focusedTraffic.window)}</h3>
-                <p>{focusedTraffic.finding}</p>
-              </div>
-              <button type="button" onClick={() => setTimeFocus(null)}>
-                Show all traffic
-              </button>
-            </section>
-          ) : null}
+          {focusedInterval ? <TrafficTimeFocusBanner focus={focusedInterval} /> : null}
 
           <div className="traffic__filters" role="group" aria-label="Traffic filters">
             <span className="traffic__filters-label" aria-hidden="true">
