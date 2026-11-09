@@ -152,6 +152,7 @@ function normalizeUserList(rawUsers: readonly unknown[]): {
     const snapUser: {
       uid: string;
       email?: string;
+      password?: string;
       displayName?: string;
       photoUrl?: string;
       phoneNumber?: string;
@@ -166,6 +167,12 @@ function normalizeUserList(rawUsers: readonly unknown[]): {
     if (typeof candidate.email === "string") {
       snapUser.email = candidate.email;
       fixUser.email = candidate.email;
+    } else if (candidate.email === null) {
+      fixUser.email = null;
+    }
+    if (typeof candidate.password === "string") {
+      snapUser.password = candidate.password;
+      fixUser.password = candidate.password;
     }
     if (typeof candidate.displayName === "string") {
       snapUser.displayName = candidate.displayName;
@@ -173,9 +180,11 @@ function normalizeUserList(rawUsers: readonly unknown[]): {
     }
     if (typeof candidate.photoUrl === "string") {
       snapUser.photoUrl = candidate.photoUrl;
+      fixUser.photoUrl = candidate.photoUrl;
     }
     if (typeof candidate.phoneNumber === "string") {
       snapUser.phoneNumber = candidate.phoneNumber;
+      fixUser.phoneNumber = candidate.phoneNumber;
     }
     if (typeof candidate.emailVerified === "boolean") {
       snapUser.emailVerified = candidate.emailVerified;
@@ -183,12 +192,15 @@ function normalizeUserList(rawUsers: readonly unknown[]): {
     }
     if (typeof candidate.disabled === "boolean") {
       snapUser.disabled = candidate.disabled;
+      fixUser.disabled = candidate.disabled;
     }
     if (typeof candidate.tenantId === "string") {
       snapUser.tenantId = candidate.tenantId;
+      fixUser.tenantId = candidate.tenantId;
     }
     if (typeof candidate.providerId === "string") {
       snapUser.providerId = candidate.providerId;
+      fixUser.providerId = candidate.providerId;
     }
     if (isPlainRecord(candidate.customClaims)) {
       snapUser.customClaims = { ...candidate.customClaims };

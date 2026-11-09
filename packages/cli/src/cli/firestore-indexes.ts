@@ -4,8 +4,14 @@ import {
   ExtractFirestoreIndexesHandler,
   type ExtractIndexesOptions,
 } from 'pyric/rules/internal/extract';
-import type { ParsedArgs } from './parse-args.js';
-import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
+import { findMissingValueFlag, type ParsedArgs } from './parse-args.js';
+import {
+  readFirebaseJson,
+  readFirebaseRc,
+  type FirebaseJson,
+  type FirebaseRc,
+} from './firebase-json.js';
+import { resolveFirebaseProject } from './firebase-project.js';
 import { defaultFirestoreDatabase, firestoreRulesConfig } from 'pyric/sandbox/internal';
 
 type ExtractResult = ReturnType<ExtractFirestoreIndexesHandler['execute']>;
@@ -13,6 +19,7 @@ type ExtractResult = ReturnType<ExtractFirestoreIndexesHandler['execute']>;
 export interface FirestoreIndexesDeps {
   extract?: (options: ExtractIndexesOptions) => ExtractResult;
   readFirebaseJson?: (cwd: string) => Promise<FirebaseJson>;
+  readFirebaseRc?: (cwd: string) => Promise<FirebaseRc | null>;
   writeFile?: typeof writeFile;
   mkdir?: typeof mkdir;
   cwd?: string;
@@ -27,6 +34,11 @@ export async function runFirestoreIndexesGenerate(
   const out = deps.stdout ?? process.stdout;
   const err = deps.stderr ?? process.stderr;
   const cwd = deps.cwd ?? process.cwd();
+  const missingFlag = findMissingValueFlag(parsed.flags, ['out']);
+  if (missingFlag !== undefined) {
+    err.write(`pyric firestore indexes generate: missing value for --${missingFlag}\n`);
+    return 2;
+  }
   if (parsed.positional.length === 0) {
     err.write(
       'pyric firestore indexes generate: missing source path. Usage: pyric firestore indexes generate <path...> [--out <path>]\n',
@@ -51,7 +63,20 @@ export async function runFirestoreIndexesGenerate(
   if (typeof outFlag !== 'string') {
     try {
       const fbJson = await (deps.readFirebaseJson ?? readFirebaseJson)(cwd);
-      configuredPath = defaultFirestoreDatabase(firestoreRulesConfig(fbJson.firestore))?.indexesFile;
+      const rc = await (deps.readFirebaseRc ?? readFirebaseRc)(cwd).catch(() => null);
+      const projectId = resolveFirebaseProject({ projectDir: cwd, rc }).projectId;
+      const targetDatabases = (targetName: string): unknown => {
+        if (!projectId || !rc?.targets) return undefined;
+        const projTargets = Object.hasOwn(rc.targets, projectId)
+          ? rc.targets[projectId]
+          : undefined;
+        const fsTargets = projTargets?.firestore;
+        if (!fsTargets || !Object.hasOwn(fsTargets, targetName)) return undefined;
+        return fsTargets[targetName];
+      };
+      configuredPath = defaultFirestoreDatabase(
+        firestoreRulesConfig(fbJson.firestore, { targetDatabases }),
+      )?.indexesFile;
     } catch {
       configuredPath = undefined;
     }

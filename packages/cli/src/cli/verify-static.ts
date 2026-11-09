@@ -35,7 +35,7 @@ import {
   readBooleanFlag,
   resolveFailGate,
 } from './assurance.js';
-import type { FlagValue, ParsedArgs } from './parse-args.js';
+import { findMissingValueFlag, type FlagValue, type ParsedArgs } from './parse-args.js';
 
 export interface VerifyStaticCliDeps {
   readonly cwd?: string;
@@ -175,32 +175,28 @@ function applyRulesFlagOverrides(
     }
 
     if (targetService === 'firestore') {
-      if (targetId === undefined) {
-        firestore = [{ source: sourceLabel, text: content }];
-      } else {
-        const entry: FirestoreRuleSource = { source: sourceLabel, text: content };
-        if (targetId !== DEFAULT_SNAPSHOT_RESOURCE) entry.database = targetId;
-        firestore = firestore.filter(
-          (s) => (s.database ?? DEFAULT_SNAPSHOT_RESOURCE) !== targetId,
-        );
-        firestore.push(entry);
+      const effectiveTarget = targetId ?? DEFAULT_SNAPSHOT_RESOURCE;
+      const entry: FirestoreRuleSource = { source: sourceLabel, text: content };
+      if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
+        entry.database = effectiveTarget;
       }
+      firestore = firestore.filter(
+        (s) => (s.database ?? DEFAULT_SNAPSHOT_RESOURCE) !== effectiveTarget,
+      );
+      firestore.push(entry);
     } else if (targetService === 'storage') {
-      if (targetId === undefined) {
-        storage = [{ source: sourceLabel, text: content }];
-      } else {
-        const entry: StorageRuleSource = { source: sourceLabel, text: content };
-        if (targetId !== DEFAULT_SNAPSHOT_RESOURCE) {
-          entry.bucket = targetId;
-          if (configuredBuckets.length > 0 && !configuredBuckets.includes(targetId)) {
-            configuredBuckets.push(targetId);
-          }
+      const effectiveTarget = targetId ?? DEFAULT_SNAPSHOT_RESOURCE;
+      const entry: StorageRuleSource = { source: sourceLabel, text: content };
+      if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
+        entry.bucket = effectiveTarget;
+        if (configuredBuckets.length > 0 && !configuredBuckets.includes(effectiveTarget)) {
+          configuredBuckets.push(effectiveTarget);
         }
-        storage = storage.filter(
-          (s) => (s.bucket ?? DEFAULT_SNAPSHOT_RESOURCE) !== targetId,
-        );
-        storage.push(entry);
       }
+      storage = storage.filter(
+        (s) => (s.bucket ?? DEFAULT_SNAPSHOT_RESOURCE) !== effectiveTarget,
+      );
+      storage.push(entry);
     } else {
       let parsedRtdb: unknown;
       try {
@@ -210,26 +206,23 @@ function applyRulesFlagOverrides(
         if (err instanceof Error) msg = err.message;
         return { ok: false, message: `invalid RTDB rules JSON in ${fileArg}: ${msg}` };
       }
-      if (targetId === undefined) {
-        rtdb = [{ source: sourceLabel, json: parsedRtdb }];
-      } else {
-        const entry: RtdbRuleSource = { source: sourceLabel, json: parsedRtdb };
-        if (targetId !== DEFAULT_SNAPSHOT_RESOURCE) {
-          entry.instance = targetId;
-          if (parsedRtdb && typeof parsedRtdb === 'object' && Object.hasOwn(parsedRtdb, 'rules')) {
-            const inner = (parsedRtdb as { rules?: unknown }).rules;
-            if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
-              defineOwn(rtdbInstances, targetId, {
-                rules: inner as Record<string, unknown>,
-              });
-            }
+      const effectiveTarget = targetId ?? DEFAULT_SNAPSHOT_RESOURCE;
+      const entry: RtdbRuleSource = { source: sourceLabel, json: parsedRtdb };
+      if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
+        entry.instance = effectiveTarget;
+        if (parsedRtdb && typeof parsedRtdb === 'object' && Object.hasOwn(parsedRtdb, 'rules')) {
+          const inner = (parsedRtdb as { rules?: unknown }).rules;
+          if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+            defineOwn(rtdbInstances, effectiveTarget, {
+              rules: inner as Record<string, unknown>,
+            });
           }
         }
-        rtdb = rtdb.filter(
-          (s) => (s.instance ?? DEFAULT_SNAPSHOT_RESOURCE) !== targetId,
-        );
-        rtdb.push(entry);
       }
+      rtdb = rtdb.filter(
+        (s) => (s.instance ?? DEFAULT_SNAPSHOT_RESOURCE) !== effectiveTarget,
+      );
+      rtdb.push(entry);
     }
   }
 
@@ -259,6 +252,16 @@ export async function runVerifyStatic(
   const stdout = deps.stdout ?? process.stdout;
   const stderr = deps.stderr ?? process.stderr;
   const cwd = deps.cwd ?? process.cwd();
+  const missingFlag = findMissingValueFlag(parsed.flags, [
+    'rules',
+    'service',
+    'root',
+    'fail-on',
+  ]);
+  if (missingFlag !== undefined) {
+    stderr.write(`pyric verify --static: missing value for --${missingFlag}\n`);
+    return 2;
+  }
   const json = readBooleanFlag(parsed.flags.get('json'));
   const includeHeuristic = readBooleanFlag(parsed.flags.get('include-heuristic'));
 

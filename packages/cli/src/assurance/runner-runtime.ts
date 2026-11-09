@@ -18,6 +18,7 @@ import {
 import type { RtdbRulesJson } from "pyric/sandbox/database";
 import { seedDocuments, setRules, snapshotDocuments } from "pyric/sandbox/firestore";
 import {
+  DEFAULT_SNAPSHOT_RESOURCE,
   decodeSnapshotMapForEnv,
   resolveDatabaseInstance,
 } from "pyric/sandbox/internal";
@@ -32,6 +33,7 @@ import {
 } from "pyric/storage";
 import {
   arrayBufferToBase64,
+  deployStorageBucketRules,
   getAdminStorageSandbox,
 } from "pyric/storage/internal";
 import type {
@@ -56,6 +58,7 @@ export interface ServiceRuntime {
   rtdbAdmin?: Database;
   storage?: FirebaseStorage;
   storageAdmin?: FirebaseStorage;
+  storageDbName?: string;
 }
 
 let storageRunSequence = 0;
@@ -158,11 +161,25 @@ export function acquireActor(
         };
       }
       case "password": {
-        const session = authSandbox.mintSession(auth, {
+        const acqEmail = actor.acquisition.email;
+        const acqPassword = actor.acquisition.password;
+        const matchedUser = (target.state.auth?.users ?? []).find(
+          (u) => u.email === acqEmail,
+        );
+        const req: {
+          kind: "password";
+          email: string;
+          password: string;
+          tenantId?: string;
+        } = {
           kind: "password",
-          email: actor.acquisition.email,
-          password: actor.acquisition.password,
-        });
+          email: acqEmail,
+          password: acqPassword,
+        };
+        if (matchedUser?.tenantId !== undefined) {
+          req.tenantId = matchedUser.tenantId;
+        }
+        const session = authSandbox.mintSession(auth, req);
         return {
           auth: session.state,
           evidence: {
@@ -174,10 +191,22 @@ export function acquireActor(
         };
       }
       case "fixture-user": {
-        const session = authSandbox.mintSession(auth, {
+        const acqUid = actor.acquisition.uid;
+        const matchedUser = (target.state.auth?.users ?? []).find(
+          (u) => u.uid === acqUid,
+        );
+        const req: {
+          kind: "uid";
+          uid: string;
+          tenantId?: string;
+        } = {
           kind: "uid",
-          uid: actor.acquisition.uid,
-        });
+          uid: acqUid,
+        };
+        if (matchedUser?.tenantId !== undefined) {
+          req.tenantId = matchedUser.tenantId;
+        }
+        const session = authSandbox.mintSession(auth, req);
         return {
           auth: session.state,
           evidence: {
@@ -306,23 +335,44 @@ export async function createRuntime(
     dbName,
     rules: target.rules.storage!,
   });
-  for (const object of target.state.storage ?? []) {
-    const metadata: {
-      contentType?: string;
-      customMetadata?: Record<string, string>;
-    } = {};
-    if (object.contentType) {
-      metadata.contentType = object.contentType;
-    }
-    if (object.customMetadata) {
-      metadata.customMetadata = { ...object.customMetadata };
-    }
-    await uploadBytes(
-      storageRef(admin, object.path),
-      decodeBase64(object.dataBase64),
-      metadata,
-    );
+  for (const [bucketName, bucketRules] of Object.entries(
+    target.rules.storageBuckets ?? {},
+  )) {
+    deployStorageBucketRules(sandbox, bucketName, bucketRules);
   }
+  const seedBucketObjects = async (
+    bucketHandle: FirebaseStorage,
+    objects: NonNullable<LocalFirebaseTarget["state"]["storage"]>,
+  ): Promise<void> => {
+    for (const object of objects) {
+      const metadata: {
+        contentType?: string;
+        customMetadata?: Record<string, string>;
+      } = {};
+      if (object.contentType) {
+        metadata.contentType = object.contentType;
+      }
+      if (object.customMetadata) {
+        metadata.customMetadata = { ...object.customMetadata };
+      }
+      await uploadBytes(
+        storageRef(bucketHandle, object.path),
+        decodeBase64(object.dataBase64),
+        metadata,
+      );
+    }
+  };
+  await seedBucketObjects(admin, target.state.storage ?? []);
+  for (const [bucketName, objects] of Object.entries(
+    target.state.storageBuckets ?? {},
+  )) {
+    const bucketAdmin = getAdminStorageSandbox(sandbox, {
+      dbName,
+      bucket: bucketName,
+    });
+    await seedBucketObjects(bucketAdmin, objects);
+  }
+  runtime.storageDbName = dbName;
   runtime.storageAdmin = admin;
   runtime.storage = getStorageSandbox(context, { dbName });
   return runtime;
@@ -381,6 +431,21 @@ export async function readState(
       admin = getAdminDatabase(runtime.sandbox, url);
     }
     return (await getRtdb(rtdbRef(admin, operation.path))).val();
+  }
+  if (
+    operation.instance &&
+    operation.instance !== "default" &&
+    operation.instance !== DEFAULT_SNAPSHOT_RESOURCE &&
+    runtime.storageDbName !== undefined
+  ) {
+    runtime.storageAdmin = getAdminStorageSandbox(runtime.sandbox, {
+      dbName: runtime.storageDbName,
+      bucket: operation.instance,
+    });
+    runtime.storage = getStorageSandbox(runtime.context, {
+      dbName: runtime.storageDbName,
+      bucket: operation.instance,
+    });
   }
   return readStorageState(operation, runtime.storageAdmin!);
 }

@@ -183,3 +183,27 @@ function setFlag(flags: Map<string, FlagValue>, key: string, value: string | boo
     flags.set(key, [current, value]);
   }
 }
+
+/**
+ * Return the first flag in `flagNames` whose parsed value was omitted
+ * (coerced to boolean `true` or an empty string), or `undefined` when every
+ * present flag in `flagNames` carries a non-empty string value.
+ */
+export function findMissingValueFlag(
+  flags: ReadonlyMap<string, FlagValue>,
+  flagNames: readonly string[],
+): string | undefined {
+  for (const name of flagNames) {
+    const raw = flags.get(name);
+    if (raw === undefined || raw === false) continue;
+    if (typeof raw === 'boolean') return name;
+    if (typeof raw === 'string') {
+      if (raw.trim().length === 0) return name;
+      continue;
+    }
+    if (raw.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
+      return name;
+    }
+  }
+  return undefined;
+}

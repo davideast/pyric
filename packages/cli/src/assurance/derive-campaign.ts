@@ -6,6 +6,7 @@
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
   parseResourcePattern,
+  resolveDatabaseInstance,
   type AssuranceDiagnostic,
   type DiagnosticSeverity,
 } from "pyric/sandbox/internal";
@@ -26,11 +27,16 @@ import {
   defineOwn,
   getOwn,
   initializeTargetState,
+  isUnsafeObjectKey,
   materializeDataValue,
   replaceIdentityDeep,
   stepToFirebaseOperation,
 } from "./derive-campaign-state.js";
-import type { LiveRuntimeClone, LoadedAssuranceProject } from "./derive-project.js";
+import {
+  targetRulesFromSnapshot,
+  type LiveRuntimeClone,
+  type LoadedAssuranceProject,
+} from "./derive-project.js";
 import type { AssuranceCampaignStore } from "./tools.js";
 import {
   ASSURANCE_TARGET_SCHEMA,
@@ -88,14 +94,21 @@ function buildTargetRules(
   runtime: LiveRuntimeClone,
 ): LocalFirebaseTarget["rules"] {
   const rules: LocalFirebaseTarget["rules"] = {};
+  const snapshotRules =
+    runtime.snapshot !== undefined
+      ? targetRulesFromSnapshot(runtime.snapshot)
+      : undefined;
+  const effectiveRuntimeRules = runtime.targetRules ?? snapshotRules;
 
   const defaultFs = project.sources.firestore.find(
     (s) => s.database === undefined || s.database === DEFAULT_SNAPSHOT_RESOURCE,
   );
   if (defaultFs !== undefined) {
     rules.firestore = defaultFs.text;
-  } else if (runtime.targetRules?.firestore !== undefined) {
-    rules.firestore = runtime.targetRules.firestore;
+  } else if (effectiveRuntimeRules?.firestore !== undefined) {
+    rules.firestore = effectiveRuntimeRules.firestore;
+  } else if (snapshotRules?.firestore !== undefined) {
+    rules.firestore = snapshotRules.firestore;
   }
 
   const defaultRtdb = project.sources.rtdb.find(
@@ -113,13 +126,22 @@ function buildTargetRules(
         rules.rtdb = { rules: inner as Record<string, unknown> };
       }
     }
-  } else if (runtime.targetRules?.rtdb !== undefined) {
-    rules.rtdb = runtime.targetRules.rtdb;
+  } else if (effectiveRuntimeRules?.rtdb !== undefined) {
+    rules.rtdb = effectiveRuntimeRules.rtdb;
+  } else if (snapshotRules?.rtdb !== undefined) {
+    rules.rtdb = snapshotRules.rtdb;
   }
 
   const mergedInstances: Record<string, { rules: Record<string, unknown> }> = {};
-  if (runtime.targetRules?.rtdbInstances !== undefined) {
-    for (const [instId, instRules] of Object.entries(runtime.targetRules.rtdbInstances)) {
+  if (snapshotRules?.rtdbInstances !== undefined) {
+    for (const [instId, instRules] of Object.entries(snapshotRules.rtdbInstances)) {
+      defineOwn(mergedInstances, instId, instRules);
+    }
+  }
+  if (effectiveRuntimeRules?.rtdbInstances !== undefined) {
+    for (const [instId, instRules] of Object.entries(
+      effectiveRuntimeRules.rtdbInstances,
+    )) {
       defineOwn(mergedInstances, instId, instRules);
     }
   }
@@ -144,14 +166,43 @@ function buildTargetRules(
   }
 
   const storageSources = project.sources.storage ?? [];
+  const storageBuckets: Record<string, string> = {};
+  if (snapshotRules?.storageBuckets !== undefined) {
+    for (const [bucketId, rulesText] of Object.entries(snapshotRules.storageBuckets)) {
+      defineOwn(storageBuckets, bucketId, rulesText);
+    }
+  }
+  if (effectiveRuntimeRules?.storageBuckets !== undefined) {
+    for (const [bucketId, rulesText] of Object.entries(
+      effectiveRuntimeRules.storageBuckets,
+    )) {
+      defineOwn(storageBuckets, bucketId, rulesText);
+    }
+  }
+  for (const s of storageSources) {
+    if (s.bucket !== undefined && s.bucket !== DEFAULT_SNAPSHOT_RESOURCE && !isUnsafeObjectKey(s.bucket)) {
+      defineOwn(storageBuckets, s.bucket, s.text);
+    }
+  }
+  if (Object.keys(storageBuckets).length > 0) {
+    rules.storageBuckets = storageBuckets;
+  }
+
   const defaultSt =
     storageSources.find(
       (s) => s.bucket === undefined || s.bucket === DEFAULT_SNAPSHOT_RESOURCE,
     ) ?? storageSources[0];
   if (defaultSt !== undefined) {
     rules.storage = defaultSt.text;
-  } else if (runtime.targetRules?.storage !== undefined) {
-    rules.storage = runtime.targetRules.storage;
+  } else if (effectiveRuntimeRules?.storage !== undefined) {
+    rules.storage = effectiveRuntimeRules.storage;
+  } else if (snapshotRules?.storage !== undefined) {
+    rules.storage = snapshotRules.storage;
+  } else {
+    const firstBucketRules = Object.values(storageBuckets)[0];
+    if (firstBucketRules !== undefined) {
+      rules.storage = firstBucketRules;
+    }
   }
 
   return rules;
@@ -161,11 +212,20 @@ function hasExistingRecordAtPath(
   state: LocalFirebaseTarget["state"],
   service: Probe["service"],
   path: string,
+  resourceId?: string,
 ): boolean {
   if (service === "firestore") {
     return Boolean(state.firestore && Object.hasOwn(state.firestore, path));
   }
   if (service === "storage") {
+    if (
+      resourceId !== undefined &&
+      resourceId !== DEFAULT_SNAPSHOT_RESOURCE &&
+      !isUnsafeObjectKey(resourceId)
+    ) {
+      const named = getOwn(state.storageBuckets, resourceId) ?? [];
+      return named.some((item) => item.path === path);
+    }
     return (state.storage ?? []).some((item) => item.path === path);
   }
   return false;
@@ -233,7 +293,14 @@ function translateHitToCampaignProbe(
 
     if (isCreate) {
       let createPath = src.attack.path;
-      if (hasExistingRecordAtPath(targetState, src.service, createPath)) {
+      if (
+        hasExistingRecordAtPath(
+          targetState,
+          src.service,
+          createPath,
+          src.attack.resourceId,
+        )
+      ) {
         createPath = `${createPath}-create-${index + 1}`;
       }
       const adjustedAttack = { ...src.attack, path: createPath };
@@ -304,15 +371,25 @@ function translateHitToCampaignProbe(
           peerPath,
           replaceIdentityDeep(ownerDoc, peerReplacements),
         );
-      } else if (src.service === "storage" && targetState.storage) {
-        const ownerObj = targetState.storage.find(
-          (item) => item.path === src.attack.path,
-        );
-        if (ownerObj) {
-          targetState.storage.push({
-            ...replaceIdentityDeep(ownerObj, peerReplacements),
-            path: peerPath,
-          });
+      } else if (src.service === "storage") {
+        let storageList = targetState.storage;
+        if (
+          src.attack.resourceId !== undefined &&
+          src.attack.resourceId !== DEFAULT_SNAPSHOT_RESOURCE &&
+          !isUnsafeObjectKey(src.attack.resourceId)
+        ) {
+          storageList = getOwn(targetState.storageBuckets, src.attack.resourceId);
+        }
+        if (storageList) {
+          const ownerObj = storageList.find(
+            (item) => item.path === src.attack.path,
+          );
+          if (ownerObj) {
+            storageList.push({
+              ...replaceIdentityDeep(ownerObj, peerReplacements),
+              path: peerPath,
+            });
+          }
         }
       }
     }
@@ -388,6 +465,28 @@ export async function populateDerivedCampaign(options: {
     if (actor.role === "owner") owner = actor;
     if (actor.role === "peer") peer = actor;
   }
+  const enabledSeedUsers = (options.runtime.snapshot?.auth.users ?? []).filter(
+    (u) => u.disabled !== true,
+  );
+  if (
+    owner.uid === "probe-owner" &&
+    enabledSeedUsers.length > 0 &&
+    !enabledSeedUsers.some((u) => u.uid === "probe-owner")
+  ) {
+    const first = enabledSeedUsers[0]!;
+    const emailVerified = first.emailVerified === true;
+    const token: Record<string, unknown> = { email_verified: emailVerified };
+    if (first.customClaims !== undefined) {
+      Object.assign(token, first.customClaims);
+    }
+    owner = {
+      role: "owner",
+      uid: first.uid,
+      email: first.email ?? `${first.uid}@example.test`,
+      displayName: first.displayName ?? first.uid,
+      token,
+    };
+  }
 
   const targetRules = buildTargetRules(options.project, options.runtime);
   const targetState = initializeTargetState(
@@ -395,6 +494,36 @@ export async function populateDerivedCampaign(options: {
     options.runtime.targetState,
     [owner, peer],
   );
+  if (targetState.rtdbInstances !== undefined) {
+    if (targetRules.rtdbInstances === undefined) {
+      Reflect.deleteProperty(targetState, "rtdbInstances");
+    } else {
+      const declaredResolved = new Set<string>();
+      for (const instKey of Object.keys(targetRules.rtdbInstances)) {
+        try {
+          declaredResolved.add(resolveDatabaseInstance(instKey)!.name);
+        } catch {
+          // Leave malformed rule keys to target validation.
+        }
+      }
+      const filteredRtdbInstances: Record<string, unknown> = {};
+      for (const [instKey, instVal] of Object.entries(targetState.rtdbInstances)) {
+        try {
+          const resolvedName = resolveDatabaseInstance(instKey)!.name;
+          if (declaredResolved.has(resolvedName)) {
+            defineOwn(filteredRtdbInstances, instKey, instVal);
+          }
+        } catch {
+          // Skip undeclared/invalid state instance key.
+        }
+      }
+      if (Object.keys(filteredRtdbInstances).length > 0) {
+        targetState.rtdbInstances = filteredRtdbInstances;
+      } else {
+        Reflect.deleteProperty(targetState, "rtdbInstances");
+      }
+    }
+  }
 
   const builtProbes: BuiltCampaignProbe[] = [];
   const hits = probeReport.results.filter((r) => r.outcome === "hit");
