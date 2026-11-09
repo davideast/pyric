@@ -186,6 +186,79 @@ describe('the staging engine', () => {
       services: ['firestore', 'rtdb'], engines: ['staging'], staging: staging(fake),
     })).rejects.toThrow(/the staging engine checks RTDB only/);
   });
+
+  it('replays dense arrays, sparse integer-keyed maps, and nested arrays without false state-drift', async () => {
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), RULES);
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await set(ref(db, 'profiles/alice'), {
+      name: 'me',
+      tags: ['alpha', 'beta'],
+      slots: { 0: 'first', 2: 'third' },
+      sections: [{ title: 'intro', links: ['https://example.com/a'] }],
+    });
+    const fixture = JSON.parse(JSON.stringify(buildVerifyFixture({
+      sandbox,
+      rtdbRules: RULES,
+      rtdbState: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)),
+    }))) as PyricVerifyFixture;
+
+    const fake = fakeRtdbRest({ rulesText: ENROLLED });
+    const result = await verifyFixture(fixture, {
+      rules: { rtdb: RULES },
+      engines: ['sandbox', 'staging'],
+      staging: staging(fake),
+    });
+
+    expect(result.services.rtdb?.engines?.sandbox?.divergences).toEqual([]);
+    expect(result.services.rtdb?.engines?.staging?.divergences).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('still reports genuine element-level state-drift on staging when array contents differ, are missing, or are added', async () => {
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), RULES);
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await set(ref(db, 'profiles/alice'), {
+      name: 'me',
+      tags: ['alpha', 'beta'],
+      slots: { 0: 'first', 2: 'third' },
+    });
+    const baseFixture = JSON.parse(JSON.stringify(buildVerifyFixture({
+      sandbox,
+      rtdbRules: RULES,
+      rtdbState: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)),
+    }))) as PyricVerifyFixture;
+
+    // Tamper expected capturedState with a changed element, an extra element, and a removed sparse key.
+    const tampered = JSON.parse(JSON.stringify(baseFixture)) as PyricVerifyFixture;
+    tampered.services.rtdb!.state.tree = {
+      profiles: {
+        alice: {
+          name: 'me',
+          tags: ['alpha', 'changed', 'extra'],
+          slots: { 0: 'first' },
+        },
+      },
+    };
+
+    const fake = fakeRtdbRest({ rulesText: ENROLLED });
+    const result = await verifyFixture(tampered, {
+      rules: { rtdb: RULES },
+      engines: ['sandbox', 'staging'],
+      staging: staging(fake),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.services.rtdb?.engines?.staging?.divergences).toEqual([
+      { service: 'rtdb', kind: 'state-drift', path: '/profiles/alice/tags/1', before: 'changed', after: 'beta' },
+      { service: 'rtdb', kind: 'state-drift', path: '/profiles/alice/tags/2', before: 'extra', after: undefined },
+      { service: 'rtdb', kind: 'state-drift', path: '/profiles/alice/slots/2', before: undefined, after: 'third' },
+    ]);
+    expect(result.services.rtdb?.engines?.sandbox?.divergences).toEqual(
+      result.services.rtdb?.engines?.staging?.divergences,
+    );
+  });
 });
 
 describe('the staging target', () => {

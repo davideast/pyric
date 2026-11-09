@@ -57,7 +57,11 @@ async function project(): Promise<string> {
   rtdbSandbox.setRules(getDatabase(sandbox), RULES);
   rtdbSandbox.setData(getAdminDatabase(sandbox), { '/profiles/bob': { name: 'Bob' }, '/items/a': { owner: 'alice' } });
   const db = getDatabase(sandbox.withAuth({ uid: 'alice', token: { email: 'alice@example.com', firebase: { sign_in_provider: 'password' } } }));
-  await set(ref(db, 'profiles/alice'), { name: 'me' });
+  await set(ref(db, 'profiles/alice'), {
+    name: 'me',
+    tags: ['alpha', 'beta'],
+    slots: { 0: 'first', 2: 'third' },
+  });
   await get(ref(db, 'profiles/alice'));
   const off = onValue(ref(db, 'profiles/alice'), () => {});
   await new Promise((r) => setTimeout(r, 0));
