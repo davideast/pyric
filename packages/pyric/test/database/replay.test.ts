@@ -21,7 +21,7 @@ import {
   update,
   sandbox as rtdbSandbox,
 } from '../../src/database/index.js';
-import { observedCallEvent, replay } from '../../src/sandbox/internal/index.js';
+import { observedCallEvent, replay, rtdbStateDrift } from '../../src/sandbox/internal/index.js';
 
 const ALLOW_ALL = { rules: { '.read': true, '.write': true } };
 const DENY_ALL = { rules: { '.read': false, '.write': false } };
@@ -146,6 +146,92 @@ describe('database replay()', () => {
 
     expect(result.ok).toBe(true);
     expect(result.divergences).toHaveLength(0);
+  });
+
+  it('treats dense arrays, sparse integer-keyed maps with null holes, and nested arrays as equal to storage shape', async () => {
+    const sandbox = initializeSandbox();
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    rtdbSandbox.setRules(db, ALLOW_ALL);
+    await set(ref(db, '/items/item-1'), {
+      tags: ['alpha', 'beta'],
+      slots: { 0: 'first', 2: 'third' },
+      sections: [{ title: 'intro', links: ['https://example.com/a'] }],
+    });
+
+    const storageState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
+    const restShape = {
+      items: {
+        'item-1': {
+          tags: ['alpha', 'beta'],
+          slots: ['first', null, 'third'],
+          sections: [{ title: 'intro', links: ['https://example.com/a'] }],
+        },
+      },
+    };
+
+    expect(rtdbStateDrift(storageState, restShape)).toEqual([]);
+    expect(rtdbStateDrift(restShape, storageState)).toEqual([]);
+    const replayed = await replay(sandbox.history(), {
+      rules: ALLOW_ALL,
+      capturedState: restShape,
+    });
+    expect(replayed.divergences).toEqual([]);
+    expect(replayed.ok).toBe(true);
+  });
+
+  it('reports element-level state-drift when an array element differs, is missing, is added, or fills a sparse hole', () => {
+    const expected = {
+      items: {
+        'item-1': {
+          tags: { '0': 'alpha', '1': 'beta' },
+          slots: { '0': 'first', '2': 'third' },
+        },
+      },
+    };
+
+    expect(rtdbStateDrift(expected, {
+      items: {
+        'item-1': {
+          tags: ['alpha', 'gamma'],
+          slots: ['first', null, 'third'],
+        },
+      },
+    })).toEqual([
+      { kind: 'state-drift', path: '/items/item-1/tags/1', before: 'beta', after: 'gamma' },
+    ]);
+
+    expect(rtdbStateDrift(expected, {
+      items: {
+        'item-1': {
+          tags: ['alpha'],
+          slots: ['first', null, 'third'],
+        },
+      },
+    })).toEqual([
+      { kind: 'state-drift', path: '/items/item-1/tags/1', before: 'beta', after: undefined },
+    ]);
+
+    expect(rtdbStateDrift(expected, {
+      items: {
+        'item-1': {
+          tags: ['alpha', 'beta', 'delta'],
+          slots: ['first', null, 'third'],
+        },
+      },
+    })).toEqual([
+      { kind: 'state-drift', path: '/items/item-1/tags/2', before: undefined, after: 'delta' },
+    ]);
+
+    expect(rtdbStateDrift(expected, {
+      items: {
+        'item-1': {
+          tags: ['alpha', 'beta'],
+          slots: ['first', 'unexpected', 'third'],
+        },
+      },
+    })).toEqual([
+      { kind: 'state-drift', path: '/items/item-1/slots/1', before: undefined, after: 'unexpected' },
+    ]);
   });
 
   it('records and replays priority metadata', async () => {

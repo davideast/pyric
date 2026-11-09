@@ -22,6 +22,7 @@ import {
 } from './index.js';
 import type { QuerySpec } from './internal/query-projection.js';
 import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
+import { normalizeNode } from './sandbox/normalize.js';
 import { resolveDatabaseInstance } from '../sandbox/internal/instances.js';
 import { isProductionServed } from '../sandbox/internal/observed-call.js';
 import { getOrCreateBackend } from './sandbox/backend-for.js';
@@ -171,10 +172,22 @@ function withExportedPriorities(tree: unknown, priorities: Record<string, string
   return out;
 }
 
-/** The paths where `actual` differs from `expected`, as `state-drift` divergences. */
+/**
+ * The paths where `actual` differs from `expected` in RTDB storage shape, as
+ * `state-drift` divergences. Arrays and sparse `null` array holes from REST or
+ * `DataSnapshot.val()` normalize to the same integer-keyed object shape as
+ * `snapshotState`.
+ */
 export function rtdbStateDrift(expected: unknown, actual: unknown): RtdbReplayDivergence[] {
   const out: RtdbReplayDivergence[] = [];
-  collectStateDrift(expected, actual, '/', out);
+  const normalizedExpected = normalizeNode(expected);
+  const normalizedActual = normalizeNode(actual);
+  collectStateDrift(
+    rootComparableState(normalizedExpected, normalizedActual),
+    rootComparableState(normalizedActual, normalizedExpected),
+    '/',
+    out,
+  );
   return out;
 }
 
@@ -210,7 +223,7 @@ export async function replay(
 
   const replayedState = rtdbSandbox.snapshotState(adminDb);
   if (hasCapturedState) {
-    collectStateDrift(opts.capturedState, replayedState, '/', divergences);
+    divergences.push(...rtdbStateDrift(opts.capturedState, replayedState));
   }
 
   return {
@@ -603,8 +616,9 @@ function isRtdbCommit(event: SandboxEvent): event is SandboxCommitEvent {
   return event.kind === 'commit' && event.service === 'rtdb';
 }
 
-function isEmptyRoot(value: unknown): boolean {
-  return value === null || (isJsonObject(value) && Object.keys(value).length === 0);
+function rootComparableState(side: unknown, peer: unknown): unknown {
+  if (side === null && isJsonObject(peer)) return {};
+  return side;
 }
 
 function collectStateDrift(
@@ -614,7 +628,6 @@ function collectStateDrift(
   out: RtdbReplayDivergence[],
 ): void {
   if (jsonValuesEqual(expected, actual)) return;
-  if (path === '/' && isEmptyRoot(expected) && isEmptyRoot(actual)) return;
   if (!isJsonObject(expected) || !isJsonObject(actual)) {
     out.push({
       kind: 'state-drift',
@@ -627,11 +640,7 @@ function collectStateDrift(
 
   const keys = new Set([...Object.keys(expected), ...Object.keys(actual)]);
   for (const key of keys) {
-    collectStateDrift(
-      expected[key],
-      actual[key],
-      path === '/' ? `/${key}` : `${path}/${key}`,
-      out,
-    );
+    const childPath = path === '/' ? `/${key}` : `${path}/${key}`;
+    collectStateDrift(expected[key], actual[key], childPath, out);
   }
 }
