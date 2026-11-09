@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { DOC_VALUE_ENCODING } from '../../firestore/internal/value-codec.js';
+import { rulesSourceRejection } from '../../rules/internal/index.js';
+import { rtdbRulesSourceRejection } from '../../rules/internal/rtdb.js';
 import { base64ToBytes } from '../../storage/base64.js';
 import { normalizePath } from '../../storage/reference.js';
 import { compileStorageRules } from '../../storage/rules-resolution.js';
@@ -31,10 +33,23 @@ const storageObjectSchema = z.union([
   }),
 ]);
 
-const databaseEnvelopeSchema = z.object({
+const singleDatabaseEnvelopeSchema = z.object({
   '.pyricRtdbPersistence': z.literal(1),
   data: z.unknown().refine(value => value !== undefined, 'Required'),
   priorities: z.record(z.union([z.string(), z.number().finite()])),
+});
+
+function hasSupportedSingleDatabaseEnvelope(value: unknown): boolean {
+  const isObject = value !== null && typeof value === 'object' && !Array.isArray(value);
+  if (!isObject) return value !== undefined;
+  if (!('.pyricRtdbPersistence' in value)) return true;
+  return singleDatabaseEnvelopeSchema.safeParse(value).success;
+}
+
+const databaseEnvelopeSchema = singleDatabaseEnvelopeSchema.extend({
+  instances: z
+    .record(z.unknown().refine(hasSupportedSingleDatabaseEnvelope, 'Invalid RTDB persistence envelope'))
+    .optional(),
 });
 
 /** Legacy trees have no marker; a marked record must use the supported envelope. */
@@ -65,7 +80,9 @@ const stateFields = {
   rules: z.object({
     firestore: z.string(),
     database: z.object({ rules: z.record(z.unknown()) }).nullable(),
+    databaseInstances: z.record(z.object({ rules: z.record(z.unknown()) }).nullable()).optional(),
     storage: z.string().nullable(),
+    storageCrossServiceIam: z.enum(['granted', 'denied']).optional(),
   }),
   clock: z.object({ mode: z.enum(['wall', 'fixed', 'offset']),
     fixedAt: z.number().finite(), offsetMs: z.number().finite() }).optional(),
@@ -96,6 +113,31 @@ export function assertCheckpointState(state: unknown): void {
     const hasWrongSize = actualSize !== declaredSize;
     if (hasWrongSize) {
       throw new SandboxError('invalid-argument', `Invalid checkpoint Storage size for '${object.path}'.`);
+    }
+  }
+  const firestoreRules = result.data.rules.firestore;
+  if (firestoreRules.length > 0) {
+    const rejection = rulesSourceRejection(firestoreRules);
+    if (rejection !== null) {
+      throw new SandboxError('invalid-argument', `Invalid checkpoint Firestore rules: ${rejection.message}`);
+    }
+  }
+  const databaseRules = result.data.rules.database;
+  if (databaseRules !== null) {
+    const rejection = rtdbRulesSourceRejection(databaseRules);
+    if (rejection !== null) {
+      throw new SandboxError('invalid-argument', `Invalid checkpoint Realtime Database rules: ${rejection.message}`);
+    }
+  }
+  for (const [instanceName, instanceRules] of Object.entries(result.data.rules.databaseInstances ?? {})) {
+    if (instanceRules !== null) {
+      const rejection = rtdbRulesSourceRejection(instanceRules);
+      if (rejection !== null) {
+        throw new SandboxError(
+          'invalid-argument',
+          `Invalid checkpoint Realtime Database rules for '${instanceName}': ${rejection.message}`,
+        );
+      }
     }
   }
   const storageRules = result.data.rules.storage;

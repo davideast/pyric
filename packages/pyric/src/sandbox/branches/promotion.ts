@@ -16,11 +16,13 @@
 
 import { getAuth, sandbox as authSandbox } from '../../auth/index.js';
 import { getOrCreateBackend } from '../../database/sandbox/backend-for.js';
+import type { RtdbBackend } from '../../database/sandbox/backend.js';
 import type { JsonValue } from '../../database/sandbox/data-tree.js';
 import { deleteObject, ref, uploadBytes } from '../../storage/index.js';
 import {
   base64ToBytes,
   getAdminStorageSandbox,
+  replaceCrossServiceIam,
   replaceStorageRules,
   restoreStorageState,
 } from '../../storage/internal.js';
@@ -32,6 +34,7 @@ import {
 } from '../full-state.js';
 import { authAccountsFor } from 'pyric/sandbox/internal';
 import type { AuthAccountHistory } from '../internal/auth-accounts.js';
+import { databaseInstanceNamed } from '../internal/instances.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
 import { decodeStateDocument } from '../internal/state-values.js';
 import type { LocalSandbox } from '../types/service.js';
@@ -40,7 +43,11 @@ import {
   AUTH_PROVIDER_CONFIG_PATH,
   AUTH_REVOCATIONS_PATH,
   DATABASE_PRIORITY_FIELD,
+  databaseInstancesOf,
+  databasePrioritiesOf,
+  databasePrioritiesOfEnvelope,
   diffFullStates,
+  isBranchingNode,
   type BranchDivergence,
 } from './state-diff.js';
 
@@ -84,21 +91,139 @@ function priorityOf(after: unknown): string | number | null {
   return null;
 }
 
+function forEachLeafEntry(
+  basePath: string,
+  value: JsonValue,
+  visit: (leafPath: string, leafValue: JsonValue) => void,
+): void {
+  if (isBranchingNode(value) && Object.keys(value).length > 0) {
+    for (const [key, child] of Object.entries(value)) {
+      const childPath = basePath === '/' || basePath === '' ? key : `${basePath}/${key}`;
+      forEachLeafEntry(childPath, child, visit);
+    }
+    return;
+  }
+  visit(basePath, value);
+}
+
+function writeLeafEntries(
+  backend: RtdbBackend,
+  basePath: string,
+  value: JsonValue,
+  writtenPaths: string[],
+): void {
+  forEachLeafEntry(basePath, value, (leafPath, leafValue) => {
+    backend.adminSet(leafPath, structuredClone(leafValue));
+    if (leafValue !== null) writtenPaths.push(leafPath);
+  });
+}
+
+function deleteLeafEntries(backend: RtdbBackend, basePath: string, value: JsonValue): void {
+  forEachLeafEntry(basePath, value, (leafPath) => {
+    if (backend.adminGet(leafPath) !== null) {
+      backend.adminSet(leafPath, null);
+    }
+  });
+}
+
 /**
  * Land the Realtime Database paths the branch changed, and their priorities.
  *
- * The diff already reports each change at the shallowest path that differs,
- * which is exactly the granularity `adminSet` takes, so one record is one
- * write.
+ * When a branch creates or deletes a subtree relative to `base`, each leaf is
+ * written or removed individually so concurrent siblings added on `target`
+ * under the same parent or root survive, and unchanged `.priority` values from
+ * `next` are re-applied after `adminSet` writes.
  */
-function promoteDatabase(target: LocalSandbox, divergences: readonly BranchDivergence[]): void {
-  const backend = getOrCreateBackend(target);
+function promoteDatabaseInstance(
+  backend: RtdbBackend,
+  nextPriorities: Record<string, JsonValue>,
+  divergences: readonly BranchDivergence[],
+): void {
+  if (divergences.length === 0) return;
+  const writtenPaths: string[] = [];
+
+  for (const divergence of divergences) {
+    if (divergence.field === DATABASE_PRIORITY_FIELD) continue;
+    const beforeEmpty =
+      divergence.before === null ||
+      (isBranchingNode(divergence.before) && Object.keys(divergence.before).length === 0);
+    const afterEmptyBranch =
+      isBranchingNode(divergence.after) && Object.keys(divergence.after).length === 0;
+    const afterDeleted = divergence.after === null || afterEmptyBranch;
+    if (afterEmptyBranch && beforeEmpty) continue;
+    if (
+      afterDeleted &&
+      isBranchingNode(divergence.before) &&
+      Object.keys(divergence.before).length > 0
+    ) {
+      deleteLeafEntries(backend, divergence.path, divergence.before);
+      continue;
+    }
+    if (
+      beforeEmpty &&
+      isBranchingNode(divergence.after) &&
+      Object.keys(divergence.after).length > 0
+    ) {
+      writeLeafEntries(backend, divergence.path, divergence.after, writtenPaths);
+      continue;
+    }
+    backend.adminSet(
+      divergence.path,
+      afterEmptyBranch ? null : (structuredClone(divergence.after) as JsonValue),
+    );
+    if (!afterDeleted) writtenPaths.push(divergence.path);
+  }
+
+  if (writtenPaths.length > 0) {
+    const normalizedWritten = writtenPaths.map((p) => (p === '/' || p === '' ? '/' : p.replace(/^\/+/, '')));
+    for (const [priorityPath, rawPriority] of Object.entries(nextPriorities)) {
+      const normalizedPriorityPath =
+        priorityPath === '/' || priorityPath === '' ? '/' : priorityPath.replace(/^\/+/, '');
+      const covered = normalizedWritten.some(
+        (written) =>
+          written === '/' ||
+          normalizedPriorityPath === written ||
+          normalizedPriorityPath.startsWith(`${written}/`),
+      );
+      if (covered) {
+        backend.adminSetPriority(priorityPath, priorityOf(rawPriority));
+      }
+    }
+  }
+
   for (const divergence of divergences) {
     if (divergence.field === DATABASE_PRIORITY_FIELD) {
       backend.adminSetPriority(divergence.path, priorityOf(divergence.after));
-      continue;
     }
-    backend.adminSet(divergence.path, structuredClone(divergence.after) as JsonValue);
+  }
+}
+
+function promoteDatabase(
+  target: LocalSandbox,
+  next: FullSandboxState,
+  divergences: readonly BranchDivergence[],
+): void {
+  if (divergences.length === 0) return;
+  const byInstance = new Map<string | undefined, BranchDivergence[]>();
+  for (const divergence of divergences) {
+    let bucket = byInstance.get(divergence.instance);
+    if (bucket === undefined) {
+      bucket = [];
+      byInstance.set(divergence.instance, bucket);
+    }
+    bucket.push(divergence);
+  }
+  const nextInstances = databaseInstancesOf(next);
+  for (const [instance, slice] of byInstance) {
+    const backend = getOrCreateBackend(
+      target,
+      instance === undefined ? undefined : databaseInstanceNamed(instance),
+    );
+    const nextPriorities =
+      instance === undefined
+        ? databasePrioritiesOf(next)
+        : databasePrioritiesOfEnvelope(nextInstances[instance] ?? null);
+    promoteDatabaseInstance(backend, nextPriorities, slice);
   }
 }
 
@@ -158,12 +283,8 @@ function promoteAuth(
   const auth = getAuth(target);
   const accounts = new Map(next.auth.users.map((user) => [user.uid, user]));
   const changed: FullSandboxState['auth']['users'] = [];
-  let providersDiverged = false;
   for (const path of divergedPaths(divergences)) {
-    if (path === AUTH_PROVIDER_CONFIG_PATH) {
-      providersDiverged = true;
-      continue;
-    }
+    if (path === AUTH_PROVIDER_CONFIG_PATH) continue;
     const isHistory = path === AUTH_REVOCATIONS_PATH || path === AUTH_DELETIONS_PATH;
     if (isHistory) continue;
     const account = accounts.get(path);
@@ -174,7 +295,21 @@ function promoteAuth(
     changed.push(account);
   }
   if (changed.length > 0) authSandbox.seedUsers(auth, structuredClone(changed));
-  if (providersDiverged) authSandbox.restoreProviderConfig(auth, { ...next.auth.providers });
+  const providerChanges = divergences.filter(
+    (divergence) => divergence.path === AUTH_PROVIDER_CONFIG_PATH && divergence.field !== undefined,
+  );
+  if (providerChanges.length > 0) {
+    const mergedProviders = { ...authSandbox.exportProviderConfig(auth) };
+    for (const change of providerChanges) {
+      const providerId = change.field!;
+      if (typeof change.after === 'boolean') {
+        mergedProviders[providerId] = change.after;
+      } else {
+        delete mergedProviders[providerId];
+      }
+    }
+    authSandbox.restoreProviderConfig(auth, mergedProviders);
+  }
   promoteAuthHistory(target, next, divergences);
 }
 
@@ -224,13 +359,29 @@ async function promoteRules(
   next: FullSandboxState,
   divergences: readonly BranchDivergence[],
 ): Promise<void> {
-  for (const service of divergedPaths(divergences)) {
-    if (service === 'firestore') {
+  const seen = new Set<string>();
+  for (const divergence of divergences) {
+    const key = `${divergence.path}:${divergence.instance ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    if (divergence.path === 'firestore') {
       getInternalEnv(target).deployRules(next.rules.firestore);
       continue;
     }
-    if (service === 'database') {
-      getOrCreateBackend(target).setRules(structuredClone(next.rules.database));
+    if (divergence.path === 'database') {
+      if (divergence.instance !== undefined) {
+        getOrCreateBackend(
+          target,
+          databaseInstanceNamed(divergence.instance),
+        ).setRules(structuredClone(next.rules.databaseInstances?.[divergence.instance] ?? null));
+      } else {
+        getOrCreateBackend(target).setRules(structuredClone(next.rules.database));
+      }
+      continue;
+    }
+    if (divergence.path === 'storageCrossServiceIam') {
+      await replaceCrossServiceIam(target, next.rules.storageCrossServiceIam ?? 'granted');
       continue;
     }
     await replaceStorageRules(target, next.rules.storage);
@@ -252,7 +403,7 @@ export async function promoteFullState(
 ): Promise<void> {
   const divergences = diffFullStates(base, next);
   promoteFirestore(target, next, forService(divergences, 'firestore'));
-  promoteDatabase(target, forService(divergences, 'database'));
+  promoteDatabase(target, next, forService(divergences, 'database'));
   promoteAuth(target, next, forService(divergences, 'auth'));
   await promoteStorage(target, next, forService(divergences, 'storage'));
   await promoteRules(target, next, forService(divergences, 'rules'));

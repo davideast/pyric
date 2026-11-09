@@ -36,6 +36,8 @@ export { jsonEqual };
  */
 export type BranchDivergence = Extract<Divergence, { kind: 'real-divergence' }> & {
   service: SandboxService;
+  /** Secondary Realtime Database instance name; omitted for the default instance and non-RTDB services. */
+  instance?: string;
 };
 
 /**
@@ -66,15 +68,39 @@ export interface TreeChange {
 }
 
 /** True when a JSON value is a plain object the walk should descend into. */
-function isBranchingNode(value: unknown): value is Record<string, JsonValue> {
+export function isBranchingNode(value: unknown): value is Record<string, JsonValue> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
 
-/** The `data` subtree of a Realtime Database persistence envelope. */
-export function databaseTreeOf(state: FullSandboxState): JsonValue {
-  const envelope = state.database;
+function isEmptyRtdbRoot(tree: JsonValue): boolean {
+  return tree === null || (isBranchingNode(tree) && Object.keys(tree).length === 0);
+}
+
+/**
+ * Normalize two Realtime Database root values together so `null` and `{}` are
+ * equivalent when both sides are empty, while a root-emptying or
+ * root-populating object change walks top-level keys instead of reporting `/`.
+ */
+function normalizeRtdbRootPair(
+  beforeTree: JsonValue,
+  afterTree: JsonValue,
+): [JsonValue, JsonValue] {
+  const beforeEmpty = isEmptyRtdbRoot(beforeTree);
+  const afterEmpty = isEmptyRtdbRoot(afterTree);
+  if (beforeEmpty && afterEmpty) return [null, null];
+  if (beforeEmpty) {
+    return [isBranchingNode(afterTree) ? {} : null, afterTree];
+  }
+  if (afterEmpty) {
+    return [beforeTree, isBranchingNode(beforeTree) ? {} : null];
+  }
+  return [beforeTree, afterTree];
+}
+
+/** Extract the `data` subtree of one Realtime Database persistence envelope. */
+function databaseTreeOfEnvelope(envelope: JsonValue): JsonValue {
   if (!isBranchingNode(envelope)) return envelope;
   if (!('.pyricRtdbPersistence' in envelope)) return envelope;
   const data = envelope.data;
@@ -82,13 +108,31 @@ export function databaseTreeOf(state: FullSandboxState): JsonValue {
   return data;
 }
 
-/** The priorities map of a Realtime Database persistence envelope. */
-export function databasePrioritiesOf(state: FullSandboxState): Record<string, JsonValue> {
-  const envelope = state.database;
+/** Extract the priorities map of one Realtime Database persistence envelope. */
+export function databasePrioritiesOfEnvelope(envelope: JsonValue): Record<string, JsonValue> {
   if (!isBranchingNode(envelope)) return {};
   const priorities = envelope.priorities;
   if (!isBranchingNode(priorities)) return {};
   return priorities;
+}
+
+/** Secondary Realtime Database persistence envelopes by instance name. */
+export function databaseInstancesOf(state: FullSandboxState): Record<string, JsonValue> {
+  const envelope = state.database;
+  if (!isBranchingNode(envelope) || !('.pyricRtdbPersistence' in envelope)) return {};
+  const instances = envelope.instances;
+  if (!isBranchingNode(instances)) return {};
+  return instances;
+}
+
+/** The `data` subtree of a Realtime Database persistence envelope. */
+export function databaseTreeOf(state: FullSandboxState): JsonValue {
+  return databaseTreeOfEnvelope(state.database);
+}
+
+/** The priorities map of a Realtime Database persistence envelope. */
+export function databasePrioritiesOf(state: FullSandboxState): Record<string, JsonValue> {
+  return databasePrioritiesOfEnvelope(state.database);
 }
 
 /**
@@ -194,25 +238,63 @@ function diffFirestore(before: FullSandboxState, after: FullSandboxState): Branc
   return out;
 }
 
-/** The Realtime Database tree and its priorities, by database path. */
-function diffDatabase(before: FullSandboxState, after: FullSandboxState): BranchDivergence[] {
-  const out: BranchDivergence[] = [];
-  for (const change of diffTrees(databaseTreeOf(before), databaseTreeOf(after))) {
-    out.push(divergenceAt('database', change.path, undefined, change.before, change.after));
+function diffDatabaseEnvelope(
+  beforeTree: JsonValue,
+  afterTree: JsonValue,
+  beforePriorities: Record<string, JsonValue>,
+  afterPriorities: Record<string, JsonValue>,
+  instance: string | undefined,
+  out: BranchDivergence[],
+): void {
+  const tag = (record: BranchDivergence): BranchDivergence =>
+    instance === undefined ? record : { ...record, instance };
+  const [normalizedBefore, normalizedAfter] = normalizeRtdbRootPair(beforeTree, afterTree);
+  for (const change of diffTrees(normalizedBefore, normalizedAfter)) {
+    out.push(tag(divergenceAt('database', change.path, undefined, change.before, change.after)));
   }
-  const beforePriorities = databasePrioritiesOf(before);
-  const afterPriorities = databasePrioritiesOf(after);
   const paths = new Set([...Object.keys(beforePriorities), ...Object.keys(afterPriorities)]);
   for (const path of paths) {
     if (jsonEqual(beforePriorities[path], afterPriorities[path])) continue;
     out.push(
-      divergenceAt(
-        'database',
-        path,
-        DATABASE_PRIORITY_FIELD,
-        beforePriorities[path],
-        afterPriorities[path],
+      tag(
+        divergenceAt(
+          'database',
+          path,
+          DATABASE_PRIORITY_FIELD,
+          beforePriorities[path],
+          afterPriorities[path],
+        ),
       ),
+    );
+  }
+}
+
+/** The Realtime Database tree and its priorities, by database path (default and secondary instances). */
+function diffDatabase(before: FullSandboxState, after: FullSandboxState): BranchDivergence[] {
+  const out: BranchDivergence[] = [];
+  diffDatabaseEnvelope(
+    databaseTreeOf(before),
+    databaseTreeOf(after),
+    databasePrioritiesOf(before),
+    databasePrioritiesOf(after),
+    undefined,
+    out,
+  );
+  const beforeInstances = databaseInstancesOf(before);
+  const afterInstances = databaseInstancesOf(after);
+  const instanceNames = [
+    ...new Set([...Object.keys(beforeInstances), ...Object.keys(afterInstances)]),
+  ].sort();
+  for (const name of instanceNames) {
+    const beforeInst = beforeInstances[name] ?? null;
+    const afterInst = afterInstances[name] ?? null;
+    diffDatabaseEnvelope(
+      databaseTreeOfEnvelope(beforeInst),
+      databaseTreeOfEnvelope(afterInst),
+      databasePrioritiesOfEnvelope(beforeInst),
+      databasePrioritiesOfEnvelope(afterInst),
+      name,
+      out,
     );
   }
   return out;
@@ -311,10 +393,30 @@ function diffRules(before: FullSandboxState, after: FullSandboxState): BranchDiv
       divergenceAt('rules', 'database', undefined, before.rules.database, after.rules.database),
     );
   }
+  const beforeDbInstances = before.rules.databaseInstances ?? {};
+  const afterDbInstances = after.rules.databaseInstances ?? {};
+  const dbInstanceNames = [
+    ...new Set([...Object.keys(beforeDbInstances), ...Object.keys(afterDbInstances)]),
+  ].sort();
+  for (const name of dbInstanceNames) {
+    const beforeRules = beforeDbInstances[name] ?? null;
+    const afterRules = afterDbInstances[name] ?? null;
+    if (!jsonEqual(beforeRules, afterRules)) {
+      out.push({
+        ...divergenceAt('rules', 'database', undefined, beforeRules, afterRules),
+        instance: name,
+      });
+    }
+  }
   if (before.rules.storage !== after.rules.storage) {
     out.push(
       divergenceAt('rules', 'storage', undefined, before.rules.storage, after.rules.storage),
     );
+  }
+  const beforeIam = before.rules.storageCrossServiceIam ?? 'granted';
+  const afterIam = after.rules.storageCrossServiceIam ?? 'granted';
+  if (beforeIam !== afterIam) {
+    out.push(divergenceAt('rules', 'storageCrossServiceIam', undefined, beforeIam, afterIam));
   }
   return out;
 }

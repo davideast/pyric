@@ -28,7 +28,7 @@
  */
 
 import { getAuth, sandbox as authSandbox, type Auth, type SeedUser } from '../auth/index.js';
-import { getOrCreateBackend } from '../database/sandbox/backend-for.js';
+import { getOrCreateBackend, heldDatabaseInstances } from '../database/sandbox/backend-for.js';
 import type { RtdbBackend } from '../database/sandbox/backend.js';
 import type { JsonValue } from '../database/sandbox/data-tree.js';
 import { DOC_VALUE_ENCODING, type DocValueEncoding } from '../firestore/internal/value-codec.js';
@@ -38,10 +38,14 @@ import {
   type FirebaseStorage,
 } from '../storage/index.js';
 import {
+  DEFAULT_BUCKET,
   base64ToBytes,
   getAdminStorageSandbox,
+  getStorageCrossServiceIam,
   getStorageRulesResolution,
   getStorageService,
+  pruneStorageBucketRules,
+  replaceCrossServiceIam,
   replaceStorageRules,
   referenceStorageState,
   resetStorageState,
@@ -54,6 +58,8 @@ import { getInternalEnv } from './internal/sandbox-impl.js';
 import { authAccountsFor } from 'pyric/sandbox/internal';
 import type { AuthAccountHistory } from './internal/auth-accounts.js';
 import { assertInlineStorageFits, base64DecodedLength, type InlineStorageDocument } from './internal/inline-storage-limit.js';
+import { databaseInstanceNamed } from './internal/instances.js';
+import { readStorageCaches } from './internal/snapshot-codec.js';
 import { encodeStateDocument, decodeStateDocument } from './internal/state-values.js';
 import { getClock, type SandboxClockState } from './clock.js';
 import type { LocalSandbox } from './types/service.js';
@@ -134,8 +140,12 @@ export interface SandboxRuleSources {
   firestore: string;
   /** Realtime Database rules, or null when the sandbox runs without them. */
   database: DatabaseRuleset | null;
+  /** Secondary Realtime Database rulesets by instance name; omitted when none are installed. */
+  databaseInstances?: Record<string, DatabaseRuleset | null>;
   /** Storage Security Rules source, or null when the sandbox runs without them. */
   storage: string | null;
+  /** Cross-service IAM posture for Storage `firestore.get()` / `firestore.exists()`; omitted when `'granted'`. */
+  storageCrossServiceIam?: 'granted' | 'denied';
 }
 
 /**
@@ -254,8 +264,8 @@ async function captureStorage(storage: FirebaseStorage, mode: 'inline' | 'refere
     const object: StorageObjectState = {
       path: fullPath,
       contentBase64: record.dataBase64,
-      customMetadata: customMetadata ?? {},
-      metadata,
+      customMetadata: customMetadata !== undefined ? { ...customMetadata } : {},
+      metadata: structuredClone(metadata),
       blobType: record.blobType,
     };
     const hasContentType = contentType !== undefined;
@@ -277,8 +287,8 @@ async function captureStorageReferences(storage: FirebaseStorage): Promise<Stora
       path: fullPath,
       sha256: record.sha256,
       size: record.size,
-      customMetadata: customMetadata ?? {},
-      metadata,
+      customMetadata: customMetadata !== undefined ? { ...customMetadata } : {},
+      metadata: structuredClone(metadata),
       blobType: record.blobType,
     };
     const hasContentType = contentType !== undefined;
@@ -289,10 +299,18 @@ async function captureStorageReferences(storage: FirebaseStorage): Promise<Stora
 
 /** The auth account store: accounts, provider config, and the revocations and deletions over them. */
 function captureAuth(sandbox: LocalSandbox, auth: Auth): AuthAccountsState {
-  const users = authSandbox.exportUsers(auth);
-  const providers = authSandbox.exportProviderConfig(auth);
+  const users = structuredClone(authSandbox.exportUsers(auth));
+  const providers = { ...authSandbox.exportProviderConfig(auth) };
   const history = authAccountsFor(sandbox)?.history();
-  return history === undefined ? { users, providers } : { users, providers, history };
+  return history === undefined ? { users, providers } : { users, providers, history: structuredClone(history) };
+}
+
+function isEmptyRtdbTree(data: JsonValue | undefined): boolean {
+  if (data === null || data === undefined) return true;
+  if (typeof data === 'object' && !Array.isArray(data)) {
+    return Object.keys(data).length === 0;
+  }
+  return false;
 }
 
 /**
@@ -307,16 +325,50 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
   const auth = authFor(sandbox);
   const storage = storageFor(sandbox);
 
+  const secondaryDatabaseData: Record<string, JsonValue> = {};
+  const secondaryDatabaseRules: Record<string, DatabaseRuleset | null> = {};
+  for (const name of heldDatabaseInstances(sandbox)) {
+    const instBackend = getOrCreateBackend(sandbox, databaseInstanceNamed(name));
+    const instEnvelope = databaseStateWithoutRules(instBackend);
+    const instRules = instBackend.getActiveRules();
+    const isEnvelopeObj =
+      instEnvelope !== null && typeof instEnvelope === 'object' && !Array.isArray(instEnvelope);
+    const hasData = isEnvelopeObj
+      ? !isEmptyRtdbTree((instEnvelope as Record<string, JsonValue>).data) ||
+        Object.keys(((instEnvelope as Record<string, JsonValue>).priorities ?? {}) as Record<string, unknown>).length > 0
+      : !isEmptyRtdbTree(instEnvelope);
+    if (hasData) secondaryDatabaseData[name] = instEnvelope;
+    if (instRules !== null) secondaryDatabaseRules[name] = instRules;
+  }
+
+  let defaultDatabase = databaseStateWithoutRules(database);
+  if (
+    Object.keys(secondaryDatabaseData).length > 0 &&
+    defaultDatabase !== null &&
+    typeof defaultDatabase === 'object' &&
+    !Array.isArray(defaultDatabase)
+  ) {
+    defaultDatabase = {
+      ...(defaultDatabase as Record<string, JsonValue>),
+      instances: secondaryDatabaseData,
+    } as unknown as JsonValue;
+  }
+
+  const crossServiceIam = getStorageCrossServiceIam(sandbox);
   const rules: SandboxRuleSources = {
     firestore: env.getRules(),
     database: database.getActiveRules(),
+    ...(Object.keys(secondaryDatabaseRules).length > 0
+      ? { databaseInstances: secondaryDatabaseRules }
+      : {}),
     storage: getStorageRulesResolution(storage)?.source ?? null,
+    ...(crossServiceIam === 'denied' ? { storageCrossServiceIam: 'denied' } : {}),
   };
 
   return {
     firestore: Object.fromEntries(Object.entries(env.snapshot()).map(([path, data]) => [path, encodeStateDocument(data)])),
     firestoreEncoding: DOC_VALUE_ENCODING,
-    database: databaseStateWithoutRules(database),
+    database: defaultDatabase,
     storage: await captureStorage(storage, options.storage ?? 'inline'),
     auth: captureAuth(sandbox, auth),
     rules: structuredClone(rules),
@@ -372,7 +424,9 @@ function databaseEnvelopeWithRules(
     && (clonedDb as Record<string, JsonValue>).priorities !== null
     && !Array.isArray((clonedDb as Record<string, JsonValue>).priorities)
   ) {
-    return { ...(clonedDb as Record<string, JsonValue>), rules: clonedRules };
+    const rest: Record<string, JsonValue> = { ...(clonedDb as Record<string, JsonValue>) };
+    delete rest.instances;
+    return { ...rest, rules: clonedRules };
   }
   return {
     '.pyricRtdbPersistence': 1,
@@ -382,11 +436,40 @@ function databaseEnvelopeWithRules(
   };
 }
 
-/** Replace the target's Realtime Database tree and install the state's ruleset atomically before fan-out. */
+function extractDatabaseInstances(database: FullSandboxState['database']): Record<string, JsonValue> {
+  if (database === null || typeof database !== 'object' || Array.isArray(database)) return {};
+  const record = database as Record<string, JsonValue>;
+  if (record['.pyricRtdbPersistence'] !== 1) return {};
+  const rawInstances = record.instances;
+  if (rawInstances === null || typeof rawInstances !== 'object' || Array.isArray(rawInstances)) return {};
+  return rawInstances as Record<string, JsonValue>;
+}
+
+/** Replace the target's Realtime Database trees and install each instance's ruleset atomically before fan-out. */
 function applyDatabase(sandbox: LocalSandbox, state: FullSandboxState): void {
   const backend = databaseBackendFor(sandbox);
   backend.restoreTree(databaseEnvelopeWithRules(state.database, state.rules.database));
   backend.setRules(structuredClone(state.rules.database));
+
+  const capturedInstances = extractDatabaseInstances(state.database);
+  const capturedRules = state.rules.databaseInstances ?? {};
+  const allNames = new Set([...Object.keys(capturedInstances), ...Object.keys(capturedRules)]);
+  const emptyEnvelope: JsonValue = { '.pyricRtdbPersistence': 1, data: null, priorities: {} };
+
+  for (const existingName of heldDatabaseInstances(sandbox)) {
+    if (allNames.has(existingName)) continue;
+    const existingBackend = getOrCreateBackend(sandbox, databaseInstanceNamed(existingName));
+    existingBackend.restoreTree(databaseEnvelopeWithRules(emptyEnvelope, null));
+    existingBackend.setRules(null);
+  }
+
+  for (const name of allNames) {
+    const instBackend = getOrCreateBackend(sandbox, databaseInstanceNamed(name));
+    const instDb = capturedInstances[name] ?? emptyEnvelope;
+    const instRules = capturedRules[name] ?? null;
+    instBackend.restoreTree(databaseEnvelopeWithRules(instDb, instRules));
+    instBackend.setRules(structuredClone(instRules));
+  }
 }
 
 /**
@@ -407,11 +490,16 @@ function applyAuth(sandbox: LocalSandbox, accounts: AuthAccountsState): void {
   if (carriesHistory) table?.replayHistory(structuredClone(accounts.history!));
 }
 
-/** Replace the target's bucket with exactly the objects the state holds. */
+/** Replace the target's bucket with exactly the objects the state holds, wiping any non-default buckets. */
 async function applyStorage(
   sandbox: LocalSandbox,
   objects: readonly StorageObjectState[],
 ): Promise<void> {
+  const caches = readStorageCaches();
+  for (const scopedKey of caches?.scopedServices.get(sandbox)?.keys() ?? []) {
+    if (scopedKey === DEFAULT_BUCKET) continue;
+    await resetStorageState(getAdminStorageSandbox(sandbox, { bucket: scopedKey }));
+  }
   const storage = storageFor(sandbox);
   await resetStorageState(storage);
   for (const object of objects) {
@@ -460,9 +548,18 @@ export function installsStorageRules(source: string | null): source is string {
   return source !== null;
 }
 
-/** Install the Storage ruleset the state carries, or clear it when `source` is `null`. */
-async function applyStorageRules(sandbox: LocalSandbox, source: string | null): Promise<void> {
+/** Install the Storage ruleset and cross-service IAM posture the state carries. */
+async function applyStorageRules(
+  sandbox: LocalSandbox,
+  source: string | null,
+  crossServiceIam: 'granted' | 'denied' | undefined,
+): Promise<void> {
+  pruneStorageBucketRules(sandbox, new Set());
   await replaceStorageRules(sandbox, source);
+  const nextCrossServiceIam = crossServiceIam ?? 'granted';
+  if (nextCrossServiceIam !== getStorageCrossServiceIam(sandbox)) {
+    await replaceCrossServiceIam(sandbox, nextCrossServiceIam);
+  }
 }
 
 /**
@@ -482,5 +579,5 @@ export async function applyFullState(
   applyDatabase(sandbox, state);
   applyAuth(sandbox, state.auth);
   await applyStorage(sandbox, state.storage);
-  await applyStorageRules(sandbox, state.rules.storage);
+  await applyStorageRules(sandbox, state.rules.storage, state.rules.storageCrossServiceIam);
 }

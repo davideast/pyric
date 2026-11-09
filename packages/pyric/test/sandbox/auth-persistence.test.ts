@@ -328,3 +328,45 @@ it('retains saved accounts through a restart that only uses Firestore', async ()
     expect(authSandbox.listIdentities(getAuth(last)).map(user => user.email)).toEqual(['retained@example.test']);
   } finally { last.dispose(); }
 });
+
+describe('email-less non-anonymous account persistence', () => {
+  it('preserves phone-only, custom-provider, and custom-token UID-only accounts across snapshot, checkpoint, and fork', async () => {
+    const { captureFullState, fork } = await import('../../src/sandbox/index.js');
+    const { captureCheckpoint, restoreCheckpoint } = await import('../../src/sandbox/checkpoints/index.js');
+    const { mintCustomTokenFor, signInWithCustomToken } = await import('../../src/auth/tokens.js');
+
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.seedUsers(auth, [
+      { uid: 'u-email', email: 'user@example.com', password: 'password123' },
+      { uid: 'u-phone', phoneNumber: '+15550100100', providerId: 'phone' },
+      { uid: 'u-custom', providerId: 'custom', customClaims: { role: 'worker' } },
+    ]);
+    const customToken = mintCustomTokenFor(auth, 'u-redeemed', { scope: 'sync' });
+    await signInWithCustomToken(auth, customToken);
+
+    const expectedUids = ['u-custom', 'u-email', 'u-phone', 'u-redeemed'];
+    expect(authSandbox.listIdentities(auth).map((u) => u.uid).sort()).toEqual(expectedUids);
+
+    const branch = await fork(await captureFullState(sandbox));
+    const branchAuth = getAuth(branch.sandbox);
+    expect(authSandbox.listIdentities(branchAuth).map((u) => u.uid).sort()).toEqual(expectedUids);
+    const branchExported = authSandbox.exportUsers(branchAuth);
+    expect(branchExported.find((u) => u.uid === 'u-phone')?.phoneNumber).toBe('+15550100100');
+    expect(branchExported.find((u) => u.uid === 'u-custom')?.customClaims).toEqual({ role: 'worker' });
+    const branchRedeemed = authSandbox.listIdentities(branchAuth).find((u) => u.uid === 'u-redeemed');
+    expect(branchRedeemed?.isAnonymous).toBe(false);
+    expect(branchRedeemed?.providerUserInfo).toEqual([]);
+
+    const checkpoint = await captureCheckpoint(sandbox);
+    const restoredCheckpointSb = initializeSandbox();
+    await restoreCheckpoint(restoredCheckpointSb, checkpoint);
+    expect(authSandbox.listIdentities(getAuth(restoredCheckpointSb)).map((u) => u.uid).sort()).toEqual(expectedUids);
+
+    const snap = sandbox.snapshot();
+    const loadedSb = initializeSandbox();
+    getAuth(loadedSb);
+    loadedSb.loadSnapshot(snap);
+    expect(authSandbox.listIdentities(getAuth(loadedSb)).map((u) => u.uid).sort()).toEqual(expectedUids);
+  });
+});

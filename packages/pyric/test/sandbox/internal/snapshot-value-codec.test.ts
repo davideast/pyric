@@ -138,4 +138,79 @@ describe('snapshot-value-codec', () => {
     expect(sdkDecoded).toEqual(original);
     expect(envDecoded).toEqual(original);
   });
+
+  it('preserves sibling fields on hand-authored and encoded maps carrying type pyric/map/1.0 and fields', () => {
+    const sandbox = initializeSandbox();
+    const db = getAdminFirestore(sandbox);
+    const plainSeedDoc = {
+      ownerId: 'u1',
+      type: 'pyric/map/1.0',
+      fields: { nested: 'x' },
+      title: 'doc',
+      sub: {
+        ownerId: 'u1',
+        type: 'pyric/map/1.0',
+        fields: { inner: 1 },
+      },
+    };
+
+    expect(decodeSnapshotMap(plainSeedDoc, { create: (path) => doc(db, path) })).toEqual(plainSeedDoc);
+    expect(decodeSnapshotMapForEnv(plainSeedDoc)).toEqual(plainSeedDoc);
+
+    const encoded = JSON.parse(JSON.stringify(encodeSnapshotMap(plainSeedDoc)));
+    expect(decodeSnapshotMap(encoded, { create: (path) => doc(db, path) })).toEqual(plainSeedDoc);
+    expect(decodeSnapshotMapForEnv(encoded)).toEqual(plainSeedDoc);
+  });
+
+  it('round-trips adversarial pyric/map/1.0 envelope collision shapes bijectively', () => {
+    const sandbox = initializeSandbox();
+    const db = getAdminFirestore(sandbox);
+    const refDecoder = { create: (path: string) => doc(db, path) };
+    const cases: Array<{ name: string; input: Record<string, unknown> }> = [
+      { name: '0 keys', input: {} },
+      { name: '1 key (type only)', input: { type: 'pyric/map/1.0' } },
+      { name: '2 keys (non-object fields string)', input: { type: 'pyric/map/1.0', fields: 'str' } },
+      { name: '2 keys (null fields)', input: { type: 'pyric/map/1.0', fields: null } },
+      { name: '2 keys (array fields)', input: { type: 'pyric/map/1.0', fields: [1, 2] } },
+      { name: '2 keys (exact envelope shape)', input: { type: 'pyric/map/1.0', fields: { x: 1 } } },
+      { name: '3+ keys (envelope + sibling)', input: { type: 'pyric/map/1.0', fields: { x: 1 }, sibling: 'kept' } },
+      {
+        name: 'nested inside arrays',
+        input: {
+          items: [
+            { type: 'pyric/map/1.0' },
+            { type: 'pyric/map/1.0', fields: 'str' },
+            { type: 'pyric/map/1.0', fields: { x: 1 } },
+            { type: 'pyric/map/1.0', fields: { x: 1 }, sibling: 'kept' },
+          ],
+        },
+      },
+      {
+        name: 'nested inside maps',
+        input: {
+          outer: { type: 'pyric/map/1.0', fields: { x: 1 } },
+          withSibling: { type: 'pyric/map/1.0', fields: { x: 1 }, extra: true },
+        },
+      },
+      {
+        name: 'nested inside another pyric/map/1.0 envelope',
+        input: {
+          type: 'pyric/map/1.0',
+          fields: {
+            type: 'pyric/map/1.0',
+            fields: {
+              x: 1,
+              deep: { type: 'pyric/map/1.0', fields: { y: 2 }, sibling: 'ok' },
+            },
+          },
+        },
+      },
+    ];
+
+    for (const { input } of cases) {
+      const wire = JSON.parse(JSON.stringify(encodeSnapshotMap(input)));
+      expect(decodeSnapshotMap(wire, refDecoder)).toEqual(input);
+      expect(decodeSnapshotMapForEnv(wire)).toEqual(input);
+    }
+  });
 });

@@ -184,4 +184,36 @@ describe('the branch store across every service', () => {
     expect(loaded!.branch.base).toEqual(branch.base);
     expect(loaded!.branch.base).not.toEqual(await captureFullState(loaded!.branch.sandbox));
   });
+
+  it('preserves rules evolved on the branch after fork instead of overwriting state/rules.json with initial candidateRules', async () => {
+    const { getStorageRulesResolution, replaceStorageRules } = await import('../../../src/storage/internal.js');
+    const initialStorageRules = `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /{allPaths=**} { allow read: if false; } } }`;
+    const evolvedFirestoreRules = `rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /items/{id} { allow read, write: if request.auth != null; } } }`;
+    const evolvedDatabaseRules = { rules: { items: { '.read': 'auth != null', '.write': 'auth != null' } } };
+    const evolvedStorageRules = `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /items/{id} { allow read: if request.auth != null; } } }`;
+
+    const branch = await fork(await captureFullState(await populatedSandbox()), {
+      firestore: CANDIDATE_FIRESTORE_RULES,
+      database: { rules: { '.read': false, '.write': false } },
+      storage: initialStorageRules,
+    });
+
+    getInternalEnv(branch.sandbox).deployRules(evolvedFirestoreRules);
+    getOrCreateBackend(branch.sandbox).setRules(evolvedDatabaseRules);
+    await replaceStorageRules(branch.sandbox, evolvedStorageRules);
+
+    await saveBranch(projectDir, 'evolved-rules', branch, { base: 'live' });
+    const loaded = await loadBranch(projectDir, 'evolved-rules');
+    expect(loaded).not.toBeNull();
+    expect(loaded!.branch.candidateRules).toEqual({
+      firestore: CANDIDATE_FIRESTORE_RULES,
+      database: { rules: { '.read': false, '.write': false } },
+      storage: initialStorageRules,
+    });
+    expect(getInternalEnv(loaded!.branch.sandbox).getRules()).toBe(evolvedFirestoreRules);
+    expect(getOrCreateBackend(loaded!.branch.sandbox).getActiveRules()).toEqual(evolvedDatabaseRules);
+    expect(getStorageRulesResolution(getAdminStorageSandbox(loaded!.branch.sandbox))?.source).toBe(
+      evolvedStorageRules,
+    );
+  });
 });

@@ -45,6 +45,18 @@ describe('countsOf', () => {
     expect(countsOf(emptied).storage).toBe(0);
     expect(countsOf(emptied).auth).toBe(0);
   });
+
+  it('counts a scalar Realtime Database root value as 1 rather than counting persistence envelope keys', async () => {
+    const { initializeSandbox } = await import('../../../src/sandbox/index.js');
+    const sandbox = initializeSandbox();
+    getOrCreateBackend(sandbox).adminSet('/', 'scalar-root-value');
+    const checkpoint = await captureCheckpoint(sandbox);
+    expect(checkpoint.counts.database).toBe(1);
+
+    getOrCreateBackend(sandbox).adminRemove('/');
+    const emptyCheckpoint = await captureCheckpoint(sandbox);
+    expect(emptyCheckpoint.counts.database).toBe(0);
+  });
 });
 
 describe('restoreCheckpoint', () => {
@@ -81,5 +93,25 @@ describe('restoreCheckpoint', () => {
     await restoreCheckpoint(sandbox, checkpoint);
     const state = await captureFullState(sandbox);
     expect(state.auth.users.map((user) => user.uid)).toEqual(['alice']);
+  });
+
+  it('rejects malformed Firestore or Realtime Database rules with invalid-argument before resetting live state', async () => {
+    const sandbox = await populatedSandbox();
+    const validCheckpoint = await captureCheckpoint(sandbox);
+    const before = await captureFullState(sandbox);
+
+    const badFirestore = structuredClone(validCheckpoint);
+    badFirestore.state.rules.firestore = "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents {";
+    await expect(restoreCheckpoint(sandbox, badFirestore)).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
+    expect(await captureFullState(sandbox)).toEqual(before);
+
+    const badDatabase = structuredClone(validCheckpoint);
+    badDatabase.state.rules.database = { rules: { rooms: { '.read': 'auth.uid ===' } } };
+    await expect(restoreCheckpoint(sandbox, badDatabase)).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
+    expect(await captureFullState(sandbox)).toEqual(before);
   });
 });

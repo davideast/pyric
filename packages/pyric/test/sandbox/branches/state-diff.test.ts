@@ -255,4 +255,42 @@ describe('diffFullStates', () => {
     expect(jsonEqual(new Date(1_000), new Date(2_000))).toBe(false);
     expect(jsonEqual(new Date(1_000), {})).toBe(false);
   });
+
+  it('diffs Realtime Database root-emptying and root-populating object changes by top-level key rather than /', () => {
+    expect(diffFullStates(state({ database: null }), state({ database: envelope({}) }))).toEqual([]);
+
+    expect(
+      diffFullStates(state({ database: null }), state({ database: envelope({ a: 1 }) })),
+    ).toEqual([{ kind: 'real-divergence', service: 'database', path: 'a', before: null, after: 1 }]);
+
+    expect(
+      diffFullStates(
+        state({
+          database: {
+            '.pyricRtdbPersistence': 1,
+            data: { a: 1 },
+            priorities: {},
+            instances: {
+              'side-db': { '.pyricRtdbPersistence': 1, data: { a: 1 }, priorities: {} },
+            },
+          },
+        }),
+        state({ database: envelope({}) }),
+      ),
+    ).toEqual([
+      { kind: 'real-divergence', service: 'database', path: 'a', before: 1, after: null },
+      {
+        kind: 'real-divergence',
+        service: 'database',
+        path: 'a',
+        before: 1,
+        after: null,
+        instance: 'side-db',
+      },
+    ]);
+
+    expect(diffFullStates(state({ database: envelope(42) }), state({ database: envelope({}) }))).toEqual([
+      { kind: 'real-divergence', service: 'database', path: '/', before: 42, after: null },
+    ]);
+  });
 });

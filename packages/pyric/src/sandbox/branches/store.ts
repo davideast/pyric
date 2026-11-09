@@ -292,10 +292,10 @@ export async function loadBranch(
   const dir = branchDirectory(projectDir, name);
   const manifest = readManifest(dir);
   if (manifest === null) return null;
-  const forked = await fork(readState(dir, STATE_DIRECTORY), readCandidateRules(dir));
+  const forked = await fork(readState(dir, STATE_DIRECTORY));
   const branch: Branch = {
     sandbox: forked.sandbox,
-    candidateRules: forked.candidateRules,
+    candidateRules: readCandidateRules(dir),
     base: readState(dir, BASE_DIRECTORY),
     events: readEvents(dir),
     discarded: false,

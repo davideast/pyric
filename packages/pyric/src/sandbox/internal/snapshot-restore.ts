@@ -148,7 +148,7 @@ async function restoreStorageObject(
     throw new Error('Cannot seed a Storage object at the bucket root.');
   }
   const bytes = decodeBase64ToBytes(item.contentBase64);
-  const blob = new Blob([bytes as BlobPart], { type: item.contentType ?? '' });
+  const blob = new Blob([bytes as BlobPart], { type: item.blobType ?? item.contentType ?? '' });
   const target = targetOf(handle);
   const fallbackDate = getClock(target.sandbox).date();
   const timeCreated = item.timeCreated ?? fallbackDate.toISOString();
@@ -163,8 +163,8 @@ async function restoreStorageObject(
     fullPath: objectRef.fullPath,
     name: objectRef.name,
     bucket: objectRef.bucket,
-    generation: '1',
-    metageneration: '1',
+    generation: item.generation ?? '1',
+    metageneration: item.metageneration ?? '1',
     timeCreated,
     updated,
     size: blob.size,
@@ -180,17 +180,27 @@ async function restoreStorageObject(
   if (item.contentLanguage !== undefined) {
     stored.contentLanguage = item.contentLanguage;
   }
+  if (item.downloadTokens !== undefined) {
+    stored.downloadTokens = item.downloadTokens;
+  }
+  if (item.md5Hash !== undefined) {
+    stored.md5Hash = item.md5Hash;
+  }
   const customMetadata = cloneCustomMetadataSafe(item.customMetadata);
   if (customMetadata !== undefined) {
     stored.customMetadata = customMetadata;
   }
   const service = await getStorageService(handle);
-  await service.backend.put(
-    objectRef.fullPath,
-    blob,
-    stored,
-    generationIssuer(generationMs),
-  );
+  if (item.generation !== undefined) {
+    await service.backend.put(objectRef.fullPath, blob, stored);
+  } else {
+    await service.backend.put(
+      objectRef.fullPath,
+      blob,
+      stored,
+      generationIssuer(generationMs),
+    );
+  }
 }
 /** Restore a `SandboxSnapshot` onto `sandbox`, returning any rule load refusals. */
 export async function restoreSandboxSnapshot(
@@ -334,16 +344,24 @@ export async function restoreSandboxSnapshot(
     env.adminSetDocument(path, decodedData);
   }
 
+  const invalidatedRtdbKeys = new Set<string>();
   if (!merge) {
     const existingRtdbKeys = [DEFAULT_SNAPSHOT_RESOURCE, ...heldDatabaseInstances(sandbox)];
     for (const key of existingRtdbKeys) {
+      const backend = backendForResourceKey(sandbox, key);
+      backend.invalidateConnectionQueues();
+      invalidatedRtdbKeys.add(key);
       if (!Object.hasOwn(snapshot.rtdb, key)) {
-        backendForResourceKey(sandbox, key).setData({});
+        backend.setData({});
       }
     }
   }
   for (const [resourceKey, tree] of Object.entries(snapshot.rtdb)) {
     const backend = backendForResourceKey(sandbox, resourceKey);
+    if (!merge && !invalidatedRtdbKeys.has(resourceKey)) {
+      backend.invalidateConnectionQueues();
+      invalidatedRtdbKeys.add(resourceKey);
+    }
     if (tree === null || tree === undefined) {
       if (!merge) backend.setData({});
       continue;
