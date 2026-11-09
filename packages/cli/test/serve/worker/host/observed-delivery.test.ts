@@ -90,6 +90,61 @@ describe('observedDeliverySummaryOf', () => {
       paths: [],
       removedPaths: ['items/i1'],
     });
+
+    expect(
+      observedDeliverySummaryOf(rtdbCall('onChildRemoved'), {
+        rtdb: [{ kind: 'invalidate', instance: 'demo-default-rtdb', path: 'items/i2' }],
+      }),
+    ).toEqual({
+      mode: 'delta',
+      size: 0,
+      paths: [],
+      removedPaths: ['items/i2'],
+    });
+  });
+
+  it('summarizes filtered RTDB onValue [invalidate, update] and Firestore invalidate ops (#2540 N1, N2)', () => {
+    expect(
+      observedDeliverySummaryOf(rtdbCall('onValue', '/tasks'), {
+        rtdb: [
+          { kind: 'invalidate', instance: 'demo-default-rtdb', path: '/tasks' },
+          {
+            kind: 'update',
+            instance: 'demo-default-rtdb',
+            path: '/tasks',
+            value: { t1: { owner: 'u-1' }, t2: { owner: 'u-1' } },
+          },
+        ],
+      }),
+    ).toEqual({
+      mode: 'snapshot',
+      size: 2,
+      paths: ['tasks/t1', 'tasks/t2'],
+    });
+
+    expect(
+      observedDeliverySummaryOf(rtdbCall('onValue', '/tasks'), {
+        rtdb: [{ kind: 'invalidate', instance: 'demo-default-rtdb', path: '/tasks' }],
+      }),
+    ).toEqual({
+      mode: 'snapshot',
+      size: 0,
+      paths: [],
+    });
+
+    expect(
+      observedDeliverySummaryOf(firestoreCall(2), {
+        firestore: [
+          { kind: 'set', path: 'rooms/r1', data: { status: 'open' } },
+          { kind: 'invalidate', path: 'rooms/r2' },
+        ],
+      }),
+    ).toEqual({
+      mode: 'delta',
+      size: 2,
+      paths: ['rooms/r1'],
+      removedPaths: ['rooms/r2'],
+    });
   });
 
   it('summarizes RTDB onValue in snapshot mode and preserves uncapped key cardinality above 64', () => {

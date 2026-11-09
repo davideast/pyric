@@ -98,6 +98,13 @@ function hasSnapshotConverter(snap: object): boolean {
   return conv !== undefined && conv !== null;
 }
 
+/** Whether a snapshot came from local cache or carries unconfirmed local writes. */
+function hasUnconfirmedMetadata(snap: object): boolean {
+  const meta: unknown = Reflect.get(snap, 'metadata');
+  if (!isObject(meta)) return false;
+  return Reflect.get(meta, 'fromCache') === true || Reflect.get(meta, 'hasPendingWrites') === true;
+}
+
 /** A document snapshot's path, from its `ref`, else the call's own path. */
 function docSnapPath(snap: object, fallbackPath?: string): string | undefined {
   const ref: unknown = Reflect.get(snap, 'ref');
@@ -162,14 +169,25 @@ export class DeltaOps {
   }
 }
 
+export interface QueryDocumentChange {
+  readonly kind: 'upsert' | 'removed';
+  readonly doc: unknown;
+}
+
 /** Sets one query document into the delta; false once the delta is cut off. */
 function addQueryDocument(ops: DeltaOps, docSnap: unknown): boolean {
   if (!isObject(docSnap) || hasSnapshotConverter(docSnap)) {
     ops.skip('unsupported');
     return true;
   }
-  const dataFn: unknown = Reflect.get(docSnap, 'data');
   const path = docSnapPath(docSnap);
+  if (hasUnconfirmedMetadata(docSnap)) {
+    if (path !== undefined) {
+      return ops.add(() => ({ ok: true, value: { kind: 'invalidate', path } }));
+    }
+    return true;
+  }
+  const dataFn: unknown = Reflect.get(docSnap, 'data');
   if (typeof dataFn !== 'function' || path === undefined) {
     ops.skip('unsupported');
     return true;
@@ -181,27 +199,58 @@ function addQueryDocument(ops: DeltaOps, docSnap: unknown): boolean {
   });
 }
 
-/** The documents a listener's query snapshot added or changed, or undefined when it has no `docChanges()`. */
-export function changedDocuments(snap: object): unknown[] | undefined {
+function addRemovedQueryDocument(ops: DeltaOps, docSnap: unknown): boolean {
+  if (!isObject(docSnap)) {
+    ops.skip('unsupported');
+    return true;
+  }
+  const path = docSnapPath(docSnap);
+  if (path === undefined) {
+    ops.skip('unsupported');
+    return true;
+  }
+  return ops.add(() => ({ ok: true, value: { kind: 'invalidate', path } }));
+}
+
+/** The document changes of a listener's query snapshot, or undefined when it has no `docChanges()`. */
+export function querySnapshotChanges(snap: object): QueryDocumentChange[] | undefined {
   const docChangesFn: unknown = Reflect.get(snap, 'docChanges');
   if (typeof docChangesFn !== 'function') return undefined;
   const changes: unknown = Reflect.apply(docChangesFn, snap, []);
   if (!Array.isArray(changes)) return undefined;
-  const documents: unknown[] = [];
+  const items: QueryDocumentChange[] = [];
   for (const change of changes) {
     if (!isObject(change)) continue;
     const changeType: unknown = Reflect.get(change, 'type');
-    if (changeType === 'added' || changeType === 'modified') documents.push(Reflect.get(change, 'doc'));
+    if (changeType === 'added' || changeType === 'modified') {
+      items.push({ kind: 'upsert', doc: Reflect.get(change, 'doc') });
+    } else if (changeType === 'removed') {
+      items.push({ kind: 'removed', doc: Reflect.get(change, 'doc') });
+    }
   }
-  return documents;
+  return items;
 }
 
 /** The delta of a query snapshot: its changes for a listener, else its `docs`. */
 function querySnapshotDelta(snap: object, useChanges: boolean): ObservedSessionDelta | undefined {
   if (hasSnapshotConverter(snap)) return skipDeltaOf('unsupported');
-  let documents: unknown;
-  if (useChanges) documents = changedDocuments(snap);
-  if (documents === undefined) documents = Reflect.get(snap, 'docs');
+  let changes: ReturnType<typeof querySnapshotChanges>;
+  if (useChanges) changes = querySnapshotChanges(snap);
+  if (changes !== undefined) {
+    const ops = new DeltaOps();
+    for (const item of changes) {
+      if (ops.refusesMore()) break;
+      let keepGoing: boolean;
+      if (item.kind === 'removed') {
+        keepGoing = addRemovedQueryDocument(ops, item.doc);
+      } else {
+        keepGoing = addQueryDocument(ops, item.doc);
+      }
+      if (!keepGoing) break;
+    }
+    return ops.delta();
+  }
+  const documents: unknown = Reflect.get(snap, 'docs');
   if (!Array.isArray(documents)) return undefined;
   const ops = new DeltaOps();
   for (const docSnap of documents) {
@@ -225,34 +274,46 @@ function addedDocumentDelta(site: ObservedSite, value: object): ObservedSessionD
   if (pending === undefined) return undefined;
   const resolvedPath: unknown = Reflect.get(value, 'path');
   if (typeof resolvedPath !== 'string' || !isValidDocPath(resolvedPath)) return skipDeltaOf('unsupported');
-  const op: { kind: 'set'; path: string; data: Record<string, unknown>; deleteFields?: readonly string[] } = {
+  const op: {
+    kind: 'set';
+    path: string;
+    data: Record<string, unknown>;
+    deleteFields?: readonly string[];
+    partial?: boolean;
+  } = {
     kind: 'set',
     path: normalizeDocPath(resolvedPath),
     data: pending.data,
   };
   if (pending.deleteFields !== undefined) op.deleteFields = pending.deleteFields;
+  if (pending.partial === true) op.partial = true;
   return opDelta(op);
 }
 
 /** A resolved document read's reading: the rule-evidence document a plain read keeps, and its session delta. */
 function documentReadResult(site: ObservedSite, value: object): ResultReading {
   if (hasSnapshotConverter(value)) return { sessionData: skipDeltaOf('unsupported') };
+  const isUnconfirmedSessionRead = site.name === 'getDocFromCache' || hasUnconfirmedMetadata(value);
   const existsFn: unknown = Reflect.get(value, 'exists');
   let exists = true;
   if (typeof existsFn === 'function') exists = Reflect.apply(existsFn, value, []) === true;
   const docPath = docSnapPath(value, site.path);
   if (!exists) {
-    if (docPath === undefined) return {};
+    if (isUnconfirmedSessionRead || docPath === undefined) return {};
     return { sessionData: opDelta({ kind: 'delete', path: docPath }) };
   }
   const dataFn: unknown = Reflect.get(value, 'data');
-  if (typeof dataFn !== 'function') return { sessionData: skipDeltaOf('unsupported') };
+  if (typeof dataFn !== 'function') {
+    if (isUnconfirmedSessionRead) return {};
+    return { sessionData: skipDeltaOf('unsupported') };
+  }
   const rawData: unknown = Reflect.apply(dataFn, value, []);
   const reading: { document?: Record<string, unknown>; sessionData?: ObservedSessionDelta } = {};
   if (DOCUMENT_READS.has(site.name)) {
     const document = jsonFields(rawData);
     if (document !== undefined) reading.document = document;
   }
+  if (isUnconfirmedSessionRead) return reading;
   if (docPath === undefined) {
     reading.sessionData = skipDeltaOf('unsupported');
     return reading;
@@ -283,6 +344,7 @@ export function firestoreResult(site: ObservedSite, value: unknown): ResultReadi
   }
   if (SESSION_DOCUMENT_READS.has(site.name)) return documentReadResult(site, value);
   if (SESSION_QUERY_READS.has(site.name)) {
+    if (site.name === 'getDocsFromCache') return {};
     const sessionData = querySnapshotDelta(value, false);
     if (sessionData === undefined) return {};
     return { sessionData };
@@ -302,6 +364,7 @@ export function firestoreDelivery(site: ObservedSite, value: unknown): ObservedS
   const existsFn: unknown = Reflect.get(value, 'exists');
   const dataFn: unknown = Reflect.get(value, 'data');
   if (typeof existsFn === 'function' && typeof dataFn === 'function') {
+    if (hasUnconfirmedMetadata(value)) return undefined;
     const docPath = docSnapPath(value, site.path);
     if (docPath === undefined) return skipDeltaOf('unsupported');
     const exists = Reflect.apply(existsFn, value, []) === true;

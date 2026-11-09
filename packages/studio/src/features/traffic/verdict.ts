@@ -402,6 +402,7 @@ export interface LiveUnevaluatedInspection {
   path: string;
   headline: string;
   gaps: LiveUnevaluatedGapDetail[];
+  missingPaths?: string[];
   ruleContext?: LiveUnevaluatedRuleContext;
 }
 
@@ -510,6 +511,33 @@ function firestoreUnevaluatedRuleContext(
   return context;
 }
 
+function storedDocumentGapDetail(
+  service: string,
+  missingPaths: readonly string[] | undefined,
+  fallback: string,
+): string {
+  if (missingPaths === undefined || missingPaths.length === 0) return fallback;
+  const noun = service === 'rtdb' ? 'existing database state' : 'stored document state';
+  if (missingPaths.length === 1) {
+    return `The rule reads ${noun} at ${missingPaths[0]}, which has not been observed in full during this Live session.`;
+  }
+  return `The rule reads ${noun} at uncaptured paths (${missingPaths.join(', ')}) that have not been observed in full during this Live session.`;
+}
+
+function buildGapEntry(
+  gap: LiveVerdictGap,
+  service: string,
+  missingPaths: readonly string[] | undefined,
+  gapTable: Readonly<Record<LiveVerdictGap, { label: string; detail: string }>>,
+): LiveUnevaluatedGapDetail {
+  const entry = gapTable[gap];
+  let detail = entry.detail;
+  if (gap === 'stored-document') {
+    detail = storedDocumentGapDetail(service, missingPaths, entry.detail);
+  }
+  return { gap, label: entry.label, detail };
+}
+
 /**
  * Projects a live `unevaluated` verdict (RTDB or Firestore) into an honest
  * in-place Traffic inspection: production's verdict, the applicable local rule
@@ -529,11 +557,11 @@ export function liveUnevaluatedInspection(
   const service = event.service ?? 'firestore';
   const normalizedMethod = rulesOperation(service, event.method);
   const gapTable = service === 'rtdb' ? RTDB_GAP_DETAILS : FIRESTORE_GAP_DETAILS;
-  const gaps: LiveUnevaluatedGapDetail[] = local.needs.map((gap) => ({
-    gap,
-    label: gapTable[gap].label,
-    detail: gapTable[gap].detail,
-  }));
+  let missingPaths: string[] | undefined;
+  if (local.missingPaths !== undefined && local.missingPaths.length > 0) {
+    missingPaths = [...local.missingPaths];
+  }
+  const gaps = local.needs.map((gap) => buildGapEntry(gap, service, missingPaths, gapTable));
   const lead = liveProductionSentence(production.outcome, event.method, event.path);
   const headline = `${lead} Local rules proof stopped because runtime inputs needed by the rule were not captured.`;
   const inspection: LiveUnevaluatedInspection = {
@@ -544,6 +572,9 @@ export function liveUnevaluatedInspection(
     headline,
     gaps,
   };
+  if (missingPaths !== undefined) {
+    inspection.missingPaths = missingPaths;
+  }
   let ruleContext: LiveUnevaluatedRuleContext | undefined;
   if (service === 'rtdb') {
     ruleContext = rtdbUnevaluatedRuleContext(local, event.method, rulesSource);

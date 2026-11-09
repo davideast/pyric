@@ -117,6 +117,11 @@ const DATABASE_RULES = {
             '.validate': "newData.hasChildren(['n'])",
           },
         },
+        presence: {
+          '.read': 'auth != null',
+          '.write': 'auth != null',
+          '.validate': "!root.child('pyric-live-capture/replay/frozen').exists()",
+        },
         list: {
           '.read': 'auth != null',
         },
@@ -295,8 +300,11 @@ async function expectLocalVerdicts(chip: Locator, source: 'page' | 'node'): Prom
   assert.match(set.detail, /Local rules allowed this request\./, set.detail);
   assert.equal(set.drift, false);
   const update = await localReading(chip, source, 'update', `${RUN}/items/a`, 'user-1');
-  assert.match(update.detail, /Needs the stored data in production to evaluate against local rules\./, update.detail);
+  assert.match(update.detail, /Local rules allowed this request\./, update.detail);
   assert.equal(update.drift, false);
+  const presence = await localReading(chip, source, 'set', `${RUN}/presence`, 'user-1');
+  assert.match(presence.detail, /Needs the stored data in production to evaluate against local rules\./, presence.detail);
+  assert.equal(presence.drift, false);
   const push = await localReading(chip, source, 'push', `${RUN}/list`, 'user-1');
   assert.match(push.detail, /Local rules did not allow this request\./, push.detail);
   assert.match(push.detail, /The local rules file differs from the deployed rules/, push.detail);
@@ -567,7 +575,9 @@ export default scenario(async (app) => {
   await app.step('Studio\'s Traffic opens the local rules inspector in place for live RTDB calls on the default instance', async () => {
     const events = rtdbEvents(app);
     const listener = defaultEvent(events, 'onValue', `${RUN}/items/a`, 'allow');
-    const write = defaultEvent(events, 'update', `${RUN}/items/a`, 'unevaluated');
+    const updated = defaultEvent(events, 'update', `${RUN}/items/a`, 'allow');
+    assert.equal(updated.production?.local?.drift, undefined);
+    const write = defaultEvent(events, 'set', `${RUN}/presence`, 'unevaluated');
     const drift = defaultEvent(events, 'get', '/secret', 'allow');
     assert.equal(drift.production?.local?.drift, true, 'the local rules allow the read production denied');
 
@@ -582,7 +592,14 @@ export default scenario(async (app) => {
     const unevaluated = await inspect(app, host.url, write.id!);
     assert.equal(await unevaluated.inspector.getAttribute('data-live-unevaluated'), '');
     assert.equal(await unevaluated.inspector.locator('[data-live-need="stored-document"]').count(), 1);
-    assert.match(await unevaluated.inspector.textContent() ?? '', /applicable rule — \/pyric-live-capture\/replay\/items\/\$id \.write/);
+    assert.equal(
+      await unevaluated.inspector.locator('[data-missing-path="/pyric-live-capture/replay/frozen"]').count(),
+      1,
+    );
+    assert.match(
+      await unevaluated.inspector.textContent() ?? '',
+      /Matched rule — paused on uncaptured path \/pyric-live-capture\/replay\/frozen/,
+    );
     await unevaluated.studio.close();
 
     const denied = await inspect(app, host.url, drift.id!);

@@ -367,4 +367,200 @@ describe('the live host state\'s observed session data', () => {
     expect(snapshot.storage?.['demo-live-secondary']?.objects['items/b.txt']?.size).toBe(32);
     expect(snapshot.skips).toEqual({ oversized: 0, unsupported: 0, truncated: 0, failed: 2, admin: 0 });
   });
+
+  it('invalidates prior Firestore and RTDB coverage when a successful write is skipped, oversized, truncated, or issued via Admin SDK (#2540 F1)', () => {
+    const { live } = state('demo-live');
+    live.sessionData.apply({
+      firestore: [
+        { kind: 'set', path: 'rooms/r1', data: { locked: false } },
+        { kind: 'delete', path: 'bans/u-1' },
+      ],
+      rtdb: [
+        { kind: 'set', instance: 'demo-live-default-rtdb', path: '/banned/u-1', value: null },
+      ],
+    });
+    expect(live.sessionData.getFirestoreDoc('rooms/r1')).toEqual({
+      status: 'complete',
+      data: { locked: false },
+    });
+    expect(live.sessionData.getFirestoreDoc('bans/u-1')).toEqual({ status: 'absent' });
+    expect(live.sessionData.getRtdbInstance('demo-live-default-rtdb').isPathKnown('/banned/u-1')).toBe(true);
+
+    // 1. Skipped RTDB client write (`runTransaction` / converter) invalidates `/banned/u-1`.
+    sendThroughValidation(
+      live,
+      'rtdb-skip',
+      {
+        service: 'rtdb',
+        method: 'runTransaction',
+        instance: 'demo-live-default-rtdb',
+        path: '/banned/u-1',
+      },
+      { skipped: { unsupported: 1 } },
+    );
+    expect(live.sessionData.getRtdbInstance('demo-live-default-rtdb').isPathKnown('/banned/u-1')).toBe(false);
+
+    // 2. Admin SDK Firestore write invalidates `rooms/r1`.
+    sendThroughValidation(live, 'admin-write', {
+      service: 'firestore',
+      sdk: 'admin',
+      method: 'DocumentReference.update',
+      path: 'rooms/r1',
+    });
+    expect(live.sessionData.getFirestoreDoc('rooms/r1')).toEqual({ status: 'unobserved' });
+
+    // 3. Oversized rejected Firestore write invalidates `bans/u-1` tombstone.
+    sendThroughValidation(
+      live,
+      'oversized-write',
+      { service: 'firestore', method: 'setDoc', path: 'bans/u-1' },
+      { firestore: [{ kind: 'set', path: 'bans/u-1', data: { blob: 'z'.repeat(1_100_000) } }] },
+    );
+    expect(live.sessionData.getFirestoreDoc('bans/u-1')).toEqual({ status: 'unobserved' });
+
+    // 4. Truncated writeBatch invalidates all Firestore coverage since omitted batch targets are unknown.
+    live.sessionData.apply({
+      firestore: [{ kind: 'set', path: 'items/kept-before-batch', data: { ok: true } }],
+    });
+    sendThroughValidation(
+      live,
+      'truncated-batch',
+      { service: 'firestore', method: 'writeBatch' },
+      {
+        firestore: [{ kind: 'set', path: 'items/in-batch', data: { ok: true } }],
+        skipped: { truncated: 1 },
+      },
+    );
+    expect(live.sessionData.getFirestoreDoc('items/kept-before-batch')).toEqual({ status: 'unobserved' });
+  });
+
+  it('invalidates prior coverage on skipped/rejected reads and deliveries, onDisconnect/setPriority writes, ambiguous write errors, and pending-call eviction (#2540 N3, N5, L1)', () => {
+    const { live } = state('demo-live');
+    const inst = 'demo-live-default-rtdb';
+
+    // N3: Oversized getDoc read invalidates prior complete doc coverage while preserving Studio UI snapshot data.
+    live.sessionData.apply({
+      firestore: [
+        { kind: 'set', path: 'spaces/s1', data: { members: ['u-1', 'u-2'] } },
+        { kind: 'delete', path: 'spaces/missing' },
+      ],
+    });
+    sendThroughValidation(
+      live,
+      'oversized-read',
+      { service: 'firestore', method: 'getDoc', path: 'spaces/s1' },
+      { skipped: { oversized: 1 } },
+    );
+    expect(live.sessionData.getFirestoreDoc('spaces/s1')).toEqual({ status: 'unobserved' });
+
+    // N3: Skipped Query.get (e.g. Query.select projection) invalidates collection doc and absent tombstones in coverage.
+    live.sessionData.apply({
+      firestore: [{ kind: 'set', path: 'spaces/s1', data: { members: ['u-1'] } }],
+    });
+    sendThroughValidation(
+      live,
+      'projected-query-read',
+      { service: 'firestore', method: 'Query.get', sdk: 'admin', path: 'spaces' },
+      { skipped: { unsupported: 1 } },
+    );
+    expect(live.sessionData.getFirestoreDoc('spaces/s1')).toEqual({ status: 'unobserved' });
+    expect(live.sessionData.getFirestoreDoc('spaces/missing')).toEqual({ status: 'unobserved' });
+    expect(live.sessionData.snapshot().firestore['spaces/s1']).toEqual({ members: ['u-1'] });
+
+    // N5: Malformed delivery delta rejected by readObservedSessionDelta still invalidates `call.path`.
+    live.sessionData.apply({
+      rtdb: [{ kind: 'set', instance: inst, path: '/slots/s1', value: 'open' }],
+    });
+    sendThroughValidation(
+      live,
+      'bad-delivery',
+      { service: 'rtdb', method: 'onValue', instance: inst, path: '/slots/s1' },
+      { rtdb: [{ kind: 'invalidate', instance: inst, path: '/slots/bad.key' }] },
+    );
+    expect(live.sessionData.getRtdbInstance(inst).isPathKnown('/slots/s1')).toBe(false);
+
+    // N5 + mutation kills: `onDisconnect.*` and `setPriority` invalidate target RTDB coverage.
+    for (const method of [
+      'onDisconnect.set',
+      'onDisconnect.update',
+      'onDisconnect.remove',
+      'onDisconnect.setWithPriority',
+      'setPriority',
+    ]) {
+      live.sessionData.apply({
+        rtdb: [{ kind: 'set', instance: inst, path: '/presence/u-1', value: 'online' }],
+      });
+      expect(live.sessionData.getRtdbInstance(inst).isPathKnown('/presence/u-1')).toBe(true);
+      sendThroughValidation(live, `mut-${method}`, {
+        service: 'rtdb',
+        method,
+        instance: inst,
+        path: '/presence/u-1',
+      });
+      expect(live.sessionData.getRtdbInstance(inst).isPathKnown('/presence/u-1')).toBe(false);
+    }
+
+    // L1: Definitive rules denial (`permission-denied`) preserves authoritative coverage,
+    // whereas an ambiguous write error (`deadline-exceeded`) invalidates `call.path`.
+    live.sessionData.apply({
+      firestore: [{ kind: 'set', path: 'orders/o-1', data: { status: 'open' } }],
+    });
+    sendThroughValidation(live, 'denied-write', {
+      service: 'firestore',
+      method: 'updateDoc',
+      path: 'orders/o-1',
+      outcome: { status: 'error', code: 'permission-denied' },
+    });
+    expect(live.sessionData.getFirestoreDoc('orders/o-1')).toEqual({
+      status: 'complete',
+      data: { status: 'open' },
+    });
+
+    sendThroughValidation(live, 'ambiguous-write', {
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      sdk: 'admin',
+      path: 'orders/o-1',
+      outcome: { status: 'error', code: 'deadline-exceeded' },
+    });
+    expect(live.sessionData.getFirestoreDoc('orders/o-1')).toEqual({ status: 'unobserved' });
+
+    // L1: Overflowing MAX_PENDING_CALLS (4096) invalidates an evicted pending write's target.
+    live.sessionData.apply({
+      firestore: [{ kind: 'set', path: 'orders/evicted', data: { status: 'open' } }],
+    });
+    live.inbound({
+      type: 'worker-message',
+      clientSessionId: 'client-1',
+      message: {
+        t: 'observe',
+        id: 'pending-0',
+        call: {
+          service: 'firestore',
+          method: 'updateDoc',
+          path: 'orders/evicted',
+          at: 1,
+          outcome: { status: 'ok' },
+        },
+      },
+    } as unknown as BridgeMessage);
+    for (let i = 1; i <= 4096; i++) {
+      live.inbound({
+        type: 'worker-message',
+        clientSessionId: 'client-1',
+        message: {
+          t: 'observe',
+          id: `pending-${i}`,
+          call: {
+            service: 'firestore',
+            method: 'getDoc',
+            path: 'orders/other',
+            at: 1,
+            outcome: { status: 'ok' },
+          },
+        },
+      } as unknown as BridgeMessage);
+    }
+    expect(live.sessionData.getFirestoreDoc('orders/evicted')).toEqual({ status: 'unobserved' });
+  });
 });

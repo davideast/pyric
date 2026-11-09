@@ -1,19 +1,22 @@
 /**
- * The status a live host keeps and reports as the `live` field of its health
- * report: the project it was started for, the projects the app's Firebase
- * config named on its calls, and the count of billed calls. The chip and
- * Studio read it there, so they show one count however much history each
- * keeps.
+ * The status and host-memory session state a live host keeps:
+ * - Status (`report()`): the project it was started for, the projects the app's
+ *   Firebase config named on its calls, connected clients, and the count of
+ *   billed calls for the chip and Studio.
+ * - Session store (`sessionData`): bounded Firestore, RTDB, and Storage
+ *   session deltas forwarded on accepted frames, routed through
+ *   `observed-session/call-policy.ts` so local rules evaluate against
+ *   authoritatively observed state and invalidate on skipped or uncaptured
+ *   mutations.
  *
- * The host learns both from the observed calls its live clients send. The
- * bridge mount hands this every frame on its way to and from the Node
- * sandbox (`bridge-mount.ts`); an observed call counts once the host has
- * accepted it, so a refused frame never reaches the count. The same frames
- * name the clients connected to the host (`live-clients.ts`). Each accepted
- * call that production denied, an AI request it rejected, or an AI answer it
- * withheld prints a block to the host's terminal, with production's message
- * where the call carried one (`live-terminal-lines.ts`). The message stays
- * in the host: the event the Node sandbox writes holds the code alone.
+ * The bridge mount hands this every frame on its way to and from the Node
+ * sandbox (`bridge-mount.ts`); an observed call counts and updates
+ * `sessionData` only once the host has accepted it, so a refused frame never
+ * reaches either. Each accepted call that production denied, an AI request it
+ * rejected, or an AI answer it withheld prints a block to the host's terminal,
+ * with production's message where the call carried one (`live-terminal-lines.ts`).
+ * The message stays in the host: the event the Node sandbox writes holds the
+ * code alone.
  *
  * Only a host a live seam started holds one: `serve/live-host.ts` for the
  * `pyric-live` command, and the Vite generation `@pyric/live/vite` starts.
@@ -33,9 +36,13 @@ import type { FirebaseProjectSource } from '../cli/firebase-project.js';
 import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import { createLiveClients, type SandboxClientIds } from './live-clients.js';
 import { createLiveTerminalLines, type LiveCallSource, type LiveRulesFiles } from './live-terminal-lines.js';
+import {
+  applyAcceptedSessionCall,
+  invalidateEvictedPendingCall,
+} from './observed-session/call-policy.js';
 import { createObservedSessionDataStore, type ObservedSessionDataStore } from './observed-session/store.js';
 import { readObservedSessionDelta, skipReasonOf, type SessionDeltaSkipReason } from './observed-session/delta-validation.js';
-import type { ObservedSessionDelta, ObservedSessionSource } from './observed-session/wire.js';
+import type { ObservedSessionDelta } from './observed-session/wire.js';
 import { liveUnobservedHosts } from '../register/live-net-guard.js';
 
 /** Observed calls waiting on the host's answer; a bound, since a client could send replies it never gets. */
@@ -221,32 +228,14 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     input.warn(mismatchWarning(report()));
   };
 
-  const isSessionDataService = (service: ObservedCall['service']): boolean =>
-    service === 'firestore' || service === 'rtdb' || service === 'storage';
-
-  const sessionSourceOf = (call: ObservedCall): ObservedSessionSource => {
-    if (call.sdk === 'admin') return 'admin';
-    return 'client';
-  };
-
   const accept = (entry: PendingObservation): void => {
     const { call, clientSessionId } = entry;
     noteProject(call.projectId);
     billed.addCall(call);
     const source: LiveCallSource | undefined = clients.sourceOf(clientSessionId);
     terminal.accepted(call, source);
-    if (call.listener !== undefined || !isSessionDataService(call.service)) return;
-    if (call.outcome.status !== 'ok') {
-      sessionData.recordSkip({ failed: 1 });
-      return;
-    }
-    if (entry.sessionDataSkip !== undefined) {
-      sessionData.recordSkip({ [entry.sessionDataSkip]: 1 });
-      return;
-    }
-    if (entry.sessionData !== undefined) {
-      sessionData.apply(entry.sessionData, liveProjectOf(appProjectIds, input.configProjectId), sessionSourceOf(call));
-    }
+    const projectHint = liveProjectOf(appProjectIds, input.configProjectId);
+    applyAcceptedSessionCall(sessionData, entry, projectHint);
   };
 
   return {
@@ -257,7 +246,15 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
       const observed = observedCallIn(message);
       if (observed === null) return;
       const isFull = pending.size >= MAX_PENDING_CALLS;
-      if (isFull) pending.delete(pending.keys().next().value as string);
+      if (isFull) {
+        const oldestKey = pending.keys().next().value as string;
+        const evicted = pending.get(oldestKey);
+        pending.delete(oldestKey);
+        if (evicted !== undefined) {
+          const projectHint = liveProjectOf(appProjectIds, input.configProjectId);
+          invalidateEvictedPendingCall(sessionData, evicted.call, projectHint);
+        }
+      }
       pending.set(observed.key, observed.pending);
     },
     outbound(message) {

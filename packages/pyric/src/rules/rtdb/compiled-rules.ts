@@ -3,9 +3,11 @@ import { parseExpression } from './grammar/RtdbExprParser.js';
 import { lintExpression } from './grammar/linter.js';
 import { validateExpression } from './grammar/validator.js';
 import { SimulateHandler } from './simulation/handler.js';
-import type { SimulationInput, SimulateResult } from './simulation/spec.js';
+import type { SimulationInput, SimulateResult, SimulateRtdbOptions } from './simulation/spec.js';
 import { SYSTEM_KEYS, structuralFindings } from './structure.js';
 import type { RtdbNode, RtdbRuleExpression } from './types.js';
+
+export type { SimulateRtdbOptions };
 
 /** The environment-independent tree produced from an RTDB rules document. */
 export type CompiledRtdbRules = RtdbNode;
@@ -152,6 +154,7 @@ export function serializeRtdbRules(
 export function simulateRtdbRules(
   compiled: CompiledRtdbRules,
   input: SimulationInput,
+  options?: SimulateRtdbOptions,
 ): SimulateResult {
-  return new SimulateHandler().execute(compiled, input);
+  return new SimulateHandler().execute(compiled, input, options);
 }

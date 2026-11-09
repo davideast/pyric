@@ -526,4 +526,66 @@ describe('TrafficSurface Live mode RTDB and unevaluated rules inspection', () =>
     fireEvent.click(openRecord!);
     expect(currentPath().tab).toBe('rtdb');
   });
+
+  it('renders Matched rule — paused on uncaptured path headings and missing path pills when missingPaths is present', async () => {
+    const pausedRtdb = liveRtdbOperation({
+      id: 'rtdb-paused-path',
+      at: 1_700_000_011_000,
+      method: 'get',
+      path: '/rooms/s9',
+      production: {
+        outcome: { status: 'ok' },
+        local: {
+          result: 'unevaluated',
+          needs: ['stored-document'],
+          missingPaths: ['/workspaces/ws-1/archived'],
+          rule: { path: '/rooms/$roomId', expression: 'auth != null && auth.uid === $roomId' },
+          rtdb: {
+            matchedPath: '/rooms/$roomId',
+            matchedRule: 'auth != null && auth.uid === $roomId',
+            pathVariableBindings: { $roomId: 's9' },
+          },
+        },
+      },
+    });
+    const pausedFirestore = {
+      id: 'fs-paused-paths',
+      kind: 'operation',
+      service: 'firestore',
+      at: 1_700_000_012_000,
+      method: 'getDoc',
+      path: 'rooms/r1',
+      auth: { uid: 'alice' },
+      result: 'deny',
+      origin: 'user',
+      rulesDisposition: OBSERVED_DISPOSITION,
+      production: {
+        outcome: { status: 'error', code: 'permission-denied' },
+        local: {
+          result: 'unevaluated',
+          needs: ['stored-document'],
+          missingPaths: ['admins/alice', 'rooms/r1'],
+          rule: { line: 5, expression: 'resource.data.public == true' },
+        },
+      },
+    } as SandboxOperationEvent;
+
+    const { container } = await mountTrafficSurface({
+      history: [pausedRtdb, pausedFirestore],
+      liveHost: true,
+    });
+
+    fireEvent.click(container.querySelector('[data-pyric-traffic-id="rtdb-paused-path"] [data-pyric-traffic-row]')!);
+    await flush();
+    const rtdbInspector = container.querySelector('[data-pyric-ui="traffic-live-rules-inspector"][data-live-unevaluated]');
+    expect(rtdbInspector?.textContent).toContain('Matched rule — paused on uncaptured path /workspaces/ws-1/archived');
+    expect(rtdbInspector?.querySelector('[data-missing-path="/workspaces/ws-1/archived"]')).not.toBeNull();
+
+    fireEvent.click(container.querySelector('[data-pyric-traffic-id="fs-paused-paths"] [data-pyric-traffic-row]')!);
+    await flush();
+    const fsInspector = container.querySelector('[data-pyric-ui="traffic-live-rules-inspector"][data-live-unevaluated]');
+    expect(fsInspector?.textContent).toContain('Matched rule — paused on uncaptured paths admins/alice, rooms/r1');
+    expect(fsInspector?.querySelector('[data-missing-path="admins/alice"]')).not.toBeNull();
+    expect(fsInspector?.querySelector('[data-missing-path="rooms/r1"]')).not.toBeNull();
+  });
 });

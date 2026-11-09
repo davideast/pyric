@@ -302,7 +302,7 @@ function buildContext(
   tc: TestCase,
   functions: FunctionDef[],
   pathVariables: Record<string, string>,
-  getDoc?: (path: string) => Record<string, unknown> | null,
+  getDoc?: SimulationContext['getDoc'],
   batchProjection?: Map<string, Record<string, unknown> | null>,
   lookupBudget?: LookupBudget,
   expressionBudget?: ExpressionBudget,
@@ -504,7 +504,7 @@ function buildContext(
 // ═══ Main handler ═══
 
 export interface SimulateOptions {
-  getDoc?: (path: string) => Record<string, unknown> | null;
+  getDoc?: SimulationContext['getDoc'];
   /**
    * getafter-batch fix — shared post-commit projection for a batch or
    * transaction. Keyed by normalized relative path (same shape as

@@ -43,10 +43,17 @@ export type SessionCopyResult<T> =
   | { ok: true; value: T }
   | { ok: false; reason: 'oversized' | 'unsupported' };
 
-/** The fields a write sent, with the field paths its `deleteField()` sentinels name. */
+/** The fields a write sent, with deleted field paths and whether non-delete write sentinels were omitted. */
 export interface SessionWriteFields {
   readonly data: Record<string, unknown>;
   readonly deleteFields?: string[];
+  readonly partial?: boolean;
+}
+
+interface WriteCopyMeta {
+  readonly deleteFields: string[];
+  readonly deleteOmittedFields: boolean;
+  omittedSentinel: boolean;
 }
 
 export const OVERSIZED_RESULT = { ok: false, reason: 'oversized' } as const;
@@ -204,7 +211,7 @@ function sessionValueCopy(
   depth: number,
   budget: SessionBudget,
   allowWriteSentinels: boolean,
-  deleteFieldsOut?: string[],
+  writeMeta?: WriteCopyMeta,
   currentFieldPrefix?: string,
 ): unknown {
   if (typeof value === 'string') {
@@ -227,16 +234,26 @@ function sessionValueCopy(
   if (serialized !== undefined) return charged(budget, serialized);
 
   if (!chargeContainer(budget)) return OVER_BUDGET;
-  if (Array.isArray(value)) return sessionItemsCopy(value, depth, budget, allowWriteSentinels);
+  if (Array.isArray(value)) return sessionItemsCopy(value, depth, budget, allowWriteSentinels, writeMeta);
   if (!isPlainObject(value)) return UNSUPPORTED;
-  return sessionEntriesCopy(value, depth, budget, allowWriteSentinels, deleteFieldsOut, currentFieldPrefix);
+  return sessionEntriesCopy(value, depth, budget, allowWriteSentinels, writeMeta, currentFieldPrefix);
 }
 
-function sessionItemsCopy(items: readonly unknown[], depth: number, budget: SessionBudget, allowWriteSentinels: boolean): unknown {
+function sessionItemsCopy(
+  items: readonly unknown[],
+  depth: number,
+  budget: SessionBudget,
+  allowWriteSentinels: boolean,
+  writeMeta: WriteCopyMeta | undefined,
+): unknown {
   const copy: unknown[] = [];
   for (const item of items) {
-    const copied = sessionValueCopy(item, depth + 1, budget, allowWriteSentinels);
-    if (copied === OMIT_WRITE_SENTINEL || copied === DELETE_FIELD_SENTINEL) continue;
+    const copied = sessionValueCopy(item, depth + 1, budget, allowWriteSentinels, writeMeta);
+    if (copied === OMIT_WRITE_SENTINEL) {
+      if (writeMeta !== undefined) writeMeta.omittedSentinel = true;
+      continue;
+    }
+    if (copied === DELETE_FIELD_SENTINEL) continue;
     if (copied === OVER_BUDGET || budget.left < 0) return OVER_BUDGET;
     if (copied === UNSUPPORTED) return UNSUPPORTED;
     copy.push(copied);
@@ -244,25 +261,36 @@ function sessionItemsCopy(items: readonly unknown[], depth: number, budget: Sess
   return copy;
 }
 
+function joinFieldPath(prefix: string | undefined, key: string): string {
+  if (prefix !== undefined && prefix.length > 0) return `${prefix}.${key}`;
+  return key;
+}
+
 function sessionEntriesCopy(
   fields: object,
   depth: number,
   budget: SessionBudget,
   allowWriteSentinels: boolean,
-  deleteFieldsOut: string[] | undefined,
+  writeMeta: WriteCopyMeta | undefined,
   currentFieldPrefix: string | undefined,
 ): unknown {
   const out: Record<string, unknown> = {};
   for (const [key, field] of Object.entries(fields)) {
     if (FORBIDDEN_SESSION_KEYS.has(key)) return UNSUPPORTED;
     if (!chargeString(budget, key)) return OVER_BUDGET;
-    const nestedPath = currentFieldPrefix ? `${currentFieldPrefix}.${key}` : key;
-    const copied = sessionValueCopy(field, depth + 1, budget, allowWriteSentinels, deleteFieldsOut, nestedPath);
+    const nestedPath = joinFieldPath(currentFieldPrefix, key);
+    const copied = sessionValueCopy(field, depth + 1, budget, allowWriteSentinels, writeMeta, nestedPath);
     if (copied === DELETE_FIELD_SENTINEL) {
-      noteDeleteField(deleteFieldsOut, nestedPath, budget);
+      noteDeleteField(writeMeta?.deleteFields, nestedPath, budget);
       continue;
     }
-    if (copied === OMIT_WRITE_SENTINEL) continue;
+    if (copied === OMIT_WRITE_SENTINEL) {
+      if (writeMeta !== undefined) {
+        writeMeta.omittedSentinel = true;
+        if (writeMeta.deleteOmittedFields) noteDeleteField(writeMeta.deleteFields, nestedPath, budget);
+      }
+      continue;
+    }
     if (copied === OVER_BUDGET) return OVER_BUDGET;
     if (copied === UNSUPPORTED) return UNSUPPORTED;
     out[key] = copied;
@@ -288,13 +316,18 @@ export function sessionDocFields(value: unknown, budget: SessionBudget = itemBud
 }
 
 /** A copy of the fields a write sent, its write sentinels left out and its deleted fields named. */
-export function sessionWriteFields(value: unknown, budget: SessionBudget = itemBudget()): SessionCopyResult<SessionWriteFields> {
+export function sessionWriteFields(
+  value: unknown,
+  budget: SessionBudget = itemBudget(),
+  deleteOmittedFields = false,
+): SessionCopyResult<SessionWriteFields> {
   if (!isFieldsObject(value)) return UNSUPPORTED_RESULT;
-  const deleteFields: string[] = [];
-  const copied = resultOf<Record<string, unknown>>(sessionValueCopy(value, 0, budget, true, deleteFields), budget);
+  const writeMeta: WriteCopyMeta = { deleteFields: [], deleteOmittedFields, omittedSentinel: false };
+  const copied = resultOf<Record<string, unknown>>(sessionValueCopy(value, 0, budget, true, writeMeta), budget);
   if (!copied.ok) return copied;
-  const fields: { data: Record<string, unknown>; deleteFields?: string[] } = { data: copied.value };
-  if (deleteFields.length > 0) fields.deleteFields = deleteFields;
+  const fields: { data: Record<string, unknown>; deleteFields?: string[]; partial?: boolean } = { data: copied.value };
+  if (writeMeta.deleteFields.length > 0) fields.deleteFields = writeMeta.deleteFields;
+  if (writeMeta.omittedSentinel) fields.partial = true;
   return { ok: true, value: fields };
 }
 
@@ -313,7 +346,7 @@ export function readNestedAtFieldPath(source: object, dottedPath: string): { fou
 /** The fields of an update op, keyed by dotted field path, filled one field at a time. */
 class UpdateFields {
   readonly data: Record<string, unknown> = {};
-  readonly deleteFields: string[] = [];
+  readonly writeMeta: WriteCopyMeta = { deleteFields: [], deleteOmittedFields: true, omittedSentinel: false };
   readonly budget: SessionBudget;
 
   constructor(budget: SessionBudget) {
@@ -324,12 +357,16 @@ class UpdateFields {
   add(fieldPath: string, rawValue: unknown): SessionCopyResult<never> | undefined {
     if (isUnsafeFieldPath(fieldPath)) return UNSUPPORTED_RESULT;
     if (!chargeString(this.budget, fieldPath)) return OVERSIZED_RESULT;
-    const copied = sessionValueCopy(rawValue, 0, this.budget, true, this.deleteFields, fieldPath);
+    const copied = sessionValueCopy(rawValue, 0, this.budget, true, this.writeMeta, fieldPath);
     if (copied === DELETE_FIELD_SENTINEL) {
-      noteDeleteField(this.deleteFields, fieldPath, this.budget);
+      noteDeleteField(this.writeMeta.deleteFields, fieldPath, this.budget);
       return undefined;
     }
-    if (copied === OMIT_WRITE_SENTINEL) return undefined;
+    if (copied === OMIT_WRITE_SENTINEL) {
+      this.writeMeta.omittedSentinel = true;
+      noteDeleteField(this.writeMeta.deleteFields, fieldPath, this.budget);
+      return undefined;
+    }
     if (copied === OVER_BUDGET || this.budget.left < 0) return OVERSIZED_RESULT;
     if (copied === UNSUPPORTED) return UNSUPPORTED_RESULT;
     this.data[fieldPath] = copied;
@@ -339,12 +376,19 @@ class UpdateFields {
   /** The finished `update` op for a document path. */
   op(path: string): SessionCopyResult<ObservedFirestoreSessionOp> {
     if (this.budget.left < 0) return OVERSIZED_RESULT;
-    const op: { kind: 'update'; path: string; data: Record<string, unknown>; deleteFields?: string[] } = {
+    const op: {
+      kind: 'update';
+      path: string;
+      data: Record<string, unknown>;
+      deleteFields?: string[];
+      partial?: boolean;
+    } = {
       kind: 'update',
       path,
       data: this.data,
     };
-    if (this.deleteFields.length > 0) op.deleteFields = this.deleteFields;
+    if (this.writeMeta.deleteFields.length > 0) op.deleteFields = this.writeMeta.deleteFields;
+    if (this.writeMeta.omittedSentinel) op.partial = true;
     return { ok: true, value: op };
   }
 }
@@ -389,16 +433,24 @@ export function sessionSetDocOp(
   const path = normalizeDocPath(docPath);
   const mergeFields = mergeFieldsOf(rawOptions);
   if (mergeFields !== undefined) return sessionMergeFieldsOp(path, rawData, mergeFields, budget);
-  const fields = sessionWriteFields(rawData, budget);
+  const merge = isObject(rawOptions) && Reflect.get(rawOptions, 'merge') === true;
+  const fields = sessionWriteFields(rawData, budget, merge);
   if (!fields.ok) return fields;
-  const op: { kind: 'set'; path: string; data: Record<string, unknown>; merge?: boolean; deleteFields?: string[] } = {
+  const op: {
+    kind: 'set';
+    path: string;
+    data: Record<string, unknown>;
+    merge?: boolean;
+    deleteFields?: string[];
+    partial?: boolean;
+  } = {
     kind: 'set',
     path,
     data: fields.value.data,
   };
-  const merge = isObject(rawOptions) && Reflect.get(rawOptions, 'merge') === true;
   if (merge) op.merge = true;
   if (fields.value.deleteFields !== undefined) op.deleteFields = fields.value.deleteFields;
+  if (fields.value.partial === true) op.partial = true;
   return { ok: true, value: op };
 }
 

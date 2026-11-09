@@ -56,6 +56,7 @@ import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
 import { rtdbInstance } from '../worker/host/rtdb-instances.js';
 import { isPathInside } from '../path-inside.js';
 import type { LiveSeedMode, ObservedSessionDataSnapshot } from '../observed-session/wire.js';
+import type { ObservedSessionDataStore } from '../observed-session/store.js';
 import { createObservedSeedRunner, type ObservedSeedResult } from './seed-from-observed-session.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, hostedStateDirectory, type HostedPersistence } from './persistence.js';
@@ -92,7 +93,7 @@ function resolveRealPath(path: string): string {
   }
 }
 
-/** Server-owned persistence and AI configuration; never sent to browsers. */
+/** Server-owned persistence, live-mode, and AI configuration; never sent to browsers. */
 export interface HostedRuntimeOptions {
   /** Borrowed from the session; the session closes it after the runtime drains. */
   persistence?: HostedPersistence;
@@ -108,6 +109,8 @@ export interface HostedRuntimeOptions {
    * or a direct command, before it runs. Absent outside live mode.
    */
   ownWriteRefusal?: PyricWriteRefusal;
+  /** Live mode's host-memory observed session store for local rules evaluation. */
+  observedSession?: ObservedSessionDataStore;
 }
 
 /** The write a port's frame asks for: a durable operation or a write tool, named for the refusal. Null for anything else. */
@@ -235,6 +238,7 @@ export async function createHostedRuntime(
     aiEngine: payload.ai?.engine,
     aiUpstream: { baseUrl: resolveAiProxyUpstream(ai.proxyUpstream).target, fetch: aiFetch },
     storageByteRoute: true,
+    observedSession: ai.observedSession,
   };
   seedDefaultBucketNames(ctx, loadPersistedDefaultBuckets());
   const hostedFetch: typeof fetch = Object.assign(

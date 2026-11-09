@@ -19,7 +19,10 @@ import {
   FieldPath,
   GeoPoint,
   Timestamp,
+  arrayRemove,
+  arrayUnion,
   deleteField,
+  increment,
   serverTimestamp,
   vector,
 } from 'firebase/firestore';
@@ -141,6 +144,21 @@ describe('@pyric/live Firestore sessionData extraction', () => {
           { type: 'added', doc: d1 },
           { type: 'added', doc: d2 },
         ],
+      };
+    },
+    getDocFromCache: async (ref: { path: string }) =>
+      ref.path === 'users/cache-unmarked'
+        ? makeDocSnapshot(ref.path, { cached: true }, { fromCache: false, hasPendingWrites: false })
+        : makeDocSnapshot(ref.path, { cached: true }, { fromCache: true }),
+    getDocsFromCache: async (query?: { path?: string }) => {
+      const fromCache = query?.path !== 'tasks-unmarked';
+      const cachedDoc = makeDocSnapshot('tasks/cached', { title: 'Offline' }, { fromCache });
+      return {
+        docs: [cachedDoc],
+        size: 1,
+        empty: false,
+        metadata: { fromCache, hasPendingWrites: false },
+        docChanges: () => [{ type: 'added', doc: cachedDoc }],
       };
     },
     runTransaction: async (_db: unknown, _updateFn: unknown) => undefined,
@@ -291,7 +309,10 @@ describe('@pyric/live Firestore sessionData extraction', () => {
 
     const delivery = records.find((r) => r.outcome === 'delivered')!;
     expect(sessionDataOf(delivery)).toEqual({
-      firestore: [{ kind: 'set', path: 'tasks/t1', data: { title: 'Updated', done: false } }],
+      firestore: [
+        { kind: 'set', path: 'tasks/t1', data: { title: 'Updated', done: false } },
+        { kind: 'invalidate', path: 'tasks/t2' },
+      ],
     });
   });
 
@@ -315,7 +336,8 @@ describe('@pyric/live Firestore sessionData extraction', () => {
           path: 'rooms/r1',
           data: { count: 2 },
           merge: true,
-          deleteFields: ['obsolete'],
+          deleteFields: ['obsolete', 'updatedAt'],
+          partial: true,
         },
       ],
     });
@@ -422,6 +444,100 @@ describe('@pyric/live Firestore sessionData extraction', () => {
         { kind: 'set', path: 'items/b', data: { blob } },
       ],
       skipped: { truncated: 2 },
+    });
+  });
+
+  test('marks omitted write sentinels partial and drops stale sentinel fields across updateDoc, setDoc, and addDoc (#2540 F4)', async () => {
+    records.length = 0;
+    await fs.updateDoc(makeFirestoreRef('spaces/s1') as never, {
+      members: arrayRemove('u-2'),
+      admins: arrayUnion('u-1'),
+      edits: increment(1),
+      updatedBy: 'u-1',
+    } as never);
+    expect(sessionDataOf(records.find((r) => r.outcome === 'resolved')!)).toEqual({
+      firestore: [
+        {
+          kind: 'update',
+          path: 'spaces/s1',
+          data: { updatedBy: 'u-1' },
+          deleteFields: ['members', 'admins', 'edits'],
+          partial: true,
+        },
+      ],
+    });
+
+    records.length = 0;
+    await fs.addDoc(makeCollectionRef('spaces') as never, {
+      title: 'Team',
+      createdAt: serverTimestamp(),
+    } as never);
+    expect(sessionDataOf(records.find((r) => r.outcome === 'resolved')!)).toEqual({
+      firestore: [
+        {
+          kind: 'set',
+          path: 'spaces/generated-id',
+          data: { title: 'Team' },
+          partial: true,
+        },
+      ],
+    });
+  });
+
+  test('ignores cache-sourced and pending-write snapshots so unconfirmed reads never become authoritative (#2540 F5)', async () => {
+    records.length = 0;
+    await fs.getDocFromCache(makeFirestoreRef('users/cached') as never);
+    const cachedDoc = records.find((r) => r.outcome === 'resolved')!;
+    expect(cachedDoc.document).toBeUndefined();
+    expect(sessionDataOf(cachedDoc)).toBeUndefined();
+
+    records.length = 0;
+    await fs.getDocsFromCache(makeCollectionRef('tasks') as never);
+    const cachedQuery = records.find((r) => r.outcome === 'resolved')!;
+    expect(sessionDataOf(cachedQuery)).toBeUndefined();
+
+    records.length = 0;
+    await fs.getDocFromCache(makeFirestoreRef('users/cache-unmarked') as never);
+    expect(sessionDataOf(records.find((r) => r.outcome === 'resolved')!)).toBeUndefined();
+
+    records.length = 0;
+    await fs.getDocsFromCache(makeCollectionRef('tasks-unmarked') as never);
+    expect(sessionDataOf(records.find((r) => r.outcome === 'resolved')!)).toBeUndefined();
+
+    records.length = 0;
+    const unsub = fs.onSnapshot(makeFirestoreRef('users/ada') as never, () => {});
+    onSnapshotHandler?.(makeDocSnapshot('users/ada', { name: 'Local' }, { hasPendingWrites: true }));
+    onSnapshotHandler?.(makeDocSnapshot('users/ada', undefined, { fromCache: true }));
+    unsub();
+    const deliveries = records.filter((r) => r.outcome === 'delivered');
+    expect(deliveries).toHaveLength(2);
+    for (const delivery of deliveries) {
+      expect(delivery.document).toBeUndefined();
+      expect(sessionDataOf(delivery)).toBeUndefined();
+    }
+
+    // N4: A QuerySnapshot with top-level hasPendingWrites still captures server-confirmed sibling docs
+    // while invalidating only the pending-write doc.
+    records.length = 0;
+    const unsubQuery = fs.onSnapshot(makeCollectionRef('tasks') as never, () => {});
+    const confirmedSibling = makeDocSnapshot('tasks/t1', { status: 'closed' }, { fromCache: false, hasPendingWrites: false });
+    const pendingSibling = makeDocSnapshot('tasks/t2', { status: 'draft' }, { fromCache: false, hasPendingWrites: true });
+    onSnapshotHandler?.({
+      docs: [confirmedSibling, pendingSibling],
+      size: 2,
+      empty: false,
+      metadata: { fromCache: false, hasPendingWrites: true },
+      docChanges: () => [
+        { type: 'modified', doc: confirmedSibling },
+        { type: 'added', doc: pendingSibling },
+      ],
+    });
+    unsubQuery();
+    expect(sessionDataOf(records.find((r) => r.outcome === 'delivered')!)).toEqual({
+      firestore: [
+        { kind: 'set', path: 'tasks/t1', data: { status: 'closed' } },
+        { kind: 'invalidate', path: 'tasks/t2' },
+      ],
     });
   });
 });

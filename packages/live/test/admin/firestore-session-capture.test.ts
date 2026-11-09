@@ -204,6 +204,7 @@ describe('admin/firestore-session-capture', () => {
       firestore: [
         { kind: 'set', path: 'items/a', data: { v: 1 } },
         { kind: 'set', path: 'items/b', data: { v: 2 } },
+        { kind: 'invalidate', path: 'items/c' },
       ],
     });
 

@@ -12,6 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { answerAndClose, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
+import type { HostedRuntimeOptions } from './hosted/runtime.js';
 import type { ObservedSeedResult } from './hosted/seed-from-observed-session.js';
 import type { ObservedSessionDataStore } from './observed-session/store.js';
 import {
@@ -25,6 +26,16 @@ import {
 /** Whether `pathname` targets one of the live observed-session HTTP routes. */
 export function isLiveSessionRoute(pathname: string): boolean {
   return pathname === LIVE_SESSION_DATA_PATH || pathname === LIVE_SEED_SANDBOX_PATH;
+}
+
+/** Attaches `observedSession` to hosted runtime options when present, without mutating `options`. */
+export function withLiveObservedSession(
+  options: HostedRuntimeOptions | undefined,
+  observedSession: ObservedSessionDataStore | undefined,
+): HostedRuntimeOptions | undefined {
+  if (observedSession === undefined) return options;
+  if (options === undefined) return { observedSession };
+  return { ...options, observedSession };
 }
 
 /** The hosted runtime's seeding, as the seed route calls it. */

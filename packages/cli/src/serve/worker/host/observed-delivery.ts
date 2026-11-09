@@ -63,7 +63,7 @@ function summarizeFirestoreDelivery(
     if (op.kind === 'set' || op.kind === 'update') {
       addedOrModified += 1;
       if (paths.length < MAX_OBSERVED_DELIVERY_PATHS) paths.push(clean);
-    } else if (op.kind === 'delete') {
+    } else if (op.kind === 'delete' || op.kind === 'invalidate') {
       if (removedPaths.length < MAX_OBSERVED_DELIVERY_PATHS) removedPaths.push(clean);
     }
   }
@@ -86,19 +86,22 @@ function summarizeRtdbDelivery(
   call: ObservedCall,
   ops: NonNullable<ObservedSessionDelta['rtdb']>,
 ): ObservedDeliverySummary | undefined {
-  const op = ops[0];
+  const op = ops.find((entry) => entry.kind === 'set' || entry.kind === 'update') ?? ops[0];
   if (op === undefined) return undefined;
   const cleanPath = trimObservedPath(op.path);
 
+  const hasNoSnapshotValue = op.kind === 'remove' || op.kind === 'invalidate';
   if (RTDB_CHILD_LISTENER_METHODS.has(call.method)) {
     if (cleanPath === '') return { mode: 'delta', size: 0, paths: [] };
-    if (call.method === 'onChildRemoved' || op.kind === 'remove') {
+    const isChildRemoval = call.method === 'onChildRemoved' || hasNoSnapshotValue;
+    if (isChildRemoval) {
       return { mode: 'delta', size: 0, paths: [], removedPaths: [cleanPath] };
     }
     return { mode: 'delta', size: 1, paths: [cleanPath] };
   }
 
-  if (op.kind === 'remove' || op.value === null || op.value === undefined) {
+  if (hasNoSnapshotValue) return { mode: 'snapshot', size: 0, paths: [] };
+  if (op.value === null || op.value === undefined) {
     return { mode: 'snapshot', size: 0, paths: [] };
   }
   if (isRecord(op.value)) {

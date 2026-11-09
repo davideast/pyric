@@ -126,6 +126,8 @@ export type {
 } from '../simulator/list-rule-path-proof.js';
 export { evaluate, UnsupportedError, TraceRecorder } from '../simulator/evaluator.js';
 export type { SimulationContext, ExprTraceEntry } from '../simulator/evaluator.js';
+export type { DocumentLookupMeta } from '../simulator/evaluation-context.js';
+export { EXISTS_ONLY_DOC, normalizeDocumentPath } from '../simulator/document-lookups.js';
 export { projectAfterState } from '../simulator/project-after-state.js';
 export { MapDiff, FirestoreSet } from '../simulator/mapdiff.js';
 

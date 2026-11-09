@@ -37,15 +37,21 @@ export type ObservedFirestoreSessionOp =
       readonly data: Record<string, unknown>;
       readonly merge?: boolean;
       readonly deleteFields?: readonly string[];
+      readonly partial?: boolean;
     }
   | {
       readonly kind: 'update';
       readonly path: string;
       readonly data: Record<string, unknown>;
       readonly deleteFields?: readonly string[];
+      readonly partial?: boolean;
     }
   | {
       readonly kind: 'delete';
+      readonly path: string;
+    }
+  | {
+      readonly kind: 'invalidate';
       readonly path: string;
     };
 
@@ -64,6 +70,11 @@ export type ObservedRtdbSessionOp =
     }
   | {
       readonly kind: 'remove';
+      readonly instance: string;
+      readonly path: string;
+    }
+  | {
+      readonly kind: 'invalidate';
       readonly instance: string;
       readonly path: string;
     };

@@ -65,7 +65,12 @@ import {
   ListenersSurface,
   drilledListenerId,
 } from '../listeners/index.js';
-import { TRAFFIC_TABS, trafficTabForView, type TrafficTab } from './traffic-tabs.js';
+import {
+  queryForTrafficTab,
+  TRAFFIC_TABS,
+  trafficTabForView,
+  type TrafficTab,
+} from './traffic-tabs.js';
 import { computeTrafficWindow } from './traffic-window.js';
 import { trafficTimeFocus, toggleTimeFocus } from './timeline-focus.js';
 import {
@@ -126,13 +131,7 @@ function useTrafficTab(): readonly [TrafficTab, (tab: TrafficTab) => void] {
     () => 'timeline',
   );
   const setActive = useCallback((tab: TrafficTab) => {
-    // Preserve unrelated query keys (`?hide=studio` must survive a view
-    // switch); `?inspect` intentionally drops with the rest replaced only
-    // when absent from the merge — spread keeps it too, and that's right:
-    // an open inspection belongs to the timeline view the user returns to.
-    const query = { ...currentPath().query, view: tab === 'timeline' ? undefined : tab };
-    if (query.view === undefined) delete query.view;
-    pushPath({ tab: 'traffic', query });
+    pushPath({ tab: 'traffic', query: queryForTrafficTab(currentPath().query, tab) });
   }, []);
   return [active, setActive] as const;
 }

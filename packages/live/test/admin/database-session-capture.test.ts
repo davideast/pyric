@@ -53,25 +53,21 @@ function makeSite(
 
 describe('admin/database-session-capture', () => {
   test('captures Reference set, setWithPriority, multi-path update, remove, and push at resolved child path', () => {
-    expect(
-      adminDatabaseSessionContext(
-        'Reference.set',
-        [{ title: 'alpha', count: 1 }],
-        INSTANCE,
-        '/queues/q1',
-      ),
-    ).toEqual({
-      sessionData: {
-        rtdb: [{ kind: 'set', instance: INSTANCE, path: '/queues/q1', value: { title: 'alpha', count: 1 } }],
-      },
+    const setCtx = adminDatabaseSessionContext(
+      'Reference.set',
+      [{ title: 'alpha', count: 1 }],
+      INSTANCE,
+      '/queues/q1',
+    );
+    expect(setCtx.sessionData).toEqual({
+      rtdb: [{ kind: 'set', instance: INSTANCE, path: '/queues/q1', value: { title: 'alpha', count: 1 } }],
     });
+    expect(typeof setCtx.onCallStart).toBe('function');
 
     expect(
-      adminDatabaseSessionContext('Reference.setWithPriority', [{ rank: 2 }, 10], INSTANCE, '/queues/q1'),
+      adminDatabaseSessionContext('Reference.setWithPriority', [{ rank: 2 }, 10], INSTANCE, '/queues/q1').sessionData,
     ).toEqual({
-      sessionData: {
-        rtdb: [{ kind: 'set', instance: INSTANCE, path: '/queues/q1', value: { rank: 2 } }],
-      },
+      rtdb: [{ kind: 'set', instance: INSTANCE, path: '/queues/q1', value: { rank: 2 } }],
     });
 
     expect(
@@ -80,26 +76,20 @@ describe('admin/database-session-capture', () => {
         [{ 'q1/count': 3, 'q2/label': 'ready' }],
         INSTANCE,
         '/queues',
-      ),
+      ).sessionData,
     ).toEqual({
-      sessionData: {
-        rtdb: [{ kind: 'update', instance: INSTANCE, path: '/queues', value: { 'q1/count': 3, 'q2/label': 'ready' } }],
-      },
+      rtdb: [{ kind: 'update', instance: INSTANCE, path: '/queues', value: { 'q1/count': 3, 'q2/label': 'ready' } }],
     });
 
-    expect(adminDatabaseSessionContext('Reference.remove', [], INSTANCE, '/queues/q1')).toEqual({
-      sessionData: {
-        rtdb: [{ kind: 'remove', instance: INSTANCE, path: '/queues/q1' }],
-      },
+    expect(adminDatabaseSessionContext('Reference.remove', [], INSTANCE, '/queues/q1').sessionData).toEqual({
+      rtdb: [{ kind: 'remove', instance: INSTANCE, path: '/queues/q1' }],
     });
 
     const childRef = makeCompatRef('/queues/pushed-99', 'pushed-99');
     expect(
-      adminDatabaseSessionContext('Reference.push', [childRef, { label: 'queued' }], INSTANCE, '/queues'),
+      adminDatabaseSessionContext('Reference.push', [childRef, { label: 'queued' }], INSTANCE, '/queues').sessionData,
     ).toEqual({
-      sessionData: {
-        rtdb: [{ kind: 'set', instance: INSTANCE, path: '/queues/pushed-99', value: { label: 'queued' } }],
-      },
+      rtdb: [{ kind: 'set', instance: INSTANCE, path: '/queues/pushed-99', value: { label: 'queued' } }],
     });
   });
 
@@ -110,10 +100,8 @@ describe('admin/database-session-capture', () => {
         [{ title: 'alpha', updatedAt: { '.sv': 'timestamp' } }],
         INSTANCE,
         '/queues/q1',
-      ),
-    ).toEqual({
-      sessionData: { skipped: { unsupported: 1 } },
-    });
+      ).sessionData,
+    ).toEqual({ skipped: { unsupported: 1 } });
 
     expect(
       adminDatabaseSessionContext(
@@ -121,10 +109,8 @@ describe('admin/database-session-capture', () => {
         [{ 'q1/count': 3, 'q2/count': { '.sv': { increment: 1 } } }],
         INSTANCE,
         '/queues',
-      ),
-    ).toEqual({
-      sessionData: { skipped: { unsupported: 1 } },
-    });
+      ).sessionData,
+    ).toEqual({ skipped: { unsupported: 1 } });
 
     const childRef = makeCompatRef('/queues/pushed-sv', 'pushed-sv');
     expect(
@@ -133,16 +119,12 @@ describe('admin/database-session-capture', () => {
         [childRef, { createdAt: { '.sv': 'timestamp' } }],
         INSTANCE,
         '/queues',
-      ),
-    ).toEqual({
-      sessionData: { skipped: { unsupported: 1 } },
-    });
+      ).sessionData,
+    ).toEqual({ skipped: { unsupported: 1 } });
 
     expect(
-      adminDatabaseSessionContext('Reference.set', [{ 'bad.key': 1 }], INSTANCE, '/queues/q1'),
-    ).toEqual({
-      sessionData: { skipped: { unsupported: 1 } },
-    });
+      adminDatabaseSessionContext('Reference.set', [{ 'bad.key': 1 }], INSTANCE, '/queues/q1').sessionData,
+    ).toEqual({ skipped: { unsupported: 1 } });
 
     expect(
       adminDatabaseSessionContext(
@@ -150,10 +132,8 @@ describe('admin/database-session-capture', () => {
         [{ huge: 'x'.repeat(270 * 1024) }],
         INSTANCE,
         '/queues/q1',
-      ),
-    ).toEqual({
-      sessionData: { skipped: { oversized: 1 } },
-    });
+      ).sessionData,
+    ).toEqual({ skipped: { oversized: 1 } });
   });
 
   test('captures Query.get and Query.once for bare value, filtered query update, and child_* events', () => {
@@ -175,7 +155,21 @@ describe('admin/database-session-capture', () => {
       ),
     ).toEqual({
       sessionData: {
-        rtdb: [{ kind: 'update', instance: INSTANCE, path: '/queues', value: { q1: { ok: true } } }],
+        rtdb: [
+          { kind: 'invalidate', instance: INSTANCE, path: '/queues' },
+          { kind: 'update', instance: INSTANCE, path: '/queues', value: { q1: { ok: true } } },
+        ],
+      },
+    });
+
+    expect(
+      adminDatabaseResult(
+        makeSite('Query.get', { path: '/queues', rtdbFilteredQuery: true }),
+        makeCompatSnap('/queues', null),
+      ),
+    ).toEqual({
+      sessionData: {
+        rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/queues' }],
       },
     });
 
@@ -224,7 +218,10 @@ describe('admin/database-session-capture', () => {
         makeCompatSnap('/queues', { q1: { active: true } }),
       ),
     ).toEqual({
-      rtdb: [{ kind: 'update', instance: INSTANCE, path: '/queues', value: { q1: { active: true } } }],
+      rtdb: [
+        { kind: 'invalidate', instance: INSTANCE, path: '/queues' },
+        { kind: 'update', instance: INSTANCE, path: '/queues', value: { q1: { active: true } } },
+      ],
     });
 
     expect(
@@ -263,7 +260,9 @@ describe('admin/database-session-capture', () => {
         'child_removed',
         makeCompatSnap('/queues/q1', { active: false }, 'q1'),
       ),
-    ).toBeUndefined();
+    ).toEqual({
+      rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/queues/q1' }],
+    });
 
     const onceFilteredRemoved = adminDatabaseSessionContext('Query.once', ['child_removed'], INSTANCE, '/queues');
     expect(
@@ -271,7 +270,96 @@ describe('admin/database-session-capture', () => {
         makeSite('Query.once', { path: '/queues', subject: onceFilteredRemoved.subject, rtdbFilteredQuery: true }),
         makeCompatSnap('/queues/q1', { active: false }, 'q1'),
       ),
-    ).toEqual({});
+    ).toEqual({
+      sessionData: {
+        rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/queues/q1' }],
+      },
+    });
+
+    // In-flight Admin write converts overlapping listener deliveries AND one-shot Query.get / Query.once reads into `invalidate` (#2540 F6, H-A, M9).
+    const inflightCtx = adminDatabaseSessionContext('Reference.set', [{ active: true }], INSTANCE, '/queues/q1');
+    const lease = inflightCtx.onCallStart!();
+    try {
+      expect(
+        adminDatabaseDelivery(
+          makeSite('Query.on', { path: '/queues/q1' }),
+          'value',
+          makeCompatSnap('/queues/q1', { active: true }),
+        ),
+      ).toEqual({
+        rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/queues/q1' }],
+      });
+
+      expect(
+        adminDatabaseResult(
+          makeSite('Query.get', { path: '/queues/q1' }),
+          makeCompatSnap('/queues/q1', { active: true }),
+        ),
+      ).toEqual({
+        sessionData: {
+          rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/queues/q1' }],
+        },
+      });
+
+      const onceValCtx = adminDatabaseSessionContext('Query.once', ['value'], INSTANCE, '/queues/q1');
+      expect(
+        adminDatabaseResult(
+          makeSite('Query.once', { path: '/queues/q1', subject: onceValCtx.subject }),
+          makeCompatSnap('/queues/q1', { active: true }),
+        ),
+      ).toEqual({
+        sessionData: {
+          rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/queues/q1' }],
+        },
+      });
+
+      const onceChildCtx = adminDatabaseSessionContext('Query.once', ['child_added'], INSTANCE, '/queues');
+      expect(
+        adminDatabaseResult(
+          makeSite('Query.once', { path: '/queues', subject: onceChildCtx.subject }),
+          makeCompatSnap('/queues/q1', { active: true }, 'q1'),
+        ),
+      ).toEqual({
+        sessionData: {
+          rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/queues/q1' }],
+        },
+      });
+    } finally {
+      lease.release();
+    }
+
+    // M9: Admin `Reference.update` holds a patch-scoped lease while pending.
+    const updateLeaseCtx = adminDatabaseSessionContext(
+      'Reference.update',
+      [{ 'q1/active': true }],
+      INSTANCE,
+      '/queues',
+    );
+    const updateLease = updateLeaseCtx.onCallStart!();
+    try {
+      expect(
+        adminDatabaseResult(
+          makeSite('Query.get', { path: '/queues/q1/active' }),
+          makeCompatSnap('/queues/q1/active', true),
+        ),
+      ).toEqual({
+        sessionData: {
+          rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/queues/q1/active' }],
+        },
+      });
+      expect(
+        adminDatabaseResult(
+          makeSite('Query.get', { path: '/queues/q2/active' }),
+          makeCompatSnap('/queues/q2/active', false),
+        ),
+      ).toEqual({
+        sessionData: {
+          rtdb: [{ kind: 'set', instance: INSTANCE, path: '/queues/q2/active', value: false }],
+        },
+      });
+    } finally {
+      updateLease.release();
+    }
 
     expect(
       adminDatabaseResult(makeSite('Reference.transaction', { path: '/counters/processed' }), {

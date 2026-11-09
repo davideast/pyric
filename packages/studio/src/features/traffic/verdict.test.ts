@@ -484,4 +484,34 @@ describe('live RTDB rules evaluation, unevaluated inspection, and Live mode navi
     expect(headline({ status: 'error', code: 'permission-denied' })).toMatch(/^Production denied set on \/rooms\/r1\. /);
     expect(headline({ status: 'error', code: 'unavailable' })).toMatch(/^Production failed set on \/rooms\/r1 \(unavailable\)\. /);
   });
+
+  it('surfaces missingPaths on unevaluated RTDB and Firestore inspections and names uncaptured paths in stored-document gaps', () => {
+    const rtdbPaused = liveUnevaluatedInspection(
+      rtdbLive('get', '/rooms/s1', {
+        result: 'unevaluated',
+        needs: ['stored-document'],
+        missingPaths: ['/workspaces/ws-1/archived'],
+        rtdb: {
+          matchedPath: '/rooms/$roomId',
+          matchedRule: "auth != null && !root.child('workspaces/ws-1/archived').exists()",
+          pathVariableBindings: { $roomId: 's1' },
+        },
+      }),
+      RTDB_RULES_JSON,
+    );
+    expect(rtdbPaused?.missingPaths).toEqual(['/workspaces/ws-1/archived']);
+    expect(rtdbPaused?.gaps[0]?.detail).toContain('/workspaces/ws-1/archived');
+
+    const fsPaused = liveUnevaluatedInspection({
+      ...rtdbLive('getDoc', 'projects/p-1', {
+        result: 'unevaluated',
+        needs: ['stored-document'],
+        missingPaths: ['admins/u-1', 'projects/p-1'],
+        rule: { line: 5, expression: 'resource.data.owner == request.auth.uid' },
+      }),
+      service: 'firestore',
+    } as StudioTrafficEvent);
+    expect(fsPaused?.missingPaths).toEqual(['admins/u-1', 'projects/p-1']);
+    expect(fsPaused?.gaps[0]?.detail).toContain('admins/u-1, projects/p-1');
+  });
 });

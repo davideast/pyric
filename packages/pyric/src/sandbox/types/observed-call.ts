@@ -401,6 +401,8 @@ export type LocalVerdict =
   | {
       result: 'unevaluated';
       needs: LocalVerdictGap[];
+      /** Canonical resource or document paths whose absence from observed session state paused local evaluation. */
+      missingPaths?: string[];
       rule?: LocalRule;
       rtdb?: LocalRtdbEvaluation;
       storage?: LocalStorageEvaluation;

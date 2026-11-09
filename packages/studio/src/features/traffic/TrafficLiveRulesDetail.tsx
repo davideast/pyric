@@ -64,13 +64,32 @@ function UnevaluatedField({ label, children }: { label: string; children: ReactN
   );
 }
 
+function buildMissingPathsRuleLabel(
+  ruleContext: LiveUnevaluatedRuleContext | undefined,
+  missingPaths: readonly string[],
+): string {
+  let pathNoun = `uncaptured paths ${missingPaths.join(', ')}`;
+  if (missingPaths.length === 1) {
+    pathNoun = `uncaptured path ${missingPaths[0]}`;
+  }
+  const parts = [`Matched rule — paused on ${pathNoun}`];
+  if (ruleContext?.nodeLabel !== undefined) parts.push(ruleContext.nodeLabel);
+  if (ruleContext?.line !== undefined) parts.push(`line ${ruleContext.line}`);
+  return parts.join(' · ');
+}
+
 /**
- * The heading over an unevaluated verdict's rule. An RTDB rule node comes from
- * the rule tree along the path, so it is the rule that applies; a Firestore
- * rule is the one the simulation evaluated with the data missing, which a
- * fuller evaluation might not reach.
+ * The heading over an unevaluated verdict's rule. When `missingPaths` names the
+ * exact uncaptured path(s) the rule paused on, lead with those paths alongside
+ * the matched rule; otherwise preserve the service-specific heading.
  */
-function buildApplicableRuleLabel(ruleContext: LiveUnevaluatedRuleContext | undefined): string {
+function buildApplicableRuleLabel(
+  ruleContext: LiveUnevaluatedRuleContext | undefined,
+  missingPaths: readonly string[] | undefined,
+): string {
+  if (missingPaths !== undefined && missingPaths.length > 0) {
+    return buildMissingPathsRuleLabel(ruleContext, missingPaths);
+  }
   if (ruleContext === undefined || ruleContext.nodeLabel === undefined) {
     return 'applicable local rules';
   }
@@ -98,19 +117,27 @@ function UnevaluatedRuleSection({
 }) {
   const ruleContext = inspection.ruleContext;
   const isFirestore = inspection.service !== 'rtdb';
-  const cleanSource = isFirestore ? stripPyricSourceMap(rawRulesSource) : rawRulesSource;
+  let cleanSource = rawRulesSource;
+  if (isFirestore) {
+    cleanSource = stripPyricSourceMap(rawRulesSource);
+  }
   const hasSource = cleanSource.trim().length > 0;
   const rawLine = ruleContext?.line;
-  const markedLine = isFirestore ? resolveMarkedLine(rawRulesSource, rawLine) : rawLine;
+  let markedLine = rawLine;
+  if (isFirestore) {
+    markedLine = resolveMarkedLine(rawRulesSource, rawLine);
+  }
   const hasBindings =
     ruleContext?.pathVariableBindings !== undefined &&
     Object.keys(ruleContext.pathVariableBindings).length > 0;
 
-  if (!hasSource && ruleContext === undefined) {
+  const isEmptyRuleSection =
+    !hasSource && ruleContext === undefined && inspection.missingPaths === undefined;
+  if (isEmptyRuleSection) {
     return null;
   }
 
-  const label = buildApplicableRuleLabel(ruleContext);
+  const label = buildApplicableRuleLabel(ruleContext, inspection.missingPaths);
   const ariaLabel = buildSourceAriaLabel(inspection.service, markedLine !== undefined);
   let ruleBody: ReactNode = null;
   if (hasSource) {
@@ -185,6 +212,23 @@ function UnevaluatedAuthSection({ event }: { event: StudioTrafficEvent }) {
   );
 }
 
+function MissingPathsPills({ missingPaths }: { missingPaths: readonly string[] | undefined }) {
+  if (missingPaths === undefined || missingPaths.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 pt-0.5">
+      {missingPaths.map((missingPath) => (
+        <code
+          key={missingPath}
+          data-missing-path={missingPath}
+          className="rounded border border-border bg-sidebar-bg px-1.5 py-0.5 font-mono text-[11px] text-soft-white"
+        >
+          {missingPath}
+        </code>
+      ))}
+    </div>
+  );
+}
+
 function LiveUnevaluatedDetailBody({
   event,
   inspection,
@@ -222,9 +266,12 @@ function LiveUnevaluatedDetailBody({
           className="flex flex-col gap-2 rounded-md border border-border bg-content-bg p-3"
         >
           {inspection.gaps.map((gap) => (
-            <li key={gap.gap} data-live-need={gap.gap} className="flex flex-col gap-0.5">
+            <li key={gap.gap} data-live-need={gap.gap} className="flex flex-col gap-1">
               <code className="font-mono text-xs text-primary">{gap.label}</code>
               <p className="m-0 text-xs leading-relaxed text-slate-gray">{gap.detail}</p>
+              {gap.gap === 'stored-document' && (
+                <MissingPathsPills missingPaths={inspection.missingPaths} />
+              )}
             </li>
           ))}
         </ul>
@@ -259,7 +306,10 @@ export function LiveRulesView({
   const rulesSource = useStudioRulesSource(service, event.instance);
   const production = event.production;
   const evaluation = liveRuleEvaluation(event, rulesSource);
-  const unevaluated = evaluation === undefined ? liveUnevaluatedInspection(event, rulesSource) : undefined;
+  let unevaluated: LiveUnevaluatedInspection | undefined;
+  if (evaluation === undefined) {
+    unevaluated = liveUnevaluatedInspection(event, rulesSource);
+  }
   if (evaluation === undefined && unevaluated === undefined) return null;
   const drifts = showDrift && localDrift(event) !== undefined;
   let body: ReactNode = null;

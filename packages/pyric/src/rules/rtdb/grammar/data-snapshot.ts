@@ -1,3 +1,17 @@
+/**
+ * Realtime Database `DataSnapshot` runtime model and runtime error class for
+ * local security rules evaluation.
+ *
+ * When an optional `SnapshotReadObserver` is supplied, every leaf or subtree
+ * inspection (`val`, `exists`, zero-arg `hasChildren`, `isString`, `isNumber`,
+ * `isBoolean`, `getPriority`) reports the snapshot's canonical path. Navigation
+ * (`child`, `parent`) propagates the observer without reporting intermediate
+ * containers, so `hasChild('a')` and `hasChildren(['a', 'b'])` report only the
+ * child paths actually inspected.
+ */
+
+export type SnapshotReadObserver = (path: string) => void;
+
 /** Whether `raw` is a JSON object node, as opposed to a leaf or null. */
 function isObjectNode(raw: unknown): raw is Record<string, unknown> {
   return typeof raw === 'object' && raw !== null && !Array.isArray(raw);
@@ -44,14 +58,17 @@ export class DataSnapshot {
   private _value: unknown;
   private _path: string;
   private _root: unknown;
+  private _onRead?: SnapshotReadObserver;
 
-  constructor(value: unknown, path: string = '/', root?: unknown) {
+  constructor(value: unknown, path: string = '/', root?: unknown, onRead?: SnapshotReadObserver) {
     this._value = value ?? null;
     this._path = path;
     this._root = root !== undefined ? root : value;
+    this._onRead = onRead;
   }
 
   val(): unknown {
+    this._onRead?.(this._path);
     return exportedValue(this._value);
   }
 
@@ -119,19 +136,20 @@ export class DataSnapshot {
 
     const prefix = this._path === '/' ? '' : this._path;
     const currentPath = `${prefix}/${parts.join('/')}`;
-    return new DataSnapshot(current, currentPath, this._root);
+    return new DataSnapshot(current, currentPath, this._root, this._onRead);
   }
 
   parent(): DataSnapshot {
     if (this._path === '/') throw new RtdbRuleRuntimeError('Cannot call parent() on root.');
     const parts = this._path.split('/').filter(p => p.length > 0);
     parts.pop();
-    if (parts.length === 0) return new DataSnapshot(this._root, '/');
-    const rootSnap = new DataSnapshot(this._root, '/');
+    const rootSnap = new DataSnapshot(this._root, '/', this._root, this._onRead);
+    if (parts.length === 0) return rootSnap;
     return rootSnap.child(parts.join('/'));
   }
 
   getPriority(): number | string | null {
+    this._onRead?.(this._path);
     return priorityOf(this._value);
   }
 }

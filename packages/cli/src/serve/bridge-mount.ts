@@ -36,7 +36,7 @@ import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import type { BridgeMessage } from '../bridge/protocol.js';
 import type { LiveHostState } from './live-host-state.js';
-import { isLiveSessionRoute, serveLiveSessionRoute } from './live-session-routes.js';
+import { isLiveSessionRoute, serveLiveSessionRoute, withLiveObservedSession } from './live-session-routes.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { InitPayload, RulesDestination } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
@@ -327,7 +327,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           liveHost?.outbound(message);
           bridge.handleSandboxMessage(message);
         };
-        hostedRuntime = await createHostedRuntime(payload, baseUrl, fromSandbox, opts.projectKey ?? process.cwd(), ai);
+        const hostOptions = withLiveObservedSession(ai, liveHost?.sessionData);
+        hostedRuntime = await createHostedRuntime(payload, baseUrl, fromSandbox, opts.projectKey ?? process.cwd(), hostOptions);
         if (closed) throw new Error('The hosted sandbox closed during startup.');
         liveHost?.readClientIds(hostedRuntime.clientIdOf);
         const receive = hostedRuntime.receive;

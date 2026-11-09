@@ -23,12 +23,13 @@ g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 g.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, waitFor } from '@testing-library/react';
 import type { SandboxEvent } from 'pyric/sandbox';
 import { TrafficSurface } from '../../../src/features/traffic/TrafficSurface.js';
+import { resetTrafficSubrouteQuery } from '../../../src/features/traffic/traffic-tabs.js';
 import { EnvironmentProvider } from '../../../src/shell/environment.js';
 import { resetLiveStatusPollerForTesting } from '../../../src/shell/live-status.js';
-import { replacePath } from '../../../src/shell/router.js';
+import { currentPath, replacePath, useRoute } from '../../../src/shell/router.js';
 
 const LIVE_HEALTH = {
   live: {
@@ -434,5 +435,57 @@ describe('<TrafficSurface> live retention and brushed subtab scoping', () => {
       worker.restore();
       restoreFetch();
     }
+  });
+});
+
+describe('useRoute top-level Traffic navigation (#2540)', () => {
+  const VALID = ['home', 'traffic', 'firestore'] as const;
+
+  it('clears stale ?inspect and subview query keys when clicking top-level Traffic while preserving ?hide=studio and ?from=', () => {
+    replacePath({
+      tab: 'traffic',
+      query: { inspect: 'ev-1', view: 'billable', hide: 'studio', from: 'user:u-1' },
+    });
+    const { result } = renderHook(() => useRoute(VALID, 'home', resetTrafficSubrouteQuery));
+    expect(result.current[0]).toBe('traffic');
+
+    act(() => {
+      result.current[1]('traffic');
+    });
+
+    expect(currentPath().tab).toBe('traffic');
+    expect(currentPath().rest).toEqual([]);
+    expect(currentPath().query.inspect).toBeUndefined();
+    expect(currentPath().query.view).toBeUndefined();
+    expect(currentPath().query.hide).toBe('studio');
+    expect(currentPath().query.from).toBe('user:u-1');
+  });
+
+  it('returns to clean /traffic when clicking top-level Traffic from ?inspect=ev-1 or /traffic/listeners/<id>', () => {
+    replacePath({ tab: 'traffic', query: { inspect: 'ev-1' } });
+    const { result } = renderHook(() => useRoute(VALID, 'home', resetTrafficSubrouteQuery));
+
+    act(() => {
+      result.current[1]('traffic');
+    });
+    expect(window.location.pathname + window.location.search).toBe('/traffic');
+
+    act(() => {
+      replacePath({ tab: 'traffic', rest: ['listeners', 'l-1'], query: { hide: 'studio' } });
+    });
+    act(() => {
+      result.current[1]('traffic');
+    });
+    expect(window.location.pathname + window.location.search).toBe('/traffic?hide=studio');
+  });
+
+  it('leaves the URL unchanged on active-tab re-click when no reselectActiveQuery callback is supplied', () => {
+    replacePath({ tab: 'firestore', query: { inspect: 'doc-1' } });
+    const { result } = renderHook(() => useRoute(VALID, 'home'));
+
+    act(() => {
+      result.current[1]('firestore');
+    });
+    expect(window.location.pathname + window.location.search).toBe('/firestore?inspect=doc-1');
   });
 });

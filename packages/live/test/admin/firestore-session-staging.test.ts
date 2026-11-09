@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
 import {
+  addAdminQuerySnapshot,
   beginAdminTransactionSession,
   commitAdminBatchDelta,
   commitAdminTransactionDelta,
@@ -13,6 +14,7 @@ import {
   patchAdminFirestoreTransaction,
   patchAdminFirestoreWriteBatch,
 } from '../../src/admin/firestore-session-staging.js';
+import { DeltaOps } from '../../src/firestore-session-capture.js';
 
 interface AdminFirestorePkg {
   Firestore: new (settings: { projectId: string }) => {
@@ -162,5 +164,42 @@ describe('admin/firestore-session-staging', () => {
     } finally {
       await db.terminate();
     }
+  });
+
+  test('captures QuerySnapshot docChanges as set and invalidate ops without authoritative delete (#2540 N2)', () => {
+    const firstSnap = {
+      docs: [
+        makeDocSnap('tasks/t1', { status: 'open' }),
+        makeDocSnap('tasks/t2', { status: 'open' }),
+      ],
+      docChanges: () => [
+        { type: 'added', doc: makeDocSnap('tasks/t1', { status: 'open' }) },
+        { type: 'added', doc: makeDocSnap('tasks/t2', { status: 'open' }) },
+      ],
+    };
+    const initialOps = new DeltaOps();
+    addAdminQuerySnapshot(initialOps, firstSnap, false);
+    expect(initialOps.delta()).toEqual({
+      firestore: [
+        { kind: 'set', path: 'tasks/t1', data: { status: 'open' } },
+        { kind: 'set', path: 'tasks/t2', data: { status: 'open' } },
+      ],
+    });
+
+    const secondSnap = {
+      docs: [makeDocSnap('tasks/t1', { status: 'open', pinned: true })],
+      docChanges: () => [
+        { type: 'modified', doc: makeDocSnap('tasks/t1', { status: 'open', pinned: true }) },
+        { type: 'removed', doc: makeDocSnap('tasks/t2', { status: 'done' }) },
+      ],
+    };
+    const deliveryOps = new DeltaOps();
+    addAdminQuerySnapshot(deliveryOps, secondSnap, true);
+    expect(deliveryOps.delta()).toEqual({
+      firestore: [
+        { kind: 'set', path: 'tasks/t1', data: { status: 'open', pinned: true } },
+        { kind: 'invalidate', path: 'tasks/t2' },
+      ],
+    });
   });
 });

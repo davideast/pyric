@@ -33,6 +33,9 @@
 import { isPlainObject, jsonValue } from './json-copy.js';
 import { observedCall, refusedFactory, UNOBSERVED, type CallContext, type ListenerIdentity, type LiveWriteValue, type ObservedSite } from './observe.js';
 import { databaseWriteSession } from './database-session-capture.js';
+import { UNREAD_INSTANCE } from './rtdb-write-plan.js';
+
+export { UNREAD_INSTANCE };
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
 type Fields = Record<string, unknown>;
@@ -191,15 +194,6 @@ function stringAt(value: unknown, keys: readonly string[]): string | undefined {
   }
   return typeof current === 'string' && current !== '' ? current : undefined;
 }
-
-/**
- * The instance a record names when the reference's repo does not say. A
- * default instance is the project id, at most 30 characters, or ends in
- * `-default-rtdb`; this name is 40 characters and doesn't, so it can't be a
- * default instance. A host requires an instance on every RTDB call, so the
- * call still reaches Traffic.
- */
-export const UNREAD_INSTANCE = 'instance-not-read-from-the-sdk-reference';
 
 /**
  * A repo's instance: the SDK's namespace, lowercase. The SDK keeps the
