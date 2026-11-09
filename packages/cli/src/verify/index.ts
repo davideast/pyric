@@ -374,20 +374,57 @@ function verifyFirestoreSandbox(
     includeListenerReads: true,
     mockReads: 'omit',
   });
+  const committedGroupIds = new Set<string>();
+  const groupIdByEventId = new Map<string, string>();
+  const batchProjectionByGroupId = new Map<string, Map<string, Record<string, unknown> | null>>();
+  for (const event of fixture.events) {
+    const groupId = (event as { groupId?: unknown }).groupId;
+    if (typeof groupId === 'string') {
+      groupIdByEventId.set(event.id, groupId);
+      if (event.kind === 'write') {
+        committedGroupIds.add(groupId);
+        let proj = batchProjectionByGroupId.get(groupId);
+        if (!proj) {
+          proj = new Map();
+          batchProjectionByGroupId.set(groupId, proj);
+        }
+        proj.set(event.path, event.method === 'delete' ? null : event.nextState);
+      }
+    }
+  }
+  for (const { eventId, testCase: tc } of derivation.derived) {
+    const groupId = groupIdByEventId.get(eventId);
+    if (!groupId || committedGroupIds.has(groupId)) continue;
+    if (tc.method === 'get' || tc.method === 'list') continue;
+    let proj = batchProjectionByGroupId.get(groupId);
+    if (!proj) {
+      proj = new Map();
+      batchProjectionByGroupId.set(groupId, proj);
+    }
+    proj.set(tc.path, tc.method === 'delete' ? null : (tc.data ?? null));
+  }
   const readCases = derivation.testCases.filter(
     (tc) => tc.method === 'get' || tc.method === 'list',
   );
   const deniedWriteCases = derivation.testCases.filter(
     (tc) => tc.method !== 'get' && tc.method !== 'list' && tc.expectation === 'DENY',
   );
+  const rolledBackAllowedWriteCases = derivation.derived.filter(({ eventId, testCase: tc }) => {
+    if (tc.method === 'get' || tc.method === 'list' || tc.expectation !== 'ALLOW') return false;
+    const groupId = groupIdByEventId.get(eventId);
+    return groupId !== undefined && !committedGroupIds.has(groupId);
+  });
 
   if (derivation.derived.length > 0) {
     const simulator = new SimulateFirestoreRulesHandler();
     for (const { eventId, testCase: tc } of derivation.derived) {
       const isRead = tc.method === 'get' || tc.method === 'list';
       const pointInTimeDocs = docsByEventId.get(eventId) ?? firestore.state.documents;
+      const groupId = groupIdByEventId.get(eventId);
+      const batchProjection = groupId ? batchProjectionByGroupId.get(groupId) : undefined;
       const simulated = simulator.simulate(rules, [tc], {
         getDoc: (docPath) => pointInTimeDocs[docPath] ?? null,
+        ...(batchProjection ? { batchProjection } : {}),
       });
       if (!simulated.success) {
         mapped.push({
@@ -465,7 +502,7 @@ function verifyFirestoreSandbox(
           }
         }
         const hasExistingDivergence = mapped.some(
-          (d) => d.path === tc.path && d.kind !== 'expected-drift',
+          (d) => d.path === tc.path && (d.kind === 'now-denied' || d.kind === 'unsupported'),
         );
         if (!hasExistingDivergence) {
           if (effectiveDecision === 'UNSUPPORTED') {
@@ -500,6 +537,7 @@ function verifyFirestoreSandbox(
       fixture.events.filter(isProtectedFirestoreWrite).length +
       readCases.length +
       deniedWriteCases.length +
+      rolledBackAllowedWriteCases.length +
       live.checkedEvents,
     divergences: mapped,
   };
@@ -604,10 +642,16 @@ function buildPointInTimeFirestoreDocs(
   initialData: Record<string, Record<string, unknown>>,
 ): Map<string, Record<string, Record<string, unknown>>> {
   const currentDocs: Record<string, Record<string, unknown>> = { ...initialData };
+  const preGroupDocs = new Map<string, Record<string, Record<string, unknown>>>();
   const docsByEventId = new Map<string, Record<string, Record<string, unknown>>>();
   for (const event of fixture.events) {
+    const groupId = (event as { groupId?: unknown }).groupId;
+    if (typeof groupId === 'string' && !preGroupDocs.has(groupId)) {
+      preGroupDocs.set(groupId, { ...currentDocs });
+    }
     if (event.kind === 'request') {
-      docsByEventId.set(event.id, { ...currentDocs });
+      const snapshot = typeof groupId === 'string' ? preGroupDocs.get(groupId)! : currentDocs;
+      docsByEventId.set(event.id, { ...snapshot });
     } else if (event.kind === 'write') {
       if (event.nextState === null || event.method === 'delete') {
         delete currentDocs[event.path];

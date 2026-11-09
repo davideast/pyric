@@ -882,7 +882,11 @@ export class SandboxBackend {
         this.usersByEmail.delete(priorEmail.toLowerCase());
       }
       const isAnonymousSeed = u.providerId === 'anonymous';
-      const linkedProviders = u.providerUserInfo ?? [{ providerId: u.providerId ?? 'password' }];
+      const hasDefaultPasswordProvider =
+        u.providerId !== undefined || u.email !== undefined || u.password !== undefined;
+      const linkedProviders =
+        u.providerUserInfo ??
+        (hasDefaultPasswordProvider ? [{ providerId: u.providerId ?? 'password' }] : []);
       const providerUserInfo = isAnonymousSeed ? [] : linkedProviders.map(provider => ({ ...provider }));
       const hasPasswordProvider = providerUserInfo.some(provider => provider.providerId === 'password');
       const hasLegacyPlaceholder = u.password === NO_PASSWORD_SENTINEL || u.password === '__pyric_popup_no_password__';
@@ -942,16 +946,16 @@ export class SandboxBackend {
         out.push(seed);
         continue;
       }
-      const hasNoEmail = email === null;
-      if (hasNoEmail) continue; // credential-less, non-anonymous: not round-trippable
       const seed: SeedUser = {
         uid: u.uid,
         createdAt: u.createdAt,
         lastLoginAt: u.lastLoginAt,
-        email,
-        providerId: u.providerUserInfo[0]?.providerId ?? 'password',
         providerUserInfo: u.providerUserInfo.map(provider => ({ ...provider })),
       };
+      if (email !== null) seed.email = email;
+      const primaryProviderId = u.providerUserInfo[0]?.providerId;
+      if (primaryProviderId !== undefined) seed.providerId = primaryProviderId;
+      else if (email !== null) seed.providerId = 'password';
       const { password } = u;
       const hasPassword = password !== null;
       if (hasPassword) seed.password = password;

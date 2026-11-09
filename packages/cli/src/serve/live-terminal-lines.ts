@@ -41,6 +41,7 @@ export interface RulesFilesSession {
   firestoreRulesFiles(): readonly string[];
   databaseRulesFiles(): readonly string[];
   storageRulesFiles(): readonly string[];
+  storageSourceFiles?(): readonly string[];
 }
 
 const NO_RULES_FILES: LiveRulesFiles = { firestore: [], rtdb: [], storage: [] };
@@ -93,7 +94,7 @@ export function rulesFilesOf(session: RulesFilesSession, projectDir: string): Li
   return {
     firestore: named(session.firestoreRulesFiles().slice(0, 1)),
     rtdb: named(session.databaseRulesFiles()),
-    storage: named(session.storageRulesFiles()),
+    storage: named(session.storageSourceFiles ? session.storageSourceFiles() : session.storageRulesFiles()),
   };
 }
 

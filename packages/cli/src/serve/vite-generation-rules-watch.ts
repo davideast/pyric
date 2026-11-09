@@ -26,8 +26,6 @@ export function watchViteGenerationRules(input: {
   const { server, session } = input;
   const databaseFiles = session.databaseRulesFiles();
   const databaseFileByResolved = new Map(databaseFiles.map((file) => [path.resolve(file), file]));
-  const storageFiles = session.storageRulesFiles();
-  const storageFileByResolved = new Map(storageFiles.map((file) => [path.resolve(file), file]));
 
   let debounce: ReturnType<typeof setTimeout> | null = null;
   // The services whose files changed since the last reload. One debounce
@@ -39,7 +37,7 @@ export function watchViteGenerationRules(input: {
     pending.firestore ||= session.firestoreRulesFiles().some((file) => path.resolve(file) === resolvedFile);
     const databaseFile = databaseFileByResolved.get(resolvedFile);
     if (databaseFile !== undefined) pending.database.add(databaseFile);
-    const storageFile = storageFileByResolved.get(resolvedFile);
+    const storageFile = session.storageRulesFiles().find((candidate) => path.resolve(candidate) === resolvedFile);
     if (storageFile !== undefined) pending.storage.add(storageFile);
     const isNoMatch = !pending.firestore && pending.database.size === 0 && pending.storage.size === 0;
     if (isNoMatch) {
@@ -101,7 +99,8 @@ export function watchViteGenerationRules(input: {
       }
       for (const storageFile of changedStorageFiles) {
         void session.reloadStorageRules(storageFile).then((results) => {
-          for (const { bucket, target, result } of results) {
+          server.watcher.add([...session.storageRulesFiles()]);
+          for (const { bucket, target, file: source, result } of results) {
             const named = storageBucketSuffix(bucket, target);
             if (result.kind === 'reloaded') {
               server.config.logger.info(`  ↻ [pyric] storage rules reloaded${named} (${result.rulesHash})${getVerifyHint()}`);
@@ -110,7 +109,7 @@ export function watchViteGenerationRules(input: {
                 `  ⚠ [pyric] storage rules NOT reloaded (last-good stays live): ${result.error.message}${named}`,
               );
             } else if (result.kind === 'removed') {
-              server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(storageFile, result.policy, bucket, target)}`);
+              server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(source, result.policy, bucket, target)}`);
             }
           }
         });
@@ -118,7 +117,7 @@ export function watchViteGenerationRules(input: {
     }, 150);
   };
 
-  server.watcher.add([...session.firestoreRulesFiles(), ...databaseFiles, ...storageFiles]);
+  server.watcher.add([...session.firestoreRulesFiles(), ...databaseFiles, ...session.storageRulesFiles()]);
   server.watcher.on('change', onRulesChange);
   server.watcher.on('add', onRulesChange);
   server.watcher.on('unlink', onRulesChange);

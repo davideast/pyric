@@ -7,8 +7,9 @@ import type { StoredMetadata, StorageStateRecord } from 'pyric/storage/internal'
 export type ExportedUsers = ReturnType<typeof authSandbox.exportUsers>;
 export const STATE_FILE_VERSION = 1 as const;
 
-/** Mirrors the persistence controller's SCHEMA_VERSION; the packages ship together. */
-export const EXPECTED_CONTROLLER_BLOB_VERSION = 1;
+/** Mirrors the persistence controller's SCHEMA_VERSION; legacy v1 blobs remain readable on upgrade. */
+export const EXPECTED_CONTROLLER_BLOB_VERSION = 2;
+const LEGACY_CONTROLLER_BLOB_VERSION = 1;
 
 export interface PyricStateFile {
   version: typeof STATE_FILE_VERSION;
@@ -103,7 +104,11 @@ export function parseStateFile(value: unknown, source: string): PyricStateFile {
   const firestore = file.firestore;
   const hasControllerVersion = firestore !== null && typeof firestore === 'object' && 'version' in firestore;
   const innerVersion = hasControllerVersion ? firestore.version : undefined;
-  const isUnsupportedController = innerVersion !== undefined && innerVersion !== EXPECTED_CONTROLLER_BLOB_VERSION;
+  const isSupportedController =
+    innerVersion === undefined ||
+    innerVersion === LEGACY_CONTROLLER_BLOB_VERSION ||
+    innerVersion === EXPECTED_CONTROLLER_BLOB_VERSION;
+  const isUnsupportedController = !isSupportedController;
   if (isUnsupportedController) {
     throw new StateFileError(
       `state file at ${source} holds a firestore blob of version ${diagnosticVersion(innerVersion)}; this ` +

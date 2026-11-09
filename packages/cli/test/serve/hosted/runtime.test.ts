@@ -10,6 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMemoryBackend } from 'pyric/sandbox';
+import { recordCheckpointBackend } from 'pyric/sandbox/checkpoints';
 import { openStorageBackend } from '../../../../pyric/src/storage/persistence.js';
 import type { BridgeMessage } from '../../../src/bridge/protocol.js';
 import { createHostedRuntime } from '../../../src/serve/hosted/runtime.js';
@@ -183,6 +184,159 @@ describe('createHostedRuntime observedSession wiring (#2540)', () => {
 
       expect(events.find((e) => e.service === 'firestore')?.production?.local?.result).toBe('allow');
       expect(events.find((e) => e.service === 'rtdb')?.production?.local?.result).toBe('allow');
+    } finally {
+      await runtime.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('createHostedRuntime RTDB active rules sync', () => {
+  it('synchronizes default RTDB active rules on sandbox.promote and sandbox.restore and preserves them across sandbox.reset', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-hosted-runtime-rtdb-sync-'));
+    const frames: BridgeMessage[] = [];
+    const persistence = {
+      backend: createMemoryBackend(),
+      storage: await openStorageBackend(`mem-hosted-rtdb-sync-${Math.random()}`),
+      checkpoints: recordCheckpointBackend(createMemoryBackend()),
+      state: { seed: async () => false },
+      repairedObjects: [],
+      sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
+      close() {},
+      status: () => ({ state: 'healthy' as const }),
+      onFailure: () => () => {},
+      markUnhealthy() {},
+    };
+
+    const initialRtdbRules = {
+      rules: {
+        items: {
+          '.read': 'auth != null',
+          '.write': 'auth != null',
+        },
+      },
+    };
+
+    const runtime = await createHostedRuntime(
+      {
+        rules: FIRESTORE_RULES,
+        rulesHash: null,
+        databaseRules: initialRtdbRules,
+        databaseRulesHash: null,
+        bridgeUrl: null,
+        seed: null,
+        capture: false,
+        hosted: true,
+        permissive: false,
+        projectKey: 'hosted-runtime-rtdb-sync',
+        sessionToken: 'tok-hosted-rtdb-sync',
+        appOptions: { projectId: 'demo-project' },
+      },
+      'http://127.0.0.1:4400',
+      (msg) => frames.push(msg),
+      dir,
+      { persistence: persistence as never, record: false },
+    );
+
+    const conn = {};
+    const queryActiveRtdbRules = async (id: string) => {
+      runtime.receive({
+        type: 'worker-message',
+        clientSessionId: 'c-rtdb-1',
+        message: {
+          t: 'op',
+          id,
+          method: 'getActiveRules',
+          service: 'database',
+        },
+      } as unknown as BridgeMessage);
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        const hit = frames.find(
+          (f) =>
+            f.type === 'worker-message-result' &&
+            (f.message as { id?: string }).id === id,
+        );
+        if (hit !== undefined) {
+          return (hit.message as { value?: { source?: { rules?: Record<string, unknown> } } }).value;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(`Timed out waiting for ${id}`);
+    };
+
+    try {
+      await runtime.runMethod({ key: 'auth.impersonate', args: { uid: 'u1' }, projectDir: dir }, conn);
+
+      const forkRes = await runtime.runMethod(
+        {
+          key: 'sandbox.fork',
+          args: {
+            branch: 'lock-rtdb',
+            candidateRules: { database: { rules: { '.read': false, '.write': false } } },
+          },
+          projectDir: dir,
+        },
+        conn,
+      );
+      expect(forkRes.ok).toBe(true);
+
+      const promoteRes = await runtime.runMethod(
+        {
+          key: 'sandbox.promote',
+          args: { branch: 'lock-rtdb', confirm: true },
+          projectDir: dir,
+        },
+        conn,
+      );
+      expect(promoteRes.ok).toBe(true);
+
+      const activeAfterPromote = await queryActiveRtdbRules('active-after-promote');
+      expect(activeAfterPromote?.source?.rules?.['.write']).toBe(false);
+
+      await runtime.runMethod(
+        { key: 'sandbox.checkpoint', args: { name: 'locked-cp' }, projectDir: dir },
+        conn,
+      );
+
+      await runtime.runMethod(
+        { key: 'sandbox.reset', args: { scope: 'all', confirm: true }, projectDir: dir },
+        conn,
+      );
+      await runtime.runMethod({ key: 'auth.impersonate', args: { uid: 'u1' }, projectDir: dir }, conn);
+      const afterResetWrite = await runtime.runMethod(
+        { key: 'database.set', args: { path: 'items/afterReset', value: { count: 1 } }, projectDir: dir },
+        conn,
+      );
+      expect(afterResetWrite.ok).toBe(false);
+
+      await runtime.runMethod(
+        {
+          key: 'rules.set',
+          args: { service: 'database', rules: JSON.stringify(initialRtdbRules) },
+          projectDir: dir,
+        },
+        conn,
+      );
+      const restoreRes = await runtime.runMethod(
+        { key: 'sandbox.restore', args: { name: 'locked-cp', confirm: true }, projectDir: dir },
+        conn,
+      );
+      expect(restoreRes.ok).toBe(true);
+
+      const activeAfterRestore = await queryActiveRtdbRules('active-after-restore');
+      expect(activeAfterRestore?.source?.rules?.['.write']).toBe(false);
+
+      await runtime.runMethod(
+        { key: 'sandbox.reset', args: { scope: 'all', confirm: true }, projectDir: dir },
+        conn,
+      );
+      await runtime.runMethod({ key: 'auth.impersonate', args: { uid: 'u1' }, projectDir: dir }, conn);
+      const afterRestoreResetWrite = await runtime.runMethod(
+        { key: 'database.set', args: { path: 'items/afterRestoreReset', value: { count: 2 } }, projectDir: dir },
+        conn,
+      );
+      expect(afterRestoreResetWrite.ok).toBe(false);
     } finally {
       await runtime.close();
       rmSync(dir, { recursive: true, force: true });

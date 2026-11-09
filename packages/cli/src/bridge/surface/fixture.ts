@@ -16,7 +16,10 @@ import {
   DEFAULT_SNAPSHOT_RESOURCE,
   captureSandboxSnapshot,
 } from 'pyric/sandbox/internal';
-import { FIXTURE_EXPORT_DOCUMENT } from './storage-state.js';
+import {
+  FIXTURE_EXPORT_DOCUMENT,
+  copyStorageObjectHeaders,
+} from './storage-state.js';
 import {
   applyData,
   applyRules,
@@ -60,7 +63,7 @@ export async function buildFixture(
       path: object.path,
       contentBase64: object.contentBase64,
     };
-    if (object.contentType !== undefined) entry.contentType = object.contentType;
+    copyStorageObjectHeaders(object, entry);
     if (object.customMetadata !== undefined) {
       entry.customMetadata = { ...object.customMetadata };
     }

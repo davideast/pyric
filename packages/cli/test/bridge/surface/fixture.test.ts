@@ -131,7 +131,14 @@ describe('buildFixture / writeFixtureFile / readFixtureFile / applyFixture', () 
     await uploadBytes(
       storageRef(sourceStorage, 'files/u1/blob.bin'),
       new Uint8Array([1, 3, 5, 7]),
-      { contentType: 'application/octet-stream', customMetadata: { rev: 'v2' } },
+      {
+        contentType: 'application/octet-stream',
+        cacheControl: 'public, max-age=600',
+        contentDisposition: 'attachment; filename="blob.bin"',
+        contentEncoding: 'br',
+        contentLanguage: 'en-GB',
+        customMetadata: { rev: 'v2' },
+      },
     );
 
     authSandbox.seedUsers(getAuth(source), [
@@ -206,6 +213,10 @@ describe('buildFixture / writeFixtureFile / readFixtureFile / applyFixture', () 
     // Storage bytes and metadata survived.
     const meta = await getMetadata(storageRef(targetStorage, 'files/u1/blob.bin'));
     expect(meta.contentType).toBe('application/octet-stream');
+    expect(meta.cacheControl).toBe('public, max-age=600');
+    expect(meta.contentDisposition).toBe('attachment; filename="blob.bin"');
+    expect(meta.contentEncoding).toBe('br');
+    expect(meta.contentLanguage).toBe('en-GB');
     expect(meta.customMetadata).toEqual({ rev: 'v2' });
     const bytes = new Uint8Array(await getBytes(storageRef(targetStorage, 'files/u1/blob.bin')));
     expect(Array.from(bytes)).toEqual([1, 3, 5, 7]);
@@ -258,7 +269,9 @@ describe('buildFixture / writeFixtureFile / readFixtureFile / applyFixture', () 
     const rtdbSnap = await databaseGet(databaseRef(getAdminDatabase(target), 'items/plain'));
     expect(rtdbSnap.val()).toEqual({ active: true });
     const exportedUser = authSandbox.exportUsers(getAuth(target)).find((u) => u.uid === 'u3');
-    expect(exportedUser?.email).toBe('u3@pyric.invalid');
-    expect(exportedUser?.password).toBe('seed-u3');
+    expect(exportedUser?.uid).toBe('u3');
+    expect(exportedUser?.email).toBeUndefined();
+    expect(exportedUser?.password).toBeUndefined();
+    expect(exportedUser?.customClaims).toEqual({ role: 'viewer' });
   });
 });

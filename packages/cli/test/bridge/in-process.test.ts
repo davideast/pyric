@@ -569,4 +569,114 @@ describe('the surface an in-process session serves', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('persists promoted and runtime-installed Firestore and Storage rules across session restarts while honoring subsequent disk edits', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-rules-persist-'));
+    try {
+      writeFileSync(join(dir, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-proj' } }));
+      writeFileSync(
+        join(dir, 'firebase.json'),
+        JSON.stringify({
+          firestore: { rules: 'firestore.rules' },
+          storage: { rules: 'storage.rules' },
+        }),
+      );
+      const allowFs =
+        "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /items/{id} { allow read, write: if request.auth != null; } } }\n";
+      const allowSt =
+        "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /docs/{name} { allow read, write: if request.auth != null; } } }\n";
+      const denyFs =
+        "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /items/{id} { allow read, write: if false; } } }";
+      const denySt =
+        "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /docs/{name} { allow read, write: if false; } } }";
+
+      writeFileSync(join(dir, 'firestore.rules'), allowFs);
+      writeFileSync(join(dir, 'storage.rules'), allowSt);
+
+      const first = await openSession(dir, {});
+      await first.client.callTool({
+        name: 'auth',
+        arguments: { method: 'impersonate', args: { uid: 'u1' } },
+      });
+      const forked = await first.client.callTool({
+        name: 'sandbox',
+        arguments: {
+          method: 'fork',
+          args: { branch: 'lock-rules', candidateRules: { firestore: denyFs, storage: denySt } },
+        },
+      });
+      expect(forked.isError).toBeFalsy();
+      const promoted = await first.client.callTool({
+        name: 'sandbox',
+        arguments: { method: 'promote', args: { branch: 'lock-rules', confirm: true } },
+      });
+      expect(promoted.isError).toBeFalsy();
+
+      const fsS1 = await first.client.callTool({
+        name: 'firestore',
+        arguments: { method: 'setDoc', args: { path: 'items/inS1', data: { count: 1 } } },
+      });
+      const stS1 = await first.client.callTool({
+        name: 'storage',
+        arguments: {
+          method: 'uploadBytes',
+          args: { path: 'docs/inS1.txt', contentBase64: Buffer.from('a').toString('base64') },
+        },
+      });
+      expect(fsS1.isError).toBe(true);
+      expect(stS1.isError).toBe(true);
+      await first.close();
+
+      // Session 2: promoted rules stay enforced when on-disk files have not changed.
+      const second = await openSession(dir, {});
+      await second.client.callTool({
+        name: 'auth',
+        arguments: { method: 'impersonate', args: { uid: 'u1' } },
+      });
+      const fsS2 = await second.client.callTool({
+        name: 'firestore',
+        arguments: { method: 'setDoc', args: { path: 'items/inS2', data: { count: 2 } } },
+      });
+      const stS2 = await second.client.callTool({
+        name: 'storage',
+        arguments: {
+          method: 'uploadBytes',
+          args: { path: 'docs/inS2.txt', contentBase64: Buffer.from('b').toString('base64') },
+        },
+      });
+      expect(fsS2.isError).toBe(true);
+      expect(stS2.isError).toBe(true);
+      await second.close();
+
+      // Session 3: editing on-disk rules files takes precedence on next startup.
+      const allowSpecificFs =
+        "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /items/{id} { allow read, write: if request.auth != null && request.auth.uid == 'u1'; } } }\n";
+      const allowSpecificSt =
+        "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /docs/{name} { allow read, write: if request.auth != null && request.auth.uid == 'u1'; } } }\n";
+      writeFileSync(join(dir, 'firestore.rules'), allowSpecificFs);
+      writeFileSync(join(dir, 'storage.rules'), allowSpecificSt);
+
+      const third = await openSession(dir, {});
+      await third.client.callTool({
+        name: 'auth',
+        arguments: { method: 'impersonate', args: { uid: 'u1' } },
+      });
+      const fsS3 = await third.client.callTool({
+        name: 'firestore',
+        arguments: { method: 'setDoc', args: { path: 'items/inS3', data: { count: 3 } } },
+      });
+      const stS3 = await third.client.callTool({
+        name: 'storage',
+        arguments: {
+          method: 'uploadBytes',
+          args: { path: 'docs/inS3.txt', contentBase64: Buffer.from('c').toString('base64') },
+        },
+      });
+      expect(fsS3.isError).toBeFalsy();
+      expect(stS3.isError).toBeFalsy();
+      await third.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

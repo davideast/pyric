@@ -352,3 +352,35 @@ describe('Vite rules watching with two database instances', () => {
     stop?.();
   });
 });
+
+describe('Vite rules watching for Storage 2+modules imports', () => {
+  const ST_HELPER = '/project/st-helper.rules';
+  const ST_EXTRA = '/project/st-extra.rules';
+
+  test('watches imported Storage module files, adds newly imported modules on reload, and reloads when one changes', async () => {
+    const f = fakes({ current: [] });
+    const storageModules = { current: [ST_HELPER] };
+    const reloadedFiles: string[] = [];
+    Object.assign(f.session, {
+      storageRulesFiles: () => [STORAGE, ...storageModules.current],
+      reloadStorageRules: async (file: string) => {
+        reloadedFiles.push(file);
+        return [{ bucket: null, file: STORAGE, result: { kind: 'reloaded', rulesHash: 'sh', clients: 1 } }];
+      },
+    });
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    expect(f.watched.has(ST_HELPER)).toBe(true);
+    expect(f.watched.has(ST_EXTRA)).toBe(false);
+
+    storageModules.current = [ST_HELPER, ST_EXTRA];
+    f.watcher.emit('change', ST_HELPER);
+    await settle();
+    expect(reloadedFiles).toEqual([ST_HELPER]);
+    expect(f.watched.has(ST_EXTRA)).toBe(true);
+
+    f.watcher.emit('change', ST_EXTRA);
+    await settle();
+    expect(reloadedFiles).toEqual([ST_HELPER, ST_EXTRA]);
+    stop?.();
+  });
+});

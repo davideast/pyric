@@ -772,6 +772,7 @@ async function startServeRuntime(opts: {
           changedStorageFiles.clear();
           for (const changed of files) {
             void session.reloadStorageRules(changed).then((results) => {
+              storageRulesFiles.sync();
               for (const { bucket, target, file: source, result } of results) {
                 const named = storageBucketSuffix(bucket, target);
                 if (result.kind === 'reloaded') {

@@ -27,6 +27,10 @@ import { getAdminStorageSandbox, replaceStorageRules } from 'pyric/storage/inter
 import { getAuth, sandbox as authSandbox, type SeedUser } from 'pyric/auth';
 import { loadFirestoreRules } from './firestore-rules-load.js';
 import { rememberUnloadedStorageRules } from './storage-rules.js';
+import {
+  copyStorageObjectHeaders,
+  type OptionalStorageObjectHeaders,
+} from './storage-state.js';
 
 /** One seeded user, as a plain data record rather than a validated Zod shape. */
 export interface SeedUserEntry {
@@ -43,18 +47,17 @@ export interface SeedUserEntry {
   createdAt?: string;
   lastLoginAt?: string | null;
   /**
-   * The real password to seed, rather than the synthetic `seed-<uid>` one.
-   * `exportFixture` carries it unless the call passed `excludePasswords`, so a
-   * fixture round trip preserves sign-in by default.
+   * Password credential to seed. `exportFixture` carries it unless the call
+   * passed `excludePasswords`, so a fixture round trip preserves sign-in by
+   * default, while passwordless or custom-token accounts stay passwordless.
    */
   password?: string;
 }
 
 /** One seeded storage object. */
-export interface SeedStorageEntry {
+export interface SeedStorageEntry extends OptionalStorageObjectHeaders {
   path: string;
   contentBase64: string;
-  contentType?: string;
   customMetadata?: Record<string, string>;
 }
 
@@ -69,21 +72,6 @@ export interface SandboxSeed {
   /** Realtime Database tree written at the root. */
   database?: Record<string, unknown>;
   storage?: SeedStorageEntry[];
-}
-
-/** Address a seeded user needs when the record states none. */
-function seedEmail(uid: string, declared: string | undefined): string {
-  if (declared !== undefined) return declared;
-  return `${uid}@pyric.invalid`;
-}
-
-/**
- * Seeded identities are never signed in as part of seeding, so the password is
- * a placeholder rather than a credential. It is derived from the uid so a
- * seeded sandbox is byte-identical across runs.
- */
-function seedPassword(uid: string): string {
-  return `seed-${uid}`;
 }
 
 function normalizeSeedUser(user: SeedUserEntry): SnapshotUserRecord {
@@ -104,15 +92,9 @@ function normalizeSeedUser(user: SeedUserEntry): SnapshotUserRecord {
   } = {
     uid: user.uid,
   };
-  if (user.providerId === 'anonymous') {
-    record.providerId = 'anonymous';
-    if (user.email !== undefined) record.email = user.email;
-    if (user.password !== undefined) record.password = user.password;
-  } else {
-    record.email = seedEmail(user.uid, user.email);
-    record.password = user.password ?? seedPassword(user.uid);
-    if (user.providerId !== undefined) record.providerId = user.providerId;
-  }
+  if (user.email !== undefined) record.email = user.email;
+  if (user.password !== undefined) record.password = user.password;
+  if (user.providerId !== undefined) record.providerId = user.providerId;
   if (user.displayName !== undefined) record.displayName = user.displayName;
   if (user.photoUrl !== undefined) record.photoUrl = user.photoUrl;
   if (user.phoneNumber !== undefined) record.phoneNumber = user.phoneNumber;
@@ -221,18 +203,17 @@ export async function applyData(sandbox: LocalSandbox, seed: SandboxSeed): Promi
   if (rawObjects.length > 0) {
     storage[DEFAULT_SNAPSHOT_RESOURCE] = rawObjects.map((object) => {
       const bytes = decodeBase64ToBytes(object.contentBase64);
-      const entry: {
+      const entry: OptionalStorageObjectHeaders & {
         path: string;
         contentBase64: string;
         size: number;
-        contentType?: string;
         customMetadata?: Record<string, string>;
       } = {
         path: object.path,
         contentBase64: object.contentBase64,
         size: bytes.byteLength,
       };
-      if (object.contentType !== undefined) entry.contentType = object.contentType;
+      copyStorageObjectHeaders(object, entry);
       if (object.customMetadata !== undefined) {
         entry.customMetadata = { ...object.customMetadata };
       }

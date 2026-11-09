@@ -11,10 +11,27 @@
  */
 import { z } from 'zod';
 import { deleteDoc, doc, getAdminFirestore } from 'pyric/firestore';
-import { snapshotDocuments } from 'pyric/sandbox/firestore';
-import { getAdminDatabase, ref as databaseRef, remove as databaseRemove } from 'pyric/database';
+import { setRules as setFirestoreRules, snapshotDocuments } from 'pyric/sandbox/firestore';
+import { getInternalEnv, withDatabaseRulesPreservedOnReset } from 'pyric/sandbox/internal';
+import {
+  getAdminDatabase,
+  ref as databaseRef,
+  remove as databaseRemove,
+} from 'pyric/database';
+import {
+  getActiveRules as getActiveDatabaseRules,
+  setRules as setDatabaseRules,
+} from 'pyric/sandbox/database';
+import { heldDatabaseInstances } from 'pyric/database/internal';
 import { deleteObject, ref as storageRef } from 'pyric/storage';
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import {
+  deployStorageBucketRules,
+  getAdminStorageSandbox,
+  getStorageRulesResolution,
+  nameStorageBucket,
+  replaceStorageRules,
+  storageBucketsWithRules,
+} from 'pyric/storage/internal';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { listStoredPaths } from '../../storage-state.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -34,6 +51,11 @@ async function resetScope(scope: Scope, ctx: SandboxSurfaceContext): Promise<voi
   }
   if (scope === 'database') {
     await databaseRemove(databaseRef(getAdminDatabase(ctx.sandbox)));
+    const catalog = await ctx.databaseInstances();
+    const named = new Set([...catalog.known().named, ...heldDatabaseInstances(ctx.sandbox)]);
+    for (const instance of named) {
+      await databaseRemove(databaseRef(getAdminDatabase(ctx.sandbox, instance)));
+    }
     return;
   }
   if (scope === 'storage') {
@@ -67,7 +89,40 @@ export default {
   async handler(args, ctx) {
     const scope = (typeof args.scope === 'string' ? args.scope : 'all') as Scope;
     if (scope === 'all') {
-      const outcome = await ctx.sandbox.resetAll();
+      const firestoreRules = getInternalEnv(ctx.sandbox).getRules();
+      const heldNamedDbs = [...heldDatabaseInstances(ctx.sandbox)];
+      const namedDbRules = new Map(
+        heldNamedDbs.map((instance) => [
+          instance,
+          getActiveDatabaseRules(getAdminDatabase(ctx.sandbox, instance)),
+        ]),
+      );
+      const defaultStorageRules =
+        getStorageRulesResolution(getAdminStorageSandbox(ctx.sandbox))?.source ?? null;
+      const bucketStorageRules = new Map<string, string>();
+      for (const bucket of storageBucketsWithRules(ctx.sandbox)) {
+        const handle = nameStorageBucket(getAdminStorageSandbox(ctx.sandbox, { bucket }), bucket);
+        const source = getStorageRulesResolution(handle)?.source;
+        if (source !== undefined) bucketStorageRules.set(bucket, source);
+      }
+
+      const outcome = await withDatabaseRulesPreservedOnReset(ctx.sandbox, () => ctx.sandbox.resetAll());
+      for (const instance of heldNamedDbs) {
+        await databaseRemove(databaseRef(getAdminDatabase(ctx.sandbox, instance)));
+      }
+      if (firestoreRules !== '') setFirestoreRules(ctx.sandbox, firestoreRules);
+      for (const [instance, rules] of namedDbRules) {
+        if (rules !== null) {
+          setDatabaseRules(getAdminDatabase(ctx.sandbox, instance), structuredClone(rules));
+        }
+      }
+      if (defaultStorageRules !== null) {
+        await replaceStorageRules(ctx.sandbox, defaultStorageRules, {});
+      }
+      for (const [bucket, source] of bucketStorageRules) {
+        deployStorageBucketRules(ctx.sandbox, bucket, source);
+      }
+
       if (outcome.errors.length > 0) {
         return {
           ok: false,

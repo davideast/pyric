@@ -24,7 +24,7 @@ import { assertNotAppInstance, stagingTargetFrom, stagingToken, type StagingTarg
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from '../credentials/node/scope.js';
 import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
-import { firestoreDatabases } from '../serve/rules.js';
+import { firestoreDatabases, MODULAR_SOURCE, resolveProjectModules } from '../serve/rules.js';
 import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
 import {
   isRtdbInstanceRulesKey,
@@ -576,7 +576,16 @@ async function resolveCandidateRules(
       throw new Error(`rules file not found for firestore: ${path}`);
     }
     paths.firestore = path;
-    rules.firestore = readFileSync(path, 'utf8');
+    const raw = readFileSync(path, 'utf8');
+    if (MODULAR_SOURCE.test(raw)) {
+      const resolved = resolveProjectModules(raw, path, path, 'cloud.firestore').result;
+      if (!resolved.success) {
+        throw new Error(`firestore rules module resolution failed (${path}): ${resolved.error.message}`);
+      }
+      rules.firestore = resolved.data.resolved;
+    } else {
+      rules.firestore = raw;
+    }
   }
   if (services.includes('rtdb')) {
     const rtdb = await resolveRtdbCandidateRules({

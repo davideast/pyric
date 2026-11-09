@@ -29,9 +29,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameS
 import { open as openFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createSandboxRoot, emitSandboxEvent, getInternalEnv, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
+import { createSandboxRoot, emitSandboxEvent, getInternalEnv, LOCKED_DATABASE_RULES, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
+import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
@@ -349,6 +350,36 @@ export async function createHostedRuntime(
     const source = getInternalEnv(ctx.sandbox).getRules();
     ctx.activeRules ??= {};
     ctx.activeRules.firestore = enforcedFirestoreRulesState(source, ctx.activeRules.firestore);
+  }
+
+  /** Synchronize the default RTDB instance's tracked active rules from the sandbox, and re-apply named instance rules after checkpoint restore. */
+  function syncDatabaseActiveRulesFromSandbox(reapplyNamedInstances = false): void {
+    const defaultRtdb = rtdbInstance(ctx);
+    const active = getActiveDatabaseRules(defaultRtdb.live);
+    if (active !== null) {
+      defaultRtdb.rules = {
+        source: structuredClone(active),
+        lastKnownGood: structuredClone(active),
+        updatedAt: Date.now(),
+        status: 'active',
+        messages: [],
+      };
+    } else {
+      delete defaultRtdb.rules;
+    }
+    if (reapplyNamedInstances) {
+      for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
+        if (instance.selector === undefined) continue;
+        const databaseSource = instance.rules?.source;
+        if (databaseSource !== undefined) {
+          rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
+        } else {
+          const policy = ctx.rtdbDefaultPolicy ?? 'deny';
+          rtdbSandbox.setDefaultPolicy(instance.live, policy);
+          rtdbSandbox.setRules(instance.live, policy === 'allow' ? null : LOCKED_DATABASE_RULES);
+        }
+      }
+    }
   }
 
   async function handleToolCall(message: ToolCallRequest): Promise<void> {
@@ -798,6 +829,7 @@ export async function createHostedRuntime(
             }
           } else if (key === 'sandbox.seed' || key === 'sandbox.seedFromFixture' || key === 'sandbox.restore' || key === 'sandbox.promote') {
             syncFirestoreActiveRulesFromSandbox();
+            syncDatabaseActiveRulesFromSandbox(key === 'sandbox.restore');
             reconcilePortSessions();
             restoreFirestoreSubscriptions(ctx);
           }

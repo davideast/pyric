@@ -27,10 +27,24 @@ describe('userSeed', () => {
 });
 
 describe('storageObjectSeed', () => {
-  it('requires path and contentBase64, and accepts an optional contentType', () => {
-    expect(
-      storageObjectSeed.safeParse({ path: 'uploads/pic.png', contentBase64: 'aGk=' }).success,
-    ).toBe(true);
+  it('requires path and contentBase64, and preserves standard SettableMetadata fields', () => {
+    const parsed = storageObjectSeed.safeParse({
+      path: 'uploads/pic.png',
+      contentBase64: 'aGk=',
+      contentType: 'image/png',
+      cacheControl: 'public, max-age=300',
+      contentDisposition: 'inline',
+      contentEncoding: 'gzip',
+      contentLanguage: 'en',
+      customMetadata: { tag: 'hero' },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.cacheControl).toBe('public, max-age=300');
+      expect(parsed.data.contentDisposition).toBe('inline');
+      expect(parsed.data.contentEncoding).toBe('gzip');
+      expect(parsed.data.contentLanguage).toBe('en');
+    }
     expect(storageObjectSeed.safeParse({ path: 'uploads/pic.png' }).success).toBe(false);
   });
 });

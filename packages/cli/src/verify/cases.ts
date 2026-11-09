@@ -39,6 +39,7 @@ export interface DeriveRulesTestCasesResult {
   ok: boolean;
   service: 'firestore';
   testCases: TestCase[];
+  readonly cases?: TestCase[];
   derived: DerivedRulesTestCase[];
   warnings: VerifyFixtureWarning[];
   unsupportedEvents: VerifyUnsupportedEvent[];
@@ -56,6 +57,12 @@ export function deriveRulesTestCases(
   const derived: DerivedRulesTestCase[] = [];
   const warnings: VerifyFixtureWarning[] = [];
   const unsupportedEvents: VerifyUnsupportedEvent[] = [];
+  const committedGroupIds = new Set<string>();
+  for (const event of fixture.events) {
+    if (event.kind === 'write' && typeof event.groupId === 'string') {
+      committedGroupIds.add(event.groupId);
+    }
+  }
 
   for (const event of fixture.events) {
     if (!isFirestoreRequestEvent(event)) continue;
@@ -119,11 +126,11 @@ export function deriveRulesTestCases(
 
     derived.push({
       eventId: event.id,
-      testCase: buildTestCase(event, method, functionMocks ?? []),
+      testCase: buildTestCase(event, method, functionMocks ?? [], committedGroupIds),
     });
   }
 
-  return {
+  const result: DeriveRulesTestCasesResult = {
     ok: unsupportedEvents.length === 0,
     service: 'firestore',
     testCases: derived.map((item) => item.testCase),
@@ -131,6 +138,11 @@ export function deriveRulesTestCases(
     warnings,
     unsupportedEvents,
   };
+  Object.defineProperty(result, 'cases', {
+    get: () => result.testCases,
+    configurable: true,
+  });
+  return result;
 }
 
 function isFirestoreRequestEvent(event: unknown): event is RequestEvent {
@@ -153,6 +165,7 @@ function buildTestCase(
   event: RequestEvent,
   method: FirestoreMethod,
   functionMocks: FunctionMock[],
+  committedGroupIds: ReadonlySet<string>,
 ): TestCase {
   const testCase: TestCase = {
     description: `${event.result === 'allow' ? 'allow' : 'deny'} ${method} ${event.path}`,
@@ -172,8 +185,13 @@ function buildTestCase(
 
   if (isWriteMethod(method)) {
     if (method !== 'delete') {
+      const eventGroupId = (event as { groupId?: unknown }).groupId;
+      const isRolledBackGroupRequest =
+        typeof eventGroupId === 'string' && !committedGroupIds.has(eventGroupId);
       const hasResolvedAfter =
-        event.result === 'allow' && isFirestoreWriteData(event.resourceAfter?.data);
+        event.result === 'allow' &&
+        !isRolledBackGroupRequest &&
+        isFirestoreWriteData(event.resourceAfter?.data);
       if (hasResolvedAfter) {
         testCase.data = event.resourceAfter!.data!;
         if (method !== 'update') {
@@ -186,7 +204,10 @@ function buildTestCase(
         const reqMerge = reqObj?.merge;
         const mergeFields = extractMergeFields(reqMerge);
         if (isFirestoreWriteData(rawData)) {
-          if (needsDeniedCandidateProjection(rawData, updateMask, mergeFields)) {
+          if (
+            isRolledBackGroupRequest ||
+            needsDeniedCandidateProjection(rawData, updateMask, mergeFields)
+          ) {
             const prior = method === 'create' ? null : existing;
             testCase.data = projectDeniedWriteCandidate(
               rawData,

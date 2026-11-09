@@ -61,12 +61,23 @@ describe('createStateStore', () => {
     expect(readFileSync(store.backupPath, 'utf8')).toBe(before); // untouched
   });
 
-  it('fails fast on an inner controller-blob version mismatch (pyric upgrade)', () => {
+  it('accepts v1 and v2 controller blobs and fails fast on unsupported future versions', () => {
+    const v2Dir = tmp();
+    const v2Store = createStateStore(v2Dir);
+    const v2Blob = {
+      version: 2,
+      savedAt: 1,
+      firestore: { 'items/a': { count: 1 } },
+      services: { auth: { users: [{ uid: 'u1', email: 'a@example.com' }] } },
+    };
+    v2Store.writeSection('firestore', v2Blob);
+    expect(v2Store.load()?.firestore).toEqual(v2Blob);
+
     const dir = tmp();
     const store = createStateStore(dir);
     // a fresh-enough envelope, but the controller blob is from a newer pyric
-    store.writeSection('firestore', { version: 2, savedAt: 1, firestore: { 'a/b': {} } });
-    expect(() => store.load()).toThrow(/firestore blob of version 2/);
+    store.writeSection('firestore', { version: 3, savedAt: 1, firestore: { 'a/b': {} } });
+    expect(() => store.load()).toThrow(/firestore blob of version 3/);
     // a blob with no inner version (e.g. null section) loads fine
     const ok = createStateStore(tmp());
     ok.writeSection('auth', { users: [] });

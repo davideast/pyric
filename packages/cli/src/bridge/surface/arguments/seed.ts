@@ -29,11 +29,11 @@ const USER_FIELD_RENAMES: Readonly<Record<string, string>> = {
  */
 export const userSeed = z.object({
   uid: z.string().describe('The user id.'),
-  email: z.string().optional().describe('Email address. Generated when omitted.'),
+  email: z.string().optional().describe('Email address on the record.'),
   password: z
     .string()
     .optional()
-    .describe('Password the identity can sign in with. Derived from the uid when omitted.'),
+    .describe('Password the identity can sign in with.'),
   customClaims: z.record(z.unknown()).optional().describe('Custom claims on the record.'),
   tenantId: z.string().optional().describe('Identity Platform tenant the record belongs to.'),
 });
@@ -43,6 +43,10 @@ export const storageObjectSeed = z.object({
   path: z.string(),
   contentBase64: z.string(),
   contentType: z.string().optional(),
+  cacheControl: z.string().optional(),
+  contentDisposition: z.string().optional(),
+  contentEncoding: z.string().optional(),
+  contentLanguage: z.string().optional(),
   customMetadata: z.record(z.string()).optional(),
 });
 

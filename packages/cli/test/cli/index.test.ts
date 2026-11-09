@@ -132,6 +132,54 @@ service cloud.firestore {
     expect(findings.some((f) => f.code === 'GLOB_MATCH_COUNT' && f.severity === 'critical')).toBe(true);
   });
 
+  it('resolves 2+modules imports before validating Firestore rules', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-validate-modules-'));
+    try {
+      writeFileSync(join(dir, 'helpers.rules'), 'export function denyAll() { return false; }\n', 'utf8');
+      const rulesPath = join(dir, 'firestore.rules');
+      writeFileSync(
+        rulesPath,
+        [
+          "rules_version = '2+modules';",
+          "import { denyAll } from './helpers';",
+          'service cloud.firestore {',
+          '  match /databases/{db}/documents {',
+          '    match /items/{id} {',
+          '      allow read, write: if denyAll();',
+          '    }',
+          '  }',
+          '}',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      const valid = await runDispatch(['firestore', 'rules', 'validate', rulesPath]);
+      expect(valid.code).toBe(0);
+      expect(valid.stderr).toBe('');
+
+      const brokenPath = join(dir, 'broken.rules');
+      writeFileSync(
+        brokenPath,
+        [
+          "rules_version = '2+modules';",
+          "import { denyAll } from './missing';",
+          'service cloud.firestore {',
+          '  match /databases/{db}/documents {',
+          '    match /items/{id} { allow read: if denyAll(); }',
+          '  }',
+          '}',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      const broken = await runDispatch(['firestore', 'rules', 'validate', brokenPath]);
+      expect(broken.code).toBe(2);
+      expect(broken.stderr).toContain('missing');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('resolves Firestore rules modules through the namespaced command', async () => {
     const sourcePath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'firestore.modules.rules');
     const result = await runDispatch(['firestore', 'rules', 'resolve', sourcePath]);

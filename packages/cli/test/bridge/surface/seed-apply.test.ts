@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, spyOn } from 'bun:test';
-import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { getAuth, sandbox as authSandbox, signInWithEmailAndPassword } from 'pyric/auth';
 import {
   get as databaseGet,
   getAdminDatabase,
@@ -34,7 +34,7 @@ import {
 let nextSeedStorageSeq = 1;
 
 describe('seed-apply', () => {
-  it('applyUsers preserves profile metadata, timestamps, and anonymous accounts without synthesizing anonymous credentials unless explicit', () => {
+  it('applyUsers preserves profile metadata, timestamps, and omits email/password when omitted without fabricating credentials', async () => {
     const sandbox = initializeSandbox();
     const seedSpy = spyOn(authSandbox, 'seedUsers');
     try {
@@ -69,6 +69,7 @@ describe('seed-apply', () => {
         },
         {
           uid: 'u2',
+          customClaims: { tier: 'pro' },
         },
       ]);
 
@@ -82,6 +83,8 @@ describe('seed-apply', () => {
         email: 'explicit@example.test',
         password: 'secret',
       });
+      expect(Object.hasOwn(passedRecords[3] ?? {}, 'email')).toBe(false);
+      expect(Object.hasOwn(passedRecords[3] ?? {}, 'password')).toBe(false);
     } finally {
       seedSpy.mockRestore();
     }
@@ -121,9 +124,21 @@ describe('seed-apply', () => {
     expect(anonExport?.email).toBeUndefined();
     expect(anonExport?.password).toBeUndefined();
 
+    expect(listed.find((u) => u.uid === 'u2')).toMatchObject({
+      uid: 'u2',
+      email: null,
+      isAnonymous: false,
+      customClaims: { tier: 'pro' },
+      providerUserInfo: [],
+    });
     const defaultExport = exported.find((u) => u.uid === 'u2');
-    expect(defaultExport?.email).toBe('u2@pyric.invalid');
-    expect(defaultExport?.password).toBe('seed-u2');
+    expect(defaultExport?.uid).toBe('u2');
+    expect(defaultExport?.email).toBeUndefined();
+    expect(defaultExport?.password).toBeUndefined();
+    expect(defaultExport?.customClaims).toEqual({ tier: 'pro' });
+    await expect(
+      signInWithEmailAndPassword(auth, 'u2@pyric.invalid', 'seed-u2'),
+    ).rejects.toThrow();
   });
 
   it('applyRules installs valid rules and retains existing rules when sources are refused', async () => {
