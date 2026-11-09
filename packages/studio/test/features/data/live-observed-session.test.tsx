@@ -226,6 +226,10 @@ describe('Studio Live-mode Observed Session Data & Opt-in Seeding', () => {
         truncated: true,
         droppedCount: 4,
       },
+      sources: {
+        client: true,
+        admin: true,
+      },
     };
 
     window.history.replaceState(null, '', '/firestore/rooms/lobby');
@@ -236,6 +240,9 @@ describe('Studio Live-mode Observed Session Data & Opt-in Seeding', () => {
     );
 
     await waitFor(() => expect(fsView.container.textContent).toContain('Main Lobby'));
+    expect(fsView.container.querySelector('[data-live-observed-badge]')?.textContent).toBe(
+      'Observed · Client + Admin · Partial · Read-only',
+    );
     expect(fsView.container.querySelector('[data-live-observed-truncated]')?.textContent).toContain(
       '4 older entries evicted',
     );

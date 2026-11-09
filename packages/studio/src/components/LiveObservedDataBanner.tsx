@@ -5,14 +5,17 @@
  * attached to a `@pyric/live` host (`useLiveHost() !== null`). Makes three
  * things unmistakable:
  *   1. The data shown below is partial and observed only from this live
- *      session's client reads/writes in host memory (never a full production
- *      mirror, never persisted to `.pyric/` automatically).
+ *      session's client and Admin SDK reads/writes in host memory (never a full
+ *      production mirror, never persisted to `.pyric/` automatically).
  *   2. Inline edits remain refused (`PYRIC_LIVE_REFUSED`).
  *   3. Developers can explicitly opt in to seeding `.pyric/state/hosted` (with
  *      confirmation + `merge` / `replace` mode) or exporting a seed JSON file.
  */
 import { useState } from 'react';
-import type { ObservedSessionSkipStats } from '../shell/observed-session-parse.js';
+import type {
+  ObservedSessionSkipStats,
+  ObservedSessionSources,
+} from '../shell/observed-session-parse.js';
 import type {
   LiveSeedMode,
   LiveSeedSandboxResult,
@@ -25,6 +28,21 @@ function countOf(count: number, singular: string, plural: string): string {
   return `${count} ${plural}`;
 }
 
+function observedBadgeLabel(sources: ObservedSessionSources | undefined): string {
+  if (sources !== undefined) {
+    if (sources.client && sources.admin) {
+      return 'Observed · Client + Admin · Partial · Read-only';
+    }
+    if (sources.admin) {
+      return 'Observed · Admin · Partial · Read-only';
+    }
+    if (sources.client) {
+      return 'Observed · Client · Partial · Read-only';
+    }
+  }
+  return 'Observed this session · Partial · Read-only';
+}
+
 function skipSummaryParts(skips: ObservedSessionSkipStats | undefined): string[] {
   if (!skips) return [];
   const parts: string[] = [];
@@ -32,6 +50,7 @@ function skipSummaryParts(skips: ObservedSessionSkipStats | undefined): string[]
     parts.push(`${skips.failed} failed/denied ${skips.failed === 1 ? 'call' : 'calls'}`);
   }
   if (skips.admin > 0) {
+    // Retained for wire compatibility with snapshots that report uncaptured Admin calls.
     parts.push(`${skips.admin} Admin SDK ${skips.admin === 1 ? 'call' : 'calls'}`);
   }
   if (skips.oversized > 0) {
@@ -40,7 +59,7 @@ function skipSummaryParts(skips: ObservedSessionSkipStats | undefined): string[]
   }
   if (skips.unsupported > 0) {
     parts.push(
-      `${skips.unsupported} uncaptured ${skips.unsupported === 1 ? 'op' : 'ops'} (sentinels, converters, transactions, or filtered queries)`,
+      `${countOf(skips.unsupported, 'uncaptured op', 'uncaptured ops')} (sentinels, converters, projections, field masks, or client transactions)`,
     );
   }
   if (skips.truncated > 0) {
@@ -97,7 +116,7 @@ export function LiveObservedDataBanner({ observed }: LiveObservedDataBannerProps
             data-live-observed-badge=""
             className="rounded-full border border-line bg-elevated px-2.5 py-0.5 text-xs font-medium tracking-wide text-ink"
           >
-            Observed this session · Partial · Read-only
+            {observedBadgeLabel(snapshot.sources)}
           </span>
           <span className="text-xs text-muted" data-live-observed-counts="">
             {firestoreDocs} Firestore {firestoreDocs === 1 ? 'doc' : 'docs'} · {rtdbInstances} RTDB{' '}

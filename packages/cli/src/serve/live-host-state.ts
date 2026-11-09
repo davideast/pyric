@@ -35,7 +35,7 @@ import { createLiveClients, type SandboxClientIds } from './live-clients.js';
 import { createLiveTerminalLines, type LiveCallSource, type LiveRulesFiles } from './live-terminal-lines.js';
 import { createObservedSessionDataStore, type ObservedSessionDataStore } from './observed-session/store.js';
 import { readObservedSessionDelta, skipReasonOf, type SessionDeltaSkipReason } from './observed-session/delta-validation.js';
-import type { ObservedSessionDelta } from './observed-session/wire.js';
+import type { ObservedSessionDelta, ObservedSessionSource } from './observed-session/wire.js';
 import { liveUnobservedHosts } from '../register/live-net-guard.js';
 
 /** Observed calls waiting on the host's answer; a bound, since a client could send replies it never gets. */
@@ -224,29 +224,28 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const isSessionDataService = (service: ObservedCall['service']): boolean =>
     service === 'firestore' || service === 'rtdb';
 
+  const sessionSourceOf = (call: ObservedCall): ObservedSessionSource => {
+    if (call.sdk === 'admin') return 'admin';
+    return 'client';
+  };
+
   const accept = (entry: PendingObservation): void => {
     const { call, clientSessionId } = entry;
     noteProject(call.projectId);
     billed.addCall(call);
     const source: LiveCallSource | undefined = clients.sourceOf(clientSessionId);
     terminal.accepted(call, source);
-    if (call.listener !== undefined) return;
-    if (isSessionDataService(call.service)) {
-      if (call.outcome.status !== 'ok') {
-        sessionData.recordSkip({ failed: 1 });
-        return;
-      }
-      if (call.sdk === 'admin') {
-        sessionData.recordSkip({ admin: 1 });
-        return;
-      }
+    if (call.listener !== undefined || !isSessionDataService(call.service)) return;
+    if (call.outcome.status !== 'ok') {
+      sessionData.recordSkip({ failed: 1 });
+      return;
     }
     if (entry.sessionDataSkip !== undefined) {
       sessionData.recordSkip({ [entry.sessionDataSkip]: 1 });
       return;
     }
     if (entry.sessionData !== undefined) {
-      sessionData.apply(entry.sessionData, liveProjectOf(appProjectIds, input.configProjectId));
+      sessionData.apply(entry.sessionData, liveProjectOf(appProjectIds, input.configProjectId), sessionSourceOf(call));
     }
   };
 

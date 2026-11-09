@@ -25,8 +25,8 @@ import { skipDeltaOf, type ObservedRtdbSessionOp, type ObservedSessionDelta } fr
 
 const MAX_RTDB_SESSION_DEPTH = 20;
 const MAX_RTDB_SESSION_PATH_LENGTH = 1024;
-const INVALID_RTDB_SESSION: unique symbol = Symbol('invalid-rtdb-session');
-const OVERSIZED_RTDB_SESSION: unique symbol = Symbol('oversized-rtdb-session');
+export const INVALID_RTDB_SESSION: unique symbol = Symbol('invalid-rtdb-session');
+export const OVERSIZED_RTDB_SESSION: unique symbol = Symbol('oversized-rtdb-session');
 const OMIT_RTDB_SENTINEL: unique symbol = Symbol('omit-rtdb-sentinel');
 const FORBIDDEN_RTDB_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 const FORBIDDEN_RTDB_PATH_CHARS = /[.#$[\]]/;
@@ -34,17 +34,17 @@ const RTDB_WRITES: ReadonlySet<string> = new Set(['remove', 'set', 'setWithPrior
 
 type Fields = Record<string, unknown>;
 
-function isForbiddenRtdbKey(key: string): boolean {
+export function isForbiddenRtdbKey(key: string): boolean {
   return FORBIDDEN_RTDB_KEYS.has(key) || FORBIDDEN_RTDB_PATH_CHARS.test(key);
 }
 
-function isValidRtdbSessionPath(path: string | undefined): path is string {
+export function isValidRtdbSessionPath(path: string | undefined): path is string {
   if (typeof path !== 'string' || path.length > MAX_RTDB_SESSION_PATH_LENGTH) return false;
   const segments = path.split('/').filter((seg) => seg.length > 0);
   return segments.every((seg) => !isForbiddenRtdbKey(seg));
 }
 
-function copyRtdbSessionValue(value: unknown, depth: number, budget: SessionBudget, stripSentinels: boolean): unknown {
+export function copyRtdbSessionValue(value: unknown, depth: number, budget: SessionBudget, stripSentinels: boolean): unknown {
   if (value === null || typeof value === 'boolean') {
     if (!chargeScalar(budget, value)) return OVERSIZED_RTDB_SESSION;
     return value;
@@ -111,7 +111,7 @@ function copiedValue(value: unknown, stripSentinels: boolean): { value: unknown 
   return { value: copied };
 }
 
-function opDelta(op: ObservedRtdbSessionOp): ObservedSessionDelta {
+export function opDelta(op: ObservedRtdbSessionOp): ObservedSessionDelta {
   return { rtdb: [op] };
 }
 

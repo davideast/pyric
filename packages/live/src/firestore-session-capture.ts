@@ -49,12 +49,12 @@ const SESSION_QUERY_READS: ReadonlySet<string> = new Set(['getDocs', 'getDocsFro
 const CONVERTED_WRITES: ReadonlySet<string> = new Set(['deleteDoc', 'setDoc', 'updateDoc', 'addDoc']);
 
 /** A delta of one op. */
-function opDelta(op: ObservedFirestoreSessionOp): ObservedSessionDelta {
+export function opDelta(op: ObservedFirestoreSessionOp): ObservedSessionDelta {
   return { firestore: [op] };
 }
 
 /** A delta of one copied op, or the skip that left it out. */
-function copiedOpDelta(op: SessionCopyResult<ObservedFirestoreSessionOp>): ObservedSessionDelta {
+export function copiedOpDelta(op: SessionCopyResult<ObservedFirestoreSessionOp>): ObservedSessionDelta {
   if (op.ok) return opDelta(op.value);
   return skipDeltaOf(op.reason);
 }
@@ -114,7 +114,7 @@ function docSnapPath(snap: object, fallbackPath?: string): string | undefined {
  * of values together. A document cut off by what the delta has left, and
  * every document after it, counts `truncated`.
  */
-class DeltaOps {
+export class DeltaOps {
   readonly ops: ObservedFirestoreSessionOp[] = [];
   private readonly budget: SessionBudget = { left: MAX_SESSION_DELTA_BYTES };
   private oversized = 0;
@@ -182,7 +182,7 @@ function addQueryDocument(ops: DeltaOps, docSnap: unknown): boolean {
 }
 
 /** The documents a listener's query snapshot added or changed, or undefined when it has no `docChanges()`. */
-function changedDocuments(snap: object): unknown[] | undefined {
+export function changedDocuments(snap: object): unknown[] | undefined {
   const docChangesFn: unknown = Reflect.get(snap, 'docChanges');
   if (typeof docChangesFn !== 'function') return undefined;
   const changes: unknown = Reflect.apply(docChangesFn, snap, []);

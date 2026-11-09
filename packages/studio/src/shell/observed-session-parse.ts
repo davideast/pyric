@@ -11,10 +11,15 @@
 import type {
   ObservedSessionDataSnapshot,
   ObservedSessionSkipStats,
+  ObservedSessionSources,
   ObservedSessionStats,
 } from '@pyric/cli/vite/internal/supplied-rows';
 
-export type { ObservedSessionDataSnapshot, ObservedSessionSkipStats };
+export type {
+  ObservedSessionDataSnapshot,
+  ObservedSessionSkipStats,
+  ObservedSessionSources,
+};
 
 /** The seed JSON `pyric sandbox --seed <file>` reads. */
 export interface ObservedSeedPayload {
@@ -88,6 +93,19 @@ function parseStats(
   };
 }
 
+function stringOrNull(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  return null;
+}
+
+function parseSources(raw: unknown): ObservedSessionSources | undefined {
+  if (!isPlainRecord(raw)) return undefined;
+  const client = raw.client === true;
+  const admin = raw.admin === true;
+  if (!client && !admin) return undefined;
+  return { client, admin };
+}
+
 function parseSkips(raw: unknown): ObservedSessionSkipStats | undefined {
   if (!isPlainRecord(raw)) return undefined;
   return {
@@ -117,19 +135,26 @@ export function parseObservedSessionSnapshot(raw: unknown): ObservedSessionDataS
   }
   const firestore = parseFirestoreDocs(raw.firestore);
   const rtdb = parseRtdbTrees(raw.rtdb);
-  const snapshot: ObservedSessionDataSnapshot = {
+  const snapshot: {
+    -readonly [K in keyof ObservedSessionDataSnapshot]: ObservedSessionDataSnapshot[K];
+  } = {
     revision: countOr(raw.revision, 0),
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : null,
     projectId: typeof raw.projectId === 'string' ? raw.projectId : '',
     firestore,
     rtdb,
-    defaultRtdbInstance:
-      typeof raw.defaultRtdbInstance === 'string' ? raw.defaultRtdbInstance : null,
+    defaultRtdbInstance: stringOrNull(raw.defaultRtdbInstance),
     stats: parseStats(raw.stats, firestore, rtdb),
   };
+  const sources = parseSources(raw.sources);
+  if (sources !== undefined) {
+    snapshot.sources = sources;
+  }
   const skips = parseSkips(raw.skips);
-  if (!hasSkippedItems(skips)) return snapshot;
-  return { ...snapshot, skips };
+  if (hasSkippedItems(skips)) {
+    snapshot.skips = skips;
+  }
+  return snapshot;
 }
 
 /**

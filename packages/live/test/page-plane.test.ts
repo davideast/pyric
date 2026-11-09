@@ -4,8 +4,8 @@
  * refusal of every other served specifier. `test/e2e` drives them in a page.
  */
 import { describe, expect, test } from 'bun:test';
-import { OBSERVER_MODULE_ID, ROW_MODULE_IDS, SDK_MODULES, type ObservedCall, type ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
-import { LIVE_ROWS, replacedExports, type LiveCallRecord } from '../src/index.js';
+import { OBSERVER_MODULE_ID, ROW_MODULE_IDS, SDK_MODULES, type ObservedCall, type ObservedSessionDelta, type ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
+import { attachSessionData, LIVE_ROWS, replacedExports, type LiveCallRecord } from '../src/index.js';
 import { observedCallOf, pageObserver } from '../src/page-observer.js';
 import { liveModuleSource, serveHostProject } from '../src/page-modules.js';
 
@@ -47,12 +47,59 @@ describe('the records a page sends to the host', () => {
     expect(observedCallOf(uidOnly, AT)?.account).toEqual({ uid: 'bob' });
   });
 
-  test('are sent once each, with the time they were made', async () => {
-    const sent: ObservedCall[] = [];
-    const observer = pageObserver(async (call) => { sent.push(call); }, () => AT);
+  test('are sent once each, with the time they were made, forwarding sessionData for ok client and Admin calls only', async () => {
+    const sent: Array<{ call: ObservedCall; sessionData: ObservedSessionDelta | undefined }> = [];
+    const observer = pageObserver(async (call, sessionData) => {
+      sent.push({ call, sessionData });
+    }, () => AT);
     await observer({ module: 'firebase/auth', name: 'signOut', outcome: 'resolved' });
     expect(observer({ module: 'firebase/app', name: 'getApp', outcome: 'returned' })).toBeUndefined();
-    expect(sent).toEqual([{ service: 'auth', method: 'signOut', at: AT, outcome: { status: 'ok' } }]);
+
+    const adminOk: LiveCallRecord = {
+      module: '@google-cloud/firestore',
+      name: 'DocumentReference.set',
+      outcome: 'resolved',
+      path: 'items/i1',
+    };
+    const delta: ObservedSessionDelta = { firestore: [{ kind: 'set', path: 'items/i1', data: { ok: true } }] };
+    attachSessionData(adminOk, delta);
+    await observer(adminOk);
+
+    const adminFailed: LiveCallRecord = {
+      module: '@google-cloud/firestore',
+      name: 'DocumentReference.set',
+      outcome: 'rejected',
+      code: 'unavailable',
+      path: 'items/i2',
+    };
+    attachSessionData(adminFailed, delta);
+    await observer(adminFailed);
+
+    expect(sent).toEqual([
+      { call: { service: 'auth', method: 'signOut', at: AT, outcome: { status: 'ok' } }, sessionData: undefined },
+      {
+        call: {
+          service: 'firestore',
+          sdk: 'admin',
+          method: 'DocumentReference.set',
+          at: AT,
+          outcome: { status: 'ok' },
+          path: 'items/i1',
+        },
+        sessionData: delta,
+      },
+      {
+        call: {
+          service: 'firestore',
+          sdk: 'admin',
+          method: 'DocumentReference.set',
+          at: AT,
+          outcome: { status: 'error', code: 'unavailable' },
+          path: 'items/i2',
+        },
+        sessionData: undefined,
+      },
+    ]);
   });
 
   test('carry the documents a listener delivery was billed for, zero for a metadata-only one, and forward listenerId', () => {

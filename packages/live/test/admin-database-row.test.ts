@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { observedCallOf } from '../src/page-observer.js';
+import { sessionDataOf } from '../src/session-data.js';
 import { adminProjectGate } from '../src/admin/project-gate.js';
 import { ADMIN_DATABASE_MODULE, observeAdminDatabase } from '../src/admin/database.js';
 import { firebaseAdminVersion } from '../src/admin/admin-version.js';
@@ -540,4 +541,56 @@ test("the host project's own instances pass the instance check: <project>-defaul
     }));
   }
   expect(outcomes).toEqual(['ok', 'ok', 'ok']);
+});
+
+test('attaches bounded sessionData to resolved and delivered Admin RTDB records while leaving rejected records and LiveCallRecord JSON free of values', () => {
+  const pushRecord = records.find((record) => record.name === 'Reference.push' && record.outcome === 'resolved');
+  expect(pushRecord?.path).toBe('/notes');
+  const pushSession = sessionDataOf(pushRecord!);
+  expect(pushSession?.rtdb).toHaveLength(1);
+  expect(pushSession?.rtdb?.[0]?.kind).toBe('set');
+  expect(pushSession?.rtdb?.[0]?.instance).toBe(INSTANCE);
+  expect(pushSession?.rtdb?.[0]?.path.startsWith('/notes/')).toBe(true);
+  if (pushSession?.rtdb?.[0]?.kind === 'set') {
+    expect(pushSession.rtdb[0].value).toEqual({ n: 3 });
+  }
+
+  const firstSix = records.slice(0, 6);
+  expect([
+    sessionDataOf(firstSix[0]!),
+    sessionDataOf(firstSix[1]!),
+    sessionDataOf(firstSix[2]!),
+    sessionDataOf(firstSix[4]!),
+    sessionDataOf(firstSix[5]!),
+  ]).toEqual([
+    { rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/a', value: { n: 1, title: 'first' } }] },
+    { rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/a', value: { n: 1, title: 'first' } }] },
+    { rtdb: [{ kind: 'update', instance: INSTANCE, path: '/notes/a', value: { n: 2 } }] },
+    { rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/missing', value: null }] },
+    { rtdb: [{ kind: 'remove', instance: INSTANCE, path: '/notes/a' }] },
+  ]);
+
+  const onceRecord = records.find((record) => record.name === 'Query.once' && record.outcome === 'resolved');
+  expect(sessionDataOf(onceRecord!)).toEqual({
+    rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/b', value: { n: 5, title: 'second' } }],
+  });
+
+  const prioRecord = records.find((record) => record.name === 'Reference.setWithPriority' && record.outcome === 'resolved');
+  expect(sessionDataOf(prioRecord!)).toEqual({
+    rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/c', value: { n: 7 } }],
+  });
+
+  const txRecord = records.find((record) => record.name === 'Reference.transaction' && record.outcome === 'resolved');
+  expect(sessionDataOf(txRecord!)).toEqual({
+    rtdb: [{ kind: 'set', instance: INSTANCE, path: '/counter', value: 2 }],
+  });
+
+  const rejectedSet = records.find((record) => record.name === 'Reference.set' && record.outcome === 'rejected');
+  expect(sessionDataOf(rejectedSet!)).toBeUndefined();
+
+  const onDeliveries = records.filter((record) => record.name === 'Query.on' && record.outcome === 'delivered');
+  expect(onDeliveries.map((record) => sessionDataOf(record))).toEqual([
+    { rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/b', value: { n: 5, title: 'second' } }] },
+    { rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/b', value: { n: 6, title: 'third' } }] },
+  ]);
 });
