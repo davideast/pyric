@@ -10,9 +10,6 @@
  *   entry and the packages it needs load, while unlisted imports stay refused;
  * - `firebase-admin`, listed, resolves to the real Admin SDK, and the stop
  *   lets its entry and everything its tree imports load.
- *
- * Live mode's network report, which never refuses a call, is
- * `live-net-report.test.ts` (ADR 0022, amendment 2026-11-07).
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';

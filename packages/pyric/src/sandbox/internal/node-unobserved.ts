@@ -1,21 +1,18 @@
 /**
  * What a Node process under the live register reports it left unobserved,
  * as it sends the lists to the live host and the host lists them under the
- * process's client (`LiveClient`): the Google hosts it called that no live
- * row observed, the firebase-admin subpaths no row serves that it loaded,
- * and the ones whose row gates their calls but records none.
+ * process's client (`LiveClient`): the firebase-admin subpaths no row serves
+ * that it loaded, and the ones whose row gates their calls but records none.
  *
- * The lists carry names only. A host is a bare DNS name and a subpath is
- * `firebase-admin/<name>`, so no path, query string, value, token or URL
- * with credentials fits either shape. The register caps and dedupes what it
- * sends (`boundNodeUnobservedList`), and the host refuses a frame whose lists
- * are not in these shapes and bounds (`readNodeUnobservedLists`).
+ * The lists carry subpath names (`firebase-admin/<name>`) only, so no path,
+ * query string, value, token or URL with credentials fits the shape. The
+ * register caps and dedupes what it sends (`boundNodeUnobservedList`), and the
+ * host refuses a frame whose lists are not in these shapes and bounds
+ * (`readNodeUnobservedLists`).
  */
 
 /** The lists, each absent when empty. */
 export interface NodeUnobservedLists {
-  /** The Google and Firebase hosts the process called that no live row observed, in first-call order. */
-  readonly unobserved?: readonly string[];
   /** The firebase-admin subpaths no row serves that the process loaded. */
   readonly unobservedAdmin?: readonly string[];
   /** The firebase-admin subpaths the process loaded whose row gates their calls but records none. */
@@ -27,18 +24,15 @@ export type NodeUnobservedListName = keyof NodeUnobservedLists;
 /** The most entries one list carries. */
 export const MAX_NODE_UNOBSERVED_ENTRIES = 64;
 
-/** A DNS name, as the live network report spells a host: no port, path, query or credentials. */
-const HOST_NAME = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 /** A firebase-admin subpath. */
 const ADMIN_SUBPATH = /^firebase-admin(?:\/[a-z0-9-]{1,48}){1,2}$/;
 
 const SHAPES: Readonly<Record<NodeUnobservedListName, RegExp>> = {
-  unobserved: HOST_NAME,
   unobservedAdmin: ADMIN_SUBPATH,
   gatedAdmin: ADMIN_SUBPATH,
 };
 
-export const NODE_UNOBSERVED_LIST_NAMES: readonly NodeUnobservedListName[] = ['unobserved', 'unobservedAdmin', 'gatedAdmin'];
+export const NODE_UNOBSERVED_LIST_NAMES: readonly NodeUnobservedListName[] = ['unobservedAdmin', 'gatedAdmin'];
 
 function isEntry(name: NodeUnobservedListName, value: unknown): value is string {
   return typeof value === 'string' && SHAPES[name].test(value);

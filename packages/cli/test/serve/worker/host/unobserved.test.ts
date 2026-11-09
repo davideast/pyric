@@ -41,7 +41,6 @@ describe('host: unobserved lists', () => {
     const ctx = makeCtx();
     const port = fakePort();
     const reply = await send(ctx, port, {
-      unobserved: ['cloudtrace.googleapis.com'],
       unobservedAdmin: ['firebase-admin/remote-config'],
       gatedAdmin: ['firebase-admin/app-check'],
     });
@@ -53,9 +52,9 @@ describe('host: unobserved lists', () => {
     const ctx = makeCtx();
     const port = fakePort();
     const malformed = [
-      { unobserved: ['https://user:secret@cloudtrace.googleapis.com/v2?key=k'] },
-      { unobserved: ['cloudtrace.googleapis.com', 'cloudtrace.googleapis.com'] },
-      { unobserved: Array.from({ length: 65 }, (_, index) => `host-${index}.googleapis.com`) },
+      { unobservedAdmin: ['https://user:secret@cloudtrace.googleapis.com/v2?key=k'] },
+      { unobservedAdmin: ['firebase-admin/remote-config', 'firebase-admin/remote-config'] },
+      { unobservedAdmin: Array.from({ length: 65 }, (_, index) => `firebase-admin/service-${index}`) },
       { unobservedAdmin: ['firebase-admin/remote-config/../../etc'] },
       { gatedAdmin: 'firebase-admin/app-check' },
     ];
@@ -67,13 +66,13 @@ describe('host: unobserved lists', () => {
 
   it('admits the frame through the bridge socket envelope only with a request id', () => {
     const envelope = (message: Record<string, unknown>) => ({ type: 'worker-message', message }) as unknown as BridgeMessage;
-    expect(requestEnvelopeError(envelope({ t: 'unobserved', id: 'u1', unobserved: ['cloudtrace.googleapis.com'] }))).toBeUndefined();
-    expect(requestEnvelopeError(envelope({ t: 'unobserved', unobserved: ['cloudtrace.googleapis.com'] }))).toBe('Invalid worker message envelope.');
+    expect(requestEnvelopeError(envelope({ t: 'unobserved', id: 'u1', unobservedAdmin: ['firebase-admin/remote-config'] }))).toBeUndefined();
+    expect(requestEnvelopeError(envelope({ t: 'unobserved', unobservedAdmin: ['firebase-admin/remote-config'] }))).toBe('Invalid worker message envelope.');
   });
 
   it('leaves the frame out of a repro log: it is host status, not an operation', async () => {
     const recorder = createReproRecorder({ capture: async () => ({ at: 0, firestore: {}, rtdb: {}, auth: {} }) as never });
-    await recorder.inbound('s-node', { t: 'unobserved', id: 'u1', unobserved: ['cloudtrace.googleapis.com'] } as InboundMessage);
-    expect(JSON.stringify(await recorder.log())).not.toContain('cloudtrace.googleapis.com');
+    await recorder.inbound('s-node', { t: 'unobserved', id: 'u1', unobservedAdmin: ['firebase-admin/remote-config'] } as InboundMessage);
+    expect(JSON.stringify(await recorder.log())).not.toContain('firebase-admin/remote-config');
   });
 });

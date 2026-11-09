@@ -159,3 +159,48 @@ describe('pyric run --help', () => {
     expect(stdout).toMatch(/run \[--sandbox URL\][\s\S]*pyric\(\{ hosted: true \}\)/);
   });
 });
+
+describe('pyric run unsupported runtime stop and PYRIC_GUARD deprecation', () => {
+  it('stops upfront with PYRIC_UNSUPPORTED_RUNTIME before polling --sandbox for bun, bunx, and deno', async () => {
+    for (const [cmd, expectedRuntime] of [
+      [['bun', 'run', 'script.ts'], 'bun'],
+      [['bunx', 'tsx', 'script.ts'], 'bun'],
+      [['deno', 'run', 'script.ts'], 'deno'],
+    ] as const) {
+      const started = Date.now();
+      const { code, stderr } = await runDispatch([
+        'run',
+        '--sandbox',
+        'http://127.0.0.1:9',
+        '--wait=30',
+        '--',
+        ...cmd,
+      ]);
+      expect(code).toBe(1);
+      expect(stderr).toContain('pyric run: stopped before starting');
+      expect(stderr).toContain('PYRIC_UNSUPPORTED_RUNTIME');
+      expect(stderr).toContain(`\`${expectedRuntime}\``);
+      expect(stderr).toContain('npx tsx');
+      expect(Date.now() - started).toBeLessThan(2000);
+    }
+  });
+
+  it('emits a deprecation warning to stderr when PYRIC_GUARD is set', async () => {
+    const warnedKey = Symbol.for('pyric.deprecatedGuardEnvWarned');
+    const slot = globalThis as unknown as Record<symbol, unknown>;
+    const priorWarned = slot[warnedKey];
+    const priorGuard = process.env.PYRIC_GUARD;
+    delete slot[warnedKey];
+    process.env.PYRIC_GUARD = 'strict';
+    try {
+      const { code, stderr } = await runDispatch(['run', '--sandbox', 'http://localhost:1']);
+      expect(code).toBe(1);
+      expect(stderr).toContain('PYRIC_GUARD is deprecated and ignored');
+    } finally {
+      if (priorWarned === undefined) delete slot[warnedKey];
+      else slot[warnedKey] = priorWarned;
+      if (priorGuard === undefined) delete process.env.PYRIC_GUARD;
+      else process.env.PYRIC_GUARD = priorGuard;
+    }
+  });
+});

@@ -18,6 +18,7 @@ import {
 } from './sandbox-runner.js';
 import { discoverServe, probeHostUrlAnswer, servesViteClient } from '../serve/discovery.js';
 import { viteConfigIn } from './public-dir-hint.js';
+import { checkSandboxChildLaunch } from './unsupported-runtime.js';
 
 export interface RunInvocation {
   /** The host URL named by `--sandbox` or `PYRIC_SANDBOX=remote:<url>`; null to discover it. */
@@ -114,9 +115,11 @@ export function notAHostMessage(hostUrl: string, isVite: boolean, viteConfig: st
 export async function runRun(parsed: ParsedArgs): Promise<number> {
   const invocation = parseRunInvocation(parsed, process.env);
   if (typeof invocation === 'string') {
+    checkSandboxChildLaunch(null, 'pyric run');
     process.stderr.write(invocation);
     return 1;
   }
+  if (checkSandboxChildLaunch(invocation.plan, 'pyric run')) return 1;
   const cwd = process.cwd();
   let serveUrl: string;
   let instanceId: string | null;

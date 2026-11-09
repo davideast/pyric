@@ -19,7 +19,7 @@
  * - A server environment Vite does not run in this process (workerd and other
  *   non-runnable environments) gets a module that throws when it loads: the
  *   Node client cannot run there, and the real SDK would reach production
- *   from a runtime the network guard does not cover.
+ *   from a runtime where Node module.registerHooks does not run.
  * - An import the routing leaves alone, and the swap does not choose the real
  *   SDK for, gets a module that throws the register's stop error (ADR 0022):
  *   `stopModule`, the same module the client gets for an unserved
@@ -33,7 +33,9 @@
 import * as esbuild from 'esbuild';
 import { SDK_MODULES, type AiMode } from './firebase-module-swap.js';
 import { mapFirebaseSpecifier } from '../register/mapping.js';
-import { VITE_SSR_ISSUE_URL } from './vite-net-guard.js';
+
+/** Issue tracking full server-rendered Vite environment support (#1123). */
+export const VITE_SSR_ISSUE_URL = 'https://github.com/davideast/pyric/issues/1123';
 
 /** The prefix the alias gives a routed specifier; only this plugin resolves it. */
 export const SSR_SWAP_PREFIX = '\0pyric-ssr-swap:';

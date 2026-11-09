@@ -161,9 +161,9 @@ export interface NamespaceOptions {
    *  sends to Google AI Studio with the key from this process's environment. */
   aiGemini?: GeminiProxyConfig;
   /** Receives one handshake beacon per pyric-launched child (`POST
-   *  /__pyric/beacon`, sent by `@pyric/cli/register` once its hooks and
-   *  net-guard are installed). Absent means the route still 204s; the child
-   *  must never be able to fail on its own proof-of-life. */
+   *  /__pyric/beacon`, sent by `@pyric/cli/register` once its module hooks
+   *  are installed). Absent means the route still 204s; the child must never
+   *  be able to fail on its own proof-of-life. */
   beacon?: (report: BeaconReport) => void;
   /** The per-launch secret a beacon must present in `x-pyric-beacon-token`,
    *  which the launcher puts in the child's `PYRIC_BEACON_TOKEN`. Absent means

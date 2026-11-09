@@ -327,7 +327,6 @@ export default scenario(async (app) => {
   await app.step('the replay had a recording for every request, and nothing reached any host but loopback', async () => {
     assert.deepEqual(await replay.unmatched(), []);
     assert.deepEqual(blockedLines(app), []);
-    assert.doesNotMatch(api.output, /PYRIC_GUARD_BLOCKED/);
     await page.close();
     await api.stop();
     await host.process.stop();

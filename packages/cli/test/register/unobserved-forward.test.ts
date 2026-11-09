@@ -8,7 +8,7 @@ import { createUnobservedForwarder, onReattach } from '../../src/register/unobse
 
 /** A forwarder whose turns run when the test says, over lists the test sets. */
 function forwarder(options: { fail?: () => boolean } = {}) {
-  const lists: { unobserved: string[]; unobservedAdmin: string[]; gatedAdmin: string[] } = { unobserved: [], unobservedAdmin: [], gatedAdmin: [] };
+  const lists: { unobservedAdmin: string[]; gatedAdmin: string[] } = { unobservedAdmin: [], gatedAdmin: [] };
   const sent: NodeUnobservedLists[] = [];
   const queued: Array<() => void> = [];
   let release: (() => void) | undefined;
@@ -33,12 +33,12 @@ function forwarder(options: { fail?: () => boolean } = {}) {
 describe('the unobserved lists forwarder', () => {
   it('sends the lists once per burst of changes, and again only when they change', async () => {
     const { lists, sent, forward, turn } = forwarder();
-    lists.unobserved.push('cloudtrace.googleapis.com');
-    forward.changed();
     lists.unobservedAdmin.push('firebase-admin/remote-config');
     forward.changed();
+    lists.unobservedAdmin.push('firebase-admin/security-rules');
+    forward.changed();
     await turn();
-    expect(sent).toEqual([{ unobserved: ['cloudtrace.googleapis.com'], unobservedAdmin: ['firebase-admin/remote-config'] }]);
+    expect(sent).toEqual([{ unobservedAdmin: ['firebase-admin/remote-config', 'firebase-admin/security-rules'] }]);
     forward.changed();
     await turn();
     expect(sent).toHaveLength(1);
@@ -46,29 +46,28 @@ describe('the unobserved lists forwarder', () => {
     forward.changed();
     await turn();
     expect(sent[1]).toEqual({
-      unobserved: ['cloudtrace.googleapis.com'],
-      unobservedAdmin: ['firebase-admin/remote-config'],
+      unobservedAdmin: ['firebase-admin/remote-config', 'firebase-admin/security-rules'],
       gatedAdmin: ['firebase-admin/app-check'],
     });
   });
 
   it('sends names only, each once, at most 64 to a list', async () => {
     const { lists, sent, forward, turn } = forwarder();
-    lists.unobserved.push(
-      'cloudtrace.googleapis.com',
-      'cloudtrace.googleapis.com',
+    lists.unobservedAdmin.push(
+      'firebase-admin/remote-config',
+      'firebase-admin/remote-config',
       'https://user:secret@cloudtrace.googleapis.com/v2?key=k',
-      'cloudtrace.googleapis.com/v2/projects/p',
-      ...Array.from({ length: 80 }, (_, index) => `host-${index}.googleapis.com`),
+      'firebase-admin/remote-config?x=1',
+      ...Array.from({ length: 80 }, (_, index) => `firebase-admin/service-${index}`),
     );
-    lists.unobservedAdmin.push('firebase-admin/remote-config?x=1');
+    lists.gatedAdmin.push('firebase-admin/app-check?x=1');
     forward.changed();
     await turn();
     const [frame] = sent;
-    expect(frame?.unobserved).toHaveLength(64);
-    expect(frame?.unobserved?.[0]).toBe('cloudtrace.googleapis.com');
-    expect(frame?.unobserved?.[1]).toBe('host-0.googleapis.com');
-    expect(frame).not.toHaveProperty('unobservedAdmin');
+    expect(frame?.unobservedAdmin).toHaveLength(64);
+    expect(frame?.unobservedAdmin?.[0]).toBe('firebase-admin/remote-config');
+    expect(frame?.unobservedAdmin?.[1]).toBe('firebase-admin/service-0');
+    expect(frame).not.toHaveProperty('gatedAdmin');
   });
 
   it('sends nothing while every list is empty', async () => {
@@ -81,29 +80,32 @@ describe('the unobserved lists forwarder', () => {
   it('sends a frame that failed again at the next change', async () => {
     let fails = true;
     const { lists, sent, forward, turn } = forwarder({ fail: () => fails });
-    lists.unobserved.push('cloudtrace.googleapis.com');
+    lists.unobservedAdmin.push('firebase-admin/remote-config');
     forward.changed();
     await turn();
     fails = false;
     forward.changed();
     await turn();
-    expect(sent).toEqual([{ unobserved: ['cloudtrace.googleapis.com'] }, { unobserved: ['cloudtrace.googleapis.com'] }]);
+    expect(sent).toEqual([
+      { unobservedAdmin: ['firebase-admin/remote-config'] },
+      { unobservedAdmin: ['firebase-admin/remote-config'] },
+    ]);
   });
 
   it('sends a change made while a send is in flight once that send ends', async () => {
     const { lists, sent, forward, turn, hold, release } = forwarder();
     hold();
-    lists.unobserved.push('cloudtrace.googleapis.com');
+    lists.unobservedAdmin.push('firebase-admin/remote-config');
     forward.changed();
     await turn();
-    lists.unobserved.push('www.googleapis.com');
+    lists.unobservedAdmin.push('firebase-admin/security-rules');
     forward.changed();
     await turn();
     expect(sent).toHaveLength(1);
     release();
     await turn();
     await turn();
-    expect(sent[1]).toEqual({ unobserved: ['cloudtrace.googleapis.com', 'www.googleapis.com'] });
+    expect(sent[1]).toEqual({ unobservedAdmin: ['firebase-admin/remote-config', 'firebase-admin/security-rules'] });
   });
 
   it('sends the lists again when the connection re-attaches, as after a live host restart', async () => {
@@ -115,7 +117,7 @@ describe('the unobserved lists forwarder', () => {
     }, () => forward.reconnected());
     report(false);
     report(true);
-    lists.unobserved.push('cloudtrace.googleapis.com');
+    lists.unobservedAdmin.push('firebase-admin/remote-config');
     forward.changed();
     await turn();
     expect(sent).toHaveLength(1);
@@ -123,7 +125,10 @@ describe('the unobserved lists forwarder', () => {
     report(false);
     report(true);
     await turn();
-    expect(sent).toEqual([{ unobserved: ['cloudtrace.googleapis.com'] }, { unobserved: ['cloudtrace.googleapis.com'] }]);
+    expect(sent).toEqual([
+      { unobservedAdmin: ['firebase-admin/remote-config'] },
+      { unobservedAdmin: ['firebase-admin/remote-config'] },
+    ]);
   });
 
   it('counts only an attach that follows a drop as a re-attach', () => {

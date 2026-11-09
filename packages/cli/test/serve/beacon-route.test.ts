@@ -2,9 +2,9 @@
  * `POST /__pyric/beacon`, the host half of the interception handshake.
  *
  * A pyric-launched child posts one beacon here the moment its register module
- * finishes installing the hooks and the net-guard. The dev server records it
- * (so the warn-only watchdog knows the child is interlocked) and prints one
- * confirmation line.
+ * finishes installing the resolve hooks and sandbox factory. The dev server
+ * records it (so the warn-only watchdog knows the child is interlocked) and
+ * prints one confirmation line.
  *
  * The route is reachable from any page the developer has open, so the tests
  * below cover both halves of its contract: what it refuses (a browser-shaped
@@ -63,7 +63,6 @@ async function startServe(beacon?: (report: BeaconReport) => void): Promise<Serv
 const body = (over: Partial<BeaconReport> = {}): string =>
   JSON.stringify({
     pid: 9911,
-    guard: 'warn',
     hooks: true,
     sandbox: 'remote:http://127.0.0.1:3473',
     ...over,
@@ -92,7 +91,7 @@ describe('/__pyric/beacon accepts an activated child', () => {
     const res = await post(h.url);
     expect(res.status).toBe(204);
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toMatchObject({ pid: 9911, guard: 'warn', hooks: true });
+    expect(seen[0]).toMatchObject({ pid: 9911, hooks: true });
   });
 
   it('204s for a malformed body without calling the callback', async () => {
@@ -187,22 +186,20 @@ describe('/__pyric/beacon refuses everything else', () => {
 });
 
 describe('formatBeaconReceipt', () => {
-  it('confirms the interlock with the child pid and guard mode', () => {
+  it('confirms the interlock with the child pid', () => {
     const line = formatBeaconReceipt({
       pid: 9911,
-      guard: 'block',
       hooks: true,
       sandbox: 'remote:http://127.0.0.1:3473',
     });
     expect(line).toContain('interlock');
     expect(line).toContain('9911');
-    expect(line).toContain('guard=block');
+    expect(line).toContain('swap-or-stop');
   });
 
   it('flags a beacon whose hooks did not install', () => {
     const line = formatBeaconReceipt({
       pid: 9911,
-      guard: 'warn',
       hooks: false,
       sandbox: 'remote:http://127.0.0.1:3473',
     });

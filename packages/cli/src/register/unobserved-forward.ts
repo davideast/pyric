@@ -6,7 +6,7 @@
  * The lists only grow. Each time one gains an entry the register calls
  * `changed`, and the forwarder sends the whole lists once the current turn
  * ends, so a burst of new entries sends one frame. Each list is bounded and
- * deduplicated (`boundNodeUnobservedList`): hosts and subpath names only. A
+ * deduplicated (`boundNodeUnobservedList`): subpath names only. A
  * frame that would repeat the last one sent is not sent; one that fails is
  * sent again at the next change. While a send is in flight, a change waits
  * for it and then sends the lists as they are. When the connection drops

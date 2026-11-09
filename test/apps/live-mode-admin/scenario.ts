@@ -268,7 +268,6 @@ export default scenario(async (app) => {
     assert.equal(securityRules, 'ok', 'firebase-admin/security-rules loads unobserved');
     assert.match(run.output, /@pyric\/live\/register: firebase-admin\/security-rules loads unobserved\./);
     assert.deepEqual(await replay.unmatched(), []);
-    assert.doesNotMatch(run.output, /PYRIC_GUARD_BLOCKED/);
     return run;
   });
 

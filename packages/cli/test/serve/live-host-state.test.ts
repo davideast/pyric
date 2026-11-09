@@ -23,13 +23,11 @@ function reply(id: string, ok: boolean, clientSessionId = 'client-1'): BridgeMes
 
 function state(configProjectId = 'staging') {
   const warnings: string[] = [];
-  // Its own empty unobserved source: the default reads the process's ledger, which other test files in this process fill.
   const live = createLiveHostState({
     configProjectId,
     configSource: 'firebaserc',
     optionName: '--project',
     warn: (line) => warnings.push(line),
-    unobserved: () => [],
   });
   const call = (id: string, observed: Partial<ObservedCall> & { method: string }, ok = true, clientSessionId = 'client-1') => {
     live.inbound(observe(id, observed, clientSessionId));
@@ -181,7 +179,6 @@ describe('the live host state\'s observed session data', () => {
       optionName: '--project',
       warn: () => {},
       print: (line) => printed.push(line),
-      unobserved: () => [],
     });
 
     const oversized = sendThroughValidation(

@@ -23,12 +23,6 @@ const repoRoot = resolve(toolsRoot, '../..');
 const registerDist = join(toolsRoot, 'dist/register/index.js');
 const registerUrl = pathToFileURL(registerDist).href;
 
-/** The sync-hooks API needs Node ≥ 22.15; skip the CJS leg without it. */
-const hasRegisterHooks =
-  spawnSync('node', ['-p', "typeof require('node:module').registerHooks"], {
-    encoding: 'utf8',
-  }).stdout?.trim() === 'function';
-
 let fixtureDir: string;
 let inactiveFixtureDir: string;
 let isolatedFixtureDir: string;
@@ -46,7 +40,6 @@ function runNode(
       NODE_ENV: undefined,
       PYRIC_SANDBOX: undefined,
       PYRIC_SANDBOX_FORCE: undefined,
-      PYRIC_GUARD: undefined,
       ...env,
     },
     timeout: 30_000,
@@ -68,7 +61,6 @@ function runNodeAsync(
       NODE_ENV: undefined,
       PYRIC_SANDBOX: undefined,
       PYRIC_SANDBOX_FORCE: undefined,
-      PYRIC_GUARD: undefined,
       ...env,
     } as NodeJS.ProcessEnv,
   });
@@ -364,14 +356,14 @@ describe('@pyric/cli/register (child process)', () => {
     expect(res.status).toBe(0);
   });
 
-  it.skipIf(!hasRegisterHooks)('rewrites CJS require() via the sync hooks', () => {
+  it('rewrites CJS require() via the sync hooks', () => {
     const res = runNode('main.cjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
     expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(res.stdout, res.stderr).toContain('CJS_OK');
     expect(res.status).toBe(0);
   });
 
-  it.skipIf(!hasRegisterHooks)('resolves mapped packages from the installed CLI rather than the requiring package', () => {
+  it('resolves mapped packages from the installed CLI rather than the requiring package', () => {
     expect(existsSync(join(isolatedFixtureDir, 'node_modules/pyric-admin'))).toBe(false);
     expect(existsSync(join(isolatedFixtureDir, 'node_modules/firebase-admin'))).toBe(false);
     const res = runNode(
@@ -522,7 +514,7 @@ console.log('RENAMED_CJS_OK');
     expect(res.status).toBe(0);
   });
 
-  it.skipIf(!hasRegisterHooks)('maps renamed require() calls the same way', () => {
+  it('maps renamed require() calls the same way', () => {
     const res = runNode('renamed.cjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' }, renamedFixtureDir);
     expect(res.stdout, res.stderr).toContain('RENAMED_CJS_OK');
     expect(res.status).toBe(0);
@@ -542,17 +534,24 @@ describe('@pyric/cli/register beacon (child process)', () => {
     expect(res.stderr).not.toContain('@pyric/cli/register: beacon');
   });
 
-  it('writes one structured beacon line when PYRIC_GUARD is set explicitly', () => {
-    const res = runNode('beacon.mjs', { PYRIC_SANDBOX: 'local', PYRIC_GUARD: 'block' });
+  it('writes one structured beacon line when PYRIC_DEBUG is set explicitly', () => {
+    const res = runNode('beacon.mjs', { PYRIC_SANDBOX: 'local', PYRIC_DEBUG: '1' });
     expect(res.status).toBe(0);
     const line = res.stderr.split('\n').find((l) => l.includes('@pyric/cli/register: beacon'));
     expect(line).toBeDefined();
     expect(line).toContain('beacon ACTIVE');
     expect(line).toMatch(/pid=\d+/);
-    expect(line).toContain('guard=block');
+    expect(line).not.toContain('guard=');
     expect(line).toContain('hooks=1');
     // `local` carries no bridge URL, so the line says so rather than guessing.
     expect(line).toContain('bridge=none');
+  });
+
+  it('prints a deprecation notice and succeeds when legacy PYRIC_GUARD is set', () => {
+    const res = runNode('beacon.mjs', { PYRIC_SANDBOX: 'local', PYRIC_GUARD: 'warn' });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('BEACON_FIXTURE_OK');
+    expect(res.stderr).toContain('PYRIC_GUARD is deprecated');
   });
 
   it('emits no beacon at all without the activator', () => {
@@ -580,7 +579,7 @@ describe('@pyric/cli/register beacon (child process)', () => {
       // could never accept the beacon it is here to receive.
       const res = await runNodeAsync('beacon.mjs', {
         PYRIC_SANDBOX: `remote:http://127.0.0.1:${port}`,
-        PYRIC_GUARD: 'warn',
+        PYRIC_DEBUG: '1',
       });
       expect(res.status).toBe(0);
       expect(res.stdout).toContain('BEACON_FIXTURE_OK');
@@ -589,10 +588,10 @@ describe('@pyric/cli/register beacon (child process)', () => {
       expect(received[0]!.url).toBe('/__pyric/beacon');
       const report = JSON.parse(received[0]!.body) as {
         pid: number;
-        guard: string;
         hooks: boolean;
+        sandbox: string;
       };
-      expect(report.guard).toBe('warn');
+      expect('guard' in report).toBe(false);
       expect(report.hooks).toBe(true);
       expect(report.pid).toBeGreaterThan(0);
       // The stderr fallback carries the same facts, always.

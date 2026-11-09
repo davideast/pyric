@@ -350,7 +350,7 @@ export default scenario(async (app) => {
       const run = await app.command('node', ['--import', '@pyric/live/register', 'sw.js'], { timeoutMs: 60_000 });
       assert.equal(run.code, 0, run.output);
       assert.match(run.output, /^LOADED firebase\/messaging and firebase\/messaging\/sw$/m);
-      assert.doesNotMatch(run.output, /PYRIC_LIVE_REFUSED|net-guard BLOCK/);
+      assert.doesNotMatch(run.output, /PYRIC_LIVE_REFUSED/);
       // An event the process sent would reach the host before the process exits.
       await sleep(1_000);
       assert.equal(sessionCapture(app).operations.length, eventCount);

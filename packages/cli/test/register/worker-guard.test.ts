@@ -50,9 +50,9 @@ describe('guardWorkerArguments', () => {
   });
 
   it('keeps a sandbox variable the caller set for the worker', () => {
-    const parentEnv = { PYRIC_SANDBOX: 'local', PYRIC_GUARD: 'block' };
-    const [, options] = guardWorkerArguments('/app/worker.js', { env: { PYRIC_GUARD: 'off' } }, REGISTER_URL, parentEnv, false);
-    expect(options).toEqual({ env: { PYRIC_GUARD: 'off', PYRIC_SANDBOX: 'local' } });
+    const parentEnv = { PYRIC_SANDBOX: 'local', PYRIC_AI_MODE: 'sandbox' };
+    const [, options] = guardWorkerArguments('/app/worker.js', { env: { PYRIC_AI_MODE: 'production' } }, REGISTER_URL, parentEnv, false);
+    expect(options).toEqual({ env: { PYRIC_AI_MODE: 'production', PYRIC_SANDBOX: 'local' } });
   });
 
   it('forces the sandbox in a worker whose env sets NODE_ENV=production when the register is active', () => {

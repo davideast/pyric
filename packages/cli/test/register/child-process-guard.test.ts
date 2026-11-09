@@ -3,9 +3,7 @@
  *
  * A child of a registered process starts with the register in its
  * `NODE_OPTIONS` and with the parent's `PYRIC_*` variables it lacks, whatever
- * env the caller gave it. The app scenario `net-guard-block-address-forms`
- * checks the same through real `spawn`, `fork`, `spawnSync`, `execFile` and
- * `execSync` children.
+ * env the caller gave it.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import {
@@ -29,14 +27,14 @@ function clearMarks(): void {
 
 const REGISTER_URL = 'file:///app/node_modules/@pyric/cli/dist/register/index.js';
 const IMPORT = `--import ${REGISTER_URL}`;
-const PARENT = { PATH: '/bin', PYRIC_SANDBOX: 'remote:http://127.0.0.1:4000', PYRIC_GUARD: 'block', HOME: '/home/a' };
+const PARENT = { PATH: '/bin', PYRIC_SANDBOX: 'remote:http://127.0.0.1:4000', PYRIC_AI_MODE: 'sandbox', HOME: '/home/a' };
 
 describe('guardChildEnv', () => {
   it('adds the register and the parent sandbox to an env of only PATH', () => {
     expect(guardChildEnv({ PATH: '/usr/bin' }, PARENT, REGISTER_URL)).toEqual({
       PATH: '/usr/bin',
       PYRIC_SANDBOX: 'remote:http://127.0.0.1:4000',
-      PYRIC_GUARD: 'block',
+      PYRIC_AI_MODE: 'sandbox',
       NODE_OPTIONS: IMPORT,
     });
   });
@@ -53,15 +51,9 @@ describe('guardChildEnv', () => {
   });
 
   it('keeps a PYRIC_ variable the caller set, and fills one set empty', () => {
-    const env = guardChildEnv({ PYRIC_GUARD: 'warn', PYRIC_SANDBOX: '' }, PARENT, REGISTER_URL);
-    expect(env.PYRIC_GUARD).toBe('warn');
+    const env = guardChildEnv({ PYRIC_AI_MODE: 'production', PYRIC_SANDBOX: '' }, PARENT, REGISTER_URL);
+    expect(env.PYRIC_AI_MODE).toBe('production');
     expect(env.PYRIC_SANDBOX).toBe('remote:http://127.0.0.1:4000');
-  });
-
-  it('keeps an empty PYRIC_GUARD_ALLOW, which clears the allowlist for the child', () => {
-    const parent = { ...PARENT, PYRIC_GUARD_ALLOW: 'api.example.com' };
-    const env = guardChildEnv({ PYRIC_GUARD_ALLOW: '' }, parent, REGISTER_URL);
-    expect(env.PYRIC_GUARD_ALLOW).toBe('');
   });
 
   it('copies no other parent variable and never changes the caller env', () => {
@@ -79,7 +71,7 @@ describe('guardChildEnv in a parent the sandbox register is active in (#2340)', 
       PATH: '/usr/bin',
       NODE_ENV: 'production',
       PYRIC_SANDBOX: 'remote:http://127.0.0.1:4000',
-      PYRIC_GUARD: 'block',
+      PYRIC_AI_MODE: 'sandbox',
       PYRIC_SANDBOX_FORCE: '1',
       NODE_OPTIONS: IMPORT,
     });
@@ -131,7 +123,7 @@ describe('guardEnvPairs', () => {
       'A=b=c',
       `NODE_OPTIONS=--max-old-space-size=4096 ${IMPORT}`,
       'PYRIC_SANDBOX=remote:http://127.0.0.1:4000',
-      'PYRIC_GUARD=block',
+      'PYRIC_AI_MODE=sandbox',
     ]);
   });
 });
@@ -156,7 +148,7 @@ describe('guardSyncArguments', () => {
 
   it('finds options with or without args, and after a null args', () => {
     const options = { cwd: '/app', env: { PATH: '/usr/bin' } };
-    const env = { PATH: '/usr/bin', PYRIC_SANDBOX: PARENT.PYRIC_SANDBOX, PYRIC_GUARD: 'block', NODE_OPTIONS: IMPORT };
+    const env = { PATH: '/usr/bin', PYRIC_SANDBOX: PARENT.PYRIC_SANDBOX, PYRIC_AI_MODE: 'sandbox', NODE_OPTIONS: IMPORT };
     expect(guardSyncArguments(true, ['node', options], PARENT, REGISTER_URL)).toEqual(['node', { cwd: '/app', env }]);
     expect(guardSyncArguments(true, ['node', null, options], PARENT, REGISTER_URL)).toEqual(['node', null, { cwd: '/app', env }]);
     expect(guardSyncArguments(false, ['node a.js', options], PARENT, REGISTER_URL)).toEqual(['node a.js', { cwd: '/app', env }]);

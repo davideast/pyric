@@ -1,12 +1,11 @@
 /**
  * A live dev server process reaches no production project on pyric's behalf,
- * and blocks nothing at the network (ADR 0022, amendment 2026-11-07). A real
- * Node process starts Vite with `pyricLive()` under `PYRIC_GUARD=block`, then:
+ * and installs no socket/network interception (ADR 0022, ADR 0023). A real
+ * Node process starts Vite with `pyricLive()`, then:
  *
  * - opens a connection to Google's token endpoint, as app code in the dev
- *   server could, which goes out (to a closed loopback port, by its own
- *   lookup) and is named once as unobserved, in its line and in the health
- *   report;
+ *   server could, which goes out unimpeded (to a closed loopback port, by its
+ *   own lookup);
  * - sends `storage.provision` and `assurance.testRulesHosted` with
  *   `allowProduction` and `confirm: true` to the hosted method route, as
  *   `pyric storage provision --allow-production` does, and `storage.status`
@@ -45,7 +44,7 @@ const server = await createServer({
 });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\\/$/, '');
-const outcome = { guardMode: globalThis[Symbol.for('pyric.netGuard')]?.mode ?? null };
+const outcome = {};
 // Google's token host, resolved to a closed loopback port: the connection goes out, and nothing reaches Google.
 const toLoopback = (_host, options, callback) => {
   const done = typeof options === 'function' ? options : callback;
@@ -62,7 +61,7 @@ outcome.token = await new Promise((resolve) => {
   }
 });
 const health = await (await fetch(base + '/__pyric/health')).json();
-outcome.unobserved = health.live?.unobserved ?? null;
+outcome.hasSocketUnobserved = 'unobserved' in (health.live ?? {});
 const method = async (key, args, allowProduction) => {
   const response = await fetch(base + '/__pyric/hosted/method', {
     method: 'POST',
@@ -116,8 +115,8 @@ afterAll(() => {
   rmSync(projectDir, { recursive: true, force: true });
 });
 
-describe('a live dev server process under PYRIC_GUARD=block', () => {
-  it('lets a token request out and names it, and refuses every production command on the host', () => {
+describe('a live dev server process with pyricLive()', () => {
+  it('lets a token request out unimpeded and refuses every production command on the host', () => {
     const result = spawnSync('node', ['scenario.mjs'], {
       cwd: projectDir,
       encoding: 'utf8',
@@ -125,7 +124,6 @@ describe('a live dev server process under PYRIC_GUARD=block', () => {
       // No credential source either, so a regression stops at the credential lookup, not at Google.
       env: {
         ...process.env,
-        PYRIC_GUARD: 'block',
         FIREBASE_SA_BASE64: '',
         GOOGLE_APPLICATION_CREDENTIALS: join(projectDir, 'no-credentials.json'),
         CLOUDSDK_CONFIG: join(projectDir, 'no-gcloud'),
@@ -138,15 +136,13 @@ describe('a live dev server process under PYRIC_GUARD=block', () => {
     const refusedCommand = (key: string) =>
       expect.stringContaining(`PYRIC_LIVE_REFUSED: @pyric/live: ${key} from a pyric command is refused in live mode.`);
     expect(outcome).toEqual({
-      guardMode: null,
       token: 'ECONNREFUSED',
-      unobserved: ['oauth2.googleapis.com'],
+      hasSocketUnobserved: false,
       provision: refusedCommand('storage.provision'),
       testRulesHosted: refusedCommand('assurance.testRulesHosted'),
       status: refusedCommand('storage.status'),
       impersonate: refusedCommand('auth.impersonate'),
     });
-    expect(result.stderr).toContain('@pyric/live/vite: unobserved call to oauth2.googleapis.com (');
-    expect(result.stderr).not.toContain('PYRIC_GUARD_BLOCKED');
+    expect(result.stderr).not.toContain('unobserved call to');
   }, 70_000);
 });

@@ -1,6 +1,6 @@
 # Live mode research
 
-Status: research for a decision, 2026-10-27. Main at `66e7a7f53`. The seven research tracks read main at `dddc74a36` (the commit before #1394 merged; no live mode code changed between them). Nothing here is a plan of work.
+Status: research for a decision, 2026-10-27. Main at `66e7a7f53`. The seven research tracks read main at `dddc74a36` (the commit before #1394 merged; no live mode code changed between them). Nothing here is a plan of work. Note (2026-11-09): see [ADR 0022](../decisions/0022-swap-or-stop.md) and [ADR 0023](../decisions/0023-pure-swap-or-stop-baseline.md) for the current module-resolution swap-or-stop architecture and the removal of `register/net-guard.ts`.
 
 ## 1. Summary
 

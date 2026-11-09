@@ -8,9 +8,7 @@
  * `@pyric/live` (`live-package.ts`). The gate is that installed package:
  * without it the register refuses to start. `@pyric/cli/register` never
  * reads this module, and no option, flag or environment variable turns live
- * mode on. It installs live mode's network report first (`live-net-guard.ts`),
- * which never refuses a call and names each Google host no live row observes
- * (ADR 0022, amendment 2026-11-07). When `firebase-admin` passes through, the
+ * mode on. When `firebase-admin` passes through, the
  * real Admin SDK loads with the app's own credential, which pyric never
  * reads, its class-defining loads go to the Admin rows when they are open,
  * and a service no row serves loads unobserved.
@@ -26,7 +24,6 @@ import { installChildProcessGuard } from './child-process-guard.js';
 import { LIVE_PASS_THROUGH_VARIABLE, LIVE_PROJECT_ROOT_VARIABLE, LIVE_SDK_ROOT_VARIABLE, liveProjectRoot, loadInstalledLiveRegister, recordedPassThrough } from './live-package.js';
 import { ADMIN_PASS_THROUGH, passThroughSdkPackages, passThroughSet } from '../serve/vite-supplied-rows.js';
 import { createStopReporter, suppliedRowsStopFor } from './swap-or-stop.js';
-import { installLiveNetGuard } from './live-net-guard.js';
 import { isRegisterLiveModule } from './live-row.js';
 import { ADMIN_ROW_LOADS, adminRowOfUrl, isAdminRowUrl } from './admin-row.js';
 import { adminTreeResolution, isImportCondition, registerLiveModuleSource, registerRows, registerRowsResolution, type RegisterRows } from './supplied-rows.js';
@@ -337,8 +334,7 @@ function createDirectResolveGuard(env: SuppliedResolveEnv): DirectResolveGuard {
  * The resolve hook: rows, the installed SDK for a row's own import and for a
  * passed-through one, the real Admin SDK when it passes through, refusals,
  * and the stop. `allowedUrls` is the stop's record of the installed SDK
- * files it let load, and `adminTree` the passed-through Admin SDK's files;
- * the network guard reads both.
+ * files it let load, and `adminTree` the passed-through Admin SDK's files.
  */
 function resolveWithRows(
   env: SuppliedResolveEnv,
@@ -458,15 +454,13 @@ function projectIdOrNull(projectRoot: string): string | null {
   }
 }
 
-/** The process health's unobserved lists, each absent when empty. */
+/** The process health's unobserved Admin lists, each absent when empty. */
 function unobservedFields(
-  hosts: readonly string[],
   admin: AdminUnobserved,
-): { unobserved?: readonly string[]; unobservedAdmin?: readonly string[]; gatedAdmin?: readonly string[] } {
+): { unobservedAdmin?: readonly string[]; gatedAdmin?: readonly string[] } {
   const unobservedAdmin = admin.list();
   const gatedAdmin = admin.gated();
   return {
-    ...(hosts.length === 0 ? {} : { unobserved: hosts }),
     ...(unobservedAdmin.length === 0 ? {} : { unobservedAdmin }),
     ...(gatedAdmin.length === 0 ? {} : { gatedAdmin }),
   };
@@ -558,19 +552,16 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   }
   const adminRows = input.adminRows === true;
   const passThrough = passThroughSet(input.passThrough ?? adminPassesWithRows(recordedPassThrough(process.env), adminRows));
-  // First, before any hook: the network report (`live-net-guard.ts`). It never
-  // refuses a call, and names each Google host no live row observes.
-  // Each list sent to the live host when it first gains an entry and on each change, so the host's health lists them.
+  // Each unobserved Admin list is sent to the live host when it first gains an entry and on each change, so the host's health lists them.
   let forwarder: UnobservedForwarder | undefined;
   const changed = (): void => forwarder?.changed();
-  const network = installLiveNetGuard({ adminRows, onUnobserved: changed });
   // The installed SDK files the stop let load.
   const allowedUrls = new Set<string>();
   // Stays empty unless `firebase-admin` passes through: only an app's own import of it starts the tree.
   const adminTree = createAdminTree();
   const adminUnobserved = createAdminUnobserved((line) => void process.stderr.write(line), changed);
   const send = liveHostSender(() => forwarder?.reconnected());
-  forwarder = createUnobservedForwarder({ read: () => unobservedFields(network.unobserved(), adminUnobserved), send });
+  forwarder = createUnobservedForwarder({ read: () => unobservedFields(adminUnobserved), send });
   const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
   const rows = registerRows(passThrough, adminRows);
   rows.open(installed.rows);
@@ -587,6 +578,6 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it,
   // and list what no row observed.
   const projectId = projectIdOrNull(installed.projectRoot) ?? undefined;
-  installProcessHealth(() => ({ mode: 'live', projectId, ...unobservedFields(network.unobserved(), adminUnobserved) }));
+  installProcessHealth(() => ({ mode: 'live', projectId, ...unobservedFields(adminUnobserved) }));
   markLiveRegisterActive();
 }

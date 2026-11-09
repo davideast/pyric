@@ -89,16 +89,56 @@ export type DevChildPlan = SandboxChildPlan;
  */
 export function parseCommandString(cmd: string): string[] {
   const parts: string[] = [];
-  const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(cmd)) !== null) {
-    if (match[1] !== undefined) {
-      parts.push(match[1]);
-    } else if (match[2] !== undefined) {
-      parts.push(match[2]);
-    } else {
-      parts.push(match[0]);
+  let current = '';
+  let inToken = false;
+  let i = 0;
+
+  while (i < cmd.length) {
+    const ch = cmd[i]!;
+    if (/\s/.test(ch)) {
+      if (inToken) {
+        parts.push(current);
+        current = '';
+        inToken = false;
+      }
+      i++;
+      continue;
     }
+    inToken = true;
+    if (ch === "'") {
+      i++;
+      while (i < cmd.length && cmd[i] !== "'") {
+        current += cmd[i]!;
+        i++;
+      }
+      if (i < cmd.length) i++;
+      continue;
+    }
+    if (ch === '"') {
+      i++;
+      while (i < cmd.length && cmd[i] !== '"') {
+        if (cmd[i] === '\\' && i + 1 < cmd.length && (cmd[i + 1] === '"' || cmd[i + 1] === '\\')) {
+          current += cmd[i + 1]!;
+          i += 2;
+          continue;
+        }
+        current += cmd[i]!;
+        i++;
+      }
+      if (i < cmd.length) i++;
+      continue;
+    }
+    if (ch === '\\' && i + 1 < cmd.length && (/\s/.test(cmd[i + 1]!) || cmd[i + 1] === '"' || cmd[i + 1] === "'")) {
+      current += cmd[i + 1]!;
+      i += 2;
+      continue;
+    }
+    current += ch;
+    i++;
+  }
+
+  if (inToken) {
+    parts.push(current);
   }
   return parts;
 }
@@ -180,9 +220,6 @@ export interface ChildActivation {
    *  injected url when that host answers with this identity, wherever the
    *  child's working directory is. */
   readonly instanceId?: string | undefined;
-  /** Hosts or URLs the child's network guard permits in addition to the
-   *  developer's own `PYRIC_GUARD_ALLOW`, such as the configured AI upstream. */
-  readonly guardAllow?: readonly string[];
   /** The page transport selection the host stamps into the HTML it serves.
    *  A child that bundles pages pyric never serves (`withPyric` under
    *  `next dev`) inlines it from `PYRIC_WORKER_INIT`. */
@@ -193,8 +230,7 @@ export interface ChildActivation {
  * Child env: sets the activator and the beacon secret, and APPENDS the loader
  * to NODE_OPTIONS rather than replacing it (the user's own --inspect /
  * --max-old-space-size and so on must survive). `file:` URLs are
- * percent-encoded, so no quoting is needed even for paths with spaces. The
- * launcher's guard allowance is appended to `PYRIC_GUARD_ALLOW` the same way.
+ * percent-encoded, so no quoting is needed even for paths with spaces.
  */
 export function buildChildEnv(
   base: NodeJS.ProcessEnv,
@@ -218,23 +254,7 @@ export function buildChildEnv(
     env.PYRIC_WORKER_INIT = JSON.stringify(opts.workerInit);
     env.PYRIC_WORKER_INIT_HOST = opts.serveUrl;
   }
-  const guardAllow = childGuardAllow(base.PYRIC_GUARD_ALLOW, opts.guardAllow ?? []);
-  if (guardAllow !== undefined) env.PYRIC_GUARD_ALLOW = guardAllow;
   return env;
-}
-
-/** The child's `PYRIC_GUARD_ALLOW`: the developer's entries first, then the
- *  launcher's, comma-separated. `undefined` when neither has any. */
-function childGuardAllow(
-  developerAllow: string | undefined,
-  launcherAllow: readonly string[],
-): string | undefined {
-  const entries: string[] = [];
-  const hasDeveloperEntries = developerAllow !== undefined && developerAllow.trim() !== '';
-  if (hasDeveloperEntries) entries.push(developerAllow);
-  entries.push(...launcherAllow);
-  if (entries.length === 0) return undefined;
-  return entries.join(',');
 }
 
 /**
@@ -356,10 +376,6 @@ export function spawnSandboxChild(
 
   // 2. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
   const hasShellOperators = parts.some((token) => SHELL_OPERATORS.has(token));
-
-  // The bun/deno warning is emitted by the launch seam in serve.ts, alongside
-  // the interlock line, so every pre-spawn statement about the child prints in
-  // one block and in order.
 
   const [command, ...args] = parts;
   let child: ChildProcess;

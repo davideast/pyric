@@ -1,9 +1,8 @@
 'use strict';
-// Loaded into the dev server with --require in NODE_OPTIONS, the same patch
-// token-choke-point uses. Any connection to a host other than loopback goes
-// to a closed local port instead, and is recorded, so nothing in this
-// scenario leaves the machine. vite.config.js serves the record at
-// /ssr/trapped.
+// Loaded into the dev server with --require in NODE_OPTIONS. Any connection to
+// a host other than loopback goes to a closed local port instead, and is
+// recorded, so nothing in this scenario leaves the machine. vite.config.js
+// serves the record at /ssr/trapped.
 const net = require('node:net');
 
 const CLOSED_PORT = Number(process.env.SCENARIO_CLOSED_PORT);

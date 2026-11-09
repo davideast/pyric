@@ -29,8 +29,6 @@ export interface ProcessHealth {
   readonly projectId?: string;
   /** The sandbox host this process's Firebase calls reach. */
   readonly host?: string;
-  /** Live mode: the Google and Firebase hosts this process called that no live row observed. */
-  readonly unobserved?: readonly string[];
   /** Live mode: the firebase-admin subpaths no row serves that this process loaded. */
   readonly unobservedAdmin?: readonly string[];
   /** Live mode: the firebase-admin subpaths this process loaded whose calls pass the project gate but no row records. */

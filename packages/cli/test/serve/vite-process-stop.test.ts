@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { installViteProcessStop, viteProcessStopHook, type SyncResolve } from '../../src/serve/vite-process-stop.js';
+
+const vitePluginEntry = fileURLToPath(new URL('../../src/serve/vite-plugin.ts', import.meta.url));
 
 const require = createRequire(import.meta.url);
 const realAdminApp = pathToFileURL(require.resolve('firebase-admin/app')).href;
@@ -111,7 +114,45 @@ describe('installing the stop hook', () => {
     expect(installed).toEqual([]);
   });
 
-  it('installs nothing on a Node without module.registerHooks', () => {
-    expect(installViteProcessStop({ slot: {}, registerHooks: undefined, registerActive: () => false })).toBe(false);
+  it('throws PYRIC_UNSUPPORTED_NODE_VERSION on a Node without module.registerHooks', () => {
+    const lines: string[] = [];
+    const error = stopOf(() =>
+      installViteProcessStop({
+        slot: {},
+        registerHooks: undefined,
+        registerActive: () => false,
+        nodeVersion: '22.14.0',
+        write: (line) => lines.push(line),
+      }),
+    );
+    expect(error.code).toBe('PYRIC_UNSUPPORTED_NODE_VERSION');
+    expect(error.message).toContain('22.14.0');
+    expect(error.message).toContain('>= 22.15');
+    expect(lines).toEqual([`${error.message}\n`]);
+  });
+
+  it('stops standalone pyric() Vite dev server startup under Bun with PYRIC_UNSUPPORTED_RUNTIME', () => {
+    const script = `
+      import { pyric } from ${JSON.stringify(vitePluginEntry)};
+      const plugin = pyric();
+      const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config.handler;
+      try {
+        configHook({}, { command: 'serve', mode: 'development' });
+        console.log('ALLOWED');
+        process.exit(0);
+      } catch (err) {
+        console.log('CODE:' + err.code);
+        process.exit(2);
+      }
+    `;
+    const result = spawnSync('bun', ['-e', script], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain('CODE:PYRIC_UNSUPPORTED_RUNTIME');
+    expect(result.stderr).toContain('PYRIC_UNSUPPORTED_RUNTIME');
+    expect(result.stderr).toContain('Bun');
+    expect(result.stderr).toContain('module.registerHooks');
   });
 });

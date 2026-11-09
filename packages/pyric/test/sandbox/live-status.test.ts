@@ -163,11 +163,8 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, admin: 'observed' } })).toEqual(LIVE);
   });
 
-  it('reads the hosts the host process called that no live row observed, and drops a malformed list without losing the status', () => {
-    const unobserved = ['oauth2.googleapis.com', 'cloudtrace.googleapis.com'];
-    expect(readLiveHostStatus({ live: { ...LIVE, unobserved } })).toEqual({ ...LIVE, unobserved });
-    expect(readLiveHostStatus({ live: { ...LIVE, unobserved: [] } })).toEqual(LIVE);
-    expect(readLiveHostStatus({ live: { ...LIVE, unobserved: ['oauth2.googleapis.com', 7] } })).toEqual(LIVE);
+  it('ignores any legacy unobserved host field on the status payload', () => {
+    expect(readLiveHostStatus({ live: { ...LIVE, unobserved: ['oauth2.googleapis.com'] } })).toEqual(LIVE);
     expect(readLiveHostStatus({ live: { ...LIVE, unobserved: 'oauth2.googleapis.com' } })).toEqual(LIVE);
   });
 
@@ -199,15 +196,14 @@ describe('the live project line', () => {
     expect(readLiveHostStatus({ live: { ...LIVE, clients: [{ ...page, email: 7 }] } })).toEqual(LIVE);
   });
 
-  it("reads a Node client's unobserved lists, and drops malformed lists but keeps the client", () => {
+  it("reads a Node client's unobserved Admin lists, and drops malformed lists but keeps the client", () => {
     const lists = {
-      unobserved: ['cloudtrace.googleapis.com'],
       unobservedAdmin: ['firebase-admin/remote-config'],
       gatedAdmin: ['firebase-admin/app-check'],
     };
     const node = { kind: 'node', clientId: 'page-2', user: null, lastSeen: 1000 };
     expect(readLiveHostStatus({ live: { ...LIVE, clients: [{ ...node, ...lists }] } })?.clients).toEqual([{ ...node, ...lists }]);
-    const malformed = { ...node, ...lists, unobserved: ['https://cloudtrace.googleapis.com/v2?key=k'] };
+    const malformed = { ...node, ...lists, unobservedAdmin: ['https://cloudtrace.googleapis.com/v2?key=k'] };
     expect(readLiveHostStatus({ live: { ...LIVE, clients: [malformed] } })?.clients).toEqual([node]);
   });
 });

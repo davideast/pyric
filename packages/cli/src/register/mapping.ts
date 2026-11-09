@@ -13,8 +13,8 @@
  * `@pyric/cli/register/client/*`. The other client subpaths keep their pyric
  * mirrors, which refuse there because the app registry has no sandbox.
  *
- * Pure apart from reading the environment — the resolution hooks (index.ts /
- * hooks.ts) call this and the unit suite exercises it directly. Deliberately
+ * Pure apart from reading the environment -- the resolution hook (index.ts)
+ * calls this and the unit suite exercises it directly. Deliberately
  * narrow: only the two package roots match. `@firebase/*` internals,
  * `firebase-functions`, and anything merely *containing* "firebase" pass
  * through untouched.

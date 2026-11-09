@@ -261,7 +261,7 @@ describe('the live host', () => {
 
   it('prints a block for each denied call it accepted, naming the client that sent it, and none for a refused frame', () => {
     const printed: string[] = [];
-    const live = createLiveHostState({ configProjectId: 'p', configSource: undefined, optionName: '--project', warn: () => {}, print: (block) => printed.push(block), unobserved: () => [] });
+    const live = createLiveHostState({ configProjectId: 'p', configSource: undefined, optionName: '--project', warn: () => {}, print: (block) => printed.push(block) });
     live.readRulesFiles(() => RULES);
     live.inbound(frame('1', call({ method: 'getDoc', path: 'notes/n1', outcome: denied, account: { uid: 'u1' } }), 'node', 'server.mjs'));
     live.outbound(reply('1', true));
