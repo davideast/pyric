@@ -14,8 +14,8 @@ import { doc as inProcessDoc, setDoc as inProcessSetDoc } from 'pyric/firestore'
 import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
 import { setRules as workerSetRules } from '@pyric/cli/serve/worker';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
-import { useEnvironment } from './environment.js';
 import { useStudioDataSource } from './studio-data.js';
+import { useSandboxWorkerLive } from './use-sandbox-worker-gate.js';
 
 /**
  * Deploy a ruleset to the live sandbox (Pyric Studio rules-fix "Apply"): the
@@ -25,8 +25,7 @@ import { useStudioDataSource } from './studio-data.js';
  */
 export function useStudioSetRules(): (source: string) => Promise<void> {
   const seed = useDevSeed();
-  const env = useEnvironment();
-  const live = env.status === 'ready' ? env.env.live : undefined;
+  const live = useSandboxWorkerLive();
   const seedSandbox = seed.status === 'ready' ? seed.handles.sandbox : null;
   return useCallback(
     async (source: string) => {
@@ -134,8 +133,7 @@ export function useStudioSeedAuth(): (
  */
 export function useStudioClear(): () => Promise<{ errors: string[] }> {
   const data = useStudioDataSource();
-  const env = useEnvironment();
-  const live = env.status === 'ready' ? env.env.live : undefined;
+  const live = useSandboxWorkerLive();
   return useCallback(async () => {
     if (data.status !== 'ready') throw new Error('No sandbox to clear.');
     const errors: string[] = [];

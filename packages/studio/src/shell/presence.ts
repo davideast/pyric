@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import type { PresenceSnapshot } from '../clients/worker-live.js';
-import { useEnvironment } from './environment.js';
+import { useSandboxWorkerLive } from './use-sandbox-worker-gate.js';
 
 /** Honest visibility boundary — presence only sees this SharedWorker. */
 export const PRESENCE_BOUNDARY_COPY =
@@ -90,9 +90,7 @@ export function presenceViewModel(
  * `null` until the first snapshot (or when there is no live plane).
  */
 export function usePresenceView(): PresenceViewModel | null {
-  const env = useEnvironment();
-  const live =
-    env.status === 'ready' && env.env.live ? env.env.live : null;
+  const live = useSandboxWorkerLive() ?? null;
   const [view, setView] = useState<PresenceViewModel | null>(null);
 
   useEffect(() => {

@@ -227,6 +227,29 @@ export default scenario(async (app) => {
     await chip.locator('[data-live-recent-user="user-reader"]').waitFor({ timeout: 15_000 });
   });
 
+  await app.step("Studio's Auth view, opened from the chip's Identity tab, shows the read-only live unavailable state with no sandbox user controls and stays out of live.clients", async () => {
+    const chip = await openChip(page);
+    await chip.locator('[data-chip-tab=identity]').click();
+    const href = await chip.locator('[data-open-studio]').getAttribute('href');
+    assert.ok(href && href.includes('/__pyric/ui/auth'), `expected Identity Studio link to target /__pyric/ui/auth, got ${String(href)}`);
+    const studio = await sendsNothing(app, replay, async () => {
+      const opened = await app.page(new URL(href, host.url).href);
+      await opened.locator('[data-surface=auth]').first().waitFor({ timeout: 30_000 });
+      await opened.locator('[data-pyric-ui="live-service-unavailable"]').waitFor({ timeout: 30_000 });
+      return opened;
+    });
+    const unavailableText = await studio.locator('[data-pyric-ui="live-service-unavailable"]').textContent();
+    assert.ok(unavailableText?.includes('Auth user listing is unavailable in Live mode'), unavailableText ?? '');
+    assert.equal(await studio.locator('[data-live-observed-badge]').count(), 1);
+    for (const selector of ['.auth-sub__add', '[data-pyric-ui="auth-user-list"]', '[data-pyric-ui="auth-user-form"]', '[data-pyric-ui="auth-create-user"]']) {
+      assert.equal(await studio.locator(selector).count(), 0, selector);
+    }
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { clients?: Array<{ kind: string; label?: string }> } };
+    const clientLabels = (health.live?.clients ?? []).map((client) => client.label);
+    assert.ok(!clientLabels.some((label) => label?.startsWith('/__pyric/ui')), `Studio appeared in live.clients: ${JSON.stringify(health.live?.clients)}`);
+    await studio.close();
+  });
+
   await app.step("Studio's Settings, opened from the chip's Live tab, carries the sandbox notice with the host's project", async () => {
     const chip = await openChip(page);
     await chip.locator('[data-chip-tab=sandbox]').click();

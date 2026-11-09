@@ -10,8 +10,10 @@ import { WebSocketServer } from 'ws';
 import { createBridge } from '../../src/bridge/server/bridge.js';
 import { attachPeer } from '../../src/bridge/server/peer.js';
 import { createSilentLogger } from '../../src/bridge/server/logger.js';
-import { DEFAULT_SANDBOX_PATH, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../../src/bridge/protocol.js';
+import { DEFAULT_SANDBOX_PATH, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY, type BridgeMessage } from '../../src/bridge/protocol.js';
+import { createLiveHostState } from '../../src/serve/live-host-state.js';
 import { getHostedFirestore, type HostedConnectionState } from '../../src/serve/worker/client/websocket-connection.js';
+import { startPresence, subscribeEvents } from '../../src/serve/worker/index.js';
 import { runHostedMethod, tabCallRoute } from '../../src/serve/hosted/live-reads.js';
 
 interface ReadHub {
@@ -38,9 +40,9 @@ async function until(condition: () => boolean, timeoutMs = 8_000): Promise<void>
 }
 
 /** A live host's bridge on a loopback socket, with the hosted runtime as its sandbox peer. */
-async function liveHost() {
+async function liveHost(onInbound?: (message: BridgeMessage) => void) {
   const bridge = createBridge({ version: 'test', projectKey: 'orbit', logger: createSilentLogger(), tabRoute: tabCallRoute });
-  bridge.registerSandboxPeer(() => {}, [], 'host', [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY]);
+  bridge.registerSandboxPeer(message => onInbound?.(message), [], 'host', [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY]);
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1', path: DEFAULT_SANDBOX_PATH });
   server.on('connection', socket => attachPeer(bridge, socket));
   await new Promise(resolve => server.once('listening', resolve));
@@ -113,4 +115,50 @@ test('a closed page connection takes its reads with it', async () => {
   await until(() => host.bridge.tabTools.call('firestore_get_document', { path: 'rooms/a' }) !== undefined);
   db.port.close();
   await until(() => host.bridge.tabTools.call('firestore_get_document', { path: 'rooms/a' }) === undefined);
+});
+
+test('a Studio hosted connection attaches as platform studio, stays out of live.clients, and does not announce tab reads', async () => {
+  const live = createLiveHostState({
+    configProjectId: 'demo-live',
+    configSource: 'firebaserc',
+    optionName: '--project',
+    warn: () => {},
+  });
+  const inboundFrames: BridgeMessage[] = [];
+  const host = await liveHost(message => {
+    inboundFrames.push(message);
+    live.inbound(message);
+  });
+  const page = pageReader();
+  page.open();
+
+  const states: HostedConnectionState[] = [];
+  const studioDb = getHostedFirestore({
+    url: host.url,
+    projectKey: 'orbit',
+    platform: 'studio',
+    onConnection: state => states.push(state),
+  });
+  cleanups.push(() => studioDb.port.close());
+  await until(() => states.includes('attached'));
+
+  const unsubEvents = subscribeEvents(studioDb, () => {});
+  const presence = startPresence({ db: studioDb, kind: 'studio', location: { pathname: '/__pyric/ui/auth', search: '', hash: '' } as Location });
+  cleanups.push(() => {
+    unsubEvents();
+    presence.stop();
+  });
+
+  await until(() => inboundFrames.some(frame => frame.type === 'worker-message' && (frame.message as { method?: string }).method === 'presence.register'));
+
+  // Every frame Studio sends is stamped with platform 'studio', so live.clients omits Studio completely.
+  const studioPlatforms = inboundFrames
+    .filter((frame): frame is Extract<BridgeMessage, { type: 'worker-message' }> => frame.type === 'worker-message')
+    .map(frame => frame.platform);
+  expect(studioPlatforms.length).toBeGreaterThan(0);
+  expect(new Set(studioPlatforms)).toEqual(new Set(['studio']));
+  expect(live.report()).not.toHaveProperty('clients');
+
+  // Studio never announces itself as an app browser tab answering live reads.
+  expect(host.bridge.tabTools.call('firestore_get_document', { path: 'rooms/a' })).toBeUndefined();
 });

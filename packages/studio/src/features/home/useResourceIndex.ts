@@ -41,8 +41,8 @@ import {
 } from 'pyric/firestore';
 import { sandbox as authSandbox } from 'pyric/auth';
 import { ref as inProcessRef, listAll as inProcessListAll } from 'pyric/storage';
-import { useEnvironment } from '../../shell/environment.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
+import { useSandboxWorkerLive } from '../../shell/use-sandbox-worker-gate.js';
 import { createIndexBatchPublisher } from './resource-index-state.js';
 import {
   bfsStorageObjectPaths,
@@ -70,7 +70,7 @@ export interface ResourceIndexState {
 
 export function useResourceIndex(): ResourceIndexState {
   const data = useStudioDataSource();
-  const env = useEnvironment();
+  const live = useSandboxWorkerLive();
   const [entries, setEntries] = useState<ResourceEntry[] | null>(null);
   const [building, setBuilding] = useState(false);
   const inFlight = useRef(false);
@@ -83,7 +83,6 @@ export function useResourceIndex(): ResourceIndexState {
   // these refs instead and keep a STABLE identity for the hook's lifetime.
   const dataRef = useRef(data);
   dataRef.current = data;
-  const live = env.status === 'ready' ? env.env.live : undefined;
   const liveRef = useRef(live);
   liveRef.current = live;
   const pendingRebuild = useRef<{ rtdbLikely?: boolean } | null>(null);
