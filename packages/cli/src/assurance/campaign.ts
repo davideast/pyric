@@ -478,13 +478,14 @@ export class AuthorizationCampaign {
       );
     }
     this.#assertRunBudget(cases.length);
+    const mergedRules = mergeCandidateRules(this.target.rules, options.rules);
     const report = await runSecurityCases({
       campaignId:
         options.id ??
         `${this.id}-verification-${this.#verifications.length + 1}`,
       target: {
         ...this.target,
-        rules: { ...this.target.rules, ...options.rules },
+        rules: mergedRules,
       },
       actors: [...this.#actors.values()],
       cases,
@@ -551,8 +552,65 @@ export class AuthorizationCampaign {
   }
 }
 
+function mergeOwnMap<V>(
+  base: Record<string, V> | undefined,
+  override: Record<string, V> | undefined,
+): Record<string, V> {
+  const merged: Record<string, V> = {};
+  for (const [key, value] of Object.entries(base ?? {})) {
+    Object.defineProperty(merged, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  for (const [key, value] of Object.entries(override ?? {})) {
+    Object.defineProperty(merged, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return merged;
+}
+
+function mergeCandidateRules(
+  base: LocalFirebaseTarget["rules"],
+  candidate: LocalFirebaseTarget["rules"],
+): LocalFirebaseTarget["rules"] {
+  const merged: LocalFirebaseTarget["rules"] = {
+    ...base,
+    ...candidate,
+  };
+  if (base.rtdbInstances || candidate.rtdbInstances) {
+    merged.rtdbInstances = mergeOwnMap(
+      base.rtdbInstances,
+      candidate.rtdbInstances,
+    );
+  }
+  const baseBuckets = (base as { storageBuckets?: Record<string, string> })
+    .storageBuckets;
+  const candidateBuckets = (
+    candidate as { storageBuckets?: Record<string, string> }
+  ).storageBuckets;
+  if (baseBuckets || candidateBuckets) {
+    (merged as { storageBuckets?: Record<string, string> }).storageBuckets =
+      mergeOwnMap(baseBuckets, candidateBuckets);
+  }
+  return merged;
+}
+
 function stableValue(value: unknown): string {
   if (value === undefined) return "undefined";
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return '"__pyric_num__:NaN"';
+    if (value === Number.POSITIVE_INFINITY) return '"__pyric_num__:Infinity"';
+    if (value === Number.NEGATIVE_INFINITY) return '"__pyric_num__:-Infinity"';
+    if (Object.is(value, -0)) return '"__pyric_num__:-0"';
+    return JSON.stringify(value);
+  }
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableValue).join(",")}]`;
   const record = value as Record<string, unknown>;

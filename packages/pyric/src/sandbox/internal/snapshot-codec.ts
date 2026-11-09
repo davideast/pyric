@@ -23,6 +23,7 @@ import type { FirebaseStorage } from '../../storage/index.js';
 import {
   DEFAULT_BUCKET,
   getAdminStorageSandbox,
+  getStorageCrossServiceIam,
   getStorageService,
   storageBucketsWithRules,
   targetOf,
@@ -80,7 +81,18 @@ export interface SnapshotStorageObject {
   readonly contentBase64: string;
   readonly size: number;
   readonly contentType?: string;
+  readonly cacheControl?: string;
+  readonly contentDisposition?: string;
+  readonly contentEncoding?: string;
+  readonly contentLanguage?: string;
+  readonly timeCreated?: string;
+  readonly updated?: string;
   readonly customMetadata?: Readonly<Record<string, string>>;
+}
+
+export interface SnapshotStorageConfig {
+  readonly crossServiceIam?: 'granted' | 'denied';
+  readonly undeployedBucketPolicy?: 'allow' | 'deny';
 }
 
 export interface SandboxSnapshot {
@@ -92,6 +104,7 @@ export interface SandboxSnapshot {
   };
   readonly auth: {
     readonly users: readonly SnapshotUserRecord[];
+    readonly providers?: Readonly<Record<string, boolean>>;
   };
   /** Encoded with lossless ValueCodec tags for Timestamp, Bytes, GeoPoint, and DocumentReference. */
   readonly firestore: Readonly<Record<string, Readonly<Record<string, EncodedMap>>>>;
@@ -99,6 +112,8 @@ export interface SandboxSnapshot {
   readonly rtdb: Readonly<Record<string, unknown>>;
   /** Keyed by bucket (`'(default)'` or bucket name) to sorted object records. */
   readonly storage: Readonly<Record<string, readonly SnapshotStorageObject[]>>;
+  /** Optional Storage service posture (cross-service IAM and undeployed bucket lock policy). */
+  readonly storageConfig?: SnapshotStorageConfig;
 }
 
 export interface CaptureSnapshotOptions {
@@ -117,6 +132,7 @@ export interface StorageServiceCachesView {
   readonly hostBackends: WeakMap<Sandbox, unknown>;
   readonly scopedServices: WeakMap<Sandbox, Map<string, Promise<unknown>>>;
   readonly bucketRules?: WeakMap<Sandbox, Map<string, { readonly source: string }>>;
+  readonly undeployedPolicies?: WeakMap<Sandbox, 'allow' | 'deny'>;
 }
 
 export function readStorageCaches(): StorageServiceCachesView | undefined {
@@ -152,6 +168,15 @@ function exportBackendTreeWithPriorities(backend: RtdbBackend): unknown {
   return withPriorities(rawData, inlineEntries);
 }
 
+function setOwnField<T>(target: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 function extractCustomMetadata(
   raw: Record<string, unknown> | undefined,
 ): Record<string, string> | undefined {
@@ -160,7 +185,7 @@ function extractCustomMetadata(
   let hasEntry = false;
   for (const [key, value] of Object.entries(raw)) {
     if (typeof value !== 'string') continue;
-    out[key] = value;
+    setOwnField(out, key, value);
     hasEntry = true;
   }
   if (!hasEntry) return undefined;
@@ -179,13 +204,32 @@ async function captureStorageBuckets(
 ): Promise<{
   storage: Record<string, readonly SnapshotStorageObject[]>;
   storageRules: Record<string, string>;
+  storageConfig?: SnapshotStorageConfig;
 }> {
   const caches = readStorageCaches();
   const storageRules: Record<string, string> = {};
 
+  const crossServiceIam = getStorageCrossServiceIam(sandbox);
+  let undeployedBucketPolicy: 'allow' | 'deny' | undefined;
+  if (caches?.bucketRules?.has(sandbox) === true) {
+    undeployedBucketPolicy = caches.undeployedPolicies?.get(sandbox) ?? 'deny';
+  }
+  let storageConfig: SnapshotStorageConfig | undefined;
+  if (crossServiceIam === 'denied' || undeployedBucketPolicy !== undefined) {
+    const cfg: {
+      crossServiceIam?: 'granted' | 'denied';
+      undeployedBucketPolicy?: 'allow' | 'deny';
+    } = {};
+    if (crossServiceIam === 'denied') cfg.crossServiceIam = 'denied';
+    if (undeployedBucketPolicy !== undefined) {
+      cfg.undeployedBucketPolicy = undeployedBucketPolicy;
+    }
+    storageConfig = cfg;
+  }
+
   const openEntry = caches?.openServices.get(sandbox);
   if (openEntry?.rulesSource !== null && openEntry?.rulesSource !== undefined) {
-    storageRules[DEFAULT_SNAPSHOT_RESOURCE] = openEntry.rulesSource;
+    setOwnField(storageRules, DEFAULT_SNAPSHOT_RESOURCE, openEntry.rulesSource);
   }
   for (const bucketName of storageBucketsWithRules(sandbox)) {
     const deployedSource = caches?.bucketRules?.get(sandbox)?.get(bucketName)?.source;
@@ -194,14 +238,16 @@ async function captureStorageBuckets(
     if (bucketName === DEFAULT_BUCKET) {
       ruleKey = DEFAULT_SNAPSHOT_RESOURCE;
     }
-    storageRules[ruleKey] = deployedSource;
+    setOwnField(storageRules, ruleKey, deployedSource);
   }
 
   if (!hasOpenStorage(sandbox)) {
     if (inlineDocument !== undefined) {
       assertInlineStorageFits(0, inlineDocument);
     }
-    return { storage: {}, storageRules };
+    return storageConfig !== undefined
+      ? { storage: {}, storageRules, storageConfig }
+      : { storage: {}, storageRules };
   }
 
   const rawBuckets = new Set<string>([DEFAULT_BUCKET]);
@@ -263,6 +309,12 @@ async function captureStorageBuckets(
         contentBase64: string;
         size: number;
         contentType?: string;
+        cacheControl?: string;
+        contentDisposition?: string;
+        contentEncoding?: string;
+        contentLanguage?: string;
+        timeCreated?: string;
+        updated?: string;
         customMetadata?: Record<string, string>;
       } = {
         path,
@@ -272,6 +324,24 @@ async function captureStorageBuckets(
       if (stored.metadata.contentType !== undefined) {
         record.contentType = stored.metadata.contentType;
       }
+      if (stored.metadata.cacheControl !== undefined) {
+        record.cacheControl = stored.metadata.cacheControl;
+      }
+      if (stored.metadata.contentDisposition !== undefined) {
+        record.contentDisposition = stored.metadata.contentDisposition;
+      }
+      if (stored.metadata.contentEncoding !== undefined) {
+        record.contentEncoding = stored.metadata.contentEncoding;
+      }
+      if (stored.metadata.contentLanguage !== undefined) {
+        record.contentLanguage = stored.metadata.contentLanguage;
+      }
+      if (stored.metadata.timeCreated !== undefined) {
+        record.timeCreated = stored.metadata.timeCreated;
+      }
+      if (stored.metadata.updated !== undefined) {
+        record.updated = stored.metadata.updated;
+      }
       const custom = extractCustomMetadata(stored.metadata.customMetadata);
       if (custom !== undefined) {
         record.customMetadata = custom;
@@ -279,11 +349,13 @@ async function captureStorageBuckets(
       objects.push(record);
     }
     if (entry.bucketKey === DEFAULT_SNAPSHOT_RESOURCE || objects.length > 0) {
-      storage[entry.bucketKey] = objects;
+      setOwnField(storage, entry.bucketKey, objects);
     }
   }
 
-  return { storage, storageRules };
+  return storageConfig !== undefined
+    ? { storage, storageRules, storageConfig }
+    : { storage, storageRules };
 }
 
 function captureAuthUsers(
@@ -313,7 +385,7 @@ function captureAuthUsers(
     if (user.displayName !== undefined) record.displayName = user.displayName;
     if (user.photoUrl !== undefined) record.photoUrl = user.photoUrl;
     if (user.phoneNumber !== undefined) record.phoneNumber = user.phoneNumber;
-    if (user.emailVerified !== undefined) record.emailVerified = user.emailVerified;
+    record.emailVerified = user.emailVerified === true;
     if (user.disabled !== undefined) record.disabled = user.disabled;
     if (user.customClaims !== undefined) {
       record.customClaims = structuredClone(user.customClaims);
@@ -339,7 +411,7 @@ export async function captureSandboxSnapshot(
   const firestoreDocs: Record<string, EncodedMap> = {};
   const rawDocs = env.snapshot();
   for (const path of Object.keys(rawDocs).sort()) {
-    firestoreDocs[path] = encodeSnapshotMap(rawDocs[path]!);
+    setOwnField(firestoreDocs, path, encodeSnapshotMap(rawDocs[path]!));
   }
 
   const rtdb: Record<string, unknown> = {};
@@ -347,29 +419,30 @@ export async function captureSandboxSnapshot(
   const defaultBackend = getOrCreateBackend(sandbox);
   const defaultTree = exportBackendTreeWithPriorities(defaultBackend);
   if (defaultTree !== null && defaultTree !== undefined) {
-    rtdb[DEFAULT_SNAPSHOT_RESOURCE] = defaultTree;
+    setOwnField(rtdb, DEFAULT_SNAPSHOT_RESOURCE, defaultTree);
   }
   const defaultRtdbRules = defaultBackend.getActiveRules();
   if (defaultRtdbRules !== null) {
-    rtdbRules[DEFAULT_SNAPSHOT_RESOURCE] = JSON.stringify(defaultRtdbRules);
+    setOwnField(rtdbRules, DEFAULT_SNAPSHOT_RESOURCE, JSON.stringify(defaultRtdbRules));
   }
   for (const instanceName of heldDatabaseInstances(sandbox)) {
     const namedBackend = getOrCreateBackend(sandbox, databaseInstanceNamed(instanceName));
     const namedTree = exportBackendTreeWithPriorities(namedBackend);
     if (namedTree !== null && namedTree !== undefined) {
-      rtdb[instanceName] = namedTree;
+      setOwnField(rtdb, instanceName, namedTree);
     }
     const namedActiveRules = namedBackend.getActiveRules();
     if (namedActiveRules !== null) {
-      rtdbRules[instanceName] = JSON.stringify(namedActiveRules);
+      setOwnField(rtdbRules, instanceName, JSON.stringify(namedActiveRules));
     }
   }
 
-  const { storage, storageRules } = await captureStorageBuckets(
+  const { storage, storageRules, storageConfig } = await captureStorageBuckets(
     sandbox,
     options?.inlineStorageDocument,
   );
   const users = captureAuthUsers(sandbox, options?.excludePasswords === true);
+  const providers = authSandbox.exportProviderConfig(getAuth(sandbox));
 
   const rules: {
     firestore?: Record<string, string>;
@@ -386,14 +459,16 @@ export async function captureSandboxSnapshot(
     rules.storage = storageRules;
   }
 
-  return {
+  const snapshot: SandboxSnapshot = {
     version: 1,
     rules,
-    auth: { users },
+    auth: { users, providers },
     firestore: { [DEFAULT_SNAPSHOT_RESOURCE]: firestoreDocs },
     rtdb,
     storage,
+    ...(storageConfig !== undefined ? { storageConfig } : {}),
   };
+  return snapshot;
 }
 
 let nextForkStorageSequence = 1;

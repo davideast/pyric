@@ -40,6 +40,7 @@ import {
 import type { AssuranceCampaignStore } from "./tools.js";
 import {
   ASSURANCE_TARGET_SCHEMA,
+  type AssuranceActor,
   type AssuranceProbe,
   type FirebaseOperation,
   type LocalFirebaseTarget,
@@ -562,14 +563,28 @@ export async function populateDerivedCampaign(options: {
     campaignOpts.context = { attachment: options.runtime.attachmentContext };
   }
 
+  const seededUids = new Set<string>();
+  for (const user of options.runtime.snapshot?.auth.users ?? []) {
+    seededUids.add(user.uid);
+  }
+  for (const user of options.runtime.targetState?.auth?.users ?? []) {
+    seededUids.add(user.uid);
+  }
+  const actorAcquisition = (
+    actor: ProbeActor,
+  ): AssuranceActor["acquisition"] =>
+    actor.synthetic === true && !seededUids.has(actor.uid)
+      ? { kind: "synthetic", uid: actor.uid, token: { ...actor.token } }
+      : { kind: "fixture-user", uid: actor.uid };
+
   const campaign = createAuthorizationCampaign(campaignOpts);
   campaign.addActor({
     id: "actor-owner",
-    acquisition: { kind: "fixture-user", uid: owner.uid },
+    acquisition: actorAcquisition(owner),
   });
   campaign.addActor({
     id: "actor-peer",
-    acquisition: { kind: "fixture-user", uid: peer.uid },
+    acquisition: actorAcquisition(peer),
   });
 
   const registeredProbeIds = new Set<string>();

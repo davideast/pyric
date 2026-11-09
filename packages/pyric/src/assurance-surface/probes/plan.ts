@@ -156,17 +156,22 @@ export function planProbes(input: PlanInput): Probe[] {
       const slotBindings = bs.filter((b) => b.kind === 'pathVar');
       const existing = recordsAt(site.service, site.path, input.state).find((r) => r.path.includes(owner.uid));
       const uidOverrides = Object.fromEntries(uidFields(site.payload).map((f) => [f, owner.uid]));
-      let attack = step(site, 'peer', { keyActor: owner, overrides: uidOverrides });
-      if (existing) attack = { ...attack, path: existing.path };
       const hasExactSlot = !site.source.startsWith('seed:') && site.resolution === 'resolved' && uidVars.some((v) => isExactUidOnly(v.auth));
       const slotStatus: 'proven' | 'flagged' = isRuleConfirmed(slotBindings) || hasExactSlot ? 'proven' : 'flagged';
       const slotSeeds = [...seedOwner, ...seeds(site, concretePath(site, peer, { state: input.state, otherUid: owner.uid }))];
-      add({
-        kind: 'foreign-slot-write', op: 'write', service: site.service, template: site.path, status: slotStatus,
-        seed: slotSeeds, setup: [ownerStep], attack, expect: 'deny',
-        evidence: `${peer.uid} wrote into ${owner.uid}'s slot at ${recordPath(attack)} (client write ${site.source})`, sources: [site.source],
-      });
-      if (parseResourcePattern(site.service, site.path).segments.filter((x) => x.kind === 'var').length > uidVars.length) {
+      if (site.op !== 'addDoc') {
+        let attack = step(site, 'peer', { keyActor: owner, overrides: uidOverrides });
+        if (existing) attack = { ...attack, path: existing.path };
+        add({
+          kind: 'foreign-slot-write', op: 'write', service: site.service, template: site.path, status: slotStatus,
+          seed: slotSeeds, setup: [ownerStep], attack, expect: 'deny',
+          evidence: `${peer.uid} wrote into ${owner.uid}'s slot at ${recordPath(attack)} (client write ${site.source})`, sources: [site.source],
+        });
+      }
+      if (
+        site.op === 'addDoc'
+        || parseResourcePattern(site.service, site.path).segments.filter((x) => x.kind === 'var').length > uidVars.length
+      ) {
         const fresh = step(site, 'peer', { keyActor: owner, variant: '-fresh', overrides: uidOverrides });
         add({
           kind: 'foreign-slot-write', op: 'write', service: site.service, template: site.path, status: slotStatus,

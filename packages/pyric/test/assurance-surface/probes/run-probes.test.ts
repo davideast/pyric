@@ -1,5 +1,9 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
+import { Bytes, GeoPoint, doc, getAdminFirestore, setDoc, vector } from 'pyric/firestore';
+import { initializeSandbox } from 'pyric/sandbox';
+import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
+import { captureSandboxSnapshot } from 'pyric/sandbox/internal';
 import { runProbes } from '../../../src/assurance-surface/probes/run-probes.js';
 import { ownerConditionsFrom } from '../../../src/assurance-surface/rules/analyze-owners.js';
 import { inferOwnerBindings } from '../../../src/assurance-surface/rules/cross-check.js';
@@ -441,6 +445,203 @@ service firebase.storage {
           && f.path === 'assets/{uid}/{assetId}'
           && f.kind === 'must-allow-denied'
           && f.op === 'update',
+      ),
+    ).toBe(true);
+  });
+
+  test('evaluates addDoc foreign-slot-write against allow create on a fresh auto-ID without colliding onto allow update', async () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/items/{id} {
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null;
+      allow read: if request.auth != null;
+    }
+  }
+}`;
+    const sources = makeSources({ firestore: rules });
+    const sites = [
+      ...extractSdkUsage({
+        root: 'app',
+        files: {
+          'src/items.ts': [
+            "import { getAuth } from 'firebase/auth';",
+            "import { addDoc, collection, getFirestore } from 'firebase/firestore';",
+            'export async function addUserItem(title: string) {',
+            '  const uid = getAuth().currentUser!.uid;',
+            "  await addDoc(collection(getFirestore(), 'users', uid, 'items'), { title });",
+            '}',
+          ].join('\n'),
+        },
+      }).operations,
+    ];
+    const conditions = ownerConditionsFrom(sources);
+    const report = await runProbes({
+      accessSites: sites,
+      ownerBindings: inferOwnerBindings(conditions, sites),
+      conditions,
+      sources,
+    });
+    expect(report.findings.filter((f) => f.status === 'proven')).toEqual([]);
+  });
+
+  test('preserves rule-extracted custom claims on ProbeReport.actors and honors emailVerified false and disabled true accounts', async () => {
+    const claimRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.token.role == 'member';
+    }
+  }
+}`;
+    const claimSources = makeSources({ firestore: claimRules });
+    const profileSites = [
+      ...extractSdkUsage({
+        root: 'app',
+        files: {
+          'src/profile.ts': [
+            "import { getAuth } from 'firebase/auth';",
+            "import { doc, getFirestore, setDoc } from 'firebase/firestore';",
+            'export async function saveUser(name: string) {',
+            '  const uid = getAuth().currentUser!.uid;',
+            "  await setDoc(doc(getFirestore(), 'users', uid), { name });",
+            '}',
+          ].join('\n'),
+        },
+      }).operations,
+    ];
+    const claimConditions = ownerConditionsFrom(claimSources);
+    const claimReport = await runProbes({
+      accessSites: profileSites,
+      ownerBindings: inferOwnerBindings(claimConditions, profileSites),
+      conditions: claimConditions,
+      sources: claimSources,
+    });
+    const peerActor = claimReport.actors.find((a) => a.role === 'peer');
+    expect(peerActor?.synthetic).toBe(true);
+    expect(peerActor?.token.role).toBe('member');
+
+    const verifiedRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.token.email_verified == true;
+    }
+  }
+}`;
+    const verifiedSources = makeSources({ firestore: verifiedRules });
+    const verifiedConditions = ownerConditionsFrom(verifiedSources);
+    const unverifiedReport = await runProbes({
+      accessSites: profileSites,
+      ownerBindings: inferOwnerBindings(verifiedConditions, profileSites),
+      conditions: verifiedConditions,
+      sources: verifiedSources,
+      users: [
+        { uid: 'u1', email: 'u1@example.test', emailVerified: false },
+        { uid: 'u2', email: 'u2@example.test', emailVerified: false },
+      ],
+    });
+    expect(unverifiedReport.findings.filter((f) => f.status === 'proven')).toEqual([]);
+
+    const disabledReport = await runProbes({
+      accessSites: profileSites,
+      ownerBindings: inferOwnerBindings(verifiedConditions, profileSites),
+      conditions: verifiedConditions,
+      sources: verifiedSources,
+      users: [
+        { uid: 'u1', email: 'u1@example.test', emailVerified: true },
+        { uid: 'u2', email: 'u2@example.test', emailVerified: true, disabled: true },
+      ],
+    });
+    expect(disabledReport.findings.filter((f) => f.status === 'proven')).toEqual([]);
+  });
+
+  test('synthesizes bounded quantifier contentTypes and marks unresolvable runtime upload contentTypes inconclusive', async () => {
+    const quantifierRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentType.matches('application/x-[a-z]{4}');
+    }
+  }
+}`;
+    const sources: RuleSources = {
+      firestore: [],
+      rtdb: [],
+      storage: [{ source: 'storage.rules', text: quantifierRules }],
+      problems: [],
+    };
+    const blobSites = [
+      ...extractSdkUsage({
+        root: 'app',
+        files: {
+          'src/blob.ts': [
+            "import { getAuth } from 'firebase/auth';",
+            "import { getStorage, ref, uploadBytes } from 'firebase/storage';",
+            'export async function saveBlob(blob: Blob) {',
+            '  const uid = getAuth().currentUser!.uid;',
+            "  await uploadBytes(ref(getStorage(), `users/${uid}/item.bin`), blob);",
+            '}',
+          ].join('\n'),
+        },
+      }).operations,
+    ];
+    const conditions = ownerConditionsFrom(sources);
+    const report = await runProbes({
+      accessSites: blobSites,
+      ownerBindings: inferOwnerBindings(conditions, blobSites),
+      conditions,
+      sources,
+    });
+    expect(report.findings.filter((f) => f.status === 'proven')).toEqual([]);
+  });
+
+  test('decodes GeoPoint, Bytes, VectorValue, DocumentReference, and own __proto__ snapshot markers when synthesizing seed probes', async () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.loc is latlng
+        && request.resource.data.raw is bytes
+        && request.resource.data.embedding == get(/databases/$(database)/documents/items/item-1).data.embedding
+        && request.resource.data.parentRef is reference
+        && request.resource.data.parentRef.path == 'users/u1';
+      allow update, delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+    }
+  }
+}`;
+    const sb = initializeSandbox();
+    setFirestoreRules(sb, rules);
+    const adminDb = getAdminFirestore(sb);
+    const docPayload = JSON.parse('{"__proto__":{"tag":"v"},"ownerUid":"u1"}') as Record<string, unknown>;
+    docPayload.loc = new GeoPoint(37.77, -122.41);
+    docPayload.raw = Bytes.fromUint8Array(new Uint8Array([1, 2, 3]));
+    docPayload.embedding = vector([0.1, 0.2]);
+    docPayload.parentRef = doc(adminDb, 'users/u1');
+    await setDoc(doc(adminDb, 'items/item-1'), docPayload);
+
+    const snapshot = JSON.parse(JSON.stringify(await captureSandboxSnapshot(sb))) as Awaited<
+      ReturnType<typeof captureSandboxSnapshot>
+    >;
+    const sources = makeSources({ firestore: rules });
+    const conditions = ownerConditionsFrom(sources);
+    const report = await runProbes({
+      accessSites: [],
+      ownerBindings: inferOwnerBindings(conditions, []),
+      conditions,
+      sources,
+      state: { snapshot },
+    });
+    expect(
+      report.findings.some(
+        (f) => f.kind === 'owner-forge-create' && f.status === 'proven',
       ),
     ).toBe(true);
   });

@@ -13,6 +13,7 @@ import {
 import type { OwnerCondition } from '../rules/types.js';
 import type { ValueHint } from '../rules/value-hints.js';
 import { concretePath, concretePayload, uidFields } from './fixtures.js';
+import { preserveComplexFieldDefaults, seedComplexFieldDefaults } from './state.js';
 import type { FindingOp, ProbeActor, ProbeStep } from './types.js';
 import type { WorldState } from './world.js';
 
@@ -92,7 +93,9 @@ export function shareUidVariables(sites: AccessSite[]): AccessSite[] {
       if (shared.pattern) next.pattern = shared.pattern;
       return next;
     });
-    return { ...s, pathVariables: vars };
+    const cloned = { ...s, pathVariables: vars };
+    preserveComplexFieldDefaults(s, cloned);
+    return cloned;
   });
 }
 
@@ -127,7 +130,14 @@ export function stepFor(
     state: options.state,
     otherUid: options.otherUid,
   });
-  const data = concretePayload(site.payload, who, sep(site), options.overrides ?? {});
+  const mergedOverrides: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(seedComplexFieldDefaults(site))) {
+    setOwnOverride(mergedOverrides, k, v);
+  }
+  for (const [k, v] of Object.entries(options.overrides ?? {})) {
+    setOwnOverride(mergedOverrides, k, v);
+  }
+  const data = concretePayload(site.payload, who, sep(site), mergedOverrides);
   const base = { actor, service: site.service, path } as const;
   if (isCleanup(site)) {
     const method = site.service === 'firestore' ? 'delete' : 'remove';

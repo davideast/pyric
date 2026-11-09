@@ -51,6 +51,7 @@ import {
   updateDoc,
   type Firestore,
 } from 'pyric/firestore';
+import { Reference as RulesReference } from 'pyric/rules/internal';
 import { isSentinel } from './fixtures.js';
 import type { ProbeActor, ProbeStep, StepResult } from './types.js';
 import {
@@ -87,6 +88,15 @@ function isRulesJson(value: unknown): value is { rules: Record<string, unknown> 
   return Boolean(inner && typeof inner === 'object' && !Array.isArray(inner));
 }
 
+function defineOwnWorldField<T>(target: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 function normalizeLegacyDocuments(
   documents: Record<string, Record<string, unknown>>,
 ): Record<string, EncodedMap> {
@@ -94,7 +104,7 @@ function normalizeLegacyDocuments(
   for (const [rawPath, docData] of Object.entries(documents)) {
     const cleanPath = rawPath.replace(/^\/+|\/+$/g, '');
     if (cleanPath.length === 0) continue;
-    encoded[cleanPath] = encodeSnapshotMap(docData);
+    defineOwnWorldField(encoded, cleanPath, encodeSnapshotMap(docData));
   }
   return encoded;
 }
@@ -151,13 +161,19 @@ function buildWorldSnapshot(rules: WorldRules, state: WorldState): SandboxSnapsh
     storage[DEFAULT_SNAPSHOT_RESOURCE] = state.storage;
   }
 
+  const auth: SandboxSnapshot['auth'] =
+    base?.auth.providers !== undefined
+      ? { users: base.auth.users, providers: base.auth.providers }
+      : { users: base?.auth.users ?? [] };
+
   return {
     version: 1,
     rules: snapshotRules,
-    auth: { users: base?.auth.users ?? [] },
+    auth,
     firestore,
     rtdb,
     storage,
+    ...(base?.storageConfig !== undefined ? { storageConfig: base.storageConfig } : {}),
   };
 }
 
@@ -212,6 +228,7 @@ export class ProbeWorld {
   private readonly sandbox: LocalSandbox;
   private readonly handles = new Map<string, Handles>();
   private readonly actorContexts = new Map<string, SandboxContext>();
+  private readonly disabledRoles = new Set<string>();
   private readonly admin: Handles = {};
   private readonly hasStorage: boolean;
   private readonly initOutcome: Promise<Error | null>;
@@ -245,6 +262,10 @@ export class ProbeWorld {
     }
 
     for (const actor of actors) {
+      const matchedUser = snapshot.auth.users.find((u) => u.uid === actor.uid);
+      if (actor.disabled === true || matchedUser?.disabled === true) {
+        this.disabledRoles.add(actor.role);
+      }
       const ctx = this.sandbox.withAuth(buildActorAuth(actor, snapshot.auth.users));
       this.actorContexts.set(actor.role, ctx);
       const handles: Handles = {};
@@ -284,6 +305,9 @@ export class ProbeWorld {
   async run(step: ProbeStep): Promise<StepResult> {
     try {
       await this.ready();
+      if (step.actor !== 'admin' && this.disabledRoles.has(step.actor)) {
+        return { step, decision: 'error', message: 'auth/user-disabled' };
+      }
       if (step.service === 'rtdb') await this.runRtdb(step);
       else if (step.service === 'storage') await this.runStorage(step);
       else await this.runFirestore(step);
@@ -356,11 +380,17 @@ export class ProbeWorld {
     }
     const db = this.firestoreFor(step);
     const d = doc(db, step.path);
-    const data = toFirestore(step.data) as Record<string, unknown>;
+    const data = toFirestore(step.data, db) as Record<string, unknown>;
     if (step.method === 'delete' || step.method === 'remove') await deleteDoc(d);
     else if (step.method === 'update') await updateDoc(d, data);
     else if (step.method === 'get') await getDoc(d);
-    else if (step.merge) await setDoc(d, data, { merge: true });
+    else if (step.method === 'create') {
+      const cleanPath = step.path.replace(/^\/+|\/+$/g, '');
+      if (Object.hasOwn(getInternalEnv(this.sandbox).snapshot(), cleanPath)) {
+        throw new Error(`Document already exists: ${cleanPath}`);
+      }
+      await setDoc(d, data);
+    } else if (step.merge) await setDoc(d, data, { merge: true });
     else await setDoc(d, data);
   }
 
@@ -370,12 +400,16 @@ export class ProbeWorld {
 }
 
 function mapValues(v: unknown, f: (x: unknown) => unknown): unknown {
-  if (isSentinel(v)) return f(v);
+  if (isSentinel(v) || v instanceof RulesReference) return f(v);
   if (Array.isArray(v)) return v.map((x) => mapValues(x, f));
   if (v !== null && typeof v === 'object') {
     const proto = Object.getPrototypeOf(v);
     if (proto === Object.prototype || proto === null) {
-      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mapValues(x, f)]));
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v)) {
+        defineOwnWorldField(out, k, mapValues(x, f));
+      }
+      return out;
     }
   }
   return v;
@@ -391,8 +425,14 @@ function toRtdb(v: unknown): unknown {
   });
 }
 
-function toFirestore(v: unknown): unknown {
+function toFirestore(v: unknown, db: Firestore): unknown {
   return mapValues(v, (s) => {
+    if (s instanceof RulesReference) {
+      const rawPath = s.path
+        .replace(/^projects\/[^/]+\/databases\/[^/]+\/documents\//, '')
+        .replace(/^\/+|\/+$/g, '');
+      return doc(db, rawPath);
+    }
     if (!isSentinel(s)) return s;
     if (s.__sentinel === 'serverTimestamp') return fsServerTimestamp();
     if (s.__sentinel === 'increment') return fsIncrement(s.by ?? 1);

@@ -71,6 +71,49 @@ function fullMatchRegex(pattern: string): RegExp | undefined {
   }
 }
 
+const SAMPLE_CHARS = [
+  'a',
+  '1',
+  'A',
+  'x',
+  '0',
+  '-',
+  '_',
+  '.',
+  '+',
+  '/',
+];
+
+function sampleCharClass(charClass: string): string {
+  const re = fullMatchRegex(charClass);
+  if (!re) return 'x';
+  for (const ch of SAMPLE_CHARS) {
+    if (re.test(ch)) return ch;
+  }
+  for (let code = 33; code <= 126; code += 1) {
+    const ch = String.fromCharCode(code);
+    if (re.test(ch)) return ch;
+  }
+  return 'x';
+}
+
+function clampRepeatCount(raw: string): number {
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 1;
+  return Math.min(parsed, 64);
+}
+
+/** True when `contentType` matches the Storage `.matches(...)` pattern (or when no pattern is set). */
+export function contentTypeMatchesPattern(
+  contentType: string,
+  pattern: string | undefined,
+): boolean {
+  if (pattern === undefined || pattern.length === 0) return true;
+  const compiled = fullMatchRegex(pattern);
+  if (!compiled) return false;
+  return compiled.test(contentType);
+}
+
 /** Synthesize a concrete MIME `contentType` string satisfying a Storage `.matches(...)` regex. */
 export function synthesizeMatchingContentType(pattern: string | undefined): string {
   if (pattern === undefined || pattern.length === 0) return 'application/octet-stream';
@@ -81,23 +124,37 @@ export function synthesizeMatchingContentType(pattern: string | undefined): stri
   }
   let candidate = pattern.replace(/^\^+/, '').replace(/\$+$/, '');
   for (let i = 0; i < 6; i += 1) {
-    const next = candidate.replace(/\(([^()|]+)(?:\|[^()]*)+\)/g, '$1');
+    const next = candidate.replace(/\((?:\?:)?([^()|]+)(?:\|[^()]*)+\)/g, '($1)');
     if (next === candidate) break;
     candidate = next;
   }
   candidate = candidate
+    .replace(/(\[\^[^\]]+\]|\[[^\]]+\])\{(\d+)(?:,\d*)?\}/g, (_m, cls: string, min: string) =>
+      sampleCharClass(cls).repeat(clampRepeatCount(min)),
+    )
+    .replace(/\\d\{(\d+)(?:,\d*)?\}/g, (_m, min: string) => '1'.repeat(clampRepeatCount(min)))
+    .replace(/\\w\{(\d+)(?:,\d*)?\}/g, (_m, min: string) => 'a'.repeat(clampRepeatCount(min)))
+    .replace(/\\(.)\{(\d+)(?:,\d*)?\}/g, (_m, ch: string, min: string) =>
+      ch.repeat(clampRepeatCount(min)),
+    )
+    .replace(/\((?:\?:)?([^()]+)\)\{(\d+)(?:,\d*)?\}/g, (_m, grp: string, min: string) =>
+      grp.repeat(clampRepeatCount(min)),
+    )
+    .replace(/\.{(\d+)(?:,\d*)?\}/g, (_m, min: string) => 'a'.repeat(clampRepeatCount(min)))
+    .replace(/([^\\[\]()+*?{}])\{(\d+)(?:,\d*)?\}/g, (_m, ch: string, min: string) =>
+      ch.repeat(clampRepeatCount(min)),
+    )
     .replace(/\\\./g, '.')
     .replace(/\\\//g, '/')
     .replace(/\\-/g, '-')
     .replace(/\\\+/g, '+')
     .replace(/\\d[+*]?/g, '1')
-    .replace(/\[0-9\][+*]?/g, '1')
-    .replace(/\\w[+*]?/g, 'x')
-    .replace(/\[\^[^\]]+\][+*]?/g, 'x')
-    .replace(/\[[^\]]+\][+*]?/g, 'x')
-    .replace(/\.\+/g, 'x')
-    .replace(/\.\*/g, 'x')
+    .replace(/\\w[+*]?/g, 'a')
+    .replace(/(\[\^[^\]]+\]|\[[^\]]+\])[+*]?/g, (_m, cls: string) => sampleCharClass(cls))
+    .replace(/\.\+/g, 'a')
+    .replace(/\.\*/g, 'a')
     .replace(/[?+*]/g, '')
+    .replace(/\(\?:/g, '(')
     .replace(/[()]/g, '');
   if (compiled.test(candidate)) return candidate;
   return 'application/octet-stream';

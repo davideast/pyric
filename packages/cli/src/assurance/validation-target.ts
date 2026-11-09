@@ -142,6 +142,12 @@ function assertStorageFixtureObject(object: unknown, at: string): void {
   requiredString(object.path, at, "path");
   assertValidBase64(object.dataBase64, `${at}.dataBase64`);
   optionalStringField(object.contentType, at, "contentType");
+  optionalStringField(object.cacheControl, at, "cacheControl");
+  optionalStringField(object.contentDisposition, at, "contentDisposition");
+  optionalStringField(object.contentEncoding, at, "contentEncoding");
+  optionalStringField(object.contentLanguage, at, "contentLanguage");
+  optionalStringField(object.timeCreated, at, "timeCreated");
+  optionalStringField(object.updated, at, "updated");
   if (object.customMetadata !== undefined) {
     requiredRecord(object.customMetadata, `${at}.customMetadata`);
     const values = Object.values(object.customMetadata);
@@ -248,6 +254,25 @@ export function assertTarget(
       assertStorageFixtureObject(object, `${where}.state.storage[${index}]`);
     }
   }
+  if (target.state.storageConfig !== undefined) {
+    requiredRecord(target.state.storageConfig, `${where}.state.storageConfig`);
+    if (target.state.storageConfig.crossServiceIam !== undefined) {
+      enumValue(
+        target.state.storageConfig.crossServiceIam,
+        ["granted", "denied"],
+        `${where}.state.storageConfig`,
+        "crossServiceIam",
+      );
+    }
+    if (target.state.storageConfig.undeployedBucketPolicy !== undefined) {
+      enumValue(
+        target.state.storageConfig.undeployedBucketPolicy,
+        ["allow", "deny"],
+        `${where}.state.storageConfig`,
+        "undeployedBucketPolicy",
+      );
+    }
+  }
   if (target.state.auth !== undefined) {
     requiredRecord(target.state.auth, `${where}.state.auth`);
     if (!Array.isArray(target.state.auth.users)) {
@@ -257,6 +282,16 @@ export function assertTarget(
     }
     for (const [index, user] of target.state.auth.users.entries()) {
       assertAuthUser(user, `${where}.state.auth.users[${index}]`);
+    }
+    if (target.state.auth.providers !== undefined) {
+      requiredRecord(target.state.auth.providers, `${where}.state.auth.providers`);
+      for (const [providerId, enabled] of Object.entries(target.state.auth.providers)) {
+        optionalBooleanField(
+          enabled,
+          `${where}.state.auth.providers`,
+          providerId,
+        );
+      }
     }
   }
 }

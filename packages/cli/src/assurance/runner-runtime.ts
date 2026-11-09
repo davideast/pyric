@@ -10,6 +10,7 @@ import {
 import { getFirestore, type Firestore } from "pyric/firestore";
 import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import {
+  getClock,
   initializeSandbox,
   type AuthState,
   type LocalSandbox,
@@ -34,7 +35,13 @@ import {
 import {
   arrayBufferToBase64,
   deployStorageBucketRules,
+  generationIssuer,
   getAdminStorageSandbox,
+  getStorageService,
+  lockUndeployedStorageBuckets,
+  replaceCrossServiceIam,
+  targetOf,
+  type StoredMetadata,
 } from "pyric/storage/internal";
 import type {
   ActorEvidence,
@@ -64,6 +71,13 @@ export interface ServiceRuntime {
 let storageRunSequence = 0;
 
 export function stableStringify(value: unknown): string {
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return '"__pyric_num__:NaN"';
+    if (value === Number.POSITIVE_INFINITY) return '"__pyric_num__:Infinity"';
+    if (value === Number.NEGATIVE_INFINITY) return '"__pyric_num__:-Infinity"';
+    if (Object.is(value, -0)) return '"__pyric_num__:-0"';
+    return JSON.stringify(value);
+  }
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const record = value as Record<string, unknown>;
@@ -96,7 +110,12 @@ export function normalizeFirestoreDocuments(
   for (const [path, data] of Object.entries(docs)) {
     const cleanPath = normalizeFirestorePath(path);
     if (!cleanPath) continue;
-    normalized[cleanPath] = decodeSnapshotMapForEnv(data);
+    Object.defineProperty(normalized, cleanPath, {
+      value: decodeSnapshotMapForEnv(data),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return normalized;
 }
@@ -127,6 +146,12 @@ export function seedAuth(
   target: LocalFirebaseTarget,
 ): ReturnType<typeof getAuth> {
   const auth = getAuth(sandbox);
+  if (target.state.auth?.providers !== undefined) {
+    authSandbox.restoreProviderConfig(auth, {
+      ...authSandbox.exportProviderConfig(auth),
+      ...target.state.auth.providers,
+    });
+  }
   authSandbox.seedUsers(auth, authUsers(target));
   return auth;
 }
@@ -340,11 +365,85 @@ export async function createRuntime(
   )) {
     deployStorageBucketRules(sandbox, bucketName, bucketRules);
   }
+  if (target.state.storageConfig?.crossServiceIam !== undefined) {
+    await replaceCrossServiceIam(sandbox, target.state.storageConfig.crossServiceIam);
+  }
+  if (target.state.storageConfig?.undeployedBucketPolicy === "deny") {
+    lockUndeployedStorageBuckets(sandbox);
+  }
   const seedBucketObjects = async (
     bucketHandle: FirebaseStorage,
     objects: NonNullable<LocalFirebaseTarget["state"]["storage"]>,
   ): Promise<void> => {
     for (const object of objects) {
+      const objectRef = storageRef(bucketHandle, object.path);
+      const bytes = decodeBase64(object.dataBase64);
+      const hasRichMetadata =
+        object.cacheControl !== undefined ||
+        object.contentDisposition !== undefined ||
+        object.contentEncoding !== undefined ||
+        object.contentLanguage !== undefined ||
+        object.timeCreated !== undefined ||
+        object.updated !== undefined;
+      if (hasRichMetadata) {
+        const blob = new Blob([bytes as BlobPart], {
+          type: object.contentType ?? "",
+        });
+        const storageTarget = targetOf(bucketHandle);
+        const fallbackDate = getClock(storageTarget.sandbox).date();
+        const timeCreated = object.timeCreated ?? fallbackDate.toISOString();
+        const updated = object.updated ?? timeCreated;
+        const parsedMs = Date.parse(updated);
+        const generationMs = Number.isFinite(parsedMs)
+          ? parsedMs
+          : fallbackDate.getTime();
+        const stored: StoredMetadata = {
+          fullPath: objectRef.fullPath,
+          name: objectRef.name,
+          bucket: objectRef.bucket,
+          generation: "1",
+          metageneration: "1",
+          timeCreated,
+          updated,
+          size: blob.size,
+          contentType:
+            object.contentType && object.contentType.length > 0
+              ? object.contentType
+              : "application/octet-stream",
+        };
+        if (object.cacheControl !== undefined) {
+          stored.cacheControl = object.cacheControl;
+        }
+        if (object.contentDisposition !== undefined) {
+          stored.contentDisposition = object.contentDisposition;
+        }
+        if (object.contentEncoding !== undefined) {
+          stored.contentEncoding = object.contentEncoding;
+        }
+        if (object.contentLanguage !== undefined) {
+          stored.contentLanguage = object.contentLanguage;
+        }
+        if (object.customMetadata !== undefined) {
+          const customCopy: Record<string, string> = {};
+          for (const [k, v] of Object.entries(object.customMetadata)) {
+            Object.defineProperty(customCopy, k, {
+              value: v,
+              enumerable: true,
+              writable: true,
+              configurable: true,
+            });
+          }
+          stored.customMetadata = customCopy;
+        }
+        const serviceInstance = await getStorageService(bucketHandle);
+        await serviceInstance.backend.put(
+          objectRef.fullPath,
+          blob,
+          stored,
+          generationIssuer(generationMs),
+        );
+        continue;
+      }
       const metadata: {
         contentType?: string;
         customMetadata?: Record<string, string>;
@@ -353,13 +452,18 @@ export async function createRuntime(
         metadata.contentType = object.contentType;
       }
       if (object.customMetadata) {
-        metadata.customMetadata = { ...object.customMetadata };
+        const customCopy: Record<string, string> = {};
+        for (const [k, v] of Object.entries(object.customMetadata)) {
+          Object.defineProperty(customCopy, k, {
+            value: v,
+            enumerable: true,
+            writable: true,
+            configurable: true,
+          });
+        }
+        metadata.customMetadata = customCopy;
       }
-      await uploadBytes(
-        storageRef(bucketHandle, object.path),
-        decodeBase64(object.dataBase64),
-        metadata,
-      );
+      await uploadBytes(objectRef, bytes, metadata);
     }
   };
   await seedBucketObjects(admin, target.state.storage ?? []);
@@ -430,7 +534,7 @@ export async function readState(
       const url = resolveDatabaseInstance(operation.instance)!.url;
       admin = getAdminDatabase(runtime.sandbox, url);
     }
-    return (await getRtdb(rtdbRef(admin, operation.path))).val();
+    return (await getRtdb(rtdbRef(admin, operation.path))).exportVal();
   }
   if (
     operation.instance &&

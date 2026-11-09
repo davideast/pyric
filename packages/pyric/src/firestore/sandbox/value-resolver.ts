@@ -229,6 +229,15 @@ export function assertServerWriteLimits(
   }
 }
 
+function defineOwnField(target: DocumentData, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 /**
  * Resolve a full document tree. Walks each top-level field with the
  * resolver, returning a new object — never mutates input.
@@ -243,7 +252,7 @@ export function resolveValueTree(
   const isUpdate = ctx.method === 'update';
   for (const [key, value] of Object.entries(data)) {
     const fieldSegments = isUpdate ? fieldPathKeySegments(key) : [key];
-    out[key] = resolveValue(value, { ...ctx, fieldPath: key, fieldSegments });
+    defineOwnField(out, key, resolveValue(value, { ...ctx, fieldPath: key, fieldSegments }));
   }
   return out;
 }
@@ -269,7 +278,7 @@ export function resolveValue(value: unknown, ctx: ResolveContext): unknown {
     const inner: DocumentData = {};
     for (const [k, v] of Object.entries(value)) {
       const childPath = ctx.fieldPath ? `${ctx.fieldPath}.${k}` : k;
-      inner[k] = resolveValue(v, { ...ctx, fieldPath: childPath, fieldSegments: [...ctx.fieldSegments, k] });
+      defineOwnField(inner, k, resolveValue(v, { ...ctx, fieldPath: childPath, fieldSegments: [...ctx.fieldSegments, k] }));
     }
     return inner;
   }
@@ -312,7 +321,7 @@ export function partitionDeletes(
       deletedKeys.push(key);
       continue;
     }
-    writes[key] = stripMarkers(value);
+    defineOwnField(writes, key, stripMarkers(value));
   }
   return { writes, deletedKeys };
 }
@@ -326,7 +335,7 @@ export function stripMarkers(value: unknown): unknown {
     const out: DocumentData = {};
     for (const [k, v] of Object.entries(value)) {
       if (v === DELETE_MARKER) continue;
-      out[k] = stripMarkers(v);
+      defineOwnField(out, k, stripMarkers(v));
     }
     return out;
   }

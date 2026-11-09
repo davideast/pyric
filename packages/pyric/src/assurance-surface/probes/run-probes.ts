@@ -35,34 +35,86 @@ export interface ProbeUser {
   displayName?: string;
   customClaims?: Record<string, unknown>;
   emailVerified?: boolean;
+  disabled?: boolean;
+}
+
+function selectTwoUsers(users: ProbeUser[]): {
+  first: { user: ProbeUser; synthetic: boolean };
+  second: { user: ProbeUser; synthetic: boolean };
+} {
+  const enabled = users.filter((u) => u.disabled !== true);
+  const disabled = users.filter((u) => u.disabled === true);
+  if (enabled.length >= 2) {
+    return {
+      first: { user: enabled[0]!, synthetic: false },
+      second: { user: enabled[1]!, synthetic: false },
+    };
+  }
+  if (users.length >= 2 && enabled.length === 1) {
+    return {
+      first: { user: enabled[0]!, synthetic: false },
+      second: { user: disabled[0]!, synthetic: false },
+    };
+  }
+  if (users.length === 1 && enabled.length === 1) {
+    const firstUser = enabled[0]!;
+    const peerUid = firstUser.uid === 'probe-peer' ? 'probe-peer-2' : 'probe-peer';
+    return {
+      first: { user: firstUser, synthetic: false },
+      second: { user: { uid: peerUid, displayName: 'Probe Peer' }, synthetic: true },
+    };
+  }
+  if (users.length >= 2) {
+    return {
+      first: { user: users[0]!, synthetic: false },
+      second: { user: users[1]!, synthetic: false },
+    };
+  }
+  if (users.length === 1 && users[0]!.disabled === true) {
+    return {
+      first: { user: users[0]!, synthetic: false },
+      second: { user: { uid: 'probe-peer', displayName: 'Probe Peer', disabled: true }, synthetic: true },
+    };
+  }
+  return {
+    first: { user: { uid: 'probe-owner', displayName: 'Probe Owner' }, synthetic: true },
+    second: { user: { uid: 'probe-peer', displayName: 'Probe Peer' }, synthetic: true },
+  };
 }
 
 /**
  * Two signed-in actors carrying required token claims. With known users from a
- * seed, the first two are chosen with the names their records already show;
- * otherwise two synthetic probe identities are used.
+ * seed, the first two enabled accounts are chosen with the names their records
+ * already show; otherwise two synthetic probe identities are used.
  */
 export function probeActors(
   claims: Record<string, unknown>,
   users: ProbeUser[] = [],
   names: Map<string, string> = new Map(),
 ): { owner: ProbeActor; peer: ProbeActor } {
-  const make = (role: 'owner' | 'peer', user: ProbeUser): ProbeActor => {
+  const make = (
+    role: 'owner' | 'peer',
+    user: ProbeUser,
+    synthetic: boolean,
+  ): ProbeActor => {
     const email = user.email ?? `${user.uid}@example.test`;
     const displayName = user.displayName ?? names.get(user.uid) ?? user.uid;
     const emailVerified = user.emailVerified ?? true;
-    const token: Record<string, unknown> = { email_verified: emailVerified, ...claims };
+    const token: Record<string, unknown> = { ...claims, email_verified: emailVerified };
+    if (synthetic && typeof claims.email_verified === 'boolean' && user.emailVerified === undefined) {
+      token.email_verified = claims.email_verified;
+    }
     if (user.customClaims) Object.assign(token, user.customClaims);
-    return { role, uid: user.uid, email, displayName, token };
+    const actor: ProbeActor = { role, uid: user.uid, email, displayName, token, synthetic };
+    if (user.disabled === true) actor.disabled = true;
+    return actor;
   };
 
-  let firstUser: ProbeUser = { uid: 'probe-owner', displayName: 'Probe Owner' };
-  let secondUser: ProbeUser = { uid: 'probe-peer', displayName: 'Probe Peer' };
-  if (users.length >= 2) {
-    firstUser = users[0];
-    secondUser = users[1];
-  }
-  return { owner: make('owner', firstUser), peer: make('peer', secondUser) };
+  const chosen = selectTwoUsers(users);
+  return {
+    owner: make('owner', chosen.first.user, chosen.first.synthetic),
+    peer: make('peer', chosen.second.user, chosen.second.synthetic),
+  };
 }
 
 export interface RunProbesInput {
@@ -142,19 +194,24 @@ function initialFirestoreDocPaths(state: WorldState | undefined): Set<string> {
 }
 
 function seedUsersFromInput(input: RunProbesInput): ProbeUser[] {
-  if (input.users && input.users.length > 0) return input.users;
   const snapshotUsers = input.state?.snapshot?.auth.users;
-  if (!snapshotUsers) return [];
-  return snapshotUsers.map((user): ProbeUser => {
-    const entry: ProbeUser = { uid: user.uid };
-    if (user.email !== undefined) entry.email = user.email;
-    if (user.displayName !== undefined) entry.displayName = user.displayName;
-    if (user.emailVerified !== undefined) entry.emailVerified = user.emailVerified;
-    if (user.customClaims !== undefined) {
-      entry.customClaims = { ...user.customClaims };
+  if (snapshotUsers && snapshotUsers.length > 0) {
+    const mappedSnapshotUsers = snapshotUsers.map((user): ProbeUser => {
+      const entry: ProbeUser = { uid: user.uid, emailVerified: user.emailVerified === true };
+      if (user.email !== undefined) entry.email = user.email;
+      if (user.displayName !== undefined) entry.displayName = user.displayName;
+      if (user.disabled !== undefined) entry.disabled = user.disabled;
+      if (user.customClaims !== undefined) {
+        entry.customClaims = { ...user.customClaims };
+      }
+      return entry;
+    });
+    if (!input.users || input.users.length === 0 || snapshotUsers.some((u) => u.disabled === true)) {
+      return mappedSnapshotUsers;
     }
-    return entry;
-  });
+  }
+  if (input.users && input.users.length > 0) return input.users;
+  return [];
 }
 
 function buildProbeStorageRules(
@@ -185,14 +242,27 @@ function buildProbeStorageRules(
   return undefined;
 }
 
-function actorsForProbe(
+function mergeActorClaims(
+  baseActor: ProbeActor,
+  extractedClaims: Readonly<Record<string, unknown>>,
+  seededUser: ProbeUser | undefined,
+): ProbeActor {
+  const token: Record<string, unknown> = {
+    ...baseActor.token,
+    ...extractedClaims,
+    ...(seededUser?.customClaims ?? {}),
+  };
+  if (!baseActor.synthetic && typeof seededUser?.emailVerified === 'boolean') {
+    token.email_verified = seededUser.emailVerified;
+  }
+  return { ...baseActor, token };
+}
+
+function extractProbeClaims(
   probe: Probe,
-  baseOwner: ProbeActor,
-  basePeer: ProbeActor,
-  users: ProbeUser[],
   sources: RuleSources,
   state: WorldState | undefined,
-): ProbeActor[] {
+): { ownerClaims: Record<string, unknown>; peerClaims: Record<string, unknown> } {
   const existingFirestoreDocs = initialFirestoreDocPaths(state);
   for (const seedStep of probe.seed) {
     if (seedStep.service !== 'firestore') continue;
@@ -217,29 +287,22 @@ function actorsForProbe(
       else if (stepOp !== 'get') existingFirestoreDocs.add(step.path);
     }
   }
-
-  const ownerCustom = users[0]?.customClaims ?? {};
-  const peerCustom = users[1]?.customClaims ?? {};
-  return [
-    { ...baseOwner, token: { ...baseOwner.token, ...ownerClaims, ...ownerCustom } },
-    { ...basePeer, token: { ...basePeer.token, ...peerClaims, ...peerCustom } },
-  ];
+  return { ownerClaims, peerClaims };
 }
 
 /** Plan and run every probe; findings come only from reproduced hits. */
 export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   const allUsers = byPresence(seedUsersFromInput(input), input.state);
-  let selectedUsers = allUsers;
-  if (allUsers.length >= 2) {
-    selectedUsers = [allUsers[0]!, allUsers[1]!];
-  }
+  const chosenUsers = selectTwoUsers(allUsers);
+  const selectedUsers: ProbeUser[] = [];
+  if (!chosenUsers.first.synthetic) selectedUsers.push(chosenUsers.first.user);
+  if (!chosenUsers.second.synthetic) selectedUsers.push(chosenUsers.second.user);
   const names = namesFromState(
     input.accessSites,
     input.state,
     selectedUsers.map((user) => user.uid),
   );
-  const { owner, peer } = probeActors({}, selectedUsers, names);
-  const actors = [owner, peer];
+  const { owner, peer } = probeActors({}, allUsers, names);
   const storageSources = input.sources.storage ?? [];
   const defaultFirestoreSources = input.sources.firestore.filter(
     (source) => source.database === undefined || source.database === '(default)',
@@ -268,7 +331,7 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
     rtdb: defaultRtdbSources,
     storage: storageSources,
   });
-  const knownUids = allUsers.map((user) => user.uid);
+  const knownUids = allUsers.filter((user) => user.disabled !== true).map((user) => user.uid);
 
   let sites = input.accessSites.filter(
     (site) =>
@@ -298,12 +361,73 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
     surface,
   });
 
+  const seededOwner = chosenUsers.first.synthetic ? undefined : chosenUsers.first.user;
+  const seededPeer = chosenUsers.second.synthetic ? undefined : chosenUsers.second.user;
+  const storageCrossServiceDenied =
+    input.state?.snapshot?.storageConfig?.crossServiceIam === 'denied' &&
+    (
+      storageSources.some((source) => /\bfirestore\s*\.\s*(?:get|exists)\s*\(/.test(source.text)) ||
+      Object.values(input.state?.snapshot?.rules.storage ?? {}).some((text) =>
+        /\bfirestore\s*\.\s*(?:get|exists)\s*\(/.test(text),
+      )
+    );
+
   const results: ProbeResult[] = [];
+  const claimsByProbe = new Map<
+    Probe,
+    { ownerClaims: Record<string, unknown>; peerClaims: Record<string, unknown> }
+  >();
   for (const probe of probes) {
-    const scopedActors = actorsForProbe(probe, owner, peer, selectedUsers, scopedSources, input.state);
-    const result = await runProbe(probe, rules, scopedActors, input.state ?? {});
+    const extracted = extractProbeClaims(probe, scopedSources, input.state);
+    let effectiveProbe = probe;
+    if (
+      probe.kind === 'must-allow-denied' &&
+      probe.inconclusiveOnDeny === undefined &&
+      !owner.synthetic &&
+      seededOwner?.emailVerified === false &&
+      extracted.ownerClaims.email_verified === true
+    ) {
+      effectiveProbe = {
+        ...probe,
+        inconclusiveOnDeny: 'seeded owner account has emailVerified: false while rule requires verified email',
+      };
+    } else if (
+      probe.kind === 'must-allow-denied' &&
+      probe.service === 'storage' &&
+      probe.inconclusiveOnDeny === undefined &&
+      storageCrossServiceDenied
+    ) {
+      effectiveProbe = {
+        ...probe,
+        inconclusiveOnDeny: "sandbox Storage crossServiceIam is configured as 'denied'",
+      };
+    }
+    claimsByProbe.set(effectiveProbe, extracted);
+    const scopedActors = [
+      mergeActorClaims(owner, extracted.ownerClaims, seededOwner),
+      mergeActorClaims(peer, extracted.peerClaims, seededPeer),
+    ];
+    const result = await runProbe(effectiveProbe, rules, scopedActors, input.state ?? {});
     if (result) results.push(result);
   }
+
+  const hitResults = results.filter((result) => result.outcome === 'hit');
+  const claimSourceResults =
+    hitResults.length > 0
+      ? hitResults
+      : results.filter((result) => result.outcome === 'clean');
+  const reportOwnerClaims: Record<string, unknown> = {};
+  const reportPeerClaims: Record<string, unknown> = {};
+  for (const result of claimSourceResults) {
+    const extracted = claimsByProbe.get(result.probe);
+    if (!extracted) continue;
+    Object.assign(reportOwnerClaims, extracted.ownerClaims);
+    Object.assign(reportPeerClaims, extracted.peerClaims);
+  }
+  const actors: ProbeActor[] = [
+    mergeActorClaims(owner, reportOwnerClaims, seededOwner),
+    mergeActorClaims(peer, reportPeerClaims, seededPeer),
+  ];
 
   const findings: Finding[] = [];
   const seen = new Set<string>();

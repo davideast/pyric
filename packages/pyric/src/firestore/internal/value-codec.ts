@@ -285,6 +285,13 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean, construct
   }
 
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) out[k] = rehydrateValue(v, false, constructors, allowsEscapedMaps);
+  for (const [k, v] of Object.entries(obj)) {
+    Object.defineProperty(out, k, {
+      value: rehydrateValue(v, false, constructors, allowsEscapedMaps),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
   return withActivityIdentity(out);
 }

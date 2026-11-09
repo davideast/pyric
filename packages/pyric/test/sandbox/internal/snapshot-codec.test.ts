@@ -1,6 +1,11 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { getAuth, sandbox as authSandbox, signInAnonymously } from 'pyric/auth';
+import {
+  getAuth,
+  sandbox as authSandbox,
+  signInAnonymously,
+  signInWithEmailAndPassword,
+} from 'pyric/auth';
 import {
   get as getRtdb,
   getAdminDatabase,
@@ -21,7 +26,7 @@ import {
   setDoc,
 } from 'pyric/firestore';
 import { Reference as RulesReference } from 'pyric/rules/internal';
-import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
 import {
   InlineStorageLimitError,
@@ -45,6 +50,7 @@ import {
   deployStorageBucketRules,
   getAdminStorageSandbox,
   getStorageRulesResolution,
+  lockUndeployedStorageBuckets,
 } from 'pyric/storage/internal';
 
 let nextDbCounter = 1;
@@ -563,5 +569,110 @@ describe('Slice 4.2: forkSandbox bidirectional isolation', () => {
     await expect(
       getStorageBytes(storageRef(forkStorage, 'files/u1/source-only.txt')),
     ).rejects.toThrow();
+  });
+
+  it('preserves Storage crossServiceIam, undeployed bucket policy, rich object metadata, Auth provider config, explicit emailVerified false, and own __proto__ keys', async () => {
+    const source = initializeSandbox();
+    getClock(source).set(1_700_000_000_000);
+    setFirestoreRules(
+      source,
+      "rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /users/{uid} { allow read: if true; } } }",
+    );
+    const sourceAdminDb = getAdminFirestore(source);
+    await setDoc(
+      doc(sourceAdminDb, 'users/u1'),
+      JSON.parse('{"__proto__":{"role":"admin"},"name":"u1"}') as Record<string, unknown>,
+    );
+
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{name} {
+      allow write: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+    match /items/{id} {
+      allow read: if resource.cacheControl == 'public, max-age=3600'
+        && resource.contentDisposition == 'inline'
+        && resource.contentEncoding == 'identity'
+        && resource.contentLanguage == 'en';
+    }
+  }
+}`;
+    getStorageSandbox(source.withAuth({ uid: 'u1' }), {
+      dbName: uniqueStorageDbName(),
+      rules: storageRules,
+      crossServiceIam: 'denied',
+    });
+    const adminSt = getAdminStorageSandbox(source);
+    await uploadBytes(storageRef(adminSt, 'items/item-1'), new Uint8Array([65, 66]), {
+      contentType: 'text/plain',
+      cacheControl: 'public, max-age=3600',
+      contentDisposition: 'inline',
+      contentEncoding: 'identity',
+      contentLanguage: 'en',
+    });
+    lockUndeployedStorageBuckets(source);
+    getClock(source).set(1_700_000_500_000);
+
+    const sourceAuth = getAuth(source);
+    authSandbox.seedUsers(sourceAuth, [
+      { uid: 'u1', email: 'u1@example.test', password: 'pw1', emailVerified: false },
+    ]);
+    authSandbox.setAuthProviderConfig(sourceAuth, 'password', false);
+
+    const captured = await captureSandboxSnapshot(source);
+    expect(captured.auth.users.find((u) => u.uid === 'u1')?.emailVerified).toBe(false);
+    expect(captured.auth.providers?.password).toBe(false);
+    expect(captured.storageConfig).toEqual({
+      crossServiceIam: 'denied',
+      undeployedBucketPolicy: 'deny',
+    });
+    const encodedDoc = captured.firestore['(default)']?.['users/u1'] ?? {};
+    expect(
+      Object.hasOwn(encodedDoc, '__proto__') ||
+        Object.hasOwn((encodedDoc.fields as Record<string, unknown>) ?? {}, '__proto__'),
+    ).toBe(true);
+
+    const serialized = JSON.parse(JSON.stringify(captured)) as typeof captured;
+    const target = initializeSandbox();
+    getAdminStorageSandbox(target, { dbName: uniqueStorageDbName() });
+    await restoreSandboxSnapshot(target, serialized);
+
+    // Rich Storage metadata & timestamps survive restore
+    const clientSt = getStorageSandbox(target.withAuth({ uid: 'u1' }));
+    const readBytes = new Uint8Array(await getStorageBytes(storageRef(clientSt, 'items/item-1')));
+    expect(Array.from(readBytes)).toEqual([65, 66]);
+    const meta = await getStorageMetadata(storageRef(getAdminStorageSandbox(target), 'items/item-1'));
+    expect(meta.cacheControl).toBe('public, max-age=3600');
+    expect(meta.contentDisposition).toBe('inline');
+    expect(meta.contentEncoding).toBe('identity');
+    expect(meta.contentLanguage).toBe('en');
+    expect(meta.timeCreated).toBe(new Date(1_700_000_000_000).toISOString());
+
+    // crossServiceIam: denied and undeployed bucket lock survive restore
+    await expect(
+      uploadBytes(storageRef(clientSt, 'users/u1/doc.txt'), new Uint8Array([1])),
+    ).rejects.toThrow();
+    const undeployedSt = getStorageSandbox(target.withAuth({ uid: 'u1' }), {
+      bucket: 'undeployed.example.test',
+    });
+    await expect(
+      uploadBytes(storageRef(undeployedSt, 'items/x'), new Uint8Array([1])),
+    ).rejects.toThrow();
+
+    // Disabled password provider survives restore
+    await expect(
+      signInWithEmailAndPassword(getAuth(target), 'u1@example.test', 'pw1'),
+    ).rejects.toThrow();
+
+    // Own __proto__ field survives restore without prototype mutation
+    const restoredSnap = await getDoc(doc(getAdminFirestore(target), 'users/u1'));
+    const restoredData = restoredSnap.data()!;
+    expect(Object.getPrototypeOf(restoredData)).toBe(Object.prototype);
+    expect(Object.hasOwn(restoredData, '__proto__')).toBe(true);
+    expect(
+      Object.getOwnPropertyDescriptor(restoredData, '__proto__')?.value,
+    ).toEqual({ role: 'admin' });
   });
 });

@@ -354,7 +354,12 @@ export function finalizeSandboxValue(value: unknown, references?: ReferenceDecod
     if (isPlainMap) {
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        out[k] = finalizeSandboxValue(v, references);
+        Object.defineProperty(out, k, {
+          value: finalizeSandboxValue(v, references),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
       return out;
     }

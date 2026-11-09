@@ -64,6 +64,19 @@ function ownField(record: Readonly<Record<string, unknown>>, key: string): unkno
   return record[key];
 }
 
+function defineOwnProperty(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 function normalizeRelativeRefPath(rawPath: string): string {
   const marker = '/documents/';
   const index = rawPath.indexOf(marker);
@@ -293,7 +306,7 @@ export function encodeSnapshotValue(value: unknown): unknown {
   const fields: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     if (entry === undefined) continue;
-    fields[key] = encodeSnapshotValue(entry);
+    defineOwnProperty(fields, key, encodeSnapshotValue(entry));
   }
   const hasMarkerKey =
     Object.hasOwn(fields, 'type') ||
@@ -310,7 +323,7 @@ export function encodeSnapshotMap(map: Readonly<Record<string, unknown>>): Encod
   const encoded: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(map)) {
     if (value === undefined) continue;
-    encoded[key] = encodeSnapshotValue(value);
+    defineOwnProperty(encoded, key, encodeSnapshotValue(value));
   }
   const innerFields = ownField(encoded, 'fields');
   if (
@@ -358,13 +371,13 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
     if (inner !== null && typeof inner === 'object' && !Array.isArray(inner)) {
       const nextInner: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(inner as Record<string, unknown>)) {
-        nextInner[k] = guardMalformedHandAuthoredMarkers(v, mode);
+        defineOwnProperty(nextInner, k, guardMalformedHandAuthoredMarkers(v, mode));
       }
       return { type: 'pyric/map/1.0', fields: nextInner };
     }
     const copy: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(record)) {
-      copy[k] = guardMalformedHandAuthoredMarkers(v, mode);
+      defineOwnProperty(copy, k, guardMalformedHandAuthoredMarkers(v, mode));
     }
     return { type: 'pyric/map/1.0', fields: copy };
   }
@@ -445,9 +458,9 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
 
   const next: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(record)) {
-    next[key] = guardMalformedHandAuthoredMarkers(item, mode);
+    defineOwnProperty(next, key, guardMalformedHandAuthoredMarkers(item, mode));
   }
-  if (claimsKnownMarkerWithoutShape) {
+  if (claimsKnownMarkerWithoutShape || Object.hasOwn(next, '__proto__')) {
     return { type: 'pyric/map/1.0', fields: next };
   }
   return next;
@@ -478,7 +491,7 @@ export function decodeSnapshotMap(
     const wrapped = decodeDocValue({ value: guarded }, references, DOC_VALUE_ENCODING) as {
       value: unknown;
     };
-    decoded[key] = wrapped.value;
+    defineOwnProperty(decoded, key, wrapped.value);
   }
   return requireDocumentData(decoded);
 }
@@ -492,7 +505,7 @@ export function decodeSnapshotMapForEnv(encoded: EncodedMap): Record<string, unk
     const wrapped = rehydrateEncodedDocValue({ value: guarded }, DOC_VALUE_ENCODING) as {
       value: unknown;
     };
-    decoded[key] = wrapped.value;
+    defineOwnProperty(decoded, key, wrapped.value);
   }
   return requireDocumentData(decoded);
 }

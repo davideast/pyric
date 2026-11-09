@@ -228,28 +228,56 @@ function depth(name: string, sep: string): number {
   return name.split(sep).length;
 }
 
+function defineOwnField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function isPlainObjectValue(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || isSentinel(value)) {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 function setPath(obj: Record<string, unknown>, keys: string[], value: unknown): void {
   let cur = obj;
   keys.forEach((k, i) => {
+    const existing = Object.hasOwn(cur, k) ? cur[k] : undefined;
     if (i === keys.length - 1) {
-      // A nested field overrides a synthesized empty parent, not a real value.
-      const existing = cur[k];
-      if (existing && typeof existing === 'object' && !isSentinel(existing) && value && typeof value === 'object') return;
-      cur[k] = value;
+      // A nested field overrides a synthesized empty parent, not a populated plain parent.
+      if (
+        isPlainObjectValue(existing)
+        && Object.keys(existing).length > 0
+        && isPlainObjectValue(value)
+      ) {
+        return;
+      }
+      defineOwnField(cur, k, value);
       return;
     }
-    const next = cur[k];
-    if (!next || typeof next !== 'object' || isSentinel(next) || Array.isArray(next)) cur[k] = {};
+    if (!isPlainObjectValue(existing)) {
+      defineOwnField(cur, k, {});
+    }
     cur = cur[k] as Record<string, unknown>;
   });
 }
 
 /** Empty objects can't be written to RTDB (they are deletes); give them one field. */
 function pruneEmpty(v: unknown): unknown {
-  if (!v || typeof v !== 'object' || Array.isArray(v) || isSentinel(v)) return v;
-  const entries = Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, pruneEmpty(x)] as const);
-  if (entries.length === 0) return { v: 's-v' };
-  return Object.fromEntries(entries);
+  if (!isPlainObjectValue(v)) return v;
+  const keys = Object.keys(v);
+  if (keys.length === 0) return { v: 's-v' };
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    defineOwnField(out, k, pruneEmpty(v[k]));
+  }
+  return out;
 }
 
 export function isSentinel(v: unknown): v is Sentinel {
