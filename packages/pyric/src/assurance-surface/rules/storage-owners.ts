@@ -14,7 +14,10 @@ import {
   type FunctionDef,
   type MatchBlock,
 } from '../../rules/internal/index.js';
-import { extractServiceHeader } from '../../sandbox/internal/resource-pattern-header.js';
+import {
+  extractServiceHeader,
+  normalizeExplicitResourceId,
+} from '../../sandbox/internal/resource-pattern-header.js';
 import {
   parseResourcePattern,
   renderResourcePattern,
@@ -22,6 +25,7 @@ import {
 } from '../../sandbox/internal/resource-pattern.js';
 import type { CrossServiceLookup, RuleSurfaceEntry, StorageMetadataConstraint } from './rule-surface.js';
 import {
+  classifyTernaryBranches,
   expandRuleOps,
   formatMatchSegment,
   inlineRuleCall,
@@ -59,7 +63,7 @@ function isStorageServiceName(name: string): boolean {
   return name === 'firebase.storage' || name === 'cloud.storage' || /storage/.test(name);
 }
 
-export function renderScopedStoragePath(pattern: ResourcePattern): string {
+function renderScopedStoragePath(pattern: ResourcePattern): string {
   const body = renderResourcePattern(pattern);
   if (pattern.resourceId === '(default)') return body;
   if (body.length === 0) return `/b/${pattern.resourceId}/o`;
@@ -249,20 +253,18 @@ function visitStorageOwnerExpr(
   }
 
   if (e.type === 'ternary') {
-    if (!ctx.negated && scalarLiteral(e.alternate, s) === false) {
-      visitStorageOwnerExpr(e.condition, s, ctx);
-      visitStorageOwnerExpr(e.consequent, s, ctx);
-      return;
-    }
-    if (!ctx.negated && scalarLiteral(e.consequent, s) === false) {
-      visitStorageOwnerExpr(e.condition, s, { ...ctx, negated: true });
-      visitStorageOwnerExpr(e.alternate, s, ctx);
-      return;
-    }
-    const branchCtx: StorageOwnerCtx = { ...ctx, required: false };
-    visitStorageOwnerExpr(e.condition, s, branchCtx);
-    visitStorageOwnerExpr(e.consequent, s, branchCtx);
-    visitStorageOwnerExpr(e.alternate, s, branchCtx);
+    const rawCons = scalarLiteral(e.consequent, s);
+    const rawAlt = scalarLiteral(e.alternate, s);
+    const plan = classifyTernaryBranches(
+      typeof rawCons === 'boolean' ? rawCons : undefined,
+      typeof rawAlt === 'boolean' ? rawAlt : undefined,
+      ctx.negated,
+    );
+    if (plan.conditionNegated === undefined) return;
+    const required = plan.singleRoute ? ctx.required : false;
+    visitStorageOwnerExpr(e.condition, s, { ...ctx, required, negated: plan.conditionNegated });
+    if (plan.visitConsequent) visitStorageOwnerExpr(e.consequent, s, { ...ctx, required });
+    if (plan.visitAlternate) visitStorageOwnerExpr(e.alternate, s, { ...ctx, required });
     return;
   }
 
@@ -277,9 +279,13 @@ function visitStorageOwnerExpr(
     if (
       !ctx.negated
       && (e.method === 'hasAny' || e.method === 'hasAll')
-      && e.args.some(
-        (arg) => arg.type === 'listLiteral' && arg.elements.some((el) => isAuthUid(el, s)),
-      )
+      && e.args.some((arg) => {
+        const argRes = resolveRuleExpr(arg, s);
+        return (
+          argRes.expr.type === 'listLiteral'
+          && argRes.expr.elements.some((el) => isAuthUid(el, argRes.scope))
+        );
+      })
     ) {
       recordStorageUidTarget(e.object, s, 'contains', e, ctx);
     }
@@ -292,7 +298,7 @@ function visitStorageOwnerExpr(
   }
 }
 
-export function storageAllowOwnerConditions(
+function storageAllowOwnerConditions(
   allow: AllowRule,
   fallbackLine: number | undefined,
   pattern: ResourcePattern,
@@ -330,6 +336,7 @@ export function projectStorageRulesSource(
 ): RuleSurfaceEntry[] {
   const services = parseRulesAstWithMultiMatch(source);
   const out: RuleSurfaceEntry[] = [];
+  const normalizedExplicitBucket = normalizeExplicitResourceId('storage', explicitBucket);
 
   const walk = (
     match: MatchBlock,
@@ -346,6 +353,13 @@ export function projectStorageRulesSource(
     const scopeFns = [...functions, match.functions];
     const rawRulePath = `/${fullPath.join('/')}`;
     const header = extractServiceHeader('storage', rawRulePath);
+    if (
+      normalizedExplicitBucket !== undefined
+      && header.headerKind === 'concrete'
+      && header.headerResourceId !== normalizedExplicitBucket
+    ) {
+      return;
+    }
     const hasValidHeader = header.headerKind === 'concrete' || header.headerKind === 'wildcard';
     const isWildcardBucket = explicitBucket === undefined && header.headerKind === 'wildcard';
 

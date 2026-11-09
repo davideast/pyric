@@ -15,7 +15,7 @@ import {
 } from '../../rules/internal/index.js';
 import type { RtdbExpressionTree } from '../../rules/internal/rtdb.js';
 
-export const MAX_RULE_INLINE_DEPTH = 8;
+const MAX_RULE_INLINE_DEPTH = 8;
 
 const MULTI_ROOT_SENTINEL = '__pyric_multi_root__';
 const DEFAULT_DB_SENTINEL = '__pyric_default_db__';
@@ -267,16 +267,64 @@ function normalizeMultiMatchSource(source: string): string {
   return out;
 }
 
+interface DeclaredFunctionScope {
+  readonly functions: readonly (readonly FunctionDef[])[];
+  readonly wildcards: ReadonlySet<string>;
+}
+
+const DECLARED_FUNCTION_SCOPES = new WeakMap<FunctionDef, DeclaredFunctionScope>();
+
+function indexMatchFunctionScopes(
+  block: MatchBlock,
+  parentFunctions: readonly (readonly FunctionDef[])[],
+  parentWildcards: ReadonlySet<string>,
+): void {
+  const nextWildcards = new Set(parentWildcards);
+  for (const seg of block.path.segments) {
+    if (seg.type !== 'literal') nextWildcards.add(seg.name);
+  }
+  const currentFunctions = [...parentFunctions, block.functions];
+  for (const fn of block.functions) {
+    DECLARED_FUNCTION_SCOPES.set(fn, {
+      functions: currentFunctions,
+      wildcards: nextWildcards,
+    });
+  }
+  for (const child of block.children) {
+    indexMatchFunctionScopes(child, currentFunctions, nextWildcards);
+  }
+}
+
+function indexParsedServiceScopes(services: readonly ParsedServiceMatches[]): void {
+  const emptyWildcards: ReadonlySet<string> = new Set();
+  for (const svc of services) {
+    for (let g = 0; g < svc.functions.length; g += 1) {
+      const prefixGroups = svc.functions.slice(0, g + 1);
+      for (const fn of svc.functions[g] ?? []) {
+        DECLARED_FUNCTION_SCOPES.set(fn, {
+          functions: prefixGroups,
+          wildcards: emptyWildcards,
+        });
+      }
+    }
+    for (const topMatch of svc.matches) {
+      indexMatchFunctionScopes(topMatch, svc.functions, emptyWildcards);
+    }
+  }
+}
+
 export function parseRulesAstWithMultiMatch(source: string): ParsedServiceMatches[] {
   const direct = parseToAST(source);
   if (direct !== null) {
     let services = [direct.service];
     if (direct.services && direct.services.length > 0) services = direct.services;
-    return services.map((svc) => ({
+    const parsed = services.map((svc) => ({
       name: svc.name,
       functions: [direct.functions ?? [], svc.functions ?? []],
       matches: topLevelMatches(svc),
     }));
+    indexParsedServiceScopes(parsed);
+    return parsed;
   }
 
   const normalized = normalizeMultiMatchSource(source);
@@ -285,7 +333,7 @@ export function parseRulesAstWithMultiMatch(source: string): ParsedServiceMatche
 
   let services = [fallback.service];
   if (fallback.services && fallback.services.length > 0) services = fallback.services;
-  return services.map((svc) => {
+  const parsed = services.map((svc) => {
     const topMatches = topLevelMatches(svc);
     const root = topMatches[0];
     const globalFns = (fallback.functions ?? []).map(restoreFunctionSentinels);
@@ -315,22 +363,37 @@ export function parseRulesAstWithMultiMatch(source: string): ParsedServiceMatche
       matches: root.children.map(restoreMatchSentinels),
     };
   });
+  indexParsedServiceScopes(parsed);
+  return parsed;
 }
 
-export function findScopedFunction(scope: RuleAstScope, name: string): FunctionDef | undefined {
+function findScopedFunctionEntry(
+  scope: RuleAstScope,
+  name: string,
+): { readonly fn: FunctionDef; readonly groupIndex: number } | undefined {
   for (let i = scope.functions.length - 1; i >= 0; i -= 1) {
     const found = scope.functions[i]?.find((fn) => fn.name === name);
-    if (found) return found;
+    if (found) return { fn: found, groupIndex: i };
   }
   return undefined;
 }
 
 export function resolveRuleExpr(expr: Expression, scope: RuleAstScope): BoundRuleExpr {
   let cur: BoundRuleExpr = { expr, scope };
-  for (let i = 0; i < 16 && cur.expr.type === 'identifier'; i += 1) {
-    const bound = cur.scope.vars.get(cur.expr.name);
-    if (!bound) break;
-    cur = bound;
+  for (let i = 0; i < 16; i += 1) {
+    if (cur.expr.type === 'identifier') {
+      const bound = cur.scope.vars.get(cur.expr.name);
+      if (!bound) break;
+      cur = bound;
+      continue;
+    }
+    if (cur.expr.type === 'functionCall') {
+      const inlined = inlineRuleCall(cur.expr, cur.scope);
+      if (!inlined) break;
+      cur = inlined;
+      continue;
+    }
+    break;
   }
   return cur;
 }
@@ -340,26 +403,39 @@ export function inlineRuleCall(
   scope: RuleAstScope,
 ): BoundRuleExpr | undefined {
   if (scope.depth >= MAX_RULE_INLINE_DEPTH) return undefined;
-  const fn = findScopedFunction(scope, call.name);
-  if (!fn) return undefined;
-  const vars = new Map<string, BoundRuleExpr>();
+  const entry = findScopedFunctionEntry(scope, call.name);
+  if (!entry) return undefined;
+  const { fn, groupIndex } = entry;
+  const declaredScope = DECLARED_FUNCTION_SCOPES.get(fn);
+  const calleeFunctions = declaredScope?.functions ?? scope.functions.slice(0, groupIndex + 1);
+  const calleeWildcards = declaredScope?.wildcards ?? scope.wildcards;
+
+  let currentVars = new Map<string, BoundRuleExpr>();
   fn.parameters.forEach((param, idx) => {
     const arg = call.args[idx];
     if (arg) {
-      vars.set(param, { expr: arg, scope });
+      currentVars.set(param, { expr: arg, scope });
     } else {
-      vars.set(param, { expr: { type: 'literal', value: null, raw: 'null' }, scope });
+      currentVars.set(param, { expr: { type: 'literal', value: null, raw: 'null' }, scope });
     }
   });
+  for (const letBinding of fn.lets) {
+    const letEvalScope: RuleAstScope = {
+      vars: currentVars,
+      functions: calleeFunctions,
+      wildcards: calleeWildcards,
+      depth: scope.depth + 1,
+    };
+    const nextVars = new Map(currentVars);
+    nextVars.set(letBinding.name, { expr: letBinding.value, scope: letEvalScope });
+    currentVars = nextVars;
+  }
   const inner: RuleAstScope = {
-    vars,
-    functions: scope.functions,
-    wildcards: scope.wildcards,
+    vars: currentVars,
+    functions: calleeFunctions,
+    wildcards: calleeWildcards,
     depth: scope.depth + 1,
   };
-  for (const letBinding of fn.lets) {
-    inner.vars.set(letBinding.name, { expr: letBinding.value, scope: inner });
-  }
   return { expr: fn.body, scope: inner };
 }
 
@@ -587,4 +663,81 @@ export function summarizeRtdbGuard(t: RtdbExpressionTree, negated: boolean): Gua
 
 export function isOverbroadAuthOnlyRtdbExpr(t: RtdbExpressionTree): boolean {
   return summarizeRtdbGuard(t, false) === 'auth-only';
+}
+
+export type RelationalOp = '<' | '<=' | '>' | '>=';
+
+export function isRelationalOp(op: string): op is RelationalOp {
+  return op === '<' || op === '<=' || op === '>' || op === '>=';
+}
+
+export function flipRelationalSides(op: RelationalOp): RelationalOp {
+  switch (op) {
+    case '<':
+      return '>';
+    case '<=':
+      return '>=';
+    case '>':
+      return '<';
+    case '>=':
+      return '<=';
+  }
+}
+
+export function negateRelationalOp(op: RelationalOp): RelationalOp {
+  switch (op) {
+    case '<':
+      return '>=';
+    case '<=':
+      return '>';
+    case '>':
+      return '<=';
+    case '>=':
+      return '<';
+  }
+}
+
+export function satisfyingRelationalValue(op: RelationalOp, bound: number): number {
+  switch (op) {
+    case '>':
+      return Number.isInteger(bound) ? bound + 1 : Math.floor(bound) + 1;
+    case '>=':
+      return bound;
+    case '<':
+      return Number.isInteger(bound) ? bound - 1 : Math.ceil(bound) - 1;
+    case '<=':
+      return bound;
+  }
+}
+
+export interface TernaryBranchPlan {
+  readonly conditionNegated?: boolean;
+  readonly visitConsequent: boolean;
+  readonly visitAlternate: boolean;
+  readonly singleRoute: boolean;
+}
+
+export function classifyTernaryBranches(
+  rawConsequentBool: boolean | undefined,
+  rawAlternateBool: boolean | undefined,
+  negated: boolean,
+): TernaryBranchPlan {
+  const effCons = rawConsequentBool === undefined ? undefined : (negated ? !rawConsequentBool : rawConsequentBool);
+  const effAlt = rawAlternateBool === undefined ? undefined : (negated ? !rawAlternateBool : rawAlternateBool);
+  if ((effCons === false && effAlt === false) || (effCons === true && effAlt === true)) {
+    return { visitConsequent: false, visitAlternate: false, singleRoute: false };
+  }
+  if (effAlt === false) {
+    return { conditionNegated: false, visitConsequent: true, visitAlternate: false, singleRoute: true };
+  }
+  if (effCons === false) {
+    return { conditionNegated: true, visitConsequent: false, visitAlternate: true, singleRoute: true };
+  }
+  if (effCons === true) {
+    return { conditionNegated: false, visitConsequent: false, visitAlternate: true, singleRoute: false };
+  }
+  if (effAlt === true) {
+    return { conditionNegated: true, visitConsequent: true, visitAlternate: false, singleRoute: false };
+  }
+  return { conditionNegated: false, visitConsequent: true, visitAlternate: true, singleRoute: false };
 }

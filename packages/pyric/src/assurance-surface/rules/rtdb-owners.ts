@@ -9,6 +9,14 @@ import {
   printRtdbExpressionTree,
   type RtdbExpressionTree,
 } from '../../rules/internal/rtdb.js';
+import {
+  classifyTernaryBranches,
+  flipRelationalSides,
+  isRelationalOp,
+  negateRelationalOp,
+  satisfyingRelationalValue,
+  type RelationalOp,
+} from './rules-ast-utils.js';
 import type { OwnerCondition, OwnerKind, OwnerRelation } from './types.js';
 
 const RULE_KEYS: Record<string, string> = { '.read': 'read', '.write': 'write', '.validate': 'validate' };
@@ -72,6 +80,24 @@ interface Ctx {
 function booleanLiteralValue(t: RtdbExpressionTree): boolean | undefined {
   if (t.type === 'boolean') return t.value;
   return undefined;
+}
+
+function rtdbNumericLiteral(t: RtdbExpressionTree): number | undefined {
+  if (t.type === 'number') {
+    const num = Number(t.raw);
+    return Number.isFinite(num) ? num : undefined;
+  }
+  if (t.type === 'unary' && t.operator === '-') {
+    const inner = rtdbNumericLiteral(t.argument);
+    return inner === undefined ? undefined : -inner;
+  }
+  return undefined;
+}
+
+function rtdbScalarLiteral(t: RtdbExpressionTree): string | number | boolean | undefined {
+  if (t.type === 'string') return t.value;
+  if (t.type === 'boolean') return t.value;
+  return rtdbNumericLiteral(t);
 }
 
 /** Walk an expression; `required` tracks all-`&&` routes and `negated` tracks polarity. */
@@ -142,8 +168,41 @@ function collectBinary(t: Extract<RtdbExpressionTree, { type: 'binary' }>, ctx: 
     if (!isPositiveEq) return;
     if (isAuthUid(t.left)) record(t.right, 'equals', t, ctx);
     else if (isAuthUid(t.right)) record(t.left, 'equals', t, ctx);
-    else recordAuthKeyed(t, ctx);
+    else {
+      const leftRef = dbRefOf(t.left);
+      const rightRef = dbRefOf(t.right);
+      const leftScalar = rtdbScalarLiteral(t.left);
+      const rightScalar = rtdbScalarLiteral(t.right);
+      if (leftRef?.authKeyed && rightScalar !== undefined) {
+        push(ctx, kindOfBase(leftRef.base, true), refField(leftRef, ctx.path), 'exists', t, refLocation(leftRef, ctx.path), undefined, rightScalar);
+      } else if (rightRef?.authKeyed && leftScalar !== undefined) {
+        push(ctx, kindOfBase(rightRef.base, true), refField(rightRef, ctx.path), 'exists', t, refLocation(rightRef, ctx.path), undefined, leftScalar);
+      } else {
+        recordAuthKeyed(t, ctx);
+      }
+    }
     return;
+  }
+
+  if (isRelationalOp(t.operator)) {
+    const leftRef = dbRefOf(t.left);
+    const rightRef = dbRefOf(t.right);
+    const leftNum = rtdbNumericLiteral(t.left);
+    const rightNum = rtdbNumericLiteral(t.right);
+    if (leftRef?.authKeyed && rightNum !== undefined) {
+      let effOp: RelationalOp = t.operator;
+      if (ctx.negated) effOp = negateRelationalOp(effOp);
+      const seedValue = satisfyingRelationalValue(effOp, rightNum);
+      push(ctx, kindOfBase(leftRef.base, true), refField(leftRef, ctx.path), 'exists', t, refLocation(leftRef, ctx.path), undefined, seedValue, effOp);
+      return;
+    }
+    if (rightRef?.authKeyed && leftNum !== undefined) {
+      let effOp = flipRelationalSides(t.operator);
+      if (ctx.negated) effOp = negateRelationalOp(effOp);
+      const seedValue = satisfyingRelationalValue(effOp, leftNum);
+      push(ctx, kindOfBase(rightRef.base, true), refField(rightRef, ctx.path), 'exists', t, refLocation(rightRef, ctx.path), undefined, seedValue, effOp);
+      return;
+    }
   }
 
   if (!ctx.negated) {
@@ -152,20 +211,16 @@ function collectBinary(t: Extract<RtdbExpressionTree, { type: 'binary' }>, ctx: 
 }
 
 function collectTernary(t: Extract<RtdbExpressionTree, { type: 'ternary' }>, ctx: Ctx): void {
-  if (!ctx.negated && booleanLiteralValue(t.alternate) === false) {
-    collect(t.test, ctx);
-    collect(t.consequent, ctx);
-    return;
-  }
-  if (!ctx.negated && booleanLiteralValue(t.consequent) === false) {
-    collect(t.test, { ...ctx, negated: true });
-    collect(t.alternate, ctx);
-    return;
-  }
-  const branchCtx: Ctx = { ...ctx, required: false };
-  collect(t.test, branchCtx);
-  collect(t.consequent, branchCtx);
-  collect(t.alternate, branchCtx);
+  const plan = classifyTernaryBranches(
+    booleanLiteralValue(t.consequent),
+    booleanLiteralValue(t.alternate),
+    ctx.negated,
+  );
+  if (plan.conditionNegated === undefined) return;
+  const required = plan.singleRoute ? ctx.required : false;
+  collect(t.test, { ...ctx, required, negated: plan.conditionNegated });
+  if (plan.visitConsequent) collect(t.consequent, { ...ctx, required });
+  if (plan.visitAlternate) collect(t.alternate, { ...ctx, required });
 }
 
 function collectCall(t: Extract<RtdbExpressionTree, { type: 'call' }>, ctx: Ctx): void {
@@ -344,6 +399,8 @@ function push(
   whole: RtdbExpressionTree,
   location: string | undefined,
   varIndex?: number,
+  seedValue?: string | number | boolean,
+  comparisonOp?: RelationalOp,
 ): void {
   const c: OwnerCondition = {
     service: 'rtdb',
@@ -358,5 +415,7 @@ function push(
   };
   if (varIndex !== undefined) c.varIndex = varIndex;
   if (location !== undefined) c.location = location;
+  if (seedValue !== undefined) c.seedValue = seedValue;
+  if (comparisonOp !== undefined) c.comparisonOp = comparisonOp;
   ctx.out.push(c);
 }

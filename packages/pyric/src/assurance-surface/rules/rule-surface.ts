@@ -9,6 +9,10 @@
 import type { FunctionDef, MatchBlock } from '../../rules/internal/index.js';
 import { parseRtdbExpressionTree, toStrictRulesJson } from '../../rules/internal/rtdb.js';
 import {
+  extractServiceHeader,
+  normalizeExplicitResourceId,
+} from '../../sandbox/internal/resource-pattern-header.js';
+import {
   overlapsPattern,
   parseResourcePattern,
   type ResourcePattern,
@@ -39,8 +43,10 @@ export interface CrossServiceLookup {
   readonly pattern: ResourcePattern;
   /** Field read on the looked-up doc, e.g. 'role' or 'members' in firestore.get(...).data.role */
   readonly field?: string;
-  /** Positive scalar literal expected on `field`, e.g. `'editor'` in `.data.role == 'editor'`. */
-  readonly expectedValue?: string | number | boolean;
+  /** Positive scalar or list literal expected on `field`, e.g. `'editor'` or `['editor']`. */
+  readonly expectedValue?: string | number | boolean | readonly (string | number | boolean)[];
+  /** Relational operator when `expectedValue` was derived from `<`, `<=`, `>`, or `>=`. */
+  readonly comparisonOp?: '<' | '<=' | '>' | '>=';
   /** Caller-identity expectation on `field`, e.g. `.data.ownerUid == request.auth.uid` or `!(request.auth.uid in .data.bannedUids)`. */
   readonly expectedAuth?: 'uid' | 'uid-list' | 'uid-not-in-list';
 }
@@ -117,6 +123,17 @@ export interface ProjectRuleSurfaceInput {
 }
 
 const WRITE_OPS = new Set(['write', 'create', 'update', 'delete']);
+const RTDB_NON_DELETE_WRITE_OPS = new Set([
+  'create',
+  'update',
+  'set',
+  'push',
+  'onDisconnect.set',
+  'onDisconnect.update',
+]);
+
+type RtdbWildcardExclusions = ReadonlyMap<number, ReadonlySet<string>>;
+const RTDB_WILDCARD_EXCLUSIONS = new WeakMap<RuleSurfaceEntry, RtdbWildcardExclusions>();
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -192,7 +209,7 @@ function normalizeRtdbSources(input: RtdbSurfaceInput | undefined): RtdbSurfaceS
   return out;
 }
 
-export function normalizeStorageSources(input: StorageSurfaceInput | undefined): StorageSurfaceSource[] {
+function normalizeStorageSources(input: StorageSurfaceInput | undefined): StorageSurfaceSource[] {
   if (input === undefined) return [];
   if (typeof input === 'string') return [{ source: 'storage.rules', text: input }];
   if (Array.isArray(input)) {
@@ -217,6 +234,8 @@ function projectFirestoreSource(item: FirestoreSurfaceSource): RuleSurfaceEntry[
   const file = item.source ?? 'firestore.rules';
   const services = parseRulesAstWithMultiMatch(item.text);
   const out: RuleSurfaceEntry[] = [];
+  const targetDatabase = item.databaseId ?? item.database;
+  const normalizedExplicitDb = normalizeExplicitResourceId('firestore', targetDatabase);
 
   const walk = (
     match: MatchBlock,
@@ -232,60 +251,73 @@ function projectFirestoreSource(item: FirestoreSurfaceSource): RuleSurfaceEntry[
     }
     const scopeFns = [...functions, match.functions];
     const rawRulePath = `/${fullPath.join('/')}`;
-    const targetDatabase = item.databaseId ?? item.database;
-    const pattern = parseResourcePattern('firestore', rawRulePath, targetDatabase);
-    const docPath = pattern.segments
-      .map((seg) => {
-        if (seg.kind === 'lit') return seg.text;
-        if (seg.kind === 'rest') return `{${seg.name}=**}`;
-        return `${seg.prefix ?? ''}{${seg.name}}${seg.suffix ?? ''}`;
-      })
-      .join('/');
+    const header = extractServiceHeader('firestore', rawRulePath);
+    if (
+      normalizedExplicitDb !== undefined
+      && header.headerKind === 'concrete'
+      && header.headerResourceId !== normalizedExplicitDb
+    ) {
+      return;
+    }
 
-    for (const allow of match.allows) {
-      const ops = expandRuleOps(allow.operations);
-      const line = allow.loc?.line ?? match.loc?.line;
-      let ruleSource = file;
-      if (line !== undefined) ruleSource = `${file}:${line}`;
-      const ownerConditions = firestoreAllowOwnerConditions(
-        allow,
-        match.loc?.line,
-        fullPath,
-        scopeFns,
-        nextWildcards,
-        file,
-      );
-      const valueHints = firestoreAllowValueHints(allow.condition, scopeFns, docPath);
-      const scope: RuleAstScope = {
-        vars: new Map(),
-        functions: scopeFns,
-        wildcards: nextWildcards,
-        depth: 0,
-      };
-      const entry: {
-        pattern: ResourcePattern;
-        ops: readonly string[];
-        ownerConditions: readonly OwnerCondition[];
-        valueHints: readonly ValueHint[];
-        crossServiceReads: readonly CrossServiceLookup[];
-        overbroadAuthOnlyWrite?: boolean;
-        alwaysDeny?: boolean;
-        source: string;
-      } = {
-        pattern,
-        ops,
-        ownerConditions,
-        valueHints,
-        crossServiceReads: [],
-        source: ruleSource,
-      };
-      if (ops.some((op) => WRITE_OPS.has(op))) {
-        entry.overbroadAuthOnlyWrite = isOverbroadAuthOnlyRulesExpr(allow.condition, scope);
+    const hasValidHeader = header.headerKind === 'concrete' || header.headerKind === 'wildcard';
+    if (match.allows.length > 0 && hasValidHeader) {
+      const pattern = parseResourcePattern('firestore', rawRulePath, targetDatabase);
+      if (pattern.segments.length > 0) {
+        const docPath = pattern.segments
+          .map((seg) => {
+            if (seg.kind === 'lit') return seg.text;
+            if (seg.kind === 'rest') return `{${seg.name}=**}`;
+            return `${seg.prefix ?? ''}{${seg.name}}${seg.suffix ?? ''}`;
+          })
+          .join('/');
+
+        for (const allow of match.allows) {
+          const ops = expandRuleOps(allow.operations);
+          const line = allow.loc?.line ?? match.loc?.line;
+          let ruleSource = file;
+          if (line !== undefined) ruleSource = `${file}:${line}`;
+          const ownerConditions = firestoreAllowOwnerConditions(
+            allow,
+            match.loc?.line,
+            fullPath,
+            scopeFns,
+            nextWildcards,
+            file,
+          );
+          const valueHints = firestoreAllowValueHints(allow.condition, scopeFns, docPath, nextWildcards);
+          const scope: RuleAstScope = {
+            vars: new Map(),
+            functions: scopeFns,
+            wildcards: nextWildcards,
+            depth: 0,
+          };
+          const entry: {
+            pattern: ResourcePattern;
+            ops: readonly string[];
+            ownerConditions: readonly OwnerCondition[];
+            valueHints: readonly ValueHint[];
+            crossServiceReads: readonly CrossServiceLookup[];
+            overbroadAuthOnlyWrite?: boolean;
+            alwaysDeny?: boolean;
+            source: string;
+          } = {
+            pattern,
+            ops,
+            ownerConditions,
+            valueHints,
+            crossServiceReads: [],
+            source: ruleSource,
+          };
+          if (ops.some((op) => WRITE_OPS.has(op))) {
+            entry.overbroadAuthOnlyWrite = isOverbroadAuthOnlyRulesExpr(allow.condition, scope);
+          }
+          if (summarizeRulesGuard(allow.condition, scope, false) === 'impossible') {
+            entry.alwaysDeny = true;
+          }
+          out.push(entry);
+        }
       }
-      if (summarizeRulesGuard(allow.condition, scope, false) === 'impossible') {
-        entry.alwaysDeny = true;
-      }
-      out.push(entry);
     }
 
     for (const child of match.children) {
@@ -330,7 +362,11 @@ function projectRtdbSource(item: RtdbSurfaceSource): RuleSurfaceEntry[] {
   if (!isPlainObject(root)) return [];
   const out: RuleSurfaceEntry[] = [];
 
-  const walk = (node: Record<string, unknown>, path: readonly string[]): void => {
+  const walk = (
+    node: Record<string, unknown>,
+    path: readonly string[],
+    exclusions: RtdbWildcardExclusions,
+  ): void => {
     const rawPath = path.join('/');
     const pattern = parseResourcePattern('rtdb', rawPath, item.instance);
     let rawIndexOn: unknown;
@@ -401,12 +437,13 @@ function projectRtdbSource(item: RtdbSurfaceSource): RuleSurfaceEntry[] {
       if (declaredIndexes !== undefined) entry.declaredIndexes = declaredIndexes;
       if (overbroad !== undefined) entry.overbroadAuthOnlyWrite = overbroad;
       if (alwaysDeny !== undefined) entry.alwaysDeny = alwaysDeny;
+      if (exclusions.size > 0) RTDB_WILDCARD_EXCLUSIONS.set(entry, exclusions);
       out.push(entry);
       emittedRuleOnNode = true;
     }
 
     if (!emittedRuleOnNode && declaredIndexes !== undefined) {
-      out.push({
+      const indexEntry: RuleSurfaceEntry = {
         pattern,
         ops: [],
         ownerConditions: [],
@@ -414,17 +451,32 @@ function projectRtdbSource(item: RtdbSurfaceSource): RuleSurfaceEntry[] {
         declaredIndexes,
         crossServiceReads: [],
         source: `${file}#/rules/${[...path, '.indexOn'].join('/')}`,
-      });
+      };
+      if (exclusions.size > 0) RTDB_WILDCARD_EXCLUSIONS.set(indexEntry, exclusions);
+      out.push(indexEntry);
+    }
+
+    const literalChildren = new Set<string>();
+    for (const [key, value] of Object.entries(node)) {
+      if (!key.startsWith('.') && !key.startsWith('$') && isPlainObject(value)) {
+        literalChildren.add(key);
+      }
     }
 
     for (const [key, value] of Object.entries(node)) {
       if (!key.startsWith('.') && isPlainObject(value)) {
-        walk(value, [...path, key]);
+        let childExclusions = exclusions;
+        if (key.startsWith('$') && literalChildren.size > 0) {
+          const next = new Map(exclusions);
+          next.set(path.length, literalChildren);
+          childExclusions = next;
+        }
+        walk(value, [...path, key], childExclusions);
       }
     }
   };
 
-  walk(root, []);
+  walk(root, [], new Map());
   return out;
 }
 
@@ -488,6 +540,57 @@ function entryCascades(entry: RuleSurfaceEntry): boolean {
   return entry.ops.includes('read') || entry.ops.includes('write');
 }
 
+function violatesRtdbWildcardExclusions(
+  entry: RuleSurfaceEntry,
+  pattern: ResourcePattern,
+): boolean {
+  const exclusions = RTDB_WILDCARD_EXCLUSIONS.get(entry);
+  if (!exclusions || pattern.service !== 'rtdb') return false;
+  for (const [segIndex, excludedLiterals] of exclusions) {
+    const seg = pattern.segments[segIndex];
+    if (!seg) break;
+    if (seg.kind === 'lit' && excludedLiterals.has(seg.text)) {
+      return true;
+    }
+    if (seg.kind === 'rest') break;
+  }
+  return false;
+}
+
+function rtdbValidateCoversTarget(
+  validateEntry: RuleSurfaceEntry,
+  target: ResourcePattern,
+): boolean {
+  if (validateEntry.pattern.service !== 'rtdb' || target.service !== 'rtdb') return false;
+  if (validateEntry.pattern.resourceId !== target.resourceId) return false;
+  const valSegs = validateEntry.pattern.segments;
+  const targetSegs = target.segments;
+  if (valSegs.length > targetSegs.length) return false;
+  const exclusions = RTDB_WILDCARD_EXCLUSIONS.get(validateEntry);
+  for (let i = 0; i < valSegs.length; i += 1) {
+    const vSeg = valSegs[i]!;
+    const tSeg = targetSegs[i]!;
+    if (vSeg.kind === 'lit') {
+      if (tSeg.kind !== 'lit' || tSeg.text !== vSeg.text) return false;
+      continue;
+    }
+    if (vSeg.kind === 'var') {
+      const excluded = exclusions?.get(i);
+      if (tSeg.kind === 'lit') {
+        if (excluded?.has(tSeg.text)) return false;
+        continue;
+      }
+      if (tSeg.kind === 'var') {
+        if (excluded && excluded.size > 0) return false;
+        continue;
+      }
+      return false;
+    }
+    return false;
+  }
+  return true;
+}
+
 export function projectRuleSurface(input: ProjectRuleSurfaceInput): RuleSurface {
   const entries: RuleSurfaceEntry[] = [];
 
@@ -508,6 +611,7 @@ export function projectRuleSurface(input: ProjectRuleSurfaceInput): RuleSurface 
   }
 
   const explicitStorageBuckets = new Set<string>();
+  const rtdbAlwaysDenyValidates: RuleSurfaceEntry[] = [];
   for (const entry of entries) {
     if (
       entry.pattern.service === 'storage'
@@ -515,6 +619,13 @@ export function projectRuleSurface(input: ProjectRuleSurfaceInput): RuleSurface 
       && entry.pattern.resourceId !== '(default)'
     ) {
       explicitStorageBuckets.add(entry.pattern.resourceId);
+    }
+    if (
+      entry.pattern.service === 'rtdb'
+      && entry.alwaysDeny
+      && entry.ops.includes('validate')
+    ) {
+      rtdbAlwaysDenyValidates.push(entry);
     }
   }
 
@@ -527,8 +638,11 @@ export function projectRuleSurface(input: ProjectRuleSurfaceInput): RuleSurface 
         pattern.service === 'storage'
         && pattern.resourceId !== '(default)'
         && !explicitStorageBuckets.has(pattern.resourceId);
-      return entries.filter((entry) => {
+      const matched = entries.filter((entry) => {
         if (targetVerbs !== undefined && !entry.ops.some((verb) => targetVerbs.has(verb))) {
+          return false;
+        }
+        if (violatesRtdbWildcardExclusions(entry, pattern)) {
           return false;
         }
         let entryPattern = entry.pattern;
@@ -540,6 +654,28 @@ export function projectRuleSurface(input: ProjectRuleSurfaceInput): RuleSurface 
           cascadeB: false,
         });
       });
+
+      if (
+        pattern.service === 'rtdb'
+        && op !== undefined
+        && RTDB_NON_DELETE_WRITE_OPS.has(op)
+        && matched.length > 0
+      ) {
+        const blockingValidate = rtdbAlwaysDenyValidates.find((valEntry) =>
+          rtdbValidateCoversTarget(valEntry, pattern),
+        );
+        if (blockingValidate !== undefined) {
+          return [
+            blockingValidate,
+            ...matched.map((entry) => {
+              if (entry.alwaysDeny) return entry;
+              return { ...entry, alwaysDeny: true };
+            }),
+          ];
+        }
+      }
+
+      return matched;
     },
   };
 }

@@ -12,7 +12,7 @@ import { planFieldOwned } from './field-owned-probes.js';
 import { attributionFields, concretePath, isConcretePayload, isSentinel, uidFields } from './fixtures.js';
 import { lookupSeeds } from './prerequisites.js';
 import { attributionValuesAt, fieldOf, recordsAt } from './state.js';
-import { creator, dedupeSites, findCreateCondition, hintOverrides, isCleanup, opOf, probeable, recordPath, same, sep, shareUidVariables, siblingsOf, stepFor, type MakeStep } from './step-builder.js';
+import { creator, dedupeSites, hintOverrides, isCleanup, opOf, probeable, recordPath, same, sep, setupConditionOverrides, shareUidVariables, siblingsOf, stepFor, type MakeStep } from './step-builder.js';
 import { planStorageProbes } from './storage-probes.js';
 import type { Probe, ProbeActor, ProbeStep } from './types.js';
 import type { WorldState } from './world.js';
@@ -53,13 +53,8 @@ function isExactUidOnly(auth: { source: string; certainty: 'exact' | 'partial' }
 }
 
 function buildCreatorSetupStep(site: AccessSite, make: AccessSite, ownerUid: string, conditions: OwnerCondition[], step: MakeStep): { step: ProbeStep; injectedConditionField: boolean } {
-  const condField = findCreateCondition(site, conditions);
-  const overrides: Record<string, unknown> = {};
-  let injectedConditionField = false;
-  if (condField && !(make.payload?.fields ?? []).some((f) => f.name === condField)) {
-    overrides[condField] = ownerUid;
-    injectedConditionField = true;
-  }
+  const overrides = setupConditionOverrides(site, make, conditions, ownerUid);
+  const injectedConditionField = Object.keys(overrides).length > 0;
   let setupStep = step(make, 'owner', { pathSite: site, overrides });
   if (make.op === 'updateDoc') setupStep = { ...setupStep, method: 'set' };
   return { step: setupStep, injectedConditionField };
@@ -72,8 +67,11 @@ export function planProbes(input: PlanInput): Probe[] {
   const hints = input.hints ?? [];
   const step: MakeStep = (site, actor, options = {}) => {
     const otherUid = actor === 'owner' ? peer.uid : owner.uid;
-    const overrides = { ...hintOverrides(options.pathSite ?? site, hints), ...hintOverrides(site, hints) };
-    if (options.overrides) Object.assign(overrides, options.overrides);
+    const overrides = {
+      ...hintOverrides(options.pathSite ?? site, hints),
+      ...hintOverrides(site, hints),
+      ...options.overrides,
+    };
     return stepFor(site, actor, actors, { state: input.state, otherUid, ...options, overrides });
   };
   const sites = dedupeSites(input.sites.filter((s) => s.service !== 'storage' && probeable(s)));

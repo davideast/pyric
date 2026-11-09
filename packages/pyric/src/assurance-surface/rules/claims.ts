@@ -16,7 +16,10 @@ import {
   type Operation,
 } from '../../rules/internal/index.js';
 import { parseRtdbExpressionTree, type RtdbExpressionTree } from '../../rules/internal/rtdb.js';
-import { extractServiceHeader } from '../../sandbox/internal/resource-pattern-header.js';
+import {
+  extractServiceHeader,
+  normalizeExplicitResourceId,
+} from '../../sandbox/internal/resource-pattern-header.js';
 import { overlapsPattern, parseResourcePattern } from '../../sandbox/internal/resource-pattern.js';
 import { formatMatchSegment, parseRulesAstWithMultiMatch } from './rules-ast-utils.js';
 
@@ -99,8 +102,8 @@ export function rtdbRequiredClaims(rulesJson: unknown, target: ClaimTarget, into
       grantingBranches.push({});
     } else if (typeof permValue === 'string') {
       const parsed = parseRtdbExpressionTree(permValue);
-      if (parsed.ok && !isRtdbFalseLiteral(parsed.tree)) {
-        grantingBranches.push(rtdbExprClaims(parsed.tree));
+      if (parsed.ok && rtdbEffectiveBool(parsed.tree, false) !== false) {
+        grantingBranches.push(rtdbExprClaims(parsed.tree, false));
       }
     }
 
@@ -109,7 +112,7 @@ export function rtdbRequiredClaims(rulesJson: unknown, target: ClaimTarget, into
       if (typeof validateValue === 'string') {
         const parsed = parseRtdbExpressionTree(validateValue);
         if (parsed.ok) {
-          validateRequired = unionClaims(validateRequired, rtdbExprClaims(parsed.tree));
+          validateRequired = unionClaims(validateRequired, rtdbExprClaims(parsed.tree, false));
         }
       }
     }
@@ -134,8 +137,19 @@ export function rtdbRequiredClaims(rulesJson: unknown, target: ClaimTarget, into
   return copyClaimsInto(combined, into);
 }
 
-function isRtdbFalseLiteral(tree: RtdbExpressionTree): boolean {
-  return tree.type === 'boolean' && tree.value === false;
+function rtdbStaticBool(tree: RtdbExpressionTree): boolean | undefined {
+  if (tree.type === 'boolean') return tree.value;
+  if (tree.type === 'unary' && tree.operator === '!') {
+    const inner = rtdbStaticBool(tree.argument);
+    return inner === undefined ? undefined : !inner;
+  }
+  return undefined;
+}
+
+function rtdbEffectiveBool(tree: RtdbExpressionTree, negated: boolean): boolean | undefined {
+  const raw = rtdbStaticBool(tree);
+  if (raw === undefined) return undefined;
+  return negated ? !raw : raw;
 }
 
 function rtdbTokenClaim(tree: RtdbExpressionTree): string | undefined {
@@ -154,46 +168,68 @@ function rtdbLiteral(tree: RtdbExpressionTree): { value: unknown } | undefined {
   return undefined;
 }
 
-function rtdbExprClaims(tree: RtdbExpressionTree): Claims {
-  if (tree.type === 'binary' && tree.operator === '&&') {
-    return unionClaims(rtdbExprClaims(tree.left), rtdbExprClaims(tree.right));
+function rtdbExprClaims(tree: RtdbExpressionTree, negated: boolean): Claims {
+  if (tree.type === 'unary') {
+    if (tree.operator === '!') return rtdbExprClaims(tree.argument, !negated);
+    return {};
   }
-  if (tree.type === 'binary' && tree.operator === '||') {
+  if (tree.type === 'binary' && ((tree.operator === '&&' && !negated) || (tree.operator === '||' && negated))) {
+    return unionClaims(rtdbExprClaims(tree.left, negated), rtdbExprClaims(tree.right, negated));
+  }
+  if (tree.type === 'binary' && ((tree.operator === '||' && !negated) || (tree.operator === '&&' && negated))) {
     const branches: Claims[] = [];
-    if (!isRtdbFalseLiteral(tree.left)) branches.push(rtdbExprClaims(tree.left));
-    if (!isRtdbFalseLiteral(tree.right)) branches.push(rtdbExprClaims(tree.right));
+    if (rtdbEffectiveBool(tree.left, negated) !== false) branches.push(rtdbExprClaims(tree.left, negated));
+    if (rtdbEffectiveBool(tree.right, negated) !== false) branches.push(rtdbExprClaims(tree.right, negated));
     return intersectClaimList(branches);
   }
   if (tree.type === 'ternary') {
-    const thenBranch = unionClaims(rtdbExprClaims(tree.test), rtdbExprClaims(tree.consequent));
-    if (isRtdbFalseLiteral(tree.alternate)) return thenBranch;
-    if (isRtdbFalseLiteral(tree.consequent)) return rtdbExprClaims(tree.alternate);
-    return intersectClaimList([thenBranch, rtdbExprClaims(tree.alternate)]);
+    const effCons = rtdbEffectiveBool(tree.consequent, negated);
+    const effAlt = rtdbEffectiveBool(tree.alternate, negated);
+    if (effCons === false && effAlt === false) return {};
+    if (effAlt === false) {
+      return unionClaims(rtdbExprClaims(tree.test, false), rtdbExprClaims(tree.consequent, negated));
+    }
+    if (effCons === false) {
+      return unionClaims(rtdbExprClaims(tree.test, true), rtdbExprClaims(tree.alternate, negated));
+    }
+    const thenBranch = unionClaims(rtdbExprClaims(tree.test, false), rtdbExprClaims(tree.consequent, negated));
+    const elseBranch = unionClaims(rtdbExprClaims(tree.test, true), rtdbExprClaims(tree.alternate, negated));
+    return intersectClaimList([thenBranch, elseBranch]);
   }
-  if (tree.type === 'binary' && (tree.operator === '!=' || tree.operator === '!==')) {
-    const leftClaim = rtdbTokenClaim(tree.left);
-    const claim = leftClaim ?? rtdbTokenClaim(tree.right);
-    let other = tree.left;
-    if (leftClaim) other = tree.right;
-    if (claim && other.type === 'null' && !STANDARD_CLAIMS.has(claim)) {
-      return { [claim]: true };
+  if (tree.type === 'binary') {
+    const isEq = tree.operator === '==' || tree.operator === '===';
+    const isNeq = tree.operator === '!=' || tree.operator === '!==';
+    if (isEq || isNeq) {
+      const leftClaim = rtdbTokenClaim(tree.left);
+      const claim = leftClaim ?? rtdbTokenClaim(tree.right);
+      if (claim) {
+        if (STANDARD_CLAIMS.has(claim)) return {};
+        let other = tree.left;
+        if (leftClaim) other = tree.right;
+        const isPosEq = (isEq && !negated) || (isNeq && negated);
+        const isPosNeq = (isNeq && !negated) || (isEq && negated);
+        if (isPosNeq && other.type === 'null') return { [claim]: true };
+        const lit = rtdbLiteral(other);
+        if (isPosEq && lit) return { [claim]: lit.value };
+        return {};
+      }
+      const leftBool = rtdbStaticBool(tree.left);
+      const rightBool = rtdbStaticBool(tree.right);
+      if (leftBool !== undefined || rightBool !== undefined) {
+        const boolVal = leftBool ?? rightBool ?? false;
+        let target = tree.left;
+        if (leftBool !== undefined) target = tree.right;
+        const flips = (isEq && !boolVal) || (isNeq && boolVal);
+        return rtdbExprClaims(target, flips ? !negated : negated);
+      }
     }
     return {};
   }
-  if (tree.type === 'binary' && (tree.operator === '==' || tree.operator === '===')) {
-    const leftClaim = rtdbTokenClaim(tree.left);
-    const claim = leftClaim ?? rtdbTokenClaim(tree.right);
-    let other = tree.left;
-    if (leftClaim) other = tree.right;
-    const lit = rtdbLiteral(other);
-    if (claim && lit && !STANDARD_CLAIMS.has(claim)) {
-      return { [claim]: lit.value };
+  if (!negated) {
+    const bare = rtdbTokenClaim(tree);
+    if (bare && !STANDARD_CLAIMS.has(bare)) {
+      return { [bare]: true };
     }
-    return {};
-  }
-  const bare = rtdbTokenClaim(tree);
-  if (bare && !STANDARD_CLAIMS.has(bare)) {
-    return { [bare]: true };
   }
   return {};
 }
@@ -213,15 +249,14 @@ export function firestoreRequiredClaims(source: string, target: ClaimTarget, int
     const rootScope = [
       ...(ast.functions ?? []),
       ...(service.functions ?? []),
-      ...service.match.functions,
     ];
     const scopedAst: FirestoreRules = { ...ast, service };
     const matches = collectRootMatches(scopedAst, target.path, rootScope);
     for (const match of matches) {
       for (const allow of match.block.allows) {
         if (!allowCoversOp(allow.operations, target.op)) continue;
-        if (isFsFalseLiteral(allow.condition)) continue;
-        matchingAllows.push(fsExprClaims(allow.condition, match.functions, new Map(), declScopes, 0));
+        if (fsEffectiveBool(allow.condition, match.functions, new Map(), declScopes, 0, false) === false) continue;
+        matchingAllows.push(fsExprClaims(allow.condition, match.functions, new Map(), declScopes, 0, false));
       }
     }
   }
@@ -235,6 +270,7 @@ export function storageRequiredClaims(source: string, target: ClaimTarget, into:
   if (services.length === 0) return into;
 
   const targetPattern = parseResourcePattern('storage', target.path, target.bucket);
+  const normalizedTargetBucket = normalizeExplicitResourceId('storage', target.bucket);
   const matchingAllows: Claims[] = [];
 
   for (const svc of services) {
@@ -249,13 +285,20 @@ export function storageRequiredClaims(source: string, target: ClaimTarget, into:
       const fullSegments = [...parentSegments, ...block.path.segments.map(formatMatchSegment)];
       const rawRulePath = `/${fullSegments.join('/')}`;
       const header = extractServiceHeader('storage', rawRulePath);
+      if (
+        normalizedTargetBucket !== undefined
+        && header.headerKind === 'concrete'
+        && header.headerResourceId !== normalizedTargetBucket
+      ) {
+        return;
+      }
       if (header.headerKind === 'concrete' || header.headerKind === 'wildcard') {
         const rulePattern = parseResourcePattern('storage', rawRulePath, target.bucket);
         if (overlapsPattern(rulePattern, targetPattern)) {
           for (const allow of block.allows) {
             if (!allowCoversOp(allow.operations, target.op)) continue;
-            if (isFsFalseLiteral(allow.condition)) continue;
-            matchingAllows.push(fsExprClaims(allow.condition, currentFns, new Map(), declScopes, 0));
+            if (fsEffectiveBool(allow.condition, currentFns, new Map(), declScopes, 0, false) === false) continue;
+            matchingAllows.push(fsExprClaims(allow.condition, currentFns, new Map(), declScopes, 0, false));
           }
         }
       }
@@ -306,10 +349,6 @@ function allowCoversOp(operations: Operation[], targetOp: string | undefined): b
   return false;
 }
 
-function isFsFalseLiteral(expr: Expression): boolean {
-  return expr.type === 'literal' && expr.value === false;
-}
-
 function findInScope(functions: FunctionDef[], name: string): FunctionDef | undefined {
   for (let i = functions.length - 1; i >= 0; i--) {
     if (functions[i].name === name) return functions[i];
@@ -317,35 +356,99 @@ function findInScope(functions: FunctionDef[], name: string): FunctionDef | unde
   return undefined;
 }
 
-function fsTokenClaim(expr: Expression, lets: ReadonlyMap<string, Expression>): string | undefined {
-  const unwrapped = resolveLet(expr, lets);
-  if (unwrapped.type !== 'memberAccess') return undefined;
-  const obj = resolveLet(unwrapped.object, lets);
-  if (obj.type !== 'memberAccess' || obj.property !== 'token') return undefined;
-  const auth = resolveLet(obj.object, lets);
-  if (auth.type === 'memberAccess' && auth.property === 'auth') {
-    const req = resolveLet(auth.object, lets);
-    if (req.type === 'identifier' && req.name === 'request') return unwrapped.property;
+function resolveBoundIdent(expr: Expression, lets: ReadonlyMap<string, Expression>): Expression {
+  if (expr.type === 'identifier') {
+    return lets.get(expr.name) ?? expr;
+  }
+  return expr;
+}
+
+function resolveValueExpr(
+  rawExpr: Expression,
+  functions: FunctionDef[],
+  lets: ReadonlyMap<string, Expression>,
+  declScopes: WeakMap<FunctionDef, FunctionDef[]>,
+  depth: number,
+): Expression {
+  const expr = resolveBoundIdent(rawExpr, lets);
+  if (expr.type === 'functionCall' && depth < MAX_INLINE_DEPTH) {
+    const fn = findInScope(functions, expr.name);
+    if (fn && fn.parameters.length === expr.args.length) {
+      const paramMap = new Map<string, Expression>();
+      for (let i = 0; i < fn.parameters.length; i += 1) {
+        paramMap.set(
+          fn.parameters[i]!,
+          resolveValueExpr(expr.args[i]!, functions, lets, declScopes, depth + 1),
+        );
+      }
+      const fnScope = declScopes.get(fn) ?? functions;
+      const fnLets = buildLetMap(fn.lets, paramMap, fnScope, declScopes, depth + 1);
+      return resolveValueExpr(fn.body, fnScope, fnLets, declScopes, depth + 1);
+    }
+  }
+  return expr;
+}
+
+function buildLetMap(
+  bindings: LetBinding[],
+  base: ReadonlyMap<string, Expression>,
+  functions: FunctionDef[],
+  declScopes: WeakMap<FunctionDef, FunctionDef[]>,
+  depth: number,
+): Map<string, Expression> {
+  const next = new Map(base);
+  for (const binding of bindings) {
+    next.set(binding.name, resolveValueExpr(binding.value, functions, next, declScopes, depth));
+  }
+  return next;
+}
+
+function fsStaticBool(
+  rawExpr: Expression,
+  functions: FunctionDef[],
+  lets: ReadonlyMap<string, Expression>,
+  declScopes: WeakMap<FunctionDef, FunctionDef[]>,
+  depth: number,
+): boolean | undefined {
+  const expr = resolveValueExpr(rawExpr, functions, lets, declScopes, depth);
+  if (expr.type === 'literal' && typeof expr.value === 'boolean') return expr.value;
+  if (expr.type === 'unaryOp' && expr.op === '!') {
+    const inner = fsStaticBool(expr.operand, functions, lets, declScopes, depth + 1);
+    return inner === undefined ? undefined : !inner;
   }
   return undefined;
 }
 
-function resolveLet(expr: Expression, lets: ReadonlyMap<string, Expression>): Expression {
-  let cur = expr;
-  for (let i = 0; i < 8 && cur.type === 'identifier'; i++) {
-    const next = lets.get(cur.name);
-    if (!next) break;
-    cur = next;
-  }
-  return cur;
+function fsEffectiveBool(
+  rawExpr: Expression,
+  functions: FunctionDef[],
+  lets: ReadonlyMap<string, Expression>,
+  declScopes: WeakMap<FunctionDef, FunctionDef[]>,
+  depth: number,
+  negated: boolean,
+): boolean | undefined {
+  const raw = fsStaticBool(rawExpr, functions, lets, declScopes, depth);
+  if (raw === undefined) return undefined;
+  return negated ? !raw : raw;
 }
 
-function buildLetMap(bindings: LetBinding[], base: ReadonlyMap<string, Expression>): Map<string, Expression> {
-  const next = new Map(base);
-  for (const binding of bindings) {
-    next.set(binding.name, resolveLet(binding.value, next));
+function fsTokenClaim(
+  expr: Expression,
+  functions: FunctionDef[],
+  lets: ReadonlyMap<string, Expression>,
+  declScopes: WeakMap<FunctionDef, FunctionDef[]>,
+  depth: number,
+): string | undefined {
+  const unwrapped = resolveValueExpr(expr, functions, lets, declScopes, depth);
+  if (unwrapped.type !== 'memberAccess') return undefined;
+  const obj = resolveValueExpr(unwrapped.object, functions, lets, declScopes, depth);
+  if (obj.type !== 'memberAccess' || obj.property !== 'token') return undefined;
+  const auth = resolveValueExpr(obj.object, functions, lets, declScopes, depth);
+  if (auth.type === 'memberAccess' && auth.property === 'auth') {
+    const req = resolveValueExpr(auth.object, functions, lets, declScopes, depth);
+    if (req.type === 'identifier' && req.name === 'request') return unwrapped.property;
   }
-  return next;
+  return undefined;
 }
 
 function fsExprClaims(
@@ -354,60 +457,105 @@ function fsExprClaims(
   lets: ReadonlyMap<string, Expression>,
   declScopes: WeakMap<FunctionDef, FunctionDef[]>,
   depth: number,
+  negated: boolean,
 ): Claims {
-  const expr = resolveLet(rawExpr, lets);
-  if (expr.type === 'binaryOp' && expr.op === '&&') {
-    const left = fsExprClaims(expr.left, functions, lets, declScopes, depth);
-    const right = fsExprClaims(expr.right, functions, lets, declScopes, depth);
+  const expr = resolveBoundIdent(rawExpr, lets);
+  if (expr.type === 'unaryOp') {
+    if (expr.op === '!') {
+      return fsExprClaims(expr.operand, functions, lets, declScopes, depth, !negated);
+    }
+    return {};
+  }
+  if (expr.type === 'binaryOp' && ((expr.op === '&&' && !negated) || (expr.op === '||' && negated))) {
+    const left = fsExprClaims(expr.left, functions, lets, declScopes, depth, negated);
+    const right = fsExprClaims(expr.right, functions, lets, declScopes, depth, negated);
     return unionClaims(left, right);
   }
-  if (expr.type === 'binaryOp' && expr.op === '||') {
+  if (expr.type === 'binaryOp' && ((expr.op === '||' && !negated) || (expr.op === '&&' && negated))) {
     const branches: Claims[] = [];
-    if (!isFsFalseLiteral(expr.left)) {
-      branches.push(fsExprClaims(expr.left, functions, lets, declScopes, depth));
+    if (fsEffectiveBool(expr.left, functions, lets, declScopes, depth, negated) !== false) {
+      branches.push(fsExprClaims(expr.left, functions, lets, declScopes, depth, negated));
     }
-    if (!isFsFalseLiteral(expr.right)) {
-      branches.push(fsExprClaims(expr.right, functions, lets, declScopes, depth));
+    if (fsEffectiveBool(expr.right, functions, lets, declScopes, depth, negated) !== false) {
+      branches.push(fsExprClaims(expr.right, functions, lets, declScopes, depth, negated));
     }
     return intersectClaimList(branches);
   }
   if (expr.type === 'ternary') {
-    const thenBranch = unionClaims(
-      fsExprClaims(expr.condition, functions, lets, declScopes, depth),
-      fsExprClaims(expr.consequent, functions, lets, declScopes, depth),
-    );
-    if (isFsFalseLiteral(expr.alternate)) return thenBranch;
-    if (isFsFalseLiteral(expr.consequent)) {
-      return fsExprClaims(expr.alternate, functions, lets, declScopes, depth);
+    const effCons = fsEffectiveBool(expr.consequent, functions, lets, declScopes, depth, negated);
+    const effAlt = fsEffectiveBool(expr.alternate, functions, lets, declScopes, depth, negated);
+    if (effCons === false && effAlt === false) return {};
+    if (effAlt === false) {
+      return unionClaims(
+        fsExprClaims(expr.condition, functions, lets, declScopes, depth, false),
+        fsExprClaims(expr.consequent, functions, lets, declScopes, depth, negated),
+      );
     }
-    const elseBranch = fsExprClaims(expr.alternate, functions, lets, declScopes, depth);
+    if (effCons === false) {
+      return unionClaims(
+        fsExprClaims(expr.condition, functions, lets, declScopes, depth, true),
+        fsExprClaims(expr.alternate, functions, lets, declScopes, depth, negated),
+      );
+    }
+    const thenBranch = unionClaims(
+      fsExprClaims(expr.condition, functions, lets, declScopes, depth, false),
+      fsExprClaims(expr.consequent, functions, lets, declScopes, depth, negated),
+    );
+    const elseBranch = unionClaims(
+      fsExprClaims(expr.condition, functions, lets, declScopes, depth, true),
+      fsExprClaims(expr.alternate, functions, lets, declScopes, depth, negated),
+    );
     return intersectClaimList([thenBranch, elseBranch]);
   }
   if (expr.type === 'binaryOp' && (expr.op === '==' || expr.op === '!=')) {
-    const leftClaim = fsTokenClaim(expr.left, lets);
-    const claim = leftClaim ?? fsTokenClaim(expr.right, lets);
-    let otherExpr = expr.left;
-    if (leftClaim) otherExpr = expr.right;
-    const other = resolveLet(otherExpr, lets);
-    if (!claim || STANDARD_CLAIMS.has(claim) || other.type !== 'literal') return {};
-    if (expr.op === '!=' && other.value === null) return { [claim]: true };
-    if (expr.op === '==' && other.value !== null && !(other.value instanceof Uint8Array)) {
-      return { [claim]: other.value };
+    const leftClaim = fsTokenClaim(expr.left, functions, lets, declScopes, depth);
+    const claim = leftClaim ?? fsTokenClaim(expr.right, functions, lets, declScopes, depth);
+    if (claim) {
+      if (STANDARD_CLAIMS.has(claim)) return {};
+      let otherExpr = expr.left;
+      if (leftClaim) otherExpr = expr.right;
+      const other = resolveValueExpr(otherExpr, functions, lets, declScopes, depth);
+      if (other.type !== 'literal') return {};
+      const isPosEq = (expr.op === '==' && !negated) || (expr.op === '!=' && negated);
+      const isPosNeq = (expr.op === '!=' && !negated) || (expr.op === '==' && negated);
+      if (isPosNeq && other.value === null) return { [claim]: true };
+      if (isPosEq && other.value !== null && !(other.value instanceof Uint8Array)) {
+        return { [claim]: other.value };
+      }
+      return {};
+    }
+    const leftBool = fsStaticBool(expr.left, functions, lets, declScopes, depth);
+    const rightBool = fsStaticBool(expr.right, functions, lets, declScopes, depth);
+    if (leftBool !== undefined || rightBool !== undefined) {
+      const boolVal = leftBool ?? rightBool ?? false;
+      let target = expr.left;
+      if (leftBool !== undefined) target = expr.right;
+      const flips = (expr.op === '==' && !boolVal) || (expr.op === '!=' && boolVal);
+      return fsExprClaims(target, functions, lets, declScopes, depth, flips ? !negated : negated);
     }
     return {};
   }
-  if (expr.type === 'functionCall' && expr.args.length === 0 && depth < MAX_INLINE_DEPTH) {
+  if (expr.type === 'functionCall' && depth < MAX_INLINE_DEPTH) {
     const fn = findInScope(functions, expr.name);
-    if (fn && fn.parameters.length === 0) {
+    if (fn && fn.parameters.length === expr.args.length) {
+      const paramMap = new Map<string, Expression>();
+      for (let i = 0; i < fn.parameters.length; i += 1) {
+        paramMap.set(
+          fn.parameters[i]!,
+          resolveValueExpr(expr.args[i]!, functions, lets, declScopes, depth + 1),
+        );
+      }
       const fnScope = declScopes.get(fn) ?? functions;
-      const fnLets = buildLetMap(fn.lets, new Map());
-      return fsExprClaims(fn.body, fnScope, fnLets, declScopes, depth + 1);
+      const fnLets = buildLetMap(fn.lets, paramMap, fnScope, declScopes, depth + 1);
+      return fsExprClaims(fn.body, fnScope, fnLets, declScopes, depth + 1, negated);
     }
     return {};
   }
-  const bare = fsTokenClaim(expr, lets);
-  if (bare && !STANDARD_CLAIMS.has(bare)) {
-    return { [bare]: true };
+  if (!negated) {
+    const bare = fsTokenClaim(expr, functions, lets, declScopes, depth);
+    if (bare && !STANDARD_CLAIMS.has(bare)) {
+      return { [bare]: true };
+    }
   }
   return {};
 }

@@ -55,6 +55,7 @@ describe('CrossServiceLookup extraction for Cloud Storage rules', () => {
         kind: 'get',
         pattern: parseResourcePattern('firestore', 'orgs/{orgId}'),
         field: 'members',
+        expectedAuth: 'uid-list',
       },
     ]);
 
@@ -62,13 +63,7 @@ describe('CrossServiceLookup extraction for Cloud Storage rules', () => {
       parseResourcePattern('storage', 'reports/q4.csv', 'exports-prod'),
       'getDownloadURL',
     )[0]!;
-    expect(exportRead.crossServiceReads).toEqual([
-      {
-        targetService: 'firestore',
-        kind: 'exists',
-        pattern: parseResourcePattern('firestore', 'acl/{auth.uid}', 'analytics'),
-      },
-    ]);
+    expect(exportRead.crossServiceReads).toEqual([]);
   });
 
   test('captures expectedAuth hints for == request.auth.uid, in .data.members, and in scalar list literals', () => {
