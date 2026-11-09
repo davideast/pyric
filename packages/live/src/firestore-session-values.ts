@@ -24,18 +24,18 @@ import {
 import type { ObservedFirestoreSessionOp } from './session-data.js';
 
 /** The deepest nesting a session copy keeps; the host refuses deeper. */
-const MAX_SESSION_DEPTH = 20;
+export const MAX_SESSION_DEPTH = 20;
 /** The longest document path a session op names. */
 const MAX_DOC_PATH_LENGTH = 1024;
 /** The most segments a document path has. */
 const MAX_DOC_PATH_SEGMENTS = 32;
 /** The longest field path read from a string `mergeFields` entry. */
-const MAX_FIELD_PATH_LENGTH = 512;
+export const MAX_FIELD_PATH_LENGTH = 512;
 
 const OMIT_WRITE_SENTINEL: unique symbol = Symbol('omit-write-sentinel');
-const DELETE_FIELD_SENTINEL: unique symbol = Symbol('delete-field-sentinel');
-const OVER_BUDGET: unique symbol = Symbol('over-budget');
-const UNSUPPORTED: unique symbol = Symbol('unsupported');
+export const DELETE_FIELD_SENTINEL: unique symbol = Symbol('delete-field-sentinel');
+export const OVER_BUDGET: unique symbol = Symbol('over-budget');
+export const UNSUPPORTED: unique symbol = Symbol('unsupported');
 export const FORBIDDEN_SESSION_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** A copied value, or why it was left out. */
@@ -49,8 +49,8 @@ export interface SessionWriteFields {
   readonly deleteFields?: string[];
 }
 
-const OVERSIZED_RESULT = { ok: false, reason: 'oversized' } as const;
-const UNSUPPORTED_RESULT = { ok: false, reason: 'unsupported' } as const;
+export const OVERSIZED_RESULT = { ok: false, reason: 'oversized' } as const;
+export const UNSUPPORTED_RESULT = { ok: false, reason: 'unsupported' } as const;
 
 /** A fresh budget for one observed document. */
 export function itemBudget(): SessionBudget {
@@ -105,25 +105,25 @@ function fieldPathString(raw: unknown): string | undefined {
 }
 
 /** Whether a dotted field path has an empty or forbidden segment. */
-function isUnsafeFieldPath(fieldPath: string): boolean {
+export function isUnsafeFieldPath(fieldPath: string): boolean {
   return fieldPath.split('.').some((seg) => seg.length === 0 || FORBIDDEN_SESSION_KEYS.has(seg));
 }
 
 /** A serialized SDK value, charged at its JSON size, or `OVER_BUDGET`. */
-function charged(budget: SessionBudget, value: unknown): unknown {
+export function charged(budget: SessionBudget, value: unknown): unknown {
   if (!chargeJson(budget, value)) return OVER_BUDGET;
   return value;
 }
 
 /** Records a `deleteField()` path, charged as the string the op carries. */
-function noteDeleteField(deleteFields: string[] | undefined, fieldPath: string, budget: SessionBudget): void {
+export function noteDeleteField(deleteFields: string[] | undefined, fieldPath: string, budget: SessionBudget): void {
   if (deleteFields === undefined) return;
   chargeString(budget, fieldPath);
   deleteFields.push(fieldPath);
 }
 
 /** The JSON form of an SDK `Timestamp`, `GeoPoint`, `Bytes`, `VectorValue` or `DocumentReference`, or undefined for any other object. */
-function serializedSdkValue(value: object): unknown {
+export function serializedSdkValue(value: object): unknown {
   // Firestore Timestamp (`seconds`, `nanoseconds`, `toMillis` / `toDate`)
   const seconds: unknown = Reflect.get(value, 'seconds');
   const nanoseconds: unknown = Reflect.get(value, 'nanoseconds');
@@ -174,7 +174,7 @@ function serializedSdkValue(value: object): unknown {
 }
 
 /** The JSON form of a `Date` or `Uint8Array`, or undefined for any other object. */
-function serializedBuiltIn(value: object): unknown {
+export function serializedBuiltIn(value: object): unknown {
   if (value instanceof Date) {
     const ms = value.getTime();
     if (!Number.isFinite(ms)) return UNSUPPORTED;
@@ -271,7 +271,7 @@ function sessionEntriesCopy(
 }
 
 /** A copy's result, from what `sessionValueCopy` returned. */
-function resultOf<T>(copied: unknown, budget: SessionBudget): SessionCopyResult<T> {
+export function resultOf<T>(copied: unknown, budget: SessionBudget): SessionCopyResult<T> {
   if (copied === OVER_BUDGET || budget.left < 0) return OVERSIZED_RESULT;
   if (copied === UNSUPPORTED) return UNSUPPORTED_RESULT;
   return { ok: true, value: copied as T };
@@ -298,7 +298,7 @@ export function sessionWriteFields(value: unknown, budget: SessionBudget = itemB
   return { ok: true, value: fields };
 }
 
-function readNestedAtFieldPath(source: object, dottedPath: string): { found: boolean; value: unknown } {
+export function readNestedAtFieldPath(source: object, dottedPath: string): { found: boolean; value: unknown } {
   const parts = dottedPath.split('.');
   let cursor: unknown = source;
   for (const part of parts) {
@@ -350,7 +350,7 @@ class UpdateFields {
 }
 
 /** The `mergeFields` a `setDoc` option names, or undefined when it names none. */
-function mergeFieldsOf(rawOptions: unknown): unknown[] | undefined {
+export function mergeFieldsOf(rawOptions: unknown): unknown[] | undefined {
   if (!isObject(rawOptions)) return undefined;
   const mergeFields: unknown = Reflect.get(rawOptions, 'mergeFields');
   if (!Array.isArray(mergeFields)) return undefined;
