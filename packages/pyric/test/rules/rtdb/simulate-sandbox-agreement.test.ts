@@ -1,20 +1,26 @@
 import { describe, expect, test } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 import {
   endAt,
   equalTo,
   get,
+  getAdminDatabase,
   getDatabase,
+  goOffline,
   limitToFirst,
+  onDisconnect,
   orderByChild,
   orderByKey,
   orderByValue,
   query,
   ref,
+  runTransaction,
   sandbox,
   increment,
   serverTimestamp,
   set,
+  setPriority,
+  setWithPriority,
   startAt,
   update,
   type QueryConstraint,
@@ -391,6 +397,160 @@ describe('RTDB simulate normalizes arrays, empty objects, and pruned priorities 
       newData: {},
     });
     expect(explainResult.decision).toBe('ALLOW');
+  });
+});
+
+describe('RTDB inline and explicit .priority server values resolve before validation', () => {
+  test('denies serverTimestamp() and increment() priorities under newData.getPriority() === null', async () => {
+    const fixedNow = 1_700_000_000_000;
+    const nullPriorityRules = {
+      rules: {
+        items: {
+          $id: {
+            '.read': true,
+            '.write': 'auth != null',
+            '.validate': 'newData.getPriority() === null',
+          },
+        },
+      },
+    };
+
+    const box = initializeSandbox();
+    getClock(box).set(fixedNow);
+    const db = getDatabase(box.withAuth({ uid: 'u1' }));
+    const admin = getAdminDatabase(box);
+    sandbox.setRules(db, nullPriorityRules);
+
+    const simTs = rtdbRules(nullPriorityRules).explain({
+      operation: 'write',
+      path: '/items/i1',
+      auth: { uid: 'u1', token: {} },
+      now: fixedNow,
+      newData: { title: 'doc', '.priority': serverTimestamp() },
+      expectation: 'DENY',
+    });
+    expect(simTs.decision).toBe('DENY');
+
+    await expect(
+      set(ref(db, 'items/i1'), { title: 'doc', '.priority': serverTimestamp() }),
+    ).rejects.toThrow('PERMISSION_DENIED');
+    expect((await get(ref(admin, 'items/i1'))).exists()).toBe(false);
+
+    await expect(
+      set(ref(db, 'items/i2'), { '.value': 'doc', '.priority': increment(5) }),
+    ).rejects.toThrow('PERMISSION_DENIED');
+    expect((await get(ref(admin, 'items/i2'))).exists()).toBe(false);
+  });
+
+  test('resolves serverTimestamp() priority to now across set, update, runTransaction, onDisconnect, setWithPriority, and setPriority', async () => {
+    const fixedNow = 1_700_000_000_000;
+    const priorityNowRules = {
+      rules: {
+        items: {
+          $id: {
+            '.read': true,
+            '.write': 'auth != null',
+            '.validate': 'newData.getPriority() === now',
+          },
+        },
+      },
+    };
+
+    const box = initializeSandbox();
+    getClock(box).set(fixedNow);
+    const db = getDatabase(box.withAuth({ uid: 'u1' }));
+    const admin = getAdminDatabase(box);
+    sandbox.setRules(db, priorityNowRules);
+
+    const simAllow = rtdbRules(priorityNowRules).explain({
+      operation: 'write',
+      path: '/items/i1',
+      auth: { uid: 'u1', token: {} },
+      now: fixedNow,
+      newData: { title: 'doc', '.priority': serverTimestamp() },
+      expectation: 'ALLOW',
+    });
+    expect(simAllow.decision).toBe('ALLOW');
+
+    await set(ref(db, 'items/i1'), { title: 'doc', '.priority': serverTimestamp() });
+    expect((await get(ref(admin, 'items/i1'))).priority).toBe(fixedNow);
+
+    await update(ref(db, 'items'), {
+      i2: { title: 'doc', '.priority': serverTimestamp() },
+    });
+    expect((await get(ref(admin, 'items/i2'))).priority).toBe(fixedNow);
+
+    const tx = await runTransaction(ref(db, 'items/i3'), () => ({
+      title: 'doc',
+      '.priority': serverTimestamp(),
+    }));
+    expect(tx.committed).toBe(true);
+    expect(tx.snapshot.priority).toBe(fixedNow);
+
+    await onDisconnect(ref(db, 'items/i4')).set({
+      title: 'doc',
+      '.priority': serverTimestamp(),
+    });
+    goOffline(db);
+    const odSnap = await get(ref(admin, 'items/i4'));
+    expect(odSnap.exists()).toBe(true);
+    expect(odSnap.priority).toBe(fixedNow);
+
+    const boxExplicit = initializeSandbox();
+    getClock(boxExplicit).set(fixedNow);
+    const dbExplicit = getDatabase(boxExplicit.withAuth({ uid: 'u1' }));
+    const adminExplicit = getAdminDatabase(boxExplicit);
+    await set(ref(adminExplicit, 'items/i6'), { title: 'seeded' });
+    sandbox.setRules(dbExplicit, priorityNowRules);
+
+    await setWithPriority(ref(dbExplicit, 'items/i5'), { title: 'doc' }, serverTimestamp() as unknown as number);
+    expect((await get(ref(adminExplicit, 'items/i5'))).priority).toBe(fixedNow);
+
+    await setPriority(ref(dbExplicit, 'items/i6'), serverTimestamp() as unknown as number);
+    expect((await get(ref(adminExplicit, 'items/i6'))).priority).toBe(fixedNow);
+  });
+
+  test('resolves increment(delta) in inline .priority from 0 and from prior leaf or object priority in both simulate and sandbox', async () => {
+    const incRules = {
+      rules: {
+        items: {
+          $id: {
+            '.read': true,
+            '.write': 'auth != null',
+            '.validate': 'newData.getPriority() === (data.exists() ? data.getPriority() + 5 : 5)',
+          },
+        },
+      },
+    };
+
+    const simLeafStep = rtdbRules(incRules).explain({
+      operation: 'write',
+      path: '/items/i1',
+      auth: { uid: 'u1', token: {} },
+      data: { items: { i1: { '.value': 'doc', '.priority': 5 } } },
+      newData: { '.value': 'doc2', '.priority': increment(5) },
+      expectation: 'ALLOW',
+    });
+    expect(simLeafStep.decision).toBe('ALLOW');
+
+    const box = initializeSandbox();
+    const db = getDatabase(box.withAuth({ uid: 'u1' }));
+    const admin = getAdminDatabase(box);
+    sandbox.setRules(db, incRules);
+
+    await set(ref(db, 'items/i1'), { '.value': 'doc', '.priority': increment(5) });
+    expect((await get(ref(admin, 'items/i1'))).priority).toBe(5);
+
+    await set(ref(db, 'items/i1'), { '.value': 'doc2', '.priority': increment(5) });
+    expect((await get(ref(admin, 'items/i1'))).priority).toBe(10);
+
+    await set(ref(db, 'items/i2'), { title: 'obj', '.priority': increment(5) });
+    expect((await get(ref(admin, 'items/i2'))).priority).toBe(5);
+
+    await update(ref(db, 'items'), {
+      i2: { title: 'obj2', '.priority': increment(5) },
+    });
+    expect((await get(ref(admin, 'items/i2'))).priority).toBe(10);
   });
 });
 

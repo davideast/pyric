@@ -2,7 +2,7 @@ import type { Sandbox } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
 import { getClock } from 'pyric/sandbox/internal';
 import { sdkActivity } from '../../sandbox/internal/sdk-activity.js';
-import { DataTree, pathSegments } from './data-tree.js';
+import { DataTree, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import { withPriorities, type InlinePriority } from './normalize.js';
 import type { QuerySpec } from '../internal/query-projection.js';
 import { loadsAllData, logDatabaseWarning, unspecifiedIndexWarning } from './query-index.js';
@@ -43,6 +43,32 @@ export class BackendState {
   rulesSnapshot(): Record<string, unknown> {
     const entries = [...this.priorities.entries()].map(([path, priority]) => ({ segments: pathSegments(path), priority }));
     return withPriorities(this.tree.snapshot(), entries) as Record<string, unknown>;
+  }
+
+  /**
+   * The stored subtree at `path` with its own and descendant `.priority`
+   * metadata attached, so sentinel resolution reads prior priorities too.
+   */
+  rulesSnapshotAt(path: string): JsonValue {
+    const value = this.tree.read(path);
+    const entries = [{ segments: [], priority: this.priorities.get(path) }, ...this.prioritiesBelow(path)];
+    return withPriorities(value, entries);
+  }
+
+  /**
+   * Clear `.priority` on any proper ancestor of `path` that holds a primitive
+   * leaf before a non-null descendant write promotes that ancestor to an object.
+   */
+  clearPromotedAncestorPriorities(path: string, value: JsonValue): void {
+    if (value === null) return;
+    const segments = pathSegments(path);
+    for (let depth = 0; depth < segments.length; depth += 1) {
+      const ancestor = joinPath(segments.slice(0, depth));
+      const current = this.tree.read(ancestor);
+      if (current !== null && typeof current !== 'object') {
+        this.priorities.set(ancestor, null);
+      }
+    }
   }
 
   /** The stored priorities strictly below `path`, relative to it. */

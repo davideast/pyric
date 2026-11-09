@@ -61,6 +61,13 @@ function unwrapNodeValue(node: unknown): unknown {
   return node;
 }
 
+function nodePriority(node: unknown): unknown {
+  if (node !== null && typeof node === 'object' && !Array.isArray(node) && Object.hasOwn(node, '.priority')) {
+    return (node as Record<string, unknown>)['.priority'];
+  }
+  return undefined;
+}
+
 export function resolveSentinels(value: unknown, now: number, current?: unknown): unknown {
   const rawCurrent = unwrapNodeValue(current);
   if (isServerTimestampSentinel(value)) return now;
@@ -81,8 +88,20 @@ export function resolveSentinels(value: unknown, now: number, current?: unknown)
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    const childCurrent = k === '.value' ? rawCurrent : curObj?.[k];
-    out[k] = resolveSentinels(v, now, childCurrent);
+    let childCurrent: unknown;
+    if (k === '.value') {
+      childCurrent = rawCurrent;
+    } else if (k === '.priority') {
+      childCurrent = nodePriority(current);
+    } else if (curObj !== undefined && Object.hasOwn(curObj, k)) {
+      childCurrent = curObj[k];
+    }
+    Object.defineProperty(out, k, {
+      value: resolveSentinels(v, now, childCurrent),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return out;
 }
