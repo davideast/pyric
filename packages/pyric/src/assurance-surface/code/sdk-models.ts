@@ -274,27 +274,59 @@ function buildRefsFromBases(
   return union(out);
 }
 
-function evalRefConstructor(
+function applyRefPassthrough(
   ev: Evaluator,
+  targetVal: AVal,
+  service: AssuranceService,
+  name: string,
+  call: ts.CallExpression,
+  admin = false,
+): AVal {
+  const out: AVal[] = [];
+  for (const alt of alternatives(ev.force(targetVal))) {
+    if (alt.k === 'ref' && alt.service === service) {
+      const next: RefVal = {
+        ...alt,
+        built: [...alt.built, call],
+      };
+      if (admin || alt.admin) next.admin = true;
+      if (alt.baseRef && (admin || alt.baseRef.admin)) {
+        next.baseRef = { ...alt.baseRef, admin: true };
+      }
+      out.push(next);
+    } else if (alt.k === 'unknown') {
+      out.push(unknown(`${name}() base was not traced: ${alt.reason}`));
+    }
+  }
+  if (out.length === 0) return unknown(`${name}() on a value that is not a ${service} ref`);
+  return union(out);
+}
+
+function evalCollectionGroupFromBases(
+  ev: Evaluator,
+  bases: readonly BaseRefOrigin[],
   service: AssuranceService,
   name: string,
   spec: RefConstructorSpec,
   call: ts.CallExpression,
-  arg: (i: number) => AVal,
-  admin = false,
+  rawId: AVal,
+  idExpr: ts.Expression | undefined,
 ): AVal {
-  if (spec.mode === 'collectionGroup') {
-    const bases = baseRefs(ev, arg(0), service, name, admin);
-    const rawId = arg(1);
-    const idFromCallers = containsCallerSymbol(rawId);
-    const idVal = ev.force(rawId);
-    const litId = literalText(idVal);
-    const id = litId ?? expressionName(call.arguments[1]);
-    const segments: Segment[] = [[hole('path=**')], [{ kind: 'lit', text: id }]];
-    const out: AVal[] = [];
-    for (const base of bases) {
+  const idFromCallers = containsCallerSymbol(rawId);
+  const idAlts = alternatives(ev.force(rawId)).slice(0, 32);
+  const effectiveIdAlts: AVal[] = idAlts.length > 0 ? idAlts : [unknown('empty collection group id')];
+  const fallbackId = expressionName(idExpr);
+  const out: AVal[] = [];
+  for (const base of bases) {
+    for (const idAlt of effectiveIdAlts) {
+      const litId = literalText(idAlt);
+      const leafSeg: Segment =
+        litId !== null && litId.length > 0 ? [{ kind: 'lit', text: litId }] : [hole(fallbackId)];
+      const segments: Segment[] = [[hole('path=**')], leafSeg];
       const notes = [...base.notes];
-      if (litId === null) notes.push(`collection group id '${id}' was not traced`);
+      if (litId === null || litId.length === 0) {
+        notes.push(`collection group id '${fallbackId}' was not traced`);
+      }
       const ref: RefVal = {
         k: 'ref',
         service,
@@ -308,8 +340,26 @@ function evalRefConstructor(
       if (base.admin) ref.admin = true;
       out.push(ref);
     }
-    if (out.length === 0) return unknown(`${name}() on a value that is not a ${service} handle`);
-    return union(out);
+  }
+  if (out.length === 0) return unknown(`${name}() on a value that is not a ${service} handle`);
+  return union(out);
+}
+
+function evalRefConstructor(
+  ev: Evaluator,
+  service: AssuranceService,
+  name: string,
+  spec: RefConstructorSpec,
+  call: ts.CallExpression,
+  arg: (i: number) => AVal,
+  admin = false,
+): AVal {
+  if (spec.mode === 'passthrough') {
+    return applyRefPassthrough(ev, arg(0), service, name, call, admin);
+  }
+  if (spec.mode === 'collectionGroup') {
+    const bases = baseRefs(ev, arg(0), service, name, admin);
+    return evalCollectionGroupFromBases(ev, bases, service, name, spec, call, arg(1), call.arguments[1]);
   }
   if (spec.mode === 'url') {
     if (call.arguments.length === 1) {
@@ -382,7 +432,16 @@ function serviceCall(
   if (receiverSpec) {
     let ref: AVal | undefined;
     if (receiverSpec.refArgIndex !== undefined) ref = arg(receiverSpec.refArgIndex);
-    return { k: 'receiver', service: model.service, receiverKind: receiverSpec.receiverKind, ref };
+    const firstArgAlts = call.arguments.length > 0 ? alternatives(ev.force(arg(0))) : [];
+    const argIsAdmin = firstArgAlts.some((a) => (a.k === 'db' || a.k === 'ref') && Boolean(a.admin));
+    const outReceiver: Extract<AVal, { k: 'receiver' }> = {
+      k: 'receiver',
+      service: model.service,
+      receiverKind: receiverSpec.receiverKind,
+      ref,
+    };
+    if (admin || argIsAdmin) outReceiver.admin = true;
+    return outReceiver;
   }
   const fieldValue = ownRecordValue(model.fieldValues, name);
   if (fieldValue) {
@@ -432,8 +491,19 @@ export function serviceMemberCall(
         out.push(evalHandleFactory(ev, r.service, methodName, subSpec, call, arg, Boolean(r.admin)));
         continue;
       }
+      const receiverSpec = ownRecordValue(model?.handleReceiverMethods, methodName);
+      if (receiverSpec) {
+        const outReceiver: Extract<AVal, { k: 'receiver' }> = {
+          k: 'receiver',
+          service: r.service,
+          receiverKind: receiverSpec.receiverKind,
+        };
+        if (r.admin) outReceiver.admin = true;
+        out.push(outReceiver);
+        continue;
+      }
       const refSpec = ownRecordValue(model?.handleRefMethods, methodName);
-      if (refSpec) {
+      if (refSpec && refSpec.allowOnHandle !== false) {
         const origin: BaseRefOrigin = {
           prefix: [],
           resourceId: r.resourceId,
@@ -442,6 +512,29 @@ export function serviceMemberCall(
           fromCallers: Boolean(r.fromCallers),
           admin: Boolean(r.admin),
         };
+        if (refSpec.mode === 'collectionGroup') {
+          out.push(
+            evalCollectionGroupFromBases(
+              ev,
+              [origin],
+              r.service,
+              methodName,
+              refSpec,
+              call,
+              arg(0),
+              call.arguments[0],
+            ),
+          );
+          continue;
+        }
+        if (call.arguments.length === 0 && refSpec.singleArgAppendHole) {
+          out.push(
+            buildRefsFromBases(ev, [origin], r.service, refSpec.refKind, call, arg, methodName, 0, 0, false, [
+              hole(refSpec.singleArgAppendHole),
+            ]),
+          );
+          continue;
+        }
         let end = call.arguments.length;
         if (refSpec.pathArgsEnd !== undefined) end = Math.min(call.arguments.length, refSpec.pathArgsEnd);
         let append: Segment | undefined;
@@ -452,8 +545,24 @@ export function serviceMemberCall(
       }
     } else if (r.k === 'ref') {
       const model = ev.sdk.serviceModel(r.service);
+      const receiverSpec = ownRecordValue(model?.handleReceiverMethods, methodName);
+      if (receiverSpec) {
+        const outReceiver: Extract<AVal, { k: 'receiver' }> = {
+          k: 'receiver',
+          service: r.service,
+          receiverKind: receiverSpec.receiverKind,
+          ref: r,
+        };
+        if (r.admin) outReceiver.admin = true;
+        out.push(outReceiver);
+        continue;
+      }
       const refSpec = ownRecordValue(model?.handleRefMethods, methodName);
-      if (refSpec) {
+      if (refSpec && refSpec.allowOnRef !== false) {
+        if (refSpec.mode === 'passthrough') {
+          out.push(applyRefPassthrough(ev, r, r.service, methodName, call, Boolean(r.admin)));
+          continue;
+        }
         const origin: BaseRefOrigin = {
           prefix: r.segments,
           resourceId: r.resourceId,
@@ -463,6 +572,14 @@ export function serviceMemberCall(
           fromCallers: Boolean(r.fromCallers),
           admin: Boolean(r.admin),
         };
+        if (call.arguments.length === 0 && refSpec.singleArgAppendHole) {
+          out.push(
+            buildRefsFromBases(ev, [origin], r.service, refSpec.refKind, call, arg, methodName, 0, 0, false, [
+              hole(refSpec.singleArgAppendHole),
+            ]),
+          );
+          continue;
+        }
         let end = call.arguments.length;
         if (refSpec.pathArgsEnd !== undefined) end = Math.min(call.arguments.length, refSpec.pathArgsEnd);
         let append: Segment | undefined;
@@ -470,11 +587,72 @@ export function serviceMemberCall(
         out.push(
           buildRefsFromBases(ev, [origin], r.service, refSpec.refKind, call, arg, methodName, 0, end, refSpec.mode === 'url', append),
         );
+        continue;
+      }
+      const constraintSpec =
+        model?.chainedConstraints && !methodName.includes('.')
+          ? ownRecordValue(model.constraints, methodName)
+          : undefined;
+      if (constraintSpec) {
+        const cVal = evalConstraintCall(ev, constraintSpec, call, arg, env);
+        for (const cAlt of alternatives(ev.force(cVal))) {
+          const c = cAlt.k === 'constraint' ? cAlt.value : { kind: 'unknown' };
+          out.push({
+            ...r,
+            built: [...r.built, call],
+            constraints: [...(r.constraints ?? []), c],
+            baseRef: r.baseRef ?? r,
+            firstQueryCall: r.firstQueryCall ?? call,
+            queryCall: call,
+          } satisfies RefVal);
+        }
+      }
+    } else if (r.k === 'receiver') {
+      const receiverTable = ownRecordValue(ev.sdk.serviceModel(r.service)?.receiverMethods, r.receiverKind);
+      const methodSpec = ownRecordValue(receiverTable, methodName);
+      if (methodSpec && methodSpec.write && !methodSpec.usesReceiverRef) {
+        out.push(r);
       }
     }
   }
   if (out.length === 0) return undefined;
   return union(out);
+}
+
+/** The value a handle method (`db.runTransaction(...)`, `ref.transaction(...)`) passes to its callback parameter. */
+export function memberCallbackParameter(
+  ev: Evaluator,
+  call: ts.CallExpression,
+  argIndex: number,
+  paramIndex: number,
+): AVal | undefined {
+  if (!ts.isPropertyAccessExpression(call.expression) || argIndex !== 0) return undefined;
+  const methodName = call.expression.name.text;
+  const receiverVal = ev.force(ev.eval(call.expression.expression));
+  const out: AVal[] = [];
+  for (const r of alternatives(receiverVal)) {
+    if (r.k === 'db') {
+      const model = ev.sdk.serviceModel(r.service);
+      const callbackSpecs = ownRecordValue(model?.callbackReceivers, methodName);
+      if (callbackSpecs && Object.hasOwn(callbackSpecs, paramIndex)) {
+        const receiverKind = callbackSpecs[paramIndex];
+        if (receiverKind !== undefined) {
+          const rec: Extract<AVal, { k: 'receiver' }> = {
+            k: 'receiver',
+            service: r.service,
+            receiverKind,
+          };
+          if (r.admin) rec.admin = true;
+          out.push(rec);
+        }
+      } else if (methodName === 'runTransaction') {
+        out.push(unknown('current value inside a transaction'));
+      }
+    } else if (r.k === 'ref' && methodName === 'transaction') {
+      out.push(unknown('current value inside a transaction'));
+    }
+  }
+  return out.length > 0 ? union(out) : undefined;
 }
 
 /** The value an SDK passes to a callback's parameter. */
@@ -492,7 +670,13 @@ export function apiCallbackParameter(ev: Evaluator, api: Api, paramIndex: number
     if (callbackSpecs && Object.hasOwn(callbackSpecs, paramIndex)) {
       const receiverKind = callbackSpecs[paramIndex];
       if (receiverKind !== undefined) {
-        return { k: 'receiver', service: model.service, receiverKind };
+        const rec: Extract<AVal, { k: 'receiver' }> = {
+          k: 'receiver',
+          service: model.service,
+          receiverKind,
+        };
+        if (api.admin) rec.admin = true;
+        return rec;
       }
     }
     if (api.name === 'runTransaction') return unknown('current value inside a transaction');

@@ -115,8 +115,19 @@ function moduleSpecifierText(node: ts.Node | undefined): string | undefined {
  * default import. Returns undefined for anything else.
  */
 export function sdkBinding(checker: ts.TypeChecker, symbol: ts.Symbol, table: SdkTable): AVal | undefined {
+  return sdkBindingSeen(checker, symbol, table, new Set());
+}
+
+function sdkBindingSeen(
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol,
+  table: SdkTable,
+  visitedSymbols: Set<ts.Symbol>,
+): AVal | undefined {
   let current: ts.Symbol | undefined = symbol;
-  for (let hop = 0; current && hop < 12; hop++) {
+  for (let hop = 0; current && hop < 32; hop++) {
+    if (visitedSymbols.has(current)) return undefined;
+    visitedSymbols.add(current);
     if (!(current.flags & ts.SymbolFlags.Alias)) return undefined;
     const decl = current.declarations?.[0];
     if (!decl) return undefined;
@@ -128,10 +139,21 @@ export function sdkBinding(checker: ts.TypeChecker, symbol: ts.Symbol, table: Sd
     } catch {
       next = undefined;
     }
-    if (!next || next === current) return starReexport(checker, decl, table);
+    if (!next || next === current) {
+      return reexportBinding(checker, decl, table, visitedSymbols, new Set());
+    }
     current = next;
   }
   return undefined;
+}
+
+function namespaceExport(spec: string | undefined, table: SdkTable): AVal | undefined {
+  let mod: ApiModule | undefined;
+  if (spec !== undefined) mod = table.moduleOf(spec);
+  if (!mod) return undefined;
+  const out: Extract<AVal, { k: 'ns' }> = { k: 'ns', module: mod };
+  if (spec !== undefined && table.isAdminModule(spec)) out.admin = true;
+  return out;
 }
 
 function bindingFromDeclaration(decl: ts.Declaration, table: SdkTable): AVal | undefined {
@@ -142,12 +164,11 @@ function bindingFromDeclaration(decl: ts.Declaration, table: SdkTable): AVal | u
   }
   if (ts.isNamespaceImport(decl)) {
     const spec = moduleSpecifierText(decl.parent.parent.moduleSpecifier);
-    let mod: ApiModule | undefined;
-    if (spec !== undefined) mod = table.moduleOf(spec);
-    if (!mod) return undefined;
-    const out: Extract<AVal, { k: 'ns' }> = { k: 'ns', module: mod };
-    if (spec !== undefined && table.isAdminModule(spec)) out.admin = true;
-    return out;
+    return namespaceExport(spec, table);
+  }
+  if (ts.isNamespaceExport(decl)) {
+    const spec = moduleSpecifierText(decl.parent.moduleSpecifier);
+    return namespaceExport(spec, table);
   }
   if (ts.isImportClause(decl)) {
     // Default import: only React's default export is modelled (`React.useState`).
@@ -174,24 +195,123 @@ function namedExport(spec: string | undefined, name: string, table: SdkTable): A
   return out;
 }
 
-/**
- * `import { doc } from './firebase'` where `./firebase` does
- * `export * from 'firebase/firestore'`: the checker can't see the
- * export (the SDK module is deliberately unresolved), so look for the
- * star re-export in the in-project module.
- */
-function starReexport(checker: ts.TypeChecker, decl: ts.Declaration, table: SdkTable): AVal | undefined {
-  if (!ts.isImportSpecifier(decl)) return undefined;
-  const importDecl = decl.parent.parent.parent;
-  const moduleSymbol = checker.getSymbolAtLocation(importDecl.moduleSpecifier);
+function sourceFileFromModuleSpecifier(
+  checker: ts.TypeChecker,
+  moduleSpecNode: ts.Expression | undefined,
+): ts.SourceFile | undefined {
+  if (!moduleSpecNode) return undefined;
+  const moduleSymbol = checker.getSymbolAtLocation(moduleSpecNode);
   const sf = moduleSymbol?.valueDeclaration;
-  if (!sf || !ts.isSourceFile(sf)) return undefined;
-  const name = (decl.propertyName ?? decl.name).text;
+  return sf && ts.isSourceFile(sf) ? sf : undefined;
+}
+
+function resolveStarNamespaceFromModule(
+  checker: ts.TypeChecker,
+  moduleSpecNode: ts.Expression | undefined,
+  table: SdkTable,
+  visitedFiles: Set<string>,
+): AVal | undefined {
+  const direct = namespaceExport(moduleSpecifierText(moduleSpecNode), table);
+  if (direct) return direct;
+  const sf = sourceFileFromModuleSpecifier(checker, moduleSpecNode);
+  if (!sf || visitedFiles.has(sf.fileName)) return undefined;
+  visitedFiles.add(sf.fileName);
   for (const stmt of sf.statements) {
     if (ts.isExportDeclaration(stmt) && !stmt.exportClause) {
-      const found = namedExport(moduleSpecifierText(stmt.moduleSpecifier), name, table);
+      const found = resolveStarNamespaceFromModule(checker, stmt.moduleSpecifier, table, visitedFiles);
       if (found) return found;
     }
+  }
+  return undefined;
+}
+
+function resolveExportFromModule(
+  checker: ts.TypeChecker,
+  moduleSpecNode: ts.Expression | undefined,
+  exportName: string,
+  table: SdkTable,
+  visitedSymbols: Set<ts.Symbol>,
+  visitedExports: Set<string>,
+): AVal | undefined {
+  const direct = namedExport(moduleSpecifierText(moduleSpecNode), exportName, table);
+  if (direct) return direct;
+  const sf = sourceFileFromModuleSpecifier(checker, moduleSpecNode);
+  if (!sf) return undefined;
+  const visitKey = `${sf.fileName}#${exportName}`;
+  if (visitedExports.has(visitKey)) return undefined;
+  visitedExports.add(visitKey);
+
+  for (const stmt of sf.statements) {
+    if (!ts.isExportDeclaration(stmt)) continue;
+    if (!stmt.exportClause) {
+      const found = resolveExportFromModule(
+        checker,
+        stmt.moduleSpecifier,
+        exportName,
+        table,
+        visitedSymbols,
+        visitedExports,
+      );
+      if (found) return found;
+      continue;
+    }
+    if (ts.isNamespaceExport(stmt.exportClause)) {
+      if (stmt.exportClause.name.text === exportName) {
+        const found = resolveStarNamespaceFromModule(checker, stmt.moduleSpecifier, table, new Set());
+        if (found) return found;
+      }
+      continue;
+    }
+    if (ts.isNamedExports(stmt.exportClause)) {
+      for (const el of stmt.exportClause.elements) {
+        if (el.name.text !== exportName) continue;
+        if (stmt.moduleSpecifier) {
+          const innerName = (el.propertyName ?? el.name).text;
+          const found = resolveExportFromModule(
+            checker,
+            stmt.moduleSpecifier,
+            innerName,
+            table,
+            visitedSymbols,
+            visitedExports,
+          );
+          if (found) return found;
+        } else {
+          const localSym = checker.getExportSpecifierLocalTargetSymbol(el);
+          if (localSym) {
+            const found = sdkBindingSeen(checker, localSym, table, visitedSymbols);
+            if (found) return found;
+          }
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve re-exports across single- or multi-hop barrel modules (`export *`,
+ * `export * as ns`, and `export { ... }`) whose leaf SDK module is unresolved.
+ */
+function reexportBinding(
+  checker: ts.TypeChecker,
+  decl: ts.Declaration,
+  table: SdkTable,
+  visitedSymbols: Set<ts.Symbol>,
+  visitedExports: Set<string>,
+): AVal | undefined {
+  if (ts.isNamespaceExport(decl)) {
+    return resolveStarNamespaceFromModule(checker, decl.parent.moduleSpecifier, table, new Set());
+  }
+  if (ts.isImportSpecifier(decl)) {
+    const moduleSpecNode = decl.parent.parent.parent.moduleSpecifier;
+    const name = (decl.propertyName ?? decl.name).text;
+    return resolveExportFromModule(checker, moduleSpecNode, name, table, visitedSymbols, visitedExports);
+  }
+  if (ts.isExportSpecifier(decl)) {
+    const moduleSpecNode = decl.parent.parent.moduleSpecifier;
+    const name = (decl.propertyName ?? decl.name).text;
+    return resolveExportFromModule(checker, moduleSpecNode, name, table, visitedSymbols, visitedExports);
   }
   return undefined;
 }

@@ -104,6 +104,7 @@ export function operandOf(
     return { kind: 'literal', literal: text };
   }
   if (forced.k === 'arr') {
+    if (forced.open) return { kind: 'unknown' };
     return {
       kind: 'array',
       items: forced.items.map((item, idx) => operandOf(ev, item, arrayElementExpr(argExpr, idx))),
@@ -129,7 +130,7 @@ function argumentConstraintSequences(
 ): ConstraintValue[][] {
   if (ts.isSpreadElement(argNode)) {
     const spreadAlts = alternatives(ev.force(ev.eval(argNode.expression, env)));
-    if (spreadAlts.length > 0 && spreadAlts.every((a) => a.k === 'arr')) {
+    if (spreadAlts.length > 0 && spreadAlts.every((a) => a.k === 'arr' && !a.open)) {
       const sequences: ConstraintValue[][] = [];
       for (const arrAlt of spreadAlts) {
         if (arrAlt.k !== 'arr') continue;
@@ -287,6 +288,12 @@ export function evalConstraintCall(
         value: { kind: spec.kind, children },
       })),
     );
+  }
+  if (spec.kind === 'where' && call.arguments.length === 1) {
+    const firstForce = ev.force(arg(0));
+    if (alternatives(firstForce).some((a) => a.k === 'constraint')) {
+      return firstForce;
+    }
   }
   let fields: (string | undefined)[] = [undefined];
   if (spec.fieldArg !== undefined && call.arguments.length > spec.fieldArg) {

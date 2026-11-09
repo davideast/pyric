@@ -231,13 +231,89 @@ function keepsNonEmpty(arg: ts.Expression | undefined): boolean {
   return [p, `!!${p}`, `${p}.length>0`, `${p}.length`, `${p}!==''`, `${p}!==""`, `${p}!=''`].includes(text);
 }
 
-/** `filter`, `map`, `join`, and `pop`/`at(-1)` over bounded arrays. */
+function toAtIndex(alt: AVal): number | null {
+  switch (alt.k) {
+    case 'undefined':
+    case 'null':
+      return 0;
+    case 'bool':
+      return alt.value === undefined ? null : alt.value ? 1 : 0;
+    case 'num': {
+      if (alt.value === undefined) return null;
+      if (Number.isNaN(alt.value) || alt.value === 0) return 0;
+      if (!Number.isFinite(alt.value)) return alt.value;
+      return Math.trunc(alt.value);
+    }
+    case 'str': {
+      const text = literalText(alt);
+      if (text === null) return null;
+      const n = Number(text);
+      if (Number.isNaN(n) || n === 0) return 0;
+      if (!Number.isFinite(n)) return n;
+      return Math.trunc(n);
+    }
+    default:
+      return null;
+  }
+}
+
+function evalArrayAt(
+  ev: Evaluator,
+  arrAlts: readonly Extract<AVal, { k: 'arr' }>[],
+  args: readonly ts.Expression[],
+  env: Env | undefined,
+): AVal {
+  let indices: (number | null)[];
+  if (args.length === 0) {
+    indices = [0];
+  } else if (ts.isSpreadElement(args[0]!)) {
+    indices = [null];
+  } else {
+    const idxAlts = alternatives(ev.force(ev.eval(args[0]!, env)));
+    indices = idxAlts.length === 0 ? [null] : idxAlts.map(toAtIndex);
+  }
+
+  const out: AVal[] = [];
+  for (const arr of arrAlts) {
+    if (arr.open) {
+      out.push(...arr.items, { k: 'undefined' });
+      continue;
+    }
+    const len = arr.items.length;
+    if (len === 0) {
+      out.push({ k: 'undefined' });
+      continue;
+    }
+    for (const idx of indices) {
+      if (idx === null) {
+        out.push(...arr.items, { k: 'undefined' });
+        continue;
+      }
+      const resolved = idx < 0 ? len + idx : idx;
+      if (resolved < 0 || resolved >= len || !Number.isInteger(resolved)) {
+        out.push({ k: 'undefined' });
+      } else {
+        out.push(arr.items[resolved]!);
+      }
+    }
+  }
+  return union(out);
+}
+
+/** `filter`, `map`, `join`, `pop`, and index-aware `at` over bounded arrays. */
 function arrayMethod(ev: Evaluator, node: ts.CallExpression | ts.NewExpression, callee: ts.PropertyAccessExpression, env: Env | undefined): AVal | undefined {
   const method = callee.name.text;
   if (!['filter', 'map', 'join', 'pop', 'at'].includes(method)) return undefined;
   const receiver = ev.force(ev.eval(callee.expression, env));
-  if (receiver.k !== 'arr') return undefined;
   const args = node.arguments ?? ts.factory.createNodeArray<ts.Expression>();
+  if (method === 'at') {
+    const recvAlts = alternatives(receiver);
+    if (recvAlts.length === 0 || !recvAlts.every((a): a is Extract<AVal, { k: 'arr' }> => a.k === 'arr')) {
+      return undefined;
+    }
+    return evalArrayAt(ev, recvAlts as Extract<AVal, { k: 'arr' }>[], args, env);
+  }
+  if (receiver.k !== 'arr') return undefined;
   if (method === 'filter') {
     if (keepsNonEmpty(args[0])) {
       return { k: 'arr', items: receiver.items.filter((i) => literalText(i) !== '') };
@@ -266,7 +342,10 @@ function arrayMethod(ev: Evaluator, node: ts.CallExpression | ts.NewExpression, 
       items: receiver.items.map((item, idx) => ev.callFunction(fnAlt, [item, { k: 'num', value: idx }, receiver])),
     };
   }
-  if (method === 'pop' || method === 'at') return receiver.items[receiver.items.length - 1] ?? { k: 'undefined' };
+  if (method === 'pop') {
+    if (receiver.open) return union([...receiver.items, { k: 'undefined' }]);
+    return receiver.items[receiver.items.length - 1] ?? { k: 'undefined' };
+  }
   const sep = args[0] ? literalText(ev.force(ev.eval(args[0], env))) : ',';
   if (sep === null || !receiver.items.every((i) => i.k === 'str')) return undefined;
   let parts: StrPart[] = [];

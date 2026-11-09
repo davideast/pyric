@@ -14,6 +14,7 @@ import {
   literalText,
   union,
   unknown,
+  withDefaultInitializer,
   type AVal,
   type Env,
 } from './values.js';
@@ -108,13 +109,19 @@ export class CallInliner {
       if (p.dotDotDotToken) {
         v = { k: 'arr', items: args.slice(i) };
       } else if (i < args.length) {
-        v = p.initializer ? union([args[i], this.ev.eval(p.initializer, env)]) : args[i];
+        v = p.initializer
+          ? withDefaultInitializer(
+              args[i]!,
+              () => this.ev.eval(p.initializer!, env),
+              (val) => this.ev.force(val),
+            )
+          : args[i]!;
       } else if (p.initializer) {
         v = this.ev.eval(p.initializer, env);
       } else {
         v = { k: 'undefined' };
       }
-      this.ev.assignments.bindName(p.name, v, bindings);
+      this.ev.assignments.bindName(p.name, v, bindings, env);
     });
     for (const [sym, boundVal] of [...bindings.entries()]) {
       const callerVal = markCallerHandles(boundVal);

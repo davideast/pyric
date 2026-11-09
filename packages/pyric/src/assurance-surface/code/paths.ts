@@ -8,6 +8,11 @@
  * up with rules match patterns.
  */
 import ts from 'typescript';
+import {
+  parseResourcePattern,
+  type PatternSegment,
+  type ResourcePattern,
+} from '../../sandbox/internal/resource-pattern.js';
 import type { AccessService, AuthProvenance, PathVariable } from './types.js';
 import {
   alternatives,
@@ -87,6 +92,15 @@ function holeValue(part: StrPart): (() => AVal) | undefined {
   return (part as { resolveValue?: () => AVal }).resolveValue;
 }
 
+const UNION_HOLES = new WeakSet<StrPart>();
+
+/** True when an alternative is a concrete literal path segment (not a parameter or dynamic hole). */
+function isConcreteSegmentAlt(a: AVal): boolean {
+  if (a.k === 'str') return a.parts.every((p) => p.kind === 'lit');
+  if (a.k === 'num') return a.value !== undefined;
+  return false;
+}
+
 /** True when a string value's literal text contains a path separator. */
 function hasSeparator(v: AVal): boolean {
   return v.k === 'str' && v.parts.some((p) => p.kind === 'lit' && p.text.includes('/'));
@@ -94,8 +108,8 @@ function hasSeparator(v: AVal): boolean {
 
 /**
  * Split string parts into path segments on `/` in literal text. Holes
- * whose deferred value is a multi-segment string are expanded, one
- * alternative per possible value.
+ * whose deferred value is a multi-segment string or an expression union
+ * with concrete branches are expanded, one alternative per possible value.
  */
 export function partsToSegmentAlternatives(parts: StrPart[], force: (v: AVal) => AVal): Segment[][] {
   let partials: StrPart[][] = [[]];
@@ -103,7 +117,11 @@ export function partsToSegmentAlternatives(parts: StrPart[], force: (v: AVal) =>
     const deferred = p.kind === 'hole' ? holeValue(p) : undefined;
     if (deferred) {
       const alts = alternatives(force(deferred()));
-      if (alts.length > 0 && alts.some(hasSeparator) && alts.every((a) => a.k === 'str')) {
+      const shouldExpand =
+        alts.length > 0
+        && alts.every((a) => a.k === 'str')
+        && (alts.some(hasSeparator) || (UNION_HOLES.has(p) && alts.some(isConcreteSegmentAlt)));
+      if (shouldExpand) {
         const next: StrPart[][] = [];
         for (const prefix of partials) {
           for (const a of alts) {
@@ -161,7 +179,7 @@ export function segmentsOf(v: AVal, argNode: ts.Node | undefined, wholePath: boo
   let alts = alternatives(v);
   // `let path: string | undefined` guarded before use: an absent alternative beside real ones is not a root path.
   if (wholePath && alts.some((a) => a.k !== 'null' && a.k !== 'undefined')) alts = alts.filter((a) => a.k !== 'null' && a.k !== 'undefined');
-  if (alts.length > 1 && isOneSegmentChoice(alts, force)) {
+  if (alts.length > 1 && !wholePath && !alts.some(isConcreteSegmentAlt) && isOneSegmentChoice(alts, force)) {
     // `presence?.clientId || \`\${uid}:\${tab}\``: one variable segment, carrying every alternative's provenance.
     return [{ segments: [[hole(expressionName(argNode), authMarksOf(union(alts.map((a) => force(a)))), () => union(alts.map((a) => force(a))))]] }];
   }
@@ -239,7 +257,9 @@ function renamedHole(v: Extract<AVal, { k: 'str' }>, exprName: string): StrPart 
   const only = v.parts.length === 1 ? v.parts[0] : undefined;
   const name = exprName === 'value' && only && only.kind === 'hole' ? only.name : exprName;
   const deferred = only && only.kind === 'hole' ? holeValue(only) : undefined;
-  return hole(name, authMarksOf(v), deferred ?? (() => v));
+  const out = hole(name, authMarksOf(v), deferred ?? (() => v));
+  if (only && only.kind === 'hole' && UNION_HOLES.has(only)) UNION_HOLES.add(out);
+  return out;
 }
 
 /** True when a hole's deferred value may be a multi-segment path. */
@@ -272,9 +292,41 @@ export function interpolate(v: AVal, exprNode: ts.Node, force: (v: AVal) => AVal
     return [hole(v.name, authMarksOf(force(v)), () => force(v))];
   }
   if (v.k === 'union') {
-    return [hole(name, authMarksOf(v), () => v)];
+    const out = hole(name, authMarksOf(v), () => v);
+    UNION_HOLES.add(out);
+    return [out];
   }
   return [hole(name)];
+}
+
+/** Build a {@link ResourcePattern} directly from evaluated segments so concrete `$`/`{...}` literals stay literals. */
+export function segmentsToResourcePattern(
+  service: AccessService,
+  segments: readonly Segment[],
+  resourceId?: string,
+): ResourcePattern {
+  const resolvedResourceId = parseResourcePattern(service, '', resourceId).resourceId;
+  const used = new Map<string, number>();
+  const out: PatternSegment[] = [];
+  for (const seg of segments) {
+    if (seg.every((p) => p.kind === 'lit')) {
+      const text = seg.map((p) => (p.kind === 'lit' ? p.text : '')).join('');
+      if (text.length > 0) out.push({ kind: 'lit', text });
+      continue;
+    }
+    if (seg.length === 1 && seg[0]!.kind === 'hole' && seg[0]!.name.endsWith('=**')) {
+      const rawName = seg[0]!.name.slice(0, -3);
+      out.push({ kind: 'rest', name: rawName.length > 0 ? rawName : 'path' });
+      continue;
+    }
+    const holes = seg.filter((p): p is Extract<StrPart, { kind: 'hole' }> => p.kind === 'hole');
+    let name = holes.map((h) => h.name).join('_');
+    const n = (used.get(name) ?? 0) + 1;
+    used.set(name, n);
+    if (n > 1) name = `${name}${n}`;
+    out.push({ kind: 'var', name });
+  }
+  return { service, resourceId: resolvedResourceId, segments: out };
 }
 
 /** Render a ref's segments as a template, with its variables. */

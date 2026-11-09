@@ -13,7 +13,15 @@ import {
   identifierSequentialValue,
   trySequentialReassignments,
 } from './sequential-assignments.js';
-import { alternatives, literalText, union, unknown, type AVal, type Env } from './values.js';
+import {
+  alternatives,
+  literalText,
+  union,
+  unknown,
+  withDefaultInitializer,
+  type AVal,
+  type Env,
+} from './values.js';
 
 type FunctionLike = ts.SignatureDeclaration & { body?: ts.ConciseBody };
 
@@ -239,10 +247,25 @@ export class AssignmentResolver {
     } else {
       return unknown('destructuring source not traced');
     }
+    const forcedSource = this.ev.force(source);
     let v: AVal;
-    if (typeof key === 'number') v = this.ev.members.indexOf(source, key);
-    else v = this.ev.members.memberOf(source, key, undefined);
-    if (be.initializer) v = union([v, this.ev.eval(be.initializer, env)]);
+    let isOptionalProp = false;
+    if (typeof key === 'number') {
+      v = this.ev.members.indexOf(forcedSource, key);
+    } else {
+      v = this.ev.members.memberOf(forcedSource, key, undefined);
+      isOptionalProp = alternatives(forcedSource).some(
+        (a) => a.k === 'obj' && a.optional.has(key),
+      );
+    }
+    if (be.initializer) {
+      v = withDefaultInitializer(
+        v,
+        () => this.ev.eval(be.initializer!, env),
+        (val) => this.ev.force(val),
+        isOptionalProp,
+      );
+    }
     return v;
   }
 
@@ -280,26 +303,41 @@ export class AssignmentResolver {
     return union(values);
   }
 
-  bindName(name: ts.BindingName, v: AVal, bindings: Map<ts.Symbol, AVal>): void {
+  bindName(name: ts.BindingName, v: AVal, bindings: Map<ts.Symbol, AVal>, env?: Env): void {
     if (ts.isIdentifier(name)) {
       const sym = this.ev.checker.getSymbolAtLocation(name);
       if (sym) bindings.set(sym, v);
       return;
     }
+    const forcedSource = this.ev.force(v);
     name.elements.forEach((el, i) => {
       if (ts.isOmittedExpression(el)) return;
       let member: AVal;
+      let isOptionalProp = false;
       if (ts.isArrayBindingPattern(name)) {
-        member = this.ev.members.indexOf(v, i);
+        member = this.ev.members.indexOf(forcedSource, i);
       } else {
         const keyNode = el.propertyName ?? el.name;
         let key: string | undefined;
         if (ts.isIdentifier(keyNode) || ts.isStringLiteral(keyNode)) key = keyNode.text;
-        if (key === undefined || el.dotDotDotToken) member = unknown('computed destructuring key');
-        else member = this.ev.members.memberOf(v, key, undefined);
+        if (key === undefined || el.dotDotDotToken) {
+          member = unknown('computed destructuring key');
+        } else {
+          member = this.ev.members.memberOf(forcedSource, key, undefined);
+          isOptionalProp = alternatives(forcedSource).some(
+            (a) => a.k === 'obj' && a.optional.has(key),
+          );
+        }
       }
-      if (el.initializer) member = union([member, this.ev.eval(el.initializer)]);
-      this.bindName(el.name, member, bindings);
+      if (el.initializer) {
+        member = withDefaultInitializer(
+          member,
+          () => this.ev.eval(el.initializer!, env),
+          (val) => this.ev.force(val),
+          isOptionalProp,
+        );
+      }
+      this.bindName(el.name, member, bindings, env);
     });
   }
 }

@@ -190,7 +190,7 @@ export class Evaluator {
     if (ts.isBinaryExpression(node)) return evalBinary(this, node, env);
     if (ts.isObjectLiteralExpression(node)) return this.evalObject(node, env);
     if (ts.isArrayLiteralExpression(node)) {
-      return { k: 'arr', items: node.elements.map((e) => (ts.isSpreadElement(e) ? unknown('spread element') : this.eval(e, env))) };
+      return this.evalArray(node, env);
     }
     if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return { k: 'fn', decl: node, env };
     if (ts.isPrefixUnaryExpression(node)) return evalPrefixUnary(this, node, env);
@@ -207,6 +207,29 @@ export class Evaluator {
       parts = concatParts(parts, interpolate(v, span.expression, (x) => this.force(x)), [{ kind: 'lit', text: span.literal.text }]);
     }
     return { k: 'str', parts };
+  }
+
+  private evalArray(node: ts.ArrayLiteralExpression, env: Env | undefined): AVal {
+    const items: AVal[] = [];
+    let open = false;
+    for (const e of node.elements) {
+      if (ts.isSpreadElement(e)) {
+        const spread = this.force(this.eval(e.expression, env));
+        const alts = alternatives(spread);
+        if (alts.length === 1 && alts[0]!.k === 'arr') {
+          const arrAlt = alts[0]!;
+          items.push(...arrAlt.items);
+          if (arrAlt.open) open = true;
+        } else {
+          open = true;
+          items.push(this.members.elementOf(spread));
+        }
+      } else {
+        items.push(this.eval(e, env));
+      }
+    }
+    if (open) return { k: 'arr', items, open: true };
+    return { k: 'arr', items };
   }
 
   private evalObject(node: ts.ObjectLiteralExpression, env: Env | undefined): AVal {

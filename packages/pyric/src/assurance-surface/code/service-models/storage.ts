@@ -66,7 +66,7 @@ export const STORAGE_SERVICE_MODEL: SdkServiceModel = {
     bucket: { resourceArgIndex: 0, singleStringArgIsResource: true },
   },
   handleRefMethods: {
-    file: { refKind: 'object' },
+    file: { refKind: 'object', allowOnRef: false },
   },
   refConstructors: {
     ref: { refKind: 'object' },

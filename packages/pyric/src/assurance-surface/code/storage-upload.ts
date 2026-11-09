@@ -74,17 +74,13 @@ function decodeBase64UrlByteLength(raw: string): number | undefined {
 }
 
 function parseDataUrl(raw: string): { sizeBytes?: number; mediaType?: string } | undefined {
-  const match = /^data:([^,]*),(.*)$/s.exec(raw);
-  if (!match) return undefined;
-  const header = match[1]!;
-  const body = match[2]!;
-  const parts = header.split(';');
-  const firstToken = parts[0]?.trim() ?? '';
-  let mediaType: string | undefined;
-  if (firstToken.includes('/')) {
-    mediaType = firstToken;
-  }
-  const isBase64 = parts.slice(1).some((p) => p.trim().toLowerCase() === 'base64');
+  const comma = raw.indexOf(',');
+  if (!raw.startsWith('data:') || comma === -1) return undefined;
+  const header = raw.slice(5, comma);
+  const body = raw.slice(comma + 1);
+  const isBase64 = header.endsWith(';base64');
+  const mediaHeader = isBase64 ? header.slice(0, -7) : header;
+  const mediaType = mediaHeader || 'application/octet-stream';
   if (isBase64) {
     const sizeBytes = decodeBase64ByteLength(body);
     return { sizeBytes, mediaType };
@@ -134,29 +130,16 @@ function exactNumberProp(
   return undefined;
 }
 
-function exactStringProp(
-  obj: Extract<AVal, { k: 'obj' }>,
-  prop: string,
-  force: (v: AVal) => AVal,
-): string | undefined {
-  const raw = obj.props.get(prop);
-  if (!raw) return undefined;
-  const text = literalText(force(raw));
-  if (text !== null && text.length > 0) return text;
-  return undefined;
+interface DataFacts {
+  readonly sizeBytes?: number;
+  readonly inferredContentType?: string;
+  readonly knownNoIntrinsicMime?: boolean;
 }
 
-function definedStringProp(
-  obj: Extract<AVal, { k: 'obj' }>,
-  prop: string,
-  force: (v: AVal) => AVal,
-): string | undefined {
-  const raw = obj.props.get(prop);
-  if (!raw) return undefined;
-  const text = literalText(force(raw));
-  if (text !== null) return text;
-  return undefined;
-}
+type ContentTypeOutcome =
+  | { readonly kind: 'unset' }
+  | { readonly kind: 'lit'; readonly value: string }
+  | { readonly kind: 'unknown' };
 
 function extractDataFacts(
   call: ts.CallExpression,
@@ -164,31 +147,43 @@ function extractDataFacts(
   ev: Evaluator,
   force: (v: AVal) => AVal,
   env: Env | undefined,
-): { sizeBytes?: number; inferredContentType?: string } {
+): DataFacts {
   if (spec.dataArg === undefined) return {};
   const dataExpr = call.arguments[spec.dataArg];
   if (!dataExpr || ts.isSpreadElement(dataExpr)) return {};
 
   const format = resolveStringFormat(call, spec, ev, force, env);
   const alts = alternatives(force(ev.eval(dataExpr, env)));
-  if (alts.length !== 1) return {};
+  if (alts.length !== 1) return spec.stringData ? { knownNoIntrinsicMime: true } : {};
   const only = alts[0]!;
 
   if (only.k === 'obj') {
     const byteLen = exactNumberProp(only, 'byteLength', force) ?? exactNumberProp(only, 'size', force);
-    const blobType = exactStringProp(only, 'type', force);
-    const out: { sizeBytes?: number; inferredContentType?: string } = {};
+    const rawType = only.props.get('type');
+    let blobType: string | undefined;
+    let knownNoIntrinsicMime = false;
+    if (!rawType) {
+      knownNoIntrinsicMime = !only.open && only.computed.length === 0;
+    } else if (!only.optional.has('type')) {
+      const text = literalText(force(rawType));
+      if (text !== null) {
+        if (text.length > 0) blobType = text;
+        else knownNoIntrinsicMime = true;
+      }
+    }
+    const out: { sizeBytes?: number; inferredContentType?: string; knownNoIntrinsicMime?: boolean } = {};
     if (byteLen !== undefined) out.sizeBytes = byteLen;
     if (blobType !== undefined) out.inferredContentType = blobType;
+    if (knownNoIntrinsicMime) out.knownNoIntrinsicMime = true;
     return out;
   }
 
   if (spec.stringData) {
     const text = literalText(only);
-    if (text === null || format === null) return {};
-    if (format === 'raw') return { sizeBytes: utf8ByteLength(text) };
-    if (format === 'base64') return { sizeBytes: decodeBase64ByteLength(text) };
-    if (format === 'base64url') return { sizeBytes: decodeBase64UrlByteLength(text) };
+    if (text === null || format === null) return { knownNoIntrinsicMime: true };
+    if (format === 'raw') return { sizeBytes: utf8ByteLength(text), knownNoIntrinsicMime: true };
+    if (format === 'base64') return { sizeBytes: decodeBase64ByteLength(text), knownNoIntrinsicMime: true };
+    if (format === 'base64url') return { sizeBytes: decodeBase64UrlByteLength(text), knownNoIntrinsicMime: true };
     const parsed = parseDataUrl(text);
     if (!parsed) return {};
     const out: { sizeBytes?: number; inferredContentType?: string } = {};
@@ -200,13 +195,102 @@ function extractDataFacts(
   return {};
 }
 
+function resolveEmptyUploadContentType(spec: UploadPayloadSpec, dataFacts: DataFacts): ContentTypeOutcome {
+  if (spec.stringData) {
+    return { kind: 'lit', value: 'application/octet-stream' };
+  }
+  if (dataFacts.inferredContentType !== undefined) {
+    return { kind: 'lit', value: dataFacts.inferredContentType };
+  }
+  if (dataFacts.knownNoIntrinsicMime) {
+    return { kind: 'lit', value: 'application/octet-stream' };
+  }
+  return { kind: 'unknown' };
+}
+
+function resolveUnsetBranchRuntimeContentType(
+  spec: UploadPayloadSpec,
+  dataFacts: DataFacts,
+): string | undefined {
+  if (spec.dataArg === undefined) return undefined;
+  if (dataFacts.inferredContentType !== undefined) return dataFacts.inferredContentType;
+  if (!spec.stringData && dataFacts.knownNoIntrinsicMime) return 'application/octet-stream';
+  return undefined;
+}
+
+function resolveEffectiveContentType(
+  rawAlts: readonly AVal[] | undefined,
+  hasUnresolvedMeta: boolean,
+  spec: UploadPayloadSpec,
+  dataFacts: DataFacts,
+  force: (v: AVal) => AVal,
+): string | undefined {
+  if (!rawAlts) return dataFacts.inferredContentType;
+  const nonNullAlts = rawAlts.filter((a) => a.k !== 'undefined' && a.k !== 'null');
+  if (nonNullAlts.length === 0) return dataFacts.inferredContentType;
+  if (hasUnresolvedMeta) return undefined;
+
+  const outcomes: ContentTypeOutcome[] = [];
+  for (const alt of rawAlts) {
+    if (alt.k === 'undefined' || alt.k === 'null') {
+      outcomes.push({ kind: 'unset' });
+      continue;
+    }
+    if (alt.k !== 'obj') {
+      return undefined;
+    }
+    if (!alt.props.has('contentType')) {
+      if (alt.open || alt.computed.length > 0) return undefined;
+      outcomes.push({ kind: 'unset' });
+      continue;
+    }
+    if (alt.optional.has('contentType')) {
+      outcomes.push({ kind: 'unset' });
+    }
+    const ctAlts = alternatives(force(alt.props.get('contentType')!));
+    if (ctAlts.length === 0) return undefined;
+    for (const ctAlt of ctAlts) {
+      if (ctAlt.k === 'undefined' || (ctAlt.k === 'null' && spec.dataArg !== undefined && !spec.stringData)) {
+        outcomes.push({ kind: 'unset' });
+        continue;
+      }
+      const text = literalText(ctAlt);
+      if (text === null) return undefined;
+      if (text === '' && spec.dataArg !== undefined) {
+        outcomes.push(resolveEmptyUploadContentType(spec, dataFacts));
+      } else {
+        outcomes.push({ kind: 'lit', value: text });
+      }
+    }
+  }
+
+  if (outcomes.some((o) => o.kind === 'unknown')) return undefined;
+  if (outcomes.every((o) => o.kind === 'unset')) {
+    return dataFacts.inferredContentType;
+  }
+
+  const values = new Set<string>();
+  for (const outcome of outcomes) {
+    if (outcome.kind === 'lit') {
+      values.add(outcome.value);
+      continue;
+    }
+    const fallback = resolveUnsetBranchRuntimeContentType(spec, dataFacts);
+    if (fallback === undefined) return undefined;
+    values.add(fallback);
+  }
+  return values.size === 1 ? [...values][0] : undefined;
+}
+
 function extractMetadataFacts(
   call: ts.CallExpression,
   spec: UploadPayloadSpec,
+  dataFacts: DataFacts,
   ev: Evaluator,
   force: (v: AVal) => AVal,
   env: Env | undefined,
 ): {
+  hasMetadataArg: boolean;
   contentType?: string;
   customMetadataKeys?: readonly string[];
   customMetadata?: Readonly<Record<string, PayloadField>>;
@@ -214,36 +298,40 @@ function extractMetadataFacts(
   customMetadataUnresolved?: boolean;
   metadataPayload?: PayloadShape;
 } {
-  if (spec.metadataArg === undefined) return {};
+  if (spec.metadataArg === undefined) return { hasMetadataArg: false };
   const metaExpr = call.arguments[spec.metadataArg];
-  if (!metaExpr) return {};
-  if (ts.isSpreadElement(metaExpr)) return { customMetadataUnresolved: true };
+  if (!metaExpr) return { hasMetadataArg: false };
+  if (ts.isSpreadElement(metaExpr)) {
+    return { hasMetadataArg: true, customMetadataUnresolved: true };
+  }
 
   const rawAlts = alternatives(force(ev.eval(metaExpr, env)));
   const nonNullAlts = rawAlts.filter((a) => a.k !== 'undefined' && a.k !== 'null');
-  if (nonNullAlts.length === 0) return {};
+  if (nonNullAlts.length === 0) {
+    return { hasMetadataArg: false };
+  }
 
   const metaObjects = nonNullAlts.filter((a): a is Extract<AVal, { k: 'obj' }> => a.k === 'obj');
   const hasUnresolvedMeta = metaObjects.length !== nonNullAlts.length;
-  if (metaObjects.length === 0) return { customMetadataUnresolved: true };
+  if (metaObjects.length === 0) {
+    return { hasMetadataArg: true, customMetadataUnresolved: true };
+  }
 
-  let contentType: string | undefined;
-  const contentTypes = new Set<string>();
-  let allHaveContentType = !hasUnresolvedMeta && rawAlts.length === nonNullAlts.length;
-  for (const obj of metaObjects) {
-    const ct = definedStringProp(obj, 'contentType', force);
-    if (ct === undefined) {
-      allHaveContentType = false;
-    } else {
-      contentTypes.add(ct);
-    }
-  }
-  if (allHaveContentType && contentTypes.size === 1) {
-    contentType = [...contentTypes][0];
-  }
+  const contentType = resolveEffectiveContentType(
+    rawAlts,
+    hasUnresolvedMeta,
+    spec,
+    dataFacts,
+    force,
+  );
 
   if (hasUnresolvedMeta) {
-    const out: { contentType?: string; customMetadataUnresolved: boolean } = {
+    const out: {
+      hasMetadataArg: boolean;
+      contentType?: string;
+      customMetadataUnresolved: boolean;
+    } = {
+      hasMetadataArg: true,
       customMetadataUnresolved: true,
     };
     if (contentType !== undefined) out.contentType = contentType;
@@ -272,7 +360,12 @@ function extractMetadataFacts(
   }
 
   if (customUnresolved) {
-    const out: { contentType?: string; customMetadataUnresolved: boolean } = {
+    const out: {
+      hasMetadataArg: boolean;
+      contentType?: string;
+      customMetadataUnresolved: boolean;
+    } = {
+      hasMetadataArg: true,
       customMetadataUnresolved: true,
     };
     if (contentType !== undefined) out.contentType = contentType;
@@ -281,7 +374,9 @@ function extractMetadataFacts(
 
   const presentCustom = rawCustomValues.filter((v): v is AVal => v !== undefined);
   if (presentCustom.length === 0) {
-    const out: { contentType?: string; customMetadataOpen?: boolean } = {};
+    const out: { hasMetadataArg: boolean; contentType?: string; customMetadataOpen?: boolean } = {
+      hasMetadataArg: true,
+    };
     if (contentType !== undefined) out.contentType = contentType;
     if (metaSpreadWithoutCustom) out.customMetadataOpen = true;
     return out;
@@ -299,7 +394,9 @@ function extractMetadataFacts(
     alternatives(v).filter((a): a is Extract<AVal, { k: 'obj' }> => a.k === 'obj'),
   );
   if (customObjects.length === 0) {
-    const out: { contentType?: string; customMetadataOpen?: boolean } = {};
+    const out: { hasMetadataArg: boolean; contentType?: string; customMetadataOpen?: boolean } = {
+      hasMetadataArg: true,
+    };
     if (contentType !== undefined) out.contentType = contentType;
     if (metaSpreadWithoutCustom) out.customMetadataOpen = true;
     return out;
@@ -324,12 +421,14 @@ function extractMetadataFacts(
   }
 
   const out: {
+    hasMetadataArg: boolean;
     contentType?: string;
     customMetadataKeys?: readonly string[];
     customMetadata?: Readonly<Record<string, PayloadField>>;
     customMetadataOpen?: boolean;
     metadataPayload?: PayloadShape;
   } = {
+    hasMetadataArg: true,
     customMetadataKeys: keys,
     customMetadata: customRecord,
     metadataPayload: shape,
@@ -348,9 +447,11 @@ export function extractStorageUpload(
   env: Env | undefined,
 ): ExtractedUploadInfo {
   const dataFacts = extractDataFacts(call, spec, ev, force, env);
-  const metaFacts = extractMetadataFacts(call, spec, ev, force, env);
+  const metaFacts = extractMetadataFacts(call, spec, dataFacts, ev, force, env);
 
-  const contentType = metaFacts.contentType ?? dataFacts.inferredContentType;
+  const contentType = metaFacts.hasMetadataArg
+    ? metaFacts.contentType
+    : dataFacts.inferredContentType;
   const hasAny =
     contentType !== undefined
     || dataFacts.sizeBytes !== undefined
@@ -409,7 +510,7 @@ function hasUnknownArraySpread(ev: Evaluator, expr: ts.Expression, env: Env | un
     if (!ts.isSpreadElement(el)) continue;
     const spreadVal = ev.force(ev.eval(el.expression, env));
     const alts = alternatives(spreadVal);
-    if (alts.length === 0 || !alts.every((a) => a.k === 'arr')) return true;
+    if (alts.length !== 1 || alts[0]!.k !== 'arr' || alts[0]!.open) return true;
   }
   return false;
 }
@@ -459,7 +560,7 @@ function evalTypedArrayOrBuffer(
         ['length', { k: 'num', value: exactCount }],
       ]);
     }
-    if (first.k === 'arr' && !hasUnknownArraySpread(ev, firstExpr, env)) {
+    if (first.k === 'arr' && !first.open && !hasUnknownArraySpread(ev, firstExpr, env)) {
       const count = first.items.length;
       return closedObj([
         ['byteLength', { k: 'num', value: count * elemBytes }],
@@ -492,7 +593,7 @@ function evalBlobConstructor(
   let totalBytes: number | undefined = 0;
   if (args[0] && !ts.isSpreadElement(args[0])) {
     const partsVal = ev.force(ev.eval(args[0], env));
-    if (partsVal.k === 'arr' && !hasUnknownArraySpread(ev, args[0], env)) {
+    if (partsVal.k === 'arr' && !partsVal.open && !hasUnknownArraySpread(ev, args[0], env)) {
       for (const item of partsVal.items) {
         const forcedItem = ev.force(item);
         const itemText = literalText(forcedItem);
@@ -520,12 +621,35 @@ function evalBlobConstructor(
   }
   let sizeVal: AVal = { k: 'num' };
   if (totalBytes !== undefined) sizeVal = { k: 'num', value: totalBytes };
+  const dynamicBlobType: AVal = { k: 'str', parts: [{ kind: 'hole', name: 'type', auth: [] }] };
   const entries: [string, AVal][] = [['size', sizeVal]];
-  if (args[1] && !ts.isSpreadElement(args[1])) {
-    const opts = ev.force(ev.eval(args[1], env));
-    if (opts.k === 'obj' && opts.props.has('type')) {
-      const typeText = literalText(ev.force(opts.props.get('type')!));
-      if (typeText !== null) entries.push(['type', lit(typeText)]);
+  if (args[1]) {
+    if (ts.isSpreadElement(args[1])) {
+      entries.push(['type', dynamicBlobType]);
+    } else {
+      const optsAlts = alternatives(ev.force(ev.eval(args[1], env))).filter(
+        (a) => a.k !== 'undefined' && a.k !== 'null',
+      );
+      if (optsAlts.some((a) => a.k !== 'obj')) {
+        entries.push(['type', dynamicBlobType]);
+      } else {
+        const objOpts = optsAlts.filter((a): a is Extract<AVal, { k: 'obj' }> => a.k === 'obj');
+        if (objOpts.length === 1 && !objOpts[0]!.open && objOpts[0]!.computed.length === 0) {
+          const single = objOpts[0]!;
+          if (single.props.has('type') && !single.optional.has('type')) {
+            const typeText = literalText(ev.force(single.props.get('type')!));
+            if (typeText !== null) {
+              entries.push(['type', lit(typeText)]);
+            } else {
+              entries.push(['type', dynamicBlobType]);
+            }
+          } else if (single.props.has('type')) {
+            entries.push(['type', dynamicBlobType]);
+          }
+        } else if (objOpts.length > 0) {
+          entries.push(['type', dynamicBlobType]);
+        }
+      }
     }
   }
   return closedObj(entries);
