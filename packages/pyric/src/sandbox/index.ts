@@ -39,6 +39,7 @@ export type {
   ObservedAccount,
   ObservedCall,
   ObservedCallService,
+  ObservedDeliverySummary,
   ObservedOutcome,
   ObservedProduction,
   ObservedUsage,

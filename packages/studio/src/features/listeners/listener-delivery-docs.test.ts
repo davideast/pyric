@@ -186,3 +186,194 @@ describe('latestListenerDelivery', () => {
     expect(latestListenerDelivery([snapshot('a', 10, [])], 'b')).toBeUndefined();
   });
 });
+
+describe('listenerDeliveryHistory, live observed operations', () => {
+  function liveOp(
+    listenerId: string,
+    at: number,
+    service: 'firestore' | 'rtdb',
+    method: string,
+    path: string,
+    delivery?: { mode: 'snapshot' | 'delta'; size: number; paths: string[]; removedPaths?: string[] },
+    billedDocuments?: number,
+  ): SandboxEvent {
+    seq += 1;
+    const production: Record<string, unknown> = { outcome: { status: 'ok' } };
+    if (billedDocuments !== undefined) production.billedDocuments = billedDocuments;
+    const detail: Record<string, unknown> = { listenerId };
+    if (delivery !== undefined) detail.delivery = delivery;
+    return {
+      kind: 'operation',
+      id: `live-${seq}`,
+      at,
+      service,
+      method,
+      path,
+      auth: null,
+      result: 'allow',
+      production,
+      detail,
+    } as unknown as SandboxEvent;
+  }
+
+  it('folds live Firestore delta deliveries and preserves uncapped >64 snapshot counts', () => {
+    const cappedPaths = Array.from({ length: 64 }, (_, i) => `rooms/r-${i + 1}`);
+    const events = [
+      liveOp('page:t1:fs', 10, 'firestore', 'onSnapshot', 'rooms', {
+        mode: 'delta',
+        size: 80,
+        paths: cappedPaths,
+      }, 80),
+      liveOp('page:t1:fs', 20, 'firestore', 'onSnapshot', 'rooms', {
+        mode: 'delta',
+        size: 2,
+        paths: ['rooms/r-2', 'rooms/r-81'],
+      }, 2),
+      liveOp('page:t1:fs', 30, 'firestore', 'onSnapshot', 'rooms/r-1', {
+        mode: 'delta',
+        size: 0,
+        paths: [],
+        removedPaths: ['rooms/r-1'],
+      }, 0),
+    ];
+    const history = listenerDeliveryHistory(events, 'page:t1:fs');
+    expect(history).toHaveLength(3);
+    expect(history[0]).toMatchObject({
+      initial: true,
+      addedCount: 80,
+      modifiedCount: 0,
+      removedCount: 0,
+      size: 80,
+      billedDocuments: 80,
+    });
+    expect(history[1]).toMatchObject({
+      initial: false,
+      addedCount: 1,
+      modifiedCount: 1,
+      removedCount: 0,
+      size: 81,
+      billedDocuments: 2,
+    });
+    expect(labels(history[1]!.docs)).toContain('rooms/r-2 modified');
+    expect(labels(history[1]!.docs)).toContain('rooms/r-81 added');
+    expect(history[2]).toMatchObject({
+      initial: false,
+      addedCount: 0,
+      modifiedCount: 0,
+      removedCount: 1,
+      size: 80,
+      billedDocuments: 0,
+    });
+    expect(labels(history[2]!.docs)).toContain('rooms/r-1 removed');
+  });
+
+  it('subtracts removals beyond the 64-path cap from uncapped size and falls back to billedDocuments on empty summaries', () => {
+    const cappedPaths = Array.from({ length: 64 }, (_, i) => `rooms/r-${i + 1}`);
+    const overCapHistory = listenerDeliveryHistory(
+      [
+        liveOp('page:t1:overcap', 10, 'firestore', 'onSnapshot', 'rooms', {
+          mode: 'delta',
+          size: 80,
+          paths: cappedPaths,
+        }, 80),
+        liveOp('page:t1:overcap', 20, 'firestore', 'onSnapshot', 'rooms', {
+          mode: 'delta',
+          size: 0,
+          paths: [],
+          removedPaths: ['rooms/r-75'],
+        }, 0),
+      ],
+      'page:t1:overcap',
+    );
+    expect(overCapHistory[1]).toMatchObject({
+      removedCount: 1,
+      size: 79,
+    });
+    expect(labels(overCapHistory[1]!.docs)).toContain('rooms/r-75 removed');
+
+    const emptySummaryHistory = listenerDeliveryHistory(
+      [
+        liveOp('page:t1:empty-summary', 10, 'firestore', 'onSnapshot', 'rooms', {
+          mode: 'delta',
+          size: 0,
+          paths: [],
+        }, 3),
+      ],
+      'page:t1:empty-summary',
+    );
+    expect(emptySummaryHistory[0]).toMatchObject({
+      initial: true,
+      addedCount: 3,
+      size: 3,
+      billedDocuments: 3,
+    });
+  });
+
+  it('folds live RTDB onChild* delta deliveries and removes deleted children cleanly', () => {
+    const events = [
+      liveOp('page:t1:child', 10, 'rtdb', 'onChildAdded', 'items', {
+        mode: 'delta',
+        size: 1,
+        paths: ['items/i1'],
+      }),
+      liveOp('page:t1:child', 20, 'rtdb', 'onChildAdded', 'items', {
+        mode: 'delta',
+        size: 1,
+        paths: ['items/i2'],
+      }),
+      liveOp('page:t1:child', 30, 'rtdb', 'onChildChanged', 'items', {
+        mode: 'delta',
+        size: 1,
+        paths: ['items/i1'],
+      }),
+      liveOp('page:t1:child', 40, 'rtdb', 'onChildRemoved', 'items', {
+        mode: 'delta',
+        size: 0,
+        paths: [],
+        removedPaths: ['items/i1'],
+      }),
+    ];
+    const history = listenerDeliveryHistory(events, 'page:t1:child');
+    expect(history).toHaveLength(4);
+    expect(history[1]).toMatchObject({ addedCount: 1, size: 2 });
+    expect(history[2]).toMatchObject({ modifiedCount: 1, size: 2 });
+    expect(history[3]).toMatchObject({ removedCount: 1, size: 1 });
+    expect(labels(history[3]!.docs)).toEqual(['items/i2 unchanged', 'items/i1 removed']);
+  });
+
+  it('folds live RTDB onValue full-node snapshots with unchanged keys rather than speculating modified', () => {
+    const events = [
+      liveOp('page:t1:rt', 10, 'rtdb', 'onValue', 'rooms/lobby', {
+        mode: 'snapshot',
+        size: 2,
+        paths: ['rooms/lobby/alpha', 'rooms/lobby/beta'],
+      }),
+      liveOp('page:t1:rt', 20, 'rtdb', 'onValue', 'rooms/lobby', {
+        mode: 'snapshot',
+        size: 2,
+        paths: ['rooms/lobby/alpha', 'rooms/lobby/gamma'],
+      }),
+      liveOp('page:t1:rt', 30, 'rtdb', 'onValue', 'rooms/lobby', {
+        mode: 'snapshot',
+        size: 2,
+        paths: ['rooms/lobby/alpha', 'rooms/lobby/gamma'],
+      }),
+    ];
+    const history = listenerDeliveryHistory(events, 'page:t1:rt');
+    expect(history).toHaveLength(3);
+    expect(labels(history[0]!.docs)).toEqual([
+      'rooms/lobby/alpha added',
+      'rooms/lobby/beta added',
+    ]);
+    expect(labels(history[1]!.docs)).toEqual([
+      'rooms/lobby/alpha unchanged',
+      'rooms/lobby/gamma added',
+      'rooms/lobby/beta removed',
+    ]);
+    expect(history[2]!.modifiedCount).toBe(0);
+    expect(labels(history[2]!.docs)).toEqual([
+      'rooms/lobby/alpha unchanged',
+      'rooms/lobby/gamma unchanged',
+    ]);
+  });
+});

@@ -22,7 +22,7 @@ import { cleanup, render } from '@testing-library/react';
 import { TrafficRow } from '@pyric/ui/traffic';
 import type { LiveHostStatus } from 'pyric/sandbox/internal';
 import { FromSelect, LiveRowDetail, OutcomeCell, TargetCell } from '../../../src/features/traffic/TrafficLiveRow.js';
-import { fromOptions, inFromScope, methodLabel } from '../../../src/features/traffic/live-row.js';
+import { fromOptions, inFromScope, inRawEventFromScope, methodLabel } from '../../../src/features/traffic/live-row.js';
 import type { StudioTrafficEvent } from '../../../src/features/traffic/verdict.js';
 
 afterEach(() => cleanup());
@@ -218,6 +218,67 @@ describe('the "From" scope', () => {
     expect(kept('signed-out')).toEqual(['from-node', 'sandbox-deny', 'service']);
     expect(kept('agents')).toEqual(['sandbox-deny', 'service']);
     expect(kept('not-a-scope')).toEqual(events.map((item) => item.id).sort());
+  });
+
+  it('scopes raw listener attach/delivery events and retains detach events for matched listeners', () => {
+    const raw = [
+      {
+        id: 'att-a',
+        kind: 'listener',
+        service: 'rtdb',
+        phase: 'attach',
+        listenerId: 'page:tab-1:l-1',
+        target: { kind: 'ref', path: 'rooms/r1' },
+        at: 100,
+        auth: { uid: 'uid-a' },
+        caller: { kind: 'page', pageId: 'tab-1', clientId: 'profile-a' },
+      },
+      {
+        id: 'del-a',
+        kind: 'operation',
+        service: 'rtdb',
+        method: 'onValue',
+        path: 'rooms/r1',
+        result: 'allow',
+        at: 200,
+        auth: { uid: 'uid-a' },
+        caller: { kind: 'page', pageId: 'tab-1', clientId: 'profile-a' },
+        detail: { listenerId: 'page:tab-1:l-1' },
+      },
+      {
+        id: 'att-b',
+        kind: 'listener',
+        service: 'rtdb',
+        phase: 'attach',
+        listenerId: 'page:tab-2:l-1',
+        target: { kind: 'ref', path: 'rooms/r2' },
+        at: 150,
+        auth: { uid: 'uid-b' },
+        caller: { kind: 'page', pageId: 'tab-2', clientId: 'profile-b' },
+      },
+      {
+        id: 'det-a-after-signout',
+        kind: 'listener',
+        service: 'rtdb',
+        phase: 'detach',
+        listenerId: 'page:tab-1:l-1',
+        target: { kind: 'ref', path: 'rooms/r1' },
+        at: 300,
+        auth: null,
+        caller: { kind: 'page', pageId: 'tab-1', clientId: 'profile-a' },
+      },
+    ] as any;
+    expect(inRawEventFromScope(raw, 'client:page:profile-a').map((e) => e.id)).toEqual([
+      'att-a',
+      'del-a',
+      'det-a-after-signout',
+    ]);
+    expect(inRawEventFromScope(raw, 'user:uid-a').map((e) => e.id)).toEqual([
+      'att-a',
+      'del-a',
+      'det-a-after-signout',
+    ]);
+    expect(inRawEventFromScope(raw, 'client:page:profile-b').map((e) => e.id)).toEqual(['att-b']);
   });
 });
 

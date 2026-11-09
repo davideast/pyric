@@ -67,13 +67,16 @@ import {
   databaseCode,
   databaseContext,
   databaseListener,
+  guardedGetDatabase,
+  observeOnDisconnect,
+} from './database.js';
+import {
   databaseListenerArguments,
   databaseListenerAttached,
   databaseListenerCallback,
-  guardedGetDatabase,
-  observeOnDisconnect,
+  databaseListenerOnlyOnce,
   offByCallback,
-} from './database.js';
+} from './database-listeners.js';
 import { databaseDelivery, databaseResult } from './database-session-capture.js';
 import { AI_REFUSED_CALLS, aiCode, aiContext, aiMessage, aiResult, observedChatClass, observedGetGenerativeModel, observedModelClass } from './ai.js';
 import { firestoreContext, firestoreListener, observedWriteBatch } from './firestore.js';
@@ -276,6 +279,7 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
       listenerCallback: databaseListenerCallback,
       listenerOf: databaseListener,
       listenerAttached: databaseListenerAttached,
+      listenerOnlyOnce: databaseListenerOnlyOnce,
     },
     decorated: { onDisconnect: observeOnDisconnect },
     replaced: { getDatabase: guardedGetDatabase, off: offByCallback },

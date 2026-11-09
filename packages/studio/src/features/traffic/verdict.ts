@@ -14,7 +14,7 @@
 
 import { isQueryProofUnsupported } from '../rules-debug/query-proof.js';
 import type { EventCaller, ObservedProduction, RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
-import type { TrafficEvent } from '@pyric/ui/traffic';
+import type { TrafficEvent, TimeWindow } from '@pyric/ui/traffic';
 import { productionVerdict, rtdbRulesMethod, rulesOperation } from 'pyric/sandbox/internal';
 import type { ExprTraceEntry } from 'pyric/rules/internal';
 import { locateRtdbRule } from 'pyric/rules/internal/rtdb';
@@ -215,7 +215,7 @@ export function rulesDecisionEvents<E extends Parameters<typeof verdictFor>[0]>(
 
 export function queryProofUnsupportedCount(
   events: readonly (Parameters<typeof verdictFor>[0] & { at: number })[],
-  window: { start: number; end: number },
+  window: TimeWindow,
 ): number {
   return events.filter(event => event.at >= window.start && event.at < window.end
     && verdictFor(event) === 'proof-unsupported').length;

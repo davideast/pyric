@@ -283,6 +283,32 @@ export interface ObservedCall {
    * `listener` event, not an `operation` event.
    */
   listener?: ObservedListener;
+  /**
+   * `firestore` and `rtdb` client deliveries only: the subscription id minted
+   * on the listener's attach, so the host can correlate each delivered snapshot
+   * with its attached listener. Refused on any other service, on an Admin call,
+   * on an error outcome, or alongside `listener`.
+   */
+  listenerId?: string;
+}
+
+/**
+ * Validated path-level summary of one observed live listener delivery, stored
+ * on `event.detail.delivery` without field values.
+ *
+ * - `snapshot`: `paths` lists the current top-level child paths (full-node
+ *   `onValue` deliveries).
+ * - `delta`: `paths` lists added or modified paths and `removedPaths` lists
+ *   deleted paths (`onSnapshot` `docChanges` and RTDB `onChild*` callbacks).
+ */
+export interface ObservedDeliverySummary {
+  readonly mode: 'snapshot' | 'delta';
+  /** Uncapped item or document count of the delivery. */
+  readonly size: number;
+  /** Canonical paths added, present, or modified (capped at 64 entries). */
+  readonly paths: readonly string[];
+  /** Canonical paths removed in `delta` mode (capped at 64 entries). */
+  readonly removedPaths?: readonly string[];
 }
 
 export type ObservedWriteValue =

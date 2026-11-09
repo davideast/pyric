@@ -28,7 +28,8 @@
  *
  * A record never carries a data value: no write data and no returned value.
  */
-import { databaseCode, databaseContext, databaseListenerArguments, databaseListenerCallback, offByCallback } from '../database.js';
+import { databaseCode, databaseContext } from '../database.js';
+import { databaseListenerArguments, databaseListenerCallback, offByCallback } from '../database-listeners.js';
 import { observedCall, observedListener, UNOBSERVED, type CallContext, type LiveObserver } from '../observe.js';
 import { keepShape, outsideScope, patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import { liveAdminInstanceRefusal, liveAdminInstanceUnreadable, liveAdminProjectRefusal, type AdminProjectSource } from '../refusal.js';

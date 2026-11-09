@@ -620,3 +620,126 @@ describe('host: listeners a restarted Node process leaves behind', () => {
     expect(ctx.sandbox.history()).toEqual([]);
   });
 });
+
+describe('host: live listener delivery correlation and tab reload sweep', () => {
+  it('scopes delivery listenerId to the connection and records non-sensitive delivery paths so activeListeners counts live deliveries', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await handleMessage(ctx, page, { t: 'sub', subId: 'ev-1', target: 'events', tabId: 'tab-1' } as InboundMessage);
+
+    await observe(ctx, page, {
+      call: {
+        service: 'firestore',
+        method: 'onSnapshot',
+        path: 'rooms',
+        at: 1_700_000_000_000,
+        outcome: { status: 'ok' },
+        listener: { phase: 'attach', id: 'l-fs-1', target: 'rooms' },
+      },
+    });
+    await observe(ctx, page, {
+      call: {
+        service: 'rtdb',
+        method: 'onValue',
+        instance: 'demo-default-rtdb',
+        path: '/rooms/r1',
+        at: 1_700_000_000_100,
+        outcome: { status: 'ok' },
+        listener: { phase: 'attach', id: 'l-rt-1', target: '/rooms/r1' },
+      },
+    });
+
+    await observe(ctx, page, {
+      call: {
+        service: 'firestore',
+        method: 'onSnapshot',
+        path: 'rooms',
+        at: 1_700_000_000_500,
+        outcome: { status: 'ok' },
+        billedDocuments: 1,
+        listenerId: 'l-fs-1',
+      },
+      sessionData: {
+        firestore: [{ kind: 'set', path: 'rooms/r1', data: { secret: 'never-on-event' } }],
+      },
+    });
+    await observe(ctx, page, {
+      call: {
+        service: 'rtdb',
+        method: 'onValue',
+        instance: 'demo-default-rtdb',
+        path: '/rooms/r1',
+        at: 1_700_000_000_600,
+        outcome: { status: 'ok' },
+        listenerId: 'l-rt-1',
+      },
+      sessionData: {
+        rtdb: [
+          {
+            kind: 'set',
+            instance: 'demo-default-rtdb',
+            path: '/rooms/r1',
+            value: { alpha: 'secret-val', beta: 2 },
+          },
+        ],
+      },
+    });
+
+    const active = activeListeners(ctx.sandbox.history());
+    expect(active).toEqual([
+      expect.objectContaining({
+        id: 'page:tab-1:l-fs-1',
+        service: 'firestore',
+        deliveryCount: 1,
+        lastDeliveryAt: 1_700_000_000_500,
+      }),
+      expect.objectContaining({
+        id: 'page:tab-1:l-rt-1',
+        service: 'database',
+        deliveryCount: 1,
+        lastDeliveryAt: 1_700_000_000_600,
+      }),
+    ]);
+
+    const ops = ctx.sandbox.history().filter((event) => event.kind === 'operation');
+    expect(ops[0]?.detail).toEqual({
+      listenerId: 'page:tab-1:l-fs-1',
+      delivery: { mode: 'delta', size: 1, paths: ['rooms/r1'] },
+    });
+    expect(ops[1]?.detail).toEqual({
+      listenerId: 'page:tab-1:l-rt-1',
+      delivery: { mode: 'snapshot', size: 2, paths: ['rooms/r1/alpha', 'rooms/r1/beta'] },
+    });
+    // Delivery operation events do not stamp unrequested activity/journeyId overrides.
+    expect(ops[0]?.actor).toEqual({ kind: 'app' });
+    expect((ops[0] as { activity?: unknown })?.activity).toBeUndefined();
+    const serialized = JSON.stringify(ctx.sandbox.history());
+    expect(serialized).not.toContain('never-on-event');
+    expect(serialized).not.toContain('secret-val');
+  });
+
+  it("sweeps an interrupted browser tab's listeners immediately when the reloaded tab reconnects with the same tabId", async () => {
+    const ctx = makeCtx();
+    const page1 = fakePort();
+    await handleMessage(ctx, page1, { t: 'sub', subId: 'ev-old', target: 'events', tabId: 'tab-reload' } as InboundMessage);
+    await observe(ctx, page1, { call: roomListener('attach', 'l-old-1', 1_700_000_000_000) });
+
+    observedPortInterrupted(ctx, page1);
+
+    const page2 = fakePort();
+    await handleMessage(ctx, page2, { t: 'sub', subId: 'ev-new', target: 'events', tabId: 'tab-reload' } as InboundMessage);
+    await observe(ctx, page2, { call: roomListener('attach', 'l-new-1', 1_700_000_240_000) });
+
+    expect(activeListeners(ctx.sandbox.history())).toEqual([
+      expect.objectContaining({
+        id: 'page:tab-reload:l-new-1',
+        clientListenerId: 'l-new-1',
+        attachedAt: 1_700_000_240_000,
+      }),
+    ]);
+
+    // Later retention expiry of page1 must not disturb page2's active listener.
+    cleanupPort(ctx, page1);
+    expect(activeListeners(ctx.sandbox.history())).toHaveLength(1);
+  });
+});

@@ -16,11 +16,40 @@ g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 g.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import type { SandboxEvent } from 'pyric/sandbox';
 import { ListenerPage } from '../../../src/features/listeners/ListenerPage.js';
+import { resetLiveStatusPollerForTesting } from '../../../src/shell/live-status.js';
 
-afterEach(() => cleanup());
+const originalFetch = globalThis.fetch;
+
+function installLiveHostHealth(): void {
+  g.fetch = async (input: unknown) => {
+    const url = typeof input === 'string' ? input : String(input);
+    if (url.includes('/__pyric/health')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          live: {
+            projectId: 'demo-project',
+            configProjectId: 'demo-project',
+            configSource: '.firebaserc',
+            appProjectIds: ['demo-project'],
+            billed: { reads: 3, writes: 0, deliveries: 2 },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response('null', { status: 404 });
+  };
+}
+
+afterEach(() => {
+  cleanup();
+  resetLiveStatusPollerForTesting();
+  g.fetch = originalFetch;
+});
 
 const CONTEXT = { source: { kind: 'app' as const }, authLens: { mode: 'app-session' as const } };
 const WINDOW = { start: 0, end: 60_000 };
@@ -329,5 +358,68 @@ describe('what the page does not say', () => {
     ]) {
       expect(container.textContent).not.toContain(banned);
     }
+  });
+
+  it('renders observed live deliveries and honest Live Mode source copy', async () => {
+    installLiveHostHealth();
+    const liveEvents = [
+      {
+        kind: 'listener',
+        id: 'la-1',
+        at: 12_000,
+        service: 'firestore',
+        phase: 'attach',
+        listenerId: 'page:tab-1:l-1',
+        target: { kind: 'query', path: 'rooms' },
+        auth: { uid: 'u-1' },
+        operationContext: CONTEXT,
+      },
+      {
+        kind: 'operation',
+        id: 'op-1',
+        at: 13_000,
+        service: 'firestore',
+        method: 'onSnapshot',
+        path: 'rooms',
+        auth: { uid: 'u-1' },
+        result: 'allow',
+        production: { outcome: { status: 'ok' }, billedDocuments: 2 },
+        detail: {
+          listenerId: 'page:tab-1:l-1',
+          delivery: { mode: 'delta', size: 2, paths: ['rooms/one', 'rooms/two'] },
+        },
+        operationContext: CONTEXT,
+      },
+      {
+        kind: 'operation',
+        id: 'op-2',
+        at: 14_000,
+        service: 'firestore',
+        method: 'onSnapshot',
+        path: 'rooms',
+        auth: { uid: 'u-1' },
+        result: 'allow',
+        production: { outcome: { status: 'ok' }, billedDocuments: 1 },
+        detail: {
+          listenerId: 'page:tab-1:l-1',
+          delivery: { mode: 'delta', size: 1, paths: ['rooms/three'] },
+        },
+        operationContext: CONTEXT,
+      },
+    ] as unknown as SandboxEvent[];
+
+    const { container } = page(liveEvents, 'page:tab-1:l-1');
+    await waitFor(() => {
+      expect(
+        container.querySelector('.traffic__metric-footer .traffic__metric-source')!.textContent,
+      ).toBe(
+        'Source: observed live deliveries · every delivery observed in this session for this listener',
+      );
+    });
+    expect(container.textContent).not.toContain('sandbox delivery events');
+    expect(cardValue(container, 'deliveries')).toBe('2');
+    expect(cardValue(container, 'snapshot')).toBe('3 documents');
+    expect(cardValue(container, 'reads')).toBe('3');
+    expect(rows(container)).toHaveLength(2);
   });
 });

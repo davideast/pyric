@@ -23,7 +23,7 @@
       import { initializeApp } from "firebase/app";
       import { connectAuthEmulator, getAuth, signInWithCustomToken } from "firebase/auth";
       import { connectFirestoreEmulator, doc, getFirestore, onSnapshot, onSnapshotResume } from "firebase/firestore";
-      import { connectDatabaseEmulator, getDatabase, onValue, ref } from "firebase/database";
+      import { connectDatabaseEmulator, getDatabase, onChildAdded, onValue, ref } from "firebase/database";
 
       const PROJECT = "demo-live-listeners";
       const app = initializeApp({
@@ -83,6 +83,37 @@
           resolve(snapshot.val());
         }, (error) => reject(failure(error)));
       });
+
+      // One-shot RTDB read via { onlyOnce: true }: must deliver once and auto-detach.
+      window.readScoresOnce = () => new Promise((resolve, reject) => {
+        onValue(ref(database, "scores"), (snapshot) => resolve(snapshot.val()), (error) => reject(failure(error)), { onlyOnce: true });
+      });
+
+      // Child listener on /scores: delivers each child entry (`scores/alice`, `scores/bob`).
+      let unmountScoreChildren = () => undefined;
+      window.listenToScoreChildren = () => new Promise((resolve, reject) => {
+        const seen = [];
+        unmountScoreChildren = onChildAdded(ref(database, "scores"), (snapshot) => {
+          seen.push(`${snapshot.key}:${snapshot.val()}`);
+          if (seen.length === 2) resolve([...seen]);
+        }, (error) => reject(failure(error)));
+      });
+      window.closeScoreChildren = () => {
+        unmountScoreChildren();
+        return true;
+      };
+
+      // Single lobby listener used after a page reload to prove reloaded tab sweeps stale listeners.
+      let unmountReloadedLobby = () => undefined;
+      window.listenToLobbyOnceAfterReload = () => new Promise((resolve, reject) => {
+        unmountReloadedLobby = onSnapshot(doc(db, "rooms/lobby"), (snapshot) => {
+          if (!snapshot.metadata.fromCache) resolve(snapshot.data());
+        }, (error) => reject(failure(error)));
+      });
+      window.closeReloadedLobby = () => {
+        unmountReloadedLobby();
+        return true;
+      };
 
       document.querySelector("#status").textContent = "Ready";
     </script>

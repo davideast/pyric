@@ -14,6 +14,7 @@
  * the events.
  */
 import type { AuthLens, EventActor, EventService } from './types/operation.js';
+import { liveListenerIdOf } from './internal/observed-delivery.js';
 import { operationContextFor } from './operation-record.js';
 import type { ListenerOwner, SandboxEvent } from './types/events.js';
 
@@ -134,6 +135,18 @@ function listenerEventInfo(event: SandboxEvent): ListenerEventInfo | null {
       ...identity,
       ...targetQuery(event.target),
     };
+  }
+  if (event.kind === 'operation') {
+    const listenerId = liveListenerIdOf(event);
+    if (listenerId !== undefined) {
+      return {
+        phase: 'delivery',
+        listenerId,
+        service: externalService(event.service),
+        target: event.path ?? '',
+        ...identity,
+      };
+    }
   }
   return null;
 }

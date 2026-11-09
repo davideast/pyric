@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { observedMethod } from 'pyric/sandbox/internal';
+import type { ObservedCallService } from 'pyric/sandbox';
+import { coverageMethodOf, isObservedRtdbListener, observedMethod } from 'pyric/sandbox/internal';
 import type { TimeWindow } from './useTrafficBuckets.js';
 import type { TrafficEvent } from '../types.js';
 
@@ -66,12 +67,22 @@ const WRITE_METHODS = new Set(['create', 'update', 'set']);
 const DELETE_METHODS = new Set(['delete', 'remove']);
 
 export type BillableSeriesKey = 'reads' | 'writes' | 'deletes';
+export type RtdbTransferSeriesKey = 'deliveries' | 'writes' | 'removes';
 export type RulesSeriesKey = 'allows' | 'denies' | 'errors';
 
 export const BILLABLE_SERIES_DEFS: ReadonlyArray<{ key: BillableSeriesKey; label: string }> = [
   { key: 'reads', label: 'Read ops' },
   { key: 'writes', label: 'Writes' },
   { key: 'deletes', label: 'Deletes' },
+];
+
+export const RTDB_TRANSFER_SERIES_DEFS: ReadonlyArray<{
+  key: RtdbTransferSeriesKey;
+  label: string;
+}> = [
+  { key: 'deliveries', label: 'Deliveries' },
+  { key: 'writes', label: 'Writes' },
+  { key: 'removes', label: 'Removes' },
 ];
 
 export const RULES_SERIES_DEFS: ReadonlyArray<{ key: RulesSeriesKey; label: string }> = [
@@ -100,25 +111,94 @@ export type BillableUnits = Partial<Record<BillableSeriesKey, number>>;
 
 type ClassifiedEvent = Pick<BillableEvent, 'method' | 'result' | 'origin' | 'service' | 'production'>;
 
-/** The request a method names: the sandbox's own, or the one an observed SDK export makes. */
-function requestMethod(event: ClassifiedEvent): string | null {
-  if (event.production === undefined) return event.method;
-  const service = (event.service ?? 'firestore') as Parameters<typeof observedMethod>[0];
-  return observedMethod(service, event.method);
+const OPERATION_METERED_SERVICES: ReadonlySet<ObservedCallService> = new Set([
+  'firestore',
+  'storage',
+]);
+const CACHE_ONLY_FIRESTORE_METHODS = new Set(['getDocFromCache', 'getDocsFromCache']);
+const AGGREGATE_FIRESTORE_METHODS = new Set([
+  'getCountFromServer',
+  'getAggregateFromServer',
+]);
+const RTDB_WRITE_EXPORTS = new Set([
+  'set',
+  'setWithPriority',
+  'setPriority',
+  'update',
+  'push',
+  'runTransaction',
+]);
+
+function normalizeObservedService(raw: string | undefined): ObservedCallService | null {
+  const value = raw ?? 'firestore';
+  if (value === 'database' || value === 'rtdb') return 'rtdb';
+  if (value === 'firestore' || value === 'storage' || value === 'auth' || value === 'ai' || value === 'messaging') {
+    return value;
+  }
+  return null;
 }
 
-/** Classify a billable op, or `null` if it isn't one / never ran. */
+/**
+ * The request an operation-metered method names: the sandbox's own, or the one
+ * an observed Firestore or Cloud Storage SDK export makes. Realtime Database is
+ * bandwidth-metered rather than operation-metered and is classified by
+ * {@link classifyRtdbTransfer}.
+ */
+function requestMethod(event: ClassifiedEvent): { service?: ObservedCallService; method: string } | null {
+  if (event.production === undefined) return { method: event.method };
+  const service = normalizeObservedService(event.service);
+  if (service === null || !OPERATION_METERED_SERVICES.has(service)) return null;
+  const normalized = coverageMethodOf(service, event.method);
+  if (service === 'firestore' && CACHE_ONLY_FIRESTORE_METHODS.has(normalized)) return null;
+  if (service === 'firestore' && AGGREGATE_FIRESTORE_METHODS.has(normalized)) {
+    return { service, method: 'get' };
+  }
+  const mapped = observedMethod(service, normalized);
+  return mapped === null ? null : { service, method: mapped };
+}
+
+function didTrafficEventExecute(
+  event: Pick<ClassifiedEvent, 'production' | 'result' | 'origin'>,
+  isAdmin: (event: Pick<TrafficEvent, 'origin'>) => boolean,
+): boolean {
+  if (event.production !== undefined) return event.result === 'allow';
+  if (event.result === 'allow') return true;
+  return isAdmin(event);
+}
+
+/** Classify an operation-metered op, or `null` if it isn't one / never ran. */
 export function classifyBillable(
   event: ClassifiedEvent,
   isAdmin: (event: Pick<TrafficEvent, 'origin'>) => boolean = isAdminEvent,
 ): BillableSeriesKey | null {
-  const executed = event.result === 'allow' || isAdmin(event);
-  if (!executed) return null;
-  const method = requestMethod(event);
-  if (method === null) return null;
-  if (READ_METHODS.has(method)) return 'reads';
-  if (WRITE_METHODS.has(method)) return 'writes';
-  if (DELETE_METHODS.has(method)) return 'deletes';
+  if (!didTrafficEventExecute(event, isAdmin)) return null;
+  const mapped = requestMethod(event);
+  if (mapped === null) return null;
+  // Cloud Storage `list` / `listAll` are Class A operations (billed at the Write SKU rate).
+  if (mapped.service === 'storage' && mapped.method === 'list') return 'writes';
+  if (READ_METHODS.has(mapped.method)) return 'reads';
+  if (WRITE_METHODS.has(mapped.method)) return 'writes';
+  if (DELETE_METHODS.has(mapped.method)) return 'deletes';
+  return null;
+}
+
+/**
+ * Classify a successful Realtime Database transfer/fan-out event:
+ * - `deliveries`: `onValue` / `onChild*` callbacks and `get` responses (drive egress bandwidth).
+ * - `writes`: `set`, `setWithPriority`, `setPriority`, `update`, `push`, `runTransaction`.
+ * - `removes`: `remove`.
+ */
+export function classifyRtdbTransfer(
+  event: ClassifiedEvent,
+  isAdmin: (event: Pick<TrafficEvent, 'origin'>) => boolean = isAdminEvent,
+): RtdbTransferSeriesKey | null {
+  const service = normalizeObservedService(event.service);
+  if (service !== 'rtdb') return null;
+  if (!didTrafficEventExecute(event, isAdmin)) return null;
+  const normalized = coverageMethodOf('rtdb', event.method);
+  if (normalized === 'get' || isObservedRtdbListener(normalized)) return 'deliveries';
+  if (RTDB_WRITE_EXPORTS.has(normalized)) return 'writes';
+  if (normalized === 'remove' || normalized === 'delete') return 'removes';
   return null;
 }
 
@@ -134,13 +214,23 @@ function measuredUnits(production: BillableProduction): BillableUnits | null {
 }
 
 /**
- * What one event adds to each billable series: one op for a sandbox event,
- * and production's measured documents for a call production served.
+ * What one event adds to each operation-metered series: one op for a sandbox
+ * event, and production's measured documents for an observed Firestore/Storage call.
  */
 export function billableUnits(
   event: ClassifiedEvent,
   isAdmin: (event: Pick<TrafficEvent, 'origin'>) => boolean = isAdminEvent,
 ): BillableUnits {
+  if (event.production !== undefined) {
+    const service = normalizeObservedService(event.service);
+    if (service === null || !OPERATION_METERED_SERVICES.has(service)) return {};
+    if (
+      service === 'firestore' &&
+      CACHE_ONLY_FIRESTORE_METHODS.has(coverageMethodOf('firestore', event.method))
+    ) {
+      return {};
+    }
+  }
   const key = classifyBillable(event, isAdmin);
   const production = event.production;
   const servedAndAllowed = production !== undefined && event.result === 'allow';
@@ -255,6 +345,19 @@ export function bucketBillableMetrics(
   );
 }
 
+/** Pure kernel behind {@link useRtdbTransferMetrics} — usable outside React. */
+export function bucketRtdbTransferMetrics(
+  events: readonly BillableEvent[],
+  window: TimeWindow,
+  bucketCount = 24,
+  isAdmin: (event: Pick<TrafficEvent, 'origin'>) => boolean = isAdminEvent,
+): TrafficMetricsResult {
+  return bucketMetrics(events, window, bucketCount, RTDB_TRANSFER_SERIES_DEFS, (e) => {
+    const key = classifyRtdbTransfer(e, isAdmin);
+    return key === null ? {} : { [key]: 1 };
+  });
+}
+
 /** Pure kernel behind {@link useRulesMetrics} — usable outside React. */
 export function bucketRulesMetrics(
   events: readonly TrafficEvent[],
@@ -292,6 +395,19 @@ export function useBillableMetrics({
 }: UseTrafficMetricsOptions): TrafficMetricsResult {
   return useMemo(
     () => bucketBillableMetrics(events, window, bucketCount, isAdmin),
+    [events, window.start, window.end, bucketCount, isAdmin],
+  );
+}
+
+/** Realtime Database outbound deliveries / writes / removes, bucketed over `window`. */
+export function useRtdbTransferMetrics({
+  events,
+  window,
+  bucketCount = 24,
+  isAdmin,
+}: UseTrafficMetricsOptions): TrafficMetricsResult {
+  return useMemo(
+    () => bucketRtdbTransferMetrics(events, window, bucketCount, isAdmin),
     [events, window.start, window.end, bucketCount, isAdmin],
   );
 }

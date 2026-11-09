@@ -277,7 +277,14 @@ async function expectRows(chip: Locator, source: 'page' | 'node'): Promise<void>
   assert.equal(resumable.length, 4, `one row per resumable upload on each bucket from ${source}:\n${resumable.join('\n')}`);
 }
 
-interface CapturedEvent { kind?: string; service?: string; method?: string; path?: string; detail?: { bucket?: string } }
+interface CapturedEvent {
+  kind?: string;
+  service?: string;
+  method?: string;
+  path?: string;
+  detail?: { bucket?: string };
+  production?: { local?: { result?: string; drift?: boolean } };
+}
 
 /** The Storage operations the host's event stream carried, as it wrote them to the session capture. */
 function storageEvents(app: App): CapturedEvent[] {
@@ -396,6 +403,42 @@ export default scenario(async (app) => {
     assert.ok(await chip.locator('[data-traffic-row-source=node]').count() > 0, 'the server job\'s rows carry the node source');
     assert.deepEqual(await billed(host.url), BILLED_NONE);
     await expectBuckets(app, 2 * (CALLS_PER_BUCKET.page + CALLS_PER_BUCKET.node));
+  });
+
+  await app.step("Studio's Billable metrics and Rules subtabs count observed Storage operations and surface local Storage rules drift", async () => {
+    const context = await app.browser();
+    const fontHosts = /^https:\/\/(use\.typekit\.net|fonts\.googleapis\.com)\//;
+    await context.route(fontHosts, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+    const studio = await app.page(`${host.url}/__pyric/ui/traffic?view=billable`);
+    const opPanel = studio.locator('[data-pyric-billable-panel="operation"]');
+    const opMetric = async (key: string) => Number(((await opPanel.locator(`[data-pyric-metric-key="${key}"] [data-pyric-metric-value]`).textContent()) ?? '0').replace(/,/g, ''));
+
+    await studio.locator('[data-pyric-ui="traffic-billable-view"]').waitFor({ timeout: 30_000 });
+    await eventually(async () => ({
+      reads: await opMetric('reads'),
+      writes: await opMetric('writes'),
+      deletes: await opMetric('deletes'),
+    }), ({ reads, writes, deletes }) => reads === 18 && writes === 56 && deletes === 28, 'exact Storage Class B reads (18), Class A uploads/lists/metadata updates (56), and deletes (28)');
+
+    const captured = storageEvents(app);
+    const expectedAllows = captured.filter((event) => event.production?.local?.result === 'allow').length;
+    const expectedDenies = captured.filter((event) => event.production?.local?.result === 'deny').length;
+    const expectedDrift = captured.filter((event) => event.production?.local?.drift === true).length;
+    assert.ok(expectedAllows >= 20 && expectedDenies >= 6 && expectedDrift >= 2, `unexpected captured Storage verdicts: allows=${expectedAllows}, denies=${expectedDenies}, drift=${expectedDrift}`);
+
+    await studio.getByRole('tab', { name: 'Rules' }).click();
+    await studio.locator('[data-pyric-ui="traffic-rules-view"]').waitFor({ timeout: 30_000 });
+    const rulesMetric = async (key: string) => Number(((await studio.locator(`[data-pyric-metric-key="${key}"] [data-pyric-metric-value]`).textContent()) ?? '0').replace(/,/g, ''));
+    await eventually(async () => ({
+      allows: await rulesMetric('allows'),
+      denies: await rulesMetric('denies'),
+    }), ({ allows, denies }) => allows === expectedAllows && denies === expectedDenies, `exact Storage advisory local rules allows (${expectedAllows}) and denies (${expectedDenies})`);
+    const summary = (await studio.locator('[data-pyric-live-rules-summary]').textContent()) ?? '';
+    assert.match(summary, new RegExp(`Drift with production: ${expectedDrift}\\b`), `expected Storage drift count ${expectedDrift} in "${summary}"`);
+    assert.match(summary, /Denied by production: 16\b/, `expected Storage production denial count 16 in "${summary}"`);
+
+    await studio.close();
+    await context.unroute(fontHosts);
   });
 
   await app.step('nothing reached any host but loopback', async () => {

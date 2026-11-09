@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { MetricSeries } from '@pyric/ui/traffic';
-import { billableStory, rulesStory } from './metric-story.js';
+import { billableStory, liveRulesStory, rtdbTransferStory, rulesStory } from './metric-story.js';
 
 function series(reads: number, writes: number, deletes: number): MetricSeries[] {
   return [
@@ -60,5 +60,52 @@ describe('rulesStory', () => {
       headline: 'No Rules evaluations observed',
       finding: 'Allow and deny decisions will appear here as Rules evaluate requests.',
     });
+  });
+});
+
+describe('liveRulesStory', () => {
+  const rulesSeries = (allows: number, denies: number): MetricSeries[] => [
+    { key: 'allows', label: 'Would allow', values: [], total: allows },
+    { key: 'denies', label: 'Would deny', values: [], total: denies },
+  ];
+
+  it('uses advisory wording and surfaces drift disagreements', () => {
+    expect(liveRulesStory(rulesSeries(3, 1), { driftCount: 1, unevaluatedCount: 0 })).toEqual({
+      total: 4,
+      headline: '4 advisory local Rules evaluations',
+      finding: 'Local rules would allow 75% of evaluated requests in this window · 1 disagreed with production.',
+    });
+  });
+
+  it('distinguishes unevaluated live requests from an idle window', () => {
+    expect(liveRulesStory(rulesSeries(0, 0), { driftCount: 0, unevaluatedCount: 2 })).toEqual({
+      total: 0,
+      headline: 'No decided local Rules evaluations',
+      finding: '2 observed requests could not be evaluated locally in this window.',
+    });
+    expect(liveRulesStory(rulesSeries(0, 0), { driftCount: 0, unevaluatedCount: 0 })).toEqual({
+      total: 0,
+      headline: 'No local Rules evaluations observed',
+      finding: 'What your local rules would allow or would deny will appear here as live requests arrive.',
+    });
+  });
+});
+
+describe('rtdbTransferStory', () => {
+  const transferSeries = (deliveries: number, writes: number, removes: number): MetricSeries[] => [
+    { key: 'deliveries', label: 'Deliveries', values: [], total: deliveries },
+    { key: 'writes', label: 'Writes', values: [], total: writes },
+    { key: 'removes', label: 'Removes', values: [], total: removes },
+  ];
+
+  it('summarizes Realtime Database transfer activity separately from document SKUs', () => {
+    expect(rtdbTransferStory(transferSeries(3, 1, 0))).toEqual({
+      total: 4,
+      headline: '4 observed Realtime Database transfers',
+      finding: 'Deliveries accounted for 75% of transfer activity in this window.',
+    });
+    expect(rtdbTransferStory(transferSeries(0, 0, 0)).headline).toBe(
+      'No Realtime Database transfers observed',
+    );
   });
 });

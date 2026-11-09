@@ -28,8 +28,15 @@ import {
   type TimeWindow,
 } from '@pyric/ui/traffic';
 import { activeListeners, type ActiveListener, type SandboxEvent } from 'pyric/sandbox';
+import { useLiveHost } from '../../shell/live-status.js';
 import { pushPath } from '../../shell/router.js';
-import { groupListeners, groupIdentityFor, type ListenerFilters } from './listener-groups.js';
+import type { TrafficHostMode } from '../traffic/traffic-panel-copy.js';
+import {
+  groupListeners,
+  groupIdentityFor,
+  isSingleDocumentTarget,
+  type ListenerFilters,
+} from './listener-groups.js';
 import {
   cardKeysForRow,
   listenerCardTotals,
@@ -55,6 +62,8 @@ import { IncidentBlock } from './IncidentBlock.js';
 import { ListenerQueryBlock } from './ListenerQueryBlock.js';
 import { elementLabel } from './listener-element.js';
 import { listenerDrillHref, listenerDrillTarget } from './listener-links.js';
+import { LISTENERS_VIEW_COPY } from './listeners-copy.js';
+import { useRelativeClock } from './use-relative-clock.js';
 import {
   listenerFactLine,
   listenerHeadline,
@@ -167,7 +176,7 @@ function ListenerInspector({
     snapshot: latest === undefined ? 0 : latest.size,
     reads: estimatedDocumentReads(history),
     service: listener.service,
-    single: typeof listener.target === 'string' && listener.service === 'firestore',
+    single: isSingleDocumentTarget(listener),
   });
   return (
     <div className="traffic__inspector" data-pyric-listener-inspector="">
@@ -246,11 +255,14 @@ export function ListenersView({
   hideStudio = false,
   now,
 }: ListenersViewProps) {
+  const mode: TrafficHostMode = useLiveHost() !== null ? 'live' : 'sandbox';
+  const footerCopy = LISTENERS_VIEW_COPY[mode];
   const [service, setService] = useState<ActiveListener['service'] | ''>('');
   const [targetPrefix, setTargetPrefix] = useState(initialTargetPrefix ?? '');
   const [sort, setSort] = useState<ListenerSort | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | undefined>(selectedListenerId);
   const [hiddenCards, setHiddenCards] = useState<readonly string[]>([]);
+  const clock = useRelativeClock(now);
   const selectedRef = useRef<HTMLButtonElement | null>(null);
 
   const listeners = useMemo(() => {
@@ -295,8 +307,6 @@ export function ListenersView({
     setHiddenCards((current) =>
       current.includes(key) ? current.filter((k) => k !== key) : [...current, key],
     );
-
-  const clock = now ?? Date.now();
 
   // A row stands for every listener collapsed into it, so a deep link to a
   // duplicate's second listener selects the row that holds it.
@@ -501,26 +511,10 @@ export function ListenersView({
         )}
 
         <footer className="traffic__metric-footer">
-          <p className="traffic__metric-source">
-            Source: sandbox listener events · listeners attached now, deliveries in this window
-          </p>
+          <p className="traffic__metric-source">{footerCopy.source}</p>
           <details className="traffic__metric-methodology">
             <summary>How this is counted</summary>
-            <div>
-              <p>
-                A listener is attached when the sandbox recorded its <code>attach</code> and has
-                not recorded a <code>detach</code> or an error for it since. The count is that
-                fold, not the number of attach events.
-              </p>
-              <p>
-                <strong>Owners come from the attach, deliveries from the window.</strong> The
-                owner is the React component the listener was opened in, else the tag the app
-                gave it, else the target itself. Two listeners on the same target under the same
-                owner are one thing attached twice, so they collapse into one row carrying{' '}
-                <code>×N</code>. Delivery counts cover the displayed window only; a listener with
-                none is idle, not gone.
-              </p>
-            </div>
+            {footerCopy.methodology}
           </details>
         </footer>
       </section>

@@ -45,6 +45,11 @@ declare function rerenderPatio(): number;
 declare function resumeHalls(rendered: unknown): Promise<number>;
 declare function closeHalls(): boolean;
 declare function listenToScores(): Promise<unknown>;
+declare function readScoresOnce(): Promise<unknown>;
+declare function listenToScoreChildren(): Promise<string[]>;
+declare function closeScoreChildren(): boolean;
+declare function listenToLobbyOnceAfterReload(): Promise<unknown>;
+declare function closeReloadedLobby(): boolean;
 
 interface Replay {
   origin: string;
@@ -367,10 +372,124 @@ export default scenario(async (app) => {
     await openScoresSource(page);
   });
 
-  await app.step('a reload ends the page\'s listeners, leaving the server job\'s', async () => {
+  await app.step("Studio's Billable metrics and Listeners subtabs separate Firestore operations from RTDB transfers, track onChildAdded and onlyOnce lifecycles, scope by client, and keep the tab bar visible", async () => {
+    const context = await app.browser();
+    const fontHosts = /^https:\/\/(use\.typekit\.net|fonts\.googleapis\.com)\//;
+    await context.route(fontHosts, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+
+    // Exercise browser { onlyOnce: true } and onChildAdded on /scores.
+    assert.deepEqual(await page.evaluate(() => readScoresOnce()), SCORES);
+    assert.deepEqual(await page.evaluate(() => listenToScoreChildren()), ['alice:3', 'bob:5']);
+
+    const studio = await app.page(`${host.url}/__pyric/ui/traffic?view=billable`);
+    const opPanel = studio.locator('[data-pyric-billable-panel="operation"]');
+    const bwPanel = studio.locator('[data-pyric-billable-panel="bandwidth"]');
+    const metricValue = async (key: string) => (await studio.locator(`[data-pyric-metric-key="${key}"] [data-pyric-metric-value]`).textContent())?.trim() ?? '';
+
+    await studio.locator('[data-pyric-ui="traffic-billable-view"]').waitFor({ timeout: 30_000 });
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { billed?: { reads: number; deliveries: number } } };
+    const firestoreBilled = (health.live?.billed?.reads ?? 0) + (health.live?.billed?.deliveries ?? 0);
+    await eventually(
+      async () => Number(((await opPanel.locator('[data-pyric-metric-key="reads"] [data-pyric-metric-value]').textContent()) ?? '0').replace(/,/g, '')),
+      (reads) => reads === firestoreBilled,
+      'Operation-metered panel counts Firestore document reads without mixing RTDB callbacks',
+    );
+    await eventually(
+      async () => ({
+        deliveries: Number(((await bwPanel.locator('[data-pyric-metric-key="deliveries"] [data-pyric-metric-value]').textContent()) ?? '0').replace(/,/g, '')),
+        writes: Number(((await bwPanel.locator('[data-pyric-metric-key="writes"] [data-pyric-metric-value]').textContent()) ?? '0').replace(/,/g, '')),
+        removes: Number(((await bwPanel.locator('[data-pyric-metric-key="removes"] [data-pyric-metric-value]').textContent()) ?? '0').replace(/,/g, '')),
+      }),
+      ({ deliveries, writes, removes }) => deliveries === 4 && writes === 0 && removes === 0,
+      'Bandwidth-metered panel counts exact RTDB onValue (1), onlyOnce (1), and onChildAdded (2) deliveries',
+    );
+    assert.equal(
+      (await opPanel.locator('.traffic__metric-source').textContent())?.trim(),
+      'Source: observed live requests · Firestore documents and Storage operations, not a Firebase invoice',
+    );
+
+    await studio.getByRole('tab', { name: 'Listeners' }).click();
+    await studio.locator('[data-pyric-ui="traffic-listeners-view"]').waitFor({ timeout: 30_000 });
+    // 5 original listeners + 1 active onChildAdded (/scores); { onlyOnce: true } auto-detached so it is NOT active!
+    await eventually(async () => ({
+      delivering: await metricValue('delivering'),
+      idle: await metricValue('idle'),
+    }), ({ delivering, idle }) => delivering === '6' && idle === '0', 'six active Firestore and Database listeners delivering while onlyOnce auto-detached');
+
+    const rows = await studio.locator('[data-pyric-listener-row]').evaluateAll((elements) => elements.map((row) => ({
+      target: row.querySelector('[data-col="target"] .traffic__listener-target-text')?.textContent ?? '',
+      duplicate: row.querySelector('[data-pyric-listener-duplicate]')?.textContent?.trim() ?? '',
+      deliveries: Number((row.querySelector('[data-col="deliveries"]')?.textContent ?? '0').replace(/,/g, '')),
+      attached: row.querySelector('[data-col="attached"]')?.textContent?.trim() ?? '',
+      service: row.querySelector('[data-col="service"]')?.textContent?.trim() ?? '',
+    })));
+    const scoresRow = rows.find((row) => row.target === '/scores');
+    assert.ok(scoresRow, `expected /scores row in ${JSON.stringify(rows)}`);
+    assert.equal(scoresRow.service, 'Database');
+    // Both onValue (1 delivery) and onChildAdded (2 deliveries) watch /scores; onlyOnce detached.
+    assert.equal(scoresRow.duplicate, '×2');
+    assert.equal(scoresRow.deliveries, 3, `/scores combined deliveries: ${scoresRow.deliveries}`);
+    for (const row of rows) {
+      assert.ok(row.deliveries >= 1, `${row.target} had 0 deliveries`);
+      assert.match(row.attached, /^(\d+s|[1-4]m) ago$/, `${row.target} attached label: ${row.attached}`);
+    }
+
+    // Close the onChildAdded listener and confirm /scores drops back to ×1 with 1 delivery.
+    assert.equal(await page.evaluate(() => closeScoreChildren()), true);
+    await eventually(() => metricValue('delivering'), (delivering) => delivering === '5', 'five listeners after onChildAdded detached');
+
+    const from = studio.locator('[data-pyric-traffic-from]');
+    const nodeOption = await from.locator('option').evaluateAll((options) =>
+      options.map((option) => (option as HTMLOptionElement).value).find((value) => value.startsWith('client:node:')),
+    );
+    assert.ok(nodeOption, 'expected a client:node:* option in the From selector');
+    await from.selectOption(nodeOption);
+    await eventually(() => metricValue('delivering'), (delivering) => delivering === '1', 'only the server job listener under node scope');
+    await from.selectOption('all');
+    await eventually(() => metricValue('delivering'), (delivering) => delivering === '5', 'all five listeners under all scope');
+
+    await studio.setViewportSize({ width: 1280, height: 320 });
+    await studio.locator('.studio__content').evaluate((element) => {
+      element.scrollTop = 300;
+    });
+    const tabBox = await studio.locator('.traffic__tabs').boundingBox();
+    assert.ok(tabBox && tabBox.y >= 0 && tabBox.height > 20, `expected sticky .traffic__tabs to remain visible: ${JSON.stringify(tabBox)}`);
+
+    await studio.locator('[data-pyric-listener-row]').filter({ hasText: '/scores' }).click();
+    await studio.locator('[data-pyric-inspector-title]').click();
+    await studio.locator('[data-pyric-ui="traffic-listener-page"]').waitFor({ timeout: 30_000 });
+    assert.equal(await metricValue('deliveries'), '1');
+    assert.equal(await metricValue('snapshot'), '2 documents');
+
+    await studio.close();
+    await context.unroute(fontHosts);
+  });
+
+  await app.step('a reload ends the page\'s listeners and sweeps any stale tab entries when the reloaded tab subscribes again', async () => {
     await page.reload();
     await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Ready', undefined, { timeout: 30_000 });
     await listenersAre(app, SERVER_ONLY, 'the listeners after the reload');
+
+    // Re-subscribe on the reloaded tab (preserving sessionStorage tabId) and verify Studio shows only the fresh page listener + server listener.
+    assert.equal(await page.evaluate(() => signIn()), 'user-1');
+    assert.deepEqual(await page.evaluate(() => listenToLobbyOnceAfterReload()), LOBBY);
+    await listenersAre(app, ['node firestore rooms/lobby', 'page firestore rooms/lobby'], 'one fresh page listener plus the server listener');
+
+    const context = await app.browser();
+    const fontHosts = /^https:\/\/(use\.typekit\.net|fonts\.googleapis\.com)\//;
+    await context.route(fontHosts, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+    const studio = await app.page(`${host.url}/__pyric/ui/traffic?view=listeners`);
+    await studio.locator('[data-pyric-ui="traffic-listeners-view"]').waitFor({ timeout: 30_000 });
+    await eventually(
+      async () => (await studio.locator('[data-pyric-metric-key="delivering"] [data-pyric-metric-value]').textContent())?.trim(),
+      (delivering) => delivering === '2',
+      'Studio Listeners shows only the server listener and the reloaded tab listener without stale rows',
+    );
+    await studio.close();
+    await context.unroute(fontHosts);
+
+    assert.equal(await page.evaluate(() => closeReloadedLobby()), true);
+    await listenersAre(app, SERVER_ONLY, 'the listeners after closing the reloaded page listener');
   });
 
   const restarted = await app.step('the server job stopped with SIGTERM, as node --watch restarts it, ends its listener, and its next run leaves one', async () => {

@@ -616,13 +616,29 @@ describe('a listener whose module names what it watches', () => {
     unsubscribe();
     unsubscribe();
     expect(records.map((record) => record.outcome)).toEqual(['attached', 'delivered', 'detached']);
-    const [attached, , detached] = records;
+    const [attached, delivered, detached] = records;
     expect(attached?.listener?.id).toMatch(LISTENER_ID);
     expect(attached?.listener?.key).toMatch(KEY_HASH);
     expect(detached?.listener).toEqual(attached?.listener);
-    expect(records[1]).not.toHaveProperty('listener');
+    expect(delivered).not.toHaveProperty('listener');
+    expect(delivered?.listenerId).toBe(attached?.listener?.id);
     expect(attached).toMatchObject({ path: 'rooms/lobby', projectId: 'demo' });
     expect(sdk.unsubscribes()).toBe(2);
+  });
+
+  test('emits attached before delivered even when the SDK invokes the callback synchronously inside subscribe', () => {
+    const { records, observer } = collector();
+    const subscribe = observedListener(
+      { module: 'firebase/firestore', name: 'onSnapshot', observer, listenerOf: firestoreListener },
+      (_target: unknown, next: unknown) => {
+        (next as (value: unknown) => void)('cached-snapshot');
+        return () => undefined;
+      },
+    );
+    const unsubscribe = subscribe(lobby, () => undefined) as () => void;
+    unsubscribe();
+    expect(records.map((record) => record.outcome)).toEqual(['attached', 'delivered', 'detached']);
+    expect(records[1]?.listenerId).toBe(records[0]?.listener?.id);
   });
 
   test('gives each subscription its own id, and two on one document one hashed key that holds no path', () => {

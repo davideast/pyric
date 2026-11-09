@@ -18,8 +18,10 @@
 import { useMemo, useState } from 'react';
 import { TrafficMetricCards, TrafficTimeline, type TimeWindow } from '@pyric/ui/traffic';
 import { activeListeners, type ActiveListener, type SandboxEvent } from 'pyric/sandbox';
+import { useLiveHost } from '../../shell/live-status.js';
 import { pushPath } from '../../shell/router.js';
 import { toggleTimeFocus } from '../traffic/timeline-focus.js';
+import type { TrafficHostMode } from '../traffic/traffic-panel-copy.js';
 import { listenerDeliveryHistory } from './listener-delivery-docs.js';
 import {
   deliveriesInInterval,
@@ -37,10 +39,16 @@ import { DeliveryRow, clockLabel } from './DeliveryRow.js';
 import { IncidentBlock } from './IncidentBlock.js';
 import { ListenerQueryBlock } from './ListenerQueryBlock.js';
 import { elementLabel } from './listener-element.js';
-import { formatListenerTarget, groupIdentityFor } from './listener-groups.js';
+import {
+  formatListenerTarget,
+  groupIdentityFor,
+  isSingleDocumentTarget,
+} from './listener-groups.js';
 import { listenerFactLine } from './listener-facts.js';
 import { listenerIncidents, incidentsForTarget } from './listener-incidents.js';
 import { listenersTabHref, listenersTabTarget } from './listener-links.js';
+import { LISTENER_PAGE_COPY } from './listeners-copy.js';
+import { useRelativeClock } from './use-relative-clock.js';
 
 const countFormatter = new Intl.NumberFormat();
 
@@ -85,18 +93,30 @@ export interface ListenerPageProps {
   listenerId: string;
   /** The window the Traffic surface computed; the histogram spans it. */
   window: TimeWindow;
+  /** The Traffic surface's `Hide Studio traffic` toggle. */
+  hideStudio?: boolean;
   /** The clock the attach age is read against; defaults to now. */
   now?: number;
 }
 
-export function ListenerPage({ events, listenerId, window, now }: ListenerPageProps) {
+export function ListenerPage({
+  events,
+  listenerId,
+  window,
+  hideStudio = false,
+  now,
+}: ListenerPageProps) {
+  const mode: TrafficHostMode = useLiveHost() !== null ? 'live' : 'sandbox';
+  const footerCopy = LISTENER_PAGE_COPY[mode];
   const [focus, setFocus] = useState<TimeWindow | null>(null);
   const [openDelivery, setOpenDelivery] = useState<number | null>(null);
+  const clock = useRelativeClock(now);
 
-  const listener = useMemo(
-    () => activeListeners(events).find((candidate) => candidate.id === listenerId),
-    [events, listenerId],
-  );
+  const listener = useMemo(() => {
+    const attached = activeListeners(events);
+    const visible = hideStudio ? attached.filter((item) => item.actor.kind !== 'studio') : attached;
+    return visible.find((candidate) => candidate.id === listenerId);
+  }, [events, listenerId, hideStudio]);
   const history = useMemo(
     () => listenerDeliveryHistory(events, listenerId),
     [events, listenerId],
@@ -117,7 +137,6 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
     );
   }
 
-  const clock = now ?? Date.now();
   const element = elementLabel(listener.owners);
   const facts: {
     owner?: string;
@@ -134,7 +153,7 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
     snapshot: history.length === 0 ? 0 : history[history.length - 1]!.size,
     reads: estimatedDocumentReads(history),
     service: listener.service,
-    single: typeof listener.target === 'string' && listener.service === 'firestore',
+    single: isSingleDocumentTarget(listener),
   });
   const footnote = readsFootnote(listener.service);
 
@@ -233,36 +252,10 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
         )}
 
         <footer className="traffic__metric-footer">
-          <p className="traffic__metric-source">
-            Source: sandbox delivery events · every delivery this session recorded for this
-            listener
-          </p>
+          <p className="traffic__metric-source">{footerCopy.source}</p>
           <details className="traffic__metric-methodology">
             <summary>How this is counted</summary>
-            <div>
-              <p>
-                Every delivery event carries the result set the callback received: a Firestore
-                delivery carries the documents in callback order, and a database delivery carries
-                the value at the target path, whose keys are child paths when that value is an
-                object. The paths under a delivery are that result set, not a re-read of the
-                store.
-              </p>
-              <p>
-                <strong>The labels come from the previous delivery.</strong> A path is{' '}
-                <code>added</code> when the previous delivery did not carry it,{' '}
-                <code>modified</code> when it did and the data differs, and <code>removed</code>{' '}
-                when the previous delivery carried it and this one does not. A path whose data is
-                identical is not listed. The first delivery is <code>initial</code>: every path in
-                it arrived, so it lists none.
-              </p>
-              <p>
-                Firestore charges a listener for the documents in its first snapshot, then for
-                each document a later delivery adds or changes; a delivery that only drops
-                documents costs nothing, and an empty first snapshot still costs one read. The
-                estimate covers this session's deliveries, so a reconnect that re-read the result
-                set and a second listener on the same query are not in it.
-              </p>
-            </div>
+            {footerCopy.methodology}
           </details>
         </footer>
       </div>

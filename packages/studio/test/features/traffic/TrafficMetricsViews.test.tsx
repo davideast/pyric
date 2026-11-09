@@ -15,14 +15,43 @@ g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 g.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import {
   BillableMetricsView,
   RulesMetricsView,
 } from '../../../src/features/traffic/TrafficMetricsViews.js';
 import type { StudioTrafficEvent } from '../../../src/features/traffic/verdict.js';
+import { resetLiveStatusPollerForTesting } from '../../../src/shell/live-status.js';
 
-afterEach(() => cleanup());
+const originalFetch = globalThis.fetch;
+
+function installLiveHostHealth(): void {
+  g.fetch = async (input: unknown) => {
+    const url = typeof input === 'string' ? input : String(input);
+    if (url.includes('/__pyric/health')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          live: {
+            projectId: 'demo-project',
+            configProjectId: 'demo-project',
+            configSource: '.firebaserc',
+            appProjectIds: ['demo-project'],
+            billed: { reads: 3, writes: 2, deliveries: 1 },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response('null', { status: 404 });
+  };
+}
+
+afterEach(() => {
+  cleanup();
+  resetLiveStatusPollerForTesting();
+  g.fetch = originalFetch;
+});
 
 function operation(
   id: string,
@@ -144,6 +173,110 @@ describe('<BillableMetricsView>', () => {
     fireEvent.click(readsToggle);
     expect(container.querySelector('[data-pyric-chart-line][data-pyric-series-key="reads"]')).toBeNull();
   });
+
+  it('splits live-mode Billable metrics into Operation-metered (Firestore + Storage) and Bandwidth-metered (Realtime Database) panels', async () => {
+    installLiveHostHealth();
+
+    const liveEvents: StudioTrafficEvent[] = [
+      {
+        ...operation('fs-read', 'getDoc', 1_000),
+        service: 'firestore',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: { outcome: { status: 'ok' }, usage: { documentReads: 2 } },
+      },
+      {
+        ...operation('storage-read', 'getDownloadURL', 1_500),
+        service: 'storage',
+        path: 'gs://demo-project.appspot.com/items/one.png',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: { outcome: { status: 'ok' } },
+      },
+      {
+        ...operation('rtdb-delivery', 'onValue', 2_000),
+        service: 'rtdb',
+        path: '/rooms/lobby',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: { outcome: { status: 'ok' } },
+      },
+      {
+        ...operation('rtdb-write', 'update', 3_000),
+        service: 'rtdb',
+        path: '/rooms/lobby',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: { outcome: { status: 'ok' } },
+      },
+      {
+        ...operation('storage-write', 'uploadBytes', 4_000),
+        service: 'storage',
+        path: 'gs://demo-project.appspot.com/items/one.png',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: { outcome: { status: 'ok' } },
+      },
+      {
+        ...operation('admin-failed', 'DocumentReference.set', 5_000),
+        service: 'firestore',
+        result: 'error',
+        operationContext: { source: { kind: 'app' }, authLens: { mode: 'admin' } },
+        rulesDisposition: { kind: 'bypassed', reason: 'admin' },
+        production: { outcome: { status: 'error', code: 'unavailable' } },
+      },
+      {
+        ...operation('rtdb-denied', 'get', 6_000),
+        service: 'rtdb',
+        result: 'deny',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: { outcome: { status: 'error', code: 'permission_denied' } },
+      },
+    ];
+
+    const { container, getByText } = render(
+      <BillableMetricsView events={liveEvents} window={{ start: 0, end: 10_000 }} />,
+    );
+
+    await waitFor(() => {
+      expect(getByText('4 observed billable operations')).toBeTruthy();
+    });
+
+    const opPanel = container.querySelector('[data-pyric-billable-panel="operation"]')!;
+    const bwPanel = container.querySelector('[data-pyric-billable-panel="bandwidth"]')!;
+    expect(opPanel).toBeTruthy();
+    expect(bwPanel).toBeTruthy();
+
+    expect(
+      opPanel.querySelector('[data-pyric-metric-key="reads"] [data-pyric-metric-value]')
+        ?.textContent,
+    ).toBe('3');
+    expect(
+      opPanel.querySelector('[data-pyric-metric-key="writes"] [data-pyric-metric-value]')
+        ?.textContent,
+    ).toBe('1');
+    expect(
+      opPanel.querySelector('[data-pyric-metric-key="deletes"] [data-pyric-metric-value]')
+        ?.textContent,
+    ).toBe('0');
+
+    expect(getByText('2 observed Realtime Database transfers')).toBeTruthy();
+    expect(
+      bwPanel.querySelector('[data-pyric-metric-key="deliveries"] [data-pyric-metric-value]')
+        ?.textContent,
+    ).toBe('1');
+    expect(
+      bwPanel.querySelector('[data-pyric-metric-key="writes"] [data-pyric-metric-value]')
+        ?.textContent,
+    ).toBe('1');
+    expect(
+      bwPanel.querySelector('[data-pyric-metric-key="removes"] [data-pyric-metric-value]')
+        ?.textContent,
+    ).toBe('0');
+
+    expect(container.textContent).toContain(
+      'Source: observed live requests · Firestore documents and Storage operations, not a Firebase invoice',
+    );
+    expect(container.textContent).toContain(
+      'Source: observed live Realtime Database requests · Callback deliveries and mutations, not byte totals',
+    );
+    expect(container.textContent).not.toContain('Pyric Firestore sandbox events');
+  });
 });
 
 describe('<RulesMetricsView>', () => {
@@ -215,5 +348,130 @@ describe('<RulesMetricsView>', () => {
       container.querySelector('[data-pyric-metric-key="denies"] input[type="checkbox"]')!,
     );
     expect(container.querySelector('[data-pyric-chart-line][data-pyric-series-key="denies"]')).toBeNull();
+  });
+
+  it('counts advisory local rules evaluations across Firestore, Realtime Database, and Storage in live mode', async () => {
+    installLiveHostHealth();
+
+    const liveEvents: StudioTrafficEvent[] = [
+      {
+        ...operation('fs-allow', 'getDoc', 1_000),
+        service: 'firestore',
+        path: 'rooms/alpha',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: {
+          outcome: { status: 'ok' },
+          local: { result: 'allow' },
+        },
+      },
+      {
+        ...operation('rtdb-drift', 'update', 2_000),
+        service: 'rtdb',
+        path: '/rooms/alpha',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: {
+          outcome: { status: 'ok' },
+          local: { result: 'deny', drift: true },
+        },
+      },
+      {
+        ...operation('storage-deny', 'uploadBytes', 3_000),
+        service: 'storage',
+        path: 'gs://demo-project.appspot.com/items/one.png',
+        result: 'deny',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: {
+          outcome: { status: 'error', code: 'storage/unauthorized' },
+          local: { result: 'deny' },
+        },
+      },
+      {
+        ...operation('rtdb-uneval', 'set', 4_000),
+        service: 'rtdb',
+        path: '/rooms/alpha/meta',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: {
+          outcome: { status: 'ok' },
+          local: { result: 'unevaluated', needs: ['write-data'] },
+        },
+      },
+      {
+        ...operation('admin-op', 'DocumentReference.set', 5_000),
+        service: 'firestore',
+        path: 'rooms/alpha',
+        operationContext: { source: { kind: 'app' }, authLens: { mode: 'admin' } },
+        rulesDisposition: { kind: 'bypassed', reason: 'admin' },
+        production: { outcome: { status: 'ok' } },
+      },
+    ];
+
+    const { container, getByText } = render(
+      <RulesMetricsView events={liveEvents} window={{ start: 0, end: 10_000 }} />,
+    );
+
+    await waitFor(() => {
+      expect(getByText('3 advisory local Rules evaluations')).toBeTruthy();
+    });
+
+    expect(getByText('Advisory local rules')).toBeTruthy();
+    expect(
+      getByText(
+        'Local rules would deny 67% of evaluated requests in this window · 1 disagreed with production.',
+      ),
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-pyric-metric-key="allows"] [data-pyric-metric-label]')
+        ?.textContent,
+    ).toBe('Would allow');
+    expect(
+      container.querySelector('[data-pyric-metric-key="allows"] [data-pyric-metric-value]')
+        ?.textContent,
+    ).toBe('1');
+    expect(
+      container.querySelector('[data-pyric-metric-key="denies"] [data-pyric-metric-label]')
+        ?.textContent,
+    ).toBe('Would deny');
+    expect(
+      container.querySelector('[data-pyric-metric-key="denies"] [data-pyric-metric-value]')
+        ?.textContent,
+    ).toBe('2');
+    expect(container.textContent).toContain('Drift with production: 1');
+    expect(container.textContent).toContain('Unevaluated locally: 1');
+    expect(container.textContent).toContain('Denied by production: 1');
+    expect(getByText('When local rules evaluated requests')).toBeTruthy();
+    expect(container.textContent).toContain(
+      'Source: observed live requests · Local rules evaluated against observed traffic (advisory)',
+    );
+    expect(container.textContent).not.toContain('Pyric sandbox events');
+  });
+
+  it('surfaces unevaluated live requests honestly when no local verdict could be decided', async () => {
+    installLiveHostHealth();
+
+    const liveEvents: StudioTrafficEvent[] = [
+      {
+        ...operation('rtdb-uneval', 'set', 2_000),
+        service: 'rtdb',
+        path: '/rooms/alpha/meta',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
+        production: {
+          outcome: { status: 'ok' },
+          local: { result: 'unevaluated', needs: ['write-data'] },
+        },
+      },
+    ];
+
+    const { container, getByText } = render(
+      <RulesMetricsView events={liveEvents} window={{ start: 0, end: 10_000 }} />,
+    );
+
+    await waitFor(() => {
+      expect(getByText('No decided local Rules evaluations')).toBeTruthy();
+    });
+
+    expect(
+      getByText('1 observed request could not be evaluated locally in this window.'),
+    ).toBeTruthy();
+    expect(container.textContent).toContain('Unevaluated locally: 1');
   });
 });

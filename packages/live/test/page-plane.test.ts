@@ -55,10 +55,44 @@ describe('the records a page sends to the host', () => {
     expect(sent).toEqual([{ service: 'auth', method: 'signOut', at: AT, outcome: { status: 'ok' } }]);
   });
 
-  test('carry the documents a listener delivery was billed for, zero for a metadata-only one', () => {
-    const delivery = (billedDocuments: number): LiveCallRecord => ({ module: 'firebase/firestore', name: 'onSnapshot', outcome: 'delivered', billedDocuments });
-    expect(observedCallOf(delivery(2), AT)).toEqual({ service: 'firestore', method: 'onSnapshot', at: AT, outcome: { status: 'ok' }, billedDocuments: 2 });
+  test('carry the documents a listener delivery was billed for, zero for a metadata-only one, and forward listenerId', () => {
+    const delivery = (billedDocuments: number, listenerId?: string): LiveCallRecord => ({
+      module: 'firebase/firestore',
+      name: 'onSnapshot',
+      outcome: 'delivered',
+      billedDocuments,
+      ...(listenerId === undefined ? {} : { listenerId }),
+    });
+    expect(observedCallOf(delivery(2, 'l-1234abcd-1'), AT)).toEqual({
+      service: 'firestore',
+      method: 'onSnapshot',
+      at: AT,
+      outcome: { status: 'ok' },
+      billedDocuments: 2,
+      listenerId: 'l-1234abcd-1',
+    });
     expect(observedCallOf(delivery(0), AT)?.billedDocuments).toBe(0);
+    expect(
+      observedCallOf(
+        {
+          module: 'firebase/database',
+          name: 'onValue',
+          outcome: 'delivered',
+          instance: 'demo-default-rtdb',
+          path: '/rooms/r1',
+          listenerId: 'l-1234abcd-2',
+        },
+        AT,
+      ),
+    ).toEqual({
+      service: 'rtdb',
+      method: 'onValue',
+      at: AT,
+      outcome: { status: 'ok' },
+      instance: 'demo-default-rtdb',
+      path: '/rooms/r1',
+      listenerId: 'l-1234abcd-2',
+    });
   });
 });
 

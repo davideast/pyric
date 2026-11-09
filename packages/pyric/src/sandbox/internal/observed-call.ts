@@ -39,6 +39,7 @@ import type {
 import type { RequestObservation } from '../types/request-observation.js';
 import { AI_LOGIC_ENDPOINT, aiUsageEvidence, type AiEvidence } from './ai-evidence.js';
 import { isDefaultDatabaseInstance } from './instances.js';
+import { observedListenerTarget } from './observed-delivery.js';
 import { makeSandboxListenerEvent, makeSandboxOperationEvent } from './sandbox-impl.js';
 
 /** The event an observed call becomes; an Admin call's names its own auth lens. */
@@ -91,6 +92,7 @@ const CALL_FIELDS = new Set([
   'document',
   'query',
   'listener',
+  'listenerId',
 ]);
 const ACCOUNT_FIELDS = new Set(['uid', 'claimNames', 'claims']);
 /** A token's claims fit in a few kilobytes; production caps custom claims at 1000 bytes. */
@@ -197,13 +199,6 @@ const LISTENER_PHASES: ReadonlySet<string> = new Set<ObservedListener['phase']>(
 const LISTENER_SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'rtdb']);
 /** A subscription id the page or process minted: a counter, a short random id or a UUID. */
 const LISTENER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-/** The RTDB event each listener export subscribes to, as the sandbox's own RTDB listener targets name it. */
-const RTDB_LISTENER_KINDS: ReadonlyMap<string, string> = new Map([
-  ['onChildAdded', 'child_added'],
-  ['onChildChanged', 'child_changed'],
-  ['onChildRemoved', 'child_removed'],
-  ['onChildMoved', 'child_moved'],
-]);
 
 type Fields = Record<string, unknown>;
 
@@ -717,6 +712,20 @@ export function readObservedCall(input: unknown): ObservedCall {
     requireField(LISTENER_SERVICES.has(call.service) && call.outcome.status === 'ok', 'listener');
     call.listener = readListener(value.listener);
   }
+  if (value.listenerId !== undefined) {
+    const id = value.listenerId;
+    requireField(
+      LISTENER_SERVICES.has(call.service) &&
+        call.sdk === undefined &&
+        call.outcome.status === 'ok' &&
+        call.listener === undefined &&
+        typeof id === 'string' &&
+        LISTENER_ID_PATTERN.test(id) &&
+        !isTokenShaped(id),
+      'listenerId',
+    );
+    call.listenerId = id;
+  }
   const writeData = writtenValueFor(call, value.writeData);
   if (writeData !== undefined) call.writeData = writeData;
   const returned = returnedDocumentFor(call, value.document);
@@ -802,21 +811,6 @@ export function observedCallEvent(call: ObservedCall): ObservedOperationEvent {
 export type ObservedListenerEvent = SandboxListenerEvent & Pick<EventProvenance, 'authLens'>;
 
 /**
- * What a listener watches, in the shape the sandbox's own listener events
- * use: a Firestore document (an even number of segments) or a query, with
- * the query's shape when the call carried one; or the RTDB event its export
- * subscribes to.
- */
-function listenerTarget(call: ObservedCall, listener: ObservedListener): SandboxListenerEvent['target'] {
-  const path = listener.target;
-  if (call.service === 'rtdb') return { kind: RTDB_LISTENER_KINDS.get(call.method) ?? 'value', path };
-  const segments = path.split('/').filter((segment) => segment.length > 0).length;
-  const kind = segments % 2 === 0 ? 'doc' : 'query';
-  const query = eventRequest(call).request?.query;
-  return query === undefined ? { kind, path } : { kind, path, query };
-}
-
-/**
  * The `listener` event an observed attach or detach becomes, as the
  * sandbox's own listener events read: its phase, the id the page minted,
  * its target and the account. Production answered nothing, so it has no
@@ -836,7 +830,7 @@ export function observedListenerEvent(call: ObservedCall): ObservedListenerEvent
     ...eventInstance(call),
     phase: listener.phase,
     listenerId: listener.id,
-    target: listenerTarget(call, listener),
+    target: observedListenerTarget(call, listener, eventRequest(call).request?.query),
     auth: call.account === undefined ? null : { uid: call.account.uid },
     rulesDisposition,
     ...(Object.keys(detail).length === 0 ? {} : { detail }),
@@ -855,6 +849,7 @@ function eventDetail(call: ObservedCall): { detail?: Record<string, unknown> } {
     bucket: call.bucket,
     requests: requests?.map((request) => ({ ...request })),
     sdk: call.sdk,
+    listenerId: call.listenerId,
     failure: call.outcome.status === 'error' ? call.outcome.failure : undefined,
   });
   return Object.keys(detail).length === 0 ? {} : { detail };

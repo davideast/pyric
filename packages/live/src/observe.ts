@@ -43,7 +43,11 @@
  * calls the SDK's own unsubscribe (`listener-journal.ts`).
  */
 import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
-import { randomKey, realmHash } from './keyed-hash.js';
+import {
+  createListenerLifecycle,
+  subscribeWithLifecycle,
+  wrapEndingUnsubscribe,
+} from './observe-listener.js';
 import { CALL_TARGET_FIELDS, liveProjectRefusal, type CallTargetField, type LiveClient, type ProjectField } from './refusal.js';
 import { attachSessionData, mergeSessionData, type ObservedSessionDelta } from './session-data.js';
 
@@ -162,6 +166,8 @@ export interface LiveCallRecord {
   readonly query?: LiveQuery;
   /** On an `attached` or `detached` record: the listener's id and hashed key. */
   readonly listener?: LiveListenerLifecycle;
+  /** On a `delivered` record of a named listener: the subscription id minted at attach. */
+  readonly listenerId?: string;
 }
 
 /** A bounded JSON value an observed Firestore, RTDB or Storage write carried. */
@@ -326,7 +332,7 @@ export type RejectionReading = (Pick<CallContext, 'requests'> & { readonly code?
 /** Reads one call's context from its export name, arguments and `this`, or marks it unobserved. */
 export type CallContextOf = (name: string, args: readonly unknown[], self: unknown) => CallContext | typeof UNOBSERVED;
 
-type Callback = (this: unknown, ...values: unknown[]) => unknown;
+export type Callback = (this: unknown, ...values: unknown[]) => unknown;
 
 /**
  * What a module whose objects differ from Firestore's and Auth's supplies to
@@ -359,6 +365,12 @@ export interface ObservedHooks {
    * RTDB's `off()` does, can detach them. Returns what forgets it again.
    */
   readonly listenerAttached?: (name: string, args: readonly unknown[], detach: () => void) => (() => void) | undefined;
+  /**
+   * Whether a listener subscription detaches itself inside the SDK right after
+   * its first delivery, as RTDB's `{ onlyOnce: true }` does without calling
+   * `off()` or the returned unsubscribe.
+   */
+  readonly listenerOnlyOnce?: (args: readonly unknown[]) => boolean;
   /**
    * Reads a one-shot call's resolved value before the app gets it: what it
    * adds to the record, or `UNOBSERVED` to make none. A promise of the
@@ -418,6 +430,10 @@ export interface ObservedSite extends ObservedHooks {
   readonly listener?: LiveListenerLifecycle;
   /** For one listener with a lifecycle: records its `detached`, once. */
   readonly endListener?: () => void;
+  /** For one listener with a lifecycle: records `attached` once before any synchronous callback fires. */
+  readonly ensureAttached?: () => void;
+  /** True when the SDK detaches this subscription automatically after its first delivery. */
+  readonly detachesOnDelivery?: boolean;
   /** The instance, bucket and path of the call this site records, read by the module's context hook. */
   readonly instance?: string;
   readonly bucket?: string;
@@ -554,7 +570,8 @@ function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, value: unknow
   const usage = outcome === 'resolved' && site.usage !== undefined ? { usage: site.usage } : {};
   const isLifecycle = LIFECYCLE_OUTCOMES.has(outcome) && site.listener !== undefined;
   const listener = isLifecycle ? { listener: site.listener } : {};
-  return { module: site.module, name: site.name, outcome, ...context, ...billed, ...usage, ...listener };
+  const listenerId = outcome === 'delivered' && site.listener !== undefined ? { listenerId: site.listener.id } : {};
+  return { module: site.module, name: site.name, outcome, ...context, ...billed, ...usage, ...listener, ...listenerId };
 }
 
 function stringAt(value: unknown, path: readonly string[]): string | undefined {
@@ -1140,10 +1157,19 @@ function deliverThrough(site: ObservedSite, value: unknown, billedDocuments: num
 /** Wraps one listener callback: records the event, then calls the app's callback with the same `this` and values. */
 function recordingCallback(site: ObservedSite, outcome: LiveCallOutcome, callback: Callback): Callback {
   return function recorded(this: unknown, ...values: unknown[]): unknown {
+    site.ensureAttached?.();
     const record = report(site, outcome, values[0]);
     const callApp = (): unknown => Reflect.apply(callback, this, values);
     const isDelivery = outcome === 'delivered';
-    if (isDelivery) return deliverThrough(site, values[0], record?.billedDocuments, callApp);
+    if (isDelivery) {
+      if (site.detachesOnDelivery === true) {
+        queueMicrotask(() => {
+          endListener(site);
+          closeActivity(site);
+        });
+      }
+      return deliverThrough(site, values[0], record?.billedDocuments, callApp);
+    }
     journalFailure(site);
     endListener(site);
     return callApp();
@@ -1256,95 +1282,6 @@ function listenerArguments(site: ObservedSite, args: unknown[]): unknown[] {
   }
 }
 
-/** This realm's prefix for the listener ids it mints: random, so a reloaded page never reuses a past page's id. */
-const LISTENER_REALM = Array.from(randomKey().slice(0, 4), (byte) => byte.toString(16).padStart(2, '0')).join('');
-let listenerSerial = 0;
-
-/** A fresh listener id, `l-<realm>-<n>`: unique in this realm and unlike any other realm's. */
-function mintListenerId(): string {
-  listenerSerial += 1;
-  return `l-${LISTENER_REALM}-${listenerSerial}`;
-}
-
-/** What the module's hook says the listener watches, or undefined when it has no hook, names nothing or throws. */
-function identityOf(site: ObservedSite, args: readonly unknown[]): ListenerIdentity | undefined {
-  try {
-    return site.listenerOf?.(site.name, args);
-  } catch {
-    return undefined;
-  }
-}
-
-/** One subscription's lifecycle: the fields its site carries, and the step that records it attached. */
-interface Lifecycle {
-  readonly fields: Required<Pick<ObservedSite, 'listener' | 'endListener' | 'path'>>;
-  attached(site: ObservedSite, args: readonly unknown[]): void;
-}
-
-/**
- * The lifecycle of one subscription the module's hook names: a fresh id,
- * the realm's keyed hash of its key, and its target as the path of every
- * record it makes when the call's context named none, as a resumed
- * snapshot's does not. Its `endListener` records `detached`
- * once, however many of unsubscribe, `off()` and an error end it, and tells
- * the module to forget the subscription.
- */
-function lifecycleOf(site: ObservedSite, args: readonly unknown[]): Lifecycle | undefined {
-  const identity = identityOf(site, args);
-  if (identity === undefined) return undefined;
-  const listener: LiveListenerLifecycle = { id: mintListenerId(), key: realmHash(identity.key) };
-  let ended = false;
-  let forget: (() => void) | undefined;
-  const fields: Lifecycle['fields'] = {
-    listener,
-    path: site.path ?? identity.target,
-    endListener() {
-      if (ended) return;
-      ended = true;
-      forget?.();
-      report({ ...site, ...fields }, 'detached');
-    },
-  };
-  return {
-    fields,
-    attached(attachedSite, appArgs) {
-      report(attachedSite, 'attached');
-      // A listener the module ends without its unsubscribe (RTDB `off()`) closes its journal activity too.
-      const endedElsewhere = (): void => {
-        fields.endListener();
-        closeActivity(attachedSite);
-      };
-      try {
-        forget = site.listenerAttached?.(site.name, appArgs, endedElsewhere);
-      } catch {
-        // A module that cannot note the subscription still has its unsubscribe and errors.
-      }
-    },
-  };
-}
-
-/** Subscribes as the app called it and records `attached`, or `threw` when the SDK threw. */
-function subscribe(site: ObservedSite, lifecycle: Lifecycle, call: { real: Callback; self: unknown; args: unknown[]; appArgs: readonly unknown[] }): unknown {
-  let unsubscribe: unknown;
-  try {
-    unsubscribe = Reflect.apply(call.real, call.self, call.args);
-  } catch (error) {
-    if (site.throwsLocally !== true) report(site, 'threw', error);
-    throw error;
-  }
-  lifecycle.attached(site, call.appArgs);
-  return unsubscribe;
-}
-
-/** The SDK's unsubscribe, recording the listener's `detached` first. Any other result is passed back unchanged. */
-function endingUnsubscribe(site: ObservedSite, unsubscribe: unknown): unknown {
-  if (typeof unsubscribe !== 'function') return unsubscribe;
-  return function unsubscribed(this: unknown, ...values: unknown[]): unknown {
-    endListener(site);
-    return Reflect.apply(unsubscribe as Callback, this, values);
-  };
-}
-
 /**
  * A wrapper for a listener export: `onSnapshot`, `onAuthStateChanged`,
  * `onTokenChanged`, `onValue`. A listener the module's `listenerOf` hook
@@ -1352,25 +1289,26 @@ function endingUnsubscribe(site: ObservedSite, unsubscribe: unknown): unknown {
  * `detached` once when it ends.
  */
 export function observedListener(site: ObservedSite, real: Callback): Callback {
+  const lifecycleHooks = { report, closeActivity, endListener };
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args, this);
     if (callSite === null) return Reflect.apply(real, this, args);
     const refusal = refusedProject(callSite);
     if (refusal !== null) throw refusal;
     const activity = openActivity(site.observer, site.name, args);
-    const lifecycle = lifecycleOf(callSite, args);
+    const lifecycle = createListenerLifecycle(callSite, args, lifecycleHooks);
     const listenerSite: ObservedSite = { ...callSite, billing: billedDocuments(), activity, ...lifecycle?.fields };
     const listening = recordingArguments(listenerSite, listenerArguments(site, args));
     let unsubscribe: unknown;
     try {
       unsubscribe = lifecycle === undefined
         ? callReal(callSite, real, this, listening)
-        : subscribe(listenerSite, lifecycle, { real, self: this, args: listening, appArgs: args });
+        : subscribeWithLifecycle(listenerSite, lifecycle, { real, self: this, args: listening, appArgs: args }, report);
     } catch (error) {
       journalFailure(listenerSite);
       throw error;
     }
-    const ending = lifecycle === undefined ? unsubscribe : endingUnsubscribe(listenerSite, unsubscribe);
+    const ending = lifecycle === undefined ? unsubscribe : wrapEndingUnsubscribe(listenerSite, unsubscribe, endListener);
     return activity === undefined ? ending : closingUnsubscribe(activity, ending);
   };
 }

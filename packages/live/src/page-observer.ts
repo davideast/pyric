@@ -195,7 +195,25 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const account = accountOf(record);
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
   const usage = record.usage === undefined ? {} : { usage: { ...record.usage } };
-  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...usage, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record), ...valuesOf(service, record), ...queryOf(service, record) };
+  const call: ObservedCall = {
+    service,
+    method: record.name,
+    at,
+    outcome,
+    ...project,
+    ...account,
+    ...billed,
+    ...usage,
+    ...placeOf(service, record),
+    ...aiOf(service, record),
+    ...requestsOf(service, record),
+    ...valuesOf(service, record),
+    ...queryOf(service, record),
+  };
+  if (LISTENER_SERVICES.has(service) && outcome.status === 'ok' && record.listenerId !== undefined) {
+    call.listenerId = record.listenerId;
+  }
+  return call;
 }
 
 /** An Admin record's or a listener record's account: the uid and claim names only, never claim values. */

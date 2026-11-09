@@ -1,4 +1,8 @@
-import { assertCompleteHistory, type ObservedWriteValue } from 'pyric/sandbox/internal';
+import {
+  assertCompleteHistory,
+  observedDeliveryOf,
+  type ObservedWriteValue,
+} from 'pyric/sandbox/internal';
 import type { EventService, Sandbox, SandboxEvent } from 'pyric/sandbox';
 import { getStorageSandbox } from 'pyric/storage';
 import { storageDeniedWrites, type RecordedStorageDeniedWrite } from 'pyric/storage/internal';
@@ -158,8 +162,34 @@ function storageDeniedWritesIn(
   return count === 0 ? undefined : out;
 }
 
+/**
+ * Strip `sessionData`-derived document IDs and RTDB child keys from live
+ * delivery summaries before persisting capture files (`observed-session/wire.ts`:
+ * observed session keys stay in host memory unless explicitly exported/seeded).
+ * Preserves `{ mode, size, paths: [] }` so listener delivery counts and
+ * cardinality remain intact on capture hydration.
+ */
+function sanitizeCapturedEvents(events: SandboxEvent[]): SandboxEvent[] {
+  return events.map((event) => {
+    if (event.kind !== 'operation' || event.detail === undefined) return event;
+    const delivery = observedDeliveryOf(event);
+    if (delivery === undefined) return event;
+    const hasKeys =
+      delivery.paths.length > 0 ||
+      (delivery.removedPaths !== undefined && delivery.removedPaths.length > 0);
+    if (!hasKeys) return event;
+    return {
+      ...event,
+      detail: {
+        ...event.detail,
+        delivery: { mode: delivery.mode, size: delivery.size, paths: [] },
+      },
+    };
+  });
+}
+
 export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyFixture {
-  const events = input.sandbox.history();
+  const events = sanitizeCapturedEvents(input.sandbox.history());
   const snapshot = input.sandbox.snapshot();
   const firestoreDocuments = snapshot.firestore;
   const services: PyricVerifyFixture['services'] = {};

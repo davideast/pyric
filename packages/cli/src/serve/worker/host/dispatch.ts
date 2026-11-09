@@ -61,7 +61,7 @@ import {
   opProvenance,
 } from './core.js';
 import { bindCaller, callerFor, markPortConnection, setPortClientId, setPortTabId } from './caller.js';
-import { endObservedPort, handleObserve } from './observe.js';
+import { claimObservedPageTab, endObservedPort, handleObserve } from './observe.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './rules.js';
@@ -223,7 +223,10 @@ export async function handleMessage(
   const configuresApp = msg.t === 'appConfig';
   if (configuresApp) {
     if (msg.origin !== undefined) setPortOrigin(targetPort, msg.origin);
-    if (msg.tabId !== undefined) setPortTabId(ctx, targetPort, msg.tabId);
+    if (msg.tabId !== undefined) {
+      setPortTabId(ctx, targetPort, msg.tabId);
+      claimObservedPageTab(ctx, targetPort, msg.tabId);
+    }
     if (msg.clientId !== undefined) setPortClientId(targetPort, msg.clientId);
     handleAppConfig(ctx, targetPort, msg, stalePort => cleanupPort(ctx, stalePort));
     return;
@@ -337,6 +340,7 @@ async function dispatchMessage(
     if (isAuth) {
       handleAuthSub(ctx, port, msg);
     } else if (isEvent) {
+      if (msg.tabId !== undefined) claimObservedPageTab(ctx, port, msg.tabId);
       handleEventSub(ctx, port, msg);
     } else if (isRtdb) {
       handleRtdbSub(ctx, port, msg);

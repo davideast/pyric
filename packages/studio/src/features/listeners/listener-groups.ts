@@ -19,6 +19,7 @@ import {
   type ActiveListenerTarget,
   type ListenerOwner,
 } from 'pyric/sandbox';
+import { isFirestoreDocumentPath } from 'pyric/sandbox/internal';
 
 /** The `component` owner, narrowed off the union. */
 export interface ComponentOwner {
@@ -83,6 +84,19 @@ export function elementOf(owners: readonly ListenerOwner[] | undefined): string 
 export function formatListenerTarget(target: ActiveListenerTarget): string {
   if (typeof target === 'string') return target;
   return target.query !== undefined ? `${target.collection} (query)` : target.collection;
+}
+
+/**
+ * Whether a listener watches one Firestore document rather than a query or
+ * collection. Live listener attaches carry string paths for both document and
+ * collection targets (`rooms/lobby` vs `rooms`), so a Firestore string target
+ * is a single document only when its path has an even number of segments.
+ */
+export function isSingleDocumentTarget(
+  listener: Pick<ActiveListener, 'service' | 'target'>,
+): boolean {
+  if (listener.service !== 'firestore' || typeof listener.target !== 'string') return false;
+  return isFirestoreDocumentPath(listener.target);
 }
 
 export interface ListenerGroupIdentity {

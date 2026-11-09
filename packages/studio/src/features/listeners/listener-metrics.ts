@@ -20,7 +20,7 @@
 
 import type { MetricPoint, MetricSeries, TimeWindow } from '@pyric/ui/traffic';
 import type { ActiveListener, SandboxEvent } from 'pyric/sandbox';
-import { isDeliveryEvent } from './listener-deliveries.js';
+import { deliveryListenerId, isDeliveryEvent } from './listener-deliveries.js';
 
 /** The three card keys, in the order the cards render. */
 export type ListenerCardKey = 'delivering' | 'idle' | 'incidents';
@@ -62,7 +62,7 @@ export function deliveryCountsInWindow(
   for (const event of events) {
     if (!isDeliveryEvent(event)) continue;
     if (event.at < window.start || event.at >= window.end) continue;
-    const listenerId = (event as { listenerId?: string }).listenerId;
+    const listenerId = deliveryListenerId(event);
     if (listenerId === undefined) continue;
     counts.set(listenerId, (counts.get(listenerId) ?? 0) + 1);
   }
@@ -111,7 +111,7 @@ export function deliveryMetrics(
   for (const event of events) {
     if (!isDeliveryEvent(event)) continue;
     if (event.at < window.start || event.at >= window.end) continue;
-    const listenerId = (event as { listenerId?: string }).listenerId;
+    const listenerId = deliveryListenerId(event);
     if (listenerId === undefined) continue;
     const service = serviceOf.get(listenerId);
     if (service === undefined) continue;

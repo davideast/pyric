@@ -64,6 +64,7 @@ import {
   drilledListenerId,
 } from '../listeners/index.js';
 import { TRAFFIC_TABS, trafficTabForView, type TrafficTab } from './traffic-tabs.js';
+import { computeTrafficWindow } from './traffic-window.js';
 import { trafficTimeFocus, toggleTimeFocus } from './timeline-focus.js';
 import { FromSelect, LiveRowDetail, OutcomeCell, TargetCell, useFromScope } from './TrafficLiveRow.js';
 import { inFromScope, methodLabel } from './live-row.js';
@@ -324,13 +325,10 @@ export function TrafficSurface() {
   // so a fresh session's handful of ops still lands a few buckets from the
   // edge. `Date.now()` is read INSIDE the memo (recomputing when the stream
   // changes) — a per-render read would defeat the memo entirely.
-  const window = useMemo<TimeWindow>(() => {
-    const now = Date.now();
-    if (events.length === 0) return { start: now - 15 * 60_000, end: now };
-    let earliest = Infinity;
-    for (const e of events) if (e.at < earliest) earliest = e.at;
-    return { start: Math.min(earliest, now - 60_000), end: now + 1_000 };
-  }, [events]);
+  const window = useMemo<TimeWindow>(
+    () => computeTrafficWindow(events, isLiveHost),
+    [events, isLiveHost],
+  );
   const now = window.end;
 
   const focusedTraffic = useMemo(
@@ -376,6 +374,7 @@ export function TrafficSurface() {
   // detect it so the inspector can render standalone above the log (this also
   // covers an id that isn't in the buffer at all — the inspector shows the
   // calm "not in this session's traffic" state).
+  const activeFromScope = isLiveHost ? fromScope : undefined;
   const expandedRowVisible =
     expandedId != null &&
     visibleItems.some((item) => item.type !== 'group' && item.event.id === expandedId);
@@ -416,13 +415,13 @@ export function TrafficSurface() {
       </div>
 
       {drilledListener !== undefined ? (
-        <ListenerPageSurface listenerId={drilledListener} window={window} />
+        <ListenerPageSurface listenerId={drilledListener} window={window} hideStudio={hideStudio} fromScope={activeFromScope} />
       ) : tab === 'billable' ? (
         <BillableMetricsView events={events} window={window} />
       ) : tab === 'rules' ? (
         <RulesMetricsView events={events} window={window} />
       ) : tab === 'listeners' ? (
-        <ListenersSurface window={window} hideStudio={hideStudio} />
+        <ListenersSurface window={window} hideStudio={hideStudio} fromScope={activeFromScope} />
       ) : (
         <>
           <TrafficTimeline

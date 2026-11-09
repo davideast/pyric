@@ -346,6 +346,7 @@ export function getHostedFirestore(target: {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
       restoreAuthSubscriptions(port, replay);
+      port.restoreObservedListeners?.(message => rawRpc(port, message, postMessage));
       needsSessionRestore = false;
     }
     clearTimeout(attachDeadline);
