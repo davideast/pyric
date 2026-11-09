@@ -25,11 +25,13 @@ import {
   type ValidationFinding,
 } from 'pyric/rules/internal';
 import { resolveModules } from 'pyric/rules/internal/node';
+import { MODULAR_SOURCE } from '../serve/rules.js';
 import type { ParsedArgs } from './parse-args.js';
 
 export interface RulesDeps {
   readFile?: typeof readFile;
   validateFirestoreRules?: typeof validateFirestoreRules;
+  resolveModules?: typeof resolveModules;
   /** Override cwd — used in tests. */
   cwd?: string;
   stdout?: { write(s: string): void };
@@ -58,12 +60,25 @@ export async function runRulesValidate(parsed: ParsedArgs, deps: RulesDeps = {})
     err.write('pyric firestore rules validate: missing rules-file path. Usage: pyric firestore rules validate <path>\n');
     return 1;
   }
+  const absoluteSourcePath = resolvePath(cwd, path);
   let source: string;
   try {
-    source = await readFileFn(resolvePath(cwd, path), 'utf-8');
+    source = await readFileFn(absoluteSourcePath, 'utf-8');
   } catch (e) {
     err.write(`pyric firestore rules validate: ${e instanceof Error ? e.message : String(e)}\n`);
     return 1;
+  }
+  if (MODULAR_SOURCE.test(source)) {
+    const resolved = (deps.resolveModules ?? resolveModules)(source, {
+      basePath: dirname(absoluteSourcePath),
+      sourceFile: path,
+      targetService: 'cloud.firestore',
+    });
+    if (!resolved.success) {
+      err.write(`pyric firestore rules validate: ${resolved.error.message}\n`);
+      return 2;
+    }
+    source = resolved.data.resolved;
   }
   const ast = parseToAST(source);
   if (!ast) {

@@ -72,7 +72,7 @@ export function rulesHashOf(source: string): string {
   return createHash('sha256').update(source).digest('hex').slice(0, 12);
 }
 
-const MODULAR_SOURCE = /^\s*rules_version\s*=\s*['"]2\+modules['"]/m;
+export const MODULAR_SOURCE = /^\s*rules_version\s*=\s*['"]2\+modules['"]/m;
 
 interface ProjectModulesResolution {
   result: ResolveResult;
@@ -85,7 +85,7 @@ interface ProjectModulesResolution {
  * beside `sourcePath`. The resolver names nested imports relative to the
  * source, so every file it asks for is under `sourcePath`'s directory.
  */
-function resolveProjectModules(
+export function resolveProjectModules(
   raw: string,
   sourcePath: string,
   sourceFile?: string,
@@ -301,13 +301,17 @@ const STORAGE_COMPILE_PREFIX = /^Storage rules do not compile: /;
  * `compileStorageRules`, so every source this accepts installs on every
  * plane, and a reload this refuses is reported as refused.
  */
-export function prepareStorageRulesSource(raw: string, sourcePath: string): string {
+function prepareProjectStorageRules(raw: string, sourcePath: string): PreparedRules {
   let source = raw;
+  let moduleFiles: string[] = [];
   if (MODULAR_SOURCE.test(raw)) {
-    const resolved = resolveProjectModules(raw, sourcePath, sourcePath, 'firebase.storage').result;
+    const resolution = resolveProjectModules(raw, sourcePath, sourcePath, 'firebase.storage');
+    moduleFiles = resolution.moduleFiles;
+    const resolved = resolution.result;
     if (!resolved.success) {
-      throw new Error(
+      throw new RulesPrepareError(
         `pyric sandbox: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
+        moduleFiles,
       );
     }
     source = resolved.data.resolved;
@@ -318,25 +322,37 @@ export function prepareStorageRulesSource(raw: string, sourcePath: string): stri
     const message = e instanceof Error ? e.message : String(e);
     if (STORAGE_COMPILE_PREFIX.test(message)) {
       const reason = message.replace(STORAGE_COMPILE_PREFIX, '');
-      throw new Error(`${asSentence(`pyric sandbox: ${sourcePath} does not compile: ${reason}`)} Fix the rules before serving.`);
+      throw new RulesPrepareError(
+        `${asSentence(`pyric sandbox: ${sourcePath} does not compile: ${reason}`)} Fix the rules before serving.`,
+        moduleFiles,
+      );
     }
     const violations = sourceCompileLimitViolations(source);
     if (violations.length > 0) {
-      throw new Error(
+      throw new RulesPrepareError(
         `pyric sandbox: ${sourcePath} does not compile: ${describeCompileLimitViolations(violations)} Fix the rules before serving.`,
+        moduleFiles,
       );
     }
-    throw new Error(
+    throw new RulesPrepareError(
       `${asSentence(`pyric sandbox: ${sourcePath} failed to parse: ${message}`)} Fix the rules before serving.`,
+      moduleFiles,
     );
   }
   try {
     compileStorageRules(source);
   } catch (e) {
     const reason = (e instanceof Error ? e.message : String(e)).replace(STORAGE_COMPILE_PREFIX, '');
-    throw new Error(`${asSentence(`pyric sandbox: ${sourcePath} does not compile: ${reason}`)} Fix the rules before serving.`);
+    throw new RulesPrepareError(
+      `${asSentence(`pyric sandbox: ${sourcePath} does not compile: ${reason}`)} Fix the rules before serving.`,
+      moduleFiles,
+    );
   }
-  return source;
+  return { rules: source, moduleFiles };
+}
+
+export function prepareStorageRulesSource(raw: string, sourcePath: string): string {
+  return prepareProjectStorageRules(raw, sourcePath).rules;
 }
 
 function configuredStorageRules(config: FirebaseJson | null): string | undefined {
@@ -406,11 +422,14 @@ export interface LoadedStorageBucketRules {
   rules: string;
   rulesHash: string;
   sourcePath: string;
+  moduleFiles: string[];
 }
 
 export interface LoadedProjectStorageRules extends LoadedStorageRules, StorageRulesTargets {
   /** The rules each bucket `firebase.json` names gets, by bucket name; the default bucket's are `rules`. */
   buckets: Map<string, LoadedStorageBucketRules>;
+  /** Module files imported by the default bucket's rules, when configured. */
+  moduleFiles: string[];
 }
 
 /** How a Storage deploy names its bucket, or the pending deploy target it waits on, in a log line. */
@@ -510,8 +529,8 @@ export async function loadStorageRulesTarget(target: StorageRulesTarget): Promis
     if (!target.configured) return null;
     throw new Error(`pyric sandbox: ${target.label} points the rules of ${storageBucketLabel(target.bucket)} at ${target.path}, but it does not exist.`);
   }
-  const rules = prepareStorageRulesSource(raw, target.path);
-  return { bucket: target.bucket, rules, rulesHash: rulesHashOf(rules), sourcePath: target.path };
+  const { rules, moduleFiles } = prepareProjectStorageRules(raw, target.path);
+  return { bucket: target.bucket, rules, rulesHash: rulesHashOf(rules), sourcePath: target.path, moduleFiles };
 }
 
 /**
@@ -520,7 +539,7 @@ export async function loadStorageRulesTarget(target: StorageRulesTarget): Promis
  */
 export async function loadPendingStorageTarget(
   target: PendingStorageRulesTarget,
-): Promise<{ rules: string; rulesHash: string } | null> {
+): Promise<{ rules: string; rulesHash: string; moduleFiles: string[] } | null> {
   let raw: string;
   try {
     raw = await readFile(target.path, 'utf8');
@@ -528,8 +547,8 @@ export async function loadPendingStorageTarget(
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw e;
   }
-  const rules = prepareStorageRulesSource(raw, target.path);
-  return { rules, rulesHash: rulesHashOf(rules) };
+  const { rules, moduleFiles } = prepareProjectStorageRules(raw, target.path);
+  return { rules, rulesHash: rulesHashOf(rules), moduleFiles };
 }
 
 /**
@@ -559,6 +578,7 @@ export async function loadProjectStorageRules(
     rules: defaultRules?.rules ?? null,
     rulesHash: defaultRules?.rulesHash ?? null,
     sourcePath: defaultRules?.sourcePath ?? null,
+    moduleFiles: defaultRules?.moduleFiles ?? [],
   };
 }
 

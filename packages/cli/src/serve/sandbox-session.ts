@@ -140,8 +140,10 @@ export interface SandboxSession {
   /** The Realtime Database rules files the instances load from, whether or
    *  not they exist. */
   databaseRulesFiles(): readonly string[];
-  /** The Storage rules files the buckets load from, whether or not they exist. */
+  /** The Storage rules files the buckets load from, plus any imported or attempted `2+modules` files. */
   storageRulesFiles(): readonly string[];
+  /** Only the entry Storage rules files the buckets load from, without imported module helpers. */
+  storageSourceFiles(): readonly string[];
   close(): Promise<void>;
 }
 
@@ -248,7 +250,7 @@ export async function createSandboxSession(
       .map((target) => [target.bucket as string, storage.buckets.get(target.bucket as string) ?? null]),
   );
   // Each unresolved Storage deploy target's rules, by target name, null while its file is missing.
-  const livePendingStorage = new Map<string, { rules: string; rulesHash: string } | null>();
+  const livePendingStorage = new Map<string, { rules: string; rulesHash: string; moduleFiles?: string[] } | null>();
   for (const target of storage.pending) livePendingStorage.set(target.target, await loadPendingStorageTarget(target));
   // Each declared instance's rules in force, null while its file is missing.
   const liveDatabase = new Map<string, { rules: RtdbRulesJson; rulesHash: string } | null>(
@@ -631,9 +633,29 @@ export async function createSandboxSession(
       }
       return results;
     };
-    const storageRulesFiles = (): readonly string[] => [
+    const storageModuleFilesByTarget = new Map<StorageRulesTarget | PendingStorageRulesTarget, readonly string[]>();
+    const storageAttemptedModuleFilesByTarget = new Map<StorageRulesTarget | PendingStorageRulesTarget, readonly string[]>();
+    for (const target of storage.targets) {
+      const moduleFiles = target.bucket === null
+        ? storage.moduleFiles
+        : storage.buckets.get(target.bucket)?.moduleFiles ?? [];
+      storageModuleFilesByTarget.set(target, moduleFiles);
+    }
+    for (const target of storage.pending) {
+      storageModuleFilesByTarget.set(target, livePendingStorage.get(target.target)?.moduleFiles ?? []);
+    }
+    const storageSourceFiles = (): readonly string[] => [
       ...new Set([...storage.targets.map((target) => target.path), ...storage.pending.map((target) => target.path)]),
     ];
+    const storageRulesFiles = (): readonly string[] => {
+      const files: string[] = [];
+      for (const target of [...storage.targets, ...storage.pending]) {
+        files.push(target.path);
+        files.push(...(storageModuleFilesByTarget.get(target) ?? []));
+        files.push(...(storageAttemptedModuleFilesByTarget.get(target) ?? []));
+      }
+      return [...new Set(files)];
+    };
     // Without a rules file, a bucket denies every client operation, as in
     // production, and a deleted file returns its bucket to that state rather
     // than keeping the last-good rules. In permissive mode that state is
@@ -657,6 +679,8 @@ export async function createSandboxSession(
       const destination = target.bucket === null ? undefined : { bucket: target.bucket };
       const named = target.bucket === null ? {} : { bucket: target.bucket };
       if (!existsSync(target.path)) {
+        storageModuleFilesByTarget.set(target, []);
+        storageAttemptedModuleFilesByTarget.set(target, []);
         if (loadedStorageRules(target.bucket) === null) return { kind: 'not-configured' };
         await options.deployHostedRules?.('storage', null, destination);
         setLiveStorageRules(target.bucket, null);
@@ -666,11 +690,17 @@ export async function createSandboxSession(
       try {
         const loaded = await loadStorageRulesTarget({ ...target, configured: true });
         if (loaded === null) return { kind: 'not-configured' };
+        storageModuleFilesByTarget.set(target, loaded.moduleFiles);
+        storageAttemptedModuleFilesByTarget.set(target, []);
         await options.deployHostedRules?.('storage', loaded.rules, destination);
         setLiveStorageRules(target.bucket, loaded);
         events.broadcast('storage-rules-update', { rules: loaded.rules, rulesHash: loaded.rulesHash, ...named });
         return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
       } catch (error) {
+        storageAttemptedModuleFilesByTarget.set(
+          target,
+          error instanceof RulesPrepareError ? error.moduleFiles : [],
+        );
         const failure = error instanceof Error ? error : new Error(String(error));
         return { kind: 'rejected', error: failure };
       }
@@ -682,6 +712,8 @@ export async function createSandboxSession(
       try {
         const loaded = await loadPendingStorageTarget(target);
         const hadRules = livePendingStorage.get(target.target) != null;
+        storageModuleFilesByTarget.set(target, loaded?.moduleFiles ?? []);
+        storageAttemptedModuleFilesByTarget.set(target, []);
         if (loaded === null && !hadRules) return { kind: 'not-configured' };
         await options.deployHostedRules?.('storage', loaded?.rules ?? null, destination);
         livePendingStorage.set(target.target, loaded);
@@ -689,17 +721,31 @@ export async function createSandboxSession(
         if (loaded === null) return { kind: 'removed', policy: storagePolicy, clients: events.clientCount() };
         return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
       } catch (error) {
+        storageAttemptedModuleFilesByTarget.set(
+          target,
+          error instanceof RulesPrepareError ? error.moduleFiles : [],
+        );
         const failure = error instanceof Error ? error : new Error(String(error));
         return { kind: 'rejected', error: failure };
       }
     };
+    const matchesStorageTargetFile = (
+      candidate: StorageRulesTarget | PendingStorageRulesTarget,
+      resolvedFile: string,
+    ): boolean => {
+      if (resolve(candidate.path) === resolvedFile) return true;
+      if ((storageModuleFilesByTarget.get(candidate) ?? []).some((m) => resolve(m) === resolvedFile)) return true;
+      if ((storageAttemptedModuleFilesByTarget.get(candidate) ?? []).some((m) => resolve(m) === resolvedFile)) return true;
+      return false;
+    };
     const reloadStorageRules = async (file: string): Promise<StorageRulesReloadResult[]> => {
+      const resolvedFile = resolve(file);
       const results: StorageRulesReloadResult[] = [];
-      for (const target of storage.targets.filter((candidate) => candidate.path === file)) {
-        results.push({ bucket: target.bucket, file, result: await reloadStorageBucketRules(target) });
+      for (const target of storage.targets.filter((candidate) => matchesStorageTargetFile(candidate, resolvedFile))) {
+        results.push({ bucket: target.bucket, file: target.path, result: await reloadStorageBucketRules(target) });
       }
-      for (const target of storage.pending.filter((candidate) => candidate.path === file)) {
-        results.push({ bucket: null, target: target.target, file, result: await reloadPendingStorageTarget(target) });
+      for (const target of storage.pending.filter((candidate) => matchesStorageTargetFile(candidate, resolvedFile))) {
+        results.push({ bucket: null, target: target.target, file: target.path, result: await reloadPendingStorageTarget(target) });
       }
       return results;
     };
@@ -726,6 +772,7 @@ export async function createSandboxSession(
       firestoreRulesFiles,
       databaseRulesFiles,
       storageRulesFiles,
+      storageSourceFiles,
       close,
     };
   } catch (error) {

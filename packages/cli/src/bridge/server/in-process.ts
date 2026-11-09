@@ -29,7 +29,14 @@ import {
 import { getFirestore } from 'pyric/firestore';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { getAdminDatabase } from 'pyric/database';
-import { deployStorageBucketRules, getAdminStorageSandbox } from 'pyric/storage/internal';
+import {
+  deployStorageBucketRules,
+  getAdminStorageSandbox,
+  getStorageRulesResolution,
+  nameStorageBucket,
+  storageBucketsWithRules,
+} from 'pyric/storage/internal';
+import { rulesSourceRejection } from 'pyric/rules/internal';
 import type { FirebaseStorage } from 'pyric/storage';
 import {
   saveStorageSidecar,
@@ -42,7 +49,11 @@ import { registerRenderedSurface } from './surface-server.js';
 import { renderSurface } from '../surface/index.js';
 import { createSurfaceContext } from '../surface/context.js';
 import { rememberUnloadedStorageRules } from '../surface/storage-rules.js';
-import { loadFirestoreRules } from '../surface/firestore-rules-load.js';
+import {
+  firestoreRulesInForce,
+  loadFirestoreRules,
+  rememberRefusedFirestoreRules,
+} from '../surface/firestore-rules-load.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
 import {
   createEvalLogWriter,
@@ -56,7 +67,9 @@ import { claimProjectState } from '../../serve/hosted/project-ownership.js';
 import {
   firestoreDatabaseWarnings,
   firestoreDatabases,
+  MODULAR_SOURCE,
   prepareStorageRulesSource,
+  resolveProjectModules,
   storageRulesTargets,
   type StorageRulesTarget,
 } from '../../serve/rules.js';
@@ -199,14 +212,42 @@ export function loadProjectRules(
   const projectId = readFirebaseRcSync(cwd)?.projects?.default;
   const databases = firestoreDatabases(cwd, config, projectId === undefined ? {} : { projectId });
   for (const warning of firestoreDatabaseWarnings(cwd, databases)) onWarning(warning);
+  const persistedFs = readPersistedRulesState(cwd)?.firestore;
   const entry = defaultFirestoreDatabase(databases);
   const path = entry?.rulesFile;
-  if (entry === undefined || path === undefined) return null;
-  if (!existsSync(path)) {
-    if (entry.configured) onWarning(`${entry.label} points Firestore rules at ${path}, but it does not exist.`);
+  if (entry === undefined || path === undefined || !existsSync(path)) {
+    if (entry?.configured && path !== undefined) {
+      onWarning(`${entry.label} points Firestore rules at ${path}, but it does not exist.`);
+    }
+    if (persistedFs !== undefined && persistedFs.active !== '' && persistedFs.diskAtSave === null) {
+      return {
+        path: path ?? join(cwd, IN_PROCESS_STATE_RELATIVE),
+        refused: loadFirestoreRules(sandbox, persistedFs.active),
+      };
+    }
     return null;
   }
-  return { path, refused: loadFirestoreRules(sandbox, readFileSync(path, 'utf8')) };
+  const raw = readFileSync(path, 'utf8');
+  let candidate = raw;
+  if (MODULAR_SOURCE.test(raw)) {
+    const resolved = resolveProjectModules(raw, path, path, 'cloud.firestore').result;
+    if (!resolved.success) {
+      rememberRefusedFirestoreRules(sandbox, raw);
+      return { path, refused: `Firestore rules module resolution failed: ${resolved.error.message}` };
+    }
+    candidate = resolved.data.resolved;
+  }
+  if (
+    rulesSourceRejection(candidate) === null &&
+    persistedFs !== undefined &&
+    persistedFs.active !== '' &&
+    persistedFs.diskAtSave === candidate
+  ) {
+    return { path, refused: loadFirestoreRules(sandbox, persistedFs.active) };
+  }
+  const refused = loadFirestoreRules(sandbox, candidate);
+  if (refused !== null && candidate !== raw) rememberRefusedFirestoreRules(sandbox, raw);
+  return { path, refused };
 }
 
 /**
@@ -219,9 +260,10 @@ export function loadProjectRules(
  * codec reads and writes; storage keeps its own durability and is not in the
  * bundle at all.
  *
- * Storage enforces the rules `firebase.json` deploys to each bucket, resolved
- * by the dev server's `storageRulesTargets` and prepared by
- * `prepareStorageRulesSource`, with `2+modules` imports resolved against the
+ * Storage enforces the rules `firebase.json` deploys to each bucket (or the
+ * runtime rules persisted in the snapshot when the disk rules have not changed
+ * since save), resolved by the dev server's `storageRulesTargets` and prepared
+ * by `prepareStorageRulesSource`, with `2+modules` imports resolved against the
  * file's own directory. With no page to name the default bucket, it is the
  * bucket `.firebaserc`'s project names (see {@link inProcessDefaultBucketName}).
  */
@@ -230,15 +272,28 @@ export function openPersistedServices(sandbox: LocalSandbox, cwd: string): Fireb
   getAdminDatabase(sandbox);
   // Storage rules are read only by the call that opens the service, so the
   // project's rules have to be in hand here or not at all.
+  const persistedStorage = readPersistedRulesState(cwd)?.storage;
   const projectId = readFirebaseRcSync(cwd)?.projects?.default;
   const { targets } = storageRulesTargets(cwd, readProjectFirebaseJson(cwd), projectId === undefined ? {} : { projectId });
   const defaultTarget = targets.find((target) => isDefaultBucketTarget(target, projectId));
   for (const target of targets) {
     if (target.bucket === null) continue;
     const prepared = prepareStorageTarget(sandbox, target);
-    if (prepared !== null) deployStorageBucketRules(sandbox, target.bucket, prepared);
+    const savedBucket = persistedStorage?.buckets?.[target.bucket];
+    const effective =
+      savedBucket !== undefined && savedBucket.diskAtSave === prepared ? savedBucket.active : prepared;
+    if (effective !== null) deployStorageBucketRules(sandbox, target.bucket, effective);
   }
-  const defaultRules = defaultTarget === undefined ? null : prepareStorageTarget(sandbox, defaultTarget);
+  for (const [bucket, savedBucket] of Object.entries(persistedStorage?.buckets ?? {})) {
+    const configuredInTargets = targets.some((target) => target.bucket === bucket);
+    if (!configuredInTargets && savedBucket.diskAtSave === null) {
+      deployStorageBucketRules(sandbox, bucket, savedBucket.active);
+    }
+  }
+  const diskDefault = defaultTarget === undefined ? null : prepareStorageTarget(sandbox, defaultTarget);
+  const savedDefault = persistedStorage?.default;
+  const defaultRules =
+    savedDefault !== undefined && savedDefault.diskAtSave === diskDefault ? savedDefault.active : diskDefault;
   if (defaultRules === null) return getAdminStorageSandbox(sandbox);
   return getAdminStorageSandbox(sandbox, { rules: defaultRules });
 }
@@ -292,6 +347,103 @@ function prepareStorageTarget(sandbox: LocalSandbox, target: StorageRulesTarget)
  * directions without knowing it carries anything auth-shaped.
  */
 const APP_SESSION_SERVICE_KEY = '__pyric_cli_app_session';
+const RULES_STATE_SERVICE_KEY = '__pyric_cli_rules_state';
+
+interface PersistedRulesEntry {
+  active: string;
+  diskAtSave: string | null;
+}
+
+interface PersistedRulesState {
+  firestore?: PersistedRulesEntry;
+  storage?: {
+    default?: PersistedRulesEntry;
+    buckets?: Record<string, PersistedRulesEntry>;
+  };
+}
+
+function readDiskFirestoreRules(cwd: string): string | null {
+  try {
+    const config = readProjectFirebaseJson(cwd);
+    const projectId = readFirebaseRcSync(cwd)?.projects?.default;
+    const databases = firestoreDatabases(cwd, config, projectId === undefined ? {} : { projectId });
+    const entry = defaultFirestoreDatabase(databases);
+    const path = entry?.rulesFile;
+    if (entry === undefined || path === undefined || !existsSync(path)) return null;
+    const raw = readFileSync(path, 'utf8');
+    let candidate = raw;
+    if (MODULAR_SOURCE.test(raw)) {
+      const resolved = resolveProjectModules(raw, path, path, 'cloud.firestore').result;
+      if (!resolved.success) return null;
+      candidate = resolved.data.resolved;
+    }
+    return rulesSourceRejection(candidate) === null ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+function readDiskStorageRules(cwd: string): { default: string | null; buckets: Record<string, string | null> } {
+  const buckets: Record<string, string | null> = {};
+  try {
+    const projectId = readFirebaseRcSync(cwd)?.projects?.default;
+    const { targets } = storageRulesTargets(cwd, readProjectFirebaseJson(cwd), projectId === undefined ? {} : { projectId });
+    const defaultTarget = targets.find((target) => isDefaultBucketTarget(target, projectId));
+    const prepareQuiet = (target: StorageRulesTarget): string | null => {
+      if (!existsSync(target.path)) return null;
+      try {
+        return prepareStorageRulesSource(readFileSync(target.path, 'utf8'), target.path);
+      } catch {
+        return null;
+      }
+    };
+    for (const target of targets) {
+      if (target.bucket === null) continue;
+      buckets[target.bucket] = prepareQuiet(target);
+    }
+    const defaultRules = defaultTarget === undefined ? null : prepareQuiet(defaultTarget);
+    return { default: defaultRules, buckets };
+  } catch {
+    return { default: null, buckets };
+  }
+}
+
+function captureRulesState(sandbox: LocalSandbox, cwd: string): PersistedRulesState | null {
+  const state: PersistedRulesState = {};
+  const activeFs = firestoreRulesInForce(sandbox);
+  if (activeFs !== '') {
+    state.firestore = { active: activeFs, diskAtSave: readDiskFirestoreRules(cwd) };
+  }
+  const diskStorage = readDiskStorageRules(cwd);
+  const defaultStorage = getStorageRulesResolution(getAdminStorageSandbox(sandbox))?.source ?? null;
+  const bucketEntries: Record<string, PersistedRulesEntry> = {};
+  for (const bucket of storageBucketsWithRules(sandbox)) {
+    const handle = nameStorageBucket(getAdminStorageSandbox(sandbox, { bucket }), bucket);
+    const activeBucket = getStorageRulesResolution(handle)?.source ?? null;
+    if (activeBucket !== null) {
+      bucketEntries[bucket] = { active: activeBucket, diskAtSave: diskStorage.buckets[bucket] ?? null };
+    }
+  }
+  if (defaultStorage !== null || Object.keys(bucketEntries).length > 0) {
+    state.storage = {
+      ...(defaultStorage !== null ? { default: { active: defaultStorage, diskAtSave: diskStorage.default } } : {}),
+      ...(Object.keys(bucketEntries).length > 0 ? { buckets: bucketEntries } : {}),
+    };
+  }
+  return state.firestore !== undefined || state.storage !== undefined ? state : null;
+}
+
+function readPersistedRulesState(cwd: string): PersistedRulesState | null {
+  const path = join(cwd, IN_PROCESS_STATE_RELATIVE);
+  if (!existsSync(path)) return null;
+  try {
+    const snap = deserializeFromBuckets(parseBundle(readFileSync(path, 'utf8')));
+    const raw = snap.services[RULES_STATE_SERVICE_KEY];
+    return raw !== null && typeof raw === 'object' ? (raw as PersistedRulesState) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** What is captured for the app session: the signed-in uid and the tenant
  *  scope it authenticated under, so a later process restores both rather than
@@ -340,7 +492,11 @@ function restoreAppSession(sandbox: LocalSandbox, stored: unknown): void {
  */
 export function saveSandboxSnapshot(sandbox: LocalSandbox, cwd: string): void {
   const snap = sandbox.snapshot();
-  const services = { ...snap.services, [APP_SESSION_SERVICE_KEY]: captureAppSession(sandbox) };
+  const services = {
+    ...snap.services,
+    [APP_SESSION_SERVICE_KEY]: captureAppSession(sandbox),
+    [RULES_STATE_SERVICE_KEY]: captureRulesState(sandbox, cwd),
+  };
   const bundle = bundleRecords(serializeToBuckets(snap.firestore, services, 0));
   const path = join(cwd, IN_PROCESS_STATE_RELATIVE);
   mkdirSync(dirname(path), { recursive: true });
@@ -359,6 +515,15 @@ export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number 
   const snap = deserializeFromBuckets(parseBundle(readFileSync(path, 'utf8')));
   sandbox.loadSnapshot(snap);
   restoreAppSession(sandbox, snap.services[APP_SESSION_SERVICE_KEY]);
+  const persistedRules = snap.services[RULES_STATE_SERVICE_KEY] as PersistedRulesState | null | undefined;
+  const persistedFs = persistedRules?.firestore;
+  if (
+    persistedFs !== undefined &&
+    persistedFs.active !== '' &&
+    persistedFs.diskAtSave === readDiskFirestoreRules(cwd)
+  ) {
+    loadFirestoreRules(sandbox, persistedFs.active);
+  }
   return Object.keys(snap.firestore).length;
 }
 

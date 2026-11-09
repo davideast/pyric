@@ -92,6 +92,42 @@ describe('the in-process server loading firestore.rules', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('resolves and installs a 2+modules firestore.rules with relative imports and refuses broken module imports', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-rules-load-mod-'));
+    try {
+      writeFileSync(join(dir, 'helpers.rules'), 'export function denyAll() { return false; }\n', 'utf8');
+      const modularRules = [
+        "rules_version = '2+modules';",
+        "import { denyAll } from './helpers';",
+        'service cloud.firestore {',
+        '  match /databases/{database}/documents {',
+        '    match /items/{id} {',
+        '      allow read, write: if denyAll();',
+        '    }',
+        '  }',
+        '}',
+        '',
+      ].join('\n');
+      writeFileSync(join(dir, 'firestore.rules'), modularRules, 'utf8');
+      const sandbox = initializeSandbox();
+      const loaded = loadProjectRules(sandbox, dir);
+      expect(loaded).toEqual({ path: join(dir, 'firestore.rules'), refused: null });
+      expect(inspect(sandbox).rules.source).toContain("rules_version = '2';");
+      expect(inspect(sandbox).rules.source).toContain('denyAll');
+
+      const brokenModular = modularRules.replace("'./helpers'", "'./missing'");
+      writeFileSync(join(dir, 'firestore.rules'), brokenModular, 'utf8');
+      const sandboxWithExisting = sandboxWithRulesInForce();
+      const refused = loadProjectRules(sandboxWithExisting, dir);
+      expect(refused?.path).toBe(join(dir, 'firestore.rules'));
+      expect(refused?.refused).toContain('missing');
+      expect(inspect(sandboxWithExisting).rules.source).toBe(IN_FORCE);
+      expect(activeFirestoreRules(createSurfaceContext(sandboxWithExisting, dir))).toBe(brokenModular);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 // #1315: the in-process server reads firebase.json, in either firestore form.

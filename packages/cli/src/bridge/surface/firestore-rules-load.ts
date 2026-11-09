@@ -53,6 +53,11 @@ export function loadFirestoreRules(sandbox: LocalSandbox, source: string): strin
   return `Firestore ${rejection.message}`;
 }
 
+/** Remember a refused raw rules source so lint and simulate inspect it while existing rules stay in force. */
+export function rememberRefusedFirestoreRules(sandbox: LocalSandbox, source: string): void {
+  refusedLoads.set(sandbox, { source, inForce: firestoreRulesInForce(sandbox) });
+}
+
 /**
  * The Firestore rules source lint and simulate read: the source a load path
  * refused, while the rules in force at the refusal still are, or else the

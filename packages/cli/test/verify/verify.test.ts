@@ -1958,4 +1958,107 @@ service cloud.firestore {
       expect.objectContaining({ service: 'firestore', kind: 'now-denied', method: 'list' }),
     ]);
   });
+
+  it('preserves attempted write payload on rolled-back atomic batches in deriveRulesTestCases and flags candidate denials in verifyFixture', async () => {
+    const sessionRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/a {
+      allow update: if request.auth != null;
+    }
+    match /items/b {
+      allow create: if false;
+    }
+  }
+}`;
+    const candidateRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/a {
+      allow update: if request.auth != null && request.resource.data.status != 'restricted';
+    }
+    match /items/b {
+      allow create: if false;
+    }
+  }
+}`;
+
+    const sandbox = initializeSandbox();
+    setFirestoreRules(sandbox, sessionRules);
+    seedFirestoreDocuments(sandbox, { 'items/a': { status: 'open', count: 1 } });
+
+    const db = getClientFirestore(sandbox.withAuth({ uid: 'u1' }));
+    const batch = fsWriteBatch(db);
+    batch.update(fsDoc(db, 'items/a'), { status: 'restricted', count: 2 });
+    batch.set(fsDoc(db, 'items/b'), { v: 1 });
+    await expect(batch.commit()).rejects.toThrow();
+
+    const fixture = buildVerifyFixture({ sandbox, firestoreRules: sessionRules });
+    const derived = deriveRulesTestCases(fixture);
+    const itemACase = derived.testCases.find((tc) => tc.path === 'items/a');
+    expect(itemACase?.data).toEqual({ status: 'restricted', count: 2 });
+    expect((derived as { cases?: typeof derived.testCases }).cases).toEqual(derived.testCases);
+
+    const report = await verifyFixture(fixture, { rules: { firestore: candidateRules } });
+    expect(report.ok).toBe(false);
+    expect(report.services.firestore?.divergences).toEqual([
+      expect.objectContaining({
+        service: 'firestore',
+        kind: 'now-denied',
+        path: 'items/a',
+        method: 'update',
+      }),
+    ]);
+  });
+
+  it('evaluates exists() and get() against pre-batch state across atomic writeBatch operations in verifyFixture', async () => {
+    const preBatchGuardRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/a {
+      allow create: if request.auth != null;
+    }
+    match /items/b {
+      allow create: if request.auth != null
+        && !exists(/databases/$(db)/documents/items/a)
+        && existsAfter(/databases/$(db)/documents/items/a);
+    }
+  }
+}`;
+    const invertedCandidateRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/a {
+      allow create: if request.auth != null;
+    }
+    match /items/b {
+      allow create: if request.auth != null && exists(/databases/$(db)/documents/items/a);
+    }
+  }
+}`;
+
+    const sandbox = initializeSandbox();
+    setFirestoreRules(sandbox, preBatchGuardRules);
+    const db = getClientFirestore(sandbox.withAuth({ uid: 'u1' }));
+    const batch = fsWriteBatch(db);
+    batch.set(fsDoc(db, 'items/a'), { v: 1 });
+    batch.set(fsDoc(db, 'items/b'), { v: 2 });
+    await batch.commit();
+
+    const fixture = buildVerifyFixture({ sandbox, firestoreRules: preBatchGuardRules });
+
+    const sameRulesReport = await verifyFixture(fixture, { rules: { firestore: preBatchGuardRules } });
+    expect(sameRulesReport.ok).toBe(true);
+    expect(sameRulesReport.services.firestore?.divergences).toEqual([]);
+
+    const invertedRulesReport = await verifyFixture(fixture, {
+      rules: { firestore: invertedCandidateRules },
+    });
+    expect(invertedRulesReport.ok).toBe(false);
+    expect(
+      invertedRulesReport.services.firestore?.divergences.some(
+        (d) => d.kind === 'now-denied' && d.path === 'items/b',
+      ),
+    ).toBe(true);
+  });
 });

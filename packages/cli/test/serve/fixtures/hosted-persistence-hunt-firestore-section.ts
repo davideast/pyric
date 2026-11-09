@@ -70,4 +70,38 @@ const alice = {
   }
 }
 
+// 3. Seeding a promoted snapshot preserves services.auth.history (tokensValidAfterMs, deletedUids),
+//    sessions, clockMs, and providers when writeSection('auth', ...) runs after writeSection('firestore', ...).
+{
+  const project = join(root, 'preserve-auth-history-on-seed');
+  const persistence = await createHostedPersistence(project);
+  try {
+    const authServicePayload = {
+      users: [alice],
+      providers: { 'google.com': false },
+      history: {
+        tokensValidAfterMs: { u1: 1_700_000_500_000 },
+        deletedUids: ['u-deleted'],
+      },
+      sessions: { '[DEFAULT]': { uid: 'u1', signedInAtMs: 1_700_000_000_000 } },
+      clockMs: 1_700_000_500_000,
+    };
+    const firestoreSection = JSON.parse(
+      bundleRecords(
+        serializeToBuckets({ 'items/one': { status: 'active' } }, { auth: authServicePayload }, 0),
+      ),
+    );
+    await persistence.state.seed({
+      version: 1,
+      firestore: firestoreSection,
+      auth: { users: [alice] },
+      storage: [],
+    });
+    const decoded = decodeImportBundle(JSON.stringify(persistence.state.readSection('firestore')));
+    assert.deepEqual(decoded.services.auth, authServicePayload);
+  } finally {
+    persistence.close();
+  }
+}
+
 console.log('Firestore section isolation passed');

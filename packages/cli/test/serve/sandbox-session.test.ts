@@ -195,6 +195,65 @@ export function canRead() { return true; }`);
     await session.close();
   });
 
+  it('tracks Storage 2+modules helper files and reloads Storage rules when an imported module changes', async () => {
+    const root = project();
+    const sourcePath = join(root, 'storage.rules');
+    const helperPath = join(root, 'st-helper.rules');
+    const extraPath = join(root, 'st-extra.rules');
+    writeFileSync(helperPath, 'export function allowUpload() { return true; }\n');
+    writeFileSync(sourcePath, `rules_version = '2+modules';
+import { allowUpload } from './st-helper.rules';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /items/{id} { allow read, write: if allowUpload(); }
+  }
+}
+`);
+
+    const deployed: Array<{ service: string; rules: string | null }> = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: { storage: { rules: 'storage.rules' } },
+      sdk: { dir: join(root, 'sdk') },
+      deployHostedRules: async (service, rules) => {
+        deployed.push({ service, rules });
+      },
+    });
+    expect(session.storageRulesFiles()).toEqual([sourcePath, helperPath]);
+    expect(session.payload().storageRules).toContain('return true');
+
+    writeFileSync(helperPath, 'export function allowUpload() { return false; }\n');
+    const reloaded = await session.reloadStorageRules(helperPath);
+    expect(reloaded).toHaveLength(1);
+    expect(reloaded[0]!.result.kind).toBe('reloaded');
+    expect(session.payload().storageRules).toContain('return false');
+    expect(deployed.at(-1)?.service).toBe('storage');
+    expect(deployed.at(-1)?.rules).toContain('return false');
+
+    writeFileSync(sourcePath, `rules_version = '2+modules';
+import { allowUpload } from './st-extra.rules';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /items/{id} { allow read, write: if allowUpload(); }
+  }
+}
+`);
+    const rejected = await session.reloadStorageRules(sourcePath);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]!.result.kind).toBe('rejected');
+    expect(session.payload().storageRules).toContain('return false');
+    expect(session.storageRulesFiles()).toEqual([sourcePath, helperPath, extraPath]);
+
+    writeFileSync(extraPath, 'export function allowUpload() { return true; }\n');
+    const recovered = await session.reloadStorageRules(extraPath);
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]!.result.kind).toBe('reloaded');
+    expect(session.payload().storageRules).toContain('return true');
+    expect(session.storageRulesFiles()).toEqual([sourcePath, extraPath]);
+
+    await session.close();
+  });
+
   it('replaces valid Realtime Database rules and retains last-good rules after a broken edit', async () => {
     const root = project();
     const sourcePath = join(root, 'database.rules.json');

@@ -20,11 +20,31 @@ import {
 import { getStorageService, targetOf } from 'pyric/storage/internal';
 import { BY_REFERENCE_ALTERNATIVE, assertInlineStorageFits, type InlineStorageDocument } from 'pyric/sandbox/internal';
 
+/** Settable standard HTTP/Storage metadata fields carried on seeded and exported objects. */
+export interface OptionalStorageObjectHeaders {
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+}
+
+/** Copy defined standard Storage object header fields without introducing `undefined` keys. */
+export function copyStorageObjectHeaders(
+  source: OptionalStorageObjectHeaders,
+  target: OptionalStorageObjectHeaders,
+): void {
+  if (source.contentType !== undefined) target.contentType = source.contentType;
+  if (source.cacheControl !== undefined) target.cacheControl = source.cacheControl;
+  if (source.contentDisposition !== undefined) target.contentDisposition = source.contentDisposition;
+  if (source.contentEncoding !== undefined) target.contentEncoding = source.contentEncoding;
+  if (source.contentLanguage !== undefined) target.contentLanguage = source.contentLanguage;
+}
+
 /** One stored object, in the shape a capture holds it. */
-export interface StorageObjectRecord {
+export interface StorageObjectRecord extends OptionalStorageObjectHeaders {
   path: string;
   contentBase64: string;
-  contentType?: string;
   metadata: Record<string, unknown>;
 }
 
@@ -86,7 +106,7 @@ export async function exportStorage(
       contentBase64: Buffer.from(await blob.arrayBuffer()).toString('base64'),
       metadata: metadata.customMetadata ?? {},
     };
-    if (metadata.contentType !== undefined) record.contentType = metadata.contentType;
+    copyStorageObjectHeaders(metadata, record);
     records.push(record);
   }
   return records;
@@ -99,8 +119,10 @@ export async function restoreStorage(
 ): Promise<number> {
   for (const record of records) {
     const bytes = Uint8Array.from(Buffer.from(record.contentBase64, 'base64'));
-    const settable: { contentType?: string; customMetadata?: Record<string, string> } = {};
-    if (record.contentType !== undefined) settable.contentType = record.contentType;
+    const settable: OptionalStorageObjectHeaders & {
+      customMetadata?: Record<string, string>;
+    } = {};
+    copyStorageObjectHeaders(record, settable);
     const custom = toCustomMetadata(record.metadata);
     if (custom !== null) settable.customMetadata = custom;
     await uploadBytes(storageRef(storage, record.path), bytes, settable);

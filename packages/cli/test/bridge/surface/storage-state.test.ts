@@ -6,7 +6,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAdminStorageSandbox, getStorageService } from 'pyric/storage/internal';
-import { ref as storageRef, uploadBytes } from 'pyric/storage';
+import { getMetadata, ref as storageRef, uploadBytes } from 'pyric/storage';
 
 import {
   FIXTURE_EXPORT_DOCUMENT,
@@ -37,6 +37,10 @@ async function seededBucket() {
   const storage = isolatedBucket();
   await uploadBytes(storageRef(storage, 'top.txt'), BYTES, {
     contentType: 'text/plain',
+    cacheControl: 'public, max-age=3600',
+    contentDisposition: 'inline; filename="top.txt"',
+    contentEncoding: 'gzip',
+    contentLanguage: 'en-US',
     customMetadata: { author: 'alice' },
   });
   await uploadBytes(storageRef(storage, 'nested/deeper/report.txt'), BYTES, {
@@ -64,7 +68,17 @@ describe('exportStorage / restoreStorage', () => {
     expect(restored).toEqual(records);
     const top = restored.find((record) => record.path === 'top.txt');
     expect(top?.contentType).toBe('text/plain');
+    expect(top?.cacheControl).toBe('public, max-age=3600');
+    expect(top?.contentDisposition).toBe('inline; filename="top.txt"');
+    expect(top?.contentEncoding).toBe('gzip');
+    expect(top?.contentLanguage).toBe('en-US');
     expect(top?.metadata).toEqual({ author: 'alice' });
+
+    const topMeta = await getMetadata(storageRef(target, 'top.txt'));
+    expect(topMeta.cacheControl).toBe('public, max-age=3600');
+    expect(topMeta.contentDisposition).toBe('inline; filename="top.txt"');
+    expect(topMeta.contentEncoding).toBe('gzip');
+    expect(topMeta.contentLanguage).toBe('en-US');
   });
 
   it('pairs each record with the metadata of the write its bytes came from', async () => {

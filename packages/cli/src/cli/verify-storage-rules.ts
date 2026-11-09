@@ -21,7 +21,7 @@ import type { SandboxOperationEvent } from 'pyric/sandbox';
 import { DEFAULT_BUCKET, rulesBucketName } from 'pyric/storage/internal';
 
 import type { PyricVerifyFixture, VerifyRulesInput } from '../verify/index.js';
-import { storageRulesTargets, type StorageRulesTargets } from '../serve/rules.js';
+import { MODULAR_SOURCE, resolveProjectModules, storageRulesTargets, type StorageRulesTargets } from '../serve/rules.js';
 import type { FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject } from './firebase-project.js';
 
@@ -121,7 +121,17 @@ function describeBucket(bucket: string | null): string {
 function readRules(cwd: string, file: string, bucket: string | null): { path: string; source: string } {
   const path = resolve(cwd, file);
   if (!existsSync(path)) throw new Error(`rules file not found for storage ${describeBucket(bucket)}: ${path}`);
-  return { path, source: readFileSync(path, 'utf8') };
+  const raw = readFileSync(path, 'utf8');
+  if (MODULAR_SOURCE.test(raw)) {
+    const resolved = resolveProjectModules(raw, path, path, 'firebase.storage').result;
+    if (!resolved.success) {
+      throw new Error(
+        `storage rules module resolution failed for ${describeBucket(bucket)} (${path}): ${resolved.error.message}`,
+      );
+    }
+    return { path, source: resolved.data.resolved };
+  }
+  return { path, source: raw };
 }
 
 /** Resolve each bucket's candidate Storage rules; throws a message naming a rules file it cannot read. */

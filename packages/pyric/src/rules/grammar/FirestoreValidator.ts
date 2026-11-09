@@ -38,7 +38,7 @@ export function validateFirestoreRules(inputAst: FirestoreRules): ValidationFind
   );
 
   // SEC-4: Check for default deny
-  checkDefaultDeny(rootMatches, findings);
+  checkDefaultDeny(rootMatches, findings, outerScope, fnScopes);
 
   // QUA-3: Duplicate function names in one scope (production compile
   // rejection, so critical). Nested shadowing is legal and is not flagged.
@@ -81,6 +81,7 @@ function walkMatch(
 
   // Merge scope: parent functions + this match's functions
   const localScope = [...scopeFunctions, ...match.functions];
+  const fnMap = new Map(localScope.map(f => [f.name, f]));
 
   for (const allow of match.allows) {
     const ops = allow.operations;
@@ -88,7 +89,7 @@ function walkMatch(
     // `!true`, ternaries with literal conditions) before the literal checks and
     // the auth/data-reference walks, so tautological rules can't evade SEC-1/2/3
     // and QUA-1 by being written as a binaryOp instead of a bare `true`/`false`.
-    const cond = foldConstants(allow.condition);
+    const cond = foldConstants(allow.condition, fnMap, fnScopes);
     const isWrite = ops.some(op => WRITE_OPS.has(op));
     const isRead = ops.some(op => READ_OPS.has(op));
     const isDataWrite = ops.some(op => DATA_WRITE_OPS.has(op));
@@ -123,7 +124,6 @@ function walkMatch(
     }
 
     // SEC-3: No auth check on write (follows function calls transitively)
-    const fnMap = new Map(localScope.map(f => [f.name, f]));
     if (isWrite && !isLiteralTrue && !isLiteralFalse && !guardsAuthTransitive(cond, fnMap, fnScopes)) {
       findings.push({
         code: 'SEC-3', severity: 'high', path: pathStr, operation: opStr,
@@ -226,12 +226,18 @@ function walkMatch(
 
 // ---- SEC-4: Default deny ----
 
-function checkDefaultDeny(rootMatches: readonly MatchBlock[], findings: ValidationFinding[]) {
-  const coversDeny = (block: MatchBlock): boolean => {
+function checkDefaultDeny(
+  rootMatches: readonly MatchBlock[],
+  findings: ValidationFinding[],
+  outerScope: readonly FunctionDef[] = [],
+  fnScopes?: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+) {
+  const coversDeny = (block: MatchBlock, parentScope: readonly FunctionDef[]): boolean => {
     if (block.allows.length === 0) return false;
+    const blockFnMap = new Map([...parentScope, ...block.functions].map(f => [f.name, f]));
     const deniedOps = new Set<Operation>();
     for (const a of block.allows) {
-      const folded = foldConstants(a.condition);
+      const folded = foldConstants(a.condition, blockFnMap, fnScopes);
       if (folded.type !== 'literal' || folded.value !== false) return false;
       for (const op of a.operations) deniedOps.add(op);
     }
@@ -243,17 +249,18 @@ function checkDefaultDeny(rootMatches: readonly MatchBlock[], findings: Validati
   };
 
   const hasDefaultDeny = rootMatches.some((rootMatch) => {
+    const rootScope = [...outerScope, ...rootMatch.functions];
     const isRootWithTrailingRecursive =
       ((rootMatch.path.raw.includes('databases') && rootMatch.path.raw.includes('documents')) ||
         (rootMatch.path.raw.includes('/b/') && rootMatch.path.raw.includes('/o'))) &&
       rootMatch.path.segments.length > 0 &&
       rootMatch.path.segments[rootMatch.path.segments.length - 1]?.type === 'recursive';
     return (
-      (isRootWithTrailingRecursive && coversDeny(rootMatch)) ||
+      (isRootWithTrailingRecursive && coversDeny(rootMatch, outerScope)) ||
       rootMatch.children.some(child => {
         const isWholeDbWildcard =
           child.path.segments.length === 1 && child.path.segments[0].type === 'recursive';
-        return isWholeDbWildcard && coversDeny(child);
+        return isWholeDbWildcard && coversDeny(child, rootScope);
       })
     );
   });
@@ -282,11 +289,16 @@ function isLitBool(expr: Expression, value: boolean): boolean {
  * nodes so `X || (Y || true)` folds to `true`. Non-constant subexpressions are
  * preserved intact so the downstream walks still see real auth/data references.
  */
-function foldConstants(expr: Expression): Expression {
+function foldConstants(
+  expr: Expression,
+  fns?: ReadonlyMap<string, FunctionDef>,
+  fnScopes?: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  visited?: ReadonlySet<FunctionDef>,
+): Expression {
   switch (expr.type) {
     case 'binaryOp': {
-      const left = foldConstants(expr.left);
-      const right = foldConstants(expr.right);
+      const left = foldConstants(expr.left, fns, fnScopes, visited);
+      const right = foldConstants(expr.right, fns, fnScopes, visited);
       if (expr.op === '||') {
         // X || true / true || X -> true
         if (isLitBool(left, true) || isLitBool(right, true)) return boolLiteral(true);
@@ -303,21 +315,34 @@ function foldConstants(expr: Expression): Expression {
       return { type: 'binaryOp', op: expr.op, left, right };
     }
     case 'unaryOp': {
-      const operand = foldConstants(expr.operand);
+      const operand = foldConstants(expr.operand, fns, fnScopes, visited);
       if (expr.op === '!' && operand.type === 'literal' && typeof operand.value === 'boolean') {
         return boolLiteral(!operand.value);
       }
       return { type: 'unaryOp', op: expr.op, operand };
     }
     case 'ternary': {
-      const condition = foldConstants(expr.condition);
-      const consequent = foldConstants(expr.consequent);
-      const alternate = foldConstants(expr.alternate);
+      const condition = foldConstants(expr.condition, fns, fnScopes, visited);
+      const consequent = foldConstants(expr.consequent, fns, fnScopes, visited);
+      const alternate = foldConstants(expr.alternate, fns, fnScopes, visited);
       // Literal condition -> the taken branch
       if (condition.type === 'literal' && typeof condition.value === 'boolean') {
         return condition.value ? consequent : alternate;
       }
       return { type: 'ternary', condition, consequent, alternate };
+    }
+    case 'functionCall': {
+      if (expr.args.length !== 0 || !fns) return expr;
+      const fn = fns.get(expr.name);
+      if (!fn || fn.parameters.length !== 0 || visited?.has(fn)) return expr;
+      const nextVisited = new Set(visited);
+      nextVisited.add(fn);
+      const calleeScope = fnScopes?.get(fn) ?? fns;
+      const foldedBody = foldConstants(expandFunctionBody(fn), calleeScope, fnScopes, nextVisited);
+      if (foldedBody.type === 'literal' && foldedBody.value === false) {
+        return boolLiteral(false);
+      }
+      return expr;
     }
     default:
       return expr;

@@ -85,7 +85,13 @@ export function createHostedStateView(projectDir: string, directory: string, dat
     if (isAuth) {
       const hasValue = value !== null;
       let users: z.infer<typeof authSection>['users'] = [];
-      if (hasValue) users = authSection.parse(value).users;
+      let incomingExtras: Record<string, unknown> = {};
+      if (hasValue) {
+        const parsedAuth = authSection.passthrough().parse(value);
+        const { users: parsedUsers, ...rest } = parsedAuth;
+        users = parsedUsers;
+        incomingExtras = rest;
+      }
       const records = database.readRecords(namespace);
       let snapshot: ReturnType<typeof decodeImportBundle> = { firestore: {}, services: {} };
       const hasRecords = records.size > 0;
@@ -99,11 +105,26 @@ export function createHostedStateView(projectDir: string, directory: string, dat
         database.commitChanges(namespace, next, removed);
         return;
       }
-      const previousAuth = z.object({ providers: z.record(z.boolean()) }).safeParse(snapshot.services.auth);
-      let providers: Record<string, boolean> = {};
-      const hasProviderConfiguration = previousAuth.success;
-      if (hasProviderConfiguration) providers = previousAuth.data.providers;
-      const next = serializeToBuckets(snapshot.firestore, { ...snapshot.services, auth: { users, providers } }, Date.now());
+      const existingAuth =
+        snapshot.services.auth !== null &&
+        typeof snapshot.services.auth === 'object' &&
+        !Array.isArray(snapshot.services.auth)
+          ? (snapshot.services.auth as Record<string, unknown>)
+          : {};
+      const incomingProviders = z.record(z.boolean()).safeParse(incomingExtras.providers);
+      const previousProviders = z.record(z.boolean()).safeParse(existingAuth.providers);
+      const providers: Record<string, boolean> = incomingProviders.success
+        ? incomingProviders.data
+        : previousProviders.success
+          ? previousProviders.data
+          : {};
+      const nextAuth = {
+        ...existingAuth,
+        ...incomingExtras,
+        users,
+        providers,
+      };
+      const next = serializeToBuckets(snapshot.firestore, { ...snapshot.services, auth: nextAuth }, Date.now());
       database.commitChanges(namespace, next, []);
       return;
     }

@@ -606,4 +606,27 @@ describe('Firestore Validator', () => {
       expect(findCode(ast, 'STR-3')).toHaveLength(0);
     });
   });
+
+  describe('Constant-boolean helper function folding', () => {
+    test('does not flag SEC-3 or SEC-6 on zero-arg unconditional-deny helper functions', () => {
+      const denyAll = makeFunction('denyAll', [], FALSE);
+      const ast = makeRules(
+        [makeMatch('/items/{id}', { allows: [makeAllow(['read', 'write'], call('denyAll'))] })],
+        [denyAll],
+      );
+      expect(findCode(ast, 'SEC-3')).toHaveLength(0);
+      expect(findCode(ast, 'SEC-6')).toHaveLength(0);
+      expect(findCode(ast, 'QUA-4')).toHaveLength(0);
+    });
+
+    test('still flags SEC-3 and SEC-6 on zero-arg unconditional-allow helper functions', () => {
+      const allowAll = makeFunction('allowAll', [], TRUE);
+      const ast = makeRules(
+        [makeMatch('/items/{id}', { allows: [makeAllow(['write'], call('allowAll'))] })],
+        [allowAll],
+      );
+      expect(findCode(ast, 'SEC-3').length).toBeGreaterThan(0);
+      expect(findCode(ast, 'SEC-6').length).toBeGreaterThan(0);
+    });
+  });
 });

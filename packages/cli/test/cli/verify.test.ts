@@ -405,4 +405,78 @@ service firebase.storage {
       await verifyIn(dir, ['session.json', '--service', 'storage', '--rules', 'storage=allow.storage.rules']),
     ).toBe(0);
   });
+
+  it('resolves 2+modules candidate rules for Firestore and Storage before replay', async () => {
+    const dir = tmp();
+    writeFileSync(
+      join(dir, 'helpers.rules'),
+      [
+        'export function isAlice() {',
+        "  return request.auth != null && request.auth.uid == 'alice';",
+        '}',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(dir, 'firestore.rules'),
+      [
+        "rules_version = '2+modules';",
+        "import { isAlice } from './helpers';",
+        'service cloud.firestore {',
+        '  match /databases/{db}/documents {',
+        '    match /notes/{id} { allow read, write: if isAlice(); }',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(dir, 'storage.rules'),
+      [
+        "rules_version = '2+modules';",
+        "import { isAlice } from './helpers';",
+        'service firebase.storage {',
+        '  match /b/{bucket}/o {',
+        '    match /{allPaths=**} { allow read, write: if isAlice(); }',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const fsFixture = await captureFirestoreFixture();
+    const combinedFixture: PyricVerifyFixture = {
+      ...fsFixture,
+      events: [
+        ...fsFixture.events,
+        {
+          kind: 'operation',
+          id: 'op-storage-1',
+          at: 2000,
+          service: 'storage',
+          method: 'get',
+          path: 'uploads/item.txt',
+          auth: { uid: 'alice' },
+          result: 'allow',
+          origin: 'user',
+        },
+      ],
+      services: {
+        ...fsFixture.services,
+        storage: {
+          rules: {
+            format: 'storage.rules',
+            source: `rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} { allow read, write: if request.auth != null && request.auth.uid == 'alice'; }\n  }\n}`,
+          },
+          state: null,
+        },
+      },
+    };
+    writeFirebaseJson(dir, {
+      firestore: { rules: 'firestore.rules' },
+      storage: { rules: 'storage.rules' },
+    });
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(combinedFixture));
+
+    expect(await verifyIn(dir, ['session.json'])).toBe(0);
+  });
 });
