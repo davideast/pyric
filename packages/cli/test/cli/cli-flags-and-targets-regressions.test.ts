@@ -299,4 +299,84 @@ export async function listByRank() {
       expect(code).toBe(2);
     }
   });
+
+  it('bundles 2+modules relative imports passed via --rules overrides in verify --static', async () => {
+    const dir = makeTempDir('verify-static-modular-override-');
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(
+      join(dir, 'shared.rules'),
+      `export function isOwner(ownerId) {
+  return request.auth != null && request.auth.uid == ownerId;
+}
+export function isImageMime() {
+  return request.resource.contentType.matches('image/.*');
+}
+`,
+    );
+    writeFileSync(
+      join(dir, 'custom.firestore.rules'),
+      `rules_version = '2+modules';
+import { isOwner } from './shared.rules';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow get, list: if isOwner(resource.data.ownerId);
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(dir, 'custom.storage.rules'),
+      `rules_version = '2+modules';
+import { isOwner, isImageMime } from './shared.rules';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{docId} {
+      allow create: if isOwner(request.resource.metadata.ownerId) && isImageMime();
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(dir, 'src/app.ts'),
+      `import { getFirestore, collection, getDocs } from 'pyric/firestore';
+import { getStorage, ref, uploadBytes } from 'pyric/storage';
+declare const app: unknown;
+export async function run() {
+  await getDocs(collection(getFirestore(app), 'items'));
+  await uploadBytes(ref(getStorage(app), 'docs/doc-1'), new Uint8Array([1]), {
+    contentType: 'text/plain',
+    customMetadata: { ownerId: 'u-1' },
+  });
+}
+`,
+    );
+
+    const io = bufferIo();
+    const code = await runVerifyStatic(
+      parseArgs([
+        'verify',
+        '--static',
+        '--root',
+        dir,
+        '--rules',
+        'firestore=custom.firestore.rules',
+        '--rules',
+        'storage=custom.storage.rules',
+        '--json',
+      ]),
+      { cwd: dir, ...io },
+    );
+    expect(code).toBe(1);
+    const parsed = JSON.parse(io.getOut()) as {
+      ok: boolean;
+      diagnostics: Array<{ code: string }>;
+    };
+    expect(parsed.ok).toBe(false);
+    const codes = parsed.diagnostics.map((d) => d.code);
+    expect(codes).toContain('firestore-unprovable-list-query');
+    expect(codes).toContain('storage-content-type-mismatch');
+  });
 });

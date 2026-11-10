@@ -7,10 +7,12 @@ import {
   ownerConditionsFrom,
   runProbes,
 } from "pyric/rules/internal/usage";
+import { qualifyProbe } from "../../src/assurance/capabilities.js";
 import {
   buildCounterexampleDiagnostics,
   populateDerivedCampaign,
 } from "../../src/assurance/derive-campaign.js";
+import { deriveAssurance } from "../../src/assurance/derive.js";
 import { loadAssuranceProject } from "../../src/assurance/derive-project.js";
 import { AssuranceCampaignStore } from "../../src/assurance/tools.js";
 
@@ -124,5 +126,140 @@ describe("derive-campaign", () => {
     expect(verified.summary.localCounterexamples).toBe(0);
     expect(verified.summary.controlsPassed).toBe(verified.summary.probes);
     expect(verified.summary.noCounterexamples).toBe(verified.summary.probes);
+  });
+
+  test("bundles 2+modules stdlib and relative .rules imports for conventional rules and derived campaign targets", async () => {
+    const root = makeTempDir("derive-camp-modules-");
+    mkdirSync(join(root, "src"), { recursive: true });
+    mkdirSync(join(root, "helpers"), { recursive: true });
+    writeFileSync(
+      join(root, "helpers/auth.rules"),
+      `export function isAuthed() {
+  return request.auth != null;
+}
+`,
+    );
+    writeFileSync(
+      join(root, "firestore.rules"),
+      `rules_version = '2+modules';
+import { isAuthenticated } from 'auth';
+import { isAuthed } from './helpers/auth.rules';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{itemId} {
+      allow get, list: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow create, update, delete: if isAuthed();
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(root, "storage.rules"),
+      `rules_version = '2+modules';
+import { isAuthenticated, isOwner } from 'auth';
+import { contentTypeMatches } from 'storage/uploads';
+import { isAuthed } from './helpers/auth.rules';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{fileName} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(uid) && contentTypeMatches('image/.*');
+      allow delete: if isAuthed();
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(root, "src/app.ts"),
+      `
+        import { getAuth } from 'firebase/auth';
+        import { getFirestore, collection, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
+        import { getStorage, ref, uploadBytes, deleteObject } from 'firebase/storage';
+        export async function run(id: string) {
+          const uid = getAuth().currentUser!.uid;
+          const db = getFirestore();
+          await getDocs(collection(db, 'items'));
+          await setDoc(doc(db, 'items', id), { ownerId: uid, title: 'draft' });
+          await updateDoc(doc(db, 'items', id), { title: 'edited' });
+
+          const storage = getStorage();
+          await uploadBytes(ref(storage, 'users/' + uid + '/doc.txt'), new Uint8Array([1, 2]), {
+            contentType: 'text/plain',
+          });
+          await deleteObject(ref(storage, 'users/' + uid + '/doc.txt'));
+        }
+      `,
+    );
+
+    const store = new AssuranceCampaignStore();
+    const derived = await deriveAssurance({ root, campaignId: "modular-derived" }, { store });
+    const codes = derived.diagnostics.map((d) => d.code);
+    expect(codes).toContain("firestore-unprovable-list-query");
+    expect(codes).toContain("storage-content-type-mismatch");
+
+    const campaign = store.get("modular-derived")!;
+    const spec = campaign.spec();
+    expect(spec.target.rules.firestore).toContain("rules_version = '2';");
+    expect(spec.target.rules.storage).toContain("rules_version = '2';");
+    expect(spec.probes.length).toBeGreaterThan(0);
+    for (const probe of spec.probes) {
+      const qual = qualifyProbe(spec.target, probe);
+      expect(qual.supported).toBe(true);
+      const inspected = campaign.inspect(probe.id);
+      expect(inspected.control.decision).toBe("ALLOW");
+      expect(inspected.mutation.decision).toBe("ALLOW");
+      expect(inspected.classification).toBe("candidate-signal");
+    }
+  });
+
+  test("preserves distinct custom-claim actor profiles across multi-collection campaign probes without invalid-probe collisions", async () => {
+    const root = makeTempDir("pyric-multi-claim-campaign-");
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(
+      join(root, "firebase.json"),
+      JSON.stringify({ firestore: { rules: "firestore.rules" } }),
+    );
+    writeFileSync(
+      join(root, "firestore.rules"),
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/adminDocs/{docId} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.token.role == 'admin';
+    }
+    match /users/{uid}/editorDocs/{docId} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.token.role == 'editor';
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(root, "src/app.ts"),
+      `import { getAuth } from "firebase/auth";
+import { doc, getFirestore, setDoc } from "firebase/firestore";
+export async function saveBoth(docId: string) {
+  const uid = getAuth().currentUser!.uid;
+  await setDoc(doc(getFirestore(), \`users/\${uid}/adminDocs/\${docId}\`), { ownerId: uid });
+  await setDoc(doc(getFirestore(), \`users/\${uid}/editorDocs/\${docId}\`), { ownerId: uid });
+}
+`,
+    );
+
+    const store = new AssuranceCampaignStore();
+    const derived = await deriveAssurance(
+      { root, campaignId: "multi-claim", includeStaticChecks: false },
+      { store },
+    );
+    expect(derived.diagnostics.some((d) => d.message.includes("adminDocs"))).toBe(true);
+    expect(derived.diagnostics.some((d) => d.message.includes("editorDocs"))).toBe(true);
+
+    const campaign = store.get("multi-claim")!;
+    const report = campaign.report ?? (await campaign.run());
+    expect(report.summary.invalidProbes).toBe(0);
   });
 });

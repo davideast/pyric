@@ -427,4 +427,57 @@ service cloud.firestore {
     expect(usage.queries.every((q) => q.admin === true && q.baseRef.admin === true)).toBe(true);
     expect(staticQueryProofPass(usage, OWNER_NOTES_RULES)).toEqual([]);
   });
+
+  it('evaluates named Firestore databases against shared default rules while isolating (default) root blocks', () => {
+    const sharedExplicitMultiDb = `rules_version = '2';
+service cloud.firestore {
+  match /databases/(default)/documents {
+    match /events/{id} {
+      allow read: if true;
+    }
+  }
+  match /databases/analytics/documents {
+    match /events/{id} {
+      allow list: if resource.data.ownerId == request.auth.uid;
+    }
+  }
+}`;
+    const sharedWildcardDb = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /events/{id} {
+      allow list: if resource.data.ownerId == request.auth.uid;
+    }
+  }
+}`;
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/analytics.ts': `
+          import { initializeApp } from 'firebase/app';
+          import { collection, getDocs, getFirestore } from 'firebase/firestore';
+          const db = getFirestore(initializeApp({ projectId: 'proj-1' }), 'analytics');
+          export const loadEvents = () => getDocs(collection(db, 'events'));
+        `,
+      },
+    });
+
+    const explicitDiags = staticQueryProofPass(usage, {
+      rules: { '(default)': sharedExplicitMultiDb },
+      rulesFile: { '(default)': 'firestore.rules' },
+      sharedDefaultRules: true,
+    });
+    expect(explicitDiags).toHaveLength(1);
+    expect(explicitDiags[0]?.resourceId).toBe('analytics');
+    expect(explicitDiags[0]?.certainty).toBe('static-proof');
+
+    const wildcardDiags = staticQueryProofPass(usage, {
+      rules: { '(default)': sharedWildcardDb },
+      rulesFile: { '(default)': 'firestore.rules' },
+      sharedDefaultRules: true,
+    });
+    expect(wildcardDiags).toHaveLength(1);
+    expect(wildcardDiags[0]?.resourceId).toBe('analytics');
+    expect(wildcardDiags[0]?.certainty).toBe('static-proof');
+  });
 });

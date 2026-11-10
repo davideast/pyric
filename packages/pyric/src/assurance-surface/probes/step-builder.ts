@@ -59,7 +59,7 @@ export function hintOverrides(site: AccessSite, hints: ValueHint[]): Record<stri
 
 /** Probes need a resolved client write with a concrete-able path. */
 export function probeable(s: AccessSite): boolean {
-  if (s.service === 'storage' || !isWriteOp(s.op) || s.resolution === 'unresolved' || !s.path || s.path.includes('=**') || s.op === 'transaction') {
+  if (s.admin || s.service === 'storage' || !isWriteOp(s.op) || s.resolution === 'unresolved' || !s.path || s.path.includes('=**') || s.op === 'transaction') {
     return false;
   }
   // A path with no literal segment (a bare parameter) can't be addressed.

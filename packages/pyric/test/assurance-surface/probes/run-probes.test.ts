@@ -556,7 +556,21 @@ service cloud.firestore {
         { uid: 'u2', email: 'u2@example.test', emailVerified: true, disabled: true },
       ],
     });
-    expect(disabledReport.findings.filter((f) => f.status === 'proven')).toEqual([]);
+    expect(disabledReport.actors.every((a) => a.disabled !== true)).toBe(true);
+    expect(disabledReport.actors.find((a) => a.role === 'peer')?.synthetic).toBe(true);
+    expect(disabledReport.findings.filter((f) => f.status === 'proven').length).toBeGreaterThan(0);
+
+    const allDisabledReport = await runProbes({
+      accessSites: profileSites,
+      ownerBindings: inferOwnerBindings(verifiedConditions, profileSites),
+      conditions: verifiedConditions,
+      sources: verifiedSources,
+      users: [
+        { uid: 'u1', email: 'u1@example.test', emailVerified: true, disabled: true },
+      ],
+    });
+    expect(allDisabledReport.actors.every((a) => a.disabled !== true && a.synthetic === true)).toBe(true);
+    expect(allDisabledReport.findings.filter((f) => f.status === 'proven').length).toBeGreaterThan(0);
   });
 
   test('synthesizes bounded quantifier contentTypes and marks unresolvable runtime upload contentTypes inconclusive', async () => {

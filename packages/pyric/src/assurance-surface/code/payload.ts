@@ -82,11 +82,58 @@ function literalOf(v: AVal): string | number | boolean | null | undefined {
   return undefined;
 }
 
+function isGuaranteedNonNullRtdbValue(
+  value: AVal,
+  force: ((v: AVal) => AVal) | undefined,
+  depth = 0,
+): boolean {
+  if (depth > 4) return false;
+  const resolved = force ? force(value) : value;
+  const alts = alternatives(resolved);
+  if (alts.length === 0) return false;
+  return alts.every((alt) => {
+    if (alt.k === 'str' || alt.k === 'num' || alt.k === 'bool') return true;
+    if (alt.k === 'fieldValue') {
+      return alt.name === 'serverTimestamp' || alt.name === 'increment';
+    }
+    if (alt.k === 'obj') {
+      const sentinel = sentinelObjKind(alt, force);
+      if (sentinel === 'serverTimestamp' || sentinel === 'increment') return true;
+      if (sentinel !== undefined) return false;
+      for (const [k, childVal] of alt.props) {
+        if (!alt.optional.has(k) && isGuaranteedNonNullRtdbValue(childVal, force, depth + 1)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (alt.k === 'arr') {
+      if (alt.open || alt.items.length === 0) return false;
+      return alt.items.some((item) => isGuaranteedNonNullRtdbValue(item, force, depth + 1));
+    }
+    return false;
+  });
+}
+
+function isGuaranteedNonNullArray(value: AVal, force?: (v: AVal) => AVal): boolean {
+  const resolved = force ? force(value) : value;
+  const alts = alternatives(resolved);
+  if (alts.length === 0) return false;
+  return alts.every(
+    (alt) =>
+      alt.k === 'arr'
+      && !alt.open
+      && alt.items.length > 0
+      && alt.items.some((item) => isGuaranteedNonNullRtdbValue(item, force, 1)),
+  );
+}
+
 function field(name: string, value: AVal, optional: boolean, force?: (v: AVal) => AVal): PayloadField {
   const f: PayloadField = { name, kind: kindOf(value, force) };
   const auth = authOf(value);
   if (auth) f.auth = auth;
   if (optional) f.optional = true;
+  if (f.kind === 'array' && isGuaranteedNonNullArray(value, force)) f.nonEmpty = true;
   const literal = literalOf(value);
   if (literal !== undefined) f.literal = literal;
   return f;
@@ -148,6 +195,7 @@ export function payloadShape(value: AVal, force: (v: AVal) => AVal, separator = 
   const objects = alts.filter((a): a is Extract<AVal, { k: 'obj' }> => a.k === 'obj' && !sentinelObjKind(a, force));
   if (objects.length === 0) {
     const shape: PayloadShape = { kind: kindOf(v), fields: [], open: v.k === 'unknown' };
+    if (shape.kind === 'array' && isGuaranteedNonNullArray(v, force)) shape.nonEmpty = true;
     const auth = authOf(v);
     if (auth) shape.auth = auth;
     const literal = literalOf(v);

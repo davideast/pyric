@@ -411,4 +411,38 @@ describe('coverageMatrixPass', () => {
       }
     }
   });
+
+  it('flags RTDB non-empty array writes and objects containing non-empty array fields against .validate: false', () => {
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/rtdb-arrays.ts': `
+          import { getDatabase, ref, set } from 'firebase/database';
+          export async function writeArrays() {
+            const db = getDatabase();
+            await set(ref(db, 'items/arr'), ['a', 'b']);
+            await set(ref(db, 'items/objWithArr'), { tags: ['a', 'b'] });
+            await set(ref(db, 'items/emptyArr'), []);
+          }
+        `,
+      },
+    });
+    const surface = projectRuleSurface({
+      rtdb: {
+        rules: {
+          items: {
+            $id: { '.write': 'auth != null', '.validate': false },
+          },
+        },
+      },
+    });
+
+    const uncovered = coverageMatrixPass(usage, surface).filter(
+      (d) => d.code === 'uncovered-client-operation' && d.certainty === 'static-proof',
+    );
+    expect(uncovered.map((d) => renderResourcePattern(d.resource!))).toEqual([
+      'items/arr',
+      'items/objWithArr',
+    ]);
+  });
 });

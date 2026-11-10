@@ -103,4 +103,39 @@ describe('StorageMetadataConstraint and Storage ValueHint extraction', () => {
       maxSizeBytes: 4095,
     });
   });
+
+  test('preserves per-branch disjunctive storageMetadataArms across || expressions without Cartesian weakening', () => {
+    const rules = [
+      "rules_version = '2';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /assets/{fileId} {',
+      '      allow write: if request.auth != null && (',
+      "        (request.resource.contentType.matches('image/.*') && request.resource.size < 1000 && 'orgId' in request.resource.metadata)",
+      "        || (request.resource.contentType.matches('video/.*') && request.resource.size < 50000)",
+      '      );',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const surface = projectRuleSurface({ storage: rules });
+    const entry = surface.matching(
+      parseResourcePattern('storage', 'assets/{fileId}'),
+      'uploadBytes',
+    )[0]!;
+    expect(entry.storageMetadataArms).toEqual([
+      {
+        contentTypePattern: 'image/.*',
+        contentTypeConjuncts: [['image/.*']],
+        maxSizeBytes: 999,
+        requiredCustomMetadataKeys: ['orgId'],
+      },
+      {
+        contentTypePattern: 'video/.*',
+        contentTypeConjuncts: [['video/.*']],
+        maxSizeBytes: 49999,
+      },
+    ]);
+  });
 });

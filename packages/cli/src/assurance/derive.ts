@@ -9,6 +9,7 @@ import {
   DEFAULT_SNAPSHOT_RESOURCE,
   sortAssuranceDiagnostics,
   type AssuranceDiagnostic,
+  type AssuranceService,
   type DiagnosticCertainty,
   type DiagnosticSeverity,
 } from "pyric/sandbox/internal";
@@ -41,6 +42,7 @@ import {
   targetRulesFromSnapshot,
   type LiveRuntimeClone,
   type LoadedAssuranceProject,
+  type ProjectRuleProblem,
 } from "./derive-project.js";
 import {
   defaultAssuranceCampaignStore,
@@ -149,11 +151,58 @@ function mergeRuntimeFallbackRules(
   };
 }
 
+export function buildProjectProblemDiagnostics(
+  project: LoadedAssuranceProject,
+): AssuranceDiagnostic[] {
+  const defaultService: AssuranceService =
+    project.usage.operations[0]?.service ?? "firestore";
+  const items: readonly ProjectRuleProblem[] =
+    project.configProblems ??
+    project.problems.map((p): ProjectRuleProblem => {
+      const colonIdx = p.indexOf(": ");
+      const source = colonIdx > 0 ? p.slice(0, colonIdx) : "firebase.json";
+      return {
+        source,
+        message: p,
+        isGlobalConfig: source === "firebase.json",
+      };
+    });
+
+  const usedIds = new Set<string>();
+  const out: AssuranceDiagnostic[] = [];
+  for (const item of items) {
+    const baseId = `invalid-rules-configuration:${item.source}`;
+    let id = baseId;
+    if (usedIds.has(id)) {
+      let n = 2;
+      while (usedIds.has(`${baseId}#${n}`)) n += 1;
+      id = `${baseId}#${n}`;
+    }
+    usedIds.add(id);
+    const service: AssuranceService = item.service ?? defaultService;
+    out.push({
+      id,
+      code: "invalid-rules-configuration",
+      service,
+      resourceId: item.resourceId ?? DEFAULT_SNAPSHOT_RESOURCE,
+      severity: "high",
+      certainty: "static-proof",
+      message: item.message,
+      ruleSite: { source: item.source },
+      remediation:
+        "Fix firebase.json and ensure all referenced security rules files exist within the project root and contain valid syntax.",
+    });
+  }
+  return out;
+}
+
 export function runStaticAssurancePasses(
   project: LoadedAssuranceProject,
   runtime?: LiveRuntimeClone,
 ): AssuranceDiagnostic[] {
-  const diagnostics: AssuranceDiagnostic[] = [];
+  const diagnostics: AssuranceDiagnostic[] = [
+    ...buildProjectProblemDiagnostics(project),
+  ];
 
   if (project.sources.firestore.length > 0) {
     const fsRulesMap: Record<string, string> = {};
@@ -167,6 +216,9 @@ export function runStaticAssurancePasses(
       ...staticQueryProofPass(project.usage, {
         rules: fsRulesMap,
         rulesFile: fsFilesMap,
+        sharedDefaultRules: project.sources.firestore.some(
+          (s) => s.database === undefined,
+        ),
       }),
     );
   }
@@ -271,29 +323,7 @@ function buildProbeSeedInput(runtime: LiveRuntimeClone): {
   users?: ProbeUser[];
 } {
   if (runtime.snapshot === undefined) return {};
-  const state: WorldState = { snapshot: runtime.snapshot };
-  const users: ProbeUser[] = runtime.snapshot.auth.users
-    .filter((u) => u.disabled !== true)
-    .map((u) => {
-      const entry: ProbeUser = { uid: u.uid, emailVerified: u.emailVerified === true };
-      if (u.email !== undefined) entry.email = u.email;
-      if (u.displayName !== undefined) entry.displayName = u.displayName;
-      if (u.customClaims !== undefined) {
-        entry.customClaims = { ...u.customClaims };
-      }
-      return entry;
-    });
-  if (users.length === 1) {
-    let syntheticPeerUid = "probe-peer";
-    if (users[0]!.uid === syntheticPeerUid) {
-      syntheticPeerUid = "probe-peer-2";
-    }
-    users.push({ uid: syntheticPeerUid, displayName: "Probe Peer" });
-  }
-  if (users.length > 0) {
-    return { state, users };
-  }
-  return { state };
+  return { state: { snapshot: runtime.snapshot } };
 }
 
 export async function deriveAssurance(
@@ -337,13 +367,18 @@ export async function deriveAssurance(
   let staticDiagnostics: AssuranceDiagnostic[] = [];
   if (includeStatic) {
     staticDiagnostics = runStaticAssurancePasses(project, runtime);
+  } else {
+    staticDiagnostics = sortAssuranceDiagnostics(
+      buildProjectProblemDiagnostics(project),
+    );
   }
 
   const mutableSites = project.usage.operations.filter(
     (site) =>
-      site.service === "storage" ||
-      site.resourceId === undefined ||
-      site.resourceId === DEFAULT_SNAPSHOT_RESOURCE,
+      !site.admin &&
+      (site.service === "storage" ||
+        site.resourceId === undefined ||
+        site.resourceId === DEFAULT_SNAPSHOT_RESOURCE),
   );
   const probeScopedSources: RuleSources = {
     firestore: project.sources.firestore.filter(
@@ -355,6 +390,16 @@ export async function deriveAssurance(
     storage: project.sources.storage ?? [],
     problems: project.sources.problems,
   };
+  if (
+    typeof globalThis.indexedDB === "undefined" &&
+    (probeScopedSources.storage?.length ?? 0) > 0
+  ) {
+    const fake = await import("fake-indexeddb");
+    Object.assign(globalThis, {
+      indexedDB: fake.indexedDB,
+      IDBKeyRange: fake.IDBKeyRange,
+    });
+  }
   const conditions = ownerConditionsFrom(probeScopedSources);
   const ownerBindings = inferOwnerBindings(conditions, mutableSites);
   const seedInput = buildProbeSeedInput(runtime);

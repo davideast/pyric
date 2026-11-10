@@ -84,6 +84,8 @@ export interface PayloadField {
   auth?: AuthProvenance[];
   /** True when the field is only written on some paths (`payload.x = ...` under a branch, a spread). */
   optional?: boolean;
+  /** True when `kind === 'array'` and every traced alternative contains at least one non-null RTDB element. */
+  nonEmpty?: boolean;
   /** Literal value, when it is a short literal. */
   literal?: string | number | boolean | null;
 }
@@ -95,6 +97,8 @@ export interface PayloadShape {
   fields: PayloadField[];
   /** True when the payload has fields the extractor could not enumerate (an unknown spread, a computed key). */
   open: boolean;
+  /** True when `kind === 'array'` and every traced alternative contains at least one non-null RTDB element. */
+  nonEmpty?: boolean;
   /** Present on `setDoc(..., { merge: true })`. */
   merge?: boolean;
   /** Set when the payload itself comes from the signed-in user (`set(ref, user.uid)`). */

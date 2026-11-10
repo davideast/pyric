@@ -59,6 +59,11 @@ export interface StorageMetadataConstraint {
   readonly ownerMetadataKey?: string;
 }
 
+export interface StorageMetadataConstraintArm extends StorageMetadataConstraint {
+  /** Conjoined per-clause RE2 disjunctions (`&&` outer, `||` / `in [...]` inner). */
+  readonly contentTypeConjuncts?: readonly (readonly string[])[];
+}
+
 export interface RuleSurfaceEntry {
   readonly pattern: ResourcePattern;
   readonly ops: readonly string[];
@@ -66,9 +71,11 @@ export interface RuleSurfaceEntry {
   readonly valueHints: readonly ValueHint[];
   readonly declaredIndexes?: readonly string[];
   readonly storageMetadata?: StorageMetadataConstraint;
+  readonly storageMetadataArms?: readonly StorageMetadataConstraintArm[];
   readonly crossServiceReads: readonly CrossServiceLookup[];
   readonly overbroadAuthOnlyWrite?: boolean;
   readonly wildcardBucket?: boolean;
+  readonly wildcardDatabase?: boolean;
   readonly alwaysDeny?: boolean;
   readonly source: string;
 }
@@ -83,6 +90,7 @@ export interface FirestoreSurfaceSource {
   readonly text: string;
   readonly databaseId?: string;
   readonly database?: string;
+  readonly modules?: Readonly<Record<string, string>>;
 }
 
 export interface RtdbSurfaceSource {
@@ -95,6 +103,7 @@ export interface StorageSurfaceSource {
   readonly source?: string;
   readonly text: string;
   readonly bucket?: string;
+  readonly modules?: Readonly<Record<string, string>>;
 }
 
 export type FirestoreSurfaceInput =
@@ -232,7 +241,16 @@ function normalizeStorageSources(input: StorageSurfaceInput | undefined): Storag
 
 function projectFirestoreSource(item: FirestoreSurfaceSource): RuleSurfaceEntry[] {
   const file = item.source ?? 'firestore.rules';
-  const services = parseRulesAstWithMultiMatch(item.text);
+  const parseOpts: {
+    targetService: 'cloud.firestore';
+    sourceFile: string;
+    modules?: Readonly<Record<string, string>>;
+  } = {
+    targetService: 'cloud.firestore',
+    sourceFile: file,
+  };
+  if (item.modules !== undefined) parseOpts.modules = item.modules;
+  const services = parseRulesAstWithMultiMatch(item.text, parseOpts);
   const out: RuleSurfaceEntry[] = [];
   const targetDatabase = item.databaseId ?? item.database;
   const normalizedExplicitDb = normalizeExplicitResourceId('firestore', targetDatabase);
@@ -299,6 +317,7 @@ function projectFirestoreSource(item: FirestoreSurfaceSource): RuleSurfaceEntry[
             valueHints: readonly ValueHint[];
             crossServiceReads: readonly CrossServiceLookup[];
             overbroadAuthOnlyWrite?: boolean;
+            wildcardDatabase?: boolean;
             alwaysDeny?: boolean;
             source: string;
           } = {
@@ -309,6 +328,9 @@ function projectFirestoreSource(item: FirestoreSurfaceSource): RuleSurfaceEntry[
             crossServiceReads: [],
             source: ruleSource,
           };
+          if (targetDatabase === undefined && header.headerKind === 'wildcard') {
+            entry.wildcardDatabase = true;
+          }
           if (ops.some((op) => WRITE_OPS.has(op))) {
             entry.overbroadAuthOnlyWrite = isOverbroadAuthOnlyRulesExpr(allow.condition, scope);
           }
@@ -606,13 +628,22 @@ export function projectRuleSurface(input: ProjectRuleSurfaceInput): RuleSurface 
         stSource.text,
         stSource.source ?? 'storage.rules',
         stSource.bucket,
+        stSource.modules,
       ),
     );
   }
 
+  const explicitFirestoreDatabases = new Set<string>();
   const explicitStorageBuckets = new Set<string>();
   const rtdbAlwaysDenyValidates: RuleSurfaceEntry[] = [];
   for (const entry of entries) {
+    if (
+      entry.pattern.service === 'firestore'
+      && !entry.wildcardDatabase
+      && entry.pattern.resourceId !== '(default)'
+    ) {
+      explicitFirestoreDatabases.add(entry.pattern.resourceId);
+    }
     if (
       entry.pattern.service === 'storage'
       && !entry.wildcardBucket
@@ -634,6 +665,10 @@ export function projectRuleSurface(input: ProjectRuleSurfaceInput): RuleSurface 
     matching(pattern: ResourcePattern, op?: string): readonly RuleSurfaceEntry[] {
       let targetVerbs: ReadonlySet<string> | undefined;
       if (op !== undefined) targetVerbs = compatibleRuleVerbs(op);
+      const rebindWildcardFirestore =
+        pattern.service === 'firestore'
+        && pattern.resourceId !== '(default)'
+        && !explicitFirestoreDatabases.has(pattern.resourceId);
       const rebindWildcardStorage =
         pattern.service === 'storage'
         && pattern.resourceId !== '(default)'
@@ -646,6 +681,9 @@ export function projectRuleSurface(input: ProjectRuleSurfaceInput): RuleSurface 
           return false;
         }
         let entryPattern = entry.pattern;
+        if (rebindWildcardFirestore && entry.pattern.service === 'firestore' && entry.wildcardDatabase) {
+          entryPattern = { ...entry.pattern, resourceId: pattern.resourceId };
+        }
         if (rebindWildcardStorage && entry.pattern.service === 'storage' && entry.wildcardBucket) {
           entryPattern = { ...entry.pattern, resourceId: pattern.resourceId };
         }

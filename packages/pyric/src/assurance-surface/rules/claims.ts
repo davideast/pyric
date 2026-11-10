@@ -21,7 +21,11 @@ import {
   normalizeExplicitResourceId,
 } from '../../sandbox/internal/resource-pattern-header.js';
 import { overlapsPattern, parseResourcePattern } from '../../sandbox/internal/resource-pattern.js';
-import { formatMatchSegment, parseRulesAstWithMultiMatch } from './rules-ast-utils.js';
+import {
+  formatMatchSegment,
+  lowerModularRulesInMemory,
+  parseRulesAstWithMultiMatch,
+} from './rules-ast-utils.js';
 
 /** Claims set on every Firebase ID token; never inferred as custom claims. */
 const STANDARD_CLAIMS = new Set([
@@ -44,17 +48,41 @@ export interface ClaimTarget {
   path: string;
   op?: string;
   bucket?: string;
+  modules?: Readonly<Record<string, string>>;
+}
+
+export interface RequiredClaimsOptions {
+  readonly modules?: Readonly<Record<string, string>>;
 }
 
 function splitSegments(path: string): string[] {
   return path.split('/').filter(Boolean);
 }
 
+function setClaimOwn(target: Claims, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function singleClaim(key: string, value: unknown): Claims {
+  const out: Claims = {};
+  setClaimOwn(out, key, value);
+  return out;
+}
+
 function unionClaims(left: Claims, right: Claims): Claims {
-  const out: Claims = { ...left };
-  for (const [key, value] of Object.entries(right)) {
+  const out: Claims = {};
+  for (const key of Object.getOwnPropertyNames(left)) {
+    if (STANDARD_CLAIMS.has(key)) continue;
+    setClaimOwn(out, key, Object.getOwnPropertyDescriptor(left, key)?.value);
+  }
+  for (const key of Object.getOwnPropertyNames(right)) {
     if (STANDARD_CLAIMS.has(key) || Object.hasOwn(out, key)) continue;
-    out[key] = value;
+    setClaimOwn(out, key, Object.getOwnPropertyDescriptor(right, key)?.value);
   }
   return out;
 }
@@ -63,18 +91,25 @@ function intersectClaimList(list: Claims[]): Claims {
   if (list.length === 0) return {};
   const first = list[0];
   const out: Claims = {};
-  for (const [key, value] of Object.entries(first)) {
+  for (const key of Object.getOwnPropertyNames(first)) {
     if (STANDARD_CLAIMS.has(key)) continue;
-    const inAll = list.slice(1).every((item) => Object.hasOwn(item, key) && item[key] === value);
-    if (inAll) out[key] = value;
+    const value = Object.getOwnPropertyDescriptor(first, key)?.value;
+    const inAll = list
+      .slice(1)
+      .every(
+        (item) =>
+          Object.hasOwn(item, key)
+          && Object.getOwnPropertyDescriptor(item, key)?.value === value,
+      );
+    if (inAll) setClaimOwn(out, key, value);
   }
   return out;
 }
 
 function copyClaimsInto(source: Claims, into: Claims): Claims {
-  for (const [key, value] of Object.entries(source)) {
+  for (const key of Object.getOwnPropertyNames(source)) {
     if (STANDARD_CLAIMS.has(key) || Object.hasOwn(into, key)) continue;
-    into[key] = value;
+    setClaimOwn(into, key, Object.getOwnPropertyDescriptor(source, key)?.value);
   }
   return into;
 }
@@ -152,11 +187,22 @@ function rtdbEffectiveBool(tree: RtdbExpressionTree, negated: boolean): boolean 
   return negated ? !raw : raw;
 }
 
+function isRtdbAuthToken(tree: RtdbExpressionTree): boolean {
+  if (tree.type === 'member' && tree.property === 'token') {
+    return tree.object.type === 'identifier' && tree.object.name === 'auth';
+  }
+  if (tree.type === 'index' && tree.index.type === 'string' && tree.index.value === 'token') {
+    return tree.object.type === 'identifier' && tree.object.name === 'auth';
+  }
+  return false;
+}
+
 function rtdbTokenClaim(tree: RtdbExpressionTree): string | undefined {
-  if (tree.type !== 'member') return undefined;
-  const obj = tree.object;
-  if (obj.type === 'member' && obj.property === 'token' && obj.object.type === 'identifier' && obj.object.name === 'auth') {
+  if (tree.type === 'member' && isRtdbAuthToken(tree.object)) {
     return tree.property;
+  }
+  if (tree.type === 'index' && tree.index.type === 'string' && isRtdbAuthToken(tree.object)) {
+    return tree.index.value;
   }
   return undefined;
 }
@@ -208,9 +254,9 @@ function rtdbExprClaims(tree: RtdbExpressionTree, negated: boolean): Claims {
         if (leftClaim) other = tree.right;
         const isPosEq = (isEq && !negated) || (isNeq && negated);
         const isPosNeq = (isNeq && !negated) || (isEq && negated);
-        if (isPosNeq && other.type === 'null') return { [claim]: true };
+        if (isPosNeq && other.type === 'null') return singleClaim(claim, true);
         const lit = rtdbLiteral(other);
-        if (isPosEq && lit) return { [claim]: lit.value };
+        if (isPosEq && lit) return singleClaim(claim, lit.value);
         return {};
       }
       const leftBool = rtdbStaticBool(tree.left);
@@ -228,15 +274,27 @@ function rtdbExprClaims(tree: RtdbExpressionTree, negated: boolean): Claims {
   if (!negated) {
     const bare = rtdbTokenClaim(tree);
     if (bare && !STANDARD_CLAIMS.has(bare)) {
-      return { [bare]: true };
+      return singleClaim(bare, true);
     }
   }
   return {};
 }
 
 /** Required claims for a Firestore document path and operation. */
-export function firestoreRequiredClaims(source: string, target: ClaimTarget, into: Claims = {}): Claims {
-  const ast = parseToAST(source);
+export function firestoreRequiredClaims(
+  source: string,
+  target: ClaimTarget,
+  into: Claims = {},
+  options?: RequiredClaimsOptions,
+): Claims {
+  const modules = options?.modules ?? target.modules;
+  const lowerOpts: {
+    targetService: 'cloud.firestore';
+    modules?: Readonly<Record<string, string>>;
+  } = { targetService: 'cloud.firestore' };
+  if (modules !== undefined) lowerOpts.modules = modules;
+  const lowered = lowerModularRulesInMemory(source, lowerOpts);
+  const ast = parseToAST(lowered);
   if (!ast) return into;
 
   const declScopes = indexFunctionScopes(ast);
@@ -265,8 +323,19 @@ export function firestoreRequiredClaims(source: string, target: ClaimTarget, int
 }
 
 /** Required claims for a Cloud Storage object path and operation. */
-export function storageRequiredClaims(source: string, target: ClaimTarget, into: Claims = {}): Claims {
-  const services = parseRulesAstWithMultiMatch(source);
+export function storageRequiredClaims(
+  source: string,
+  target: ClaimTarget,
+  into: Claims = {},
+  options?: RequiredClaimsOptions,
+): Claims {
+  const modules = options?.modules ?? target.modules;
+  const parseOpts: {
+    targetService: 'firebase.storage';
+    modules?: Readonly<Record<string, string>>;
+  } = { targetService: 'firebase.storage' };
+  if (modules !== undefined) parseOpts.modules = modules;
+  const services = parseRulesAstWithMultiMatch(source, parseOpts);
   if (services.length === 0) return into;
 
   const targetPattern = parseResourcePattern('storage', target.path, target.bucket);
@@ -432,6 +501,42 @@ function fsEffectiveBool(
   return negated ? !raw : raw;
 }
 
+function fsMemberOrStringKey(
+  expr: Expression,
+  functions: FunctionDef[],
+  lets: ReadonlyMap<string, Expression>,
+  declScopes: WeakMap<FunctionDef, FunctionDef[]>,
+  depth: number,
+): { object: Expression; key: string } | undefined {
+  if (expr.type === 'memberAccess') {
+    return { object: expr.object, key: expr.property };
+  }
+  if (expr.type === 'bracketAccess') {
+    const idx = resolveValueExpr(expr.index, functions, lets, declScopes, depth);
+    if (idx.type === 'literal' && typeof idx.value === 'string') {
+      return { object: expr.object, key: idx.value };
+    }
+  }
+  return undefined;
+}
+
+function isFsAuthToken(
+  expr: Expression,
+  functions: FunctionDef[],
+  lets: ReadonlyMap<string, Expression>,
+  declScopes: WeakMap<FunctionDef, FunctionDef[]>,
+  depth: number,
+): boolean {
+  const unwrapped = resolveValueExpr(expr, functions, lets, declScopes, depth);
+  const tokenAccess = fsMemberOrStringKey(unwrapped, functions, lets, declScopes, depth);
+  if (!tokenAccess || tokenAccess.key !== 'token') return false;
+  const auth = resolveValueExpr(tokenAccess.object, functions, lets, declScopes, depth);
+  const authAccess = fsMemberOrStringKey(auth, functions, lets, declScopes, depth);
+  if (!authAccess || authAccess.key !== 'auth') return false;
+  const req = resolveValueExpr(authAccess.object, functions, lets, declScopes, depth);
+  return req.type === 'identifier' && req.name === 'request';
+}
+
 function fsTokenClaim(
   expr: Expression,
   functions: FunctionDef[],
@@ -440,13 +545,10 @@ function fsTokenClaim(
   depth: number,
 ): string | undefined {
   const unwrapped = resolveValueExpr(expr, functions, lets, declScopes, depth);
-  if (unwrapped.type !== 'memberAccess') return undefined;
-  const obj = resolveValueExpr(unwrapped.object, functions, lets, declScopes, depth);
-  if (obj.type !== 'memberAccess' || obj.property !== 'token') return undefined;
-  const auth = resolveValueExpr(obj.object, functions, lets, declScopes, depth);
-  if (auth.type === 'memberAccess' && auth.property === 'auth') {
-    const req = resolveValueExpr(auth.object, functions, lets, declScopes, depth);
-    if (req.type === 'identifier' && req.name === 'request') return unwrapped.property;
+  const access = fsMemberOrStringKey(unwrapped, functions, lets, declScopes, depth);
+  if (!access) return undefined;
+  if (isFsAuthToken(access.object, functions, lets, declScopes, depth)) {
+    return access.key;
   }
   return undefined;
 }
@@ -518,9 +620,9 @@ function fsExprClaims(
       if (other.type !== 'literal') return {};
       const isPosEq = (expr.op === '==' && !negated) || (expr.op === '!=' && negated);
       const isPosNeq = (expr.op === '!=' && !negated) || (expr.op === '==' && negated);
-      if (isPosNeq && other.value === null) return { [claim]: true };
+      if (isPosNeq && other.value === null) return singleClaim(claim, true);
       if (isPosEq && other.value !== null && !(other.value instanceof Uint8Array)) {
-        return { [claim]: other.value };
+        return singleClaim(claim, other.value);
       }
       return {};
     }
@@ -532,6 +634,33 @@ function fsExprClaims(
       if (leftBool !== undefined) target = expr.right;
       const flips = (expr.op === '==' && !boolVal) || (expr.op === '!=' && boolVal);
       return fsExprClaims(target, functions, lets, declScopes, depth, flips ? !negated : negated);
+    }
+    return {};
+  }
+  if (expr.type === 'inExpr') {
+    if (!negated) {
+      const elemClaim = fsTokenClaim(expr.element, functions, lets, declScopes, depth);
+      if (elemClaim && !STANDARD_CLAIMS.has(elemClaim)) {
+        const col = resolveValueExpr(expr.collection, functions, lets, declScopes, depth);
+        if (col.type === 'listLiteral') {
+          for (const rawItem of col.elements) {
+            const item = resolveValueExpr(rawItem, functions, lets, declScopes, depth);
+            if (item.type === 'literal' && item.value !== null && !(item.value instanceof Uint8Array)) {
+              return singleClaim(elemClaim, item.value);
+            }
+          }
+        }
+      }
+      if (isFsAuthToken(expr.collection, functions, lets, declScopes, depth)) {
+        const keyExpr = resolveValueExpr(expr.element, functions, lets, declScopes, depth);
+        if (
+          keyExpr.type === 'literal'
+          && typeof keyExpr.value === 'string'
+          && !STANDARD_CLAIMS.has(keyExpr.value)
+        ) {
+          return singleClaim(keyExpr.value, true);
+        }
+      }
     }
     return {};
   }
@@ -554,7 +683,7 @@ function fsExprClaims(
   if (!negated) {
     const bare = fsTokenClaim(expr, functions, lets, declScopes, depth);
     if (bare && !STANDARD_CLAIMS.has(bare)) {
-      return { [bare]: true };
+      return singleClaim(bare, true);
     }
   }
   return {};

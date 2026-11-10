@@ -103,4 +103,44 @@ service cloud.firestore {
     );
     expect(satisfiedFilter).toBeNull();
   });
+
+  it('downgrades unsupported-predicate prover abstentions on nested fields to heuristic certainty', () => {
+    const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow list: if resource.data.meta.ownerId == request.auth.uid;
+    }
+  }
+}`;
+    const ast = parseToAST(source)!;
+    const simulator = new SimulateFirestoreRulesHandler();
+
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/nested.ts': `
+          import { getAuth } from 'firebase/auth';
+          import { FieldPath, collection, getDocs, getFirestore, query, where } from 'firebase/firestore';
+          const auth = getAuth();
+          const db = getFirestore();
+          export async function run() {
+            await getDocs(query(collection(db, 'items'), where('meta.ownerId', '==', auth.currentUser!.uid)));
+            await getDocs(query(collection(db, 'items'), where(new FieldPath('meta', 'ownerId'), '==', auth.currentUser!.uid)));
+          }
+        `,
+      },
+    });
+
+    for (const q of usage.queries) {
+      const target = concretizeQueryTarget(q.baseRef)!;
+      const failure = evaluateCandidateArm(
+        simulator,
+        { source, file: 'firestore.rules', ast },
+        target,
+        q.constraints,
+      );
+      expect(failure?.certainty).toBe('heuristic');
+    }
+  });
 });

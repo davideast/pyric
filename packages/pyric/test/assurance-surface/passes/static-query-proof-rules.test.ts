@@ -86,4 +86,37 @@ service cloud.firestore {
     expect(queryInfo.usesRequestQuery).toBe(true);
     expect(collectOptimisticFieldScalars(queryAst, 'feed/__listPlaceholder__', 'status')).toContain('open');
   });
+
+  it('marks unseeded auth.uid value constraints and auth.token method calls as unseeded context', () => {
+    const unseededConditions = [
+      "request.auth != null && request.auth.uid == 'admin-1'",
+      "request.auth != null && request.auth.uid in ['admin-1', 'admin-2']",
+      "request.auth != null && request.auth.uid.matches('^staff_.*')",
+      "request.auth != null && request.auth.token.get('role', '') == 'admin'",
+      "request.auth != null && request.auth.token.keys().hasAny(['admin'])",
+    ];
+    for (const cond of unseededConditions) {
+      const ast = parseToAST(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow list: if ${cond};
+    }
+  }
+}`)!;
+      expect(inspectRetainedRules(ast, 'items/__listPlaceholder__', new Set()).usesUnseededContext).toBe(true);
+    }
+
+    const dischargedAst = parseToAST(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/items/{id} {
+      allow list: if request.auth.uid != null && request.auth.uid == userId && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}`)!;
+    expect(
+      inspectRetainedRules(dischargedAst, 'users/u1/items/__listPlaceholder__', new Set()).usesUnseededContext,
+    ).toBe(false);
+  });
 });

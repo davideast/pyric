@@ -13,7 +13,9 @@ import {
   type AssuranceService,
 } from 'pyric/sandbox/internal';
 import {
+  bundleRulesSource,
   parseRtdbRulesText,
+  validateRulesSourceSyntax,
   type FirestoreRuleSource,
   type RtdbRuleSource,
   type RuleSources,
@@ -111,7 +113,8 @@ function parseRulesPrefix(
     return { ok: true, value: { service: 'firestore', target: targetPart } };
   }
   if (svcPart === 'rtdb' || svcPart === 'database') {
-    return { ok: true, value: { service: 'rtdb', target: targetPart } };
+    const instanceId = parseResourcePattern('rtdb', 'ref', targetPart).resourceId;
+    return { ok: true, value: { service: 'rtdb', target: instanceId } };
   }
   if (svcPart === 'storage') {
     const bucketId = parseResourcePattern('storage', 'object', targetPart).resourceId;
@@ -139,6 +142,8 @@ function applyRulesFlagOverrides(
   for (const [instId, instRules] of Object.entries(project.rtdbInstances)) {
     defineOwn(rtdbInstances, instId, instRules);
   }
+
+  const overriddenDefaultServices = new Set<AssuranceService>();
 
   for (const spec of specs) {
     const eq = spec.indexOf('=');
@@ -175,8 +180,30 @@ function applyRulesFlagOverrides(
     }
 
     if (targetService === 'firestore') {
+      let bundledText: string;
+      try {
+        bundledText = bundleRulesSource(content, {
+          filePath: absFile,
+          sourceFile: sourceLabel,
+          targetService: 'cloud.firestore',
+        });
+      } catch (err) {
+        let msg = String(err);
+        if (err instanceof Error) msg = err.message;
+        return { ok: false, message: `invalid Firestore rules in ${fileArg}: ${msg}` };
+      }
+      const syntax = validateRulesSourceSyntax(bundledText, 'cloud.firestore', {
+        sourceFile: sourceLabel,
+        targetService: 'cloud.firestore',
+      });
+      if (!syntax.ok) {
+        return { ok: false, message: `invalid Firestore rules in ${fileArg}: ${syntax.message}` };
+      }
       const effectiveTarget = targetId ?? DEFAULT_SNAPSHOT_RESOURCE;
-      const entry: FirestoreRuleSource = { source: sourceLabel, text: content };
+      if (effectiveTarget === DEFAULT_SNAPSHOT_RESOURCE) {
+        overriddenDefaultServices.add('firestore');
+      }
+      const entry: FirestoreRuleSource = { source: sourceLabel, text: bundledText };
       if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
         entry.database = effectiveTarget;
       }
@@ -185,8 +212,30 @@ function applyRulesFlagOverrides(
       );
       firestore.push(entry);
     } else if (targetService === 'storage') {
+      let bundledText: string;
+      try {
+        bundledText = bundleRulesSource(content, {
+          filePath: absFile,
+          sourceFile: sourceLabel,
+          targetService: 'firebase.storage',
+        });
+      } catch (err) {
+        let msg = String(err);
+        if (err instanceof Error) msg = err.message;
+        return { ok: false, message: `invalid Storage rules in ${fileArg}: ${msg}` };
+      }
+      const syntax = validateRulesSourceSyntax(bundledText, 'firebase.storage', {
+        sourceFile: sourceLabel,
+        targetService: 'firebase.storage',
+      });
+      if (!syntax.ok) {
+        return { ok: false, message: `invalid Storage rules in ${fileArg}: ${syntax.message}` };
+      }
       const effectiveTarget = targetId ?? DEFAULT_SNAPSHOT_RESOURCE;
-      const entry: StorageRuleSource = { source: sourceLabel, text: content };
+      if (effectiveTarget === DEFAULT_SNAPSHOT_RESOURCE) {
+        overriddenDefaultServices.add('storage');
+      }
+      const entry: StorageRuleSource = { source: sourceLabel, text: bundledText };
       if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
         entry.bucket = effectiveTarget;
         if (configuredBuckets.length > 0 && !configuredBuckets.includes(effectiveTarget)) {
@@ -206,7 +255,16 @@ function applyRulesFlagOverrides(
         if (err instanceof Error) msg = err.message;
         return { ok: false, message: `invalid RTDB rules JSON in ${fileArg}: ${msg}` };
       }
+      if (!parsedRtdb || typeof parsedRtdb !== 'object' || Array.isArray(parsedRtdb)) {
+        return {
+          ok: false,
+          message: `invalid RTDB rules JSON in ${fileArg}: expected a JSON object`,
+        };
+      }
       const effectiveTarget = targetId ?? DEFAULT_SNAPSHOT_RESOURCE;
+      if (effectiveTarget === DEFAULT_SNAPSHOT_RESOURCE) {
+        overriddenDefaultServices.add('rtdb');
+      }
       const entry: RtdbRuleSource = { source: sourceLabel, json: parsedRtdb };
       if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
         entry.instance = effectiveTarget;
@@ -226,11 +284,19 @@ function applyRulesFlagOverrides(
     }
   }
 
+  const remainingConfigProblems = (project.configProblems ?? []).filter(
+    (p) =>
+      p.isGlobalConfig === true
+      || p.service === undefined
+      || !overriddenDefaultServices.has(p.service),
+  );
+  const remainingProblems = remainingConfigProblems.map((p) => p.message);
+
   const nextSources: RuleSources = {
     firestore,
     rtdb,
     storage,
-    problems: [...project.sources.problems],
+    problems: remainingProblems,
   };
   const nextSurface = buildRuleSurfaceFromSources(nextSources, rtdbInstances);
   return {
@@ -241,6 +307,8 @@ function applyRulesFlagOverrides(
       ruleSurface: nextSurface,
       configuredBuckets,
       rtdbInstances,
+      problems: remainingProblems,
+      configProblems: remainingConfigProblems,
     },
   };
 }
@@ -313,7 +381,12 @@ export async function runVerifyStatic(
   );
   if (serviceFilter.services !== undefined) {
     const allowed = serviceFilter.services;
-    diagnostics = diagnostics.filter((d) => allowed.has(d.service));
+    diagnostics = diagnostics.filter(
+      (d) =>
+        allowed.has(d.service)
+        || (d.code === 'invalid-rules-configuration'
+          && d.ruleSite?.source === 'firebase.json'),
+    );
   }
 
   const counts = summarizeDiagnosticCounts(diagnostics);

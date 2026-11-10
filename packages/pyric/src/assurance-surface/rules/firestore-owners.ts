@@ -123,6 +123,76 @@ function booleanLiteralValue(expr: Expression, scope: RuleAstScope): boolean | u
   return undefined;
 }
 
+function scalarLiteralValue(expr: Expression, scope: RuleAstScope): string | number | boolean | undefined {
+  const resolved = resolveRuleExpr(expr, scope).expr;
+  if (
+    resolved.type === 'literal'
+    && (typeof resolved.value === 'string' || typeof resolved.value === 'number' || typeof resolved.value === 'boolean')
+  ) {
+    return resolved.value;
+  }
+  return undefined;
+}
+
+function isNullLiteral(expr: Expression, scope: RuleAstScope): boolean {
+  const resolved = resolveRuleExpr(expr, scope).expr;
+  return resolved.type === 'literal' && resolved.value === null;
+}
+
+function numericLiteralValue(expr: Expression, scope: RuleAstScope): number | undefined {
+  const resolved = resolveRuleExpr(expr, scope);
+  if (resolved.expr.type === 'literal' && typeof resolved.expr.value === 'number') {
+    return resolved.expr.value;
+  }
+  if (resolved.expr.type === 'unaryOp' && resolved.expr.op === '-') {
+    const inner = numericLiteralValue(resolved.expr.operand, resolved.scope);
+    if (inner !== undefined) return -inner;
+  }
+  return undefined;
+}
+
+type RelationalOp = '<' | '<=' | '>' | '>=';
+
+function isRelationalOp(op: string): op is RelationalOp {
+  return op === '<' || op === '<=' || op === '>' || op === '>=';
+}
+
+function negateRelationalOp(op: RelationalOp): RelationalOp {
+  if (op === '<') return '>=';
+  if (op === '<=') return '>';
+  if (op === '>') return '<=';
+  return '<';
+}
+
+function flipRelationalSides(op: RelationalOp): RelationalOp {
+  if (op === '<') return '>';
+  if (op === '<=') return '>=';
+  if (op === '>') return '<';
+  return '<=';
+}
+
+function satisfyingRelationalValue(op: RelationalOp, bound: number): number {
+  if (op === '<') return bound - 1;
+  if (op === '>') return bound + 1;
+  return bound;
+}
+
+function authKeyedLookupDocPath(expr: Expression, scope: RuleAstScope): string | undefined {
+  let cur = resolveRuleExpr(expr, scope);
+  if (cur.expr.type === 'memberAccess' && cur.expr.property === 'data') {
+    cur = resolveRuleExpr(cur.expr.object, cur.scope);
+  }
+  if (
+    cur.expr.type === 'functionCall'
+    && (cur.expr.name === 'get' || cur.expr.name === 'getAfter')
+    && cur.expr.args[0]
+  ) {
+    const path = lookupPath(cur.expr.args[0], cur.scope);
+    if (path?.authKeyed) return path.text;
+  }
+  return undefined;
+}
+
 function visit(expr: Expression, scope: RuleAstScope, ctx: Ctx): void {
   const { expr: e, scope: s } = resolveRuleExpr(expr, scope);
   switch (e.type) {
@@ -140,8 +210,22 @@ function visit(expr: Expression, scope: RuleAstScope, ctx: Ctx): void {
       visitTernary(e, s, ctx);
       return;
     case 'inExpr':
-      if (!ctx.negated && isAuthUid(e.element, s)) {
-        record(e.collection, s, 'contains', e, ctx);
+      if (!ctx.negated) {
+        if (isAuthUid(e.element, s)) {
+          record(e.collection, s, 'contains', e, ctx);
+        } else {
+          const df = dataField(e.element, s);
+          const coll = resolveRuleExpr(e.collection, s);
+          if (df?.base === 'lookup' && df.authKeyed && coll.expr.type === 'listLiteral') {
+            for (const item of coll.expr.elements) {
+              const scalar = scalarLiteralValue(item, coll.scope);
+              if (scalar !== undefined) {
+                push(ctx, 'lookup', `${df.lookupPath}#${df.field}`, 'exists', e, undefined, undefined, scalar);
+                break;
+              }
+            }
+          }
+        }
       }
       return;
     case 'methodCall':
@@ -157,6 +241,22 @@ function visit(expr: Expression, scope: RuleAstScope, ctx: Ctx): void {
         })
       ) {
         record(e.object, s, 'contains', e, ctx);
+        return;
+      }
+      if (!ctx.negated) {
+        const df = dataField(e, s);
+        if (df?.base === 'lookup' && df.authKeyed) {
+          push(ctx, 'lookup', `${df.lookupPath}#${df.field}`, 'exists', e, undefined, undefined, true);
+        }
+      }
+      return;
+    case 'memberAccess':
+    case 'bracketAccess':
+      if (!ctx.negated) {
+        const df = dataField(e, s);
+        if (df?.base === 'lookup' && df.authKeyed) {
+          push(ctx, 'lookup', `${df.lookupPath}#${df.field}`, 'exists', e, undefined, undefined, true);
+        }
       }
       return;
     case 'functionCall':
@@ -195,10 +295,55 @@ function visitBinary(e: Extract<Expression, { type: 'binaryOp' }>, scope: RuleAs
       visit(target, scope, { ...ctx, negated: nextNegated });
       return;
     }
+    const leftNull = isNullLiteral(e.left, scope);
+    const rightNull = isNullLiteral(e.right, scope);
+    if (leftNull || rightNull) {
+      const other = leftNull ? e.right : e.left;
+      const assertsPresent = (e.op === '!=' && !ctx.negated) || (e.op === '==' && ctx.negated);
+      if (assertsPresent) {
+        const df = dataField(other, scope);
+        if (df?.base === 'lookup' && df.authKeyed) {
+          push(ctx, 'lookup', `${df.lookupPath}#${df.field}`, 'exists', e, undefined, undefined, true);
+        } else {
+          const docPath = authKeyedLookupDocPath(other, scope);
+          if (docPath !== undefined) push(ctx, 'lookup', docPath, 'exists', e, undefined);
+        }
+      }
+      return;
+    }
     const isPositiveEquality = (e.op === '==' && !ctx.negated) || (e.op === '!=' && ctx.negated);
     if (!isPositiveEquality) return;
     if (isAuthUid(e.left, scope)) record(e.right, scope, 'equals', e, ctx);
     else if (isAuthUid(e.right, scope)) record(e.left, scope, 'equals', e, ctx);
+    else {
+      const leftDf = dataField(e.left, scope);
+      const rightDf = dataField(e.right, scope);
+      const leftScalar = scalarLiteralValue(e.left, scope);
+      const rightScalar = scalarLiteralValue(e.right, scope);
+      if (leftDf?.base === 'lookup' && leftDf.authKeyed && rightScalar !== undefined) {
+        push(ctx, 'lookup', `${leftDf.lookupPath}#${leftDf.field}`, 'exists', e, undefined, undefined, rightScalar);
+      } else if (rightDf?.base === 'lookup' && rightDf.authKeyed && leftScalar !== undefined) {
+        push(ctx, 'lookup', `${rightDf.lookupPath}#${rightDf.field}`, 'exists', e, undefined, undefined, leftScalar);
+      }
+    }
+    return;
+  }
+  if (isRelationalOp(e.op)) {
+    const leftDf = dataField(e.left, scope);
+    const rightDf = dataField(e.right, scope);
+    const leftNum = numericLiteralValue(e.left, scope);
+    const rightNum = numericLiteralValue(e.right, scope);
+    if (leftDf?.base === 'lookup' && leftDf.authKeyed && rightNum !== undefined) {
+      let effOp: RelationalOp = e.op;
+      if (ctx.negated) effOp = negateRelationalOp(effOp);
+      const seedValue = satisfyingRelationalValue(effOp, rightNum);
+      push(ctx, 'lookup', `${leftDf.lookupPath}#${leftDf.field}`, 'exists', e, undefined, undefined, seedValue, effOp);
+    } else if (rightDf?.base === 'lookup' && rightDf.authKeyed && leftNum !== undefined) {
+      let effOp = flipRelationalSides(e.op);
+      if (ctx.negated) effOp = negateRelationalOp(effOp);
+      const seedValue = satisfyingRelationalValue(effOp, leftNum);
+      push(ctx, 'lookup', `${rightDf.lookupPath}#${rightDf.field}`, 'exists', e, undefined, undefined, seedValue, effOp);
+    }
   }
 }
 
@@ -236,9 +381,14 @@ function isAuthUid(expr: Expression, scope: RuleAstScope): boolean {
 function record(other: Expression, scope: RuleAstScope, relation: OwnerRelation, whole: Expression, ctx: Ctx): void {
   const { expr: e, scope: s } = resolveRuleExpr(other, scope);
   if (e.type === 'identifier' && s.wildcards.has(e.name)) {
-    const foundIndex = ctx.path.findIndex((p) => p === `{${e.name}}` || p === `{${e.name}=**}`);
     let varIndex: number | undefined;
-    if (foundIndex >= 0) varIndex = foundIndex;
+    for (let i = ctx.path.length - 1; i >= 0; i -= 1) {
+      const p = ctx.path[i];
+      if (p === `{${e.name}}` || p === `{${e.name}=**}`) {
+        varIndex = i;
+        break;
+      }
+    }
     push(ctx, 'pathVar', `{${e.name}}`, relation, whole, undefined, varIndex);
     return;
   }
@@ -258,7 +408,7 @@ function record(other: Expression, scope: RuleAstScope, relation: OwnerRelation,
 function dataField(
   expr: Expression,
   scope: RuleAstScope,
-): { base: 'stored' | 'incoming' | 'lookup'; field: string; lookupPath?: string } | null {
+): { base: 'stored' | 'incoming' | 'lookup'; field: string; lookupPath?: string; authKeyed?: boolean } | null {
   const fields: string[] = [];
   let cur = resolveRuleExpr(expr, scope);
   for (let i = 0; i < 32; i++) {
@@ -272,7 +422,7 @@ function dataField(
         if (isPath(holder.expr, ['request', 'resource'], holder.scope)) return { base: 'incoming', field };
         if (holder.expr.type === 'functionCall' && (holder.expr.name === 'get' || holder.expr.name === 'getAfter') && holder.expr.args[0]) {
           const path = lookupPath(holder.expr.args[0], holder.scope);
-          if (path) return { base: 'lookup', field, lookupPath: path.text };
+          if (path) return { base: 'lookup', field, lookupPath: path.text, authKeyed: path.authKeyed };
           return null;
         }
         return null;
@@ -335,6 +485,8 @@ function push(
   whole: Expression,
   location: string | undefined,
   varIndex?: number,
+  seedValue?: string | number | boolean,
+  comparisonOp?: RelationalOp,
 ): void {
   const c: OwnerCondition = {
     service: 'firestore',
@@ -349,6 +501,8 @@ function push(
   };
   if (varIndex !== undefined) c.varIndex = varIndex;
   if (location !== undefined) c.location = location;
+  if (seedValue !== undefined) c.seedValue = seedValue;
+  if (comparisonOp !== undefined) c.comparisonOp = comparisonOp;
   ctx.out.push(c);
 }
 

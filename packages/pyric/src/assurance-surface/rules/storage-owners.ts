@@ -23,7 +23,12 @@ import {
   renderResourcePattern,
   type ResourcePattern,
 } from '../../sandbox/internal/resource-pattern.js';
-import type { CrossServiceLookup, RuleSurfaceEntry, StorageMetadataConstraint } from './rule-surface.js';
+import type {
+  CrossServiceLookup,
+  RuleSurfaceEntry,
+  StorageMetadataConstraint,
+  StorageMetadataConstraintArm,
+} from './rule-surface.js';
 import {
   classifyTernaryBranches,
   expandRuleOps,
@@ -39,6 +44,7 @@ import {
 import {
   extractStorageAllowValueHints,
   extractStorageMetadataConstraint,
+  extractStorageMetadataConstraintArms,
   isUnshadowedIdent,
   propOf,
   scalarLiteral,
@@ -168,9 +174,14 @@ function recordStorageUidTarget(
     && !r.scope.vars.has(r.expr.name)
   ) {
     const varName = r.expr.name;
-    const foundIndex = ctx.pattern.segments.findIndex(
-      (seg) => (seg.kind === 'var' || seg.kind === 'rest') && seg.name === varName,
-    );
+    let foundIndex = -1;
+    for (let i = ctx.pattern.segments.length - 1; i >= 0; i -= 1) {
+      const seg = ctx.pattern.segments[i];
+      if ((seg?.kind === 'var' || seg?.kind === 'rest') && seg.name === varName) {
+        foundIndex = i;
+        break;
+      }
+    }
     if (foundIndex >= 0) {
       let fieldToken = `{${varName}}`;
       if (ctx.pattern.segments[foundIndex]?.kind === 'rest') fieldToken = `{${varName}=**}`;
@@ -333,8 +344,18 @@ export function projectStorageRulesSource(
   source: string,
   file: string,
   explicitBucket?: string,
+  modules?: Readonly<Record<string, string>>,
 ): RuleSurfaceEntry[] {
-  const services = parseRulesAstWithMultiMatch(source);
+  const parseOpts: {
+    targetService: 'firebase.storage';
+    sourceFile: string;
+    modules?: Readonly<Record<string, string>>;
+  } = {
+    targetService: 'firebase.storage',
+    sourceFile: file,
+  };
+  if (modules !== undefined) parseOpts.modules = modules;
+  const services = parseRulesAstWithMultiMatch(source, parseOpts);
   const out: RuleSurfaceEntry[] = [];
   const normalizedExplicitBucket = normalizeExplicitResourceId('storage', explicitBucket);
 
@@ -396,6 +417,11 @@ export function projectStorageRulesSource(
           scope,
           ownerConditions,
         );
+        const storageMetadataArms = extractStorageMetadataConstraintArms(
+          allow.condition,
+          scope,
+          ownerConditions,
+        );
         const crossServiceReads = extractStorageCrossServiceReads(allow.condition, scope);
 
         const entry: {
@@ -404,6 +430,7 @@ export function projectStorageRulesSource(
           ownerConditions: readonly OwnerCondition[];
           valueHints: readonly ValueHint[];
           storageMetadata?: StorageMetadataConstraint;
+          storageMetadataArms?: readonly StorageMetadataConstraintArm[];
           crossServiceReads: readonly CrossServiceLookup[];
           overbroadAuthOnlyWrite?: boolean;
           wildcardBucket?: boolean;
@@ -419,6 +446,7 @@ export function projectStorageRulesSource(
         };
         if (isWildcardBucket) entry.wildcardBucket = true;
         if (storageMetadata !== undefined) entry.storageMetadata = storageMetadata;
+        if (storageMetadataArms !== undefined) entry.storageMetadataArms = storageMetadataArms;
         if (ops.some((op) => WRITE_OPS.has(op))) {
           entry.overbroadAuthOnlyWrite = isOverbroadAuthOnlyRulesExpr(allow.condition, scope);
         }

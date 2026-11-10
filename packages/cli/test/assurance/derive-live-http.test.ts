@@ -259,4 +259,103 @@ describe("derive-live-http", () => {
     ).rejects.toThrow(AssuranceInputError);
     expect(seenUrls.some((u) => u.includes("passwd"))).toBe(false);
   });
+
+  test("preserves persisted default RTDB rules, auth.providers, and <projectId>.firebasestorage.app default bucket fixtures", async () => {
+    const mockFetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/__pyric/init.json")) {
+        return new Response(
+          JSON.stringify({
+            sessionToken: "tok-1",
+            instanceId: "inst-1",
+            storageRules: "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /docs/{id} { allow read: if true; } } }",
+            storageBucketRules: {
+              "demo-proj.firebasestorage.app": {
+                rules: "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /docs/{id} { allow read: if true; } } }",
+              },
+              "secondary-bucket": {
+                rules: "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /docs/{id} { allow read: if false; } } }",
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/__pyric/state")) {
+        return new Response(
+          JSON.stringify({
+            version: 1,
+            firestore: {
+              firestore: {},
+              services: {
+                rtdb: {
+                  ".pyricRtdbPersistence": 1,
+                  data: { items: { i1: { rank: 1 } } },
+                  priorities: {},
+                  rules: { items: { ".read": "auth != null" } },
+                  instances: {
+                    "inst-sec": {
+                      ".pyricRtdbPersistence": 1,
+                      data: { items: { i2: { rank: 2 } } },
+                      priorities: {},
+                      rules: { items: { ".read": "auth != null" } },
+                    },
+                  },
+                },
+                auth: {
+                  users: [{ uid: "u-1", email: "u1@example.test" }],
+                  providers: { anonymous: false },
+                },
+              },
+            },
+            auth: {
+              users: [{ uid: "u-1", email: "u1@example.test" }],
+              providers: { anonymous: false },
+            },
+            storage: [
+              {
+                path: "docs/doc-1",
+                dataBase64: Buffer.alloc(32, 7).toString("base64"),
+                size: 32,
+                blobType: "application/octet-stream",
+                metadata: {
+                  bucket: "demo-proj.firebasestorage.app",
+                  fullPath: "docs/doc-1",
+                  name: "doc-1",
+                  size: 32,
+                  generation: "1",
+                  metageneration: "1",
+                  timeCreated: "2026-01-01T00:00:00.000Z",
+                  updated: "2026-01-01T00:00:00.000Z",
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith(HOSTED_METHOD_PATH)) {
+        return new Response(JSON.stringify({ ok: true, data: { events: [] } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const cloned = await cloneLoopbackSandboxHttp("http://127.0.0.1:3473", {
+      fetchImpl: mockFetch,
+      configuredBuckets: ["demo-proj.firebasestorage.app", "secondary-bucket"],
+      defaultBucket: "demo-proj.firebasestorage.app",
+    });
+
+    expect(cloned.target.rules.rtdb).toEqual({
+      rules: { items: { ".read": "auth != null" } },
+    });
+    expect(cloned.snapshot.rules.rtdb?.["(default)"]).toBeDefined();
+    expect(cloned.target.state.auth?.providers?.anonymous).toBe(false);
+    expect(cloned.snapshot.auth.providers?.anonymous).toBe(false);
+    expect(cloned.target.state.storage?.some((o) => o.path === "docs/doc-1")).toBe(true);
+    expect(cloned.target.rules.storageBuckets?.["demo-proj.firebasestorage.app"]).toBeUndefined();
+  });
 });

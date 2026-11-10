@@ -180,13 +180,77 @@ service cloud.firestore {
       { uid: "u1", email: "u1@example.test", password: "pw1", emailVerified: true },
       { uid: "u2", email: "u2@example.test", password: "pw2", emailVerified: true, disabled: true },
     ]);
+    const derivedStore = new AssuranceCampaignStore();
     const derivedDisabled = await deriveAssurance(
       { root, includeStaticChecks: false },
-      { store: new AssuranceCampaignStore(), sandbox: sbDisabled },
+      { store: derivedStore, sandbox: sbDisabled },
     );
-    expect(
-      derivedDisabled.diagnostics.filter((d) => d.certainty === "proven-counterexample"),
-    ).toHaveLength(0);
+    const disabledProven = derivedDisabled.diagnostics.filter(
+      (d) => d.certainty === "proven-counterexample",
+    );
+    expect(disabledProven.length).toBeGreaterThanOrEqual(1);
+    for (const diag of disabledProven) {
+      for (const step of diag.witness ?? []) {
+        expect((step as { actorUid?: string }).actorUid).not.toBe("u2");
+      }
+    }
+
+    const disabledActorReport = await runAuthorizationCampaign({
+      schema: ASSURANCE_CAMPAIGN_SCHEMA,
+      id: "c-disabled-peer",
+      target: {
+        schema: ASSURANCE_TARGET_SCHEMA,
+        network: "forbid",
+        rules: { firestore: rules },
+        state: {
+          auth: {
+            users: [
+              { uid: "u1", email: "u1@example.test", password: "pw1", emailVerified: true },
+              { uid: "u2", email: "u2@example.test", password: "pw2", emailVerified: true, disabled: true },
+            ],
+          },
+          firestore: { "users/u1": { label: "initial" } },
+        },
+      },
+      actors: [
+        { id: "owner", acquisition: { kind: "password", email: "u1@example.test", password: "pw1" } },
+        { id: "peer", acquisition: { kind: "password", email: "u2@example.test", password: "pw2" } },
+      ],
+      invariants: [
+        {
+          id: "inv-disabled-peer",
+          statement: "Disabled peer cannot overwrite owner user document",
+          service: "firestore",
+          expected: "DENY",
+          source: "declared",
+          confidence: "authoritative",
+        },
+      ],
+      probes: [
+        {
+          id: "p-disabled-peer-write",
+          actorId: "peer",
+          invariantId: "inv-disabled-peer",
+          control: {
+            service: "firestore",
+            method: "set",
+            path: "users/u2",
+            data: { label: "tampered" },
+          },
+          mutation: {
+            dimension: "path",
+            description: "Disabled peer attempts write to users/u1",
+            operation: {
+              service: "firestore",
+              method: "set",
+              path: "users/u1",
+              data: { label: "tampered" },
+            },
+          },
+        },
+      ],
+    });
+    expect(disabledActorReport.summary.localCounterexamples).toBe(0);
   });
 
   it("synthesizes bounded regex quantifiers for Storage contentType and decodes complex GeoPoint and Bytes snapshot markers", async () => {

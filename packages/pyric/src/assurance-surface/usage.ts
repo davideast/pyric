@@ -60,13 +60,21 @@ export {
 export { inferOwnerBindings } from './rules/cross-check.js';
 export { rtdbOwnerConditions } from './rules/rtdb-owners.js';
 export {
+  bundleRulesSource,
   loadRuleSources,
   parseRtdbRulesText,
+  type BundleRulesSourceOptions,
   type FirestoreRuleSource,
   type RtdbRuleSource,
   type RuleSources,
   type StorageRuleSource,
 } from './rules/rule-sources.js';
+export {
+  isModularRulesSource,
+  lowerModularRulesInMemory,
+  parseRulesAstWithMultiMatchOrError,
+  validateRulesSourceSyntax,
+} from './rules/rules-ast-utils.js';
 export { projectRuleSurface } from './rules/rule-surface.js';
 export { storageOwnerConditions, storageValueHints } from './rules/storage-owners.js';
 export { firestoreValueHints, rtdbValueHints } from './rules/value-hints.js';
@@ -141,6 +149,7 @@ export type {
   RuleSurface,
   RuleSurfaceEntry,
   StorageMetadataConstraint,
+  StorageMetadataConstraintArm,
   StorageSurfaceInput,
   StorageSurfaceSource,
 } from './rules/rule-surface.js';

@@ -38,47 +38,69 @@ export interface ProbeUser {
   disabled?: boolean;
 }
 
+function setOwnTokenField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function copyOwnTokenFields(
+  target: Record<string, unknown>,
+  source: Readonly<Record<string, unknown>>,
+  overwrite = true,
+): void {
+  for (const key of Object.getOwnPropertyNames(source)) {
+    if (!overwrite && Object.hasOwn(target, key)) continue;
+    setOwnTokenField(target, key, Object.getOwnPropertyDescriptor(source, key)?.value);
+  }
+}
+
 function selectTwoUsers(users: ProbeUser[]): {
   first: { user: ProbeUser; synthetic: boolean };
   second: { user: ProbeUser; synthetic: boolean };
 } {
   const enabled = users.filter((u) => u.disabled !== true);
-  const disabled = users.filter((u) => u.disabled === true);
   if (enabled.length >= 2) {
     return {
       first: { user: enabled[0]!, synthetic: false },
       second: { user: enabled[1]!, synthetic: false },
     };
   }
-  if (users.length >= 2 && enabled.length === 1) {
+  const takenUids = new Set(users.map((u) => u.uid));
+  const allocateSyntheticUid = (base: string): string => {
+    if (!takenUids.has(base)) {
+      takenUids.add(base);
+      return base;
+    }
+    let suffix = 2;
+    while (takenUids.has(`${base}-${suffix}`)) {
+      suffix += 1;
+    }
+    const candidate = `${base}-${suffix}`;
+    takenUids.add(candidate);
+    return candidate;
+  };
+  if (enabled.length === 1) {
     return {
       first: { user: enabled[0]!, synthetic: false },
-      second: { user: disabled[0]!, synthetic: false },
-    };
-  }
-  if (users.length === 1 && enabled.length === 1) {
-    const firstUser = enabled[0]!;
-    const peerUid = firstUser.uid === 'probe-peer' ? 'probe-peer-2' : 'probe-peer';
-    return {
-      first: { user: firstUser, synthetic: false },
-      second: { user: { uid: peerUid, displayName: 'Probe Peer' }, synthetic: true },
-    };
-  }
-  if (users.length >= 2) {
-    return {
-      first: { user: users[0]!, synthetic: false },
-      second: { user: users[1]!, synthetic: false },
-    };
-  }
-  if (users.length === 1 && users[0]!.disabled === true) {
-    return {
-      first: { user: users[0]!, synthetic: false },
-      second: { user: { uid: 'probe-peer', displayName: 'Probe Peer', disabled: true }, synthetic: true },
+      second: {
+        user: { uid: allocateSyntheticUid('probe-peer'), displayName: 'Probe Peer' },
+        synthetic: true,
+      },
     };
   }
   return {
-    first: { user: { uid: 'probe-owner', displayName: 'Probe Owner' }, synthetic: true },
-    second: { user: { uid: 'probe-peer', displayName: 'Probe Peer' }, synthetic: true },
+    first: {
+      user: { uid: allocateSyntheticUid('probe-owner'), displayName: 'Probe Owner' },
+      synthetic: true,
+    },
+    second: {
+      user: { uid: allocateSyntheticUid('probe-peer'), displayName: 'Probe Peer' },
+      synthetic: true,
+    },
   };
 }
 
@@ -100,11 +122,13 @@ export function probeActors(
     const email = user.email ?? `${user.uid}@example.test`;
     const displayName = user.displayName ?? names.get(user.uid) ?? user.uid;
     const emailVerified = user.emailVerified ?? true;
-    const token: Record<string, unknown> = { ...claims, email_verified: emailVerified };
+    const token: Record<string, unknown> = {};
+    copyOwnTokenFields(token, claims);
+    setOwnTokenField(token, 'email_verified', emailVerified);
     if (synthetic && typeof claims.email_verified === 'boolean' && user.emailVerified === undefined) {
-      token.email_verified = claims.email_verified;
+      setOwnTokenField(token, 'email_verified', claims.email_verified);
     }
-    if (user.customClaims) Object.assign(token, user.customClaims);
+    if (user.customClaims) copyOwnTokenFields(token, user.customClaims);
     const actor: ProbeActor = { role, uid: user.uid, email, displayName, token, synthetic };
     if (user.disabled === true) actor.disabled = true;
     return actor;
@@ -247,13 +271,14 @@ function mergeActorClaims(
   extractedClaims: Readonly<Record<string, unknown>>,
   seededUser: ProbeUser | undefined,
 ): ProbeActor {
-  const token: Record<string, unknown> = {
-    ...baseActor.token,
-    ...extractedClaims,
-    ...(seededUser?.customClaims ?? {}),
-  };
+  const token: Record<string, unknown> = {};
+  copyOwnTokenFields(token, baseActor.token);
+  copyOwnTokenFields(token, extractedClaims);
+  if (seededUser?.customClaims !== undefined) {
+    copyOwnTokenFields(token, seededUser.customClaims);
+  }
   if (!baseActor.synthetic && typeof seededUser?.emailVerified === 'boolean') {
-    token.email_verified = seededUser.emailVerified;
+    setOwnTokenField(token, 'email_verified', seededUser.emailVerified);
   }
   return { ...baseActor, token };
 }
@@ -335,9 +360,12 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
 
   let sites = input.accessSites.filter(
     (site) =>
-      site.service === 'storage'
-      || site.resourceId === undefined
-      || site.resourceId === '(default)',
+      !site.admin
+      && (
+        site.service === 'storage'
+        || site.resourceId === undefined
+        || site.resourceId === '(default)'
+      ),
   );
   const hasFirestoreClientWrite = sites.some((site) => site.service === 'firestore' && isWriteOp(site.op));
   if (rules.firestore && !hasFirestoreClientWrite) {
@@ -403,12 +431,12 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
       };
     }
     claimsByProbe.set(effectiveProbe, extracted);
-    const scopedActors = [
+    const scopedActors: [ProbeActor, ProbeActor] = [
       mergeActorClaims(owner, extracted.ownerClaims, seededOwner),
       mergeActorClaims(peer, extracted.peerClaims, seededPeer),
     ];
     const result = await runProbe(effectiveProbe, rules, scopedActors, input.state ?? {});
-    if (result) results.push(result);
+    if (result) results.push({ ...result, actors: scopedActors });
   }
 
   const hitResults = results.filter((result) => result.outcome === 'hit');
@@ -421,8 +449,8 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   for (const result of claimSourceResults) {
     const extracted = claimsByProbe.get(result.probe);
     if (!extracted) continue;
-    Object.assign(reportOwnerClaims, extracted.ownerClaims);
-    Object.assign(reportPeerClaims, extracted.peerClaims);
+    copyOwnTokenFields(reportOwnerClaims, extracted.ownerClaims, false);
+    copyOwnTokenFields(reportPeerClaims, extracted.peerClaims, false);
   }
   const actors: ProbeActor[] = [
     mergeActorClaims(owner, reportOwnerClaims, seededOwner),
@@ -433,7 +461,7 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   const seen = new Set<string>();
   for (const result of results) {
     if (result.outcome !== 'hit') continue;
-    const finding = findingFor(result, actors);
+    const finding = findingFor(result, result.actors ? [...result.actors] : actors);
     const key = `${finding.path}|${finding.op}|${finding.kind}|${finding.status}`;
     if (seen.has(key)) continue;
     seen.add(key);

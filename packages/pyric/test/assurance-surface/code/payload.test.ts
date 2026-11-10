@@ -95,4 +95,29 @@ describe('payloadShape', () => {
   test('a scalar payload keeps its auth provenance', () => {
     expect(payloadShape(uid, id)).toEqual({ kind: 'string', fields: [], open: false, auth: [{ source: 'auth.uid', certainty: 'exact' }] });
   });
+
+  test('marks arrays with guaranteed non-null RTDB elements as nonEmpty while leaving empty or null-only arrays unmarked', () => {
+    const nonEmptyArr: AVal = { k: 'arr', items: [{ k: 'str', parts: [{ kind: 'lit', text: 'a' }] }] };
+    const emptyArr: AVal = { k: 'arr', items: [] };
+    const nullOnlyArr: AVal = { k: 'arr', items: [{ k: 'null' }] };
+    const openSpreadArr: AVal = { k: 'arr', items: [{ k: 'str', parts: [{ kind: 'lit', text: 'a' }] }], open: true };
+
+    expect(payloadShape(nonEmptyArr, id)).toEqual({ kind: 'array', fields: [], open: false, nonEmpty: true });
+    expect(payloadShape(emptyArr, id)).toEqual({ kind: 'array', fields: [], open: false });
+    expect(payloadShape(nullOnlyArr, id)).toEqual({ kind: 'array', fields: [], open: false });
+    expect(payloadShape(openSpreadArr, id)).toEqual({ kind: 'array', fields: [], open: false });
+
+    const objWithArrays = obj([
+      ['tags', nonEmptyArr],
+      ['empty', emptyArr],
+    ]);
+    expect(payloadShape(objWithArrays, id)).toEqual({
+      kind: 'object',
+      open: false,
+      fields: [
+        { name: 'tags', kind: 'array', nonEmpty: true },
+        { name: 'empty', kind: 'array' },
+      ],
+    });
+  });
 });

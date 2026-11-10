@@ -79,6 +79,26 @@ service cloud.firestore {
       betaMember: true,
     });
   });
+
+  test('extracts bracket indexing, value in list, key in token map, and preserves own __proto__ claim keys', () => {
+    const bracketRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow create: if request.auth.token['org_role'] == 'member'
+        && request.auth.token.role in ['editor', 'admin']
+        && 'org_member' in request.auth.token
+        && request.auth.token.__proto__ == 'member';
+    }
+  }
+}`;
+    const claims = firestoreRequiredClaims(bracketRules, { path: 'items/1', op: 'create' });
+    expect(claims.org_role).toBe('member');
+    expect(claims.role).toBe('editor');
+    expect(claims.org_member).toBe(true);
+    expect(Object.hasOwn(claims, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(claims, '__proto__')?.value).toBe('member');
+  });
 });
 
 describe('rtdbRequiredClaims', () => {
@@ -96,6 +116,11 @@ describe('rtdbRequiredClaims', () => {
             '.validate': 'auth.token.org === "acme"',
           },
         },
+        bracketed: {
+          $id: {
+            '.write': "auth.token['org_role'] === 'member' && auth.token['__proto__'] === 'tenant'",
+          },
+        },
       },
     };
 
@@ -109,6 +134,10 @@ describe('rtdbRequiredClaims', () => {
     expect(rtdbRequiredClaims(rules, { path: 'adminLogs/l-1', op: 'create' })).toEqual({
       admin: true,
     });
+    const rtdbBracket = rtdbRequiredClaims(rules, { path: 'bracketed/1', op: 'create' });
+    expect(rtdbBracket.org_role).toBe('member');
+    expect(Object.hasOwn(rtdbBracket, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(rtdbBracket, '__proto__')?.value).toBe('tenant');
   });
 });
 

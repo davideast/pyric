@@ -6,6 +6,7 @@ import { bundleRecords, serializeToBuckets } from 'pyric/sandbox';
 import { runAssuranceDerive } from '../../src/cli/assurance.js';
 import { dispatch } from '../../src/cli/index.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
+import { runVerifyStatic } from '../../src/cli/verify-static.js';
 import { HOSTED_METHOD_PATH } from '../../src/serve/hosted/method-protocol.js';
 
 function bufferIo() {
@@ -284,6 +285,186 @@ export async function readOwn() {
       expect(dispatchedCode).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed in both verify --static and assurance derive on broken firebase.json, missing/escaping rules paths, and syntax-broken rules', async () => {
+    const parent = makeTempDir();
+    try {
+      writeFileSync(
+        join(parent, 'outside.rules'),
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} { allow read: if request.auth != null; }
+  }
+}
+`,
+        'utf8',
+      );
+
+      const clientApp = `import { getFirestore, collection, getDocs } from 'pyric/firestore';
+declare const app: unknown;
+export async function readAll() {
+  await getDocs(collection(getFirestore(app), 'items'));
+}
+`;
+
+      const cases: Array<{
+        name: string;
+        firebaseJson: string;
+        firestoreRules?: string;
+        storageRules?: string;
+      }> = [
+        {
+          name: 'missing-rules',
+          firebaseJson: JSON.stringify({ firestore: { rules: 'missing.rules' } }),
+        },
+        {
+          name: 'malformed-firebase-json',
+          firebaseJson: '{ "firestore": { "rules": "firestore.rules"',
+        },
+        {
+          name: 'escaping-rules-path',
+          firebaseJson: JSON.stringify({ firestore: { rules: '../outside.rules' } }),
+        },
+        {
+          name: 'syntax-broken-firestore-rules',
+          firebaseJson: JSON.stringify({ firestore: { rules: 'firestore.rules' } }),
+          firestoreRules: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow get, list: if resource.data.ownerId == ;
+    }
+  }
+}
+`,
+        },
+        {
+          name: 'syntax-broken-storage-rules',
+          firebaseJson: JSON.stringify({ storage: { rules: 'storage.rules' } }),
+          storageRules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{id} {
+      allow write: if request.resource.size < ;
+    }
+  }
+}
+`,
+        },
+      ];
+
+      for (const c of cases) {
+        const caseDir = join(parent, c.name);
+        mkdirSync(join(caseDir, 'src'), { recursive: true });
+        writeFileSync(join(caseDir, 'firebase.json'), c.firebaseJson, 'utf8');
+        if (c.firestoreRules !== undefined) {
+          writeFileSync(join(caseDir, 'firestore.rules'), c.firestoreRules, 'utf8');
+        }
+        if (c.storageRules !== undefined) {
+          writeFileSync(join(caseDir, 'storage.rules'), c.storageRules, 'utf8');
+        }
+        writeFileSync(join(caseDir, 'src', 'app.ts'), clientApp, 'utf8');
+
+        const verifyIo = bufferIo();
+        const verifyCode = await runVerifyStatic(
+          parseArgs(['verify', '--static', '--root', caseDir, '--json']),
+          verifyIo,
+        );
+        expect(verifyCode).toBe(1);
+        const verifyJson = JSON.parse(verifyIo.getOut()) as {
+          ok: boolean;
+          diagnostics: Array<{ code: string; certainty: string }>;
+        };
+        expect(verifyJson.ok).toBe(false);
+        expect(
+          verifyJson.diagnostics.some(
+            (d) => d.code === 'invalid-rules-configuration' && d.certainty === 'static-proof',
+          ),
+        ).toBe(true);
+
+        const deriveIo = bufferIo();
+        const deriveCode = await runAssuranceDerive(
+          parseArgs(['assurance', 'derive', '--root', caseDir, '--json']),
+          deriveIo,
+        );
+        expect(deriveCode).toBe(1);
+        const deriveJson = JSON.parse(deriveIo.getOut()) as {
+          ok: boolean;
+          diagnostics: Array<{ code: string; certainty: string }>;
+        };
+        expect(deriveJson.ok).toBe(false);
+        expect(
+          deriveJson.diagnostics.some(
+            (d) => d.code === 'invalid-rules-configuration' && d.certainty === 'static-proof',
+          ),
+        ).toBe(true);
+      }
+
+      const gateDir = join(parent, 'heuristic-only-gate');
+      mkdirSync(join(gateDir, 'src'), { recursive: true });
+      writeFileSync(
+        join(gateDir, 'firebase.json'),
+        JSON.stringify({ firestore: { rules: 'firestore.rules' } }),
+        'utf8',
+      );
+      writeFileSync(
+        join(gateDir, 'firestore.rules'),
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orgs/{orgId} {
+      allow read: if request.auth != null;
+    }
+  }
+}
+`,
+        'utf8',
+      );
+      writeFileSync(join(gateDir, 'src', 'app.ts'), 'export const unused = 1;\n', 'utf8');
+
+      const verifyGateIo = bufferIo();
+      const verifyGateCode = await runVerifyStatic(
+        parseArgs([
+          'verify',
+          '--static',
+          '--root',
+          gateDir,
+          '--include-heuristic',
+          '--fail-on',
+          'static-proof',
+          '--json',
+        ]),
+        verifyGateIo,
+      );
+      expect(verifyGateCode).toBe(0);
+      const verifyGateJson = JSON.parse(verifyGateIo.getOut()) as {
+        ok: boolean;
+        counts: { byCertainty: Record<string, number> };
+      };
+      expect(verifyGateJson.ok).toBe(true);
+      expect(verifyGateJson.counts.byCertainty.heuristic).toBeGreaterThan(0);
+
+      const deriveGateIo = bufferIo();
+      const deriveGateCode = await runAssuranceDerive(
+        parseArgs([
+          'assurance',
+          'derive',
+          '--root',
+          gateDir,
+          '--include-heuristic',
+          '--fail-on',
+          'static-proof',
+          '--json',
+        ]),
+        deriveGateIo,
+      );
+      expect(deriveGateCode).toBe(0);
+      expect((JSON.parse(deriveGateIo.getOut()) as { ok: boolean }).ok).toBe(true);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 });

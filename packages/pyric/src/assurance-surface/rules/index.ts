@@ -3,8 +3,14 @@
  */
 export { analyzeOwners, ownerConditionsFrom, withEmbeddedRules } from './analyze-owners.js';
 export type { OwnerAnalysis } from './analyze-owners.js';
-export { firestoreRequiredClaims, rtdbRequiredClaims, storageRequiredClaims } from './claims.js';
-export type { Claims, ClaimTarget } from './claims.js';
+export {
+  firestoreRequiredClaims,
+  rtdbRequiredClaims,
+  storageRequiredClaims,
+  type Claims,
+  type ClaimTarget,
+  type RequiredClaimsOptions,
+} from './claims.js';
 export { inferOwnerBindings } from './cross-check.js';
 export { firestoreOwnerConditions } from './firestore-owners.js';
 export { rtdbOwnerConditions } from './rtdb-owners.js';
@@ -20,16 +26,24 @@ export type {
   RuleSurface,
   RuleSurfaceEntry,
   StorageMetadataConstraint,
+  StorageMetadataConstraintArm,
   StorageSurfaceInput,
   StorageSurfaceSource,
 } from './rule-surface.js';
-export { loadRuleSources, parseRtdbRulesText } from './rule-sources.js';
-export type {
-  FirestoreRuleSource,
-  RtdbRuleSource,
-  RuleSources,
-  StorageRuleSource,
+export {
+  bundleRulesSource,
+  loadRuleSources,
+  parseRtdbRulesText,
+  type BundleRulesSourceOptions,
+  type FirestoreRuleSource,
+  type RtdbRuleSource,
+  type RuleSources,
+  type StorageRuleSource,
 } from './rule-sources.js';
+export {
+  parseRulesAstWithMultiMatchOrError,
+  validateRulesSourceSyntax,
+} from './rules-ast-utils.js';
 export type { OwnerBinding, OwnerCondition, OwnerEvidence, OwnerKind, OwnerRelation } from './types.js';
 export { firestoreValueHints, rtdbValueHints } from './value-hints.js';
 export type { ValueHint } from './value-hints.js';

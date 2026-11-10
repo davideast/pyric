@@ -240,37 +240,123 @@ export class Evaluator {
     for (const p of node.properties) {
       if (ts.isPropertyAssignment(p)) {
         const name = propertyNameText(p.name);
-        if (name !== undefined) props.set(name, this.eval(p.initializer, env));
-        else if (ts.isComputedPropertyName(p.name)) {
+        if (name !== undefined) {
+          props.set(name, this.eval(p.initializer, env));
+          optional.delete(name);
+        } else if (ts.isComputedPropertyName(p.name)) {
           const key = this.eval(p.name.expression, env);
           const text = literalText(this.force(key));
-          if (text !== null) props.set(text, this.eval(p.initializer, env));
-          else computed.push({ key, value: this.eval(p.initializer, env) });
+          if (text !== null) {
+            props.set(text, this.eval(p.initializer, env));
+            optional.delete(text);
+          } else {
+            computed.push({ key, value: this.eval(p.initializer, env) });
+          }
         }
       } else if (ts.isShorthandPropertyAssignment(p)) {
         props.set(p.name.text, this.eval(p.name, env));
+        optional.delete(p.name.text);
       } else if (ts.isSpreadAssignment(p)) {
         const spread = this.force(this.eval(p.expression, env));
-        let merged = false;
-        for (const alt of alternatives(spread)) {
+        const alts = alternatives(spread);
+        const objAlts = alts.filter((a): a is Extract<AVal, { k: 'obj' }> => a.k === 'obj');
+        let spreadMayIntroduceUnknownKeys = false;
+        for (const alt of alts) {
           if (alt.k === 'obj') {
-            merged = true;
-            for (const [k, v] of alt.props) {
-              if (props.size > 20) break;
-              const prev = props.get(k);
-              props.set(k, prev ? union([prev, v]) : v);
-              optional.add(k);
+            if (alt.open) {
+              open = true;
+              spreadMayIntroduceUnknownKeys = true;
             }
-            computed.push(...alt.computed);
-            if (alt.open) open = true;
-          } else if (alt.k !== 'null' && alt.k !== 'undefined' && alt.k !== 'bool' && alt.k !== 'str') {
-            open = true;
+            for (const c of alt.computed) {
+              const cText = literalText(this.force(c.key));
+              if (cText === null) {
+                computed.push(c);
+                spreadMayIntroduceUnknownKeys = true;
+              }
+            }
+          } else if (alt.k !== 'null' && alt.k !== 'undefined' && alt.k !== 'bool' && alt.k !== 'num') {
+            if (alt.k === 'str') {
+              const strText = literalText(alt);
+              if (strText === null || strText.length > 0) {
+                open = true;
+                spreadMayIntroduceUnknownKeys = true;
+              }
+            } else {
+              open = true;
+              spreadMayIntroduceUnknownKeys = true;
+            }
           }
         }
-        if (!merged && spread.k === 'unknown') open = true;
+        if (objAlts.length === 0 && spread.k === 'unknown') {
+          open = true;
+          spreadMayIntroduceUnknownKeys = true;
+        }
+
+        const overwrittenGuaranteed = new Set<string>();
+        if (objAlts.length > 0) {
+          const allSpreadKeys = new Set<string>();
+          const perAlt = objAlts.map((alt) => {
+            const effective = new Map<string, AVal>(alt.props);
+            const effectiveOptional = new Set<string>(alt.optional);
+            for (const c of alt.computed) {
+              const cText = literalText(this.force(c.key));
+              if (cText !== null) {
+                effective.set(cText, c.value);
+                effectiveOptional.delete(cText);
+              }
+            }
+            for (const k of effective.keys()) allSpreadKeys.add(k);
+            return { props: effective, optional: effectiveOptional };
+          });
+          const onlyObjAlts = alts.length === objAlts.length;
+          for (const k of allSpreadKeys) {
+            if (!props.has(k) && props.size > 64) {
+              open = true;
+              spreadMayIntroduceUnknownKeys = true;
+              break;
+            }
+            const spreadVals: AVal[] = [];
+            let guaranteedInSpread = onlyObjAlts;
+            for (const altInfo of perAlt) {
+              if (altInfo.props.has(k)) {
+                spreadVals.push(altInfo.props.get(k)!);
+                if (altInfo.optional.has(k)) guaranteedInSpread = false;
+              } else {
+                guaranteedInSpread = false;
+              }
+            }
+            const spreadVal = union(spreadVals);
+            if (guaranteedInSpread) {
+              props.set(k, spreadVal);
+              optional.delete(k);
+              overwrittenGuaranteed.add(k);
+            } else if (props.has(k)) {
+              const prev = props.get(k)!;
+              props.set(
+                k,
+                spreadMayIntroduceUnknownKeys
+                  ? union([prev, spreadVal, unknown('overwritten by open spread')])
+                  : union([prev, spreadVal]),
+              );
+            } else {
+              props.set(k, spreadVal);
+              optional.add(k);
+            }
+          }
+        }
+        if (spreadMayIntroduceUnknownKeys) {
+          for (const existingKey of props.keys()) {
+            if (!overwrittenGuaranteed.has(existingKey) && !objAlts.some((a) => a.props.has(existingKey))) {
+              props.set(existingKey, union([props.get(existingKey)!, unknown('overwritten by open spread')]));
+            }
+          }
+        }
       } else if (ts.isMethodDeclaration(p) || ts.isGetAccessorDeclaration(p)) {
         const name = propertyNameText(p.name);
-        if (name !== undefined) props.set(name, { k: 'fn', decl: p, env });
+        if (name !== undefined) {
+          props.set(name, { k: 'fn', decl: p, env });
+          optional.delete(name);
+        }
       }
     }
     return { k: 'obj', props, computed, open, optional };

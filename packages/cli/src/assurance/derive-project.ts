@@ -11,15 +11,18 @@ import {
   decodeBase64ToBytes,
   isDefaultDatabaseInstance,
   parseResourcePattern,
+  type AssuranceService,
   type SandboxSnapshot,
   type SnapshotStorageObject,
 } from "pyric/sandbox/internal";
 import {
+  bundleRulesSource,
   extractSdkUsage,
   loadDiskProject,
   loadRuleSources,
   parseRtdbRulesText,
   projectRuleSurface,
+  validateRulesSourceSyntax,
   withEmbeddedRules,
   type FirestoreSurfaceSource,
   type ProjectRuleSurfaceInput,
@@ -48,6 +51,14 @@ import {
   type StorageObjectFixture,
 } from "./types.js";
 
+export interface ProjectRuleProblem {
+  readonly source: string;
+  readonly message: string;
+  readonly service?: AssuranceService;
+  readonly resourceId?: string;
+  readonly isGlobalConfig?: boolean;
+}
+
 export interface LoadedAssuranceProject {
   readonly root: string;
   readonly usage: SdkUsageIndex;
@@ -59,6 +70,7 @@ export interface LoadedAssuranceProject {
     Record<string, { rules: Record<string, unknown> }>
   >;
   readonly problems: readonly string[];
+  readonly configProblems?: readonly ProjectRuleProblem[];
 }
 
 export interface LiveRuntimeClone {
@@ -133,6 +145,8 @@ interface ParsedFirebaseConfig {
   readonly hasFirestoreConfig: boolean;
   readonly hasDatabaseConfig: boolean;
   readonly hasStorageConfig: boolean;
+  readonly hasInvalidFirebaseJson: boolean;
+  readonly configuredRuleServices: Readonly<Record<string, AssuranceService>>;
 }
 
 function isWithinRootDir(baseDir: string, targetPath: string): boolean {
@@ -180,6 +194,36 @@ function readContainedJsonFile<T>(
   }
 }
 
+function pathExistsIncludingBrokenSymlink(candidatePath: string): boolean {
+  try {
+    lstatSync(candidatePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeConfigRuleRel(absRoot: string, rawFile: string): string {
+  const absFile = resolve(absRoot, rawFile);
+  return relative(absRoot, absFile).split(sep).join("/");
+}
+
+function collectConfiguredRuleServices(
+  absRoot: string,
+  section: unknown,
+  service: AssuranceService,
+  into: Record<string, AssuranceService>,
+): void {
+  const entries = Array.isArray(section) ? section : [section];
+  for (const item of entries) {
+    if (!item || typeof item !== "object") continue;
+    const rules = (item as { rules?: unknown }).rules;
+    if (typeof rules === "string" && rules.length > 0) {
+      defineOwn(into, normalizeConfigRuleRel(absRoot, rules), service);
+    }
+  }
+}
+
 function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
   let realRoot = absRoot;
   try {
@@ -191,7 +235,10 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
   const configuredBuckets: string[] = [];
   let defaultBucket: string | undefined;
   const rtdbInstances: Record<string, { rules: Record<string, unknown> }> = {};
+  const configuredRuleServices: Record<string, AssuranceService> = {};
 
+  const fbPath = resolve(absRoot, "firebase.json");
+  const fbExists = pathExistsIncludingBrokenSymlink(fbPath);
   const raw = readContainedJsonFile<{
     firestore?: unknown;
     storage?: unknown;
@@ -206,6 +253,8 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
       hasFirestoreConfig: false,
       hasDatabaseConfig: false,
       hasStorageConfig: false,
+      hasInvalidFirebaseJson: fbExists,
+      configuredRuleServices,
     };
   }
 
@@ -213,6 +262,10 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
     raw.firestore !== undefined && raw.firestore !== null;
   const hasDatabaseConfig = raw.database !== undefined && raw.database !== null;
   const hasStorageConfig = raw.storage !== undefined && raw.storage !== null;
+
+  collectConfiguredRuleServices(absRoot, raw.firestore, "firestore", configuredRuleServices);
+  collectConfiguredRuleServices(absRoot, raw.database, "rtdb", configuredRuleServices);
+  collectConfiguredRuleServices(absRoot, raw.storage, "storage", configuredRuleServices);
 
   const rc = readContainedJsonFile<FirebaseRc>(absRoot, realRoot, ".firebaserc");
   const pyricCfg = readContainedJsonFile<{ project?: unknown }>(
@@ -287,8 +340,10 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
         hasUnnamedStorageEntry = true;
       }
     }
-    if (!hasUnnamedStorageEntry && configuredBuckets.length === 1) {
-      defaultBucket = configuredBuckets[0];
+    if (!hasUnnamedStorageEntry) {
+      defaultBucket =
+        configuredBuckets.find((b) => isFirebaseDefaultBucketName(b, projectId)) ??
+        (configuredBuckets.length === 1 ? configuredBuckets[0] : undefined);
     }
 
     let databaseEntries: unknown[] = [];
@@ -345,7 +400,8 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
             if (
               instName === DEFAULT_SNAPSHOT_RESOURCE ||
               isUnsafeObjectKey(instName) ||
-              isDefaultDatabaseInstance(instName, projectId)
+              isDefaultDatabaseInstance(instName, projectId) ||
+              (projectId === undefined && DEFAULT_RTDB_SUFFIX_RE.test(instName))
             ) {
               continue;
             }
@@ -364,6 +420,8 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
       hasFirestoreConfig,
       hasDatabaseConfig,
       hasStorageConfig,
+      hasInvalidFirebaseJson: false,
+      configuredRuleServices,
     };
   }
 
@@ -374,7 +432,22 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
     hasFirestoreConfig,
     hasDatabaseConfig,
     hasStorageConfig,
+    hasInvalidFirebaseJson: false,
+    configuredRuleServices,
   };
+}
+
+const DEFAULT_RTDB_SUFFIX_RE = /^[a-z0-9-]+-default-rtdb$/i;
+
+function isFirebaseDefaultBucketName(
+  bucketId: string,
+  projectId: string | undefined,
+): boolean {
+  if (projectId === undefined || projectId.length === 0) return false;
+  return (
+    bucketId === `${projectId}.firebasestorage.app` ||
+    bucketId === `${projectId}.appspot.com`
+  );
 }
 
 export function buildRuleSurfaceFromSources(
@@ -432,6 +505,42 @@ export function buildRuleSurfaceFromSources(
   return projectRuleSurface(surfaceInput satisfies ProjectRuleSurfaceInput);
 }
 
+function classifyRuleProblem(
+  problemText: string,
+  configuredServices: Readonly<Record<string, AssuranceService>>,
+): ProjectRuleProblem {
+  const colonIdx = problemText.indexOf(": ");
+  const source = colonIdx > 0 ? problemText.slice(0, colonIdx) : "firebase.json";
+  if (source === "firebase.json") {
+    return {
+      source,
+      message: problemText,
+      isGlobalConfig: true,
+    };
+  }
+  let service: AssuranceService | undefined = Object.hasOwn(configuredServices, source)
+    ? configuredServices[source]
+    : undefined;
+  if (service === undefined) {
+    if (source.endsWith(".json")) {
+      service = "rtdb";
+    } else if (
+      source.includes("storage") ||
+      problemText.includes("firebase.storage")
+    ) {
+      service = "storage";
+    } else {
+      service = "firestore";
+    }
+  }
+  return {
+    source,
+    message: problemText,
+    service,
+    resourceId: DEFAULT_SNAPSHOT_RESOURCE,
+  };
+}
+
 export function loadAssuranceProject(absRoot: string): LoadedAssuranceProject {
   const diskLoaded = loadDiskProject(["."], absRoot);
   let usage: SdkUsageIndex;
@@ -469,16 +578,44 @@ export function loadAssuranceProject(absRoot: string): LoadedAssuranceProject {
   }
   const fbConfig = readFirebaseProjectConfig(absRoot);
   const loadedRules = loadRuleSources(absRoot);
-  if (loadedRules.firestore.length === 0 && !fbConfig.hasFirestoreConfig) {
+  if (
+    fbConfig.hasInvalidFirebaseJson &&
+    !loadedRules.problems.some((p) => p.startsWith("firebase.json:"))
+  ) {
+    loadedRules.problems.push(
+      "firebase.json: invalid or unreadable Firebase project configuration",
+    );
+  }
+
+  if (
+    !fbConfig.hasInvalidFirebaseJson &&
+    loadedRules.firestore.length === 0 &&
+    !fbConfig.hasFirestoreConfig
+  ) {
     const convFs = join(absRoot, "firestore.rules");
     if (isContainedNonSymlinkFile(absRoot, realRoot, convFs)) {
-      loadedRules.firestore.push({
-        source: "firestore.rules",
-        text: readFileSync(convFs, "utf8"),
-      });
+      try {
+        loadedRules.firestore.push({
+          source: "firestore.rules",
+          text: bundleRulesSource(readFileSync(convFs, "utf8"), {
+            filePath: convFs,
+            rootDir: absRoot,
+            sourceFile: "firestore.rules",
+            targetService: "cloud.firestore",
+          }),
+        });
+      } catch (err) {
+        let msg = String(err);
+        if (err instanceof Error) msg = err.message;
+        loadedRules.problems.push(`firestore.rules: ${msg}`);
+      }
     }
   }
-  if (loadedRules.rtdb.length === 0 && !fbConfig.hasDatabaseConfig) {
+  if (
+    !fbConfig.hasInvalidFirebaseJson &&
+    loadedRules.rtdb.length === 0 &&
+    !fbConfig.hasDatabaseConfig
+  ) {
     const convRtdb = join(absRoot, "database.rules.json");
     if (isContainedNonSymlinkFile(absRoot, realRoot, convRtdb)) {
       try {
@@ -493,18 +630,77 @@ export function loadAssuranceProject(absRoot: string): LoadedAssuranceProject {
       }
     }
   }
-  if ((loadedRules.storage?.length ?? 0) === 0 && !fbConfig.hasStorageConfig) {
+  if (
+    !fbConfig.hasInvalidFirebaseJson &&
+    (loadedRules.storage?.length ?? 0) === 0 &&
+    !fbConfig.hasStorageConfig
+  ) {
     const convSt = join(absRoot, "storage.rules");
     if (isContainedNonSymlinkFile(absRoot, realRoot, convSt)) {
-      if (!loadedRules.storage) loadedRules.storage = [];
-      loadedRules.storage.push({
-        source: "storage.rules",
-        text: readFileSync(convSt, "utf8"),
-      });
+      try {
+        if (!loadedRules.storage) loadedRules.storage = [];
+        loadedRules.storage.push({
+          source: "storage.rules",
+          text: bundleRulesSource(readFileSync(convSt, "utf8"), {
+            filePath: convSt,
+            rootDir: absRoot,
+            sourceFile: "storage.rules",
+            targetService: "firebase.storage",
+          }),
+        });
+      } catch (err) {
+        let msg = String(err);
+        if (err instanceof Error) msg = err.message;
+        loadedRules.problems.push(`storage.rules: ${msg}`);
+      }
     }
   }
+
+  loadedRules.firestore = loadedRules.firestore.filter((entry) => {
+    const syntax = validateRulesSourceSyntax(entry.text, "cloud.firestore", {
+      sourceFile: entry.source,
+      targetService: "cloud.firestore",
+    });
+    if (!syntax.ok) {
+      loadedRules.problems.push(`${entry.source}: ${syntax.message}`);
+      return false;
+    }
+    return true;
+  });
+
+  if (loadedRules.storage !== undefined) {
+    loadedRules.storage = loadedRules.storage.filter((entry) => {
+      const syntax = validateRulesSourceSyntax(entry.text, "firebase.storage", {
+        sourceFile: entry.source,
+        targetService: "firebase.storage",
+      });
+      if (!syntax.ok) {
+        loadedRules.problems.push(`${entry.source}: ${syntax.message}`);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  loadedRules.rtdb = loadedRules.rtdb.filter((entry) => {
+    if (
+      !entry.json ||
+      typeof entry.json !== "object" ||
+      Array.isArray(entry.json)
+    ) {
+      loadedRules.problems.push(
+        `${entry.source}: RTDB rules file must contain a JSON object`,
+      );
+      return false;
+    }
+    return true;
+  });
+
   const sources = withEmbeddedRules(loadedRules, [...usage.embeddedRules]);
   problems.push(...sources.problems);
+  const configProblems = problems.map((p) =>
+    classifyRuleProblem(p, fbConfig.configuredRuleServices),
+  );
 
   const ruleSurface = buildRuleSurfaceFromSources(sources, fbConfig.rtdbInstances);
 
@@ -517,6 +713,7 @@ export function loadAssuranceProject(absRoot: string): LoadedAssuranceProject {
     defaultBucket: fbConfig.defaultBucket,
     rtdbInstances: fbConfig.rtdbInstances,
     problems,
+    configProblems,
   };
 }
 
