@@ -58,7 +58,7 @@ function uidCertainty(auth: { source: string; certainty: 'exact' | 'partial' }[]
 function codeFacts(sites: AccessSite[]): CodeFact[] {
   const out: CodeFact[] = [];
   sites.forEach((site, n) => {
-    if (!isWriteOp(site.op) || !site.path || site.resolution === 'unresolved') return;
+    if (site.admin || !isWriteOp(site.op) || !site.path || site.resolution === 'unresolved') return;
     const sitePattern = parseResourcePattern(site.service, site.path, site.resourceId);
     const segs = sitePattern.segments;
     let varPos = 0;
@@ -125,7 +125,7 @@ function supportFor(
   const rule = parseResourcePattern(c.service, c.path);
   const cascadeRule = cascades(c);
   const governed = sites.filter((s) => {
-    if (s.service !== c.service || !s.path || !isWriteOp(s.op)) return false;
+    if (s.admin || s.service !== c.service || !s.path || !isWriteOp(s.op)) return false;
     const sitePattern = parseResourcePattern(s.service, s.path, s.resourceId);
     const effectiveRule = effectiveStorageRulePattern(
       rule,

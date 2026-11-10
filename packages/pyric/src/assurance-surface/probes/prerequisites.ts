@@ -99,6 +99,7 @@ export function lookupSeeds(
   if (service === 'storage') return [];
   const out: ProbeStep[] = [];
   const seen = new Set<string>();
+  const firestoreDocByPath = new Map<string, Record<string, unknown>>();
   const site = parseResourcePattern(service, template);
   const matchingLookups = conditions.filter((c) => {
     if (c.service !== service || c.kind !== 'lookup') return false;
@@ -145,33 +146,54 @@ export function lookupSeeds(
       for (const [k, v] of Object.entries(vars)) setOwnProperty(filledVars, k, v);
       setOwnProperty(filledVars, 'auth.uid', actor.uid);
       const path = fillTemplate(lookupPath, filledVars, (n) => `v-${n}`, service);
+      if (service === 'firestore' && field) {
+        let fieldValue: unknown;
+        if (c.relation === 'contains') {
+          fieldValue = actors.map((a) => a.uid);
+        } else if (c.relation === 'exists') {
+          fieldValue = c.seedValue !== undefined ? c.seedValue : true;
+        } else {
+          fieldValue = actor.uid;
+        }
+        const existingDoc = firestoreDocByPath.get(path);
+        if (existingDoc !== undefined) {
+          setDottedField(existingDoc, field, fieldValue);
+          continue;
+        }
+        if (seen.has(path)) continue;
+        seen.add(path);
+        const docData: Record<string, unknown> = {};
+        const shapeSite = recordSite(service, lookupPath, sites);
+        if (shapeSite) {
+          const shaped = concretePayload(shapeSite.payload, actor, separatorFor(service));
+          if (shaped !== null && typeof shaped === 'object' && !Array.isArray(shaped)) {
+            for (const [k, v] of Object.entries(shaped as Record<string, unknown>)) {
+              setOwnProperty(docData, k, v);
+            }
+          }
+        }
+        setDottedField(docData, field, fieldValue);
+        firestoreDocByPath.set(path, docData);
+        out.push({ actor: 'admin', service, method: 'set', path, data: docData });
+        continue;
+      }
       if (seen.has(path)) continue;
       seen.add(path);
       let data: unknown;
-      if (service === 'firestore' && field) {
-        const docData: Record<string, unknown> = {};
-        if (c.relation === 'contains') {
-          setOwnProperty(docData, field, actors.map((a) => a.uid));
+      const shapeSite = recordSite(service, lookupPath, sites);
+      if (shapeSite) {
+        data = concretePayload(shapeSite.payload, actor, separatorFor(service));
+      }
+      if (data === null || data === undefined) {
+        const hinted = hintedByLookupPath.get(lookupPath);
+        if (hinted?.exact !== undefined) {
+          data = hinted.exact;
+        } else if (hinted?.lower !== undefined) {
+          data = hinted.lower;
+        } else if (hinted?.upper !== undefined) {
+          data = hinted.upper;
         } else {
-          setOwnProperty(docData, field, actor.uid);
-        }
-        data = docData;
-      } else {
-        const shapeSite = recordSite(service, lookupPath, sites);
-        if (shapeSite) {
-          data = concretePayload(shapeSite.payload, actor, separatorFor(service));
-        }
-        if (data === null || data === undefined) {
-          const hinted = hintedByLookupPath.get(lookupPath);
-          if (hinted?.exact !== undefined) {
-            data = hinted.exact;
-          } else if (hinted?.lower !== undefined) {
-            data = hinted.lower;
-          } else if (hinted?.upper !== undefined) {
-            data = hinted.upper;
-          } else {
-            data = fallbackLookupValue(service);
-          }
+          data = fallbackLookupValue(service);
         }
       }
       out.push({ actor: 'admin', service, method: 'set', path, data });

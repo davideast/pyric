@@ -79,17 +79,23 @@ const GUARANTEED_NON_NULL_LEAF_KINDS = new Set<PayloadField['kind']>([
   'increment',
 ]);
 
+function isGuaranteedNonNullRtdbItem(
+  item: Pick<PayloadField, 'kind' | 'literal' | 'nonEmpty'>,
+): boolean {
+  if (item.literal === null) return false;
+  if (GUARANTEED_NON_NULL_LEAF_KINDS.has(item.kind)) return true;
+  if (item.kind === 'array' && item.nonEmpty === true) return true;
+  return false;
+}
+
 function hasGuaranteedNonNullRtdbPayload(payload: PayloadShape | undefined): boolean {
-  if (payload === undefined || payload.literal === null) return false;
-  if (GUARANTEED_NON_NULL_LEAF_KINDS.has(payload.kind)) {
+  if (payload === undefined) return false;
+  if (isGuaranteedNonNullRtdbItem(payload)) {
     return true;
   }
   if (payload.kind === 'object') {
     return payload.fields.some(
-      (field) =>
-        !field.optional
-        && field.literal !== null
-        && GUARANTEED_NON_NULL_LEAF_KINDS.has(field.kind),
+      (field) => !field.optional && isGuaranteedNonNullRtdbItem(field),
     );
   }
   return false;

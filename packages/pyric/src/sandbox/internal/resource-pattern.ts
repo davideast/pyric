@@ -301,34 +301,13 @@ export function overlapsPattern(
   return segmentsOverlapAt(a.segments, 0, b.segments, 0, cascadeA, cascadeB, new Map());
 }
 
-function patternSegmentsEqual(a: PatternSegment, b: PatternSegment): boolean {
-  if (a.kind === 'lit' && b.kind === 'lit') return a.text === b.text;
-  if (a.kind === 'rest' && b.kind === 'rest') return a.name === b.name;
-  if (a.kind === 'var' && b.kind === 'var') {
-    return a.name === b.name && (a.prefix ?? '') === (b.prefix ?? '') && (a.suffix ?? '') === (b.suffix ?? '');
-  }
-  return false;
-}
-
-function patternSlicesEqual(a: readonly PatternSegment[], b: readonly PatternSegment[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (!patternSegmentsEqual(a[i]!, b[i]!)) return false;
-  }
-  return true;
-}
-
 function recordSliceBinding(
   bindings: Map<string, readonly PatternSegment[]>,
   name: string,
   slice: readonly PatternSegment[],
 ): boolean {
-  const existing = bindings.get(name);
-  if (existing === undefined) {
-    bindings.set(name, slice);
-    return true;
-  }
-  return patternSlicesEqual(existing, slice);
+  bindings.set(name, slice);
+  return true;
 }
 
 function unifyVarSegment(

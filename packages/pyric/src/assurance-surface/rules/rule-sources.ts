@@ -7,8 +7,21 @@
  * Browser-clean: acquires `node:fs` and `node:path` lazily via
  * `process.getBuiltinModule` when loading files from disk.
  */
+import {
+  resolveModulesBrowser,
+  resolveModulesWithFiles,
+} from '../../rules/internal/index.js';
 import { toStrictRulesJson } from '../../rules/internal/rtdb.js';
 import { isDefaultDatabaseInstance } from '../../rules/rtdb/data/instances.js';
+import {
+  expandBareModuleImports,
+  isHeaderOnlyRulesVersionStub,
+  isModularRulesSource,
+  lookupInMemoryModule,
+  preNormalizeModularSyntax,
+  restoreDefaultDbSentinelText,
+  validateRulesSourceSyntax,
+} from './rules-ast-utils.js';
 
 interface NodeFsBuiltin {
   existsSync(path: string): boolean;
@@ -18,6 +31,7 @@ interface NodeFsBuiltin {
 }
 
 interface NodePathBuiltin {
+  dirname(path: string): string;
   isAbsolute(path: string): boolean;
   join(...paths: string[]): string;
   relative(from: string, to: string): string;
@@ -29,6 +43,7 @@ interface RuleSourceBuiltins {
   readonly fs: NodeFsBuiltin;
   readonly path: NodePathBuiltin;
   readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly homedir?: () => string;
 }
 
 function acquireRuleSourceBuiltins(): RuleSourceBuiltins | null {
@@ -44,14 +59,19 @@ function acquireRuleSourceBuiltins(): RuleSourceBuiltins | null {
   if (typeof get !== 'function') return null;
   const fs = get.call(proc, 'node:fs') as NodeFsBuiltin | undefined;
   const path = get.call(proc, 'node:path') as NodePathBuiltin | undefined;
+  const os = get.call(proc, 'node:os') as { homedir?: () => string } | undefined;
   if (!fs || !path || typeof fs.readFileSync !== 'function') return null;
   const out: {
     fs: NodeFsBuiltin;
     path: NodePathBuiltin;
     env?: Readonly<Record<string, string | undefined>>;
+    homedir?: () => string;
   } = { fs, path };
   if (proc?.env !== undefined) {
     out.env = proc.env;
+  }
+  if (typeof os?.homedir === 'function') {
+    out.homedir = () => os.homedir!();
   }
   return out;
 }
@@ -180,6 +200,52 @@ function extractStringArrayMap(raw: unknown): Record<string, readonly string[]> 
   return out;
 }
 
+const DEFAULT_RTDB_SUFFIX_RE = /^[a-z0-9-]+-default-rtdb$/i;
+
+function readFirebaseToolsActiveProject(
+  builtins: RuleSourceBuiltins,
+  absRoot: string,
+  realRoot: string,
+): string | undefined {
+  const { fs: fsMod, path: pathMod, env } = builtins;
+  const xdgConfig = env?.XDG_CONFIG_HOME;
+  const home = nonEmptyString(env?.HOME) ? env.HOME : builtins.homedir?.();
+  let configBase: string | undefined;
+  if (nonEmptyString(xdgConfig)) {
+    configBase = xdgConfig.trim();
+  } else if (nonEmptyString(home)) {
+    configBase = pathMod.join(home, '.config');
+  }
+  if (configBase === undefined) return undefined;
+  const storePath = pathMod.join(configBase, 'configstore', 'firebase-tools.json');
+  if (!fsMod.existsSync(storePath)) return undefined;
+  try {
+    const parsed = JSON.parse(fsMod.readFileSync(storePath, 'utf8')) as {
+      activeProjects?: unknown;
+    };
+    const active = parsed.activeProjects;
+    if (!active || typeof active !== 'object' || Array.isArray(active)) return undefined;
+    const record = active as Record<string, unknown>;
+    const resolvedRoot = pathMod.resolve(absRoot);
+    const roots = realRoot !== resolvedRoot ? [resolvedRoot, realRoot] : [resolvedRoot];
+    for (const start of roots) {
+      let current = start;
+      while (true) {
+        const candidate = record[current];
+        if (Object.hasOwn(record, current) && nonEmptyString(candidate)) {
+          return candidate.trim();
+        }
+        const parent = pathMod.dirname(current);
+        if (parent === current) break;
+        current = parent;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function readFirebaseRcTargetConfig(
   builtins: RuleSourceBuiltins,
   absRoot: string,
@@ -235,10 +301,13 @@ function readFirebaseRcTargetConfig(
 
     let projectId: string | undefined;
     const envProject = env?.PYRIC_PROJECT;
+    const activeToolsProject = readFirebaseToolsActiveProject(builtins, absRoot, realRoot);
     if (nonEmptyString(envProject)) {
       projectId = resolveAlias(envProject.trim());
     } else if (configProject !== undefined) {
       projectId = resolveAlias(configProject);
+    } else if (activeToolsProject !== undefined) {
+      projectId = resolveAlias(activeToolsProject);
     } else {
       const aliasEntries = Object.entries(aliases);
       if (aliasEntries.length === 1) {
@@ -346,7 +415,13 @@ function rtdbRulesEntries(
     if (
       normalizedInst === ''
       || normalizedInst === '(default)'
-      || (normalizedInst !== undefined && isDefaultDatabaseInstance(normalizedInst, rcConfig.projectId))
+      || (
+        normalizedInst !== undefined
+        && (
+          isDefaultDatabaseInstance(normalizedInst, rcConfig.projectId)
+          || (rcConfig.projectId === undefined && DEFAULT_RTDB_SUFFIX_RE.test(normalizedInst))
+        )
+      )
     ) {
       normalizedInst = undefined;
     }
@@ -429,6 +504,195 @@ function errorText(err: unknown): string {
   return String(err);
 }
 
+export interface BundleRulesSourceOptions {
+  readonly filePath?: string;
+  readonly rootDir?: string;
+  readonly sourceFile?: string;
+  readonly targetService?: 'cloud.firestore' | 'firebase.storage';
+  readonly modules?: Readonly<Record<string, string>>;
+}
+
+function readDiskRelativeModule(
+  fsMod: NodeFsBuiltin,
+  pathMod: NodePathBuiltin,
+  baseDir: string,
+  specifier: string,
+  absRoot: string | undefined,
+  realRoot: string | undefined,
+  callerModules: Readonly<Record<string, string>> | undefined,
+  visited = new Set<string>(),
+): string | null {
+  const fromMemory = lookupInMemoryModule(specifier, callerModules);
+  const isStdlibAlias = /^\.\/stdlib\/(.+?)(?:\.rules)?$/.test(specifier);
+  if (fromMemory !== null && !specifier.startsWith('./') && !specifier.startsWith('../')) {
+    return fromMemory;
+  }
+  if (callerModules !== undefined && lookupInMemoryModule(specifier, callerModules) !== null) {
+    const rawMem = lookupInMemoryModule(specifier, callerModules)!;
+    const expandedMem = expandBareModuleImports(rawMem, (nested) =>
+      lookupInMemoryModule(nested, callerModules),
+    );
+    return preNormalizeModularSyntax(expandedMem);
+  }
+
+  if (!specifier.startsWith('./') && !specifier.startsWith('../')) {
+    return fromMemory;
+  }
+
+  const fileName = specifier.endsWith('.rules') ? specifier : `${specifier}.rules`;
+  const candidate = pathMod.resolve(baseDir, fileName);
+
+  if (absRoot !== undefined) {
+    if (!isWithinRoot(pathMod, absRoot, candidate)) {
+      throw new Error('Rule path escapes project root');
+    }
+  }
+
+  if (typeof fsMod.lstatSync === 'function') {
+    let stat: { isSymbolicLink(): boolean };
+    try {
+      stat = fsMod.lstatSync(candidate);
+    } catch {
+      return isStdlibAlias ? fromMemory : null;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error('Symbolic links are not followed');
+    }
+  } else if (!fsMod.existsSync(candidate)) {
+    return isStdlibAlias ? fromMemory : null;
+  }
+
+  if (
+    absRoot !== undefined
+    && realRoot !== undefined
+    && typeof fsMod.realpathSync === 'function'
+  ) {
+    const realCandidate = fsMod.realpathSync(candidate);
+    if (!isWithinRoot(pathMod, realRoot, realCandidate)) {
+      throw new Error('Rule path escapes project root via symbolic link');
+    }
+  }
+
+  const rawText = fsMod.readFileSync(candidate, 'utf8');
+  if (visited.has(candidate)) return preNormalizeModularSyntax(rawText);
+  const nextVisited = new Set(visited);
+  nextVisited.add(candidate);
+  const candidateDir = pathMod.dirname(candidate);
+  const expanded = expandBareModuleImports(rawText, (nested) =>
+    readDiskRelativeModule(
+      fsMod,
+      pathMod,
+      candidateDir,
+      nested,
+      absRoot,
+      realRoot,
+      callerModules,
+      nextVisited,
+    ),
+  );
+  return preNormalizeModularSyntax(expanded);
+}
+
+/**
+ * Bundle a `rules_version = '2+modules'` Firestore or Storage ruleset into a
+ * self-contained `rules_version = '2'` source string (resolving stdlib and
+ * relative `.rules` module imports). Non-modular sources are returned verbatim.
+ */
+export function bundleRulesSource(
+  source: string,
+  options?: BundleRulesSourceOptions,
+): string {
+  if (!isModularRulesSource(source)) return source;
+
+  let preparedModules: Record<string, string> | undefined;
+  if (options?.modules !== undefined) {
+    preparedModules = {};
+    for (const [key, rawMod] of Object.entries(options.modules)) {
+      if (typeof rawMod !== 'string') continue;
+      const expandedMod = expandBareModuleImports(rawMod, (spec) =>
+        lookupInMemoryModule(spec, options.modules),
+      );
+      Object.defineProperty(preparedModules, key, {
+        value: preNormalizeModularSyntax(expandedMod),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+  }
+
+  const builtins = options?.filePath !== undefined ? acquireRuleSourceBuiltins() : null;
+  if (builtins !== null && options?.filePath !== undefined) {
+    const { fs: fsMod, path: pathMod } = builtins;
+    const absFile = pathMod.resolve(options.filePath);
+    const baseDir = pathMod.dirname(absFile);
+    const absRoot =
+      options.rootDir !== undefined ? pathMod.resolve(options.rootDir) : undefined;
+    const realRoot =
+      absRoot !== undefined ? resolveRealRoot(fsMod, absRoot) : undefined;
+
+    const expandedSource = expandBareModuleImports(source, (spec) =>
+      readDiskRelativeModule(
+        fsMod,
+        pathMod,
+        baseDir,
+        spec,
+        absRoot,
+        realRoot,
+        options.modules,
+      ),
+    );
+    const preNormalized = preNormalizeModularSyntax(expandedSource);
+    const resolveOpts: {
+      basePath: string;
+      modules?: Record<string, string>;
+      sourceFile?: string;
+      targetService?: 'cloud.firestore' | 'firebase.storage';
+    } = { basePath: baseDir };
+    if (preparedModules !== undefined) resolveOpts.modules = preparedModules;
+    if (options.sourceFile !== undefined) resolveOpts.sourceFile = options.sourceFile;
+    if (options.targetService !== undefined) resolveOpts.targetService = options.targetService;
+
+    const resolved = resolveModulesWithFiles(
+      preNormalized,
+      (base, modName) =>
+        readDiskRelativeModule(
+          fsMod,
+          pathMod,
+          base,
+          modName,
+          absRoot,
+          realRoot,
+          options.modules,
+        ),
+      resolveOpts,
+    );
+    if (!resolved.success) {
+      throw new Error(resolved.error.message);
+    }
+    return restoreDefaultDbSentinelText(resolved.data.resolved);
+  }
+
+  const expandedSource = expandBareModuleImports(source, (spec) =>
+    lookupInMemoryModule(spec, preparedModules ?? options?.modules),
+  );
+  const preNormalized = preNormalizeModularSyntax(expandedSource);
+  const browserOpts: {
+    modules?: Record<string, string>;
+    sourceFile?: string;
+    targetService?: 'cloud.firestore' | 'firebase.storage';
+  } = {};
+  if (preparedModules !== undefined) browserOpts.modules = preparedModules;
+  if (options?.sourceFile !== undefined) browserOpts.sourceFile = options.sourceFile;
+  if (options?.targetService !== undefined) browserOpts.targetService = options.targetService;
+
+  const resolved = resolveModulesBrowser(preNormalized, browserOpts);
+  if (!resolved.success) {
+    throw new Error(resolved.error.message);
+  }
+  return restoreDefaultDbSentinelText(resolved.data.resolved);
+}
+
 /**
  * Load rules for an app root. Explicit files win; otherwise `firebase.json`
  * is read. Duplicate files (several RTDB targets sharing one file) load once.
@@ -466,7 +730,11 @@ export function loadRuleSources(
     if (fsMod.existsSync(config)) {
       try {
         assertContainedProjectFile(fsMod, pathMod, absRoot, realRoot, config);
-        const parsed = JSON.parse(fsMod.readFileSync(config, 'utf8')) as {
+        const rawConfig = JSON.parse(fsMod.readFileSync(config, 'utf8')) as unknown;
+        if (!rawConfig || typeof rawConfig !== 'object' || Array.isArray(rawConfig)) {
+          throw new Error('firebase.json must contain a JSON object');
+        }
+        const parsed = rawConfig as {
           firestore?: unknown;
           database?: unknown;
           storage?: unknown;
@@ -513,9 +781,32 @@ export function loadRuleSources(
       } else {
         assertNotSymlink(fsMod, item.file);
       }
+      const sourceLabel = rel(pathMod, absRoot, item.file);
+      const rawText = fsMod.readFileSync(item.file, 'utf8');
+      const bundleOpts: {
+        filePath: string;
+        rootDir?: string;
+        sourceFile: string;
+        targetService: 'cloud.firestore';
+      } = {
+        filePath: item.file,
+        sourceFile: sourceLabel,
+        targetService: 'cloud.firestore',
+      };
+      if (item.fromProject) bundleOpts.rootDir = absRoot;
+      const bundledText = bundleRulesSource(rawText, bundleOpts);
+      if (!isHeaderOnlyRulesVersionStub(bundledText)) {
+        const syntax = validateRulesSourceSyntax(bundledText, 'cloud.firestore', {
+          sourceFile: sourceLabel,
+          targetService: 'cloud.firestore',
+        });
+        if (!syntax.ok) {
+          throw new Error(syntax.message);
+        }
+      }
       const loaded: FirestoreRuleSource = {
-        source: rel(pathMod, absRoot, item.file),
-        text: fsMod.readFileSync(item.file, 'utf8'),
+        source: sourceLabel,
+        text: bundledText,
       };
       if (item.database !== undefined) loaded.database = item.database;
       out.firestore.push(loaded);
@@ -547,9 +838,32 @@ export function loadRuleSources(
       } else {
         assertNotSymlink(fsMod, item.file);
       }
+      const sourceLabel = rel(pathMod, absRoot, item.file);
+      const rawText = fsMod.readFileSync(item.file, 'utf8');
+      const bundleOpts: {
+        filePath: string;
+        rootDir?: string;
+        sourceFile: string;
+        targetService: 'firebase.storage';
+      } = {
+        filePath: item.file,
+        sourceFile: sourceLabel,
+        targetService: 'firebase.storage',
+      };
+      if (item.fromProject) bundleOpts.rootDir = absRoot;
+      const bundledText = bundleRulesSource(rawText, bundleOpts);
+      if (!isHeaderOnlyRulesVersionStub(bundledText)) {
+        const syntax = validateRulesSourceSyntax(bundledText, 'firebase.storage', {
+          sourceFile: sourceLabel,
+          targetService: 'firebase.storage',
+        });
+        if (!syntax.ok) {
+          throw new Error(syntax.message);
+        }
+      }
       const loaded: StorageRuleSource = {
-        source: rel(pathMod, absRoot, item.file),
-        text: fsMod.readFileSync(item.file, 'utf8'),
+        source: sourceLabel,
+        text: bundledText,
       };
       if (item.bucket !== undefined) loaded.bucket = item.bucket;
       storageList.push(loaded);

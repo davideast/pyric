@@ -26,6 +26,7 @@ import {
   getAdminStorageSandbox,
   seedStorageObject,
 } from 'pyric/storage/internal';
+import { lowerModularRulesInMemory } from '../rules/rules-ast-utils.js';
 import type { ProbeStep } from './types.js';
 
 export type WorldStorageRules = string | Readonly<Record<string, string>>;
@@ -79,18 +80,32 @@ export function populateWorldStorageRules(
   target: Record<string, string>,
   input: WorldStorageRules | undefined,
 ): void {
+  for (const [existingKey, existingSource] of Object.entries(target)) {
+    if (typeof existingSource === 'string') {
+      defineOwnRule(
+        target,
+        existingKey,
+        lowerModularRulesInMemory(existingSource, { targetService: 'firebase.storage' }),
+      );
+    }
+  }
   if (input === undefined) return;
   if (typeof input === 'string') {
-    defineOwnRule(target, DEFAULT_SNAPSHOT_RESOURCE, input);
+    defineOwnRule(
+      target,
+      DEFAULT_SNAPSHOT_RESOURCE,
+      lowerModularRulesInMemory(input, { targetService: 'firebase.storage' }),
+    );
     return;
   }
   for (const [rawKey, source] of Object.entries(input)) {
     if (typeof source !== 'string') continue;
+    const lowered = lowerModularRulesInMemory(source, { targetService: 'firebase.storage' });
     const normalized = normalizeStorageBucketKey(rawKey);
     if (normalized === undefined) {
-      defineOwnRule(target, DEFAULT_SNAPSHOT_RESOURCE, source);
+      defineOwnRule(target, DEFAULT_SNAPSHOT_RESOURCE, lowered);
     } else {
-      defineOwnRule(target, normalized, source);
+      defineOwnRule(target, normalized, lowered);
     }
   }
 }

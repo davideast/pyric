@@ -32,6 +32,31 @@ export interface RetainedRulesInspection {
   readonly primaryRule?: { readonly line?: number; readonly expression: string };
 }
 
+export function rulesetHasRootForDatabase(ast: FirestoreRules, resourceId: string): boolean {
+  for (const rootBlock of topLevelMatches(ast.service)) {
+    const segments = rootBlock.path.segments;
+    const first = segments[0];
+    const second = segments[1];
+    const third = segments[2];
+    if (first?.type === 'recursive') return true;
+    if (
+      first?.type === 'literal'
+      && first.value === 'databases'
+      && second !== undefined
+      && (third === undefined || (third.type === 'literal' && third.value === 'documents') || third.type === 'recursive')
+    ) {
+      if (
+        second.type === 'wildcard'
+        || second.type === 'recursive'
+        || (second.type === 'literal' && second.value === resourceId)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function normalizeRootMatchBlock(rootBlock: MatchBlock, resourceId: string): MatchBlock {
   const segments = rootBlock.path.segments;
   const first = segments[0];
@@ -40,19 +65,32 @@ function normalizeRootMatchBlock(rootBlock: MatchBlock, resourceId: string): Mat
     first?.type !== 'literal'
     || first.value !== 'databases'
     || second?.type !== 'literal'
-    || second.value !== resourceId
   ) {
     return rootBlock;
   }
-  const normalizedSegments: PathSegment[] = [...segments];
-  normalizedSegments[1] = { type: 'literal', value: '(default)' };
-  return {
-    ...rootBlock,
-    path: {
-      ...rootBlock.path,
-      segments: normalizedSegments,
-    },
-  };
+  if (second.value === resourceId) {
+    const normalizedSegments: PathSegment[] = [...segments];
+    normalizedSegments[1] = { type: 'literal', value: '(default)' };
+    return {
+      ...rootBlock,
+      path: {
+        ...rootBlock.path,
+        segments: normalizedSegments,
+      },
+    };
+  }
+  if (second.value === '(default)' && resourceId !== '(default)') {
+    const normalizedSegments: PathSegment[] = [...segments];
+    normalizedSegments[1] = { type: 'literal', value: '__pyric_non_default_root__' };
+    return {
+      ...rootBlock,
+      path: {
+        ...rootBlock.path,
+        segments: normalizedSegments,
+      },
+    };
+  }
+  return rootBlock;
 }
 
 export function normalizeDatabaseRootAst(
@@ -60,21 +98,33 @@ export function normalizeDatabaseRootAst(
   resourceId: string,
 ): FirestoreRules {
   if (resourceId === '(default)') return ast;
-  const roots = topLevelMatches(ast.service);
-  let anyChanged = false;
-  const normalizedRoots = roots.map((rootBlock) => {
-    const next = normalizeRootMatchBlock(rootBlock, resourceId);
-    if (next !== rootBlock) anyChanged = true;
-    return next;
-  });
-  if (!anyChanged) return ast;
-  return {
-    ...ast,
-    service: {
-      ...ast.service,
+  const normalizeService = <T extends FirestoreRules['service']>(svc: T): T => {
+    const roots = topLevelMatches(svc);
+    let changed = false;
+    const normalizedRoots = roots.map((rootBlock) => {
+      const next = normalizeRootMatchBlock(rootBlock, resourceId);
+      if (next !== rootBlock) changed = true;
+      return next;
+    });
+    if (!changed || normalizedRoots.length === 0) return svc;
+    return {
+      ...svc,
       match: normalizedRoots[0]!,
       matches: normalizedRoots,
-    },
+    };
+  };
+  const nextService = normalizeService(ast.service);
+  let servicesChanged = false;
+  const nextServices = ast.services?.map((svc) => {
+    const next = svc === ast.service ? nextService : normalizeService(svc);
+    if (next !== svc) servicesChanged = true;
+    return next;
+  });
+  if (nextService === ast.service && !servicesChanged) return ast;
+  return {
+    ...ast,
+    service: nextService,
+    ...(nextServices !== undefined ? { services: nextServices } : {}),
   };
 }
 
@@ -262,6 +312,12 @@ function isRequestChain(expr: Expression, prop: string): boolean {
   return step.object.type === 'identifier' && step.object.name === 'request';
 }
 
+function isRequestAuthUid(expr: Expression): boolean {
+  const step = memberStep(expr);
+  if (!step || step.property !== 'uid') return false;
+  return isRequestChain(step.object, 'auth');
+}
+
 function isRequestAuthToken(expr: Expression): boolean {
   const step = memberStep(expr);
   if (!step || step.property !== 'token') return false;
@@ -340,66 +396,108 @@ function isSeededTokenDischargedByParent(
   return false;
 }
 
+function isAuthUidDischargedByParent(
+  node: Expression,
+  parent: Expression | null,
+  grandparent: Expression | null,
+  matchWildcardNames: ReadonlySet<string>,
+): boolean {
+  if (parent?.type === 'binaryOp') {
+    const other = parent.left === node ? parent.right : parent.right === node ? parent.left : null;
+    if (!other) return false;
+    if (parent.op === '==') {
+      if (isAnyResourceDataAccess(other)) return true;
+      if (other.type === 'identifier' && matchWildcardNames.has(other.name)) return true;
+      const lit = asScalarLiteral(other);
+      return lit.ok && Object.is(lit.value, SYNTH_UID);
+    }
+    if (parent.op === '!=') {
+      return other.type === 'literal' && other.value === null;
+    }
+    return false;
+  }
+  if (parent?.type === 'inExpr' && parent.element === node) {
+    if (isAnyResourceDataAccess(parent.collection)) return true;
+    if (parent.collection.type === 'listLiteral') {
+      return parent.collection.elements.some((el) => {
+        const lit = asScalarLiteral(el);
+        return lit.ok && Object.is(lit.value, SYNTH_UID);
+      });
+    }
+    return false;
+  }
+  if (
+    parent?.type === 'listLiteral'
+    && grandparent?.type === 'methodCall'
+    && (grandparent.method === 'hasAny' || grandparent.method === 'hasAll')
+    && isAnyResourceDataAccess(grandparent.object)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function walkRuleExpression(
   expr: Expression,
   fnMap: ReadonlyMap<string, FunctionDef>,
   visited: ReadonlySet<string>,
-  onNode: (node: Expression, parent: Expression | null) => void,
+  onNode: (node: Expression, parent: Expression | null, grandparent: Expression | null) => void,
   parent: Expression | null = null,
+  grandparent: Expression | null = null,
 ): void {
-  onNode(expr, parent);
+  onNode(expr, parent, grandparent);
   switch (expr.type) {
     case 'memberAccess':
-      walkRuleExpression(expr.object, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.object, fnMap, visited, onNode, expr, parent);
       return;
     case 'bracketAccess':
-      walkRuleExpression(expr.object, fnMap, visited, onNode, expr);
-      walkRuleExpression(expr.index, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.object, fnMap, visited, onNode, expr, parent);
+      walkRuleExpression(expr.index, fnMap, visited, onNode, expr, parent);
       return;
     case 'sliceAccess':
-      walkRuleExpression(expr.object, fnMap, visited, onNode, expr);
-      walkRuleExpression(expr.start, fnMap, visited, onNode, expr);
-      walkRuleExpression(expr.end, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.object, fnMap, visited, onNode, expr, parent);
+      walkRuleExpression(expr.start, fnMap, visited, onNode, expr, parent);
+      walkRuleExpression(expr.end, fnMap, visited, onNode, expr, parent);
       return;
     case 'binaryOp':
-      walkRuleExpression(expr.left, fnMap, visited, onNode, expr);
-      walkRuleExpression(expr.right, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.left, fnMap, visited, onNode, expr, parent);
+      walkRuleExpression(expr.right, fnMap, visited, onNode, expr, parent);
       return;
     case 'unaryOp':
-      walkRuleExpression(expr.operand, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.operand, fnMap, visited, onNode, expr, parent);
       return;
     case 'ternary':
-      walkRuleExpression(expr.condition, fnMap, visited, onNode, expr);
-      walkRuleExpression(expr.consequent, fnMap, visited, onNode, expr);
-      walkRuleExpression(expr.alternate, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.condition, fnMap, visited, onNode, expr, parent);
+      walkRuleExpression(expr.consequent, fnMap, visited, onNode, expr, parent);
+      walkRuleExpression(expr.alternate, fnMap, visited, onNode, expr, parent);
       return;
     case 'inExpr':
-      walkRuleExpression(expr.element, fnMap, visited, onNode, expr);
-      walkRuleExpression(expr.collection, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.element, fnMap, visited, onNode, expr, parent);
+      walkRuleExpression(expr.collection, fnMap, visited, onNode, expr, parent);
       return;
     case 'isExpr':
-      walkRuleExpression(expr.value, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.value, fnMap, visited, onNode, expr, parent);
       return;
     case 'listLiteral':
-      for (const el of expr.elements) walkRuleExpression(el, fnMap, visited, onNode, expr);
+      for (const el of expr.elements) walkRuleExpression(el, fnMap, visited, onNode, expr, parent);
       return;
     case 'mapLiteral':
       for (const entry of expr.entries) {
-        walkRuleExpression(entry.key, fnMap, visited, onNode, expr);
-        walkRuleExpression(entry.value, fnMap, visited, onNode, expr);
+        walkRuleExpression(entry.key, fnMap, visited, onNode, expr, parent);
+        walkRuleExpression(entry.value, fnMap, visited, onNode, expr, parent);
       }
       return;
     case 'pathLiteral':
       for (const seg of expr.segments) {
-        if (typeof seg !== 'string') walkRuleExpression(seg, fnMap, visited, onNode, expr);
+        if (typeof seg !== 'string') walkRuleExpression(seg, fnMap, visited, onNode, expr, parent);
       }
       return;
     case 'methodCall':
-      walkRuleExpression(expr.object, fnMap, visited, onNode, expr);
-      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode, expr);
+      walkRuleExpression(expr.object, fnMap, visited, onNode, expr, parent);
+      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode, expr, parent);
       return;
     case 'functionCall': {
-      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode, expr);
+      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode, expr, parent);
       const fn = fnMap.get(expr.name);
       if (!fn || visited.has(expr.name)) return;
       const nextVisited = new Set(visited).add(expr.name);
@@ -410,10 +508,17 @@ function walkRuleExpression(
       }
       for (const b of fn.lets) {
         const bound = substituteIdentifiers(b.value, bindings);
-        walkRuleExpression(bound, fnMap, nextVisited, onNode, null);
+        walkRuleExpression(bound, fnMap, nextVisited, onNode, null, null);
         bindings.set(b.name, bound);
       }
-      walkRuleExpression(substituteIdentifiers(fn.body, bindings), fnMap, nextVisited, onNode, null);
+      walkRuleExpression(
+        substituteIdentifiers(fn.body, bindings),
+        fnMap,
+        nextVisited,
+        onNode,
+        null,
+        null,
+      );
       return;
     }
     default:
@@ -440,6 +545,7 @@ export function inspectRetainedRules(
 
   for (const match of matches) {
     const scope = buildListRuleFunctionScope(match.functions);
+    const matchWildcardNames = new Set(Object.getOwnPropertyNames(match.pathVariables));
     for (const rule of match.block.allows) {
       if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
       if (!primaryRule) {
@@ -449,37 +555,50 @@ export function inspectRetainedRules(
         if (rule.loc?.line !== undefined) info.line = rule.loc.line;
         primaryRule = info;
       }
-      walkRuleExpression(rule.condition, scope.functions, new Set(), (node, parent) => {
-        if (
-          node.type === 'functionCall'
-          && !scope.functions.has(node.name)
-          && LOOKUP_BUILTINS.has(node.name)
-        ) {
-          usesUnseededContext = true;
-        }
-        if (isRequestChain(node, 'query')) {
-          usesRequestQuery = true;
-        }
-        const tokenStep = memberStep(node);
-        if (tokenStep && isRequestAuthToken(tokenStep.object)) {
+      walkRuleExpression(
+        rule.condition,
+        scope.functions,
+        new Set(),
+        (node, parent, grandparent) => {
           if (
-            !populatedClaims.has(tokenStep.property)
-            || !isSeededTokenDischargedByParent(node, parent, tokenStep.property)
+            node.type === 'functionCall'
+            && !scope.functions.has(node.name)
+            && LOOKUP_BUILTINS.has(node.name)
           ) {
             usesUnseededContext = true;
           }
-        } else if (node.type === 'bracketAccess' && isRequestAuthToken(node.object)) {
-          usesUnseededContext = true;
-        } else if (node.type === 'inExpr' && isRequestAuthToken(node.collection)) {
+          if (isRequestChain(node, 'query')) {
+            usesRequestQuery = true;
+          }
           if (
-            node.element.type !== 'literal'
-            || typeof node.element.value !== 'string'
-            || !populatedClaims.has(node.element.value)
+            isRequestAuthUid(node)
+            && !isAuthUidDischargedByParent(node, parent, grandparent, matchWildcardNames)
           ) {
             usesUnseededContext = true;
           }
-        }
-      });
+          const tokenStep = memberStep(node);
+          if (tokenStep && isRequestAuthToken(tokenStep.object)) {
+            if (
+              !populatedClaims.has(tokenStep.property)
+              || !isSeededTokenDischargedByParent(node, parent, tokenStep.property)
+            ) {
+              usesUnseededContext = true;
+            }
+          } else if (node.type === 'bracketAccess' && isRequestAuthToken(node.object)) {
+            usesUnseededContext = true;
+          } else if (node.type === 'methodCall' && isRequestAuthToken(node.object)) {
+            usesUnseededContext = true;
+          } else if (node.type === 'inExpr' && isRequestAuthToken(node.collection)) {
+            if (
+              node.element.type !== 'literal'
+              || typeof node.element.value !== 'string'
+              || !populatedClaims.has(node.element.value)
+            ) {
+              usesUnseededContext = true;
+            }
+          }
+        },
+      );
     }
   }
 

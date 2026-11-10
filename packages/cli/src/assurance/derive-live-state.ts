@@ -27,9 +27,11 @@ export interface DecodedLiveState {
   readonly defaultTargetFirestore: Record<string, EncodedMap>;
   readonly rtdbByInstance: Record<string, unknown>;
   readonly defaultTargetRtdb: unknown;
+  readonly defaultRtdbRules?: { rules: Record<string, unknown> };
   readonly rtdbInstanceRules: Record<string, { rules: Record<string, unknown> }>;
   readonly snapshotUsers: SnapshotUserRecord[];
   readonly fixtureUsers: AuthFixtureUser[];
+  readonly authProviders?: Record<string, boolean>;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -76,14 +78,31 @@ function extractInlinePriorities(rawPriorities: unknown): InlinePriority[] {
 function extractRtdbRulesWrapper(
   rawRules: unknown,
 ): { rules: Record<string, unknown> } | undefined {
-  if (!isPlainRecord(rawRules) || !Object.hasOwn(rawRules, "rules")) {
+  if (!isPlainRecord(rawRules)) {
     return undefined;
   }
-  const inner = rawRules.rules;
-  if (!isPlainRecord(inner)) {
-    return undefined;
+  if (Object.hasOwn(rawRules, "rules")) {
+    const inner = rawRules.rules;
+    if (!isPlainRecord(inner)) {
+      return undefined;
+    }
+    return { rules: { ...inner } };
   }
-  return { rules: { ...inner } };
+  return { rules: { ...rawRules } };
+}
+
+function extractAuthProviders(
+  rawProviders: unknown,
+): Record<string, boolean> | undefined {
+  if (!isPlainRecord(rawProviders)) return undefined;
+  const out: Record<string, boolean> = {};
+  let hasAny = false;
+  for (const [key, val] of Object.entries(rawProviders)) {
+    if (isUnsafeObjectKey(key) || typeof val !== "boolean") continue;
+    defineOwn(out, key, val);
+    hasAny = true;
+  }
+  return hasAny ? out : undefined;
 }
 
 function decodePersistedRtdbTree(rawRtdb: unknown): {
@@ -229,6 +248,7 @@ export function decodeLiveStatePayload(
   const defaultTargetFirestore: Record<string, EncodedMap> = {};
   const rtdbByInstance: Record<string, unknown> = {};
   let defaultTargetRtdb: unknown;
+  let defaultRtdbRules: { rules: Record<string, unknown> } | undefined;
   const rtdbInstanceRules: Record<string, { rules: Record<string, unknown> }> = {};
 
   if (stateBody === null) {
@@ -244,6 +264,7 @@ export function decodeLiveStatePayload(
   }
 
   let controllerUsers: readonly unknown[] | undefined;
+  let controllerProviders: Record<string, boolean> | undefined;
   const rawFirestore = stateBody.firestore;
 
   if (isV3RecordBundle(rawFirestore)) {
@@ -275,6 +296,9 @@ export function decodeLiveStatePayload(
         defineOwn(rtdbByInstance, DEFAULT_SNAPSHOT_RESOURCE, rtdbDecoded.tree);
         defaultTargetRtdb = structuredClone(rtdbDecoded.tree);
       }
+      if (rtdbDecoded.rules !== undefined) {
+        defaultRtdbRules = rtdbDecoded.rules;
+      }
       for (const [instName, instTree] of Object.entries(rtdbDecoded.instances)) {
         defineOwn(rtdbByInstance, instName, instTree);
       }
@@ -285,10 +309,12 @@ export function decodeLiveStatePayload(
 
     if (
       Object.hasOwn(decoded.services, "auth") &&
-      isPlainRecord(decoded.services.auth) &&
-      Array.isArray(decoded.services.auth.users)
+      isPlainRecord(decoded.services.auth)
     ) {
-      controllerUsers = decoded.services.auth.users;
+      if (Array.isArray(decoded.services.auth.users)) {
+        controllerUsers = decoded.services.auth.users;
+      }
+      controllerProviders = extractAuthProviders(decoded.services.auth.providers);
     }
   } else if (isPlainRecord(rawFirestore)) {
     let docsCandidate: unknown = rawFirestore;
@@ -315,6 +341,9 @@ export function decodeLiveStatePayload(
           defineOwn(rtdbByInstance, DEFAULT_SNAPSHOT_RESOURCE, rtdbDecoded.tree);
           defaultTargetRtdb = structuredClone(rtdbDecoded.tree);
         }
+        if (rtdbDecoded.rules !== undefined) {
+          defaultRtdbRules = rtdbDecoded.rules;
+        }
         for (const [instName, instTree] of Object.entries(rtdbDecoded.instances)) {
           defineOwn(rtdbByInstance, instName, instTree);
         }
@@ -324,10 +353,12 @@ export function decodeLiveStatePayload(
       }
       if (
         Object.hasOwn(services, "auth") &&
-        isPlainRecord(services.auth) &&
-        Array.isArray(services.auth.users)
+        isPlainRecord(services.auth)
       ) {
-        controllerUsers = services.auth.users;
+        if (Array.isArray(services.auth.users)) {
+          controllerUsers = services.auth.users;
+        }
+        controllerProviders = extractAuthProviders(services.auth.providers);
       }
     }
   }
@@ -337,14 +368,20 @@ export function decodeLiveStatePayload(
     rawUsers = controllerUsers;
   }
   const { snapshotUsers, fixtureUsers } = normalizeUserList(rawUsers);
+  const stateAuthProviders = extractAuthProviders(
+    isPlainRecord(stateBody.auth) ? (stateBody.auth as Record<string, unknown>).providers : undefined,
+  );
+  const authProviders = controllerProviders ?? stateAuthProviders;
 
   return {
     firestoreByDb,
     defaultTargetFirestore,
     rtdbByInstance,
     defaultTargetRtdb,
+    ...(defaultRtdbRules !== undefined ? { defaultRtdbRules } : {}),
     rtdbInstanceRules,
     snapshotUsers,
     fixtureUsers,
+    ...(authProviders !== undefined ? { authProviders } : {}),
   };
 }

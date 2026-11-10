@@ -162,4 +162,21 @@ describe('inferOwnerBindings', () => {
       ['users/{uid}', 'rules-only'],
     ]);
   });
+
+  test('excludes Admin SDK write sites from owner bindings', () => {
+    const bindings = inferOwnerBindings(
+      [],
+      [
+        site({
+          service: 'firestore',
+          op: 'setDoc',
+          path: 'events/{id}',
+          admin: true,
+          pathVariables: [{ name: 'id', auth: uid }],
+          payload: { kind: 'object', open: false, fields: [{ name: 'ownerId', auth: uid }] },
+        }),
+      ],
+    );
+    expect(bindings).toEqual([]);
+  });
 });

@@ -3,6 +3,7 @@
  * (`certainty: 'proven-counterexample'`) and registers an executable,
  * single-dimension `AuthorizationCampaign` into `AssuranceCampaignStore`.
  */
+import { join } from "node:path";
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
   parseResourcePattern,
@@ -10,12 +11,15 @@ import {
   type AssuranceDiagnostic,
   type DiagnosticSeverity,
 } from "pyric/sandbox/internal";
-import type {
-  FindingKind,
-  Probe,
-  ProbeActor,
-  ProbeReport,
-  ProbeResult,
+import {
+  bundleRulesSource,
+  isModularRulesSource,
+  lowerModularRulesInMemory,
+  type FindingKind,
+  type Probe,
+  type ProbeActor,
+  type ProbeReport,
+  type ProbeResult,
 } from "pyric/rules/internal/usage";
 import {
   AuthorizationCampaign,
@@ -90,6 +94,25 @@ function remediationForKind(kind: FindingKind): string {
   return "Permit the authenticated owner's legitimate client operation in security rules or align client request metadata with rule constraints.";
 }
 
+function bundleCampaignRulesString(
+  source: string,
+  rootDir: string,
+  sourceFile: string,
+  targetService: "cloud.firestore" | "firebase.storage",
+): string {
+  if (!isModularRulesSource(source)) return source;
+  try {
+    return bundleRulesSource(source, {
+      filePath: join(rootDir, sourceFile),
+      rootDir,
+      sourceFile,
+      targetService,
+    });
+  } catch {
+    return lowerModularRulesInMemory(source, { sourceFile, targetService });
+  }
+}
+
 function buildTargetRules(
   project: LoadedAssuranceProject,
   runtime: LiveRuntimeClone,
@@ -105,11 +128,26 @@ function buildTargetRules(
     (s) => s.database === undefined || s.database === DEFAULT_SNAPSHOT_RESOURCE,
   );
   if (defaultFs !== undefined) {
-    rules.firestore = defaultFs.text;
+    rules.firestore = bundleCampaignRulesString(
+      defaultFs.text,
+      project.root,
+      defaultFs.source || "firestore.rules",
+      "cloud.firestore",
+    );
   } else if (effectiveRuntimeRules?.firestore !== undefined) {
-    rules.firestore = effectiveRuntimeRules.firestore;
+    rules.firestore = bundleCampaignRulesString(
+      effectiveRuntimeRules.firestore,
+      project.root,
+      "firestore.rules",
+      "cloud.firestore",
+    );
   } else if (snapshotRules?.firestore !== undefined) {
-    rules.firestore = snapshotRules.firestore;
+    rules.firestore = bundleCampaignRulesString(
+      snapshotRules.firestore,
+      project.root,
+      "firestore.rules",
+      "cloud.firestore",
+    );
   }
 
   const defaultRtdb = project.sources.rtdb.find(
@@ -170,19 +208,46 @@ function buildTargetRules(
   const storageBuckets: Record<string, string> = {};
   if (snapshotRules?.storageBuckets !== undefined) {
     for (const [bucketId, rulesText] of Object.entries(snapshotRules.storageBuckets)) {
-      defineOwn(storageBuckets, bucketId, rulesText);
+      defineOwn(
+        storageBuckets,
+        bucketId,
+        bundleCampaignRulesString(rulesText, project.root, "storage.rules", "firebase.storage"),
+      );
     }
   }
   if (effectiveRuntimeRules?.storageBuckets !== undefined) {
     for (const [bucketId, rulesText] of Object.entries(
       effectiveRuntimeRules.storageBuckets,
     )) {
-      defineOwn(storageBuckets, bucketId, rulesText);
+      defineOwn(
+        storageBuckets,
+        bucketId,
+        bundleCampaignRulesString(rulesText, project.root, "storage.rules", "firebase.storage"),
+      );
     }
   }
+  const isFirebaseDefaultBucketId = (bucketId: string): boolean =>
+    project.defaultBucket !== undefined &&
+    bucketId === project.defaultBucket &&
+    (bucketId.endsWith(".firebasestorage.app") ||
+      bucketId.endsWith(".appspot.com"));
   for (const s of storageSources) {
-    if (s.bucket !== undefined && s.bucket !== DEFAULT_SNAPSHOT_RESOURCE && !isUnsafeObjectKey(s.bucket)) {
-      defineOwn(storageBuckets, s.bucket, s.text);
+    if (
+      s.bucket !== undefined &&
+      s.bucket !== DEFAULT_SNAPSHOT_RESOURCE &&
+      !isFirebaseDefaultBucketId(s.bucket) &&
+      !isUnsafeObjectKey(s.bucket)
+    ) {
+      defineOwn(
+        storageBuckets,
+        s.bucket,
+        bundleCampaignRulesString(
+          s.text,
+          project.root,
+          s.source || "storage.rules",
+          "firebase.storage",
+        ),
+      );
     }
   }
   if (Object.keys(storageBuckets).length > 0) {
@@ -191,14 +256,32 @@ function buildTargetRules(
 
   const defaultSt =
     storageSources.find(
-      (s) => s.bucket === undefined || s.bucket === DEFAULT_SNAPSHOT_RESOURCE,
+      (s) =>
+        s.bucket === undefined ||
+        s.bucket === DEFAULT_SNAPSHOT_RESOURCE ||
+        (project.defaultBucket !== undefined && s.bucket === project.defaultBucket),
     ) ?? storageSources[0];
   if (defaultSt !== undefined) {
-    rules.storage = defaultSt.text;
+    rules.storage = bundleCampaignRulesString(
+      defaultSt.text,
+      project.root,
+      defaultSt.source || "storage.rules",
+      "firebase.storage",
+    );
   } else if (effectiveRuntimeRules?.storage !== undefined) {
-    rules.storage = effectiveRuntimeRules.storage;
+    rules.storage = bundleCampaignRulesString(
+      effectiveRuntimeRules.storage,
+      project.root,
+      "storage.rules",
+      "firebase.storage",
+    );
   } else if (snapshotRules?.storage !== undefined) {
-    rules.storage = snapshotRules.storage;
+    rules.storage = bundleCampaignRulesString(
+      snapshotRules.storage,
+      project.root,
+      "storage.rules",
+      "firebase.storage",
+    );
   } else {
     const firstBucketRules = Object.values(storageBuckets)[0];
     if (firstBucketRules !== undefined) {
@@ -255,12 +338,32 @@ interface BuiltCampaignProbe {
   readonly probe: AssuranceProbe;
 }
 
+function copyOwnRecordFields(
+  source: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.getOwnPropertyNames(source)) {
+    defineOwn(out, key, Object.getOwnPropertyDescriptor(source, key)?.value);
+  }
+  return out;
+}
+
+function stableTokenSignature(token: Readonly<Record<string, unknown>>): string {
+  const keys = Object.getOwnPropertyNames(token).sort();
+  const entries = keys.map((k) => [
+    k,
+    Object.getOwnPropertyDescriptor(token, k)?.value,
+  ]);
+  return JSON.stringify(entries);
+}
+
 function translateHitToCampaignProbe(
   result: ProbeResult,
   index: number,
   owner: ProbeActor,
   peer: ProbeActor,
   targetState: LocalFirebaseTarget["state"],
+  actorIdOverride?: string,
 ): BuiltCampaignProbe | null {
   const src = result.probe;
   if (src.expect !== "deny") return null;
@@ -269,8 +372,8 @@ function translateHitToCampaignProbe(
     applyStepToTargetState(targetState, seedStep);
   }
 
-  let actorId = "actor-peer";
-  if (src.attack.actor === "owner") {
+  let actorId = actorIdOverride ?? "actor-peer";
+  if (actorIdOverride === undefined && src.attack.actor === "owner") {
     actorId = "actor-owner";
   }
 
@@ -490,11 +593,35 @@ export async function populateDerivedCampaign(options: {
   }
 
   const targetRules = buildTargetRules(options.project, options.runtime);
+  if (
+    typeof globalThis.indexedDB === "undefined" &&
+    (targetRules.storage !== undefined ||
+      targetRules.storageBuckets !== undefined)
+  ) {
+    const fake = await import("fake-indexeddb");
+    Object.assign(globalThis, {
+      indexedDB: fake.indexedDB,
+      IDBKeyRange: fake.IDBKeyRange,
+    });
+  }
   const targetState = initializeTargetState(
     options.runtime.snapshot,
     options.runtime.targetState,
     [owner, peer],
   );
+  const runtimeProviders =
+    options.runtime.targetState?.auth?.providers ??
+    options.runtime.snapshot?.auth.providers;
+  if (
+    runtimeProviders !== undefined &&
+    targetState.auth !== undefined &&
+    targetState.auth.providers === undefined
+  ) {
+    targetState.auth = {
+      ...targetState.auth,
+      providers: { ...runtimeProviders },
+    };
+  }
   if (targetState.rtdbInstances !== undefined) {
     if (targetRules.rtdbInstances === undefined) {
       Reflect.deleteProperty(targetState, "rtdbInstances");
@@ -526,15 +653,68 @@ export async function populateDerivedCampaign(options: {
     }
   }
 
+  const seededUids = new Set<string>();
+  for (const user of options.runtime.snapshot?.auth.users ?? []) {
+    seededUids.add(user.uid);
+  }
+  for (const user of options.runtime.targetState?.auth?.users ?? []) {
+    seededUids.add(user.uid);
+  }
+  const actorAcquisition = (
+    actor: ProbeActor,
+    forceSyntheticToken = false,
+  ): AssuranceActor["acquisition"] =>
+    forceSyntheticToken || (actor.synthetic === true && !seededUids.has(actor.uid))
+      ? { kind: "synthetic", uid: actor.uid, token: copyOwnRecordFields(actor.token) }
+      : { kind: "fixture-user", uid: actor.uid };
+
+  const registeredActors: AssuranceActor[] = [
+    { id: "actor-owner", acquisition: actorAcquisition(owner) },
+    { id: "actor-peer", acquisition: actorAcquisition(peer) },
+  ];
+  const actorIdByProfile = new Map<string, string>();
+  actorIdByProfile.set(
+    `owner|${owner.uid}|${stableTokenSignature(owner.token)}`,
+    "actor-owner",
+  );
+  actorIdByProfile.set(
+    `peer|${peer.uid}|${stableTokenSignature(peer.token)}`,
+    "actor-peer",
+  );
+  let nextOwnerVariant = 2;
+  let nextPeerVariant = 2;
+  const resolveCampaignActorId = (actor: ProbeActor): string => {
+    const profileKey = `${actor.role}|${actor.uid}|${stableTokenSignature(actor.token)}`;
+    const existingId = actorIdByProfile.get(profileKey);
+    if (existingId !== undefined) return existingId;
+    const allocatedId =
+      actor.role === "owner"
+        ? `actor-owner-${nextOwnerVariant++}`
+        : `actor-peer-${nextPeerVariant++}`;
+    registeredActors.push({
+      id: allocatedId,
+      acquisition: actorAcquisition(actor, true),
+    });
+    actorIdByProfile.set(profileKey, allocatedId);
+    return allocatedId;
+  };
+
   const builtProbes: BuiltCampaignProbe[] = [];
   const hits = probeReport.results.filter((r) => r.outcome === "hit");
   for (let i = 0; i < hits.length; i += 1) {
+    const hit = hits[i]!;
+    const hitOwner = hit.actors?.[0] ?? owner;
+    const hitPeer = hit.actors?.[1] ?? peer;
+    const attacker =
+      hit.probe.attack.actor === "owner" ? hitOwner : hitPeer;
+    const hitActorId = resolveCampaignActorId(attacker);
     const built = translateHitToCampaignProbe(
-      hits[i]!,
+      hit,
       i,
-      owner,
-      peer,
+      hitOwner,
+      hitPeer,
       targetState,
+      hitActorId,
     );
     if (built !== null) builtProbes.push(built);
   }
@@ -563,29 +743,10 @@ export async function populateDerivedCampaign(options: {
     campaignOpts.context = { attachment: options.runtime.attachmentContext };
   }
 
-  const seededUids = new Set<string>();
-  for (const user of options.runtime.snapshot?.auth.users ?? []) {
-    seededUids.add(user.uid);
-  }
-  for (const user of options.runtime.targetState?.auth?.users ?? []) {
-    seededUids.add(user.uid);
-  }
-  const actorAcquisition = (
-    actor: ProbeActor,
-  ): AssuranceActor["acquisition"] =>
-    actor.synthetic === true && !seededUids.has(actor.uid)
-      ? { kind: "synthetic", uid: actor.uid, token: { ...actor.token } }
-      : { kind: "fixture-user", uid: actor.uid };
-
   const campaign = createAuthorizationCampaign(campaignOpts);
-  campaign.addActor({
-    id: "actor-owner",
-    acquisition: actorAcquisition(owner),
-  });
-  campaign.addActor({
-    id: "actor-peer",
-    acquisition: actorAcquisition(peer),
-  });
+  for (const actorSpec of registeredActors) {
+    campaign.addActor(actorSpec);
+  }
 
   const registeredProbeIds = new Set<string>();
   for (const entry of builtProbes) {
@@ -626,7 +787,9 @@ export function buildCounterexampleDiagnostics(
     if (probe.attack.resourceId !== undefined && probe.attack.resourceId.length > 0) {
       resourceId = probe.attack.resourceId;
     }
-    const attacker = actorsByRole.get(probe.attack.actor);
+    const attacker =
+      result.actors?.find((a) => a.role === probe.attack.actor) ??
+      actorsByRole.get(probe.attack.actor);
     const witnessItem: Record<string, unknown> = {
       campaignId,
       probeId: probe.id,

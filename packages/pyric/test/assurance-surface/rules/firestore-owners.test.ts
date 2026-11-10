@@ -94,4 +94,32 @@ service cloud.firestore { match /databases/{database}/documents { match /u/{uid}
     expect(out.map((c) => [c.path, c.field, c.varIndex])).toEqual([['u/{uid}/{rest=**}', '{uid}', 1]]);
     expect(brief('not rules')).toEqual([]);
   });
+
+  test('auth-keyed get(...).data field boolean/scalar checks and lexically shadowed wildcards emit lookup conditions', () => {
+    const conds = firestoreOwnerConditions(
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orgs/{id} {
+      match /items/{id} {
+        allow read, write: if request.auth != null
+          && request.resource.data.ownerId == request.auth.uid
+          && get(/databases/$(database)/documents/members/$(request.auth.uid)).data.active == true
+          && get(/databases/$(database)/documents/members/$(request.auth.uid)).data.role == 'editor';
+      }
+      match /users/{id} {
+        allow read: if request.auth.uid == id;
+      }
+    }
+  }
+}`,
+      'firestore.rules',
+    );
+    expect(conds.map((c) => [c.path, c.kind, c.field, c.relation, c.seedValue, c.varIndex])).toEqual([
+      ['orgs/{id}/items/{id}', 'incomingField', 'ownerId', 'equals', undefined, undefined],
+      ['orgs/{id}/items/{id}', 'lookup', 'members/{auth.uid}#active', 'exists', true, undefined],
+      ['orgs/{id}/items/{id}', 'lookup', 'members/{auth.uid}#role', 'exists', 'editor', undefined],
+      ['orgs/{id}/users/{id}', 'pathVar', '{id}', 'equals', undefined, 3],
+    ]);
+  });
 });

@@ -381,6 +381,14 @@ export async function cloneLoopbackSandboxHttp(
       }
     }
   }
+  if (rules.rtdb === undefined && decodedState.defaultRtdbRules !== undefined) {
+    rules.rtdb = decodedState.defaultRtdbRules;
+    defineOwn(
+      rtdbRuleMap,
+      DEFAULT_SNAPSHOT_RESOURCE,
+      JSON.stringify(decodedState.defaultRtdbRules),
+    );
+  }
   for (const [instName, instRules] of Object.entries(
     decodedState.rtdbInstanceRules,
   )) {
@@ -397,9 +405,13 @@ export async function cloneLoopbackSandboxHttp(
   const storageRuleMap: Record<string, string> = {};
   const targetStorageBuckets: Record<string, string> = {};
   const namedStorageBuckets = new Set<string>();
+  const isDefaultStorageBucket = (bucketId: string): boolean =>
+    bucketId === DEFAULT_SNAPSHOT_RESOURCE ||
+    bucketId === DEFAULT_BUCKET ||
+    (options.defaultBucket !== undefined && bucketId === options.defaultBucket);
   for (const configured of options.configuredBuckets ?? []) {
     const norm = parseResourcePattern("storage", "object", configured).resourceId;
-    if (norm !== DEFAULT_SNAPSHOT_RESOURCE && !isUnsafeObjectKey(norm)) {
+    if (!isDefaultStorageBucket(norm) && !isUnsafeObjectKey(norm)) {
       namedStorageBuckets.add(norm);
     }
   }
@@ -418,25 +430,26 @@ export async function cloneLoopbackSandboxHttp(
     for (const [rawBucket, entry] of Object.entries(
       initPayload.storageBucketRules,
     )) {
-      if (
-        !entry ||
-        typeof entry !== "object" ||
-        typeof entry.rules !== "string" ||
-        entry.rules.trim().length === 0
-      ) {
+      const entryRules =
+        typeof entry === "string"
+          ? entry
+          : entry && typeof entry === "object" && typeof entry.rules === "string"
+            ? entry.rules
+            : undefined;
+      if (entryRules === undefined || entryRules.trim().length === 0) {
         continue;
       }
       const bucketId = parseResourcePattern("storage", "object", rawBucket).resourceId;
       if (isUnsafeObjectKey(bucketId)) continue;
-      if (bucketId === DEFAULT_SNAPSHOT_RESOURCE || bucketId === DEFAULT_BUCKET) {
+      if (isDefaultStorageBucket(bucketId)) {
         if (rules.storage === undefined) {
-          rules.storage = entry.rules;
+          rules.storage = entryRules;
         }
-        defineOwn(storageRuleMap, DEFAULT_SNAPSHOT_RESOURCE, entry.rules);
+        defineOwn(storageRuleMap, DEFAULT_SNAPSHOT_RESOURCE, entryRules);
       } else {
         namedStorageBuckets.add(bucketId);
-        defineOwn(storageRuleMap, bucketId, entry.rules);
-        defineOwn(targetStorageBuckets, bucketId, entry.rules);
+        defineOwn(storageRuleMap, bucketId, entryRules);
+        defineOwn(targetStorageBuckets, bucketId, entryRules);
       }
     }
   }
@@ -550,7 +563,12 @@ export async function cloneLoopbackSandboxHttp(
   const snapshot: SandboxSnapshot = {
     version: 1,
     rules: snapshotRules,
-    auth: { users: decodedState.snapshotUsers },
+    auth: {
+      users: decodedState.snapshotUsers,
+      ...(decodedState.authProviders !== undefined
+        ? { providers: { ...decodedState.authProviders } }
+        : {}),
+    },
     firestore: decodedState.firestoreByDb,
     rtdb: decodedState.rtdbByInstance,
     storage: storageSnapshotsByBucket,
@@ -598,8 +616,13 @@ export async function cloneLoopbackSandboxHttp(
   if (Object.keys(namedStorageFixtures).length > 0) {
     targetState.storageBuckets = namedStorageFixtures;
   }
-  if (decodedState.fixtureUsers.length > 0) {
-    targetState.auth = { users: decodedState.fixtureUsers };
+  if (decodedState.fixtureUsers.length > 0 || decodedState.authProviders !== undefined) {
+    targetState.auth = {
+      users: decodedState.fixtureUsers,
+      ...(decodedState.authProviders !== undefined
+        ? { providers: { ...decodedState.authProviders } }
+        : {}),
+    };
   }
 
   const history = await fetchHostedEvents(

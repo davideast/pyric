@@ -283,7 +283,7 @@ function childrenOf(t: RtdbExpressionTree): RtdbExpressionTree[] {
 /** Record the value compared to the uid. */
 function record(other: RtdbExpressionTree, relation: OwnerRelation, whole: RtdbExpressionTree, ctx: Ctx): void {
   if (other.type === 'identifier' && other.name.startsWith('$')) {
-    const foundIndex = ctx.path.indexOf(other.name);
+    const foundIndex = ctx.path.lastIndexOf(other.name);
     let varIndex: number | undefined;
     if (foundIndex >= 0) varIndex = foundIndex;
     push(ctx, 'pathVar', other.name, relation, whole, undefined, varIndex);
@@ -296,7 +296,7 @@ function record(other: RtdbExpressionTree, relation: OwnerRelation, whole: RtdbE
   }
   const vars = pathVarsIn(other);
   for (const v of vars) {
-    const foundIndex = ctx.path.indexOf(v);
+    const foundIndex = ctx.path.lastIndexOf(v);
     let varIndex: number | undefined;
     if (foundIndex >= 0) varIndex = foundIndex;
     let nextRelation = relation;

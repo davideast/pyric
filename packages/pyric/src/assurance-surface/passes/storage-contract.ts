@@ -20,6 +20,7 @@ import {
   renderResourcePattern,
   type ResourcePattern,
 } from '../../sandbox/internal/resource-pattern.js';
+import { re2FullMatch } from '../../rules/simulator/rules-type.js';
 import type { AccessSite, PayloadField } from '../code/types.js';
 import type { SdkUsageIndex } from '../code/usage-index.js';
 import { siteResourcePattern } from '../code/usage-records.js';
@@ -27,6 +28,7 @@ import {
   projectRuleSurface,
   type RuleSurface,
   type RuleSurfaceEntry,
+  type StorageMetadataConstraintArm,
   type StorageSurfaceInput,
 } from '../rules/rule-surface.js';
 import { splitSourceLocation } from './source-location.js';
@@ -122,15 +124,9 @@ function resolveConfiguredBucketSet(
 
 function matchesCelRegex(value: string, rawPattern: string): boolean {
   try {
-    const anchored = new RegExp(`^(?:${rawPattern})$`, 'u');
-    return anchored.test(value);
+    return re2FullMatch(rawPattern, value);
   } catch {
-    try {
-      const fallback = new RegExp(`^(?:${rawPattern})$`);
-      return fallback.test(value);
-    } catch {
-      return true;
-    }
+    return true;
   }
 }
 
@@ -221,8 +217,9 @@ interface MissingMetadataEvaluation {
 function evaluateMissingMetadata(
   site: AccessSite,
   entry: RuleSurfaceEntry,
+  arm: StorageMetadataConstraintArm,
 ): MissingMetadataEvaluation {
-  const required = entry.storageMetadata?.requiredCustomMetadataKeys ?? [];
+  const required = arm.requiredCustomMetadataKeys ?? [];
   const customMap = site.storageUpload?.customMetadata;
   const missing: string[] = [];
   let hasDefinitelyAbsentKey = false;
@@ -245,39 +242,54 @@ function evaluateMissingMetadata(
 
 interface EntryContractEvaluation {
   readonly entry: RuleSurfaceEntry;
+  readonly arm: StorageMetadataConstraintArm;
   readonly ctOk: boolean;
   readonly sizeOk: boolean;
   readonly metaOk: boolean;
   readonly missingMeta: MissingMetadataEvaluation;
 }
 
-function evaluateEntryContract(
+function armsForEntry(entry: RuleSurfaceEntry): readonly StorageMetadataConstraintArm[] {
+  if (entry.storageMetadataArms !== undefined && entry.storageMetadataArms.length > 0) {
+    return entry.storageMetadataArms;
+  }
+  if (entry.storageMetadata !== undefined) {
+    return [entry.storageMetadata];
+  }
+  return [{}];
+}
+
+function evaluateEntryArmContract(
   site: AccessSite,
   entry: RuleSurfaceEntry,
+  arm: StorageMetadataConstraintArm,
   contentType: string | undefined,
   sizeBytes: number | undefined,
   shouldCheckCustomMeta: boolean,
 ): EntryContractEvaluation {
   let ctOk = true;
   if (contentType !== undefined) {
-    const expected = entry.storageMetadata?.contentTypePattern;
-    if (expected !== undefined) {
-      ctOk = matchesCelRegex(contentType, expected);
+    if (arm.contentTypeConjuncts !== undefined && arm.contentTypeConjuncts.length > 0) {
+      ctOk = arm.contentTypeConjuncts.every((disjuncts) =>
+        disjuncts.some((pat) => matchesCelRegex(contentType, pat)),
+      );
+    } else if (arm.contentTypePattern !== undefined) {
+      ctOk = matchesCelRegex(contentType, arm.contentTypePattern);
     }
   }
   let sizeOk = true;
   if (sizeBytes !== undefined) {
-    const maxBytes = entry.storageMetadata?.maxSizeBytes;
+    const maxBytes = arm.maxSizeBytes;
     if (maxBytes !== undefined) {
       sizeOk = sizeBytes <= maxBytes;
     }
   }
-  const missingMeta = evaluateMissingMetadata(site, entry);
+  const missingMeta = evaluateMissingMetadata(site, entry, arm);
   let metaOk = true;
   if (shouldCheckCustomMeta) {
     metaOk = missingMeta.missingKeys.length === 0;
   }
-  return { entry, ctOk, sizeOk, metaOk, missingMeta };
+  return { entry, arm, ctOk, sizeOk, metaOk, missingMeta };
 }
 
 function emitContentTypeMismatch(
@@ -292,7 +304,7 @@ function emitContentTypeMismatch(
   const patterns = [
     ...new Set(
       candidates
-        .map((c) => c.entry.storageMetadata?.contentTypePattern)
+        .map((c) => c.arm.contentTypePattern)
         .filter((p): p is string => p !== undefined),
     ),
   ];
@@ -337,7 +349,7 @@ function emitMaxSizeExceeded(
   let maxCeiling = 0;
   let ceilingRule = candidates[0]!.entry;
   for (const candidate of candidates) {
-    const bound = candidate.entry.storageMetadata?.maxSizeBytes;
+    const bound = candidate.arm.maxSizeBytes;
     if (bound !== undefined && bound >= maxCeiling) {
       maxCeiling = bound;
       ceilingRule = candidate.entry;
@@ -506,8 +518,17 @@ export function storageContractPass(
         !site.storageUpload?.customMetadataUnresolved
         && (site.op !== 'updateMetadata' || site.storageUpload?.customMetadata !== undefined);
 
-      const evals = activeEntries.map((entry) =>
-        evaluateEntryContract(site, entry, contentType, sizeBytes, shouldCheckCustomMeta),
+      const evals = activeEntries.flatMap((entry) =>
+        armsForEntry(entry).map((arm) =>
+          evaluateEntryArmContract(
+            site,
+            entry,
+            arm,
+            contentType,
+            sizeBytes,
+            shouldCheckCustomMeta,
+          ),
+        ),
       );
       if (evals.some((ev) => ev.ctOk && ev.sizeOk && ev.metaOk)) {
         continue;

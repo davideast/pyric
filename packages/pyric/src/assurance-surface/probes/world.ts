@@ -52,6 +52,7 @@ import {
   type Firestore,
 } from 'pyric/firestore';
 import { Reference as RulesReference } from 'pyric/rules/internal';
+import { lowerModularRulesInMemory } from '../rules/rules-ast-utils.js';
 import { isSentinel } from './fixtures.js';
 import type { ProbeActor, ProbeStep, StepResult } from './types.js';
 import {
@@ -113,8 +114,17 @@ function buildWorldSnapshot(rules: WorldRules, state: WorldState): SandboxSnapsh
   const base = state.snapshot;
 
   const firestoreRules: Record<string, string> = Object.assign({}, base?.rules.firestore);
+  for (const [dbKey, dbSource] of Object.entries(firestoreRules)) {
+    if (typeof dbSource === 'string') {
+      firestoreRules[dbKey] = lowerModularRulesInMemory(dbSource, {
+        targetService: 'cloud.firestore',
+      });
+    }
+  }
   if (rules.firestore !== undefined) {
-    firestoreRules[DEFAULT_SNAPSHOT_RESOURCE] = rules.firestore;
+    firestoreRules[DEFAULT_SNAPSHOT_RESOURCE] = lowerModularRulesInMemory(rules.firestore, {
+      targetService: 'cloud.firestore',
+    });
   }
 
   const rtdbRules: Record<string, string> = Object.assign({}, base?.rules.rtdb);
@@ -195,12 +205,24 @@ function buildActorAuth(
 
   const token: Record<string, unknown> = {};
   if (matched?.customClaims !== undefined) {
-    Object.assign(token, matched.customClaims);
+    for (const key of Object.getOwnPropertyNames(matched.customClaims)) {
+      defineOwnWorldField(
+        token,
+        key,
+        Object.getOwnPropertyDescriptor(matched.customClaims, key)?.value,
+      );
+    }
   }
-  Object.assign(token, actor.token);
-  token.email = email;
-  token.email_verified = emailVerified;
-  token.name = name;
+  for (const key of Object.getOwnPropertyNames(actor.token)) {
+    defineOwnWorldField(
+      token,
+      key,
+      Object.getOwnPropertyDescriptor(actor.token, key)?.value,
+    );
+  }
+  defineOwnWorldField(token, 'email', email);
+  defineOwnWorldField(token, 'email_verified', emailVerified);
+  defineOwnWorldField(token, 'name', name);
 
   if (matched?.tenantId !== undefined || matched?.providerId !== undefined) {
     let existingFirebase: Record<string, unknown> = {};

@@ -491,29 +491,41 @@ describe('ResourcePattern Slice 1.3: unifyPatterns variable bindings and invaria
     expect(unifyPatterns(rtdbRule, p('rtdb', 'users', 'primary-rtdb'), { cascade: true })).toBeNull();
   });
 
-  it('enforces consistent bindings when a rule repeats the same variable name', () => {
+  it('applies lexical shadowing when a rule repeats the same variable name across nested segments', () => {
     const p = parseResourcePattern;
     const repeatedRule = p('firestore', 'orgs/{id}/mirrors/{id}');
 
     expect(Array.from(unifyPatterns(repeatedRule, p('firestore', 'orgs/o1/mirrors/o1'))!.entries())).toEqual([
       ['id', { kind: 'lit', text: 'o1' }],
     ]);
-    expect(unifyPatterns(repeatedRule, p('firestore', 'orgs/o1/mirrors/o2'))).toBeNull();
+    expect(Array.from(unifyPatterns(repeatedRule, p('firestore', 'orgs/o1/mirrors/o2'))!.entries())).toEqual([
+      ['id', { kind: 'lit', text: 'o2' }],
+    ]);
     expect(Array.from(unifyPatterns(repeatedRule, p('firestore', 'orgs/{orgId}/mirrors/{orgId}'))!.entries())).toEqual([
       ['id', { kind: 'var', name: 'orgId' }],
     ]);
-    expect(unifyPatterns(repeatedRule, p('firestore', 'orgs/{orgId}/mirrors/{otherId}'))).toBeNull();
-    expect(unifyPatterns(repeatedRule, p('firestore', 'orgs/o1/mirrors/{otherId}'))).toBeNull();
+    expect(Array.from(unifyPatterns(repeatedRule, p('firestore', 'orgs/{orgId}/mirrors/{otherId}'))!.entries())).toEqual([
+      ['id', { kind: 'var', name: 'otherId' }],
+    ]);
+    expect(Array.from(unifyPatterns(repeatedRule, p('firestore', 'orgs/o1/mirrors/{otherId}'))!.entries())).toEqual([
+      ['id', { kind: 'var', name: 'otherId' }],
+    ]);
 
     const repeatedRest = p('firestore', 'orgs/{r=**}/sep/{r=**}');
-    expect(unifyPatterns(repeatedRest, p('firestore', 'orgs/{u}/{v}/sep/{u}/{w}'))).toBeNull();
-    expect(Array.from(unifyPatterns(repeatedRest, p('firestore', 'orgs/{u}/{v}/sep/{u}/{v}'))!.entries())).toEqual([
+    expect(Array.from(unifyPatterns(repeatedRest, p('firestore', 'orgs/{u}/{v}/sep/{u}/{w}'))!.entries())).toEqual([
       ['r', { kind: 'rest', name: 'u' }],
+    ]);
+    expect(Array.from(unifyPatterns(repeatedRest, p('firestore', 'orgs/{u}/{v}/sep/tail'))!.entries())).toEqual([
+      ['r', { kind: 'lit', text: 'tail' }],
     ]);
 
     const mixedVarAndRest = p('firestore', 'orgs/{r}/sep/{r=**}');
-    expect(unifyPatterns(mixedVarAndRest, p('firestore', 'orgs/acme/sep'))).toBeNull();
-    expect(unifyPatterns(mixedVarAndRest, p('firestore', 'orgs/acme/sep/acme/extra'))).toBeNull();
+    expect(Array.from(unifyPatterns(mixedVarAndRest, p('firestore', 'orgs/acme/sep'))!.entries())).toEqual([
+      ['r', { kind: 'lit', text: '' }],
+    ]);
+    expect(Array.from(unifyPatterns(mixedVarAndRest, p('firestore', 'orgs/acme/sep/acme/extra'))!.entries())).toEqual([
+      ['r', { kind: 'lit', text: 'acme/extra' }],
+    ]);
     expect(Array.from(unifyPatterns(mixedVarAndRest, p('firestore', 'orgs/acme/sep/acme'))!.entries())).toEqual([
       ['r', { kind: 'lit', text: 'acme' }],
     ]);

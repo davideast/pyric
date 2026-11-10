@@ -83,8 +83,7 @@ export function resolveFailGate(
   if (token === 'static-proof') {
     return {
       ok: true,
-      matches: (d) =>
-        shouldFailOnDiagnostic(d, { includeHeuristic: includeHeuristicFlag }),
+      matches: (d) => d.certainty === 'static-proof',
     };
   }
 

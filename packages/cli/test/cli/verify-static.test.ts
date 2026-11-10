@@ -283,6 +283,33 @@ export async function runTargets() {
         'storage-content-type-mismatch@media-bucket',
         'rtdb-missing-index-on@shard-a',
       ]);
+
+      const urlIo = bufferIo();
+      const urlCode = await runVerifyStatic(
+        parseArgs([
+          'verify',
+          '--static',
+          '--root',
+          dir,
+          '--rules',
+          `firestore:analytics=${join(dir, 'analytics.rules')}`,
+          '--rules',
+          `rtdb:https://shard-a.firebaseio.com=${join(dir, 'shard-a.rules.json')}`,
+          '--rules',
+          `database:https://shard-b.europe-west1.firebasedatabase.app=${join(dir, 'shard-b.rules.json')}`,
+          '--rules',
+          `storage:gs://media-bucket=${join(dir, 'media.storage.rules')}`,
+          '--json',
+        ]),
+        urlIo,
+      );
+      expect(urlCode).toBe(1);
+      const urlOut = JSON.parse(urlIo.getOut()) as {
+        diagnostics: Array<{ code: string; resourceId: string }>;
+      };
+      expect(urlOut.diagnostics.map((d) => `${d.code}@${d.resourceId}`)).toContain(
+        'rtdb-missing-index-on@shard-a',
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

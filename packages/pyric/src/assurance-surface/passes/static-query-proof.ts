@@ -4,7 +4,6 @@
  * {@link proveListQuery} and residual simulation, emitting deterministic
  * {@link AssuranceDiagnostic} items with copy-paste `.where(...)` remediation.
  */
-import { parseToAST } from '../../rules/grammar/FirestoreParser.js';
 import { SimulateFirestoreRulesHandler } from '../../rules/simulator/handler.js';
 import {
   sortAssuranceDiagnostics,
@@ -15,6 +14,7 @@ import type {
   SdkRef,
   SdkUsageIndex,
 } from '../code/usage-index.js';
+import { parseFirestoreRulesAstWithMultiMatch } from '../rules/rules-ast-utils.js';
 import {
   concretizeQueryTarget,
   expandQueryArmsWithTruncation,
@@ -24,7 +24,10 @@ import {
   type ArmFailure,
   type ResolvedDatabaseRules,
 } from './static-query-proof-eval.js';
-import { normalizeDatabaseRootAst } from './static-query-proof-rules.js';
+import {
+  normalizeDatabaseRootAst,
+  rulesetHasRootForDatabase,
+} from './static-query-proof-rules.js';
 
 const DIAGNOSTIC_CODE = 'firestore-unprovable-list-query';
 
@@ -32,6 +35,8 @@ export interface StaticQueryProofRulesConfig {
   readonly rules?: Readonly<Record<string, string>> | string;
   readonly defaultDatabaseId?: string;
   readonly rulesFile?: Readonly<Record<string, string>> | string;
+  readonly modules?: Readonly<Record<string, string>>;
+  readonly sharedDefaultRules?: boolean;
 }
 
 export type StaticQueryProofPassOptions = string | StaticQueryProofRulesConfig;
@@ -85,34 +90,60 @@ function createRulesResolver(
     }
     let source: string | undefined;
     let file = 'firestore.rules';
+    let usedSharedFallback = false;
     if (typeof options === 'string') {
-      if (resourceId === defaultDbId) source = options;
+      source = options;
+      if (resourceId !== defaultDbId) usedSharedFallback = true;
     } else if (typeof options.rules === 'string') {
       if (resourceId === defaultDbId || (resourceId === '(default)' && options.defaultDatabaseId === undefined)) {
         source = options.rules;
         file = resolveRulesFile(options.rulesFile, resourceId, defaultDbId);
+      } else if (options.defaultDatabaseId === undefined) {
+        source = options.rules;
+        file = resolveRulesFile(options.rulesFile, '(default)', defaultDbId);
+        usedSharedFallback = true;
       }
     } else if (options.rules !== undefined) {
       source = lookupOwn(options.rules, resourceId);
       if (source === undefined && resourceId === '(default)') {
         source = lookupOwn(options.rules, defaultDbId);
       }
-      file = resolveRulesFile(options.rulesFile, resourceId, defaultDbId);
+      if (source !== undefined) {
+        file = resolveRulesFile(options.rulesFile, resourceId, defaultDbId);
+      } else if (options.sharedDefaultRules === true) {
+        source = lookupOwn(options.rules, defaultDbId);
+        if (source === undefined && defaultDbId !== '(default)') {
+          source = lookupOwn(options.rules, '(default)');
+        }
+        file = resolveRulesFile(options.rulesFile, '(default)', defaultDbId);
+        usedSharedFallback = true;
+      }
     }
 
     if (source === undefined) {
       cache.set(resourceId, null);
       return null;
     }
-    const rawAst = parseToAST(source);
-    if (!rawAst) {
+    const lowerOpts: {
+      targetService: 'cloud.firestore';
+      sourceFile: string;
+      modules?: Readonly<Record<string, string>>;
+    } = {
+      targetService: 'cloud.firestore',
+      sourceFile: file,
+    };
+    if (typeof options !== 'string' && options.modules !== undefined) {
+      lowerOpts.modules = options.modules;
+    }
+    const parsed = parseFirestoreRulesAstWithMultiMatch(source, lowerOpts);
+    if (!parsed || (usedSharedFallback && !rulesetHasRootForDatabase(parsed.ast, resourceId))) {
       cache.set(resourceId, null);
       return null;
     }
     const resolved: ResolvedDatabaseRules = {
-      source,
+      source: parsed.source,
       file,
-      ast: normalizeDatabaseRootAst(rawAst, resourceId),
+      ast: normalizeDatabaseRootAst(parsed.ast, resourceId),
     };
     cache.set(resourceId, resolved);
     return resolved;

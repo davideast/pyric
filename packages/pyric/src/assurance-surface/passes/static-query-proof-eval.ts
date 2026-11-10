@@ -602,6 +602,93 @@ function canSucceedWithOptimisticParams(
   return false;
 }
 
+function setNestedResourceField(
+  root: Record<string, unknown>,
+  fieldPath: string,
+  value: unknown,
+): void {
+  const parts = fieldPath.split('.').filter((p) => p.length > 0);
+  if (parts.length === 0) return;
+  let cursor = root;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const seg = parts[i]!;
+    const existing = Object.hasOwn(cursor, seg) ? cursor[seg] : undefined;
+    if (existing !== null && typeof existing === 'object' && !Array.isArray(existing)) {
+      cursor = existing as Record<string, unknown>;
+    } else {
+      const next: Record<string, unknown> = {};
+      defineOwn(cursor, seg, next);
+      cursor = next;
+    }
+  }
+  defineOwn(cursor, parts[parts.length - 1]!, value);
+}
+
+function witnessValueForWhere(op: string, raw: QueryWhereConstraint['value']): unknown {
+  if (op === '==') return raw;
+  if (op === 'in') return Array.isArray(raw) && raw.length > 0 ? raw[0] : raw;
+  if (op === 'array-contains') return [raw];
+  if (op === 'array-contains-any') {
+    return Array.isArray(raw) && raw.length > 0 ? [raw[0]] : [];
+  }
+  if (op === '>' && typeof raw === 'number') return raw + 1;
+  if (op === '>=' && typeof raw === 'number') return raw;
+  if (op === '<' && typeof raw === 'number') return raw - 1;
+  if (op === '<=' && typeof raw === 'number') return raw;
+  if (op === '!=') {
+    if (typeof raw === 'number') return raw + 1;
+    if (typeof raw === 'boolean') return !raw;
+    if (typeof raw === 'string') return `${raw}_alt`;
+    return 'non-null';
+  }
+  return undefined;
+}
+
+function canSucceedAgainstUnsupportedPredicate(
+  simulator: SimulateFirestoreRulesHandler,
+  evaluationAst: FirestoreRules,
+  rulesSource: string,
+  placeholderPath: string,
+  target: ConcretizedQueryTarget,
+  projected: ProjectedQueryArm,
+  failures: readonly QueryProofFailure[],
+): boolean {
+  if (
+    !failures.some(
+      (f) => f.kind === 'unsupported-predicate' || f.kind === 'unsupported-path',
+    )
+  ) {
+    return false;
+  }
+  const wheres = projected.constraints.where ?? [];
+  if (wheres.length === 0 && projected.unresolvedWheres.length === 0) {
+    return false;
+  }
+  const candidateResource: Record<string, unknown> = {};
+  for (const w of wheres) {
+    const val = witnessValueForWhere(w.op, w.value);
+    if (val !== undefined) {
+      setNestedResourceField(candidateResource, w.field, val);
+    }
+  }
+  for (const slot of projected.unresolvedWheres) {
+    const val = witnessValueForWhere(slot.op, SYNTH_UID);
+    if (val !== undefined) {
+      setNestedResourceField(candidateResource, slot.field, val);
+    }
+  }
+  return allowsResidualForAnyActor(
+    simulator,
+    evaluationAst,
+    rulesSource,
+    placeholderPath,
+    target,
+    projected,
+    candidateResource,
+    projected.constraints,
+  );
+}
+
 export function evaluateCandidateArm(
   simulator: SimulateFirestoreRulesHandler,
   dbRules: ResolvedDatabaseRules,
@@ -645,6 +732,18 @@ export function evaluateCandidateArm(
   if (target.hasPartialPath || projected.hasUnknownConstraint || check.hasUnseededFallbackRule) {
     certainty = 'heuristic';
   } else if (check.usedRequestQuery && projected.hasDynamicLimit) {
+    certainty = 'heuristic';
+  } else if (
+    canSucceedAgainstUnsupportedPredicate(
+      simulator,
+      evaluationAst,
+      dbRules.source,
+      placeholderPath,
+      target,
+      projected,
+      check.failures,
+    )
+  ) {
     certainty = 'heuristic';
   } else if (
     canSucceedWithOptimisticParams(

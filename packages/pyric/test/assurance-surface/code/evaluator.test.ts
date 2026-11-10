@@ -201,4 +201,39 @@ describe('Evaluator', () => {
     });
     expect(alternatives(h.ev.eval(h.ident('a.ts', 'out', 0))).map(literalText)).toEqual(['orgs/g1/items/default-item']);
   });
+
+  test('preserves non-optional object spread keys and overwrites shadowed properties in evaluation order', () => {
+    const h = harness({
+      'a.ts': `
+        declare const flag: boolean;
+        const base = { orgId: 'org-1', kind: 'doc' };
+        const override = { kind: 'image' };
+        const maybeExtra = flag ? { tag: 'v1' } : undefined;
+        const merged = { ...base, kind: 'override-lit' };
+        const spreadOverridden = { kind: 'stale', ...override, extra: 1 };
+        const conditionalSpread = { ...base, ...maybeExtra };
+      `,
+    });
+    const mergedVal = h.ev.force(h.ev.eval(h.ident('a.ts', 'merged', 0)));
+    expect(mergedVal.k).toBe('obj');
+    if (mergedVal.k === 'obj') {
+      expect(mergedVal.optional.size).toBe(0);
+      expect(alternatives(mergedVal.props.get('orgId')!).map(literalText)).toEqual(['org-1']);
+      expect(alternatives(mergedVal.props.get('kind')!).map(literalText)).toEqual(['override-lit']);
+    }
+
+    const spreadOverriddenVal = h.ev.force(h.ev.eval(h.ident('a.ts', 'spreadOverridden', 0)));
+    expect(spreadOverriddenVal.k).toBe('obj');
+    if (spreadOverriddenVal.k === 'obj') {
+      expect(spreadOverriddenVal.optional.size).toBe(0);
+      expect(alternatives(spreadOverriddenVal.props.get('kind')!).map(literalText)).toEqual(['image']);
+    }
+
+    const conditionalVal = h.ev.force(h.ev.eval(h.ident('a.ts', 'conditionalSpread', 0)));
+    expect(conditionalVal.k).toBe('obj');
+    if (conditionalVal.k === 'obj') {
+      expect(conditionalVal.optional.has('orgId')).toBe(false);
+      expect(conditionalVal.optional.has('tag')).toBe(true);
+    }
+  });
 });

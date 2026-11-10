@@ -130,6 +130,59 @@ describe('lookupSeeds', () => {
       'teams/t-9/members/u-peer',
     ]);
   });
+
+  test('seeds auth-keyed Firestore get(...).data field values across shadowed nested rule wildcards', () => {
+    const conditions: OwnerCondition[] = [
+      {
+        service: 'firestore',
+        path: 'orgs/{id}/items/{id}',
+        ops: ['create', 'update'],
+        kind: 'lookup',
+        field: 'members/{auth.uid}#active',
+        relation: 'exists',
+        seedValue: true,
+        required: true,
+        source: 'firestore.rules:7',
+        expression: 'get(...).data.active == true',
+      },
+      {
+        service: 'firestore',
+        path: 'orgs/{id}/items/{id}',
+        ops: ['create', 'update'],
+        kind: 'lookup',
+        field: 'members/{auth.uid}#role',
+        relation: 'exists',
+        seedValue: 'editor',
+        required: true,
+        source: 'firestore.rules:8',
+        expression: 'get(...).data.role == "editor"',
+      },
+    ];
+    const seeds = lookupSeeds(
+      'firestore',
+      'orgs/org-1/items/item-2',
+      'orgs/org-1/items/item-2',
+      conditions,
+      [],
+      ACTORS,
+    );
+    expect(seeds).toEqual([
+      {
+        actor: 'admin',
+        service: 'firestore',
+        method: 'set',
+        path: 'members/u-owner',
+        data: { active: true, role: 'editor' },
+      },
+      {
+        actor: 'admin',
+        service: 'firestore',
+        method: 'set',
+        path: 'members/u-peer',
+        data: { active: true, role: 'editor' },
+      },
+    ]);
+  });
 });
 
 describe('crossServiceLookupSeeds', () => {

@@ -24,6 +24,12 @@ describe('storage-step-builder', () => {
     expect(synthesizeMatchingContentType('application/vnd\\.custom\\..+')).toMatch(
       /^application\/vnd\.custom\..+$/,
     );
+    expect(synthesizeMatchingContentType('text/csv;\\s*charset=utf-8')).toMatch(
+      /^text\/csv;\s*charset=utf-8$/,
+    );
+    expect(
+      synthesizeMatchingContentType('application/vnd\\.items\\+json(;\\s*version=\\d+)?'),
+    ).toMatch(/^application\/vnd\.items\+json(;\s*version=\d+)?$/);
   });
 
   test('merges StorageMetadataConstraint size, contentType, and customMetadata keys across entries', () => {

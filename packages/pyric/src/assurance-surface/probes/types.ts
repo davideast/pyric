@@ -94,6 +94,8 @@ export interface ProbeResult {
   /** Why the probe is invalid, when it is. */
   reason?: string;
   steps: StepResult[];
+  /** Scoped `[owner, peer]` actor profiles (including per-probe extracted token claims) used when executing this probe. */
+  actors?: readonly [ProbeActor, ProbeActor];
 }
 
 /** A finding in `surface-report.json`. */

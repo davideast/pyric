@@ -2,6 +2,7 @@
  * Step construction, MIME/constraint synthesis, and path binding helpers for
  * Cloud Storage assurance probes.
  */
+import { re2FullMatch } from '../../rules/simulator/rules-type.js';
 import type { AccessSite } from '../code/types.js';
 import {
   coversPattern,
@@ -63,14 +64,6 @@ export function setStorageOwn<T>(target: Record<string, T>, key: string, value: 
   });
 }
 
-function fullMatchRegex(pattern: string): RegExp | undefined {
-  try {
-    return new RegExp(`^(?:${pattern})$`);
-  } catch {
-    return undefined;
-  }
-}
-
 const SAMPLE_CHARS = [
   'a',
   '1',
@@ -82,17 +75,29 @@ const SAMPLE_CHARS = [
   '.',
   '+',
   '/',
+  ' ',
 ];
 
-function sampleCharClass(charClass: string): string {
-  const re = fullMatchRegex(charClass);
-  if (!re) return 'x';
-  for (const ch of SAMPLE_CHARS) {
-    if (re.test(ch)) return ch;
+function safeMatchesContentType(pattern: string, subject: string): boolean | null {
+  try {
+    return re2FullMatch(pattern, subject);
+  } catch {
+    try {
+      return new RegExp(`^(?:${pattern})$`).test(subject);
+    } catch {
+      return null;
+    }
   }
-  for (let code = 33; code <= 126; code += 1) {
+}
+
+function sampleCharClass(charClass: string): string {
+  if (safeMatchesContentType(charClass, '') === null) return 'x';
+  for (const ch of SAMPLE_CHARS) {
+    if (safeMatchesContentType(charClass, ch) === true) return ch;
+  }
+  for (let code = 32; code <= 126; code += 1) {
     const ch = String.fromCharCode(code);
-    if (re.test(ch)) return ch;
+    if (safeMatchesContentType(charClass, ch) === true) return ch;
   }
   return 'x';
 }
@@ -109,29 +114,38 @@ export function contentTypeMatchesPattern(
   pattern: string | undefined,
 ): boolean {
   if (pattern === undefined || pattern.length === 0) return true;
-  const compiled = fullMatchRegex(pattern);
-  if (!compiled) return false;
-  return compiled.test(contentType);
+  return safeMatchesContentType(pattern, contentType) === true;
 }
 
-/** Synthesize a concrete MIME `contentType` string satisfying a Storage `.matches(...)` regex. */
-export function synthesizeMatchingContentType(pattern: string | undefined): string {
-  if (pattern === undefined || pattern.length === 0) return 'application/octet-stream';
-  const compiled = fullMatchRegex(pattern);
-  if (!compiled) return 'application/octet-stream';
-  for (const candidate of CANDIDATE_MIMES) {
-    if (compiled.test(candidate)) return candidate;
+function expandContentTypePatternVariant(
+  pattern: string,
+  options: { dropOptionalGroups: boolean; spaceStarAsSpace: boolean },
+): string {
+  let candidate = pattern
+    .replace(/^(?:\\A|\^)+/, '')
+    .replace(/(?:\\z|\$)+$/, '')
+    .replace(/^\(\?[a-z-]+\)/i, '')
+    .replace(/^(?:\\A|\^)+/, '')
+    .replace(/(?:\\z|\$)+$/, '');
+  if (options.dropOptionalGroups) {
+    for (let i = 0; i < 6; i += 1) {
+      const next = candidate.replace(/\((?:\?:)?[^()]*\)\?/g, '');
+      if (next === candidate) break;
+      candidate = next;
+    }
   }
-  let candidate = pattern.replace(/^\^+/, '').replace(/\$+$/, '');
   for (let i = 0; i < 6; i += 1) {
     const next = candidate.replace(/\((?:\?:)?([^()|]+)(?:\|[^()]*)+\)/g, '($1)');
     if (next === candidate) break;
     candidate = next;
   }
-  candidate = candidate
-    .replace(/(\[\^[^\]]+\]|\[[^\]]+\])\{(\d+)(?:,\d*)?\}/g, (_m, cls: string, min: string) =>
-      sampleCharClass(cls).repeat(clampRepeatCount(min)),
+  const spaceOptional = options.spaceStarAsSpace ? ' ' : '';
+  return candidate
+    .replace(
+      /(\[\^\[:[^\]]+:\]\]|\[\[:[^\]]+:\]\]|\[\^[^\]]+\]|\[[^\]]+\])\{(\d+)(?:,\d*)?\}/g,
+      (_m, cls: string, min: string) => sampleCharClass(cls).repeat(clampRepeatCount(min)),
     )
+    .replace(/\\s\{(\d+)(?:,\d*)?\}/g, (_m, min: string) => ' '.repeat(clampRepeatCount(min)))
     .replace(/\\d\{(\d+)(?:,\d*)?\}/g, (_m, min: string) => '1'.repeat(clampRepeatCount(min)))
     .replace(/\\w\{(\d+)(?:,\d*)?\}/g, (_m, min: string) => 'a'.repeat(clampRepeatCount(min)))
     .replace(/\\(.)\{(\d+)(?:,\d*)?\}/g, (_m, ch: string, min: string) =>
@@ -144,19 +158,41 @@ export function synthesizeMatchingContentType(pattern: string | undefined): stri
     .replace(/([^\\[\]()+*?{}])\{(\d+)(?:,\d*)?\}/g, (_m, ch: string, min: string) =>
       ch.repeat(clampRepeatCount(min)),
     )
-    .replace(/\\\./g, '.')
-    .replace(/\\\//g, '/')
-    .replace(/\\-/g, '-')
-    .replace(/\\\+/g, '+')
+    .replace(/\\s\+/g, ' ')
+    .replace(/\\s\*/g, spaceOptional)
+    .replace(/\\s\?/g, spaceOptional)
+    .replace(/\\s/g, ' ')
     .replace(/\\d[+*]?/g, '1')
     .replace(/\\w[+*]?/g, 'a')
-    .replace(/(\[\^[^\]]+\]|\[[^\]]+\])[+*]?/g, (_m, cls: string) => sampleCharClass(cls))
-    .replace(/\.\+/g, 'a')
-    .replace(/\.\*/g, 'a')
-    .replace(/[?+*]/g, '')
-    .replace(/\(\?:/g, '(')
-    .replace(/[()]/g, '');
-  if (compiled.test(candidate)) return candidate;
+    .replace(
+      /(\[\^\[:[^\]]+:\]\]|\[\[:[^\]]+:\]\]|\[\^[^\]]+\]|\[[^\]]+\])[+*]?/g,
+      (_m, cls: string) => sampleCharClass(cls),
+    )
+    .replace(/(?<!\\)\.\+/g, 'a')
+    .replace(/(?<!\\)\.\*/g, 'a')
+    .replace(/(?<!\\)[?+*]/g, '')
+    .replace(/(?<!\\)\(\?:/g, '(')
+    .replace(/(?<!\\)[()]/g, '')
+    .replace(/\\([./\-+?*()])/g, '$1');
+}
+
+/** Synthesize a concrete MIME `contentType` string satisfying a Storage `.matches(...)` regex. */
+export function synthesizeMatchingContentType(pattern: string | undefined): string {
+  if (pattern === undefined || pattern.length === 0) return 'application/octet-stream';
+  if (safeMatchesContentType(pattern, '') === null) return 'application/octet-stream';
+  for (const candidate of CANDIDATE_MIMES) {
+    if (safeMatchesContentType(pattern, candidate) === true) return candidate;
+  }
+  const variants: Array<{ dropOptionalGroups: boolean; spaceStarAsSpace: boolean }> = [
+    { dropOptionalGroups: false, spaceStarAsSpace: true },
+    { dropOptionalGroups: true, spaceStarAsSpace: true },
+    { dropOptionalGroups: false, spaceStarAsSpace: false },
+    { dropOptionalGroups: true, spaceStarAsSpace: false },
+  ];
+  for (const variant of variants) {
+    const candidate = expandContentTypePatternVariant(pattern, variant);
+    if (safeMatchesContentType(pattern, candidate) === true) return candidate;
+  }
   return 'application/octet-stream';
 }
 
@@ -203,7 +239,7 @@ export function mergedStorageConstraint(entries: readonly RuleSurfaceEntry[]): S
 }
 
 export function isProbeableStorageSite(site: AccessSite): boolean {
-  if (site.service !== 'storage' || site.resolution === 'unresolved') return false;
+  if (site.admin || site.service !== 'storage' || site.resolution === 'unresolved') return false;
   if (site.path.includes('=**')) return false;
   if (STORAGE_LIST_OPS.has(site.op) && site.path === '') return true;
   if (!site.path) return false;
@@ -438,13 +474,11 @@ export function buildCompliantUploadStep(
 ): ProbeStep {
   let contentType = synthesizeMatchingContentType(constraint.contentTypePattern);
   const clientMime = site.storageUpload?.contentType;
-  if (clientMime !== undefined) {
-    if (constraint.contentTypePattern === undefined) {
-      contentType = clientMime;
-    } else {
-      const compiled = fullMatchRegex(constraint.contentTypePattern);
-      if (compiled && compiled.test(clientMime)) contentType = clientMime;
-    }
+  if (
+    clientMime !== undefined
+    && contentTypeMatchesPattern(clientMime, constraint.contentTypePattern)
+  ) {
+    contentType = clientMime;
   }
   const step: ProbeStep = {
     actor: actorRole,
@@ -513,13 +547,11 @@ export function buildCompliantUpdateStep(
   if (constraint.contentTypePattern !== undefined || site.storageUpload?.contentType !== undefined) {
     let contentType = synthesizeMatchingContentType(constraint.contentTypePattern);
     const clientMime = site.storageUpload?.contentType;
-    if (clientMime !== undefined) {
-      if (constraint.contentTypePattern === undefined) {
-        contentType = clientMime;
-      } else {
-        const compiled = fullMatchRegex(constraint.contentTypePattern);
-        if (compiled && compiled.test(clientMime)) contentType = clientMime;
-      }
+    if (
+      clientMime !== undefined
+      && contentTypeMatchesPattern(clientMime, constraint.contentTypePattern)
+    ) {
+      contentType = clientMime;
     }
     step.contentType = contentType;
   }

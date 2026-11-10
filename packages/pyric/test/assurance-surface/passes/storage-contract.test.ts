@@ -421,4 +421,80 @@ describe('storageContractPass', () => {
       },
     ]);
   });
+
+  it('evaluates RE2 POSIX character classes, \\A...\\z anchors, inline (?i) flags, and single-rule || branches identically to split allow statements', () => {
+    const rules = `
+      rules_version = '2';
+      service firebase.storage {
+        match /b/{bucket}/o {
+          match /posix/{file} {
+            allow create: if request.resource.contentType.matches('[[:alpha:]]+/[[:alpha:]]+');
+          }
+          match /anchored/{file} {
+            allow create: if request.resource.contentType.matches('\\\\Aimage/png\\\\z');
+          }
+          match /inline-flag/{file} {
+            allow create: if request.resource.contentType.matches('(?i)image/(png|jpeg)');
+          }
+          match /disjunctive/{file} {
+            allow write: if request.auth != null && (
+              (request.resource.contentType.matches('image/.*')
+                && request.resource.size < 1000
+                && 'orgId' in request.resource.metadata)
+              || (request.resource.contentType.matches('video/.*')
+                && request.resource.size < 50000)
+            );
+          }
+        }
+      }
+    `;
+
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/re2-and-or.ts': `
+          import { getStorage, ref, uploadBytes } from 'pyric/storage';
+          const st = getStorage();
+
+          export async function run() {
+            await uploadBytes(ref(st, 'posix/ok.png'), new Uint8Array(8), { contentType: 'image/png' });
+            await uploadBytes(ref(st, 'anchored/ok.png'), new Uint8Array(8), { contentType: 'image/png' });
+            await uploadBytes(ref(st, 'inline-flag/upper.png'), new Uint8Array(8), { contentType: 'IMAGE/PNG' });
+            await uploadBytes(ref(st, 'inline-flag/bad.pdf'), new Uint8Array(8), { contentType: 'application/pdf' });
+            await uploadBytes(ref(st, 'disjunctive/oversized.png'), new Uint8Array(10000), {
+              contentType: 'image/png',
+              customMetadata: {},
+            });
+          }
+        `,
+      },
+    });
+
+    const diagnostics = storageContractPass(usage, rules);
+    expect(
+      diagnostics.map((d) => ({
+        code: d.code,
+        certainty: d.certainty,
+        path: d.resource
+          ? d.resource.segments.map((s) => (s.kind === 'lit' ? s.text : `{${s.name}}`)).join('/')
+          : '',
+      })),
+    ).toEqual([
+      {
+        code: 'storage-content-type-mismatch',
+        certainty: 'static-proof',
+        path: 'inline-flag/bad.pdf',
+      },
+      {
+        code: 'storage-max-size-exceeded',
+        certainty: 'static-proof',
+        path: 'disjunctive/oversized.png',
+      },
+      {
+        code: 'storage-missing-custom-metadata',
+        certainty: 'static-proof',
+        path: 'disjunctive/oversized.png',
+      },
+    ]);
+  });
 });

@@ -1,8 +1,12 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { extractSdkUsage } from '../../../src/assurance-surface/code/usage-index.js';
+import { staticQueryProofPass } from '../../../src/assurance-surface/passes/static-query-proof.js';
+import { firestoreRequiredClaims, storageRequiredClaims } from '../../../src/assurance-surface/rules/claims.js';
 import { loadRuleSources, parseRtdbRulesText } from '../../../src/assurance-surface/rules/rule-sources.js';
+import { projectRuleSurface } from '../../../src/assurance-surface/rules/rule-surface.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'rule-sources-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -125,6 +129,204 @@ describe('loadRuleSources', () => {
       ]);
     } finally {
       rmSync(multiDir, { recursive: true, force: true });
+    }
+  });
+
+  test('bundles 2+modules stdlib and relative .rules imports for Firestore and Storage and enforces project containment on relative imports', () => {
+    const modDir = mkdtempSync(join(tmpdir(), 'rule-sources-modules-'));
+    try {
+      const helpersDir = join(modDir, 'rules', 'helpers');
+      rmSync(helpersDir, { recursive: true, force: true });
+      writeFileSync(
+        join(modDir, 'firebase.json'),
+        JSON.stringify({
+          firestore: { rules: 'firestore.rules' },
+          storage: { rules: 'storage.rules' },
+        }),
+      );
+      writeFileSync(
+        join(modDir, 'tenant.rules'),
+        `export function isSameOrg(orgId) {
+  return request.auth.token.orgId == orgId;
+}
+`,
+      );
+      writeFileSync(
+        join(modDir, 'firestore.rules'),
+        `rules_version = '2+modules';
+import { isAuthenticated } from 'auth';
+import { isSameOrg } from './tenant.rules';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orgs/{orgId}/items/{itemId} {
+      allow get, list: if isAuthenticated() && isSameOrg(orgId) && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}
+`,
+      );
+      writeFileSync(
+        join(modDir, 'storage.rules'),
+        `rules_version = '2+modules';
+import { isAuthenticated, isOwner } from 'auth';
+import { contentTypeMatches } from 'storage/uploads';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{fileName} {
+      allow write: if isAuthenticated() && isOwner(uid) && contentTypeMatches('image/.*');
+    }
+  }
+}
+`,
+      );
+
+      const loaded = loadRuleSources(modDir);
+      expect(loaded.problems).toEqual([]);
+      expect(loaded.firestore).toHaveLength(1);
+      expect(loaded.firestore[0]!.text).toContain("rules_version = '2';");
+      expect(loaded.firestore[0]!.text).toContain('request.auth.token.orgId == orgId');
+      expect(loaded.storage).toHaveLength(1);
+      expect(loaded.storage![0]!.text).toContain("rules_version = '2';");
+      expect(loaded.storage![0]!.text).toContain('image/.*');
+
+      const usage = extractSdkUsage({
+        root: '/virtual',
+        files: {
+          'src/app.ts': `
+            import { getFirestore, collection, getDocs } from 'firebase/firestore';
+            export async function loadItems() {
+              await getDocs(collection(getFirestore(), 'orgs', 'acme', 'items'));
+            }
+          `,
+        },
+      });
+      const rawModularFs = `rules_version = '2+modules';
+import { isAuthenticated } from 'auth';
+import { hasRole } from './roles.rules';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orgs/{orgId}/items/{itemId} {
+      allow get, list: if isAuthenticated() && hasRole('editor') && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}`;
+      const modules = {
+        './roles.rules': `export function hasRole(expected) { return request.auth.token.role == expected; }`,
+      };
+      const diags = staticQueryProofPass(usage, {
+        rules: rawModularFs,
+        modules,
+      });
+      expect(diags.map((d) => d.code)).toContain('firestore-unprovable-list-query');
+
+      const claims = firestoreRequiredClaims(rawModularFs, {
+        path: 'orgs/acme/items/i1',
+        op: 'get',
+        modules,
+      });
+      expect(claims).toEqual({ role: 'editor' });
+
+      const rawModularStorage = `rules_version = '2+modules';
+import { isAuthenticated } from 'auth';
+import { contentTypeMatches } from 'storage/uploads';
+import { hasRole } from './roles.rules';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{fileName} {
+      allow write: if isAuthenticated() && hasRole('uploader') && contentTypeMatches('image/.*');
+    }
+  }
+}`;
+      const storageClaims = storageRequiredClaims(rawModularStorage, {
+        path: 'users/u1/pic.png',
+        op: 'create',
+        modules,
+      });
+      expect(storageClaims).toEqual({ role: 'uploader' });
+
+      const surface = projectRuleSurface({
+        firestore: [{ source: 'firestore.rules', text: rawModularFs, modules }],
+        storage: [{ source: 'storage.rules', text: rawModularStorage, modules }],
+      });
+      const storageEntry = surface.entries.find((e) => e.pattern.service === 'storage');
+      expect(storageEntry?.storageMetadata?.contentTypePattern).toContain('image/.*');
+    } finally {
+      rmSync(modDir, { recursive: true, force: true });
+    }
+  });
+
+  test('resolves active project alias from XDG firebase-tools configstore and normalizes *-default-rtdb without .firebaserc', () => {
+    const tmpBase = mkdtempSync(join(tmpdir(), 'pyric-rule-sources-rc-'));
+    const prevXdg = process.env.XDG_CONFIG_HOME;
+    try {
+      const projDir = join(tmpBase, 'multi-alias');
+      const xdgDir = join(tmpBase, 'xdg');
+      mkdirSync(projDir, { recursive: true });
+      mkdirSync(join(xdgDir, 'configstore'), { recursive: true });
+      writeFileSync(
+        join(projDir, '.firebaserc'),
+        JSON.stringify({
+          projects: { staging: 'proj-stage', prod: 'proj-prod' },
+          targets: {
+            'proj-stage': {
+              firestore: { secondaryDb: ['db-stage'] },
+              database: { secondaryRtdb: ['inst-stage'] },
+              storage: { assets: ['stage-assets'] },
+            },
+          },
+        }),
+      );
+      writeFileSync(
+        join(xdgDir, 'configstore', 'firebase-tools.json'),
+        JSON.stringify({ activeProjects: { [projDir]: 'staging' } }),
+      );
+      writeFileSync(
+        join(projDir, 'firebase.json'),
+        JSON.stringify({
+          firestore: [{ target: 'secondaryDb', rules: 'fs.rules' }],
+          database: [{ target: 'secondaryRtdb', rules: 'db.rules.json' }],
+          storage: [{ target: 'assets', rules: 'st.rules' }],
+        }),
+      );
+      writeFileSync(
+        join(projDir, 'fs.rules'),
+        "rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /items/{id} { allow read: if true; } } }",
+      );
+      writeFileSync(join(projDir, 'db.rules.json'), JSON.stringify({ rules: { '.read': true } }));
+      writeFileSync(
+        join(projDir, 'st.rules'),
+        "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /docs/{id} { allow read: if true; } } }",
+      );
+
+      process.env.XDG_CONFIG_HOME = xdgDir;
+      const stageLoaded = loadRuleSources(projDir);
+      expect(stageLoaded.firestore.map((s) => s.database)).toEqual(['db-stage']);
+      expect(stageLoaded.rtdb.map((s) => s.instance)).toEqual(['inst-stage']);
+      expect(stageLoaded.storage?.map((s) => s.bucket)).toEqual(['stage-assets']);
+
+      const noRcDir = join(tmpBase, 'no-rc');
+      mkdirSync(noRcDir, { recursive: true });
+      writeFileSync(
+        join(noRcDir, 'firebase.json'),
+        JSON.stringify({
+          database: [
+            { instance: 'proj-1-default-rtdb', rules: 'default.rules.json' },
+            { instance: 'secondary-rtdb', rules: 'secondary.rules.json' },
+          ],
+        }),
+      );
+      writeFileSync(join(noRcDir, 'default.rules.json'), JSON.stringify({ rules: { '.read': true } }));
+      writeFileSync(join(noRcDir, 'secondary.rules.json'), JSON.stringify({ rules: { '.read': false } }));
+
+      const noRcLoaded = loadRuleSources(noRcDir);
+      expect(noRcLoaded.rtdb.map((s) => s.instance)).toEqual([undefined, 'secondary-rtdb']);
+    } finally {
+      if (prevXdg === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = prevXdg;
+      }
+      rmSync(tmpBase, { recursive: true, force: true });
     }
   });
 });
