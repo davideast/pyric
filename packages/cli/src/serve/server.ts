@@ -285,12 +285,12 @@ export function isAllowedSessionToken(
 ): boolean {
   if (!expectedToken) return false;
   const headerToken = getHeader(req, 'x-pyric-session-token');
-  if (headerToken !== undefined) {
-    return timingSafeTokenMatch(headerToken, expectedToken);
+  if (headerToken !== undefined && timingSafeTokenMatch(headerToken, expectedToken)) {
+    return true;
   }
   const queryToken = url?.searchParams.get('token') ?? undefined;
-  if (queryToken !== undefined) {
-    return timingSafeTokenMatch(queryToken, expectedToken);
+  if (queryToken !== undefined && timingSafeTokenMatch(queryToken, expectedToken)) {
+    return true;
   }
   const cookies = extractSessionCookies(getHeader(req, 'cookie'));
   return cookies.some((cookie) => timingSafeTokenMatch(cookie, expectedToken));

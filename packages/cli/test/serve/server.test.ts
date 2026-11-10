@@ -372,11 +372,18 @@ describe('isAllowedSessionToken & session cookie bootstrap', () => {
         secret,
       ),
     ).toBe(true);
-    // Fresh explicit header or query param wins over a stale cookie from an earlier boot.
+    // Fresh explicit header or cookie wins when the other credential is stale from an earlier boot.
     expect(
       isAllowedSessionToken(
         { headers: { 'x-pyric-session-token': secret, cookie: '__pyric_session=old_boot_token' } },
         new URL('http://localhost:5000/__pyric/diagnostics'),
+        secret,
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedSessionToken(
+        { headers: { 'x-pyric-session-token': 'old_boot_token', cookie: `__pyric_session=${secret}` } },
+        new URL('http://localhost:5000/__pyric/workspace?path=firestore.rules'),
         secret,
       ),
     ).toBe(true);

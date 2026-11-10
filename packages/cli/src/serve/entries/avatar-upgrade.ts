@@ -23,7 +23,6 @@
  * only an element already showing a placeholder needs telling.
  */
 import { AVATAR_ROUTE_PREFIX } from '../assets/avatar-url.js';
-import { stampedSessionToken } from '../runtime/hosted-target.js';
 
 /** The session event stream `namespace.ts` serves. */
 const EVENTS_URL = '/__pyric/events';
@@ -43,8 +42,6 @@ export interface AvatarUpgradeHost {
   document?: Document;
   /** Defaults to opening a real `EventSource`. */
   openEventStream?: (url: string) => AvatarEventStream;
-  /** Optional session capability token appended as `?token=` on `/__pyric/events`. */
-  sessionToken?: string;
 }
 
 /** Distinct per reload, so two upgrades of one image both change its `src`
@@ -133,9 +130,7 @@ export function installAvatarUpgrades(enabled: boolean, host: AvatarUpgradeHost 
   if (!open && typeof EventSource !== 'undefined') open = openRealEventStream;
   if (!open) return;
 
-  const token = host.sessionToken ?? stampedSessionToken();
-  const eventsUrl = token ? `${EVENTS_URL}?token=${encodeURIComponent(token)}` : EVENTS_URL;
-  const stream = open(eventsUrl);
+  const stream = open(EVENTS_URL);
   const target = doc;
   stream.addEventListener('avatar-ready', (event) => {
     const key = avatarKeyFromEventData(event.data);

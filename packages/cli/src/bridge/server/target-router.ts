@@ -15,7 +15,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { discoverServe, healthyBase, canonicalServeUrl, type Discovered } from '../../serve/discovery.js';
-import { inProcessSessionTokenForPort, withMcpToken } from '../../serve/local-session-token.js';
+import { inProcessSessionTokenForPort } from '../../serve/local-session-token.js';
 import { callHostedMethod } from '../../cli/hosted-method.js';
 import { markDenial, thrownFailure } from '../surface/rules-verdict.js';
 import type { Args, Method } from '../surface/method-types.js';
@@ -132,7 +132,7 @@ export class TargetRouter {
         inProcessSessionTokenForPort(port);
       this.cachedHost = {
         pointerProjectDir: canonicalProjectDir,
-        mcpUrl: withMcpToken(`${hit.base}/__pyric/mcp`, token),
+        mcpUrl: `${hit.base}/__pyric/mcp`,
         url: canonicalServeUrl(port, raw.url),
         base: hit.base,
         instanceId: hit.instanceId,

@@ -47,10 +47,21 @@ describe('installAvatarUpgrades', () => {
     expect(stream.opened).toEqual([]);
   });
 
-  it('listens on the session event stream when upgrades are possible', () => {
-    const stream = fakeEventStream();
-    installAvatarUpgrades(true, { document: page(''), openEventStream: stream.open });
-    expect(stream.opened).toEqual(['/__pyric/events']);
+  it('listens on the session event stream without putting sessionToken in the URL', () => {
+    const prev = (globalThis as { __PYRIC_WORKER_INIT__?: unknown }).__PYRIC_WORKER_INIT__;
+    (globalThis as { __PYRIC_WORKER_INIT__?: unknown }).__PYRIC_WORKER_INIT__ = {
+      hosted: false,
+      projectKey: null,
+      bridgeUrl: null,
+      sessionToken: 'secret-session-token',
+    };
+    try {
+      const stream = fakeEventStream();
+      installAvatarUpgrades(true, { document: page(''), openEventStream: stream.open });
+      expect(stream.opened).toEqual(['/__pyric/events']);
+    } finally {
+      (globalThis as { __PYRIC_WORKER_INIT__?: unknown }).__PYRIC_WORKER_INIT__ = prev;
+    }
   });
 
   it('reloads a matching avatar image, preserving its query string', () => {

@@ -37,22 +37,3 @@ export function toPageOriginWsUrl(
     return raw;
   }
 }
-
-/**
- * Append `?token=<sessionToken>` to a browser WebSocket URL when `token` is
- * non-empty and the URL does not already carry a `token` query parameter.
- */
-export function withWsSessionToken(url: string, token: string | null | undefined): string {
-  if (!token) return url;
-  try {
-    const parsed = new URL(url, 'ws://localhost');
-    if (parsed.searchParams.has('token')) return url;
-  } catch {
-    // Fall back to string manipulation below for non-standard inputs.
-  }
-  const hashAt = url.indexOf('#');
-  const base = hashAt === -1 ? url : url.slice(0, hashAt);
-  const hash = hashAt === -1 ? '' : url.slice(hashAt);
-  const sep = base.includes('?') ? '&' : '?';
-  return `${base}${sep}token=${encodeURIComponent(token)}${hash}`;
-}

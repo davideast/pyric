@@ -56,21 +56,6 @@ export function inProcessSessionTokenForUrl(url: string | undefined): string | u
   return inProcessSessionTokenForPort(parseLoopbackPort(url));
 }
 
-/** Appends `?token=<token>` to an MCP URL when `token` is non-empty and not already present. */
-export function withMcpToken(url: string, token: string | undefined): string {
-  if (!token) return url;
-  try {
-    const parsed = new URL(url);
-    if (!parsed.searchParams.has('token')) {
-      parsed.searchParams.set('token', token);
-    }
-    return parsed.toString();
-  } catch {
-    const sep = url.includes('?') ? '&' : '?';
-    return `${url}${sep}token=${encodeURIComponent(token)}`;
-  }
-}
-
 /** Writes `content` to `filePath` and enforces `0o600` owner-only permissions even when overwriting an existing file. */
 export function writeMode600FileSync(filePath: string, content: string): void {
   mkdirSync(dirname(filePath), { recursive: true });

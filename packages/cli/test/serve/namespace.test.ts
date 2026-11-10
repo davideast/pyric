@@ -359,14 +359,14 @@ describe('namespace over the real server', () => {
 
     try {
       // 1. Rejected if unapproved Host
-      const badHostRes = await fetch(`${h.url}/__pyric/events?token=${token}`, {
-        headers: { host: 'attacker.example.com' },
+      const badHostRes = await fetch(`${h.url}/__pyric/events`, {
+        headers: { host: 'attacker.example.com', cookie: `__pyric_session=${token}` },
       });
       expect(badHostRes.status).toBe(403);
 
       // 2. Rejected if unapproved Origin
-      const badOriginRes = await fetch(`${h.url}/__pyric/events?token=${token}`, {
-        headers: { origin: 'http://malicious-site.example.com' },
+      const badOriginRes = await fetch(`${h.url}/__pyric/events`, {
+        headers: { origin: 'http://malicious-site.example.com', cookie: `__pyric_session=${token}` },
       });
       expect(badOriginRes.status).toBe(403);
 
@@ -382,10 +382,10 @@ describe('namespace over the real server', () => {
       });
       expect(unauthRes.status).toBe(401);
 
-      // 5. Allowed with loopback origin and valid token query param or cookie
+      // 5. Allowed with loopback origin and valid session cookie
       const controller = new AbortController();
-      const allowedRes = await fetch(`${h.url}/__pyric/events?token=${token}`, {
-        headers: { origin: h.url },
+      const allowedRes = await fetch(`${h.url}/__pyric/events`, {
+        headers: { origin: h.url, cookie: `__pyric_session=${token}` },
         signal: controller.signal,
       });
       expect(allowedRes.status).toBe(200);

@@ -266,4 +266,44 @@ describe('the MCP target router', () => {
     expect(result.summary).toContain('Read rooms/lobby on shard-00');
     expect(received).toEqual([args]);
   });
+
+  it('resolves pointer host with token field while keeping mcpUrl free of ?token= query parameter', async () => {
+    const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+    const { createServer } = await import('node:http');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-target-router-'));
+    const server = createServer((req, res) => {
+      if (req.url === '/__pyric/health') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', mode: 'sandbox', instanceId: 'inst-clean', sandboxConnected: true }));
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      mkdirSync(join(projectDir, '.pyric'), { recursive: true });
+      writeFileSync(
+        join(projectDir, '.pyric', 'serve.json'),
+        JSON.stringify({
+          port,
+          url: `http://127.0.0.1:${port}`,
+          mcpUrl: `http://127.0.0.1:${port}/__pyric/mcp?token=ptr-secret`,
+          instanceId: 'inst-clean',
+          token: 'ptr-secret',
+        }),
+      );
+      const router = new TargetRouter({ projectDir });
+      const resolved = await router.resolveHost();
+      expect(resolved).not.toBeNull();
+      expect(resolved!.token).toBe('ptr-secret');
+      expect(resolved!.mcpUrl).toBe(`http://127.0.0.1:${port}/__pyric/mcp`);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
 });

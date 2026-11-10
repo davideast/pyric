@@ -328,10 +328,13 @@ describe('createStudioRoutes guards and operations', () => {
       headersSent: false,
     } as any;
 
-    const badOriginReq = new Request(`http://localhost/__pyric/workspace/watch?token=${sessionToken}`, {
-      headers: { origin: 'http://malicious-site.example.com' },
+    const badOriginReq = new Request('http://localhost/__pyric/workspace/watch', {
+      headers: {
+        origin: 'http://malicious-site.example.com',
+        cookie: `__pyric_session=${encodeURIComponent(sessionToken)}`,
+      },
     });
-    await routes(badOriginReq as any, mockRes, new URL(`http://localhost/__pyric/workspace/watch?token=${sessionToken}`));
+    await routes(badOriginReq as any, mockRes, new URL('http://localhost/__pyric/workspace/watch'));
     expect(statusCode).toBe(403);
     expect(body).toContain('Forbidden: origin mismatch');
 
@@ -341,14 +344,18 @@ describe('createStudioRoutes guards and operations', () => {
     expect(statusCode).toBe(401);
     expect(body).toContain('Unauthorized: invalid session capability token');
 
-    // 3. Rejected if invalid token
-    const badTokenReq = new Request('http://localhost/__pyric/workspace/watch?token=wrong-token');
-    await routes(badTokenReq as any, mockRes, new URL('http://localhost/__pyric/workspace/watch?token=wrong-token'));
+    // 3. Rejected if invalid cookie token
+    const badTokenReq = new Request('http://localhost/__pyric/workspace/watch', {
+      headers: { cookie: '__pyric_session=wrong-token' },
+    });
+    await routes(badTokenReq as any, mockRes, new URL('http://localhost/__pyric/workspace/watch'));
     expect(statusCode).toBe(401);
 
-    // 4. Allowed if valid token and origin
+    // 4. Allowed if valid session cookie and origin
     body = '';
-    const allowedReq = new Request(`http://localhost/__pyric/workspace/watch?token=${sessionToken}`);
+    const allowedReq = new Request('http://localhost/__pyric/workspace/watch', {
+      headers: { cookie: `__pyric_session=${encodeURIComponent(sessionToken)}` },
+    });
     const unsubs: Array<() => void> = [];
     (allowedReq as any).on = (event: string, cb: () => void) => {
       if (event === 'close') unsubs.push(cb);
@@ -357,7 +364,7 @@ describe('createStudioRoutes guards and operations', () => {
       if (event === 'error') unsubs.push(cb);
     };
 
-    await routes(allowedReq as any, mockRes, new URL(`http://localhost/__pyric/workspace/watch?token=${sessionToken}`));
+    await routes(allowedReq as any, mockRes, new URL('http://localhost/__pyric/workspace/watch'));
     expect(statusCode).toBe(200);
     expect(body).toContain(': connected\n\n');
     for (const unsub of unsubs) unsub();

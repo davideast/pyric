@@ -15,7 +15,7 @@ import { workerNameForEpoch } from '../runtime/worker-generation.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 import { stampedSessionToken } from '../runtime/hosted-target.js';
 import { initPayloadRequest } from './init-payload.js';
-import { toPageOriginWsUrl, withWsSessionToken } from './bridge-url.js';
+import { toPageOriginWsUrl } from './bridge-url.js';
 
 /** Service Workers reject top-level await; defer connection setup behind the SDK handle. */
 export async function messagingSwClient(app: FirebaseApp): Promise<ClientDb | null> {
@@ -32,7 +32,7 @@ export async function messagingSwClient(app: FirebaseApp): Promise<ClientDb | nu
       if (!hasEndpoint) throw new Error('The hosted sandbox has no Messaging endpoint or project identity.');
       const token = payload.sessionToken ?? stampedSessionToken();
       client = getHostedFirestore({
-        url: withWsSessionToken(toPageOriginWsUrl(bridgeUrl, location, 'page-origin'), token),
+        url: toPageOriginWsUrl(bridgeUrl, location, 'page-origin'),
         projectKey,
         retryInitialConnection: isServiceWorkerRealm(),
         sessionToken: () => Promise.resolve(token ?? null),

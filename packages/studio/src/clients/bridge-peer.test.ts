@@ -117,9 +117,9 @@ function installFakeWebSocket(): () => void {
 
 const LOC = { href: 'http://localhost:3473/__pyric/ui/', protocol: 'http:', host: 'localhost:3473' };
 
-function servedFetch(bridgeUrl: string | null): typeof fetch {
+function servedFetch(bridgeUrl: string | null, sessionToken?: string): typeof fetch {
   return (async () =>
-    new Response(JSON.stringify({ bridgeUrl }), {
+    new Response(JSON.stringify({ bridgeUrl, ...(sessionToken ? { sessionToken } : {}) }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     })) as unknown as typeof fetch;
@@ -181,8 +181,9 @@ describe('connectStudioBridgePeer', () => {
 
     const bridge = await connectStudioBridgePeer(db, {
       // A baked host that differs from the page origin: the peer must
-      // re-anchor to the page's own host (Tailscale / LAN / https safety).
-      fetchImpl: servedFetch('ws://127.0.0.1:3473/__pyric/sandbox'),
+      // re-anchor to the page's own host (Tailscale / LAN / https safety)
+      // without leaking sessionToken into the WebSocket URL query string.
+      fetchImpl: servedFetch('ws://127.0.0.1:3473/__pyric/sandbox', 'studio-secret-token'),
       locationLike: LOC,
     });
     expect(bridge).not.toBeNull();

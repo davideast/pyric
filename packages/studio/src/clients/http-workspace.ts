@@ -160,12 +160,9 @@ export function httpWorkspace(
         }
       };
 
-      resolveSessionToken(base, explicitToken).then((token) => {
+      resolveSessionToken(base, explicitToken).then(() => {
         if (closed) return;
-        const watchUrl = token
-          ? joinUrl(base, `/__pyric/workspace/watch?token=${encodeURIComponent(token)}`)
-          : joinUrl(base, '/__pyric/workspace/watch');
-        source = new EventSource(watchUrl);
+        source = new EventSource(joinUrl(base, '/__pyric/workspace/watch'));
         source.addEventListener('change', onChange);
       });
 

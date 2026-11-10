@@ -151,4 +151,39 @@ describe('httpWorkspace client & token resolution', () => {
     await client.remove('doc.txt');
     expect(await client.read('doc.txt')).toBeNull();
   });
+
+  it('watch() opens /__pyric/workspace/watch without ?token= query parameter (relying on session cookie)', async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(JSON.stringify({ sessionToken: 'watch-secret-token' }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    });
+    servers.push(server);
+
+    const openedUrls: string[] = [];
+    const g = globalThis as Record<string, unknown>;
+    const prevEventSource = g.EventSource;
+    class FakeEventSource {
+      constructor(public url: string) {
+        openedUrls.push(url);
+      }
+      addEventListener() {}
+      removeEventListener() {}
+      close() {}
+    }
+    g.EventSource = FakeEventSource;
+    try {
+      const base = `http://localhost:${server.port}`;
+      const client = httpWorkspace(base);
+      const stop = client.watch(() => {});
+      await new Promise((r) => setTimeout(r, 25));
+      stop();
+      expect(openedUrls).toEqual([`${base}/__pyric/workspace/watch`]);
+    } finally {
+      g.EventSource = prevEventSource;
+    }
+  });
 });
