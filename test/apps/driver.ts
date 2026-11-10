@@ -8,6 +8,7 @@
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { get as httpsGet } from 'node:https';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type LaunchOptions, type Page } from '@playwright/test';
@@ -294,10 +295,20 @@ export class AppProcess {
 }
 
 export interface DevServer {
-  /** `http://127.0.0.1:<port>`, no trailing slash. */
+  /** `http://127.0.0.1:<port>` (`https://` for an HTTPS server), no trailing slash. */
   url: string;
   port: number;
   process: AppProcess;
+}
+
+export interface DevServerOptions {
+  env?: Record<string, string>;
+  name?: string;
+  port?: number;
+  /** Relative to the app directory: runs the dev server of a project the scenario created there. */
+  cwd?: string;
+  /** The app's config serves HTTPS in this run, so the url and readiness probe use https. */
+  https?: boolean;
 }
 
 export interface ScriptResult {
@@ -320,7 +331,7 @@ export interface App {
    * (relative to the app directory) runs the dev server of a project the
    * scenario created there, such as one `create-pyric` scaffolded.
    */
-  devServer(options?: { env?: Record<string, string>; name?: string; port?: number; cwd?: string }): Promise<DevServer>;
+  devServer(options?: DevServerOptions): Promise<DevServer>;
   /**
    * Starts the installed `pyric sandbox` (no Vite: the import-map plane) on a
    * free port, or on `port` when given, from the app directory, and waits
@@ -516,7 +527,25 @@ function appEnvironment(home: string, extra: Record<string, string> = {}): NodeJ
   };
 }
 
+/**
+ * Whether an HTTPS dev server answers 2xx at `url`. Its certificate is
+ * self-signed, so this one readiness probe, made by the test, skips verifying it.
+ */
+function answersOverHttps(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const request = httpsGet(url, { rejectUnauthorized: false, timeout: 2_000 }, (response) => {
+      response.resume();
+      const status = response.statusCode ?? 0;
+      response.on('end', () => resolve(status >= 200 && status < 300));
+    });
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(false));
+  });
+}
+
 async function answers(url: string): Promise<boolean> {
+  const isHttps = url.startsWith('https:');
+  if (isHttps) return answersOverHttps(url);
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
     await response.arrayBuffer();
@@ -645,7 +674,7 @@ export class AppRun implements App {
     return hole.port;
   }
 
-  async devServer(options: { env?: Record<string, string>; name?: string; port?: number; cwd?: string } = {}): Promise<DevServer> {
+  async devServer(options: DevServerOptions = {}): Promise<DevServer> {
     const port = options.port ?? await freePort(this.ports);
     this.serverCount += 1;
     const name = options.name ?? (this.serverCount === 1 ? 'dev server' : `dev server ${this.serverCount}`);
@@ -661,7 +690,7 @@ export class AppRun implements App {
     );
     child.runsUntilStopped = true;
     this.processes.push(child);
-    return this.servedHost(name, port, child);
+    return this.servedHost(name, port, child, options.https === true);
   }
 
   async sandboxServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
@@ -672,9 +701,9 @@ export class AppRun implements App {
     return this.servedHost(name, port, child);
   }
 
-  /** Waits until a host process serves `/` and `/__pyric/init.json` on `port`. */
-  private async servedHost(name: string, port: number, child: AppProcess): Promise<DevServer> {
-    const url = `http://127.0.0.1:${port}`;
+  /** Waits until a host process serves `/` and `/__pyric/init.json` on `port`, over https when `https`. */
+  private async servedHost(name: string, port: number, child: AppProcess, https = false): Promise<DevServer> {
+    const url = `${https ? 'https' : 'http'}://127.0.0.1:${port}`;
     const deadline = Date.now() + 90_000;
     for (;;) {
       if (!child.running) throw new Error(`${name} exited (code ${await child.exited}) before it served ${url}`);

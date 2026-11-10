@@ -5,6 +5,7 @@
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getDatabase } from "firebase-admin/database";
 import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 import { config } from "./config.js";
 
 const TIMEOUT_MS = 10_000;
@@ -36,6 +37,13 @@ export async function read(uid, tag) {
   out["admin.database"] = await outcome(async () => (await getDatabase(appOnce()).ref(`users/${uid}/${tag}`).get()).val());
   out["admin.firestore"] = await outcome(async () =>
     (await getFirestore(appOnce()).doc(`users/${uid}/notes/${tag}`).get()).data() ?? null);
+  out["admin.storage"] = await outcome(async () => {
+    const bucket = getStorage(appOnce()).bucket();
+    const [userBytes] = await bucket.file(`users/${uid}/${tag}.txt`).download();
+    await bucket.file(`ssr/admin-${tag}.txt`).save("admin-ssr");
+    const [adminBytes] = await bucket.file(`ssr/admin-${tag}.txt`).download();
+    return { user: userBytes.toString("utf8"), admin: adminBytes.toString("utf8") };
+  });
   out["admin.browser"] = await outcome(async () => (await getDatabase(appOnce()).ref("ssr/browser").get()).val());
   return { outcomes: out };
 }
