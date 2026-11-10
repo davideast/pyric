@@ -209,7 +209,12 @@ export function scrubStorageCustomMetadataRecord(
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw)) {
     if (FORBIDDEN_STORAGE_KEYS.has(key)) continue;
-    out[key] = sanitizeStorageMetadataEntry(key, value);
+    Object.defineProperty(out, key, {
+      value: sanitizeStorageMetadataEntry(key, value),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return out;
 }

@@ -237,7 +237,37 @@ function writeDataOf(name: string, args: readonly unknown[]): LiveWriteValue | u
   const raw = args[1];
   if (raw === undefined) return undefined;
   if (name === 'update' && !isPlainObject(raw)) return undefined;
-  return jsonValue(raw);
+  const copied = jsonValue(raw);
+  if (copied === undefined || name !== 'setWithPriority' || copied === null) return copied;
+  const priority = args[2];
+  if (priority === null) return copied;
+  const validPriority = typeof priority === 'string' || (typeof priority === 'number' && Number.isFinite(priority));
+  if (!validPriority) return copied;
+  const withPriority: Record<string, LiveWriteValue> = {};
+  if (isPlainObject(copied)) {
+    for (const [key, entry] of Object.entries(copied)) {
+      Object.defineProperty(withPriority, key, {
+        value: entry as LiveWriteValue,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+  } else {
+    Object.defineProperty(withPriority, '.value', {
+      value: copied,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  Object.defineProperty(withPriority, '.priority', {
+    value: priority,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+  return withPriority;
 }
 
 /**

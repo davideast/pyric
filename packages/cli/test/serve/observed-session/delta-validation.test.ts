@@ -113,6 +113,62 @@ describe('readObservedSessionDelta', () => {
       },
     ]);
   });
+
+  it('accepts pyric/map/1.0 envelopes, preserves string fields verbatim, and rejects nested forbidden RTDB keys', () => {
+    const delta = readObservedSessionDelta({
+      firestore: [
+        {
+          kind: 'set',
+          path: 'users/ada',
+          data: {
+            email: 'ada@example.test',
+            tokenField: 'raw-user-string',
+            coordsMap: { type: 'pyric/map/1.0', fields: { latitude: 12.5, longitude: 42.25 } },
+          },
+        },
+      ],
+      rtdb: [
+        {
+          kind: 'set',
+          instance: 'demo-default-rtdb',
+          path: '/accounts/ada',
+          value: {
+            email: 'ada@example.test',
+            label: 'active',
+          },
+        },
+      ],
+    });
+    expect(delta.firestore).toEqual([
+      {
+        kind: 'set',
+        path: 'users/ada',
+        data: {
+          email: 'ada@example.test',
+          tokenField: 'raw-user-string',
+          coordsMap: { type: 'pyric/map/1.0', fields: { latitude: 12.5, longitude: 42.25 } },
+        },
+      },
+    ]);
+    expect(delta.rtdb).toEqual([
+      {
+        kind: 'set',
+        instance: 'demo-default-rtdb',
+        path: '/accounts/ada',
+        value: {
+          email: 'ada@example.test',
+          label: 'active',
+        },
+      },
+    ]);
+
+    for (const badKey of ['nested.bad', 'a$b', 'a#b', 'a[0]', 'a/b', 'bad\u0000key']) {
+      const nestedSet = {
+        rtdb: [{ kind: 'set', instance: 'demo', path: '/items/i1', value: { [badKey]: 1 } }],
+      };
+      expect(rejectionOf(nestedSet).reason).toBe('unsupported');
+    }
+  });
 });
 
 describe('skipReasonOf', () => {

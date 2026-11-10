@@ -793,6 +793,102 @@ describe("getDatabase(app, url) on another project's default instance, on a host
   });
 });
 
+const AUTH_ACTION_EXPORTS = [
+  'applyActionCode',
+  'checkActionCode',
+  'confirmPasswordReset',
+  'verifyPasswordResetCode',
+  'fetchSignInMethodsForEmail',
+] as const;
+
+const USER_FIRST_AUTH_EXPORTS = [
+  'sendEmailVerification',
+  'verifyBeforeUpdateEmail',
+  'reload',
+  'updateProfile',
+  'updateEmail',
+  'updatePassword',
+  'deleteUser',
+  'linkWithCredential',
+  'linkWithPopup',
+  'linkWithRedirect',
+  'unlink',
+  'reauthenticateWithCredential',
+  'reauthenticateWithPopup',
+  'reauthenticateWithRedirect',
+  'getIdToken',
+  'getIdTokenResult',
+] as const;
+
+describe('auth action-code and User-first exports', () => {
+  for (const name of AUTH_ACTION_EXPORTS) {
+    test(`${name}(auth, ...) throws PYRIC_LIVE_REFUSED on another project's Auth before running`, () => {
+      const { records, observer } = hostObserver(HOST);
+      const real = standIn([name]);
+      const live = wrapLiveModule('live-auth', 'firebase/auth', real.module, siteOf(observer));
+      const error = thrown(() => live[name]!({ app: appOn(OTHER) }, 'code-1'));
+      expect({ code: error?.code, field: error?.field, appProjectId: error?.appProjectId, hostProjectId: error?.hostProjectId }).toEqual({
+        code: LIVE_REFUSED,
+        field: 'projectId',
+        appProjectId: OTHER,
+        hostProjectId: HOST,
+      });
+      expect(real.ran).toEqual([]);
+      expect(records).toEqual([]);
+
+      expect(thrown(() => live[name]!({ app: appOn(HOST) }, 'code-1'))).toBeUndefined();
+      expect(real.ran).toEqual([name]);
+    });
+  }
+
+  for (const name of USER_FIRST_AUTH_EXPORTS) {
+    test(`${name}(user, ...) reads user.auth.app.options and refuses another project's User before running`, () => {
+      const { records, observer } = hostObserver(HOST);
+      const real = standIn([name]);
+      const live = wrapLiveModule('live-auth', 'firebase/auth', real.module, siteOf(observer));
+      const otherUser = { uid: 'u-other', auth: { app: appOn(OTHER) } };
+      const hostUser = { uid: 'u-host', auth: { app: appOn(HOST) } };
+      const error = thrown(() => live[name]!(otherUser, 'arg-1'));
+      expect({ code: error?.code, field: error?.field, appProjectId: error?.appProjectId, hostProjectId: error?.hostProjectId }).toEqual({
+        code: LIVE_REFUSED,
+        field: 'projectId',
+        appProjectId: OTHER,
+        hostProjectId: HOST,
+      });
+      expect(real.ran).toEqual([]);
+      expect(records).toEqual([]);
+
+      expect(thrown(() => live[name]!(hostUser, 'arg-1'))).toBeUndefined();
+      expect(real.ran).toEqual([name]);
+    });
+  }
+});
+
+describe('Cloud Storage uppercase and malformed bucket refusal', () => {
+  test('lowercases StorageReference.bucket before judging cross-project default buckets', () => {
+    const { records, observer } = hostObserver(HOST);
+    const { ran, invoke } = storageCall(siteOf(observer), appOn(HOST), `${OTHER.toUpperCase()}.Appspot.com`);
+    const error = thrown(invoke);
+    expect({ code: error?.code, field: error?.field, appProjectId: error?.appProjectId, hostProjectId: error?.hostProjectId }).toEqual({
+      code: LIVE_REFUSED,
+      field: 'bucket',
+      appProjectId: OTHER,
+      hostProjectId: HOST,
+    });
+    expect(ran).toEqual([]);
+    expect(records).toEqual([]);
+  });
+
+  test('fails closed with PYRIC_LIVE_REFUSED when StorageReference.bucket is a non-empty malformed bucket string', () => {
+    const { records, observer } = hostObserver(HOST);
+    const { ran, invoke } = storageCall(siteOf(observer), appOn(HOST), `gs://${OTHER}.appspot.com/extra`);
+    const error = thrown(invoke);
+    expect(error?.code).toBe(LIVE_REFUSED);
+    expect(ran).toEqual([]);
+    expect(records).toEqual([]);
+  });
+});
+
 describe('the project refusal', () => {
   test('carries the live refusal code and names both projects and the client', () => {
     const error = refusal.liveProjectRefusal('getDoc', { field: 'projectId', appProjectId: OTHER, hostProjectId: HOST }, 'node');

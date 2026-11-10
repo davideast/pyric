@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { createSandboxRoot } from 'pyric/sandbox/internal';
-import { getFirestore, getDoc, doc } from 'pyric/firestore';
+import { getFirestore, getDoc, doc, getAdminFirestore, setDoc } from 'pyric/firestore';
+import { getAdminDatabase, get as databaseGet, ref as databaseRef, sandbox as rtdbSandbox } from 'pyric/database';
 import { listAll, ref } from 'pyric/storage';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import {
@@ -173,5 +174,71 @@ describe('seedFromObservedSession Storage zero-byte invariant', () => {
     } finally {
       rmSync(ownedDir, { recursive: true, force: true });
     }
+  });
+
+  it('clears held named RTDB instances on replace and rolls back Firestore and RTDB state atomically on error', async () => {
+    const sandbox = createSandboxRoot();
+    const dbName = `pyric-seed-atomic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const ctx: HostCtx = {
+      sandbox,
+      db: getFirestore(sandbox),
+      adminStorage: getAdminStorageSandbox(sandbox, { dbName }),
+      subs: new Map(),
+      instanceId: 'seed-atomic-test',
+    };
+    const adminDb = getAdminFirestore(sandbox);
+    await setDoc(doc(adminDb, 'items/existing'), { title: 'KeepOnError' });
+    const defaultAdminRtdb = getAdminDatabase(sandbox);
+    rtdbSandbox.setData(defaultAdminRtdb, { counters: { n: 7 } });
+    const secondaryAdminRtdb = getAdminDatabase(sandbox, 'secondary-db');
+    rtdbSandbox.setData(secondaryAdminRtdb, { stale: { keep: 'until-replace' } });
+
+    const failingSnapshot: ObservedSessionDataSnapshot = {
+      revision: 4,
+      updatedAt: 400,
+      projectId: 'demo-proj',
+      firestore: { 'items/new-doc': { title: 'PartialWrite' } },
+      rtdb: { default: { bad: { 'nested.invalid': 1 } } },
+      defaultRtdbInstance: 'default',
+      stats: {
+        firestoreDocs: 1,
+        rtdbInstances: 1,
+        byteEstimate: 64,
+        truncated: false,
+        droppedCount: 0,
+      },
+    };
+    await expect(seedFromObservedSession(ctx, failingSnapshot, 'replace')).rejects.toThrow();
+
+    expect((await getDoc(doc(ctx.db, 'items/existing'))).data()).toEqual({ title: 'KeepOnError' });
+    expect((await getDoc(doc(ctx.db, 'items/new-doc'))).exists()).toBe(false);
+    expect((await databaseGet(databaseRef(defaultAdminRtdb, '/counters/n'))).val()).toBe(7);
+    expect((await databaseGet(databaseRef(secondaryAdminRtdb, '/stale/keep'))).val()).toBe('until-replace');
+
+    const validReplace: ObservedSessionDataSnapshot = {
+      revision: 5,
+      updatedAt: 500,
+      projectId: 'demo-proj',
+      firestore: { 'items/fresh': { title: 'Fresh' } },
+      rtdb: { default: { counters: { n: 1 } } },
+      defaultRtdbInstance: 'default',
+      stats: {
+        firestoreDocs: 1,
+        rtdbInstances: 1,
+        byteEstimate: 64,
+        truncated: false,
+        droppedCount: 0,
+      },
+    };
+    const result = await seedFromObservedSession(ctx, validReplace, 'replace');
+    expect(result).toEqual({
+      mode: 'replace',
+      seededFirestoreDocs: 1,
+      seededRtdbInstances: ['default'],
+    });
+    expect((await getDoc(doc(ctx.db, 'items/existing'))).exists()).toBe(false);
+    expect((await getDoc(doc(ctx.db, 'items/fresh'))).data()).toEqual({ title: 'Fresh' });
+    expect((await databaseGet(databaseRef(defaultAdminRtdb, '/counters/n'))).val()).toBe(1);
+    expect((await databaseGet(databaseRef(secondaryAdminRtdb, '/'))).val()).toBeNull();
   });
 });

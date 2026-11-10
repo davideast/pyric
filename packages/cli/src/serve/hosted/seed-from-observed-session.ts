@@ -24,7 +24,7 @@
  * folder prefixes only (zero raw binary bytes), so seeding never fabricates
  * 0-byte placeholder blobs in `.pyric/state/hosted`.
  */
-import { sdkActivity } from 'pyric/sandbox/internal';
+import { captureSandboxSnapshot, restoreSandboxSnapshot, sdkActivity } from 'pyric/sandbox/internal';
 import { deleteDoc, doc, getAdminFirestore, setDoc, type Firestore } from 'pyric/firestore';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
 import {
@@ -34,6 +34,7 @@ import {
   sandbox as rtdbSandbox,
   set as databaseSet,
 } from 'pyric/database';
+import { heldDatabaseInstances } from 'pyric/database/internal';
 import type { HostCtx } from '../worker/host.js';
 import { rtdbInstance, rtdbInstances } from '../worker/host/rtdb-instances.js';
 import { ensureGitignored } from '../capture-store.js';
@@ -70,9 +71,18 @@ async function clearLocalData(ctx: HostCtx, adminDb: Firestore): Promise<void> {
     await deleteDoc(doc(adminDb, existingPath));
   }
   await databaseRemove(databaseRef(getAdminDatabase(ctx.sandbox)));
+  const clearedSelectors = new Set<string>();
   for (const [, instance] of rtdbInstances(ctx).entries()) {
     if (instance.selector === undefined) continue;
+    clearedSelectors.add(instance.selector);
     await databaseRemove(databaseRef(getAdminDatabase(ctx.sandbox, instance.selector)));
+  }
+  for (const instanceName of heldDatabaseInstances(ctx.sandbox)) {
+    if (instanceName === 'default') continue;
+    const selector = selectorOf(ctx, instanceName) ?? `https://${instanceName}.firebaseio.com`;
+    if (clearedSelectors.has(selector)) continue;
+    clearedSelectors.add(selector);
+    await databaseRemove(databaseRef(getAdminDatabase(ctx.sandbox, selector)));
   }
 }
 
@@ -94,7 +104,7 @@ async function seedRtdbInstance(ctx: HostCtx, instanceName: string, observedTree
   await databaseSet(databaseRef(adminRtdb, '/'), nextTree as never);
 }
 
-/** Writes the snapshot into the local sandbox; the caller flushes persistence and restores listeners. */
+/** Writes the snapshot into the local sandbox; rolls back atomically on error. */
 export async function seedFromObservedSession(
   ctx: HostCtx,
   snapshot: ObservedSessionDataSnapshot,
@@ -102,16 +112,22 @@ export async function seedFromObservedSession(
 ): Promise<ObservedSeedResult> {
   const result: ObservedSeedResult = { mode, seededFirestoreDocs: 0, seededRtdbInstances: [] };
   await sdkActivity.silence(async () => {
-    const adminDb = getAdminFirestore(ctx.sandbox);
-    if (mode === 'replace') await clearLocalData(ctx, adminDb);
-    const merge = mode === 'merge';
-    for (const [docPath, rawDoc] of Object.entries(snapshot.firestore)) {
-      await setDoc(doc(adminDb, docPath), rehydrateFirestoreDocData(adminDb, rawDoc), { merge });
-      result.seededFirestoreDocs += 1;
-    }
-    for (const [instanceName, observedTree] of Object.entries(snapshot.rtdb)) {
-      await seedRtdbInstance(ctx, instanceName, observedTree, mode);
-      result.seededRtdbInstances.push(instanceName);
+    const preSeedSnapshot = await captureSandboxSnapshot(ctx.sandbox);
+    try {
+      const adminDb = getAdminFirestore(ctx.sandbox);
+      if (mode === 'replace') await clearLocalData(ctx, adminDb);
+      const merge = mode === 'merge';
+      for (const [docPath, rawDoc] of Object.entries(snapshot.firestore)) {
+        await setDoc(doc(adminDb, docPath), rehydrateFirestoreDocData(adminDb, rawDoc), { merge });
+        result.seededFirestoreDocs += 1;
+      }
+      for (const [instanceName, observedTree] of Object.entries(snapshot.rtdb)) {
+        await seedRtdbInstance(ctx, instanceName, observedTree, mode);
+        result.seededRtdbInstances.push(instanceName);
+      }
+    } catch (error) {
+      await restoreSandboxSnapshot(ctx.sandbox, preSeedSnapshot);
+      throw error;
     }
   });
   return result;

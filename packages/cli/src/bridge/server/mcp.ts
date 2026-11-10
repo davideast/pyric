@@ -15,12 +15,18 @@ import type { Bridge, BridgeToolResult } from './bridge.js';
 import type { ToolMetadata } from './tool-metadata.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
 import { createOperationBudget } from '../operation-budget.js';
+import { toolFamilies } from '../tool-families.js';
+import type { PyricWriteRefusal } from '../../serve/hosted/own-writes.js';
 
 export interface RegisterToolsOptions {
   /** Metadata for tools whose dispatch goes to the bridge peer. */
   forwarded: ToolMetadata[];
   /** Live handlers for tools that execute in-process on the bridge. */
   inProcess: ToolHandler[];
+  /** Runtime mode stamped onto MCP envelopes and in-process tool events. Defaults to `'sandbox'`. */
+  mode?: 'sandbox' | 'live';
+  /** Live mode's refusal for mutating/identity-switching in-process tools. */
+  writeRefusal?: PyricWriteRefusal;
   /**
    * Called for a `tools/call` the MCP SDK refuses before any handler runs, so
    * the call is still observable. Every other call is recorded by the handler
@@ -110,13 +116,14 @@ export function toMcpResult(
   result: BridgeToolResult,
   project: string,
   target: 'host' | 'in-process' = 'in-process',
+  mode: 'sandbox' | 'live' = 'sandbox',
 ) {
   // Wrap the bridge's tool result in MCP's content envelope. Include
   // sandbox provenance + project label + target in a metadata block so the calling
   // agent can always tell which target the tool hit.
   const body = {
     ...result,
-    _pyric: { mode: 'sandbox', project, target },
+    _pyric: { mode, project, target },
   };
   return {
     content: [
@@ -153,6 +160,12 @@ export function buildMcpServer(
   const registerTool = server.tool as RegisterMcpTool;
   const operationBudget = createOperationBudget();
   const callerId = crypto.randomUUID();
+  const bridgeMode: 'sandbox' | 'live' = options.mode ?? 'sandbox';
+  const inProcessEffects = new Map<string, 'read' | 'write'>(
+    toolFamilies('in-process').flatMap(
+      (family) => Object.entries(family.tools) as Array<[string, 'read' | 'write']>,
+    ),
+  );
 
   async function admitToolCall(
     tool: string,
@@ -164,10 +177,10 @@ export function buildMcpServer(
     if (isRefused) {
       const result = { ok: false, summary: `${reservation.error.code}: ${reservation.error.message}` };
       bridge.recordToolEvent({
-        timestamp: new Date().toISOString(), mode: 'sandbox', project: bridge.project,
+        timestamp: new Date().toISOString(), mode: bridgeMode, project: bridge.project,
         tool, args, result, durationMs: 0, isError: true,
       });
-      return toMcpResult(result, bridge.project);
+      return toMcpResult(result, bridge.project, 'in-process', bridgeMode);
     }
     try {
       return await run();
@@ -202,7 +215,7 @@ export function buildMcpServer(
         markHandlerRan(extra);
         return admitToolCall(meta.name, args ?? {}, async () => {
           const result = await bridge.dispatch(meta.name, args ?? {}, extra.signal, callerId);
-          return toMcpResult(result, bridge.project);
+          return toMcpResult(result, bridge.project, 'host', bridgeMode);
         });
       },
     );
@@ -221,6 +234,26 @@ export function buildMcpServer(
         markHandlerRan(extra);
         return admitToolCall(handler.name, args ?? {}, async () => {
           const startedAtMs = Date.now();
+          if (options.writeRefusal !== undefined && inProcessEffects.get(handler.name) === 'write') {
+            const refusalError = options.writeRefusal({ action: handler.name, writer: 'mcp' });
+            const code = (refusalError as { code?: string }).code ?? 'PYRIC_LIVE_REFUSED';
+            const refused = {
+              ok: false as const,
+              summary: refusalError.message,
+              data: { code },
+            };
+            bridge.recordToolEvent({
+              timestamp: new Date(startedAtMs).toISOString(),
+              mode: bridgeMode,
+              project: bridge.project,
+              tool: handler.name,
+              args: args ?? {},
+              result: refused,
+              durationMs: Date.now() - startedAtMs,
+              isError: true,
+            });
+            return toMcpResult(refused, bridge.project, 'in-process', bridgeMode);
+          }
           try {
             // The bridge supplies an AbortSignal-less ToolContext; tools
             // that genuinely need cancellation should still respect a
@@ -236,14 +269,15 @@ export function buildMcpServer(
             };
             bridge.recordToolEvent({
               timestamp: new Date(startedAtMs).toISOString(),
-              mode: 'sandbox',
+              mode: bridgeMode,
               project: bridge.project,
               tool: handler.name,
               args: args ?? {},
               result: normalised,
               durationMs: Date.now() - startedAtMs,
+              isError: !normalised.ok,
             });
-            return toMcpResult(normalised, bridge.project);
+            return toMcpResult(normalised, bridge.project, 'in-process', bridgeMode);
           } catch (err) {
             const isError = err instanceof Error;
             const result = {
@@ -252,14 +286,15 @@ export function buildMcpServer(
             };
             bridge.recordToolEvent({
               timestamp: new Date(startedAtMs).toISOString(),
-              mode: 'sandbox',
+              mode: bridgeMode,
               project: bridge.project,
               tool: handler.name,
               args: args ?? {},
               result,
               durationMs: Date.now() - startedAtMs,
+              isError: true,
             });
-            return toMcpResult(result, bridge.project);
+            return toMcpResult(result, bridge.project, 'in-process', bridgeMode);
           }
         });
       },

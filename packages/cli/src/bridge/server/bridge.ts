@@ -46,6 +46,8 @@ export type BridgeToolResult = ToolResult;
 export type SendToPeer = (msg: BridgeMessage) => void;
 
 export interface BridgeOptions {
+  /** Runtime mode stamped onto MCP envelopes and tool events. Defaults to `'sandbox'`. */
+  mode?: 'sandbox' | 'live';
   /** Payload-free protocol diagnostics; defaults to the bridge stderr logger. */
   logger?: BridgeLogger;
   /** Sandbox label surfaced in /health and audit-log paths. */
@@ -93,7 +95,7 @@ export interface BridgeToolEventRun {
 
 export interface BridgeToolEvent {
   timestamp: string;
-  mode: 'sandbox';
+  mode: 'sandbox' | 'live';
   project: string;
   /** The tool name as the MCP client sent it, before any surface mapping. */
   tool: string;
@@ -295,6 +297,7 @@ function workerOpError(
 }
 
 export function createBridge(opts: BridgeOptions): Bridge {
+  const mode: 'sandbox' | 'live' = opts.mode ?? 'sandbox';
   const project = opts.project ?? 'sandbox';
   const version = opts.version;
   const callTimeoutMs = opts.callTimeoutMs ?? 30_000;
@@ -442,7 +445,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
       try {
         onToolEvent({
           timestamp: new Date(startedAtMs).toISOString(),
-          mode: 'sandbox',
+          mode,
           project,
           tool: name,
           args,
