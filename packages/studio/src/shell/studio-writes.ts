@@ -14,6 +14,7 @@ import { doc as inProcessDoc, setDoc as inProcessSetDoc } from 'pyric/firestore'
 import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
 import { setRules as workerSetRules } from '@pyric/cli/serve/worker';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
+import { studioSessionHeaders } from './serve-init.js';
 import { useStudioDataSource } from './studio-data.js';
 import { useSandboxWorkerLive } from './use-sandbox-worker-gate.js';
 
@@ -168,7 +169,8 @@ export function useStudioReset(): () => Promise<{ errors: string[] }> {
       await applySeed(dev.handles);
     } else {
       try {
-        const payload = await fetch('/__pyric/init.json').then((r) => (r.ok ? r.json() : null));
+        const headers = studioSessionHeaders();
+        const payload = await (headers ? fetch('/__pyric/init.json', { headers }) : fetch('/__pyric/init.json')).then((r) => (r.ok ? r.json() : null));
         const seedMap = payload?.seed as Record<string, Record<string, unknown>> | undefined;
         if (seedMap) {
           await seedDocs(Object.entries(seedMap).map(([path, docData]) => ({ path, data: docData })));

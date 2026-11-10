@@ -199,20 +199,26 @@ describe('the dangerous case warns once', () => {
 });
 
 describe('host health lists the proxy targets', () => {
-  function healthBody(mount: ReturnType<typeof createBridgeMount>): Promise<Record<string, unknown>> {
+  function healthBody(
+    mount: ReturnType<typeof createBridgeMount>,
+    authenticated = true,
+  ): Promise<Record<string, unknown>> {
     let body = '';
     const res = {
       writeHead() { return res; },
       end(chunk?: unknown) { body = String(chunk); return res; },
     };
-    const req = { method: 'GET', headers: { host: 'localhost:5173' }, socket: { remoteAddress: '127.0.0.1', localPort: 5173 }, on() { return req; } };
+    const headers: Record<string, string> = { host: 'localhost:5173' };
+    if (authenticated) headers['x-pyric-session-token'] = mount.sessionToken;
+    const req = { method: 'GET', headers, socket: { remoteAddress: '127.0.0.1', localPort: 5173 }, on() { return req; } };
     const url = new URL('http://localhost/__pyric/health');
     return mount.handler(req as never, res as never, url).then(() => JSON.parse(body) as Record<string, unknown>);
   }
 
-  it('reports each context with its verdict', async () => {
+  it('reports each context with its verdict when authenticated and omits proxyTargets when unauthenticated', async () => {
     const mount = createBridgeMount({ disableAuditLog: true });
     const stop = reportProxyTargets(mount.instanceId, () => [{ context: '/api', verdict: 'not-pyric' }]);
+    expect((await healthBody(mount, false)).proxyTargets).toBeUndefined();
     expect((await healthBody(mount)).proxyTargets).toEqual([{ context: '/api', verdict: 'not-pyric' }]);
     stop();
     expect((await healthBody(mount)).proxyTargets).toBeUndefined();

@@ -21,6 +21,7 @@ import {
   type AnsweringHost,
   type Discovered,
 } from '../serve/discovery.js';
+import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 
 export interface ResolveRemoteHostOptions {
   /** Project root for `.pyric/serve.json` discovery. */
@@ -42,6 +43,8 @@ export interface ResolvedRemoteHost {
   serveUrl: string;
   /** The loopback base the health probe reached; sockets dial it. */
   wsBase: string;
+  /** Per-boot capability token for the resolved host, when available locally. */
+  token?: string;
 }
 
 function hostError(code: string, message: string): Error & { code: string } {
@@ -78,9 +81,19 @@ async function resolveConfiguredHost(configuredUrl: string, options: ResolveRemo
   if (choice.kind === 'refused') throw hostError('failed-precondition', choice.message);
   if (choice.kind === 'project') {
     warnOncePerUrl(configuredUrl, `pyric: ${choice.notice}`, options.warn);
-    return { serveUrl: choice.host.url, wsBase: choice.host.base };
+    const token = resolveSessionTokenForTarget({
+      explicitToken: choice.host.token,
+      url: choice.host.base,
+      cwd: options.cwd,
+    });
+    return { serveUrl: choice.host.url, wsBase: choice.host.base, ...(token !== undefined ? { token } : {}) };
   }
-  return { serveUrl: choice.serveUrl, wsBase: choice.base };
+  const token = resolveSessionTokenForTarget({
+    explicitToken: choice.token,
+    url: choice.base,
+    cwd: options.cwd,
+  });
+  return { serveUrl: choice.serveUrl, wsBase: choice.base, ...(token !== undefined ? { token } : {}) };
 }
 
 async function discoverProjectHost(options: ResolveRemoteHostOptions): Promise<ResolvedRemoteHost> {
@@ -95,7 +108,12 @@ async function discoverProjectHost(options: ResolveRemoteHostOptions): Promise<R
         (refused.length > 0 ? ` ${refused.join(' ')}` : ''),
     );
   }
-  return { serveUrl: found.url, wsBase: found.base };
+  const token = resolveSessionTokenForTarget({
+    explicitToken: found.token,
+    url: found.base,
+    cwd: options.cwd,
+  });
+  return { serveUrl: found.url, wsBase: found.base, ...(token !== undefined ? { token } : {}) };
 }
 
 export async function resolveRemoteHost(options: ResolveRemoteHostOptions): Promise<ResolvedRemoteHost> {
@@ -103,7 +121,8 @@ export async function resolveRemoteHost(options: ResolveRemoteHostOptions): Prom
   const hasExplicitUrl = requestedUrl !== undefined && requestedUrl.length > 0;
   if (hasExplicitUrl) {
     const serveUrl = requestedUrl.replace(/\/$/, '');
-    return { serveUrl, wsBase: serveUrl };
+    const token = resolveSessionTokenForTarget({ url: serveUrl, cwd: options.cwd });
+    return { serveUrl, wsBase: serveUrl, ...(token !== undefined ? { token } : {}) };
   }
   const configuredUrl = options.configuredUrl;
   const hasConfiguredUrl = configuredUrl !== undefined && configuredUrl.length > 0;

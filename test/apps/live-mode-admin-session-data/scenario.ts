@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { scenario, sleep, type App, type ExpectedCrash } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App, type ExpectedCrash } from '../driver.ts';
 import { buildRecording, INSTANCE, PROJECT, SECRET_VALUE } from './recording.ts';
 
 const RECORDING_FILE = 'session-recording.json';
@@ -94,8 +94,9 @@ interface SessionSnapshot {
   };
 }
 
-async function hostJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function hostJson<T>(app: App, base: string, path: string): Promise<T> {
+  const url = `${base}${path}`;
+  const response = await fetch(url, { headers: sessionHeaders(app, base) });
   assert.equal(response.status, 200, `${url} answered ${response.status}`);
   return (await response.json()) as T;
 }
@@ -122,10 +123,9 @@ interface CapturedEvent {
   detail?: { sdk?: string };
 }
 
-async function adminCaptureEvents(base: string): Promise<{ raw: string; events: CapturedEvent[] }> {
-  const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
+async function adminCaptureEvents(app: App, base: string): Promise<{ raw: string; events: CapturedEvent[] }> {
   const response = await fetch(`${base}/__pyric/capture`, {
-    headers: { 'x-pyric-session-token': sessionToken },
+    headers: sessionHeaders(app, base),
   });
   if (response.status === 404) return { raw: '', events: [] };
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
@@ -244,7 +244,7 @@ export default scenario(async (app) => {
     'session-data holds Admin Firestore docs and RTDB trees with sources.admin=true, skips.admin=0, value-free Traffic/logs, and zero .pyric/ disk writes',
     async () => {
       const snapshot = await eventually(
-        () => hostJson<SessionSnapshot>(`${host.url}/__pyric/live/session-data`),
+        () => hostJson<SessionSnapshot>(app, host.url, '/__pyric/live/session-data'),
         (snap) => Object.keys(snap.firestore).length >= 9 && INSTANCE in snap.rtdb,
         'Admin session-data snapshot',
       );
@@ -317,7 +317,7 @@ export default scenario(async (app) => {
       });
 
       const captured = await eventually(
-        () => adminCaptureEvents(host.url),
+        () => adminCaptureEvents(app, host.url),
         (c) => c.events.length >= 28,
         'Admin capture events',
       );
@@ -377,7 +377,7 @@ export default scenario(async (app) => {
       assert.deepEqual(await clientPage.evaluate(() => readCatalogItem()), { label: 'Widget' });
 
       const combined = await eventually(
-        () => hostJson<SessionSnapshot>(`${host.url}/__pyric/live/session-data`),
+        () => hostJson<SessionSnapshot>(app, host.url, '/__pyric/live/session-data'),
         (snap) => snap.sources?.client === true && snap.sources?.admin === true,
         'Combined Client + Admin session-data snapshot',
       );

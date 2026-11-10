@@ -185,9 +185,16 @@ function geminiStandIn(): Promise<{ url: string; seen: Seen[]; echoed: Echoed[];
  * origin, and return what the dev server answers it.
  */
 async function workerRouteAnswer(host: DevServer): Promise<{ status: number; text: string }> {
+  const boot = await fetch(host.url);
+  await boot.text();
+  const cookie = boot.headers.getSetCookie().find((entry) => entry.startsWith('__pyric_session='))?.split(';', 1)[0];
   const response = await fetch(new URL(`/__pyric/ai-proxy/gemini/v1beta/models/${ECHO_MODEL}:generateContent`, host.url), {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin: new URL(host.url).origin },
+    headers: {
+      'content-type': 'application/json',
+      origin: new URL(host.url).origin,
+      ...(cookie ? { cookie } : {}),
+    },
     body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Say hi' }] }] }),
   });
   return { status: response.status, text: await response.text() };

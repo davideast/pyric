@@ -84,9 +84,21 @@ function started(command: string, args: string[], cwd: string, env: Record<strin
   return { child, output: () => output, exited };
 }
 
-async function healthOf(url: string): Promise<Record<string, unknown> | null> {
+function sessionHeaders(root: string): Record<string, string> {
   try {
-    const response = await fetch(`${url}/__pyric/health`);
+    const pointer = JSON.parse(readFileSync(join(root, '.pyric/serve.json'), 'utf8')) as { token?: string };
+    return typeof pointer.token === 'string' && pointer.token.length > 0
+      ? { 'x-pyric-session-token': pointer.token }
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function healthOf(url: string, root?: string): Promise<Record<string, unknown> | null> {
+  try {
+    const headers = root ? sessionHeaders(root) : undefined;
+    const response = await fetch(`${url}/__pyric/health`, headers ? { headers } : undefined);
     return response.ok ? (await response.json()) as Record<string, unknown> : null;
   } catch {
     return null;
@@ -98,10 +110,10 @@ async function healthOf(url: string): Promise<Record<string, unknown> | null> {
  * as soon as it listens, before `startHostedSandbox` connects the sandbox,
  * and a call in that window is refused with "sandbox not connected".
  */
-async function waitForHost(host: Started, url: string): Promise<Record<string, unknown>> {
+async function waitForHost(host: Started, url: string, root: string): Promise<Record<string, unknown>> {
   const deadline = Date.now() + 90_000;
   for (;;) {
-    const health = await healthOf(url);
+    const health = await healthOf(url, root);
     if (health?.sandboxConnected === true) return health;
     if (host.child.exitCode !== null) throw new Error(`the host exited:\n${host.output()}`);
     if (Date.now() > deadline) {
@@ -155,10 +167,14 @@ function project(roots: string[], rcProject = PROJECT_ID, appProject = PROJECT_I
 }
 
 /** One JSON-RPC request to the host's MCP route, keeping the session it opened. */
-function mcpClient(base: string) {
+function mcpClient(base: string, root: string) {
   let sessionId: string | null = null;
   return async (id: number | null, method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown> | null> => {
-    const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+      ...sessionHeaders(root),
+    };
     if (sessionId !== null) headers['mcp-session-id'] = sessionId;
     const body: Record<string, unknown> = { jsonrpc: '2.0', method, params };
     if (id !== null) body.id = id;
@@ -198,7 +214,7 @@ test.describe('pyric-live', () => {
     const url = `http://127.0.0.1:${port}`;
     const host = started('node', [liveBin(root), '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], root, { HOME: home });
     hosts.push(host);
-    const health = await waitForHost(host, url);
+    const health = await waitForHost(host, url, root);
     // The host prints how clients reach it after it starts serving.
     await waitForOutput(host, 'node --import @pyric/live/register server.js');
     expect(health.live).toEqual({
@@ -235,7 +251,7 @@ test.describe('pyric-live', () => {
     await chip.locator('[data-expand]').click();
     await expect(chip.locator('.panel-header [data-chip-live]')).toHaveCount(1);
     // The host's count: the listener's delivery; the failed read and the Auth call are not billed.
-    expect((await healthOf(url))?.live).toMatchObject({ appProjectIds: [PROJECT_ID], billed: { reads: 0, writes: 0, deliveries: 1 } });
+    expect((await healthOf(url, root))?.live).toMatchObject({ appProjectIds: [PROJECT_ID], billed: { reads: 0, writes: 0, deliveries: 1 } });
     await chip.locator('[data-chip-tab=traffic]').click();
     await chip.locator('[data-traffic-from]').selectOption('all');
     const rows = chip.locator('[data-traffic-rows] [data-request-row]');
@@ -289,8 +305,8 @@ process.exit(0);
     const url = `http://127.0.0.1:${port}`;
     const host = started('node', [liveBin(root), '--no-open', '--host', '127.0.0.1', '--port', String(port)], root, { HOME: root });
     hosts.push(host);
-    await waitForHost(host, url);
-    expect((await healthOf(url))?.live).toMatchObject({ projectId: 'staging-demo', configProjectId: 'staging-demo' });
+    await waitForHost(host, url, root);
+    expect((await healthOf(url, root))?.live).toMatchObject({ projectId: 'staging-demo', configProjectId: 'staging-demo' });
 
     const server = started('node', ['--import', '@pyric/live/register', 'server.mjs'], root, { HOME: root, CLOSED_PORT: String(backendPort) });
     const finished = await server.exited;
@@ -301,7 +317,7 @@ process.exit(0);
     const refused = 'PYRIC_LIVE_REFUSED';
     expect(JSON.parse(result ?? '{}')).toEqual({ codes: { firestore: refused, auth: refused, listener: refused } });
     expect(connections).toBe(0);
-    expect((await healthOf(url))?.live).toMatchObject({ projectId: 'staging-demo', appProjectIds: [], billed: { reads: 0, writes: 0, deliveries: 0 } });
+    expect((await healthOf(url, root))?.live).toMatchObject({ projectId: 'staging-demo', appProjectIds: [], billed: { reads: 0, writes: 0, deliveries: 0 } });
   });
 
   test('refuses a seed file: a live host makes none of pyric\'s own writes', async () => {
@@ -323,9 +339,9 @@ process.exit(0);
     const url = `http://127.0.0.1:${port}`;
     const host = started('node', [liveBin(root), '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], root, { HOME: root });
     hosts.push(host);
-    const health = await waitForHost(host, url) as { instanceId: string };
+    const health = await waitForHost(host, url, root) as { instanceId: string };
 
-    const mcp = mcpClient(url);
+    const mcp = mcpClient(url, root);
     await mcp(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'live-command', version: '0' } });
     await mcp(null, 'notifications/initialized');
     const call = await mcp(2, 'tools/call', { name: 'firestore_create_document', arguments: { path: 'rooms/agent', data: { v: 1 } } });
@@ -333,7 +349,7 @@ process.exit(0);
 
     const method = await fetch(`${url}/__pyric/hosted/method`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...sessionHeaders(root) },
       body: JSON.stringify({ instanceId: health.instanceId, projectDir: root, key: 'firestore.setDoc', args: { path: 'rooms/cli', data: { v: 1 } } }),
     });
     const result = await method.json() as { ok: boolean; summary: string; data?: { code?: string } };
@@ -379,7 +395,7 @@ test('pyric sandbox --hosted stays a sandbox host with @pyric/live installed and
     host = started('node', [join(cliDir, 'dist/cli/index.js'), 'sandbox', '--hosted', '--live', '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], root, {
       HOME: root, PYRIC_LIVE: '1', PYRIC_MODE: 'live', PYRIC_LIVE_PROJECT_ROOT: root,
     });
-    const health = await waitForHost(host, url);
+    const health = await waitForHost(host, url, root);
     expect(health.live).toBeUndefined();
     expect(host.output()).not.toContain('live mode');
     // The page gets the sandbox SDK, so the chip names no live project.

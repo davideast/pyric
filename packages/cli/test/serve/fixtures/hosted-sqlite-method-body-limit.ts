@@ -28,11 +28,18 @@ try {
   // The method route and the repro route read their body the same way, and
   // both answer an oversized one before reading it to its end (#1710).
   for (const path of ['/__pyric/hosted/method', '/__pyric/hosted/repro']) {
-    const refused = await fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: oversized });
+    const refused = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-pyric-session-token': mount.sessionToken },
+      body: oversized,
+    });
     assert.equal(refused.status, 413, path);
     assert.equal(refused.headers.get('connection'), 'close', path);
     await refused.arrayBuffer();
-    const next = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(5_000) });
+    const next = await fetch(`${base}${path}`, {
+      headers: { 'x-pyric-session-token': mount.sessionToken },
+      signal: AbortSignal.timeout(5_000),
+    });
     assert.equal(next.status, 405, path);
   }
 } finally {

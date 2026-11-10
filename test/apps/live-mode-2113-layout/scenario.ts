@@ -30,7 +30,7 @@ import assert from 'node:assert/strict';
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page } from 'playwright';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const PROJECT = 'demo-live-2113';
 const BUCKET = `${PROJECT}.firebasestorage.app`;
@@ -208,7 +208,7 @@ export default scenario(async (app) => {
     for (const specifier of LIVE_ROW_IMPORTS) {
       assert.ok(!started.vite.output.includes(passThroughLine(specifier)), `${specifier} got a pass-through line:\n${started.vite.output}`);
     }
-    const health = await (await fetch(`${started.url}/__pyric/health`)).json() as { live?: { passThrough?: string[] } };
+    const health = await (await fetch(`${started.url}/__pyric/health`, { headers: sessionHeaders(app, started.url) })).json() as { live?: { passThrough?: string[] } };
     assert.ok(health.live, 'the dev server reports live status');
     assert.equal(health.live.passThrough, undefined, 'the health report lists no pass-through import');
     return started;
@@ -228,7 +228,7 @@ export default scenario(async (app) => {
     }
     const openedChip = await openChip(opened);
     await openedChip.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
-    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string; passThrough?: string[] } };
+    const health = await (await fetch(`${host.url}/__pyric/health`, { headers: sessionHeaders(app, host.url) })).json() as { live?: { projectId?: string; passThrough?: string[] } };
     assert.equal(health.live?.projectId, PROJECT);
     assert.equal(health.live?.passThrough, undefined, 'the health report lists no pass-through import');
     return { page: opened, chip: openedChip };

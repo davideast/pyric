@@ -5,6 +5,7 @@
  */
 import { readLiveHostStatus, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { hostRestartedSincePageLoad, pageBootHostInstanceId, type HostRestart, type PageBootGlobals } from './host-restart.js';
+import { stampedSessionToken } from './hosted-target.js';
 
 /** The host boot id a `/__pyric/health` report names, if it names one. */
 function healthInstanceId(payload: unknown): unknown {
@@ -23,10 +24,15 @@ export function healthLiveStatus(
 ): ReadLiveStatus {
   let reportedHostRestart = false;
   return async () => {
-    const view = documentLike.defaultView as (Window & PageBootGlobals) | null;
+    const view = documentLike.defaultView as (Window & PageBootGlobals & { __PYRIC_WORKER_INIT__?: { sessionToken?: string } }) | null;
     const fetchHealth = view?.fetch?.bind(view);
     if (fetchHealth === undefined) return null;
-    const response = await fetchHealth('/__pyric/health', { cache: 'no-store' });
+    const viewToken = view?.__PYRIC_WORKER_INIT__?.sessionToken;
+    const token = typeof viewToken === 'string' && viewToken.length > 0 ? viewToken : stampedSessionToken();
+    const response = await fetchHealth('/__pyric/health', {
+      cache: 'no-store',
+      ...(token !== undefined ? { headers: { 'x-pyric-session-token': token } } : {}),
+    });
     if (!response.ok) throw new Error(`The host's health report answered ${response.status}.`);
     const payload: unknown = await response.json();
     const bootIds = {

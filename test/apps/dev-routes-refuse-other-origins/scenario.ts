@@ -5,8 +5,11 @@
 // refused before it is buffered, with the connection closed so the next request
 // is read as a request. The AI upstream is a local stub.
 import assert from 'node:assert/strict';
+import { readFileSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import { join } from 'node:path';
 import { scenario } from '../driver.ts';
+import { get, post, upgrades } from '../peer-client.ts';
 
 const ESC = '\u001b';
 
@@ -128,17 +131,50 @@ export default scenario(async (app) => {
       await attacker.close();
     });
 
+    const sessionToken = await app.step('session pointer is owner-only (0600) and unauthenticated callers get minimal readiness or 401', async () => {
+      const pointerPath = join(app.dir, '.pyric', 'session.json');
+      assert.equal(statSync(pointerPath).mode & 0o777, 0o600, '.pyric/session.json must be mode 0600');
+      const pointer = JSON.parse(readFileSync(pointerPath, 'utf8')) as { token: string };
+      assert.equal(typeof pointer.token, 'string');
+
+      const unauthInit = await (await fetch(`${host.url}/__pyric/init.json`)).json() as Record<string, unknown>;
+      assert.equal(unauthInit.sessionToken, undefined);
+      assert.equal(unauthInit.rules, undefined);
+      assert.equal(typeof unauthInit.rulesHash, 'string');
+
+      for (const [path, method] of [
+        ['/__pyric/diagnostics', 'GET'],
+        ['/__pyric/events', 'GET'],
+        ['/__pyric/denials', 'POST'],
+        ['/__pyric/ai-proxy/chat/completions', 'POST'],
+        ['/__pyric/capture', 'GET'],
+      ] as const) {
+        const res = await fetch(`${host.url}${path}`, { method });
+        assert.equal(res.status, 401, `${method} ${path} without token answered ${res.status}`);
+      }
+
+      const crossSiteNoOrigin = await fetch(`${host.url}/__pyric/diagnostics`, {
+        headers: {
+          cookie: `__pyric_session=${encodeURIComponent(pointer.token)}`,
+          'sec-fetch-site': 'cross-site',
+        },
+      });
+      assert.equal(crossSiteNoOrigin.status, 403);
+      return pointer.token;
+    });
+
     await app.step('an oversized body is refused before it is buffered', async () => {
       const hitsBefore = hits.length;
+      const authHeaders = { 'content-type': 'application/json', 'x-pyric-session-token': sessionToken };
       const denial = await fetch(`${host.url}/__pyric/denials`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({ message: 'x'.repeat(1024 * 1024) }),
       });
       assert.equal(denial.status, 413);
       const proxied = await fetch(`${host.url}/__pyric/ai-proxy/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders,
         body: new Uint8Array(16 * 1024 * 1024),
       });
       assert.equal(proxied.status, 413);
@@ -150,12 +186,14 @@ export default scenario(async (app) => {
     // socket and the server reads it as the rest of the upload, answering 400
     // (#1706, #1710). Each request here is the next one for the request before it.
     await app.step('every dev route that refuses an oversized body closes the connection', async () => {
-      const init = await (await fetch(`${host.url}/__pyric/init.json`)).json() as { sessionToken: string; activityToken: string };
+      const init = await (await fetch(`${host.url}/__pyric/init.json`, {
+        headers: { 'x-pyric-session-token': sessionToken },
+      })).json() as { sessionToken: string; activityToken: string };
       const padding = 'x'.repeat(1024 * 1024);
       const json = { 'content-type': 'application/json' };
       const session = { ...json, 'x-pyric-session-token': init.sessionToken };
       const refusals: Array<[string, RequestInit]> = [
-        ['/__pyric/diagnostics', { method: 'POST', headers: json, body: JSON.stringify({ padding }) }],
+        ['/__pyric/diagnostics', { method: 'POST', headers: session, body: JSON.stringify({ padding }) }],
         ['/__pyric/activity', { method: 'POST', headers: { ...json, origin: host.url, 'x-pyric-activity-token': init.activityToken }, body: JSON.stringify({ padding }) }],
         ['/__pyric/thresholds', { method: 'PUT', headers: session, body: JSON.stringify({ config: {}, padding }) }],
         ['/__pyric/indexes', { method: 'POST', headers: session, body: JSON.stringify({ query: {}, padding }) }],
@@ -165,8 +203,38 @@ export default scenario(async (app) => {
         assert.equal(refused.status, 413, `${path}: ${await refused.text()}`);
         assert.equal(refused.headers.get('connection'), 'close', path);
       }
-      const after = await fetch(`${host.url}/__pyric/init.json`);
+      const after = await fetch(`${host.url}/__pyric/init.json`, {
+        headers: { 'x-pyric-session-token': sessionToken },
+      });
       assert.equal(after.status, 200);
+    });
+
+    await app.step('allowedHosts: true still refuses non-loopback Host headers on /__pyric/* and WS upgrades', async () => {
+      await page.close();
+      await host.process.stop();
+      app.writeFile(
+        'vite.config.js',
+        'import { pyric } from "@pyric/cli/vite";\nexport default { server: { allowedHosts: true }, plugins: [pyric({ bridge: true })] };\n',
+      );
+      const permissiveHost = await app.devServer();
+      const servePointerPath = join(app.dir, '.pyric', 'serve.json');
+      assert.equal(statSync(servePointerPath).mode & 0o777, 0o600, '.pyric/serve.json must be mode 0600');
+      const pointer = JSON.parse(readFileSync(servePointerPath, 'utf8')) as { token: string };
+
+      const unauthHealth = await (await fetch(`${permissiveHost.url}/__pyric/health`)).json() as Record<string, unknown>;
+      assert.equal(unauthHealth.status, 'ok');
+      assert.equal(unauthHealth.project, undefined);
+      assert.equal((await fetch(`${permissiveHost.url}/__pyric/mcp`, { method: 'POST' })).status, 401);
+      assert.equal(await upgrades({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/sandbox', host: `localhost:${permissiveHost.port}` }), false);
+
+      const tokenHeaders = { 'x-pyric-session-token': pointer.token };
+      const foreignHost = `app.evil.test:${permissiveHost.port}`;
+      assert.equal((await get({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/init.json', host: foreignHost, headers: tokenHeaders })).status, 403);
+      assert.equal((await get({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/health', host: foreignHost, headers: tokenHeaders })).status, 403);
+      assert.equal((await get({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/diagnostics', host: foreignHost, headers: tokenHeaders })).status, 403);
+      assert.equal((await post({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/mcp', host: foreignHost, headers: tokenHeaders, body: '{}' })).status, 403);
+      assert.equal(await upgrades({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/sandbox', host: foreignHost, headers: tokenHeaders }), false);
+      await permissiveHost.process.stop();
     });
   } finally {
     await close(upstream);

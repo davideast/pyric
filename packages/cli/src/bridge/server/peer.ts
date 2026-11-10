@@ -499,8 +499,27 @@ export function answerAndClose(
   body: string,
 ): void {
   const socket = req.socket;
-  res.writeHead(status, { ...headers, connection: 'close' });
-  res.end(body, () => socket.end());
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const send = () => {
+    if (res.headersSent) return;
+    if (timer !== undefined) clearTimeout(timer);
+    res.useChunkedEncodingByDefault = false;
+    res.writeHead(status, { ...headers, connection: 'close' });
+    res.end(body, () => socket?.end());
+  };
+  if (req.complete || req.readableEnded) {
+    send();
+    return;
+  }
+  // Drain in-flight loopback bytes briefly (without buffering) before sending
+  // an EOF-delimited closing answer so fast HTTP clients finish their write
+  // and wait for FIN rather than hitting ECONNRESET, while bounding slow peers.
+  timer = setTimeout(send, 100);
+  timer.unref?.();
+  req.once('end', send);
+  req.once('close', send);
+  req.once('error', send);
+  req.resume();
 }
 
 function bodyTooLarge(): Error {

@@ -17,6 +17,7 @@ import type {
   InboundMessage,
   OutboundMessage,
 } from '../../src/serve/worker/protocol.js';
+import { resolveSessionTokenForTarget } from '../../src/serve/local-session-token.js';
 
 export interface FunctionsWorkerHostOptions {
   persistenceKeyPrefix: string;
@@ -40,6 +41,8 @@ export interface FunctionsWorkerPeerOptions {
   url: string;
   ctx: HostCtx;
   sandboxId: string;
+  cwd?: string;
+  sessionToken?: string;
 }
 
 export async function createFunctionsWorkerHostCtx(
@@ -63,10 +66,21 @@ export async function createFunctionsWorkerHostCtx(
   };
 }
 
+function withSessionTokenQuery(rawUrl: string, token: string | undefined): string {
+  if (!token) return rawUrl;
+  const parsed = new URL(rawUrl);
+  if (!parsed.searchParams.has('token')) {
+    parsed.searchParams.set('token', token);
+  }
+  return parsed.toString();
+}
+
 export async function connectFunctionsWorkerPeer(
   options: FunctionsWorkerPeerOptions,
 ): Promise<{ close(): Promise<void> }> {
-  const ws = new WebSocket(options.url);
+  const token =
+    options.sessionToken ?? resolveSessionTokenForTarget({ url: options.url, cwd: options.cwd });
+  const ws = new WebSocket(withSessionTokenQuery(options.url, token));
   const port: PortLike = {
     postMessage(raw: unknown) {
       if (ws.readyState !== WebSocket.OPEN) return;

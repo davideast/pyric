@@ -8,11 +8,24 @@ import { createPyricNamespace } from '../../src/serve/namespace.js';
 import { silentServeLogger, startStaticServer } from '../../src/serve/server.js';
 import { expectClosedEarlyAnswer } from './early-answer.js';
 
-async function withServer(run: (url: string) => Promise<void>) {
+const SESSION_TOKEN = 'diagnostics-test-token';
+
+async function withServer(run: (url: string, token: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), 'pyric-diagnostics-'));
-  const namespace = createPyricNamespace({ sdkDir: root, initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null, hosted: true }) });
-  const server = await startStaticServer({ publicDir: root, port: 0, host: '127.0.0.1', namespaceHandler: namespace, logger: silentServeLogger() });
-  try { await run(server.url); }
+  const namespace = createPyricNamespace({
+    sdkDir: root,
+    sessionToken: SESSION_TOKEN,
+    initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null, hosted: true }),
+  });
+  const server = await startStaticServer({
+    publicDir: root,
+    port: 0,
+    host: '127.0.0.1',
+    sessionToken: SESSION_TOKEN,
+    namespaceHandler: namespace,
+    logger: silentServeLogger(),
+  });
+  try { await run(server.url, SESSION_TOKEN); }
   finally { await server.stop(); await rm(root, { recursive: true, force: true }); }
 }
 
@@ -25,11 +38,31 @@ const report = (clientId = 'test-browser') => ({
   ],
 });
 
-test('HTTP diagnostics explain a proxy port failure without a sandbox WebSocket and redact URL secrets', () => withServer(async url => {
+test('HTTP diagnostics require session token, do not trigger GC, and redact URL secrets', () => withServer(async (url, token) => {
   const endpoint = `${url}/__pyric/diagnostics`;
-  const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(report()) });
+  expect((await fetch(endpoint)).status).toBe(401);
+  expect((await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(report()) })).status).toBe(401);
+
+  const authHeaders = { 'x-pyric-session-token': token };
+  let gcCalled = false;
+  const g = globalThis as unknown as { gc?: () => void };
+  const originalGc = g.gc;
+  g.gc = () => { gcCalled = true; };
+  try {
+    const gcProbe = await fetch(`${endpoint}?gc=1`, { headers: authHeaders });
+    expect(gcProbe.status).toBe(200);
+    expect(gcCalled).toBe(false);
+  } finally {
+    g.gc = originalGc;
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders },
+    body: JSON.stringify(report()),
+  });
   expect(response.status).toBe(204);
-  const result = await (await fetch(endpoint)).json();
+  const result = await (await fetch(endpoint, { headers: authHeaders })).json();
   expect(result.server.http).toBe('responding');
   expect(result.server.mode).toBe('hosted');
   expect(result.clients[0].events[0].endpoint).toBe('wss://orbit.example:5217/__pyric/sandbox');
@@ -37,26 +70,30 @@ test('HTTP diagnostics explain a proxy port failure without a sandbox WebSocket 
   expect(JSON.stringify(result)).not.toMatch(/password|token=|secret|fragment/);
 }));
 
-test('diagnostics reject cross-origin and oversized input, bound retention, and ignore stale reports', () => withServer(async url => {
+test('diagnostics reject cross-origin and oversized input, bound retention, and ignore stale reports', () => withServer(async (url, token) => {
   const endpoint = `${url}/__pyric/diagnostics`;
   const post = (body: unknown, extra: Record<string, string> = {}) => fetch(endpoint, {
-    method: 'POST', headers: { 'content-type': 'application/json', ...extra }, body: JSON.stringify(body),
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-pyric-session-token': token, ...extra },
+    body: JSON.stringify(body),
   });
   expect((await post(report(), { origin: 'https://untrusted.example' })).status).toBe(403);
   expect((await post({ padding: 'x'.repeat(20_000) })).status).toBe(413);
   expect((await post({ ...report(), events: Array(33).fill(report().events[0]) })).status).toBe(400);
   for (let index = 0; index < 35; index++) await post(report(`browser-${index}`));
   await post({ ...report('browser-34'), sequence: 1, events: [] });
-  const data = await (await fetch(endpoint)).json();
+  const data = await (await fetch(endpoint, { headers: { 'x-pyric-session-token': token } })).json();
   expect(data.clients).toHaveLength(32);
   expect(data.clients[0].clientId).toBe('browser-3');
   expect(data.clients.at(-1).events).toHaveLength(2);
 }));
 
-test('diagnostics close the connection with an early 413, and answer the next request (#1710)', () => withServer(async url => {
+test('diagnostics close the connection with an early 413, and answer the next request (#1710)', () => withServer(async (url, token) => {
   const endpoint = `${url}/__pyric/diagnostics`;
   const oversized = await fetch(endpoint, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ padding: 'x'.repeat(1024 * 1024) }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-pyric-session-token': token },
+    body: JSON.stringify({ padding: 'x'.repeat(1024 * 1024) }),
   });
   await expectClosedEarlyAnswer(oversized, 413, endpoint);
 }));

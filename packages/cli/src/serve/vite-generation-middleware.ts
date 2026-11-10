@@ -1,8 +1,54 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { extname } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { answerMountClosed, HEALTH_PATH, type BridgeMount } from './bridge-mount.js';
 import type { SandboxSession } from './sandbox-session.js';
-import { isAllowedHost } from './server.js';
+import {
+  appendSetCookieHeader,
+  canBootstrapHtmlSession,
+  formatSessionCookie,
+  getHeader,
+  isAllowedHost,
+} from './server.js';
+
+const viteHtmlPeerStorage = new AsyncLocalStorage<{ localPeer: boolean }>();
+
+/** Current Vite dev request peer context while `transformIndexHtml` runs, if inside a request. */
+export function currentViteHtmlPeerContext(): { localPeer: boolean } | undefined {
+  return viteHtmlPeerStorage.getStore();
+}
+
+/**
+ * Wraps Vite dev page navigations in `viteHtmlPeerStorage` and sets the
+ * `HttpOnly; SameSite=Strict; Path=/__pyric` session cookie on eligible local HTML navigations.
+ */
+export function attachViteHtmlSessionBootstrap(
+  server: Pick<ViteDevServer, 'middlewares'> & { config?: { server?: { host?: string | boolean } } },
+  getSessionToken: () => string | undefined,
+): void {
+  server.middlewares.use((req: IncomingMessage & { originalUrl?: string }, res: ServerResponse, next: () => void) => {
+    const boundHost = typeof server.config?.server?.host === 'string' ? server.config.server.host : 'localhost';
+    const canBootstrap = canBootstrapHtmlSession(req, boundHost);
+    const token = getSessionToken();
+    const method = req.method ?? 'GET';
+    if (canBootstrap && token && (method === 'GET' || method === 'HEAD')) {
+      const path = requestPath(req);
+      const ext = extname(path).toLowerCase();
+      const accept = typeof req.headers.accept === 'string' ? req.headers.accept : '';
+      const secFetchDest = getHeader(req, 'sec-fetch-dest')?.trim().toLowerCase();
+      const isDocumentDest = secFetchDest === undefined || secFetchDest === 'document' || secFetchDest === 'iframe';
+      const isHtmlNavigation =
+        !path.startsWith('/__pyric/') &&
+        isDocumentDest &&
+        (accept.includes('text/html') || ext === '' || ext === '.html' || ext === '.htm');
+      if (isHtmlNavigation) {
+        appendSetCookieHeader(res, formatSessionCookie(token));
+      }
+    }
+    viteHtmlPeerStorage.run({ localPeer: canBootstrap }, next);
+  });
+}
 
 /** The request's path, from the URL before Connect stripped the `/__pyric` mount. */
 function requestPath(req: IncomingMessage & { originalUrl?: string }): string {
@@ -53,7 +99,7 @@ export function attachViteGenerationMiddleware(input: {
         next();
         return;
       }
-      const allowed = serverOptions.allowedHosts === true || isAllowedHost(
+      const allowed = isAllowedHost(
         req.headers.host,
         typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
         Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [],

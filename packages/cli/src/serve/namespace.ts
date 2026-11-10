@@ -28,7 +28,18 @@ import { handleIndexConfig } from './index-config-route.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowedSessionToken, isLocalPeer, type ServeLogger } from './server.js';
+import {
+  appendSetCookieHeader,
+  formatSessionCookie,
+  getHeader,
+  isAllowedHost,
+  isAllowedOrigin,
+  isAllowedSessionToken,
+  isForeignFetchWithoutOrigin,
+  isLocalPeer,
+  pipeFileToResponse,
+  type ServeLogger,
+} from './server.js';
 import type { InitPayload } from './init-payload.js';
 import type { AppPorts } from './app-ports.js';
 import { handleActivity } from './activity-route.js';
@@ -620,10 +631,32 @@ function guardLoopback(req: IncomingMessage, res: ServerResponse, opts: GuardOpt
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
     return false;
   }
+  if (isForeignFetchWithoutOrigin(req)) {
+    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
+    return false;
+  }
   return true;
 }
 
-export function createPyricNamespace(opts: NamespaceOptions) {
+function unauthenticatedInitPayload(payload: InitPayload): Record<string, unknown> {
+  return {
+    ...(payload.instanceId !== undefined ? { instanceId: payload.instanceId } : {}),
+    ...(payload.hosted !== undefined ? { hosted: payload.hosted } : {}),
+    rulesHash: payload.rulesHash ?? null,
+    databaseRulesHash: payload.databaseRulesHash ?? null,
+    storageRulesHash: payload.storageRulesHash ?? null,
+  };
+}
+
+export type PyricNamespaceHandler = ((
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+) => boolean | Promise<boolean>) & {
+  readonly sessionToken: string;
+};
+
+export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHandler {
   const diagnostics = createDiagnostics(() => opts.initPayload().hosted ? 'hosted' : 'browser', opts.persistenceStatus);
   const stateWriterLock = createWriterLock();
   const hostOwnsState = opts.stateOwner === 'host';
@@ -642,13 +675,21 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       writerLock: studioWriterLock,
       boundHost: opts.boundHost,
       allowedHosts: opts.allowedHosts,
+      appPorts: opts.appPorts,
     };
     studioRoutes = createStudioRoutes(studioOptions);
   }
   const siteUiDir = opts.siteUiDir;
   const hasSiteTree = siteUiDir !== undefined && siteUiDir.length > 0;
   const siteTree = hasSiteTree
-    ? createSiteTreeHandler(siteUiDir, opts.workerVersion, hostedStudioProject(opts))
+    ? createSiteTreeHandler(
+        siteUiDir,
+        opts.workerVersion,
+        hostedStudioProject(opts),
+        sessionToken,
+        opts.boundHost,
+        opts.appPorts,
+      )
     : null;
   const denialThrottle = createDenialThrottle();
   const geminiProxy = createGeminiProxy(opts.aiGemini, denialThrottle, opts.logger);
@@ -659,11 +700,15 @@ export function createPyricNamespace(opts: NamespaceOptions) {
   const activityEndpoint = hasActivity
     ? { sink: activity, token: randomBytes(24).toString('base64url') }
     : undefined;
-  return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
+  const handler = (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
     const isDiagnostics = url.pathname === DIAGNOSTICS_PATH;
     if (isDiagnostics) {
       const refused = !guardLoopback(req, res, opts);
       if (refused) return true;
+      if (!isAllowedSessionToken(req, url, sessionToken)) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+        return true;
+      }
       return diagnostics(req, res).then(() => true);
     }
     const thresholds = opts.thresholds;
@@ -764,6 +809,10 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     if (isEventsRequest) {
       const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
+      if (!isAllowedSessionToken(req, url, sessionToken)) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+        return true;
+      }
       events.handle(req, res);
       return true;
     }
@@ -772,6 +821,10 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       // It spends the server's key, so only this app's pages may call it.
       const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
+      if (!isAllowedSessionToken(req, url, sessionToken)) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+        return true;
+      }
       return geminiProxy(req, res, url).then(() => true);
     }
     const isAiProxyRequest = url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`);
@@ -779,6 +832,10 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       // The upstream may carry the developer's key, so only this server's pages may spend it.
       const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
+      if (!isAllowedSessionToken(req, url, sessionToken)) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+        return true;
+      }
       return handleAiProxy(opts.aiProxyUpstream, denialThrottle, req, res, url, opts.logger).then(
         () => true,
       );
@@ -792,21 +849,38 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       // A page on another origin must not be able to write to the developer's terminal.
       const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
+      if (!isAllowedSessionToken(req, url, sessionToken)) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+        return true;
+      }
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
     }
     const isInitRequest = url.pathname === '/__pyric/init.json';
     if (isInitRequest) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { allow: 'GET, HEAD', 'content-type': 'text/plain' }).end('method not allowed');
+        return true;
+      }
+      const isHead = req.method === 'HEAD';
       const isRemotePeer = !isLocalPeer(req);
       if (isRemotePeer) {
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(JSON.stringify(remotePeerInitPayload(opts.initPayload())));
+        res.end(isHead ? undefined : JSON.stringify(remotePeerInitPayload(opts.initPayload())));
         return true;
       }
-      const payload = { ...opts.initPayload(), sessionToken, thresholds: Boolean(opts.thresholds), rateCaptures: Boolean(opts.rateCaptures) };
+      if (!guardLoopback(req, res, opts)) return true;
+      const raw = opts.initPayload();
+      if (!isAllowedSessionToken(req, url, sessionToken)) {
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(isHead ? undefined : JSON.stringify(unauthenticatedInitPayload(raw)));
+        return true;
+      }
+      appendSetCookieHeader(res, formatSessionCookie(sessionToken));
+      const payload = { ...raw, sessionToken, thresholds: Boolean(opts.thresholds), rateCaptures: Boolean(opts.rateCaptures) };
       const hasActivityEndpoint = activityEndpoint !== undefined;
       if (hasActivityEndpoint) payload.activityToken = activityEndpoint.token;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(JSON.stringify(payload));
+      res.end(isHead ? undefined : JSON.stringify(payload));
       return true;
     }
     const avatars = opts.avatars;
@@ -838,6 +912,15 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       }
       const isSourceMap = file.endsWith('.map');
       const type = isSourceMap ? 'application/json' : 'text/javascript; charset=utf-8';
+      // Same-origin module/worker loads from a local peer on a loopback Host also
+      // bootstrap the HttpOnly session cookie, covering apps whose HTML was built offline.
+      if (
+        isLocalPeer(req) &&
+        isAllowedHost(getHeader(req, 'host'), opts.boundHost ?? 'localhost') &&
+        getHeader(req, 'sec-fetch-site')?.trim().toLowerCase() === 'same-origin'
+      ) {
+        appendSetCookieHeader(res, formatSessionCookie(sessionToken));
+      }
       // Immutable-friendly: bundle filenames are content-hashed chunks or
       // cache-keyed outputs; still no-store in dev for simplicity.
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
@@ -855,6 +938,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     return false; // unknown /__pyric/* → caller 404s
   };
+  return Object.assign(handler, { sessionToken });
 }
 
 function hostedStudioProject(options: NamespaceOptions): string | undefined {

@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import type { ParsedArgs } from './parse-args.js';
 import { discoverServe, type Discovered } from '../serve/discovery.js';
+import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { ensureGitignored } from '../serve/capture-store.js';
 import { isPathInside } from '../serve/path-inside.js';
 import {
@@ -189,10 +190,24 @@ async function requestHost(
   init: RequestInit,
   host: Discovered,
   err: Output,
+  cwd?: string,
 ): Promise<unknown | number> {
+  const token = resolveSessionTokenForTarget({
+    explicitToken: host.token,
+    url: host.base,
+    cwd: host.pointerProjectDir ?? cwd,
+  });
+  const headers = new Headers(init.headers);
+  if (token !== undefined && !headers.has('x-pyric-session-token')) {
+    headers.set('x-pyric-session-token', token);
+  }
   let response: Response;
   try {
-    response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(30_000) });
+    response = await fetchFn(url, {
+      ...init,
+      ...(Array.from(headers.keys()).length > 0 ? { headers: Object.fromEntries(headers.entries()) } : {}),
+      signal: AbortSignal.timeout(30_000),
+    });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     err.write(`${PREFIX} the host at ${host.base} did not answer: ${reason}\n`);
@@ -255,7 +270,7 @@ async function exportSeedFile(
     err.write(`${PREFIX} ${targetPath} already exists. Pass --force to overwrite it.\n`);
     return 2;
   }
-  const answered = await requestHost(fetchFn, new URL(LIVE_SESSION_DATA_PATH, host.base), { method: 'GET' }, host, err);
+  const answered = await requestHost(fetchFn, new URL(LIVE_SESSION_DATA_PATH, host.base), { method: 'GET' }, host, err, cwd);
   if (typeof answered === 'number') return answered;
   const snapshot = answered as ObservedSessionDataSnapshot;
   const instanceFlag = parsed.flags.get('instance');
@@ -306,6 +321,7 @@ async function seedHostedSandbox(
     },
     host,
     err,
+    cwd,
   );
   if (typeof answered === 'number') return answered;
   const result = answered as LiveSeedSandboxResult;

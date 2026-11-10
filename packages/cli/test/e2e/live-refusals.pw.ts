@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { createServer, type PluginOption, type ViteDevServer } from 'vite';
+import { inProcessSessionTokenForUrl } from '../../src/serve/local-session-token.js';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
 const liveDir = fileURLToPath(new URL('../../../live/', import.meta.url));
@@ -161,10 +162,10 @@ async function liveProject(port: number, extra: Record<string, unknown> = {}): P
 }
 
 /** One JSON-RPC request to the dev server's MCP route, with the session it opened. */
-function mcpClient(base: string) {
+function mcpClient(base: string, headersExtra: Record<string, string> = {}) {
   let sessionId: string | null = null;
   return async (id: number | null, method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown> | null> => {
-    const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headersExtra };
     if (sessionId !== null) headers['mcp-session-id'] = sessionId;
     const body: Record<string, unknown> = { jsonrpc: '2.0', method, params };
     if (id !== null) body.id = id;
@@ -213,7 +214,9 @@ test("a live page's unserved calls throw before any request leaves, and pyric's 
       expect(await importRefused(specifier)).toContain('is refused in live mode');
     }
 
-    const mcp = mcpClient(project.base);
+    const token = inProcessSessionTokenForUrl(project.base);
+    const authHeaders = token ? { 'x-pyric-session-token': token } : {};
+    const mcp = mcpClient(project.base, authHeaders);
     await mcp(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'live-refusals', version: '0' } });
     await mcp(null, 'notifications/initialized');
     const call = await mcp(2, 'tools/call', { name: 'firestore_create_document', arguments: { path: 'rooms/agent', data: { v: 1 } } });
@@ -222,7 +225,7 @@ test("a live page's unserved calls throw before any request leaves, and pyric's 
     const health = await (await fetch(`${project.base}/__pyric/health`)).json() as { instanceId: string };
     const method = await fetch(`${project.base}/__pyric/hosted/method`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeaders },
       body: JSON.stringify({ instanceId: health.instanceId, projectDir: project.root, key: 'firestore.setDoc', args: { path: 'rooms/cli', data: { v: 1 } } }),
     });
     const result = await method.json() as { ok: boolean; summary: string; data?: { code?: string } };

@@ -30,7 +30,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const PROJECT = 'demo-instrumented-backend';
 const ENTRY = '@pyric/live/register';
@@ -49,20 +49,17 @@ interface CapturedEvent {
 }
 
 /** The host's captured Admin operation events, from `/__pyric/capture`. */
-async function adminOperationEvents(base: string): Promise<CapturedEvent[]> {
-  const init = await fetch(`${base}/__pyric/init.json`);
-  assert.equal(init.status, 200, `/__pyric/init.json answered ${init.status}`);
-  const { sessionToken } = await init.json() as { sessionToken: string };
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+async function adminOperationEvents(app: App, base: string): Promise<CapturedEvent[]> {
+  const response = await fetch(`${base}/__pyric/capture`, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return [];
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
   const capture = await response.json() as { events?: CapturedEvent[] };
   return (capture.events ?? []).filter((event) => event.kind === 'operation' && event.detail?.sdk === 'admin');
 }
 
-/** The host's Admin Messaging events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
-async function messagingEvents(base: string): Promise<CapturedEvent[]> {
-  return (await adminOperationEvents(base)).filter((event) => event.service === 'messaging');
+/** The host's Admin Messaging events, from `/__pyric/capture`. */
+async function messagingEvents(app: App, base: string): Promise<CapturedEvent[]> {
+  return (await adminOperationEvents(app, base)).filter((event) => event.service === 'messaging');
 }
 
 /** Reads `read` until `check` holds, or fails after `timeoutMs`. */
@@ -152,7 +149,7 @@ async function checkBackend(app: App, hostUrl: string, instrument: 'assign' | 'd
   assert.deepEqual(listed!.unobservedAdmin, ['firebase-admin/remote-config']);
   assert.deepEqual(listed!.gatedAdmin, ['firebase-admin/app-check']);
   // The Messaging row recorded the send, and the host captured it as an Admin call, as it does a Firestore or Auth call.
-  const sends = await eventually(() => messagingEvents(hostUrl), (events) => events.length > sendsBefore, 'the Messaging.send event');
+  const sends = await eventually(() => messagingEvents(app, hostUrl), (events) => events.length > sendsBefore, 'the Messaging.send event');
   assert.equal(sends.length, sendsBefore + 1, 'one event for the one send');
   const [send] = sends.slice(sendsBefore);
   assert.deepEqual(
@@ -183,7 +180,7 @@ export default scenario(async (app) => {
       ['--import', './ritm-preload.mjs', '--import', ENTRY],
       ['--import', ENTRY, '--import', './ritm-preload.mjs'],
     ]) {
-      const beforeCount = (await adminOperationEvents(host.url)).length;
+      const beforeCount = (await adminOperationEvents(app, host.url)).length;
       const run = await app.command('node', [...imports, 'ritm-check.mjs'], {
         env: { LIVE_HOST_URL: host.url, BEFORE_ADMIN_EVENTS: String(beforeCount) },
         timeoutMs: 90_000,
@@ -197,7 +194,7 @@ export default scenario(async (app) => {
         assert.ok(hooked.includes(expectedPkg), `expected ${expectedPkg} in hooked packages: ${hooked.join(', ')}`);
       }
       const added = await eventually(
-        async () => (await adminOperationEvents(host.url)).slice(beforeCount),
+        async () => (await adminOperationEvents(app, host.url)).slice(beforeCount),
         (events) =>
           events.some((e) => e.method === 'Auth.getUser') &&
           events.some((e) => e.method === 'DocumentReference.get') &&

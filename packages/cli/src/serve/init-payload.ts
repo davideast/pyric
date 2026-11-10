@@ -147,7 +147,10 @@ export interface InitPayload {
  * It also carries the project's listener-owner settings, which must be in
  * force before the application opens its first listener.
  */
-export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy' | 'instanceId'> & {
+export type WorkerInitPayload = Pick<
+  InitPayload,
+  'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy' | 'instanceId' | 'sessionToken'
+> & {
   /** `owners` from `pyric.json` or the Vite plugin; absent when neither sets it. */
   owners?: OwnersConfig;
 };

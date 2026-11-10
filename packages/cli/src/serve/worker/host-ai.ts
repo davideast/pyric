@@ -45,6 +45,17 @@ export function isAiOp(method: OpMessage['method']): boolean {
 /** The two unary AI op variants, extracted from the OpMessage union. */
 type AiOpMessage = Extract<OpMessage, { method: 'ai.generateContent' | 'ai.countTokens' }>;
 
+function proxyFetchWithSessionToken(sessionToken: string | undefined): typeof fetch | undefined {
+  if (!sessionToken || typeof fetch !== 'function') return undefined;
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('x-pyric-session-token')) {
+      headers.set('x-pyric-session-token', sessionToken);
+    }
+    return fetch(input, { ...init, headers });
+  }) as typeof fetch;
+}
+
 /**
  * Wire config → the mirror's `EngineConfig`. Browser workers use the proxy;
  * Node resolves that same route to its server-only upstream. Explicit engine
@@ -56,15 +67,17 @@ function resolveEngineConfig(
   wire: AiEngineConfigWire,
   upstream: HostCtx['aiUpstream'],
   runsInBrowser: boolean,
+  sessionToken?: string,
 ): NonNullable<AIOptions['engine']> {
   if (wire.kind === 'openai') {
     const configuredUrl = wire.baseUrl ?? AI_PROXY_PATH;
     const usesProxy = configuredUrl.replace(/\/$/, '') === AI_PROXY_PATH;
     const baseUrl = usesProxy ? (upstream?.baseUrl ?? configuredUrl) : configuredUrl;
+    const proxyFetch = usesProxy && !upstream?.fetch ? proxyFetchWithSessionToken(sessionToken) : undefined;
     return {
       kind: 'openai',
       baseUrl,
-      fetch: upstream?.fetch,
+      fetch: upstream?.fetch ?? proxyFetch,
       ...(wire.model !== undefined ? { model: wire.model } : {}),
       ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
     };
@@ -74,7 +87,13 @@ function resolveEngineConfig(
     // Node reads the key from its own environment. A browser worker has
     // none, so it sends through the dev server's gemini proxy.
     const config = runsInBrowser ? browserGeminiEngine(wire) : wire;
-    return { ...config } as NonNullable<AIOptions['engine']>;
+    const proxyFetch = runsInBrowser && (config as { serverAttachesAuth?: boolean }).serverAttachesAuth
+      ? proxyFetchWithSessionToken(sessionToken)
+      : undefined;
+    return {
+      ...config,
+      ...(proxyFetch !== undefined ? { fetch: proxyFetch } : {}),
+    } as NonNullable<AIOptions['engine']>;
   }
   return {
     kind: 'scripted',
@@ -98,7 +117,12 @@ function resolveEngineConfig(
 export function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiBrokerLike {
   if (ctx.aiBroker) return ctx.aiBroker;
   const wire = ctx.aiEngine ?? opEngine;
-  const ai = getAI(ctx.sandbox, wire ? { engine: resolveEngineConfig(wire, ctx.aiUpstream, ctx.aiRunsInBrowser === true) } : undefined);
+  const ai = getAI(
+    ctx.sandbox,
+    wire
+      ? { engine: resolveEngineConfig(wire, ctx.aiUpstream, ctx.aiRunsInBrowser === true, ctx.sessionToken) }
+      : undefined,
+  );
   const target = (ai as unknown as {
     [TARGET_SYMBOL]?: { broker: AiBrokerLike };
   })[TARGET_SYMBOL];

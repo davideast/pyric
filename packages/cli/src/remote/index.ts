@@ -69,6 +69,7 @@ import { hasValidAttachFields } from '../bridge/attach-validation.js';
 import { hasValidReplyOutcome, snapshotError } from '../serve/worker/outbound-validation.js';
 import { rtdbFateAtDrop, type DropFate } from '../serve/worker/rtdb-drop-fates.js';
 import type { AnsweringHost, Discovered } from '../serve/discovery.js';
+import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { resolveRemoteHost } from './resolve-host.js';
 import { versionSkewGuidance as skewGuidance } from './version-skew.js';
 
@@ -152,6 +153,8 @@ export interface ConnectRemoteSandboxOptions {
    * to its origin only (a Vite dev server with `server.https`, #1220).
    */
   trust?: HostTrust;
+  /** Explicit per-boot capability token for the bridge WS and HTTP byte routes. */
+  sessionToken?: string;
 }
 
 /**
@@ -700,21 +703,30 @@ export function buildRemoteRtdb(channel: RemoteSandboxChannel, instance?: string
 }
 
 /** The byte route on the host at `base`, dialed trusting `trust` when the host serves HTTPS in this process. */
-function byteRouteAt(base: string, trust: HostTrust | undefined): RemoteByteRoute {
+function byteRouteAt(base: string, trust: HostTrust | undefined, initialToken?: string): RemoteByteRoute {
   const isPlainHttp = trust === undefined;
-  if (isPlainHttp) return { baseUrl: base, sessionToken: sessionTokenFrom(base, fetch) };
+  if (isPlainHttp) return { baseUrl: base, sessionToken: sessionTokenFrom(base, fetch, initialToken) };
   const fetchHost = trustedFetch(trust);
-  return { baseUrl: base, sessionToken: sessionTokenFrom(base, fetchHost), fetch: fetchHost };
+  return { baseUrl: base, sessionToken: sessionTokenFrom(base, fetchHost, initialToken), fetch: fetchHost };
 }
 
 /** Read the session token from the host's init.json, as a page does; kept once read, asked again after a failure. */
-function sessionTokenFrom(base: string, fetchHost: HostFetch): () => Promise<string | null> {
+function sessionTokenFrom(base: string, fetchHost: HostFetch, initialToken?: string): () => Promise<string | null> {
   let token: Promise<string | null> | undefined;
   return async () => {
-    token ??= fetchHost(`${base}/__pyric/init.json`)
+    const authToken = initialToken ?? resolveSessionTokenForTarget({ url: base, cwd: process.cwd() });
+    token ??= fetchHost(
+      `${base}/__pyric/init.json`,
+      authToken !== undefined ? { headers: { 'x-pyric-session-token': authToken } } : undefined,
+    )
       .then(response => (response.ok ? response.json() : null))
-      .then((body: { sessionToken?: unknown } | null) => (typeof body?.sessionToken === 'string' ? body.sessionToken : null))
-      .catch(() => null);
+      .then((body: { sessionToken?: unknown } | null) => {
+        if (typeof body?.sessionToken === 'string' && body.sessionToken.length > 0) {
+          return body.sessionToken;
+        }
+        return authToken ?? null;
+      })
+      .catch(() => authToken ?? null);
     const value = await token;
     if (value === null) token = undefined;
     return value;
@@ -978,7 +990,7 @@ export async function connectRemoteSandbox(
   // the guidance opens a DIFFERENT browser origin (127.0.0.1 vs localhost →
   // separate SharedWorkers → split sandboxes). `wsBase` is connectivity: the
   // literal loopback family the health probe actually reached.
-  const { serveUrl, wsBase } = await resolveRemoteHost({
+  const { serveUrl, wsBase, token: hostToken } = await resolveRemoteHost({
     cwd,
     url: options.url,
     configuredUrl: options.configuredUrl,
@@ -989,10 +1001,19 @@ export async function connectRemoteSandbox(
   });
 
   const wsUrl = `${wsBase.replace(/^http/, 'ws')}/__pyric/sandbox`;
+  const resolvedToken = resolveSessionTokenForTarget({
+    explicitToken: options.sessionToken ?? hostToken,
+    url: wsBase,
+    cwd,
+  });
   // The trust covers its own origin only; a socket elsewhere verifies as usual.
   const trust = options.trust !== undefined && isTrustedOrigin(options.trust, wsUrl) ? options.trust : undefined;
   const tls = trust === undefined ? {} : tlsOptionsFor(trust);
-  const ws = new WebSocket(wsUrl, { maxPayload: MAX_BRIDGE_FRAME_BYTES, ...tls });
+  const ws = new WebSocket(wsUrl, {
+    maxPayload: MAX_BRIDGE_FRAME_BYTES,
+    ...tls,
+    ...(resolvedToken !== undefined ? { headers: { 'x-pyric-session-token': resolvedToken } } : {}),
+  });
 
   // Event-loop hold (exit-hang fix): `ws` exposes no ref/unref of its own —
   // reach the underlying net.Socket (present once connected). Unref'ing only
@@ -1159,7 +1180,7 @@ export async function connectRemoteSandbox(
   // session token its init.json hands a local process.
   const offersByteRoute = core.capabilities().includes(STORAGE_BYTE_ROUTE_CAPABILITY);
   const byteRoute: RemoteByteRoute | undefined = offersByteRoute
-    ? byteRouteAt(wsBase, trust)
+    ? byteRouteAt(wsBase, trust, resolvedToken)
     : undefined;
   return createRemoteSandboxHandle({
     serveUrl,

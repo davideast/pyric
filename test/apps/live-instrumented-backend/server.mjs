@@ -13,7 +13,7 @@ import { generateKeyPairSync } from "node:crypto";
 import http, { createServer } from "node:http";
 import https from "node:https";
 import net from "node:net";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { initializeApp, applicationDefault, cert } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -155,7 +155,10 @@ function listsOf(entry) {
 
 /** The Node clients the live host's health lists. */
 async function readHostNodeClients() {
-  const health = await fetch(`${process.env.LIVE_HOST_URL}/__pyric/health`).then((response) => response.json());
+  const { token } = JSON.parse(readFileSync(".pyric/serve.json", "utf8"));
+  const health = await fetch(`${process.env.LIVE_HOST_URL}/__pyric/health`, {
+    headers: { "x-pyric-session-token": token },
+  }).then((response) => response.json());
   return (health.live?.clients ?? []).filter((client) => client.kind === "node");
 }
 

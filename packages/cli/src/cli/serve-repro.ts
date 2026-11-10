@@ -15,6 +15,7 @@ import { resolve } from 'node:path';
 import type { ParsedArgs } from './parse-args.js';
 import { discoverServe, type Discovered } from '../serve/discovery.js';
 import { HOSTED_REPRO_PATH } from '../serve/hosted/method-protocol.js';
+import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 
 interface Output { write(value: string): void }
 
@@ -45,9 +46,16 @@ export async function fetchReproBody(
   }
   let response: Response;
   try {
+    const token = resolveSessionTokenForTarget({
+      explicitToken: host.token,
+      url: host.base,
+      cwd,
+    });
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (token !== undefined) headers['x-pyric-session-token'] = token;
     response = await fetch(new URL(HOSTED_REPRO_PATH, host.base), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify({ instanceId: host.instanceId, projectDir: realpathSync(cwd) }),
       signal: AbortSignal.timeout(60_000),
     });

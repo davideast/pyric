@@ -10,6 +10,7 @@
  */
 import { parsePyricSandbox, readLiveHostStatus, type LiveHostStatus } from 'pyric/sandbox/internal';
 import { resolveRemoteHost } from '../remote/resolve-host.js';
+import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 
 export type LiveHostReach =
   /**
@@ -31,8 +32,11 @@ export type LiveHostReach =
 
 const HEALTH_TIMEOUT_MS = 2_000;
 
-async function healthOf(base: string): Promise<unknown> {
-  const response = await fetch(`${base.replace(/\/$/, '')}/__pyric/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
+async function healthOf(base: string, sessionToken?: string): Promise<unknown> {
+  const response = await fetch(`${base.replace(/\/$/, '')}/__pyric/health`, {
+    ...(sessionToken !== undefined ? { headers: { 'x-pyric-session-token': sessionToken } } : {}),
+    signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+  });
   if (!response.ok) return null;
   return response.json();
 }
@@ -43,7 +47,13 @@ export async function reachLiveHost(projectRoot: string, env: NodeJS.ProcessEnv 
     const activation = parsePyricSandbox(env.PYRIC_SANDBOX);
     const configuredUrl = activation.mode === 'remote' ? activation.url : undefined;
     const host = await resolveRemoteHost({ cwd: projectRoot, configuredUrl, instanceId: env.PYRIC_SANDBOX_INSTANCE, warn: () => {} });
-    const live = readLiveHostStatus(await healthOf(host.wsBase));
+    const token = resolveSessionTokenForTarget({
+      explicitToken: host.token,
+      url: host.wsBase,
+      cwd: projectRoot,
+      env,
+    });
+    const live = readLiveHostStatus(await healthOf(host.wsBase, token));
     if (live === null) return { kind: 'sandbox', url: host.serveUrl };
     // The project the host was started for, which this process's own start resolves the same way.
     const admin = live.admin === undefined ? {} : { admin: live.admin };

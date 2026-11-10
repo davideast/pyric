@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import type { Page } from 'playwright';
-import { sleep, type App } from '../driver.ts';
+import { sessionHeaders, sleep, type App } from '../driver.ts';
 
 const PROJECT = 'demo-live-storage';
 const DEFAULT_BUCKET = `${PROJECT}.firebasestorage.app`;
@@ -260,7 +260,7 @@ export async function verifyObservedStorageBrowser(
 
     // Wait for both buckets to appear in `/__pyric/live/session-data`.
     const sessionRaw = await pollUntil(
-      async () => (await fetch(`${hostUrl}/__pyric/live/session-data`)).text(),
+      async () => (await fetch(`${hostUrl}/__pyric/live/session-data`, { headers: sessionHeaders(app, hostUrl) })).text(),
       (text) => {
         const parsed = JSON.parse(text) as {
           storage?: Record<string, { objects?: Record<string, unknown> }>;

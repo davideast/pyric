@@ -110,4 +110,21 @@ describe('a closed Vite generation', () => {
     const answer = await call(handler, '/__pyric/health');
     expect(answer.statusCode).toBe(200);
   });
+
+  it('refuses non-loopback Host on /__pyric/* even when Vite server.allowedHosts is true', async () => {
+    const stack = viteServer();
+    (stack.server.config.server as { allowedHosts: string[] | true }).allowedHosts = true;
+    const { handler } = attach(true, stack);
+    const response = new MockRes();
+    const answer = await new Promise<Answer>((resolve) => {
+      response.on('finish', () => resolve({ statusCode: response.statusCode, body: response.body, nexted: false }));
+      handler(
+        { method: 'GET', url: '/init.json', originalUrl: '/__pyric/init.json', headers: { host: 'evil.example:5173' } },
+        response,
+        () => resolve({ statusCode: 0, body: '', nexted: true }),
+      );
+    });
+    expect(answer.statusCode).toBe(403);
+    expect(answer.nexted).toBe(false);
+  });
 });

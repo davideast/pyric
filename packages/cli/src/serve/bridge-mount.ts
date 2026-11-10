@@ -16,10 +16,10 @@
  *   GET  /__pyric/health    bridge health JSON
  *   WS   /__pyric/sandbox   the in-page sandbox peer (server `upgrade`)
  */
-import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -29,9 +29,19 @@ import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { answerAndClose, attachPeer, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import { pointerHeldByAnotherHost, pointerHostAnswers, type ServePointer } from './discovery.js';
+import { registerLocalSessionToken, writeMode600FileSync } from './local-session-token.js';
 import { boundedFetch } from '../bounded-request.js';
 import { pyricVersion } from './standalone-assets.js';
-import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade, isLocalPeer } from './server.js';
+import {
+  getHeader,
+  isAllowedHost,
+  isAllowedLoopbackRequest,
+  isAllowedOriginOnPorts,
+  isAllowedSessionToken,
+  isAllowedUpgrade,
+  isForeignFetchWithoutOrigin,
+  isLocalPeer,
+} from './server.js';
 import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import type { BridgeMessage } from '../bridge/protocol.js';
@@ -95,9 +105,13 @@ export interface BridgeMountOptions {
   liveHost?: LiveHostState;
   /** Live mode's refusal of pyric's own writes (`hosted/own-writes.ts`), applied to MCP in-process mutators too. */
   ownWriteRefusal?: PyricWriteRefusal;
+  /** Per-boot capability token shared with the host's namespace; minted per mount when omitted. */
+  sessionToken?: string;
 }
 
 export interface BridgeMount {
+  /** Per-boot capability token required on control, admin, live, MCP, and WS routes. */
+  readonly sessionToken: string;
   /** A null database or Storage source clears the rules, so the default policy applies. */
   /** `instance` names the RTDB instance a database ruleset deploys to, absent
    *  for the default instance, or an unresolved deploy target. */
@@ -183,6 +197,7 @@ function fallbackLiveWriteRefusal(write: PyricWrite): Error {
 }
 
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
+  const sessionToken = opts.sessionToken ?? randomBytes(24).toString('base64url');
   const peerOptions = { livenessTimeoutMs: testPeerLivenessMs() };
   // The ports a page of this app may name in its Origin (see app-ports.ts).
   const sharesPorts = opts.appPorts !== undefined;
@@ -345,6 +360,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   };
 
   const mount: BridgeMount = {
+    sessionToken,
     async deployHostedRules(service, source, instance) {
       const runtime = hostedRuntime;
       const isMissing = runtime === undefined;
@@ -414,59 +430,71 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         answerMountClosed(res);
         return true;
       }
+      const guard = opts.upgradeGuard;
+      const boundHost = guard?.boundHost ?? 'localhost';
+      const extraAllowedHosts = Array.isArray(guard?.allowedHosts) ? guard.allowedHosts : [];
       if (isHealthRequest) {
-        // The report lists live users, so a page whose name rebinds to
-        // 127.0.0.1 must not read it, whatever `allowedHosts` opens.
-        const boundHost = opts.upgradeGuard?.boundHost ?? 'localhost';
-        const namesOtherHost = !isAllowedHost(getHeader(req, 'host'), boundHost);
-        if (namesOtherHost) {
+        // Loopback Host, Origin, and Sec-Fetch-Site are enforced unconditionally
+        // (never bypassed by Vite `server.allowedHosts: true`).
+        const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extraAllowedHosts, appPorts.forRequest(req));
+        if (isForbidden) {
           res.writeHead(403).end();
           return true;
         }
-        const live = opts.liveHost === undefined ? {} : { live: opts.liveHost.report() };
-        // The Vite plugin's verdict on each `server.proxy` target (`vite-proxy-check.ts`).
-        const proxyTargets = proxyTargetsOf(bridge.instanceId);
-        const proxied = proxyTargets === undefined ? {} : { proxyTargets };
-        const body = { ...bridge.health(), ...live, ...proxied };
-        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          res.writeHead(405, { allow: 'GET, HEAD' }).end();
+          return true;
+        }
+        const fullHealth = bridge.health();
+        const authenticated = isAllowedSessionToken(req, url, sessionToken);
+        let body: Record<string, unknown>;
+        if (authenticated) {
+          const live = opts.liveHost === undefined ? {} : { live: opts.liveHost.report() };
+          // The Vite plugin's verdict on each `server.proxy` target (`vite-proxy-check.ts`).
+          const proxyTargets = proxyTargetsOf(bridge.instanceId);
+          const proxied = proxyTargets === undefined ? {} : { proxyTargets };
+          body = { ...fullHealth, ...live, ...proxied };
+        } else {
+          body = {
+            status: fullHealth.status,
+            mode: fullHealth.mode,
+            instanceId: fullHealth.instanceId,
+            sandboxConnected: fullHealth.sandboxConnected,
+          };
+        }
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        res.end(req.method === 'HEAD' ? undefined : JSON.stringify(body));
         return true;
       }
       const requiresControlGuard = isMcpRequest || isHostedMethod || isLiveRoute;
       if (requiresControlGuard) {
-        const guard = opts.upgradeGuard;
-        const requiresRequestGuard = guard?.allowedHosts !== true;
-        if (requiresRequestGuard) {
-          const boundHost = guard?.boundHost ?? 'localhost';
-          const allowedHosts = guard?.allowedHosts;
-          const hasNamedHosts = Array.isArray(allowedHosts);
-          const extra = hasNamedHosts ? allowedHosts : [];
-          const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extra, appPorts.forRequest(req));
-          if (isForbidden) {
-            res.writeHead(403, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
-            return true;
-          }
+        const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extraAllowedHosts, appPorts.forRequest(req));
+        if (isForbidden) {
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
+          return true;
+        }
+        if (!isAllowedSessionToken(req, url, sessionToken)) {
+          res.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+          res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid session capability token' }));
+          return true;
         }
       }
       if (isStorageBytes) {
         // Only a page this server serves, or a process with no Origin, reaches
         // object bytes. An upload session also takes its bytes from the origin
-        // its creator named.
-        const guard = opts.upgradeGuard;
-        const checksHosts = guard?.allowedHosts !== true;
-        if (checksHosts) {
-          const boundHost = guard?.boundHost ?? 'localhost';
-          const allowedHosts = guard?.allowedHosts;
-          const extra = Array.isArray(allowedHosts) ? allowedHosts : [];
-          const hostHeader = getHeader(req, 'host');
-          const originHeader = getHeader(req, 'origin');
-          const allowedOrigin = isAllowedOrigin(originHeader, boundHost, extra, req.socket.localPort)
-            || hostedRuntime?.storageAllowsOrigin(url, originHeader) === true;
-          const allowed = isAllowedHost(hostHeader, boundHost, extra) && allowedOrigin;
-          if (!allowed) {
-            res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
-            return true;
-          }
+        // its creator named. `allowedHosts: true` never bypasses this guard.
+        const hostHeader = getHeader(req, 'host');
+        const originHeader = getHeader(req, 'origin');
+        const allowedOrigin = isAllowedOriginOnPorts(originHeader, boundHost, extraAllowedHosts, appPorts.forRequest(req))
+          || hostedRuntime?.storageAllowsOrigin(url, originHeader) === true;
+        const allowed =
+          isAllowedHost(hostHeader, boundHost, extraAllowedHosts) &&
+          allowedOrigin &&
+          !isForeignFetchWithoutOrigin(req);
+        if (!allowed) {
+          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
+          return true;
         }
         const runtime = hostedRuntime;
         const hasNoHostedRuntime = runtime === undefined;
@@ -632,11 +660,18 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const collisionAbort = new AbortController();
       let collisionProbe: Promise<void> | null = null;
       let pointerSettle: Promise<void> | null = null;
+      let unregisterPortToken: (() => void) | undefined;
       let attachmentClosed = false;
       let attachmentClosePromise: Promise<void> | null = null;
 
       const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
-        const isUnrelatedPath = (req.url ?? '') !== WS_PATH;
+        let upgradeUrl: URL;
+        try {
+          upgradeUrl = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+        } catch {
+          return;
+        }
+        const isUnrelatedPath = upgradeUrl.pathname !== WS_PATH;
         if (isUnrelatedPath) return;
         // The socket carries admin operations, so it is local whatever the
         // guard below is configured to allow.
@@ -645,24 +680,20 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           socket.destroy();
           return;
         }
-        // DNS-rebinding + cross-origin hijack guard. The static/dev server runs
-        // isAllowedHost on the `request` event only; `upgrade` is a separate
-        // listener that bypasses it, so re-check both Host and Origin here
-        // before registering the peer (which last-wins the tool channel).
-        // `allowedHosts: true` means the caller explicitly opted into all hosts.
-        const requiresUpgradeGuard = guard !== undefined && guard.allowedHosts !== true;
-        if (requiresUpgradeGuard) {
-          const boundHost = guard.boundHost;
-          const allowedHosts = guard.allowedHosts;
-          const hasNamedHosts = Array.isArray(allowedHosts);
-          const extra = hasNamedHosts ? allowedHosts : [];
-          const acceptsProxiedPage = opts.learnsProxyPorts === true;
-          const ports = acceptsProxiedPage ? appPorts.forUpgrade(req) : appPorts.forRequest(req);
-          const isForbidden = !isAllowedUpgrade(req.headers, boundHost, extra, ports);
-          if (isForbidden) {
-            socket.destroy();
-            return;
-          }
+        // DNS-rebinding + cross-origin hijack guard. Unconditionally enforced
+        // even when `allowedHosts: true` is set on the host dev server.
+        const boundHost = guard?.boundHost ?? 'localhost';
+        const allowedHosts = guard?.allowedHosts;
+        const extra = Array.isArray(allowedHosts) ? allowedHosts : [];
+        const acceptsProxiedPage = opts.learnsProxyPorts === true;
+        const ports = acceptsProxiedPage ? appPorts.forUpgrade(req) : appPorts.forRequest(req);
+        if (!isAllowedUpgrade(req.headers, boundHost, extra, ports)) {
+          socket.destroy();
+          return;
+        }
+        if (!isAllowedSessionToken(req, upgradeUrl, sessionToken)) {
+          socket.destroy();
+          return;
         }
         upgradedSockets.add(socket);
         socket.once('close', () => upgradedSockets.delete(socket));
@@ -674,15 +705,18 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
 
       const writePointer = (currentOrigin: BridgeOrigin): void => {
         try {
-          mkdirSync(dirname(pointer), { recursive: true });
-          writeFileSync(pointer, JSON.stringify({
-            url: originUrl(currentOrigin),
-            mcpUrl: mount.mcpUrl(currentOrigin),
-            port: currentOrigin.port,
-            pid: process.pid,
-            instanceId: bridge.instanceId,
-            project,
-          }, null, 2) + '\n');
+          writeMode600FileSync(
+            pointer,
+            JSON.stringify({
+              url: originUrl(currentOrigin),
+              mcpUrl: mount.mcpUrl(currentOrigin),
+              port: currentOrigin.port,
+              pid: process.pid,
+              instanceId: bridge.instanceId,
+              project,
+              token: sessionToken,
+            }, null, 2) + '\n',
+          );
         } catch {
           // Discovery falls back to a port scan.
         }
@@ -726,6 +760,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         const currentOrigin = origin();
         const cannotPublish = !currentOrigin?.port || attachmentClosed;
         if (cannotPublish) return;
+        unregisterPortToken?.();
+        unregisterPortToken = registerLocalSessionToken(currentOrigin.port, sessionToken);
         const holder = livePointerHolder(pointer);
         if (holder === null) {
           writePointer(currentOrigin);
@@ -809,6 +845,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
             lifecycleServer?.removeListener('close', onClose);
             await collisionProbe;
             await pointerSettle;
+            unregisterPortToken?.();
             removeOwnedPointer(pointer);
             for (const client of wss.clients) client.terminate();
             for (const socket of upgradedSockets) socket.destroy();
@@ -850,7 +887,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     sandboxConnected: () => bridge.health().sandboxConnected === true,
     onSandboxPeerConnected: bridge.onSandboxPeerConnected,
     wsUrl: (origin) => `${schemes(origin).ws}://${urlHost(origin.host)}:${origin.port}${WS_PATH}`,
-    mcpUrl: (origin) => `${originUrl(origin)}${MCP_PATH}`,
+    mcpUrl: (origin) => `${originUrl(origin)}${MCP_PATH}?token=${encodeURIComponent(sessionToken)}`,
     close(): Promise<void> {
       const closing = closePromise;
       const isClosing = closing !== null;

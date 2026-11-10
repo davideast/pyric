@@ -51,6 +51,11 @@ import {
   type ServeHandle,
 } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
+import {
+  readDurableProjectCapabilityToken,
+  writeDurableProjectCapabilityToken,
+  writeOwnedSessionFile,
+} from '../serve/local-session-token.js';
 import { createAppPorts } from '../serve/app-ports.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
@@ -173,6 +178,9 @@ export interface ServeRuntime {
   /** The per-launch secret a beacon must present, placed in every child's
    *  `PYRIC_BEACON_TOKEN`. */
   beaconToken: string;
+  /** The per-boot capability token required on `/__pyric/*` control, admin,
+   *  live, MCP, and WebSocket routes. */
+  sessionToken: string;
   /** The bridge's host identity, the `instanceId` its `.pyric/serve.json`
    *  records; placed in every child's `PYRIC_SANDBOX_INSTANCE`. Undefined
    *  without the bridge mount. */
@@ -301,6 +309,11 @@ async function startServeRuntime(opts: {
   let beaconsSeen = 0;
   const beaconCount = (): number => beaconsSeen;
   const beaconToken = randomBytes(24).toString('base64url');
+  const ownsDurableOfflineState = !isLive && Boolean(opts.hosted || opts.persist);
+  const sessionToken =
+    ownsDurableOfflineState && !opts.fresh
+      ? (readDurableProjectCapabilityToken(opts.cwd) ?? randomBytes(24).toString('base64url'))
+      : randomBytes(24).toString('base64url');
 
   const freshWithoutPersistence = Boolean(opts.fresh && !opts.persist && !opts.hosted);
   if (freshWithoutPersistence) {
@@ -460,6 +473,7 @@ async function startServeRuntime(opts: {
         upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: opts.allowedHosts },
         learnsProxyPorts: true,
         appPorts,
+        sessionToken,
     });
   }
   const mount = bridgeMount;
@@ -498,6 +512,8 @@ async function startServeRuntime(opts: {
   try {
     session = await createSandboxSession({
       projectDir: opts.cwd,
+      boundHost: opts.host ?? 'localhost',
+      allowedHosts: opts.allowedHosts,
       appPorts,
       firebaseConfig: config,
       sdk: { dir: bundle.outDir, workerVersion },
@@ -526,6 +542,7 @@ async function startServeRuntime(opts: {
       hosted: opts.hosted,
       hostInstanceId: () => mount?.instanceId,
       deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
+      sessionToken,
       logger,
     });
   } catch (error) {
@@ -588,7 +605,15 @@ async function startServeRuntime(opts: {
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
-      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted, aiMode, owners, importMap: pageImportMap }),
+      transformHtml: (html, ctx) => injectServeTags(html, {
+        workerVersion,
+        hosted,
+        aiMode,
+        owners,
+        importMap: pageImportMap,
+        sessionToken: ctx.localPeer ? sessionToken : undefined,
+      }),
+      sessionToken,
       allowedHosts: opts.allowedHosts,
       logger,
     });
@@ -599,6 +624,10 @@ async function startServeRuntime(opts: {
     throw error;
   }
   origin.port = handle.port;
+  const canWriteSessionFile = !hasBridge && !isLive && (usesHostedSandbox || Boolean(opts.persist) || opts.capture !== false);
+  const removeOwnedSessionFile = canWriteSessionFile
+    ? writeOwnedSessionFile(opts.cwd, { port: handle.port, token: sessionToken })
+    : undefined;
   // The bridge attachment owns upgrades on every bound family plus discovery.
   // Its explicit close handle is also folded into stop() below, before the
   // sandbox session is released.
@@ -611,6 +640,9 @@ async function startServeRuntime(opts: {
         ownWriteRefusal: liveStart?.writeRefusal,
       });
     }
+    if (ownsDurableOfflineState) {
+      writeDurableProjectCapabilityToken(opts.cwd, sessionToken);
+    }
     bridgeAttachment = mount?.attachHost({
       servers: handle.servers,
       lifecycleServer: handle.server,
@@ -621,6 +653,7 @@ async function startServeRuntime(opts: {
       },
     });
   } catch (error) {
+    removeOwnedSessionFile?.();
     await mount?.close();
     await session.close();
     await handle.stop().catch(() => undefined);
@@ -631,6 +664,7 @@ async function startServeRuntime(opts: {
   let closeResources: Promise<void> | null = null;
   const closeOwnedResources = (): Promise<void> => {
     closeResources ??= (async () => {
+      removeOwnedSessionFile?.();
       await bridgeAttachment?.close();
       await mount?.close();
       await session.close();
@@ -852,7 +886,7 @@ async function startServeRuntime(opts: {
     logger.info(`✔ docs     Pyric docs: ${docsUrl}`);
   }
   if (hasBridge) {
-    logger.info(`✔ bridge   MCP endpoint: ${mount.mcpUrl(origin)} (sandbox peers over ws at /__pyric/sandbox)`);
+    logger.info(`✔ bridge   MCP endpoint: ${handle.url}/__pyric/mcp (sandbox peers over ws at /__pyric/sandbox)`);
   }
   // AI is a mounted service like the bridge: `/__pyric/ai-proxy` answers from
   // the first request on, whether or not anything is configured. `pyric
@@ -929,10 +963,10 @@ async function startServeRuntime(opts: {
   }
   let mcpUrl: string | null = null;
   if (hasBridge) mcpUrl = mount.mcpUrl(origin);
-  const workerInit = workerInitPayload(hosted?.projectKey, owners);
+  const workerInit = workerInitPayload(hosted?.projectKey, owners, mount?.instanceId, sessionToken);
   return {
     handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken,
-    instanceId: mount?.instanceId, workerInit,
+    sessionToken, instanceId: mount?.instanceId, workerInit,
   };
 }
 
@@ -1313,6 +1347,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       registerUrl: registerModuleUrl(),
       beaconToken: runtime.beaconToken,
       hostInstanceId: runtime.instanceId,
+      sessionToken: runtime.sessionToken,
       instance: `${functionsProjectId}-default-rtdb`,
       location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
       projectId: functionsProjectId ?? 'demo-project',
@@ -1401,6 +1436,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       beaconToken: runtime.beaconToken,
       instanceId: runtime.instanceId,
       workerInit: runtime.workerInit,
+      sessionToken: runtime.sessionToken,
     });
     // What we are handing the child, stated before it starts.
     const interlock = describeInterlock(childEnv, registerModuleUrl());

@@ -32,6 +32,7 @@ import {
   type ProcessActivation,
 } from 'pyric/sandbox/internal';
 import { installNodeRuntimeOrigin } from '../../serve/entries/runtime-origin.js';
+import { resolveSessionTokenForTarget } from '../../serve/local-session-token.js';
 import { resolveRemoteHost } from '../../remote/resolve-host.js';
 import { versionSkewGuidance } from '../../remote/version-skew.js';
 import { createNodeSocketRealm } from './node-realm.js';
@@ -96,6 +97,11 @@ const socketRealm = createNodeSocketRealm({
   onAttached: ack => reportVersionSkew(ack.serveVersion),
   // Only a host in this process can name a certificate to trust, and only for its own origin.
   trust: url => inProcessActivation()?.hostTrust?.(url),
+  sessionToken: url => resolveSessionTokenForTarget({
+    url,
+    cwd: process.env.PYRIC_LIVE_PROJECT_ROOT || process.cwd(),
+    env: process.env,
+  }),
 });
 // The in-process host ended for good (its dev server closed): let the process go.
 onProcessActivationEnd(() => socketRealm.releaseAll());

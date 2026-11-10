@@ -41,12 +41,15 @@ function recordingLogger(): { logger: ServeLogger; notes: string[] } {
   return { logger: { info: () => {}, note: (m) => notes.push(m) }, notes };
 }
 
+const TEST_TOKEN = 'test-ai-proxy-session-token';
+
 async function startServe(aiProxyUpstream?: string, logger?: ServeLogger): Promise<ServeHandle> {
   const { site, sdk } = fixture();
   const ns = createPyricNamespace({
     sdkDir: sdk,
     initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
     aiProxyUpstream,
+    sessionToken: TEST_TOKEN,
     ...(logger ? { logger } : {}),
   });
   const h = await startStaticServer({
@@ -56,10 +59,16 @@ async function startServe(aiProxyUpstream?: string, logger?: ServeLogger): Promi
     portScanLimit: 200,
     logger: logger ?? silentServeLogger(),
     namespaceHandler: ns,
+    sessionToken: TEST_TOKEN,
   });
   handles.push(h);
   return h;
 }
+
+const authHeaders = (extra: Record<string, string> = {}) => ({
+  'x-pyric-session-token': TEST_TOKEN,
+  ...extra,
+});
 
 async function disconnectedLoopbackUrl(path = ''): Promise<string> {
   // Keep the port reserved: closing it before startServe lets the proxy itself
@@ -74,6 +83,27 @@ async function disconnectedLoopbackUrl(path = ''): Promise<string> {
 }
 
 describe('/__pyric/ai-proxy', () => {
+  it('refuses an unauthenticated POST with 401 and never calls the upstream', async () => {
+    const seen: string[] = [];
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        seen.push(req.url);
+        return Response.json({ choices: [] });
+      },
+    });
+    upstreams.push(upstream);
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(401);
+    expect(seen).toEqual([]);
+  });
+
   it('defaults to Ollama\'s OpenAI-compatible endpoint', async () => {
     const h = await startServe();
     const nativeFetch = globalThis.fetch;
@@ -87,7 +117,7 @@ describe('/__pyric/ai-proxy', () => {
     try {
       const res = await nativeFetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders({ 'content-type': 'application/json' }),
         body: '{}',
       });
       expect(res.status).toBe(200);
@@ -114,13 +144,13 @@ describe('/__pyric/ai-proxy', () => {
     const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions?probe=1`, {
       method: 'POST',
-      headers: {
+      headers: authHeaders({
         'content-type': 'application/json',
         authorization: 'Bearer test-key',
         origin: new URL(h.url).origin,
         referer: `${h.url}/page`,
         cookie: 'session=secret',
-      },
+      }),
       body: JSON.stringify({ model: 'llama3', messages: [] }),
     });
     expect(res.status).toBe(200);
@@ -171,7 +201,7 @@ describe('/__pyric/ai-proxy', () => {
     const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{"stream":true}',
     });
     expect(res.status).toBe(200);
@@ -210,7 +240,7 @@ describe('/__pyric/ai-proxy', () => {
     const h = await startServe(`http://127.0.0.1:${upstream.port}/v1?key=configured`);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'text/plain', origin: 'http://localhost:1' },
+      headers: authHeaders({ 'content-type': 'text/plain', origin: 'http://localhost:1' }),
       body: JSON.stringify({ model: 'm', messages: [] }),
     });
     expect(res.status).toBe(403);
@@ -231,7 +261,7 @@ describe('/__pyric/ai-proxy', () => {
     const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES + 1),
     });
     await expectClosedEarlyAnswer(res, 413, `${h.url}/__pyric/ai-proxy/chat/completions`);
@@ -252,7 +282,7 @@ describe('/__pyric/ai-proxy', () => {
     const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES),
     });
     expect(res.status).toBe(200);
@@ -261,7 +291,7 @@ describe('/__pyric/ai-proxy', () => {
 
   it('rejects non-POST with 405', async () => {
     const h = await startServe('http://127.0.0.1:9/v1');
-    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, { headers: authHeaders() });
     expect(res.status).toBe(405);
     expect(res.headers.get('allow')).toBe('POST');
   });
@@ -270,7 +300,7 @@ describe('/__pyric/ai-proxy', () => {
     const h = await startServe(await disconnectedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{}',
     });
     expect(res.status).toBe(502);
@@ -287,7 +317,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     const h = await startServe(upstream, logger);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{}',
     });
     expect(res.status).toBe(502);
@@ -315,7 +345,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`, logger);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{}',
     });
     // The status still passes through to the caller untouched…
@@ -342,7 +372,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`, logger);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{}',
     });
     // The 429 rides through untouched. Nothing here retries or waits.
@@ -386,7 +416,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`, logger);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{}',
     });
     expect(res.status).toBe(200);
@@ -416,7 +446,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     const h = await startServe(`http://127.0.0.1:${upstreamPort}/v1`, logger);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{"stream":true}',
     });
     expect(res.status).toBe(200);
@@ -436,7 +466,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     const h = await startServe(await disconnectedLoopbackUrl('/v1'), logger);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions?key=AIzaSuperSecretValue`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{}',
     });
     expect(res.status).toBe(502);
@@ -451,7 +481,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     for (let i = 0; i < 4; i += 1) {
       const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders({ 'content-type': 'application/json' }),
         body: '{}',
       });
       expect(res.status).toBe(502);
@@ -465,7 +495,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     const h = await startServe(await disconnectedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions?key=AIzaSuperSecretValue`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{}',
     });
     expect(res.status).toBe(502);
@@ -481,7 +511,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     const h = await startServe(upstream, logger);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{}',
     });
     expect(res.status).toBe(502);
@@ -516,7 +546,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
         const h = await startServe(`http://gateway-user:${password}@127.0.0.1:9/v1`, logger);
         const res = await realFetch(`${h.url}/__pyric/ai-proxy/chat/completions?user=alice@example.com`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: authHeaders({ 'content-type': 'application/json' }),
           body: '{}',
         });
         expect(res.status).toBe(502);
@@ -594,7 +624,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
       const h = await startServe(upstream, logger);
       const res = await realFetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+        headers: authHeaders({ 'content-type': 'application/json', authorization: `Bearer ${key}` }),
         body: '{}',
       });
       expect(res.status).toBe(502);
@@ -651,7 +681,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     const h = await startServe(await disconnectedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: '{}',
     });
     expect(res.status).toBe(502);

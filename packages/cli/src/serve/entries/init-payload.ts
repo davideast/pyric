@@ -1,5 +1,6 @@
 import './bundled-worker-init.js';
 import { recordDiagnostic } from '../runtime/diagnostics-client.js';
+import { stampedSessionToken } from '../runtime/hosted-target.js';
 import { pageListenerObservation } from '../runtime/listener-observation.js';
 import type { InitPayload } from '../init-payload.js';
 import { initPayloadUrl, nodeRuntimeOrigin } from './runtime-origin.js';
@@ -32,7 +33,11 @@ async function requestInitPayload(): Promise<InitPayload> {
     : undefined;
   try {
     const fetchHost = nodeRuntimeOrigin()?.socketRealm.fetch ?? fetch;
-    const response = await fetchHost(await initPayloadUrl(), { signal: abortController.signal });
+    const token = stampedSessionToken();
+    const response = await fetchHost(await initPayloadUrl(), {
+      signal: abortController.signal,
+      ...(token !== undefined ? { headers: { 'x-pyric-session-token': token } } : {}),
+    });
     status = response.status;
     const hasFailedResponse = !response.ok;
     if (hasFailedResponse) throw new Error(`/__pyric/init.json → ${response.status}`);
@@ -148,7 +153,7 @@ export function currentSessionToken(): Promise<string | null> {
   if (sessionTokenRequest === undefined || needsFreshPayload) {
     sessionTokenIsStale = false;
     const payload = needsFreshPayload ? requestInitPayload() : initPayload;
-    const request = payload.then(value => value?.sessionToken ?? null);
+    const request = payload.then(value => value?.sessionToken ?? stampedSessionToken() ?? null);
     sessionTokenRequest = request;
     request.catch(() => {
       const isLatest = sessionTokenRequest === request;
@@ -168,7 +173,7 @@ export function forgetSessionToken(): void {
 /** Reads `init.json` from the host serving it now; the read also answers the next session-token read. */
 async function readHostPayload(): Promise<InitPayload> {
   const payload = await requestInitPayload();
-  sessionTokenRequest = Promise.resolve(payload.sessionToken ?? null);
+  sessionTokenRequest = Promise.resolve(payload.sessionToken ?? stampedSessionToken() ?? null);
   sessionTokenIsStale = false;
   return payload;
 }

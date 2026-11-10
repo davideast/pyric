@@ -25,12 +25,22 @@ function project(): string {
 class ResponseRecorder extends EventEmitter {
   statusCode = 200;
   body = '';
-  headers: Record<string, string> = {};
+  headers: Record<string, string | string[]> = {};
   ended = false;
+
+  setHeader(key: string, value: string | string[]): void {
+    this.headers[key.toLowerCase()] = value;
+  }
+
+  getHeader(key: string): string | string[] | undefined {
+    return this.headers[key.toLowerCase()];
+  }
 
   writeHead(status: number, headers: Record<string, string> = {}): this {
     this.statusCode = status;
-    this.headers = headers;
+    for (const [key, value] of Object.entries(headers)) {
+      this.headers[key.toLowerCase()] = value;
+    }
     return this;
   }
 
@@ -802,7 +812,10 @@ service firebase.storage {
     });
     const stream = new ResponseRecorder();
     await session.handle(
-      Object.assign(new EventEmitter(), LOCAL_PEER) as unknown as IncomingMessage,
+      Object.assign(new EventEmitter(), LOCAL_PEER, {
+        method: 'GET',
+        headers: { host: 'localhost', 'x-pyric-session-token': session.sessionToken },
+      }) as unknown as IncomingMessage,
       stream as unknown as ServerResponse,
       new URL('http://localhost/__pyric/events'),
     );
@@ -865,7 +878,11 @@ service firebase.storage {
     bridgeUrl = 'ws://localhost:5173/__pyric/sandbox';
     const response = new ResponseRecorder();
     const handled = await session.handle(
-      { headers: { host: 'localhost' }, socket: { remoteAddress: '127.0.0.1' } } as unknown as IncomingMessage,
+      {
+        method: 'GET',
+        headers: { host: 'localhost', 'x-pyric-session-token': session.sessionToken },
+        socket: { remoteAddress: '127.0.0.1' },
+      } as unknown as IncomingMessage,
       response as unknown as ServerResponse,
       new URL('http://localhost/__pyric/init.json'),
     );
@@ -888,7 +905,10 @@ service firebase.storage {
       firebaseConfig: null,
       sdk: { dir: join(root, 'sdk') },
     });
-    const request = Object.assign(new EventEmitter(), LOCAL_PEER) as unknown as IncomingMessage;
+    const request = Object.assign(new EventEmitter(), LOCAL_PEER, {
+      method: 'GET',
+      headers: { host: 'localhost', 'x-pyric-session-token': session.sessionToken },
+    }) as unknown as IncomingMessage;
     const response = new ResponseRecorder();
 
     expect(await session.handle(
@@ -1150,7 +1170,10 @@ service firebase.storage {
     // A page listening on the SSE hub, exactly as entries/avatar-upgrade.ts does.
     const stream = new ResponseRecorder();
     await session.handle(
-      Object.assign(new EventEmitter(), LOCAL_PEER) as unknown as IncomingMessage,
+      Object.assign(new EventEmitter(), LOCAL_PEER, {
+        method: 'GET',
+        headers: { host: 'localhost', 'x-pyric-session-token': session.sessionToken },
+      }) as unknown as IncomingMessage,
       stream as unknown as ServerResponse,
       new URL('http://localhost/__pyric/events'),
     );

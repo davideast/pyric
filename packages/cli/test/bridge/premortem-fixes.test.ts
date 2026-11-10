@@ -42,8 +42,19 @@ describe('Premortem fixes — A2 (session leak)', () => {
             clientInfo: { name: 't', version: '0' },
           },
         };
+        const unauthenticated = await fetch(`${server.url}/mcp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+          },
+          body: JSON.stringify(initBody),
+        });
+        expect(unauthenticated.status).toBe(401);
+        await unauthenticated.text();
+
         const init = () =>
-          fetch(`${server.url}/mcp`, {
+          fetch(server.mcpUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -69,7 +80,7 @@ describe('Premortem fixes — A2 (session leak)', () => {
   test('idle session is auto-closed after sessionIdleMs', async () => {
     await withServer(
       async (server) => {
-        const initRes = await fetch(`${server.url}/mcp`, {
+        const initRes = await fetch(server.mcpUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

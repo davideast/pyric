@@ -26,7 +26,7 @@
  */
 import assert from 'node:assert/strict';
 import type { Locator, Page } from 'playwright';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 import { verifyObservedStorageBrowser } from './verify-observed-browser.ts';
 
 const PROJECT = 'demo-live-storage';
@@ -338,8 +338,8 @@ interface BilledCount {
 }
 
 /** The host's billed-call count, as its health report carries it. */
-async function billed(url: string): Promise<BilledCount | undefined> {
-  const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: { billed?: BilledCount } };
+async function billed(app: App, url: string): Promise<BilledCount | undefined> {
+  const health = await (await fetch(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) })).json() as { live?: { billed?: BilledCount } };
   return health.live?.billed;
 }
 
@@ -368,7 +368,7 @@ export default scenario(async (app) => {
   const chip = await app.step('the chip shows each page call as production\'s, with its bucket, path, answer and account', async () => {
     const opened = await openChip(page);
     await opened.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
-    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    const health = await (await fetch(`${host.url}/__pyric/health`, { headers: sessionHeaders(app, host.url) })).json() as { live?: { projectId?: string } };
     assert.equal(health.live?.projectId, PROJECT);
     await expectRows(opened, 'page');
     return opened;
@@ -383,7 +383,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('Storage calls add nothing to the billed count', async () => {
-    assert.deepEqual(await billed(host.url), BILLED_NONE);
+    assert.deepEqual(await billed(app, host.url), BILLED_NONE);
   });
 
   await pageReplay.stop();
@@ -401,7 +401,7 @@ export default scenario(async (app) => {
   await app.step('the chip shows each server job call as production\'s, from a Node process', async () => {
     await expectRows(chip, 'node');
     assert.ok(await chip.locator('[data-traffic-row-source=node]').count() > 0, 'the server job\'s rows carry the node source');
-    assert.deepEqual(await billed(host.url), BILLED_NONE);
+    assert.deepEqual(await billed(app, host.url), BILLED_NONE);
     await expectBuckets(app, 2 * (CALLS_PER_BUCKET.page + CALLS_PER_BUCKET.node));
   });
 

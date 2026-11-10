@@ -60,7 +60,7 @@ interface ToolBody {
  * one: POST `/__pyric/mcp` with the host's instance id.
  */
 function hostMcp(app: App) {
-  const pointer = JSON.parse(app.readFile('.pyric/serve.json')) as { url: string; instanceId: string };
+  const pointer = JSON.parse(app.readFile('.pyric/serve.json')) as { url: string; instanceId: string; token?: string };
   let sessionId: string | null = null;
   let nextId = 1;
   async function request(method: string, params: Record<string, unknown>, notification = false): Promise<unknown> {
@@ -69,6 +69,7 @@ function hostMcp(app: App) {
       accept: 'application/json, text/event-stream',
       'x-pyric-instance-id': pointer.instanceId,
     };
+    if (pointer.token) headers['x-pyric-session-token'] = pointer.token;
     if (sessionId !== null) headers['mcp-session-id'] = sessionId;
     const body = notification ? { jsonrpc: '2.0', method, params } : { jsonrpc: '2.0', id: nextId++, method, params };
     const res = await fetch(`${pointer.url}/__pyric/mcp`, { method: 'POST', headers, body: JSON.stringify(body) });

@@ -30,6 +30,7 @@ const viteDir = realpathSync(dirname(requireFromCli.resolve('vite/package.json')
 const realFirebaseDir = realpathSync(dirname(createRequire(join(repoRoot, 'package.json')).resolve('firebase/package.json')));
 
 const SCENARIO = `
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import net from 'node:net';
 import { join } from 'node:path';
@@ -44,6 +45,7 @@ const server = await createServer({
 });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\\/$/, '');
+const { token: sessionToken } = JSON.parse(readFileSync(join(root, '.pyric/serve.json'), 'utf8'));
 const outcome = {};
 // Google's token host, resolved to a closed loopback port: the connection goes out, and nothing reaches Google.
 const toLoopback = (_host, options, callback) => {
@@ -60,12 +62,14 @@ outcome.token = await new Promise((resolve) => {
     resolve(error.code ?? String(error));
   }
 });
-const health = await (await fetch(base + '/__pyric/health')).json();
+const health = await (await fetch(base + '/__pyric/health', {
+  headers: { 'x-pyric-session-token': sessionToken },
+})).json();
 outcome.hasSocketUnobserved = 'unobserved' in (health.live ?? {});
 const method = async (key, args, allowProduction) => {
   const response = await fetch(base + '/__pyric/hosted/method', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-pyric-session-token': sessionToken },
     body: JSON.stringify({ instanceId: health.instanceId, projectDir: root, key, args, allowProduction }),
   });
   const result = await response.json();

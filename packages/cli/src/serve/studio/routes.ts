@@ -33,7 +33,8 @@ import type {
   WorkspaceChange,
   WorkspaceStore,
 } from './store-types.js';
-import { isAllowedHost, isAllowedOrigin, getHeader, isAllowedSessionToken } from '../server.js';
+import { isAllowedHost, isAllowedOrigin, isForeignFetchWithoutOrigin, getHeader, isAllowedSessionToken } from '../server.js';
+import type { AppPorts } from '../app-ports.js';
 import type { WriterLock } from '../writer-lock.js';
 
 export interface StudioRouteOptions {
@@ -49,6 +50,8 @@ export interface StudioRouteOptions {
   boundHost?: string;
   /** Extra hostnames allowed for DNS rebinding/origin guard. */
   allowedHosts?: string[];
+  /** Accepted app ports under proxied dev servers. */
+  appPorts?: AppPorts;
 }
 
 /** Collect the raw request body as a UTF-8 string. */
@@ -255,13 +258,23 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
         const hostHeader = getHeader(req, 'host');
         const originHeader = getHeader(req, 'origin');
 
-        // 1. Host and Origin guard (Requirement 1)
+        // 1. Host, Origin, and Fetch Metadata guard (Requirement 1)
         if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
           return true;
         }
-        if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, req.socket?.localPort)) {
-          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+        if (originHeader) {
+          const ports = opts.appPorts?.forRequest(req) ?? [req.socket?.localPort];
+          const allowedOrigin = ports.some((port) =>
+            isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, port),
+          );
+          if (!allowedOrigin) {
+            res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+            return true;
+          }
+        }
+        if (isForeignFetchWithoutOrigin(req)) {
+          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
           return true;
         }
 

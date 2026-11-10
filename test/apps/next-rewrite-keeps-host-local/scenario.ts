@@ -17,7 +17,7 @@
 // 127.0.0.0/8. In an offline network namespace, add one first:
 // `ip addr add 10.203.0.1/32 dev lo`.
 import assert from 'node:assert/strict';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scenario, sleep, type App, type AppProcess } from '../driver.ts';
 import { get, nonLoopbackAddress, post, statusOf, upgrades } from '../peer-client.ts';
@@ -96,17 +96,25 @@ async function localAnswersToRemote(remote: string, port: number, hosted: boolea
   return found;
 }
 
+function readSessionToken(projectDir: string): string {
+  const pointer = JSON.parse(readFileSync(join(projectDir, '.pyric', 'serve.json'), 'utf8')) as { token?: string };
+  assert.equal(typeof pointer.token, 'string', '.pyric/serve.json did not record a session token');
+  return pointer.token!;
+}
+
 /** What a client on this machine keeps through the same server. */
-async function assertOpenFromLoopback(port: number): Promise<void> {
+async function assertOpenFromLoopback(port: number, projectDir: string): Promise<void> {
   const host = `localhost:${port}`;
-  const from = { address: '127.0.0.1', port, host };
+  const token = readSessionToken(projectDir);
+  const authHeaders = { 'x-pyric-session-token': token };
+  const from = { address: '127.0.0.1', port, host, headers: authHeaders };
   const init = await get({ ...from, path: '/__pyric/init.json' });
   const payload = JSON.parse(init.body) as Record<string, unknown>;
   assert.equal(typeof payload.sessionToken, 'string', init.body.slice(0, 300));
   assert.ok(init.body.includes(RULES_MARKER), 'a local client lost the rules text');
   assert.equal(payload.remotePeer, undefined);
   assert.equal((await get({ ...from, path: '/__pyric/health' })).status, 200);
-  const mcp = await post({ ...from, path: '/__pyric/mcp', body: MCP_INITIALIZE, headers: { accept: 'application/json, text/event-stream' } });
+  const mcp = await post({ ...from, path: '/__pyric/mcp', body: MCP_INITIALIZE, headers: { accept: 'application/json, text/event-stream', ...authHeaders } });
   assert.equal(mcp.status, 200, mcp.body.slice(0, 200));
   assert.equal(await upgrades({ ...from, path: '/__pyric/sandbox' }), true, 'a local client lost the bridge socket');
 }
@@ -129,7 +137,7 @@ async function runNextCase(app: App, remote: string, name: string, hosted: boole
     for (const line of await localAnswersToRemote(remote, nextPort, hosted)) found.push(`${name}: ${line}`);
   });
   await app.step(`${name}: a client on loopback keeps the routes through the rewrite`, () =>
-    assertOpenFromLoopback(nextPort));
+    assertOpenFromLoopback(nextPort, app.dir));
   await app.step(`${name}: a page Next serves still reaches the sandbox`, async () => {
     const page = await app.page(`http://127.0.0.1:${nextPort}/`);
     await page.waitForFunction(() => document.querySelector('#items-status')?.textContent === 'Listening', undefined, { timeout: 90_000 });
@@ -172,7 +180,14 @@ async function runStalePointerCase(app: App): Promise<void> {
       await waitForPage(nextPort, () => child.running);
     });
     await app.step(`${name}: the rewrite reaches the host pyric sandbox started`, async () => {
-      const init = await get({ address: '127.0.0.1', port: nextPort, path: '/__pyric/init.json', host: `localhost:${nextPort}` });
+      const token = readSessionToken(app.dir);
+      const init = await get({
+        address: '127.0.0.1',
+        port: nextPort,
+        path: '/__pyric/init.json',
+        host: `localhost:${nextPort}`,
+        headers: { 'x-pyric-session-token': token },
+      });
       assert.equal(init.status, 200, init.body.slice(0, 300));
       assert.ok(init.body.includes(RULES_MARKER), 'init.json did not come from this project\'s host');
     });
@@ -202,7 +217,7 @@ async function runProxyCase(app: App, remote: string, name: string, command: (po
     for (const line of await localAnswersToRemote(remote, proxyPort, true)) found.push(`${name}: ${line}`);
   });
   await app.step(`${name}: a client on loopback keeps the routes`, () =>
-    assertOpenFromLoopback(proxyPort));
+    assertOpenFromLoopback(proxyPort, app.dir));
   await app.step(`${name}: stops`, async () => {
     await sandbox?.stop();
   });

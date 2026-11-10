@@ -25,7 +25,11 @@ async function fixture(run: (root: string, serverUrl: string, token: string) => 
     logger: silentServeLogger(),
   });
   try {
-    const init = await (await fetch(server.url + '/__pyric/init.json')).json();
+    const unauthInit = await (await fetch(server.url + '/__pyric/init.json')).json();
+    expect(unauthInit.sessionToken).toBeUndefined();
+    const init = await (await fetch(server.url + '/__pyric/init.json', {
+      headers: { 'x-pyric-session-token': namespace.sessionToken },
+    })).json();
     await run(root, server.url, init.sessionToken);
   } finally {
     await server.stop();
@@ -67,7 +71,11 @@ test('GET /__pyric/indexes returns 200 and resolves RTDB indexes when firebase.j
   expect(rtdbBody.service).toBe('rtdb');
 
   // 4. Client handles both cleanly
-  const fetcher = ((path: string, options?: RequestInit) => fetch(serverUrl + path, options)) as typeof fetch;
+  const fetcher = ((path: string, options?: RequestInit) => {
+    const headers = new Headers(options?.headers);
+    if (!headers.has('x-pyric-session-token')) headers.set('x-pyric-session-token', token);
+    return fetch(serverUrl + path, { ...options, headers });
+  }) as typeof fetch;
   const client = createIndexConfigClient(fetcher);
   expect(await client.read('firestore')).toBeNull();
   const rtdbClientConfig = await client.read('rtdb');
@@ -115,7 +123,11 @@ test('GET /__pyric/indexes answers 200 for a database list, and the page client 
   const split = await fetch(`${serverUrl}/__pyric/indexes?service=rtdb`, { headers: { 'x-pyric-session-token': token } });
   expect(split.status).toBe(200);
   expect((await split.json()).status).toBe('unavailable');
-  const fetcher = ((path: string, options?: RequestInit) => fetch(serverUrl + path, options)) as typeof fetch;
+  const fetcher = ((path: string, options?: RequestInit) => {
+    const headers = new Headers(options?.headers);
+    if (!headers.has('x-pyric-session-token')) headers.set('x-pyric-session-token', token);
+    return fetch(serverUrl + path, { ...options, headers });
+  }) as typeof fetch;
   await expect(createIndexConfigClient(fetcher).read('rtdb')).rejects.toThrow('main.rules.json, shard.rules.json');
 }));
 

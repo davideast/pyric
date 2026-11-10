@@ -48,7 +48,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page } from 'playwright';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const PROJECT = 'demo-live-rtdb';
 const RUN = '/pyric-live-capture/replay';
@@ -424,8 +424,8 @@ interface BilledCount {
 }
 
 /** The host's billed-call count, as its health report carries it. */
-async function billed(url: string): Promise<BilledCount | undefined> {
-  const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: { billed?: BilledCount } };
+async function billed(app: App, url: string): Promise<BilledCount | undefined> {
+  const health = await (await fetch(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) })).json() as { live?: { billed?: BilledCount } };
   return health.live?.billed;
 }
 
@@ -440,8 +440,8 @@ interface SessionData {
   skips?: Record<string, number>;
 }
 
-async function sessionData(url: string): Promise<SessionData> {
-  const response = await fetch(`${url}/__pyric/live/session-data`);
+async function sessionData(app: App, url: string): Promise<SessionData> {
+  const response = await fetch(`${url}/__pyric/live/session-data`, { headers: sessionHeaders(app, url) });
   const text = await response.text();
   const type = response.headers.get('content-type') ?? '';
   assert.ok(response.status === 200 && type.includes('application/json'), `GET /__pyric/live/session-data answered ${response.status} ${type}: ${text.slice(0, 200)}`);
@@ -553,7 +553,7 @@ export default scenario(async (app) => {
   const chip = await app.step('the chip shows each page call as production\'s, with its path, answer and account', async () => {
     const opened = await openChip(page);
     await opened.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
-    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    const health = await (await fetch(`${host.url}/__pyric/health`, { headers: sessionHeaders(app, host.url) })).json() as { live?: { projectId?: string } };
     assert.equal(health.live?.projectId, PROJECT);
     await expectRows(opened, 'page');
     return opened;
@@ -568,7 +568,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('RTDB calls add nothing to the billed count', async () => {
-    assert.deepEqual(await billed(host.url), { reads: 0, writes: 0, deliveries: 0 });
+    assert.deepEqual(await billed(app, host.url), { reads: 0, writes: 0, deliveries: 0 });
   });
 
   const blockedBeforeStudio = blockedLines(app).length;
@@ -615,7 +615,7 @@ export default scenario(async (app) => {
   const blockedAfterStudio = blockedLines(app).length;
 
   await app.step('the host holds each instance\'s observed tree in memory, by instance name, with no Firestore document and nothing from /secret', async () => {
-    const data = await eventually(() => sessionData(host.url), (value) => Object.keys(value.rtdb).length === 2, 'both instances in the session data');
+    const data = await eventually(() => sessionData(app, host.url), (value) => Object.keys(value.rtdb).length === 2, 'both instances in the session data');
     assert.equal(data.projectId, PROJECT);
     assert.deepEqual(Object.keys(data.rtdb).sort(), [DEFAULT_INSTANCE, NAMED].sort());
     assert.equal(data.defaultRtdbInstance, DEFAULT_INSTANCE);
@@ -671,7 +671,7 @@ export default scenario(async (app) => {
   await app.step('the chip shows each server job call as production\'s, from a Node process', async () => {
     await expectRows(chip, 'node');
     assert.ok(await chip.locator('[data-traffic-row-source=node]').count() > 0, 'the server job\'s rows carry the node source');
-    assert.deepEqual(await billed(host.url), { reads: 0, writes: 0, deliveries: 0 });
+    assert.deepEqual(await billed(app, host.url), { reads: 0, writes: 0, deliveries: 0 });
   });
 
   await app.step('the server job\'s events on the host name the named instance and leave the default\'s out too', async () => {
@@ -688,7 +688,7 @@ export default scenario(async (app) => {
 
   const seeded = await app.step('pyric sandbox seed-from-live --confirm seeds .pyric/state/hosted with both instances\' trees', async () => {
     // The server job ran the sequence again, so each list holds both runs' entries.
-    const observed = await sessionData(host.url);
+    const observed = await sessionData(app, host.url);
     for (const instance of [DEFAULT_INSTANCE, NAMED]) expectObservedTree(observed.rtdb[instance], instance, 2);
     const run = await app.pyric(['sandbox', 'seed-from-live', '--confirm']);
     assert.equal(run.code, 0, run.output);

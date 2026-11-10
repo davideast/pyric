@@ -184,11 +184,16 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     const hasNoHandler = handler === undefined;
     if (hasNoHandler) throw new Error('plugin did not mount middleware');
 
+    const transformed = (p.transformIndexHtml as (html: string) => string)(
+      '<html><head></head></html>',
+    );
+    const token = transformed.match(/"sessionToken":"([^"]+)"/)?.[1] ?? '';
+
     const request: PyricReq = Object.assign(new EventEmitter(), {
       method: 'GET',
       url: '/__pyric/events',
       originalUrl: '/__pyric/events',
-      headers: { host: 'localhost' },
+      headers: { host: 'localhost', 'x-pyric-session-token': token },
       socket: { remoteAddress: '127.0.0.1' },
     });
     const response = new MockRes();

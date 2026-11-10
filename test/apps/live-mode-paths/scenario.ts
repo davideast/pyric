@@ -25,6 +25,8 @@
  * scenario this runs offline, and the browser blocks every host but loopback.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright';
 import { scenario, sleep, type App } from '../driver.ts';
@@ -124,9 +126,15 @@ interface CapturePayload {
   observedCalls?: Record<string, { claims?: Record<string, unknown> }>;
 }
 
+function readHostSessionToken(app: App): string {
+  const pointer = JSON.parse(readFileSync(join(app.dir, '.pyric', 'serve.json'), 'utf8')) as { token?: string };
+  assert.equal(typeof pointer.token, 'string', '.pyric/serve.json did not record a session token');
+  return pointer.token!;
+}
+
 /** The host's capture payload and live Firestore call events, from `/__pyric/capture`. */
-async function liveCapture(base: string): Promise<{ events: CapturedEvent[]; observedCalls: Record<string, { claims?: Record<string, unknown> }> }> {
-  const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
+async function liveCapture(app: App, base: string): Promise<{ events: CapturedEvent[]; observedCalls: Record<string, { claims?: Record<string, unknown> }> }> {
+  const sessionToken = readHostSessionToken(app);
   const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
   if (response.status === 404) return { events: [], observedCalls: {} };
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
@@ -151,10 +159,11 @@ interface Answer {
 
 /** One service method through `/__pyric/hosted/method`, as `pyric mcp`'s service tools and pyric commands send it. */
 async function hostedMethod(app: App, base: string, key: string, args: Record<string, unknown>): Promise<Answer> {
+  const sessionToken = readHostSessionToken(app);
   const health = await hostJson<{ instanceId: string }>(`${base}/__pyric/health`);
   const response = await fetch(`${base}/__pyric/hosted/method`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-pyric-session-token': sessionToken },
     body: JSON.stringify({ instanceId: health.instanceId, projectDir: app.dir, key, args }),
   });
   return await response.json() as Answer;
@@ -213,7 +222,7 @@ export default scenario(async (app) => {
   });
 
   const list = await app.step('the capture names each call\'s path, email claims and query shape, never a query value or credential, and production\'s failed-precondition', async () => {
-    const { events, observedCalls } = await eventually(() => liveCapture(host.url), ({ events: all }) => {
+    const { events, observedCalls } = await eventually(() => liveCapture(app, host.url), ({ events: all }) => {
       const hasList = all.some((event) => event.method === 'getDocs');
       const hasInvite = all.some((event) => event.path === 'invites/ada@example.com');
       const delivered = all.filter((event) => event.method === 'onSnapshot').reduce((sum, event) => sum + (event.production?.billedDocuments ?? 0), 0);

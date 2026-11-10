@@ -35,7 +35,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const FIXTURES = ['live-mode-traffic.json', 'live-mode-rates.json', 'live-mode-batch.json'].map((name) => fileURLToPath(new URL(`../replay/fixtures/${name}`, import.meta.url)));
 const PROJECT = 'demo-live-traffic';
@@ -137,16 +137,16 @@ async function eventually<T>(read: () => Promise<T>, check: (value: T) => boolea
   }
 }
 
-async function hostJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function hostJson<T>(app: App, base: string, path: string): Promise<T> {
+  const url = `${base}${path}`;
+  const response = await fetch(url, { headers: sessionHeaders(app, base) });
   assert.equal(response.status, 200, `${url} answered ${response.status}`);
   return await response.json() as T;
 }
 
-/** The host's live call events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
-async function liveEvents(base: string): Promise<CapturedEvent[]> {
-  const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+/** The host's live call events, from `/__pyric/capture`. */
+async function liveEvents(app: App, base: string): Promise<CapturedEvent[]> {
+  const response = await fetch(`${base}/__pyric/capture`, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return [];
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
   const capture = await response.json() as { events?: CapturedEvent[] };
@@ -154,8 +154,8 @@ async function liveEvents(base: string): Promise<CapturedEvent[]> {
 }
 
 /** The host's billed-call count, as its health report carries it. */
-async function billed(url: string): Promise<BilledCount | undefined> {
-  const health = await hostJson<{ live?: { billed?: BilledCount } }>(`${url}/__pyric/health`);
+async function billed(app: App, url: string): Promise<BilledCount | undefined> {
+  const health = await hostJson<{ live?: { billed?: BilledCount } }>(app, url, '/__pyric/health');
   return health.live?.billed;
 }
 
@@ -205,10 +205,10 @@ export default scenario(async (app) => {
   });
 
   await app.step('the batch commit is one writeBatch event, and the health report bills it as three writes', async () => {
-    const before = await eventually(() => billed(host.url), (count) => count !== undefined, 'the billed count');
+    const before = await eventually(() => billed(app, host.url), (count) => count !== undefined, 'the billed count');
     assert.equal(await page.evaluate(() => commitRooms()), 'committed');
     assert.deepEqual(await replay.unmatched(), []);
-    const events = await eventually(() => liveEvents(host.url), (all) => all.some((event) => event.method === 'writeBatch'), 'the writeBatch event');
+    const events = await eventually(() => liveEvents(app, host.url), (all) => all.some((event) => event.method === 'writeBatch'), 'the writeBatch event');
     const commits = events.filter((event) => event.service === 'firestore' && event.method === 'writeBatch');
     assert.equal(commits.length, 1, JSON.stringify(commits));
     assert.deepEqual(commits[0]!.production?.outcome, { status: 'ok' });
@@ -216,7 +216,7 @@ export default scenario(async (app) => {
     // The batch's own set, update and delete are not calls of their own.
     assert.deepEqual(events.filter((event) => ['setDoc', 'updateDoc', 'deleteDoc'].includes(event.method ?? '')), []);
     const expected = { ...before!, writes: before!.writes + 3 };
-    await eventually(() => billed(host.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count after the commit');
+    await eventually(() => billed(app, host.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count after the commit');
   });
 
   await app.step('the server job\'s resumed listener delivers, each delivery with the documents production billed', async () => {
@@ -229,7 +229,7 @@ export default scenario(async (app) => {
     const deliveries = result.billedDocuments;
     const resumed = (events: CapturedEvent[]) => events.filter((event) => event.service === 'firestore' && event.method === 'onSnapshotResume' && event.caller?.kind === 'node');
     const delivered = (events: CapturedEvent[]) => resumed(events).reduce((sum, event) => sum + (event.production?.billedDocuments ?? 0), 0);
-    const events = await eventually(() => liveEvents(host.url), (all) => delivered(all) >= deliveries, 'the resumed deliveries');
+    const events = await eventually(() => liveEvents(app, host.url), (all) => delivered(all) >= deliveries, 'the resumed deliveries');
     assert.ok(resumed(events).length > 0, 'onSnapshotResume deliveries');
     assert.equal(delivered(events), deliveries);
     // The resumed listener's first argument is the Firestore and a bundle, not a query, so its rows name no path yet.
@@ -240,7 +240,7 @@ export default scenario(async (app) => {
     assert.equal(await page.evaluate(() => readSecret()), 'permission-denied');
     assert.deepEqual(await page.evaluate(() => askAssistant()), { text: 'pyric', totalTokenCount: AI_TOTAL_TOKENS });
     assert.deepEqual(await replay.unmatched(), []);
-    const events = await eventually(() => liveEvents(host.url), (all) => {
+    const events = await eventually(() => liveEvents(app, host.url), (all) => {
       const denied = all.some((event) => event.method === 'getDoc' && event.path === 'rooms/secret');
       return denied && all.some((event) => event.service === 'ai');
     }, 'the denied read and the AI call');
@@ -256,7 +256,7 @@ export default scenario(async (app) => {
   await app.step('the vite dev output names the denied read with production\'s message, and the rejected AI call\'s model and message', async () => {
     assert.equal(typeof await page.evaluate(() => askUnservedModel()), 'string');
     assert.deepEqual(await replay.unmatched(), []);
-    const events = await eventually(() => liveEvents(host.url), (all) => all.some((event) => event.service === 'ai' && event.production?.outcome?.status === 'error'), 'the rejected AI call');
+    const events = await eventually(() => liveEvents(app, host.url), (all) => all.some((event) => event.service === 'ai' && event.production?.outcome?.status === 'error'), 'the rejected AI call');
     const rejected = events.find((event) => event.service === 'ai' && event.production?.outcome?.status === 'error');
     assert.equal(rejected?.production?.outcome?.code, 'not_found');
     // Production's message is for the terminal only: no captured event carries it.

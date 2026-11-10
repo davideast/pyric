@@ -57,6 +57,7 @@ export const getPyricRuntimeStatus = () => ({});
 export const projectRuntimeIdentity = (user) => user;
 export const pageLiveIdentity = () => ({ current: () => null, recent: () => [], subscribe: () => noop, dispose: noop });
 export const recordDiagnostic = noop;
+export const stampedSessionToken = () => undefined;
 export const pageListenerObservation = noop;
 export const initPayloadUrl = async () => '/__pyric/init.json';
 export const nodeRuntimeOrigin = () => undefined;

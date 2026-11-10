@@ -1,6 +1,7 @@
 import type { ParsedArgs } from './parse-args.js';
 import { boundedFetch } from '../bounded-request.js';
 import { discoverServe } from '../serve/discovery.js';
+import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { DIAGNOSTICS_PATH } from '../serve/runtime/diagnostics-report.js';
 
 /** Milliseconds the diagnostics request has, connect and body included. */
@@ -11,8 +12,10 @@ export async function runServeDiagnostics(parsed: ParsedArgs, deps: {
   stdout?: { write(value: string): void };
 } = {}): Promise<number> {
   const out = deps.stdout ?? process.stdout;
+  const cwd = deps.cwd ?? process.cwd();
   const explicit = parsed.flags.get('url');
-  const found = typeof explicit === 'string' ? explicit : (await discoverServe(deps.cwd ?? process.cwd()))?.url;
+  const discovered = typeof explicit === 'string' ? null : await discoverServe(cwd);
+  const found = typeof explicit === 'string' ? explicit : discovered?.url;
   const print = (report: unknown) => out.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!found) {
     print({ version: 1, server: { http: 'unknown' }, error: 'No running sandbox found. Start it or pass --url.' });
@@ -29,6 +32,7 @@ export async function runServeDiagnostics(parsed: ParsedArgs, deps: {
     print({ version: 1, server: { http: 'unknown' }, error: 'Use an HTTP(S) URL without credentials.' });
     return 1;
   }
+  const sessionToken = discovered?.token ?? resolveSessionTokenForTarget({ cwd, url: endpoint.origin });
   let reachedServer = false;
   try {
     // Bounded, connect included, so a port whose connect never completes
@@ -38,6 +42,7 @@ export async function runServeDiagnostics(parsed: ParsedArgs, deps: {
       deadlineMs: DIAGNOSTICS_DEADLINE_MS,
       maxBytes: Number.POSITIVE_INFINITY,
       redirect: 'error',
+      ...(sessionToken !== undefined ? { headers: { 'x-pyric-session-token': sessionToken } } : {}),
     });
     reachedServer = true;
     if (!response.ok) {

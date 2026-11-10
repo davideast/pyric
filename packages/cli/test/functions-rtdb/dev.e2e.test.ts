@@ -27,7 +27,11 @@ let observer: RemoteSandbox | undefined;
 
 async function connectWorkerPeer(
   url: string,
-  opts: { databaseRules?: { rules: Record<string, unknown> }; firestoreRules?: string } = {},
+  opts: {
+    cwd?: string;
+    databaseRules?: { rules: Record<string, unknown> };
+    firestoreRules?: string;
+  } = {},
 ): Promise<{ close(): Promise<void> }> {
   const ctx = await createFunctionsWorkerHostCtx({
     persistenceKeyPrefix: 'functions-dev',
@@ -35,7 +39,12 @@ async function connectWorkerPeer(
     ...(opts.databaseRules ? { databaseRules: opts.databaseRules } : {}),
     ...(opts.firestoreRules !== undefined ? { firestoreRules: opts.firestoreRules } : {}),
   });
-  return connectFunctionsWorkerPeer({ url, ctx, sandboxId: 'functions-dev-peer' });
+  return connectFunctionsWorkerPeer({
+    url,
+    ctx,
+    sandboxId: 'functions-dev-peer',
+    cwd: opts.cwd,
+  });
 }
 
 async function waitFor<T>(read: () => T | null | Promise<T | null>, timeoutMs = 8_000): Promise<T> {
@@ -122,8 +131,9 @@ exports.makeUppercase = onValueCreated(
         });
         peer = await connectWorkerPeer(
           `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
+          { cwd },
         );
-        observer = await connectRemoteSandbox({ url: pointer.url });
+        observer = await connectRemoteSandbox({ url: pointer.url, cwd });
         await waitFor(() =>
           stdout.includes('✔ functions 1 onValueCreated trigger') ? true : null);
 
@@ -219,9 +229,9 @@ export const makeUppercase = onValueCreated(
       });
       peer = await connectWorkerPeer(
         `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
-        { databaseRules },
+        { cwd, databaseRules },
       );
-      observer = await connectRemoteSandbox({ url: pointer.url });
+      observer = await connectRemoteSandbox({ url: pointer.url, cwd });
 
       // The trigger's admin subscription established despite the auth-gated
       // read — the child neither PERMISSION_DENIED nor exited at startup.
@@ -322,9 +332,9 @@ exports.stampPresence = onValueCreated('/presence/{uid}/state', async (event) =>
       // restrictive ruleset there (as a served page would).
       peer = await connectWorkerPeer(
         `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
-        { firestoreRules: RULES },
+        { cwd, firestoreRules: RULES },
       );
-      observer = await connectRemoteSandbox({ url: pointer.url });
+      observer = await connectRemoteSandbox({ url: pointer.url, cwd });
       await waitFor(() =>
         stdout.includes('✔ functions 1 onValueCreated trigger') ? true : null);
 
@@ -420,7 +430,10 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
           ? JSON.parse(readFileSync(path, 'utf8')) as { url: string }
           : null;
       });
-      blockedPeer = await connectWorkerPeer(`${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`);
+      blockedPeer = await connectWorkerPeer(
+        `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
+        { cwd },
+      );
       childPid = await waitFor(() => {
         const path = join(cwd, 'functions-child.pid');
         return existsSync(path) ? Number(readFileSync(path, 'utf8')) : null;
@@ -500,6 +513,7 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
       });
       fatalPeer = await connectWorkerPeer(
         `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
+        { cwd },
       );
       devPid = await waitFor(() => {
         const path = join(cwd, 'dev-child.pid');

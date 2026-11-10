@@ -14,12 +14,21 @@ test('project threshold client round-trips through the guarded namespace; other 
   const namespace = createPyricNamespace({ sdkDir: root, thresholds: createThresholdConfigStore(root), initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }) });
   const server = await startStaticServer({ publicDir: join(root, 'public'), port: 0, host: '127.0.0.1', namespaceHandler: namespace, logger: silentServeLogger() });
   try {
-    const init = await (await fetch(server.url + '/__pyric/init.json')).json();
+    const unauthInit = await (await fetch(server.url + '/__pyric/init.json')).json();
+    expect(unauthInit.sessionToken).toBeUndefined();
+    expect(unauthInit.thresholds).toBeUndefined();
+    const init = await (await fetch(server.url + '/__pyric/init.json', {
+      headers: { 'x-pyric-session-token': namespace.sessionToken },
+    })).json();
     expect(init.thresholds).toBe(true);
     const endpoint = server.url + '/__pyric/thresholds';
     expect((await fetch(endpoint)).status).toBe(401);
     expect((await fetch(endpoint, { method: 'PUT', headers: { origin: 'https://example.com', 'x-pyric-session-token': init.sessionToken, 'content-type': 'application/json' }, body: '{}' })).status).toBe(403);
-    const fetcher = ((path: string, options?: RequestInit) => fetch(server.url + path, options)) as typeof fetch;
+    const fetcher = ((path: string, options?: RequestInit) => {
+      const headers = new Headers(options?.headers);
+      if (!headers.has('x-pyric-session-token')) headers.set('x-pyric-session-token', init.sessionToken);
+      return fetch(server.url + path, { ...options, headers });
+    }) as typeof fetch;
     const client = createThresholdConfigClient(fetcher);
     const current = (await client.read())!;
     expect(current.config).toEqual({});
@@ -35,11 +44,10 @@ test('an oversized threshold save is answered 413 with the connection closed, an
   const namespace = createPyricNamespace({ sdkDir: root, thresholds: createThresholdConfigStore(root), initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }) });
   const server = await startStaticServer({ publicDir: join(root, 'public'), port: 0, host: '127.0.0.1', namespaceHandler: namespace, logger: silentServeLogger() });
   try {
-    const init = await (await fetch(server.url + '/__pyric/init.json')).json();
     const endpoint = server.url + '/__pyric/thresholds';
     const oversized = await fetch(endpoint, {
       method: 'PUT',
-      headers: { 'x-pyric-session-token': init.sessionToken, 'content-type': 'application/json' },
+      headers: { 'x-pyric-session-token': namespace.sessionToken, 'content-type': 'application/json' },
       body: JSON.stringify({ config: {}, padding: 'x'.repeat(1024 * 1024) }),
     });
     await expectClosedEarlyAnswer(oversized, 413, endpoint);

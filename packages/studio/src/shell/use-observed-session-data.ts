@@ -40,7 +40,7 @@ import {
   parseObservedSessionSnapshot,
   type ObservedSessionDataSnapshot,
 } from './observed-session-parse.js';
-import { useServeInit, type ServeInitDatabaseInstances } from './serve-init.js';
+import { studioSessionHeaders, useServeInit, type ServeInitDatabaseInstances } from './serve-init.js';
 import { useStudioEventFeed } from './studio-events.js';
 
 // The host routes, `LIVE_SESSION_DATA_PATH` and `LIVE_SEED_SANDBOX_PATH` in
@@ -140,7 +140,11 @@ export function useObservedSessionData(
   const fetchSnapshot = useCallback(async () => {
     if (typeof fetch === 'undefined') return;
     try {
-      const response = await fetch(LIVE_SESSION_DATA_URL, { cache: 'no-store' });
+      const headers = studioSessionHeaders();
+      const response = await fetch(LIVE_SESSION_DATA_URL, {
+        cache: 'no-store',
+        ...(headers ? { headers } : {}),
+      });
       if (!response.ok) {
         throw new Error(`Observed session endpoint answered ${response.status}.`);
       }
@@ -352,7 +356,7 @@ export function useObservedSessionData(
     async (mode: LiveSeedMode): Promise<LiveSeedSandboxResult> => {
       const response = await fetch(LIVE_SEED_SANDBOX_URL, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...(studioSessionHeaders() ?? {}) },
         body: JSON.stringify({ confirm: true, mode }),
       });
       const body = (await response.json().catch(() => ({}))) as {

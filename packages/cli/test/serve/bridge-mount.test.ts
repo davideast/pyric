@@ -100,10 +100,14 @@ describe('pyric dev --bridge', () => {
     const body = (await health.json()) as { mode: string; sandboxConnected?: boolean };
     expect(body.mode).toBe('sandbox');
 
-    // runtime.mcpUrl carries the BOUND port (the dev --json contract)
-    expect(r.mcpUrl).toBe(r.handle.url + '/__pyric/mcp');
+    // runtime.mcpUrl carries the BOUND port + per-boot capability token (the dev --json contract)
+    const parsedMcp = new URL(r.mcpUrl!);
+    expect(`${parsedMcp.origin}${parsedMcp.pathname}`).toBe(r.handle.url + '/__pyric/mcp');
+    expect(parsedMcp.searchParams.get('token')).toBe(r.sessionToken);
 
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { bridgeUrl: string };
+    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json', {
+      headers: { 'x-pyric-session-token': r.sessionToken },
+    })).json()) as { bridgeUrl: string };
     expect(payload.bridgeUrl).toBe(`ws://localhost:${r.handle.port}/__pyric/sandbox`);
   });
 
@@ -199,12 +203,23 @@ describe('pyric dev --bridge', () => {
     await afterStale.text();
   });
 
-  it('accepts a WS sandbox peer on the serve origin', async () => {
+  it('accepts a WS sandbox peer on the serve origin and refuses one without a session token', async () => {
     const r = await serve(true);
-    const ws = new WebSocket(`ws://localhost:${r.handle.port}/__pyric/sandbox`);
+    const unauthWs = new WebSocket(`ws://localhost:${r.handle.port}/__pyric/sandbox`);
+    const unauthOpened = await new Promise<boolean>((resolve) => {
+      unauthWs.once('open', () => resolve(true));
+      unauthWs.on('error', () => resolve(false));
+      unauthWs.once('close', () => resolve(false));
+      setTimeout(() => resolve(false), 3000);
+    });
+    expect(unauthOpened).toBe(false);
+
+    const ws = new WebSocket(
+      `ws://localhost:${r.handle.port}/__pyric/sandbox?token=${encodeURIComponent(r.sessionToken)}`,
+    );
     const opened = await new Promise<boolean>((resolve) => {
       ws.once('open', () => resolve(true));
-      ws.once('error', () => resolve(false));
+      ws.on('error', () => resolve(false));
       setTimeout(() => resolve(false), 3000);
     });
     expect(opened).toBe(true);
@@ -217,7 +232,11 @@ describe('pyric dev --bridge', () => {
     // POST falls past the (GET-only) sdk namespace into the static server's
     // method gate — 405, not 404. Either way: no bridge surface.
     expect((await fetch(r.handle.url + '/__pyric/mcp', { method: 'POST', body: '{}' })).status).toBe(405);
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { bridgeUrl: null };
+    const payload = (await (
+      await fetch(r.handle.url + '/__pyric/init.json', {
+        headers: { 'x-pyric-session-token': r.sessionToken },
+      })
+    ).json()) as { bridgeUrl: null };
     expect(payload.bridgeUrl).toBeNull();
   });
 
@@ -356,12 +375,14 @@ describe('hosted bridge lifecycle', () => {
       project: string;
       url: string;
       mcpUrl: string;
+      token: string;
     };
     expect(published).toMatchObject({
       instanceId: mount.instanceId,
       project: mount.project,
       url: 'http://localhost:4321',
-      mcpUrl: 'http://localhost:4321/__pyric/mcp',
+      mcpUrl: mount.mcpUrl({ host: 'localhost', port: 4321 }),
+      token: mount.sessionToken,
     });
 
     writeFileSync(pointer, JSON.stringify({ ...published, instanceId: 'new-owner' }));
@@ -561,7 +582,7 @@ service cloud.firestore {
       projectDir,
       origin: () => ({ host: '127.0.0.1', port }),
     });
-    const mcpUrl = `${origin}/__pyric/mcp`;
+    const mcpUrl = mount.mcpUrl({ host: '127.0.0.1', port });
     let tabWs: WebSocket | null = null;
 
     async function callMcpTool(sessionId: string, id: number, name: string, args: Record<string, unknown>) {
@@ -644,9 +665,12 @@ service cloud.firestore {
       }
       expect(existsSync(join(projectDir, '.pyric', 'captures'))).toBe(false);
 
-      tabWs = new WebSocket(`ws://127.0.0.1:${port}/__pyric/sandbox`, {
-        headers: { Origin: origin },
-      });
+      tabWs = new WebSocket(
+        `ws://127.0.0.1:${port}/__pyric/sandbox?token=${encodeURIComponent(mount.sessionToken)}`,
+        {
+          headers: { Origin: origin },
+        },
+      );
       await new Promise<void>((resolve, reject) => {
         tabWs!.once('open', () => resolve());
         tabWs!.once('error', reject);

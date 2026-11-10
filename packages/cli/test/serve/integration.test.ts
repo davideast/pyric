@@ -98,8 +98,12 @@ describe('pyric dev end-to-end (HTTP)', () => {
       expect(body).not.toMatch(/from\s*["']node:/);
     }
 
-    // 3. init.json carries the RESOLVED rules (2+modules → plain v2)
-    const payload = (await (await fetch(base + '/__pyric/init.json')).json()) as {
+    // 3. init.json carries the RESOLVED rules (2+modules → plain v2) when authenticated
+    const payload = (await (
+      await fetch(base + '/__pyric/init.json', {
+        headers: { 'x-pyric-session-token': runtime.sessionToken },
+      })
+    ).json()) as {
       rules: string; rulesHash: string; bridgeUrl: null; messaging: boolean;
     };
     expect(payload.rules).toContain("rules_version = '2'");
@@ -160,7 +164,11 @@ describe('pyric dev end-to-end (HTTP)', () => {
     expect(root.status).toBe(302);
     expect(root.headers.get('location')).toBe('/__pyric/ui/studio');
     expect((await fetch(runtime.handle.url + '/index.html')).status).toBe(404);
-    const payload = (await (await fetch(runtime.handle.url + '/__pyric/init.json')).json()) as { rules: null };
+    const payload = (await (
+      await fetch(runtime.handle.url + '/__pyric/init.json', {
+        headers: { 'x-pyric-session-token': runtime.sessionToken },
+      })
+    ).json()) as { rules: null };
     expect(payload.rules).toBeNull();
   }, 30_000);
 
@@ -302,8 +310,7 @@ describe('/__pyric/capture endpoint (serve-capture)', () => {
     stops.push(runtime);
 
     const base = runtime.handle.url;
-    const init = (await (await fetch(`${base}/__pyric/init.json`)).json()) as { sessionToken: string };
-    const token = init.sessionToken;
+    const token = runtime.sessionToken;
     const capturePath = join(cwd, CAPTURE_RELATIVE_PATH);
     const fixture = {
       rules: 'rules_version = "2"; service cloud.firestore { match /databases/{db}/documents { match /{d} { allow read, write; } } }',

@@ -49,6 +49,8 @@ export interface FunctionsDevelopmentRuntimeOptions {
   /** Identity of the host at `serveUrl`, pinned in the child's
    *  `PYRIC_SANDBOX_INSTANCE`. */
   hostInstanceId?: string | undefined;
+  /** Per-boot capability token passed to the isolated Functions child. */
+  sessionToken?: string | undefined;
   instance: string;
   location: string;
   /** The project the child runs as, from `resolveFirebaseProject`. */
@@ -233,6 +235,7 @@ export function createFunctionsDevelopmentRuntime(
           registerUrl: options.registerUrl,
           beaconToken: options.beaconToken,
           instanceId: options.hostInstanceId,
+          sessionToken: options.sessionToken,
         }),
         instance: options.instance,
         location: options.location,

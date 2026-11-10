@@ -14,6 +14,7 @@ import { createPyricNamespace } from '../../src/serve/namespace.js';
 import { silentServeLogger, startStaticServer } from '../../src/serve/server.js';
 
 const NEXT_PORT = 3921;
+const TEST_TOKEN = 'test-proxy-origin-token';
 
 /** A same-origin request the rewrite forwarded from the Next page. */
 function forwardedFromNext(): IncomingMessage {
@@ -27,8 +28,9 @@ async function withServer(appPorts: AppPorts | undefined, run: (url: string) => 
     sdkDir: root,
     initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
     appPorts,
+    sessionToken: TEST_TOKEN,
   });
-  const server = await startStaticServer({ publicDir: root, port: 0, host: '127.0.0.1', namespaceHandler: namespace, logger: silentServeLogger() });
+  const server = await startStaticServer({ publicDir: root, port: 0, host: '127.0.0.1', namespaceHandler: namespace, sessionToken: TEST_TOKEN, logger: silentServeLogger() });
   try {
     await run(server.url);
   } finally {
@@ -40,7 +42,7 @@ async function withServer(appPorts: AppPorts | undefined, run: (url: string) => 
 async function postDiagnostics(url: string, origin: string): Promise<number> {
   const response = await fetch(`${url}/__pyric/diagnostics`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin },
+    headers: { 'content-type': 'application/json', origin, 'x-pyric-session-token': TEST_TOKEN },
     body: JSON.stringify({ version: 1, clientId: 'page', sequence: 1, realm: 'page', pageOrigin: origin, events: [{ at: 1, phase: 'connecting', connectionId: 'socket-1' }] }),
   });
   await response.arrayBuffer();
@@ -74,7 +76,7 @@ async function postDenial(url: string, origin: string): Promise<number> {
   const body = { kind: 'read', method: 'get', path: '/databases/(default)/documents/notes/a', message: 'denied from next' };
   const response = await fetch(`${url}/__pyric/denials`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin },
+    headers: { 'content-type': 'application/json', origin, 'x-pyric-session-token': TEST_TOKEN },
     body: JSON.stringify(body),
   });
   await response.arrayBuffer();

@@ -41,15 +41,24 @@ afterAll(async () => {
  */
 const settleNewWatches = (): Promise<void> => new Promise((res) => setTimeout(res, 100));
 
+const authInit = async <T>(r: ServeRuntime): Promise<T> =>
+  (await (
+    await fetch(r.handle.url + '/__pyric/init.json', {
+      headers: { 'x-pyric-session-token': r.sessionToken },
+    })
+  ).json()) as T;
+
 describe('rules hot-reload (SSE)', () => {
   it('file change → SSE rules-changed + live init.json hash', async () => {
     const cwd = project();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger: silentServeLogger() });
     stops.push(r);
-    const before = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { rulesHash: string };
+    const before = await authInit<{ rulesHash: string }>(r);
 
     // open the SSE stream, then touch the file
-    const stream = await fetch(r.handle.url + '/__pyric/events');
+    const stream = await fetch(r.handle.url + '/__pyric/events', {
+      headers: { 'x-pyric-session-token': r.sessionToken },
+    });
     expect(stream.headers.get('content-type')).toContain('text/event-stream');
     const reader = stream.body!.getReader();
     const decoder = new TextDecoder();
@@ -77,7 +86,7 @@ describe('rules hot-reload (SSE)', () => {
     expect(evt!.rules).toContain('/b/{id}');
     expect(evt!.rulesHash).not.toBe(before.rulesHash);
 
-    const after = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { rulesHash: string; rules: string };
+    const after = await authInit<{ rulesHash: string; rules: string }>(r);
     expect(after.rulesHash).toBe(evt!.rulesHash); // live payload follows
     await reader.cancel().catch(() => {});
   }, 15_000);
@@ -87,11 +96,11 @@ describe('rules hot-reload (SSE)', () => {
     const { logger, notes } = capturingLogger();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
     stops.push(r);
-    const before = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { rulesHash: string };
+    const before = await authInit<{ rulesHash: string }>(r);
     await settleNewWatches();
     writeFileSync(join(cwd, 'firestore.rules'), 'rules_version = ;;; broken');
     expect(await waitForNote(notes, 'rules NOT reloaded')).not.toBeNull();
-    const after = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { rulesHash: string };
+    const after = await authInit<{ rulesHash: string }>(r);
     expect(after.rulesHash).toBe(before.rulesHash); // unchanged
   }, 10_000);
 });
@@ -132,7 +141,7 @@ describe('rules files that do not exist at startup', () => {
     writeFileSync(join(cwd, 'database.rules.json'), DATABASE_RULES);
 
     expect(await waitForNote(notes, 'rtdb rules reloaded')).not.toBeNull();
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { databaseRules: unknown };
+    const payload = await authInit<{ databaseRules: unknown }>(r);
     expect(payload.databaseRules).toEqual(JSON.parse(DATABASE_RULES));
   }, 15_000);
 
@@ -148,7 +157,7 @@ describe('rules files that do not exist at startup', () => {
     const notice = await waitForNote(notes, 'rtdb rules removed');
     expect(notice).not.toBeNull();
     expect(notice).toContain('DENY');
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { databaseRules: unknown };
+    const payload = await authInit<{ databaseRules: unknown }>(r);
     expect(payload.databaseRules).toBeNull();
 
     writeFileSync(join(cwd, 'database.rules.json'), DATABASE_RULES);
@@ -164,7 +173,7 @@ describe('rules files that do not exist at startup', () => {
     writeFileSync(join(cwd, 'firestore.rules'), RULES_V1);
 
     expect(await waitForNote(notes, 'rules reloaded')).not.toBeNull();
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { rules: string | null };
+    const payload = await authInit<{ rules: string | null }>(r);
     expect(payload.rules).toContain('/a/{id}');
   }, 15_000);
 
@@ -179,7 +188,7 @@ describe('rules files that do not exist at startup', () => {
     const notice = await waitForNote(notes, 'rules NOT reloaded');
     expect(notice).not.toBeNull();
     expect(notice).toContain('does not exist');
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { rules: string | null };
+    const payload = await authInit<{ rules: string | null }>(r);
     expect(payload.rules).toContain('/a/{id}');
   }, 15_000);
 });
@@ -197,7 +206,9 @@ describe('Storage rules hot-reload', () => {
     const { logger, notes } = capturingLogger();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
     stops.push(r);
-    const stream = await fetch(r.handle.url + '/__pyric/events');
+    const stream = await fetch(r.handle.url + '/__pyric/events', {
+      headers: { 'x-pyric-session-token': r.sessionToken },
+    });
     const reader = stream.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -217,7 +228,7 @@ describe('Storage rules hot-reload', () => {
     expect(note).not.toBeNull();
     const event = await eventArrived;
     expect(event?.rules).toContain('/created/{file}');
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as StoragePayload;
+    const payload = await authInit<StoragePayload>(r);
     expect(payload.storageRules).toContain('/created/{file}');
     expect(payload.storageRulesHash).toBe(event?.rulesHash ?? null);
     await reader.cancel().catch(() => {});
@@ -236,7 +247,7 @@ describe('Storage rules hot-reload', () => {
     writeFileSync(join(cwd, 'storage.rules'), 'service firebase.storage { match /b/{bucket}/o {');
     const warning = await waitForNote(notes, 'storage rules NOT reloaded');
     expect(warning).toContain('last-good stays live');
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as StoragePayload;
+    const payload = await authInit<StoragePayload>(r);
     expect(payload.storageRules).toContain('/second/{file}');
   }, 15_000);
 
@@ -251,7 +262,7 @@ describe('Storage rules hot-reload', () => {
 
     const notice = await waitForNote(notes, 'storage rules removed');
     expect(notice).toContain('DENY');
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as StoragePayload;
+    const payload = await authInit<StoragePayload>(r);
     expect(payload.storageRules).toBeNull();
 
     writeFileSync(join(cwd, 'storage.rules'), storageRules('returned'));
@@ -275,9 +286,9 @@ describe('--seed', () => {
     writeFileSync(join(cwd, 'seed.json'), JSON.stringify({ 'tasks/t1': { title: 'seeded', done: false } }));
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger: silentServeLogger(), seed: 'seed.json' });
     stops.push(r);
-    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as {
+    const payload = await authInit<{
       seed: Record<string, Record<string, unknown>>;
-    };
+    }>(r);
     expect(payload.seed['tasks/t1']).toEqual({ title: 'seeded', done: false });
   }, COLD_BUILD_TIMEOUT_MS);
 

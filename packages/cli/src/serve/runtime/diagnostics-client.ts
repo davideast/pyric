@@ -1,4 +1,5 @@
 import { DIAGNOSTICS_PATH, DIAGNOSTIC_EVENT_LIMIT, diagnosticUrl, type BrowserDiagnosticReport, type DiagnosticEvent } from './diagnostics-report.js';
+import { stampedSessionToken } from './hosted-target.js';
 
 export interface BrowserDiagnostics {
   getSnapshot(): BrowserDiagnosticReport;
@@ -46,8 +47,11 @@ function diagnostics(): BrowserDiagnostics | undefined {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2000);
       try {
+        const token = stampedSessionToken();
+        const headers: Record<string, string> = { 'content-type': 'application/json' };
+        if (token !== undefined) headers['x-pyric-session-token'] = token;
         await fetch(new URL(DIAGNOSTICS_PATH, location.href), {
-          method: 'POST', headers: { 'content-type': 'application/json' },
+          method: 'POST', headers,
           body: JSON.stringify(snapshot()), signal: controller.signal,
           credentials: 'same-origin', keepalive: true,
         });

@@ -14,6 +14,7 @@ import type {
   WorkspaceEntry,
   WorkspaceStore,
 } from '../ports.js';
+import { stampedStudioSessionToken } from '../shell/serve-init.js';
 
 export interface HttpWorkspaceOptions {
   token?: string;
@@ -58,10 +59,14 @@ export async function resolveSessionToken(baseUrl: string, explicitToken?: strin
   const cached = tokenCache.get(key);
   if (cached) return cached;
 
-  const promise = fetch(joinUrl(key, '/__pyric/init.json'))
+  const stamped = stampedStudioSessionToken();
+  const initRequest = stamped
+    ? fetch(joinUrl(key, '/__pyric/init.json'), { headers: { 'x-pyric-session-token': stamped } })
+    : fetch(joinUrl(key, '/__pyric/init.json'));
+  const promise = initRequest
     .then((res) => (res.ok ? res.json() : null))
-    .then((data: any) => (typeof data?.sessionToken === 'string' ? data.sessionToken : null))
-    .catch(() => null)
+    .then((data: any) => (typeof data?.sessionToken === 'string' ? data.sessionToken : stamped ?? null))
+    .catch(() => stamped ?? null)
     .then((token) => {
       if (!token) {
         tokenCache.delete(key);

@@ -27,7 +27,7 @@ try {
   // Store an object through the hosted method route, as a service command would.
   const stored = await fetch(`${base}/__pyric/hosted/method`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-pyric-session-token': mount.sessionToken },
     body: JSON.stringify({ instanceId: mount.instanceId, projectDir: directory, key: 'storage.uploadBytes',
       args: { path: 'notes/note.txt', contentBase64: Buffer.from('a short note').toString('base64'), metadata: { contentType: 'text/plain' } } }),
   });
@@ -47,7 +47,9 @@ try {
 
   // The attach acknowledgement advertises the route.
   mount.attachHost({ servers: [server], projectDir: directory, origin: () => ({ host: '127.0.0.1', port: address.port }) });
-  const socket = new WebSocket(`ws://127.0.0.1:${address.port}/__pyric/sandbox`);
+  const socket = new WebSocket(
+    `ws://127.0.0.1:${address.port}/__pyric/sandbox?token=${encodeURIComponent(mount.sessionToken)}`,
+  );
   await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error('socket failed')); });
   const ack = new Promise<{ capabilities?: string[] }>(resolve => {
     socket.onmessage = event => {

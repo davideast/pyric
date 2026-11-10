@@ -35,7 +35,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const FIXTURE = fileURLToPath(new URL('../replay/fixtures/live-mode-traffic.json', import.meta.url));
 const REFUSED = 'PYRIC_LIVE_REFUSED';
@@ -173,14 +173,12 @@ async function jsonBody<T>(url: string, response: Response): Promise<T> {
 interface CapturedEvent { kind?: string; service?: string; method?: string; caller?: { kind?: string } }
 
 /**
- * The host's Firestore events, from `/__pyric/capture` with the session token
- * `/__pyric/init.json` hands a loopback client; null while the host has not
+ * The host's Firestore events, from `/__pyric/capture`; null while the host has not
  * written a capture.
  */
-async function firestoreEvents(base: string): Promise<CapturedEvent[] | null> {
-  const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
+async function firestoreEvents(app: App, base: string): Promise<CapturedEvent[] | null> {
   const url = `${base}/__pyric/capture`;
-  const response = await fetch(url, { headers: { 'x-pyric-session-token': sessionToken } });
+  const response = await fetch(url, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return null;
   const capture = await jsonBody<{ events?: CapturedEvent[] }>(url, response);
   return (capture.events ?? []).filter((event) => event.kind === 'operation' && event.service === 'firestore');
@@ -254,14 +252,17 @@ export default scenario(async (app) => {
 
   await app.step('the host\'s event stream holds one lobby read from each plane, the host app\'s', async () => {
     // A refused call is never recorded: each plane's one event is its host app's read.
-    await eventually(() => firestoreEvents(host.url), (events) => readsByClient(events).length >= 2, 'two getDoc events on the host');
+    await eventually(() => firestoreEvents(app, host.url), (events) => readsByClient(events).length >= 2, 'two getDoc events on the host');
     await sleep(500);
-    const events = await eventually(() => firestoreEvents(host.url), (all) => all !== null, 'the host\'s capture');
+    const events = await eventually(() => firestoreEvents(app, host.url), (all) => all !== null, 'the host\'s capture');
     assert.deepEqual(readsByClient(events), ['node', 'page'], `one getDoc event per plane:\n${JSON.stringify(events, null, 2)}`);
   });
 
   await app.step('the health report lists only the host\'s project among the projects the app\'s calls named', async () => {
-    const health = await hostJson<{ live?: { projectId: string; configProjectId: string; appProjectIds: string[] } }>(`${host.url}/__pyric/health`);
+    const health = await hostJson<{ live?: { projectId: string; configProjectId: string; appProjectIds: string[] } }>(
+      `${host.url}/__pyric/health`,
+      { headers: sessionHeaders(app, host.url) },
+    );
     assert.ok(health.live, 'the dev server reports live status');
     assert.deepEqual(health.live.appProjectIds, [project]);
     assert.equal(health.live.configProjectId, project);

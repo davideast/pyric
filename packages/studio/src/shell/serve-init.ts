@@ -27,9 +27,47 @@ export interface ServeInitPayload {
   databaseRulesHash?: string | null;
   databaseInstances?: ServeInitDatabaseInstances | null;
   bridgeUrl?: string | null;
+  sessionToken?: string;
   persist?: boolean;
   persistenceUnhealthy?: boolean;
   seed?: Record<string, Record<string, unknown>> | null;
+}
+
+/** Per-boot session capability token stamped into served Studio HTML, if present. */
+export function stampedStudioSessionToken(): string | undefined {
+  const token = (globalThis as { __PYRIC_WORKER_INIT__?: { sessionToken?: string } }).__PYRIC_WORKER_INIT__?.sessionToken;
+  return typeof token === 'string' && token.length > 0 ? token : undefined;
+}
+
+/** Resolved session capability token from cached `/__pyric/init.json` or stamped HTML. */
+export function studioSessionToken(): string | undefined {
+  if (state.status === 'ready' && typeof state.payload.sessionToken === 'string' && state.payload.sessionToken.length > 0) {
+    return state.payload.sessionToken;
+  }
+  return stampedStudioSessionToken();
+}
+
+/** Headers record carrying `x-pyric-session-token` when a session token is available. */
+export function studioSessionHeaders(extraToken?: string | null): Record<string, string> | undefined {
+  const explicit = typeof extraToken === 'string' && extraToken.length > 0 ? extraToken : undefined;
+  const token = explicit ?? studioSessionToken();
+  return token !== undefined ? { 'x-pyric-session-token': token } : undefined;
+}
+
+/** Append `?token=<sessionToken>` to a Studio WebSocket URL when `token` is non-empty. */
+export function withStudioWsToken(url: string, token: string | null | undefined): string {
+  if (!token) return url;
+  try {
+    const parsed = new URL(url, 'ws://localhost');
+    if (parsed.searchParams.has('token')) return url;
+  } catch {
+    // Fall back to string manipulation below.
+  }
+  const hashAt = url.indexOf('#');
+  const base = hashAt === -1 ? url : url.slice(0, hashAt);
+  const hash = hashAt === -1 ? '' : url.slice(hashAt);
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}token=${encodeURIComponent(token)}${hash}`;
 }
 
 export type ServeInitState =
@@ -56,7 +94,8 @@ function start(): void {
     state = ABSENT;
     return;
   }
-  fetch('/__pyric/init.json')
+  const headers = studioSessionHeaders();
+  (headers ? fetch('/__pyric/init.json', { headers }) : fetch('/__pyric/init.json'))
     .then(async (res) => {
       if (!res.ok) return set(ABSENT);
       const ct = res.headers.get('content-type') ?? '';

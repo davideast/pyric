@@ -28,6 +28,8 @@ export interface ServeTagOptions {
   hosted?: { projectKey: string; instanceId?: string };
   /** The project's listener-owner settings, applied on the page before any listener opens. */
   owners?: OwnersConfig;
+  /** Per-boot session capability token stamped for local-peer navigations only. */
+  sessionToken?: string;
 }
 
 export function injectServeTags(html: string, options: ServeTagOptions = {}): string {
@@ -36,6 +38,7 @@ export function injectServeTags(html: string, options: ServeTagOptions = {}): st
     options.hosted?.projectKey,
     options.owners,
     options.hosted?.instanceId,
+    options.sessionToken,
   );
 }
 

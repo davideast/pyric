@@ -4,6 +4,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { createIndexConfigStore } from '../../packages/cli/src/serve/index-config-store.ts';
 import { createPyricNamespace } from '../../packages/cli/src/serve/namespace.ts';
+import { appendSetCookieHeader, canBootstrapHtmlSession, formatSessionCookie } from '../../packages/cli/src/serve/server.ts';
 import { build as bundle } from "esbuild";
 import { createFlowTreatmentHost } from "../../packages/cli/src/serve/flow-treatment-host.ts";
 /** Run from the repository root: bun examples/runtime-flow-lab/serve.ts */
@@ -150,6 +151,9 @@ const server = createServer(async (req, res) => {
         (await Bun.file(join(here, "treatments.css")).text()),
     );
     return;
+  }
+  if (canBootstrapHtmlSession(req, "127.0.0.1")) {
+    appendSetCookieHeader(res, formatSessionCookie(token));
   }
   res.writeHead(200, {
     "Content-Type": "text/html; charset=utf-8",

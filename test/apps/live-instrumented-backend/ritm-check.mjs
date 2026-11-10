@@ -3,6 +3,7 @@
 // output and still observe Admin Auth, Firestore (including AggregateQuery),
 // and Storage calls, while ADR 0022 still stops direct and forged SDK loads.
 import "./trap.mjs";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname } from "node:path";
 import { createRequire } from "node:module";
@@ -116,8 +117,7 @@ if (process.env.CHECK_STOPS === "1") {
 }
 
 async function waitForObservedAdminCalls(hostUrl, beforeCount) {
-  const initRes = await fetch(`${hostUrl}/__pyric/init.json`);
-  const { sessionToken } = await initRes.json();
+  const { token: sessionToken } = JSON.parse(readFileSync(".pyric/serve.json", "utf8"));
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const capRes = await fetch(`${hostUrl}/__pyric/capture`, {

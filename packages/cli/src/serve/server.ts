@@ -17,6 +17,8 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ignore.js';
+import { registerLocalSessionToken } from './local-session-token.js';
+import { isLocalPeer, isLoopbackAddress } from './peer.js';
 
 export interface ServeLogger {
   /** User-facing lines (banner, URLs) → stdout. */
@@ -63,7 +65,10 @@ export interface StaticServerOptions {
    *  files and the GET/HEAD-only 405. Return true when the request was handled. */
   functionsHandler?: (req: IncomingMessage, res: ServerResponse) => boolean | Promise<boolean>;
   /** Applied to every served `.html` body (import-map/init injection). */
-  transformHtml?: (html: string) => string;
+  transformHtml?: (html: string, context: { localPeer: boolean }) => string;
+  /** Session capability token minted for this boot; set as an HttpOnly `/__pyric`
+   *  cookie on local-peer HTML responses so same-origin browser/worker requests authenticate. */
+  sessionToken?: string;
   logger?: ServeLogger;
   /** How many sequential ports to try past `port` on EADDRINUSE/EACCES. */
   portScanLimit?: number;
@@ -99,7 +104,24 @@ export function isAllowedHost(
   return allowed.has(hostname);
 }
 
-export { isLocalPeer, isLoopbackAddress } from './peer.js';
+export { isLocalPeer, isLoopbackAddress };
+
+export const PYRIC_SESSION_COOKIE_NAME = '__pyric_session';
+
+export function formatSessionCookie(sessionToken: string): string {
+  return `${PYRIC_SESSION_COOKIE_NAME}=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/__pyric`;
+}
+
+export function appendSetCookieHeader(res: ServerResponse, cookie: string): void {
+  const existing = res.getHeader('set-cookie');
+  if (existing === undefined) {
+    res.setHeader('set-cookie', cookie);
+  } else if (Array.isArray(existing)) {
+    res.setHeader('set-cookie', [...existing.map(String), cookie]);
+  } else {
+    res.setHeader('set-cookie', [String(existing), cookie]);
+  }
+}
 
 /**
  * Origin allowlist for WebSocket `upgrade` handshakes and local endpoint requests.
@@ -156,7 +178,7 @@ export function isAllowedOriginOnPorts(
   extra: string[],
   appPorts: readonly number[] | undefined,
 ): boolean {
-  const portsUnknown = appPorts === undefined;
+  const portsUnknown = appPorts === undefined || appPorts.length === 0;
   if (portsUnknown) return isAllowedOrigin(originHeader, boundHost, extra);
   return appPorts.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port));
 }
@@ -173,14 +195,16 @@ export function isAllowedOriginOnPorts(
  * Origin's hostname is compared.
  */
 export function isAllowedUpgrade(
-  headers: { host?: string; origin?: string },
+  headers: IncomingHttpHeaders | Record<string, string | string[] | undefined>,
   boundHost: string,
   extra: string[] = [],
   appPorts?: readonly number[],
 ): boolean {
+  const req = { headers };
   return (
-    isAllowedHost(headers.host, boundHost, extra) &&
-    isAllowedOriginOnPorts(headers.origin, boundHost, extra, appPorts)
+    isAllowedHost(getHeader(req, 'host'), boundHost, extra) &&
+    isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, extra, appPorts) &&
+    !isForeignFetchWithoutOrigin(req)
   );
 }
 
@@ -202,6 +226,21 @@ export function getHeader(
 }
 
 /**
+ * Rejects browser fetches that omit `Origin` (`GET` navigation, `<script>`, `<img>`,
+ * `EventSource`, or `no-cors` fetches) when Fetch Metadata marks the initiator as
+ * `cross-site` or `same-site` (including another local port). Non-browser CLI/MCP/SDK
+ * requests carry neither `Origin` nor `Sec-Fetch-Site` and return false here.
+ */
+export function isForeignFetchWithoutOrigin(
+  req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
+): boolean {
+  const originHeader = getHeader(req, 'origin');
+  if (originHeader) return false;
+  const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
+  return secFetchSite === 'cross-site' || secFetchSite === 'same-site';
+}
+
+/**
  * Constant-time comparison for capability tokens.
  * Fails closed if either token is missing or empty.
  */
@@ -216,10 +255,28 @@ export function timingSafeTokenMatch(
   return timingSafeEqual(a, b);
 }
 
+function extractSessionCookies(cookieHeader: string | undefined): string[] {
+  if (!cookieHeader) return [];
+  const out: string[] = [];
+  for (const part of cookieHeader.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    const name = part.slice(0, eq).trim();
+    if (name !== PYRIC_SESSION_COOKIE_NAME) continue;
+    const raw = part.slice(eq + 1).trim();
+    try {
+      out.push(decodeURIComponent(raw));
+    } catch {
+      out.push(raw);
+    }
+  }
+  return out;
+}
+
 /**
- * Validates a session capability token from either the `x-pyric-session-token`
- * header or the `?token=` query parameter using constant-time comparison.
- * Fails closed (returns false) if `expectedToken` is omitted, undefined, or empty.
+ * Validates a session capability token from the `x-pyric-session-token` header,
+ * the `?token=` query parameter, or the `__pyric_session` HttpOnly cookie using
+ * constant-time comparison. Fails closed if `expectedToken` is omitted or empty.
  */
 export function isAllowedSessionToken(
   req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
@@ -227,16 +284,21 @@ export function isAllowedSessionToken(
   expectedToken: string | undefined,
 ): boolean {
   if (!expectedToken) return false;
-  const presented =
-    getHeader(req, 'x-pyric-session-token') ??
-    url?.searchParams.get('token') ??
-    undefined;
-  return timingSafeTokenMatch(presented, expectedToken);
+  const headerToken = getHeader(req, 'x-pyric-session-token');
+  if (headerToken !== undefined) {
+    return timingSafeTokenMatch(headerToken, expectedToken);
+  }
+  const queryToken = url?.searchParams.get('token') ?? undefined;
+  if (queryToken !== undefined) {
+    return timingSafeTokenMatch(queryToken, expectedToken);
+  }
+  const cookies = extractSessionCookies(getHeader(req, 'cookie'));
+  return cookies.some((cookie) => timingSafeTokenMatch(cookie, expectedToken));
 }
 
 /**
- * Validates that an incoming HTTP request complies with both loopback Host
- * (DNS-rebinding) and Origin (cross-origin hijacking) restrictions.
+ * Validates that an incoming HTTP request complies with loopback Host
+ * (DNS-rebinding), Origin (cross-origin hijacking), and Sec-Fetch-Site restrictions.
  *
  * Pass `appPorts` (the socket's `localPort`, plus any port `createAppPorts`
  * learned) so a page on another local port is refused; without it only the
@@ -252,8 +314,39 @@ export function isAllowedLoopbackRequest(
   const originHeader = getHeader(req, 'origin');
   return (
     isAllowedHost(hostHeader, boundHost, extra) &&
-    isAllowedOriginOnPorts(originHeader, boundHost, extra, appPorts)
+    isAllowedOriginOnPorts(originHeader, boundHost, extra, appPorts) &&
+    !isForeignFetchWithoutOrigin(req)
   );
+}
+
+/**
+ * Determines whether an HTML response may stamp `sessionToken` into inline init
+ * scripts and emit `Set-Cookie: __pyric_session`.
+ *
+ * Requires a loopback socket peer AND a loopback/bound `Host` header (ignoring
+ * `--allowed-host` / Vite `allowedHosts: true`, so tunnel/rebound hosts never
+ * receive session capabilities), refuses foreign `Origin` headers (port-aware),
+ * and refuses cross-site / cross-port Fetch Metadata unless the request is a
+ * top-level document navigation (`Sec-Fetch-Mode: navigate` + `Sec-Fetch-Dest: document`).
+ */
+export function canBootstrapHtmlSession(
+  req: IncomingMessage,
+  boundHost = 'localhost',
+  appPorts?: readonly number[],
+): boolean {
+  if (!isLocalPeer(req)) return false;
+  if (!isAllowedHost(getHeader(req, 'host'), boundHost)) return false;
+  const ports = appPorts ?? (req.socket?.localPort ? [req.socket.localPort] : undefined);
+  if (!isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, [], ports)) return false;
+  const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
+  if (secFetchSite === 'cross-site' || secFetchSite === 'same-site') {
+    const secFetchMode = getHeader(req, 'sec-fetch-mode')?.trim().toLowerCase();
+    const secFetchDest = getHeader(req, 'sec-fetch-dest')?.trim().toLowerCase();
+    if (secFetchMode !== 'navigate' || secFetchDest !== 'document') {
+      return false;
+    }
+  }
+  return true;
 }
 
 export interface ServeHandle {
@@ -438,12 +531,20 @@ async function handleRequest(
   const type = contentTypeFor(file);
   logger.note(`  • ${req.method} ${url.pathname}`);
 
-  if (type.startsWith('text/html') && opts.transformHtml) {
-    const { readFile } = await import('node:fs/promises');
-    const html = opts.transformHtml(await readFile(file, 'utf8'));
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
-    res.end(req.method === 'HEAD' ? undefined : html);
-    return;
+  if (type.startsWith('text/html')) {
+    const canBootstrap = canBootstrapHtmlSession(req, opts.host ?? 'localhost');
+    const effectiveSessionToken =
+      opts.sessionToken ?? (opts.namespaceHandler as { sessionToken?: string } | undefined)?.sessionToken;
+    if (effectiveSessionToken && canBootstrap) {
+      appendSetCookieHeader(res, formatSessionCookie(effectiveSessionToken));
+    }
+    if (opts.transformHtml) {
+      const { readFile } = await import('node:fs/promises');
+      const html = opts.transformHtml(await readFile(file, 'utf8'), { localPeer: canBootstrap });
+      res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : html);
+      return;
+    }
   }
 
   res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
@@ -564,6 +665,9 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Serv
   }
 
   const url = `http://${host}:${port}`;
+  const unregisterToken = opts.sessionToken
+    ? registerLocalSessionToken(port, opts.sessionToken)
+    : undefined;
   return {
     port,
     host,
@@ -572,6 +676,7 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Serv
     servers,
     stop: () =>
       new Promise<void>((resolveStop, rejectStop) => {
+        unregisterToken?.();
         let pending = servers.length;
         let failed: Error | null = null;
         for (const s of servers) {

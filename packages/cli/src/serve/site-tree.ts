@@ -2,9 +2,13 @@ import { stampHostedTarget } from './runtime/hosted-target.js';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
+import type { AppPorts } from './app-ports.js';
 import {
+  appendSetCookieHeader,
+  canBootstrapHtmlSession,
   contentTypeFor,
   decodeStaticPathname,
+  formatSessionCookie,
   pipeFileToResponse,
   resolveStaticFile,
   resolveStaticPath,
@@ -90,7 +94,14 @@ function withWorkerVersion(html: string, workerVersion: string | undefined): str
 }
 
 /** Serve the one Astro tree with SPA fallback limited to generated Studio entries. */
-export function createSiteTreeHandler(root: string, workerVersion?: string, hostedProjectKey?: string) {
+export function createSiteTreeHandler(
+  root: string,
+  workerVersion?: string,
+  hostedProjectKey?: string,
+  sessionToken?: string,
+  boundHost?: string,
+  appPorts?: AppPorts,
+) {
   const studioRoutes = studioRoutesFromSite(root);
 
   return (
@@ -167,10 +178,28 @@ export function createSiteTreeHandler(root: string, workerVersion?: string, host
     }
 
     const contentType = contentTypeFor(resolvedFile);
-    res.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
     const isStudioHtml = studioRequest && contentType.includes('text/html');
+    const canBootstrap =
+      isStudioHtml &&
+      canBootstrapHtmlSession(req, boundHost ?? 'localhost', appPorts?.forRequest(req));
+    if (canBootstrap && sessionToken) {
+      appendSetCookieHeader(res, formatSessionCookie(sessionToken));
+    }
+    res.writeHead(200, {
+      'content-type': contentType,
+      'cache-control': 'no-store',
+      ...(isStudioHtml ? { 'x-frame-options': 'SAMEORIGIN' } : {}),
+    });
     if (isStudioHtml) {
-      res.end(stampHostedTarget(withWorkerVersion(readFileSync(resolvedFile, 'utf8'), workerVersion), hostedProjectKey));
+      res.end(
+        stampHostedTarget(
+          withWorkerVersion(readFileSync(resolvedFile, 'utf8'), workerVersion),
+          hostedProjectKey,
+          undefined,
+          undefined,
+          canBootstrap ? sessionToken : undefined,
+        ),
+      );
     } else {
       pipeFileToResponse(resolvedFile, res);
     }

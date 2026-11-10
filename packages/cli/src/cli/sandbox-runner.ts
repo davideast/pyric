@@ -224,6 +224,8 @@ export interface ChildActivation {
    *  A child that bundles pages pyric never serves (`withPyric` under
    *  `next dev`) inlines it from `PYRIC_WORKER_INIT`. */
   readonly workerInit?: WorkerInitPayload | undefined;
+  /** Per-boot capability token for the spawned child's HTTP/WS sandbox legs. */
+  readonly sessionToken?: string | undefined;
 }
 
 /**
@@ -243,6 +245,8 @@ export function buildChildEnv(
     NODE_OPTIONS: base.NODE_OPTIONS ? `${base.NODE_OPTIONS} ${importFlag}` : importFlag,
   };
   if (opts.beaconToken !== undefined) env.PYRIC_BEACON_TOKEN = opts.beaconToken;
+  delete env.PYRIC_SESSION_TOKEN;
+  if (opts.sessionToken !== undefined) env.PYRIC_SESSION_TOKEN = opts.sessionToken;
   // An inherited identity names an outer launcher's host, not this one.
   delete env.PYRIC_SANDBOX_INSTANCE;
   if (opts.instanceId !== undefined) env.PYRIC_SANDBOX_INSTANCE = opts.instanceId;

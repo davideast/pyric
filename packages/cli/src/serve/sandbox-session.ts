@@ -104,6 +104,8 @@ export interface SandboxSessionOptions {
   /** The per-launch secret a beacon must present, also placed in the child's
    *  `PYRIC_BEACON_TOKEN`. */
   beaconToken?: string;
+  /** Shared per-boot session capability token across namespace, bridge, and served HTML. */
+  sessionToken?: string;
 }
 
 export interface SandboxSessionSummary {
@@ -130,6 +132,7 @@ export interface SandboxSessionSummary {
 }
 
 export interface SandboxSession {
+  readonly sessionToken: string;
   readonly hostedPersistence?: HostedPersistence;
   readonly summary: SandboxSessionSummary;
   payload(): InitPayload;
@@ -391,9 +394,13 @@ export async function createSandboxSession(
       options.logger?.note('  ⚠ no database.rules.json found — client RTDB reads/writes default to DENY (matching production Firebase). Use --permissive for open prototyping.');
     }
   }
-  const flowTreatments = await createFlowTreatmentHost(options.projectDir, options.flow);
+  const flowTreatments = await createFlowTreatmentHost(options.projectDir, options.flow, {
+    boundHost: options.boundHost,
+    allowedHosts: options.allowedHosts,
+    appPorts: options.appPorts,
+  });
   const events = createEventHub();
-  const sessionToken = randomBytes(24).toString('base64url');
+  const sessionToken = options.sessionToken ?? randomBytes(24).toString('base64url');
   // A background generation that lands in the cache is broadcast on the same
   // hub the rules watchers use. The page, not the application, listens: it
   // re-requests that uid's avatar so the finished image replaces the
@@ -897,6 +904,7 @@ export async function createSandboxSession(
     };
 
     return {
+      sessionToken,
       hostedPersistence,
       summary,
       payload,

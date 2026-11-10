@@ -22,7 +22,7 @@
  */
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const FIXTURE = fileURLToPath(new URL('../replay/fixtures/live-mode-traffic.json', import.meta.url));
 const PROJECT = 'demo-live-traffic';
@@ -115,10 +115,9 @@ const refused = (body: ToolBody) => JSON.stringify(body.data ?? {}).includes(REF
 
 interface CapturedEvent { kind?: string; service?: string; method?: string; path?: string; production?: unknown }
 
-/** The host's live Firestore events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
-async function liveFirestoreEvents(base: string): Promise<CapturedEvent[]> {
-  const { sessionToken } = await (await fetch(`${base}/__pyric/init.json`)).json() as { sessionToken: string };
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+/** The host's live Firestore events, from `/__pyric/capture`. */
+async function liveFirestoreEvents(app: App, base: string): Promise<CapturedEvent[]> {
+  const response = await fetch(`${base}/__pyric/capture`, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return [];
   const capture = await response.json() as { events?: CapturedEvent[] };
   return (capture.events ?? []).filter((event) => event.kind === 'operation' && event.service === 'firestore' && event.production !== undefined);
@@ -153,7 +152,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('the read shows in the host\'s event stream as a live call', async () => {
-    const events = await eventually(() => liveFirestoreEvents(host.url), (all) => all.some((event) => event.method === 'getDoc'), 'a live getDoc on the host');
+    const events = await eventually(() => liveFirestoreEvents(app, host.url), (all) => all.some((event) => event.method === 'getDoc'), 'a live getDoc on the host');
     const read = events.find((event) => event.method === 'getDoc');
     assert.ok(read, JSON.stringify(events));
   });

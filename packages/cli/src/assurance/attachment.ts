@@ -14,6 +14,7 @@ import {
   type LocalFirebaseTarget,
   type StorageObjectFixture,
 } from "./types.js";
+import { stampedSessionToken } from "../serve/runtime/hosted-target.js";
 import { normalizeStorageBucketInstance } from "./validation-target.js";
 
 export interface AssuranceAttachmentInput {
@@ -34,6 +35,7 @@ export type AssuranceAttachmentProvider = (
 export interface SandboxAttachmentProviderOptions {
   origin?: string;
   fetchImpl?: typeof fetch;
+  sessionToken?: string;
 }
 
 export type {
@@ -147,8 +149,10 @@ export function createSandboxAttachmentProvider(
       );
     }
 
+    const token = options.sessionToken ?? stampedSessionToken();
     const response = await fetchImpl(`${origin}/__pyric/init.json`, {
       redirect: "error",
+      ...(token !== undefined ? { headers: { "x-pyric-session-token": token } } : {}),
     });
     if (!response.ok) {
       throw new AssuranceInputError(

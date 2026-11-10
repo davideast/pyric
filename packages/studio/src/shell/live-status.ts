@@ -14,10 +14,15 @@ import {
   type LiveHostStatus,
   type LiveStatusPoller,
 } from 'pyric/sandbox/internal';
+import { studioSessionHeaders } from './serve-init.js';
 import { useStudioEventFeed } from './studio-events.js';
 
 async function readHealth(): Promise<LiveHostStatus | null> {
-  const response = await fetch('/__pyric/health', { cache: 'no-store' });
+  const headers = studioSessionHeaders();
+  const response = await fetch('/__pyric/health', {
+    cache: 'no-store',
+    ...(headers ? { headers } : {}),
+  });
   if (!response.ok) throw new Error(`The host's health report answered ${response.status}.`);
   return readLiveHostStatus(await response.json());
 }

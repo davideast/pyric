@@ -74,7 +74,7 @@ await preMount.startHostedSandbox(
 );
 await fetch(preUrl + '/__pyric/hosted/method', {
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', 'x-pyric-session-token': preMount.sessionToken },
   body: JSON.stringify({ instanceId: preMount.instanceId, projectDir: dir, key: 'firestore.setDoc', args: { path: 'rooms/stale', data: { stale: true } }, allowProduction: false }),
 });
 await preMount.close();
@@ -172,13 +172,16 @@ liveHost.outbound({
 });
 
 // 2. Session-data HTTP GET shows ONLY observed data while local hosted sqlite still has ONLY the 1 pre-seeded doc.
-const sessionRes = await fetch(baseUrl + '/__pyric/live/session-data');
+const unauthSessionRes = await fetch(baseUrl + '/__pyric/live/session-data');
+const sessionRes = await fetch(baseUrl + '/__pyric/live/session-data', {
+  headers: { 'x-pyric-session-token': mount.sessionToken },
+});
 const sessionSnap = await sessionRes.json();
 
 const callHostedMethod = async (key, args) => {
   const res = await fetch(baseUrl + '/__pyric/hosted/method', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-pyric-session-token': mount.sessionToken },
     body: JSON.stringify({ instanceId: mount.instanceId, projectDir: dir, key, args, allowProduction: false }),
   });
   return res.json();
@@ -190,9 +193,14 @@ const directWriteBefore = await callHostedMethod('firestore.setDoc', { path: 'ro
 const gitignoreBefore = existsSync(join(dir, '.gitignore'));
 
 // 3. Seed route WITHOUT confirm:true is refused with 400 PYRIC_SEED_CONFIRM_REQUIRED; disk doc count stays 1.
-const unconfirmedRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
+const unauthSeedRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ confirm: true, mode: 'merge', instanceId: mount.instanceId, projectDir: dir }),
+});
+const unconfirmedRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'x-pyric-session-token': mount.sessionToken },
   body: JSON.stringify({ mode: 'merge' }),
 });
 const unconfirmedBody = await unconfirmedRes.json();
@@ -201,7 +209,7 @@ const inspectAfterUnconfirmed = await callHostedMethod('sandbox.inspect', {});
 // 4. Explicit opt-in seed WITH confirm:true (mode: 'merge') adds rooms/alpha alongside rooms/stale (total 2 docs).
 const mergeRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', 'x-pyric-session-token': mount.sessionToken },
   body: JSON.stringify({ confirm: true, mode: 'merge', instanceId: mount.instanceId, projectDir: dir }),
 });
 const mergeBody = await mergeRes.json();
@@ -210,7 +218,7 @@ const inspectAfterMerge = await callHostedMethod('sandbox.inspect', {});
 // 5. Explicit opt-in seed WITH confirm:true (mode: 'replace') replaces local sandbox with ONLY observed data (total 1 doc).
 const replaceRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', 'x-pyric-session-token': mount.sessionToken },
   body: JSON.stringify({ confirm: true, mode: 'replace', instanceId: mount.instanceId, projectDir: dir }),
 });
 const replaceBody = await replaceRes.json();
@@ -260,7 +268,7 @@ await verifyMount.startHostedSandbox(
 const callVerifyMethod = async (key, args) => {
   const res = await fetch(verifyUrl + '/__pyric/hosted/method', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-pyric-session-token': verifyMount.sessionToken },
     body: JSON.stringify({ instanceId: verifyMount.instanceId, projectDir: dir, key, args, allowProduction: false }),
   });
   return res.json();
@@ -268,13 +276,17 @@ const callVerifyMethod = async (key, args) => {
 const persistedAlpha = await callVerifyMethod('firestore.getDoc', { path: 'rooms/alpha' });
 const persistedStale = await callVerifyMethod('firestore.getDoc', { path: 'rooms/stale' });
 const persistedRtdb = await callVerifyMethod('database.get', { path: 'status/alpha', instance: 'demo-e2e-default-rtdb' });
-const nonLiveSessionRoute = await fetch(verifyUrl + '/__pyric/live/session-data');
+const nonLiveSessionRoute = await fetch(verifyUrl + '/__pyric/live/session-data', {
+  headers: { 'x-pyric-session-token': verifyMount.sessionToken },
+});
 
 await verifyMount.close();
 await new Promise((resolve) => verifyServer.close(resolve));
 rmSync(dir, { recursive: true, force: true });
 
 console.log('E2E_OUTCOME ' + JSON.stringify({
+  unauthSessionStatus: unauthSessionRes.status,
+  unauthSeedStatus: unauthSeedRes.status,
   sessionFirestoreKeys: Object.keys(sessionSnap.firestore),
   sessionRtdb: sessionSnap.rtdb,
   docsBeforeSeed: inspectBefore.data?.documents?.totalCount ?? null,
@@ -319,6 +331,8 @@ describe('Live host observed-session-data & opt-in seeding end-to-end (Node sqli
       expect(line).toBeDefined();
       const outcome = JSON.parse(line!.slice('E2E_OUTCOME '.length));
 
+      expect(outcome.unauthSessionStatus).toBe(401);
+      expect(outcome.unauthSeedStatus).toBe(401);
       expect(outcome.sessionFirestoreKeys).toEqual(['rooms/alpha']);
       expect(outcome.sessionRtdb).toEqual({
         'demo-e2e-default-rtdb': { status: { alpha: 'active' } },
