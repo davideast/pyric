@@ -137,22 +137,42 @@ doesn't rewrite what's in the files.
 An opt-in redaction flag could be added later if users ask for it. It isn't
 added now, and nothing in this record depends on it.
 
-### 5. Precondition: only the developer can reach Pyric's local surfaces
+### 5. Precondition: local-surface threat model and session token scope
 
-Unscrubbed records are safe because the only person who can read them is the
-developer whose calls produced them. That holds only if every local surface
-that serves records answers the developer alone. This covers the `/__pyric/*`
-HTTP routes, the MCP endpoint, and the WebSocket and event streams the dev
-server or live host mounts. Each one must:
+Unscrubbed records are safe when local surfaces answer the developer alone. The
+local HTTP routes (`/__pyric/*`), MCP (`/mcp` and `/__pyric/mcp`), and the
+bridge WebSocket and event streams enforce three rules according to what each
+mode holds:
 
-- require the session's bridge token;
-- reject a request whose `Origin` is not the dev server's own;
-- reject a request whose `Host` is not a loopback name or address, so DNS
-  rebinding can't reach it.
+- **Web pages and non-loopback hosts are always blocked.** Every mode rejects
+  non-loopback socket peers, foreign `Origin` headers (including other ports on
+  `localhost`), cross-site and cross-port Fetch Metadata (`Sec-Fetch-Site`), and
+  non-loopback `Host` headers (even under Vite `server.allowedHosts: true`). Any
+  route that does not check the session token accepts loopback hostnames only,
+  so a tunnel hostname admitted through `--allowed-host` or
+  `server.allowedHosts` never reaches an unauthenticated route.
+- **Live data, project-file routes and the AI proxy require the session token.**
+  In live mode (`pyric-live` and `pyricLive()`), every local route, MCP, and
+  `WS /__pyric/sandbox` requires the per-boot session token, and no flag or
+  config disables it. In sandbox mode (`pyric sandbox`, `pyric()`, and
+  `pyric bridge`), the token is required on project-file routes
+  (`/__pyric/workspace*`, `/__pyric/projects*`) and the AI proxy
+  (`/__pyric/ai-proxy*`, which can spend a configured provider key or ambient
+  credentials). `--session-token` (or `sessionToken: true` in `pyric.json` or
+  the Vite plugin options) requires the token on every sandbox and bridge route.
+- **Other local processes are otherwise trusted in sandbox mode.** Sandbox
+  state, captures, diagnostics, events, MCP, and `WS /__pyric/sandbox` answer
+  loopback processes without a token by default, matching how decision 3 treats
+  local `.pyric/` and `.env` files. Unauthenticated `GET /__pyric/init.json`
+  never returns the session token in any mode (returning the rest of the init
+  payload to loopback callers in sandbox mode, and minimal readiness metadata
+  when token-gated).
 
-This record states the requirement. It doesn't claim that every surface
-enforces it today. That is being checked separately, and any surface that
-falls short is a defect against this record, fixed at that surface.
+Browsers present the session token via the `HttpOnly; SameSite=Strict;
+Path=/__pyric` `__pyric_session` cookie, bootstrapped only on loopback HTML and
+same-origin SDK loads; Node and CLI callers send `x-pyric-session-token` from
+owner-only (`0o600`) `.pyric/serve.json` or `.pyric/session.json`. Session
+tokens are not passed in `?token=` query parameters.
 
 ## Consequences
 
@@ -164,11 +184,11 @@ falls short is a defect against this record, fixed at that surface.
   repro files and the MCP event log hold document values, Storage download
   tokens, `customMetadata` and error messages as the project returned them.
 - **The local surfaces carry the boundary.** With no scrubbing behind them,
-  decision 5 is the line between the developer and everyone else. A local
-  route that answers without the token, or answers a foreign `Origin` or a
-  non-loopback `Host`, now exposes verbatim project data. It is a
-  security defect under this record, not a gap that scrubbing would have
-  covered.
+  decision 5 is the line between the developer and everyone else. Answering a
+  foreign `Origin` or a non-loopback `Host` on any local surface, or answering
+  live routes, project-file routes, or the AI proxy without the session token,
+  exposes project data, local files, or credentials and is a security defect
+  under this record.
 - **`.pyric/` is already gitignored, so no follow-up is needed for it.** Every
   scaffold's `.gitignore` lists `.pyric/`: all five `create-pyric` templates,
   which `pyric init` also uses (`web`, `node` and `static` through `GITIGNORE`
@@ -255,3 +275,16 @@ falls short is a defect against this record, fixed at that surface.
   the marker.
 - **An opt-in redaction flag now.** This was deferred (decision 4). No user
   has asked for it, and it would bring back the code this record removes.
+
+## Known open questions
+
+- **URL-only HTTP MCP clients in live mode (and under `--session-token`).**
+  Removing `?token=` from `mcpUrl` and rejecting query-string session tokens
+  means an external HTTP MCP client whose configuration accepts only an endpoint
+  URL—with no custom `x-pyric-session-token` header and without running stdio
+  `pyric mcp-proxy`—cannot connect directly to `/__pyric/mcp` when MCP is
+  token-gated. In default sandbox and `pyric bridge` runs MCP needs no token, so
+  bare `mcpUrl` works; for live mode (and `--session-token`), callers use
+  `pyric mcp-proxy` or attach `x-pyric-session-token` from `.pyric/serve.json`.
+  Whether URL-only HTTP MCP clients need a dedicated non-query handshake in live
+  mode remains open.
