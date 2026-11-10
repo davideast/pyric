@@ -8,11 +8,27 @@
  * captured live calls through `evaluateFirestoreCall` with candidate rules.
  */
 import {
+  analyzeListRulePathInvariance,
+  buildListRuleFunctionScope,
+  checkRulesSource,
   EXISTS_ONLY_DOC,
+  indexRulesetScopes,
   normalizeDocumentPath,
   projectEvaluatedRule,
+  readAuthoredSourceMap,
+  renderMatchBlockPath,
+  rootBlockGovernsEveryDocument,
+  rootGovernsEveryDocument,
+  SimulateFirestoreRulesHandler,
+  topLevelMatches,
+  type AllowRule,
+  type AuthoredSourceMap,
   type DocumentLookupMeta,
+  type Expression,
   type ExprTraceEntry,
+  type FirestoreRules,
+  type FunctionDef,
+  type MatchBlock,
   type RuleEvaluation,
   type SimulationContext,
   type TestCase,
@@ -30,6 +46,9 @@ import {
   gapsIn,
   givenBy,
   isPlainRecord,
+  scrubFirestoreTrace,
+  scrubLocalRule,
+  scrubSecretText,
   unionOf,
   unionPaths,
   verdictOf,
@@ -42,11 +61,11 @@ import {
 const LOCAL_TRACE_VERSION = 'local-rules';
 
 const RESOURCE_READ = /(?<![\w.])resource\b/;
-const AFTER_LOOKUP = /\b(?:getAfter|existsAfter)\s*\(/;
+const AFTER_LOOKUP = /(?<![.\w])(?:getAfter|existsAfter)\s*\(/;
 const WRITE_READ = /\brequest\.resource\b/;
 const EMAIL_CLAIM = /\brequest\.auth\.token(?:\.(?:email\b|firebase\.identities\b)|\[['"]email['"]\])/;
 
-/** Gaps checked over non-skipped atomic expressions in the deciding trace entries. */
+/** Gaps checked over non-skipped evaluated expressions in the deciding trace entries. */
 const FIRESTORE_GAPS: readonly GapPattern[] = [
   ['stored-document', RESOURCE_READ, (given) => !given.document],
   ['stored-document', AFTER_LOOKUP, ALWAYS_OPEN],
@@ -56,6 +75,264 @@ const FIRESTORE_GAPS: readonly GapPattern[] = [
   ['claim-values', EMAIL_CLAIM, (given) => !given.emailKnown],
   ['query', /\brequest\.query\b/, ALWAYS_OPEN],
 ];
+
+interface ParsedRulesEntry {
+  readonly source: string;
+  readonly ast: FirestoreRules | null;
+  readonly sourceMap: AuthoredSourceMap;
+  readonly functionsByMatchPath: ReadonlyMap<string, ReadonlyMap<string, FunctionDef>>;
+  readonly fnLexicalScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>;
+  readonly allFunctions: ReadonlyMap<string, FunctionDef>;
+}
+
+const collectionGroupSimulator = new SimulateFirestoreRulesHandler();
+let cachedParsedRules: ParsedRulesEntry | null = null;
+
+function indexFunctionMaps(ast: FirestoreRules): {
+  functionsByMatchPath: Map<string, Map<string, FunctionDef>>;
+  fnLexicalScopes: Map<FunctionDef, Map<string, FunctionDef>>;
+  allFunctions: Map<string, FunctionDef>;
+} {
+  const functionsByMatchPath = new Map<string, Map<string, FunctionDef>>();
+  const fnLexicalScopes = new Map<FunctionDef, Map<string, FunctionDef>>();
+  const allFunctions = new Map<string, FunctionDef>();
+
+  const rootScope = new Map<string, FunctionDef>();
+  for (const fn of ast.functions ?? []) {
+    rootScope.set(fn.name, fn);
+    allFunctions.set(fn.name, fn);
+  }
+  for (const fn of ast.service.functions ?? []) {
+    rootScope.set(fn.name, fn);
+    allFunctions.set(fn.name, fn);
+  }
+  for (const fn of rootScope.values()) {
+    fnLexicalScopes.set(fn, rootScope);
+  }
+
+  const visitBlock = (block: MatchBlock, outer: ReadonlyMap<string, FunctionDef>, prefix: string): void => {
+    const scope = new Map(outer);
+    for (const fn of block.functions) {
+      scope.set(fn.name, fn);
+      allFunctions.set(fn.name, fn);
+    }
+    for (const fn of block.functions) {
+      fnLexicalScopes.set(fn, scope);
+    }
+    const ownPath = renderMatchBlockPath(block);
+    const fullPath = prefix === '' ? ownPath : `${prefix}${ownPath}`;
+    functionsByMatchPath.set(ownPath, scope);
+    functionsByMatchPath.set(fullPath, scope);
+    for (const child of block.children) {
+      visitBlock(child, scope, fullPath);
+    }
+  };
+
+  for (const rootBlock of topLevelMatches(ast.service)) {
+    const rootScopeWithBlock = new Map(rootScope);
+    for (const fn of rootBlock.functions) {
+      rootScopeWithBlock.set(fn.name, fn);
+      allFunctions.set(fn.name, fn);
+    }
+    for (const fn of rootBlock.functions) {
+      fnLexicalScopes.set(fn, rootScopeWithBlock);
+    }
+    functionsByMatchPath.set(renderMatchBlockPath(rootBlock), rootScopeWithBlock);
+    for (const child of rootBlock.children) {
+      visitBlock(child, rootScopeWithBlock, '');
+    }
+  }
+
+  return { functionsByMatchPath, fnLexicalScopes, allFunctions };
+}
+
+function parsedRulesOf(source: string | undefined): ParsedRulesEntry | null {
+  if (source === undefined) return null;
+  if (cachedParsedRules?.source === source) return cachedParsedRules;
+  const checked = checkRulesSource(source);
+  const ast = checked.ok ? checked.ast : null;
+  const sourceMap = readAuthoredSourceMap(source);
+  if (ast === null) {
+    cachedParsedRules = {
+      source,
+      ast: null,
+      sourceMap,
+      functionsByMatchPath: new Map(),
+      fnLexicalScopes: new Map(),
+      allFunctions: new Map(),
+    };
+    return cachedParsedRules;
+  }
+  indexRulesetScopes(ast);
+  const indexed = indexFunctionMaps(ast);
+  cachedParsedRules = {
+    source,
+    ast,
+    sourceMap,
+    ...indexed,
+  };
+  return cachedParsedRules;
+}
+
+function groupBindings(block: MatchBlock, collectionId: string): Set<string> | null {
+  const [first, second, third, ...rest] = block.path.segments;
+  if (first?.type !== 'recursive') return null;
+  if (!second) return new Set([first.name]);
+  if (
+    second.type === 'literal' &&
+    second.value === collectionId &&
+    third?.type === 'wildcard' &&
+    rest.length === 0
+  ) {
+    return new Set([first.name, third.name]);
+  }
+  return null;
+}
+
+function projectPathInvariantCondition(
+  expr: Expression,
+  bound: ReadonlySet<string>,
+  functions: ReadonlyMap<string, FunctionDef>,
+  ambiguousNames: ReadonlySet<string>,
+): { condition: Expression; requiredFunctionDefs: ReadonlySet<FunctionDef> } | null {
+  const analysis = analyzeListRulePathInvariance(expr, bound, functions, ambiguousNames);
+  if (analysis.pathInvariant) {
+    return { condition: expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
+  }
+  if (expr.type === 'unaryOp' && expr.op === '!') {
+    const inner = expr.operand;
+    if (inner.type === 'binaryOp' && inner.op === '&&') {
+      return projectPathInvariantCondition(
+        {
+          type: 'binaryOp',
+          op: '||',
+          left: { type: 'unaryOp', op: '!', operand: inner.left },
+          right: { type: 'unaryOp', op: '!', operand: inner.right },
+        },
+        bound,
+        functions,
+        ambiguousNames,
+      );
+    }
+    if (inner.type === 'binaryOp' && inner.op === '||') {
+      return projectPathInvariantCondition(
+        {
+          type: 'binaryOp',
+          op: '&&',
+          left: { type: 'unaryOp', op: '!', operand: inner.left },
+          right: { type: 'unaryOp', op: '!', operand: inner.right },
+        },
+        bound,
+        functions,
+        ambiguousNames,
+      );
+    }
+    if (inner.type === 'unaryOp' && inner.op === '!') {
+      const sub = projectPathInvariantCondition(inner.operand, bound, functions, ambiguousNames);
+      if (!sub) return null;
+      return {
+        condition: { type: 'unaryOp', op: '!', operand: { type: 'unaryOp', op: '!', operand: sub.condition } },
+        requiredFunctionDefs: sub.requiredFunctionDefs,
+      };
+    }
+  }
+  if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
+    const left = projectPathInvariantCondition(expr.left, bound, functions, ambiguousNames);
+    const right = projectPathInvariantCondition(expr.right, bound, functions, ambiguousNames);
+    if (left && right) {
+      return {
+        condition: { ...expr, left: left.condition, right: right.condition },
+        requiredFunctionDefs: new Set([...left.requiredFunctionDefs, ...right.requiredFunctionDefs]),
+      };
+    }
+    if (expr.op === '||') {
+      return left ?? right;
+    }
+  }
+  return null;
+}
+
+function projectGroupBlock(
+  block: MatchBlock,
+  collectionId: string,
+  outerFunctions: readonly FunctionDef[],
+  requiredFunctionDefs: Set<FunctionDef>,
+): MatchBlock | null {
+  const bound = groupBindings(block, collectionId);
+  if (!bound) return null;
+
+  const functionScope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
+  const blockRequiredDefs = new Set<FunctionDef>();
+  const allows: AllowRule[] = [];
+
+  for (const rule of block.allows) {
+    if (!rule.operations.some((operation) => operation === 'list' || operation === 'read')) {
+      continue;
+    }
+    const projected = projectPathInvariantCondition(
+      rule.condition,
+      bound,
+      functionScope.functions,
+      functionScope.ambiguousNames,
+    );
+    if (!projected) continue;
+    for (const fnDef of projected.requiredFunctionDefs) {
+      if (block.functions.includes(fnDef)) {
+        blockRequiredDefs.add(fnDef);
+      } else {
+        requiredFunctionDefs.add(fnDef);
+      }
+    }
+    allows.push(projected.condition === rule.condition ? rule : { ...rule, condition: projected.condition });
+  }
+  if (allows.length === 0) return null;
+
+  return {
+    ...block,
+    functions: block.functions.filter((fn) => blockRequiredDefs.has(fn)),
+    allows,
+    children: [],
+  };
+}
+
+function projectCollectionGroupRules(ast: FirestoreRules, collectionId: string): FirestoreRules | null {
+  if (!rootGovernsEveryDocument(ast)) return null;
+  indexRulesetScopes(ast);
+
+  const serviceFunctions = [...(ast.functions ?? []), ...(ast.service.functions ?? [])];
+  const requiredFunctionDefs = new Set<FunctionDef>();
+  const retainRequired = (functions: readonly FunctionDef[] | undefined): FunctionDef[] | undefined =>
+    functions?.filter((fn) => requiredFunctionDefs.has(fn));
+
+  const projectedRoots: MatchBlock[] = [];
+  for (const rootBlock of topLevelMatches(ast.service)) {
+    if (!rootBlockGovernsEveryDocument(rootBlock, ast.version)) continue;
+    const outerFunctions = [...serviceFunctions, ...rootBlock.functions];
+    const children: MatchBlock[] = [];
+    for (const block of rootBlock.children) {
+      const projected = projectGroupBlock(block, collectionId, outerFunctions, requiredFunctionDefs);
+      if (projected) children.push(projected);
+    }
+    if (children.length === 0) continue;
+    projectedRoots.push({
+      ...rootBlock,
+      functions: retainRequired(rootBlock.functions) ?? [],
+      children,
+    });
+  }
+  if (projectedRoots.length === 0) return null;
+
+  return {
+    ...ast,
+    functions: retainRequired(ast.functions),
+    service: {
+      ...ast.service,
+      functions: retainRequired(ast.service.functions),
+      match: projectedRoots[0]!,
+      matches: projectedRoots,
+    },
+  };
+}
 
 interface ResolvedTargetDoc {
   readonly status: ObservedFirestoreDocLookup['status'];
@@ -133,17 +410,255 @@ function isAtomicTraceNode(node: ExprTraceEntry): boolean {
   );
 }
 
-function evaluatedExpressionsOf(entries: readonly RuleEvaluation[]): string[] {
+function pathWildcardNamesOf(matchPath: string | undefined): Set<string> {
+  const names = new Set<string>();
+  if (!matchPath) return names;
+  const pattern = /\{([A-Za-z_][A-Za-z0-9_]*)(?:=\*\*)?\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(matchPath)) !== null) {
+    if (match[1]) names.add(match[1]);
+  }
+  return names;
+}
+
+function literalStringOf(node: ExprTraceEntry | undefined): string | undefined {
+  if (!node) return undefined;
+  if (typeof node.value === 'string') return node.value;
+  if (node.kind !== 'literal') return undefined;
+  const trimmed = node.source.trim();
+  if (
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return undefined;
+}
+
+function isEmailContainerPath(canonicalPath: string | undefined): boolean {
+  return (
+    canonicalPath === 'request.auth.token' ||
+    canonicalPath === 'request.auth.token.firebase.identities'
+  );
+}
+
+function evaluatedExpressionsOfEntry(
+  entry: RuleEvaluation,
+  parsed: ParsedRulesEntry | null,
+  out: string[],
+): void {
+  const exprTrace = entry.expressionTrace;
+  if (exprTrace === undefined || exprTrace.length === 0) {
+    if (entry.conditionText !== undefined) out.push(entry.conditionText);
+    return;
+  }
+
+  const childrenByParent = new Map<number, number[]>();
+  const roots: number[] = [];
+  for (let i = 0; i < exprTrace.length; i++) {
+    const parent = exprTrace[i]!.parent;
+    if (parent === null) {
+      roots.push(i);
+    } else {
+      let list = childrenByParent.get(parent);
+      if (!list) {
+        list = [];
+        childrenByParent.set(parent, list);
+      }
+      list.push(i);
+    }
+  }
+
+  const pathVars = pathWildcardNamesOf(entry.matchPath);
+  const initialFunctions =
+    (entry.matchPath ? parsed?.functionsByMatchPath.get(entry.matchPath) : undefined) ??
+    parsed?.allFunctions ??
+    new Map<string, FunctionDef>();
+
+  const emitCanonical = (canon: string | undefined): string | undefined => {
+    if (canon) out.push(canon);
+    return canon;
+  };
+
+  const walk = (
+    idx: number,
+    aliases: ReadonlyMap<string, string>,
+    functions: ReadonlyMap<string, FunctionDef>,
+  ): string | undefined => {
+    const node = exprTrace[idx];
+    if (!node || node.skipped === true) return undefined;
+    if (parsed === null && isAtomicTraceNode(node)) {
+      out.push(node.source);
+    }
+    const children = childrenByParent.get(idx) ?? [];
+
+    switch (node.kind) {
+      case 'identifier': {
+        const id = node.source.trim();
+        if (aliases.has(id)) {
+          const mapped = aliases.get(id)!;
+          return mapped === '' ? undefined : emitCanonical(mapped);
+        }
+        if (!pathVars.has(id) && (id === 'request' || id === 'resource')) {
+          return emitCanonical(id);
+        }
+        return undefined;
+      }
+
+      case 'memberAccess': {
+        const objCanon = children[0] !== undefined ? walk(children[0], aliases, functions) : undefined;
+        for (const extra of children.slice(1)) walk(extra, aliases, functions);
+        const prop = /\.([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(node.source)?.[1];
+        if (objCanon && prop) {
+          return emitCanonical(`${objCanon}.${prop}`);
+        }
+        return undefined;
+      }
+
+      case 'bracketAccess': {
+        // Production/simulator evaluates [index, object] in that order.
+        const idxChild = children[0];
+        const objChild = children[1];
+        if (idxChild !== undefined) walk(idxChild, aliases, functions);
+        const objCanon = objChild !== undefined ? walk(objChild, aliases, functions) : undefined;
+        for (const extra of children.slice(2)) walk(extra, aliases, functions);
+        const key = literalStringOf(idxChild !== undefined ? exprTrace[idxChild] : undefined);
+        if (objCanon && key !== undefined) {
+          return emitCanonical(`${objCanon}.${key}`);
+        }
+        if (isEmailContainerPath(objCanon) && key === undefined) {
+          out.push('request.auth.token.email');
+        }
+        return undefined;
+      }
+
+      case 'inExpr': {
+        // Production/simulator evaluates [collection, element] in that order.
+        const collChild = children[0];
+        const elemChild = children[1];
+        const collCanon = collChild !== undefined ? walk(collChild, aliases, functions) : undefined;
+        if (elemChild !== undefined) walk(elemChild, aliases, functions);
+        for (const extra of children.slice(2)) walk(extra, aliases, functions);
+        const key = literalStringOf(elemChild !== undefined ? exprTrace[elemChild] : undefined);
+        if (collCanon && key !== undefined) {
+          out.push(`${collCanon}.${key}`);
+        } else if (isEmailContainerPath(collCanon)) {
+          out.push('request.auth.token.email');
+        }
+        return undefined;
+      }
+
+      case 'methodCall': {
+        const objChild = children[0];
+        const argChildren = children.slice(1);
+        const objCanon = objChild !== undefined ? walk(objChild, aliases, functions) : undefined;
+        for (const argIdx of argChildren) walk(argIdx, aliases, functions);
+        if (!objCanon || objChild === undefined) return undefined;
+        const objSource = exprTrace[objChild]?.source ?? '';
+        const tail = node.source.startsWith(objSource) ? node.source.slice(objSource.length) : node.source;
+        const method = /^\s*\.([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(tail)?.[1];
+        if (method === 'get') {
+          const firstArg = argChildren[0] !== undefined ? exprTrace[argChildren[0]] : undefined;
+          const strKey = literalStringOf(firstArg);
+          if (strKey !== undefined) {
+            return emitCanonical(`${objCanon}.${strKey}`);
+          }
+          if (
+            Array.isArray(firstArg?.value) &&
+            firstArg.value.length > 0 &&
+            firstArg.value.every((part) => typeof part === 'string')
+          ) {
+            return emitCanonical(`${objCanon}.${(firstArg.value as string[]).join('.')}`);
+          }
+          if (isEmailContainerPath(objCanon)) {
+            out.push('request.auth.token.email');
+          }
+          return undefined;
+        }
+        if (
+          (method === 'keys' || method === 'values' || method === 'size' || method === 'diff') &&
+          isEmailContainerPath(objCanon)
+        ) {
+          out.push('request.auth.token.email');
+        }
+        return undefined;
+      }
+
+      case 'binaryOp': {
+        const leftIdx = children[0];
+        const rightIdx = children[1];
+        const leftCanon = leftIdx !== undefined ? walk(leftIdx, aliases, functions) : undefined;
+        const rightCanon = rightIdx !== undefined ? walk(rightIdx, aliases, functions) : undefined;
+        for (const extra of children.slice(2)) walk(extra, aliases, functions);
+        if (node.operator === '==' || node.operator === '!=') {
+          const leftNull = leftIdx !== undefined && exprTrace[leftIdx]?.source.trim() === 'null';
+          const rightNull = rightIdx !== undefined && exprTrace[rightIdx]?.source.trim() === 'null';
+          if ((isEmailContainerPath(leftCanon) && !rightNull) || (isEmailContainerPath(rightCanon) && !leftNull)) {
+            out.push('request.auth.token.email');
+          }
+        }
+        return undefined;
+      }
+
+      case 'functionCall': {
+        const callName = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(node.source.trim())?.[1];
+        const fnDef = callName ? functions.get(callName) : undefined;
+        if (fnDef) {
+          const calleeAliases = new Map<string, string>();
+          const argCount = Math.min(fnDef.parameters.length, children.length);
+          for (let i = 0; i < argCount; i++) {
+            const argCanon = walk(children[i]!, aliases, functions);
+            calleeAliases.set(fnDef.parameters[i]!, argCanon ?? '');
+          }
+          const calleeFunctions = parsed?.fnLexicalScopes.get(fnDef) ?? functions;
+          let bodyCanon: string | undefined;
+          for (const childIdx of children.slice(argCount)) {
+            const childCanon = walk(childIdx, calleeAliases, calleeFunctions);
+            const letName = exprTrace[childIdx]?.letBinding?.name;
+            if (letName) {
+              calleeAliases.set(letName, childCanon ?? '');
+            } else {
+              bodyCanon = childCanon;
+            }
+          }
+          return bodyCanon;
+        }
+        if (callName === 'getAfter' || callName === 'existsAfter') {
+          out.push(`${callName}(`);
+        }
+        const localAliases = new Map(aliases);
+        let lastCanon: string | undefined;
+        for (const childIdx of children) {
+          const childCanon = walk(childIdx, localAliases, functions);
+          const letName = exprTrace[childIdx]?.letBinding?.name;
+          if (letName) {
+            localAliases.set(letName, childCanon ?? '');
+          } else {
+            lastCanon = childCanon;
+          }
+        }
+        return lastCanon;
+      }
+
+      default: {
+        for (const childIdx of children) walk(childIdx, aliases, functions);
+        return undefined;
+      }
+    }
+  };
+
+  for (const rootIdx of roots) {
+    walk(rootIdx, new Map(), initialFunctions);
+  }
+}
+
+function evaluatedExpressionsOf(
+  entries: readonly RuleEvaluation[],
+  parsed: ParsedRulesEntry | null,
+): string[] {
   const out: string[] = [];
   for (const entry of entries) {
-    const exprTrace = entry.expressionTrace;
-    if (exprTrace === undefined || exprTrace.length === 0) {
-      if (entry.conditionText !== undefined) out.push(entry.conditionText);
-      continue;
-    }
-    for (const node of exprTrace) {
-      if (isAtomicTraceNode(node)) out.push(node.source);
-    }
+    evaluatedExpressionsOfEntry(entry, parsed, out);
   }
   return out;
 }
@@ -169,8 +684,31 @@ function evaluateFirestore(
   method: Exclude<ObservedMethod, 'set'>,
   baseGiven: Given,
   observedSession: ObservedSessionDataStore | undefined,
+  parsed: ParsedRulesEntry | null,
 ): Evaluation | undefined {
-  const targetDoc = resolveTargetDoc(call, path, method, observedSession);
+  const isCollectionGroup = method === 'list' && call.query?.scope === 'collection-group';
+  let effectivePath = path;
+  let effectiveSimulate = simulate;
+
+  if (isCollectionGroup && parsed !== null) {
+    if (parsed.ast === null) return undefined;
+    if (path.includes('/')) {
+      return { allowed: false, rule: undefined, needs: [], missingPaths: [] };
+    }
+    const projectedAst = projectCollectionGroupRules(parsed.ast, path);
+    if (projectedAst === null) {
+      return { allowed: false, rule: undefined, needs: [], missingPaths: [] };
+    }
+    effectivePath = `${path}/__listPlaceholder__`;
+    effectiveSimulate = (cases, lookups) =>
+      collectionGroupSimulator.simulateParsed(projectedAst, parsed.source, cases, {
+        ...lookups,
+        sourceMap: parsed.sourceMap,
+        skipQueryProof: true,
+      });
+  }
+
+  const targetDoc = resolveTargetDoc(call, effectivePath, method, observedSession);
   const targetResourceKnown =
     targetDoc.status === 'complete' || (targetDoc.status === 'absent' && method !== 'update');
   const given: Given = {
@@ -208,14 +746,17 @@ function evaluateFirestore(
     return null;
   };
 
-  const simulated = simulate([buildFirestoreTestCase(call, path, method, targetDoc)], { getDoc });
+  const simulated = effectiveSimulate(
+    [buildFirestoreTestCase(call, effectivePath, method, targetDoc)],
+    { getDoc },
+  );
   if (!simulated.success) return undefined;
   const result = simulated.data.results[0];
   if (result === undefined || result.decision === 'UNSUPPORTED') return undefined;
 
   const allowed = result.decision === 'ALLOW';
   const entries = decidingTraceEntries(result, allowed);
-  const expressions = evaluatedExpressionsOf(entries);
+  const expressions = evaluatedExpressionsOf(entries, parsed);
 
   let lookupMissing = fallbackMissing;
   for (const entry of entries) {
@@ -235,7 +776,7 @@ function evaluateFirestore(
     }
   }
 
-  const missingPaths = unionPaths(lookupMissing, targetMissing);
+  const missingPaths = unionPaths(lookupMissing.map(scrubSecretText), targetMissing.map(scrubSecretText));
   const exprGaps = gapsIn(expressions, FIRESTORE_GAPS, given);
   let needs = exprGaps;
   if (lookupMissing.length > 0) {
@@ -244,14 +785,14 @@ function evaluateFirestore(
   const deciding = projectEvaluatedRule(result);
   let rule: Evaluation['rule'];
   if (deciding !== undefined) {
-    rule = definedOnly({ line: deciding.line, expression: deciding.expression });
+    rule = scrubLocalRule(definedOnly({ line: deciding.line, expression: deciding.expression }));
   }
   return {
     allowed,
     rule,
     needs,
     missingPaths,
-    trace: captureRulesEvidence(result, LOCAL_TRACE_VERSION),
+    trace: scrubFirestoreTrace(captureRulesEvidence(result, LOCAL_TRACE_VERSION)),
   };
 }
 
@@ -260,17 +801,18 @@ function evaluateSetDoc(
   call: ObservedCall,
   path: string,
   observedSession: ObservedSessionDataStore | undefined,
+  parsed: ParsedRulesEntry | null,
 ): Evaluation | undefined {
   const given = givenBy(call, 'set');
   const targetDoc = resolveTargetDoc(call, path, 'set', observedSession);
   if (targetDoc.status === 'absent') {
-    return evaluateFirestore(simulate, call, path, 'create', given, observedSession);
+    return evaluateFirestore(simulate, call, path, 'create', given, observedSession, parsed);
   }
   if (targetDoc.status === 'complete' || targetDoc.status === 'partial') {
-    return evaluateFirestore(simulate, call, path, 'update', given, observedSession);
+    return evaluateFirestore(simulate, call, path, 'update', given, observedSession, parsed);
   }
-  const create = evaluateFirestore(simulate, call, path, 'create', given, observedSession);
-  const update = evaluateFirestore(simulate, call, path, 'update', given, observedSession);
+  const create = evaluateFirestore(simulate, call, path, 'create', given, observedSession, parsed);
+  const update = evaluateFirestore(simulate, call, path, 'update', given, observedSession, parsed);
   if (create === undefined || update === undefined) return undefined;
   const needs = unionOf(create.needs, update.needs);
   const branchMissing = unionPaths(create.missingPaths, update.missingPaths);
@@ -290,11 +832,21 @@ export function evaluateFirestoreCall(
   call: ObservedCall,
   method: ObservedMethod,
   observedSession?: ObservedSessionDataStore,
+  rulesSource?: string,
 ): Evaluation | undefined {
   const path = call.path;
   if (path === undefined) return undefined;
-  if (method === 'set') return evaluateSetDoc(simulate, call, path, observedSession);
-  return evaluateFirestore(simulate, call, path, method, givenBy(call, method), observedSession);
+  const parsed = parsedRulesOf(rulesSource);
+  if (method === 'set') return evaluateSetDoc(simulate, call, path, observedSession, parsed);
+  return evaluateFirestore(
+    simulate,
+    call,
+    path,
+    method,
+    givenBy(call, method),
+    observedSession,
+    parsed,
+  );
 }
 
 export function firestoreVerdict(
@@ -303,12 +855,14 @@ export function firestoreVerdict(
   method: ObservedMethod,
 ): LocalVerdict | undefined {
   const env = getInternalEnv(ctx.sandbox);
-  if (!hasAppFirestoreRules(ctx, env.getRules())) return undefined;
+  const rulesSource = env.getRules();
+  if (!hasAppFirestoreRules(ctx, rulesSource)) return undefined;
   const evaluation = evaluateFirestoreCall(
     (cases, lookups) => env.simulateDeployedRules(cases, lookups),
     call,
     method,
     ctx.observedSession,
+    rulesSource,
   );
   if (evaluation === undefined) return undefined;
   return verdictOf(call, evaluation);

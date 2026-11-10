@@ -543,10 +543,17 @@ function verifyFirestoreSandbox(
   };
 }
 
-/** A live Firestore call's event: production served it, and it named a path. */
+/** A live client Firestore call's event: production served it under Security Rules, and it named a path. */
 function isLiveFirestoreCall(event: PyricVerifyFixture['events'][number]): event is SandboxOperationEvent & { path: string } {
   if (event.kind !== 'operation' || event.service !== 'firestore') return false;
   const operation = event as SandboxOperationEvent;
+  if (
+    operation.origin === 'admin' ||
+    operation.rulesDisposition?.kind === 'bypassed' ||
+    operation.detail?.sdk === 'admin'
+  ) {
+    return false;
+  }
   return isProductionServed(operation.rulesDisposition) && operation.production !== undefined && typeof operation.path === 'string';
 }
 
@@ -554,11 +561,20 @@ function observedAccountOf(uid: string | undefined, claimNames: string[] | undef
   if (uid === undefined) return undefined;
   return definedOnly({ uid, claimNames, claims });
 }
+
+function observedQueryOf(raw: unknown): ObservedCall['query'] {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const scope = (raw as { scope?: unknown }).scope;
+  if (scope !== 'collection' && scope !== 'collection-group') return undefined;
+  return raw as ObservedCall['query'];
+}
+
 /** A captured live call as the host observed it: its event, with the values the capture kept beside it. */
 function observedCallOf(event: SandboxOperationEvent & { path: string }, values: VerifyObservedCallValues | undefined): ObservedCall {
   return definedOnly({
     service: 'firestore', method: event.method, path: event.path, at: event.at, outcome: event.production!.outcome,
     account: observedAccountOf(event.auth?.uid, event.production?.claimNames, values?.claims),
+    query: observedQueryOf(event.request?.query),
     writeData: values?.writeData, document: values?.document,
   });
 }
@@ -581,7 +597,7 @@ function verifyLiveFirestoreCalls(fixture: PyricVerifyFixture, rules: string): {
     const method = observedMethod('firestore', event.method);
     const verdict = productionVerdict(event.production!.outcome);
     if (method === null || verdict === 'failed') continue;
-    const evaluation = evaluateFirestoreCall(simulate, observedCallOf(event, fixture.observedCalls?.[event.id]), method);
+    const evaluation = evaluateFirestoreCall(simulate, observedCallOf(event, fixture.observedCalls?.[event.id]), method, undefined, rules);
     const isDecided = evaluation !== undefined && evaluation.needs.length === 0;
     if (!isDecided) continue;
     const allowed = evaluation.allowed;

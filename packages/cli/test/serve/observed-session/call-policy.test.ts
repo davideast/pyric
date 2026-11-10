@@ -38,6 +38,7 @@ describe('observed-session call-policy', () => {
     expect(classifySessionCall('firestore', 'Firestore.recursiveDelete')).toBe('unscoped-mutation');
     expect(classifySessionCall('firestore', 'terminate')).toBe('passive');
     expect(classifySessionCall('firestore', 'getCountFromServer')).toBe('passive');
+    expect(classifySessionCall('firestore', 'getAggregateFromServer')).toBe('passive');
     expect(classifySessionCall('firestore', 'futureUnknownMethod')).toBe('scoped-mutation');
 
     expect(classifySessionCall('rtdb', 'get')).toBe('read');

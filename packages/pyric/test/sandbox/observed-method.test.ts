@@ -22,6 +22,8 @@ const MAPPED: readonly Row[] = [
   ['firestore', 'getDocs', 'list'],
   ['firestore', 'getDocsFromServer', 'list'],
   ['firestore', 'getDocsFromCache', 'list'],
+  ['firestore', 'getCountFromServer', 'list'],
+  ['firestore', 'getAggregateFromServer', 'list'],
   ['firestore', 'setDoc', 'set'],
   ['firestore', 'updateDoc', 'update'],
   ['firestore', 'deleteDoc', 'delete'],
@@ -48,7 +50,6 @@ const MAPPED: readonly Row[] = [
 
 const UNMAPPED: readonly (readonly [ObservedCallService, string])[] = [
   ['firestore', 'runTransaction'],
-  ['firestore', 'getCountFromServer'],
   ['firestore', 'onSnapshot'],
   ['rtdb', 'onValue'],
   ['rtdb', 'runTransaction'],
@@ -78,6 +79,8 @@ describe('rulesOperation', () => {
   it("reads a live call's SDK method as the rules operation the local evaluation ran", () => {
     expect(rulesOperation('firestore', 'getDoc')).toBe('get');
     expect(rulesOperation('firestore', 'getDocs')).toBe('list');
+    expect(rulesOperation('firestore', 'getCountFromServer')).toBe('list');
+    expect(rulesOperation('firestore', 'getAggregateFromServer')).toBe('list');
     expect(rulesOperation('firestore', 'setDoc')).toBe('create');
     expect(rulesOperation('firestore', 'updateDoc')).toBe('update');
     expect(rulesOperation('firestore', 'deleteDoc')).toBe('delete');

@@ -2,10 +2,11 @@
  * Session-op classification and fail-closed invalidation policy for observed
  * calls accepted by a Live mode host (`live-host-state.ts`).
  *
- * Derives read vs. mutation roles from `observedMethod` and `rtdbRulesMethod`
- * first so standard SDK exports have one source of truth, falling back to a
- * single declarative per-service role map for listeners, Admin methods, batch
- * or transaction commits, and passive connection/lifecycle calls. Any unknown
+ * Applies explicit per-service role overrides (`FIRESTORE_METHOD_ROLES`,
+ * `RTDB_METHOD_ROLES`) for listeners, Admin methods, batch or transaction
+ * commits, scalar aggregate queries (`getCountFromServer`,
+ * `getAggregateFromServer`), and passive lifecycle calls, then derives read vs.
+ * mutation roles from `observedMethod` and `rtdbRulesMethod`. Any unknown
  * Firestore or RTDB method defaults fail-closed to `'scoped-mutation'`.
  */
 import { observedMethod, rtdbRulesMethod } from 'pyric/sandbox/internal';
@@ -76,20 +77,18 @@ export function classifySessionCall(
 ): SessionCallRole {
   if (service === 'storage') return 'read';
   if (service === 'firestore') {
-    const mapped = observedMethod('firestore', method);
-    if (mapped === 'get' || mapped === 'list') return 'read';
-    if (mapped !== null) return 'scoped-mutation';
     if (Object.hasOwn(FIRESTORE_METHOD_ROLES, method)) {
       return FIRESTORE_METHOD_ROLES[method]!;
     }
+    const mapped = observedMethod('firestore', method);
+    if (mapped === 'get' || mapped === 'list') return 'read';
     return 'scoped-mutation';
   }
-  const rtdbMapped = rtdbRulesMethod(method);
-  if (rtdbMapped === 'get') return 'read';
-  if (rtdbMapped !== null) return 'scoped-mutation';
   if (Object.hasOwn(RTDB_METHOD_ROLES, method)) {
     return RTDB_METHOD_ROLES[method]!;
   }
+  const rtdbMapped = rtdbRulesMethod(method);
+  if (rtdbMapped === 'get') return 'read';
   return 'scoped-mutation';
 }
 

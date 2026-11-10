@@ -848,4 +848,472 @@ describe('observe-local-rtdb with observedSession (#2540)', () => {
       }
     }
   });
+
+  function makeHost(instanceId = 'rtdb-obs-test') {
+    const sandbox = initializeSandbox();
+    const observedSession = createObservedSessionDataStore({ projectId: 'demo-project' });
+    const ctx: HostCtx = {
+      db: getFirestore(sandbox),
+      sandbox,
+      instanceId,
+      subs: new Map(),
+      rtdbProjectId: 'demo-project',
+      observedSession,
+    };
+    return { ctx, observedSession };
+  }
+
+  it('uses a 20-character Firebase push ID placeholder on push() and strips it from bindings and missingPaths', () => {
+    const { ctx } = makeHost();
+    const instance = 'demo-project-default-rtdb';
+    expect(
+      setDatabaseRules(ctx, undefined, {
+        rules: {
+          items: {
+            $pushId: {
+              '.write': 'auth != null && $pushId.length === 20',
+            },
+          },
+          shortOnly: {
+            $pushId: {
+              '.write': 'auth != null && $pushId.length < 20',
+            },
+          },
+          guarded: {
+            $pushId: {
+              '.write': "auth != null && $pushId.length === 20 && root.child('quotas').child($pushId).val() === null",
+            },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+
+    const allowed = rtdbVerdict(
+      ctx,
+      {
+        service: 'rtdb',
+        method: 'push',
+        path: 'items',
+        instance,
+        projectId: 'demo-project',
+        account: { uid: 'u-1', claims: {} },
+        writeData: { title: 'a' },
+        at: 100,
+        outcome: OK,
+      },
+      'create',
+    );
+    expect(allowed).toEqual({
+      result: 'allow',
+      rule: {
+        path: '/items/$pushId',
+        expression: 'auth != null && $pushId.length === 20',
+      },
+      rtdb: expect.objectContaining({
+        matchedPath: '/items/$pushId',
+        matchedRule: 'auth != null && $pushId.length === 20',
+      }),
+    });
+    expect(allowed && 'rtdb' in allowed ? allowed.rtdb?.pathVariableBindings : undefined).toBeUndefined();
+
+    const deniedShort = rtdbVerdict(
+      ctx,
+      {
+        service: 'rtdb',
+        method: 'push',
+        path: 'shortOnly',
+        instance,
+        projectId: 'demo-project',
+        account: { uid: 'u-1', claims: {} },
+        writeData: { title: 'a' },
+        at: 101,
+        outcome: DENIED,
+      },
+      'create',
+    );
+    expect(deniedShort).toMatchObject({ result: 'deny' });
+
+    const abstained = rtdbVerdict(
+      ctx,
+      {
+        service: 'rtdb',
+        method: 'push',
+        path: 'guarded',
+        instance,
+        projectId: 'demo-project',
+        account: { uid: 'u-1', claims: {} },
+        writeData: { title: 'a' },
+        at: 102,
+        outcome: OK,
+      },
+      'create',
+    );
+    expect(abstained).toMatchObject({
+      result: 'unevaluated',
+      needs: ['stored-document'],
+      missingPaths: ['/quotas/$pushId'],
+    });
+    expect(JSON.stringify(abstained)).not.toContain('-O_pyric_push');
+  });
+
+  it('detects bracket-indexed and parenthesized auth.token, email claims, query constraints, and newData.parent() accesses', () => {
+    const { ctx } = makeHost();
+    const instance = 'demo-project-default-rtdb';
+    expect(
+      setDatabaseRules(ctx, undefined, {
+        rules: {
+          users: {
+            $uid: {
+              '.read': "auth != null && auth.token['email'] === 'member@example.com'",
+            },
+          },
+          identitiesByBracket: {
+            $uid: {
+              '.read': "auth != null && auth['token']['firebase']['identities']['email'] != null",
+            },
+          },
+          rolesByBracket: {
+            $uid: {
+              '.read': "auth != null && (auth)['token']['role'] === 'editor'",
+            },
+          },
+          items: {
+            '.read': "query['orderByChild'] === 'createdAt' && query['limitToFirst'] <= 20",
+          },
+          filteredByParen: {
+            '.read': "(query).equalTo === auth.uid",
+          },
+          orgs: {
+            $orgId: {
+              docs: {
+                $docId: {
+                  '.write': "auth != null && (newData).parent().child('ownerId').val() === auth.uid",
+                },
+              },
+            },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+
+    // 1. Redacted email claim accessed via `auth.token['email']` and `auth['token']['firebase']['identities']['email']`.
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'get',
+          path: 'users/u-1',
+          instance,
+          projectId: 'demo-project',
+          account: { uid: 'u-1', claimNames: ['email'], claims: {} },
+          at: 200,
+          outcome: OK,
+        },
+        'get',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['claim-values'],
+    });
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'get',
+          path: 'identitiesByBracket/u-1',
+          instance,
+          projectId: 'demo-project',
+          account: { uid: 'u-1', claimNames: ['email', 'firebase'], claims: { firebase: { identities: {} } } },
+          at: 201,
+          outcome: OK,
+        },
+        'get',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['claim-values'],
+    });
+
+    // 2. Uncaptured claims accessed via `(auth)['token']['role']`.
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'get',
+          path: 'rolesByBracket/u-1',
+          instance,
+          projectId: 'demo-project',
+          account: { uid: 'u-1', claimNames: ['role'] },
+          at: 202,
+          outcome: OK,
+        },
+        'get',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['claim-values'],
+    });
+
+    // 3. Uncaptured RTDB query constraints accessed via `query['orderByChild']` and `(query).equalTo`.
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'get',
+          path: 'items',
+          instance,
+          projectId: 'demo-project',
+          at: 203,
+          outcome: OK,
+        },
+        'get',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['query'],
+    });
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'get',
+          path: 'filteredByParen',
+          instance,
+          projectId: 'demo-project',
+          account: { uid: 'u-1', claims: {} },
+          at: 204,
+          outcome: OK,
+        },
+        'get',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['query'],
+    });
+
+    // 4. Unobserved sibling `ownerId` accessed via `(newData).parent()`.
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'set',
+          path: 'orgs/org-1/docs/doc-1',
+          instance,
+          projectId: 'demo-project',
+          account: { uid: 'u-1', claims: {} },
+          writeData: { title: 'draft' },
+          at: 205,
+          outcome: OK,
+        },
+        'set',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['stored-document'],
+      missingPaths: ['/orgs/org-1/docs/ownerId'],
+    });
+  });
+
+  it('abstains on remove(), set(null), and null-child multi-path update() when unobserved siblings affect ancestor rules', () => {
+    const { ctx } = makeHost();
+    const instance = 'demo-project-default-rtdb';
+    expect(
+      setDatabaseRules(ctx, undefined, {
+        rules: {
+          orgs: {
+            $orgId: {
+              '.write': 'newData.exists()',
+            },
+          },
+          teams: {
+            $teamId: {
+              items: {
+                $itemId: {
+                  '.write': "auth != null && newData.parent().child('ownerId').val() === auth.uid",
+                },
+              },
+            },
+          },
+          docs: {
+            $docId: {
+              '.write': 'auth != null',
+              '.validate': "newData.hasChildren(['title'])",
+            },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'remove',
+          path: 'orgs/org-1/items/item-1',
+          instance,
+          projectId: 'demo-project',
+          at: 300,
+          outcome: OK,
+        },
+        'delete',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['stored-document'],
+      missingPaths: ['/orgs/org-1'],
+    });
+
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'set',
+          path: 'teams/team-1/items/item-1',
+          instance,
+          projectId: 'demo-project',
+          account: { uid: 'u-1', claims: {} },
+          writeData: null,
+          at: 301,
+          outcome: OK,
+        },
+        'set',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['stored-document'],
+      missingPaths: ['/teams/team-1/items/ownerId'],
+    });
+
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'update',
+          path: '/',
+          instance,
+          projectId: 'demo-project',
+          account: { uid: 'u-1', claims: {} },
+          writeData: { 'docs/doc-1/tags/t1': null },
+          at: 302,
+          outcome: DENIED,
+        },
+        'update',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['stored-document'],
+      missingPaths: ['/docs/doc-1'],
+    });
+  });
+
+  it('evaluates setWithPriority priority metadata, abstains when priority was not captured, and isolates __proto__ keys', () => {
+    const { ctx } = makeHost();
+    const instance = 'demo-project-default-rtdb';
+    expect(
+      setDatabaseRules(ctx, undefined, {
+        rules: {
+          items: {
+            $id: {
+              '.write': 'newData.getPriority() === 10',
+            },
+          },
+          scalars: {
+            $id: {
+              '.write': "newData.val() === 'pinned' && newData.getPriority() === 5",
+            },
+          },
+          protoSafe: {
+            $id: {
+              '.write': "newData.child('title').val() === 'ok'",
+            },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+
+    // Object write with `.priority` preserved.
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'setWithPriority',
+          path: 'items/item-1',
+          instance,
+          projectId: 'demo-project',
+          writeData: { title: 'a', '.priority': 10 },
+          at: 400,
+          outcome: OK,
+        },
+        'set',
+      ),
+    ).toMatchObject({ result: 'allow' });
+
+    // Scalar write wrapped as `{ '.value', '.priority' }`.
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'setWithPriority',
+          path: 'scalars/s-1',
+          instance,
+          projectId: 'demo-project',
+          writeData: { '.value': 'pinned', '.priority': 5 },
+          at: 401,
+          outcome: OK,
+        },
+        'set',
+      ),
+    ).toMatchObject({ result: 'allow' });
+
+    // `setWithPriority` arriving without `.priority` on `writeData` abstains on `write-data` rather than evaluating `getPriority() === null`.
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'setWithPriority',
+          path: 'items/item-1',
+          instance,
+          projectId: 'demo-project',
+          writeData: { title: 'a' },
+          at: 402,
+          outcome: OK,
+        },
+        'set',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['write-data'],
+    });
+
+    // Own `__proto__` key in `writeData` never mutates prototype or throws on coercion during `scrubRtdbWriteValue`.
+    const protoPayload = JSON.parse('{"__proto__":{"toString":"broken"},"title":"ok",".priority":1}');
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'setWithPriority',
+          path: 'protoSafe/p-1',
+          instance,
+          projectId: 'demo-project',
+          writeData: protoPayload,
+          at: 403,
+          outcome: OK,
+        },
+        'set',
+      ),
+    ).toMatchObject({ result: 'allow' });
+  });
 });

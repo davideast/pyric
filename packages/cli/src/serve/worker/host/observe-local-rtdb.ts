@@ -25,8 +25,10 @@ import type { RtdbRulesJson } from 'pyric/rules';
 import {
   collectRtdbRuleAncestors,
   compileRtdbRules,
+  parseRtdbExpressionTree,
   simulateRtdbRules,
   type CompiledRtdbRules,
+  type RtdbExpressionTree,
   type RtdbNode,
   type RtdbRuleEvaluation,
 } from 'pyric/rules/internal/rtdb';
@@ -38,36 +40,163 @@ import { canonicalRtdbPath, joinRtdbPath, rtdbPathSegments, toRtdbMockData } fro
 import type { HostCtx, HostRtdbInstance } from '../host-context.js';
 import { rtdbInstance } from './rtdb-instances.js';
 import {
-  ALWAYS_OPEN,
   authOf,
+  defineOwnField,
   definedOnly,
-  gapsIn,
   givenBy,
   isPlainRecord,
   unionOf,
   unionPaths,
   verdictOf,
   type Gap,
-  type GapPattern,
+  type Given,
   type LocalVerdict,
   type RtdbLocal,
 } from './observe-local-evaluation.js';
 
-const RTDB_EMAIL_CLAIM = /\bauth\.token\.(?:email\b|firebase\.identities\b)/;
-const RTDB_NEW_DATA = /(?<![\w.])newData\b/;
-const RTDB_PUSH_PLACEHOLDER = '-O_pyric_push';
+const RTDB_PUSH_PLACEHOLDER = '-O_pyric_push_000000';
 
 const EMPTY_RTDB_LOOKUP: ObservedRtdbLookup = {
   mockData: {},
   isPathKnown: () => false,
 };
 
-/** Non-snapshot gaps checked over resting rule expressions. */
-const RTDB_GAPS: readonly GapPattern[] = [
-  ['claim-values', /\bauth\.token\b/, (given) => !given.claims],
-  ['claim-values', RTDB_EMAIL_CLAIM, (given) => !given.emailKnown],
-  ['query', /(?<![\w.])query\./, ALWAYS_OPEN],
-];
+interface RtdbExpressionAccess {
+  readsAuthToken: boolean;
+  readsAuthEmail: boolean;
+  readsQuery: boolean;
+  readsNewData: boolean;
+}
+
+type RtdbChain =
+  | { root: 'auth'; path: Array<string | '*'> }
+  | { root: 'query' }
+  | { root: 'newData' }
+  | undefined;
+
+function noteAuthChain(access: RtdbExpressionAccess, path: readonly (string | '*')[]): void {
+  const first = path[0];
+  if (first !== 'token' && first !== '*') return;
+  access.readsAuthToken = true;
+  const second = path[1];
+  if (first === '*' && second !== undefined) {
+    if (second === 'email' || second === 'firebase' || second === '*') {
+      access.readsAuthEmail = true;
+    }
+    return;
+  }
+  if (second === 'email' || second === '*') {
+    access.readsAuthEmail = true;
+    return;
+  }
+  if (second === 'firebase') {
+    const third = path[2];
+    if (third === 'identities' || third === '*') {
+      access.readsAuthEmail = true;
+    }
+  }
+}
+
+function analyzeRtdbExpression(raw: string): RtdbExpressionAccess {
+  const parsed = parseRtdbExpressionTree(raw);
+  if (!parsed.ok) {
+    return {
+      readsAuthToken: /\bauth\b[\s)]*(?:\.\s*token\b|\[\s*['"]token['"]\s*\])/.test(raw),
+      readsAuthEmail:
+        /\bauth\b[\s)]*(?:\.\s*token|\[\s*['"]token['"]\s*\])[\s)]*(?:\.\s*email\b|\[\s*['"]email['"]\s*\]|(?:\.\s*firebase|\[\s*['"]firebase['"]\s*\])[\s)]*(?:\.\s*identities\b|\[\s*['"]identities['"]\s*\]))/.test(
+          raw,
+        ),
+      readsQuery: /(?<![\w.$])query\b/.test(raw),
+      readsNewData: /(?<![\w.$])newData\b/.test(raw),
+    };
+  }
+  const access: RtdbExpressionAccess = {
+    readsAuthToken: false,
+    readsAuthEmail: false,
+    readsQuery: false,
+    readsNewData: false,
+  };
+  const walk = (node: RtdbExpressionTree): RtdbChain => {
+    switch (node.type) {
+      case 'identifier':
+        if (node.name === 'auth') return { root: 'auth', path: [] };
+        if (node.name === 'query') return { root: 'query' };
+        if (node.name === 'newData') {
+          access.readsNewData = true;
+          return { root: 'newData' };
+        }
+        return undefined;
+      case 'member': {
+        const base = walk(node.object);
+        if (base?.root === 'auth') {
+          const path = [...base.path, node.property];
+          noteAuthChain(access, path);
+          return { root: 'auth', path };
+        }
+        if (base?.root === 'query') {
+          access.readsQuery = true;
+          return { root: 'query' };
+        }
+        return undefined;
+      }
+      case 'index': {
+        const base = walk(node.object);
+        walk(node.index);
+        const key: string | '*' = node.index.type === 'string' ? node.index.value : '*';
+        if (base?.root === 'auth') {
+          const path = [...base.path, key];
+          noteAuthChain(access, path);
+          return { root: 'auth', path };
+        }
+        if (base?.root === 'query') {
+          access.readsQuery = true;
+          return { root: 'query' };
+        }
+        return undefined;
+      }
+      case 'call': {
+        const recv = walk(node.receiver);
+        for (const arg of node.args) walk(arg);
+        if (recv?.root === 'query') access.readsQuery = true;
+        return undefined;
+      }
+      case 'ternary':
+        walk(node.test);
+        walk(node.consequent);
+        walk(node.alternate);
+        return undefined;
+      case 'binary':
+        walk(node.left);
+        walk(node.right);
+        return undefined;
+      case 'unary':
+        walk(node.argument);
+        return undefined;
+      case 'array':
+        for (const el of node.elements) walk(el);
+        return undefined;
+      case 'string':
+      case 'number':
+      case 'regex':
+      case 'boolean':
+      case 'null':
+        return undefined;
+    }
+  };
+  walk(parsed.tree);
+  return access;
+}
+
+function rtdbExpressionGaps(expressions: readonly string[], given: Given): Gap[] {
+  const gaps: Gap[] = [];
+  for (const expr of expressions) {
+    const access = analyzeRtdbExpression(expr);
+    if (access.readsAuthToken && !given.claims) gaps.push('claim-values');
+    if (access.readsAuthEmail && !given.emailKnown) gaps.push('claim-values');
+    if (access.readsQuery) gaps.push('query');
+  }
+  return unionOf(gaps, []);
+}
 
 /** The RTDB rule kind each request method evaluates. */
 const RTDB_OPERATION: Readonly<Record<ObservedMethod, 'read' | 'write'>> = {
@@ -139,6 +268,22 @@ function collectDescendantValidates(node: RtdbNode, out: string[]): void {
   for (const child of node.children) collectDescendantValidates(child, out);
 }
 
+function isNullRtdbWrite(value: unknown): boolean {
+  if (value === null) return true;
+  return isPlainRecord(value) && Object.hasOwn(value, '.value') && value['.value'] === null;
+}
+
+function hasCapturedRtdbPriority(value: unknown): boolean {
+  if (!isPlainRecord(value) || !Object.hasOwn(value, '.priority')) return false;
+  const priority = value['.priority'];
+  return (
+    priority === null ||
+    typeof priority === 'string' ||
+    typeof priority === 'number' ||
+    (isPlainRecord(priority) && Object.hasOwn(priority, '.sv'))
+  );
+}
+
 function scrubRtdbWriteValue(
   value: unknown,
   now: number,
@@ -157,7 +302,7 @@ function scrubRtdbWriteValue(
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(record)) {
-    out[k] = scrubRtdbWriteValue(v, now, state);
+    defineOwnField(out, k, scrubRtdbWriteValue(v, now, state));
   }
   return out;
 }
@@ -169,7 +314,7 @@ function stripPushPlaceholder(
   if (!omitPushPlaceholder) return bindings;
   const filtered: Record<string, string> = {};
   for (const [key, val] of Object.entries(bindings)) {
-    if (val !== RTDB_PUSH_PLACEHOLDER) filtered[key] = val;
+    if (val !== RTDB_PUSH_PLACEHOLDER) defineOwnField(filtered, key, val);
   }
   return filtered;
 }
@@ -201,7 +346,7 @@ function pushTarget(path: string): string {
 function rtdbPlan(call: ObservedCall, method: ObservedMethod, path: string): RtdbPlan | null {
   const operation = RTDB_OPERATION[method];
   const isPush = call.method === 'push';
-  const isRemove = method === 'delete' || (method === 'set' && call.writeData === null);
+  const isRemove = method === 'delete' || (method === 'set' && isNullRtdbWrite(call.writeData));
   const plan: RtdbPlan = {
     operation,
     targets: [path],
@@ -219,6 +364,9 @@ function rtdbPlan(call: ObservedCall, method: ObservedMethod, path: string): Rtd
   }
   const written = call.writeData;
   if (written === undefined) return plan;
+  if (call.method === 'setWithPriority' && !hasCapturedRtdbPriority(written)) {
+    return plan;
+  }
   const state = { hasIncrement: false };
   if (call.method !== 'update') {
     plan.newData = scrubRtdbWriteValue(written, call.at, state);
@@ -437,14 +585,14 @@ function collectSimulationGaps(
   }
 
   if (plan.operation === 'write') {
-    const clearsSubtree = plan.isRemove || (plan.updates?.some((u) => u.value === null) ?? false);
-    if (clearsSubtree) {
-      for (const target of plan.targets) {
-        const uncapturedAncestors = uncapturedAncestorValidatePaths(compiled, target, lookup);
-        if (uncapturedAncestors.length > 0) {
-          collector.gaps.push('stored-document');
-          collector.missingPaths = unionPaths(collector.missingPaths, uncapturedAncestors);
-        }
+    const clearedTargets = plan.isRemove
+      ? plan.targets
+      : (plan.updates?.filter((u) => isNullRtdbWrite(u.value)).map((u) => u.path) ?? []);
+    for (const target of clearedTargets) {
+      const uncapturedAncestors = uncapturedAncestorValidatePaths(compiled, target, lookup);
+      if (uncapturedAncestors.length > 0) {
+        collector.gaps.push('stored-document');
+        collector.missingPaths = unionPaths(collector.missingPaths, uncapturedAncestors);
       }
     }
     if (!plan.isRemove && !plan.hasWriteData) {
@@ -452,7 +600,8 @@ function collectSimulationGaps(
       const validates = unwrittenValidates(compiled, plan.targets[0] ?? '/', allowed);
       collector.expressions.push(...validates);
       const readsWrite =
-        validates.length > 0 || collector.expressions.some((expr) => RTDB_NEW_DATA.test(expr));
+        validates.length > 0 ||
+        collector.expressions.some((expr) => analyzeRtdbExpression(expr).readsNewData);
       if (readsWrite) collector.gaps.push('write-data');
     }
   }
@@ -500,7 +649,7 @@ export function rtdbVerdict(ctx: HostCtx, call: ObservedCall, method: ObservedMe
   const deciding = resting[0]!.data;
   const collected = collectSimulationGaps(compiled, plan, resting, lookup);
   const given = { ...givenBy(call, method), writeData: plan.hasWriteData };
-  const needs = unionOf(gapsIn(collected.expressions, RTDB_GAPS, given), collected.gaps);
+  const needs = unionOf(rtdbExpressionGaps(collected.expressions, given), collected.gaps);
   let rule: LocalVerdict['rule'];
   if (deciding.matchedRule !== '') {
     rule = definedOnly({ path: deciding.matchedPath, expression: deciding.matchedRule });
