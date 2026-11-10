@@ -5,7 +5,7 @@
  * credential is resolved the way the sandbox resolves one: the address it
  * asserts names the identity, the identity is created if the pool does not
  * hold it, and the provider is linked onto the record, which is what
- * `listUsers` reports. The tokens are carried and never verified.
+ * `listUsers` reports.
  *
  * The session is labelled by the provider this call presented, not by the
  * first provider linked to the record, so presenting a `google.com` credential
@@ -25,17 +25,7 @@ import type { MethodRecord } from '../../method-types.js';
 /** One credential, as the schema has already parsed it. */
 interface Credential {
   providerId: string;
-  idToken?: string;
-  accessToken?: string;
   email: string;
-}
-
-/** The tokens the provider returned, carried onto the credential unverified. */
-function tokensOf(credential: Credential): { idToken?: string; accessToken?: string } {
-  const tokens: { idToken?: string; accessToken?: string } = {};
-  if (credential.idToken !== undefined) tokens.idToken = credential.idToken;
-  if (credential.accessToken !== undefined) tokens.accessToken = credential.accessToken;
-  return tokens;
 }
 
 export default {
@@ -45,7 +35,7 @@ export default {
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature:
-    'signInWithCredential(credential{providerId: google.com|apple.com|facebook.com|github.com|twitter.com|microsoft.com|yahoo.com, email, idToken?, accessToken?})',
+    'signInWithCredential(credential{providerId: google.com|apple.com|facebook.com|github.com|twitter.com|microsoft.com|yahoo.com, email})',
   description: 'Sign the app session in with a federated credential.',
   args: z.object({ credential: signInCredential }),
   operation: 'signin_auth_credential',
@@ -62,11 +52,7 @@ export default {
         spec: { email: credential.email },
       });
       authSandbox.mockSignInResult(auth, resolved);
-      const presented = new OAuthCredential(
-        credential.providerId,
-        credential.providerId,
-        tokensOf(credential),
-      );
+      const presented = new OAuthCredential(credential.providerId, credential.providerId);
       await signInWithCredential(auth, presented);
     } catch (error) {
       return signInFailure('signInWithCredential', error);

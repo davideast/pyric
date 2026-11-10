@@ -21,9 +21,6 @@ export function serializeSessionUser(user: User | null): SerializedUser | null {
 /** Payload describing an OAuth credential submitted for sign-in over the bridge. */
 export interface OAuthCredentialPayload {
   readonly providerId: string;
-  readonly idToken?: string | null;
-  readonly accessToken?: string | null;
-  readonly rawNonce?: string | null;
   readonly email?: string | null;
   readonly displayName?: string | null;
   readonly photoURL?: string | null;
@@ -145,15 +142,7 @@ export function resolveOAuthCredentialUser(
     if (byEmail) targetUid = byEmail.uid;
   }
   if (!targetUid) {
-    let fallbackId = 'user';
-    if (credential.idToken) {
-      fallbackId = credential.idToken;
-    } else if (credential.accessToken) {
-      fallbackId = credential.accessToken;
-    } else if (credential.email) {
-      fallbackId = credential.email;
-    }
-    targetUid = `oauth-${credential.providerId}-${fallbackId}`;
+    targetUid = `oauth-${credential.providerId}-${credential.email || 'user'}`;
   }
 
   const existing = existingUsers.find((u) => u.uid === targetUid);

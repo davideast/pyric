@@ -39,6 +39,8 @@ import {
   updateProfile,
   updateCurrentUser,
   signInWithCredential,
+  linkWithCredential,
+  reauthenticateWithCredential,
   stageSignInResult,
   onAuthStateChanged,
   onIdTokenChanged,
@@ -59,7 +61,7 @@ import {
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getDatabase } from 'pyric/database';
-import { getAuth, sandbox as authSandboxOps } from 'pyric/auth';
+import { getAuth, GoogleAuthProvider, sandbox as authSandboxOps } from 'pyric/auth';
 import type { ClientPort } from '../client/handles.js';
 
 /** Stage the identity the port's next federated signInWithCredential signs in as (#1466). */
@@ -802,7 +804,7 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
         user: { uid: `staged-google-${emailVerified}`, email: 'staged@example.com', emailVerified },
         providerId: 'google.com',
       });
-      const cred = await signInWithCredential(clientAuth, { providerId: 'google.com', idToken: 'staged-id-token' });
+      const cred = await signInWithCredential(clientAuth, GoogleAuthProvider.credential('staged-id-token'));
       expect(cred.user.emailVerified).toBe(emailVerified);
       const token = await cred.user.getIdTokenResult(true);
       expect(token.claims.email_verified).toBe(emailVerified);
@@ -825,7 +827,7 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
         user: { uid: 'google-only', email: 'only@example.com', emailVerified: false },
         providerId: 'google.com',
       });
-      const cred = await signInWithCredential(clientAuth, { providerId: 'google.com', idToken: 'staged-id-token' });
+      const cred = await signInWithCredential(clientAuth, GoogleAuthProvider.credential('staged-id-token'));
       expect(cred.user.emailVerified).toBe(false);
       expect((await cred.user.getIdTokenResult(true)).claims.email_verified).toBe(false);
     } finally {
@@ -833,6 +835,36 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     }
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.every((verified) => verified === false)).toBe(true);
+  });
+  it('16. a federated credential crosses to the host as its provider and sign-in method, without its provider tokens', async () => {
+    const { clientAuth, clientPort } = await createTestHarness();
+    const sent: InboundMessage[] = [];
+    const forward = clientPort.postMessage.bind(clientPort);
+    clientPort.postMessage = (msg: InboundMessage) => {
+      sent.push(msg);
+      forward(msg);
+    };
+    const credentialsSent = (method: string) =>
+      sent.flatMap((msg) => (msg.t === 'op' && msg.method === method ? [(msg as { credential?: unknown }).credential] : []));
+    const google = () => GoogleAuthProvider.credential('provider-id-token', 'provider-access-token');
+
+    stageSignInResult(clientAuth, { user: { uid: 'wire-google', email: 'wire@example.com' }, providerId: 'google.com' });
+    const cred = await signInWithCredential(clientAuth, google());
+    expect(cred.user.uid).toBe('wire-google');
+
+    stageSignInResult(clientAuth, { user: { uid: 'wire-google', email: 'wire@example.com' }, providerId: 'google.com' });
+    await reauthenticateWithCredential(cred.user, google());
+
+    const password = await createUserWithEmailAndPassword(clientAuth, 'linker@example.com', 'password-123');
+    stageSignInResult(clientAuth, { user: { uid: password.user.uid, email: 'linker@example.com' }, providerId: 'google.com' });
+    await linkWithCredential(password.user, google()).catch(() => undefined);
+
+    const federated = { providerId: 'google.com', signInMethod: 'google.com' };
+    expect(credentialsSent('auth.signInWithCredential')).toEqual([federated]);
+    expect(credentialsSent('auth.reauthenticateWithCredential')).toEqual([federated]);
+    expect(credentialsSent('auth.linkWithCredential')).toEqual([federated]);
+    expect(JSON.stringify(sent)).not.toContain('provider-id-token');
+    expect(JSON.stringify(sent)).not.toContain('provider-access-token');
   });
 });
 

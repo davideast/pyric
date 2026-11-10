@@ -210,12 +210,15 @@ export type OpMessage = (
       t: 'op';
       id: string;
       method: 'auth.signInWithCredential';
-      /** An email credential carries its secret (`toJSON()`), which the host verifies with the engine. */
+      /**
+       * An email credential carries its secret (`toJSON()`), which the host
+       * verifies with the engine. A federated credential signs in as the
+       * result staged for its provider, so the host reads only its
+       * `providerId` and `signInMethod`.
+       */
       credential?: SerializedAuthCredential | {
         providerId: string;
-        idToken?: string | null;
-        accessToken?: string | null;
-        rawNonce?: string | null;
+        signInMethod?: string;
         email?: string | null;
         displayName?: string | null;
         photoURL?: string | null;
@@ -224,9 +227,6 @@ export type OpMessage = (
       providerId?: string;
       signInMethod?: string;
       password?: string;
-      idToken?: string | null;
-      accessToken?: string | null;
-      rawNonce?: string | null;
       email?: string | null;
       displayName?: string | null;
       photoURL?: string | null;

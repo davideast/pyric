@@ -26,7 +26,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `signin_auth_password` | signin | auth | password | `email`, `password` | Signs the app session in. The caller identity is unchanged. |
 | `signin_auth_anonymous` | signin | auth | anonymous | none | Mints an anonymous user and signs the app session in as it. |
 | `signin_auth_token` | signin | auth | token | `token` | Redeems what `create_auth_token` minted. |
-| `signin_auth_credential` | signin | auth | credential | `credential` (`providerId`, `email`, `idToken?`, `accessToken?`) | `providerId` is one of the federated providers the sandbox resolves. |
+| `signin_auth_credential` | signin | auth | credential | `credential` (`providerId`, `email`) | `providerId` is one of the federated providers the sandbox resolves. |
 | `signout_auth_session` | signout | auth | session | none | Clears the app session. The caller identity is unchanged. |
 | `list_auth_sessions` | list | auth | sessions | none | The sessions the sandbox holds: the caller identity and the app session. |
 | `take_auth_mail` | take | auth | mail | `email` optional | Reads and removes the oldest outbound Auth message, for one recipient when `email` is given. Returns `mail: null` when none matches. |

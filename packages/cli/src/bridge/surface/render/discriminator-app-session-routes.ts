@@ -16,8 +16,6 @@ function credentialFrom(args: Args): Args {
   const credential: Args = {};
   assign(credential, 'providerId', text(args, 'providerId'));
   assign(credential, 'email', text(args, 'email'));
-  assign(credential, 'idToken', text(args, 'idToken'));
-  assign(credential, 'accessToken', text(args, 'accessToken'));
   return credential;
 }
 
