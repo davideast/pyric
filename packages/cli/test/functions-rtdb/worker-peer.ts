@@ -66,21 +66,15 @@ export async function createFunctionsWorkerHostCtx(
   };
 }
 
-function withSessionTokenQuery(rawUrl: string, token: string | undefined): string {
-  if (!token) return rawUrl;
-  const parsed = new URL(rawUrl);
-  if (!parsed.searchParams.has('token')) {
-    parsed.searchParams.set('token', token);
-  }
-  return parsed.toString();
-}
-
 export async function connectFunctionsWorkerPeer(
   options: FunctionsWorkerPeerOptions,
 ): Promise<{ close(): Promise<void> }> {
   const token =
     options.sessionToken ?? resolveSessionTokenForTarget({ url: options.url, cwd: options.cwd });
-  const ws = new WebSocket(withSessionTokenQuery(options.url, token));
+  const ws = new WebSocket(
+    options.url,
+    token !== undefined ? { headers: { 'x-pyric-session-token': token } } : undefined,
+  );
   const port: PortLike = {
     postMessage(raw: unknown) {
       if (ws.readyState !== WebSocket.OPEN) return;

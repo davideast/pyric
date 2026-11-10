@@ -100,10 +100,7 @@ export function setupWorkerHotReload(
   ctx: HostCtx,
   makeEventSource: (url: string) => EventSourceLike,
 ): () => void {
-  const eventsUrl = ctx.sessionToken
-    ? `/__pyric/events?token=${encodeURIComponent(ctx.sessionToken)}`
-    : '/__pyric/events';
-  const events = makeEventSource(eventsUrl);
+  const events = makeEventSource('/__pyric/events');
   events.addEventListener('rules-changed', (ev) => {
     try {
       const { rules } = JSON.parse(ev.data) as { rules: string; rulesHash?: string };

@@ -39,13 +39,12 @@ import {
   relayWorkerSub,
   type ClientDb,
 } from '@pyric/cli/serve/worker';
-import { stampedStudioSessionToken, withStudioWsToken } from '../shell/serve-init.js';
+import { stampedStudioSessionToken } from '../shell/serve-init.js';
 
 /** The slice of the serve init payload this module reads. */
 interface InitPayloadLite {
   /** Bridge WS URL when `--bridge` is on; null otherwise. */
   bridgeUrl?: string | null;
-  sessionToken?: string | null;
 }
 
 export interface StudioBridgePeerOptions {
@@ -109,7 +108,6 @@ export async function connectStudioBridgePeer(
   // Anything else (no server, a dev-seed Vite host SPA-falling-back to HTML,
   // a non-200) means "not served" → no-op.
   let bridgeUrl: string | null;
-  let wsToken: string | null = null;
   const stamped = stampedStudioSessionToken();
   try {
     const res = stamped
@@ -121,7 +119,6 @@ export async function connectStudioBridgePeer(
     }
     const init = (await res.json()) as InitPayloadLite;
     bridgeUrl = init.bridgeUrl ?? null;
-    wsToken = (typeof init.sessionToken === 'string' && init.sessionToken.length > 0 ? init.sessionToken : undefined) ?? stamped ?? null;
   } catch {
     settleOff('not served');
     return null;
@@ -135,8 +132,7 @@ export async function connectStudioBridgePeer(
   // same re-anchoring the app page does before connecting.
   const loc =
     options.locationLike ?? (typeof window !== 'undefined' ? window.location : null);
-  const baseWsUrl = loc ? toPageOriginWsUrl(bridgeUrl, loc) : bridgeUrl;
-  const url = withStudioWsToken(baseWsUrl, wsToken);
+  const url = loc ? toPageOriginWsUrl(bridgeUrl, loc) : bridgeUrl;
 
   const bridge = connectBridge(
     // The sandbox parameter is only ever handed to the dispatcher, and ours

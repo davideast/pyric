@@ -2,8 +2,12 @@
  * The bridge WS URL must follow the page's own origin, not the server's baked-in
  * `localhost`, so it works over Tailscale / a LAN IP / `tailscale serve` (https).
  */
+import { JSDOM } from 'jsdom';
 import { describe, it, expect } from 'bun:test';
-import { toPageOriginWsUrl, withWsSessionToken } from '../../src/serve/entries/bridge-url.js';
+import * as bridgeUrlModule from '../../src/serve/entries/bridge-url.js';
+import { readHostedTarget, stampHostedTarget } from '../../src/serve/runtime/hosted-target.js';
+
+const { toPageOriginWsUrl } = bridgeUrlModule;
 
 const loc = (href: string) => {
   const u = new URL(href);
@@ -55,16 +59,34 @@ describe('toPageOriginWsUrl', () => {
   });
 });
 
-describe('withWsSessionToken', () => {
-  it('returns url unchanged when token is absent or already present', () => {
-    expect(withWsSessionToken(RAW, undefined)).toBe(RAW);
-    expect(withWsSessionToken(RAW, null)).toBe(RAW);
-    expect(withWsSessionToken(RAW, '')).toBe(RAW);
-    expect(withWsSessionToken(`${RAW}?token=existing`, 'new-token')).toBe(`${RAW}?token=existing`);
-  });
+describe('cookie-authenticated browser WebSocket URLs (no ?token=)', () => {
+  it('omits withWsSessionToken and keeps readHostedTarget WebSocket URLs free of ?token=', () => {
+    expect('withWsSessionToken' in bridgeUrlModule).toBe(false);
 
-  it('appends ?token= or &token= encoded safely', () => {
-    expect(withWsSessionToken(RAW, 'tok+1/2')).toBe(`${RAW}?token=tok%2B1%2F2`);
-    expect(withWsSessionToken(`${RAW}?mode=hosted`, 'tok1')).toBe(`${RAW}?mode=hosted&token=tok1`);
+    const html = stampHostedTarget(
+      '<!doctype html><html><head></head><body></body></html>',
+      '/proj',
+      undefined,
+      'inst-1',
+      'stamped-secret-token',
+    );
+    const dom = new JSDOM(html, { url: 'http://localhost:5173/', runScripts: 'dangerously' });
+    const g = globalThis as Record<string, unknown>;
+    const prevDoc = g.document;
+    const prevLoc = g.location;
+    const prevInit = g.__PYRIC_WORKER_INIT__;
+    g.document = dom.window.document;
+    g.location = dom.window.location;
+    g.__PYRIC_WORKER_INIT__ = (dom.window as unknown as Record<string, unknown>).__PYRIC_WORKER_INIT__;
+    try {
+      expect(readHostedTarget()).toEqual({
+        url: 'ws://localhost:5173/__pyric/sandbox',
+        projectKey: '/proj',
+      });
+    } finally {
+      g.document = prevDoc;
+      g.location = prevLoc;
+      g.__PYRIC_WORKER_INIT__ = prevInit;
+    }
   });
 });

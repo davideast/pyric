@@ -22,9 +22,7 @@ export function readHostedTarget(): { url: string; projectKey: string } | null {
   if (isMissingIdentity) throw new Error('The hosted sandbox has no project identity. Restart the host and reload Studio.');
   const isSecure = location.protocol === 'https:';
   const protocol = isSecure ? 'wss:' : 'ws:';
-  const token = stampedSessionToken();
-  const query = token !== undefined ? `?token=${encodeURIComponent(token)}` : '';
-  return { url: `${protocol}//${location.host}/__pyric/sandbox${query}`, projectKey };
+  return { url: `${protocol}//${location.host}/__pyric/sandbox`, projectKey };
 }
 
 /**

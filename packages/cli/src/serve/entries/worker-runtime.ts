@@ -16,8 +16,7 @@ import { getHostedFirestore } from '../worker/client/websocket-connection.js';
 import { ownClientUntilPagehide } from '../worker/client/pagehide.js';
 import { currentHostInstanceId, currentHostPayload, currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
-import { stampedSessionToken } from '../runtime/hosted-target.js';
-import { toPageOriginWsUrl, withWsSessionToken } from './bridge-url.js';
+import { toPageOriginWsUrl } from './bridge-url.js';
 import { movedSocketUrl, type AttachedHost } from './moved-host.js';
 import { hostLocation, nodeRuntimeOrigin, type NodeRuntimeOrigin } from './runtime-origin.js';
 import { isServiceWorkerRealm } from '../worker/service-worker-channel.js';
@@ -55,9 +54,8 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
   const projectKey = payload?.projectKey;
   const isProjectMissing = typeof projectKey !== 'string' || projectKey.length === 0;
   if (isProjectMissing) throw new Error('The hosted sandbox has no project identity.');
-  const wsToken = node === undefined ? (payload?.sessionToken ?? stampedSessionToken()) : undefined;
   return {
-    url: withWsSessionToken(toPageOriginWsUrl(bridgeUrl, hostLocation(node?.host), 'page-origin'), wsToken),
+    url: toPageOriginWsUrl(bridgeUrl, hostLocation(node?.host), 'page-origin'),
     projectKey,
     // A page can load while the host is unreachable; the first attach retries like a reconnect.
     // A Node process fails its calls at once instead, as the Node remote client does.

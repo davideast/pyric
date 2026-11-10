@@ -54,22 +54,6 @@ export function studioSessionHeaders(extraToken?: string | null): Record<string,
   return token !== undefined ? { 'x-pyric-session-token': token } : undefined;
 }
 
-/** Append `?token=<sessionToken>` to a Studio WebSocket URL when `token` is non-empty. */
-export function withStudioWsToken(url: string, token: string | null | undefined): string {
-  if (!token) return url;
-  try {
-    const parsed = new URL(url, 'ws://localhost');
-    if (parsed.searchParams.has('token')) return url;
-  } catch {
-    // Fall back to string manipulation below.
-  }
-  const hashAt = url.indexOf('#');
-  const base = hashAt === -1 ? url : url.slice(0, hashAt);
-  const hash = hashAt === -1 ? '' : url.slice(hashAt);
-  const sep = base.includes('?') ? '&' : '?';
-  return `${base}${sep}token=${encodeURIComponent(token)}${hash}`;
-}
-
 export type ServeInitState =
   | { status: 'loading'; payload: null }
   | { status: 'absent'; payload: null }

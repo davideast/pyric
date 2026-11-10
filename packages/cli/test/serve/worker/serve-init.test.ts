@@ -703,8 +703,9 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
     emit(type: string, data: string) { this.listeners.get(type)?.({ data }); }
   }
 
-  it('connects to /__pyric/events and re-deploys rules on rules-changed', async () => {
+  it('connects to /__pyric/events without ?token= even when ctx.sessionToken is set, and re-deploys rules on rules-changed', async () => {
     const ctx = await makeCtx(); // permissive
+    ctx.sessionToken = 'secret-worker-session-token';
     const dispose = setupWorkerHotReload(ctx, (url) => new FakeES(url));
     const es = FakeES.last!;
     expect(es.url).toBe('/__pyric/events');

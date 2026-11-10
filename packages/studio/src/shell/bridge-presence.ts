@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { stampedStudioSessionToken, useServeInit, withStudioWsToken } from './serve-init.js';
+import { useServeInit } from './serve-init.js';
 import {
   toPageOriginWsUrl,
   type AuthLens,
@@ -49,8 +49,7 @@ export function useBridgeRemoteConsumers(): BridgeRemoteConsumersState {
     let delayMs = 1_000;
 
     const loc = typeof window !== 'undefined' ? window.location : null;
-    const baseWsUrl = loc ? toPageOriginWsUrl(serve.payload.bridgeUrl, loc) : serve.payload.bridgeUrl;
-    const url = withStudioWsToken(baseWsUrl, serve.payload.sessionToken ?? stampedStudioSessionToken());
+    const url = loc ? toPageOriginWsUrl(serve.payload.bridgeUrl, loc) : serve.payload.bridgeUrl;
 
     function connect() {
       if (disposed) return;
