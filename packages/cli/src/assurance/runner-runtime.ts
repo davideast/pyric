@@ -143,6 +143,134 @@ function isEscapedFirestoreMap(
   );
 }
 
+function hasOwnNumber(record: Record<string, unknown>, key: string): boolean {
+  return Object.hasOwn(record, key) && typeof record[key] === "number";
+}
+
+function hasOwnString(record: Record<string, unknown>, key: string): boolean {
+  return Object.hasOwn(record, key) && typeof record[key] === "string";
+}
+
+function hasOwnNumberArray(
+  record: Record<string, unknown>,
+  key: string,
+): number[] | undefined {
+  if (!Object.hasOwn(record, key) || !Array.isArray(record[key])) {
+    return undefined;
+  }
+  const items = record[key] as unknown[];
+  return items.every((item) => typeof item === "number")
+    ? (items as number[])
+    : undefined;
+}
+
+function canonicalizeExactEnvelope(
+  value: Record<string, unknown>,
+  keyCount: number,
+): Record<string, unknown> | undefined {
+  const tag = Object.hasOwn(value, "type") ? value.type : undefined;
+  if (
+    (tag === "pyric/geopoint/1.0" ||
+      tag === "pyric/geoPoint/1.0" ||
+      tag === "firestore/geoPoint/1.0") &&
+    keyCount === 3
+  ) {
+    if (hasOwnNumber(value, "latitude") && hasOwnNumber(value, "longitude")) {
+      return {
+        type: "firestore/geoPoint/1.0",
+        latitude: value.latitude as number,
+        longitude: value.longitude as number,
+      };
+    }
+    if (hasOwnNumber(value, "lat") && hasOwnNumber(value, "lng")) {
+      return {
+        type: "firestore/geoPoint/1.0",
+        latitude: value.lat as number,
+        longitude: value.lng as number,
+      };
+    }
+  }
+  if ((tag === "pyric/bytes/1.0" || tag === "firestore/bytes/1.0") && keyCount === 2) {
+    const rawBytes = hasOwnString(value, "bytes")
+      ? (value.bytes as string)
+      : hasOwnString(value, "base64")
+        ? (value.base64 as string)
+        : tag === "pyric/bytes/1.0" && hasOwnString(value, "value")
+          ? (value.value as string)
+          : undefined;
+    if (rawBytes !== undefined) {
+      return { type: "firestore/bytes/1.0", bytes: toStandardBase64(rawBytes) };
+    }
+  }
+  if (
+    tag === "pyric/ref/1.0" ||
+    tag === "pyric/reference/1.0" ||
+    tag === "firestore/documentReference/1.0"
+  ) {
+    if (hasOwnString(value, "path") && keyCount === 2) {
+      return { __type: "reference", path: value.path as string };
+    }
+    if (
+      hasOwnString(value, "path") &&
+      hasOwnString(value, "databaseId") &&
+      keyCount === 3
+    ) {
+      return {
+        __type: "reference",
+        path: value.path as string,
+        databaseId: value.databaseId as string,
+      };
+    }
+  }
+  if (
+    (tag === "pyric/vector/1.0" || tag === "firestore/vectorValue/1.0") &&
+    keyCount === 2
+  ) {
+    const vectorValues =
+      hasOwnNumberArray(value, "vectorValues") ??
+      hasOwnNumberArray(value, "values") ??
+      hasOwnNumberArray(value, "value");
+    if (vectorValues !== undefined) {
+      return {
+        type: "firestore/vectorValue/1.0",
+        vectorValues: [...vectorValues],
+      };
+    }
+  }
+  if (tag === "pyric/timestamp/1.0" || tag === "firestore/timestamp/1.0") {
+    if (tag === "pyric/timestamp/1.0" && hasOwnNumber(value, "seconds") && keyCount === 2) {
+      return {
+        type: "firestore/timestamp/1.0",
+        seconds: value.seconds as number,
+        nanoseconds: 0,
+      };
+    }
+    if (
+      hasOwnNumber(value, "seconds") &&
+      hasOwnNumber(value, "nanoseconds") &&
+      keyCount === 3
+    ) {
+      return {
+        type: "firestore/timestamp/1.0",
+        seconds: value.seconds as number,
+        nanoseconds: value.nanoseconds as number,
+      };
+    }
+    if (
+      hasOwnNumber(value, "seconds") &&
+      hasOwnNumber(value, "nanos") &&
+      keyCount === 3
+    ) {
+      return {
+        type: "firestore/timestamp/1.0",
+        seconds: value.seconds as number,
+        nanoseconds: value.nanos as number,
+      };
+    }
+  }
+  return undefined;
+}
+
 function canonicalizeFirestoreEnvelopes(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) {
@@ -163,86 +291,10 @@ function canonicalizeFirestoreEnvelopes(value: unknown): unknown {
     return { type: "pyric/map/1.0", fields: inner };
   }
 
-  const tag = Object.hasOwn(value, "type") ? value.type : undefined;
-  if (
-    tag === "pyric/geopoint/1.0" ||
-    tag === "pyric/geoPoint/1.0" ||
-    tag === "firestore/geoPoint/1.0"
-  ) {
-    const latitude =
-      typeof value.latitude === "number"
-        ? value.latitude
-        : typeof value.lat === "number"
-          ? value.lat
-          : undefined;
-    const longitude =
-      typeof value.longitude === "number"
-        ? value.longitude
-        : typeof value.lng === "number"
-          ? value.lng
-          : undefined;
-    if (latitude !== undefined && longitude !== undefined) {
-      return { type: "firestore/geoPoint/1.0", latitude, longitude };
-    }
-  }
-  if (tag === "pyric/bytes/1.0" || tag === "firestore/bytes/1.0") {
-    const rawBytes =
-      typeof value.bytes === "string"
-        ? value.bytes
-        : typeof value.base64 === "string"
-          ? value.base64
-          : undefined;
-    if (rawBytes !== undefined) {
-      return { type: "firestore/bytes/1.0", bytes: toStandardBase64(rawBytes) };
-    }
-  }
-  if (
-    tag === "pyric/ref/1.0" ||
-    tag === "pyric/reference/1.0" ||
-    tag === "firestore/documentReference/1.0"
-  ) {
-    if (typeof value.path === "string") {
-      return {
-        __type: "reference",
-        path: value.path,
-        ...(typeof value.databaseId === "string"
-          ? { databaseId: value.databaseId }
-          : {}),
-      };
-    }
-  }
-  if (tag === "pyric/vector/1.0" || tag === "firestore/vectorValue/1.0") {
-    const vectorValues = Array.isArray(value.vectorValues)
-      ? value.vectorValues
-      : Array.isArray(value.values)
-        ? value.values
-        : Array.isArray(value.value)
-          ? value.value
-          : undefined;
-    if (
-      vectorValues !== undefined &&
-      vectorValues.every((item) => typeof item === "number")
-    ) {
-      return {
-        type: "firestore/vectorValue/1.0",
-        vectorValues: [...vectorValues],
-      };
-    }
-  }
-  if (tag === "pyric/timestamp/1.0" || tag === "firestore/timestamp/1.0") {
-    const seconds =
-      typeof value.seconds === "number" ? value.seconds : undefined;
-    const nanoseconds =
-      typeof value.nanoseconds === "number"
-        ? value.nanoseconds
-        : typeof value.nanos === "number"
-          ? value.nanos
-          : tag === "pyric/timestamp/1.0" && seconds !== undefined
-            ? 0
-            : undefined;
-    if (seconds !== undefined && nanoseconds !== undefined) {
-      return { type: "firestore/timestamp/1.0", seconds, nanoseconds };
-    }
+  const keyCount = Object.keys(value).length;
+  const envelope = canonicalizeExactEnvelope(value, keyCount);
+  if (envelope !== undefined) {
+    return envelope;
   }
 
   const next: Record<string, unknown> = {};

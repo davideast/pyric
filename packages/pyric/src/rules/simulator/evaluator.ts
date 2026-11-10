@@ -22,6 +22,7 @@ import { MembershipFailure, membership } from './membership.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
+import { Reference } from './wrappers/reference.js';
 import { RulesFloat } from './wrappers/float.js';
 import { Duration } from './wrappers/duration.js';
 import { EvalError, ResourceLimitError } from './eval-error.js';
@@ -318,9 +319,14 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
           // maps — `someDiff is map` / `someSet is map` must be false.
           if (value instanceof MapDiff || value instanceof FirestoreSet) return false;
           return typeof value === 'object' && value !== null && !Array.isArray(value);
+        case 'path':
+          // Production Firestore rules represent document reference fields as
+          // `rules.Path` (`is path` -> true, `captures.json` "reference form is path").
+          // Keep `is reference` matching via `default:` below for simulator compatibility.
+          return (value instanceof RulesValue && value.typeName === 'path') || value instanceof Reference;
         default:
           // Wrapper type tags ('timestamp', 'duration', 'bytes', 'latlng',
-          // 'path') match via typeName. Item 0.B hook 5.
+          // 'reference') match via typeName. Item 0.B hook 5.
           if (value instanceof RulesValue) return value.typeName === expr.typeName;
           return false;
       }

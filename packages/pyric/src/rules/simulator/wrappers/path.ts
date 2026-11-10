@@ -122,6 +122,9 @@ export class Path extends RulesValue {
     if (other instanceof RulesValue && other.typeName === 'path') {
       return String(other) === this.toString();
     }
+    if (other instanceof RulesValue && other.typeName === 'reference') {
+      return other.equals(this);
+    }
     return false;
   }
 
