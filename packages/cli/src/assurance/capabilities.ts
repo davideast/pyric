@@ -491,6 +491,8 @@ function rtdbRequirements(
       );
     },
   );
+  const queryVerdict = verdictOf("rtdb.binding.query");
+  const querySupported = !queryDependent || queryVerdict === "supported";
   const ancestorDataVerdict = verdictOf("rtdb-rules#8");
   const ancestorDataSupported =
     !ancestorDataDependent || ancestorDataVerdict === "supported";
@@ -510,10 +512,12 @@ function rtdbRequirements(
     ),
     requirement(
       "rtdb.query-rules",
-      !queryDependent,
-      queryDependent
-        ? "The current RTDB evaluator does not expose query constraints to rule expressions."
-        : "The rules used by this probe do not authorize from query constraints.",
+      querySupported,
+      !queryDependent
+        ? "The rules used by this probe do not authorize from query constraints."
+        : querySupported
+          ? "RTDB query-constraint rule semantics are derived 'supported' from 'rtdb.binding.query'."
+          : `The conformance construct 'rtdb.binding.query' is derived '${queryVerdict ?? "unmodeled"}', not 'supported'; the engine abstains on query-dependent RTDB rules.`,
     ),
     requirement(
       "rtdb.rule-location-data",
@@ -526,6 +530,7 @@ function rtdbRequirements(
     ),
   ];
 
+  const multiPathVerdict = verdictOf("rtdb-rules#24");
   for (const operation of operations) {
     if (operation.service !== "rtdb" || operation.method !== "update") continue;
     const keys =
@@ -534,13 +539,17 @@ function rtdbRequirements(
       !Array.isArray(operation.data)
         ? Object.keys(operation.data as Record<string, unknown>)
         : [];
+    const multiPathSupported =
+      keys.length <= 1 || multiPathVerdict === "supported";
     requirements.push(
       requirement(
         "rtdb.atomic-multipath",
-        keys.length <= 1,
+        multiPathSupported,
         keys.length <= 1
           ? "The update changes at most one child."
-          : "The current local backend checks multi-child updates per leaf instead of one projected future tree.",
+          : multiPathSupported
+            ? "Multi-path atomic RTDB update semantics are derived 'supported' from 'rtdb-rules#24'."
+            : `The conformance row 'rtdb-rules#24' is derived '${multiPathVerdict ?? "unmodeled"}', not 'supported'; the engine abstains on multi-child updates.`,
       ),
     );
   }

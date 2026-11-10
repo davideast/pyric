@@ -327,14 +327,14 @@ service cloud.firestore {
   });
 
   it("qualifies RTDB rules on mutation.operation.instance and accepts cross-instance path mutations at identical paths", async () => {
-    const target = {
+    const malformedSecondaryTarget = {
       schema: ASSURANCE_TARGET_SCHEMA,
       network: "forbid" as const,
       rules: {
         rtdb: { rules: { items: { ".read": "auth != null" } } },
         rtdbInstances: {
           "secondary-db": {
-            rules: { items: { ".read": 'query.orderByChild == "owner"' } },
+            rules: { items: { ".read": "auth != null &&&& root.exists()" } },
           },
         },
       },
@@ -362,18 +362,38 @@ service cloud.firestore {
       },
     };
 
-    const qualification = qualifyProbe(target, crossSamePathProbe);
-    expect(qualification.supported).toBe(false);
+    const malformedQualification = qualifyProbe(malformedSecondaryTarget, crossSamePathProbe);
+    expect(malformedQualification.supported).toBe(false);
+    expect(malformedQualification.requirements).toContainEqual(
+      expect.objectContaining({ id: "rtdb.rules-parse", supported: false }),
+    );
+
+    const validSecondaryTarget = {
+      ...malformedSecondaryTarget,
+      rules: {
+        rtdb: { rules: { items: { ".read": "auth != null" } } },
+        rtdbInstances: {
+          "secondary-db": {
+            rules: {
+              items: {
+                ".indexOn": ["owner"],
+                ".read": 'query.orderByChild == "owner" && query.equalTo == auth.uid',
+              },
+            },
+          },
+        },
+      },
+    };
 
     const report = await runAuthorizationCampaign({
       schema: ASSURANCE_CAMPAIGN_SCHEMA,
       id: "c-cross-instance",
-      target,
+      target: validSecondaryTarget,
       actors: [{ id: "a1", acquisition: { kind: "fixture-user", uid: "u1" } }],
       invariants: [
         {
           id: "inv-1",
-          statement: "Secondary DB query rule must abstain",
+          statement: "Unqueried read on secondary DB must be denied",
           service: "rtdb",
           expected: "DENY",
           source: "declared",
@@ -382,7 +402,7 @@ service cloud.firestore {
       ],
       probes: [crossSamePathProbe],
     });
-    expect(report.results[0]?.classification).toBe("engine-gap");
+    expect(report.results[0]?.classification).toBe("no-counterexample");
   });
 
   it("preserves crossServiceIam, Storage object metadata, disabled Auth providers, active rules, named RTDB instances, and own __proto__ keys across attachment", async () => {

@@ -140,7 +140,7 @@ service cloud.firestore {
     );
   });
 
-  it("rejects RTDB rules that authorize from query constraints the sandbox cannot expose", () => {
+  it("qualifies RTDB query-dependent rules and multi-child updates from conformance verdicts", () => {
     const target: LocalFirebaseTarget = {
       ...targetBase,
       rules: {
@@ -148,12 +148,15 @@ service cloud.firestore {
           rules: {
             rooms: {
               ".read": 'auth != null && query.orderByChild == "owner"',
+              $roomId: {
+                ".write": "auth != null",
+              },
             },
           },
         },
       },
     };
-    const probe: AssuranceProbe = {
+    const queryProbe: AssuranceProbe = {
       id: "rtdb-query",
       actorId: "member",
       invariantId: "boundary",
@@ -178,11 +181,48 @@ service cloud.firestore {
       },
     };
 
-    const qualification = qualifyProbe(target, probe);
+    const queryQualification = qualifyProbe(target, queryProbe);
 
-    expect(qualification.supported).toBe(false);
-    expect(qualification.requirements).toContainEqual(
-      expect.objectContaining({ id: "rtdb.query-rules", supported: false }),
+    expect(queryQualification.supported).toBe(true);
+    expect(queryQualification.requirements).toContainEqual(
+      expect.objectContaining({
+        id: "rtdb.query-rules",
+        supported: true,
+        reason: expect.stringContaining("rtdb.binding.query"),
+      }),
+    );
+
+    const multiPathProbe: AssuranceProbe = {
+      id: "rtdb-multipath",
+      actorId: "member",
+      invariantId: "boundary",
+      control: {
+        service: "rtdb",
+        method: "update",
+        path: "/rooms/r1",
+        data: { title: "Room 1", count: 1 },
+      },
+      mutation: {
+        dimension: "path",
+        description: "Multi-field update on peer room.",
+        operation: {
+          service: "rtdb",
+          method: "update",
+          path: "/rooms/r2",
+          data: { title: "Room 1", count: 1 },
+        },
+      },
+    };
+
+    const multiPathQualification = qualifyProbe(target, multiPathProbe);
+
+    expect(multiPathQualification.supported).toBe(true);
+    expect(multiPathQualification.requirements).toContainEqual(
+      expect.objectContaining({
+        id: "rtdb.atomic-multipath",
+        supported: true,
+        reason: expect.stringContaining("rtdb-rules#24"),
+      }),
     );
   });
 

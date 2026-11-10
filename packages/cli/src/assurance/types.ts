@@ -164,7 +164,10 @@ export interface RtdbOperation {
   data?: unknown;
   query?: {
     orderBy?:
-      { kind: "child"; path: string } | { kind: "key" } | { kind: "value" };
+      | { kind: "child"; path: string }
+      | { kind: "key" }
+      | { kind: "value" }
+      | { kind: "priority" };
     startAt?: { value: unknown; key?: string };
     startAfter?: { value: unknown; key?: string };
     endAt?: { value: unknown; key?: string };

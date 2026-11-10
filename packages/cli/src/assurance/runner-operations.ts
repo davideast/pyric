@@ -7,6 +7,7 @@ import {
   limitToLast as limitToLastRtdb,
   orderByChild as orderByChildRtdb,
   orderByKey as orderByKeyRtdb,
+  orderByPriority as orderByPriorityRtdb,
   orderByValue as orderByValueRtdb,
   query as queryRtdb,
   ref as rtdbRef,
@@ -178,6 +179,8 @@ export async function executeRtdb(
         constraints.push(orderByKeyRtdb());
       } else if (querySpec?.orderBy?.kind === "value") {
         constraints.push(orderByValueRtdb());
+      } else if (querySpec?.orderBy?.kind === "priority") {
+        constraints.push(orderByPriorityRtdb());
       }
       if (querySpec?.startAt) {
         constraints.push(

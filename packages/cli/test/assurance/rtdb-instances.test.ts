@@ -1,5 +1,7 @@
 import { test, expect } from "bun:test";
+import { qualifyProbe } from "../../src/assurance/capabilities.js";
 import { runAuthorizationCampaign } from "../../src/assurance/runner.js";
+import { assertProbe } from "../../src/assurance/validation.js";
 
 test("Assurance respects named RTDB instances", async () => {
   const spec: any = {
@@ -181,5 +183,141 @@ test("Assurance rejects state instances with no declared rules", async () => {
   } catch (e: any) {
     expect(e.name).toBe("AssuranceInputError");
     expect(e.message).toContain("provides state for instance 'shard-00' which has no declared rules");
+  }
+});
+
+test("Assurance rejects compound mutations that change both instance and path", async () => {
+  expect(() =>
+    assertProbe({
+      id: "probe-compound-rtdb",
+      actorId: "anon",
+      invariantId: "inv-items",
+      control: {
+        service: "rtdb",
+        instance: "https://shard-a.firebaseio.com",
+        method: "set",
+        path: "items/i1",
+        data: { title: "ok" },
+      },
+      mutation: {
+        dimension: "path",
+        description: "Switch instance and path together",
+        operation: {
+          service: "rtdb",
+          instance: "https://shard-b.firebaseio.com",
+          method: "set",
+          path: "items/i2",
+          data: { title: "ok" },
+        },
+      },
+    }),
+  ).toThrow(/changes both instance and path/);
+
+  expect(() =>
+    assertProbe({
+      id: "probe-compound-storage",
+      actorId: "anon",
+      invariantId: "inv-files",
+      control: {
+        service: "storage",
+        instance: "bucket-a",
+        method: "upload",
+        path: "users/u1/f1",
+        dataBase64: "YQ==",
+      },
+      mutation: {
+        dimension: "path",
+        description: "Switch bucket and path together",
+        operation: {
+          service: "storage",
+          instance: "bucket-b",
+          method: "upload",
+          path: "users/u2/f1",
+          dataBase64: "YQ==",
+        },
+      },
+    }),
+  ).toThrow(/changes both instance and path/);
+});
+
+test("Assurance rejects unconfigured default RTDB instance when only rtdbInstances are declared", async () => {
+  const target: any = {
+    schema: "pyric.assurance.target.v1",
+    network: "forbid",
+    rules: {
+      rtdbInstances: {
+        "shard-a": {
+          rules: {
+            items: { $id: { ".read": true, ".write": true } },
+          },
+        },
+      },
+    },
+    state: {
+      rtdbInstances: {
+        "shard-a": { items: { i1: { title: "seed" } } },
+      },
+    },
+  };
+
+  const probe: any = {
+    id: "probe-unconfigured-default",
+    actorId: "anon",
+    invariantId: "inv-items",
+    control: {
+      service: "rtdb",
+      instance: "https://shard-a.firebaseio.com",
+      method: "set",
+      path: "items/i1",
+      data: { title: "ok" },
+    },
+    mutation: {
+      dimension: "path",
+      description: "Switch to undeclared default RTDB instance at same path",
+      operation: {
+        service: "rtdb",
+        method: "set",
+        path: "items/i1",
+        data: { title: "ok" },
+      },
+    },
+  };
+
+  for (const defaultSpelling of [undefined, "default", "(default)"] as const) {
+    const spelledProbe = {
+      ...probe,
+      mutation: {
+        ...probe.mutation,
+        operation: {
+          ...probe.mutation.operation,
+          ...(defaultSpelling ? { instance: defaultSpelling } : {}),
+        },
+      },
+    };
+    const qualification = qualifyProbe(target, spelledProbe);
+    expect(qualification.supported).toBe(false);
+    expect(qualification.requirements).toContainEqual(
+      expect.objectContaining({ id: "rtdb.rules-present", supported: false }),
+    );
+
+    await expect(
+      runAuthorizationCampaign({
+        schema: "pyric.assurance.campaign.v1",
+        id: "camp-unconfigured-default",
+        target,
+        actors: [{ id: "anon", acquisition: { kind: "anonymous-request" } }],
+        invariants: [
+          {
+            id: "inv-items",
+            statement: "Anonymous writes to items must be denied",
+            service: "rtdb",
+            expected: "DENY",
+            source: "declared",
+            confidence: "authoritative",
+          },
+        ],
+        probes: [spelledProbe],
+      }),
+    ).rejects.toThrow(/undeclared.*RTDB instance/i);
   }
 });
