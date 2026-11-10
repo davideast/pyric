@@ -1,6 +1,6 @@
 /**
- * Shared observed Cloud Storage wire contracts, secret-metadata scrubbing, and
- * download-URL sanitization policy across `@pyric/live`, `@pyric/cli`, and
+ * Shared observed Cloud Storage wire contracts, key-hygiene copy helpers, and
+ * download-URL origin validation policy across `@pyric/live`, `@pyric/cli`, and
  * `@pyric/studio`.
  *
  * Pure and zero-dependency so browser bundles (`@pyric/cli/bridge/client`) and
@@ -86,8 +86,6 @@ export interface ObservedStorageBucketSnapshot {
   readonly deleted?: readonly string[];
 }
 
-export const REDACTED_STORAGE_METADATA_VALUE = '[REDACTED]';
-
 export const FORBIDDEN_STORAGE_KEYS: ReadonlySet<string> = new Set([
   '__proto__',
   'constructor',
@@ -139,78 +137,18 @@ export const STORAGE_IMMUTABLE_STRING_FIELDS = [
   'updated',
 ] as const;
 
-const SECRET_METADATA_SUBSTRING =
-  /(?:firebase[_-]?storage[_-]?download[_-]?tokens|passphrase|password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|authorization|bearer|signature|session|cookie|jwt|oauth)/i;
-
-const SECRET_SHORT_TOKEN_BOUNDARY =
-  /(?:(?:^|[_-])(?:pass|auth|sig)(?:$|[_-]|[A-Z0-9])|[a-z](?:Pass|Auth|Sig)(?:$|[_-]|[A-Z0-9]))/;
-
-const SECRET_AUTH_HEADER_VALUE = /^\s*(?:bearer|basic)\s+\S+/i;
-const SECRET_JWT_VALUE = /^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/;
-
-const CREDENTIAL_QUERY_KEYS: ReadonlySet<string> = new Set([
-  'token',
-  'access_token',
-  'id_token',
-  'refresh_token',
-  'auth',
-  'key',
-  'api_key',
-  'apikey',
-  'x-goog-signature',
-  'x-goog-credential',
-  'x-goog-algorithm',
-  'x-goog-date',
-  'x-goog-expires',
-  'x-goog-signedheaders',
-  'x-goog-encryption-key',
-  'x-goog-encryption-key-sha256',
-  'googleaccessid',
-  'signature',
-  'expires',
-  'x-amz-signature',
-  'x-amz-credential',
-  'x-amz-algorithm',
-  'x-amz-date',
-  'x-amz-expires',
-  'x-amz-signedheaders',
-  'x-amz-security-token',
-  'sig',
-  'se',
-  'sp',
-  'sv',
-  'sr',
-  'st',
-  'spr',
-  'upload_id',
-]);
-
-const CREDENTIAL_QUERY_PATTERN =
-  /(?:token|secret|signature|credential|password|passphrase|cookie|session|jwt)/i;
-
-export function isSecretStorageMetadataKey(key: string): boolean {
-  return SECRET_METADATA_SUBSTRING.test(key) || SECRET_SHORT_TOKEN_BOUNDARY.test(key);
-}
-
-export function isSecretStorageMetadataValue(value: string): boolean {
-  const trimmed = value.trim();
-  return SECRET_AUTH_HEADER_VALUE.test(trimmed) || SECRET_JWT_VALUE.test(trimmed);
-}
-
-export function sanitizeStorageMetadataEntry(key: string, value: string): string {
-  const shouldRedact = isSecretStorageMetadataKey(key) || isSecretStorageMetadataValue(value);
-  if (shouldRedact) return REDACTED_STORAGE_METADATA_VALUE;
-  return value;
-}
-
-export function scrubStorageCustomMetadataRecord(
+/**
+ * Copies a `customMetadata` string map verbatim onto a fresh plain object while
+ * omitting prototype-pollution keys (`__proto__`, `constructor`, `prototype`).
+ */
+export function copyStorageCustomMetadataRecord(
   raw: Readonly<Record<string, string>>,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw)) {
     if (FORBIDDEN_STORAGE_KEYS.has(key)) continue;
     Object.defineProperty(out, key, {
-      value: sanitizeStorageMetadataEntry(key, value),
+      value,
       enumerable: true,
       writable: true,
       configurable: true,
@@ -241,17 +179,12 @@ export function isAllowedStorageDownloadUrlOrigin(url: URL): boolean {
   return isFirebaseStorageSubdomain(hostname);
 }
 
-function isStorageUrlCredentialParam(key: string): boolean {
-  const lower = key.toLowerCase();
-  return CREDENTIAL_QUERY_KEYS.has(lower) || CREDENTIAL_QUERY_PATTERN.test(lower);
-}
-
 /**
- * Validates a Storage download URL against the Firebase/GCS origin allowlist
- * and strips all query credentials (`token=`, `access_token=`, signed-URL
- * parameters, SAS parameters, and URL fragments) before retention.
+ * Validates a Storage download URL against the Firebase/GCS/loopback origin
+ * allowlist and length cap, returning the URL verbatim (including `token=`,
+ * signed query parameters, and fragments).
  */
-export function sanitizeObservedStorageDownloadUrl(raw: unknown): string | undefined {
+export function validateObservedStorageDownloadUrl(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
   const trimmed = raw.trim();
   const withinBounds = trimmed.length > 0 && trimmed.length <= MAX_STORAGE_DOWNLOAD_URL_CHARS;
@@ -268,11 +201,5 @@ export function sanitizeObservedStorageDownloadUrl(raw: unknown): string | undef
   if (hasEmbeddedCredentials) return undefined;
   if (!isAllowedStorageDownloadUrlOrigin(parsed)) return undefined;
 
-  parsed.hash = '';
-  for (const key of [...parsed.searchParams.keys()]) {
-    if (isStorageUrlCredentialParam(key)) {
-      parsed.searchParams.delete(key);
-    }
-  }
   return parsed.toString();
 }

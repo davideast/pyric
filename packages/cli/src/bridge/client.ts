@@ -49,8 +49,8 @@ export type {
 // machine). Pure + browser-safe; exported here so Studio reuses it verbatim.
 export { toPageOriginWsUrl } from '../serve/entries/bridge-url.js';
 
-// Shared observed Storage metadata scrubbing and download-URL policy used by
-// `@pyric/live` (page + Node) and `@pyric/studio`.
+// Shared observed Storage metadata limits, key hygiene, and download-URL
+// origin policy used by `@pyric/live` (page + Node) and `@pyric/studio`.
 export {
   FORBIDDEN_STORAGE_KEYS,
   MAX_STORAGE_CUSTOM_METADATA_BYTES,
@@ -60,9 +60,8 @@ export {
   MAX_STORAGE_OBJECT_PATH_CHARS,
   STORAGE_IMMUTABLE_STRING_FIELDS,
   STORAGE_NULLABLE_STRING_FIELDS,
+  copyStorageCustomMetadataRecord,
   isValidStorageBucketName,
-  sanitizeObservedStorageDownloadUrl,
-  sanitizeStorageMetadataEntry,
-  scrubStorageCustomMetadataRecord,
   selectPreferredStorageBucket,
+  validateObservedStorageDownloadUrl,
 } from '../serve/observed-session/storage-policy.js';

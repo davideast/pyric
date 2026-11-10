@@ -5,9 +5,8 @@ import {
   readStoragePrefix,
 } from '../../../src/serve/observed-session/storage-delta-validation.js';
 import {
-  REDACTED_STORAGE_METADATA_VALUE as REDACTED_METADATA_VALUE,
-  sanitizeObservedStorageDownloadUrl as sanitizeClientDownloadUrl,
-  scrubStorageCustomMetadataRecord as scrubCustomMetadata,
+  copyStorageCustomMetadataRecord,
+  validateObservedStorageDownloadUrl,
 } from '../../../src/serve/observed-session/storage-policy.js';
 import { UNREAD_BUCKET } from '../../../src/serve/observed-session/wire.js';
 
@@ -24,7 +23,17 @@ function rejectionReasonOf(raw: unknown): string {
 }
 
 describe('storage-delta-validation', () => {
-  it('accepts valid Storage ops, scrubs secret customMetadata keys/values, and strips query tokens from downloadUrl', () => {
+  it('accepts valid Storage ops and preserves customMetadata and downloadUrl query parameters verbatim', () => {
+    const customMetadata = {
+      ownerUid: 'u-1',
+      apiKey: 'live-secret-key',
+      firebaseStorageDownloadTokens: 'tok-example-123',
+      accessToken: 'tok-abc',
+      userPassword: 'pw',
+      uploadPassphrase: 'pp',
+      sessionCookie: 'sid=1',
+      requestSig: 'sig-1',
+    };
     const upsert = readStorageOp(
       {
         kind: 'upsert',
@@ -40,16 +49,7 @@ describe('storage-delta-validation', () => {
           md5Hash: 'abc123==',
           generation: '1',
           metageneration: '2',
-          customMetadata: {
-            ownerUid: 'u-1',
-            apiKey: 'live-secret-key',
-            firebaseStorageDownloadTokens: 'tok-uuid-123',
-            accessToken: 'tok-abc',
-            userPassword: 'pw',
-            uploadPassphrase: 'pp',
-            sessionCookie: 'sid=1',
-            requestSig: 'sig-1',
-          },
+          customMetadata,
         },
       },
       0,
@@ -116,16 +116,7 @@ describe('storage-delta-validation', () => {
         md5Hash: 'abc123==',
         generation: '1',
         metageneration: '2',
-        customMetadata: {
-          ownerUid: 'u-1',
-          apiKey: REDACTED_METADATA_VALUE,
-          firebaseStorageDownloadTokens: REDACTED_METADATA_VALUE,
-          accessToken: REDACTED_METADATA_VALUE,
-          userPassword: REDACTED_METADATA_VALUE,
-          uploadPassphrase: REDACTED_METADATA_VALUE,
-          sessionCookie: REDACTED_METADATA_VALUE,
-          requestSig: REDACTED_METADATA_VALUE,
-        },
+        customMetadata,
       },
     });
     expect(list).toEqual({
@@ -147,7 +138,7 @@ describe('storage-delta-validation', () => {
       bucket: 'demo-proj.firebasestorage.app',
       fullPath: 'workspaces/ws-1/items/item-1.png',
       downloadUrl:
-        'https://firebasestorage.googleapis.com/v0/b/demo-proj.firebasestorage.app/o/workspaces%2Fws-1%2Fitems%2Fitem-1.png?alt=media',
+        'https://firebasestorage.googleapis.com/v0/b/demo-proj.firebasestorage.app/o/workspaces%2Fws-1%2Fitems%2Fitem-1.png?alt=media&token=pub-1',
     });
     expect(del).toEqual({
       kind: 'delete',
@@ -167,50 +158,35 @@ describe('storage-delta-validation', () => {
     expect(readStoragePrefix('/items/sub/', 'prefix')).toBe('items/sub');
   });
 
-  it('scrubs broadened secret keys and Bearer/JWT values while preserving ordinary nouns', () => {
-    expect(
-      scrubCustomMetadata({
-        workspaceId: 'ws-1',
-        contentAuthor: 'u-1',
-        designVariant: 'compact',
-        clientSecret: 's1',
-        private_key: 'pk',
-        Authorization: 'Bearer xyz',
-        upstreamHeader: 'Bearer hidden-token-99',
-        rawJwtPayload: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1LTEifQ.c2lnbmF0dXJlMTIz',
-        firebaseStorageDownloadTokens: 't1,t2',
-      }),
-    ).toEqual({
+  it('preserves all customMetadata entries verbatim while dropping prototype-pollution keys', () => {
+    const entries = {
       workspaceId: 'ws-1',
       contentAuthor: 'u-1',
       designVariant: 'compact',
-      clientSecret: REDACTED_METADATA_VALUE,
-      private_key: REDACTED_METADATA_VALUE,
-      Authorization: REDACTED_METADATA_VALUE,
-      upstreamHeader: REDACTED_METADATA_VALUE,
-      rawJwtPayload: REDACTED_METADATA_VALUE,
-      firebaseStorageDownloadTokens: REDACTED_METADATA_VALUE,
-    });
+      clientSecret: 's1',
+      private_key: 'pk',
+      Authorization: 'Bearer xyz',
+      upstreamHeader: 'Bearer hidden-token-99',
+      rawJwtPayload: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1LTEifQ.c2lnbmF0dXJlMTIz',
+      firebaseStorageDownloadTokens: 't1,t2',
+    };
+    expect(copyStorageCustomMetadataRecord(entries)).toEqual(entries);
   });
 
-  it('allowlists Firebase/GCS/loopback origins, strips credential query params, and rejects arbitrary hosts', () => {
-    expect(sanitizeClientDownloadUrl('https://attacker.example/phish?alt=media')).toBeUndefined();
-    expect(sanitizeClientDownloadUrl('http://storage.googleapis.com/demo-bucket/items/a.png')).toBeUndefined();
-    expect(sanitizeClientDownloadUrl('https://user:pass@storage.googleapis.com/items/a.png')).toBeUndefined();
-    expect(sanitizeClientDownloadUrl('javascript:alert(1)')).toBeUndefined();
-    expect(sanitizeClientDownloadUrl('data:image/png;base64,AAAA')).toBeUndefined();
+  it('allowlists Firebase/GCS/loopback origins, preserves query parameters, and rejects arbitrary hosts', () => {
+    expect(validateObservedStorageDownloadUrl('https://attacker.example/phish?alt=media')).toBeUndefined();
+    expect(validateObservedStorageDownloadUrl('http://storage.googleapis.com/demo-bucket/items/a.png')).toBeUndefined();
+    expect(validateObservedStorageDownloadUrl('https://user:pass@storage.googleapis.com/items/a.png')).toBeUndefined();
+    expect(validateObservedStorageDownloadUrl('javascript:alert(1)')).toBeUndefined();
+    expect(validateObservedStorageDownloadUrl('data:image/png;base64,AAAA')).toBeUndefined();
 
-    expect(
-      sanitizeClientDownloadUrl(
-        'https://storage.googleapis.com/demo-bucket/items/a.png?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=deadbeef&alt=media',
-      ),
-    ).toBe('https://storage.googleapis.com/demo-bucket/items/a.png?alt=media');
+    const signedUrl =
+      'https://storage.googleapis.com/demo-bucket/items/a.png?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=deadbeef&alt=media';
+    expect(validateObservedStorageDownloadUrl(signedUrl)).toBe(signedUrl);
 
-    expect(
-      sanitizeClientDownloadUrl(
-        'http://127.0.0.1:9199/v0/b/demo.appspot.com/o/items%2Fa.png?alt=media&token=abc&sig=123&se=2099#frag',
-      ),
-    ).toBe('http://127.0.0.1:9199/v0/b/demo.appspot.com/o/items%2Fa.png?alt=media');
+    const loopbackUrl =
+      'http://127.0.0.1:9199/v0/b/demo.appspot.com/o/items%2Fa.png?alt=media&token=abc&sig=123&se=2099#frag';
+    expect(validateObservedStorageDownloadUrl(loopbackUrl)).toBe(loopbackUrl);
 
     expect(
       rejectionReasonOf({

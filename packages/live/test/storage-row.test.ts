@@ -440,7 +440,7 @@ describe('the observed call a record becomes', () => {
 });
 
 describe('the metadata a Storage call sent or read', () => {
-  test('an upload or metadata update scrubs secret customMetadata on both Traffic writeData/document and sessionData, never sending bytes', () => {
+  test('an upload or metadata update preserves customMetadata verbatim on both Traffic writeData/document and sessionData while dropping __proto__ and never sending bytes', () => {
     const fakeRef = { bucket: 'demo.appspot.com', fullPath: 'uploads/a.txt', storage: { app: { options: { projectId: 'demo' } } } };
     const bytes = new Uint8Array([1, 2, 3, 4]);
     const uploadCtx = storageContext('uploadBytes', [
@@ -448,12 +448,12 @@ describe('the metadata a Storage call sent or read', () => {
       bytes,
       {
         contentType: 'text/plain',
-        customMetadata: { owner: 'alice', apiKey: 'must-be-redacted', firebaseStorageDownloadTokens: 'tok-1' },
+        customMetadata: { owner: 'alice', apiKey: 'live-api-key', firebaseStorageDownloadTokens: 'tok-1' },
       },
     ]);
     expect(uploadCtx.writeData).toEqual({
       contentType: 'text/plain',
-      customMetadata: { owner: 'alice', apiKey: '[REDACTED]', firebaseStorageDownloadTokens: '[REDACTED]' },
+      customMetadata: { owner: 'alice', apiKey: 'live-api-key', firebaseStorageDownloadTokens: 'tok-1' },
       size: 4,
     });
     const stringCtx = storageContext('uploadString', [fakeRef, 'data:image/png;base64,AQIDBA==', 'data_url']);
@@ -479,7 +479,7 @@ describe('the metadata a Storage call sent or read', () => {
       {
         size: 42,
         contentType: 'image/png',
-        customMetadata: { role: 'avatar', apiKey: 'must-be-redacted' },
+        customMetadata: { role: 'avatar', apiKey: 'live-api-key' },
         fullPath: 'uploads/a.png',
         bucket: 'demo.appspot.com',
         ignoredBlob: new Uint8Array([9]),
@@ -488,7 +488,7 @@ describe('the metadata a Storage call sent or read', () => {
     const expectedDoc = {
       size: 42,
       contentType: 'image/png',
-      customMetadata: { role: 'avatar', apiKey: '[REDACTED]' },
+      customMetadata: { role: 'avatar', apiKey: 'live-api-key' },
       fullPath: 'uploads/a.png',
       bucket: 'demo.appspot.com',
     };
@@ -504,7 +504,7 @@ describe('the metadata a Storage call sent or read', () => {
             metadata: {
               size: 42,
               contentType: 'image/png',
-              customMetadata: { role: 'avatar', apiKey: '[REDACTED]' },
+              customMetadata: { role: 'avatar', apiKey: 'live-api-key' },
             },
           },
         ],

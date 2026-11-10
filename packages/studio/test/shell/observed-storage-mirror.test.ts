@@ -95,7 +95,7 @@ describe('createReadOnlyStorageApi', () => {
         updated: '2026-01-02T00:00:00.000Z',
         customMetadata: {
           owner: 'u1',
-          firebaseStorageDownloadTokens: '[REDACTED]',
+          firebaseStorageDownloadTokens: 'tok-live-1',
         },
       },
       'readme.txt': {
@@ -138,7 +138,7 @@ describe('createReadOnlyStorageApi', () => {
     expect(md.contentType).toBe('image/png');
     expect(md.customMetadata).toEqual({
       owner: 'u1',
-      firebaseStorageDownloadTokens: '[REDACTED]',
+      firebaseStorageDownloadTokens: 'tok-live-1',
     });
 
     expect(observedObjectOf(catalog, 'readme.txt')?.size).toBeUndefined();

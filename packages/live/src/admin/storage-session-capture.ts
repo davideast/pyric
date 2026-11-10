@@ -2,15 +2,15 @@
  * Metadata-only session data extraction for Admin `@google-cloud/storage`
  * calls (`firebase-admin/storage`).
  *
- * Privacy and memory invariants (`#2542`):
+ * Privacy and memory invariants (`#2542`, ADR 0024):
  *   - Never retains raw `Buffer` / `Uint8Array` / string upload payloads,
  *     local `Bucket.upload` file contents, `File.download` bytes, or
  *     `getSignedUrl` URLs — not even transiently across call lifetimes.
- *   - Extracts numeric byte lengths and scrubbed metadata options eagerly at
- *     call start (`adminStorageSessionContext`), cleans up correlation entries
- *     on both resolution and rejection, and never touches `site.subject`.
- *   - Scrubs custom metadata (`metadata.metadata` / `resource.metadata`) using
- *     the shared `@pyric/cli/bridge/client` policy.
+ *   - Extracts numeric byte lengths and metadata options eagerly at call start
+ *     (`adminStorageSessionContext`), cleans up correlation entries on both
+ *     resolution and rejection, and never touches `site.subject`.
+ *   - Copies custom metadata (`metadata.metadata` / `resource.metadata`)
+ *     verbatim while enforcing shared key/byte limits and `__proto__` safety.
  *   - Marks `Bucket.getFiles` listings `complete: true` only when unpaginated
  *     and unfiltered (`matchGlob`, `startOffset`, `endOffset`, `versions`,
  *     `softDeleted`), setting `recursive: true` when no `delimiter` applies.
@@ -33,11 +33,11 @@ import {
 } from '../session-data.js';
 import {
   buildStorageUpsertOp,
+  copyStorageCustomMetadata,
   extractBaseStorageMetadataFields,
   normalizeStorageBucket,
   normalizeStorageObjectPath,
   normalizeStoragePrefix,
-  scrubStorageCustomMetadata,
   type MutableStorageObjectInput,
 } from '../storage-session-capture.js';
 
@@ -135,8 +135,8 @@ function extractGcsObjectMetadata(raw: unknown): ObservedStorageObjectInput | un
     hasCustom = true;
   }
   if (hasCustom) {
-    const scrubbed = scrubStorageCustomMetadata(rawCustom);
-    if (scrubbed !== undefined) out.customMetadata = scrubbed;
+    const copied = copyStorageCustomMetadata(rawCustom);
+    if (copied !== undefined) out.customMetadata = copied;
   }
   return out;
 }
@@ -494,8 +494,8 @@ function contextDeleteDelta(
 }
 
 /**
- * Extracts numeric sizes and scrubbed metadata options eagerly without holding
- * raw payload `args`, keying correlation on `sessionData` (`site.subject` stays
+ * Extracts numeric sizes and metadata options eagerly without holding raw
+ * payload `args`, keying correlation on `sessionData` (`site.subject` stays
  * untouched).
  */
 export function adminStorageSessionContext(

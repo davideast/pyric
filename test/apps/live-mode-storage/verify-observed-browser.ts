@@ -242,8 +242,6 @@ export async function verifyObservedStorageBrowser(
     const parsedRawUrl = new URL(observedDownloadUrl);
     const rawDownloadToken = parsedRawUrl.searchParams.get('token');
     assert.ok(rawDownloadToken && rawDownloadToken.length > 0, `expected raw SDK token in ${observedDownloadUrl}`);
-    parsedRawUrl.searchParams.delete('token');
-    const expectedTokenFreeUrl = parsedRawUrl.toString();
 
     const seedMode = ADMIN_ROWS_SUPPORTED ? 'admin' : 'client-fallback';
     const seedRun = await app.command(
@@ -278,38 +276,30 @@ export async function verifyObservedStorageBrowser(
       'observed Storage session catalog across both buckets',
     );
 
-    // Zero raw payload bytes, bearer download tokens, or unredacted secret values in host RAM or `.pyric/`.
-    const forbiddenSecrets = [
+    // Zero raw payload bytes in host RAM or `.pyric/`, while preserving verbatim metadata and download URLs.
+    assert.equal(
+      sessionRaw.includes('{"ok":true}'),
+      false,
+      `session-data leaked raw object bytes: ${sessionRaw}`,
+    );
+    for (const expectedMetadataValue of [
       'secret-download-tok',
-      'client-upload-secret',
       'whsec_123',
       'sk-secret-999',
-      '{"ok":true}',
-      rawDownloadToken,
-      'token=',
-    ];
-    for (const forbidden of forbiddenSecrets) {
-      assert.equal(
-        sessionRaw.includes(forbidden),
-        false,
-        `session-data leaked "${forbidden}": ${sessionRaw}`,
-      );
-    }
-    const diskCapture = app.readFile('.pyric/last-session.json');
-    for (const forbidden of [
-      'secret-download-tok',
-      'client-upload-secret',
-      'whsec_123',
-      'sk-secret-999',
-      '{"ok":true}',
       rawDownloadToken,
     ]) {
       assert.equal(
-        diskCapture.includes(forbidden),
-        false,
-        `.pyric/last-session.json leaked "${forbidden}"`,
+        sessionRaw.includes(expectedMetadataValue),
+        true,
+        `session-data should preserve "${expectedMetadataValue}" verbatim: ${sessionRaw}`,
       );
     }
+    const diskCapture = app.readFile('.pyric/last-session.json');
+    assert.equal(
+      diskCapture.includes('{"ok":true}'),
+      false,
+      '.pyric/last-session.json leaked raw object bytes',
+    );
 
     const context = await app.browser();
     const fontHosts = /^https:\/\/(use\.typekit\.net|fonts\.googleapis\.com)\//;
@@ -350,15 +340,12 @@ export async function verifyObservedStorageBrowser(
         (await studio.locator('[data-live-storage-no-bytes]').textContent()) ?? '',
         /Object bytes are not buffered in Live mode/,
       );
-      assert.match(
-        (await studio.locator('[data-live-storage-credentials-stripped]').textContent()) ?? '',
-        /stripped at capture time/,
-      );
+      assert.equal(await studio.locator('[data-live-storage-credentials-stripped]').count(), 0);
       assert.equal(await studio.locator('[data-live-storage-copy-gs-uri]').count(), 1);
       assert.equal(await studio.locator('[data-live-storage-copy-path]').count(), 1);
       assert.equal(
         await studio.locator('[data-live-storage-download-url]').getAttribute('href'),
-        expectedTokenFreeUrl,
+        observedDownloadUrl,
       );
       assert.equal(
         await studio.locator('[data-pyric-metadata-field="contentType"] dd').textContent(),
@@ -372,11 +359,11 @@ export async function verifyObservedStorageBrowser(
         await studio
           .locator('[data-pyric-metadata-key="firebaseStorageDownloadTokens"] dd')
           .textContent(),
-        '[REDACTED]',
+        'secret-download-tok',
       );
       assert.equal(
         await studio.locator('[data-pyric-metadata-key="webhookSecret"] dd').textContent(),
-        '[REDACTED]',
+        'whsec_123',
       );
 
       // Switch to the second bucket and inspect the server-seeded `exports/monthly/report.json`.
@@ -400,7 +387,7 @@ export async function verifyObservedStorageBrowser(
       );
       assert.equal(
         await studio.locator('[data-pyric-metadata-key="apiKey"] dd').textContent(),
-        '[REDACTED]',
+        'sk-secret-999',
       );
       assert.equal(await studio.locator('[data-live-storage-download-url]').count(), 0);
 

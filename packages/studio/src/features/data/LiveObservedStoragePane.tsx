@@ -6,13 +6,12 @@
  *   - Supports multiple observed buckets via a tab bar (`data-storage-bucket-bar`).
  *   - Renders folder prefix trees, session delete tombstones, and observed
  *     object metadata (`contentType`, `size`, timestamps, `md5Hash`,
- *     `cacheControl`, and scrubbed `customMetadata` with `[REDACTED]` secrets).
+ *     `cacheControl`, and verbatim `customMetadata`).
  *   - Exposes zero mutation affordances (no Upload, New folder, dropzone, or
  *     Delete controls) and never invokes `getBlob` — overriding `ObjectInspector`
  *     previews with a metadata-only preview (`needsBlob: false`) offering
- *     `Copy gs:// URI` / `Copy path` controls, disclosing automatic stripping of
- *     `token=` and signed query credentials, and surfacing any token-free
- *     Firebase/GCS Storage URL with an explicit production notice.
+ *     `Copy gs:// URI` / `Copy path` controls and surfacing any observed
+ *     Firebase/GCS Storage download URL directly.
  */
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import {
@@ -296,10 +295,6 @@ function ObservedPreviewActions({
         Pyric captures object paths and metadata only and retains zero raw binary payloads in host
         memory or <code>.pyric/</code>.
       </p>
-      <p className="storage__live-preview-note" data-live-storage-credentials-stripped="">
-        Download tokens (<code>token=</code>) and signed query credentials are stripped at capture
-        time.
-      </p>
       <div className="storage__live-copy-row">
         <button type="button" className="storage__live-copy-btn" data-live-storage-copy-gs-uri="" onClick={() => copyValue('gs', gsUri)}>
           {gsCopyLabel}
@@ -311,10 +306,10 @@ function ObservedPreviewActions({
       {downloadUrl !== undefined && downloadUrl.length > 0 && (
         <>
           <a href={downloadUrl} target="_blank" rel="noopener noreferrer" className="storage__live-download-link" data-live-storage-download-url="">
-            Open token-free Storage URL ↗
+            Open Storage download URL ↗
           </a>
           <p className="storage__live-download-warning" data-live-storage-external-notice="">
-            Opens production Cloud Storage without embedded bearer credentials.
+            Opens the observed Cloud Storage download URL directly.
           </p>
         </>
       )}

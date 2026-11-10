@@ -3,8 +3,8 @@
  * (`admin/storage-session-capture.ts`): `File.save`, `File.createWriteStream`,
  * `File.getMetadata`, `File.setMetadata`, `File.copy`, `File.move`,
  * `File.delete`, `Bucket.getFiles` (unfiltered vs filtered/paginated),
- * `Bucket.upload`, `Bucket.deleteFiles`, rejection cleanup, secret
- * `customMetadata` redaction, and zero binary byte retention.
+ * `Bucket.upload`, `Bucket.deleteFiles`, rejection cleanup, verbatim
+ * `customMetadata`, and zero binary byte retention.
  */
 import { describe, expect, test } from 'bun:test';
 import { PassThrough } from 'node:stream';
@@ -47,7 +47,7 @@ function firstStorageOpOf(reading: ResultReading) {
 }
 
 describe('admin/storage-session-capture', () => {
-  test('captures File.save and File.createWriteStream metadata with numeric sizes and scrubbed secret keys without holding payload buffers', () => {
+  test('captures File.save and File.createWriteStream metadata with numeric sizes and verbatim customMetadata without holding payload buffers', () => {
     const fileWithServerMeta = {
       name: 'workspaces/ws-1/items/a.txt',
       metadata: {
@@ -81,7 +81,7 @@ describe('admin/storage-session-capture', () => {
               generation: '1',
               timeCreated: '2026-01-01T00:00:00.000Z',
               updated: '2026-01-01T00:00:00.000Z',
-              customMetadata: { ownerUid: 'u-1', accessToken: '[REDACTED]', sessionId: '[REDACTED]' },
+              customMetadata: { ownerUid: 'u-1', accessToken: 'secret', sessionId: 's-1' },
             },
           },
         ],
@@ -110,7 +110,7 @@ describe('admin/storage-session-capture', () => {
             size: 64,
             contentType: 'application/json',
             contentEncoding: 'gzip',
-            customMetadata: { role: 'export', apiKey: '[REDACTED]' },
+            customMetadata: { role: 'export', apiKey: 'secret-k' },
           },
         },
       ],
