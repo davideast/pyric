@@ -8,34 +8,33 @@ import { startStaticServer, silentServeLogger } from '../../src/serve/server.js'
 import { createThresholdConfigClient } from '../../src/serve/runtime/threshold-config-client.js';
 import { expectClosedEarlyAnswer } from './early-answer.js';
 
-test('project threshold client round-trips through the guarded namespace; other origins and missing tokens cannot write', async () => {
+test('project threshold client round-trips through the guarded namespace; other origins cannot write and requireSessionToken gates missing tokens', async () => {
   const root = await mkdtemp(join(tmpdir(), 'pyric-threshold-route-'));
   await mkdir(join(root, 'public')); await writeFile(join(root, 'public/index.html'), '<html></html>');
   const namespace = createPyricNamespace({ sdkDir: root, thresholds: createThresholdConfigStore(root), initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }) });
+  const strictNamespace = createPyricNamespace({ sdkDir: root, thresholds: createThresholdConfigStore(root), requireSessionToken: true, initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }) });
   const server = await startStaticServer({ publicDir: join(root, 'public'), port: 0, host: '127.0.0.1', namespaceHandler: namespace, logger: silentServeLogger() });
+  const strictServer = await startStaticServer({ publicDir: join(root, 'public'), port: 0, host: '127.0.0.1', namespaceHandler: strictNamespace, logger: silentServeLogger() });
   try {
     const unauthInit = await (await fetch(server.url + '/__pyric/init.json')).json();
     expect(unauthInit.sessionToken).toBeUndefined();
-    expect(unauthInit.thresholds).toBeUndefined();
+    expect(unauthInit.thresholds).toBe(true);
+    expect((await fetch(server.url + '/__pyric/thresholds')).status).toBe(200);
+    expect((await fetch(strictServer.url + '/__pyric/thresholds')).status).toBe(401);
     const init = await (await fetch(server.url + '/__pyric/init.json', {
       headers: { 'x-pyric-session-token': namespace.sessionToken },
     })).json();
     expect(init.thresholds).toBe(true);
     const endpoint = server.url + '/__pyric/thresholds';
-    expect((await fetch(endpoint)).status).toBe(401);
     expect((await fetch(endpoint, { method: 'PUT', headers: { origin: 'https://example.com', 'x-pyric-session-token': init.sessionToken, 'content-type': 'application/json' }, body: '{}' })).status).toBe(403);
-    const fetcher = ((path: string, options?: RequestInit) => {
-      const headers = new Headers(options?.headers);
-      if (!headers.has('x-pyric-session-token')) headers.set('x-pyric-session-token', init.sessionToken);
-      return fetch(server.url + path, { ...options, headers });
-    }) as typeof fetch;
+    const fetcher = ((path: string, options?: RequestInit) => fetch(server.url + path, options)) as typeof fetch;
     const client = createThresholdConfigClient(fetcher);
     const current = (await client.read())!;
     expect(current.config).toEqual({});
     await client.save({ sustainedSeconds: 3, firestore: { documentReads: 30 }, rtdb: { deliveries: null } }, current.revision);
     expect((await createThresholdConfigClient(fetcher).read())!.config).toEqual({ sustainedSeconds: 3, firestore: { documentReads: 30 }, rtdb: { deliveries: null } });
     await expect(client.save({}, current.revision)).rejects.toThrow('changed');
-  } finally { await server.stop(); await rm(root, { recursive: true, force: true }); }
+  } finally { await strictServer.stop(); await server.stop(); await rm(root, { recursive: true, force: true }); }
 });
 
 test('an oversized threshold save is answered 413 with the connection closed, and the next request is answered (#1710)', async () => {

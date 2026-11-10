@@ -100,10 +100,8 @@ describe('pyric dev --bridge', () => {
     const body = (await health.json()) as { mode: string; sandboxConnected?: boolean };
     expect(body.mode).toBe('sandbox');
 
-    // runtime.mcpUrl carries the BOUND port + per-boot capability token (the dev --json contract)
-    const parsedMcp = new URL(r.mcpUrl!);
-    expect(`${parsedMcp.origin}${parsedMcp.pathname}`).toBe(r.handle.url + '/__pyric/mcp');
-    expect(parsedMcp.searchParams.get('token')).toBe(r.sessionToken);
+    // runtime.mcpUrl is clean (no ?token= query parameter; token lives in 0o600 .pyric/serve.json)
+    expect(r.mcpUrl).toBe(r.handle.url + '/__pyric/mcp');
 
     const payload = (await (await fetch(r.handle.url + '/__pyric/init.json', {
       headers: { 'x-pyric-session-token': r.sessionToken },
@@ -203,20 +201,20 @@ describe('pyric dev --bridge', () => {
     await afterStale.text();
   });
 
-  it('accepts a WS sandbox peer on the serve origin and refuses one without a session token', async () => {
+  it('accepts a loopback WS sandbox peer without token on the serve origin and refuses foreign Origins', async () => {
     const r = await serve(true);
-    const unauthWs = new WebSocket(`ws://localhost:${r.handle.port}/__pyric/sandbox`);
-    const unauthOpened = await new Promise<boolean>((resolve) => {
-      unauthWs.once('open', () => resolve(true));
-      unauthWs.on('error', () => resolve(false));
-      unauthWs.once('close', () => resolve(false));
+    const foreignWs = new WebSocket(`ws://localhost:${r.handle.port}/__pyric/sandbox`, {
+      headers: { Origin: 'http://evil.example' },
+    });
+    const foreignOpened = await new Promise<boolean>((resolve) => {
+      foreignWs.once('open', () => resolve(true));
+      foreignWs.on('error', () => resolve(false));
+      foreignWs.once('close', () => resolve(false));
       setTimeout(() => resolve(false), 3000);
     });
-    expect(unauthOpened).toBe(false);
+    expect(foreignOpened).toBe(false);
 
-    const ws = new WebSocket(
-      `ws://localhost:${r.handle.port}/__pyric/sandbox?token=${encodeURIComponent(r.sessionToken)}`,
-    );
+    const ws = new WebSocket(`ws://localhost:${r.handle.port}/__pyric/sandbox`);
     const opened = await new Promise<boolean>((resolve) => {
       ws.once('open', () => resolve(true));
       ws.on('error', () => resolve(false));
@@ -592,6 +590,7 @@ service cloud.firestore {
           'content-type': 'application/json',
           accept: 'application/json, text/event-stream',
           'mcp-session-id': sessionId,
+          'x-pyric-session-token': mount.sessionToken,
         },
         body: JSON.stringify({
           jsonrpc: '2.0',
@@ -618,6 +617,7 @@ service cloud.firestore {
         headers: {
           'content-type': 'application/json',
           accept: 'application/json, text/event-stream',
+          'x-pyric-session-token': mount.sessionToken,
         },
         body: JSON.stringify({
           jsonrpc: '2.0',
@@ -666,9 +666,9 @@ service cloud.firestore {
       expect(existsSync(join(projectDir, '.pyric', 'captures'))).toBe(false);
 
       tabWs = new WebSocket(
-        `ws://127.0.0.1:${port}/__pyric/sandbox?token=${encodeURIComponent(mount.sessionToken)}`,
+        `ws://127.0.0.1:${port}/__pyric/sandbox`,
         {
-          headers: { Origin: origin },
+          headers: { Origin: origin, 'x-pyric-session-token': mount.sessionToken },
         },
       );
       await new Promise<void>((resolve, reject) => {

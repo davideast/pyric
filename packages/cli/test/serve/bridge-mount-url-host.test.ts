@@ -16,9 +16,8 @@ describe('bridge urls', () => {
       const url = mount.wsUrl({ host: '::1', port: 5173 });
       expect(url).toBe('ws://[::1]:5173/__pyric/sandbox');
       expect(new URL(url).hostname).toBe('[::1]');
-      const mcp = new URL(mount.mcpUrl({ host: '::1', port: 5173 }));
-      expect(`${mcp.origin}${mcp.pathname}`).toBe('http://[::1]:5173/__pyric/mcp');
-      expect(mcp.searchParams.get('token')).toBeTruthy();
+      const mcp = mount.mcpUrl({ host: '::1', port: 5173 });
+      expect(mcp).toBe('http://[::1]:5173/__pyric/mcp');
     } finally {
       await mount.close();
     }
@@ -28,9 +27,8 @@ describe('bridge urls', () => {
     const mount = createBridgeMount({ projectDir: process.cwd() });
     try {
       expect(mount.wsUrl({ host: 'localhost', port: 5173, secure: true })).toBe('wss://localhost:5173/__pyric/sandbox');
-      const secureMcp = new URL(mount.mcpUrl({ host: '::1', port: 5173, secure: true }));
-      expect(`${secureMcp.origin}${secureMcp.pathname}`).toBe('https://[::1]:5173/__pyric/mcp');
-      expect(secureMcp.searchParams.get('token')).toBeTruthy();
+      const secureMcp = mount.mcpUrl({ host: '::1', port: 5173, secure: true });
+      expect(secureMcp).toBe('https://[::1]:5173/__pyric/mcp');
       expect(originUrl({ host: '127.0.0.1', port: 5173, secure: true })).toBe('https://127.0.0.1:5173');
       expect(originUrl({ host: '127.0.0.1', port: 5173 })).toBe('http://127.0.0.1:5173');
     } finally {

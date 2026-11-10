@@ -115,10 +115,17 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
       }
     });
 
-    it('requires session capability token on POST /mcp (401 without, 200 with header or ?token=)', async () => {
+    it('allows loopback POST /mcp without token by default, refuses tunnel hosts on unauthenticated routes, and requires header when requireSessionToken is true', async () => {
+      const openServer = await startBridgeServer({
+        port: 0,
+        silent: true,
+        allowedHosts: ['preview.tunnel.example'],
+      });
       const server = await startBridgeServer({
         port: 0,
         silent: true,
+        requireSessionToken: true,
+        allowedHosts: ['preview.tunnel.example'],
       });
 
       try {
@@ -132,6 +139,38 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
             clientInfo: { name: 'valid-client', version: '1.0' },
           },
         });
+        expect(openServer.mcpUrl).toBe(`http://127.0.0.1:${openServer.port}/mcp`);
+        expect(server.mcpUrl).toBe(`http://127.0.0.1:${server.port}/mcp`);
+
+        // Default standalone bridge accepts loopback /mcp without token and returns full /health on loopback
+        const openRes = await fetch(openServer.mcpUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/event-stream',
+            'Host': `127.0.0.1:${openServer.port}`,
+            'Origin': `http://127.0.0.1:${openServer.port}`,
+          },
+          body,
+        });
+        expect(openRes.status).toBe(200);
+        const openHealth = (await (await fetch(`http://127.0.0.1:${openServer.port}/health`)).json()) as Record<string, unknown>;
+        expect(openHealth.project).toBeDefined();
+
+        // Tunnel host in allowedHosts is refused with 403 on default unauthenticated bridge routes
+        expect((await fetch(`http://127.0.0.1:${openServer.port}/mcp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/event-stream',
+            'Host': 'preview.tunnel.example',
+          },
+          body,
+        })).status).toBe(403);
+        expect((await fetch(`http://127.0.0.1:${openServer.port}/health`, {
+          headers: { Host: 'preview.tunnel.example' },
+        })).status).toBe(403);
+
         const baseHeaders = {
           'Content-Type': 'application/json',
           'Accept': 'application/json, text/event-stream',
@@ -146,6 +185,14 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
         });
         expect(unauth.status).toBe(401);
 
+        // ?token= query parameter is rejected
+        const queryAttempt = await fetch(`http://127.0.0.1:${server.port}/mcp?token=${encodeURIComponent(server.sessionToken)}`, {
+          method: 'POST',
+          headers: baseHeaders,
+          body,
+        });
+        expect(queryAttempt.status).toBe(401);
+
         const crossSiteNoOrigin = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
           method: 'POST',
           headers: {
@@ -153,7 +200,7 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
             'Accept': 'application/json, text/event-stream',
             'Host': `127.0.0.1:${server.port}`,
             'Sec-Fetch-Site': 'cross-site',
-            'x-pyric-session-token': (server as unknown as { sessionToken: string }).sessionToken,
+            'x-pyric-session-token': server.sessionToken,
           },
           body,
         });
@@ -173,19 +220,13 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
           method: 'POST',
           headers: {
             ...baseHeaders,
-            'x-pyric-session-token': (server as unknown as { sessionToken: string }).sessionToken,
+            'x-pyric-session-token': server.sessionToken,
           },
           body,
         });
         expect(res.status).toBe(200);
-
-        const viaMcpUrl = await fetch((server as unknown as { mcpUrl: string }).mcpUrl, {
-          method: 'POST',
-          headers: baseHeaders,
-          body,
-        });
-        expect(viaMcpUrl.status).toBe(200);
       } finally {
+        await openServer.stop();
         await server.stop();
       }
     });
@@ -324,7 +365,7 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
         expect(statSync(pointerPath).mode & 0o777).toBe(0o600);
         const pointerJson = JSON.parse(readFileSync(pointerPath, 'utf8')) as { token?: string; mcpUrl?: string };
         expect(pointerJson.token).toBe(token);
-        expect(pointerJson.mcpUrl).toContain(`token=${encodeURIComponent(token)}`);
+        expect(pointerJson.mcpUrl).toBe(`http://127.0.0.1:${serverHandle.port}/__pyric/mcp`);
 
         // Unauthenticated health returns minimal readiness without live/project metadata; POST is 405; cross-site is 403.
         const unauthHealthRes = await fetch(`${serverHandle.url}/__pyric/health`);

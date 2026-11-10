@@ -346,7 +346,7 @@ describe('isAllowedLoopbackRequest (combined Host + Origin guard for HTTP contro
 });
 
 describe('isAllowedSessionToken & session cookie bootstrap', () => {
-  it('accepts header, ?token= query param, or __pyric_session cookie in constant time', () => {
+  it('accepts header or __pyric_session cookie in constant time and rejects ?token= query parameters', () => {
     const secret = 'tok_secret_capability_123';
     expect(formatSessionCookie(secret)).toBe(
       `__pyric_session=${secret}; HttpOnly; SameSite=Strict; Path=/__pyric`,
@@ -364,7 +364,7 @@ describe('isAllowedSessionToken & session cookie bootstrap', () => {
         new URL(`http://localhost:5000/__pyric/events?token=${secret}`),
         secret,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isAllowedSessionToken(
         { headers: { cookie: `other=1; __pyric_session=${secret}; theme=dark` } },
@@ -393,7 +393,7 @@ describe('isAllowedSessionToken & session cookie bootstrap', () => {
         new URL(`http://localhost:5000/__pyric/events?token=${secret}`),
         secret,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isAllowedSessionToken(
         { headers: { cookie: '__pyric_session=wrong' } },

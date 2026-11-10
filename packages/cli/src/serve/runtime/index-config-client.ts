@@ -13,20 +13,22 @@ export interface IndexConfigClient {
 /** Same-origin local capability only. Standalone pages do not gain a filesystem writer. */
 export function createIndexConfigClient(fetcher: typeof fetch): IndexConfigClient {
   let token: string | undefined;
+  let checkedInit = false;
   async function request(method: string, body?: unknown, service?: 'firestore' | 'rtdb') {
-    if (!token) {
+    if (!checkedInit) {
       const stamped = stampedSessionToken();
       const response = stamped !== undefined
         ? await fetcher('/__pyric/init.json', { headers: { 'x-pyric-session-token': stamped } })
         : await fetcher('/__pyric/init.json');
       if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw new Error('No local index configuration is connected.');
       const init = await response.json();
-      const resolvedToken = typeof init.sessionToken === 'string' ? init.sessionToken : stamped;
-      if (typeof resolvedToken !== 'string') throw new Error('No local index configuration is connected.');
-      token = resolvedToken;
+      token = typeof init.sessionToken === 'string' ? init.sessionToken : stamped;
+      checkedInit = true;
     }
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (token !== undefined) headers['x-pyric-session-token'] = token;
     const path = service === 'rtdb' ? '/__pyric/indexes?service=rtdb' : service === 'firestore' ? '/__pyric/indexes?service=firestore' : '/__pyric/indexes';
-    const response = await fetcher(path, { method, headers: { 'x-pyric-session-token': token!, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const response = await fetcher(path, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
     if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('No local index configuration is connected.');
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? 'Unable to read the index configuration.');

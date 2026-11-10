@@ -50,7 +50,7 @@ export async function createFlowTreatmentHost(
         !isAllowedLoopbackRequest(
           req,
           guard?.boundHost ?? "localhost",
-          Array.isArray(guard?.allowedHosts) ? guard.allowedHosts : [],
+          [],
           ports,
         )
       ) {

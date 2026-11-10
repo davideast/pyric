@@ -274,22 +274,19 @@ function extractSessionCookies(cookieHeader: string | undefined): string[] {
 }
 
 /**
- * Validates a session capability token from the `x-pyric-session-token` header,
- * the `?token=` query parameter, or the `__pyric_session` HttpOnly cookie using
- * constant-time comparison. Fails closed if `expectedToken` is omitted or empty.
+ * Validates a session capability token from the `x-pyric-session-token` header
+ * or the `__pyric_session` HttpOnly cookie using constant-time comparison.
+ * Query-string `?token=` parameters are ignored. Fails closed if `expectedToken`
+ * is omitted or empty.
  */
 export function isAllowedSessionToken(
   req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
-  url: URL | undefined,
+  _url: URL | undefined,
   expectedToken: string | undefined,
 ): boolean {
   if (!expectedToken) return false;
   const headerToken = getHeader(req, 'x-pyric-session-token');
   if (headerToken !== undefined && timingSafeTokenMatch(headerToken, expectedToken)) {
-    return true;
-  }
-  const queryToken = url?.searchParams.get('token') ?? undefined;
-  if (queryToken !== undefined && timingSafeTokenMatch(queryToken, expectedToken)) {
     return true;
   }
   const cookies = extractSessionCookies(getHeader(req, 'cookie'));

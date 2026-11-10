@@ -333,6 +333,24 @@ describe('pyric sandbox command surface', () => {
   it('rejects the removed serve spelling for the sandbox', async () => {
     expect((await runDispatch(['serve'])).code).toBe(1);
   });
+
+  it('parses --session-token as a boolean flag without consuming child positionals and rejects --no-session-token', async () => {
+    const parsed = parseArgs(['sandbox', '--session-token', 'node', 'app.js']);
+    expect(parsed.flags.get('session-token')).toBe(true);
+    expect(parsed.positional).toEqual(['node', 'app.js']);
+
+    const help = await runDispatch(['--help']);
+    expect(help.stdout).toContain('--session-token');
+    expect(help.stdout).not.toContain('--no-session-token');
+
+    const badBridge = await runDispatch(['bridge', '--no-session-token']);
+    expect(badBridge.code).toBe(1);
+    expect(badBridge.stderr).toContain('--no-session-token');
+
+    const badSandbox = await runDispatch(['sandbox', '--no-session-token']);
+    expect(badSandbox.code).toBe(1);
+    expect(badSandbox.stderr).toContain('--no-session-token');
+  });
 });
 
 const ownVersion = (

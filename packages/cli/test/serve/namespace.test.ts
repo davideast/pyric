@@ -93,16 +93,22 @@ describe('namespace over the real server', () => {
     });
     handles.push(h);
 
-    // Unauthenticated init.json serves minimal readiness only (no rules source or token)
+    // Default sandbox init.json serves rules/bridge payload on loopback while withholding sessionToken and Set-Cookie
     const unauthInit = await fetch(h.url + '/__pyric/init.json');
     expect(unauthInit.headers.get('set-cookie')).toBeNull();
-    expect(await unauthInit.json()).toEqual({
+    const unauthBody = (await unauthInit.json()) as Record<string, unknown>;
+    expect(unauthBody).toMatchObject({
+      rules: null,
       rulesHash: null,
-      databaseRulesHash: null,
+      storageRules: null,
       storageRulesHash: null,
+      bridgeUrl: null,
+      thresholds: false,
+      rateCaptures: false,
     });
+    expect(unauthBody.sessionToken).toBeUndefined();
 
-    // Authenticated init.json reflects LIVE state (the P3 hot-reload contract)
+    // Authenticated init.json reflects LIVE state and stamps sessionToken + cookie
     const authHeaders = { 'x-pyric-session-token': token };
     const authInit = await fetch(h.url + '/__pyric/init.json', { headers: authHeaders });
     expect(authInit.headers.get('set-cookie')).toContain(`__pyric_session=${token}`);
@@ -110,11 +116,13 @@ describe('namespace over the real server', () => {
       expect.objectContaining({ rules: null, rulesHash: null, bridgeUrl: null, sessionToken: token }),
     );
     rules = "rules_version = '2';";
-    expect(await (await fetch(h.url + '/__pyric/init.json')).json()).toEqual({
+    const updatedUnauth = (await (await fetch(h.url + '/__pyric/init.json')).json()) as Record<string, unknown>;
+    expect(updatedUnauth).toMatchObject({
+      rules: "rules_version = '2';",
       rulesHash: 'h',
-      databaseRulesHash: null,
       storageRulesHash: null,
     });
+    expect(updatedUnauth.sessionToken).toBeUndefined();
     expect(((await (await fetch(h.url + '/__pyric/init.json', { headers: authHeaders })).json()) as { rules: string }).rules).toContain('rules_version');
 
     // sdk files stream with JS content type; traversal flattens to basename
@@ -196,19 +204,22 @@ describe('namespace over the real server', () => {
     expect(del.headers.get('allow')).toBe('GET, POST');
   });
 
-  it('withholds session capability token from unauthenticated /__pyric/init.json and enforces method + origin guards', async () => {
+  it('withholds session capability token from unauthenticated /__pyric/init.json in both sandbox and requireSessionToken modes and enforces method + origin + tunnel guards', async () => {
     const { site, sdk } = fixture();
     const token = 'init-capability-token';
     const ns = createPyricNamespace({
       sdkDir: sdk,
-      initPayload: () => ({ rules: "rules_version = '2';", rulesHash: 'rh', storageRules: null, storageRulesHash: null, bridgeUrl: 'ws://127.0.0.1:1/__pyric/sandbox', hosted: true, instanceId: 'inst-1' }),
+      initPayload: () => ({ rules: "rules_version = '2';", rulesHash: 'rh', storageRules: null, storageRulesHash: null, bridgeUrl: 'ws://127.0.0.1:1/__pyric/sandbox', hosted: true, instanceId: 'inst-1', sessionToken: token }),
       sessionToken: token,
+      requireSessionToken: true,
       boundHost: '127.0.0.1',
+      allowedHosts: ['preview.tunnel.example'],
     });
     const h = await startStaticServer({
       publicDir: site,
       port: 0,
       host: '127.0.0.1',
+      allowedHosts: ['preview.tunnel.example'],
       logger: silentServeLogger(),
       namespaceHandler: ns,
       sessionToken: token,
@@ -225,6 +236,18 @@ describe('namespace over the real server', () => {
       databaseRulesHash: null,
       storageRulesHash: null,
     });
+
+    // Unauthenticated tunnel Host is refused with 403 even when allowedHosts lists it
+    const tunnelUnauth = await fetch(h.url + '/__pyric/init.json', {
+      headers: { host: 'preview.tunnel.example' },
+    });
+    expect(tunnelUnauth.status).toBe(403);
+
+    // Authenticated tunnel Host succeeds
+    const tunnelAuthed = await fetch(h.url + '/__pyric/init.json', {
+      headers: { host: 'preview.tunnel.example', 'x-pyric-session-token': token },
+    });
+    expect(tunnelAuthed.status).toBe(200);
 
     const postRes = await fetch(h.url + '/__pyric/init.json', { method: 'POST' });
     expect(postRes.status).toBe(405);
@@ -288,8 +311,14 @@ describe('namespace over the real server', () => {
       return Promise.resolve(ns(req as never, res as never, new URL(`http://localhost:5000${path}`))).then(() => ({ status, body, headersOut }));
     }
 
-    function namespace(sessionToken = 'local-peer-token') {
-      return createPyricNamespace({ sdkDir: fixture().sdk, initPayload: () => ({ ...SECRETS }), activity: () => {}, sessionToken });
+    function namespace(sessionToken = 'local-peer-token', requireSessionToken = false) {
+      return createPyricNamespace({
+        sdkDir: fixture().sdk,
+        initPayload: () => ({ ...SECRETS, sessionToken }),
+        activity: () => {},
+        sessionToken,
+        requireSessionToken,
+      });
     }
 
     it('reads an init payload with no project data and no capability, whatever Host it sends', async () => {
@@ -305,10 +334,18 @@ describe('namespace over the real server', () => {
       expect((await call(ns, '/__pyric/init.json', '10.0.0.5', {}, 'POST')).status).toBe(405);
     });
 
-    it('serves minimal readiness to unauthenticated local peers and full payload only when authenticated', async () => {
-      const ns = namespace('local-peer-token');
+    it('serves sandbox init without sessionToken by default and minimal readiness when requireSessionToken is true', async () => {
+      const sandboxNs = namespace('local-peer-token', false);
+      const strictNs = namespace('local-peer-token', true);
       for (const peer of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
-        const unauth = JSON.parse((await call(ns, '/__pyric/init.json', peer)).body) as Record<string, unknown>;
+        const sandboxUnauthRes = await call(sandboxNs, '/__pyric/init.json', peer);
+        expect(sandboxUnauthRes.headersOut.get('set-cookie')).toBeUndefined();
+        const sandboxUnauth = JSON.parse(sandboxUnauthRes.body) as Record<string, unknown>;
+        expect(sandboxUnauth.sessionToken).toBeUndefined();
+        expect(sandboxUnauth.rules).toBe('rules source');
+        expect(typeof sandboxUnauth.activityToken).toBe('string');
+
+        const unauth = JSON.parse((await call(strictNs, '/__pyric/init.json', peer)).body) as Record<string, unknown>;
         expect(unauth).toEqual({
           instanceId: 'boot',
           hosted: true,
@@ -318,7 +355,7 @@ describe('namespace over the real server', () => {
         });
 
         const authed = JSON.parse(
-          (await call(ns, '/__pyric/init.json', peer, { 'x-pyric-session-token': 'local-peer-token' })).body,
+          (await call(strictNs, '/__pyric/init.json', peer, { 'x-pyric-session-token': 'local-peer-token' })).body,
         ) as Record<string, unknown>;
         expect(authed.sessionToken).toBe('local-peer-token');
         expect(typeof authed.activityToken).toBe('string');
@@ -336,7 +373,7 @@ describe('namespace over the real server', () => {
     });
   });
 
-  it('enforces host, origin, Sec-Fetch-Site, and session capability guards on /__pyric/events', async () => {
+  it('enforces host, origin, Sec-Fetch-Site, and optional requireSessionToken guards on /__pyric/events', async () => {
     const { site, sdk } = fixture();
     const events = createEventHub();
     const token = 'events-sec-token';
@@ -345,7 +382,17 @@ describe('namespace over the real server', () => {
       initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
       events,
       sessionToken: token,
+      requireSessionToken: true,
       boundHost: '127.0.0.1',
+    });
+    const sandboxEvents = createEventHub();
+    const sandboxNs = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      events: sandboxEvents,
+      sessionToken: token,
+      boundHost: '127.0.0.1',
+      allowedHosts: ['preview.tunnel.example'],
     });
     const h = await startStaticServer({
       publicDir: site,
@@ -355,7 +402,16 @@ describe('namespace over the real server', () => {
       namespaceHandler: ns,
       sessionToken: token,
     });
-    handles.push(h);
+    const sandboxHandle = await startStaticServer({
+      publicDir: site,
+      port: 0,
+      host: '127.0.0.1',
+      allowedHosts: ['preview.tunnel.example'],
+      logger: silentServeLogger(),
+      namespaceHandler: sandboxNs,
+      sessionToken: token,
+    });
+    handles.push(h, sandboxHandle);
 
     try {
       // 1. Rejected if unapproved Host
@@ -376,7 +432,7 @@ describe('namespace over the real server', () => {
       });
       expect(crossSiteRes.status).toBe(403);
 
-      // 4. Rejected with 401 when unauthenticated
+      // 4. Rejected with 401 when unauthenticated under requireSessionToken: true
       const unauthRes = await fetch(`${h.url}/__pyric/events`, {
         headers: { origin: h.url },
       });
@@ -391,8 +447,22 @@ describe('namespace over the real server', () => {
       expect(allowedRes.status).toBe(200);
       expect(allowedRes.headers.get('content-type')).toContain('text/event-stream');
       controller.abort();
+
+      // 6. Default sandbox allows loopback without token, but refuses --allowed-host tunnel Host/Origin with 403
+      const sandboxTunnel = await fetch(`${sandboxHandle.url}/__pyric/events`, {
+        headers: { host: 'preview.tunnel.example' },
+      });
+      expect(sandboxTunnel.status).toBe(403);
+      const sandboxCtrl = new AbortController();
+      const sandboxOpen = await fetch(`${sandboxHandle.url}/__pyric/events`, {
+        headers: { origin: sandboxHandle.url },
+        signal: sandboxCtrl.signal,
+      });
+      expect(sandboxOpen.status).toBe(200);
+      sandboxCtrl.abort();
     } finally {
       events.close();
+      sandboxEvents.close();
     }
   });
 
@@ -440,7 +510,7 @@ describe('namespace over the real server', () => {
     expect(wsRes.status).toBe(204);
   });
 
-  it('enforces capability token and origin isolation on /__pyric/state and /__pyric/capture', async () => {
+  it('enforces capability token under requireSessionToken and origin isolation on /__pyric/state and /__pyric/capture', async () => {
     const { site, sdk } = fixture();
     const stateStore = createStateStore(site);
     let capturedData: string | null = null;
@@ -452,6 +522,7 @@ describe('namespace over the real server', () => {
       state: stateStore,
       capture: { write: (json) => { capturedData = json; }, read: () => capturedData },
       sessionToken: token,
+      requireSessionToken: true,
       boundHost: '127.0.0.1',
     });
     const h = await startStaticServer({
@@ -514,44 +585,50 @@ describe('namespace over the real server', () => {
     expect(validCapture.status).toBe(404);
   });
 
-  it('unconditionally enforces capability token on /__pyric/state and /__pyric/capture when sessionToken is omitted in options (fail closed)', async () => {
+  it('allows loopback /__pyric/state and /__pyric/capture without token in default sandbox mode while keeping workspace and ai-proxy gated and refusing tunnel hosts', async () => {
     const { site, sdk } = fixture();
     const stateStore = createStateStore(site);
     stateStore.writeSection('auth', { users: [{ uid: 'admin', password: 'secret-pw' }] });
     let capturedData: string | null = 'sensitive-capture';
 
-    // sessionToken omitted in options, mimicking default dev server in sandbox-session.ts
     const ns = createPyricNamespace({
       sdkDir: sdk,
       initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
       state: stateStore,
       capture: { write: (json) => { capturedData = json; }, read: () => capturedData },
+      studio: { workspace: diskWorkspace(site) },
       boundHost: '127.0.0.1',
+      allowedHosts: ['preview.tunnel.example'],
     });
     const h = await startStaticServer({
       publicDir: site,
       port: 0,
       host: '127.0.0.1',
+      allowedHosts: ['preview.tunnel.example'],
       logger: silentServeLogger(),
       namespaceHandler: ns,
     });
     handles.push(h);
 
-    // 1. Unauthenticated request without token must receive 401
+    // 1. Default sandbox allows loopback state and capture without token
     const unauthState = await fetch(`${h.url}/__pyric/state?section=auth`);
-    expect(unauthState.status).toBe(401);
+    expect(unauthState.status).toBe(200);
+    expect(await unauthState.json()).toEqual({ users: [{ uid: 'admin', password: 'secret-pw' }] });
 
-    // 2. Request with bogus token must receive 401
-    const bogusState = await fetch(`${h.url}/__pyric/state?section=auth`, {
-      headers: { 'x-pyric-session-token': 'completely-bogus-token' },
-    });
-    expect(bogusState.status).toBe(401);
-
-    // 3. Unauthenticated capture request must receive 401
     const unauthCapture = await fetch(`${h.url}/__pyric/capture`);
-    expect(unauthCapture.status).toBe(401);
+    expect(unauthCapture.status).toBe(200);
+    expect(await unauthCapture.text()).toBe('sensitive-capture');
 
-    // 4. Unauthenticated init.json does NOT leak sessionToken; same-origin SDK load bootstraps the session cookie
+    // 2. Tunnel host listed in allowedHosts is refused with 403 on unauthenticated sandbox routes
+    expect((await fetch(`${h.url}/__pyric/state?section=auth`, { headers: { host: 'preview.tunnel.example' } })).status).toBe(403);
+    expect((await fetch(`${h.url}/__pyric/capture`, { headers: { host: 'preview.tunnel.example' } })).status).toBe(403);
+    expect((await fetch(`${h.url}/__pyric/init.json`, { headers: { host: 'preview.tunnel.example' } })).status).toBe(403);
+
+    // 3. Workspace and AI proxy remain 401 without token even in default sandbox mode
+    expect((await fetch(`${h.url}/__pyric/workspace?path=index.html`)).status).toBe(401);
+    expect((await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, { method: 'POST', body: '{}' })).status).toBe(401);
+
+    // 4. Unauthenticated init.json never leaks sessionToken; same-origin SDK load bootstraps the session cookie for workspace
     const unauthInit = (await (await fetch(`${h.url}/__pyric/init.json`)).json()) as { sessionToken?: string };
     expect(unauthInit.sessionToken).toBeUndefined();
 
@@ -562,20 +639,13 @@ describe('namespace over the real server', () => {
     expect(setCookie).toContain('__pyric_session=');
     const cookieHeader = setCookie.split(';')[0]!;
 
-    const authedState = await fetch(`${h.url}/__pyric/state?section=auth`, {
+    const authedWorkspace = await fetch(`${h.url}/__pyric/workspace?path=index.html`, {
       headers: { cookie: cookieHeader },
     });
-    expect(authedState.status).toBe(200);
-    expect(await authedState.json()).toEqual({ users: [{ uid: 'admin', password: 'secret-pw' }] });
-
-    const authedCapture = await fetch(`${h.url}/__pyric/capture`, {
-      headers: { cookie: cookieHeader },
-    });
-    expect(authedCapture.status).toBe(200);
-    expect(await authedCapture.text()).toBe('sensitive-capture');
+    expect(authedWorkspace.status).toBe(200);
   });
 
-  it('requires session capability and rejects cross-site/cross-port requests on diagnostics, ai-proxy, gemini-proxy, and denials', async () => {
+  it('always requires session capability on ai-proxy and gemini-proxy while keeping diagnostics and denials loopback-open in default sandbox mode', async () => {
     const { site, sdk } = fixture();
     const token = 'proxy-diag-denial-token';
     const upstream = await startStaticServer({
@@ -608,21 +678,20 @@ describe('namespace over the real server', () => {
     handles.push(h);
 
     const otherPort = h.port === 3000 ? 3001 : 3000;
-    const routes: Array<{ path: string; method: string; body?: string }> = [
-      { path: '/__pyric/diagnostics', method: 'GET' },
-      { path: '/__pyric/ai-proxy/chat/completions', method: 'POST', body: '{}' },
-      { path: '/__pyric/ai-proxy/gemini/v1beta/models/gemini-2.0-flash:generateContent', method: 'POST', body: '{}' },
-      { path: '/__pyric/denials', method: 'POST', body: JSON.stringify({ message: 'denied' }) },
+    const routes: Array<{ path: string; method: string; body?: string; requiresTokenInSandbox: boolean; okStatus?: number }> = [
+      { path: '/__pyric/diagnostics', method: 'GET', requiresTokenInSandbox: false, okStatus: 200 },
+      { path: '/__pyric/ai-proxy/chat/completions', method: 'POST', body: '{}', requiresTokenInSandbox: true },
+      { path: '/__pyric/ai-proxy/gemini/v1beta/models/gemini-2.0-flash:generateContent', method: 'POST', body: '{}', requiresTokenInSandbox: true },
+      { path: '/__pyric/denials', method: 'POST', body: JSON.stringify({ message: 'denied' }), requiresTokenInSandbox: false, okStatus: 204 },
     ];
 
     for (const route of routes) {
-      // Unauthenticated -> 401
       const unauth = await fetch(`${h.url}${route.path}`, {
         method: route.method,
         headers: route.body ? { 'content-type': 'application/json' } : undefined,
         body: route.body,
       });
-      expect(unauth.status).toBe(401);
+      expect(unauth.status).toBe(route.requiresTokenInSandbox ? 401 : route.okStatus!);
 
       // Cross-port Origin even WITH valid session cookie -> 403
       const crossPort = await fetch(`${h.url}${route.path}`, {
@@ -715,6 +784,7 @@ describe('namespace over the real server', () => {
       initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
       state,
       sessionToken: 'export-token',
+      requireSessionToken: true,
       boundHost: '127.0.0.1',
     });
     const h = await startStaticServer({

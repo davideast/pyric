@@ -31,11 +31,19 @@ test('HTTP and sandbox tools share project captures across host recreation, with
   try {
     const unauthInit = await (await fetch(server.url + '/__pyric/init.json')).json();
     expect(unauthInit.sessionToken).toBeUndefined();
+    expect(unauthInit.rateCaptures).toBe(true);
     const init = await (await fetch(server.url + '/__pyric/init.json', {
       headers: { 'x-pyric-session-token': namespace.sessionToken },
     })).json();
     const endpoint = server.url + '/__pyric/rate-captures';
-    expect((await fetch(endpoint)).status).toBe(401);
+    expect((await fetch(endpoint)).status).toBe(200);
+    const strictNamespace = createPyricNamespace({ sdkDir: root, rateCaptures: createRateCaptureStore(root), requireSessionToken: true, initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }) });
+    const strictServer = await startStaticServer({ publicDir: join(root, 'public'), port: 0, host: '127.0.0.1', namespaceHandler: strictNamespace, logger: silentServeLogger() });
+    try {
+      expect((await fetch(strictServer.url + '/__pyric/rate-captures')).status).toBe(401);
+    } finally {
+      await strictServer.stop();
+    }
     expect((await fetch(endpoint, { method: 'POST', headers: { origin: 'https://example.com', 'x-pyric-session-token': init.sessionToken }, body: text })).status).toBe(403);
     const client = projectCaptures(((path: string, options?: RequestInit) => {
       const headers = new Headers(options?.headers);

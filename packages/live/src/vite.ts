@@ -57,7 +57,7 @@ type ResolvedConfig = Parameters<ConfigResolvedHook>[0];
 type DevServer = Parameters<ConfigureServerHook>[0];
 
 /** The plugin options live mode takes: `@pyric/cli`'s, always on the Node host, and the imports that pass through. */
-export type PyricLiveOptions = Omit<PyricOptions, 'hosted' | 'swapInBuild'> & {
+export type PyricLiveOptions = Omit<PyricOptions, 'hosted' | 'swapInBuild' | 'sessionToken'> & {
   /**
    * Firebase imports live mode does not serve, such as `firebase/functions`
    * or `firebase/remote-config`, that load the app's installed SDK unwrapped. Their

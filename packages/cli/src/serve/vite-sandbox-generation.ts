@@ -70,6 +70,8 @@ export interface ViteSandboxGenerationOptions {
   avatars: PyricAvatarsOptions | undefined;
   /** The plugin's `project` option: the first source `resolveFirebaseProject` tries. */
   project?: string;
+  /** Require `sessionToken` across every `/__pyric/*`, MCP, and WS route. */
+  requireSessionToken?: boolean;
   /** Set only through `@pyric/live`'s seam: the host reports its status as live (`live-host-state.ts`). */
   liveHost?: boolean;
   /** The live host's pass-through list: the `firebase/*` imports its health report lists (`live-host-state.ts`). */
@@ -241,6 +243,7 @@ export async function createViteSandboxGeneration(
       firebaseProject,
     });
     const isLive = options.liveHost === true;
+    const requireSessionToken = isLive || options.requireSessionToken === true;
     const liveProjectId = isLive ? requireLiveProject(firebaseProject, cwd) : undefined;
     const projectId = liveProjectId ?? firebaseProject.projectId;
     const liveHost = liveProjectId !== undefined
@@ -263,6 +266,7 @@ export async function createViteSandboxGeneration(
       functionsProject: functions.project,
       functionsProjectId: functions.projectId,
       sessionToken,
+      requireSessionToken,
       createBridge: dependencies.createBridge,
     };
     bridge = createViteGenerationBridge(bridgeInput);
@@ -324,6 +328,7 @@ export async function createViteSandboxGeneration(
       bridgeUrl,
       hostInstanceId: () => bridge?.instanceId,
       sessionToken,
+      requireSessionToken,
       ai: aiOptions,
       avatars: avatarsConfig,
       aiProxyUpstream: ai.proxyUpstream,

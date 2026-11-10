@@ -34,22 +34,21 @@ try {
   assert.equal(stored.status, 200);
   assert.equal((await stored.json()).ok, true);
 
-  // The hosted host serves its objects on the byte route, to the session.
+  // The hosted host serves its objects on the byte route to explicit SDK headers, while keeping bare/cookie download URLs gated by downloadTokens.
   const url = `${base}/__pyric/storage/v0/b/pyric-default/o/${encodeURIComponent('notes/note.txt')}?alt=media`;
-  const read = await fetch(url, { headers: { 'x-pyric-session-token': SESSION } });
+  const read = await fetch(url, { headers: { 'x-pyric-byte-route': '1' } });
   assert.equal(read.status, 200);
   assert.equal(read.headers.get('content-type'), 'text/plain');
   assert.equal(await read.text(), 'a short note');
   assert.equal((await fetch(url)).status, 403);
+  assert.equal((await fetch(url, { headers: { cookie: `__pyric_session=${SESSION}` } })).status, 403);
   // A page on another local port is a different origin.
-  const crossPort = await fetch(url, { headers: { 'x-pyric-session-token': SESSION, origin: `http://127.0.0.1:${address.port + 1}` } });
+  const crossPort = await fetch(url, { headers: { 'x-pyric-byte-route': '1', origin: `http://127.0.0.1:${address.port + 1}` } });
   assert.equal(crossPort.status, 403);
 
-  // The attach acknowledgement advertises the route.
+  // The attach acknowledgement advertises the route on a clean WS URL.
   mount.attachHost({ servers: [server], projectDir: directory, origin: () => ({ host: '127.0.0.1', port: address.port }) });
-  const socket = new WebSocket(
-    `ws://127.0.0.1:${address.port}/__pyric/sandbox?token=${encodeURIComponent(mount.sessionToken)}`,
-  );
+  const socket = new WebSocket(`ws://127.0.0.1:${address.port}/__pyric/sandbox`);
   await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error('socket failed')); });
   const ack = new Promise<{ capabilities?: string[] }>(resolve => {
     socket.onmessage = event => {

@@ -42,8 +42,8 @@ async function startVite(app: App, env: Record<string, string>, config?: string)
   }
 }
 
-async function proxyTargets(app: App, url: string): Promise<ProxyTargetReport[] | undefined> {
-  const health = await (await fetch(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) })).json() as { proxyTargets?: ProxyTargetReport[] };
+async function proxyTargets(app: App, url: string, authenticated: boolean): Promise<ProxyTargetReport[] | undefined> {
+  const health = await (await fetch(`${url}/__pyric/health`, authenticated ? { headers: sessionHeaders(app, url) } : undefined)).json() as { proxyTargets?: ProxyTargetReport[] };
   return health.proxyTargets;
 }
 
@@ -53,10 +53,10 @@ function verdicts(reports: ProxyTargetReport[] | undefined): Record<string, stri
 }
 
 /** Waits until the host's health lists `expected` as its proxy verdicts. */
-async function waitForVerdicts(app: App, host: Host, expected: Record<string, string>): Promise<void> {
+async function waitForVerdicts(app: App, host: Host, expected: Record<string, string>, authenticated = false): Promise<void> {
   const deadline = Date.now() + 20_000;
   for (;;) {
-    const listed = verdicts(await proxyTargets(app, host.url));
+    const listed = verdicts(await proxyTargets(app, host.url, authenticated));
     const matches = JSON.stringify(listed) === JSON.stringify(expected);
     if (matches) return;
     if (Date.now() > deadline) assert.deepEqual(listed, expected, 'the health proxyTargets verdicts');
@@ -105,6 +105,6 @@ export default scenario(async (app) => {
 
   await app.step('the live page lists its proxy to the sandbox backend as other-mode', async () => {
     const live = await startVite(app, { SAME_PORT: ports.SAME_PORT }, 'vite.live.config.js');
-    await waitForVerdicts(app, live, { '/api': 'other-mode' });
+    await waitForVerdicts(app, live, { '/api': 'other-mode' }, true);
   });
 });

@@ -40,13 +40,14 @@ afterEach(async () => {
 
 const TEST_TOKEN = 'test-denials-session-token';
 
-async function startServe(logger: ServeLogger): Promise<ServeHandle> {
+async function startServe(logger: ServeLogger, requireSessionToken = false): Promise<ServeHandle> {
   const { site, sdk } = fixture();
   const ns = createPyricNamespace({
     sdkDir: sdk,
     initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
     logger,
     sessionToken: TEST_TOKEN,
+    requireSessionToken,
   });
   const h = await startStaticServer({
     publicDir: site,
@@ -94,16 +95,26 @@ describe('/__pyric/denials', () => {
     expect(notes[0]).toContain('user-1');
   });
 
-  it('refuses an unauthenticated POST with 401 and prints nothing', async () => {
+  it('accepts loopback POST without token in default sandbox mode and refuses with 401 when requireSessionToken is true', async () => {
     const { logger, notes } = recordingLogger();
-    const h = await startServe(logger);
-    const res = await fetch(`${h.url}/__pyric/denials`, {
+    const openServer = await startServe(logger, false);
+    const openRes = await fetch(`${openServer.url}/__pyric/denials`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(denialBody()),
+    });
+    expect(openRes.status).toBe(204);
+    expect(notes.length).toBe(1);
+
+    const { logger: strictLogger, notes: strictNotes } = recordingLogger();
+    const strictServer = await startServe(strictLogger, true);
+    const res = await fetch(`${strictServer.url}/__pyric/denials`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(denialBody()),
     });
     expect(res.status).toBe(401);
-    expect(notes).toEqual([]);
+    expect(strictNotes).toEqual([]);
   });
 
   it('throttles a repeat of the SAME (path, message) — silent, no output', async () => {

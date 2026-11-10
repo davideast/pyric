@@ -1,19 +1,23 @@
 /**
  * Local-surface and loopback route security hardening (ADR 0024 Decision 5):
- *   1. Per-boot capability token (`x-pyric-session-token`, `?token=`, or
- *      `__pyric_session` `HttpOnly; SameSite=Strict; Path=/__pyric` cookie)
- *      required (`401` on HTTP, upgrade refused on WS) on all state-bearing,
- *      cost-bearing, and mutating `/__pyric/*` routes; minimal readiness probes
- *      on `/__pyric/init.json` and `/__pyric/health`.
- *   2. Cross-origin (`Origin`) and cross-site (`Sec-Fetch-Site: cross-site` /
- *      `same-site` without `Origin`) refusal (`403`) enforced before token/cookie
- *      checks so ambient `localhost` cookies never authorize another origin/port.
- *   3. Loopback `Host` header enforced unconditionally on `/__pyric/*` and
- *      `WS /__pyric/sandbox` even when `allowedHosts: true` is configured, and
- *      `.pyric/serve.json` / `.pyric/session.json` written with `0o600` mode.
+ *   1. Live mode (`liveHost`) and explicit `--session-token` / `sessionToken: true`
+ *      require a per-boot capability token (`x-pyric-session-token` or
+ *      `__pyric_session` `HttpOnly; SameSite=Strict; Path=/__pyric` cookie;
+ *      never `?token=`) across every `/__pyric/*` route, MCP, and `WS /__pyric/sandbox`,
+ *      with minimal readiness probes on `/__pyric/init.json` and `/__pyric/health`.
+ *   2. Default sandbox mode requires the session token only on project-file routes
+ *      (`/__pyric/workspace*`, `/__pyric/projects*`), the AI proxy (`/__pyric/ai-proxy*`),
+ *      and `/__pyric/live/*`, while never returning `sessionToken` on unauthenticated
+ *      `GET /__pyric/init.json` and never writing `.pyric/capability-token`.
+ *   3. Unauthenticated routes accept loopback/`boundHost` names only (refusing
+ *      `--allowed-host` / `server.allowedHosts` tunnel hosts with `403` / WS destroy).
+ *   4. Cross-origin (`Origin`), cross-site (`Sec-Fetch-Site: cross-site` / `same-site`
+ *      without `Origin`), and `allowedHosts: true` non-loopback `Host` refusal (`403`)
+ *      remain enforced in every mode, and `.pyric/serve.json` / `.pyric/session.json`
+ *      are written with `0o600` mode.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,6 +56,24 @@ function rawHttpRequest(opts: {
     req.on('error', reject);
     if (opts.body !== undefined) req.write(opts.body);
     req.end();
+  });
+}
+
+function tryWsUpgrade(url: string, headers?: Record<string, string>): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    const ws = new WebSocket(url, headers ? { headers } : undefined);
+    ws.once('open', () => {
+      finish(true);
+      ws.close();
+    });
+    ws.on('error', () => finish(false));
+    ws.once('close', () => finish(false));
   });
 }
 
@@ -104,7 +126,7 @@ function createProject(): string {
 }
 
 describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
-  it('writes .pyric/serve.json and .pyric/session.json with owner-only 0o600 permissions', async () => {
+  it('writes 0o600 .pyric/serve.json and .pyric/session.json, omits ?token= from mcpUrl, and never writes .pyric/capability-token', async () => {
     const bridgeCwd = createProject();
     const bridgeRuntime = await startServe({
       cwd: bridgeCwd,
@@ -133,6 +155,16 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     });
     runtimes.push(sessionRuntime);
 
+    expect(existsSync(join(bridgeCwd, '.pyric', 'capability-token'))).toBe(false);
+    expect(existsSync(join(sessionCwd, '.pyric', 'capability-token'))).toBe(false);
+    expect(bridgeRuntime.mcpUrl).toBe(`${bridgeRuntime.handle.url}/__pyric/mcp`);
+    const pointer = JSON.parse(readFileSync(join(bridgeCwd, '.pyric', 'serve.json'), 'utf8')) as {
+      mcpUrl?: string;
+      token?: string;
+    };
+    expect(pointer.mcpUrl).toBe(`${bridgeRuntime.handle.url}/__pyric/mcp`);
+    expect(pointer.token).toBe(bridgeRuntime.sessionToken);
+
     if (process.platform !== 'win32') {
       const serveMode = statSync(join(bridgeCwd, '.pyric', 'serve.json')).mode & 0o777;
       const sessionMode = statSync(join(sessionCwd, '.pyric', 'session.json')).mode & 0o777;
@@ -141,7 +173,7 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     }
   }, 30_000);
 
-  it('serves minimal readiness payloads without a token and mints an HttpOnly SameSite=Strict cookie when authenticated', async () => {
+  it('scopes token enforcement in default sandbox mode to workspace, projects, and ai-proxy while never leaking sessionToken on unauthenticated init.json', async () => {
     const cwd = createProject();
     const runtime = await startServe({
       cwd,
@@ -150,6 +182,8 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
       cacheRoot: join(cwd, '.cache'),
       bridge: true,
       persist: true,
+      capture: true,
+      ui: true,
       seed: 'seed.json',
       disableAuditLog: true,
       logger: silentServeLogger(),
@@ -157,31 +191,82 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     runtimes.push(runtime);
     const base = runtime.handle.url;
 
+    // Unauthenticated loopback init.json returns sandbox init without sessionToken or Set-Cookie.
     const unauthInitRes = await fetch(`${base}/__pyric/init.json`);
     expect(unauthInitRes.status).toBe(200);
     expect(unauthInitRes.headers.get('set-cookie')).toBeNull();
     const unauthInit = (await unauthInitRes.json()) as Record<string, unknown>;
-    expect(typeof unauthInit.rulesHash).toBe('string');
-    expect(unauthInit.rules).toBeUndefined();
-    expect(unauthInit.seed).toBeUndefined();
     expect(unauthInit.sessionToken).toBeUndefined();
-    expect(unauthInit.bridgeUrl).toBeUndefined();
+    expect(String(unauthInit.rules ?? '')).toContain("rules_version = '2'");
+    expect(unauthInit.bridgeUrl).toBe(`ws://127.0.0.1:${runtime.handle.port}/__pyric/sandbox`);
 
+    // Unauthenticated loopback health returns full sandbox health.
     const unauthHealthRes = await fetch(`${base}/__pyric/health`);
     expect(unauthHealthRes.status).toBe(200);
     const unauthHealth = (await unauthHealthRes.json()) as Record<string, unknown>;
-    expect(unauthHealth).toEqual({
-      status: 'ok',
-      mode: 'sandbox',
-      instanceId: expect.any(String),
-      sandboxConnected: false,
-    });
-    expect(unauthHealth.project).toBeUndefined();
-    expect(unauthHealth.version).toBeUndefined();
+    expect(unauthHealth.status).toBe('ok');
+    expect(unauthHealth.mode).toBe('sandbox');
+    expect(typeof unauthHealth.project).toBe('string');
 
     expect((await fetch(`${base}/__pyric/init.json`, { method: 'POST' })).status).toBe(405);
     expect((await fetch(`${base}/__pyric/health`, { method: 'POST' })).status).toBe(405);
 
+    // High-risk project-file and AI-proxy routes still require sessionToken (401 without).
+    for (const [method, path] of [
+      ['GET', '/__pyric/workspace?path=firestore.rules'],
+      ['GET', '/__pyric/workspace/list'],
+      ['GET', '/__pyric/projects'],
+      ['POST', '/__pyric/ai-proxy/chat/completions'],
+      ['POST', '/__pyric/ai-proxy/gemini/v1beta/models/gemini-2.5-flash:generateContent'],
+    ] as const) {
+      const res = await fetch(`${base}${path}`, {
+        method,
+        headers: method === 'POST' ? { 'content-type': 'application/json' } : undefined,
+        body: method === 'POST' ? '{}' : undefined,
+      });
+      expect(res.status, `${method} ${path} should require session token`).toBe(401);
+      await res.arrayBuffer();
+    }
+
+    // Sandbox-only routes and WS /__pyric/sandbox answer loopback callers without a token.
+    for (const [method, path] of [
+      ['GET', '/__pyric/diagnostics'],
+      ['POST', '/__pyric/denials'],
+      ['GET', '/__pyric/thresholds'],
+      ['GET', '/__pyric/indexes'],
+      ['GET', '/__pyric/state'],
+      ['GET', '/__pyric/rate-captures'],
+      ['GET', '/__pyric/capture'],
+    ] as const) {
+      const res = await fetch(`${base}${path}`, {
+        method,
+        headers: method === 'POST' ? { 'content-type': 'application/json' } : undefined,
+        body: method === 'POST' ? '{}' : undefined,
+      });
+      expect(res.status, `${method} ${path} should not return 401`).not.toBe(401);
+      expect(res.status, `${method} ${path} should not return 403`).not.toBe(403);
+      await res.arrayBuffer();
+    }
+    const eventsRes = await fetch(`${base}/__pyric/events`);
+    expect(eventsRes.status).toBe(200);
+    await eventsRes.body?.cancel();
+
+    const mcpInitRes = await fetch(`${base}/__pyric/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
+      }),
+    });
+    expect(mcpInitRes.status).toBe(200);
+    await mcpInitRes.text();
+
+    expect(await tryWsUpgrade(`ws://127.0.0.1:${runtime.handle.port}/__pyric/sandbox`)).toBe(true);
+
+    // Authenticated init.json stamps sessionToken and mints HttpOnly SameSite=Strict cookie.
     const authInitRes = await fetch(`${base}/__pyric/init.json`, {
       headers: { 'x-pyric-session-token': runtime.sessionToken },
     });
@@ -192,19 +277,18 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     expect(setCookie).toContain('SameSite=Strict');
     expect(setCookie).toContain('Path=/__pyric');
     const authInit = (await authInitRes.json()) as Record<string, unknown>;
-    expect(authInit.rules).toContain("rules_version = '2'");
     expect(authInit.sessionToken).toBe(runtime.sessionToken);
 
     const cookiePair = setCookie.split(';')[0]!;
-    const cookieEvents = await fetch(`${base}/__pyric/events`, {
+    const authedWorkspace = await fetch(`${base}/__pyric/workspace?path=firestore.rules`, {
       headers: { cookie: cookiePair },
     });
-    expect(cookieEvents.status).toBe(200);
-    await cookieEvents.body?.cancel();
+    expect(authedWorkspace.status).toBe(200);
   }, 30_000);
 
-  it('refuses unauthenticated requests with 401 across control, diagnostics, AI proxy, MCP, and WS routes', async () => {
+  it('enforces sessionToken across every route when opted in via sessionToken/pyric.json and unconditionally in live mode (ignoring pyric.json sessionToken: false and rejecting ?token=)', async () => {
     const cwd = createProject();
+    writeFileSync(join(cwd, 'pyric.json'), JSON.stringify({ sessionToken: true }));
     const runtime = await startServe({
       cwd,
       port: 0,
@@ -219,7 +303,15 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     runtimes.push(runtime);
     const base = runtime.handle.url;
 
-    const unauthRoutes: Array<[string, string]> = [
+    const unauthInit = (await (await fetch(`${base}/__pyric/init.json`)).json()) as Record<string, unknown>;
+    expect(unauthInit.rules).toBeUndefined();
+    expect(unauthInit.sessionToken).toBeUndefined();
+    expect(typeof unauthInit.rulesHash).toBe('string');
+
+    const unauthHealth = (await (await fetch(`${base}/__pyric/health`)).json()) as Record<string, unknown>;
+    expect(unauthHealth.project).toBeUndefined();
+
+    const gatedRoutes: Array<[string, string]> = [
       ['GET', '/__pyric/diagnostics'],
       ['GET', '/__pyric/events'],
       ['POST', '/__pyric/denials'],
@@ -236,7 +328,7 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
       ['GET', '/__pyric/capture'],
     ];
 
-    for (const [method, path] of unauthRoutes) {
+    for (const [method, path] of gatedRoutes) {
       const res = await fetch(`${base}${path}`, {
         method,
         headers: method === 'POST' || method === 'PUT' ? { 'content-type': 'application/json' } : undefined,
@@ -246,16 +338,45 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
       await res.arrayBuffer();
     }
 
-    const ws = new WebSocket(`ws://127.0.0.1:${runtime.handle.port}/__pyric/sandbox`);
-    const wsOpened = await new Promise<boolean>((resolve) => {
-      ws.once('open', () => resolve(true));
-      ws.on('error', () => resolve(false));
-      ws.once('close', () => resolve(false));
-    });
-    expect(wsOpened).toBe(false);
-  }, 30_000);
+    // ?token= query parameter is rejected on both HTTP and WS.
+    const queryDiag = await fetch(`${base}/__pyric/diagnostics?token=${encodeURIComponent(runtime.sessionToken)}`);
+    expect(queryDiag.status).toBe(401);
+    expect(await tryWsUpgrade(`ws://127.0.0.1:${runtime.handle.port}/__pyric/sandbox`)).toBe(false);
+    expect(
+      await tryWsUpgrade(
+        `ws://127.0.0.1:${runtime.handle.port}/__pyric/sandbox?token=${encodeURIComponent(runtime.sessionToken)}`,
+      ),
+    ).toBe(false);
+    expect(
+      await tryWsUpgrade(`ws://127.0.0.1:${runtime.handle.port}/__pyric/sandbox`, {
+        'x-pyric-session-token': runtime.sessionToken,
+      }),
+    ).toBe(true);
 
-  it('refuses cross-port Origin, Sec-Fetch-Site: cross-site/same-site, and DNS-rebound Host even with a valid cookie/token', async () => {
+    // Live mode ignores pyric.json { sessionToken: false } and still requires token on every route.
+    const liveCwd = createProject();
+    writeFileSync(join(liveCwd, 'pyric.json'), JSON.stringify({ sessionToken: false }));
+    const liveRuntime = await startServe({
+      cwd: liveCwd,
+      port: 0,
+      host: '127.0.0.1',
+      cacheRoot: join(liveCwd, '.cache'),
+      bridge: true,
+      sessionToken: false,
+      disableAuditLog: true,
+      logger: silentServeLogger(),
+      liveHost: {
+        project: { projectId: 'demo-security', source: '.firebaserc' },
+        writeRefusal: (write) => new Error(`refused ${write.action}`),
+      },
+    });
+    runtimes.push(liveRuntime);
+    expect((await fetch(`${liveRuntime.handle.url}/__pyric/diagnostics`)).status).toBe(401);
+    expect((await fetch(`${liveRuntime.handle.url}/__pyric/mcp`, { method: 'POST', body: '{}' })).status).toBe(401);
+    expect(await tryWsUpgrade(`ws://127.0.0.1:${liveRuntime.handle.port}/__pyric/sandbox`)).toBe(false);
+  }, 45_000);
+
+  it('refuses --allowed-host tunnel Hosts on unauthenticated routes while honoring cross-port Origin, Sec-Fetch-Site, and DNS-rebinding guards', async () => {
     const cwd = createProject();
     const runtime = await startServe({
       cwd,
@@ -265,6 +386,7 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
       cacheRoot: join(cwd, '.cache'),
       bridge: true,
       persist: true,
+      ui: true,
       disableAuditLog: true,
       logger: silentServeLogger(),
     });
@@ -272,15 +394,53 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     const base = runtime.handle.url;
     const cookie = `__pyric_session=${encodeURIComponent(runtime.sessionToken)}`;
 
-    // Public asset honors explicit --allowed-host…
+    // Public asset honors explicit --allowed-host without minting cookie or stamping token…
     const publicRes = await rawHttpRequest({
       port: runtime.handle.port,
       path: '/',
       headers: { host: 'preview.tunnel.example' },
     });
     expect(publicRes.status).toBe(200);
+    expect(publicRes.headers['set-cookie']).toBeUndefined();
+    expect(publicRes.body).not.toContain(runtime.sessionToken);
 
-    // …while every /__pyric/* route and WS upgrade refuses non-allowlisted Host even with valid credentials.
+    // …while EVERY unauthenticated sandbox route and WS upgrade refuses the tunnel Host with 403 / destroy!
+    for (const path of [
+      '/__pyric/init.json',
+      '/__pyric/health',
+      '/__pyric/diagnostics',
+      '/__pyric/state',
+      '/__pyric/events',
+      '/__pyric/mcp',
+      '/__pyric/flow/manifest.json',
+    ]) {
+      const res = await rawHttpRequest({
+        port: runtime.handle.port,
+        path,
+        method: path === '/__pyric/mcp' ? 'POST' : 'GET',
+        headers: {
+          host: 'preview.tunnel.example',
+          ...(path === '/__pyric/mcp' ? { 'content-type': 'application/json' } : {}),
+        },
+        body: path === '/__pyric/mcp' ? '{}' : undefined,
+      });
+      expect(res.status, `tunnel Host on unauthenticated ${path}`).toBe(403);
+    }
+    expect(
+      await tryWsUpgrade(`ws://127.0.0.1:${runtime.handle.port}/__pyric/sandbox`, {
+        Host: 'preview.tunnel.example',
+        Origin: 'http://preview.tunnel.example',
+      }),
+    ).toBe(false);
+
+    // Token-gated routes return 401 without token on tunnel Host, and non-allowlisted Host returns 403 even with credentials.
+    const unauthTunnelWorkspace = await rawHttpRequest({
+      port: runtime.handle.port,
+      path: '/__pyric/workspace?path=firestore.rules',
+      headers: { host: 'preview.tunnel.example' },
+    });
+    expect(unauthTunnelWorkspace.status).toBe(401);
+
     for (const path of ['/__pyric/init.json', '/__pyric/health', '/__pyric/diagnostics', '/__pyric/mcp']) {
       const res = await rawHttpRequest({
         port: runtime.handle.port,
@@ -297,16 +457,13 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
       expect(res.status, `rebound Host on ${path}`).toBe(403);
     }
 
-    const reboundWs = new WebSocket(
-      `ws://127.0.0.1:${runtime.handle.port}/__pyric/sandbox?token=${encodeURIComponent(runtime.sessionToken)}`,
-      { headers: { Host: 'app.evil.test', Origin: `http://127.0.0.1:${runtime.handle.port}` } },
-    );
-    const reboundOpened = await new Promise<boolean>((resolve) => {
-      reboundWs.once('open', () => resolve(true));
-      reboundWs.on('error', () => resolve(false));
-      reboundWs.once('close', () => resolve(false));
-    });
-    expect(reboundOpened).toBe(false);
+    expect(
+      await tryWsUpgrade(`ws://127.0.0.1:${runtime.handle.port}/__pyric/sandbox`, {
+        Host: 'app.evil.test',
+        Origin: `http://127.0.0.1:${runtime.handle.port}`,
+        'x-pyric-session-token': runtime.sessionToken,
+      }),
+    ).toBe(false);
 
     // Cross-port localhost Origin + ambient __pyric_session cookie is refused with 403 before cookie evaluation.
     const crossPortRes = await fetch(`${base}/__pyric/diagnostics`, {
@@ -319,7 +476,7 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     expect(crossPortRes.status).toBe(403);
     await crossPortRes.arrayBuffer();
 
-    // Browser cross-site / same-site navigation/subresource without Origin (e.g. GET / SSE / script) is refused with 403.
+    // Browser cross-site / same-site navigation/subresource without Origin is refused with 403.
     for (const site of ['cross-site', 'same-site'] as const) {
       const fetchSiteRes = await fetch(`${base}/__pyric/events`, {
         headers: {
@@ -333,7 +490,7 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     }
   }, 30_000);
 
-  it('refuses non-loopback Host on /__pyric/* and WS /__pyric/sandbox even when Vite server.allowedHosts is true', async () => {
+  it('refuses non-loopback and tunnel Hosts on unauthenticated Vite /__pyric/* routes under both server.allowedHosts: true and explicit server.allowedHosts', async () => {
     const cwd = createProject();
     writeFileSync(join(cwd, 'index.html'), '<!doctype html><html><head></head><body>vite ok</body></html>');
     const viteServer = await createViteServer({
@@ -447,16 +604,43 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
       expect(res.status, `Vite allowedHosts:true rebound Host on ${path}`).toBe(403);
     }
 
-    const reboundWs = new WebSocket(
-      `ws://127.0.0.1:${port}/__pyric/sandbox?token=${encodeURIComponent(token)}`,
-      { headers: { Host: 'app.evil.test', Origin: `http://127.0.0.1:${port}` } },
-    );
-    const reboundOpened = await new Promise<boolean>((resolve) => {
-      reboundWs.once('open', () => resolve(true));
-      reboundWs.on('error', () => resolve(false));
-      reboundWs.once('close', () => resolve(false));
+    expect(
+      await tryWsUpgrade(`ws://127.0.0.1:${port}/__pyric/sandbox`, {
+        Host: 'app.evil.test',
+        Origin: `http://127.0.0.1:${port}`,
+        'x-pyric-session-token': token,
+      }),
+    ).toBe(false);
+    await viteServers.pop()!.close();
+
+    // Vite opt-in pyric({ sessionToken: true }) enforces 401 on unauthenticated loopback routes.
+    const strictCwd = createProject();
+    writeFileSync(join(strictCwd, 'index.html'), '<!doctype html><html><head></head><body>strict vite</body></html>');
+    const strictVite = await createViteServer({
+      configFile: false,
+      root: strictCwd,
+      logLevel: 'silent',
+      server: {
+        host: '127.0.0.1',
+        port: 0,
+        allowedHosts: ['preview.tunnel.example'],
+      },
+      plugins: [pyric({ sessionToken: true, bridge: { disableAuditLog: true }, ui: false })],
     });
-    expect(reboundOpened).toBe(false);
+    await strictVite.listen();
+    viteServers.push(strictVite);
+    const strictAddr = strictVite.httpServer?.address();
+    if (!strictAddr || typeof strictAddr === 'string') throw new Error('expected bound TCP port');
+    expect((await fetch(`http://127.0.0.1:${strictAddr.port}/__pyric/diagnostics`)).status).toBe(401);
+    expect(
+      (
+        await rawHttpRequest({
+          port: strictAddr.port,
+          path: '/__pyric/init.json',
+          headers: { host: 'preview.tunnel.example' },
+        })
+      ).status,
+    ).toBe(403);
   }, 30_000);
 
   it('guards static server and Studio HTML bootstrap against tunnel Hosts and foreign iframes', async () => {
@@ -554,67 +738,4 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     expect(localStudio.body).toContain(token);
     expect(String(localStudio.headers['set-cookie'] ?? '')).toContain('__pyric_session=');
   });
-
-  it('persists a 0o600 project capability token across durable restarts, rotates on --fresh, and skips disk when ephemeral', async () => {
-    const ephemeralCwd = createProject();
-    const eph1 = await startServe({
-      cwd: ephemeralCwd,
-      port: 0,
-      host: '127.0.0.1',
-      cacheRoot: join(ephemeralCwd, '.cache'),
-      capture: false,
-      logger: silentServeLogger(),
-    });
-    await eph1.handle.stop();
-    expect(existsSync(join(ephemeralCwd, '.pyric', 'capability-token'))).toBe(false);
-
-    const durableCwd = createProject();
-    const cacheRoot = join(durableCwd, '.cache');
-    const run1 = await startServe({
-      cwd: durableCwd,
-      port: 0,
-      host: '127.0.0.1',
-      cacheRoot,
-      persist: true,
-      logger: silentServeLogger(),
-    });
-    const token1 = run1.sessionToken;
-    const capPath = join(durableCwd, '.pyric', 'capability-token');
-    expect(existsSync(capPath)).toBe(true);
-    expect(statSync(capPath).mode & 0o777).toBe(0o600);
-    await run1.handle.stop();
-
-    const run2 = await startServe({
-      cwd: durableCwd,
-      port: 0,
-      host: '127.0.0.1',
-      cacheRoot,
-      persist: true,
-      logger: silentServeLogger(),
-    });
-    expect(run2.sessionToken).toBe(token1);
-    const reconnected = await fetch(`${run2.handle.url}/__pyric/init.json`, {
-      headers: { 'x-pyric-session-token': token1 },
-    });
-    expect(reconnected.status).toBe(200);
-    expect(((await reconnected.json()) as { rules?: unknown }).rules).toBeDefined();
-    await run2.handle.stop();
-
-    const runFresh = await startServe({
-      cwd: durableCwd,
-      port: 0,
-      host: '127.0.0.1',
-      cacheRoot,
-      persist: true,
-      fresh: true,
-      logger: silentServeLogger(),
-    });
-    runtimes.push(runFresh);
-    expect(runFresh.sessionToken).not.toBe(token1);
-    expect(statSync(capPath).mode & 0o777).toBe(0o600);
-    const staleAfterFresh = await fetch(`${runFresh.handle.url}/__pyric/state`, {
-      headers: { 'x-pyric-session-token': token1 },
-    });
-    expect(staleAfterFresh.status).toBe(401);
-  }, 60_000);
 });

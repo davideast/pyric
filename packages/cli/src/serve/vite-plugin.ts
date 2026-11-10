@@ -55,7 +55,6 @@ import {
   type ViteSandboxGenerationOptions,
 } from './vite-sandbox-generation.js';
 import { localGenerationSlot, projectGenerationSlot, projectSessionToken } from './vite-generation-registry.js';
-import { writeDurableProjectCapabilityToken } from './local-session-token.js';
 import { attachViteHtmlSessionBootstrap, currentViteHtmlPeerContext } from './vite-generation-middleware.js';
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
@@ -215,6 +214,10 @@ export interface PyricOptions {
    *  sandbox (`sandboxStorageFetch` from `pyric/storage/sw`), so the file needs
    *  no Pyric import. Builds are untouched. */
   serviceWorker?: string;
+  /** Require a per-boot session capability token on every local `/__pyric/*`
+   *  route, MCP, and `WS /__pyric/sandbox` (workspace, project, and AI proxy
+   *  routes always require one). Default: `false` (or `pyric.json#sessionToken`). */
+  sessionToken?: boolean;
 }
 
 function resolveFunctionsOptions(
@@ -405,9 +408,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
       const stateScope = generationStateScope(options);
       const ownsProjectState = stateScope !== null;
-      const ownsDurableOfflineState = ownsProjectState && supplied === undefined;
       const sessionToken = projectSessionToken(projectDir, {
-        durable: ownsDurableOfflineState,
         fresh: options.fresh === true,
       });
       activeSessionToken = sessionToken;
@@ -418,7 +419,12 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
       await slot.take()?.close();
-      owners = await readOwners(projectDir, options.owners);
+      const pyricConfig = await readPyricConfig(projectDir);
+      owners = resolveOwnersConfig(pyricConfig.owners, options.owners);
+      const requireSessionToken =
+        supplied !== undefined ||
+        options.sessionToken === true ||
+        (options.sessionToken === undefined && pyricConfig.sessionToken === true);
 
       const uiEnabled = options.ui ?? true;
       const functionsOptions = resolveFunctionsOptions(options.functions);
@@ -436,6 +442,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         avatars: options.avatars,
         flow: options.flow,
         project: options.project,
+        requireSessionToken,
         // Rows supplied through `@pyric/live`'s seam make this host live.
         liveHost: supplied !== undefined,
         livePassThrough: supplied === undefined ? undefined : [...supplied.passThrough],
@@ -452,9 +459,6 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         sessionToken,
       };
       const generation = await createViteSandboxGeneration(generationInput);
-      if (ownsDurableOfflineState) {
-        writeDurableProjectCapabilityToken(projectDir, sessionToken);
-      }
       slot.set(generation);
       // Server-rendered firebase/* and firebase-admin/* reach this server's host (#1123).
       const ssrActivation = attachViteSsrActivation(server, options.hosted === true);
