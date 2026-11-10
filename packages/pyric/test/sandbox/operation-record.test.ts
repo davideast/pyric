@@ -287,6 +287,25 @@ describe('canonical operation records', () => {
     expect(record.production).not.toBe(production);
     expect(Object.isFrozen(record.production)).toBe(true);
   });
+
+  it('preserves __proto__ as an own data property without mutating cloned object prototypes', () => {
+    const parsedToken = JSON.parse('{"__proto__":{"toString":"not-callable","role":"member"},"scope":"read"}') as Record<string, unknown>;
+    const event: SandboxEvent = {
+      kind: 'operation',
+      id: 'proto-token-record',
+      at: 1,
+      service: 'firestore',
+      method: 'get',
+      path: 'items/item-1',
+      auth: { uid: 'user-1', token: parsedToken },
+      result: 'allow',
+      origin: 'user',
+    };
+    const record = toOperationRecord(event)!;
+    const token = record.auth?.token as Record<string, unknown>;
+    expect(Object.getPrototypeOf(token)).toBe(Object.prototype);
+    expect(() => String(token)).not.toThrow();
+    expect(Object.prototype.hasOwnProperty.call(token, '__proto__')).toBe(true);
+    expect(Object.keys(token).sort()).toEqual(['__proto__', 'scope']);
+  });
 });
-
-

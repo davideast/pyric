@@ -43,6 +43,21 @@ describe('repro secrets', () => {
     expect(JSON.parse(Buffer.from(claims, 'base64url').toString())).toEqual({ sub: 'alice', iat: 1, admin: true });
     expect(signature).toBe('');
   });
+
+  test('redactSecrets and restoreRedactedTokens preserve __proto__ as an own property without mutating prototypes', () => {
+    const payload = JSON.parse('{"__proto__":{"toString":"not-callable","role":"member"},"title":"ok"}') as Record<string, unknown>;
+    const redacted = redactSecrets(payload) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(redacted)).toBe(Object.prototype);
+    expect(() => String(redacted)).not.toThrow();
+    expect(Object.prototype.hasOwnProperty.call(redacted, '__proto__')).toBe(true);
+    expect(Object.keys(redacted).sort()).toEqual(['__proto__', 'title']);
+
+    const restored = restoreRedactedTokens(redacted) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(restored)).toBe(Object.prototype);
+    expect(() => String(restored)).not.toThrow();
+    expect(Object.prototype.hasOwnProperty.call(restored, '__proto__')).toBe(true);
+    expect(Object.keys(restored).sort()).toEqual(['__proto__', 'title']);
+  });
 });
 
 describe('repro comparison', () => {

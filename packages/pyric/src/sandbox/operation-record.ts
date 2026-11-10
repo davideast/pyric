@@ -203,10 +203,19 @@ function immutableAuthState(auth: AuthState): AuthState {
   });
 }
 
+function defineOwnField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
 function immutableRecord(value: Record<string, unknown>): Record<string, unknown> {
   const clone: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
-    clone[key] = immutableValue(entry);
+    defineOwnField(clone, key, immutableValue(entry));
   }
   return Object.freeze(clone);
 }

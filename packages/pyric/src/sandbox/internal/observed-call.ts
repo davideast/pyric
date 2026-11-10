@@ -306,13 +306,22 @@ function copyJsonValue(value: unknown, depth: number, budget: { left: number }):
   return copyJsonFields(value, depth, budget);
 }
 
+function defineOwnField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
 function copyJsonFields(value: Fields, depth: number, budget: { left: number }): Fields | undefined {
   const copy: Fields = {};
   for (const key of Object.keys(value)) {
     budget.left -= key.length + 4;
     const copied = copyJsonValue(value[key], depth + 1, budget);
     if (copied === undefined || budget.left < 0) return undefined;
-    copy[key] = copied;
+    defineOwnField(copy, key, copied);
   }
   return copy;
 }

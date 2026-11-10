@@ -204,6 +204,15 @@ function isServiceAccount(value: Record<string, unknown>): boolean {
   return value.type === 'service_account' || ('client_email' in value && 'private_key' in value);
 }
 
+function defineOwnField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
 /**
  * Copy a JSON value with its secrets removed: every JSON Web Token becomes its
  * header and claims, every private key or service account record becomes
@@ -221,7 +230,7 @@ export function redactSecrets(value: unknown): unknown {
   if (isServiceAccount(value)) return REDACTED_SECRET;
   const copy: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    copy[key] = SECRET_KEYS.has(key) ? REDACTED_SECRET : redactSecrets(child);
+    defineOwnField(copy, key, SECRET_KEYS.has(key) ? REDACTED_SECRET : redactSecrets(child));
   }
   return copy;
 }
@@ -237,6 +246,6 @@ export function restoreRedactedTokens(value: unknown): unknown {
     return unsignedJwt(redacted as { header: Record<string, unknown>; claims: Record<string, unknown> });
   }
   const copy: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) copy[key] = restoreRedactedTokens(child);
+  for (const [key, child] of Object.entries(value)) defineOwnField(copy, key, restoreRedactedTokens(child));
   return copy;
 }

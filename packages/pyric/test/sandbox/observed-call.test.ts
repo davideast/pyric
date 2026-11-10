@@ -970,4 +970,29 @@ describe('observed listener lifecycle', () => {
       expect(() => readObservedCall(candidate)).toThrow(`Invalid observed call field: ${field}.`);
     }
   });
+
+  it('keeps __proto__ as an own enumerable data property in writeData, document, and claims without mutating prototypes', () => {
+    const raw = JSON.parse(
+      JSON.stringify({
+        service: 'firestore',
+        method: 'setDoc',
+        path: 'items/item-1',
+        at: 1_000,
+        outcome: { status: 'ok' },
+        account: { uid: 'user-1', claimNames: ['role'] },
+      }),
+    ) as Record<string, unknown>;
+    raw.writeData = JSON.parse('{"__proto__":{"toString":"not-callable","role":"member"},"title":"ok"}');
+    raw.document = JSON.parse('{"__proto__":{"nested":true},"title":"prev"}');
+    (raw.account as Record<string, unknown>).claims = JSON.parse('{"__proto__":{"admin":true},"role":"reader"}');
+
+    const call = readObservedCall(raw);
+    for (const map of [call.writeData as Record<string, unknown>, call.document!, call.account!.claims!]) {
+      expect(Object.getPrototypeOf(map)).toBe(Object.prototype);
+      expect(() => String(map)).not.toThrow();
+      expect(Object.prototype.hasOwnProperty.call(map, '__proto__')).toBe(true);
+      expect(Object.keys(map)).toContain('__proto__');
+    }
+    expect((call.account!.claims as Record<string, unknown>).admin).toBeUndefined();
+  });
 });
