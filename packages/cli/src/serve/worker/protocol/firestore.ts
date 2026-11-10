@@ -162,6 +162,16 @@ export interface TxnReadEntry {
   data: SerializedDocData | null;
 }
 
+/**
+ * One transactional query read recorded by the client on `txnCommit`.
+ * Re-evaluated inside the host's commit transaction to detect phantom inserts
+ * or membership changes (including when `docPaths` was empty at read time).
+ */
+export interface TxnQueryReadEntry {
+  target: TargetDescriptor;
+  docPaths: string[];
+}
+
 /** Register a Firestore snapshot listener for a doc or query. The worker
  *  fires `{ t:'snap', subId, value }` immediately (initial) and on each
  *  update. */

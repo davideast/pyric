@@ -25,13 +25,16 @@ import { invalidArgument } from './errors.js';
 import { encodeValue } from './value-codec.js';
 import { makeQuerySnapshot } from './snapshots.js';
 import {
+  FieldPath,
   fieldPathSegments,
   getSnapshotField,
   type SnapshotFieldPath,
 } from '../../../firestore/sandbox/admin-compat/field-path.js';
 import {
-  canonicalFieldPath,
+  decodeEncodedFieldPath,
   fieldPathArgumentSegments,
+  fieldPathKey,
+  fieldPathKeySegments,
 } from '../../../firestore/sandbox/update-fields.js';
 import { normalizeQueryOrders } from '../../../firestore/internal/implicit-order.js';
 import {
@@ -73,7 +76,8 @@ export function queryStateOf(value: unknown): QueryState | undefined {
 function encodeFilter(filter: Filter): WireFilter {
   if (filter.kind === 'where') {
     validateWhereOp(filter.op);
-    return { kind: 'where', field: filter.field, op: filter.op, value: encodeValue(filter.value) };
+    const normalizedField = validateQueryField(filter.field);
+    return { kind: 'where', field: normalizedField, op: filter.op, value: encodeValue(filter.value) };
   }
   return { kind: filter.kind, filters: filter.filters.map(encodeFilter) };
 }
@@ -199,7 +203,10 @@ function cursorValuesFromSnapshot(
     );
   }
   return effectiveOrders.map((o) => {
-    const value = getSnapshotField(data, o.field);
+    const lookupField = o.field.includes('`')
+      ? new FieldPath(...fieldPathKeySegments(o.field))
+      : o.field;
+    const value = getSnapshotField(data, lookupField);
     if (value === undefined) {
       throw invalidArgument(
         `Field "${o.field}" is missing in the provided DocumentSnapshot for ${method}().`,
@@ -209,13 +216,35 @@ function cursorValuesFromSnapshot(
   });
 }
 
-function validateOrderField(field: SnapshotFieldPath): string {
+function validateQueryField(field: SnapshotFieldPath): string {
+  if (typeof field === 'string') {
+    const decoded = decodeEncodedFieldPath(field);
+    if (decoded !== undefined) return fieldPathKey(decoded);
+  }
   try {
-    const segments = fieldPathSegments(field);
-    return typeof field === 'string' ? field : canonicalFieldPath(segments);
+    return fieldPathKey(fieldPathSegments(field));
   } catch (error) {
     throw invalidArgument((error as Error).message);
   }
+}
+
+function validateStringAggregateField(field: SnapshotFieldPath): string {
+  try {
+    const segments = fieldPathSegments(field);
+    return typeof field === 'string' ? field : segments.join('.');
+  } catch (error) {
+    throw invalidArgument((error as Error).message);
+  }
+}
+
+function cloneCursorOperand(value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    return Uint8Array.prototype.slice.call(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(cloneCursorOperand);
+  }
+  return value;
 }
 
 function assertValidLimit(n: number): void {
@@ -262,7 +291,7 @@ function normalizeWireAggregateSpec(spec: AggregateSpec): Record<string, unknown
       wireSpec[alias] = wireEntry;
       continue;
     }
-    const validatedField = validateOrderField(entry.field);
+    const validatedField = validateStringAggregateField(entry.field);
     const wireEntry: { kind: 'sum' | 'average'; field: string; path?: readonly string[] } = {
       kind: entry.kind,
       field: validatedField,
@@ -286,11 +315,12 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
   } = {
     [QUERY_STATE]: state,
 
-    where(field: string, op: WhereFilterOp, value: unknown): Query {
+    where(field: SnapshotFieldPath, op: WhereFilterOp, value: unknown): Query {
       validateWhereOp(op);
+      const normalizedField = validateQueryField(field);
       const filters: WireFilter[] = [
         ...state.filters,
-        { kind: 'where', field, op, value: encodeValue(value) },
+        { kind: 'where', field: normalizedField, op, value: encodeValue(value) },
       ];
       const start = recomputeSnapshotCursor(state.start, filters, state.orders, 'startAt', 'startAfter');
       const end = recomputeSnapshotCursor(state.end, filters, state.orders, 'endAt', 'endBefore');
@@ -302,8 +332,8 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
       const end = recomputeSnapshotCursor(state.end, filters, state.orders, 'endAt', 'endBefore');
       return clone({ filters, start, end });
     },
-    orderBy(field: string, direction: OrderDirection = 'asc'): Query {
-      const normalizedField = validateOrderField(field);
+    orderBy(field: SnapshotFieldPath, direction: OrderDirection = 'asc'): Query {
+      const normalizedField = validateQueryField(field);
       if (direction !== 'asc' && direction !== 'desc') {
         throw invalidArgument("orderBy() direction must be 'asc' or 'desc'.");
       }
@@ -321,10 +351,10 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
       return clone({ limitCount: n, limitFromEnd: true });
     },
     startCursor(values: unknown[], inclusive: boolean): Query {
-      return clone({ start: { values: [...values], inclusive } });
+      return clone({ start: { values: values.map(cloneCursorOperand), inclusive } });
     },
     endCursor(values: unknown[], inclusive: boolean): Query {
-      return clone({ end: { values: [...values], inclusive } });
+      return clone({ end: { values: values.map(cloneCursorOperand), inclusive } });
     },
     startCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
       const method = inclusive ? 'startAt' : 'startAfter';

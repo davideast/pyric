@@ -21,6 +21,7 @@ import type {
   WriteDescriptor,
   UpdatePayload,
   TxnReadEntry,
+  TxnQueryReadEntry,
   FirestoreSubMessage,
 } from './protocol/firestore.js';
 import type {
@@ -122,9 +123,10 @@ export type OpMessage = (
       id: string;
       method: 'getDoc';
       path: string;
+      txnId?: string;
       activity?: { groupKind?: 'transaction' };
     }
-  | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor }
+  | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor; txnId?: string }
   | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] } }
   | ({ t: 'op'; id: string; method: 'updateDoc'; path: string; valueEncoding?: DocValueEncoding } & UpdatePayload)
   | { t: 'op'; id: string; method: 'deleteDoc'; path: string }
@@ -132,7 +134,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'count'; source: TargetDescriptor }
   | { t: 'op'; id: string; method: 'aggregate'; source: TargetDescriptor; spec: AggregateSpecDescriptor }
   | { t: 'op'; id: string; method: 'batchCommit'; writes: WriteDescriptor[] }
-  | { t: 'op'; id: string; method: 'txnCommit'; reads: TxnReadEntry[]; writes: WriteDescriptor[] }
+  | { t: 'op'; id: string; method: 'txnCommit'; txnId?: string; abortOnly?: boolean; reads: TxnReadEntry[]; queryReads?: TxnQueryReadEntry[]; writes: WriteDescriptor[] }
   | { t: 'op'; id: string; method: 'setRules'; source: string }
   | { t: 'op'; id: string; method: 'setFirestoreRules'; source: string }
   // `instance` names an RTDB instance (the SDK's namespace) on the RTDB ops,

@@ -54,6 +54,35 @@ import {
   type WriteBatch,
 } from './types.js';
 
+const envCommitQueues = new WeakMap<LocalEnvironment, Promise<void>>();
+
+function withSerializedCommit<T>(
+  env: LocalEnvironment,
+  finalizeAndResolve: () => T,
+): Promise<T> {
+  const prev = envCommitQueues.get(env) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const next = prev.then(() => gate);
+  envCommitQueues.set(env, next);
+  return prev.then(() => {
+    try {
+      return finalizeAndResolve();
+    } finally {
+      queueMicrotask(() => {
+        queueMicrotask(() => {
+          if (envCommitQueues.get(env) === next) {
+            envCommitQueues.delete(env);
+          }
+          release();
+        });
+      });
+    }
+  });
+}
+
 export class FirestoreImpl implements Firestore {
   constructor(
     private readonly env: LocalEnvironment,
@@ -122,8 +151,23 @@ export class FirestoreImpl implements Firestore {
       // no functional difference.
       result = await this.env.transaction<R>(
         (simTx) => {
-          const tx = new TransactionImpl(simTx);
-          return fn(tx) as R;
+          const pinnedSnapshot = this.env.snapshot();
+          const tx = new TransactionImpl(simTx, pinnedSnapshot, this.bypassRules);
+          const callbackOut = fn(tx);
+          if (
+            callbackOut !== null
+            && (typeof callbackOut === 'object' || typeof callbackOut === 'function')
+            && typeof (callbackOut as PromiseLike<R>).then === 'function'
+          ) {
+            return (callbackOut as Promise<R>).then((value) =>
+              withSerializedCommit(this.env, () => {
+                tx.finalizeBeforeCommit();
+                return value;
+              }),
+            ) as unknown as R;
+          }
+          tx.finalizeBeforeCommit();
+          return callbackOut as R;
         },
         {
           auth: opts?.auth !== undefined ? opts.auth : this.auth,

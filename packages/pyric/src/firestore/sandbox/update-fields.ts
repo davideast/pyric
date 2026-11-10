@@ -82,6 +82,62 @@ export function fieldPathKeySegments(key: string): string[] {
   return segments;
 }
 
+const FORBIDDEN_UNQUOTED_FIELD_SEGMENT = /[`*~/[\]]/;
+
+/**
+ * Decode a wire/engine-encoded field path containing at least one backtick-quoted
+ * segment back into its literal segment vector, or `undefined` if `input` is not
+ * a valid encoded field path.
+ */
+export function decodeEncodedFieldPath(input: string): string[] | undefined {
+  if (!input.includes('`') || input.length === 0) return undefined;
+  const segments: string[] = [];
+  let sawQuoted = false;
+  let i = 0;
+  while (i < input.length) {
+    if (input[i] === '`') {
+      i += 1;
+      let segment = '';
+      let closed = false;
+      while (i < input.length) {
+        const char = input[i]!;
+        if (char === '\\') {
+          if (i + 1 >= input.length) return undefined;
+          segment += input[i + 1]!;
+          i += 2;
+          continue;
+        }
+        if (char === '`') {
+          closed = true;
+          i += 1;
+          break;
+        }
+        segment += char;
+        i += 1;
+      }
+      if (!closed || segment.length === 0) return undefined;
+      sawQuoted = true;
+      segments.push(segment);
+      if (i < input.length) {
+        if (input[i] !== '.' || i + 1 >= input.length) return undefined;
+        i += 1;
+      }
+    } else {
+      const nextDot = input.indexOf('.', i);
+      const end = nextDot === -1 ? input.length : nextDot;
+      const segment = input.slice(i, end);
+      if (segment.length === 0 || FORBIDDEN_UNQUOTED_FIELD_SEGMENT.test(segment)) {
+        return undefined;
+      }
+      segments.push(segment);
+      if (nextDot === -1) break;
+      if (nextDot + 1 >= input.length) return undefined;
+      i = nextDot + 1;
+    }
+  }
+  return sawQuoted && segments.length > 0 ? segments : undefined;
+}
+
 /** Build the engine's update payload. A repeated path keeps its last value. */
 export function updateFieldsData(fields: readonly UpdateField[]): DocumentData {
   const data: DocumentData = {};

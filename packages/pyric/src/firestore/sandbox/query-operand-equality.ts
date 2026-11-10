@@ -1,8 +1,13 @@
 import {
+  Bytes as InternalBytes,
+  Reference as InternalReference,
+} from 'pyric/rules/internal';
+import {
   registeredQueryValue,
   registeredQueryExecutionValue,
   registeredQueryValueOwner,
   registerQueryValue,
+  registerReferenceQueryValue,
 } from './query-value-registry.js';
 import { firestoreValuesEqual } from './value-equality.js';
 import { FirestoreCompatError } from './firestore-compat-error.js';
@@ -114,10 +119,25 @@ function canonicalize(
   }
   const isByteArray = value instanceof Uint8Array;
   if (isByteArray) {
-    const copy = value.slice();
+    const copy = Uint8Array.prototype.slice.call(value);
     return {
       comparison: { type: 'bytes', values: Array.from(copy) },
       execution: copy,
+    };
+  }
+  if (value instanceof InternalBytes) {
+    const copy = Uint8Array.prototype.slice.call(value.data);
+    return {
+      comparison: { type: 'bytes', values: Array.from(copy) },
+      execution: copy,
+    };
+  }
+  if (value instanceof InternalReference) {
+    const ref = new InternalReference(value.path);
+    registerReferenceQueryValue(ref, ref.path);
+    return {
+      comparison: { type: 'registered-firestore-value', value: registeredQueryValue(ref) },
+      execution: ref,
     };
   }
   const isCyclicValue = ancestors.has(value);

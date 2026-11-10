@@ -22,8 +22,10 @@
  */
 
 import { rehydrateEncodedDocValue } from 'pyric/firestore/internal/value-codec';
+import { Bytes as InternalBytes } from 'pyric/rules/internal';
 import {
   Timestamp as CompatTimestamp,
+  registeredAdminReferencePath,
   type DocumentData,
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-compat';
@@ -90,6 +92,12 @@ export function encodeValue(v: unknown): unknown {
   }
   if (v === null || typeof v !== 'object') return v;
   if (isFieldValueSentinel(v)) return encodeSentinel(v);
+  const referencePath = registeredAdminReferencePath(v);
+  if (referencePath !== undefined) return { __type: 'reference', path: referencePath };
+  if (v instanceof Uint8Array) {
+    const view = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+    return new InternalBytes(view.slice()).toJSON();
+  }
   if (v instanceof CompatTimestamp) return v.toJSON();
   if (v instanceof Date) return CompatTimestamp.fromDate(v).toJSON();
   if (Array.isArray(v)) return v.map(encodeValue);

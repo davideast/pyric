@@ -61,6 +61,12 @@ export interface WireTxnRead {
   data: WireDocData | null;
 }
 
+/** Mirrors the protocol's `TxnQueryReadEntry` for commit-time phantom/membership checks. */
+export interface WireTxnQueryRead {
+  target: WireTarget;
+  docPaths: string[];
+}
+
 /** `getDoc` result / doc-listener snap value on the wire. */
 export interface WireDocSnap {
   id: string;

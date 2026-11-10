@@ -31,10 +31,17 @@ import { parseAdminUpdateArguments } from '../../../firestore/sandbox/admin-comp
 import { makeDocumentSnapshot, makeQuerySnapshot } from './snapshots.js';
 import { buildDescriptor, queryStateOf, validateExecutable, type QueryState } from './query.js';
 import { toWireSetOptions } from './batch.js';
-import type { WireDocSnap, WireQuerySnap, WireTxnRead, WireWrite } from './wire-types.js';
+import type {
+  WireDocSnap,
+  WireQuerySnap,
+  WireTxnQueryRead,
+  WireTxnRead,
+  WireWrite,
+} from './wire-types.js';
 
 /** Matches the worker client's retry cap (and the Firestore SDK default). */
 const TXN_MAX_ATTEMPTS = 5;
+let remoteTxnAttemptSeq = 0;
 
 export async function runRemoteTransaction<R>(
   arm: RemoteArm,
@@ -42,8 +49,13 @@ export async function runRemoteTransaction<R>(
   maxAttempts = TXN_MAX_ATTEMPTS,
 ): Promise<R> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Fresh read-set + write buffer per attempt.
+    // Fresh attempt id + read-set + write buffer per attempt so all reads in
+    // one attempt observe a single point-in-time snapshot on the worker host.
+    remoteTxnAttemptSeq += 1;
+    const txnId = `rtx-${Date.now().toString(36)}-${remoteTxnAttemptSeq.toString(36)}`;
+    let issuedRead = false;
     const reads: WireTxnRead[] = [];
+    const queryReads: WireTxnQueryRead[] = [];
     const writes: WireWrite[] = [];
 
     // READS-BEFORE-WRITES: the local arm's engine transaction throws
@@ -93,7 +105,8 @@ export async function runRemoteTransaction<R>(
     };
 
     async function txGetDoc(ref: DocumentReference): Promise<DocumentSnapshot> {
-      const wire = (await armOp(arm, { method: 'getDoc', path: ref.path })) as WireDocSnap;
+      issuedRead = true;
+      const wire = (await armOp(arm, { method: 'getDoc', path: ref.path, txnId })) as WireDocSnap;
       // READ-SET INVARIANT: record the worker's ORIGINAL serialized
       // envelope verbatim. The worker validates by re-serializing the
       // current doc IN ITS OWN process and comparing JSON strings —
@@ -108,22 +121,51 @@ export async function runRemoteTransaction<R>(
 
     async function txGetQuery(state: QueryState): Promise<QuerySnapshot> {
       validateExecutable(state);
+      const target = buildDescriptor(state);
+      issuedRead = true;
       const wire = (await armOp(arm, {
         method: 'getDocs',
-        source: buildDescriptor(state),
+        source: target,
+        txnId,
       })) as WireQuerySnap;
       // Register every returned doc in the read-set (the local arm's
-      // `simTx.getAll` registration) — again echoing the original bytes.
+      // `simTx.getAll` registration) — again echoing the original bytes —
+      // and record the query descriptor + ordered result paths so phantom
+      // inserts or membership changes abort at commit time even on empty sets.
+      const docPaths: string[] = [];
       for (const row of wire.docs) {
-        reads.push({ path: row.path ?? row.id, data: row.data ?? null });
+        const docPath = row.path ?? row.id;
+        docPaths.push(docPath);
+        reads.push({ path: docPath, data: row.data ?? null });
       }
+      queryReads.push({ target, docPaths });
       return makeQuerySnapshot(arm, wire);
     }
 
-    const result = await fn(tx);
+    let result: R;
+    try {
+      result = await fn(tx);
+    } catch (callbackErr) {
+      if (issuedRead) {
+        armOp(arm, {
+          method: 'txnCommit',
+          txnId,
+          abortOnly: true,
+          reads: [],
+          writes: [],
+        }).catch(() => {});
+      }
+      throw callbackErr;
+    }
 
     try {
-      await armOp(arm, { method: 'txnCommit', reads, writes });
+      await armOp(arm, {
+        method: 'txnCommit',
+        txnId,
+        reads,
+        ...(queryReads.length > 0 ? { queryReads } : {}),
+        writes,
+      });
       return result;
     } catch (err) {
       if (err instanceof SandboxError && err.code === 'aborted') {

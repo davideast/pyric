@@ -14,7 +14,12 @@ import {
   type DatabaseInstanceRegistry,
 } from 'pyric/sandbox/internal';
 import { normalizeNode } from 'pyric/database/internal';
-import { buildDatabaseShell } from './database-shell.js';
+import type { PyricAdminApp } from '../app/index.js';
+import {
+  buildDatabaseShell,
+  formatReferenceUrl,
+  type DatabaseUrlMetadata,
+} from './database-shell.js';
 import { buildSandboxSnap } from './data-snapshot.js';
 import {
   generatePushId,
@@ -44,32 +49,41 @@ interface RemoteWireSnapshot {
   size: number;
 }
 
+interface RemoteValueListenerEntry {
+  callback: unknown;
+  context: unknown;
+  detach: () => void;
+}
+
 interface RemoteDbState {
   channel: RemoteSandboxChannel;
   instance: string | undefined;
-  listeners: Map<string, Map<unknown, () => void>>;
+  listeners: Map<string, RemoteValueListenerEntry[]>;
 }
 
-const remoteDbsBySandbox = new WeakMap<Sandbox, DatabaseInstanceRegistry<{ db?: Database }>>();
+const remoteStatesBySandbox = new WeakMap<Sandbox, DatabaseInstanceRegistry<{ state?: RemoteDbState }>>();
 
 export function getRemoteDatabase(
+  app: PyricAdminApp,
   sandbox: RemoteSandbox,
   instance: DatabaseInstance | undefined,
+  urlMeta: DatabaseUrlMetadata,
 ): Database {
-  let registry = remoteDbsBySandbox.get(sandbox);
+  let registry = remoteStatesBySandbox.get(sandbox);
   if (registry === undefined) {
     registry = createDatabaseInstanceRegistry({ create: () => ({}) });
-    remoteDbsBySandbox.set(sandbox, registry);
+    remoteStatesBySandbox.set(sandbox, registry);
   }
   const entry = registry.getOrCreate(registry.keyOf(instance));
-  if (entry.db !== undefined) return entry.db;
-  const state: RemoteDbState = {
+  entry.state ??= {
     channel: sandbox.channel,
     instance: instance?.name,
     listeners: new Map(),
   };
-  entry.db = buildDatabaseShell(instance, (dbHandle, path) => buildRemoteRef(state, dbHandle, path));
-  return entry.db;
+  const state = entry.state;
+  return buildDatabaseShell(app, urlMeta, (dbHandle, path, meta) =>
+    buildRemoteRef(state, dbHandle, path, meta),
+  );
 }
 
 type RemoteRtdbOp = { method: `rtdb.${string}`; path: string } & Record<string, unknown>;
@@ -95,11 +109,12 @@ function buildRemoteRef(
   state: RemoteDbState,
   db: Database,
   path: string,
+  urlMeta: DatabaseUrlMetadata,
 ): Reference {
   const canonical = joinPath(pathSegments(path));
   const segs = pathSegments(canonical);
   const key = segs.length === 0 ? null : segs[segs.length - 1]!;
-  const refAt = (p: string): Reference => buildRemoteRef(state, db, p);
+  const refAt = (p: string): Reference => buildRemoteRef(state, db, p, urlMeta);
   const snapFromWire = (wire: RemoteWireSnapshot): DataSnapshot =>
     buildSandboxSnap(refAt, canonical, normalizeNode(wire.value ?? null), wire.exportValue);
 
@@ -116,7 +131,7 @@ function buildRemoteRef(
       return canonical;
     },
     toString(): string {
-      return `sandbox://rtdb${canonical}`;
+      return formatReferenceUrl(urlMeta.originUrl, segs);
     },
 
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
@@ -255,51 +270,57 @@ function buildRemoteRef(
       eventType: EventType,
       callback: (snap: DataSnapshot, prevChildKey?: string | null) => unknown,
       cancelCallbackOrContext?: ((err: Error) => unknown) | object | null,
-      _context?: object | null,
+      context?: object | null,
     ): (snap: DataSnapshot, prevChildKey?: string | null) => unknown {
       if (eventType !== 'value') {
         throw notImplemented(`on('${eventType}')`);
       }
-      const cancelCallback =
-        typeof cancelCallbackOrContext === 'function'
-          ? (cancelCallbackOrContext as (err: Error) => unknown)
-          : undefined;
+      const { failureCb, boundContext } = resolveOnceCallbacks(cancelCallbackOrContext, context);
+      const normalizedContext = boundContext ?? undefined;
+      let erroredSynchronously = false;
+      const entry: RemoteValueListenerEntry = {
+        callback,
+        context: normalizedContext,
+        detach: () => {},
+      };
+      let atPath = state.listeners.get(canonical);
+      if (atPath === undefined) {
+        atPath = [];
+        state.listeners.set(canonical, atPath);
+      }
+      atPath.push(entry);
       const detach = subscribeRtdbValue(
         state,
         canonical,
         (value) => {
-          callback(snapFromWire(value as RemoteWireSnapshot));
+          callback.call(normalizedContext, snapFromWire(value as RemoteWireSnapshot), null);
         },
         (err) => {
-          detachListener(state, canonical, callback);
-          if (cancelCallback) cancelCallback(err);
+          erroredSynchronously = true;
+          detachExactListener(state, canonical, entry);
+          if (failureCb) failureCb.call(normalizedContext, err);
           else console.error(`pyric-admin/database: on('value') subscription failed at ${canonical}:`, err);
         },
       );
-      let atPath = state.listeners.get(canonical);
-      if (atPath === undefined) {
-        atPath = new Map();
-        state.listeners.set(canonical, atPath);
-      }
-      atPath.get(callback)?.();
-      atPath.set(callback, detach);
+      entry.detach = detach;
+      if (erroredSynchronously) detach();
       return callback;
     },
 
     off(
       eventType?: EventType,
       callback?: (snap: DataSnapshot, prevChildKey?: string | null) => unknown,
-      _context?: object | null,
+      context?: object | null,
     ): void {
       if (eventType !== undefined && eventType !== 'value') return;
       if (callback !== undefined) {
-        detachListener(state, canonical, callback);
+        detachMatchingListeners(state, canonical, callback, context ?? undefined);
         return;
       }
       const atPath = state.listeners.get(canonical);
       if (atPath === undefined) return;
-      for (const detach of atPath.values()) detach();
       state.listeners.delete(canonical);
+      for (const entry of atPath) entry.detach();
     },
 
     onDisconnect(): never {
@@ -354,8 +375,8 @@ function buildRemoteRef(
         (other as { path?: string }).path === canonical
       );
     },
-    toJSON(): object {
-      return { path: canonical };
+    toJSON(): string {
+      return formatReferenceUrl(urlMeta.originUrl, segs);
     },
     get database(): Database {
       return db;
@@ -368,15 +389,40 @@ function buildRemoteRef(
   return ref as unknown as Reference;
 }
 
-function detachListener(
+function detachExactListener(
+  state: RemoteDbState,
+  path: string,
+  target: RemoteValueListenerEntry,
+): void {
+  const atPath = state.listeners.get(path);
+  if (atPath === undefined) return;
+  const idx = atPath.indexOf(target);
+  if (idx === -1) return;
+  atPath.splice(idx, 1);
+  if (atPath.length === 0) state.listeners.delete(path);
+  target.detach();
+}
+
+function detachMatchingListeners(
   state: RemoteDbState,
   path: string,
   callback: unknown,
+  context: unknown,
 ): void {
   const atPath = state.listeners.get(path);
-  const detach = atPath?.get(callback);
-  if (atPath === undefined || detach === undefined) return;
-  atPath.delete(callback);
-  if (atPath.size === 0) state.listeners.delete(path);
-  detach();
+  if (atPath === undefined) return;
+  const removed: RemoteValueListenerEntry[] = [];
+  const kept: RemoteValueListenerEntry[] = [];
+  for (const entry of atPath) {
+    const matchesContext = context === undefined || entry.context === context;
+    if (entry.callback === callback && matchesContext) {
+      removed.push(entry);
+    } else {
+      kept.push(entry);
+    }
+  }
+  if (removed.length === 0) return;
+  if (kept.length === 0) state.listeners.delete(path);
+  else state.listeners.set(path, kept);
+  for (const entry of removed) entry.detach();
 }

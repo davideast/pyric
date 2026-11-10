@@ -1,5 +1,6 @@
 import type { QueryWhereFilterOp } from './query-operators.js';
 import { activityValue } from './activity-query-value.js';
+import { fieldPathKeySegments } from './update-fields.js';
 import { isPlainObject } from './value-resolver.js';
 import { topK } from './topk.js';
 import { firestoreValuesEqual } from './value-equality.js';
@@ -189,7 +190,9 @@ export function queryConstraintsForProof(execution: QueryExecutionSpec): QueryCo
     if (filter.kind === 'where') {
       // `__name__` constrains document identity during execution; it never
       // proves a predicate on a user data field with the same spelling.
-      if (filter.field === KEY_FIELD) return;
+      // Escaped literal-dot field paths (`fieldPathKey`) address literal keys
+      // rather than nested map paths, so skip conservative map-rule proof.
+      if (filter.field === KEY_FIELD || filter.field.includes('`')) return;
       const value = filter.value;
       if (
         value === null || typeof value === 'string' ||
@@ -259,10 +262,10 @@ export function gatherQueryRows(state: DocStore, scope: QueryScope): QueryRow[] 
 
 const KEY_FIELD = '__name__';
 
-/** String query field paths address nested maps, never literal dotted keys or prototypes. */
+/** Query field paths decode backtick-escaped literal segments and split unquoted segments on `.`. */
 function dataFieldValue(data: QueryDocumentData, path: string): unknown {
   let value: unknown = data;
-  for (const segment of path.split('.')) {
+  for (const segment of fieldPathKeySegments(path)) {
     if (!isPlainObject(value) || !Object.hasOwn(value, segment)) return undefined;
     value = value[segment];
   }

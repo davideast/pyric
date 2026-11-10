@@ -78,3 +78,40 @@ function translateValue(value: unknown): unknown {
 export function translateReadData(data: DocumentData): DocumentData {
   return translateValue(data) as DocumentData;
 }
+
+/**
+ * Return a defensive copy of plain maps, arrays, and byte buffers inside a
+ * translated snapshot value while preserving immutable value classes
+ * (`Timestamp`, `LatLng`, `Vector`, `Reference`, `DocumentReference`) intact.
+ */
+export function cloneSnapshotValue<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof InternalBytes) {
+    return new InternalBytes(new Uint8Array(value.data)) as unknown as T;
+  }
+  if (
+    value instanceof CompatTimestamp
+    || value instanceof InternalTimestamp
+    || value instanceof InternalReference
+    || value instanceof InternalLatLng
+    || value instanceof InternalVector
+  ) {
+    return value;
+  }
+  if (value instanceof Uint8Array) {
+    const copy = Buffer.isBuffer(value) ? Buffer.from(value) : new Uint8Array(value);
+    return copy as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneSnapshotValue(item)) as unknown as T;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto === Object.prototype || proto === null) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(
+        ([k, v]) => [k, cloneSnapshotValue(v)] as const,
+      ),
+    ) as unknown as T;
+  }
+  return value;
+}
