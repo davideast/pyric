@@ -71,10 +71,11 @@ for (const runtime of ['inpage', 'worker']) {
   });
 }
 
-test('local index endpoint requires the session capability and rejects cross-origin edits', async ({ request }) => {
+test('local index endpoint answers loopback without a token in sandbox mode and rejects cross-origin requests', async ({ request }) => {
   const init = await (await request.get(`${server.url}/__pyric/init.json`)).json();
   expect(init.sessionToken).toBeUndefined();
-  expect((await request.get(`${server.url}/__pyric/indexes`)).status()).toBe(401);
+  expect((await request.get(`${server.url}/__pyric/indexes`)).status()).toBe(200);
+  expect((await request.get(`${server.url}/__pyric/indexes`, { headers: { 'sec-fetch-site': 'cross-site' } })).status()).toBe(403);
   expect((await request.put(`${server.url}/__pyric/indexes`, { headers: { origin: 'https://untrusted.example', 'x-pyric-session-token': server.sessionToken }, data: {} })).status()).toBe(403);
 });
 

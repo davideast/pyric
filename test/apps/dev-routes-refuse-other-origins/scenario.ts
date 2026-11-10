@@ -221,16 +221,28 @@ export default scenario(async (app) => {
 
       const unauthHealth = await (await fetch(`${permissiveHost.url}/__pyric/health`)).json() as Record<string, unknown>;
       assert.equal(unauthHealth.status, 'ok');
-      assert.equal(unauthHealth.project, undefined);
-      assert.equal((await fetch(`${permissiveHost.url}/__pyric/mcp`, { method: 'POST' })).status, 401);
-      assert.equal(await upgrades({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/sandbox', host: `localhost:${permissiveHost.port}` }), false);
+      assert.equal(typeof unauthHealth.project, 'string');
+      assert.equal((await fetch(`${permissiveHost.url}/__pyric/mcp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'probe', version: '0.0.0' } },
+        }),
+      })).status, 200);
+      assert.equal((await fetch(`${permissiveHost.url}/__pyric/workspace/list`)).status, 401);
+      assert.equal(await upgrades({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/sandbox', host: `localhost:${permissiveHost.port}` }), true);
 
       const tokenHeaders = { 'x-pyric-session-token': pointer.token };
       const foreignHost = `app.evil.test:${permissiveHost.port}`;
+      assert.equal((await get({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/init.json', host: foreignHost })).status, 403);
       assert.equal((await get({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/init.json', host: foreignHost, headers: tokenHeaders })).status, 403);
       assert.equal((await get({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/health', host: foreignHost, headers: tokenHeaders })).status, 403);
       assert.equal((await get({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/diagnostics', host: foreignHost, headers: tokenHeaders })).status, 403);
       assert.equal((await post({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/mcp', host: foreignHost, headers: tokenHeaders, body: '{}' })).status, 403);
+      assert.equal(await upgrades({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/sandbox', host: foreignHost }), false);
       assert.equal(await upgrades({ address: '127.0.0.1', port: permissiveHost.port, path: '/__pyric/sandbox', host: foreignHost, headers: tokenHeaders }), false);
       await permissiveHost.process.stop();
     });
