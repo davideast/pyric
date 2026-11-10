@@ -46,9 +46,6 @@ import {
   gapsIn,
   givenBy,
   isPlainRecord,
-  scrubFirestoreTrace,
-  scrubLocalRule,
-  scrubSecretText,
   unionOf,
   unionPaths,
   verdictOf,
@@ -776,7 +773,7 @@ function evaluateFirestore(
     }
   }
 
-  const missingPaths = unionPaths(lookupMissing.map(scrubSecretText), targetMissing.map(scrubSecretText));
+  const missingPaths = unionPaths(lookupMissing, targetMissing);
   const exprGaps = gapsIn(expressions, FIRESTORE_GAPS, given);
   let needs = exprGaps;
   if (lookupMissing.length > 0) {
@@ -785,14 +782,14 @@ function evaluateFirestore(
   const deciding = projectEvaluatedRule(result);
   let rule: Evaluation['rule'];
   if (deciding !== undefined) {
-    rule = scrubLocalRule(definedOnly({ line: deciding.line, expression: deciding.expression }));
+    rule = definedOnly({ line: deciding.line, expression: deciding.expression });
   }
   return {
     allowed,
     rule,
     needs,
     missingPaths,
-    trace: scrubFirestoreTrace(captureRulesEvidence(result, LOCAL_TRACE_VERSION)),
+    trace: captureRulesEvidence(result, LOCAL_TRACE_VERSION),
   };
 }
 

@@ -65,42 +65,30 @@ describe('observe-local-evaluation (#2540)', () => {
     });
   });
 
-  it('scrubs tokens and secret bindings in decided and unevaluated verdicts', () => {
-    const jwt =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
-      'eyJzdWIiOiJ1c2VyLTEifQ.' +
-      'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
-    const apiKey = ['AIza', 'SyDummyKey0123456789abcdef012345678'].join('');
-    const oauthToken = ['ya29', '.a0DummyOAuth0123456789abcdef'].join('');
-    const refreshToken = ['1//', '0gDummyRefreshToken0123456789abcdef'].join('');
+  it('reports local rules, bindings, reasons, missing paths, and traces verbatim', () => {
     const opaque = 'tok_0123456789abcdef0123456789abcdef01234567';
 
     const unevaluated = verdictOf(BASE_CALL, {
       allowed: false,
       rule: { path: '/orgs/$orgId/tokens/$token', expression: 'auth.token.role === "admin"' },
       needs: ['claim-values', 'stored-document'],
-      missingPaths: [`/orgs/org-1/tokens/${opaque}`, `/keys/${apiKey}`],
+      missingPaths: [`/orgs/org-1/tokens/${opaque}`],
       rtdb: {
         matchedPath: '/orgs/$orgId/tokens/$token',
         matchedRule: 'auth.token.role === "admin"',
-        pathVariableBindings: {
-          $orgId: 'org-1',
-          $token: 'short-secret-value',
-        },
+        pathVariableBindings: { $orgId: 'org-1', $token: opaque },
         reason: `Denied at /orgs/org-1/tokens/${opaque}`,
       },
     });
-    const unevalJson = JSON.stringify(unevaluated);
-    expect(unevalJson).not.toContain(opaque);
-    expect(unevalJson).not.toContain(apiKey);
-    expect(unevalJson).not.toContain('short-secret-value');
-    expect(unevaluated).toMatchObject({
+    expect(unevaluated).toEqual({
       result: 'unevaluated',
+      needs: ['claim-values', 'stored-document'],
+      missingPaths: [`/orgs/org-1/tokens/${opaque}`],
+      rule: { path: '/orgs/$orgId/tokens/$token', expression: 'auth.token.role === "admin"' },
       rtdb: {
-        pathVariableBindings: {
-          $orgId: 'org-1',
-          $token: '[redacted]',
-        },
+        matchedPath: '/orgs/$orgId/tokens/$token',
+        matchedRule: 'auth.token.role === "admin"',
+        pathVariableBindings: { $orgId: 'org-1', $token: opaque },
       },
     });
 
@@ -110,72 +98,50 @@ describe('observe-local-evaluation (#2540)', () => {
       needs: [],
       storage: {
         matchedPath: 'match /items/{id}',
-        reasons: [
-          `Denied get on /items/${jwt}`,
-          `Bearer ${oauthToken} refresh=${refreshToken} key=${apiKey}`,
-        ],
+        reasons: [`Denied get on /items/${opaque}`],
       },
     });
-    const storageJson = JSON.stringify(decidedStorage);
-    expect(storageJson).not.toContain(jwt);
-    expect(storageJson).not.toContain(oauthToken);
-    expect(storageJson).not.toContain(refreshToken);
-    expect(storageJson).not.toContain(apiKey);
+    expect(decidedStorage).toEqual({
+      result: 'deny',
+      drift: true,
+      storage: {
+        matchedPath: 'match /items/{id}',
+        reasons: [`Denied get on /items/${opaque}`],
+      },
+    });
 
-    const sha256Hex = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-    const nonSecretTrace = verdictOf(BASE_CALL, {
+    const trace = {
+      rulesVersion: 'local-rules',
+      scope: 'request',
+      rules: [
+        {
+          method: 'get',
+          expression: 'resource.data.apiToken == request.auth.token.apiToken',
+          verdict: 'ALLOW',
+          checks: [
+            {
+              index: 0,
+              parent: null,
+              kind: 'memberAccess',
+              expression: 'resource.data.apiToken',
+              state: 'value',
+              value: opaque,
+            },
+          ],
+        },
+      ],
+      paths: [{ path: `docs/${opaque}`, outcome: 'matched' }],
+    } as const;
+    const decidedTrace = verdictOf(BASE_CALL, {
       allowed: true,
-      rule: { line: 4, expression: 'resource.data.tokenCount == "12"' },
+      rule: { line: 4, expression: 'resource.data.apiToken == request.auth.token.apiToken' },
       needs: [],
-      trace: {
-        rulesVersion: 'local-rules',
-        scope: 'request',
-        rules: [
-          {
-            method: 'get',
-            expression: 'resource.data.tokenCount == "12"',
-            verdict: 'ALLOW',
-            checks: [
-              {
-                index: 0,
-                parent: null,
-                kind: 'memberAccess',
-                expression: 'resource.data.tokenCount',
-                state: 'value',
-                value: '12',
-              },
-              {
-                index: 1,
-                parent: null,
-                kind: 'memberAccess',
-                expression: 'resource.data.nextPageToken',
-                state: 'value',
-                value: 'cursor-page-2',
-              },
-              {
-                index: 2,
-                parent: null,
-                kind: 'memberAccess',
-                expression: 'resource.data.sha256',
-                state: 'value',
-                value: sha256Hex,
-              },
-            ],
-          },
-        ],
-        paths: [{ path: `docs/${sha256Hex}`, outcome: 'matched' }],
-      },
+      trace: structuredClone(trace) as never,
     });
-    expect(nonSecretTrace).toMatchObject({
+    expect(decidedTrace).toEqual({
       result: 'allow',
-      trace: {
-        rules: [
-          {
-            checks: [{ value: '12' }, { value: 'cursor-page-2' }, { value: sha256Hex }],
-          },
-        ],
-        paths: [{ path: `docs/${sha256Hex}` }],
-      },
+      rule: { line: 4, expression: 'resource.data.apiToken == request.auth.token.apiToken' },
+      trace,
     });
   });
 });
