@@ -2,10 +2,9 @@
  * Validates and bounds `ObservedSessionDelta.storage` entries arriving over
  * `/__pyric/live/observe` (`delta-validation.ts` owns Firestore and RTDB).
  *
- * Enforces strict per-op key allowlists, path hygiene, shared `customMetadata`
- * secret-key/value redaction (`storage-policy.ts`), and Firebase/GCS download
- * URL origin allowlisting + query-credential stripping before anything enters
- * `ObservedStorageCatalog`.
+ * Enforces strict per-op key allowlists, path hygiene, prototype-safe
+ * `customMetadata` copying (`storage-policy.ts`), and Firebase/GCS download URL
+ * origin allowlisting before anything enters `ObservedStorageCatalog`.
  */
 import { FORBIDDEN_KEYS, byteLengthOf, isPlainObject } from './json-values.js';
 import {
@@ -16,9 +15,9 @@ import {
   MAX_STORAGE_OBJECT_PATH_CHARS,
   STORAGE_IMMUTABLE_STRING_FIELDS,
   STORAGE_NULLABLE_STRING_FIELDS,
+  copyStorageCustomMetadataRecord,
   isValidStorageBucketName,
-  sanitizeObservedStorageDownloadUrl,
-  scrubStorageCustomMetadataRecord,
+  validateObservedStorageDownloadUrl,
   type ObservedStorageListItem,
   type ObservedStorageObjectInput,
   type ObservedStorageSessionOp,
@@ -163,14 +162,19 @@ function readCustomMetadataField(
     if (!isBoundedMetadataString(value)) {
       throw unsupported(`Invalid ${label}.${key}: expected bounded string.`);
     }
-    plain[key] = value;
+    Object.defineProperty(plain, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   if (byteLengthOf(plain) > MAX_STORAGE_CUSTOM_METADATA_BYTES) {
     throw oversized(
       `Invalid ${label}: customMetadata exceeds ${MAX_STORAGE_CUSTOM_METADATA_BYTES} bytes.`,
     );
   }
-  return scrubStorageCustomMetadataRecord(plain);
+  return copyStorageCustomMetadataRecord(plain);
 }
 
 function readObjectMetadataInput(raw: unknown, label: string): ObservedStorageObjectInput {
@@ -307,7 +311,7 @@ export function readStorageOp(raw: unknown, index: number): ObservedStorageSessi
     case 'downloadUrl': {
       assertAllowedKeys(raw, DOWNLOAD_URL_OP_KEYS, label);
       const fullPath = readStorageObjectPath(raw.fullPath, `${label}.fullPath`);
-      const downloadUrl = sanitizeObservedStorageDownloadUrl(raw.downloadUrl);
+      const downloadUrl = validateObservedStorageDownloadUrl(raw.downloadUrl);
       if (downloadUrl === undefined) {
         throw unsupported(
           `Invalid ${label}.downloadUrl: expected allowlisted Firebase/GCS download URL.`,

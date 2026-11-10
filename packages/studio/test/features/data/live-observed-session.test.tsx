@@ -373,7 +373,7 @@ describe('Studio Live-mode Observed Session Data & Opt-in Seeding', () => {
               contentType: 'image/png',
               customMetadata: {
                 role: 'hero',
-                firebaseStorageDownloadTokens: '[REDACTED]',
+                firebaseStorageDownloadTokens: 'tok-hero-1',
               },
               downloadUrl:
                 'https://firebasestorage.googleapis.com/v0/b/demo-live.firebasestorage.app/o/cover.png?alt=media&token=abc',
@@ -410,15 +410,17 @@ describe('Studio Live-mode Observed Session Data & Opt-in Seeding', () => {
       storageView.container.querySelector(
         '[data-pyric-metadata-key="firebaseStorageDownloadTokens"] dd',
       )?.textContent,
-    ).toBe('[REDACTED]');
+    ).toBe('tok-hero-1');
     const downloadAnchor = storageView.container.querySelector(
       '[data-live-storage-download-url]',
     ) as HTMLAnchorElement | null;
     expect(downloadAnchor).not.toBeNull();
     expect(downloadAnchor?.getAttribute('href')).toBe(
-      'https://firebasestorage.googleapis.com/v0/b/demo-live.firebasestorage.app/o/cover.png?alt=media',
+      'https://firebasestorage.googleapis.com/v0/b/demo-live.firebasestorage.app/o/cover.png?alt=media&token=abc',
     );
-    expect(downloadAnchor?.getAttribute('href')).not.toContain('token=');
+    expect(
+      storageView.container.querySelectorAll('[data-live-storage-credentials-stripped]').length,
+    ).toBe(0);
     cleanup();
 
     // Prefix-only bucket shows `1 Storage bucket` rather than `0 Storage objects`.

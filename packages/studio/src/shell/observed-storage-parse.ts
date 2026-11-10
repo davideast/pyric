@@ -2,8 +2,8 @@
  * Studio-side runtime validator for the optional `storage` section of
  * `GET /__pyric/live/session-data`.
  *
- * Reuses `@pyric/cli/bridge/client`'s shared scrubbing and Firebase/GCS URL
- * policy so client SDK capture, CLI host validation, and Studio snapshot
+ * Reuses `@pyric/cli/bridge/client`'s shared key hygiene and Firebase/GCS URL
+ * origin policy so client SDK capture, CLI host validation, and Studio snapshot
  * parsing enforce one rule set without drift.
  */
 import {
@@ -11,8 +11,8 @@ import {
   MAX_STORAGE_METADATA_STRING_CHARS,
   STORAGE_IMMUTABLE_STRING_FIELDS,
   STORAGE_NULLABLE_STRING_FIELDS,
-  sanitizeObservedStorageDownloadUrl,
-  scrubStorageCustomMetadataRecord,
+  copyStorageCustomMetadataRecord,
+  validateObservedStorageDownloadUrl,
 } from '@pyric/cli/bridge/client';
 import type {
   ObservedSessionDataSnapshot,
@@ -62,11 +62,16 @@ function parseCustomMetadata(raw: unknown): Record<string, string> | undefined {
   for (const [key, value] of Object.entries(raw)) {
     if (!isAllowedKey(key) || typeof value !== 'string') continue;
     if (value.length > MAX_STORAGE_METADATA_STRING_CHARS) continue;
-    stringEntries[key] = value;
+    Object.defineProperty(stringEntries, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
-  const scrubbed = scrubStorageCustomMetadataRecord(stringEntries);
-  if (Object.keys(scrubbed).length === 0) return undefined;
-  return scrubbed;
+  const copied = copyStorageCustomMetadataRecord(stringEntries);
+  if (Object.keys(copied).length === 0) return undefined;
+  return copied;
 }
 
 function parseObjectMetadata(
@@ -100,8 +105,8 @@ function parseObjectMetadata(
   }
   const customMetadata = parseCustomMetadata(raw.customMetadata);
   if (customMetadata !== undefined) meta.customMetadata = customMetadata;
-  const sanitizedUrl = sanitizeObservedStorageDownloadUrl(raw.downloadUrl);
-  if (sanitizedUrl !== undefined) meta.downloadUrl = sanitizedUrl;
+  const validatedUrl = validateObservedStorageDownloadUrl(raw.downloadUrl);
+  if (validatedUrl !== undefined) meta.downloadUrl = validatedUrl;
   return meta;
 }
 

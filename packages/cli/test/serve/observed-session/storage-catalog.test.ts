@@ -6,7 +6,7 @@ import {
 import { UNREAD_BUCKET } from '../../../src/serve/observed-session/wire.js';
 
 describe('createObservedStorageCatalog', () => {
-  it('isolates buckets, strips downloadUrl tokens, records delete tombstones, prunes orphan inferred prefixes, and clears tombstones on re-create', () => {
+  it('isolates buckets, preserves downloadUrl tokens and customMetadata verbatim, records delete tombstones, prunes orphan inferred prefixes, and clears tombstones on re-create', () => {
     const drops: StorageCatalogDropReason[] = [];
     const catalog = createObservedStorageCatalog({
       maxBytes: 64 * 1024,
@@ -70,9 +70,9 @@ describe('createObservedStorageCatalog', () => {
       contentType: 'image/png',
       timeCreated: '2026-01-01T00:00:00.000Z',
       updated: '2026-01-01T00:00:00.000Z',
-      customMetadata: { ownerUid: 'u-1', apiKey: '[REDACTED]' },
+      customMetadata: { ownerUid: 'u-1', apiKey: 'secret-1' },
       downloadUrl:
-        'https://firebasestorage.googleapis.com/v0/b/demo-proj.appspot.com/o/workspaces%2Fws-1%2Fitems%2Fitem-1.png?alt=media',
+        'https://firebasestorage.googleapis.com/v0/b/demo-proj.appspot.com/o/workspaces%2Fws-1%2Fitems%2Fitem-1.png?alt=media&token=t-1',
     });
 
     // Deleting the sole object under inferred prefixes removes orphan inferred prefixes and records a tombstone.

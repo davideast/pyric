@@ -14,7 +14,7 @@ describe('parseObservedStorageSection', () => {
     expect(parseObservedStorageSection({ storage: {} })).toBeUndefined();
   });
 
-  it('preserves empty-listed buckets, parses deleted tombstones, scrubs secrets, strips query tokens, and rejects phishing URLs', () => {
+  it('preserves empty-listed buckets, parses deleted tombstones, preserves customMetadata and downloadUrl tokens verbatim, and rejects phishing URLs', () => {
     const raw = JSON.parse(
       JSON.stringify({
         defaultStorageBucket: 'demo-project.appspot.com',
@@ -32,7 +32,7 @@ describe('parseObservedStorageSection', () => {
                 customMetadata: {
                   role: 'cover',
                   apiKey: 'raw-key',
-                  firebaseStorageDownloadTokens: '[REDACTED]',
+                  firebaseStorageDownloadTokens: 'tok-live-1',
                 },
                 downloadUrl:
                   'https://firebasestorage.googleapis.com/v0/b/demo-project.appspot.com/o/a.png?alt=media&token=abc',
@@ -68,11 +68,11 @@ describe('parseObservedStorageSection', () => {
     expect(bucket.deleted).toEqual(['workspaces/ws-1/items/removed.png']);
     expect(bucket.objects['workspaces/ws-1/items/a.png']?.customMetadata).toEqual({
       role: 'cover',
-      apiKey: '[REDACTED]',
-      firebaseStorageDownloadTokens: '[REDACTED]',
+      apiKey: 'raw-key',
+      firebaseStorageDownloadTokens: 'tok-live-1',
     });
     expect(bucket.objects['workspaces/ws-1/items/a.png']?.downloadUrl).toBe(
-      'https://firebasestorage.googleapis.com/v0/b/demo-project.appspot.com/o/a.png?alt=media',
+      'https://firebasestorage.googleapis.com/v0/b/demo-project.appspot.com/o/a.png?alt=media&token=abc',
     );
     expect(bucket.objects['workspaces/ws-1/items/phish.pdf']?.downloadUrl).toBeUndefined();
     expect(parsed?.storage['empty-listed-bucket']).toEqual({ prefixes: [], objects: {} });

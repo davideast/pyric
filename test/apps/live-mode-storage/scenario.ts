@@ -441,7 +441,7 @@ export default scenario(async (app) => {
     await context.unroute(fontHosts);
   });
 
-  await app.step("Studio's Storage surface browses read-only observed client and Admin object metadata across buckets with secrets redacted and zero bytes buffered, while Auth stays gated", async () => {
+  await app.step("Studio's Storage surface browses read-only observed client and Admin object metadata across buckets with verbatim metadata and zero bytes buffered, while Auth stays gated", async () => {
     await verifyObservedStorageBrowser(app, host.url, page);
   });
 

@@ -3,19 +3,19 @@
  * object metadata, folder prefixes, and session delete tombstones per bucket
  * (`gs://<bucket>/<fullPath>`).
  *
- * Holds zero raw binary byte buffers: only sanitized metadata fields, listed
- * and inferred folder prefixes, delete tombstones, and credential-stripped
- * Storage URLs. Evicts least-recently-used Storage entries within its own
- * budget so Storage traffic never evicts Firestore documents or RTDB trees.
+ * Holds zero raw binary byte buffers: only validated metadata fields, listed
+ * and inferred folder prefixes, delete tombstones, and origin-validated
+ * Storage download URLs. Evicts least-recently-used Storage entries within its
+ * own budget so Storage traffic never evicts Firestore documents or RTDB trees.
  */
 import { MAX_SINGLE_ITEM_BYTES } from './delta-validation.js';
 import { byteLengthOf } from './json-values.js';
 import {
   STORAGE_IMMUTABLE_STRING_FIELDS,
   STORAGE_NULLABLE_STRING_FIELDS,
-  sanitizeObservedStorageDownloadUrl,
-  scrubStorageCustomMetadataRecord,
+  copyStorageCustomMetadataRecord,
   selectPreferredStorageBucket,
+  validateObservedStorageDownloadUrl,
   type ObservedStorageBucketSnapshot,
   type ObservedStorageObjectInput,
   type ObservedStorageObjectMetadata,
@@ -157,9 +157,9 @@ function mergeObjectMetadata(
   if (input.customMetadata === null) {
     delete next.customMetadata;
   } else if (input.customMetadata !== undefined) {
-    const scrubbed = scrubStorageCustomMetadataRecord(input.customMetadata);
-    if (Object.keys(scrubbed).length > 0) {
-      next.customMetadata = scrubbed;
+    const copied = copyStorageCustomMetadataRecord(input.customMetadata);
+    if (Object.keys(copied).length > 0) {
+      next.customMetadata = copied;
     } else {
       delete next.customMetadata;
     }
@@ -489,8 +489,8 @@ export function createObservedStorageCatalog(
       case 'list':
         return applyListOp(op, bucket);
       case 'downloadUrl': {
-        const sanitized = sanitizeObservedStorageDownloadUrl(op.downloadUrl);
-        if (sanitized === undefined) {
+        const validated = validateObservedStorageDownloadUrl(op.downloadUrl);
+        if (validated === undefined) {
           options.onDrop('unsupported');
           return false;
         }
@@ -501,7 +501,7 @@ export function createObservedStorageCatalog(
           fullPath: op.fullPath,
           name: lastPathSegment(op.fullPath),
         };
-        return writeObject(bucket, entry, { ...base, downloadUrl: sanitized });
+        return writeObject(bucket, entry, { ...base, downloadUrl: validated });
       }
       case 'delete': {
         const entry = ensureBucket(bucket);

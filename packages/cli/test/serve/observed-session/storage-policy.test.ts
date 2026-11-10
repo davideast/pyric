@@ -1,118 +1,115 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  REDACTED_STORAGE_METADATA_VALUE,
+  copyStorageCustomMetadataRecord,
   isAllowedStorageDownloadUrlOrigin,
-  isSecretStorageMetadataKey,
-  isSecretStorageMetadataValue,
   isValidStorageBucketName,
-  sanitizeObservedStorageDownloadUrl,
-  sanitizeStorageMetadataEntry,
-  scrubStorageCustomMetadataRecord,
   selectPreferredStorageBucket,
+  validateObservedStorageDownloadUrl,
 } from '../../../src/serve/observed-session/storage-policy.js';
 
 describe('storage-policy', () => {
-  it('redacts secret-named customMetadata keys and bearer/JWT values while preserving safe fields', () => {
-    expect(isSecretStorageMetadataKey('firebaseStorageDownloadTokens')).toBe(true);
-    expect(isSecretStorageMetadataKey('Firebase_Storage_Download_Tokens')).toBe(true);
-    expect(isSecretStorageMetadataKey('apiKey')).toBe(true);
-    expect(isSecretStorageMetadataKey('x-api-key')).toBe(true);
-    expect(isSecretStorageMetadataKey('webhookSecret')).toBe(true);
-    expect(isSecretStorageMetadataKey('passphrase')).toBe(true);
-    expect(isSecretStorageMetadataKey('db_pass')).toBe(true);
-    expect(isSecretStorageMetadataKey('userPass')).toBe(true);
-    expect(isSecretStorageMetadataKey('sessionId')).toBe(true);
-    expect(isSecretStorageMetadataKey('cookie')).toBe(true);
-    expect(isSecretStorageMetadataKey('id_jwt')).toBe(true);
-    expect(isSecretStorageMetadataKey('x-auth')).toBe(true);
-    expect(isSecretStorageMetadataKey('authHeader')).toBe(true);
-    expect(isSecretStorageMetadataKey('sig')).toBe(true);
-    expect(isSecretStorageMetadataKey('urlSig')).toBe(true);
-
-    // Safe domain nouns with overlapping substrings are preserved:
-    expect(isSecretStorageMetadataKey('ownerUid')).toBe(false);
-    expect(isSecretStorageMetadataKey('author')).toBe(false);
-    expect(isSecretStorageMetadataKey('design')).toBe(false);
-    expect(isSecretStorageMetadataKey('compass')).toBe(false);
-
-    // Secret-shaped values under innocent keys are also scrubbed:
-    expect(isSecretStorageMetadataValue('Bearer eyJhbGciOiJIUzI1NiJ9.payload123.sig456')).toBe(true);
-    expect(isSecretStorageMetadataValue('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1LTEifQ.c2lnbmF0dXJl')).toBe(true);
-    expect(isSecretStorageMetadataValue('plain-note')).toBe(false);
-
-    expect(
-      scrubStorageCustomMetadataRecord({
+  it('copies customMetadata verbatim while stripping prototype-pollution keys safely', () => {
+    const raw = JSON.parse(
+      JSON.stringify({
         ownerUid: 'u-1',
         author: 'alice',
-        apiKey: 'must-be-redacted',
+        firebaseStorageDownloadTokens: 'tok-example-1,tok-example-2',
+        apiKey: 'live-api-key-value',
+        webhookSecret: 'whsec_123',
         passphrase: 'correct-horse-battery-staple',
-        session: 'sess-123',
-        note: 'Bearer live-token-xyz',
+        sessionId: 'sess-123',
+        note: 'Bearer eyJhbGciOiJIUzI1NiJ9.payload123.sig456',
       }),
-    ).toEqual({
+    ) as Record<string, string>;
+    Object.defineProperty(raw, '__proto__', {
+      value: 'polluted',
+      enumerable: true,
+      configurable: true,
+    });
+    Object.defineProperty(raw, 'constructor', {
+      value: 'bad-ctor',
+      enumerable: true,
+      configurable: true,
+    });
+    Object.defineProperty(raw, 'prototype', {
+      value: 'bad-proto',
+      enumerable: true,
+      configurable: true,
+    });
+
+    const copied = copyStorageCustomMetadataRecord(raw);
+    expect(copied).toEqual({
       ownerUid: 'u-1',
       author: 'alice',
-      apiKey: REDACTED_STORAGE_METADATA_VALUE,
-      passphrase: REDACTED_STORAGE_METADATA_VALUE,
-      session: REDACTED_STORAGE_METADATA_VALUE,
-      note: REDACTED_STORAGE_METADATA_VALUE,
+      firebaseStorageDownloadTokens: 'tok-example-1,tok-example-2',
+      apiKey: 'live-api-key-value',
+      webhookSecret: 'whsec_123',
+      passphrase: 'correct-horse-battery-staple',
+      sessionId: 'sess-123',
+      note: 'Bearer eyJhbGciOiJIUzI1NiJ9.payload123.sig456',
     });
-    expect(sanitizeStorageMetadataEntry('sig', 'abc')).toBe(REDACTED_STORAGE_METADATA_VALUE);
+    expect(Object.hasOwn(copied, '__proto__')).toBe(false);
+    expect(Object.hasOwn(copied, 'constructor')).toBe(false);
+    expect(Object.hasOwn(copied, 'prototype')).toBe(false);
+    expect(Object.getPrototypeOf(copied)).toBe(Object.prototype);
   });
 
-  it('allowlists Firebase/GCS/loopback origins and strips query credentials and fragments from downloadUrl', () => {
+  it('allowlists Firebase/GCS/loopback origins and preserves query parameters and fragments verbatim on downloadUrl', () => {
     expect(
-      sanitizeObservedStorageDownloadUrl(
-        'https://firebasestorage.googleapis.com/v0/b/demo-items.firebasestorage.app/o/items%2Fcover.png?alt=media&token=1111-2222-bearer#frag',
+      validateObservedStorageDownloadUrl(
+        'https://firebasestorage.googleapis.com/v0/b/demo-items.firebasestorage.app/o/items%2Fcover.png?alt=media&token=tok-1111-2222#frag',
       ),
     ).toBe(
-      'https://firebasestorage.googleapis.com/v0/b/demo-items.firebasestorage.app/o/items%2Fcover.png?alt=media',
+      'https://firebasestorage.googleapis.com/v0/b/demo-items.firebasestorage.app/o/items%2Fcover.png?alt=media&token=tok-1111-2222#frag',
     );
 
-    expect(
-      sanitizeObservedStorageDownloadUrl(
-        'https://storage.googleapis.com/demo-items/items/cover.png?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=svc&X-Goog-Date=20261109T000000Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=deadbeef&access_token=oauth-demo-token&upload_id=resumable-session-secret&sig=sas123&se=2026-11-10&sp=r&generation=1',
-      ),
-    ).toBe('https://storage.googleapis.com/demo-items/items/cover.png?generation=1');
+    const signedGcsUrl =
+      'https://storage.googleapis.com/demo-items/items/cover.png?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=svc&X-Goog-Date=20261109T000000Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=deadbeef&generation=1';
+    expect(validateObservedStorageDownloadUrl(signedGcsUrl)).toBe(signedGcsUrl);
 
     // Explicit default HTTPS port (:443) normalizes cleanly; non-default ports on production hosts are rejected.
     expect(
-      sanitizeObservedStorageDownloadUrl(
-        'https://storage.googleapis.com:443/demo-items/items/cover.png?alt=media',
+      validateObservedStorageDownloadUrl(
+        'https://storage.googleapis.com:443/demo-items/items/cover.png?alt=media&token=tok-443',
       ),
-    ).toBe('https://storage.googleapis.com/demo-items/items/cover.png?alt=media');
+    ).toBe('https://storage.googleapis.com/demo-items/items/cover.png?alt=media&token=tok-443');
     expect(
-      sanitizeObservedStorageDownloadUrl(
+      validateObservedStorageDownloadUrl(
         'https://firebasestorage.googleapis.com:8443/v0/b/demo-items/o/a.png?alt=media',
       ),
     ).toBeUndefined();
     expect(
-      sanitizeObservedStorageDownloadUrl('https://storage.googleapis.com:8080/demo-items/a.png'),
+      validateObservedStorageDownloadUrl('https://storage.googleapis.com:8080/demo-items/a.png'),
     ).toBeUndefined();
     expect(
-      sanitizeObservedStorageDownloadUrl('https://demo-items.firebasestorage.app:9443/a.png'),
+      validateObservedStorageDownloadUrl('https://demo-items.firebasestorage.app:9443/a.png'),
     ).toBeUndefined();
 
     expect(
-      sanitizeObservedStorageDownloadUrl(
+      validateObservedStorageDownloadUrl(
         'https://demo-items.firebasestorage.app/items/cover.png?token=abc',
       ),
-    ).toBe('https://demo-items.firebasestorage.app/items/cover.png');
+    ).toBe('https://demo-items.firebasestorage.app/items/cover.png?token=abc');
 
     expect(
-      sanitizeObservedStorageDownloadUrl(
+      validateObservedStorageDownloadUrl(
         'http://127.0.0.1:9199/v0/b/demo-items.appspot.com/o/a.png?alt=media&token=emu-tok',
       ),
-    ).toBe('http://127.0.0.1:9199/v0/b/demo-items.appspot.com/o/a.png?alt=media');
+    ).toBe('http://127.0.0.1:9199/v0/b/demo-items.appspot.com/o/a.png?alt=media&token=emu-tok');
 
-    // Untrusted hosts, non-HTTPS cloud origins, and embedded userinfo are rejected:
-    expect(sanitizeObservedStorageDownloadUrl('https://attacker.example/phish')).toBeUndefined();
-    expect(sanitizeObservedStorageDownloadUrl('https://evilfirebasestorage.app/a.png')).toBeUndefined();
+    // Untrusted hosts, non-HTTPS cloud origins, oversized URLs, and embedded userinfo are rejected:
+    expect(validateObservedStorageDownloadUrl('https://attacker.example/phish')).toBeUndefined();
+    expect(validateObservedStorageDownloadUrl('https://evilfirebasestorage.app/a.png')).toBeUndefined();
     expect(
-      sanitizeObservedStorageDownloadUrl('http://firebasestorage.googleapis.com/v0/b/demo/o/a.png'),
+      validateObservedStorageDownloadUrl('http://firebasestorage.googleapis.com/v0/b/demo/o/a.png'),
     ).toBeUndefined();
     expect(
-      sanitizeObservedStorageDownloadUrl('https://user:pass@storage.googleapis.com/demo/a.png'),
+      validateObservedStorageDownloadUrl('https://user:pass@storage.googleapis.com/demo/a.png'),
+    ).toBeUndefined();
+    expect(
+      validateObservedStorageDownloadUrl(
+        `https://storage.googleapis.com/demo/${'a'.repeat(2100)}.png`,
+      ),
     ).toBeUndefined();
     expect(isAllowedStorageDownloadUrlOrigin(new URL('https://attacker.example/phish'))).toBe(false);
   });

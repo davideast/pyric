@@ -93,7 +93,7 @@ describe('readObservedSessionDelta', () => {
     expect(rejectionOf({ firestore: ops }).reason).toBe('oversized');
   });
 
-  it('delegates storage ops and counts them toward the per-delta operation cap', () => {
+  it('delegates storage ops, preserves customMetadata verbatim, and counts them toward the per-delta operation cap', () => {
     const delta = readObservedSessionDelta({
       storage: [
         {
@@ -109,7 +109,7 @@ describe('readObservedSessionDelta', () => {
         kind: 'upsert',
         bucket: 'demo-proj.firebasestorage.app',
         fullPath: 'items/item-1.png',
-        metadata: { size: 64, contentType: 'image/png', customMetadata: { apiKey: '[REDACTED]' } },
+        metadata: { size: 64, contentType: 'image/png', customMetadata: { apiKey: 'secret' } },
       },
     ]);
   });

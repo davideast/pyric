@@ -98,7 +98,7 @@ describe('LiveObservedStoragePane', () => {
     expect(view.container.textContent).not.toContain('New folder');
   });
 
-  it('browses observed objects, renders deleted tombstones, Copy gs:// URI / Copy path controls, token-free Storage URL, and never calls getBlob', async () => {
+  it('browses observed objects, renders deleted tombstones, Copy gs:// URI / Copy path controls, verbatim customMetadata and Storage download URL, and never calls getBlob', async () => {
     let getBlobCalls = 0;
     const bucket = 'demo.firebasestorage.app';
     const catalog = {
@@ -115,10 +115,10 @@ describe('LiveObservedStoragePane', () => {
           updated: '2026-01-02T00:00:00.000Z',
           customMetadata: {
             owner: 'u1',
-            firebaseStorageDownloadTokens: '[REDACTED]',
+            firebaseStorageDownloadTokens: 'tok-live-1',
           },
           downloadUrl:
-            'https://firebasestorage.googleapis.com/v0/b/demo.firebasestorage.app/o/item-1.png?alt=media',
+            'https://firebasestorage.googleapis.com/v0/b/demo.firebasestorage.app/o/item-1.png?alt=media&token=tok-live-1',
         },
         'workspaces/ws-1/items/server-report.json': {
           bucket,
@@ -127,7 +127,7 @@ describe('LiveObservedStoragePane', () => {
           size: 512,
           contentType: 'application/json',
           customMetadata: {
-            apiKey: '[REDACTED]',
+            apiKey: 'sk-live-999',
           },
         },
       },
@@ -210,9 +210,9 @@ describe('LiveObservedStoragePane', () => {
       expect(view.container.querySelector('[data-live-storage-no-bytes]')).not.toBeNull(),
     );
     expect(getBlobCalls).toBe(0);
-    expect(view.container.querySelector('[data-live-storage-credentials-stripped]')?.textContent).toContain(
-      'stripped at capture time',
-    );
+    expect(
+      view.container.querySelectorAll('[data-live-storage-credentials-stripped]').length,
+    ).toBe(0);
     const copyGsBtn = view.container.querySelector('[data-live-storage-copy-gs-uri]')!;
     fireEvent.click(copyGsBtn);
     expect(copyGsBtn.textContent).toContain('Copied gs:// URI');
@@ -224,13 +224,13 @@ describe('LiveObservedStoragePane', () => {
       '[data-live-storage-download-url]',
     ) as HTMLAnchorElement | null;
     expect(link).not.toBeNull();
+    expect(link?.textContent).toContain('Open Storage download URL');
     expect(link?.getAttribute('href')).toBe(
-      'https://firebasestorage.googleapis.com/v0/b/demo.firebasestorage.app/o/item-1.png?alt=media',
+      'https://firebasestorage.googleapis.com/v0/b/demo.firebasestorage.app/o/item-1.png?alt=media&token=tok-live-1',
     );
-    expect(link?.getAttribute('href')).not.toContain('token=');
     expect(link?.getAttribute('target')).toBe('_blank');
     expect(view.container.querySelector('[data-live-storage-external-notice]')?.textContent).toContain(
-      'without embedded bearer credentials',
+      'Opens the observed Cloud Storage download URL directly.',
     );
     expect(
       view.container.querySelector(
@@ -241,7 +241,7 @@ describe('LiveObservedStoragePane', () => {
       view.container.querySelector(
         '[data-pyric-metadata-key="firebaseStorageDownloadTokens"] dd',
       )?.textContent,
-    ).toBe('[REDACTED]');
+    ).toBe('tok-live-1');
 
     view.rerender(
       <StorageApiProvider value={api}>
@@ -262,7 +262,7 @@ describe('LiveObservedStoragePane', () => {
     await waitFor(() =>
       expect(
         view.container.querySelector('[data-pyric-metadata-key="apiKey"] dd')?.textContent,
-      ).toBe('[REDACTED]'),
+      ).toBe('sk-live-999'),
     );
     expect(view.container.querySelector('[data-live-storage-download-url]')).toBeNull();
     expect(getBlobCalls).toBe(0);

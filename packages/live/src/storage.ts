@@ -35,7 +35,6 @@
 import {
   FORBIDDEN_STORAGE_KEYS,
   isValidStorageBucketName,
-  sanitizeStorageMetadataEntry,
 } from '@pyric/cli/bridge/client';
 import { defineOwn } from './firestore-session-values.js';
 import { observedCall, type CallContext, type ObservedSite, type ResultReading } from './observe.js';
@@ -115,10 +114,9 @@ function copyCustomMetadata(value: unknown, budget: { left: number }): Record<st
   const copy: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) {
     if (typeof entry !== 'string' || FORBIDDEN_STORAGE_KEYS.has(key)) continue;
-    const sanitized = sanitizeStorageMetadataEntry(key, entry);
-    budget.left -= key.length + sanitized.length + 6;
+    budget.left -= key.length + entry.length + 6;
     if (budget.left < 0) return undefined;
-    defineOwn(copy, key, sanitized);
+    defineOwn(copy, key, entry);
   }
   return copy;
 }

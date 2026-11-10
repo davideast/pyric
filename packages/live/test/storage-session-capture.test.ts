@@ -2,22 +2,20 @@
  * Metadata-only session capture for client `firebase/storage` calls
  * (`storage-session-capture.ts`): uploads, `getMetadata`, `updateMetadata`,
  * `list` / `listAll` (`<= 250` cap + truncation count), `getDownloadURL`
- * origin allowlisting + credential stripping, `deleteObject`, secret
- * `customMetadata` redaction, and zero binary byte retention on `getBytes`,
- * `getBlob`, and `getStream`.
+ * origin allowlisting with verbatim query parameters, `deleteObject`, verbatim
+ * `customMetadata` with `__proto__` hygiene, and zero binary byte retention on
+ * `getBytes`, `getBlob`, and `getStream`.
  */
 import { describe, expect, test } from 'bun:test';
 import { wrapLiveModule, type LiveCallRecord } from '../src/index.js';
 import type { ObservedSite } from '../src/observe.js';
 import { sessionDataOf } from '../src/session-data.js';
 import {
-  sanitizeStorageDownloadUrl,
-  scrubStorageCustomMetadata,
+  copyStorageCustomMetadata,
   storageSessionContext,
   storageSessionResult,
+  validateStorageDownloadUrl,
 } from '../src/storage-session-capture.js';
-
-const REDACTED_METADATA_VALUE = '[REDACTED]';
 
 function makeSite(
   name: string,
@@ -44,7 +42,15 @@ function makeSite(
 }
 
 describe('storage-session-capture', () => {
-  test('captures uploadBytes, uploadBytesResumable, and uploadString response metadata while scrubbing secret customMetadata keys and values', () => {
+  test('captures uploadBytes, uploadBytesResumable, and uploadString response metadata while preserving customMetadata verbatim', () => {
+    const customMetadata = {
+      workspaceId: 'ws-1',
+      firebaseStorageDownloadTokens: 'tok-live-1',
+      apiKey: 'sec-key',
+      uploadPassphrase: 'pp-1',
+      sessionCookie: 'sid=abc',
+      upstreamHeader: 'Bearer live-bearer-123',
+    };
     const delta = storageSessionResult(
       makeSite('uploadBytes', 'demo-proj.firebasestorage.app', 'workspaces/ws-1/items/item-1.png'),
       {
@@ -60,14 +66,7 @@ describe('storage-session-capture', () => {
           metageneration: '1',
           timeCreated: '2026-01-01T00:00:00.000Z',
           updated: '2026-01-01T00:00:00.000Z',
-          customMetadata: {
-            workspaceId: 'ws-1',
-            firebaseStorageDownloadTokens: 'tok-live-1',
-            apiKey: 'sec-key',
-            uploadPassphrase: 'pp-1',
-            sessionCookie: 'sid=abc',
-            upstreamHeader: 'Bearer live-bearer-123',
-          },
+          customMetadata,
         },
       },
     );
@@ -88,14 +87,7 @@ describe('storage-session-capture', () => {
             metageneration: '1',
             timeCreated: '2026-01-01T00:00:00.000Z',
             updated: '2026-01-01T00:00:00.000Z',
-            customMetadata: {
-              workspaceId: 'ws-1',
-              firebaseStorageDownloadTokens: REDACTED_METADATA_VALUE,
-              apiKey: REDACTED_METADATA_VALUE,
-              uploadPassphrase: REDACTED_METADATA_VALUE,
-              sessionCookie: REDACTED_METADATA_VALUE,
-              upstreamHeader: REDACTED_METADATA_VALUE,
-            },
+            customMetadata,
           },
         },
       ],
@@ -123,7 +115,7 @@ describe('storage-session-capture', () => {
             contentType: 'text/plain',
             customMetadata: {
               ownerUid: 'u-1',
-              passwordHint: REDACTED_METADATA_VALUE,
+              passwordHint: 'secret',
             },
           },
         },
@@ -179,7 +171,7 @@ describe('storage-session-capture', () => {
     });
   });
 
-  test('strips bearer token= and signed query params from allowlisted getDownloadURL hosts while rejecting phishing origins and byte downloads', () => {
+  test('preserves allowlisted getDownloadURL query parameters verbatim while rejecting phishing origins and byte downloads', () => {
     const rawDownloadUrl =
       'https://firebasestorage.googleapis.com/v0/b/demo-proj.firebasestorage.app/o/items%2Fa.png?alt=media&token=pub-1';
     expect(
@@ -190,8 +182,7 @@ describe('storage-session-capture', () => {
           kind: 'downloadUrl',
           bucket: 'demo-proj.firebasestorage.app',
           fullPath: 'items/a.png',
-          downloadUrl:
-            'https://firebasestorage.googleapis.com/v0/b/demo-proj.firebasestorage.app/o/items%2Fa.png?alt=media',
+          downloadUrl: rawDownloadUrl,
         },
       ],
     });
@@ -203,9 +194,10 @@ describe('storage-session-capture', () => {
       ),
     ).toEqual({ skipped: { unsupported: 1 } });
 
-    expect(sanitizeStorageDownloadUrl('data:text/plain;base64,SGVsbG8=')).toBeUndefined();
-    expect(scrubStorageCustomMetadata({ secretToken: 'abc', label: 'ok' })).toEqual({
-      secretToken: REDACTED_METADATA_VALUE,
+    expect(validateStorageDownloadUrl('data:text/plain;base64,SGVsbG8=')).toBeUndefined();
+    const protoPoisoned = JSON.parse('{"secretToken":"abc","label":"ok","__proto__":"bad"}') as Record<string, string>;
+    expect(copyStorageCustomMetadata(protoPoisoned)).toEqual({
+      secretToken: 'abc',
       label: 'ok',
     });
 

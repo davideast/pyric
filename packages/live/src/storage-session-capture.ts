@@ -1,13 +1,13 @@
 /**
  * Metadata-only session data extraction for client `firebase/storage` calls.
  *
- * Privacy and memory invariants (`#2542`):
+ * Privacy and memory invariants (`#2542`, ADR 0024):
  *   - Never reads, copies, decodes, or retains raw uploaded or downloaded byte
  *     buffers (`Blob`, `ArrayBuffer`, `Uint8Array`, base64 strings, or streams).
- *   - Scrubs secret-named `customMetadata` keys and secret-shaped values to
- *     `'[REDACTED]'` via `@pyric/cli/bridge/client` (`storage-policy.ts`).
- *   - Allowlists Firebase/GCS Storage download URL origins and strips all query
- *     credentials (`token=`, `access_token=`, signed-URL params, SAS params).
+ *   - Preserves `customMetadata` entries verbatim while dropping
+ *     prototype-pollution keys (`__proto__`, `constructor`, `prototype`).
+ *   - Validates Firebase/GCS Storage download URL origins while preserving
+ *     query parameters (`token=`, signed-URL params) verbatim.
  *   - Bounds `list` / `listAll` discovery deltas to `<= 250` combined entries.
  */
 import {
@@ -20,8 +20,7 @@ import {
   STORAGE_IMMUTABLE_STRING_FIELDS,
   STORAGE_NULLABLE_STRING_FIELDS,
   isValidStorageBucketName,
-  sanitizeObservedStorageDownloadUrl,
-  sanitizeStorageMetadataEntry,
+  validateObservedStorageDownloadUrl,
 } from '@pyric/cli/bridge/client';
 import type { ObservedSite } from './observe.js';
 import {
@@ -97,7 +96,7 @@ export function normalizeStoragePrefix(raw: unknown): string | undefined {
   return trimmed;
 }
 
-export function scrubStorageCustomMetadata(
+export function copyStorageCustomMetadata(
   raw: unknown,
 ): Record<string, string> | null | undefined {
   if (raw === undefined) return undefined;
@@ -115,11 +114,10 @@ export function scrubStorageCustomMetadata(
       typeof val === 'string' &&
       val.length <= MAX_STORAGE_METADATA_STRING_CHARS;
     if (!validEntry) continue;
-    const scrubbedVal = sanitizeStorageMetadataEntry(key, val);
-    const entryBytes = utf8Bytes(key) + utf8Bytes(scrubbedVal) + 6;
+    const entryBytes = utf8Bytes(key) + utf8Bytes(val) + 6;
     if (totalBytes + entryBytes > MAX_STORAGE_CUSTOM_METADATA_BYTES) break;
     Object.defineProperty(out, key, {
-      value: scrubbedVal,
+      value: val,
       enumerable: true,
       writable: true,
       configurable: true,
@@ -130,8 +128,8 @@ export function scrubStorageCustomMetadata(
   return out;
 }
 
-export function sanitizeStorageDownloadUrl(raw: unknown): string | undefined {
-  return sanitizeObservedStorageDownloadUrl(raw);
+export function validateStorageDownloadUrl(raw: unknown): string | undefined {
+  return validateObservedStorageDownloadUrl(raw);
 }
 
 function asRecord(value: unknown): Fields | undefined {
@@ -182,7 +180,7 @@ function extractClientMetadataInput(raw: unknown): ObservedStorageObjectInput | 
   const out = extractBaseStorageMetadataFields(raw);
 
   if ('customMetadata' in raw) {
-    const custom = scrubStorageCustomMetadata(raw.customMetadata);
+    const custom = copyStorageCustomMetadata(raw.customMetadata);
     if (custom !== undefined) out.customMetadata = custom;
   }
 
@@ -365,7 +363,7 @@ function captureListResult(site: ObservedSite, result: unknown): ObservedSession
 function captureDownloadUrlResult(site: ObservedSite, result: unknown): ObservedSessionDelta | undefined {
   const fullPath = normalizeStorageObjectPath(site.path);
   if (fullPath === undefined) return undefined;
-  const downloadUrl = sanitizeStorageDownloadUrl(result);
+  const downloadUrl = validateStorageDownloadUrl(result);
   if (downloadUrl === undefined) return skipDeltaOf('unsupported');
   const bucket = normalizeStorageBucket(site.bucket);
   return sessionDeltaOf({
