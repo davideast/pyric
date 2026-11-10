@@ -23,7 +23,7 @@ import {
   type BridgeToolEvent,
   type BridgeToolResult,
 } from './bridge.js';
-import { pyricVersion } from '../../serve/standalone-assets.js';
+import { cliVersion } from '../../pkg-version.js';
 
 export interface LocalBridgeOptions {
   /** Reported as the MCP server version. */
@@ -55,7 +55,7 @@ export function createLocalBridge(sandbox: LocalSandbox, opts: LocalBridgeOption
   const project = opts.project ?? 'sandbox';
   const base = createBridge({
     project,
-    version: opts.version ?? pyricVersion(),
+    version: opts.version ?? cliVersion(),
     onToolEvent: opts.onToolEvent,
   });
   const recordEvent = (event: BridgeToolEvent): void => {

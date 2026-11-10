@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { WebSocket } from 'ws';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { createBridgeMount } from '../../src/serve/bridge-mount.js';
@@ -90,15 +90,42 @@ describe('the health route on a loopback socket', () => {
       expect((await healthCall(mount.handler, host)).status).toBe(200);
     }
   });
+
+  it('resolves health version lazily per createBridgeMount call', async () => {
+    const prev = globalThis.__PYRIC_EMBEDDED__;
+    let embeddedMount: ReturnType<typeof createBridgeMount> | undefined;
+    try {
+      globalThis.__PYRIC_EMBEDDED__ = {
+        version: '6.5.4-embedded',
+        workerVersion: 'wv',
+        sdk: async () => ({}),
+        site: async () => ({}),
+      };
+      embeddedMount = createBridgeMount({ disableAuditLog: true });
+      const answer = await healthCall(embeddedMount.handler, 'localhost');
+      expect(answer.status).toBe(200);
+      expect((JSON.parse(String(answer.body)) as { version: string }).version).toBe('6.5.4-embedded');
+    } finally {
+      globalThis.__PYRIC_EMBEDDED__ = prev;
+      await embeddedMount?.close();
+    }
+  });
 });
+
+const ownVersion = (
+  JSON.parse(readFileSync(resolve(import.meta.dir, '../../package.json'), 'utf8')) as {
+    version: string;
+  }
+).version;
 
 describe('pyric dev --bridge', () => {
   it('mounts health + advertises the ws URL in the init payload', async () => {
     const r = await serve(true);
     const health = await fetch(r.handle.url + '/__pyric/health');
     expect(health.status).toBe(200);
-    const body = (await health.json()) as { mode: string; sandboxConnected?: boolean };
+    const body = (await health.json()) as { mode: string; version: string; sandboxConnected?: boolean };
     expect(body.mode).toBe('sandbox');
+    expect(body.version).toBe(ownVersion);
 
     // runtime.mcpUrl is clean (no ?token= query parameter; token lives in 0o600 .pyric/serve.json)
     expect(r.mcpUrl).toBe(r.handle.url + '/__pyric/mcp');
@@ -141,7 +168,9 @@ describe('pyric dev --bridge', () => {
       protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '0' },
     });
     expect(init.status).toBe(200);
-    expect((init.json as { result: { serverInfo: { name: string } } }).result.serverInfo.name).toBe('pyric');
+    expect(
+      (init.json as { result: { serverInfo: { name: string; version: string } } }).result.serverInfo,
+    ).toEqual({ name: 'pyric', version: ownVersion });
     expect(sessionId).toBeTruthy(); // stateful: a session id is issued
 
     await mcp(null, 'notifications/initialized'); // confirm init before tool calls

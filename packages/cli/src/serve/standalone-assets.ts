@@ -74,16 +74,6 @@ export function embeddedVersion(): string {
   return embedded().version;
 }
 
-/**
- * The pyric version for user-facing strings (CLI banner, bridge / MCP server
- * version). The binary's baked version, or '0.0.0' outside a standalone build.
- * SAFE: unlike {@link embeddedVersion} it never throws — the single source these
- * strings derive from instead of hardcoding a literal in each place.
- */
-export function pyricVersion(): string {
-  return globalThis.__PYRIC_EMBEDDED__?.version ?? '0.0.0';
-}
-
 /** Whether this binary carries the vendorable package tarballs (see EmbeddedAssets.tarballs). */
 export function hasEmbeddedTarballs(): boolean {
   return typeof globalThis.__PYRIC_EMBEDDED__?.tarballs === 'function';

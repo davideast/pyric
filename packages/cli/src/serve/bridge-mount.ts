@@ -31,7 +31,7 @@ import { answerAndClose, attachPeer, collectBody, isBodyTooLarge } from '../brid
 import { pointerHeldByAnotherHost, pointerHostAnswers, type ServePointer } from './discovery.js';
 import { registerLocalSessionToken, writeMode600FileSync } from './local-session-token.js';
 import { boundedFetch } from '../bounded-request.js';
-import { pyricVersion } from './standalone-assets.js';
+import { cliVersion } from '../pkg-version.js';
 import {
   getHeader,
   isAllowedHost,
@@ -59,7 +59,6 @@ import { proxyTargetsOf } from './vite-proxy-check.js';
 const WS_PATH = '/__pyric/sandbox';
 const MCP_PATH = '/__pyric/mcp';
 export const HEALTH_PATH = '/__pyric/health';
-const BRIDGE_VERSION = pyricVersion();
 
 /** The 503 a closed mount answers its routes with, so a client knows the host is going away. */
 export function answerMountClosed(res: ServerResponse): void {
@@ -218,11 +217,12 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   const auditWriter = disablesAuditLog ? null : createAuditWriter(project);
   const recordsAudit = auditWriter !== null;
 
+  const bridgeVersion = cliVersion();
   const bridge = createBridge({
     mode: isLiveMode ? 'live' : 'sandbox',
     project,
     projectKey: opts.projectKey,
-    version: BRIDGE_VERSION,
+    version: bridgeVersion,
     onToolEvent: recordsAudit ? (event: BridgeToolEvent) => auditWriter.write(event) : undefined,
     tabRoute: opts.liveHost === undefined ? undefined : tabCallRoute,
   });

@@ -6,6 +6,8 @@
  * route keeps the tools that run in the bridge process.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import WebSocket from 'ws';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { startServer, type ServerHandle } from '../../src/bridge/server.js';
@@ -128,5 +130,62 @@ describe('pyric bridge has no browser socket', () => {
     const body = JSON.parse(line.replace(/^data:\s*/, '')) as { result: { tools: Array<{ name: string }> } };
     const names = body.result.tools.map((tool) => tool.name).sort();
     expect(names).toEqual([...BRIDGE_IN_PROCESS_TOOL_NAMES].sort());
+  });
+
+  it('reports @pyric/cli package version on /health, MCP serverInfo, and startup logs, resolved lazily per startServer call', async () => {
+    const ownVersion = (
+      JSON.parse(readFileSync(resolvePath(import.meta.dir, '../../package.json'), 'utf8')) as {
+        version: string;
+      }
+    ).version;
+    const healthBody = (await (await fetch(`${server.url}/health`)).json()) as { version: string };
+    expect(healthBody.version).toBe(ownVersion);
+
+    const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    const init = await fetch(server.mcpUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '0' } },
+      }),
+    });
+    const initText = await init.text();
+    const initLine = initText.split('\n').find((entry) => entry.startsWith('data:')) ?? initText;
+    const initJson = JSON.parse(initLine.replace(/^data:\s*/, '')) as {
+      result: { serverInfo: { name: string; version: string } };
+    };
+    expect(initJson.result.serverInfo).toEqual({ name: 'pyric', version: ownVersion });
+
+    const prev = globalThis.__PYRIC_EMBEDDED__;
+    const infoLogs: string[] = [];
+    let embeddedServer: ServerHandle | undefined;
+    try {
+      globalThis.__PYRIC_EMBEDDED__ = {
+        version: '8.7.6-embedded',
+        workerVersion: 'wv',
+        sdk: async () => ({}),
+        site: async () => ({}),
+      };
+      embeddedServer = await startServer({
+        port: 0,
+        disableAuditLog: true,
+        logger: {
+          info: (m) => infoLogs.push(m),
+          verbose: () => {},
+          error: () => {},
+        },
+      });
+      const embeddedHealth = (await (await fetch(`${embeddedServer.url}/health`)).json()) as {
+        version: string;
+      };
+      expect(embeddedHealth.version).toBe('8.7.6-embedded');
+      expect(infoLogs.some((line) => line.includes('bridge 8.7.6-embedded listening on'))).toBe(true);
+    } finally {
+      globalThis.__PYRIC_EMBEDDED__ = prev;
+      await embeddedServer?.stop();
+    }
   });
 });
