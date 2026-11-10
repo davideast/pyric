@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict';
 import { realpathSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { scenario, sessionHeaders, sleep, type App, type AppProcess } from '../driver.ts';
+import { scenario, sleep, type AppProcess } from '../driver.ts';
 
 interface SocketAttempt {
   attached: boolean;
@@ -87,10 +87,10 @@ async function tryNamingOwnPort(input: { url: string; forwardedHost: string }): 
 }
 
 /** A direct command from Node, with no Origin, the way `pyric` calls the host. */
-async function callMethod(app: App, base: string, call: MethodCall): Promise<string> {
+async function callMethod(base: string, call: MethodCall): Promise<string> {
   const response = await fetch(`${base}/__pyric/hosted/method`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...sessionHeaders(app, base) },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(call),
   });
   return `${response.status} ${await response.text()}`;
@@ -159,18 +159,18 @@ export default scenario(async (app) => {
       // Give a command that got through time to land before reading.
       await sleep(1_000);
       for (const path of ['scratch/socket', 'scratch/method']) {
-        const read = await callMethod(app, base, { instanceId, projectDir, key: 'firestore.getDoc', args: { path } });
+        const read = await callMethod(base, { instanceId, projectDir, key: 'firestore.getDoc', args: { path } });
         assert.ok(read.startsWith('200 '), read);
         assert.ok(!read.includes('other page'), `the other page wrote ${path}: ${read}`);
       }
     });
 
     await app.step('a direct command with no Origin still writes', async () => {
-      const write = await callMethod(app, base, {
+      const write = await callMethod(base, {
         instanceId, projectDir, key: 'firestore.setDoc', args: { path: 'scratch/direct', data: { from: 'cli' } },
       });
       assert.match(write, /^200 .*"ok":true/, write);
-      const read = await callMethod(app, base, { instanceId, projectDir, key: 'firestore.getDoc', args: { path: 'scratch/direct' } });
+      const read = await callMethod(base, { instanceId, projectDir, key: 'firestore.getDoc', args: { path: 'scratch/direct' } });
       assert.ok(read.includes('cli'), read);
     });
 

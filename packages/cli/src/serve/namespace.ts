@@ -149,8 +149,10 @@ export interface NamespaceOptions {
    *  (disk-backed `WorkspaceStore`/`ProjectStore`, plus the SSE watch stream)
    *  that `@pyric/studio`'s `local` mode talks to. */
   studio?: StudioRouteOptions;
-  /** Per-boot session capability token required on workspace and project endpoints. */
+  /** Per-boot session capability token required on workspace, project, and AI proxy endpoints (and all routes when `requireSessionToken` is true). */
   sessionToken?: string;
+  /** Require `sessionToken` on every namespace route instead of only workspace/project and AI proxy routes. */
+  requireSessionToken?: boolean;
   /** Bound host for DNS rebinding guard. */
   boundHost?: string;
   /** Extra allowed hostnames. */
@@ -587,10 +589,16 @@ async function handleDenials(
  * its ports: this server's own, or under `pyric sandbox` the port of a dev
  * server that proxies to it (see app-ports.ts).
  */
-function isAppOrigin(req: IncomingMessage, originHeader: string, opts: GuardOptions): boolean {
+function isAppOrigin(
+  req: IncomingMessage,
+  originHeader: string,
+  opts: GuardOptions,
+  allowExtraHosts: boolean,
+): boolean {
   const boundHost = opts.boundHost ?? 'localhost';
+  const extra = allowExtraHosts ? opts.allowedHosts : undefined;
   const ports = opts.appPorts?.forRequest(req) ?? [req.socket.localPort];
-  return ports.some((port) => isAllowedOrigin(originHeader, boundHost, opts.allowedHosts, port));
+  return ports.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port));
 }
 
 type GuardOptions = Pick<NamespaceOptions, 'boundHost' | 'allowedHosts' | 'appPorts'>;
@@ -614,7 +622,12 @@ function remotePeerInitPayload(payload: InitPayload): InitPayload {
   };
 }
 
-function guardLoopback(req: IncomingMessage, res: ServerResponse, opts: GuardOptions): boolean {
+function guardLoopback(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: GuardOptions,
+  allowExtraHosts = false,
+): boolean {
   // First, and whatever the headers say: a client chooses its own headers.
   const isRemotePeer = !isLocalPeer(req);
   if (isRemotePeer) {
@@ -623,11 +636,12 @@ function guardLoopback(req: IncomingMessage, res: ServerResponse, opts: GuardOpt
   }
   const hostHeader = getHeader(req, 'host');
   const originHeader = getHeader(req, 'origin');
-  if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+  const extra = allowExtraHosts ? opts.allowedHosts : undefined;
+  if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', extra)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
     return false;
   }
-  if (originHeader && !isAppOrigin(req, originHeader, opts)) {
+  if (originHeader && !isAppOrigin(req, originHeader, opts, allowExtraHosts)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
     return false;
   }
@@ -700,12 +714,13 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
   const activityEndpoint = hasActivity
     ? { sink: activity, token: randomBytes(24).toString('base64url') }
     : undefined;
+  const requiresSessionToken = opts.requireSessionToken === true;
   const handler = (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
     const isDiagnostics = url.pathname === DIAGNOSTICS_PATH;
     if (isDiagnostics) {
-      const refused = !guardLoopback(req, res, opts);
+      const refused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (refused) return true;
-      if (!isAllowedSessionToken(req, url, sessionToken)) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
@@ -714,10 +729,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const thresholds = opts.thresholds;
     const isThresholdRequest = thresholds !== undefined && url.pathname === '/__pyric/thresholds';
     if (isThresholdRequest) {
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
-      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
-      if (sessionRefused) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }));
         return true;
       }
@@ -726,10 +740,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const indexes = opts.indexes;
     const isIndexRequest = indexes !== undefined && url.pathname === '/__pyric/indexes';
     if (isIndexRequest) {
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
-      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
-      if (sessionRefused) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }));
         return true;
       }
@@ -740,7 +753,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     if (hasStudioRoutes) {
       const isStudioRequest = url.pathname.startsWith('/__pyric/workspace') || url.pathname.startsWith('/__pyric/projects');
       if (isStudioRequest) {
-        const hostRefused = !guardLoopback(req, res, opts);
+        const hostRefused = !guardLoopback(req, res, opts, true);
         if (hostRefused) return true;
         return routes(req, res, url);
       }
@@ -748,10 +761,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const state = opts.state;
     const isObjectRequest = state !== undefined && url.pathname.startsWith(STATE_OBJECTS_PREFIX);
     if (isObjectRequest) {
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
-      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
-      if (sessionRefused) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
@@ -760,10 +772,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     }
     const isStateRequest = state !== undefined && url.pathname === '/__pyric/state';
     if (isStateRequest) {
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
-      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
-      if (sessionRefused) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
@@ -780,10 +791,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const rateCaptures = opts.rateCaptures;
     const isRateCaptureRequest = rateCaptures !== undefined && url.pathname === '/__pyric/rate-captures';
     if (isRateCaptureRequest) {
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
-      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
-      if (sessionRefused) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401).end('Unauthorized'); return true;
       }
       return handleRateCaptures(rateCaptures, req, res, url);
@@ -791,10 +801,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const capture = opts.capture;
     const isCaptureRequest = capture !== undefined && url.pathname === '/__pyric/capture';
     if (isCaptureRequest) {
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
-      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
-      if (sessionRefused) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
@@ -807,9 +816,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const events = opts.events;
     const isEventsRequest = events !== undefined && url.pathname === '/__pyric/events';
     if (isEventsRequest) {
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
-      if (!isAllowedSessionToken(req, url, sessionToken)) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
@@ -819,7 +828,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const isGeminiProxyRequest = isGeminiProxyPath(url.pathname);
     if (isGeminiProxyRequest) {
       // It spends the server's key, so only this app's pages may call it.
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, true);
       if (hostRefused) return true;
       if (!isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
@@ -830,7 +839,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const isAiProxyRequest = url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`);
     if (isAiProxyRequest) {
       // The upstream may carry the developer's key, so only this server's pages may spend it.
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, true);
       if (hostRefused) return true;
       if (!isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
@@ -847,9 +856,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const isDenialRequest = url.pathname === '/__pyric/denials';
     if (isDenialRequest) {
       // A page on another origin must not be able to write to the developer's terminal.
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
-      if (!isAllowedSessionToken(req, url, sessionToken)) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
@@ -868,11 +877,23 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
         res.end(isHead ? undefined : JSON.stringify(remotePeerInitPayload(opts.initPayload())));
         return true;
       }
-      if (!guardLoopback(req, res, opts)) return true;
+      const authenticated = isAllowedSessionToken(req, url, sessionToken);
+      if (!guardLoopback(req, res, opts, authenticated)) return true;
       const raw = opts.initPayload();
-      if (!isAllowedSessionToken(req, url, sessionToken)) {
+      if (!authenticated) {
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(isHead ? undefined : JSON.stringify(unauthenticatedInitPayload(raw)));
+        if (requiresSessionToken) {
+          res.end(isHead ? undefined : JSON.stringify(unauthenticatedInitPayload(raw)));
+          return true;
+        }
+        const { sessionToken: _omitSessionToken, ...sandboxRaw } = raw;
+        const sandboxPayload = {
+          ...sandboxRaw,
+          thresholds: Boolean(opts.thresholds),
+          rateCaptures: Boolean(opts.rateCaptures),
+          ...(activityEndpoint !== undefined ? { activityToken: activityEndpoint.token } : {}),
+        };
+        res.end(isHead ? undefined : JSON.stringify(sandboxPayload));
         return true;
       }
       appendSetCookieHeader(res, formatSessionCookie(sessionToken));

@@ -119,13 +119,12 @@ export interface RemoteReadRequest {
 /** A `GET` of an object, or a range of it, over the byte route. Throws unless the response carries bytes. */
 export async function fetchFromByteRoute(route: RemoteByteRoute, request: RemoteReadRequest): Promise<Response> {
   const token = await route.sessionToken();
-  const missingToken = token === null || token === '';
-  if (missingToken) throw failure('unavailable', 'The host gave no session token for its byte route.');
   const url = new URL(`${ROUTE_PREFIX}${encodeURIComponent(request.bucket)}/o/${encodeURIComponent(request.path)}`, route.baseUrl);
   url.searchParams.set('alt', 'media');
   const generation = request.generation;
   if (generation !== undefined) url.searchParams.set('generation', generation);
-  const headers: Record<string, string> = { 'x-pyric-session-token': token };
+  const headers: Record<string, string> = { 'x-pyric-byte-route': '1' };
+  if (token !== null && token !== '') headers['x-pyric-session-token'] = token;
   const ranged = request.start !== undefined || request.end !== undefined;
   if (ranged) headers.range = `bytes=${request.start ?? 0}-${request.end ?? ''}`;
   const response = await (route.fetch ?? fetch)(url, { headers });

@@ -618,10 +618,17 @@ try {
     throw new Error(`a refused page registered as the sandbox peer: ${JSON.stringify(healthAfter)}`);
   }
 
-  const unauthenticatedMcp = await step('unauthenticated POST /mcp refused', () =>
-    fetch(`${server.url}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }));
-  if (unauthenticatedMcp.status !== 401) {
-    throw new Error(`expected unauthenticated POST /mcp to return 401, got ${unauthenticatedMcp.status}`);
+  if (server.mcpUrl.includes('token=')) {
+    throw new Error(`expected clean mcpUrl without ?token=, got ${server.mcpUrl}`);
+  }
+  const crossOriginMcp = await step('cross-origin POST /mcp refused', () =>
+    fetch(`${server.url}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+      body: '{}',
+    }));
+  if (crossOriginMcp.status !== 403) {
+    throw new Error(`expected cross-origin POST /mcp to return 403, got ${crossOriginMcp.status}`);
   }
 
   client = new Client({ name: 'packed-bridge-smoke', version: '1' });

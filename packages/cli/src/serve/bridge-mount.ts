@@ -107,6 +107,8 @@ export interface BridgeMountOptions {
   ownWriteRefusal?: PyricWriteRefusal;
   /** Per-boot capability token shared with the host's namespace; minted per mount when omitted. */
   sessionToken?: string;
+  /** Require `sessionToken` on MCP, hosted, health-detail, and WS routes even outside live mode. */
+  requireSessionToken?: boolean;
 }
 
 export interface BridgeMount {
@@ -208,6 +210,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   let disconnectHosted: (() => void) | undefined;
   let captureProjectDir = process.cwd();
   const isLiveMode = opts.liveHost !== undefined;
+  const requiresSessionToken = isLiveMode || opts.requireSessionToken === true;
   let activeWriteRefusal: PyricWriteRefusal | undefined =
     opts.ownWriteRefusal ?? (isLiveMode ? fallbackLiveWriteRefusal : undefined);
   const project = opts.project ?? 'sandbox';
@@ -381,7 +384,10 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           liveHost?.outbound(message);
           bridge.handleSandboxMessage(message);
         };
-        const hostOptions = withLiveObservedSession(ai, liveHost?.sessionData);
+        const hostOptions = {
+          ...withLiveObservedSession(ai, liveHost?.sessionData),
+          requireSessionToken: requiresSessionToken,
+        };
         hostedRuntime = await createHostedRuntime(payload, baseUrl, fromSandbox, opts.projectKey ?? process.cwd(), hostOptions);
         if (closed) throw new Error('The hosted sandbox closed during startup.');
         liveHost?.readClientIds(hostedRuntime.clientIdOf);
@@ -435,8 +441,11 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const extraAllowedHosts = Array.isArray(guard?.allowedHosts) ? guard.allowedHosts : [];
       if (isHealthRequest) {
         // Loopback Host, Origin, and Sec-Fetch-Site are enforced unconditionally
-        // (never bypassed by Vite `server.allowedHosts: true`).
-        const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extraAllowedHosts, appPorts.forRequest(req));
+        // (never bypassed by Vite `server.allowedHosts: true`, and extra hosts
+        // are accepted only on authenticated token-gated mounts).
+        const authenticated = isAllowedSessionToken(req, url, sessionToken);
+        const healthAllowedHosts = requiresSessionToken && authenticated ? extraAllowedHosts : [];
+        const isForbidden = !isAllowedLoopbackRequest(req, boundHost, healthAllowedHosts, appPorts.forRequest(req));
         if (isForbidden) {
           res.writeHead(403).end();
           return true;
@@ -446,9 +455,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           return true;
         }
         const fullHealth = bridge.health();
-        const authenticated = isAllowedSessionToken(req, url, sessionToken);
         let body: Record<string, unknown>;
-        if (authenticated) {
+        if (!requiresSessionToken || authenticated) {
           const live = opts.liveHost === undefined ? {} : { live: opts.liveHost.report() };
           // The Vite plugin's verdict on each `server.proxy` target (`vite-proxy-check.ts`).
           const proxyTargets = proxyTargetsOf(bridge.instanceId);
@@ -468,13 +476,15 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       }
       const requiresControlGuard = isMcpRequest || isHostedMethod || isLiveRoute;
       if (requiresControlGuard) {
-        const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extraAllowedHosts, appPorts.forRequest(req));
+        const routeRequiresToken = requiresSessionToken || isLiveRoute;
+        const controlAllowedHosts = routeRequiresToken ? extraAllowedHosts : [];
+        const isForbidden = !isAllowedLoopbackRequest(req, boundHost, controlAllowedHosts, appPorts.forRequest(req));
         if (isForbidden) {
           res.writeHead(403, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
           return true;
         }
-        if (!isAllowedSessionToken(req, url, sessionToken)) {
+        if (routeRequiresToken && !isAllowedSessionToken(req, url, sessionToken)) {
           res.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store' });
           res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid session capability token' }));
           return true;
@@ -483,13 +493,15 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (isStorageBytes) {
         // Only a page this server serves, or a process with no Origin, reaches
         // object bytes. An upload session also takes its bytes from the origin
-        // its creator named. `allowedHosts: true` never bypasses this guard.
+        // its creator named. `allowedHosts: true` never bypasses this guard, and
+        // `--allowed-host` never reaches unauthenticated sandbox byte routes.
+        const byteAllowedHosts = requiresSessionToken ? extraAllowedHosts : [];
         const hostHeader = getHeader(req, 'host');
         const originHeader = getHeader(req, 'origin');
-        const allowedOrigin = isAllowedOriginOnPorts(originHeader, boundHost, extraAllowedHosts, appPorts.forRequest(req))
+        const allowedOrigin = isAllowedOriginOnPorts(originHeader, boundHost, byteAllowedHosts, appPorts.forRequest(req))
           || hostedRuntime?.storageAllowsOrigin(url, originHeader) === true;
         const allowed =
-          isAllowedHost(hostHeader, boundHost, extraAllowedHosts) &&
+          isAllowedHost(hostHeader, boundHost, byteAllowedHosts) &&
           allowedOrigin &&
           !isForeignFetchWithoutOrigin(req);
         if (!allowed) {
@@ -684,14 +696,14 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         // even when `allowedHosts: true` is set on the host dev server.
         const boundHost = guard?.boundHost ?? 'localhost';
         const allowedHosts = guard?.allowedHosts;
-        const extra = Array.isArray(allowedHosts) ? allowedHosts : [];
+        const extra = requiresSessionToken && Array.isArray(allowedHosts) ? allowedHosts : [];
         const acceptsProxiedPage = opts.learnsProxyPorts === true;
         const ports = acceptsProxiedPage ? appPorts.forUpgrade(req) : appPorts.forRequest(req);
         if (!isAllowedUpgrade(req.headers, boundHost, extra, ports)) {
           socket.destroy();
           return;
         }
-        if (!isAllowedSessionToken(req, upgradeUrl, sessionToken)) {
+        if (requiresSessionToken && !isAllowedSessionToken(req, upgradeUrl, sessionToken)) {
           socket.destroy();
           return;
         }
@@ -887,7 +899,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     sandboxConnected: () => bridge.health().sandboxConnected === true,
     onSandboxPeerConnected: bridge.onSandboxPeerConnected,
     wsUrl: (origin) => `${schemes(origin).ws}://${urlHost(origin.host)}:${origin.port}${WS_PATH}`,
-    mcpUrl: (origin) => `${originUrl(origin)}${MCP_PATH}?token=${encodeURIComponent(sessionToken)}`,
+    mcpUrl: (origin) => `${originUrl(origin)}${MCP_PATH}`,
     close(): Promise<void> {
       const closing = closePromise;
       const isClosing = closing !== null;

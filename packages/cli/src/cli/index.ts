@@ -249,6 +249,9 @@ CORE FLAGS (sandbox)
                      rules file is present. For local prototyping only.
   --allowed-host H   Allow an extra Host header past the DNS-rebinding guard
                      (comma-separated; localhost/127.0.0.1 always allowed).
+  --session-token    Require a per-boot session capability token on every local
+                     /__pyric/* route, MCP, and WebSocket (workspace and AI proxy
+                     routes always require one).
   --persist          Persist sandbox state (docs + auth users) to
                      .pyric/state/state.json. It survives reloads and sandbox
                      restarts. Once a state file exists it wins; --seed
@@ -283,11 +286,13 @@ PROJECT CONFIG (pyric.json)
   project            Project label. --project, then PYRIC_PROJECT, override it.
   rules              Firestore rules path, or an object with firestore,
                      database, and storage paths.
+  sessionToken       Require a per-boot session capability token on all routes.
 
 CORE FLAGS (bridge)
   --port             Port to bind on 127.0.0.1. Default 5174. Env: PYRIC_PORT.
   --project          Project label surfaced in /health + audit output.
                      Env: PYRIC_PROJECT.
+  --session-token    Require x-pyric-session-token on /mcp and full /health.
 
 CREDENTIALS
   Rules Test API verification resolves existing Google credentials:
@@ -337,12 +342,22 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
   const project =
     typeof flagProject === 'string' ? flagProject : process.env.PYRIC_PROJECT ?? undefined;
 
+  if (parsed.flags.has('no-session-token') || parsed.flags.get('session-token') === 'false') {
+    process.stderr.write(`pyric: unknown option '--no-session-token' for pyric bridge.\n`);
+    return 1;
+  }
+  const { readPyricConfig } = await import('./pyric-config.js');
+  const pyricConfig = await readPyricConfig(process.cwd()).catch(() => ({} as { sessionToken?: boolean }));
+  const requireSessionToken =
+    parsed.flags.get('session-token') === true || pyricConfig.sessionToken === true;
+
   let handle;
   try {
     const { startServer } = await import('@pyric/cli/bridge');
     handle = await startServer({
       port,
       project,
+      requireSessionToken,
     });
   } catch (err) {
     process.stderr.write(
@@ -388,15 +403,18 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
   process.on('SIGINT', () => void stop('SIGINT'));
   process.on('SIGTERM', () => void stop('SIGTERM'));
 
+  const headerArg = requireSessionToken
+    ? ` --header "x-pyric-session-token: ${handle.sessionToken}"`
+    : '';
   process.stdout.write(
     `\npyric bridge ${VERSION} ready\n` +
       `  target:  sandbox\n` +
       `  project: ${handle.bridge.project}\n` +
       `  health:  ${handle.url}/health\n` +
-      `  mcp:     ${handle.url}/mcp\n` +
+      `  mcp:     ${handle.mcpUrl}\n` +
       (handle.auditLogPath ? `  audit:   ${handle.auditLogPath}\n` : '') +
       `\nRegister with Claude Code:\n` +
-      `  claude mcp add --transport http pyric ${handle.url}/mcp --scope project\n` +
+      `  claude mcp add --transport http pyric ${handle.mcpUrl}${headerArg} --scope project\n` +
       `\nThis bridge serves the tools that run in this process. A browser page cannot attach to it;\n` +
       `for an agent that drives the sandbox in a page, run \`pyric sandbox --bridge\`.\n` +
       `Set PYRIC_VERBOSE=1 for per-tool-call logs.\n` +

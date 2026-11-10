@@ -215,8 +215,14 @@ describe('host health lists the proxy targets', () => {
     return mount.handler(req as never, res as never, url).then(() => JSON.parse(body) as Record<string, unknown>);
   }
 
-  it('reports each context with its verdict when authenticated and omits proxyTargets when unauthenticated', async () => {
-    const mount = createBridgeMount({ disableAuditLog: true });
+  it('reports each context on loopback in default sandbox mode and gates proxyTargets behind sessionToken when requireSessionToken is true', async () => {
+    const sandboxMount = createBridgeMount({ disableAuditLog: true });
+    const stopSandbox = reportProxyTargets(sandboxMount.instanceId, () => [{ context: '/api', verdict: 'not-pyric' }]);
+    expect((await healthBody(sandboxMount, false)).proxyTargets).toEqual([{ context: '/api', verdict: 'not-pyric' }]);
+    stopSandbox();
+    await sandboxMount.close();
+
+    const mount = createBridgeMount({ disableAuditLog: true, requireSessionToken: true });
     const stop = reportProxyTargets(mount.instanceId, () => [{ context: '/api', verdict: 'not-pyric' }]);
     expect((await healthBody(mount, false)).proxyTargets).toBeUndefined();
     expect((await healthBody(mount)).proxyTargets).toEqual([{ context: '/api', verdict: 'not-pyric' }]);

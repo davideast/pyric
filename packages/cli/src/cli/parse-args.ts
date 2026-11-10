@@ -38,6 +38,7 @@ const BOOLEAN_FLAGS = new Set([
   'fresh',
   'force',
   'permissive',
+  'session-token',
   // `pyric mcp --in-process` forces the in-process sandbox; it takes no value and
   // must not swallow a following positional.
   'in-process',

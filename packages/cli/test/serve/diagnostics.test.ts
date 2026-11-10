@@ -10,11 +10,15 @@ import { expectClosedEarlyAnswer } from './early-answer.js';
 
 const SESSION_TOKEN = 'diagnostics-test-token';
 
-async function withServer(run: (url: string, token: string) => Promise<void>) {
+async function withServer(
+  run: (url: string, token: string) => Promise<void>,
+  requireSessionToken = false,
+) {
   const root = await mkdtemp(join(tmpdir(), 'pyric-diagnostics-'));
   const namespace = createPyricNamespace({
     sdkDir: root,
     sessionToken: SESSION_TOKEN,
+    requireSessionToken,
     initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null, hosted: true }),
   });
   const server = await startStaticServer({
@@ -38,37 +42,43 @@ const report = (clientId = 'test-browser') => ({
   ],
 });
 
-test('HTTP diagnostics require session token, do not trigger GC, and redact URL secrets', () => withServer(async (url, token) => {
-  const endpoint = `${url}/__pyric/diagnostics`;
-  expect((await fetch(endpoint)).status).toBe(401);
-  expect((await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(report()) })).status).toBe(401);
+test('HTTP diagnostics answer loopback in default sandbox mode, require session token when enabled, do not trigger GC, and redact URL secrets', async () => {
+  await withServer(async (url) => {
+    expect((await fetch(`${url}/__pyric/diagnostics`)).status).toBe(200);
+  }, false);
 
-  const authHeaders = { 'x-pyric-session-token': token };
-  let gcCalled = false;
-  const g = globalThis as unknown as { gc?: () => void };
-  const originalGc = g.gc;
-  g.gc = () => { gcCalled = true; };
-  try {
-    const gcProbe = await fetch(`${endpoint}?gc=1`, { headers: authHeaders });
-    expect(gcProbe.status).toBe(200);
-    expect(gcCalled).toBe(false);
-  } finally {
-    g.gc = originalGc;
-  }
+  await withServer(async (url, token) => {
+    const endpoint = `${url}/__pyric/diagnostics`;
+    expect((await fetch(endpoint)).status).toBe(401);
+    expect((await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(report()) })).status).toBe(401);
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders },
-    body: JSON.stringify(report()),
-  });
-  expect(response.status).toBe(204);
-  const result = await (await fetch(endpoint, { headers: authHeaders })).json();
-  expect(result.server.http).toBe('responding');
-  expect(result.server.mode).toBe('hosted');
-  expect(result.clients[0].events[0].endpoint).toBe('wss://orbit.example:5217/__pyric/sandbox');
-  expect(result.clients[0].findings).toContainEqual({ code: 'endpoint-origin-mismatch', connectionId: 'socket-1', expectedOrigin: 'wss://orbit.example:8457', actualOrigin: 'wss://orbit.example:5217' });
-  expect(JSON.stringify(result)).not.toMatch(/password|token=|secret|fragment/);
-}));
+    const authHeaders = { 'x-pyric-session-token': token };
+    let gcCalled = false;
+    const g = globalThis as unknown as { gc?: () => void };
+    const originalGc = g.gc;
+    g.gc = () => { gcCalled = true; };
+    try {
+      const gcProbe = await fetch(`${endpoint}?gc=1`, { headers: authHeaders });
+      expect(gcProbe.status).toBe(200);
+      expect(gcCalled).toBe(false);
+    } finally {
+      g.gc = originalGc;
+    }
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders },
+      body: JSON.stringify(report()),
+    });
+    expect(response.status).toBe(204);
+    const result = await (await fetch(endpoint, { headers: authHeaders })).json();
+    expect(result.server.http).toBe('responding');
+    expect(result.server.mode).toBe('hosted');
+    expect(result.clients[0].events[0].endpoint).toBe('wss://orbit.example:5217/__pyric/sandbox');
+    expect(result.clients[0].findings).toContainEqual({ code: 'endpoint-origin-mismatch', connectionId: 'socket-1', expectedOrigin: 'wss://orbit.example:8457', actualOrigin: 'wss://orbit.example:5217' });
+    expect(JSON.stringify(result)).not.toMatch(/password|token=|secret|fragment/);
+  }, true);
+});
 
 test('diagnostics reject cross-origin and oversized input, bound retention, and ignore stale reports', () => withServer(async (url, token) => {
   const endpoint = `${url}/__pyric/diagnostics`;

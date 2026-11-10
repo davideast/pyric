@@ -106,6 +106,8 @@ export interface SandboxSessionOptions {
   beaconToken?: string;
   /** Shared per-boot session capability token across namespace, bridge, and served HTML. */
   sessionToken?: string;
+  /** Require `sessionToken` on every namespace route instead of only workspace/project and AI proxy routes. */
+  requireSessionToken?: boolean;
 }
 
 export interface SandboxSessionSummary {
@@ -634,6 +636,7 @@ export async function createSandboxSession(
       persistenceStatus: hostedPersistence?.status,
       capture,
       sessionToken,
+      requireSessionToken: options.requireSessionToken,
       studio: mountsStudio
         ? {
             workspace: diskWorkspace(options.projectDir),

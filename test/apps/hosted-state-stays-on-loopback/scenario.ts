@@ -97,13 +97,18 @@ export default scenario(async (app) => {
     }
   });
 
-  const token = await app.step('a client on loopback authenticates via the 0600 session pointer and gets the session token', async () => {
+  const token = await app.step('a client on loopback reads rules without sessionToken and authenticates workspace access via the 0600 pointer', async () => {
     const pointerPath = join(app.dir, '.pyric', 'serve.json');
     assert.equal(statSync(pointerPath).mode & 0o777, 0o600);
-    const pointer = JSON.parse(readFileSync(pointerPath, 'utf8')) as { token?: string };
+    const pointer = JSON.parse(readFileSync(pointerPath, 'utf8')) as { token?: string; mcpUrl?: string };
     assert.equal(typeof pointer.token, 'string');
+    assert.ok(!pointer.mcpUrl?.includes('token='), `mcpUrl carried a query token: ${pointer.mcpUrl}`);
     const unauth = await get({ address: '127.0.0.1', port, path: '/__pyric/init.json', host });
-    assert.equal((JSON.parse(unauth.body) as { sessionToken?: unknown }).sessionToken, undefined);
+    const unauthBody = JSON.parse(unauth.body) as { sessionToken?: unknown; rules?: unknown };
+    assert.equal(unauthBody.sessionToken, undefined);
+    assert.equal(typeof unauthBody.rules, 'string');
+    const unauthWorkspace = await get({ address: '127.0.0.1', port, path: '/__pyric/workspace?path=firestore.rules', host });
+    assert.equal(unauthWorkspace.status, 401);
     const answer = await get({
       address: '127.0.0.1',
       port,
@@ -124,12 +129,11 @@ export default scenario(async (app) => {
     assert.equal(answer.status, 403, answer.body.slice(0, 200));
   });
 
-  await app.step('a client on loopback keeps the socket and MCP when presenting the token', async () => {
-    const authHeaders = { 'x-pyric-session-token': token };
-    assert.equal(await upgrades({ address: '127.0.0.1', port, path: '/__pyric/sandbox', host, headers: authHeaders }), true);
+  await app.step('a client on loopback keeps the socket and MCP without presenting the token', async () => {
+    assert.equal(await upgrades({ address: '127.0.0.1', port, path: '/__pyric/sandbox', host }), true);
     const mcp = await post({
       address: '127.0.0.1', port, path: '/__pyric/mcp', host,
-      headers: { accept: 'application/json, text/event-stream', ...authHeaders },
+      headers: { accept: 'application/json, text/event-stream' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'scenario', version: '1' } } }),
     });
     assert.equal(mcp.status, 200, mcp.body.slice(0, 200));

@@ -11,11 +11,14 @@ export function projectCaptures(fetcher: typeof fetch) {
       : await fetcher('/__pyric/init.json');
     if (!init.ok || !init.headers.get('content-type')?.includes('application/json')) return null;
     const config = await init.json();
+    if (config.rateCaptures !== true) return null;
     const token = typeof config.sessionToken === 'string' ? config.sessionToken : stamped;
-    if (typeof token !== 'string' || config.rateCaptures !== true) return null;
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (token !== undefined) headers['x-pyric-session-token'] = token;
     const response = await fetcher(`/__pyric/rate-captures${id ? `?id=${encodeURIComponent(id)}` : ''}`, {
       method,
-      headers: { 'x-pyric-session-token': token, 'content-type': 'application/json' }, body: text,
+      headers,
+      body: text,
     });
     if (response.status === 404 || !response.headers.get('content-type')?.includes('application/json')) {
       if (response.ok || response.status === 404) return null;

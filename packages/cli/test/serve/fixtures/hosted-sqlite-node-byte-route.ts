@@ -17,9 +17,9 @@ const SESSION = 'session-token-for-node-clients';
 const mount = createBridgeMount({ hosted: true, projectKey: directory, disableAuditLog: true });
 const server = createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost');
-  // The dev server's namespace hands this process the session token, as init.json does.
+  // Unauthenticated sandbox init.json withholds sessionToken; Node SDK byte-route reads still succeed on loopback.
   if (url.pathname === '/__pyric/init.json') {
-    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ sessionToken: SESSION }));
+    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({}));
     return;
   }
   void mount.handler(request, response, url).then(handled => { if (!handled) response.writeHead(404).end(); });

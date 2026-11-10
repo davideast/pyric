@@ -60,18 +60,51 @@ try {
   assert.equal(whole.headers.get('accept-ranges'), 'bytes');
   assert.ok(Buffer.from(await bytesOf(whole)).equals(Buffer.from(take)));
 
-  // The token may be the session token or one of the object's download tokens, in the query.
-  assert.equal((await fetch(objectUrl('media/take one.wav', `alt=media&token=${SESSION}`))).status, 200);
+  // Query ?token= matches only Firebase downloadTokens, never the session token; ambient cookies never authorize.
+  assert.equal((await fetch(objectUrl('media/take one.wav', `alt=media&token=${SESSION}`))).status, 403);
+  assert.equal((await fetch(objectUrl('media/take one.wav'), { headers: { cookie: `__pyric_session=${SESSION}` } })).status, 403);
+  assert.equal((await fetch(objectUrl('media/take one.wav'), { headers: { 'x-pyric-byte-route': '1' } })).status, 403);
   const byDownloadToken = await fetch(objectUrl('media/take one.wav', 'alt=media&token=token-b'));
   assert.equal(byDownloadToken.status, 200);
   assert.ok(Buffer.from(await bytesOf(byDownloadToken)).equals(Buffer.from(take)));
   assert.equal((await fetch(objectUrl('media/take one.wav'))).status, 403);
   assert.equal((await fetch(objectUrl('media/take one.wav', 'alt=media&token=token-c'))).status, 403);
-  assert.equal((await fetch(objectUrl('media/missing.wav', `alt=media&token=${SESSION}`))).status, 404);
+  assert.equal((await fetch(objectUrl('media/missing.wav'), { headers: { 'x-pyric-session-token': SESSION } })).status, 404);
+
+  // In sandbox mode (requireSessionToken: false), download URLs still enforce downloadTokens (403 without/revoked even with cookie), while explicit SDK byte-route header reads succeed.
+  {
+    const sandboxRoute = createStorageByteRoute({
+      storage,
+      sessionToken: SESSION,
+      requireSessionToken: false,
+      uploadToken: uploadId => uploadTokens.get(uploadId),
+    });
+    const sandboxServer = createServer((request, response) => {
+      const url = new URL(request.url ?? '/', 'http://localhost');
+      void sandboxRoute(request, response, url).then(handled => {
+        if (!handled) response.writeHead(404).end();
+      });
+    });
+    sandboxServer.listen(0, '127.0.0.1');
+    await once(sandboxServer, 'listening');
+    const sbAddr = sandboxServer.address();
+    assert.ok(sbAddr && typeof sbAddr === 'object');
+    const sbUrl = (path: string, query = 'alt=media') =>
+      `http://127.0.0.1:${sbAddr.port}/__pyric/storage/v0/b/${bucket}/o/${encodeURIComponent(path)}?${query}`;
+    try {
+      assert.equal((await fetch(sbUrl('media/take one.wav'))).status, 403);
+      assert.equal((await fetch(sbUrl('media/take one.wav'), { headers: { cookie: `__pyric_session=${SESSION}` } })).status, 403);
+      assert.equal((await fetch(sbUrl('media/take one.wav', 'alt=media&token=token-c'), { headers: { cookie: `__pyric_session=${SESSION}` } })).status, 403);
+      assert.equal((await fetch(sbUrl('media/take one.wav', 'alt=media&token=token-b'))).status, 200);
+      assert.equal((await fetch(sbUrl('media/take one.wav'), { headers: { 'x-pyric-byte-route': '1' } })).status, 200);
+    } finally {
+      sandboxServer.close();
+    }
+  }
 
   // A read pinned to the generation its rules check saw refuses a newer object.
-  assert.equal((await fetch(objectUrl('media/take one.wav', `alt=media&token=${SESSION}&generation=1`))).status, 200);
-  assert.equal((await fetch(objectUrl('media/take one.wav', `alt=media&token=${SESSION}&generation=2`))).status, 412);
+  assert.equal((await fetch(objectUrl('media/take one.wav', 'alt=media&generation=1'), { headers: { 'x-pyric-session-token': SESSION } })).status, 200);
+  assert.equal((await fetch(objectUrl('media/take one.wav', 'alt=media&generation=2'), { headers: { 'x-pyric-session-token': SESSION } })).status, 412);
 
   // Ranges: a span, a suffix, and one past the end.
   const span = await fetch(objectUrl('media/take one.wav', 'alt=media&token=token-a'), { headers: { range: 'bytes=100-199' } });
@@ -93,7 +126,7 @@ try {
   {
     const rssBefore = process.memoryUsage.rss();
     let peak = rssBefore;
-    const response = await fetch(objectUrl('media/long.wav', `alt=media&token=${SESSION}`));
+    const response = await fetch(objectUrl('media/long.wav'), { headers: { 'x-pyric-session-token': SESSION } });
     let received = 0;
     for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
       received += chunk.byteLength;

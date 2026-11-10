@@ -59,6 +59,7 @@ describe('Premortem fixes — A2 (session leak)', () => {
             headers: {
               'Content-Type': 'application/json',
               Accept: 'application/json, text/event-stream',
+              'x-pyric-session-token': server.sessionToken,
             },
             body: JSON.stringify(initBody),
           });
@@ -73,7 +74,7 @@ describe('Premortem fixes — A2 (session leak)', () => {
         const errBody = await r3.json();
         expect(errBody.error).toContain('session cap');
       },
-      { maxSessions: 2 },
+      { maxSessions: 2, requireSessionToken: true },
     );
   });
 

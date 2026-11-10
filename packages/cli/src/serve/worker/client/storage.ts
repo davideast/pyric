@@ -215,11 +215,11 @@ export async function getMetadata(reference: ClientStorageReference): Promise<Fu
 /** Bytes an upload sends per request; each one that lands is a progress step. */
 const ROUTE_SLICE_BYTES = 4 * 1024 * 1024;
 
-async function sessionTokenOf(route: ByteRouteAccess): Promise<string> {
+async function byteRouteHeaders(route: ByteRouteAccess): Promise<Record<string, string>> {
   const token = await route.sessionToken();
-  const missing = token === null || token === '';
-  if (missing) throw new FirebaseError('unavailable', 'This page has no session token for the hosted byte route. The host issues one only to clients on its own machine.');
-  return token;
+  const headers: Record<string, string> = { 'x-pyric-byte-route': '1' };
+  if (token !== null && token !== '') headers['x-pyric-session-token'] = token;
+  return headers;
 }
 
 function routeFailure(status: number, path: string): FirebaseError {
@@ -242,7 +242,7 @@ async function readOverRoute(
     const metadata = await fetchMetadataFromHost(reference);
     const url = new URL(storageObjectPath(metadata.bucket, reference.fullPath), route.baseUrl);
     url.searchParams.set('generation', metadata.generation);
-    const response = await (route.fetch ?? fetch)(url, { headers: { 'x-pyric-session-token': await sessionTokenOf(route) } });
+    const response = await (route.fetch ?? fetch)(url, { headers: await byteRouteHeaders(route) });
     const changed = response.status === 412;
     if (changed) continue;
     if (!response.ok) throw routeFailure(response.status, reference.fullPath);

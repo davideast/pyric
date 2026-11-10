@@ -48,15 +48,24 @@ function driveUpgrade(
     localPort?: number;
     learnsProxyPorts?: boolean;
     authenticated?: boolean;
+    requireSessionToken?: boolean;
   } = {},
 ): UpgradeResult {
   return guardedMount(opts).upgrade(headers, opts);
 }
 
 /** A guarded mount attached to a fake server, for several requests in a row. */
-function guardedMount(opts: { allowedHosts?: string[] | true; boundHost?: string; learnsProxyPorts?: boolean } = {}) {
+function guardedMount(
+  opts: {
+    allowedHosts?: string[] | true;
+    boundHost?: string;
+    learnsProxyPorts?: boolean;
+    requireSessionToken?: boolean;
+  } = {},
+) {
   const mount = createBridgeMount({
     disableAuditLog: true,
+    requireSessionToken: opts.requireSessionToken,
     upgradeGuard: { boundHost: opts.boundHost ?? 'localhost', allowedHosts: opts.allowedHosts },
     learnsProxyPorts: opts.learnsProxyPorts,
   });
@@ -166,26 +175,48 @@ describe('bridge WS upgrade guard (#765)', () => {
     expect(r.handshakes).toBe(1);
   });
 
-  it('honors --allowed-host for both Host and Origin', () => {
-    const r = driveUpgrade(
+  it('refuses --allowed-host on unauthenticated sandbox WS upgrades and honors it only when requireSessionToken is active and authenticated', () => {
+    const unauthTunnel = driveUpgrade(
       { host: 'app.test:5000', origin: 'http://app.test:5000' },
-      { allowedHosts: ['app.test'] },
+      { allowedHosts: ['app.test'], authenticated: false },
     );
-    expect(r.destroyed).toBe(false);
-    expect(r.handshakes).toBe(1);
+    expect(unauthTunnel.destroyed).toBe(true);
+    expect(unauthTunnel.handshakes).toBe(0);
+
+    const sandboxTunnelEvenWithHeader = driveUpgrade(
+      { host: 'app.test:5000', origin: 'http://app.test:5000' },
+      { allowedHosts: ['app.test'], requireSessionToken: false, authenticated: true },
+    );
+    expect(sandboxTunnelEvenWithHeader.destroyed).toBe(true);
+    expect(sandboxTunnelEvenWithHeader.handshakes).toBe(0);
+
+    const strictTunnel = driveUpgrade(
+      { host: 'app.test:5000', origin: 'http://app.test:5000' },
+      { allowedHosts: ['app.test'], requireSessionToken: true, authenticated: true },
+    );
+    expect(strictTunnel.destroyed).toBe(false);
+    expect(strictTunnel.handshakes).toBe(1);
   });
 
   it('allowedHosts:true never bypasses Host or Origin validation on /__pyric/sandbox', () => {
     const r = driveUpgrade(
       { host: 'anything.example', origin: 'http://anything.example' },
-      { allowedHosts: true },
+      { allowedHosts: true, requireSessionToken: true },
     );
     expect(r.destroyed).toBe(true);
     expect(r.handshakes).toBe(0);
   });
 
-  it('requires a valid session capability token (header, ?token=, or __pyric_session cookie) on WS upgrade', () => {
-    const m = guardedMount();
+  it('allows loopback WS upgrade without token in default sandbox mode and requires header or __pyric_session cookie (never ?token=) when requireSessionToken is true', () => {
+    const sandboxMount = guardedMount();
+    const sandboxOpen = sandboxMount.upgrade(
+      { host: 'localhost:5000', origin: 'http://localhost:5000' },
+      { authenticated: false },
+    );
+    expect(sandboxOpen.destroyed).toBe(false);
+    expect(sandboxOpen.handshakes).toBe(1);
+
+    const m = guardedMount({ requireSessionToken: true });
     const token = (m.mount as unknown as { sessionToken?: string }).sessionToken ?? '';
     expect(token.length).toBeGreaterThan(16);
 
@@ -194,13 +225,13 @@ describe('bridge WS upgrade guard (#765)', () => {
     expect(unauth.destroyed).toBe(true);
     expect(unauth.handshakes).toBe(0);
 
-    // ?token= query param on WS URL succeeds.
+    // ?token= query param on WS URL is rejected.
     const queryAuth = m.upgrade(
       { host: 'localhost:5000', origin: 'http://localhost:5000' },
       { authenticated: false, path: `${WS_PATH}?token=${encodeURIComponent(token)}` },
     );
-    expect(queryAuth.destroyed).toBe(false);
-    expect(queryAuth.handshakes).toBe(1);
+    expect(queryAuth.destroyed).toBe(true);
+    expect(queryAuth.handshakes).toBe(0);
 
     // __pyric_session cookie on same-origin WS upgrade succeeds.
     const cookieAuth = m.upgrade(

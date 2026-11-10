@@ -27,9 +27,10 @@ export function createViteGenerationBridge(input: {
   functionsProject: FunctionsProject | null;
   functionsProjectId: string | null;
   sessionToken?: string;
+  requireSessionToken?: boolean;
   createBridge(options: BridgeMountOptions): BridgeMount;
 }): BridgeMount | null {
-  const { server, options, functionsProject, functionsProjectId, sessionToken, createBridge } = input;
+  const { server, options, functionsProject, functionsProjectId, sessionToken, requireSessionToken, createBridge } = input;
   const needsBridge = Boolean(input.hosted || options || functionsProject);
   if (!needsBridge) return null;
   const serverOptions = server.config.server;
@@ -44,6 +45,7 @@ export function createViteGenerationBridge(input: {
     disableAuditLog,
     liveHost: input.liveHost,
     sessionToken,
+    requireSessionToken,
     upgradeGuard: {
       boundHost,
       allowedHosts,

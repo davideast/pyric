@@ -51,11 +51,7 @@ import {
   type ServeHandle,
 } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
-import {
-  readDurableProjectCapabilityToken,
-  writeDurableProjectCapabilityToken,
-  writeOwnedSessionFile,
-} from '../serve/local-session-token.js';
+import { writeOwnedSessionFile } from '../serve/local-session-token.js';
 import { createAppPorts } from '../serve/app-ports.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
@@ -285,6 +281,8 @@ async function startServeRuntime(opts: {
   functionsHandler?: FunctionsHttpGateway['handle'];
   /** A child command runs beside the server and resolves `firebase` itself. */
   hasChildCommand?: boolean;
+  /** Require a per-boot session capability token on every local route in sandbox mode. */
+  sessionToken?: boolean;
   /** Set only by `@pyric/live`'s seam (`serve/live-host.ts`): the host reports its status as live. */
   liveHost?: LiveServeStart;
 }, releaseOwnership?: () => void): Promise<ServeRuntime> {
@@ -309,11 +307,7 @@ async function startServeRuntime(opts: {
   let beaconsSeen = 0;
   const beaconCount = (): number => beaconsSeen;
   const beaconToken = randomBytes(24).toString('base64url');
-  const ownsDurableOfflineState = !isLive && Boolean(opts.hosted || opts.persist);
-  const sessionToken =
-    ownsDurableOfflineState && !opts.fresh
-      ? (readDurableProjectCapabilityToken(opts.cwd) ?? randomBytes(24).toString('base64url'))
-      : randomBytes(24).toString('base64url');
+  const sessionToken = randomBytes(24).toString('base64url');
 
   const freshWithoutPersistence = Boolean(opts.fresh && !opts.persist && !opts.hosted);
   if (freshWithoutPersistence) {
@@ -338,6 +332,10 @@ async function startServeRuntime(opts: {
   }
 
   const pyricConfig = await readPyricConfig(opts.cwd);
+  const requireSessionToken =
+    isLive ||
+    opts.sessionToken === true ||
+    (opts.sessionToken === undefined && pyricConfig.sessionToken === true);
   const owners = resolveOwnersConfig(pyricConfig.owners);
   const ruleOverrides = pyricConfig.rules;
   const hasRuleOverrides = ruleOverrides !== undefined && ruleOverrides !== '';
@@ -474,6 +472,7 @@ async function startServeRuntime(opts: {
         learnsProxyPorts: true,
         appPorts,
         sessionToken,
+        requireSessionToken,
     });
   }
   const mount = bridgeMount;
@@ -543,6 +542,7 @@ async function startServeRuntime(opts: {
       hostInstanceId: () => mount?.instanceId,
       deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
       sessionToken,
+      requireSessionToken,
       logger,
     });
   } catch (error) {
@@ -639,9 +639,6 @@ async function startServeRuntime(opts: {
         persistence: session.hostedPersistence,
         ownWriteRefusal: liveStart?.writeRefusal,
       });
-    }
-    if (ownsDurableOfflineState) {
-      writeDurableProjectCapabilityToken(opts.cwd, sessionToken);
     }
     bridgeAttachment = mount?.attachHost({
       servers: handle.servers,
@@ -1098,6 +1095,14 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     );
     return 1;
   }
+  if (parsed.flags.has('no-session-token') || parsed.flags.get('session-token') === 'false') {
+    process.stderr.write(
+      runHost.liveHost !== undefined
+        ? `pyric-live: '--no-session-token' is not supported; live mode always requires a session token.\n`
+        : `pyric: unknown option '--no-session-token' for pyric sandbox.\n`,
+    );
+    return 1;
+  }
 
   const json = Boolean(parsed.flags.get('json'));
   const usesHumanOutput = !json;
@@ -1201,6 +1206,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       firebaseProject,
       functionsHandler: functionsGateway?.handle,
       hasChildCommand: plan !== null,
+      sessionToken: parsed.flags.get('session-token') === true ? true : undefined,
       liveHost: runHost.liveHost,
     });
   } catch (e) {

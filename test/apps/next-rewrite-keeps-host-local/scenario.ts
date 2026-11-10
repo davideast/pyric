@@ -106,15 +106,16 @@ function readSessionToken(projectDir: string): string {
 async function assertOpenFromLoopback(port: number, projectDir: string): Promise<void> {
   const host = `localhost:${port}`;
   const token = readSessionToken(projectDir);
-  const authHeaders = { 'x-pyric-session-token': token };
-  const from = { address: '127.0.0.1', port, host, headers: authHeaders };
+  const from = { address: '127.0.0.1', port, host };
   const init = await get({ ...from, path: '/__pyric/init.json' });
   const payload = JSON.parse(init.body) as Record<string, unknown>;
-  assert.equal(typeof payload.sessionToken, 'string', init.body.slice(0, 300));
+  assert.equal(payload.sessionToken, undefined, init.body.slice(0, 300));
   assert.ok(init.body.includes(RULES_MARKER), 'a local client lost the rules text');
   assert.equal(payload.remotePeer, undefined);
+  assert.equal((await get({ ...from, path: '/__pyric/workspace/list' })).status, 401);
+  assert.equal((await get({ ...from, path: '/__pyric/workspace/list', headers: { 'x-pyric-session-token': token } })).status, 200);
   assert.equal((await get({ ...from, path: '/__pyric/health' })).status, 200);
-  const mcp = await post({ ...from, path: '/__pyric/mcp', body: MCP_INITIALIZE, headers: { accept: 'application/json, text/event-stream', ...authHeaders } });
+  const mcp = await post({ ...from, path: '/__pyric/mcp', body: MCP_INITIALIZE, headers: { accept: 'application/json, text/event-stream' } });
   assert.equal(mcp.status, 200, mcp.body.slice(0, 200));
   assert.equal(await upgrades({ ...from, path: '/__pyric/sandbox' }), true, 'a local client lost the bridge socket');
 }

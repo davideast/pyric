@@ -63,6 +63,30 @@ it("serves the shared project manifest and lazily bundles only registered browse
       (await fetch(`${url}/__pyric/flow/manifest.json`, { method: "POST" }))
         .status,
     ).toBe(405);
+    const guarded = await createFlowTreatmentHost(root, undefined, {
+      boundHost: "127.0.0.1",
+      allowedHosts: ["preview.tunnel.example"],
+    });
+    const guardedServer = createServer(async (req, res) => {
+      if (!(await guarded.handle(req, res, new URL(req.url!, "http://localhost")))) {
+        res.statusCode = 404;
+        res.end();
+      }
+    });
+    await new Promise<void>((resolve) => guardedServer.listen(0, "127.0.0.1", resolve));
+    const guardedAddr = guardedServer.address();
+    if (!guardedAddr || typeof guardedAddr === "string") throw new Error("No test port");
+    try {
+      expect(
+        (
+          await fetch(`http://127.0.0.1:${guardedAddr.port}/__pyric/flow/manifest.json`, {
+            headers: { host: "preview.tunnel.example" },
+          })
+        ).status,
+      ).toBe(403);
+    } finally {
+      await new Promise<void>((resolve) => guardedServer.close(() => resolve()));
+    }
     expect(
       (await createFlowTreatmentHost(root, { treatment: "rail" })).manifest
         .treatment,

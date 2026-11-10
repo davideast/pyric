@@ -31,6 +31,8 @@ export interface PyricConfig {
   rules?: string | PyricRulesConfig;
   /** Project ID label for emulation. */
   project?: string;
+  /** Require a per-boot session capability token on every local route in sandbox and bridge modes. */
+  sessionToken?: boolean;
   /** `pyric verify` settings. */
   verify?: {
     /** The dedicated RTDB instance `pyric verify --engine staging` replays against. */

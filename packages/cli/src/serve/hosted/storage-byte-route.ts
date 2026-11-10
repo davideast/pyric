@@ -5,11 +5,14 @@
  *   GET  <prefix><bucket>/o/<path>?alt=media[&token=]   the object, or a Range of it
  *   PUT  <prefix><bucket>/o?name=&upload_id=&upload_token=   one upload's bytes
  *
- * A GET is authorized by the session token (header or `token`) or by a token in
- * the object's `downloadTokens`, as a Firebase download URL is. A PUT is
- * authorized only by the token bound to that one upload. An upload continues
- * from the offset the host holds, answered with `308` and `Range` until it is
- * complete; finishing it still commits over the RPC through the engine.
+ * A GET is authorized by a token in the object's `downloadTokens` (`?token=`),
+ * as a Firebase download URL is, or by an explicit SDK byte-route header
+ * (`x-pyric-session-token` when `requireSessionToken` is active, or
+ * `x-pyric-byte-route: 1` in default sandbox mode). Ambient cookies never
+ * authorize byte-route reads. A PUT is authorized only by the token bound to
+ * that one upload. An upload continues from the offset the host holds, answered
+ * with `308` and `Range` until it is complete; finishing it still commits over
+ * the RPC through the engine.
  *
  * An upload session, as firebase-admin's `File.createResumableUpload` begins
  * one, has no size until its bytes arrive: one `PUT` with `Content-Length`, or
@@ -27,6 +30,8 @@ export interface StorageByteRouteOptions {
   storage: Pick<ScopedStorageBackend, 'objectFile' | 'appendUpload' | 'uploadProgress'>;
   /** The per-boot session token; undefined refuses every session-token request. */
   sessionToken: string | undefined;
+  /** Require `x-pyric-session-token` on SDK byte-route reads (defaults to `sessionToken !== undefined`). */
+  requireSessionToken?: boolean;
   /** The token bound to a pending upload, or undefined when there is none. */
   uploadToken(uploadId: string): string | undefined;
   /** The bucket an object URL's bucket name stores its objects in. Absent, the name itself. */
@@ -103,8 +108,13 @@ function receivedRange(progress: UploadProgress): Record<string, string> {
 }
 
 export function createStorageByteRoute(opts: StorageByteRouteOptions) {
-  const presentsSession = (req: IncomingMessage, url: URL): boolean =>
-    timingSafeTokenMatch(getHeader(req, 'x-pyric-session-token') ?? url.searchParams.get('token') ?? undefined, opts.sessionToken);
+  const requiresToken = opts.requireSessionToken ?? opts.sessionToken !== undefined;
+  const presentsSdkHeader = (req: IncomingMessage): boolean => {
+    if (!requiresToken && getHeader(req, 'x-pyric-byte-route') === '1') {
+      return true;
+    }
+    return timingSafeTokenMatch(getHeader(req, 'x-pyric-session-token'), opts.sessionToken);
+  };
 
   async function serveObject(req: IncomingMessage, res: ServerResponse, url: URL, bucket: string, path: string): Promise<void> {
     const reads = req.method === 'GET' || req.method === 'HEAD';
@@ -116,7 +126,7 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     const rawTokens = object.metadata.downloadTokens ?? object.metadata.customMetadata?.firebaseStorageDownloadTokens ?? '';
     const downloadTokens = rawTokens.split(',').filter(token => token !== '');
     const byDownloadToken = downloadTokens.some(token => timingSafeTokenMatch(presented, token));
-    const authorized = presentsSession(req, url) || byDownloadToken;
+    const authorized = presentsSdkHeader(req) || byDownloadToken;
     if (!authorized) return refuse(res, 403, 'This URL carries no token that grants this object.');
     // A client that checked read rules on one generation asks for exactly that one.
     const pinned = url.searchParams.get('generation');

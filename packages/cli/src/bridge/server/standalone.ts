@@ -76,8 +76,10 @@ export interface StartServerOptions {
   logger?: BridgeLogger;
   /** Convenience: install a silent logger (tests). */
   silent?: boolean;
-  /** Per-boot capability token required on `/mcp`; minted per boot when omitted. */
+  /** Per-boot capability token used when `requireSessionToken` is enabled; minted per boot when omitted. */
   sessionToken?: string;
+  /** Require `x-pyric-session-token` on `/mcp` and for full `/health` details. Default: false. */
+  requireSessionToken?: boolean;
 }
 
 export interface ServerHandle {
@@ -94,6 +96,7 @@ export async function startServer(
   opts: StartServerOptions = {},
 ): Promise<ServerHandle> {
   const sessionToken = opts.sessionToken ?? randomBytes(24).toString('base64url');
+  const requiresSessionToken = opts.requireSessionToken === true;
   // `??` doesn't short-circuit on NaN; Number(undefined) is NaN, which
   // would silently slip through to the http server and produce
   // "options.port should be >= 0 and < 65536. Received NaN."
@@ -210,9 +213,11 @@ export async function startServer(
       process.stderr.write(`[pyric debug] ${req.method} ${url}\n`);
     }
     if (parsedUrl.pathname === DEFAULT_HEALTH_PATH) {
+      const authenticated = isAllowedSessionToken(req, parsedUrl, sessionToken);
+      const healthAllowedHosts = requiresSessionToken && authenticated ? opts.allowedHosts : [];
       if (
         !isLocalPeer(req) ||
-        !isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts, mcpPorts.forRequest(req))
+        !isAllowedLoopbackRequest(req, '127.0.0.1', healthAllowedHosts, mcpPorts.forRequest(req))
       ) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
@@ -224,9 +229,8 @@ export async function startServer(
         return;
       }
       const fullHealth = bridge.health();
-      const authenticated = isAllowedSessionToken(req, parsedUrl, sessionToken);
       const body = JSON.stringify(
-        authenticated
+        !requiresSessionToken || authenticated
           ? fullHealth
           : {
               status: fullHealth.status,
@@ -242,15 +246,16 @@ export async function startServer(
     const supportsMcpMethod = req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE';
     const requestsMcp = parsedUrl.pathname === DEFAULT_MCP_PATH && supportsMcpMethod;
     if (requestsMcp) {
+      const mcpAllowedHosts = requiresSessionToken ? opts.allowedHosts : [];
       const refusesOrigin =
         !isLocalPeer(req) ||
-        !isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts, mcpPorts.forRequest(req));
+        !isAllowedLoopbackRequest(req, '127.0.0.1', mcpAllowedHosts, mcpPorts.forRequest(req));
       if (refusesOrigin) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
         return;
       }
-      if (!isAllowedSessionToken(req, parsedUrl, sessionToken)) {
+      if (requiresSessionToken && !isAllowedSessionToken(req, parsedUrl, sessionToken)) {
         res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid session capability token' }));
         return;
@@ -328,7 +333,7 @@ export async function startServer(
     // DNS-rebinding + cross-origin guard: only a loopback page is told why.
     // The port is not compared here: the page that reaches this socket loads
     // from the app's own dev server on another port.
-    const refusesUpgrade = !isAllowedUpgrade(req.headers, '127.0.0.1', opts.allowedHosts);
+    const refusesUpgrade = !isAllowedUpgrade(req.headers, '127.0.0.1', []);
     if (refusesUpgrade) {
       logger.error(
         `refused WS upgrade — Host='${req.headers.host ?? ''}' Origin='${req.headers.origin ?? ''}' (rebinding/origin guard)`,
@@ -355,7 +360,7 @@ export async function startServer(
   const hasBoundAddress = typeof address === 'object' && address !== null;
   const boundPort = hasBoundAddress ? address.port : port;
   const url = `http://127.0.0.1:${boundPort}`;
-  const mcpUrl = `${url}${DEFAULT_MCP_PATH}?token=${encodeURIComponent(sessionToken)}`;
+  const mcpUrl = `${url}${DEFAULT_MCP_PATH}`;
   const unregisterPortToken = registerLocalSessionToken(boundPort, sessionToken);
 
   logger.info(`bridge ${BRIDGE_VERSION} listening on ${url} — sandbox: ${project}`);

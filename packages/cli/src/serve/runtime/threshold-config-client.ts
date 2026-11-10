@@ -9,7 +9,9 @@ export interface ThresholdConfigClient {
 export function createThresholdConfigClient(fetcher: typeof fetch): ThresholdConfigClient {
   let token: string | undefined;
   async function request(method: string, body?: unknown): Promise<LocalThresholdConfig> {
-    const response = await fetcher('/__pyric/thresholds', { method, headers: { 'x-pyric-session-token': token!, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (token !== undefined) headers['x-pyric-session-token'] = token;
+    const response = await fetcher('/__pyric/thresholds', { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? 'Unable to read threshold settings.');
     if (typeof result.revision !== 'string') throw new Error('Invalid threshold configuration response.');
@@ -25,9 +27,7 @@ export function createThresholdConfigClient(fetcher: typeof fetch): ThresholdCon
       if (!response.ok) throw new Error('Unable to connect to local threshold settings.');
       const init = await response.json();
       if (init.thresholds !== true) return null;
-      const resolvedToken = typeof init.sessionToken === 'string' ? init.sessionToken : stamped;
-      if (typeof resolvedToken !== 'string') throw new Error('Reload to reconnect to local threshold settings.');
-      token = resolvedToken;
+      token = typeof init.sessionToken === 'string' ? init.sessionToken : stamped;
       return request('GET');
     },
     save: (config, revision) => request('PUT', { config, revision }),

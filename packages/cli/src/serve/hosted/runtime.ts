@@ -112,6 +112,8 @@ export interface HostedRuntimeOptions {
   ownWriteRefusal?: PyricWriteRefusal;
   /** Live mode's host-memory observed session store for local rules evaluation. */
   observedSession?: ObservedSessionDataStore;
+  /** Require `x-pyric-session-token` on SDK Storage byte-route reads. */
+  requireSessionToken?: boolean;
 }
 
 /** The write a port's frame asks for: a durable operation or a write tool, named for the refusal. Null for anything else. */
@@ -624,6 +626,7 @@ export async function createHostedRuntime(
       },
     },
     sessionToken: payload.sessionToken,
+    requireSessionToken: ai.requireSessionToken,
     uploadToken: uploadId => uploadTokenOf(ctx, uploadId),
     bucketOf: name => storeBucketOf(ctx, name),
     sessions: {
