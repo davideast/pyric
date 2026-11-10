@@ -1,9 +1,37 @@
-import { resolveDatabaseInstance } from "pyric/sandbox/internal";
+import {
+  DEFAULT_SNAPSHOT_RESOURCE,
+  resolveDatabaseInstance,
+} from "pyric/sandbox/internal";
 import {
   ASSURANCE_TARGET_SCHEMA,
   AssuranceInputError,
   type LocalFirebaseTarget,
 } from "./types.js";
+
+/**
+ * Normalize a Storage bucket identifier (`gs://bucket/`, `"default"`,
+ * `"(default)"`, `"pyric-default"`) to `undefined` for the default bucket or
+ * the bare bucket name for named buckets.
+ */
+export function normalizeStorageBucketInstance(
+  rawBucket: string | undefined,
+): string | undefined {
+  if (!rawBucket) return undefined;
+  const trimmed = rawBucket
+    .trim()
+    .replace(/^gs:\/\//i, "")
+    .replace(/\/+$/, "");
+  if (
+    !trimmed ||
+    trimmed === "default" ||
+    trimmed === "(default)" ||
+    trimmed === DEFAULT_SNAPSHOT_RESOURCE ||
+    trimmed === "pyric-default"
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -130,6 +158,24 @@ function assertAuthUser(user: unknown, at: string): void {
   optionalStringField(user.phoneNumber, at, "phoneNumber");
   optionalStringField(user.tenantId, at, "tenantId");
   optionalStringField(user.providerId, at, "providerId");
+  if (user.providerUserInfo !== undefined) {
+    if (!Array.isArray(user.providerUserInfo)) {
+      throw new AssuranceInputError(
+        `${at}.providerUserInfo must be an array. ${received(user.providerUserInfo)}.`,
+      );
+    }
+    for (const [index, entry] of user.providerUserInfo.entries()) {
+      const entryAt = `${at}.providerUserInfo[${index}]`;
+      requiredRecord(entry, entryAt);
+      requiredString(entry.providerId, entryAt, "providerId");
+      optionalStringField(entry.rawId, entryAt, "rawId");
+      optionalStringField(entry.uid, entryAt, "uid");
+      optionalStringField(entry.email, entryAt, "email");
+      optionalStringField(entry.displayName, entryAt, "displayName");
+      optionalStringField(entry.photoUrl, entryAt, "photoUrl");
+      optionalStringField(entry.phoneNumber, entryAt, "phoneNumber");
+    }
+  }
   optionalBooleanField(user.emailVerified, at, "emailVerified");
   optionalBooleanField(user.disabled, at, "disabled");
   if (user.customClaims !== undefined) {
@@ -178,6 +224,22 @@ export function assertTarget(
   requiredRecord(target.state, `${where}.state`);
   optionalStringField(target.rules.firestore, `${where}.rules`, "firestore");
   optionalStringField(target.rules.storage, `${where}.rules`, "storage");
+  if (target.rules.storageBuckets !== undefined) {
+    requiredRecord(target.rules.storageBuckets, `${where}.rules.storageBuckets`);
+    for (const [bucket, source] of Object.entries(target.rules.storageBuckets)) {
+      const at = `${where}.rules.storageBuckets[${JSON.stringify(bucket)}]`;
+      if (!bucket.trim()) {
+        throw new AssuranceInputError(
+          `${at} must name a non-empty Storage bucket.`,
+        );
+      }
+      if (typeof source !== "string") {
+        throw new AssuranceInputError(
+          `${at} must be a string. ${received(source)}.`,
+        );
+      }
+    }
+  }
   if (target.rules.rtdb !== undefined) {
     requiredRecord(target.rules.rtdb, `${where}.rules.rtdb`);
     requiredRecord(target.rules.rtdb.rules, `${where}.rules.rtdb.rules`);
@@ -252,6 +314,25 @@ export function assertTarget(
     }
     for (const [index, object] of target.state.storage.entries()) {
       assertStorageFixtureObject(object, `${where}.state.storage[${index}]`);
+    }
+  }
+  if (target.state.storageBuckets !== undefined) {
+    requiredRecord(target.state.storageBuckets, `${where}.state.storageBuckets`);
+    for (const [bucket, objects] of Object.entries(target.state.storageBuckets)) {
+      const at = `${where}.state.storageBuckets[${JSON.stringify(bucket)}]`;
+      if (!bucket.trim()) {
+        throw new AssuranceInputError(
+          `${at} must name a non-empty Storage bucket.`,
+        );
+      }
+      if (!Array.isArray(objects)) {
+        throw new AssuranceInputError(
+          `${at} must be an array. ${received(objects)}.`,
+        );
+      }
+      for (const [index, object] of objects.entries()) {
+        assertStorageFixtureObject(object, `${at}[${index}]`);
+      }
     }
   }
   if (target.state.storageConfig !== undefined) {

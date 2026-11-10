@@ -45,10 +45,13 @@ import {
   uploadBytes,
   type FirebaseStorage,
 } from "pyric/storage";
-import { arrayBufferToBase64 } from "pyric/storage/internal";
 import {
   decodeBase64,
+  decodeFirestoreMapForEnv,
+  decodeFirestoreMapForSdk,
+  decodeFirestoreValueForSdk,
   normalizeFirestorePath,
+  projectStorageObject,
   type ServiceRuntime,
 } from "./runner-runtime.js";
 import type { FirebaseOperation, StorageOperation } from "./types.js";
@@ -76,6 +79,9 @@ export async function executeFirestore(
     throw new Error("Expected a Firestore operation.");
   }
   const path = normalizeFirestorePath(operation.path);
+  const refDecoder = {
+    create: (refPath: string) => doc(db, normalizeFirestorePath(refPath)),
+  };
   switch (operation.method) {
     case "get": {
       const snapshot = await getDoc(doc(db, path));
@@ -89,7 +95,13 @@ export async function executeFirestore(
     case "list": {
       const constraints: QueryConstraint[] = [];
       for (const item of operation.query?.where ?? []) {
-        constraints.push(where(item.field, item.op, item.value));
+        constraints.push(
+          where(
+            item.field,
+            item.op,
+            decodeFirestoreValueForSdk(item.value, refDecoder),
+          ),
+        );
       }
       for (const item of operation.query?.orderBy ?? []) {
         constraints.push(orderBy(item.field, item.direction));
@@ -112,7 +124,7 @@ export async function executeFirestore(
       const result = getInternalEnv(runtime.sandbox).execute({
         method: "create",
         path,
-        data: operation.data ?? {},
+        data: decodeFirestoreMapForEnv(operation.data ?? {}),
         auth: runtime.actor.auth,
       });
       if (!result.allowed) {
@@ -124,13 +136,23 @@ export async function executeFirestore(
       return null;
     }
     case "set":
-      await setDoc(doc(db, path), operation.data ?? {});
+      await setDoc(
+        doc(db, path),
+        decodeFirestoreMapForSdk(operation.data ?? {}, refDecoder),
+      );
       return null;
     case "merge":
-      await setDoc(doc(db, path), operation.data ?? {}, { merge: true });
+      await setDoc(
+        doc(db, path),
+        decodeFirestoreMapForSdk(operation.data ?? {}, refDecoder),
+        { merge: true },
+      );
       return null;
     case "update":
-      await updateDoc(doc(db, path), operation.data ?? {});
+      await updateDoc(
+        doc(db, path),
+        decodeFirestoreMapForSdk(operation.data ?? {}, refDecoder),
+      );
       return null;
     case "delete":
       await deleteDoc(doc(db, path));
@@ -218,6 +240,39 @@ export async function executeRtdb(
   }
 }
 
+function buildStorageWriteMetadata(operation: StorageOperation): {
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+  customMetadata?: Record<string, string>;
+} {
+  const metadata: {
+    contentType?: string;
+    cacheControl?: string;
+    contentDisposition?: string;
+    contentEncoding?: string;
+    contentLanguage?: string;
+    customMetadata?: Record<string, string>;
+  } = {};
+  if (operation.contentType !== undefined) metadata.contentType = operation.contentType;
+  if (operation.cacheControl !== undefined) metadata.cacheControl = operation.cacheControl;
+  if (operation.contentDisposition !== undefined) {
+    metadata.contentDisposition = operation.contentDisposition;
+  }
+  if (operation.contentEncoding !== undefined) {
+    metadata.contentEncoding = operation.contentEncoding;
+  }
+  if (operation.contentLanguage !== undefined) {
+    metadata.contentLanguage = operation.contentLanguage;
+  }
+  if (operation.customMetadata) {
+    metadata.customMetadata = { ...operation.customMetadata };
+  }
+  return metadata;
+}
+
 export async function executeStorage(
   operation: StorageOperation,
   storage: FirebaseStorage,
@@ -230,13 +285,7 @@ export async function executeStorage(
           getBlob(target),
           getMetadata(target),
         ]);
-        const buffer = await blob.arrayBuffer();
-        return {
-          dataBase64: arrayBufferToBase64(buffer),
-          text: new TextDecoder().decode(buffer),
-          contentType: metadata.contentType,
-          customMetadata: metadata.customMetadata ?? {},
-        };
+        return projectStorageObject(await blob.arrayBuffer(), metadata);
       } catch (error) {
         const code = (error as { code?: string } | null)?.code;
         if (code === "storage/object-not-found") return null;
@@ -254,31 +303,15 @@ export async function executeStorage(
       if (!operation.dataBase64) {
         throw new Error("Storage upload requires dataBase64.");
       }
-      const metadata: {
-        contentType?: string;
-        customMetadata?: Record<string, string>;
-      } = {};
-      if (operation.contentType) metadata.contentType = operation.contentType;
-      if (operation.customMetadata) {
-        metadata.customMetadata = { ...operation.customMetadata };
-      }
       const result = await uploadBytes(
         target,
         decodeBase64(operation.dataBase64),
-        metadata,
+        buildStorageWriteMetadata(operation),
       );
       return result.metadata;
     }
     case "updateMetadata": {
-      const patch: {
-        contentType?: string;
-        customMetadata?: Record<string, string>;
-      } = {};
-      if (operation.contentType) patch.contentType = operation.contentType;
-      if (operation.customMetadata) {
-        patch.customMetadata = { ...operation.customMetadata };
-      }
-      return updateMetadata(target, patch);
+      return updateMetadata(target, buildStorageWriteMetadata(operation));
     }
     case "delete":
       await deleteObject(target);

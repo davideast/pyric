@@ -126,4 +126,52 @@ describe("assurance runner-runtime", () => {
     expect(anonActor.evidence.reachability).toBe("reachable");
     expect(anonActor.auth?.uid).toBe("anon-1");
   });
+
+  it("matches password tenantId case-insensitively and preserves linked providerUserInfo identities", () => {
+    const target: LocalFirebaseTarget = {
+      schema: ASSURANCE_TARGET_SCHEMA,
+      network: "forbid",
+      rules: {},
+      state: {
+        auth: {
+          users: [
+            {
+              uid: "u-tenant",
+              email: "UserOne@Example.Test",
+              password: "secret-password-123",
+              tenantId: "tenant-alpha",
+              providerUserInfo: [
+                { providerId: "password", email: "UserOne@Example.Test" },
+                { providerId: "github.com", rawId: "gh-200", email: "UserOne@Example.Test" },
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    const lowerActor = acquireActor(initializeSandbox(), target, {
+      id: "tenant-member",
+      acquisition: {
+        kind: "password",
+        email: "userone@example.test",
+        password: "secret-password-123",
+      },
+    });
+    expect(lowerActor.evidence.reachability).toBe("reachable");
+    expect(
+      (lowerActor.auth?.token.firebase as { tenant?: string } | undefined)?.tenant,
+    ).toBe("tenant-alpha");
+
+    const linkedActor = acquireActor(initializeSandbox(), target, {
+      id: "linked-member",
+      acquisition: { kind: "fixture-user", uid: "u-tenant" },
+    });
+    const identities = (
+      linkedActor.auth?.token.firebase as
+        | { identities?: Record<string, unknown> }
+        | undefined
+    )?.identities;
+    expect(identities?.["github.com"]).toBeDefined();
+  });
 });

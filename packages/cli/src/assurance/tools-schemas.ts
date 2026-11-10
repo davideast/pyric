@@ -45,10 +45,15 @@ const storageOperationSchema = {
   additionalProperties: false,
   properties: {
     service: { const: "storage" },
+    instance: { type: "string", minLength: 1 },
     method: { enum: ["get", "list", "upload", "updateMetadata", "delete"] },
     path: { type: "string", minLength: 1 },
     dataBase64: { type: "string" },
     contentType: { type: "string" },
+    cacheControl: { type: "string" },
+    contentDisposition: { type: "string" },
+    contentEncoding: { type: "string" },
+    contentLanguage: { type: "string" },
     customMetadata: {
       type: "object",
       additionalProperties: { type: "string" },
@@ -199,7 +204,47 @@ export const rulesSchema = {
     },
     rtdbInstances: jsonRecordSchema,
     storage: { type: "string" },
+    storageBuckets: {
+      type: "object",
+      additionalProperties: { type: "string" },
+    },
   },
+};
+
+const storageObjectItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    path: { type: "string", minLength: 1 },
+    dataBase64: { type: "string" },
+    contentType: { type: "string" },
+    cacheControl: { type: "string" },
+    contentDisposition: { type: "string" },
+    contentEncoding: { type: "string" },
+    contentLanguage: { type: "string" },
+    timeCreated: { type: "string" },
+    updated: { type: "string" },
+    customMetadata: {
+      type: "object",
+      additionalProperties: { type: "string" },
+    },
+  },
+  required: ["path", "dataBase64"],
+};
+
+const authProviderUserInfoSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    providerId: { type: "string", minLength: 1 },
+    rawId: { type: "string" },
+    uid: { type: "string" },
+    email: { type: "string" },
+    displayName: { type: "string" },
+    photoUrl: { type: "string" },
+    phoneNumber: { type: "string" },
+  },
+  required: ["providerId"],
 };
 
 export const targetSchema = {
@@ -218,19 +263,21 @@ export const targetSchema = {
         rtdbInstances: jsonRecordSchema,
         storage: {
           type: "array",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              path: { type: "string", minLength: 1 },
-              dataBase64: { type: "string" },
-              contentType: { type: "string" },
-              customMetadata: {
-                type: "object",
-                additionalProperties: { type: "string" },
-              },
-            },
-            required: ["path", "dataBase64"],
+          items: storageObjectItemSchema,
+        },
+        storageBuckets: {
+          type: "object",
+          additionalProperties: {
+            type: "array",
+            items: storageObjectItemSchema,
+          },
+        },
+        storageConfig: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            crossServiceIam: { enum: ["granted", "denied"] },
+            undeployedBucketPolicy: { enum: ["allow", "deny"] },
           },
         },
         auth: {
@@ -253,12 +300,20 @@ export const targetSchema = {
                   phoneNumber: { type: "string" },
                   tenantId: { type: "string" },
                   providerId: { type: "string" },
+                  providerUserInfo: {
+                    type: "array",
+                    items: authProviderUserInfoSchema,
+                  },
                   emailVerified: { type: "boolean" },
                   disabled: { type: "boolean" },
                   customClaims: jsonRecordSchema,
                 },
                 required: ["uid"],
               },
+            },
+            providers: {
+              type: "object",
+              additionalProperties: { type: "boolean" },
             },
           },
           required: ["users"],
@@ -318,10 +373,14 @@ export function redactCampaignExport(bundle: CampaignExport): CampaignExport & {
   };
   if (auth) {
     nextState.auth = {
+      ...auth,
       users: auth.users.map((user) => {
         const { password: _password, ...safe } = user;
         return safe;
       }),
+      ...(auth.providers !== undefined
+        ? { providers: { ...auth.providers } }
+        : {}),
     };
   }
   const target: LocalFirebaseTarget = {

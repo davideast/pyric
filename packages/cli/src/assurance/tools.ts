@@ -88,10 +88,20 @@ function configuredServices(
 ): Array<"firestore" | "rtdb" | "storage"> {
   const services: Array<"firestore" | "rtdb" | "storage"> = [];
   if (rules.firestore !== undefined) services.push("firestore");
-  if (rules.rtdb !== undefined || rules.rtdbInstances !== undefined) {
+  if (
+    rules.rtdb !== undefined ||
+    (rules.rtdbInstances !== undefined &&
+      Object.keys(rules.rtdbInstances).length > 0)
+  ) {
     services.push("rtdb");
   }
-  if (rules.storage !== undefined) services.push("storage");
+  if (
+    rules.storage !== undefined ||
+    (rules.storageBuckets !== undefined &&
+      Object.keys(rules.storageBuckets).length > 0)
+  ) {
+    services.push("storage");
+  }
   return services;
 }
 

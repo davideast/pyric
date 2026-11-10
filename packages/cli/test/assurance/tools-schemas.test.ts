@@ -28,9 +28,70 @@ describe("tools-schemas and AuthFixtureUser round-trip", () => {
       "phoneNumber",
       "photoUrl",
       "providerId",
+      "providerUserInfo",
       "tenantId",
       "uid",
     ]);
+  });
+
+  it("exposes multi-bucket Storage, storageConfig, auth.providers, and rich Storage metadata in targetSchema and preserves auth.providers on export", () => {
+    const rulesProps = targetSchema.properties.rules.properties as Record<
+      string,
+      unknown
+    >;
+    const stateProps = targetSchema.properties.state.properties as Record<
+      string,
+      unknown
+    >;
+    const authProps = targetSchema.properties.state.properties.auth
+      .properties as Record<string, unknown>;
+    const storageItemProps = targetSchema.properties.state.properties.storage
+      .items.properties as Record<string, unknown>;
+
+    expect(rulesProps.storageBuckets).toBeDefined();
+    expect(stateProps.storageBuckets).toBeDefined();
+    expect(stateProps.storageConfig).toBeDefined();
+    expect(authProps.providers).toBeDefined();
+    expect(Object.keys(storageItemProps).sort()).toEqual([
+      "cacheControl",
+      "contentDisposition",
+      "contentEncoding",
+      "contentLanguage",
+      "contentType",
+      "customMetadata",
+      "dataBase64",
+      "path",
+      "timeCreated",
+      "updated",
+    ]);
+
+    const redacted = redactCampaignExport({
+      schema: "pyric.assurance.export.v1",
+      campaign: {
+        schema: "pyric.assurance.campaign.v1",
+        id: "c-providers",
+        target: {
+          schema: "pyric.assurance.target.v1",
+          network: "forbid",
+          rules: {},
+          state: {
+            auth: {
+              users: [{ uid: "u-1", password: "secret-password" }],
+              providers: { anonymous: false },
+            },
+          },
+        },
+        actors: [],
+        invariants: [],
+        probes: [],
+      },
+      observations: [],
+      cases: [],
+    });
+    expect(redacted.campaign.target.state.auth).toEqual({
+      users: [{ uid: "u-1" }],
+      providers: { anonymous: false },
+    });
   });
 
   it("formats AssuranceInputError codes and redacts passwords while preserving AuthFixtureUser metadata", () => {

@@ -82,7 +82,10 @@ export const OPERATION_METHOD_VALUES: readonly string[] = [
 export const firebaseOperation = z
   .object({
     service: z.enum(OPERATION_SERVICES).describe('The service the operation runs against.'),
-    instance: z.string().optional().describe('The named RTDB instance, if the service is rtdb.'),
+    instance: z
+      .string()
+      .optional()
+      .describe('The named RTDB instance or Storage bucket, if non-default.'),
     method: z
       .enum(OPERATION_METHOD_VALUES as [string, ...string[]])
       .describe('The request method, from the set the named service evaluates.'),
@@ -91,6 +94,22 @@ export const firebaseOperation = z
     query: z.record(z.unknown()).optional().describe('The query, for a list.'),
     dataBase64: z.string().optional().describe('The object body, for a storage upload.'),
     contentType: z.string().optional().describe('The object content type, for a storage upload.'),
+    cacheControl: z
+      .string()
+      .optional()
+      .describe('The object cache-control header, for a storage write.'),
+    contentDisposition: z
+      .string()
+      .optional()
+      .describe('The object content-disposition header, for a storage write.'),
+    contentEncoding: z
+      .string()
+      .optional()
+      .describe('The object content-encoding header, for a storage write.'),
+    contentLanguage: z
+      .string()
+      .optional()
+      .describe('The object content-language header, for a storage write.'),
     customMetadata: z
       .record(z.string())
       .optional()
@@ -131,6 +150,7 @@ export const assuranceObservation = z.object({
 
 /** The one change a probe makes to its control operation. */
 export const probeMutation = z.object({
+  id: z.string().min(1).optional().describe('Optional explicit id for the proposed probe.'),
   dimension: z.enum(MUTATION_DIMENSIONS).describe('The one thing this probe changes.'),
   description: z.string().min(1).describe('What the change is, in one sentence.'),
   operation: firebaseOperation,

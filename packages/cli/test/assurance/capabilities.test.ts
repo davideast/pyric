@@ -228,6 +228,52 @@ service cloud.firestore {
 
     expect(qualifyProbe(target, probe).supported).toBe(true);
   });
+
+  it("qualifies Storage probes deterministically in Node before IndexedDB is polyfilled", () => {
+    const previousIndexedDb = (globalThis as { indexedDB?: unknown }).indexedDB;
+    delete (globalThis as { indexedDB?: unknown }).indexedDB;
+    try {
+      const target: LocalFirebaseTarget = {
+        ...targetBase,
+        rules: {
+          storage: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`,
+        },
+      };
+      const probe: AssuranceProbe = {
+        id: "storage-upload",
+        actorId: "member",
+        invariantId: "boundary",
+        control: {
+          service: "storage",
+          method: "upload",
+          path: "users/u1/a.txt",
+          dataBase64: "YQ==",
+        },
+        mutation: {
+          dimension: "path",
+          description: "Peer slot.",
+          operation: {
+            service: "storage",
+            method: "upload",
+            path: "users/u2/a.txt",
+            dataBase64: "YQ==",
+          },
+        },
+      };
+      expect(qualifyProbe(target, probe).supported).toBe(true);
+    } finally {
+      if (previousIndexedDb !== undefined) {
+        (globalThis as { indexedDB?: unknown }).indexedDB = previousIndexedDb;
+      }
+    }
+  });
 });
 
 /**

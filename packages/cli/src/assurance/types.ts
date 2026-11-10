@@ -42,6 +42,16 @@ export interface AssuranceCampaignContext {
 }
 export type MutationDimension = "path" | "query" | "payload" | "operation";
 
+export interface AuthProviderUserInfo {
+  providerId: string;
+  rawId?: string;
+  uid?: string;
+  email?: string;
+  displayName?: string;
+  photoUrl?: string;
+  phoneNumber?: string;
+}
+
 export interface AuthFixtureUser {
   uid: string;
   email?: string | null;
@@ -51,6 +61,7 @@ export interface AuthFixtureUser {
   phoneNumber?: string;
   tenantId?: string;
   providerId?: string;
+  providerUserInfo?: AuthProviderUserInfo[];
   emailVerified?: boolean;
   disabled?: boolean;
   customClaims?: Record<string, unknown>;
@@ -171,6 +182,10 @@ export interface StorageOperation {
   path: string;
   dataBase64?: string;
   contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
   customMetadata?: Record<string, string>;
 }
 

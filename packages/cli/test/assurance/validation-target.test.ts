@@ -90,5 +90,31 @@ describe("validation-target", () => {
     expect(storageMetaMessage).toContain(
       "target.state.storage[0].customMetadata",
     );
+
+    expect(
+      rejectionOf(() =>
+        assertTarget({
+          schema: "pyric.assurance.target.v1",
+          network: "forbid",
+          rules: { storageBuckets: { "bucket-a": 123 } },
+          state: {},
+        }),
+      ),
+    ).toContain('target.rules.storageBuckets["bucket-a"]');
+
+    expect(
+      rejectionOf(() =>
+        assertTarget({
+          schema: "pyric.assurance.target.v1",
+          network: "forbid",
+          rules: {},
+          state: {
+            storageBuckets: {
+              "bucket-a": [{ path: "files/f1", dataBase64: "***not-base64***" }],
+            },
+          },
+        }),
+      ),
+    ).toContain('target.state.storageBuckets["bucket-a"][0].dataBase64');
   });
 });

@@ -26,6 +26,7 @@ import {
 import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import { resolveDatabaseInstance } from "pyric/sandbox/internal";
 import { compileStorageRules } from "pyric/storage/internal";
+import { normalizeStorageBucketInstance } from "./validation-target.js";
 import {
   CONFORMANCE_VERDICTS,
   type ConformanceVerdict,
@@ -95,6 +96,22 @@ function requirement(
   return { id, supported, reason };
 }
 
+function storageRulesSourceRefusal(source: string): string | undefined {
+  // Storage checks its own service in `compileStorageRules`; the shared
+  // check here is the parse and compile-limit half only.
+  const rejection = rulesGrammarRejection(source);
+  if (rejection !== null) return `Storage ${rejection.message}`;
+  try {
+    compileStorageRules(source);
+    return undefined;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.startsWith("Storage ")
+      ? message
+      : `Storage rules did not compile: ${message}`;
+  }
+}
+
 /**
  * Why production would refuse to load the rules a service runs under, in
  * production's words (`Firestore rules did not compile: Line 4: Expression is
@@ -117,28 +134,30 @@ export function rulesLoadRefusal(
     }
     return undefined;
   }
-  const source =
-    service === "firestore"
-      ? target.rules.firestore
-      : target.rules.storage;
-  if (typeof source !== "string" || source.trim().length === 0) return undefined;
   if (service === "firestore") {
+    const source = target.rules.firestore;
+    if (typeof source !== "string" || source.trim().length === 0) return undefined;
     const rejection = rulesSourceRejection(source);
     return rejection === null ? undefined : `Firestore ${rejection.message}`;
   }
-  // Storage checks its own service in `compileStorageRules`; the shared
-  // check here is the parse and compile-limit half only.
-  const rejection = rulesGrammarRejection(source);
-  if (rejection !== null) return `Storage ${rejection.message}`;
-  try {
-    compileStorageRules(source);
-    return undefined;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.startsWith("Storage ")
-      ? message
-      : `Storage rules did not compile: ${message}`;
+  if (
+    typeof target.rules.storage === "string" &&
+    target.rules.storage.trim().length > 0
+  ) {
+    const refusal = storageRulesSourceRefusal(target.rules.storage);
+    if (refusal !== undefined) return refusal;
   }
+  if (target.rules.storageBuckets) {
+    for (const [bucketName, bucketSource] of Object.entries(
+      target.rules.storageBuckets,
+    )) {
+      if (typeof bucketSource === "string" && bucketSource.trim().length > 0) {
+        const refusal = storageRulesSourceRefusal(bucketSource);
+        if (refusal !== undefined) return `bucket '${bucketName}': ${refusal}`;
+      }
+    }
+  }
+  return undefined;
 }
 
 /** The requirement that production would load a service's rules source. */
@@ -528,34 +547,69 @@ function rtdbRequirements(
   return requirements;
 }
 
+interface ResolvedStorageRules {
+  configured: boolean;
+  source?: string;
+}
+
 function resolveStorageRulesForOperation(
   target: LocalFirebaseTarget,
   operation: AssuranceProbe["control"],
-): string | undefined {
-  if (operation.service !== "storage") return undefined;
+): ResolvedStorageRules {
+  if (operation.service !== "storage") return { configured: false };
   const rawBucket =
     (operation as { instance?: string; bucket?: string }).instance ??
     (operation as { instance?: string; bucket?: string }).bucket;
-  if (!rawBucket) return target.rules.storage;
-  const normalized = rawBucket
-    .trim()
-    .replace(/^gs:\/\//i, "")
-    .replace(/\/+$/, "");
+  const normalized = normalizeStorageBucketInstance(rawBucket);
+  const bucketRules = target.rules.storageBuckets;
+  let matchedBucketSource: string | undefined;
+  if (bucketRules) {
+    if (normalized !== undefined && Object.hasOwn(bucketRules, normalized)) {
+      matchedBucketSource = bucketRules[normalized];
+    } else {
+      for (const [key, value] of Object.entries(bucketRules)) {
+        if (normalizeStorageBucketInstance(key) === normalized) {
+          matchedBucketSource = value;
+          break;
+        }
+      }
+    }
+  }
+  const defaultSource =
+    typeof target.rules.storage === "string" &&
+    target.rules.storage.trim().length > 0
+      ? target.rules.storage
+      : undefined;
+  const undeployedPolicy = target.state.storageConfig?.undeployedBucketPolicy;
+
+  if (normalized === undefined) {
+    const source =
+      defaultSource ??
+      (typeof matchedBucketSource === "string" &&
+      matchedBucketSource.trim().length > 0
+        ? matchedBucketSource
+        : undefined);
+    if (source !== undefined) return { configured: true, source };
+    if (undeployedPolicy === "allow") return { configured: true };
+    return { configured: false };
+  }
+
   if (
-    !normalized ||
-    normalized === "default" ||
-    normalized === "(default)" ||
-    normalized === "pyric-default"
+    typeof matchedBucketSource === "string" &&
+    matchedBucketSource.trim().length > 0
   ) {
-    return target.rules.storage;
+    return { configured: true, source: matchedBucketSource };
   }
-  const bucketRules = (
-    target.rules as { storageBuckets?: Record<string, string> }
-  ).storageBuckets;
-  if (bucketRules && Object.hasOwn(bucketRules, normalized)) {
-    return bucketRules[normalized];
+  if (undeployedPolicy !== undefined) {
+    return { configured: true };
   }
-  return target.rules.storage;
+  if (bucketRules && Object.keys(bucketRules).length > 0) {
+    return { configured: true };
+  }
+  if (defaultSource !== undefined) {
+    return { configured: true, source: defaultSource };
+  }
+  return { configured: false };
 }
 
 function storageRequirements(
@@ -565,14 +619,18 @@ function storageRequirements(
   const operations = [probe.control, probe.mutation.operation].filter(
     (op) => op.service === "storage",
   );
-  const resolvedSources = operations.map((op) =>
+  const resolved = operations.map((op) =>
     resolveStorageRulesForOperation(target, op),
   );
   const allPresent =
-    resolvedSources.length > 0 &&
-    resolvedSources.every(
-      (source) => typeof source === "string" && source.trim().length > 0,
-    );
+    resolved.length > 0 && resolved.every((entry) => entry.configured);
+  const hasStoragePersistence =
+    typeof globalThis.indexedDB !== "undefined" ||
+    (typeof process !== "undefined" &&
+      Boolean(
+        process.versions?.node ||
+          (process.versions as Record<string, string | undefined> | undefined)?.bun,
+      ));
   const requirements = [
     requirement(
       "storage.rules-present",
@@ -581,8 +639,8 @@ function storageRequirements(
     ),
     requirement(
       "storage.indexeddb",
-      typeof globalThis.indexedDB !== "undefined",
-      typeof globalThis.indexedDB !== "undefined"
+      hasStoragePersistence,
+      hasStoragePersistence
         ? "IndexedDB is available for the local Storage sandbox."
         : "The local Storage sandbox requires IndexedDB.",
     ),
@@ -593,7 +651,9 @@ function storageRequirements(
   if (!load.supported) return requirements;
   const distinctSources = [
     ...new Set(
-      resolvedSources.filter((s): s is string => typeof s === "string"),
+      resolved
+        .map((entry) => entry.source)
+        .filter((s): s is string => typeof s === "string"),
     ),
   ];
   try {

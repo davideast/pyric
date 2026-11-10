@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyStepToTargetState,
+  initializeTargetState,
   materializeDataValue,
   replaceIdentityDeep,
   stepToFirebaseOperation,
@@ -101,5 +102,27 @@ describe("derive-campaign-state", () => {
       Reflect.deleteProperty(Object.prototype, "pollutedFlag");
       Reflect.deleteProperty(Object.prototype, "pollutedNested");
     }
+  });
+
+  test("initializeTargetState preserves auth.providers and storageConfig", () => {
+    const out = initializeTargetState(
+      undefined,
+      {
+        auth: {
+          users: [{ uid: "u-1", email: "u1@example.test" }],
+          providers: { anonymous: false },
+        },
+        storageConfig: {
+          crossServiceIam: "denied",
+          undeployedBucketPolicy: "allow",
+        },
+      },
+      [],
+    );
+    expect(out.auth?.providers).toEqual({ anonymous: false });
+    expect(out.storageConfig).toEqual({
+      crossServiceIam: "denied",
+      undeployedBucketPolicy: "allow",
+    });
   });
 });

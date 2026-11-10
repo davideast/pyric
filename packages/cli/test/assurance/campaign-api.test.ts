@@ -604,4 +604,93 @@ describe("AuthorizationCampaign.map", () => {
     const exportedCases = campaign.exportSecurityCases();
     expect(exportedCases[0]?.requires).toEqual(supportedRequires);
   });
+
+  it("validates propose batches atomically before mutating campaign probes", () => {
+    const campaign = createAuthorizationCampaign({ id: "propose-atomicity", target });
+    campaign.addInvariant({
+      id: "inv-read",
+      statement: "Foreign profile reads denied.",
+      service: "firestore",
+      expected: "DENY",
+      source: "declared",
+      confidence: "authoritative",
+    });
+    campaign.map({
+      actors: [{ id: "owner", acquisition: { kind: "fixture-user", uid: "alice" } }],
+      observations: [
+        {
+          id: "obs-1",
+          actorId: "owner",
+          operation: { service: "firestore", method: "get", path: "profiles/alice" },
+          result: "ALLOW",
+          source: "authored",
+        },
+      ],
+    });
+
+    expect(() =>
+      campaign.propose({
+        observationId: "obs-1",
+        invariantId: "inv-read",
+        mutations: [
+          {
+            id: "m-1",
+            dimension: "path",
+            description: "Read bob profile.",
+            operation: { service: "firestore", method: "get", path: "profiles/bob" },
+          },
+          {
+            id: "m-2",
+            dimension: "path",
+            description: "Unchanged path.",
+            operation: { service: "firestore", method: "get", path: "profiles/alice" },
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(campaign.spec().probes).toEqual([]);
+
+    expect(() =>
+      campaign.propose({
+        observationId: "obs-1",
+        invariantId: "inv-read",
+        mutations: [
+          {
+            id: "m-dup",
+            dimension: "path",
+            description: "Read bob profile.",
+            operation: { service: "firestore", method: "get", path: "profiles/bob" },
+          },
+          {
+            id: "m-dup",
+            dimension: "path",
+            description: "Read carol profile.",
+            operation: { service: "firestore", method: "get", path: "profiles/carol" },
+          },
+        ],
+      }),
+    ).toThrow("duplicate probe id 'm-dup'.");
+    expect(campaign.spec().probes).toEqual([]);
+
+    const created = campaign.propose({
+      observationId: "obs-1",
+      invariantId: "inv-read",
+      mutations: [
+        {
+          id: "m-1",
+          dimension: "path",
+          description: "Read bob profile.",
+          operation: { service: "firestore", method: "get", path: "profiles/bob" },
+        },
+        {
+          id: "m-2",
+          dimension: "path",
+          description: "Read carol profile.",
+          operation: { service: "firestore", method: "get", path: "profiles/carol" },
+        },
+      ],
+    });
+    expect(created.map((probe) => probe.id)).toEqual(["m-1", "m-2"]);
+    expect(campaign.spec().probes.map((probe) => probe.id)).toEqual(["m-1", "m-2"]);
+  });
 });

@@ -10,6 +10,7 @@ import {
 import {
   acquireActor,
   createRuntime,
+  formatThrownMessage,
   readState,
   stableStringify,
   targetHash,
@@ -80,10 +81,7 @@ function errorDecision(error: unknown): {
   error: { code?: string; message: string };
 } {
   const code = (error as { code?: unknown } | null)?.code;
-  let message = String(error);
-  if (error instanceof Error) {
-    message = error.message;
-  }
+  const message = formatThrownMessage(error);
   let codeString: string | undefined;
   if (typeof code === "string") {
     codeString = code;
