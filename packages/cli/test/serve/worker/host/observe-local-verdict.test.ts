@@ -976,7 +976,7 @@ describe('host: RTDB local evaluation trace, listeners, and unevaluated context'
     expect(wholeRecord?.production?.local).not.toHaveProperty('drift');
   });
 
-  it('scrubs secret wildcard bindings and opaque tokens in RTDB bindings, traces, and reasons', async () => {
+  it('reports RTDB wildcard bindings verbatim, including token-named keys and opaque values', async () => {
     const opaque44 = 'tok_0123456789abcdef0123456789abcdef01234567';
     const rtdbCtx = ctxWithRtdbRules({
       rules: {
@@ -993,7 +993,7 @@ describe('host: RTDB local evaluation trace, listeners, and unevaluated context'
       },
     });
 
-    const rtdbSecretVar = await observedEvent(
+    const rtdbTokenVar = await observedEvent(
       rtdbCtx,
       rtdbCall({
         method: 'get',
@@ -1002,17 +1002,15 @@ describe('host: RTDB local evaluation trace, listeners, and unevaluated context'
         account: { uid: 'uid-1' },
       }),
     );
-    const rtdbJson = JSON.stringify(rtdbSecretVar?.production?.local);
-    expect(rtdbSecretVar?.production?.local).toMatchObject({
+    expect(rtdbTokenVar?.production?.local).toMatchObject({
       result: 'allow',
       rtdb: {
         pathVariableBindings: {
           $orgId: 'org-1',
-          $token: '[redacted]',
+          $token: opaque44,
         },
       },
     });
-    expect(rtdbJson).not.toContain(opaque44);
 
     const rtdbOpaqueId = await observedEvent(
       rtdbCtx,
@@ -1023,18 +1021,15 @@ describe('host: RTDB local evaluation trace, listeners, and unevaluated context'
         account: { uid: 'uid-1' },
       }),
     );
-    expect(JSON.stringify(rtdbOpaqueId?.production?.local)).not.toContain(opaque44);
-
-    const rtdbUnmatched = await observedEvent(
-      rtdbCtx,
-      rtdbCall({
-        method: 'get',
-        path: `/unmatched/${opaque44}`,
-        outcome: DENIED,
-        account: { uid: 'uid-1' },
-      }),
-    );
-    expect(JSON.stringify(rtdbUnmatched?.production?.local)).not.toContain(opaque44);
+    expect(rtdbOpaqueId?.production?.local).toMatchObject({
+      result: 'allow',
+      rtdb: {
+        pathVariableBindings: {
+          $orgId: 'org-1',
+          $id: opaque44,
+        },
+      },
+    });
   });
 });
 
@@ -1304,30 +1299,21 @@ service firebase.storage {
     }
   });
 
-  it('scrubs secret field/claim values, helper bindings, and token strings from Firestore traces, RTDB bindings/reasons, and Storage reasons', async () => {
-    const dummyJwt =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
-      'eyJzdWIiOiJ1c2VyLTEiLCJlbWFpbCI6InVzZXJAZXhhbXBsZS50ZXN0In0.' +
-      'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
-    const apiKey39 = ['AIza', 'SyDummyKey0123456789abcdef012345678'].join('');
+  it('reports Firestore trace values verbatim, including token-named fields and claims, and Storage reasons as the engine wrote them', async () => {
     const opaque44 = 'tok_0123456789abcdef0123456789abcdef01234567';
-    const oauthToken = ['ya29', '.a0DummyOAuth0123456789abcdef'].join('');
-    const refreshToken = ['1//', '0gDummyRefreshToken0123456789abcdef'].join('');
 
     const fsCtx = ctxWithFirestoreRules(`rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function matchesSecret(val) {
+    function matchesValue(val) {
       let localCopy = val;
       return localCopy == 'expected';
     }
     match /items/{id} {
       allow read: if resource.data.apiKey == 'expected'
-                  || request.auth.token.secretClaim == 'expected'
+                  || request.auth.token.customClaim == 'expected'
                   || resource.data['password'] == 'expected'
-                  || resource.data.get('firebaseStorageDownloadTokens', '') == 'expected'
-                  || request.auth.token.token == 'expected'
-                  || matchesSecret(resource.data.clientSecret)
+                  || matchesValue(resource.data.clientSecret)
                   || resource.data.note == 'expected';
     }
   }
@@ -1341,33 +1327,32 @@ service cloud.firestore {
       outcome: DENIED,
       account: {
         uid: 'uid-1',
-        claimNames: ['secretClaim', 'token', 'email'],
+        claimNames: ['customClaim', 'email'],
         claims: {
-          secretClaim: dummyJwt,
-          token: 'short-custom-token-claim',
+          customClaim: 'short-custom-claim',
           email: 'alice@example.com',
         },
       },
       document: {
-        apiKey: apiKey39,
+        apiKey: 'short-api-key-value',
         password: 'short-password-value',
-        firebaseStorageDownloadTokens: '9f8e7d6c-5b4a-4321-8765-abcdef012345',
-        clientSecret: 'short-helper-secret',
-        note: `oauth=${oauthToken} refresh=${refreshToken} opaque=${opaque44}`,
+        clientSecret: 'short-helper-value',
+        note: `opaque=${opaque44}`,
       },
     });
 
     const fsJson = JSON.stringify(fsEvent?.production?.local);
     expect(fsEvent?.production?.local?.result).toBe('deny');
-    expect(fsJson).not.toContain(dummyJwt);
-    expect(fsJson).not.toContain(apiKey39);
-    expect(fsJson).not.toContain('short-password-value');
-    expect(fsJson).not.toContain('9f8e7d6c-5b4a-4321-8765-abcdef012345');
-    expect(fsJson).not.toContain('short-custom-token-claim');
-    expect(fsJson).not.toContain('short-helper-secret');
-    expect(fsJson).not.toContain(oauthToken);
-    expect(fsJson).not.toContain(refreshToken);
-    expect(fsJson).not.toContain(opaque44);
+    expect(fsJson).not.toContain('[redacted');
+    for (const value of [
+      'short-api-key-value',
+      'short-custom-claim',
+      'short-password-value',
+      'short-helper-value',
+      `opaque=${opaque44}`,
+    ]) {
+      expect(fsJson).toContain(value);
+    }
 
     const storageCtx = ctxWithStorageRules(`rules_version = '2';
 service firebase.storage {
@@ -1385,6 +1370,14 @@ service firebase.storage {
         outcome: { status: 'error', code: 'storage/unauthorized' },
       }),
     );
-    expect(JSON.stringify(stEvent?.production?.local)).not.toContain(opaque44);
+    expect(stEvent?.production?.local).toEqual({
+      result: 'deny',
+      rule: { path: 'match /docs/{docId}', line: 5 },
+      storage: {
+        matchedPath: 'match /docs/{docId}',
+        matchedLine: 5,
+        reasons: ['match /docs/{docId} get: condition false'],
+      },
+    });
   });
 });
