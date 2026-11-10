@@ -55,7 +55,6 @@ export {
   storageFirestoreLookup,
   type RecordedStorageDeniedWrite,
 } from './enforce.js';
-export { storageRulesMayReadRedactedProps } from './sandbox/rules.js';
 export {
   emptyStorageObservation,
   evaluateStorageRules,

@@ -15,7 +15,6 @@ import {
   type CompiledStorageRules,
   requestResourceFor,
   resourceFromStored,
-  storageRulesMayReadRedactedProps,
   type StoredMetadata,
 } from 'pyric/storage/internal';
 import { rtdbRulesSourceRejection, type RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
@@ -928,7 +927,6 @@ async function verifyStorage(
   }
 
   const divergences: VerifyDivergence[] = [];
-  const unevaluatedEvents: VerifyUnevaluatedEvent[] = [];
   let checkedEvents = 0;
   const consumedMutationIndices = new Set<number>();
   const currentFirestoreDocs: Record<string, Record<string, unknown>> = {
@@ -1006,76 +1004,6 @@ async function verifyStorage(
     // The rules saw the bucket under the name the live op recorded.
     const bucketName = recordedBucketName(opEvent, bucket);
     const bucketRules = storageBucketRules(ruleset, bucket, bucketName);
-
-    const usesDeniedRequestResource =
-      (opEvent.method === 'create' || opEvent.method === 'write' || opEvent.method === 'update') &&
-      pairedMutation?.after === undefined &&
-      detailRequestResource !== undefined;
-    const usesDeniedResource = existing === undefined && detailResource !== undefined;
-
-    if (
-      bucketRules.kind === 'rules' &&
-      deniedWrite?.redacted === true &&
-      (usesDeniedRequestResource || usesDeniedResource)
-    ) {
-      const reqRedactedProps = new Set<string>();
-      const resRedactedProps = new Set<string>();
-      const fieldList = deniedWrite.redactedFields ?? [];
-      if (fieldList.length > 0) {
-        for (const field of fieldList) {
-          if (usesDeniedRequestResource && field.startsWith('request.resource.')) {
-            reqRedactedProps.add(field.slice('request.resource.'.length));
-          } else if (usesDeniedResource && field.startsWith('resource.')) {
-            resRedactedProps.add(field.slice('resource.'.length));
-          }
-        }
-      } else {
-        if (usesDeniedRequestResource) {
-          for (const prop of [
-            'metadata',
-            'contentType',
-            'contentDisposition',
-            'contentEncoding',
-            'contentLanguage',
-            'cacheControl',
-          ]) {
-            reqRedactedProps.add(prop);
-          }
-        }
-        if (usesDeniedResource) {
-          for (const prop of ['metadata', 'contentType']) {
-            resRedactedProps.add(prop);
-          }
-        }
-      }
-      if (
-        opEvent.method === 'update' &&
-        pairedMutation?.after === undefined &&
-        detailRequestResource === undefined &&
-        existing === undefined &&
-        resRedactedProps.has('contentType')
-      ) {
-        reqRedactedProps.add('contentType');
-      }
-      if (
-        (reqRedactedProps.size > 0 || resRedactedProps.size > 0) &&
-        storageRulesMayReadRedactedProps(bucketRules.rules, reqRedactedProps, resRedactedProps)
-      ) {
-        const needs = [
-          ...[...reqRedactedProps].map((prop) => `request.resource.${prop}`),
-          ...[...resRedactedProps].map((prop) => `resource.${prop}`),
-        ];
-        unevaluatedEvents.push({
-          eventId: opEvent.id,
-          path: opEvent.path,
-          method: opEvent.method,
-          bucket: bucketName,
-          needs,
-          reason: `Skipped because captured ${needs.join(', ')} contained redacted values read by candidate rules.`,
-        });
-        continue;
-      }
-    }
 
     checkedEvents += 1;
 
@@ -1163,20 +1091,11 @@ async function verifyStorage(
     }
   }
 
-  const notes =
-    unevaluatedEvents.length > 0
-      ? [
-          `Skipped ${unevaluatedEvents.length} Storage operation(s) whose redacted metadata or header values are read by candidate rules.`,
-        ]
-      : undefined;
-
   const sandbox: VerifyEngineResult = {
     engine: 'sandbox',
     ok: divergences.every(isInformational),
     checkedEvents,
     divergences,
-    ...(unevaluatedEvents.length > 0 ? { unevaluatedEvents } : {}),
-    ...(notes ? { notes } : {}),
   };
 
   return {
@@ -1185,8 +1104,6 @@ async function verifyStorage(
     checkedEvents,
     divergences,
     engines: { sandbox },
-    ...(unevaluatedEvents.length > 0 ? { unevaluatedEvents } : {}),
-    ...(notes ? { notes } : {}),
   };
 }
 

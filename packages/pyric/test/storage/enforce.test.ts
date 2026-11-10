@@ -767,63 +767,39 @@ service firebase.storage {
   });
 });
 
-describe('resource content header and metadata secret redaction', () => {
-  it('preserves email addresses in resource content headers and metadata without marking redacted', () => {
-    const sanitized = normalizeRecordedStorageDeniedWrite({
+describe('recorded denied Storage write normalization', () => {
+  it('preserves resource content headers and customMetadata values verbatim with __proto__ quarantine', () => {
+    const metadata = JSON.parse(
+      '{"owner":"ada@example.com","firebaseStorageDownloadTokens":"tok-123","apiKey":"public-web-key","__proto__":"own-value"}',
+    ) as Record<string, string>;
+    const normalized = normalizeRecordedStorageDeniedWrite({
       requestResource: {
         size: 12,
-        metadata: {
-          owner: 'ada@example.com',
-          reviewer: 'bob@example.com',
-        },
+        metadata,
       },
       resource: {
         size: 12,
         contentDisposition: 'attachment; filename="bob@example.com"',
         contentEncoding: 'identity; bob@example.com',
         contentLanguage: 'en; bob@example.com',
-        cacheControl: 'private, comment="bob@example.com"',
+        cacheControl: 'Bearer sample-header-value',
       },
     });
-    expect(sanitized).toBeDefined();
-    expect(sanitized!.redacted).toBeUndefined();
-    expect(sanitized!.redactedFields).toBeUndefined();
-    expect(sanitized!.requestResource?.metadata).toEqual({
+    expect(normalized).toBeDefined();
+    expect('redacted' in normalized!).toBe(false);
+    expect('redactedFields' in normalized!).toBe(false);
+    const outMeta = normalized!.requestResource?.metadata;
+    expect(outMeta).toBeDefined();
+    expect(Object.getPrototypeOf(outMeta)).toBe(Object.prototype);
+    expect(Object.prototype.hasOwnProperty.call(outMeta, '__proto__')).toBe(true);
+    expect(outMeta).toMatchObject({
       owner: 'ada@example.com',
-      reviewer: 'bob@example.com',
+      firebaseStorageDownloadTokens: 'tok-123',
+      apiKey: 'public-web-key',
     });
-    expect(sanitized!.resource?.contentDisposition).toBe('attachment; filename="bob@example.com"');
-    expect(sanitized!.resource?.contentEncoding).toBe('identity; bob@example.com');
-    expect(sanitized!.resource?.contentLanguage).toBe('en; bob@example.com');
-    expect(sanitized!.resource?.cacheControl).toBe('private, comment="bob@example.com"');
-  });
-
-  it('redacts secret metadata keys and bearer credentials while keeping email metadata intact', () => {
-    const sanitized = normalizeRecordedStorageDeniedWrite({
-      requestResource: {
-        size: 12,
-        metadata: {
-          owner: 'ada@example.com',
-          firebaseStorageDownloadTokens: 'tok-secret-123',
-          apiKey: 'secret-api-key',
-        },
-      },
-      resource: {
-        size: 12,
-        cacheControl: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln',
-      },
-    });
-    expect(sanitized).toBeDefined();
-    expect(sanitized!.redacted).toBe(true);
-    expect(sanitized!.requestResource?.metadata).toEqual({
-      owner: 'ada@example.com',
-      firebaseStorageDownloadTokens: '[redacted]',
-      apiKey: '[redacted]',
-    });
-    expect(sanitized!.resource?.cacheControl).toBe('Bearer [redacted]');
-    expect(sanitized!.redactedFields).toEqual([
-      'request.resource.metadata',
-      'resource.cacheControl',
-    ]);
+    expect(normalized!.resource?.contentDisposition).toBe('attachment; filename="bob@example.com"');
+    expect(normalized!.resource?.contentEncoding).toBe('identity; bob@example.com');
+    expect(normalized!.resource?.contentLanguage).toBe('en; bob@example.com');
+    expect(normalized!.resource?.cacheControl).toBe('Bearer sample-header-value');
   });
 });

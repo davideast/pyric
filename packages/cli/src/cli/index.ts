@@ -197,7 +197,7 @@ COMMANDS
   serve repro capture        Write the running Node host's repro file: its starting
                              state, rules, signed-in ports, and the operations and
                              listener events since. --out FILE (default
-                             pyric-repro.json), --force. Tokens keep only their claims.
+                             pyric-repro.json), --force.
   serve repro replay <file>  Replay a repro file on a fresh Node host and a fresh
                              worker host; report the first divergence on each and
                              where they disagree. --plane node|worker, --json.

@@ -12,14 +12,14 @@
  *   ids is a divergence.
  * - Times compare equal to times: epoch milliseconds, `{ seconds, nanoseconds }`
  *   timestamps, ISO and HTTP dates, and the `iat`, `exp` and `auth_time` claims.
- *   A JWT ID token reaches the comparison as its header and claims, because the
- *   replay redacts every JWT first (`redactSecrets`), so its tag, which signs
- *   the times, is never compared. A recording made before ID tokens were JWTs
- *   holds `sandbox-id-token-<uid>-<serial>:` and its claims as JSON, and still
- *   compares by those claims.
+ *   A JWT is compared by its decoded header and claims so a signature tag over
+ *   freshly minted timestamps never causes a false divergence. A recording made
+ *   before ID tokens were JWTs holds `sandbox-id-token-<uid>-<serial>:` and its
+ *   claims as JSON, and still compares by those claims.
  *
  * Everything else must be equal.
  */
+import { defineOwnField, isPlainObject, jwtParts } from './format.js';
 
 const ID_CHARS = /^[A-Za-z0-9_-]+$/;
 const TOKEN_SPLIT = /([^A-Za-z0-9_-]+)/;
@@ -30,8 +30,22 @@ const TIME_CLAIMS = new Set(['iat', 'exp', 'auth_time']);
 const SANDBOX_ID_TOKEN = /^(sandbox-id-token-[^:]*):(\{.*\})$/s;
 export const TIME = '<time>';
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+/** Expand JWT strings into their header and claims so id binding and normalization inspect their contents. */
+function expandComparable(value: unknown): unknown {
+  if (typeof value === 'string') {
+    const jwt = jwtParts(value);
+    if (jwt !== null) {
+      return { jwt: { header: expandComparable(jwt.header), claims: expandComparable(jwt.claims) } };
+    }
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(expandComparable);
+  if (!isPlainObject(value)) return value;
+  const copy: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    defineOwnField(copy, key, expandComparable(child));
+  }
+  return copy;
 }
 
 /** True for a string shaped like a generated id: long, id characters, not a plain word. */
@@ -46,12 +60,16 @@ function isEpochMillis(value: number): boolean {
   return Number.isInteger(value) && value >= 1e12 && value < 1e14;
 }
 
-/** Times become {@link TIME}; JSON text inside a string is compared as the value it encodes. */
+/** Times become {@link TIME}; JSON text and JWTs inside strings are compared by the values they encode. */
 export function normalize(value: unknown): unknown {
   if (typeof value === 'number') return isEpochMillis(value) ? TIME : value;
   if (typeof value === 'string') {
     const isTime = ISO_DATE.test(value) || HTTP_DATE.test(value) || (/^\d{13}$/.test(value));
     if (isTime) return TIME;
+    const jwt = jwtParts(value);
+    if (jwt !== null) {
+      return { jwt: { header: normalize(jwt.header), claims: normalize(jwt.claims) } };
+    }
     const sandboxIdToken = SANDBOX_ID_TOKEN.exec(value);
     if (sandboxIdToken !== null) {
       const claims = normalize(sandboxIdToken[2]);
@@ -77,7 +95,7 @@ export function normalize(value: unknown): unknown {
   const copy: Record<string, unknown> = {};
   for (const key of keys.sort()) {
     const child = value[key];
-    copy[key] = TIME_CLAIMS.has(key) && typeof child === 'number' ? TIME : normalize(child);
+    defineOwnField(copy, key, TIME_CLAIMS.has(key) && typeof child === 'number' ? TIME : normalize(child));
   }
   return copy;
 }
@@ -122,7 +140,7 @@ function rewrite(value: unknown, map: Map<string, string>): unknown {
   if (Array.isArray(value)) return value.map((child) => rewrite(child, map));
   if (!isPlainObject(value)) return value;
   const copy: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) copy[rewriteString(key, map)] = rewrite(child, map);
+  for (const [key, child] of Object.entries(value)) defineOwnField(copy, rewriteString(key, map), rewrite(child, map));
   return copy;
 }
 
@@ -173,8 +191,10 @@ export function canonical(value: unknown): string {
  * Returns the replayed value in the recording's ids, normalized, and whether it matches.
  */
 export function matchRecorded(recorded: unknown, replayed: unknown, bindings: IdBindings): { matches: boolean; observed: unknown } {
-  learnBindings(recorded, replayed, bindings);
-  const observed = normalize(bindings.toRecorded(replayed));
-  const expected = normalize(recorded);
+  const expectedRaw = expandComparable(recorded);
+  const actualRaw = expandComparable(replayed);
+  learnBindings(expectedRaw, actualRaw, bindings);
+  const observed = normalize(bindings.toRecorded(actualRaw));
+  const expected = normalize(expectedRaw);
   return { matches: JSON.stringify(observed) === JSON.stringify(expected), observed };
 }

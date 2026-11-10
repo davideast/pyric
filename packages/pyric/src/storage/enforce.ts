@@ -44,9 +44,7 @@
 import {
   emitSandboxEvent,
   getClock,
-  isSecretObservationKey,
   makeSandboxOperationEvent,
-  observationText,
 } from 'pyric/sandbox/internal';
 import type { EventProvenance, Sandbox } from 'pyric/sandbox';
 import { getAuthLens } from '../sandbox/internal/auth-lens.js';
@@ -70,17 +68,13 @@ import { unauthorized } from './errors.js';
 import { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
 
 /**
- * Redacted `request.resource` and existing `resource` bindings captured beside
- * a denied Storage operation event for `pyric verify` replay, kept off the
- * live Traffic / Studio `SandboxOperationEvent.detail` payload.
+ * `request.resource` and existing `resource` bindings captured beside a denied
+ * Storage operation event for `pyric verify` replay, kept off the live Traffic
+ * / Studio `SandboxOperationEvent.detail` payload.
  */
 export interface RecordedStorageDeniedWrite {
   requestResource?: StorageRequestResource;
   resource?: StorageResource;
-  /** True when one or more captured field values were replaced by redaction placeholders. */
-  redacted?: true;
-  /** Binding paths whose values were redacted (`request.resource.metadata`, `resource.metadata`, etc.). */
-  redactedFields?: string[];
 }
 
 interface DeniedWriteStore {
@@ -92,20 +86,6 @@ type HistoryBearingSandbox = Pick<Sandbox, 'history'>;
 
 const DENIED_WRITES_KEY = Symbol.for('pyric.storage.denied-writes');
 const MIN_DENIED_WRITES_PRUNE_AT = 256;
-const KNOWN_REDACTED_FIELD_NAMES: ReadonlySet<string> = new Set([
-  'request.resource.metadata',
-  'request.resource.contentType',
-  'request.resource.contentDisposition',
-  'request.resource.contentEncoding',
-  'request.resource.contentLanguage',
-  'request.resource.cacheControl',
-  'resource.metadata',
-  'resource.contentType',
-  'resource.contentDisposition',
-  'resource.contentEncoding',
-  'resource.contentLanguage',
-  'resource.cacheControl',
-]);
 
 const globalDeniedWrites = globalThis as {
   [DENIED_WRITES_KEY]?: WeakMap<HistoryBearingSandbox, DeniedWriteStore>;
@@ -125,89 +105,53 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function sanitizeCapturedText(value: string): { value: string; redacted: boolean } {
-  const next = observationText(value);
-  return { value: next, redacted: next !== value };
-}
-
-function sanitizeStorageMetadata(
-  metadata: unknown,
-): { value: Record<string, string> | null | undefined; redacted: boolean } {
-  if (metadata === undefined) return { value: undefined, redacted: false };
-  if (metadata === null) return { value: null, redacted: false };
-  if (!isPlainRecord(metadata)) return { value: undefined, redacted: false };
+function copyStorageMetadata(metadata: unknown): Record<string, string> | null | undefined {
+  if (metadata === undefined) return undefined;
+  if (metadata === null) return null;
+  if (!isPlainRecord(metadata)) return undefined;
   const out: Record<string, string> = {};
-  let redacted = false;
   for (const [key, raw] of Object.entries(metadata)) {
     if (typeof raw !== 'string') continue;
-    let sanitizedValue: string;
-    if (isSecretObservationKey(key)) {
-      sanitizedValue = '[redacted]';
-      redacted = true;
-    } else {
-      const checked = sanitizeCapturedText(raw);
-      sanitizedValue = checked.value;
-      if (checked.redacted) redacted = true;
-    }
-    // Preserve metadata keys verbatim so `size()` and `keys()` never collapse distinct keys.
+    // Preserve metadata keys and values verbatim without mutating `out` prototype on `__proto__`.
     Object.defineProperty(out, key, {
-      value: sanitizedValue,
+      value: raw,
       enumerable: true,
       configurable: true,
       writable: true,
     });
   }
-  return { value: out, redacted };
+  return out;
 }
 
-function sanitizeOptionalHeader(
-  rawValue: unknown,
-  fieldPath: string,
-  redactedFields: string[],
-): string | undefined {
-  if (typeof rawValue !== 'string') return undefined;
-  const checked = sanitizeCapturedText(rawValue);
-  if (checked.redacted) redactedFields.push(fieldPath);
-  return checked.value;
+function optionalHeader(rawValue: unknown): string | undefined {
+  return typeof rawValue === 'string' ? rawValue : undefined;
 }
 
-function sanitizeNullableHeader(
-  rawValue: unknown,
-  fieldPath: string,
-  redactedFields: string[],
-): string | null | undefined {
-  if (rawValue === null) return null;
-  return sanitizeOptionalHeader(rawValue, fieldPath, redactedFields);
+function nullableHeader(rawValue: unknown): string | null | undefined {
+  return rawValue === null ? null : optionalHeader(rawValue);
 }
 
-function sanitizeStorageRequestResource(
-  raw: unknown,
-): { resource: StorageRequestResource | undefined; redactedFields: string[] } {
-  if (!isPlainRecord(raw)) return { resource: undefined, redactedFields: [] };
-  if (typeof raw.size !== 'number' || !Number.isFinite(raw.size)) {
-    return { resource: undefined, redactedFields: [] };
-  }
+function normalizeStorageRequestResource(raw: unknown): StorageRequestResource | undefined {
+  if (!isPlainRecord(raw)) return undefined;
+  if (typeof raw.size !== 'number' || !Number.isFinite(raw.size)) return undefined;
   const out: StorageRequestResource = { size: raw.size };
-  const redactedFields: string[] = [];
 
-  // Keep `name` and `bucket` unredacted (the path is already on `opEvent.path`).
   if (typeof raw.name === 'string') out.name = raw.name;
   if (typeof raw.bucket === 'string') out.bucket = raw.bucket;
 
-  const contentType = sanitizeOptionalHeader(raw.contentType, 'request.resource.contentType', redactedFields);
+  const contentType = optionalHeader(raw.contentType);
   if (contentType !== undefined) out.contentType = contentType;
-  const contentDisposition = sanitizeNullableHeader(raw.contentDisposition, 'request.resource.contentDisposition', redactedFields);
+  const contentDisposition = nullableHeader(raw.contentDisposition);
   if (contentDisposition !== undefined) out.contentDisposition = contentDisposition;
-  const contentEncoding = sanitizeNullableHeader(raw.contentEncoding, 'request.resource.contentEncoding', redactedFields);
+  const contentEncoding = nullableHeader(raw.contentEncoding);
   if (contentEncoding !== undefined) out.contentEncoding = contentEncoding;
-  const contentLanguage = sanitizeNullableHeader(raw.contentLanguage, 'request.resource.contentLanguage', redactedFields);
+  const contentLanguage = nullableHeader(raw.contentLanguage);
   if (contentLanguage !== undefined) out.contentLanguage = contentLanguage;
-  const cacheControl = sanitizeNullableHeader(raw.cacheControl, 'request.resource.cacheControl', redactedFields);
+  const cacheControl = nullableHeader(raw.cacheControl);
   if (cacheControl !== undefined) out.cacheControl = cacheControl;
   if (raw.metadata === null || isPlainRecord(raw.metadata)) {
-    const checked = sanitizeStorageMetadata(raw.metadata);
-    if (checked.value !== undefined) out.metadata = checked.value;
-    if (checked.redacted) redactedFields.push('request.resource.metadata');
+    const metadata = copyStorageMetadata(raw.metadata);
+    if (metadata !== undefined) out.metadata = metadata;
   }
   if (raw.generation === null || (typeof raw.generation === 'number' && Number.isFinite(raw.generation))) {
     out.generation = raw.generation;
@@ -218,27 +162,21 @@ function sanitizeStorageRequestResource(
   if (raw.etag === null) {
     out.etag = null;
   }
-  return { resource: out, redactedFields };
+  return out;
 }
 
-function sanitizeStorageResource(
-  raw: unknown,
-): { resource: StorageResource | undefined; redactedFields: string[] } {
-  if (!isPlainRecord(raw)) return { resource: undefined, redactedFields: [] };
-  if (typeof raw.size !== 'number' || !Number.isFinite(raw.size)) {
-    return { resource: undefined, redactedFields: [] };
-  }
+function normalizeStorageResource(raw: unknown): StorageResource | undefined {
+  if (!isPlainRecord(raw)) return undefined;
+  if (typeof raw.size !== 'number' || !Number.isFinite(raw.size)) return undefined;
   const out: StorageResource = { size: raw.size };
-  const redactedFields: string[] = [];
 
   if (typeof raw.name === 'string') out.name = raw.name;
   if (typeof raw.bucket === 'string') out.bucket = raw.bucket;
-  const contentType = sanitizeOptionalHeader(raw.contentType, 'resource.contentType', redactedFields);
+  const contentType = optionalHeader(raw.contentType);
   if (contentType !== undefined) out.contentType = contentType;
   if (isPlainRecord(raw.metadata)) {
-    const checked = sanitizeStorageMetadata(raw.metadata);
-    if (checked.value !== null && checked.value !== undefined) out.metadata = checked.value;
-    if (checked.redacted) redactedFields.push('resource.metadata');
+    const metadata = copyStorageMetadata(raw.metadata);
+    if (metadata !== null && metadata !== undefined) out.metadata = metadata;
   }
   if (typeof raw.timeCreated === 'string') out.timeCreated = raw.timeCreated;
   if (typeof raw.updated === 'string') out.updated = raw.updated;
@@ -251,41 +189,31 @@ function sanitizeStorageResource(
   if (typeof raw.md5Hash === 'string') out.md5Hash = raw.md5Hash;
   if (typeof raw.crc32c === 'string') out.crc32c = raw.crc32c;
   if (typeof raw.etag === 'string') out.etag = raw.etag;
-  const contentDisposition = sanitizeOptionalHeader(raw.contentDisposition, 'resource.contentDisposition', redactedFields);
+  const contentDisposition = optionalHeader(raw.contentDisposition);
   if (contentDisposition !== undefined) out.contentDisposition = contentDisposition;
-  const contentEncoding = sanitizeOptionalHeader(raw.contentEncoding, 'resource.contentEncoding', redactedFields);
+  const contentEncoding = optionalHeader(raw.contentEncoding);
   if (contentEncoding !== undefined) out.contentEncoding = contentEncoding;
-  const contentLanguage = sanitizeOptionalHeader(raw.contentLanguage, 'resource.contentLanguage', redactedFields);
+  const contentLanguage = optionalHeader(raw.contentLanguage);
   if (contentLanguage !== undefined) out.contentLanguage = contentLanguage;
-  const cacheControl = sanitizeOptionalHeader(raw.cacheControl, 'resource.cacheControl', redactedFields);
+  const cacheControl = optionalHeader(raw.cacheControl);
   if (cacheControl !== undefined) out.cacheControl = cacheControl;
-  return { resource: out, redactedFields };
+  return out;
 }
 
 /**
- * Validate and sanitize a recorded or persisted denied Storage write entry,
- * allowlisting known fields and preserving redaction markers across hydration.
+ * Validate and copy a recorded or persisted denied Storage write entry,
+ * allowlisting known fields on `request.resource` and `resource`.
  */
 export function normalizeRecordedStorageDeniedWrite(
   raw: unknown,
 ): RecordedStorageDeniedWrite | undefined {
   if (!isPlainRecord(raw)) return undefined;
-  const req = sanitizeStorageRequestResource(raw.requestResource);
-  const res = sanitizeStorageResource(raw.resource);
-  if (req.resource === undefined && res.resource === undefined) return undefined;
-
-  const priorFields = Array.isArray(raw.redactedFields)
-    ? raw.redactedFields.filter(
-        (item): item is string => typeof item === 'string' && KNOWN_REDACTED_FIELD_NAMES.has(item),
-      )
-    : [];
-  const combinedFields = [...new Set([...priorFields, ...req.redactedFields, ...res.redactedFields])];
-  const isRedacted = raw.redacted === true || combinedFields.length > 0;
+  const requestResource = normalizeStorageRequestResource(raw.requestResource);
+  const resource = normalizeStorageResource(raw.resource);
+  if (requestResource === undefined && resource === undefined) return undefined;
   return {
-    ...(req.resource === undefined ? {} : { requestResource: req.resource }),
-    ...(res.resource === undefined ? {} : { resource: res.resource }),
-    ...(isRedacted ? { redacted: true as const } : {}),
-    ...(combinedFields.length > 0 ? { redactedFields: combinedFields } : {}),
+    ...(requestResource === undefined ? {} : { requestResource }),
+    ...(resource === undefined ? {} : { resource }),
   };
 }
 
@@ -310,9 +238,9 @@ function recordStorageDeniedWrite(
 }
 
 /**
- * Redacted resource bindings recorded for denied Storage operations on
- * `sandbox`, keyed by `SandboxOperationEvent.id` and pruned to events still
- * retained in `sandbox.history()`.
+ * Resource bindings recorded for denied Storage operations on `sandbox`, keyed
+ * by `SandboxOperationEvent.id` and pruned to events still retained in
+ * `sandbox.history()`.
  */
 export function storageDeniedWrites(
   sandbox: HistoryBearingSandbox,
@@ -324,8 +252,8 @@ export function storageDeniedWrites(
 }
 
 /**
- * Restore redacted denied-write bindings onto a freshly hydrated worker
- * sandbox for events present in `sandbox.history()`.
+ * Restore denied-write bindings onto a freshly hydrated worker sandbox for
+ * events present in `sandbox.history()`.
  */
 export function primeStorageDeniedWrites(
   sandbox: HistoryBearingSandbox,

@@ -1,5 +1,5 @@
 import type { SandboxOperationEvent } from 'pyric/sandbox';
-import { observationText, resolveOperationContext, emitSandboxEvent, makeSandboxOperationEvent } from 'pyric/sandbox/internal';
+import { resolveOperationContext, emitSandboxEvent, makeSandboxOperationEvent } from 'pyric/sandbox/internal';
 import { getAiEvidence, type AiEvidence } from 'pyric/ai/internal';
 import { portSession } from './host-auth.js';
 import { randomUuid } from './host/connection.js';
@@ -7,7 +7,7 @@ import { opProvenance } from './host/core.js';
 import { activityJourneyId, type HostCtx, type PortLike } from './host-context.js';
 import { serializeError, type InboundMessage } from './protocol.js';
 
-/** Observe execution where all worker clients meet; never retain prompts or credentials. */
+/** Observe execution where all worker clients meet; never retain prompts or headers. */
 export function observeAiRequest(ctx: HostCtx, port: PortLike, message: InboundMessage, method: string, model: string) {
   const startedAt = Date.now();
   const started = performance.now();
@@ -36,7 +36,7 @@ export function observeAiRequest(ctx: HostCtx, port: PortLike, message: InboundM
       observation: { id, startedAt, status,
         endedAt: pending ? undefined : at,
         ai: { ...ai, firstChunkMs, durationMs },
-        response: text ? { text: observationText(text), truncated } : undefined,
+        response: text ? { text, truncated } : undefined,
         error: code ? { code } : undefined },
     });
     emitSandboxEvent(ctx.sandbox, { ...event, operationContext: context });

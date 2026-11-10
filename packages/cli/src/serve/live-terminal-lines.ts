@@ -15,7 +15,7 @@
  * app retrying one denied call prints one block per window.
  */
 import path from 'node:path';
-import { isBlockingFinishReason, redactUrl } from 'pyric/ai/internal';
+import { isBlockingFinishReason } from 'pyric/ai/internal';
 import { productionVerdict } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';
 import { formatAiBlockedBlock, formatAiRejectionBlock } from './ai-terminal-blocks.js';
@@ -74,11 +74,10 @@ function text(value: string): string {
   return sanitizeForTerminal(value);
 }
 
-/** Production's message on an error outcome, with each URL's credentials masked. Unsanitized. */
+/** Production's message on an error outcome, unsanitized. */
 function messageOf(call: ObservedCall): string | undefined {
   const outcome = call.outcome;
-  const message = outcome.status === 'error' ? outcome.message : undefined;
-  return message === undefined ? undefined : redactUrl(message);
+  return outcome.status === 'error' ? outcome.message : undefined;
 }
 
 /** The `from:` value: the client kind, then its label when it has one. */

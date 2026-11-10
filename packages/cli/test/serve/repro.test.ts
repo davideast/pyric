@@ -1,62 +1,125 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
 import { mintIdToken } from 'pyric/sandbox/internal';
 import { IdBindings, matchRecorded, normalize, TIME } from '../../src/serve/repro/compare.js';
-import { parseRepro, redactSecrets, REDACTED_SECRET, restoreRedactedTokens } from '../../src/serve/repro/format.js';
+import { cloneReproValue, parseRepro } from '../../src/serve/repro/format.js';
 import { createReproRecorder } from '../../src/serve/repro/recorder.js';
-import { captureReproBase } from '../../src/serve/repro/capture.js';
+import { buildReproFile, captureReproBase } from '../../src/serve/repro/capture.js';
+import { replayRepro } from '../../src/serve/repro/replay.js';
 import { runServeReproCapture, runServeReproReplay } from '../../src/cli/serve-repro.js';
-import type { HostCtx } from '../../src/serve/worker/host-context.js';
+import { handleMessage, type HostCtx, type PortLike } from '../../src/serve/worker/host.js';
 import { initializeSandbox } from 'pyric/sandbox';
+import { captureCheckpoint } from 'pyric/sandbox/checkpoints';
 import { getFirestore } from 'pyric/firestore';
 import { getAdminDatabase, ref, set } from 'pyric/database';
+import { getStorageSandbox } from 'pyric/storage';
 import { installStorageBackend, type StorageBackend } from 'pyric/storage/internal';
 import { rtdbInstance } from '../../src/serve/worker/host/rtdb-instances.js';
 import type { ReproBase } from '../../src/serve/repro/format.js';
-import type { InboundMessage } from '../../src/serve/worker/protocol.js';
+import type { InboundMessage, OutboundMessage } from '../../src/serve/worker/protocol.js';
+import { bytesToBase64 } from '../../src/serve/worker/protocol.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 
 const encode = (part: object) => Buffer.from(JSON.stringify(part)).toString('base64url');
 const signed = `${encode({ alg: 'RS256', kid: 'k1' })}.${encode({ sub: 'alice', iat: 1, admin: true })}.c2lnbmF0dXJlLWJ5dGVz`;
 
-describe('repro secrets', () => {
-  test('a JSON Web Token keeps its header and claims and loses its signature', () => {
-    const redacted = redactSecrets({ customToken: signed, nested: [signed] });
-    const marker = { __redactedJwt: { header: { alg: 'RS256', kid: 'k1' }, claims: { sub: 'alice', iat: 1, admin: true } } };
-    expect(redacted).toEqual({ customToken: marker, nested: [marker] });
-    expect(JSON.stringify(redacted)).not.toContain('c2lnbmF0dXJlLWJ5dGVz');
-  });
-
-  test('private keys and service account records are removed', () => {
+describe('repro value fidelity and prototype safety', () => {
+  test('cloneReproValue keeps signed JWTs, PEM strings, and service-account objects verbatim', () => {
     const key = '-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n';
-    expect(redactSecrets({ pem: key, privateKey: 'abc', account: { type: 'service_account', client_email: 'a@b', private_key: key } }))
-      .toEqual({ pem: REDACTED_SECRET, privateKey: REDACTED_SECRET, account: REDACTED_SECRET });
+    const input = {
+      customToken: signed,
+      nested: [signed],
+      pem: key,
+      privateKey: 'abc',
+      account: { type: 'service_account', client_email: 'a@b', private_key: key },
+    };
+    const cloned = cloneReproValue(input);
+    expect(cloned).toEqual(input);
+    expect(JSON.stringify(cloned)).toContain('c2lnbmF0dXJlLWJ5dGVz');
+    expect(JSON.stringify(cloned)).not.toContain('__redactedJwt');
   });
 
-  test('a dotted string that is not a token is kept', () => {
-    expect(redactSecrets('users.alice.profile')).toBe('users.alice.profile');
-  });
-
-  test('replay turns a redacted token back into an unsigned token with the same claims', () => {
-    const restored = restoreRedactedTokens(redactSecrets({ customToken: signed })) as { customToken: string };
-    const [header, claims, signature] = restored.customToken.split('.');
-    expect(JSON.parse(Buffer.from(header, 'base64url').toString())).toEqual({ alg: 'RS256', kid: 'k1' });
-    expect(JSON.parse(Buffer.from(claims, 'base64url').toString())).toEqual({ sub: 'alice', iat: 1, admin: true });
-    expect(signature).toBe('');
-  });
-
-  test('redactSecrets and restoreRedactedTokens preserve __proto__ as an own property without mutating prototypes', () => {
+  test('cloneReproValue preserves __proto__ as an own property without mutating prototypes', () => {
     const payload = JSON.parse('{"__proto__":{"toString":"not-callable","role":"member"},"title":"ok"}') as Record<string, unknown>;
-    const redacted = redactSecrets(payload) as Record<string, unknown>;
-    expect(Object.getPrototypeOf(redacted)).toBe(Object.prototype);
-    expect(() => String(redacted)).not.toThrow();
-    expect(Object.prototype.hasOwnProperty.call(redacted, '__proto__')).toBe(true);
-    expect(Object.keys(redacted).sort()).toEqual(['__proto__', 'title']);
+    const cloned = cloneReproValue(payload) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(cloned)).toBe(Object.prototype);
+    expect(() => String(cloned)).not.toThrow();
+    expect(Object.prototype.hasOwnProperty.call(cloned, '__proto__')).toBe(true);
+    expect(Object.keys(cloned).sort()).toEqual(['__proto__', 'title']);
+  });
 
-    const restored = restoreRedactedTokens(redacted) as Record<string, unknown>;
-    expect(Object.getPrototypeOf(restored)).toBe(Object.prototype);
-    expect(() => String(restored)).not.toThrow();
-    expect(Object.prototype.hasOwnProperty.call(restored, '__proto__')).toBe(true);
-    expect(Object.keys(restored).sort()).toEqual(['__proto__', 'title']);
+  test('a signed JWT in Storage customMetadata round-trips verbatim through buildReproFile and replays', async () => {
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /assertions/{name} {
+      allow read: if resource.metadata.assertion == '${signed}';
+      allow write: if request.resource.metadata.assertion == '${signed}';
+    }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    getStorageSandbox(sandbox, {
+      dbName: `pyric-repro-storage-jwt-${crypto.randomUUID()}`,
+      rules: storageRules,
+    });
+    try {
+      const startingSandbox = initializeSandbox();
+      const emptyCheckpoint = await captureCheckpoint(startingSandbox);
+      startingSandbox.dispose();
+      const ctx: HostCtx = { db: getFirestore(sandbox), sandbox, instanceId: 'repro-storage-jwt', subs: new Map() };
+      const recorder = createReproRecorder({
+        capture: async () => ({
+          ...base(),
+          checkpoint: emptyCheckpoint,
+          rules: { firestore: null, database: {}, storage: storageRules },
+        }),
+      });
+      const sendOp = async (id: string, payload: Record<string, unknown>): Promise<OutboundMessage> => {
+        const inbound = { t: 'op', id, ...payload } as InboundMessage;
+        await recorder.inbound('tab-storage', inbound);
+        const reply = await new Promise<OutboundMessage>((resolve) => {
+          const port: PortLike = {
+            postMessage(msg: OutboundMessage) {
+              recorder.outbound('tab-storage', msg);
+              if (msg.t === 'res' && msg.id === id) resolve(msg);
+            },
+          };
+          void handleMessage(ctx, port, inbound);
+        });
+        return reply;
+      };
+
+      const uploaded = await sendOp('up-1', {
+        method: 'storage.putBytes',
+        path: 'assertions/claim.json',
+        dataB64: bytesToBase64(new TextEncoder().encode('{"ok":true}')),
+        metadata: {
+          contentType: 'application/json',
+          customMetadata: { assertion: signed, owner: 'alice@example.com' },
+        },
+      });
+      expect(uploaded.t === 'res' && uploaded.ok).toBe(true);
+
+      const fetched = await sendOp('meta-1', {
+        method: 'storage.getMetadata',
+        path: 'assertions/claim.json',
+      });
+      expect(fetched.t === 'res' && fetched.ok).toBe(true);
+
+      const repro = await buildReproFile(await recorder.log(), () => undefined);
+      const serialized = JSON.stringify(repro);
+      expect(serialized).toContain(signed);
+      expect(serialized).toContain('c2lnbmF0dXJlLWJ5dGVz');
+      expect(serialized).not.toContain('__redactedJwt');
+
+      const parsed = parseRepro(JSON.parse(serialized));
+      const report = await replayRepro(parsed, { planes: ['worker'] });
+      expect(report.ok).toBe(true);
+      expect(report.planes.worker?.checked).toBe(2);
+    } finally {
+      sandbox.dispose();
+    }
   });
 });
 
@@ -102,11 +165,19 @@ describe('repro comparison', () => {
     expect(matchRecorded({ value: minted(1_793_196_457) }, { value: otherSubject }, new IdBindings()).matches).toBe(false);
   });
 
-  test('a JWT ID token minted a second later matches as the replay compares it: claims kept, times as times, tag dropped (#1836)', () => {
+  test('a raw JWT ID token minted a second later matches as the replay compares it: claims kept, times as times, tag ignored (#1836)', () => {
     const minted = (at: number, sub = 'u1') => mintIdToken({ sub, auth_time: at, iat: at, exp: at + 3600, user_id: sub, name: 'Builder One' }, 1);
-    const recorded = redactSecrets({ value: minted(1_793_196_457) });
-    expect(matchRecorded(recorded, redactSecrets({ value: minted(1_793_196_458) }), new IdBindings()).matches).toBe(true);
-    expect(matchRecorded(recorded, redactSecrets({ value: minted(1_793_196_457, 'u2') }), new IdBindings()).matches).toBe(false);
+    const recorded = { value: minted(1_793_196_457) };
+    expect(matchRecorded(recorded, { value: minted(1_793_196_458) }, new IdBindings()).matches).toBe(true);
+    expect(matchRecorded(recorded, { value: minted(1_793_196_457, 'u2') }, new IdBindings()).matches).toBe(false);
+
+    const anonBindings = new IdBindings();
+    anonBindings.bind('anonymous-0a1b2c3d4e5f6a7b8c9d', 'anonymous-9f8e7d6c5b4a3f2e1d0c');
+    expect(matchRecorded(
+      { value: minted(1_793_196_457, 'anonymous-0a1b2c3d4e5f6a7b8c9d') },
+      { value: minted(1_793_196_459, 'anonymous-9f8e7d6c5b4a3f2e1d0c') },
+      anonBindings,
+    ).matches).toBe(true);
   });
 });
 

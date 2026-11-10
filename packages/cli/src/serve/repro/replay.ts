@@ -21,7 +21,7 @@ import type { InitPayload } from '../init-payload.js';
 import type { InboundMessage, OutboundMessage } from '../worker/protocol.js';
 import type { PortLike } from '../worker/host-context.js';
 import { IdBindings, matchRecorded, canonical } from './compare.js';
-import { jwtParts, parseRepro, redactSecrets, restoreRedactedTokens, type ReproBase, type ReproEntry, type ReproFile } from './format.js';
+import { cloneReproValue, jwtParts, parseRepro, type ReproBase, type ReproEntry, type ReproFile } from './format.js';
 
 export type ReplayPlaneName = 'node' | 'worker';
 
@@ -360,7 +360,7 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
     }
   }
   for (const [session, subscriptions] of Object.entries(base.subscriptions)) {
-    for (const frame of subscriptions) plane.send(session, restoreRedactedTokens(frame) as InboundMessage);
+    for (const frame of subscriptions) plane.send(session, frame);
   }
   await settle();
 }
@@ -386,10 +386,10 @@ function describe(frame: InboundMessage | undefined): ReplayOperation {
   return operation;
 }
 
-/** A frame as it is compared: secrets removed, the session id it travelled under dropped. */
+/** A frame as it is compared: the session id it travelled under dropped. */
 function comparable(frame: OutboundMessage): unknown {
   const { clientSessionId: _session, ...rest } = frame;
-  return redactSecrets(JSON.parse(JSON.stringify(rest)));
+  return cloneReproValue(JSON.parse(JSON.stringify(rest)));
 }
 
 interface PlaneRun {
@@ -409,11 +409,10 @@ function succeededOperations(entries: ReproEntry[]): Set<string> {
 }
 
 /**
- * The frame to send for a recorded one. A recording keeps a custom token's
- * claims and drops its signature, and the sandbox redeems only a signed
- * token, so a custom token the recording redeemed is minted again on the
- * plane for the same uid and claims. One the recording refused is sent
- * unsigned, and is refused again.
+ * The frame to send for a recorded one. A fresh replay plane holds its own
+ * signing key and clock, so a custom token the recording redeemed is minted
+ * again on the plane for the same uid and claims. One the recording refused is
+ * sent verbatim, and is refused again.
  */
 async function replayFrame(plane: Plane, frame: InboundMessage, redeemed: boolean): Promise<InboundMessage> {
   const isCustomTokenSignIn = frame.t === 'op' && frame.method === 'auth.signInWithCustomToken';
@@ -471,9 +470,9 @@ async function replayOn(name: ReplayPlaneName, file: ReproFile, timeoutMs: numbe
       if (entry.kind === 'external') continue;
       if (entry.kind === 'in') {
         offsetOf(entry.session);
-        const restored = restoreRedactedTokens(bindings.toReplay(entry.frame)) as InboundMessage;
+        const mapped = bindings.toReplay(entry.frame) as InboundMessage;
         const redeemed = 'id' in entry.frame && succeeded.has(`${entry.session}\u0000${entry.frame.id}`);
-        const frame = await replayFrame(plane, restored, redeemed);
+        const frame = await replayFrame(plane, mapped, redeemed);
         if ('id' in entry.frame) sentById.set(`${entry.session}\u0000${entry.frame.id}`, entry.frame);
         if (entry.frame.t === 'sub') subscriptionFrames.set(`${entry.session}\u0000${entry.frame.subId}`, entry.frame);
         await sendAndWait(plane, entry.session, frame, timeoutMs);

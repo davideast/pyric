@@ -9,6 +9,20 @@ import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/
 
 const OPEN = JSON.stringify({ rules: { '.read': true, '.write': true } });
 const SIGNED_IN = JSON.stringify({ rules: { '.read': 'auth != null', '.write': 'auth != null' } });
+const STORAGE_SIGNED_JWT = [
+  Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'k1' })).toString('base64url'),
+  Buffer.from(JSON.stringify({ sub: 'carol', role: 'editor' })).toString('base64url'),
+  'c2lnbmF0dXJlLWJ5dGVz',
+].join('.');
+const STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /assertions/{name} {
+      allow read: if resource.metadata.assertion == '${STORAGE_SIGNED_JWT}';
+      allow write: if request.resource.metadata.assertion == '${STORAGE_SIGNED_JWT}';
+    }
+  }
+}`;
 type Res = Extract<OutboundMessage, { t: 'res' }>;
 
 async function host(directory: string, reproWindow?: number, databaseInstances?: InitPayload['databaseInstances']) {
@@ -47,13 +61,29 @@ async function record(directory: string, reproWindow?: number) {
   const seeding = await host(directory);
   try {
     await seeding.runtime.deployRules('database', OPEN, 'first');
+    await seeding.runtime.deployRules('storage', STORAGE_RULES);
     value(await seeding.request('setup', { method: 'rtdb.set', instance: 'first', path: 'items/seeded', value: { by: 'seed' }, actAs: { mode: 'admin' } }));
+    const seededUpload = value(await seeding.request('setup', {
+      method: 'storage.beginUpload',
+      path: 'assertions/seeded.json',
+      size: 0,
+      metadata: { contentType: 'application/json', customMetadata: { assertion: STORAGE_SIGNED_JWT } },
+      actAs: { mode: 'admin' },
+    })) as { uploadId: string };
+    value(await seeding.request('setup', {
+      method: 'storage.finishUpload',
+      uploadId: seededUpload.uploadId,
+      actAs: { mode: 'admin' },
+    }));
   } finally { await seeding.runtime.close(); }
 
   const { runtime, request, subscribe } = await host(directory, reproWindow);
   try {
     await runtime.deployRules('database', OPEN, 'first');
     await runtime.deployRules('database', SIGNED_IN, 'second');
+    await runtime.deployRules('storage', STORAGE_RULES);
+    const seededMeta = value(await request('tab-a', { method: 'storage.getMetadata', path: 'assertions/seeded.json' })) as { customMetadata?: Record<string, string> };
+    assert.deepEqual(seededMeta.customMetadata, { assertion: STORAGE_SIGNED_JWT });
     subscribe('tab-a', 'items', { service: 'rtdb', instance: 'first', path: 'items' });
     value(await request('tab-a', { method: 'rtdb.set', instance: 'first', path: 'probe', value: 'first' }));
     const denied = await request('tab-b', { method: 'rtdb.set', instance: 'second', path: 'probe', value: 'second' });
@@ -65,14 +95,23 @@ async function record(directory: string, reproWindow?: number) {
     value(await request('tab-a', { method: 'rtdb.set', instance: 'first', path: 'probe', value: 'again' }));
     assert.deepEqual((value(await request('tab-b', { method: 'rtdb.get', instance: 'second', path: `users/${uid}` })) as { value: unknown }).value, { name: 'b' });
     value(await request('tab-b', { method: 'auth.getIdToken' }));
-    // A signed custom token, minted as `pyric auth createCustomToken` mints one:
-    // the repro keeps its claims and drops its signature.
+    // A signed custom token and a signed JWT in Storage customMetadata stay
+    // verbatim in the repro file, including their cryptographic signatures.
     const minted = await runtime.runMethod({ instanceId: runtime.instanceId, projectDir: directory, allowProduction: false,
       key: 'auth.createCustomToken', args: { uid: 'carol', developerClaims: { role: 'editor' } } }, {});
     const token = (minted.data as { token: string }).token;
     const carol = value(await request('tab-c', { method: 'auth.signInWithCustomToken', customToken: token })) as { user: { uid: string } };
     assert.equal(carol.user.uid, 'carol');
     value(await request('tab-c', { method: 'rtdb.set', instance: 'second', path: 'users/carol', value: { role: 'editor' } }));
+    const carolUpload = value(await request('tab-c', {
+      method: 'storage.beginUpload',
+      path: 'assertions/carol.json',
+      size: 0,
+      metadata: { contentType: 'application/json', customMetadata: { assertion: STORAGE_SIGNED_JWT } },
+    })) as { uploadId: string };
+    value(await request('tab-c', { method: 'storage.finishUpload', uploadId: carolUpload.uploadId }));
+    const storedMeta = value(await request('tab-c', { method: 'storage.getMetadata', path: 'assertions/carol.json' })) as { customMetadata?: Record<string, string> };
+    assert.deepEqual(storedMeta.customMetadata, { assertion: STORAGE_SIGNED_JWT });
     // The default instance stays empty: the two named instances hold the data.
     assert.equal((value(await request('tab-a', { method: 'rtdb.get', path: 'probe', actAs: { mode: 'admin' } })) as { value: unknown }).value, null);
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -83,12 +122,11 @@ async function record(directory: string, reproWindow?: number) {
 const root = process.argv[2];
 const { repro, token } = await record(join(root, 'whole'));
 
-// Secrets: the token keeps its claims and loses its signature.
+// Faithful capture: signed tokens stay verbatim in the repro without redaction markers.
 const text = JSON.stringify(repro);
-assert.equal(text.includes(token), false, 'the raw custom token is in the repro');
-assert.equal(text.includes(token.split('.')[2]), false, 'the token signature is in the repro');
-const redactedToken = /"__redactedJwt":\{"header":\{"alg":"RS256","typ":"JWT"\},"claims":\{[^}]*"uid":"carol","claims":\{"role":"editor"\}\}\}/;
-assert.match(text, redactedToken);
+assert.equal(text.includes(token), true, 'the custom token is preserved verbatim in the repro');
+assert.equal(text.includes(STORAGE_SIGNED_JWT), true, 'the signed JWT in Storage customMetadata is preserved verbatim in the repro');
+assert.equal(text.includes('__redactedJwt'), false, 'no JWT redaction marker appears in the repro');
 const base = repro.base as { rules: { database: Record<string, unknown> }; databaseInstances: Record<string, unknown> };
 assert.equal(repro.truncated, false);
 assert.deepEqual(base.rules.database.first, JSON.parse(OPEN));

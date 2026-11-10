@@ -447,26 +447,25 @@ describe('a Firestore list or listener names its query shape, never its values',
     expect(read[0]?.query).toBeUndefined();
   });
 
-  test('a token-shaped field the host would refuse drops the shape and keeps the row, while an email-keyed field keeps its shape', async () => {
+  test('any bounded field path keeps its query shape, while an overlong field drops the shape and keeps the row', async () => {
     const { query, collection, where, orderBy } = firestore;
     const emailField = await listed(query(collection(db, 'rooms'), where('alice@example.com', '==', true)));
-    expect(emailField.outcome).toBe('resolved');
-    expect(emailField.path).toBe('rooms');
-    expect(emailField.query?.filters).toHaveLength(1);
-    const readEmail = host.readObservedCall(JSON.parse(JSON.stringify(observedCallOf(emailField, Date.now()))));
-    expect(readEmail.query).toEqual(emailField.query!);
-
     const tokenField = await listed(query(collection(db, 'rooms'), orderBy(`k${'0123456789'.repeat(5)}`)));
     const jwtField = await listed(query(collection(db, 'rooms'), where('eyJhbGciOiJIUzI1NiJ9', '==', true)));
-    for (const record of [tokenField, jwtField]) {
+    for (const record of [emailField, tokenField, jwtField]) {
       expect(record.outcome).toBe('resolved');
       expect(record.path).toBe('rooms');
-      expect(record.query).toBeUndefined();
+      expect(record.query).toBeDefined();
       const read = host.readObservedCall(JSON.parse(JSON.stringify(observedCallOf(record, Date.now()))));
-      expect(read.query).toBeUndefined();
+      expect(read.query).toEqual(record.query!);
     }
-    const sentJwt = { ...observedCallOf(jwtField, Date.now()), query: { scope: 'collection', filters: [{ field: 'eyJhbGciOiJIUzI1NiJ9', op: '==' }] } };
-    expect(() => host.readObservedCall(sentJwt)).toThrow('query.filters.field');
+
+    const overlongField = await listed(query(collection(db, 'rooms'), where('a'.repeat(1501), '==', true)));
+    expect(overlongField.outcome).toBe('resolved');
+    expect(overlongField.path).toBe('rooms');
+    expect(overlongField.query).toBeUndefined();
+    const sentOverlong = { ...observedCallOf(overlongField, Date.now()), query: { scope: 'collection', filters: [{ field: 'a'.repeat(1501), op: '==' }] } };
+    expect(() => host.readObservedCall(sentOverlong)).toThrow('query.filters.field');
   });
 
   test('a field that only contains eyJ, as the host takes it, keeps the shape', async () => {

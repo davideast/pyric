@@ -245,9 +245,13 @@ export default scenario(async (app) => {
       (output) => output.includes('invites/ada@example.com'),
       'terminal denial output for invites/ada@example.com',
     );
-    assert.ok(terminalOutput.includes('Permission denied for ada@example.com'), 'terminal preserves email in denial message');
-    assert.ok(terminalOutput.includes('key=***'), 'terminal scrubs URL query credentials');
-    for (const secret of ['AIzaSySecretKey123456789', 'reader-password', '[email]']) {
+    assert.ok(
+      terminalOutput.includes(
+        'Permission denied for ada@example.com (https://firestore.googleapis.com/v1/projects/demo-live-traffic?key=AIzaSySecretKey123456789)',
+      ),
+      'terminal preserves production denial message verbatim',
+    );
+    for (const secret of ['reader-password', '[email]', 'key=***']) {
       assert.ok(!terminalOutput.includes(secret), `terminal leaked or redacted ${secret}`);
     }
 

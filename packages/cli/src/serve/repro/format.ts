@@ -10,11 +10,6 @@
  * host served Messaging. The log is
  * the protocol frames each port sent and received, in the order the host saw
  * them, with rules deploys and out-of-band calls between them.
- *
- * Secrets never enter the file. A JSON Web Token keeps its header and claims
- * and loses its signature, and a private key or service account record is
- * replaced by a marker. {@link redactSecrets} applies both rules to every value
- * the file carries.
  */
 import { z } from 'zod';
 import type { Checkpoint } from 'pyric/sandbox/checkpoints';
@@ -145,17 +140,9 @@ export function parseRepro(value: unknown): ReproFile {
   return result.data as unknown as ReproFile;
 }
 
-// ─── Secrets ───────────────────────────────────────────────────────────────
-
-/** The marker a redacted JSON Web Token leaves: its header and claims, no signature. */
-export const REDACTED_JWT_KEY = '__redactedJwt';
-/** The marker a removed secret leaves. */
-export const REDACTED_SECRET = '[redacted]';
+// ─── JSON cloning & JWT inspection ─────────────────────────────────────────
 
 const JWT_PATTERN = /^[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*$/;
-const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
-/** Keys whose value is a credential with no claims to keep. */
-const SECRET_KEYS = new Set(['private_key', 'privateKey', 'private_key_id', 'privateKeyId', 'client_secret', 'clientSecret']);
 
 function decodeBase64Url(segment: string): string {
   const padded = segment.replaceAll('-', '+').replaceAll('_', '/');
@@ -164,14 +151,7 @@ function decodeBase64Url(segment: string): string {
   return new TextDecoder().decode(Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)));
 }
 
-function encodeBase64Url(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
@@ -190,21 +170,7 @@ export function jwtParts(value: string): { header: Record<string, unknown>; clai
   }
 }
 
-/**
- * Re-encode a redacted token as an unsigned JSON Web Token. A custom token
- * the recording redeemed is minted again on replay instead, since the sandbox
- * redeems only a signed one.
- */
-export function unsignedJwt(redacted: { header: Record<string, unknown>; claims: Record<string, unknown> }): string {
-  return `${encodeBase64Url(JSON.stringify(redacted.header))}.${encodeBase64Url(JSON.stringify(redacted.claims))}.`;
-}
-
-/** True when an object is a Google service account key file. */
-function isServiceAccount(value: Record<string, unknown>): boolean {
-  return value.type === 'service_account' || ('client_email' in value && 'private_key' in value);
-}
-
-function defineOwnField(target: Record<string, unknown>, key: string, value: unknown): void {
+export function defineOwnField(target: Record<string, unknown>, key: string, value: unknown): void {
   Object.defineProperty(target, key, {
     value,
     enumerable: true,
@@ -214,38 +180,15 @@ function defineOwnField(target: Record<string, unknown>, key: string, value: unk
 }
 
 /**
- * Copy a JSON value with its secrets removed: every JSON Web Token becomes its
- * header and claims, every private key or service account record becomes
- * {@link REDACTED_SECRET}.
+ * Copy a JSON value verbatim while defining every object key via
+ * `Object.defineProperty` so `"__proto__"` stays an own data property.
  */
-export function redactSecrets(value: unknown): unknown {
-  if (typeof value === 'string') {
-    const isPrivateKey = PRIVATE_KEY_PATTERN.test(value);
-    if (isPrivateKey) return REDACTED_SECRET;
-    const token = jwtParts(value);
-    return token === null ? value : { [REDACTED_JWT_KEY]: token };
-  }
-  if (Array.isArray(value)) return value.map(redactSecrets);
+export function cloneReproValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cloneReproValue);
   if (!isPlainObject(value)) return value;
-  if (isServiceAccount(value)) return REDACTED_SECRET;
   const copy: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    defineOwnField(copy, key, SECRET_KEYS.has(key) ? REDACTED_SECRET : redactSecrets(child));
+    defineOwnField(copy, key, cloneReproValue(child));
   }
-  return copy;
-}
-
-/** Reverse the token redaction for replay: each redacted token becomes an unsigned one. */
-export function restoreRedactedTokens(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(restoreRedactedTokens);
-  if (!isPlainObject(value)) return value;
-  const redacted = value[REDACTED_JWT_KEY];
-  const isRedactedToken = Object.keys(value).length === 1 && isPlainObject(redacted)
-    && isPlainObject(redacted.header) && isPlainObject(redacted.claims);
-  if (isRedactedToken) {
-    return unsignedJwt(redacted as { header: Record<string, unknown>; claims: Record<string, unknown> });
-  }
-  const copy: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) defineOwnField(copy, key, restoreRedactedTokens(child));
   return copy;
 }
