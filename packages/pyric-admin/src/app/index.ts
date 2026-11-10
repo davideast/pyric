@@ -74,10 +74,11 @@ export function cert(serviceAccountPathOrObject: unknown): object {
 
 /**
  * Link-compatible mirror of `firebase-admin/app`'s `refreshToken(refreshTokenPathOrObject)`.
- * Returns an inert sandbox credential token, as {@link cert} does.
+ * Returns an inert sandbox credential token, as {@link cert} does. Nothing
+ * in Pyric reads a refresh token, so the argument isn't kept.
  */
-export function refreshToken(refreshTokenPathOrObject: unknown): object {
-  return { [Symbol.for('pyric.admin.credential')]: 'refreshToken', token: refreshTokenPathOrObject };
+export function refreshToken(_refreshTokenPathOrObject: unknown): object {
+  return { [Symbol.for('pyric.admin.credential')]: 'refreshToken' };
 }
 
 /** Local error with the observable firebase-admin app-error shape. */

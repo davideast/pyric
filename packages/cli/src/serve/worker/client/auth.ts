@@ -14,6 +14,8 @@ import type {
   ResolvedIdentity,
   OpMessage,
 } from '../protocol.js';
+import type { SerializedAuthCredential } from '../protocol/auth.js';
+import type { AuthCredential } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
 import { absolutePhotoUrl, realmOrigin } from 'pyric/sandbox/internal';
 import { closeSubscription, isDisconnectedPort, nextId, nextSubId, openSnapshotSubscription, rpc, wirePort } from './core.js';
@@ -527,20 +529,15 @@ export async function updateCurrentUser(
 type SignInCredential = {
   providerId: string;
   signInMethod?: string;
-  idToken?: string | null;
-  accessToken?: string | null;
-  rawNonce?: string | null;
-  email?: string | null;
-  displayName?: string | null;
-  photoURL?: string | null;
-  uid?: string | null;
   toJSON?: () => Record<string, unknown>;
 };
 
 /**
  * Credential sign-in (`auth.signInWithCredential`) over the SharedWorker.
  * An email credential crosses as `toJSON()`, which carries its password or
- * link, so the host can check it; an OAuth credential sends its identity fields.
+ * link, so the host can check it. A federated credential sends only its
+ * provider and sign-in method: the host signs in as the result staged for
+ * that provider and reads nothing else from it.
  */
 export async function signInWithCredential(
   auth: ClientAuth,
@@ -564,16 +561,28 @@ function credentialWire(credential: SignInCredential): CredentialWire {
     const serialized = credential.toJSON?.() ?? {};
     return { ...serialized, providerId: credential.providerId, signInMethod: credential.signInMethod ?? '' };
   }
-  return {
-    providerId: credential.providerId,
-    idToken: credential.idToken ?? null,
-    accessToken: credential.accessToken ?? null,
-    rawNonce: credential.rawNonce ?? null,
-    email: credential.email ?? null,
-    displayName: credential.displayName ?? null,
-    photoURL: credential.photoURL ?? null,
-    uid: credential.uid ?? null,
-  };
+  return federatedCredentialWire(credential);
+}
+
+/** A federated credential as the host reads it: its provider and, when it has one, its sign-in method. */
+function federatedCredentialWire(credential: { providerId: string; signInMethod?: string }): {
+  providerId: string;
+  signInMethod?: string;
+} {
+  const { providerId, signInMethod } = credential;
+  return signInMethod === undefined ? { providerId } : { providerId, signInMethod };
+}
+
+/**
+ * A credential a signed-in user links or reauthenticates with, as it crosses
+ * to the host: an email credential as `toJSON()`, with the password or link
+ * the engine verifies, and any other as its provider and sign-in method, all
+ * the host's `AuthCredential.fromJSON` reads.
+ */
+export function credentialWireOf(credential: AuthCredential): SerializedAuthCredential {
+  const { providerId, signInMethod } = credential;
+  if (providerId === 'password') return { ...credential.toJSON(), providerId, signInMethod };
+  return { providerId, signInMethod };
 }
 
 export function beforeAuthStateChanged(): never {

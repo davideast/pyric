@@ -36,6 +36,7 @@ import {
   getApps,
   initializeApp,
   isSandboxAdminApp,
+  refreshToken,
 } from '../../src/app/index.js';
 
 // ─── Environment / global scaffolding ───────────────────────────────────
@@ -237,6 +238,15 @@ describe('ambient init — production guard', () => {
     expect(Object.keys(credential)).toEqual([]);
     const hidden = Object.getOwnPropertyDescriptor(credential, Symbol.for('pyric.admin.credential.projectId'));
     expect(hidden).toMatchObject({ value: 'demo', enumerable: false });
+  });
+
+  it('refreshToken returns an inert credential object that keeps nothing of its argument', () => {
+    const credential = refreshToken({ type: 'authorized_user', refresh_token: 'placeholder-refresh-token' });
+    expect(credential).toEqual({
+      [Symbol.for('pyric.admin.credential')]: 'refreshToken',
+    });
+    expect(Object.keys(credential)).toEqual([]);
+    expect(Reflect.ownKeys(credential)).toEqual([Symbol.for('pyric.admin.credential')]);
   });
 
   it('initializeApp with production options falls back to ambient sandbox initialization when PYRIC_SANDBOX is set', () => {

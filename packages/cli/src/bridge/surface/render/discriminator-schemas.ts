@@ -91,8 +91,6 @@ export const manageAppSessionSchema = z.object({
     .string()
     .optional()
     .describe("Federated provider id e.g. 'google.com', for credential sign-in."),
-  idToken: z.string().optional().describe('Provider id token, for credential sign-in.'),
-  accessToken: z.string().optional().describe('Provider access token, for credential sign-in.'),
 });
 
 const authOverrideSchema = z.object({

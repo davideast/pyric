@@ -52,8 +52,6 @@ export const signInCredential = z
     providerId: z
       .enum(CREDENTIAL_PROVIDER_IDS)
       .describe('The federated provider the credential comes from.'),
-    idToken: z.string().optional().describe("The provider's id token. Not verified."),
-    accessToken: z.string().optional().describe("The provider's access token. Not verified."),
     email: z
       .string()
       .describe('The address the credential asserts. The identity is created if it is unknown.'),

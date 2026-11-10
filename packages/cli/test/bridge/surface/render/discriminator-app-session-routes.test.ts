@@ -44,7 +44,7 @@ describe('the app session routes', () => {
     });
   });
 
-  it('gathers the flat provider fields into one credential', () => {
+  it('gathers the flat provider fields into one credential, without provider tokens the sandbox never reads', () => {
     const args = {
       action: 'sign_in_credential',
       providerId: 'google.com',
@@ -52,7 +52,7 @@ describe('the app session routes', () => {
       idToken: 'id',
     };
     expect(routeFor(args).translate(args)).toEqual({
-      credential: { providerId: 'google.com', email: 'alice@example.com', idToken: 'id' },
+      credential: { providerId: 'google.com', email: 'alice@example.com' },
     });
   });
 
