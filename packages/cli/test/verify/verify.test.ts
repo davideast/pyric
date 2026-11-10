@@ -719,6 +719,82 @@ service cloud.firestore {
     expect(agrees.services.firestore?.checkedEvents).toBe(1);
     expect(agrees.services.firestore?.divergences).toEqual([]);
   });
+
+  it('skips observed Admin SDK Firestore calls that bypassed Security Rules', async () => {
+    const adminRead = liveCapture(
+      { service: 'firestore', method: 'getDoc', sdk: 'admin', path: 'rooms/r1', at: 1, outcome: { status: 'ok' } },
+      {},
+      ADMIN_READS,
+    );
+    const result = await verifyFixture(adminRead, { rules: { firestore: ADMIN_READS } });
+    expect(result.ok).toBe(true);
+    expect(result.services.firestore?.checkedEvents).toBe(0);
+    expect(result.services.firestore?.divergences).toEqual([]);
+  });
+
+  it('checks signed-out live calls against claim-gated candidate rules and evaluates count and aggregate queries', async () => {
+    const signedOutAllowed = liveCapture(
+      { service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: 1, outcome: { status: 'ok' } },
+      {},
+      ADMIN_READS,
+    );
+    const nowDenied = await verifyFixture(signedOutAllowed, { rules: { firestore: ADMIN_READS } });
+    expect(nowDenied.ok).toBe(false);
+    expect(nowDenied.services.firestore?.checkedEvents).toBe(1);
+    expect(nowDenied.services.firestore?.divergences).toMatchObject([
+      { service: 'firestore', kind: 'now-denied', path: 'rooms/r1', method: 'get' },
+    ]);
+
+    for (const method of ['getCountFromServer', 'getAggregateFromServer'] as const) {
+      const aggregateCall = liveCapture(
+        { service: 'firestore', method, path: 'rooms', at: 1, outcome: { status: 'ok' }, account: { uid: 'alice' } },
+        { claims: { admin: true } },
+        ADMIN_READS,
+      );
+      const checked = await verifyFixture(aggregateCall, { rules: { firestore: NO_ONE } });
+      expect(checked.ok).toBe(false);
+      expect(checked.services.firestore?.checkedEvents).toBe(1);
+      expect(checked.services.firestore?.divergences).toMatchObject([
+        { service: 'firestore', kind: 'now-denied', path: 'rooms', method: 'list' },
+      ]);
+    }
+  });
+
+  it('preserves collection-group query scope when verifying live Firestore calls', async () => {
+    const groupRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{path=**}/items/{id} { allow read: if true; }
+  }
+}`;
+    const rootOnlyRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} { allow read: if true; }
+  }
+}`;
+    const captured = liveCapture(
+      {
+        service: 'firestore',
+        method: 'getDocs',
+        path: 'items',
+        query: { scope: 'collection-group' },
+        at: 1,
+        outcome: { status: 'ok' },
+      },
+      {},
+      groupRules,
+    );
+    const unchanged = await verifyFixture(captured, { rules: { firestore: groupRules } });
+    expect(unchanged.ok).toBe(true);
+    expect(unchanged.services.firestore?.checkedEvents).toBe(1);
+
+    const broken = await verifyFixture(captured, { rules: { firestore: rootOnlyRules } });
+    expect(broken.ok).toBe(false);
+    expect(broken.services.firestore?.divergences).toMatchObject([
+      { service: 'firestore', kind: 'now-denied', path: 'items', method: 'list' },
+    ]);
+  });
 });
 
 // ─── Storage rules — capture / restore round-trip ───────────────────────

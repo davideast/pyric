@@ -402,6 +402,11 @@ describe('host: the local evaluation trace of an observed call', () => {
     expect(await observedEvent(ctx, anon)).toMatchObject({
       production: { local: { result: 'deny' } },
     });
+
+    const signedOutFs = await observedEvent(ctx, { ...getDoc(OK), account: undefined });
+    expect(signedOutFs).toMatchObject({
+      production: { local: { result: 'deny', drift: true } },
+    });
   });
 
   it('preserves an email address from a returned document in the trace', async () => {
@@ -588,6 +593,28 @@ describe('host: RTDB local evaluation trace, listeners, and unevaluated context'
           result: 'deny',
           drift: true,
           rtdb: { matchedPath: '/rooms/$roomId', matchedRule: 'auth != null' },
+        },
+      },
+    });
+
+    const claimRuleCtx = ctxWithRtdbRules({
+      rules: {
+        rooms: {
+          $roomId: {
+            '.read': "auth != null && auth.token.role === 'admin'",
+          },
+        },
+      },
+    });
+    const signedOutClaimRead = await observedEvent(
+      claimRuleCtx,
+      rtdbCall({ account: undefined, outcome: OK }),
+    );
+    expect(signedOutClaimRead).toMatchObject({
+      production: {
+        local: {
+          result: 'deny',
+          drift: true,
         },
       },
     });
@@ -948,6 +975,67 @@ describe('host: RTDB local evaluation trace, listeners, and unevaluated context'
     expect(wholeRecord?.production?.local).toMatchObject({ result: 'deny' });
     expect(wholeRecord?.production?.local).not.toHaveProperty('drift');
   });
+
+  it('scrubs secret wildcard bindings and opaque tokens in RTDB bindings, traces, and reasons', async () => {
+    const opaque44 = 'tok_0123456789abcdef0123456789abcdef01234567';
+    const rtdbCtx = ctxWithRtdbRules({
+      rules: {
+        orgs: {
+          $orgId: {
+            tokens: {
+              $token: { '.read': 'auth != null' },
+            },
+            items: {
+              $id: { '.read': 'auth != null' },
+            },
+          },
+        },
+      },
+    });
+
+    const rtdbSecretVar = await observedEvent(
+      rtdbCtx,
+      rtdbCall({
+        method: 'get',
+        path: `/orgs/org-1/tokens/${opaque44}`,
+        outcome: OK,
+        account: { uid: 'uid-1' },
+      }),
+    );
+    const rtdbJson = JSON.stringify(rtdbSecretVar?.production?.local);
+    expect(rtdbSecretVar?.production?.local).toMatchObject({
+      result: 'allow',
+      rtdb: {
+        pathVariableBindings: {
+          $orgId: 'org-1',
+          $token: '[redacted]',
+        },
+      },
+    });
+    expect(rtdbJson).not.toContain(opaque44);
+
+    const rtdbOpaqueId = await observedEvent(
+      rtdbCtx,
+      rtdbCall({
+        method: 'get',
+        path: `/orgs/org-1/items/${opaque44}`,
+        outcome: OK,
+        account: { uid: 'uid-1' },
+      }),
+    );
+    expect(JSON.stringify(rtdbOpaqueId?.production?.local)).not.toContain(opaque44);
+
+    const rtdbUnmatched = await observedEvent(
+      rtdbCtx,
+      rtdbCall({
+        method: 'get',
+        path: `/unmatched/${opaque44}`,
+        outcome: DENIED,
+        account: { uid: 'uid-1' },
+      }),
+    );
+    expect(JSON.stringify(rtdbUnmatched?.production?.local)).not.toContain(opaque44);
+  });
 });
 
 describe('Storage local verdict', () => {
@@ -1097,5 +1185,206 @@ service firebase.storage {
         },
       },
     });
+  });
+
+  it('forwards captured HTTP header fields on stored objects and abstains on uncaptured md5Hash, crc32c, and etag', async () => {
+    const ctx = ctxWithStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function matchesCrc(res) {
+      let sum = res['crc32c'];
+      return sum != '';
+    }
+    match /items/{id} {
+      allow read: if resource.cacheControl == 'public, max-age=3600'
+                  && resource.contentDisposition == 'inline'
+                  && resource.contentEncoding == 'identity'
+                  && resource.contentLanguage == 'en';
+      allow read: if resource.etag != '';
+    }
+    match /docs/{docId} {
+      allow read: if resource.md5Hash != '';
+    }
+    match /archives/{id} {
+      allow read: if matchesCrc(resource);
+    }
+    match /tagged/{id} {
+      allow read: if 'etag' in resource && resource.get('etag', '') != '';
+    }
+  }
+}`);
+
+    const baseStored = {
+      bucket: 'demo-project.appspot.com',
+      size: 128,
+      contentType: 'text/plain',
+      cacheControl: 'public, max-age=3600',
+      contentDisposition: 'inline',
+      contentEncoding: 'identity',
+      contentLanguage: 'en',
+      timeCreated: '2026-01-01T00:00:00.000Z',
+      updated: '2026-01-01T00:00:00.000Z',
+      generation: '1',
+      metageneration: '1',
+    };
+
+    // Captured HTTP header metadata evaluates deterministically as allow, even when a later unreached rule mentions `resource.etag`
+    // and sibling match blocks read `resource.md5Hash`.
+    const headersAllowed = await observedEvent(
+      ctx,
+      storageCall({
+        method: 'getMetadata',
+        path: 'items/item-1',
+        document: { ...baseStored, fullPath: 'items/item-1' },
+      }),
+    );
+    expect(headersAllowed?.production?.local).toMatchObject({ result: 'allow' });
+    expect(headersAllowed?.production?.local).not.toHaveProperty('drift');
+
+    // Uncaptured `md5Hash`, `crc32c` (via helper + let + bracket), and `etag` (via `in` / `.get()`) abstain on `stored-document`.
+    for (const targetPath of ['docs/doc-1', 'archives/a-1', 'tagged/t-1']) {
+      const abstained = await observedEvent(
+        ctx,
+        storageCall({
+          method: 'getMetadata',
+          path: targetPath,
+          document: { ...baseStored, fullPath: targetPath },
+        }),
+      );
+      expect(abstained?.production?.local).toEqual(
+        expect.objectContaining({
+          result: 'unevaluated',
+          needs: ['stored-document'],
+        }),
+      );
+    }
+  });
+
+  it('abstains with claim-values when Storage rules read redacted email via firebase.identities, token.get, or token.keys', async () => {
+    const ctx = ctxWithStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid} {
+      allow read: if request.auth != null && 'email' in request.auth.token.firebase.identities;
+    }
+    match /items/{id} {
+      allow read: if request.auth != null && request.auth.token.get('email', '') == 'member@example.com';
+    }
+    match /docs/{docId} {
+      allow read: if request.auth != null && 'email' in request.auth.token.keys();
+    }
+  }
+}`);
+
+    const emailRedactedAccount = {
+      uid: 'u-1',
+      claimNames: ['email', 'firebase'],
+      claims: {
+        email_verified: true,
+        firebase: {
+          sign_in_provider: 'password',
+          identities: {},
+        },
+      },
+    };
+
+    for (const targetPath of ['users/u-1', 'items/item-1', 'docs/doc-1']) {
+      const ev = await observedEvent(
+        ctx,
+        storageCall({
+          method: 'getBytes',
+          path: targetPath,
+          account: emailRedactedAccount,
+        }),
+      );
+      expect(ev?.production?.local).toMatchObject({
+        result: 'unevaluated',
+        needs: ['claim-values'],
+      });
+    }
+  });
+
+  it('scrubs secret field/claim values, helper bindings, and token strings from Firestore traces, RTDB bindings/reasons, and Storage reasons', async () => {
+    const dummyJwt =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
+      'eyJzdWIiOiJ1c2VyLTEiLCJlbWFpbCI6InVzZXJAZXhhbXBsZS50ZXN0In0.' +
+      'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const apiKey39 = ['AIza', 'SyDummyKey0123456789abcdef012345678'].join('');
+    const opaque44 = 'tok_0123456789abcdef0123456789abcdef01234567';
+    const oauthToken = ['ya29', '.a0DummyOAuth0123456789abcdef'].join('');
+    const refreshToken = ['1//', '0gDummyRefreshToken0123456789abcdef'].join('');
+
+    const fsCtx = ctxWithFirestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function matchesSecret(val) {
+      let localCopy = val;
+      return localCopy == 'expected';
+    }
+    match /items/{id} {
+      allow read: if resource.data.apiKey == 'expected'
+                  || request.auth.token.secretClaim == 'expected'
+                  || resource.data['password'] == 'expected'
+                  || resource.data.get('firebaseStorageDownloadTokens', '') == 'expected'
+                  || request.auth.token.token == 'expected'
+                  || matchesSecret(resource.data.clientSecret)
+                  || resource.data.note == 'expected';
+    }
+  }
+}`);
+
+    const fsEvent = await observedEvent(fsCtx, {
+      service: 'firestore',
+      method: 'getDoc',
+      path: 'items/item-1',
+      at: 1,
+      outcome: DENIED,
+      account: {
+        uid: 'uid-1',
+        claimNames: ['secretClaim', 'token', 'email'],
+        claims: {
+          secretClaim: dummyJwt,
+          token: 'short-custom-token-claim',
+          email: 'alice@example.com',
+        },
+      },
+      document: {
+        apiKey: apiKey39,
+        password: 'short-password-value',
+        firebaseStorageDownloadTokens: '9f8e7d6c-5b4a-4321-8765-abcdef012345',
+        clientSecret: 'short-helper-secret',
+        note: `oauth=${oauthToken} refresh=${refreshToken} opaque=${opaque44}`,
+      },
+    });
+
+    const fsJson = JSON.stringify(fsEvent?.production?.local);
+    expect(fsEvent?.production?.local?.result).toBe('deny');
+    expect(fsJson).not.toContain(dummyJwt);
+    expect(fsJson).not.toContain(apiKey39);
+    expect(fsJson).not.toContain('short-password-value');
+    expect(fsJson).not.toContain('9f8e7d6c-5b4a-4321-8765-abcdef012345');
+    expect(fsJson).not.toContain('short-custom-token-claim');
+    expect(fsJson).not.toContain('short-helper-secret');
+    expect(fsJson).not.toContain(oauthToken);
+    expect(fsJson).not.toContain(refreshToken);
+    expect(fsJson).not.toContain(opaque44);
+
+    const storageCtx = ctxWithStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{docId} {
+      allow read: if false;
+    }
+  }
+}`);
+    const stEvent = await observedEvent(
+      storageCtx,
+      storageCall({
+        method: 'getBytes',
+        path: `docs/${opaque44}`,
+        outcome: { status: 'error', code: 'storage/unauthorized' },
+      }),
+    );
+    expect(JSON.stringify(stEvent?.production?.local)).not.toContain(opaque44);
   });
 });

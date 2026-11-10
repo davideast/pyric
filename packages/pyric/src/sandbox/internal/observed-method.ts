@@ -21,6 +21,8 @@ const FIRESTORE: MethodTable = {
   getDocs: 'list',
   getDocsFromServer: 'list',
   getDocsFromCache: 'list',
+  getCountFromServer: 'list',
+  getAggregateFromServer: 'list',
   setDoc: 'set',
   updateDoc: 'update',
   deleteDoc: 'delete',

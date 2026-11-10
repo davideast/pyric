@@ -341,4 +341,271 @@ service cloud.firestore {
       result: 'deny',
     });
   });
+
+  it('evaluates collection-group queries against path-invariant recursive rules rather than root collections', () => {
+    const sandbox = initializeSandbox();
+    const ctx: HostCtx = {
+      db: getFirestore(sandbox),
+      sandbox,
+      instanceId: 'fs-collection-group-test',
+      subs: new Map(),
+      rtdbProjectId: 'demo-project',
+    };
+    expect(
+      deployFirestoreRulesToHost(
+        ctx,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if true;
+    }
+    match /{path=**}/docs/{docId} {
+      allow read: if docId != 'blocked';
+    }
+    match /{path=**}/notes/{id} {
+      allow list: if request.auth != null;
+    }
+    match /{path=**}/posts/{id} {
+      allow read: if resource.data.public == true;
+    }
+  }
+}`,
+      ).ok,
+    ).toBe(true);
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'getDocs',
+          path: 'items',
+          query: { scope: 'collection-group' },
+          at: 40,
+          outcome: DENIED,
+        },
+        'list',
+      ),
+    ).toEqual({ result: 'deny' });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'getDocs',
+          path: 'docs',
+          query: { scope: 'collection-group' },
+          at: 41,
+          outcome: DENIED,
+        },
+        'list',
+      ),
+    ).toEqual({ result: 'deny' });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'getDocs',
+          path: 'notes',
+          query: { scope: 'collection-group' },
+          at: 42,
+          outcome: OK,
+          account: { uid: 'u-1' },
+        },
+        'list',
+      ),
+    ).toMatchObject({ result: 'allow', rule: { line: 11 } });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'getDocs',
+          path: 'notes',
+          query: { scope: 'collection-group' },
+          at: 43,
+          outcome: DENIED,
+        },
+        'list',
+      ),
+    ).toMatchObject({ result: 'deny' });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'getDocs',
+          path: 'posts',
+          query: { scope: 'collection-group', filters: [{ field: 'public', op: '==' }] },
+          at: 44,
+          outcome: OK,
+          account: { uid: 'u-1' },
+        },
+        'list',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['stored-document'],
+    });
+  });
+
+  it('tracks input gaps through helper parameters, let aliases, membership, bracket indexing, and Map.get', () => {
+    const sandbox = initializeSandbox();
+    const ctx: HostCtx = {
+      db: getFirestore(sandbox),
+      sandbox,
+      instanceId: 'fs-helper-gaps-test',
+      subs: new Map(),
+      rtdbProjectId: 'demo-project',
+    };
+    expect(
+      deployFirestoreRulesToHost(
+        ctx,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function hasAllowedEmail(auth) {
+      let tok = auth.token;
+      return tok.email == 'member@example.com';
+    }
+    function boundedPage(req) {
+      return req.query.limit <= 25;
+    }
+    function keepsOwner(req) {
+      return req.resource.data.ownerId == req.auth.uid;
+    }
+    match /users/{uid} {
+      allow get: if request.auth != null && hasAllowedEmail(request.auth);
+      allow delete: if request.auth != null && ('email' in request.auth.token) && request.auth.token['email'] == 'member@example.com';
+    }
+    match /profiles/{uid} {
+      allow get: if request.auth != null && request.auth.token.get('email', '') == 'member@example.com';
+      allow delete: if request.auth != null && ('email' in request.auth.token.firebase.identities || 'email' in request.auth.token.keys());
+    }
+    match /items/{id} {
+      allow list: if boundedPage(request);
+      allow update: if request.auth != null && keepsOwner(request);
+      allow create: if request.auth != null
+        && request.auth.token.get('role', 'viewer') == 'admin'
+        && request.resource.data.get('visibility', 'private') == 'public';
+    }
+  }
+}`,
+      ).ok,
+    ).toBe(true);
+
+    const redactedEmailAccount = { uid: 'u-1', claimNames: ['email'], claims: {} };
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'getDoc', path: 'users/u-1', account: redactedEmailAccount, at: 50, outcome: OK },
+        'get',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'deleteDoc', path: 'users/u-1', account: redactedEmailAccount, at: 51, outcome: OK },
+        'delete',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'getDoc', path: 'profiles/u-1', account: redactedEmailAccount, at: 52, outcome: OK },
+        'get',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'deleteDoc',
+          path: 'profiles/u-1',
+          account: { uid: 'u-1', claimNames: ['email'], claims: { firebase: { identities: {} } } },
+          at: 53,
+          outcome: OK,
+        },
+        'delete',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'getDocs',
+          path: 'items',
+          query: { scope: 'collection', limit: true },
+          at: 54,
+          outcome: OK,
+        },
+        'list',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['query'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'updateDoc',
+          path: 'items/item-1',
+          account: { uid: 'u-1', claims: {} },
+          writeData: { title: 'updated' },
+          at: 55,
+          outcome: OK,
+        },
+        'update',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: ['stored-document'],
+      missingPaths: ['items/item-1'],
+    });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'addDoc',
+          path: 'items/item-2',
+          account: { uid: 'u-1', claims: { role: 'admin' } },
+          writeData: { visibility: 'public' },
+          at: 56,
+          outcome: OK,
+        },
+        'create',
+      ),
+    ).toMatchObject({ result: 'allow' });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'addDoc',
+          path: 'items/item-3',
+          account: { uid: 'u-1', claims: {} },
+          writeData: { visibility: 'public' },
+          at: 57,
+          outcome: DENIED,
+        },
+        'create',
+      ),
+    ).toMatchObject({ result: 'deny' });
+  });
 });
