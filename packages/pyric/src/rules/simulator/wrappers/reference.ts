@@ -5,16 +5,17 @@
  *   - `.path`   — relative document path string ('users/u1')
  *   - `.id`     — last segment of the path ('u1')
  *   - `.parent` — parent collection path string ('users')
- *   - `is reference` — type test
- *   - `==` / `!=` against another Reference
+ *   - `is path` — production Firestore CEL type test (`captures.json` `wire-forms`)
+ *   - `is reference` — simulator backward-compatibility type test
+ *   - `==` / `!=` against another Reference or `/databases/<db>/documents/<path>` Path
  *
  * Per 0.B per-wrapper table:
  *   typeName: 'reference'
  *   valueOf:  NaN          (no meaningful numeric coercion — like Path/LatLng)
  *   toString: 'users/u1'   (relative path; round-trips with the admin SDK
  *                          DocumentReference.path getter)
- *   equals:   path-string equality (project/database not significant in
- *             the simulator — every Reference lives in the same logical DB)
+ *   equals:   databaseId + relative-path equality against Reference, and
+ *             segment equality against `/databases/<databaseId>/documents/<path>` Path
  *   binaryOp: NO_OP (== / != route through equals)
  *
  * Why a relative-path-only wrapper rather than a full project/database/doc
@@ -33,6 +34,7 @@
  * the simulator.
  */
 import { RulesValue, NO_OP, type NoOp } from './base.js';
+import { Path } from './path.js';
 
 export class Reference extends RulesValue {
   readonly typeName = 'reference';
@@ -105,8 +107,25 @@ export class Reference extends RulesValue {
   }
 
   equals(other: unknown): boolean {
-    if (!(other instanceof Reference)) return false;
-    return this.path === other.path;
+    if (other instanceof Reference) {
+      return this.#databaseId === other.#databaseId && this.path === other.path;
+    }
+    if (other instanceof Path) {
+      return this.#matchesPathSegments(other.segments);
+    }
+    return false;
+  }
+
+  #matchesPathSegments(segments: readonly string[]): boolean {
+    const relativeSegments = this.path.length > 0 ? this.path.split('/') : [];
+    if (segments.length !== 3 + relativeSegments.length) return false;
+    if (segments[0] !== 'databases' || segments[1] !== this.#databaseId || segments[2] !== 'documents') {
+      return false;
+    }
+    for (let i = 0; i < relativeSegments.length; i++) {
+      if (segments[3 + i] !== relativeSegments[i]) return false;
+    }
+    return true;
   }
 
   /**

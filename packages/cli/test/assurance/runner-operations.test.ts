@@ -87,11 +87,13 @@ service cloud.firestore {
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.coords is latlng
         && request.resource.data.payload is bytes
+        && request.resource.data.ownerRef is path
         && request.resource.data.ownerRef is reference;
       allow update: if request.auth != null
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.coords is latlng
         && request.resource.data.payload is bytes
+        && request.resource.data.ownerRef is path
         && request.resource.data.ownerRef is reference
         && request.resource.data.embedding == resource.data.embedding;
     }
@@ -187,5 +189,121 @@ service cloud.firestore {
       setRt,
     )) as Array<{ path: string }>;
     expect(listed.map((d) => d.path).sort()).toEqual(["items/new-2", "items/seeded"]);
+  });
+
+  it("preserves sibling fields on hand-authored maps carrying envelope type tags alongside extra keys", async () => {
+    const handAuthoredMaps = {
+      geoWithSibling: {
+        type: "pyric/geopoint/1.0",
+        latitude: 37.77,
+        longitude: -122.41,
+        label: "hq",
+      },
+      bytesWithSibling: {
+        type: "pyric/bytes/1.0",
+        base64: "AQID",
+        encoding: "raw",
+      },
+      refWithSibling: {
+        type: "pyric/ref/1.0",
+        path: "users/u1",
+        role: "owner",
+      },
+      vectorWithSibling: {
+        type: "pyric/vector/1.0",
+        values: [1, 2],
+        model: "v1",
+      },
+      tsShortWithSibling: {
+        type: "pyric/timestamp/1.0",
+        seconds: 1_700_000_000,
+        source: "client",
+      },
+      tsFullWithSibling: {
+        type: "pyric/timestamp/1.0",
+        seconds: 1_700_000_000,
+        nanoseconds: 500,
+        source: "client",
+      },
+      refDbWithSibling: {
+        type: "pyric/ref/1.0",
+        path: "users/u1",
+        databaseId: "analytics",
+        role: "auditor",
+      },
+      fsDocRefWithSibling: {
+        type: "firestore/documentReference/1.0",
+        path: "users/u1",
+        label: "primary",
+      },
+    };
+
+    const target: LocalFirebaseTarget = {
+      schema: ASSURANCE_TARGET_SCHEMA,
+      network: "forbid",
+      rules: {
+        firestore: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function hasSiblings(d) {
+      return d.geoWithSibling is map && d.geoWithSibling.label == 'hq'
+        && d.bytesWithSibling is map && d.bytesWithSibling.encoding == 'raw'
+        && d.refWithSibling is map && d.refWithSibling.role == 'owner'
+        && d.vectorWithSibling is map && d.vectorWithSibling.model == 'v1'
+        && d.tsShortWithSibling is map && d.tsShortWithSibling.source == 'client'
+        && d.tsFullWithSibling is map && d.tsFullWithSibling.source == 'client'
+        && d.refDbWithSibling is map && d.refDbWithSibling.role == 'auditor'
+        && d.fsDocRefWithSibling is map && d.fsDocRefWithSibling.label == 'primary';
+    }
+    match /items/{id} {
+      allow read: if request.auth != null && hasSiblings(resource.data);
+      allow create, update: if request.auth != null && hasSiblings(request.resource.data);
+    }
+  }
+}`,
+      },
+      state: {
+        auth: { users: [{ uid: "u1" }] },
+        firestore: {
+          "items/seeded": handAuthoredMaps,
+        },
+      },
+    };
+
+    const actor = acquireActor(initializeSandbox(), target, {
+      id: "u1",
+      acquisition: { kind: "fixture-user", uid: "u1" },
+    });
+
+    const rt = await createRuntime("c1", "p1", "control", target, actor, "firestore");
+    const seededRead = await executeFirestore(
+      { service: "firestore", method: "get", path: "items/seeded" },
+      rt.firestore!,
+      rt,
+    );
+    expect(seededRead).toEqual(handAuthoredMaps);
+
+    await expect(
+      executeFirestore(
+        { service: "firestore", method: "create", path: "items/created", data: handAuthoredMaps },
+        rt.firestore!,
+        rt,
+      ),
+    ).resolves.toBeNull();
+
+    await expect(
+      executeFirestore(
+        { service: "firestore", method: "set", path: "items/written", data: handAuthoredMaps },
+        rt.firestore!,
+        rt,
+      ),
+    ).resolves.toBeNull();
+
+    const writtenRead = await executeFirestore(
+      { service: "firestore", method: "get", path: "items/written" },
+      rt.firestore!,
+      rt,
+    );
+    expect(writtenRead).toEqual(handAuthoredMaps);
   });
 });

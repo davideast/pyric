@@ -100,9 +100,7 @@ describe('value helpers on the wire', () => {
     ['timestamp form', timestamp('2026-01-01T00:00:00.123Z'), true],
     ['latlng form', latlng(1.5, -2), true],
     ['duration form', duration(-1500, 'ms'), true],
-    // The simulator's reference value does not yet read as `path`
-    // (filed from #1338), so only its wire form is checked here.
-    ['reference form', reference('users/alice'), false],
+    ['reference form', reference('users/alice'), true],
   ];
 
   for (const [label, value, simulated] of helpers) {
