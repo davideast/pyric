@@ -13,6 +13,7 @@ import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
+import { studioSessionHeaders } from './serve-init.js';
 
 /** The marker the rules compiler appends when it lowers a modular source. */
 const SOURCE_MAP_MARKER = '// @pyric-source-map:';
@@ -57,7 +58,8 @@ export function useStudioRulesSource(service: string = 'firestore', instance?: s
   useEffect(() => {
     if (seedReady) return;
     let alive = true;
-    fetch('/__pyric/init.json')
+    const headers = studioSessionHeaders();
+    (headers ? fetch('/__pyric/init.json', { headers }) : fetch('/__pyric/init.json'))
       .then((r) => (r.ok ? r.json() : null))
       .then(
         (payload: {

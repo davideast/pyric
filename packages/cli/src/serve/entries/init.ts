@@ -92,7 +92,7 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   // Not awaited: nothing below depends on the payload. A refused payload
   // reaches the app through the calls it makes, so here it is only logged.
   void initPayload.then(
-    (payload) => installAvatarUpgrades(payload?.avatarUpgrades === true),
+    (payload) => installAvatarUpgrades(payload?.avatarUpgrades === true, { sessionToken: payload?.sessionToken }),
     logInitPayloadFailure,
   );
   // A served page is a development host whatever the app's bundle says: the

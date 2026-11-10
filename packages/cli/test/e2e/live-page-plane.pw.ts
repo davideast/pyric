@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { createLogger, createServer, type PluginOption, type ViteDevServer } from 'vite';
+import { inProcessSessionTokenForUrl } from '../../src/serve/local-session-token.js';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
 const liveDir = fileURLToPath(new URL('../../../live/', import.meta.url));
@@ -64,7 +65,11 @@ interface LiveHealth {
 }
 
 async function healthOf(base: string): Promise<LiveHealth | null> {
-  const response = await fetch(new URL('/__pyric/health', base));
+  const token = inProcessSessionTokenForUrl(base);
+  const response = await fetch(
+    new URL('/__pyric/health', base),
+    token ? { headers: { 'x-pyric-session-token': token } } : undefined,
+  );
   return response.ok ? await response.json() as LiveHealth : null;
 }
 

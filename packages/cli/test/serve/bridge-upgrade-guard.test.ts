@@ -41,7 +41,14 @@ interface UpgradeResult {
 /** Build a guarded mount, emit one `upgrade`, report what happened. */
 function driveUpgrade(
   headers: Record<string, string | undefined>,
-  opts: { path?: string; allowedHosts?: string[] | true; boundHost?: string; localPort?: number; learnsProxyPorts?: boolean } = {},
+  opts: {
+    path?: string;
+    allowedHosts?: string[] | true;
+    boundHost?: string;
+    localPort?: number;
+    learnsProxyPorts?: boolean;
+    authenticated?: boolean;
+  } = {},
 ): UpgradeResult {
   return guardedMount(opts).upgrade(headers, opts);
 }
@@ -60,17 +67,29 @@ function guardedMount(opts: { allowedHosts?: string[] | true; boundHost?: string
     origin: () => null,
   });
   return {
+    mount,
     /** An HTTP request the mount does not answer, such as `/__pyric/init.json`. */
     async request(headers: Record<string, string>, localPort = 5000): Promise<boolean> {
       const req = { url: '/__pyric/init.json', method: 'GET', headers, socket: { localPort, remoteAddress: '127.0.0.1' } };
       return mount.handler(req as unknown as IncomingMessage, {} as ServerResponse, new URL('http://localhost/__pyric/init.json'));
     },
-    upgrade(headers: Record<string, string | undefined>, upgradeOpts: { path?: string; localPort?: number } = {}): UpgradeResult {
+    upgrade(
+      headers: Record<string, string | undefined>,
+      upgradeOpts: { path?: string; localPort?: number; authenticated?: boolean } = {},
+    ): UpgradeResult {
       const before = handshakes;
       let destroyed = false;
       const socket = new EventEmitter() as EventEmitter & { destroy(): void };
       socket.destroy = () => { destroyed = true; socket.emit('close'); };
-      const req = { url: upgradeOpts.path ?? WS_PATH, headers, socket: { localPort: upgradeOpts.localPort ?? 5000, remoteAddress: '127.0.0.1' } };
+      const includeToken = upgradeOpts.authenticated !== false;
+      const mergedHeaders = includeToken
+        ? { 'x-pyric-session-token': (mount as unknown as { sessionToken?: string }).sessionToken, ...headers }
+        : headers;
+      const req = {
+        url: upgradeOpts.path ?? WS_PATH,
+        headers: mergedHeaders,
+        socket: { localPort: upgradeOpts.localPort ?? 5000, remoteAddress: '127.0.0.1' },
+      };
       server.emit('upgrade', req, socket, Buffer.alloc(0));
       return { destroyed, handshakes: handshakes - before };
     },
@@ -156,13 +175,48 @@ describe('bridge WS upgrade guard (#765)', () => {
     expect(r.handshakes).toBe(1);
   });
 
-  it('allowedHosts:true (vite opt-in to all hosts) skips the guard', () => {
+  it('allowedHosts:true never bypasses Host or Origin validation on /__pyric/sandbox', () => {
     const r = driveUpgrade(
       { host: 'anything.example', origin: 'http://anything.example' },
       { allowedHosts: true },
     );
-    expect(r.destroyed).toBe(false);
-    expect(r.handshakes).toBe(1);
+    expect(r.destroyed).toBe(true);
+    expect(r.handshakes).toBe(0);
+  });
+
+  it('requires a valid session capability token (header, ?token=, or __pyric_session cookie) on WS upgrade', () => {
+    const m = guardedMount();
+    const token = (m.mount as unknown as { sessionToken?: string }).sessionToken ?? '';
+    expect(token.length).toBeGreaterThan(16);
+
+    // Unauthenticated upgrade is destroyed before peer registration.
+    const unauth = m.upgrade({ host: 'localhost:5000', origin: 'http://localhost:5000' }, { authenticated: false });
+    expect(unauth.destroyed).toBe(true);
+    expect(unauth.handshakes).toBe(0);
+
+    // ?token= query param on WS URL succeeds.
+    const queryAuth = m.upgrade(
+      { host: 'localhost:5000', origin: 'http://localhost:5000' },
+      { authenticated: false, path: `${WS_PATH}?token=${encodeURIComponent(token)}` },
+    );
+    expect(queryAuth.destroyed).toBe(false);
+    expect(queryAuth.handshakes).toBe(1);
+
+    // __pyric_session cookie on same-origin WS upgrade succeeds.
+    const cookieAuth = m.upgrade(
+      { host: 'localhost:5000', origin: 'http://localhost:5000', cookie: `__pyric_session=${token}` },
+      { authenticated: false },
+    );
+    expect(cookieAuth.destroyed).toBe(false);
+    expect(cookieAuth.handshakes).toBe(1);
+
+    // __pyric_session cookie is still rejected when Origin is another local port or cross-site.
+    const crossPortWithCookie = m.upgrade(
+      { host: 'localhost:5000', origin: 'http://localhost:5001', cookie: `__pyric_session=${token}` },
+      { authenticated: false, localPort: 5000 },
+    );
+    expect(crossPortWithCookie.destroyed).toBe(true);
+    expect(crossPortWithCookie.handshakes).toBe(0);
   });
 
   it('ignores upgrades on other paths (not our WS route)', () => {

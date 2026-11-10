@@ -54,7 +54,8 @@ import {
   type ViteSandboxGenerationInput,
   type ViteSandboxGenerationOptions,
 } from './vite-sandbox-generation.js';
-import { localGenerationSlot, projectGenerationSlot } from './vite-generation-registry.js';
+import { localGenerationSlot, projectGenerationSlot, projectSessionToken } from './vite-generation-registry.js';
+import { attachViteHtmlSessionBootstrap, currentViteHtmlPeerContext } from './vite-generation-middleware.js';
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
@@ -311,6 +312,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
   const instanceSlot = localGenerationSlot();
   let hostedProjectKey: string | undefined;
   let hostedInstanceId: string | undefined;
+  let activeSessionToken: string | undefined;
   let owners: OwnersConfig | undefined = resolveOwnersConfig(undefined, options.owners);
 
   return {
@@ -400,8 +402,11 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
 
       async configureServer(server) {
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
+      const sessionToken = projectSessionToken(projectDir);
+      activeSessionToken = sessionToken;
       // Before Vite's own middleware, which follows symlinks into `.pyric/` and to `.env`.
       attachViteRealPathDeny(server, projectDir);
+      attachViteHtmlSessionBootstrap(server, () => activeSessionToken);
       // Before Vite's too, which drops a `t=` query: a loaded SDK file under another URL is an unwrapped copy.
       if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
       const stateScope = generationStateScope(options);
@@ -439,6 +444,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         workerRuntime,
         options: generationOptions,
         ai,
+        sessionToken,
       };
       const generation = await createViteSandboxGeneration(generationInput);
       slot.set(generation);
@@ -481,7 +487,15 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
     },
 
     transformIndexHtml(html) {
-      return stampHostedTarget(pageRuntime.transformIndexHtml(html), hostedProjectKey, owners, hostedInstanceId);
+      const peerContext = currentViteHtmlPeerContext();
+      const stampToken = peerContext?.localPeer === false ? undefined : activeSessionToken;
+      return stampHostedTarget(
+        pageRuntime.transformIndexHtml(html),
+        hostedProjectKey,
+        owners,
+        hostedInstanceId,
+        stampToken,
+      );
     },
   };
 }

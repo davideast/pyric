@@ -53,6 +53,8 @@ function standIn(respond: (url: URL) => Response = () => Response.json(ANSWER)):
   return { url: `http://127.0.0.1:${server.port}`, seen };
 }
 
+const TEST_TOKEN = 'test-gemini-proxy-session-token';
+
 async function startServe(baseUrl: string): Promise<ServeHandle> {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-gemini-proxy-'));
   const site = join(dir, 'public');
@@ -63,9 +65,10 @@ async function startServe(baseUrl: string): Promise<ServeHandle> {
     sdkDir: sdk,
     initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
     aiGemini: { baseUrl },
+    sessionToken: TEST_TOKEN,
   });
   const h = await startStaticServer({
-    publicDir: site, port: 0, host: '127.0.0.1', portScanLimit: 200, logger: silentServeLogger(), namespaceHandler: ns,
+    publicDir: site, port: 0, host: '127.0.0.1', portScanLimit: 200, logger: silentServeLogger(), namespaceHandler: ns, sessionToken: TEST_TOKEN,
   });
   cleanups.push(() => h.stop());
   return h;
@@ -83,7 +86,7 @@ async function startHandler(baseUrl: string, printAdcToken: () => Promise<string
 }
 
 const post = (url: string, headers: Record<string, string> = {}) =>
-  fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: '{"contents":[]}' });
+  fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-pyric-session-token': TEST_TOKEN, ...headers }, body: '{"contents":[]}' });
 
 describe('/__pyric/ai-proxy/gemini', () => {
   it('sends the call to the configured base URL with the key from the server environment', async () => {
@@ -175,11 +178,11 @@ describe('/__pyric/ai-proxy/gemini', () => {
   });
 
   it('masks an ADC token echoed in an Authorization header', async () => {
-    const upstream = standIn((url) => new Response(`refused ${url.pathname}\nAuthorization: Bearer ya29.adc-token-1584`, { status: 403 }));
-    const url = await startHandler(upstream.url, async () => 'ya29.adc-token-1584');
+    const upstream = standIn((url) => new Response(`refused ${url.pathname}\nAuthorization: Bearer ya29.fake-bearer-1631`, { status: 403 }));
+    const url = await startHandler(upstream.url, async () => 'ya29.fake-bearer-1631');
     const response = await post(`${url}${CALL}`);
     const text = await response.text();
-    expect(upstream.seen[0]!.headers.authorization).toBe('Bearer ya29.adc-token-1584');
+    expect(upstream.seen[0]!.headers.authorization).toBe('Bearer ya29.fake-bearer-1631');
     expect(text).toBe('refused /v1beta/models/gemini-2.5-flash:generateContent\nAuthorization: Bearer ***');
   });
 
@@ -247,7 +250,7 @@ describe('/__pyric/ai-proxy/gemini', () => {
     const h = await startServe(upstream.url);
     const response = await fetch(`${h.url}${CALL}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-pyric-session-token': TEST_TOKEN },
       body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES + 1),
     });
     expect(response.status).toBe(413);
@@ -269,7 +272,16 @@ describe('/__pyric/ai-proxy/gemini', () => {
       expect(response.status).toBe(404);
       expect((await response.json()).error.status).toBe('NOT_FOUND');
     }
-    expect((await fetch(`${h.url}${CALL}`)).status).toBe(405);
+    expect((await fetch(`${h.url}${CALL}`, { headers: { 'x-pyric-session-token': TEST_TOKEN } })).status).toBe(405);
+    expect(
+      (
+        await fetch(`${h.url}${CALL}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{"contents":[]}',
+        })
+      ).status,
+    ).toBe(401);
     expect(upstream.seen).toEqual([]);
   });
 

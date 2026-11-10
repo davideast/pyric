@@ -100,7 +100,10 @@ export function setupWorkerHotReload(
   ctx: HostCtx,
   makeEventSource: (url: string) => EventSourceLike,
 ): () => void {
-  const events = makeEventSource('/__pyric/events');
+  const eventsUrl = ctx.sessionToken
+    ? `/__pyric/events?token=${encodeURIComponent(ctx.sessionToken)}`
+    : '/__pyric/events';
+  const events = makeEventSource(eventsUrl);
   events.addEventListener('rules-changed', (ev) => {
     try {
       const { rules } = JSON.parse(ev.data) as { rules: string; rulesHash?: string };
@@ -693,6 +696,8 @@ export interface WorkerBootEnv extends ServeInitEnv {
   /** Hot-reload EventSource factory. Omit/null when unavailable (tests, hosts
    *  without EventSource). */
   makeEventSource?: ((url: string) => EventSourceLike) | null;
+  /** Optional session capability token for `/__pyric/init.json` when no cookie is set. */
+  sessionToken?: string;
 }
 
 /**
@@ -744,7 +749,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // database — the same eager-vs-lazy trap the storage DB scoping hit (see
   // applyServeInit's unconditional storage open). Null when standalone (no
   // `pyric dev` behind us) — the legacy shared key then applies.
-  const payload = await fetchInitPayload(env.fetch);
+  const payload = await fetchInitPayload(env.fetch, env.sessionToken);
 
   // The persistence-controller backend. `--persist`/`seedState` wrap IDB (see
   // createWorkerDurableBackend); plain IDB otherwise. The session record stays
@@ -778,12 +783,14 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // to subsequent Firestore ops without rebuilding the handle.
   const db = getFirestore(sandbox);
 
+  const resolvedToken = payload?.sessionToken ?? env.sessionToken;
   const ctx: HostCtx = {
     db,
     sandbox,
     // Stable per-SharedWorker identity (raw idb, local-only). Two browser
     // profiles on the same port get two ids — how the UI tells them apart.
     instanceId: await getOrCreateInstanceId(env.idb),
+    ...(resolvedToken ? { sessionToken: resolvedToken } : {}),
     subs: new Map(),
     sessionBackend: env.idb,
     sessionMode: 'LOCAL',
@@ -798,7 +805,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   const capturesEvents = payload?.capture === true;
   if (capturesEvents) {
     try {
-      await hydrateEventHistory(ctx, env, payload?.sessionToken);
+      await hydrateEventHistory(ctx, env, resolvedToken);
     } catch {
       /* activity-log hydration is non-essential; never brick boot over it. */
     }
@@ -820,7 +827,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // denial relay so a headless developer sees why the broker said no, why an
   // answer came back empty, or which model actually answered. Live events
   // only, so it is safe on either side of hydration.
-  setupAiDiagnosticsRelay({ subscribe: (listener) => ctx.sandbox.onEvent(listener) }, env.fetch);
+  setupAiDiagnosticsRelay({ subscribe: (listener) => ctx.sandbox.onEvent(listener) }, env.fetch, () => ctx.sessionToken);
 
   // Apply rules / seed / authUsers / capture BEFORE any port op runs (so
   // seeded users exist and project rules govern the first write), then mirror
@@ -848,9 +855,11 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
  * worker opened outside `pyric dev` has no init endpoint and simply keeps
  * the permissive starter rules + a plain-IDB durable store.
  */
-async function fetchInitPayload(fetchFn: typeof fetch): Promise<InitPayload | null> {
+async function fetchInitPayload(fetchFn: typeof fetch, sessionToken?: string): Promise<InitPayload | null> {
   try {
-    const res = await fetchFn('/__pyric/init.json');
+    const res = sessionToken
+      ? await fetchFn('/__pyric/init.json', { headers: { 'x-pyric-session-token': sessionToken } })
+      : await fetchFn('/__pyric/init.json');
     if (!res.ok) return null;
     return (await res.json()) as InitPayload;
   } catch {

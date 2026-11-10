@@ -49,6 +49,8 @@ import {
   resolveViteGenerationFunctions,
 } from './vite-generation-functions.js';
 import { attachViteGenerationMiddleware } from './vite-generation-middleware.js';
+import { projectSessionToken } from './vite-generation-registry.js';
+import { registerLocalSessionToken, writeOwnedSessionFile } from './local-session-token.js';
 import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
 import { claimProjectState, type ProjectStateScope } from './hosted/project-ownership.js';
 import { refuseOwnWrite, type PyricWriteRefusal } from './hosted/own-writes.js';
@@ -90,6 +92,7 @@ export interface ViteSandboxGenerationInput {
   workerRuntime: ViteWorkerRuntime;
   options: ViteSandboxGenerationOptions;
   ai: ResolvedViteAiConfig;
+  sessionToken?: string;
 }
 
 export interface ViteSandboxGeneration {
@@ -160,6 +163,7 @@ export async function createViteSandboxGeneration(
 ): Promise<ViteSandboxGeneration> {
   const dependencies = { ...DEFAULT_DEPENDENCIES, ...dependencyOverrides };
   const { server, projectDir: cwd, cliRoot, workerRuntime, options, ai } = input;
+  const sessionToken = input.sessionToken ?? projectSessionToken(cwd);
   const listenerDisposers: Array<() => void> = [];
   let session: SandboxSession | null = null;
   let bridge: BridgeMount | null = null;
@@ -258,6 +262,7 @@ export async function createViteSandboxGeneration(
       options: options.bridge,
       functionsProject: functions.project,
       functionsProjectId: functions.projectId,
+      sessionToken,
       createBridge: dependencies.createBridge,
     };
     bridge = createViteGenerationBridge(bridgeInput);
@@ -318,6 +323,7 @@ export async function createViteSandboxGeneration(
       studio,
       bridgeUrl,
       hostInstanceId: () => bridge?.instanceId,
+      sessionToken,
       ai: aiOptions,
       avatars: avatarsConfig,
       aiProxyUpstream: ai.proxyUpstream,
@@ -411,6 +417,28 @@ export async function createViteSandboxGeneration(
     const httpServer = server.httpServer;
     const hasHttpServer = httpServer !== undefined && httpServer !== null;
     if (hasHttpServer) {
+      if (bridge === null) {
+        let unregisterPortToken: (() => void) | undefined;
+        let removeSessionFile: (() => void) | undefined;
+        const announceSession = (): void => {
+          const address = httpServer.address();
+          const port = address && typeof address === 'object' ? address.port : 0;
+          if (port <= 0) return;
+          unregisterPortToken?.();
+          unregisterPortToken = registerLocalSessionToken(port, sessionToken);
+          if (!isLive && (persistsState || options.capture !== false)) {
+            removeSessionFile?.();
+            removeSessionFile = writeOwnedSessionFile(cwd, { port, token: sessionToken });
+          }
+        };
+        if (httpServer.listening) announceSession();
+        else httpServer.once('listening', announceSession);
+        listenerDisposers.push(() => {
+          httpServer.removeListener('listening', announceSession);
+          unregisterPortToken?.();
+          removeSessionFile?.();
+        });
+      }
       const onServerClose = (): void => { void close(); };
       httpServer.once('close', onServerClose);
       listenerDisposers.push(() => httpServer.removeListener('close', onServerClose));

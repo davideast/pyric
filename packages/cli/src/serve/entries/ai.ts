@@ -38,20 +38,32 @@ import { isSandboxAppDeleted } from 'pyric/app/internal';
 import type { AiEngineConfigWire } from '../worker/protocol.js';
 import { aiGenerateContent, aiCountTokens, aiStreamGenerateContent } from '../worker/client.js';
 import { AI_PROXY_PATH, browserGeminiEngine } from '../worker/ai-proxy-paths.js';
+import { stampedSessionToken } from '../runtime/hosted-target.js';
 import { useWorker } from './worker-runtime.js';
 import { workerClientForApp } from './app-client.js';
 import { sandbox } from './app-backend.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
+
+function proxyFetchWithSessionToken(): typeof fetch | undefined {
+  const token = stampedSessionToken();
+  if (!token || typeof fetch !== 'function') return undefined;
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('x-pyric-session-token')) {
+      headers.set('x-pyric-session-token', token);
+    }
+    return fetch(input, { ...init, headers });
+  }) as typeof fetch;
+}
 
 // An in-page sandbox runs its own AI broker, so its `request_rejected`,
 // `response_blocked`, and `model_substituted` events need a relay to reach
 // the dev server terminal. The worker and hosted planes relay from their own
 // broker. This entry is the only one that runs the in-page broker, so the
 // relay is installed here, once per page, whatever other services the page
-// imports (#1638). It needs no capability token: the denial relay it rides
-// carries none.
+// imports (#1638).
 if (!useWorker) {
-  setupAiDiagnosticsRelay({ subscribe: (listener) => sandbox.onEvent(listener) }, fetch);
+  setupAiDiagnosticsRelay({ subscribe: (listener) => sandbox.onEvent(listener) }, fetch, stampedSessionToken);
 }
 
 // ── Mirror surface — path-independent (the mirror always runs in-page) ────
@@ -157,15 +169,25 @@ function pluginEngineWire(): AiEngineConfigWire | undefined {
  */
 function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
   if (wire.kind === 'openai') {
+    const baseUrl = wire.baseUrl ?? AI_PROXY_PATH;
+    const proxyFetch = baseUrl.replace(/\/$/, '') === AI_PROXY_PATH ? proxyFetchWithSessionToken() : undefined;
     return {
       kind: 'openai',
-      baseUrl: wire.baseUrl ?? AI_PROXY_PATH,
+      baseUrl,
+      ...(proxyFetch !== undefined ? { fetch: proxyFetch } : {}),
       ...(wire.model !== undefined ? { model: wire.model } : {}),
       ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
     } as EngineOption;
   }
   const isGeminiWire = wire.kind === 'gemini';
-  if (isGeminiWire) return browserGeminiEngine(wire) as EngineOption;
+  if (isGeminiWire) {
+    const gemini = browserGeminiEngine(wire);
+    const proxyFetch = gemini.serverAttachesAuth ? proxyFetchWithSessionToken() : undefined;
+    return {
+      ...gemini,
+      ...(proxyFetch !== undefined ? { fetch: proxyFetch } : {}),
+    } as EngineOption;
+  }
   return {
     kind: 'scripted',
     ...(wire.script !== undefined
@@ -181,13 +203,28 @@ function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
 function withProxyDefault(options?: ipAi.AIOptions): ipAi.AIOptions | undefined {
   const engine = options?.engine;
   if (!engine || isAnswerEngine(engine)) return options;
-  const config = engine as { kind?: string; baseUrl?: string };
+  const config = engine as { kind?: string; baseUrl?: string; fetch?: unknown };
   if (config.kind === 'openai' && config.baseUrl === undefined) {
-    return { ...options, engine: { ...config, baseUrl: AI_PROXY_PATH } as EngineOption };
+    const proxyFetch = config.fetch === undefined ? proxyFetchWithSessionToken() : undefined;
+    return {
+      ...options,
+      engine: {
+        ...config,
+        baseUrl: AI_PROXY_PATH,
+        ...(proxyFetch !== undefined ? { fetch: proxyFetch } : {}),
+      } as EngineOption,
+    };
   }
   const isKeylessGemini = config.kind === 'gemini' && (engine as { apiKey?: string }).apiKey === undefined;
   if (isKeylessGemini) {
-    return { ...options, engine: browserGeminiEngine({ kind: 'gemini' }) as EngineOption };
+    const proxyFetch = config.fetch === undefined ? proxyFetchWithSessionToken() : undefined;
+    return {
+      ...options,
+      engine: {
+        ...browserGeminiEngine({ kind: 'gemini' }),
+        ...(proxyFetch !== undefined ? { fetch: proxyFetch } : {}),
+      } as EngineOption,
+    };
   }
   return options;
 }

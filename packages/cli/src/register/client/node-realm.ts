@@ -110,6 +110,8 @@ export interface NodeSocketRealmOptions {
    * HTTPS is trusted for its own origin, with its own certificate (#1220).
    */
   trust?: (url: string) => HostTrust | undefined;
+  /** Resolves the per-boot capability token for local HTTP/WS dials to `url`. */
+  sessionToken?: (url: string) => string | undefined;
 }
 
 export function createNodeSocketRealm(options: NodeSocketRealmOptions = {}): NodeSocketRealm {
@@ -167,7 +169,12 @@ export function createNodeSocketRealm(options: NodeSocketRealmOptions = {}): Nod
     createSocket(url) {
       const trust = options.trust?.(url);
       const tls = trust === undefined ? {} : tlsOptionsFor(trust);
-      const socket = new NodeWebSocket(url, { maxPayload: MAX_BRIDGE_FRAME_BYTES, ...tls });
+      const token = options.sessionToken?.(url);
+      const socket = new NodeWebSocket(url, {
+        maxPayload: MAX_BRIDGE_FRAME_BYTES,
+        ...tls,
+        ...(token !== undefined && token.length > 0 ? { headers: { 'x-pyric-session-token': token } } : {}),
+      });
       releaseUpgradedSocket(socket);
       return socket as unknown as WebSocket;
     },
@@ -196,10 +203,20 @@ export function createNodeSocketRealm(options: NodeSocketRealmOptions = {}): Nod
       options.onAttached?.(ack);
     },
     fetch(input, init) {
-      const trust = options.trust?.(String(input));
+      const urlString = input instanceof Request ? input.url : String(input);
+      const token = options.sessionToken?.(urlString);
+      let nextInit = init;
+      if (token !== undefined && token.length > 0) {
+        const headers = new Headers(init?.headers);
+        if (!headers.has('x-pyric-session-token')) {
+          headers.set('x-pyric-session-token', token);
+        }
+        nextInit = { ...init, headers: Object.fromEntries(headers.entries()) };
+      }
+      const trust = options.trust?.(urlString);
       const isPlainDial = trust === undefined;
-      if (isPlainDial) return fetch(input, init);
-      return fetchFor(trust)(input, init);
+      if (isPlainDial) return fetch(input, nextInit);
+      return fetchFor(trust)(input, nextInit);
     },
     holdsProcess() {
       return keepAlive !== undefined;

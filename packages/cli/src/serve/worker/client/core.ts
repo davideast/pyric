@@ -507,9 +507,12 @@ function relayDenial(
     ...(owners !== undefined ? { owners } : {}),
   };
   try {
+    const token = (globalThis as { __PYRIC_WORKER_INIT__?: { sessionToken?: string } }).__PYRIC_WORKER_INIT__?.sessionToken;
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (typeof token === 'string' && token.length > 0) headers['x-pyric-session-token'] = token;
     void fetch('/__pyric/denials', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
     }).catch(() => {});
   } catch {

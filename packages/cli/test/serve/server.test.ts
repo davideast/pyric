@@ -6,10 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   contentTypeFor,
+  formatSessionCookie,
   isAllowedHost,
   isAllowedLoopbackRequest,
   isAllowedOrigin,
+  isAllowedSessionToken,
   isAllowedUpgrade,
+  isForeignFetchWithoutOrigin,
   loopbackHosts,
   resolveStaticFile,
   silentServeLogger,
@@ -292,5 +295,140 @@ describe('isAllowedLoopbackRequest (combined Host + Origin guard for HTTP contro
   it('allows the page this server serves and a client with no Origin', () => {
     expect(isAllowedLoopbackRequest(request('localhost:5000', 'http://localhost:5000'), 'localhost', [], [5000])).toBe(true);
     expect(isAllowedLoopbackRequest(request('localhost:5000'), 'localhost', [], [5000])).toBe(true);
+  });
+
+  it('rejects foreign browser fetches that omit Origin (Sec-Fetch-Site: cross-site | same-site)', () => {
+    expect(isForeignFetchWithoutOrigin({ headers: { 'sec-fetch-site': 'cross-site' } })).toBe(true);
+    expect(isForeignFetchWithoutOrigin({ headers: { 'sec-fetch-site': 'same-site' } })).toBe(true);
+    expect(isForeignFetchWithoutOrigin({ headers: { 'sec-fetch-site': 'Cross-Site' } })).toBe(true);
+    expect(isForeignFetchWithoutOrigin({ headers: { 'sec-fetch-site': 'same-origin' } })).toBe(false);
+    expect(isForeignFetchWithoutOrigin({ headers: { 'sec-fetch-site': 'none' } })).toBe(false);
+    expect(isForeignFetchWithoutOrigin({ headers: {} })).toBe(false);
+    expect(
+      isForeignFetchWithoutOrigin({
+        headers: { origin: 'http://localhost:5000', 'sec-fetch-site': 'same-origin' },
+      }),
+    ).toBe(false);
+
+    expect(
+      isAllowedLoopbackRequest(
+        { headers: { host: 'localhost:5000', 'sec-fetch-site': 'cross-site' } },
+        'localhost',
+        [],
+        [5000],
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedLoopbackRequest(
+        { headers: { host: 'localhost:5000', 'sec-fetch-site': 'same-site' } },
+        'localhost',
+        [],
+        [5000],
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedLoopbackRequest(
+        { headers: { host: 'localhost:5000', 'sec-fetch-site': 'same-origin' } },
+        'localhost',
+        [],
+        [5000],
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedUpgrade(
+        { host: 'localhost:5000', 'sec-fetch-site': 'cross-site' },
+        'localhost',
+        [],
+        [5000],
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('isAllowedSessionToken & session cookie bootstrap', () => {
+  it('accepts header, ?token= query param, or __pyric_session cookie in constant time', () => {
+    const secret = 'tok_secret_capability_123';
+    expect(formatSessionCookie(secret)).toBe(
+      `__pyric_session=${secret}; HttpOnly; SameSite=Strict; Path=/__pyric`,
+    );
+    expect(
+      isAllowedSessionToken(
+        { headers: { 'x-pyric-session-token': secret } },
+        new URL('http://localhost:5000/__pyric/diagnostics'),
+        secret,
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedSessionToken(
+        { headers: {} },
+        new URL(`http://localhost:5000/__pyric/events?token=${secret}`),
+        secret,
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedSessionToken(
+        { headers: { cookie: `other=1; __pyric_session=${secret}; theme=dark` } },
+        new URL('http://localhost:5000/__pyric/init.json'),
+        secret,
+      ),
+    ).toBe(true);
+    // Fresh explicit header or query param wins over a stale cookie from an earlier boot.
+    expect(
+      isAllowedSessionToken(
+        { headers: { 'x-pyric-session-token': secret, cookie: '__pyric_session=old_boot_token' } },
+        new URL('http://localhost:5000/__pyric/diagnostics'),
+        secret,
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedSessionToken(
+        { headers: { cookie: '__pyric_session=old_boot_token' } },
+        new URL(`http://localhost:5000/__pyric/events?token=${secret}`),
+        secret,
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedSessionToken(
+        { headers: { cookie: '__pyric_session=wrong' } },
+        new URL('http://localhost:5000/__pyric/init.json'),
+        secret,
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedSessionToken(
+        { headers: {} },
+        new URL('http://localhost:5000/__pyric/init.json'),
+        secret,
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedSessionToken(
+        { headers: { 'x-pyric-session-token': secret } },
+        new URL('http://localhost:5000/__pyric/init.json'),
+        undefined,
+      ),
+    ).toBe(false);
+  });
+
+  it('sets HttpOnly __pyric_session cookie and passes localPeer=true on loopback HTML responses only', async () => {
+    const seenPeers: boolean[] = [];
+    const h = await start({
+      publicDir: fixtureSite(),
+      sessionToken: 'html_boot_secret',
+      transformHtml: (html, ctx) => {
+        seenPeers.push(ctx.localPeer);
+        return html.replace('</head>', `<meta name="peer" content="${String(ctx.localPeer)}"></head>`);
+      },
+    });
+    const htmlRes = await fetch(h.url + '/');
+    expect(htmlRes.status).toBe(200);
+    expect(htmlRes.headers.get('set-cookie')).toContain(
+      '__pyric_session=html_boot_secret; HttpOnly; SameSite=Strict; Path=/__pyric',
+    );
+    expect(await htmlRes.text()).toContain('content="true"');
+    expect(seenPeers).toEqual([true]);
+
+    const jsRes = await fetch(h.url + '/app.js');
+    expect(jsRes.headers.get('set-cookie')).toBeNull();
   });
 });

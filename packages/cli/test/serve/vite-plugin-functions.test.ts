@@ -161,6 +161,7 @@ exports.makeUppercase = onValueCreated(
     const base = `http://127.0.0.1:${port}`;
     const pointer = JSON.parse(readFileSync(join(cwd, '.pyric', 'serve.json'), 'utf8')) as {
       project: string;
+      token: string;
     };
     expect(pointer.project).toBe('demo-project');
 
@@ -196,7 +197,11 @@ exports.makeUppercase = onValueCreated(
     );
     expect(html).toContain('pyric-worker-v');
     expect(html).not.toContain('__PYRIC_FORCE_INPAGE__');
-    const init = (await (await fetch(`${base}/__pyric/init.json`)).json()) as {
+    const init = (await (
+      await fetch(`${base}/__pyric/init.json`, {
+        headers: { 'x-pyric-session-token': pointer.token },
+      })
+    ).json()) as {
       bridgeUrl: string | null;
     };
     expect(init.bridgeUrl).toStartWith('ws://');

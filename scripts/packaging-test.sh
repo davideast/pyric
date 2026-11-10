@@ -618,9 +618,15 @@ try {
     throw new Error(`a refused page registered as the sandbox peer: ${JSON.stringify(healthAfter)}`);
   }
 
+  const unauthenticatedMcp = await step('unauthenticated POST /mcp refused', () =>
+    fetch(`${server.url}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }));
+  if (unauthenticatedMcp.status !== 401) {
+    throw new Error(`expected unauthenticated POST /mcp to return 401, got ${unauthenticatedMcp.status}`);
+  }
+
   client = new Client({ name: 'packed-bridge-smoke', version: '1' });
   await step('MCP client connect', () =>
-    client.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`))));
+    client.connect(new StreamableHTTPClientTransport(new URL(server.mcpUrl))));
   const listed = await step('tools/list', () => client.listTools());
   // The standalone bridge advertises only the tools that run in its own
   // process (`standaloneBridgeTools`). The forwarded tools a browser peer

@@ -68,6 +68,12 @@ export type PyricMiddleware = (
   next: () => void,
 ) => void;
 
+const handlerTokens = new WeakMap<PyricMiddleware, string>();
+
+export function sessionTokenOf(handler: PyricMiddleware): string | undefined {
+  return handlerTokens.get(handler);
+}
+
 export async function bootPluginInstance(
   options: Record<string, unknown>,
   root: string,
@@ -93,6 +99,13 @@ export async function bootPluginInstance(
   await (plugin.configureServer as (server: unknown) => Promise<void>)(stub);
   const hasNoHandler = handler === undefined;
   if (hasNoHandler) throw new Error('plugin did not mount the /__pyric middleware');
+  const transformed = (plugin.transformIndexHtml as ((html: string) => string) | undefined)?.(
+    '<html><head></head></html>',
+  );
+  const tokenMatch = transformed?.match(/"sessionToken":"([^"]+)"/);
+  if (tokenMatch?.[1]) {
+    handlerTokens.set(handler, tokenMatch[1]);
+  }
   return { handler, plugin };
 }
 
@@ -181,7 +194,15 @@ export async function callPyricStack(
 }
 
 export async function initJson(handler: PyricMiddleware): Promise<import('../../src/serve/init-payload.js').InitPayload> {
-  return JSON.parse((await callPyric(handler, { path: '/__pyric/init.json' })).body);
+  const token = sessionTokenOf(handler);
+  return JSON.parse(
+    (
+      await callPyric(handler, {
+        path: '/__pyric/init.json',
+        headers: token ? { 'x-pyric-session-token': token } : undefined,
+      })
+    ).body,
+  );
 }
 
 /**

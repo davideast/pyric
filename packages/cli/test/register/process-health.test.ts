@@ -95,17 +95,26 @@ interface Answer {
   body: unknown;
 }
 
-function get(port: number, path: string, headers: Record<string, string> = {}): Promise<Answer> {
+function sendRequest(
+  port: number,
+  method: string,
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<Answer> {
   return new Promise((resolveAnswer, reject) => {
-    const req = request({ host: '127.0.0.1', port, path, headers }, (res) => {
+    const req = request({ host: '127.0.0.1', port, method, path, headers }, (res) => {
       let text = '';
       res.setEncoding('utf8');
       res.on('data', (chunk: string) => { text += chunk; });
-      res.on('end', () => resolveAnswer({ status: res.statusCode, body: JSON.parse(text) as unknown }));
+      res.on('end', () => resolveAnswer({ status: res.statusCode, body: text ? (JSON.parse(text) as unknown) : null }));
     });
     req.on('error', reject);
     req.end();
   });
+}
+
+function get(port: number, path: string, headers: Record<string, string> = {}): Promise<Answer> {
+  return sendRequest(port, 'GET', path, headers);
 }
 
 describe('GET /__pyric/health on a registered process', () => {
@@ -139,5 +148,15 @@ describe('GET /__pyric/health on a registered process', () => {
   it('leaves the path to an app that serves it under PYRIC_PROCESS_HEALTH=off', async () => {
     const port = await startServer('@pyric/live/register', { PYRIC_PROCESS_HEALTH: 'off' });
     expect(await get(port, HEALTH_PATH, ASK_HEADER)).toEqual({ status: 404, body: { app: HEALTH_PATH } });
+  }, 30_000);
+
+  it('rejects DNS-rebinding Host, foreign Origin, cross-site Sec-Fetch-Site, and non-GET/HEAD methods', async () => {
+    const port = await startServer('@pyric/live/register');
+    expect((await get(port, HEALTH_PATH, { ...ASK_HEADER, host: 'evil.example:3000' })).status).toBe(403);
+    expect((await get(port, HEALTH_PATH, { ...ASK_HEADER, origin: 'https://evil.example' })).status).toBe(403);
+    expect((await get(port, HEALTH_PATH, { ...ASK_HEADER, origin: 'http://127.0.0.1:9999' })).status).toBe(403);
+    expect((await get(port, HEALTH_PATH, { ...ASK_HEADER, 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+    expect((await sendRequest(port, 'POST', HEALTH_PATH, ASK_HEADER)).status).toBe(405);
+    expect((await sendRequest(port, 'HEAD', HEALTH_PATH, ASK_HEADER)).status).toBe(200);
   }, 30_000);
 });

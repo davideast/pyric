@@ -29,11 +29,19 @@ test('HTTP and sandbox tools share project captures across host recreation, with
   const server = await startStaticServer({ publicDir: join(root, 'public'), port: 0, host: '127.0.0.1', namespaceHandler: namespace, logger: silentServeLogger() });
   const sandbox = initializeSandbox({ projectId: 'capture-tests' });
   try {
-    const init = await (await fetch(server.url + '/__pyric/init.json')).json();
+    const unauthInit = await (await fetch(server.url + '/__pyric/init.json')).json();
+    expect(unauthInit.sessionToken).toBeUndefined();
+    const init = await (await fetch(server.url + '/__pyric/init.json', {
+      headers: { 'x-pyric-session-token': namespace.sessionToken },
+    })).json();
     const endpoint = server.url + '/__pyric/rate-captures';
     expect((await fetch(endpoint)).status).toBe(401);
     expect((await fetch(endpoint, { method: 'POST', headers: { origin: 'https://example.com', 'x-pyric-session-token': init.sessionToken }, body: text })).status).toBe(403);
-    const client = projectCaptures(((path: string, options?: RequestInit) => fetch(server.url + path, options)) as typeof fetch);
+    const client = projectCaptures(((path: string, options?: RequestInit) => {
+      const headers = new Headers(options?.headers);
+      if (!headers.has('x-pyric-session-token')) headers.set('x-pyric-session-token', init.sessionToken);
+      return fetch(server.url + path, { ...options, headers });
+    }) as typeof fetch);
     const saved = (await client.save(text))!;
     await client.rename(saved.id, 'Named from the chip');
     expect((await client.list())?.find(entry => entry.id === saved.id)?.name).toBe('Named from the chip');

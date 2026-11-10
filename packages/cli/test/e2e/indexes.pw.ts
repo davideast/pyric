@@ -73,8 +73,9 @@ for (const runtime of ['inpage', 'worker']) {
 
 test('local index endpoint requires the session capability and rejects cross-origin edits', async ({ request }) => {
   const init = await (await request.get(`${server.url}/__pyric/init.json`)).json();
+  expect(init.sessionToken).toBeUndefined();
   expect((await request.get(`${server.url}/__pyric/indexes`)).status()).toBe(401);
-  expect((await request.put(`${server.url}/__pyric/indexes`, { headers: { origin: 'https://untrusted.example', 'x-pyric-session-token': init.sessionToken }, data: {} })).status()).toBe(403);
+  expect((await request.put(`${server.url}/__pyric/indexes`, { headers: { origin: 'https://untrusted.example', 'x-pyric-session-token': server.sessionToken }, data: {} })).status()).toBe(403);
 });
 
 test('traffic badges share dimensions and alignment at narrow widths', async ({ page }) => {

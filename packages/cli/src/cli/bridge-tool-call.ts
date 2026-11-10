@@ -16,6 +16,7 @@
 
 import type { ParsedArgs } from './parse-args.js';
 import { discoverServe, selectProjectHost, type Discovered } from '../serve/discovery.js';
+import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { NO_BRIDGE_CLI_MESSAGE } from '../auth/identity.js';
 
 /** A tool result as the bridge returns it. */
@@ -76,13 +77,25 @@ async function callBridgeTool(
   mcpUrl: string,
   tool: string,
   args: Record<string, unknown>,
+  sessionToken?: string,
+  cwd?: string,
 ): Promise<BridgeToolResult> {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import(
     '@modelcontextprotocol/sdk/client/streamableHttp.js'
   );
+  const resolvedToken = resolveSessionTokenForTarget({
+    explicitToken: sessionToken,
+    url: mcpUrl,
+    cwd,
+  });
   const client = new Client({ name: 'pyric-cli', version: '1' });
-  const transport = new StreamableHTTPClientTransport(new URL(mcpUrl));
+  const transport = new StreamableHTTPClientTransport(
+    new URL(mcpUrl),
+    resolvedToken !== undefined
+      ? { requestInit: { headers: { 'x-pyric-session-token': resolvedToken } } }
+      : undefined,
+  );
   try {
     await client.connect(transport);
     return parseToolResponse(
@@ -125,7 +138,9 @@ export async function runBridgeCommand(
 
   let result: BridgeToolResult;
   try {
-    result = await (deps.callTool ?? callBridgeTool)(found.mcpUrl, tool, args);
+    result = deps.callTool
+      ? await deps.callTool(found.mcpUrl, tool, args)
+      : await callBridgeTool(found.mcpUrl, tool, args, found.token, cwd);
   } catch (error) {
     err.write(
       `pyric ${command}: the bridge at ${found.mcpUrl} did not answer ` +

@@ -32,7 +32,7 @@ export async function startSdkFlowServer(port = 0, projectDir?: string) {
     if (assets.has(path)) { res.setHeader('Content-Type', 'text/javascript'); res.end(assets.get(path)); return; }
     if (path === '/__pyric/flow/manifest.json') { res.setHeader('Content-Type', 'application/json'); res.end('{"treatments":[]}'); return; }
     res.setHeader('Content-Type', 'text/html');
-    res.end(`<!doctype html><html><head><style>
+    res.end(`<!doctype html><html><head><meta name="pyric-session-token" content="${namespace.sessionToken}"><style>
       .security-lab{display:grid;gap:16px;max-width:700px}.security-lab p,.security-lab h2,.security-lab pre{all:unset}.security-lab h2{font-size:24px;font-weight:600}.security-lab pre{font-family:monospace;white-space:pre-wrap;overflow-wrap:anywhere}.security-lab select{font:inherit;min-height:40px}.security-proposed{display:grid;gap:8px}html{color-scheme:dark;font:16px system-ui;background:#101419;color:#e7ebf1}
       body{display:grid;grid-template-columns:32px minmax(0,1fr) 32px;gap:24px}
       #app{grid-column:2;display:grid;gap:24px;min-height:400px;max-width:700px}
@@ -43,7 +43,7 @@ export async function startSdkFlowServer(port = 0, projectDir?: string) {
   await new Promise<void>(resolve => server.listen(port, '127.0.0.1', resolve));
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Missing server address');
-  return { url: `http://127.0.0.1:${address.port}`, close: () => new Promise<void>(resolve => server.close(() => resolve())) };
+  return { url: `http://127.0.0.1:${address.port}`, sessionToken: namespace.sessionToken, close: () => new Promise<void>(resolve => server.close(() => resolve())) };
 }
 if (import.meta.main) {
   const server = await startSdkFlowServer(Number(process.env.SDK_FLOW_PORT ?? 5198));

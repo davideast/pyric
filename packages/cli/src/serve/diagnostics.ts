@@ -57,10 +57,6 @@ export function createDiagnostics(mode: () => 'hosted' | 'browser', persistence?
     res.setHeader('cache-control', 'no-store');
     const readsReport = req.method === 'GET';
     if (readsReport) {
-      const url = req.url ? new URL(req.url, 'http://localhost') : null;
-      if (url?.searchParams.get('gc') === '1' && typeof (globalThis as unknown as { gc?: () => void }).gc === 'function') {
-        (globalThis as unknown as { gc: () => void }).gc();
-      }
       const mem = process.memoryUsage();
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
         version: 1,

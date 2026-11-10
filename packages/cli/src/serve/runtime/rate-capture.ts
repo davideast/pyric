@@ -1,4 +1,5 @@
 import { measurementNotes } from './rate-measurement-notes.js';
+import { stampedSessionToken } from './hosted-target.js';
 import { z } from 'zod';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { HistoryFrame } from './rate-history.js';
@@ -60,12 +61,16 @@ export function buildRateCapture(frame: HistoryFrame, thresholds: ThresholdConfi
 
 /** Read the existing protected capture endpoint without changing persistence settings. */
 export async function readSessionFixture(fetcher: typeof fetch): Promise<unknown | null> {
-  const init = await fetcher('/__pyric/init.json');
+  const stamped = stampedSessionToken();
+  const init = stamped !== undefined
+    ? await fetcher('/__pyric/init.json', { headers: { 'x-pyric-session-token': stamped } })
+    : await fetcher('/__pyric/init.json');
   if (init.status === 404 || !init.headers.get('content-type')?.includes('application/json')) return null;
   if (!init.ok) throw new Error('Unable to connect to the session capture.');
   const config = await init.json();
-  if (typeof config.sessionToken !== 'string') return null;
-  const response = await fetcher('/__pyric/capture', { headers: { 'x-pyric-session-token': config.sessionToken } });
+  const token = typeof config.sessionToken === 'string' ? config.sessionToken : stamped;
+  if (typeof token !== 'string') return null;
+  const response = await fetcher('/__pyric/capture', { headers: { 'x-pyric-session-token': token } });
   if (response.status === 404 || !response.headers.get('content-type')?.includes('application/json')) return null;
   if (!response.ok) throw new Error('Unable to read the session fixture.');
   const fixture = await response.json();

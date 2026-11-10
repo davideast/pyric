@@ -3,7 +3,7 @@
 // `pyric()`. The fixture starts one server per project, restarts the first one
 // through `server.restart()` and through an edit to its config file, and prints
 // one JSON report. Assertions stay in the test.
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { createServer as createNetServer } from 'node:net';
 import { join } from 'node:path';
 import { createServer, createLogger } from 'vite';
@@ -64,9 +64,10 @@ async function startProject(root) {
   const instanceId = async () => (await fetchJson(`${base}/__pyric/health`)).body?.instanceId ?? null;
   const method = async (key, args) => {
     const id = await instanceId();
+    const { token } = JSON.parse(readFileSync(join(root, '.pyric/serve.json'), 'utf8'));
     return await fetchJson(`${base}/__pyric/hosted/method`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-pyric-session-token': token },
       body: JSON.stringify({ instanceId: id, projectDir: root, key, args }),
     });
   };

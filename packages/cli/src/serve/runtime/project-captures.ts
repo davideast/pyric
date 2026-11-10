@@ -1,16 +1,21 @@
 import { serviceLabel } from './service-presentation.js';
+import { stampedSessionToken } from './hosted-target.js';
 import type { CaptureEntry } from '../rate-capture-store.js';
 
 /** Project transport; a standalone page can still import and download files. */
 export function projectCaptures(fetcher: typeof fetch) {
   async function request(id?: string, text?: string, method = text === undefined ? 'GET' : 'POST') {
-    const init = await fetcher('/__pyric/init.json');
+    const stamped = stampedSessionToken();
+    const init = stamped !== undefined
+      ? await fetcher('/__pyric/init.json', { headers: { 'x-pyric-session-token': stamped } })
+      : await fetcher('/__pyric/init.json');
     if (!init.ok || !init.headers.get('content-type')?.includes('application/json')) return null;
     const config = await init.json();
-    if (typeof config.sessionToken !== 'string' || config.rateCaptures !== true) return null;
+    const token = typeof config.sessionToken === 'string' ? config.sessionToken : stamped;
+    if (typeof token !== 'string' || config.rateCaptures !== true) return null;
     const response = await fetcher(`/__pyric/rate-captures${id ? `?id=${encodeURIComponent(id)}` : ''}`, {
       method,
-      headers: { 'x-pyric-session-token': config.sessionToken, 'content-type': 'application/json' }, body: text,
+      headers: { 'x-pyric-session-token': token, 'content-type': 'application/json' }, body: text,
     });
     if (response.status === 404 || !response.headers.get('content-type')?.includes('application/json')) {
       if (response.ok || response.status === 404) return null;

@@ -1,4 +1,5 @@
 import { indexPresentation } from './service-presentation.js';
+import { stampedSessionToken } from './hosted-target.js';
 import { analyzeServiceIndex, indexService, readIndexConfig, type ServiceIndexQuery, type ServiceIndexConfig, type ServiceIndexDefinition } from 'pyric/sandbox/internal';
 
 export interface LocalIndexConfig { service?: 'firestore' | 'rtdb'; status?: 'configured' | 'unconfigured'; path: string; config: ServiceIndexConfig; revision: string }
@@ -14,11 +15,15 @@ export function createIndexConfigClient(fetcher: typeof fetch): IndexConfigClien
   let token: string | undefined;
   async function request(method: string, body?: unknown, service?: 'firestore' | 'rtdb') {
     if (!token) {
-      const response = await fetcher('/__pyric/init.json');
+      const stamped = stampedSessionToken();
+      const response = stamped !== undefined
+        ? await fetcher('/__pyric/init.json', { headers: { 'x-pyric-session-token': stamped } })
+        : await fetcher('/__pyric/init.json');
       if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw new Error('No local index configuration is connected.');
       const init = await response.json();
-      if (typeof init.sessionToken !== 'string') throw new Error('No local index configuration is connected.');
-      token = init.sessionToken;
+      const resolvedToken = typeof init.sessionToken === 'string' ? init.sessionToken : stamped;
+      if (typeof resolvedToken !== 'string') throw new Error('No local index configuration is connected.');
+      token = resolvedToken;
     }
     const path = service === 'rtdb' ? '/__pyric/indexes?service=rtdb' : service === 'firestore' ? '/__pyric/indexes?service=firestore' : '/__pyric/indexes';
     const response = await fetcher(path, { method, headers: { 'x-pyric-session-token': token!, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });

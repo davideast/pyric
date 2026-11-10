@@ -3,8 +3,11 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
 import {
+  appendSetCookieHeader,
   contentTypeFor,
   decodeStaticPathname,
+  formatSessionCookie,
+  isLocalPeer,
   pipeFileToResponse,
   resolveStaticFile,
   resolveStaticPath,
@@ -90,7 +93,12 @@ function withWorkerVersion(html: string, workerVersion: string | undefined): str
 }
 
 /** Serve the one Astro tree with SPA fallback limited to generated Studio entries. */
-export function createSiteTreeHandler(root: string, workerVersion?: string, hostedProjectKey?: string) {
+export function createSiteTreeHandler(
+  root: string,
+  workerVersion?: string,
+  hostedProjectKey?: string,
+  sessionToken?: string,
+) {
   const studioRoutes = studioRoutesFromSite(root);
 
   return (
@@ -167,10 +175,22 @@ export function createSiteTreeHandler(root: string, workerVersion?: string, host
     }
 
     const contentType = contentTypeFor(resolvedFile);
-    res.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
     const isStudioHtml = studioRequest && contentType.includes('text/html');
+    const localPeer = isLocalPeer(req);
+    if (isStudioHtml && localPeer && sessionToken) {
+      appendSetCookieHeader(res, formatSessionCookie(sessionToken));
+    }
+    res.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
     if (isStudioHtml) {
-      res.end(stampHostedTarget(withWorkerVersion(readFileSync(resolvedFile, 'utf8'), workerVersion), hostedProjectKey));
+      res.end(
+        stampHostedTarget(
+          withWorkerVersion(readFileSync(resolvedFile, 'utf8'), workerVersion),
+          hostedProjectKey,
+          undefined,
+          undefined,
+          localPeer ? sessionToken : undefined,
+        ),
+      );
     } else {
       pipeFileToResponse(resolvedFile, res);
     }

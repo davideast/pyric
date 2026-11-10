@@ -26,6 +26,7 @@ import { hostedStateDirectory, loadHostedSnapshot } from '../serve/hosted/persis
 import { isStorageReference, objectFileIn, type StorageObjectReference, type StorageStateEntry } from '../serve/state-file.js';
 import { firestoreDocCount } from '../serve/state-summary.js';
 import type { ParsedArgs } from './parse-args.js';
+import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { createStateStore, type PyricStateFile } from '../serve/state-store.js';
 
 /**
@@ -57,11 +58,17 @@ interface LiveState {
 /** An object whose bytes could not be written as the document names them. */
 class SnapshotObjectError extends Error {}
 
-async function fetchLive(port: number): Promise<LiveState | null> {
+async function fetchLive(port: number, cwd?: string): Promise<LiveState | null> {
   try {
-    let headers: Record<string, string> | undefined;
+    const initialToken = resolveSessionTokenForTarget({ port, cwd });
+    let headers: Record<string, string> | undefined = initialToken !== undefined
+      ? { 'x-pyric-session-token': initialToken }
+      : undefined;
     try {
-      const initRes = await boundedFetch(`http://localhost:${port}/__pyric/init.json`, { deadlineMs: LIVE_PROBE_DEADLINE_MS });
+      const initRes = await boundedFetch(`http://localhost:${port}/__pyric/init.json`, {
+        ...(headers !== undefined ? { headers } : {}),
+        deadlineMs: LIVE_PROBE_DEADLINE_MS,
+      });
       if (initRes.status === 200) {
         const initData = (await initRes.json()) as { sessionToken?: string };
         if (initData.sessionToken) {
@@ -100,14 +107,14 @@ export interface SnapshotDeps {
   stdout?: { write(s: string): void };
   stderr?: { write(s: string): void };
   /** Injectable live-fetch (tests). */
-  fetchLive?: typeof fetchLive;
+  fetchLive?: (port: number) => Promise<LiveState | null>;
 }
 
 export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): Promise<number> {
   const out = deps.stdout ?? process.stdout;
   const err = deps.stderr ?? process.stderr;
   const cwd = deps.cwd ?? process.cwd();
-  const live = deps.fetchLive ?? fetchLive;
+  const live = deps.fetchLive ?? ((port: number) => fetchLive(port, cwd));
   const json = parsed.flags.get('json') === true || parsed.flags.get('json') === 'true';
   const force = Boolean(parsed.flags.get('force'));
   const report = json ? err : out;

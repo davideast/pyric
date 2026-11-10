@@ -38,12 +38,15 @@ afterEach(async () => {
   while (handles.length) await handles.pop()!.stop();
 });
 
+const TEST_TOKEN = 'test-denials-session-token';
+
 async function startServe(logger: ServeLogger): Promise<ServeHandle> {
   const { site, sdk } = fixture();
   const ns = createPyricNamespace({
     sdkDir: sdk,
     initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
     logger,
+    sessionToken: TEST_TOKEN,
   });
   const h = await startStaticServer({
     publicDir: site,
@@ -52,10 +55,16 @@ async function startServe(logger: ServeLogger): Promise<ServeHandle> {
     portScanLimit: 200,
     logger,
     namespaceHandler: ns,
+    sessionToken: TEST_TOKEN,
   });
   handles.push(h);
   return h;
 }
+
+const authHeaders = (extra: Record<string, string> = {}) => ({
+  'x-pyric-session-token': TEST_TOKEN,
+  ...extra,
+});
 
 const denialBody = (overrides: Record<string, unknown> = {}) => ({
   kind: 'read',
@@ -75,7 +84,7 @@ describe('/__pyric/denials', () => {
     const h = await startServe(logger);
     const res = await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(denialBody()),
     });
     expect(res.status).toBe(204);
@@ -85,13 +94,25 @@ describe('/__pyric/denials', () => {
     expect(notes[0]).toContain('user-1');
   });
 
+  it('refuses an unauthenticated POST with 401 and prints nothing', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const res = await fetch(`${h.url}/__pyric/denials`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(denialBody()),
+    });
+    expect(res.status).toBe(401);
+    expect(notes).toEqual([]);
+  });
+
   it('throttles a repeat of the SAME (path, message) — silent, no output', async () => {
     const { logger, notes } = recordingLogger();
     const h = await startServe(logger);
     for (let i = 0; i < 3; i++) {
       const res = await fetch(`${h.url}/__pyric/denials`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders({ 'content-type': 'application/json' }),
         body: JSON.stringify(denialBody()),
       });
       expect(res.status).toBe(204);
@@ -104,12 +125,12 @@ describe('/__pyric/denials', () => {
     const h = await startServe(logger);
     await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(denialBody()),
     });
     await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(
         denialBody({
           message: 'list tickets denied by rules',
@@ -136,7 +157,7 @@ describe('/__pyric/denials', () => {
     for (const instance of ['demo-app-default-rtdb', 'demo-app-shard-1', 'demo-app-shard-1']) {
       await fetch(`${h.url}/__pyric/denials`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders({ 'content-type': 'application/json' }),
         body: JSON.stringify(onInstance(instance)),
       });
     }
@@ -148,7 +169,7 @@ describe('/__pyric/denials', () => {
   it('rejects non-POST with 405', async () => {
     const { logger } = recordingLogger();
     const h = await startServe(logger);
-    const res = await fetch(`${h.url}/__pyric/denials`);
+    const res = await fetch(`${h.url}/__pyric/denials`, { headers: authHeaders() });
     expect(res.status).toBe(405);
     expect(res.headers.get('allow')).toBe('POST');
   });
@@ -158,7 +179,7 @@ describe('/__pyric/denials', () => {
     const h = await startServe(logger);
     const res = await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: 'not json',
     });
     expect(res.status).toBe(204);
@@ -170,7 +191,7 @@ describe('/__pyric/denials', () => {
     const h = await startServe(logger);
     const res = await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'text/plain', origin: 'http://localhost:1' },
+      headers: authHeaders({ 'content-type': 'text/plain', origin: 'http://localhost:1' }),
       body: JSON.stringify(denialBody({ message: 'forged from another page' })),
     });
     expect(res.status).toBe(403);
@@ -182,7 +203,7 @@ describe('/__pyric/denials', () => {
     const h = await startServe(logger);
     const res = await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: new URL(h.url).origin },
+      headers: authHeaders({ 'content-type': 'application/json', origin: new URL(h.url).origin }),
       body: JSON.stringify(denialBody()),
     });
     expect(res.status).toBe(204);
@@ -194,7 +215,7 @@ describe('/__pyric/denials', () => {
     const h = await startServe(logger);
     const res = await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(denialBody({ message: 'x'.repeat(DENIAL_BODY_LIMIT_BYTES) })),
     });
     expect(res.status).toBe(413);
@@ -205,7 +226,7 @@ describe('/__pyric/denials', () => {
     const h = await startServe(recordingLogger().logger);
     const oversized = await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(denialBody({ message: 'x'.repeat(1024 * 1024) })),
     });
     await expectClosedEarlyAnswer(oversized, 413, `${h.url}/__pyric/denials`);
@@ -216,7 +237,7 @@ describe('/__pyric/denials', () => {
     const h = await startServe(logger);
     const res = await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(denialBody({ message: 'x\u001b]0;OWNED\u0007\nFAKE pyric line' })),
     });
     expect(res.status).toBe(204);
@@ -230,6 +251,7 @@ describe('/__pyric/denials', () => {
     const ns = createPyricNamespace({
       sdkDir: sdk,
       initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      sessionToken: TEST_TOKEN,
     });
     const h = await startStaticServer({
       publicDir: site,
@@ -238,11 +260,12 @@ describe('/__pyric/denials', () => {
       portScanLimit: 200,
       logger: recordingLogger().logger,
       namespaceHandler: ns,
+      sessionToken: TEST_TOKEN,
     });
     handles.push(h);
     const res = await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(denialBody()),
     });
     expect(res.status).toBe(204); // no throw despite the namespace having no logger

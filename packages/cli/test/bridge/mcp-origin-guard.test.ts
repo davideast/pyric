@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { startServer as startBridgeServer } from '../../src/bridge/server/standalone.js';
 import { createBridgeMount } from '../../src/serve/bridge-mount.js';
 import { startStaticServer, silentServeLogger } from '../../src/serve/server.js';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, statSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -115,34 +115,76 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
       }
     });
 
-    it('allows loopback HTTP POST /mcp without Origin or with loopback Origin', async () => {
+    it('requires session capability token on POST /mcp (401 without, 200 with header or ?token=)', async () => {
       const server = await startBridgeServer({
         port: 0,
         silent: true,
       });
 
       try {
-        const res = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+        const body = JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: 'valid-client', version: '1.0' },
+          },
+        });
+        const baseHeaders = {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
+          'Host': `127.0.0.1:${server.port}`,
+          'Origin': `http://127.0.0.1:${server.port}`,
+        };
+
+        const unauth = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+          method: 'POST',
+          headers: baseHeaders,
+          body,
+        });
+        expect(unauth.status).toBe(401);
+
+        const crossSiteNoOrigin = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json, text/event-stream',
             'Host': `127.0.0.1:${server.port}`,
-            'Origin': `http://127.0.0.1:${server.port}`,
+            'Sec-Fetch-Site': 'cross-site',
+            'x-pyric-session-token': (server as unknown as { sessionToken: string }).sessionToken,
           },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'initialize',
-            params: {
-              protocolVersion: '2024-11-05',
-              capabilities: {},
-              clientInfo: { name: 'valid-client', version: '1.0' },
-            },
-          }),
+          body,
         });
+        expect(crossSiteNoOrigin.status).toBe(403);
 
+        const badHealthHost = await fetch(`http://127.0.0.1:${server.port}/health`, {
+          headers: { Host: 'evil.example' },
+        });
+        expect(badHealthHost.status).toBe(403);
+
+        const postHealth = await fetch(`http://127.0.0.1:${server.port}/health`, {
+          method: 'POST',
+        });
+        expect(postHealth.status).toBe(405);
+
+        const res = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+          method: 'POST',
+          headers: {
+            ...baseHeaders,
+            'x-pyric-session-token': (server as unknown as { sessionToken: string }).sessionToken,
+          },
+          body,
+        });
         expect(res.status).toBe(200);
+
+        const viaMcpUrl = await fetch((server as unknown as { mcpUrl: string }).mcpUrl, {
+          method: 'POST',
+          headers: baseHeaders,
+          body,
+        });
+        expect(viaMcpUrl.status).toBe(200);
       } finally {
         await server.stop();
       }
@@ -245,7 +287,7 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
       }
     });
 
-    it('allows loopback HTTP POST /__pyric/mcp with same-origin or no Origin', async () => {
+    it('requires session capability token on mounted routes, redacts unauthenticated /__pyric/health, refuses allowedHosts:true bypass, and writes 0o600 serve.json', async () => {
       const tempDir = mkdtempSync(join(tmpdir(), 'pyric-mount-origin-test-'));
       mkdirSync(join(tempDir, 'public'));
       writeFileSync(join(tempDir, 'public', 'index.html'), '<html></html>');
@@ -253,7 +295,13 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
       const mount = createBridgeMount({
         project: 'test-proj',
         disableAuditLog: true,
-        upgradeGuard: { boundHost: '127.0.0.1' },
+        upgradeGuard: { boundHost: '127.0.0.1', allowedHosts: true },
+        liveHost: {
+          report: () => ({ projectId: 'secret-live-proj', configProjectId: 'secret-live-proj', configSource: '.firebaserc', appProjectIds: [], billed: { reads: 1, writes: 0, deliveries: 0 } }),
+          inbound: () => {},
+          outbound: () => {},
+          readClientIds: () => {},
+        } as never,
       });
 
       const serverHandle = await startStaticServer({
@@ -263,8 +311,57 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
         logger: silentServeLogger(),
         namespaceHandler: mount.handler,
       });
+      const attachment = mount.attachHost({
+        servers: serverHandle.servers,
+        lifecycleServer: serverHandle.server,
+        projectDir: tempDir,
+        origin: () => ({ host: '127.0.0.1', port: serverHandle.port }),
+      });
 
       try {
+        const token = (mount as unknown as { sessionToken: string }).sessionToken;
+        const pointerPath = join(tempDir, '.pyric', 'serve.json');
+        expect(statSync(pointerPath).mode & 0o777).toBe(0o600);
+        const pointerJson = JSON.parse(readFileSync(pointerPath, 'utf8')) as { token?: string; mcpUrl?: string };
+        expect(pointerJson.token).toBe(token);
+        expect(pointerJson.mcpUrl).toContain(`token=${encodeURIComponent(token)}`);
+
+        // Unauthenticated health returns minimal readiness without live/project metadata; POST is 405; cross-site is 403.
+        const unauthHealthRes = await fetch(`${serverHandle.url}/__pyric/health`);
+        expect(unauthHealthRes.status).toBe(200);
+        const unauthHealth = (await unauthHealthRes.json()) as Record<string, unknown>;
+        expect(unauthHealth.status).toBe('ok');
+        expect(unauthHealth.live).toBeUndefined();
+        expect(unauthHealth.project).toBeUndefined();
+
+        const authHealthRes = await fetch(`${serverHandle.url}/__pyric/health`, {
+          headers: { 'x-pyric-session-token': token },
+        });
+        const authHealth = (await authHealthRes.json()) as Record<string, unknown>;
+        expect(authHealth.live).toBeDefined();
+        expect(authHealth.project).toBe('test-proj');
+
+        expect((await fetch(`${serverHandle.url}/__pyric/health`, { method: 'POST' })).status).toBe(405);
+        expect((await fetch(`${serverHandle.url}/__pyric/health`, { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status).toBe(403);
+
+        // Mounted admin/live/hosted/mcp routes return 401 without token even on loopback, and 403 on cross-site Sec-Fetch-Site.
+        for (const [method, path] of [
+          ['POST', '/__pyric/mcp'],
+          ['POST', '/__pyric/hosted/method'],
+          ['POST', '/__pyric/hosted/repro'],
+          ['GET', '/__pyric/live/session-data'],
+          ['POST', '/__pyric/live/seed-sandbox'],
+        ] as const) {
+          const r401 = await fetch(`${serverHandle.url}${path}`, { method });
+          expect(r401.status).toBe(401);
+          const r403 = await fetch(`${serverHandle.url}${path}`, {
+            method,
+            headers: { 'Sec-Fetch-Site': 'cross-site', 'x-pyric-session-token': token },
+          });
+          expect(r403.status).toBe(403);
+        }
+
+        // Valid token succeeds on /__pyric/mcp.
         const res = await fetch(`${serverHandle.url}/__pyric/mcp`, {
           method: 'POST',
           headers: {
@@ -272,6 +369,7 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
             'Accept': 'application/json, text/event-stream',
             'Origin': serverHandle.url,
             'Host': `127.0.0.1:${serverHandle.port}`,
+            'x-pyric-session-token': token,
           },
           body: JSON.stringify({
             jsonrpc: '2.0',
@@ -287,6 +385,7 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
 
         expect(res.status).toBe(200);
       } finally {
+        await attachment.close();
         await serverHandle.stop();
         await mount.close();
         rmSync(tempDir, { recursive: true, force: true });

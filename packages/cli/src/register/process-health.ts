@@ -15,6 +15,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { isLoopbackAddress } from '../serve/peer.js';
+import { isAllowedLoopbackRequest } from '../serve/server.js';
 
 export const PROCESS_HEALTH_PATH = '/__pyric/health';
 /** The request header that asks for this process's health rather than the app's. */
@@ -39,7 +40,7 @@ interface HealthRequest {
   method?: string;
   url?: string;
   headers?: Record<string, string | string[] | undefined>;
-  socket?: { remoteAddress?: string };
+  socket?: { remoteAddress?: string; localPort?: number };
 }
 
 type Emit = (event: string | symbol, ...args: unknown[]) => boolean;
@@ -48,23 +49,39 @@ function requestPath(url: string | undefined): string {
   return (url ?? '').split('?', 1)[0] ?? '';
 }
 
-function asksForProcessHealth(req: HealthRequest): boolean {
-  const isHealthGet = req.method === 'GET' && requestPath(req.url) === PROCESS_HEALTH_PATH;
+function isProcessHealthProbe(req: HealthRequest): boolean {
+  const isHealthPath = requestPath(req.url) === PROCESS_HEALTH_PATH;
   const asks = req.headers?.[PROCESS_HEALTH_HEADER] !== undefined;
-  return isHealthGet && asks && isLoopbackAddress(req.socket?.remoteAddress);
+  return isHealthPath && asks && isLoopbackAddress(req.socket?.remoteAddress);
 }
 
-function answer(res: http.ServerResponse, health: ProcessHealth): void {
+function handleProcessHealth(req: HealthRequest, res: http.ServerResponse, health: () => ProcessHealth): void {
+  const localPort = req.socket?.localPort;
+  const appPorts = localPort === undefined ? undefined : [localPort];
+  if (!isAllowedLoopbackRequest(req, 'localhost', [], appPorts)) {
+    res.writeHead(403, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ error: 'forbidden' }));
+    return;
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, {
+      'content-type': 'application/json',
+      allow: 'GET, HEAD',
+      'cache-control': 'no-store',
+    });
+    res.end(JSON.stringify({ error: 'method not allowed' }));
+    return;
+  }
   res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-  res.end(JSON.stringify({ pyricProcess: health }));
+  res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ pyricProcess: health() }));
 }
 
 function wrapEmit(prototype: { emit: Emit }, health: () => ProcessHealth): void {
   const original = prototype.emit;
   prototype.emit = function emit(this: unknown, event, ...args) {
     const isRequest = event === 'request';
-    if (isRequest && asksForProcessHealth(args[0] as HealthRequest)) {
-      answer(args[1] as http.ServerResponse, health());
+    if (isRequest && isProcessHealthProbe(args[0] as HealthRequest)) {
+      handleProcessHealth(args[0] as HealthRequest, args[1] as http.ServerResponse, health);
       return true;
     }
     return original.call(this, event, ...args);

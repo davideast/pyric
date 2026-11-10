@@ -239,14 +239,21 @@ export function aiDiagnosticPayloadFor(event: SandboxEvent): AiDiagnosticRelayPa
  * returns nothing to unsubscribe with, mirroring the guard next door, since
  * the subscription is observational and lives for the plane's lifetime.
  */
-export function setupAiDiagnosticsRelay(feed: AiDiagnosticsFeed, fetchFn: typeof fetch): void {
+export function setupAiDiagnosticsRelay(
+  feed: AiDiagnosticsFeed,
+  fetchFn: typeof fetch,
+  sessionToken?: string | (() => string | undefined),
+): void {
   feed.subscribe((event) => {
     const payload = aiDiagnosticPayloadFor(event);
     if (payload === null) return;
     try {
+      const resolvedToken = typeof sessionToken === 'function' ? sessionToken() : sessionToken;
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (resolvedToken) headers['x-pyric-session-token'] = resolvedToken;
       void fetchFn('/__pyric/denials', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       }).catch(() => {
         /* Diagnostics are best-effort and must never affect app behavior. */

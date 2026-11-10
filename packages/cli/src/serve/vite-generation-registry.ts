@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import type { ProjectStateScope } from './hosted/project-ownership.js';
 
@@ -25,6 +26,35 @@ export interface ViteGenerationSlot {
 // which also loads a second copy of this module. The registry therefore lives
 // on the global object, under a key every copy computes the same way.
 const REGISTRY_KEY = Symbol.for('pyric.vite.activeGenerations');
+const SESSION_TOKEN_KEY = Symbol.for('pyric.vite.projectSessionTokens');
+
+function canonicalProjectDir(projectDir: string): string {
+  try {
+    return realpathSync(projectDir);
+  } catch {
+    return projectDir;
+  }
+}
+
+/**
+ * Per-boot capability token for a Vite project in this OS process. Reused across
+ * in-process Vite config-edit restarts so already-open browser tabs reconnect
+ * without losing authorization, while a fresh OS process mints a fresh token.
+ */
+export function projectSessionToken(projectDir: string): string {
+  const holder = globalThis as unknown as Record<symbol, Map<string, string> | undefined>;
+  let tokens = holder[SESSION_TOKEN_KEY];
+  if (tokens === undefined) {
+    tokens = new Map<string, string>();
+    holder[SESSION_TOKEN_KEY] = tokens;
+  }
+  const key = canonicalProjectDir(projectDir);
+  const existing = tokens.get(key);
+  if (existing !== undefined) return existing;
+  const created = randomBytes(24).toString('base64url');
+  tokens.set(key, created);
+  return created;
+}
 
 function projectRegistry(): Map<string, RegisteredGeneration> {
   const holder = globalThis as unknown as Record<symbol, Map<string, RegisteredGeneration> | undefined>;

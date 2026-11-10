@@ -3,7 +3,7 @@
  * `localhost`, so it works over Tailscale / a LAN IP / `tailscale serve` (https).
  */
 import { describe, it, expect } from 'bun:test';
-import { toPageOriginWsUrl } from '../../src/serve/entries/bridge-url.js';
+import { toPageOriginWsUrl, withWsSessionToken } from '../../src/serve/entries/bridge-url.js';
 
 const loc = (href: string) => {
   const u = new URL(href);
@@ -44,5 +44,27 @@ describe('toPageOriginWsUrl', () => {
     expect(toPageOriginWsUrl('ws://localhost:4288/__pyric/sandbox', loc('http://127.0.0.1:4289/'))).toBe(
       'ws://127.0.0.1:4288/__pyric/sandbox',
     );
+  });
+
+  it('preserves query parameters such as ?token= when re-anchoring', () => {
+    expect(toPageOriginWsUrl(
+      'ws://127.0.0.1:5217/__pyric/sandbox?token=abc-123',
+      loc('https://box.tail1234.ts.net:8457/'),
+      'page-origin',
+    )).toBe('wss://box.tail1234.ts.net:8457/__pyric/sandbox?token=abc-123');
+  });
+});
+
+describe('withWsSessionToken', () => {
+  it('returns url unchanged when token is absent or already present', () => {
+    expect(withWsSessionToken(RAW, undefined)).toBe(RAW);
+    expect(withWsSessionToken(RAW, null)).toBe(RAW);
+    expect(withWsSessionToken(RAW, '')).toBe(RAW);
+    expect(withWsSessionToken(`${RAW}?token=existing`, 'new-token')).toBe(`${RAW}?token=existing`);
+  });
+
+  it('appends ?token= or &token= encoded safely', () => {
+    expect(withWsSessionToken(RAW, 'tok+1/2')).toBe(`${RAW}?token=tok%2B1%2F2`);
+    expect(withWsSessionToken(`${RAW}?mode=hosted`, 'tok1')).toBe(`${RAW}?mode=hosted&token=tok1`);
   });
 });

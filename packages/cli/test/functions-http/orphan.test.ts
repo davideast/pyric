@@ -76,7 +76,7 @@ async function sandboxWithServingChild(): Promise<{ cli: ChildProcess; childPid:
   if (!pointer) throw new Error(`pyric sandbox did not start:\n${output}`);
   const url = pointer.url.replace(/\/$/, '');
   const ctx = await createFunctionsWorkerHostCtx({ persistenceKeyPrefix: 'functions-orphan', instanceId: 'functions-orphan' });
-  peers.push(await connectFunctionsWorkerPeer({ url: `${url.replace(/^http/, 'ws')}/__pyric/sandbox`, ctx, sandboxId: 'functions-orphan-peer' }));
+  peers.push(await connectFunctionsWorkerPeer({ url: `${url.replace(/^http/, 'ws')}/__pyric/sandbox`, ctx, sandboxId: 'functions-orphan-peer', cwd }));
   const serving = await waitFor(async () => {
     const response = await fetch(`${url}/${PROJECT_ID}/us-central1/pyricHttpEcho`).catch(() => null);
     return response?.status === 200 ? true : null;

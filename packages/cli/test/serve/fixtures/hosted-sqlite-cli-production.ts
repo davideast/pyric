@@ -28,8 +28,14 @@ async function run(flags: string[], env: NodeJS.ProcessEnv = {}) {
     env,
     stdout: { write: text => { output += text; } },
     stderr: { write: () => {} },
-    discover: async () => ({ url: base, base, mcpUrl: `${base}/__pyric/mcp`,
-      instanceId: mount.instanceId, source: 'pointer .pyric/serve.json' }),
+    discover: async () => ({
+      url: base,
+      base,
+      mcpUrl: mount.mcpUrl({ host: '127.0.0.1', port: address.port }),
+      sessionToken: mount.sessionToken,
+      instanceId: mount.instanceId,
+      source: 'pointer .pyric/serve.json',
+    }),
   });
   assert.equal(code, 2);
   return JSON.parse(output);

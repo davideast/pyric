@@ -15,6 +15,7 @@ import type { SandboxHistoryEvent } from "pyric/rules/internal/usage";
 import { DEFAULT_BUCKET } from "pyric/storage/internal";
 import { boundedFetch } from "../bounded-request.js";
 import { HOSTED_METHOD_PATH } from "../serve/hosted/method-protocol.js";
+import { resolveSessionTokenForTarget } from "../serve/local-session-token.js";
 import {
   isStorageReference,
   parseStateFile,
@@ -133,9 +134,14 @@ async function fetchHostedEvents(
   instanceId: string | null | undefined,
   projectDir: string | undefined,
   customFetch: typeof fetch | undefined,
+  sessionToken: string | undefined,
 ): Promise<SandboxHistoryEvent[]> {
   if (!instanceId || !projectDir) return [];
   try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (sessionToken !== undefined && sessionToken.length > 0) {
+      headers["x-pyric-session-token"] = sessionToken;
+    }
     const reqOpts: {
       method: "POST";
       headers: Record<string, string>;
@@ -143,7 +149,7 @@ async function fetchHostedEvents(
       customFetch?: typeof fetch;
     } = {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({
         instanceId,
         projectDir,
@@ -211,11 +217,17 @@ export async function cloneLoopbackSandboxHttp(
     projectDir?: string;
     configuredBuckets?: readonly string[];
     defaultBucket?: string;
+    sessionToken?: string;
   } = {},
 ): Promise<LoopbackCloneResult> {
   const parsedUrl = parseLoopbackOrigin(rawUrl);
   const origin = parsedUrl.origin;
   const customFetch = options.fetchImpl;
+  const initialToken = resolveSessionTokenForTarget({
+    explicitToken: options.sessionToken,
+    url: origin,
+    cwd: options.projectDir,
+  });
   const getLoopback = async (
     targetUrl: string,
     headers: Record<string, string>,
@@ -236,7 +248,10 @@ export async function cloneLoopbackSandboxHttp(
 
   let initRes: Response;
   try {
-    initRes = await getLoopback(`${origin}/__pyric/init.json`, {});
+    initRes = await getLoopback(
+      `${origin}/__pyric/init.json`,
+      initialToken !== undefined ? { "x-pyric-session-token": initialToken } : {},
+    );
   } catch (error) {
     if (error instanceof AssuranceInputError) throw error;
     let detail = String(error);
@@ -267,11 +282,12 @@ export async function cloneLoopbackSandboxHttp(
   }
   const initPayload = parsedInit as InitMetadataPayload;
   const headers: Record<string, string> = {};
-  if (
-    typeof initPayload.sessionToken === "string" &&
-    initPayload.sessionToken.length > 0
-  ) {
-    headers["x-pyric-session-token"] = initPayload.sessionToken;
+  const effectiveToken =
+    typeof initPayload.sessionToken === "string" && initPayload.sessionToken.length > 0
+      ? initPayload.sessionToken
+      : initialToken;
+  if (effectiveToken !== undefined && effectiveToken.length > 0) {
+    headers["x-pyric-session-token"] = effectiveToken;
   }
 
   let stateBody: PyricStateFile | null = null;
@@ -630,6 +646,7 @@ export async function cloneLoopbackSandboxHttp(
     initPayload.instanceId,
     options.projectDir,
     customFetch,
+    headers["x-pyric-session-token"],
   );
 
   return {

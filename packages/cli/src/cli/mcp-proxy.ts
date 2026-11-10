@@ -63,6 +63,7 @@ import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk/t
 import type { ParsedArgs } from './parse-args.js';
 import { allowProductionFrom } from '../bridge/surface/method-effects.js';
 import { discoverServe, SCAN_PORTS, selectProjectHost, type Discovered } from '../serve/discovery.js';
+import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER } from '../serve/mcp-project.js';
 
 // Discovery (pointer + identity-pinned health probing) lives in
@@ -265,6 +266,12 @@ export async function runMcpProxy(
     const targetInstanceId = target.instanceId;
     const hasInstanceIdentity = targetInstanceId !== null;
     if (hasInstanceIdentity) requestHeaders[MCP_INSTANCE_HEADER] = targetInstanceId;
+    const token = resolveSessionTokenForTarget({
+      explicitToken: target.token,
+      url: target.mcpUrl,
+      cwd: target.pointerProjectDir ?? cwd,
+    });
+    if (token !== undefined) requestHeaders['x-pyric-session-token'] = token;
     return new StreamableHTTPClientTransport(new URL(target.mcpUrl), {
       requestInit: { headers: requestHeaders },
     });

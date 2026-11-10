@@ -1,4 +1,5 @@
 import { readThresholdConfig, type ThresholdConfig } from './rate-threshold-config.js';
+import { stampedSessionToken } from './hosted-target.js';
 export interface LocalThresholdConfig { config: ThresholdConfig; revision: string }
 export interface ThresholdConfigClient {
   read(): Promise<LocalThresholdConfig | null>;
@@ -16,13 +17,17 @@ export function createThresholdConfigClient(fetcher: typeof fetch): ThresholdCon
   }
   return {
     async read() {
-      const response = await fetcher('/__pyric/init.json');
+      const stamped = stampedSessionToken();
+      const response = stamped !== undefined
+        ? await fetcher('/__pyric/init.json', { headers: { 'x-pyric-session-token': stamped } })
+        : await fetcher('/__pyric/init.json');
       if (response.status === 404 || !response.headers.get('content-type')?.includes('application/json')) return null;
       if (!response.ok) throw new Error('Unable to connect to local threshold settings.');
       const init = await response.json();
       if (init.thresholds !== true) return null;
-      if (typeof init.sessionToken !== 'string') throw new Error('Reload to reconnect to local threshold settings.');
-      token = init.sessionToken;
+      const resolvedToken = typeof init.sessionToken === 'string' ? init.sessionToken : stamped;
+      if (typeof resolvedToken !== 'string') throw new Error('Reload to reconnect to local threshold settings.');
+      token = resolvedToken;
       return request('GET');
     },
     save: (config, revision) => request('PUT', { config, revision }),

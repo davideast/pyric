@@ -35,8 +35,7 @@ async function serve(cwd: string, persist = true): Promise<ServeRuntime> {
     logger: silentServeLogger(),
   });
   stops.push(r);
-  const init = (await (await fetch(`${r.handle.url}/__pyric/init.json`)).json()) as { sessionToken: string };
-  tokens.set(r, init.sessionToken);
+  tokens.set(r, r.sessionToken);
   return r;
 }
 
@@ -153,8 +152,7 @@ describe('pyric dev --persist', () => {
       persist: true, fresh: true, logger: silentServeLogger(),
     });
     stops.push(r2);
-    const initR2 = (await (await fetch(`${r2.handle.url}/__pyric/init.json`)).json()) as { sessionToken: string };
-    tokens.set(r2, initR2.sessionToken);
+    tokens.set(r2, r2.sessionToken);
     expect(JSON.parse(serveJsonLine(r2)).restoredDocs).toBe(0);
     expect(r2.payload().seed).toEqual({ 'posts/seeded': { title: 's' } }); // seed back in play
     expect((await fetch(`${r2.handle.url}/__pyric/state?section=firestore`, { headers: authHeaders(r2) })).status).toBe(404); // wiped

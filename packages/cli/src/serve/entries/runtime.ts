@@ -36,7 +36,8 @@ import { initPayload, initPayloadRequest, logInitPayloadFailure } from './init-p
 export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
 import { onServiceUsed } from './service-use.js';
-import { toPageOriginWsUrl } from './bridge-url.js';
+import { stampedSessionToken } from '../runtime/hosted-target.js';
+import { toPageOriginWsUrl, withWsSessionToken } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
 import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
@@ -121,6 +122,7 @@ if (!useWorker) {
 
 let bridgeUrlFromPayload: string | null = null;
 let activityTokenFromPayload: string | null = null;
+let sessionTokenFromPayload: string | null = stampedSessionToken() ?? null;
 
 /**
  * The one `/__pyric/init.json` read per page. The in-page path applies the
@@ -145,6 +147,7 @@ if (!useWorker) try {
   const payload = await initPayloadRequest;
   bridgeUrlFromPayload = payload.bridgeUrl;
   activityTokenFromPayload = payload.activityToken ?? null;
+  sessionTokenFromPayload = payload.sessionToken ?? sessionTokenFromPayload;
   // The avatar mint goes in BEFORE the first user record: the minted
   // `photoURL` is stored on the record at creation, never recomputed. This
   // server mounts the avatar route (`avatars: true`) → provider users get its
@@ -502,12 +505,15 @@ if (typeof window !== 'undefined') {
 
 // ── bridge peer (only when `pyric dev --bridge` put a URL in the payload;
 //    dynamic import so bridge-less pages never load the client chunk) ─────
-async function connectBridgePeer(rawUrl: string): Promise<void> {
+async function connectBridgePeer(rawUrl: string, token?: string | null): Promise<void> {
   if (useHosted) return;
   // Re-anchor the bridge WS to THIS page's origin so it reaches the server the
   // page was actually served from over Tailscale / a LAN IP / https, not the
   // server's baked-in localhost. See bridge-url.ts.
-  const url = toPageOriginWsUrl(rawUrl, window.location);
+  const url = withWsSessionToken(
+    toPageOriginWsUrl(rawUrl, window.location),
+    token ?? sessionTokenFromPayload,
+  );
   const { connectBridge } = await import('../../bridge/client/bridge.js');
   // On the worker path, route agent tool-calls THROUGH the SharedWorker so the
   // agent shares the one sandbox the app + Studio use (no separate in-page
@@ -559,8 +565,9 @@ if (bridgeUrlFromPayload) {
       return;
     }
     try {
+      if (payload?.sessionToken) sessionTokenFromPayload = payload.sessionToken;
       const url = payload?.bridgeUrl ?? null;
-      if (url) await connectBridgePeer(url);
+      if (url) await connectBridgePeer(url, payload?.sessionToken);
     } catch (e) {
       runtimeStatus.reportError(e, 'runtime');
       console.error('[pyric sandbox] bridge connect failed:', e instanceof Error ? e.message : String(e));
@@ -622,7 +629,10 @@ if (enablesFallbackTabSync) {
 // pages would otherwise exhaust Chrome's ~6-connections-per-origin cap and a
 // later tab's navigation would hang until an earlier tab closed.
 if (!useWorker && typeof EventSource !== 'undefined') {
-  const events = new EventSource('/__pyric/events');
+  const eventsUrl = sessionTokenFromPayload
+    ? `/__pyric/events?token=${encodeURIComponent(sessionTokenFromPayload)}`
+    : '/__pyric/events';
+  const events = new EventSource(eventsUrl);
   events.addEventListener('rules-changed', (e) => {
     try {
       const { rules, rulesHash } = JSON.parse((e as MessageEvent).data as string) as {

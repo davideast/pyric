@@ -20,6 +20,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { boundedRequest, type BoundedResponse } from '../bounded-request.js';
+import { inProcessSessionTokenForPort, resolveSessionTokenForTarget } from './local-session-token.js';
 
 /** Ports probed when the pointer is absent — serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss
@@ -76,6 +77,8 @@ export interface Discovered {
   /** Identity pinned at discovery. Null only when talking to an older server
    *  that predates the instanceId field (matching is then skipped). */
   instanceId: string | null;
+  /** Per-boot session capability token from `.pyric/serve.json` or in-process registry. */
+  token?: string;
   source: string;
 }
 
@@ -323,7 +326,7 @@ function urlNamesHost(url: string, host: Discovered): boolean {
 /** How an explicit `PYRIC_SANDBOX=remote:<url>` resolves. */
 export type ExplicitHostChoice =
   /** The URL answers as this project's host: attach there. */
-  | { kind: 'explicit'; serveUrl: string; base: string }
+  | { kind: 'explicit'; serveUrl: string; base: string; token?: string }
   /** The URL is stale or names another host, and this project has a running
    *  host: attach to that one, after showing `notice` once. */
   | { kind: 'project'; host: Discovered; notice: string }
@@ -356,16 +359,25 @@ export async function selectExplicitHost(input: {
   const answeredId = answered?.instanceId ?? null;
   const launcherId = input.launcherInstanceId;
   const isLauncherHost = answered !== null && launcherId !== undefined && launcherId !== '' && answeredId === launcherId;
-  if (isLauncherHost) return { kind: 'explicit', serveUrl, base: answered.base };
+  if (isLauncherHost) {
+    const token = resolveSessionTokenForTarget({ url: answered.base, cwd: input.cwd });
+    return { kind: 'explicit', serveUrl, base: answered.base, ...(token !== undefined ? { token } : {}) };
+  }
 
   const project = selectProjectHost(await (input.discover ?? discoverServe)(input.cwd), () => {});
   const isProjectHost = answered !== null && project !== null && answeredId !== null && answeredId === project.instanceId;
-  if (isProjectHost) return { kind: 'explicit', serveUrl, base: answered.base };
+  if (isProjectHost) {
+    const token = project.token ?? resolveSessionTokenForTarget({ url: answered.base, cwd: input.cwd });
+    return { kind: 'explicit', serveUrl, base: answered.base, ...(token !== undefined ? { token } : {}) };
+  }
   // The probe found nothing, and discovery, a moment later, found this
   // project's host at the same url: the host was starting or restarting
   // between the two, so the url is current, not stale (#1527).
   const projectAnswersAtUrl = answered === null && project !== null && urlNamesHost(serveUrl, project);
-  if (projectAnswersAtUrl) return { kind: 'explicit', serveUrl, base: project.base };
+  if (projectAnswersAtUrl) {
+    const token = project.token ?? resolveSessionTokenForTarget({ url: project.base, cwd: input.cwd });
+    return { kind: 'explicit', serveUrl, base: project.base, ...(token !== undefined ? { token } : {}) };
+  }
 
   const portable = 'Set PYRIC_SANDBOX=remote to find this project\'s host through .pyric/serve.json.';
   if (project !== null) {
@@ -432,6 +444,8 @@ export interface ProjectPointer {
   url: string;
   /** The host's identity, or `null` for a pointer that records none. */
   instanceId: string | null;
+  /** Per-boot session capability token, when recorded in the pointer. */
+  token?: string;
 }
 
 /** A pointer's identity, or `null` when it records none. */
@@ -439,6 +453,11 @@ function pointerInstanceId(pointer: ServePointer): string | null {
   const id = pointer.instanceId;
   const hasId = typeof id === 'string' && id !== '';
   return hasId ? id : null;
+}
+
+function pointerToken(pointer: ServePointer): string | undefined {
+  const token = pointer.token;
+  return typeof token === 'string' && token !== '' ? token : undefined;
 }
 
 /**
@@ -456,7 +475,14 @@ export function readProjectPointer(cwd: string): ProjectPointer | null {
       if (isLeftOver) continue;
       const port = p.port ?? portOf(p.mcpUrl) ?? portOf(p.url);
       const hasPort = port !== null && Boolean(port);
-      if (hasPort) return { url: canonicalServeUrl(port, p.url), instanceId: pointerInstanceId(p) };
+      if (hasPort) {
+        const token = pointerToken(p) ?? inProcessSessionTokenForPort(port);
+        return {
+          url: canonicalServeUrl(port, p.url),
+          instanceId: pointerInstanceId(p),
+          ...(token !== undefined ? { token } : {}),
+        };
+      }
     } catch {
       /* corrupt pointer: try the next candidate */
     }
@@ -498,6 +524,7 @@ export interface ServePointer {
   port?: number;
   pid?: unknown;
   instanceId?: string;
+  token?: string;
 }
 
 type PointerOutcome =
@@ -544,6 +571,7 @@ async function probePointer(pointerPath: string): Promise<PointerOutcome> {
   } catch {
     return { kind: 'unusable' }; // the pointer's directory went away
   }
+  const token = pointerToken(p) ?? inProcessSessionTokenForPort(port);
   return {
     kind: 'found',
     host: {
@@ -552,6 +580,7 @@ async function probePointer(pointerPath: string): Promise<PointerOutcome> {
       url: canonicalServeUrl(port, p.url),
       base: match.base,
       instanceId: match.instanceId,
+      ...(token !== undefined ? { token } : {}),
       source: `pointer ${pointerPath}`,
     },
   };
@@ -609,11 +638,13 @@ export async function discoverServe(
     const hit = await healthyBase(port);
     const foundByScan = hit !== null;
     if (foundByScan) {
+      const token = inProcessSessionTokenForPort(port);
       return {
         mcpUrl: `${hit.base}/__pyric/mcp`,
         url: canonicalServeUrl(port),
         base: hit.base,
         instanceId: hit.instanceId,
+        ...(token !== undefined ? { token } : {}),
         source: `port scan (:${port})`,
       };
     }

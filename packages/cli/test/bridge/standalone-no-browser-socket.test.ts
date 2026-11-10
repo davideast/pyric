@@ -104,7 +104,7 @@ describe('pyric bridge has no browser socket', () => {
 
   it('lists only the tools that run in the bridge process on /mcp', async () => {
     const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
-    const init = await fetch(`${server.url}/mcp`, {
+    const init = await fetch(server.mcpUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -115,11 +115,11 @@ describe('pyric bridge has no browser socket', () => {
     const sessionId = init.headers.get('mcp-session-id') ?? '';
     await init.text();
     const session = { ...headers, 'mcp-session-id': sessionId };
-    await fetch(`${server.url}/mcp`, {
+    await fetch(server.mcpUrl, {
       method: 'POST', headers: session,
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
     }).then((res) => res.text());
-    const list = await fetch(`${server.url}/mcp`, {
+    const list = await fetch(server.mcpUrl, {
       method: 'POST', headers: session,
       body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
     });

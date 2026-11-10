@@ -237,6 +237,11 @@ void authLoop();
   const ready = await readyPromise.promise;
   console.log(`Host ready at: ${ready.url}`);
 
+  const servePointer = JSON.parse(readFileSync(join(projectDir, '.pyric', 'serve.json'), 'utf8')) as { token?: string };
+  const sessionHeaders: Record<string, string> = servePointer.token
+    ? { 'x-pyric-session-token': servePointer.token }
+    : {};
+
   // Consumer churn loop: connect, handshake, disconnect
   let churning = true;
   const churnEndpoint = ready.url.replace(/^http/, 'ws') + '/__pyric/sandbox';
@@ -245,7 +250,7 @@ void authLoop();
     while (churning) {
       try {
         const { WebSocket } = await import('ws');
-        const socket = new WebSocket(churnEndpoint);
+        const socket = new WebSocket(churnEndpoint, { headers: sessionHeaders });
         await new Promise<void>((res) => {
           const timeout = setTimeout(() => { socket.terminate(); res(); }, 2000);
           socket.on('open', () => {
@@ -272,9 +277,9 @@ void authLoop();
       await new Promise((r) => setTimeout(r, sampleIntervalSeconds * 1000));
       const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
 
-      // Trigger GC and read memory from host
+      // Read memory from host
       try {
-        const diagRes = await fetch(`${ready.url}/__pyric/diagnostics?gc=1`);
+        const diagRes = await fetch(`${ready.url}/__pyric/diagnostics`, { headers: sessionHeaders });
         if (!diagRes.ok) continue;
         const diag = await diagRes.json();
         const mem = diag.server?.memory;

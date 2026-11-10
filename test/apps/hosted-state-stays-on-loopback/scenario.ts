@@ -13,7 +13,7 @@
 // 127.0.0.0/8. CI runners and workstations have one. In an offline network
 // namespace, add one first: `ip addr add 10.203.0.1/32 dev lo`.
 import assert from 'node:assert/strict';
-import { realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
 import { scenario, sleep, type AppProcess } from '../driver.ts';
@@ -97,8 +97,20 @@ export default scenario(async (app) => {
     }
   });
 
-  const token = await app.step('a client on loopback still gets the session token', async () => {
-    const answer = await get({ address: '127.0.0.1', port, path: '/__pyric/init.json', host });
+  const token = await app.step('a client on loopback authenticates via the 0600 session pointer and gets the session token', async () => {
+    const pointerPath = join(app.dir, '.pyric', 'serve.json');
+    assert.equal(statSync(pointerPath).mode & 0o777, 0o600);
+    const pointer = JSON.parse(readFileSync(pointerPath, 'utf8')) as { token?: string };
+    assert.equal(typeof pointer.token, 'string');
+    const unauth = await get({ address: '127.0.0.1', port, path: '/__pyric/init.json', host });
+    assert.equal((JSON.parse(unauth.body) as { sessionToken?: unknown }).sessionToken, undefined);
+    const answer = await get({
+      address: '127.0.0.1',
+      port,
+      path: '/__pyric/init.json',
+      host,
+      headers: { 'x-pyric-session-token': pointer.token! },
+    });
     const init = JSON.parse(answer.body) as { sessionToken?: unknown };
     assert.equal(typeof init.sessionToken, 'string', answer.body);
     return init.sessionToken as string;
@@ -112,11 +124,12 @@ export default scenario(async (app) => {
     assert.equal(answer.status, 403, answer.body.slice(0, 200));
   });
 
-  await app.step('a client on loopback keeps the socket and MCP', async () => {
-    assert.equal(await upgrades({ address: '127.0.0.1', port, path: '/__pyric/sandbox', host }), true);
+  await app.step('a client on loopback keeps the socket and MCP when presenting the token', async () => {
+    const authHeaders = { 'x-pyric-session-token': token };
+    assert.equal(await upgrades({ address: '127.0.0.1', port, path: '/__pyric/sandbox', host, headers: authHeaders }), true);
     const mcp = await post({
       address: '127.0.0.1', port, path: '/__pyric/mcp', host,
-      headers: { accept: 'application/json, text/event-stream' },
+      headers: { accept: 'application/json, text/event-stream', ...authHeaders },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'scenario', version: '1' } } }),
     });
     assert.equal(mcp.status, 200, mcp.body.slice(0, 200));

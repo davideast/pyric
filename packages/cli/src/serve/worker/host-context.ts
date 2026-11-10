@@ -87,6 +87,8 @@ export interface HostCtx {
   /** Stable per-SharedWorker instance id (see {@link INSTANCE_ID_KEY}). Reported
    *  via `getVersion` so the UI can identify which sandbox instance this is. */
   instanceId: string;
+  /** Per-boot session capability token read from `/__pyric/init.json` when available. */
+  sessionToken?: string;
   /** The shared Storage handle (Pyric Studio data browse). Lazily created on
    *  the first storage op via `getStorageSandbox(sandbox)`. */
   storage?: FirebaseStorage;

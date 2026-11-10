@@ -61,11 +61,14 @@ afterEach(async () => {
   while (upstreams.length) upstreams.pop()!.stop();
 });
 
+const TEST_TOKEN = 'test-ai-diagnostics-session-token';
+
 async function startServe(logger: ServeLogger): Promise<ServeHandle> {
   const { site, sdk } = fixture();
   const ns = createPyricNamespace({
     sdkDir: sdk,
     initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+    sessionToken: TEST_TOKEN,
     logger,
   });
   const h = await startStaticServer({
@@ -75,6 +78,7 @@ async function startServe(logger: ServeLogger): Promise<ServeHandle> {
     portScanLimit: 200,
     logger,
     namespaceHandler: ns,
+    sessionToken: TEST_TOKEN,
   });
   handles.push(h);
   return h;
@@ -96,7 +100,9 @@ function fakePort(): PortLike & { messages: OutboundMessage[] } {
 function originFetch(origin: string): { fetch: typeof fetch; settled: () => Promise<void> } {
   const inFlight: Promise<unknown>[] = [];
   const fn = ((input: string, init?: RequestInit) => {
-    const p = fetch(`${origin}${String(input)}`, init);
+    const headers = new Headers(init?.headers);
+    if (!headers.has('x-pyric-session-token')) headers.set('x-pyric-session-token', TEST_TOKEN);
+    const p = fetch(`${origin}${String(input)}`, { ...init, headers });
     inFlight.push(p.catch(() => {}));
     return p;
   }) as typeof fetch;

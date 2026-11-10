@@ -1,6 +1,12 @@
 import type { WorkerInitPayload } from '../init-payload.js';
 import type { OwnersConfig } from '../owners-config.js';
 
+/** Per-boot session capability token stamped into served HTML or bundled worker init. */
+export function stampedSessionToken(): string | undefined {
+  const token = (globalThis as { __PYRIC_WORKER_INIT__?: WorkerInitPayload }).__PYRIC_WORKER_INIT__?.sessionToken;
+  return typeof token === 'string' && token.length > 0 ? token : undefined;
+}
+
 /** Hosted selection is stamped before Studio starts; absence retains SharedWorker. */
 export function readHostedTarget(): { url: string; projectKey: string } | null {
   const hasDocument = typeof document !== 'undefined';
@@ -16,7 +22,9 @@ export function readHostedTarget(): { url: string; projectKey: string } | null {
   if (isMissingIdentity) throw new Error('The hosted sandbox has no project identity. Restart the host and reload Studio.');
   const isSecure = location.protocol === 'https:';
   const protocol = isSecure ? 'wss:' : 'ws:';
-  return { url: `${protocol}//${location.host}/__pyric/sandbox`, projectKey };
+  const token = stampedSessionToken();
+  const query = token !== undefined ? `?token=${encodeURIComponent(token)}` : '';
+  return { url: `${protocol}//${location.host}/__pyric/sandbox${query}`, projectKey };
 }
 
 /**
@@ -28,6 +36,7 @@ export function workerInitPayload(
   projectKey: string | undefined,
   owners?: OwnersConfig,
   instanceId?: string,
+  sessionToken?: string,
 ): WorkerInitPayload {
   const hosted = projectKey !== undefined;
   const payload: WorkerInitPayload = {
@@ -36,6 +45,7 @@ export function workerInitPayload(
   };
   if (owners !== undefined) payload.owners = owners;
   if (hosted && instanceId !== undefined) payload.instanceId = instanceId;
+  if (sessionToken !== undefined && sessionToken.length > 0) payload.sessionToken = sessionToken;
   return payload;
 }
 
@@ -44,9 +54,10 @@ export function stampHostedTarget(
   projectKey: string | undefined,
   owners?: OwnersConfig,
   instanceId?: string,
+  sessionToken?: string,
 ): string {
   const hosted = projectKey !== undefined;
-  const payload = workerInitPayload(projectKey, owners, instanceId);
+  const payload = workerInitPayload(projectKey, owners, instanceId, sessionToken);
   const serialized = JSON.stringify(payload).replaceAll('<', '\\u003c');
   let declaration = `<script data-pyric-worker-init>globalThis.__PYRIC_WORKER_INIT__=${serialized};</script>`;
   if (hosted) {

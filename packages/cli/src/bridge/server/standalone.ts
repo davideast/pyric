@@ -20,7 +20,7 @@
  */
 
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createBridge, type Bridge, type BridgeToolEvent } from './bridge.js';
@@ -41,7 +41,13 @@ import {
   NO_BROWSER_PEER_CLOSE_REASON,
 } from '../protocol.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
-import { isAllowedLoopbackRequest, isAllowedUpgrade } from '../../serve/server.js';
+import {
+  isAllowedLoopbackRequest,
+  isAllowedSessionToken,
+  isAllowedUpgrade,
+  isLocalPeer,
+} from '../../serve/server.js';
+import { registerLocalSessionToken } from '../../serve/local-session-token.js';
 import { createAppPorts } from '../../serve/app-ports.js';
 
 const BRIDGE_VERSION = pyricVersion();
@@ -70,13 +76,16 @@ export interface StartServerOptions {
   logger?: BridgeLogger;
   /** Convenience: install a silent logger (tests). */
   silent?: boolean;
-
+  /** Per-boot capability token required on `/mcp`; minted per boot when omitted. */
+  sessionToken?: string;
 }
 
 export interface ServerHandle {
   readonly bridge: Bridge;
   readonly port: number;
   readonly url: string;
+  readonly mcpUrl: string;
+  readonly sessionToken: string;
   readonly auditLogPath: string | null;
   stop(): Promise<void>;
 }
@@ -84,6 +93,7 @@ export interface ServerHandle {
 export async function startServer(
   opts: StartServerOptions = {},
 ): Promise<ServerHandle> {
+  const sessionToken = opts.sessionToken ?? randomBytes(24).toString('base64url');
   // `??` doesn't short-circuit on NaN; Number(undefined) is NaN, which
   // would silently slip through to the http server and produce
   // "options.port should be >= 0 and < 65536. Received NaN."
@@ -194,24 +204,55 @@ export async function startServer(
   const mcpPorts = createAppPorts('127.0.0.1');
   const http = createServer(async (req, res) => {
     const url = req.url ?? '/';
+    const parsedUrl = new URL(url, `http://${req.headers.host ?? '127.0.0.1'}`);
     const debugEnabled = Boolean(process.env.PYRIC_DEBUG);
     if (debugEnabled) {
       process.stderr.write(`[pyric debug] ${req.method} ${url}\n`);
     }
-    const requestsHealth = url === DEFAULT_HEALTH_PATH && req.method === 'GET';
-    if (requestsHealth) {
-      const body = JSON.stringify(bridge.health());
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(body);
+    if (parsedUrl.pathname === DEFAULT_HEALTH_PATH) {
+      if (
+        !isLocalPeer(req) ||
+        !isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts, mcpPorts.forRequest(req))
+      ) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
+        return;
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'GET, HEAD' });
+        res.end(JSON.stringify({ error: 'method not allowed' }));
+        return;
+      }
+      const fullHealth = bridge.health();
+      const authenticated = isAllowedSessionToken(req, parsedUrl, sessionToken);
+      const body = JSON.stringify(
+        authenticated
+          ? fullHealth
+          : {
+              status: fullHealth.status,
+              mode: fullHealth.mode,
+              instanceId: fullHealth.instanceId,
+              sandboxConnected: fullHealth.sandboxConnected,
+            },
+      );
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : body);
       return;
     }
     const supportsMcpMethod = req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE';
-    const requestsMcp = url === DEFAULT_MCP_PATH && supportsMcpMethod;
+    const requestsMcp = parsedUrl.pathname === DEFAULT_MCP_PATH && supportsMcpMethod;
     if (requestsMcp) {
-      const refusesOrigin = !isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts, mcpPorts.forRequest(req));
+      const refusesOrigin =
+        !isLocalPeer(req) ||
+        !isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts, mcpPorts.forRequest(req));
       if (refusesOrigin) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
+        return;
+      }
+      if (!isAllowedSessionToken(req, parsedUrl, sessionToken)) {
+        res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid session capability token' }));
         return;
       }
       try {
@@ -272,7 +313,14 @@ export async function startServer(
   // message from it is read, and it never registers as the sandbox peer.
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
   http.on('upgrade', (req, socket, head) => {
-    const hasWrongPath = (req.url ?? '') !== DEFAULT_SANDBOX_PATH;
+    let upgradePath = '';
+    try {
+      upgradePath = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`).pathname;
+    } catch {
+      socket.destroy();
+      return;
+    }
+    const hasWrongPath = upgradePath !== DEFAULT_SANDBOX_PATH;
     if (hasWrongPath) {
       socket.destroy();
       return;
@@ -307,6 +355,8 @@ export async function startServer(
   const hasBoundAddress = typeof address === 'object' && address !== null;
   const boundPort = hasBoundAddress ? address.port : port;
   const url = `http://127.0.0.1:${boundPort}`;
+  const mcpUrl = `${url}${DEFAULT_MCP_PATH}?token=${encodeURIComponent(sessionToken)}`;
+  const unregisterPortToken = registerLocalSessionToken(boundPort, sessionToken);
 
   logger.info(`bridge ${BRIDGE_VERSION} listening on ${url} — sandbox: ${project}`);
 
@@ -314,8 +364,11 @@ export async function startServer(
     bridge,
     port: boundPort,
     url,
+    mcpUrl,
+    sessionToken,
     auditLogPath: auditWriter?.path ?? null,
     async stop() {
+      unregisterPortToken();
       // Stop accepting new WebSocket upgrades, and terminate a refused
       // socket whose close handshake is still in flight.
       wss.close();
