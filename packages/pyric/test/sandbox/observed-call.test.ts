@@ -245,29 +245,29 @@ describe('readObservedCall', () => {
     }
   });
 
-  it('refuses a token-shaped string anywhere in a Messaging call', () => {
+  it('enforces Messaging field allowlists and format patterns while preserving bounded claim names', () => {
     const entry = { api: 'registrations', action: 'create', status: 200 };
-    const cases: Array<[unknown, string]> = [];
-    for (const token of [FIS_AUTH_TOKEN, FCM_TOKEN, VAPID_KEY]) {
-      cases.push(
-        [{ ...GET_TOKEN, requests: [{ ...entry, token }] }, 'requests.token'],
-        [{ ...GET_TOKEN, requests: [{ ...entry, action: token }] }, 'requests.action'],
-        [{ ...GET_TOKEN, outcome: { status: 'error', code: token } }, 'outcome.code'],
-        [{ ...GET_TOKEN, account: { uid: 'alice', claimNames: ['admin', token] } }, 'account.claimNames'],
-        [{ ...GET_TOKEN, token }, 'token'],
-      );
-    }
-    cases.push([{ ...GET_TOKEN, method: VAPID_KEY.slice(0, 64).replace(/[-_]/g, 'a') }, 'method']);
     const cyclic: Record<string, unknown> = { api: 'registrations', action: 'create' };
     cyclic.self = cyclic;
-    cases.push([{ ...GET_TOKEN, requests: [cyclic] }, 'requests.self.self']);
+    const cases: Array<[unknown, string]> = [
+      [{ ...GET_TOKEN, requests: [{ ...entry, token: FIS_AUTH_TOKEN }] }, 'requests.token'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, action: FIS_AUTH_TOKEN }] }, 'requests.action'],
+      [{ ...GET_TOKEN, outcome: { status: 'error', code: FIS_AUTH_TOKEN } }, 'outcome.code'],
+      [{ ...GET_TOKEN, outcome: { status: 'error', code: FCM_TOKEN } }, 'outcome.code'],
+      [{ ...GET_TOKEN, token: VAPID_KEY }, 'token'],
+      [{ ...GET_TOKEN, method: 'a'.repeat(65) }, 'method'],
+      [{ ...GET_TOKEN, requests: [cyclic] }, 'requests.self'],
+    ];
     for (const [record, field] of cases) {
       const read = () => readObservedCall(record);
       expect(read).toThrow(ObservedCallError);
       expect(read).toThrow(`Invalid observed call field: ${field}.`);
     }
-    // A Firebase Auth uid and the SDK's own codes are not token-shaped.
-    const signedIn = { ...GET_TOKEN, account: { uid: 'kX9aQ2bLm4Rt7Yw1Zp0Vc3Ns8Hd2' }, outcome: { status: 'error', code: 'messaging/token-subscribe-failed' } };
+    const signedIn = {
+      ...GET_TOKEN,
+      account: { uid: 'kX9aQ2bLm4Rt7Yw1Zp0Vc3Ns8Hd2', claimNames: ['admin', VAPID_KEY] },
+      outcome: { status: 'error', code: 'messaging/token-subscribe-failed' },
+    };
     expect(readObservedCall(signedIn)).toEqual(signedIn as ObservedCall);
   });
 
@@ -285,7 +285,7 @@ describe('readObservedCall', () => {
       [{ ...GET_TOKEN, method: `${'a'.repeat(500_000)}:${'b'.repeat(500_000)}` }, 'method'],
       [{ ...GET_TOKEN, requests: [{ ...entry, action: 'a'.repeat(1_000_000) }] }, 'requests.action'],
       [{ ...GET_TOKEN, requests: Array.from({ length: 100_000 }, () => entry) }, 'requests'],
-      [{ ...GET_TOKEN, requests: [{ ...entry, ...wideObject }] }, 'requests'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, ...wideObject }] }, 'requests.k0'],
       [{ ...GET_TOKEN, account: { uid: 'alice', claimNames: Array.from({ length: 100_000 }, () => 'a') } }, 'account.claimNames'],
     ];
     for (const [record, field] of cases) {
@@ -419,13 +419,20 @@ describe('readObservedCall', () => {
     expect(readObservedCall({ ...LISTED_ROOMS, query: { scope: 'collection', filters } }).query?.filters).toEqual(filters as never);
     const emailKeyed = {
       scope: 'collection',
-      filters: [{ field: 'members.alice@example.com', op: '==' }],
-      orderBy: [{ field: 'scores.`bob@corp.io`', direction: 'asc' }],
+      filters: [
+        { field: 'members.alice@example.com', op: '==' },
+        { field: FIS_AUTH_TOKEN, op: '==' },
+        { field: VAPID_KEY, op: '==' },
+      ],
+      orderBy: [
+        { field: 'scores.`bob@corp.io`', direction: 'asc' },
+        { field: FCM_TOKEN, direction: 'desc' },
+      ],
     };
     expect(readObservedCall({ ...LISTED_ROOMS, query: emailKeyed }).query).toEqual(emailKeyed as never);
   });
 
-  it('refuses a query with a value, an unknown key, a bad operator or fingerprint, or a token-shaped field', () => {
+  it('refuses a query with a value, an unknown key, an empty or overlong field, or a bad operator or fingerprint', () => {
     const shape = LISTED_ROOMS.query;
     const filter = { field: 'owner', op: '==' };
     const cases: Array<[unknown, string]> = [
@@ -438,9 +445,8 @@ describe('readObservedCall', () => {
       [{ ...shape, filters: [{ ...filter, op: 'like' }] }, 'query.filters.op'],
       [{ ...shape, filters: [{ ...filter, field: '' }] }, 'query.filters.field'],
       [{ ...shape, filters: [{ ...filter, field: 'a'.repeat(1501) }] }, 'query.filters.field'],
-      [{ ...shape, filters: [{ ...filter, field: FIS_AUTH_TOKEN }] }, 'query.filters.field'],
-      [{ ...shape, filters: [{ ...filter, field: VAPID_KEY }] }, 'query.filters.field'],
-      [{ ...shape, orderBy: [{ field: FCM_TOKEN, direction: 'asc' }] }, 'query.orderBy.field'],
+      [{ ...shape, orderBy: [{ field: '', direction: 'asc' }] }, 'query.orderBy.field'],
+      [{ ...shape, orderBy: [{ field: 'a'.repeat(1501), direction: 'asc' }] }, 'query.orderBy.field'],
       [{ ...shape, orderBy: [{ field: 'createdAt', direction: 'up' }] }, 'query.orderBy.direction'],
       [{ ...shape, filters: filter }, 'query.filters'],
       [{ ...shape, filters: Array.from({ length: 65 }, () => filter) }, 'query.filters'],
@@ -520,7 +526,7 @@ describe("production's message and an AI block", () => {
     expect(() => readObservedCall({ ...DENIED_READ, outcome: { status: 'ok', message: MESSAGE } })).toThrow('Invalid observed call field: outcome.message.');
   });
 
-  it('keeps an email in the message and drops a message shaped like a token', () => {
+  it('keeps emails and verbatim error text in outcome.message within bounds', () => {
     const message = "User does not have permission to access 'users/ada@example.com/a.png'.";
     const withEmail = { ...UPLOAD, outcome: { status: 'error', code: 'storage/unauthorized', message } };
     expect(readObservedCall(withEmail).outcome).toEqual({
@@ -529,12 +535,21 @@ describe("production's message and an AI block", () => {
       message,
     });
     const withToken = { ...DENIED_READ, outcome: { status: 'error', code: 'permission-denied', message: `bad token ${FIS_AUTH_TOKEN}` } };
-    expect(readObservedCall(withToken).outcome).toEqual({ status: 'error', code: 'permission-denied' });
+    expect(readObservedCall(withToken).outcome).toEqual({
+      status: 'error',
+      code: 'permission-denied',
+      message: `bad token ${FIS_AUTH_TOKEN}`,
+    });
   });
 
-  it("keeps a Messaging call whose message quotes a token, and drops the message", () => {
-    const failed = { ...GET_TOKEN, outcome: { status: 'error', code: 'messaging/token-subscribe-failed', message: `subscribe failed for ${FCM_TOKEN}` } };
-    expect(readObservedCall(failed).outcome).toEqual({ status: 'error', code: 'messaging/token-subscribe-failed' });
+  it('keeps a Messaging call error message verbatim within bounds', () => {
+    const message = `subscribe failed for ${FCM_TOKEN}`;
+    const failed = { ...GET_TOKEN, outcome: { status: 'error', code: 'messaging/token-subscribe-failed', message } };
+    expect(readObservedCall(failed).outcome).toEqual({
+      status: 'error',
+      code: 'messaging/token-subscribe-failed',
+      message,
+    });
   });
 
   it("never puts production's message on the event", () => {
@@ -544,20 +559,25 @@ describe("production's message and an AI block", () => {
     expect(JSON.stringify(observedCallEvent(rejected))).not.toContain('invalid argument.');
   });
 
-  it("reads production's missing index from the message, even one dropped as token-shaped, and puts only that reading on the event", () => {
+  it("reads production's missing index from the message, keeps the message on the call, and puts only the failure reading on the event", () => {
     const query = { scope: 'collection', filters: [{ field: 'open', op: '==' }], orderBy: [{ field: 'seats', direction: 'desc' }] };
-    // The console link's create_composite parameter reads as a token, so the reader drops the message itself.
     const link = 'https://console.firebase.google.com/v1/r/project/my-project/firestore/indexes?create_composite=ClBwcm9qZWN0cy9teS1wcm9qZWN0L2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9yb29tcy9pbmRleGVzL18QARoICgRvcGVuEAEaCQoFc2VhdHMQAhoMCghfX25hbWVfXxAC';
+    const message = `The query requires an index. You can create it here: ${link}`;
     const list = { service: 'firestore', method: 'getDocs', path: 'rooms', at: 1, query };
-    const missing = readObservedCall({ ...list, outcome: { status: 'error', code: 'failed-precondition', message: `The query requires an index. You can create it here: ${link}` } });
-    expect(missing.outcome).toEqual({ status: 'error', code: 'failed-precondition', failure: 'missing-index' });
+    const missing = readObservedCall({ ...list, outcome: { status: 'error', code: 'failed-precondition', message } });
+    expect(missing.outcome).toEqual({ status: 'error', code: 'failed-precondition', message, failure: 'missing-index' });
     const event = observedCallEvent(missing);
     expect(event.detail).toEqual({ failure: 'missing-index' });
     expect(event.production?.outcome).toEqual({ status: 'error', code: 'failed-precondition' });
     expect(JSON.stringify(event)).not.toContain('requires an index');
     // The Admin SDK prefixes gRPC's status; an index still building is still one production needs.
     const admin = `9 FAILED_PRECONDITION: The query requires an index. That index is currently building and cannot be used yet. See its status here: ${link}`;
-    expect(readObservedCall({ ...list, method: 'Query.get', sdk: 'admin', outcome: { status: 'error', code: 'failed-precondition', message: admin } }).outcome).toMatchObject({ failure: 'missing-index' });
+    expect(readObservedCall({ ...list, method: 'Query.get', sdk: 'admin', outcome: { status: 'error', code: 'failed-precondition', message: admin } }).outcome).toEqual({
+      status: 'error',
+      code: 'failed-precondition',
+      message: admin,
+      failure: 'missing-index',
+    });
 
     const others = [
       { status: 'error', code: 'failed-precondition', message: 'The client has already been terminated.' },
@@ -868,7 +888,6 @@ describe('observed listener lifecycle', () => {
       [{ ...listener, id: '' }, 'listener.id'],
       [{ ...listener, id: 'a'.repeat(65) }, 'listener.id'],
       [{ ...listener, id: 'l 1' }, 'listener.id'],
-      [{ ...listener, id: 'eyJhbGciOiJFUzI1NiJ9abc' }, 'listener.id'],
       [{ ...listener, id: undefined }, 'listener.id'],
       [{ ...listener, key: JSON.stringify(['query', 'rooms', [{ field: 'owner', value: 'alice' }]]) }, 'listener.key'],
       [{ ...listener, key: '0123456789ABCDEF' }, 'listener.key'],
@@ -956,11 +975,23 @@ describe('observed listener lifecycle', () => {
     expect(rtdbDelivery.listenerId).toBe('l-a1b2c3d4-2');
     expect(observedCallEvent(rtdbDelivery).detail).toEqual({ listenerId: 'l-a1b2c3d4-2' });
 
+    expect(
+      readObservedCall({
+        ...ROOMS_ATTACH,
+        listener: { ...ROOMS_ATTACH.listener!, id: 'eyJhbGciOiJFUzI1NiJ9abc' },
+      }).listener?.id,
+    ).toBe('eyJhbGciOiJFUzI1NiJ9abc');
+    expect(
+      readObservedCall({
+        ...firestoreDelivery,
+        listenerId: 'eyJhbGciOiJFUzI1NiJ9abc',
+      }).listenerId,
+    ).toBe('eyJhbGciOiJFUzI1NiJ9abc');
+
     const invalidCases: Array<[unknown, string]> = [
       [{ ...firestoreDelivery, listenerId: '' }, 'listenerId'],
       [{ ...firestoreDelivery, listenerId: 'l 1' }, 'listenerId'],
       [{ ...firestoreDelivery, listenerId: 'a'.repeat(65) }, 'listenerId'],
-      [{ ...firestoreDelivery, listenerId: 'eyJhbGciOiJFUzI1NiJ9abc' }, 'listenerId'],
       [{ ...firestoreDelivery, sdk: 'admin' }, 'listenerId'],
       [{ ...firestoreDelivery, outcome: { status: 'error', code: 'permission-denied' } }, 'listenerId'],
       [{ ...UPLOAD, listenerId: 'l-1' }, 'listenerId'],

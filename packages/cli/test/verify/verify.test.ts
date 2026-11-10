@@ -1469,7 +1469,7 @@ service firebase.storage {
     });
     const serializedFixture = JSON.stringify(rawFixture);
     expect(serializedFixture).toContain('alice@example.com');
-    expect(serializedFixture).not.toContain('secret-download-token-123');
+    expect(serializedFixture).toContain('secret-download-token-123');
 
     const persistedFixture = JSON.parse(serializedFixture) as PyricVerifyFixture;
     const storageOperations = persistedFixture.events.filter(
@@ -1487,13 +1487,11 @@ service firebase.storage {
     );
     expect(deniedCreate).toBeDefined();
     expect(persistedFixture.storageDeniedWrites?.[deniedCreate!.id]).toMatchObject({
-      redacted: true,
-      redactedFields: ['request.resource.metadata'],
       requestResource: {
         metadata: {
           note: 'blocked',
           contact: 'alice@example.com',
-          firebaseStorageDownloadTokens: '[redacted]',
+          firebaseStorageDownloadTokens: 'secret-download-token-123',
         },
       },
     });
@@ -1506,20 +1504,12 @@ service firebase.storage {
     });
 
     expect(verifyResult.ok).toBe(true);
-    expect(verifyResult.services.storage?.checkedEvents).toBe(4);
-    expect(verifyResult.services.storage?.unevaluatedEvents).toEqual([
-      expect.objectContaining({
-        eventId: deniedCreate!.id,
-        path: 'files/oversized.txt',
-        method: 'create',
-        needs: ['request.resource.metadata'],
-      }),
-    ]);
-    expect(verifyResult.services.storage?.notes?.length).toBe(1);
+    expect(verifyResult.services.storage?.checkedEvents).toBe(5);
+    expect(verifyResult.services.storage?.unevaluatedEvents).toBeUndefined();
     expect(verifyResult.services.storage?.divergences).toEqual([]);
   });
 
-  it('abstains on redacted denied Storage writes whose rules read redacted fields while still evaluating unredacted denied writes', async () => {
+  it('evaluates denied Storage writes directly against verbatim recorded metadata and token fields without abstaining', async () => {
     const storageRules = `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
@@ -1555,7 +1545,7 @@ service firebase.storage {
       rules: storageRules,
     });
 
-    // Case 1: Denied upload with email-like owner == uid, secret syncToken == 'revoked',
+    // Case 1: Denied upload with email-like owner == uid, syncToken == 'revoked',
     // email segment in object path, and two distinct email-suffixed metadata keys.
     await expect(
       uploadBytes(
@@ -1572,8 +1562,7 @@ service firebase.storage {
       ),
     ).rejects.toThrow();
 
-    // Case 2: Download-token immutability rule (`==`). Seed initial object, clear prior
-    // mutation from event window via a second fixture slice (and also test live in-session).
+    // Case 2: Download-token immutability rule (`==`). Seed initial object, then attempt rotation.
     await uploadBytes(
       storageRef(storage, 'tokens/item.bin'),
       new Blob(['abcd']),
@@ -1587,7 +1576,7 @@ service firebase.storage {
       }),
     ).rejects.toThrow();
 
-    // Case 3: Unredacted denied upload with email metadata (emails are preserved verbatim, zero redaction).
+    // Case 3: Denied upload with email metadata.
     await expect(
       uploadBytes(
         storageRef(storage, 'plain/draft.txt'),
@@ -1604,7 +1593,7 @@ service firebase.storage {
     });
     const persistedFixture = JSON.parse(JSON.stringify(rawFixture)) as PyricVerifyFixture;
 
-    // Verify `name`, metadata keys, and email values were preserved on Case 1 while secret `syncToken` was redacted.
+    // Verify `name`, metadata keys, and values are preserved verbatim on Case 1 & Case 2.
     const case1Event = persistedFixture.events.find(
       (event) =>
         event.kind === 'operation' &&
@@ -1613,17 +1602,14 @@ service firebase.storage {
     );
     expect(case1Event).toBeDefined();
     const case1Denied = persistedFixture.storageDeniedWrites?.[case1Event!.id];
-    expect(case1Denied?.redacted).toBe(true);
-    expect(case1Denied?.redactedFields).toEqual(['request.resource.metadata']);
     expect(case1Denied?.requestResource?.name).toBe('uploads/alice@example.com/report.txt');
     expect(case1Denied?.requestResource?.metadata).toEqual({
       owner: 'alice@example.com',
-      syncToken: '[redacted]',
+      syncToken: 'revoked',
       'ack:alice@example.com': 'yes',
       'ack:bob@example.com': 'yes',
     });
 
-    // Verify Case 2 denied update has both request.resource.metadata and resource.metadata marked redacted.
     const case2UpdateEvent = persistedFixture.events.find(
       (event) =>
         event.kind === 'operation' &&
@@ -1633,13 +1619,9 @@ service firebase.storage {
     );
     expect(case2UpdateEvent).toBeDefined();
     const case2Denied = persistedFixture.storageDeniedWrites?.[case2UpdateEvent!.id];
-    expect(case2Denied?.redacted).toBe(true);
-    expect(case2Denied?.redactedFields).toEqual([
-      'request.resource.metadata',
-      'resource.metadata',
-    ]);
+    expect(case2Denied?.requestResource?.metadata).toEqual({ firebaseStorageDownloadTokens: 'tok-rotated-222' });
+    expect(case2Denied?.resource?.metadata).toEqual({ firebaseStorageDownloadTokens: 'tok-initial-111' });
 
-    // Verify Case 3 unredacted denied upload is not marked redacted.
     const case3Event = persistedFixture.events.find(
       (event) =>
         event.kind === 'operation' &&
@@ -1647,25 +1629,18 @@ service firebase.storage {
         event.path === 'plain/draft.txt',
     );
     expect(case3Event).toBeDefined();
-    expect(persistedFixture.storageDeniedWrites?.[case3Event!.id]?.redacted).toBeUndefined();
-    expect(persistedFixture.storageDeniedWrites?.[case3Event!.id]?.redactedFields).toBeUndefined();
 
-    // Unchanged rules on full session: zero divergences, Case 1 & Case 2 update unevaluated,
-    // allowed create on tokens/item.bin + unredacted denied create on plain/draft.txt evaluated (2 checked).
+    // Unchanged rules on full session: all 4 Storage operations are evaluated cleanly with zero abstentions!
     const unchangedResult = await verifyFixture(persistedFixture, {
       rules: { storage: storageRules },
     });
     expect(unchangedResult.ok).toBe(true);
     expect(unchangedResult.services.storage?.divergences).toEqual([]);
-    expect(unchangedResult.services.storage?.checkedEvents).toBe(2);
-    expect(
-      unchangedResult.services.storage?.unevaluatedEvents?.map((item) => item.eventId),
-    ).toEqual([case1Event!.id, case2UpdateEvent!.id]);
-    expect(unchangedResult.services.storage?.notes?.length).toBe(1);
+    expect(unchangedResult.services.storage?.checkedEvents).toBe(4);
+    expect(unchangedResult.services.storage?.unevaluatedEvents).toBeUndefined();
 
     // Also verify Case 2 when `tokens/item.bin` existed prior to the captured event window
-    // (no prior `service_mutation` in `events`, so `verifyStorage` falls back to `deniedWrite.resource`
-    // where both sides would have had `firebaseStorageDownloadTokens: '[redacted]'`!).
+    // (`verifyStorage` falls back to `deniedWrite.resource`, which preserves `tok-initial-111` vs `tok-rotated-222`).
     const postSeedFixture: PyricVerifyFixture = {
       ...persistedFixture,
       events: persistedFixture.events.filter(
@@ -1677,13 +1652,10 @@ service firebase.storage {
     });
     expect(postSeedUnchanged.ok).toBe(true);
     expect(postSeedUnchanged.services.storage?.divergences).toEqual([]);
-    expect(postSeedUnchanged.services.storage?.checkedEvents).toBe(1);
-    expect(
-      postSeedUnchanged.services.storage?.unevaluatedEvents?.map((item) => item.eventId),
-    ).toEqual([case1Event!.id, case2UpdateEvent!.id]);
+    expect(postSeedUnchanged.services.storage?.checkedEvents).toBe(3);
+    expect(postSeedUnchanged.services.storage?.unevaluatedEvents).toBeUndefined();
 
-    // Loosened candidate rules opening `category == 'draft'` must still detect genuine `now-allowed`
-    // on `plain/draft.txt` while keeping Case 1 & Case 2 unevaluated with zero false divergences!
+    // Loosened candidate rules opening `category == 'draft'` detect `now-allowed` on `plain/draft.txt` across all 4 events.
     const loosenedRules = storageRules.replace(
       "request.resource.metadata.category == 'published'",
       "request.resource.metadata.category in ['published', 'draft']",
@@ -1692,7 +1664,7 @@ service firebase.storage {
       rules: { storage: loosenedRules },
     });
     expect(loosenedResult.ok).toBe(false);
-    expect(loosenedResult.services.storage?.checkedEvents).toBe(2);
+    expect(loosenedResult.services.storage?.checkedEvents).toBe(4);
     expect(loosenedResult.services.storage?.divergences).toEqual([
       expect.objectContaining({
         service: 'storage',
@@ -1701,27 +1673,29 @@ service firebase.storage {
         method: 'create',
       }),
     ]);
-    expect(
-      loosenedResult.services.storage?.unevaluatedEvents?.map((item) => item.eventId),
-    ).toEqual([case1Event!.id, case2UpdateEvent!.id]);
+    expect(loosenedResult.services.storage?.unevaluatedEvents).toBeUndefined();
 
-    // When candidate rules do not read `metadata` at all (only `size` and `request.resource == null`),
-    // redacted `metadata` does not force abstention and size-based `now-allowed` is still caught.
-    const sizeOnlyRules = `rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow write: if request.auth != null && (request.resource == null || request.resource.size <= 1024);
-    }
-  }
-}`;
-    const sizeOnlyResult = await verifyFixture(persistedFixture, {
-      rules: { storage: sizeOnlyRules },
+    // Candidate rules loosened on `firebaseStorageDownloadTokens` evaluate against the verbatim recorded values
+    // (`tok-rotated-222` vs `tok-initial-111`) and report `now-allowed` instead of abstaining.
+    const loosenedTokenRules = storageRules.replace(
+      `request.resource.metadata.firebaseStorageDownloadTokens
+           == resource.metadata.firebaseStorageDownloadTokens`,
+      "request.resource.metadata.firebaseStorageDownloadTokens == 'tok-rotated-222'",
+    );
+    const loosenedTokenResult = await verifyFixture(postSeedFixture, {
+      rules: { storage: loosenedTokenRules },
     });
-    expect(sizeOnlyResult.services.storage?.unevaluatedEvents).toBeUndefined();
-    expect(sizeOnlyResult.services.storage?.checkedEvents).toBe(4);
-    expect(sizeOnlyResult.ok).toBe(false);
-    expect(sizeOnlyResult.services.storage?.divergences.length).toBe(3);
+    expect(loosenedTokenResult.ok).toBe(false);
+    expect(loosenedTokenResult.services.storage?.checkedEvents).toBe(3);
+    expect(loosenedTokenResult.services.storage?.unevaluatedEvents).toBeUndefined();
+    expect(loosenedTokenResult.services.storage?.divergences).toEqual([
+      expect.objectContaining({
+        service: 'storage',
+        kind: 'now-allowed',
+        path: 'tokens/item.bin',
+        method: 'update',
+      }),
+    ]);
 
     // Hand-edited fixtures with null/non-object entries or unknown extra properties
     // on `storageDeniedWrites` normalize safely without throwing or exposing extra fields.

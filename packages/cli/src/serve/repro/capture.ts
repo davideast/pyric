@@ -14,7 +14,7 @@ import { cliVersion } from '../../pkg-version.js';
 import type { HostCtx, PortLike } from '../worker/host-context.js';
 import { portSession } from '../worker/host-auth.js';
 import { rtdbInstances } from '../worker/host/rtdb-instances.js';
-import { REPRO_SCHEMA, redactSecrets, type ReproBase, type ReproDatabaseRules, type ReproEntry, type ReproFile, type ReproPortSession } from './format.js';
+import { REPRO_SCHEMA, cloneReproValue, type ReproBase, type ReproDatabaseRules, type ReproEntry, type ReproFile, type ReproPortSession } from './format.js';
 import type { ReproLog } from './recorder.js';
 import { stripStandardTokenClaims } from './token-claims.js';
 
@@ -103,7 +103,7 @@ async function inlineStorage(base: ReproBase, objectFile: ObjectFileLookup): Pro
 /** Read a recorded byte-route upload slice back from its staging file when writing a repro. */
 export type UploadSliceLookup = (uploadId: string, offset: number, length: number) => Promise<Uint8Array>;
 
-/** The repro file for a recorded log: JSON only, secrets removed, Storage bytes inline. */
+/** The repro file for a recorded log: JSON only, Storage bytes inline. */
 export async function buildReproFile(
   log: ReproLog,
   objectFile: ObjectFileLookup,
@@ -137,5 +137,5 @@ export async function buildReproFile(
     base,
     entries,
   };
-  return redactSecrets(JSON.parse(JSON.stringify(file))) as ReproFile;
+  return cloneReproValue(JSON.parse(JSON.stringify(file))) as ReproFile;
 }

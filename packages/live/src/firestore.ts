@@ -96,52 +96,18 @@ const QUERY_OPERATORS: ReadonlySet<string> = new Set(['<', '<=', '==', '!=', '>=
 const MAX_QUERY_CLAUSES = 64;
 /** The longest field path a host takes. */
 const MAX_FIELD_LENGTH = 1500;
-/*
- * The host's token test, mirrored from `isTokenShaped` in pyric's
- * `sandbox/internal/observed-call.ts`, which the page cannot import: runs of
- * URL-safe characters and colons, refused when a colon-free segment is a
- * JWT's start (`eyJ` and 10 more characters) or a 40-character run with a
- * digit, or two segments make an FCM token. Keep the two in step.
- */
-const NON_TOKEN_CHARACTERS = /[^A-Za-z0-9_:-]+/;
-const DIGIT = /[0-9]/;
-const MIN_JWT_TAIL = 10;
-const MIN_FCM_ID = 8;
-const MIN_FCM_TAIL = 20;
-const MIN_OPAQUE_RUN = 40;
-
-function isTokenSegment(segment: string): boolean {
-  const jwtStart = segment.indexOf('eyJ');
-  const isJwt = jwtStart >= 0 && segment.length - jwtStart - 3 >= MIN_JWT_TAIL;
-  const isOpaque = segment.length >= MIN_OPAQUE_RUN && DIGIT.test(segment);
-  return isJwt || isOpaque;
-}
-
-function isTokenRun(run: string): boolean {
-  const segments = run.split(':');
-  return segments.some((segment, index) => {
-    const next = segments[index + 1];
-    const isFcmToken = next !== undefined && segment.length >= MIN_FCM_ID && next.length >= MIN_FCM_TAIL;
-    return isFcmToken || isTokenSegment(segment);
-  });
-}
-
-function isTokenShaped(value: string): boolean {
-  return value.split(NON_TOKEN_CHARACTERS).some(isTokenRun);
-}
 
 /** Thrown inside the shape reader for a part the host would refuse: the shape is dropped, the row kept. */
 const UNSENDABLE: unique symbol = Symbol('unsendable');
 
 /**
- * A field path as the SDK keeps it, when the host would take it: bounded and
- * never token-shaped, so a field the host refuses never reaches it.
+ * A field path as the SDK keeps it, when the host would take it: non-empty and
+ * within path length bounds.
  */
 function sendableField(field: unknown): string {
   const path = canonicalPath(field);
   const isBounded = typeof path === 'string' && path.length > 0 && path.length <= MAX_FIELD_LENGTH;
   if (!isBounded) throw UNSENDABLE;
-  if (isTokenShaped(path)) throw UNSENDABLE;
   return path;
 }
 

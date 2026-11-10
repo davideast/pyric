@@ -3,13 +3,13 @@
  * turned into the event every traffic view already reads.
  *
  * A record comes from a client connection, so it is untrusted input. The
- * reader refuses anything that is not exactly an {@link ObservedCall}: an
- * unknown field, a wrong type, an over-long string, or a token value where
- * claim names belong. A record never names its own caller or event id; the
- * host stamps the caller from the connection and the sandbox mints the id.
- * Claim values, written data and a returned document are bounded JSON the
- * host holds in memory for the local rules: one that is malformed or too
- * large is dropped and the call is kept, and the event holds none of them.
+ * reader refuses anything that is not an {@link ObservedCall}: an unknown
+ * field, a wrong type, or an over-long string. A record never names its own
+ * caller or event id; the host stamps the caller from the connection and the
+ * sandbox mints the id. Claim values, written data and a returned document are
+ * bounded JSON the host holds in memory for the local rules: one that is
+ * malformed or too large is dropped and the call is kept, and the event holds
+ * none of them.
  */
 import type {
   ObservedAccount,
@@ -153,22 +153,6 @@ const REQUEST_ACTIONS: ReadonlyMap<ObservedRequestApi, ReadonlySet<string>> = ne
 ]);
 const MAX_REQUESTS = 4;
 const MAX_PATH_LENGTH = 1500;
-/** The token walk's bounds: a well-formed call nests three levels deep and its longest list is its claim names. */
-const MAX_RECORD_DEPTH = 4;
-const MAX_WALKED_ENTRIES = 64;
-const MAX_WALKED_STRING_LENGTH = MAX_PATH_LENGTH;
-/** Fields the token walk skips because their own reader bounds them: an Auth uid may be a long hex id. */
-const UNWALKED_FIELDS: ReadonlySet<string> = new Set(['account.uid']);
-/** Splits a string into runs of URL-safe characters and colons, the alphabet every token shape is drawn from. */
-const NON_TOKEN_CHARACTERS = /[^A-Za-z0-9_:-]+/;
-const DIGIT = /[0-9]/;
-/** A JWT's header (`eyJ`) followed by at least this many URL-safe characters. */
-const MIN_JWT_TAIL = 10;
-/** An FCM registration token: `<id>:APA91b...`, an id of at least 8 characters and a tail of at least 20. */
-const MIN_FCM_ID = 8;
-const MIN_FCM_TAIL = 20;
-/** An opaque key or token, such as a VAPID key or a refresh token: a run this long that holds a digit. */
-const MIN_OPAQUE_RUN = 40;
 const MAX_UID_LENGTH = 128;
 const QUERY_FIELDS = new Set(['scope', 'filters', 'orderBy', 'limit', 'fingerprint']);
 const QUERY_FILTER_FIELDS = new Set(['field', 'op']);
@@ -228,13 +212,11 @@ function isTime(value: unknown): value is number {
 
 /**
  * Production's message as a record may carry it. A message that is not a
- * string of 1 to 500 characters, or that is shaped like a token, is dropped
- * and the call kept, so a bad message never costs the call its event, its
- * billed count or its terminal block.
+ * string of 1 to 500 characters is dropped and the call kept, so a bad message
+ * never costs the call its event, its billed count or its terminal block.
  */
 function readOutcomeMessage(value: unknown): { message?: string } {
-  if (!isBoundedString(value, MAX_OUTCOME_MESSAGE_LENGTH)) return {};
-  return isTokenShaped(value) ? {} : { message: value };
+  return isBoundedString(value, MAX_OUTCOME_MESSAGE_LENGTH) ? { message: value } : {};
 }
 
 /** Production's own words for a query whose index it lacks, from the client SDK and the Admin SDK alike. */
@@ -384,29 +366,6 @@ function readAccount(value: unknown, keepsClaims: boolean): ObservedAccount {
   return account;
 }
 
-/**
- * A Messaging call's record without its claim values. No Messaging rule
- * reads them, and a token's nested claims would trip the walk that keeps
- * credentials out of a Messaging record.
- */
-function withoutClaimValues(value: Fields): Fields {
-  const account = value.account;
-  if (!isFields(account) || account.claims === undefined) return value;
-  const { claims: _claims, ...rest } = account;
-  return { ...value, account: rest };
-}
-
-/**
- * A Messaging call's record without production's message. No terminal line
- * prints one, and a message that quoted a token would trip the same walk.
- */
-function withoutOutcomeMessage(value: Fields): Fields {
-  const outcome = value.outcome;
-  if (!isFields(outcome) || outcome.message === undefined) return value;
-  const { message: _message, ...rest } = outcome;
-  return { ...value, outcome: rest };
-}
-
 function isReason(value: unknown): value is string {
   return typeof value === 'string' && REASON_PATTERN.test(value);
 }
@@ -466,70 +425,6 @@ function readAi(value: unknown): ObservedAi {
   return ai;
 }
 
-/**
- * Whether one colon-free run of URL-safe characters is a JWT's start or an
- * opaque key. The earliest `eyJ` leaves the longest tail, so one search is enough.
- */
-function isTokenSegment(segment: string): boolean {
-  const jwtStart = segment.indexOf('eyJ');
-  const isJwt = jwtStart >= 0 && segment.length - jwtStart - 3 >= MIN_JWT_TAIL;
-  const isOpaque = segment.length >= MIN_OPAQUE_RUN && DIGIT.test(segment);
-  return isJwt || isOpaque;
-}
-
-/** Whether a run of URL-safe characters and colons holds a token: a token segment, or an FCM token across a colon. */
-function isTokenRun(run: string): boolean {
-  const segments = run.split(':');
-  return segments.some((segment, index) => {
-    const next = segments[index + 1];
-    const isFcmToken = next !== undefined && segment.length >= MIN_FCM_ID && next.length >= MIN_FCM_TAIL;
-    return isFcmToken || isTokenSegment(segment);
-  });
-}
-
-/**
- * Whether a string is shaped like a credential a Messaging call handles: a JWT
- * such as a FIS auth token, an FCM registration token, or another opaque key.
- * It splits once and checks each run by length, so it runs in linear time.
- */
-function isTokenShaped(value: string): boolean {
-  return value.split(NON_TOKEN_CHARACTERS).some(isTokenRun);
-}
-
-/** Refuse a string too long for any field, or one shaped like a token. */
-function requireNoTokenString(value: string, field: string): void {
-  requireField(value.length <= MAX_WALKED_STRING_LENGTH && !isTokenShaped(value), field);
-}
-
-/**
- * Refuse a token-shaped key or value anywhere in `value`, naming the field it
- * sits in. The walk is bounded before any string is checked: strings no longer
- * than the longest field the reader takes, at most 64 entries in a list or
- * object, and at most four levels, which also stops a structured-clone cycle.
- */
-function requireNoTokens(value: unknown, field: string, depth = 0): void {
-  if (UNWALKED_FIELDS.has(field)) return;
-  if (typeof value === 'string') {
-    requireNoTokenString(value, field);
-    return;
-  }
-  const isNested = Array.isArray(value) || isFields(value);
-  if (!isNested) return;
-  const container = field === '' ? 'call' : field;
-  requireField(depth < MAX_RECORD_DEPTH, container);
-  if (Array.isArray(value)) {
-    requireField(value.length <= MAX_WALKED_ENTRIES, container);
-    for (const entry of value) requireNoTokens(entry, field, depth + 1);
-    return;
-  }
-  const keys = Object.keys(value);
-  requireField(keys.length <= MAX_WALKED_ENTRIES, container);
-  for (const key of keys) {
-    requireNoTokenString(key, container);
-    requireNoTokens((value as Fields)[key], field === '' ? key : `${field}.${key}`, depth + 1);
-  }
-}
-
 function isHttpStatus(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599;
 }
@@ -556,10 +451,9 @@ function readRequests(value: unknown): ObservedRequest[] {
   return value.map(readRequest);
 }
 
-/** A field path a query names: bounded, and never shaped like a token or a key. */
+/** A field path a query names: non-empty and within path length bounds. */
 function readQueryField(value: unknown, field: string): string {
-  const bounded = isBoundedString(value, MAX_PATH_LENGTH);
-  requireField(bounded && !isTokenShaped(value), field);
+  requireField(isBoundedString(value, MAX_PATH_LENGTH), field);
   return value;
 }
 
@@ -622,7 +516,7 @@ function readListener(value: unknown): ObservedListener {
   const phase = value.phase;
   requireField(typeof phase === 'string' && LISTENER_PHASES.has(phase), 'listener.phase');
   const id = value.id;
-  requireField(typeof id === 'string' && LISTENER_ID_PATTERN.test(id) && !isTokenShaped(id), 'listener.id');
+  requireField(typeof id === 'string' && LISTENER_ID_PATTERN.test(id), 'listener.id');
   // A target is a path, read with the call's path bounds: a document id may be a pair of uids or a hash.
   const target = value.target;
   requireField(isBoundedString(target, MAX_PATH_LENGTH), 'listener.target');
@@ -641,11 +535,8 @@ function readListener(value: unknown): ObservedListener {
  */
 export function readObservedCall(input: unknown): ObservedCall {
   requireField(isFields(input), 'call');
-  // A Messaging call handles an installation's tokens and the FCM token, so
-  // nothing in its record may look like one, a field the reader drops included.
-  const isMessaging = input.service === 'messaging';
-  const value = isMessaging ? withoutOutcomeMessage(withoutClaimValues(input)) : input;
-  if (isMessaging) requireNoTokens(value, '');
+  const value = input;
+  const isMessaging = value.service === 'messaging';
   requireOnly(value, CALL_FIELDS, '');
   const service = value.service;
   requireField(typeof service === 'string' && SERVICES.has(service as ObservedCallService), 'service');
@@ -729,8 +620,7 @@ export function readObservedCall(input: unknown): ObservedCall {
         call.outcome.status === 'ok' &&
         call.listener === undefined &&
         typeof id === 'string' &&
-        LISTENER_ID_PATTERN.test(id) &&
-        !isTokenShaped(id),
+        LISTENER_ID_PATTERN.test(id),
       'listenerId',
     );
     call.listenerId = id;

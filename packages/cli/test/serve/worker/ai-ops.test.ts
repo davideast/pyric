@@ -499,7 +499,7 @@ it('retains one inspectable worker AI request for a late traffic observer', asyn
   await handleMessage(ctx, producer, {
     t: 'sub', subId: 'background-generation', target: { service: 'ai', op: 'streamGenerateContent' },
     model: MODEL, request: genRequest('synthetic observation'),
-    engine: { kind: 'scripted', script: [{ respond: { text: 'Synthetic worker answer' } }] },
+    engine: { kind: 'scripted', script: [{ respond: { text: 'Synthetic worker answer with Bearer sample-token and apiKey=sample-key' } }] },
   });
   await waitFor(() => producer.snaps.some(s => (s.value as { done?: boolean }).done));
   const { createTrafficFeed } = await import('../../../src/serve/runtime/chip-traffic.js');
@@ -510,7 +510,7 @@ it('retains one inspectable worker AI request for a late traffic observer', asyn
   const requests = feed.requests().filter(request => request.service === 'ai');
   expect(requests).toHaveLength(1);
   expect(requests[0]?.aiRequest?.status).toBe('completed');
-  expect(requests[0]?.aiRequest?.response?.text).toBe('Synthetic worker answer');
+  expect(requests[0]?.aiRequest?.response?.text).toBe('Synthetic worker answer with Bearer sample-token and apiKey=sample-key');
   expect(requests[0]?.aiRequest?.detail.requestedModel).toBe(MODEL);
   feed.dispose();
 });

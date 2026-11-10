@@ -930,12 +930,11 @@ service firebase.storage {
     const fixture = buildVerifyFixture({ sandbox: source.sandbox, storageRules, capturedBy: 'inst-A' });
     expect(fixture.storageDeniedWrites).toBeDefined();
     const [deniedEntry] = Object.values(fixture.storageDeniedWrites ?? {});
-    expect(deniedEntry?.redacted).toBe(true);
-    expect(deniedEntry?.redactedFields).toEqual(['request.resource.metadata']);
+    expect(deniedEntry && 'redacted' in deniedEntry).toBe(false);
     expect(deniedEntry?.requestResource?.metadata).toEqual({
       note: 'keep',
       ownerEmail: 'alice@example.com',
-      syncToken: '[redacted]',
+      syncToken: 'secret-123',
     });
 
     const restored = { ...(await makeCtx()), instanceId: 'inst-A' };

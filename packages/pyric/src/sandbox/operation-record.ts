@@ -236,7 +236,7 @@ export function trafficOperationEvent(event: SandboxEvent): OperationEvent | nul
   const safe = (value: unknown): unknown => {
     const preview = observationPayload(value);
     if (!preview || preview.truncated) return undefined;
-    return JSON.parse(preview.text);
+    return immutableValue(JSON.parse(preview.text));
   };
   return {
     kind: 'operation', id: event.id, at: event.at, service: 'auth', method: event.op,

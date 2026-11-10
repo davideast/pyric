@@ -59,14 +59,14 @@ describe('the production denial block', () => {
     ].join('\n'));
   });
 
-  it("flattens production's message, preserves an email in it and masks a URL's key", () => {
-    const message = "User does not have permission to access 'users/ann@example.com/a.png'.\n\u001b[31m forged https://x.example/a?key=AIzaSecret";
+  it("flattens production's message and preserves emails and URLs verbatim", () => {
+    const message = "User does not have permission to access 'users/ann@example.com/a.png'.\n\u001b[31m forged https://x.example/a?key=public-web-key";
     const block = formatProductionDenial(call({ service: 'storage', method: 'getBytes', path: 'a.png', bucket: 'b', outcome: { status: 'error', code: 'storage/unauthorized', message } }), undefined, RULES);
     const line = block.split('\n')[1]!;
     expect(block.split('\n')).toHaveLength(3);
     expect(line).not.toMatch(/[\u0000-\u001f\u007f]/);
     expect(line).toContain("users/ann@example.com/a.png");
-    expect(line).not.toContain('AIzaSecret');
+    expect(line).toContain('https://x.example/a?key=public-web-key');
   });
 
   it('names each service\'s own rules file', () => {
