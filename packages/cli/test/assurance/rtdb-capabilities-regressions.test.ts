@@ -142,9 +142,13 @@ describe("RTDB assurance qualification reads rule identifiers from the parse", (
     };
 
     const rootQualification = qualifyProbe(target, rootUpdateProbe);
-    expect(rootQualification.supported).toBe(false);
+    expect(rootQualification.supported).toBe(true);
     expect(rootQualification.requirements).toContainEqual(
-      expect.objectContaining({ id: "rtdb.query-rules", supported: false }),
+      expect.objectContaining({
+        id: "rtdb.query-rules",
+        supported: true,
+        reason: expect.stringContaining("rtdb.binding.query"),
+      }),
     );
     expect(rootQualification.requirements).toContainEqual(
       expect.objectContaining({
@@ -177,9 +181,13 @@ describe("RTDB assurance qualification reads rule identifiers from the parse", (
     };
 
     const parentQualification = qualifyProbe(target, parentUpdateProbe);
-    expect(parentQualification.supported).toBe(false);
+    expect(parentQualification.supported).toBe(true);
     expect(parentQualification.requirements).toContainEqual(
-      expect.objectContaining({ id: "rtdb.query-rules", supported: false }),
+      expect.objectContaining({
+        id: "rtdb.query-rules",
+        supported: true,
+        reason: expect.stringContaining("rtdb.binding.query"),
+      }),
     );
     expect(parentQualification.requirements).toContainEqual(
       expect.objectContaining({

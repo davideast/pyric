@@ -306,4 +306,64 @@ service cloud.firestore {
     );
     expect(writtenRead).toEqual(handAuthoredMaps);
   });
+
+  it("applies orderByPriority constraints in executeRtdb", async () => {
+    const target: LocalFirebaseTarget = {
+      schema: ASSURANCE_TARGET_SCHEMA,
+      network: "forbid",
+      rules: {
+        rtdb: {
+          rules: {
+            docs: {
+              ".read": "auth != null && query.orderByPriority === true",
+            },
+          },
+        },
+      },
+      state: {
+        auth: { users: [{ uid: "u1" }] },
+        rtdb: {
+          docs: {
+            d1: { ".value": "low", ".priority": 50 },
+            d2: { ".value": "high", ".priority": 10 },
+            d3: { ".value": "mid", ".priority": 25 },
+          },
+        },
+      },
+    };
+
+    const actor = acquireActor(initializeSandbox(), target, {
+      id: "u1",
+      acquisition: { kind: "fixture-user", uid: "u1" },
+    });
+    const rt = await createRuntime("c1", "p1", "control", target, actor, "rtdb");
+
+    const topPriority = await executeRtdb(
+      {
+        service: "rtdb",
+        method: "get",
+        path: "docs",
+        query: {
+          orderBy: { kind: "priority" },
+          equalTo: { value: 10 },
+        },
+      },
+      rt.rtdb!,
+    );
+    expect(topPriority).toEqual({ d2: "high" });
+
+    const firstTwo = await executeRtdb(
+      {
+        service: "rtdb",
+        method: "get",
+        path: "docs",
+        query: {
+          orderBy: { kind: "priority" },
+          limitToFirst: 2,
+        },
+      },
+      rt.rtdb!,
+    );
+    expect(firstTwo).toEqual({ d2: "high", d3: "mid" });
+  });
 });

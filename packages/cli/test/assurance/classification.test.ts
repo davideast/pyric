@@ -135,7 +135,7 @@ describe("campaign classification integrity", () => {
     expect(result.classification).toBe("local-counterexample");
   });
 
-  it("evaluates an RTDB probe under an ancestor .write rule reading data/newData and abstains when query rules apply (#2451)", async () => {
+  it("evaluates RTDB probes under ancestor .write data/newData rules and query-bounded .read rules (#2451)", async () => {
     const campaign: AuthorizationCampaignSpec = {
       schema: "pyric.assurance.campaign.v1",
       id: "rtdb-fidelity-gate",
@@ -301,15 +301,16 @@ describe("campaign classification integrity", () => {
 
     expect(report.results[2]).toMatchObject({
       probeId: "query-rule-gap",
-      classification: "engine-gap",
-      control: { decision: "UNSUPPORTED", events: [] },
-      mutation: { decision: "UNSUPPORTED", events: [] },
-      qualification: { supported: false },
+      classification: "no-counterexample",
+      control: { decision: "ALLOW" },
+      mutation: { decision: "DENY" },
+      qualification: { supported: true },
     });
     expect(report.results[2]?.qualification.requirements).toContainEqual(
       expect.objectContaining({
         id: "rtdb.query-rules",
-        supported: false,
+        supported: true,
+        reason: expect.stringContaining("rtdb.binding.query"),
       }),
     );
   });

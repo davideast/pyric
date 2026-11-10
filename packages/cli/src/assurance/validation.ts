@@ -188,6 +188,16 @@ export function assertProbe(
     );
   }
 
+  if (
+    probe.control.path !== probe.mutation.operation.path &&
+    operationResourceKey(probe.control) !==
+      operationResourceKey(probe.mutation.operation)
+  ) {
+    throw new AssuranceInputError(
+      `${where}.mutation declares a '${probe.mutation.dimension}' mutation but changes both instance and path.`,
+    );
+  }
+
   const changed = changedDimensions(probe.control, probe.mutation.operation);
   if (changed.length !== 1 || changed[0] !== probe.mutation.dimension) {
     let changeDescription = "no dimensions";
@@ -353,19 +363,21 @@ function stableValue(value: unknown): string {
     .join(",")}}`;
 }
 
+function isDefaultRtdbInstance(instance: string | undefined): boolean {
+  return (
+    !instance || instance === "default" || instance === "(default)"
+  );
+}
+
 function operationResourceKey(operation: FirebaseOperation): string {
   if (operation.service === "rtdb") {
-    if (
-      !operation.instance ||
-      operation.instance === "default" ||
-      operation.instance === "(default)"
-    ) {
+    if (isDefaultRtdbInstance(operation.instance)) {
       return "(default)";
     }
     try {
-      return resolveDatabaseInstance(operation.instance)?.name ?? operation.instance;
+      return resolveDatabaseInstance(operation.instance!)?.name ?? operation.instance!;
     } catch {
-      return operation.instance;
+      return operation.instance!;
     }
   }
   if (operation.service === "storage") {
@@ -474,29 +486,33 @@ export function assertCampaign(spec: AuthorizationCampaignSpec): void {
           );
         }
       }
-      if (
-        op.service === "rtdb" &&
-        op.instance !== undefined &&
-        op.instance !== "default"
-      ) {
-        let resolvedName: string;
-        try {
-          resolvedName = resolveDatabaseInstance(op.instance)!.name;
-        } catch (error) {
-          let detail = String(error);
-          if (error instanceof Error) detail = error.message;
-          throw new AssuranceInputError(
-            `invalid RTDB instance '${op.instance}': ${detail}`,
-          );
-        }
-        if (!declaredRtdbInstances.includes(resolvedName)) {
-          let listed = "none";
-          if (declaredRtdbInstances.length > 0) {
-            listed = declaredRtdbInstances.join(", ");
+      if (op.service === "rtdb") {
+        if (isDefaultRtdbInstance(op.instance)) {
+          if (!spec.target.rules.rtdb && declaredRtdbInstances.length > 0) {
+            throw new AssuranceInputError(
+              `probe '${probe.id}' names undeclared default RTDB instance. Declared instances: ${declaredRtdbInstances.join(", ")}.`,
+            );
           }
-          throw new AssuranceInputError(
-            `probe '${probe.id}' names undeclared RTDB instance '${op.instance}'. Declared instances: ${listed}.`,
-          );
+        } else {
+          let resolvedName: string;
+          try {
+            resolvedName = resolveDatabaseInstance(op.instance!)!.name;
+          } catch (error) {
+            let detail = String(error);
+            if (error instanceof Error) detail = error.message;
+            throw new AssuranceInputError(
+              `invalid RTDB instance '${op.instance}': ${detail}`,
+            );
+          }
+          if (!declaredRtdbInstances.includes(resolvedName)) {
+            let listed = "none";
+            if (declaredRtdbInstances.length > 0) {
+              listed = declaredRtdbInstances.join(", ");
+            }
+            throw new AssuranceInputError(
+              `probe '${probe.id}' names undeclared RTDB instance '${op.instance}'. Declared instances: ${listed}.`,
+            );
+          }
         }
       }
     }
